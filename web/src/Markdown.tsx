@@ -59,27 +59,27 @@
 // Inline HTML in an answer renders (`<kbd>`, `<sup>`, `<details>`), which the old
 // renderer escaped. That widening is only safe because every fragment — the parsed
 // message, a KaTeX render and a mermaid SVG alike — goes through DOMPurify first.
-import { useEffect, useMemo, useRef } from 'preact/hooks'
-import type { Config as PurifyConfig } from 'dompurify'
-import MarkdownIt from 'markdown-it'
-import type { MarkdownItOptions, Token } from 'markdown-it'
-import DOMPurify from 'dompurify'
-import { watchForHydration } from './hydration'
-import { t } from './i18n'
-import footnote from 'markdown-it-footnote'
-import deflist from 'markdown-it-deflist'
-import taskLists from 'markdown-it-task-lists'
-import alerts from 'markdown-it-github-alerts'
-import { choose } from './choose'
-import { errorMessage } from './errors'
+import { useEffect, useMemo, useRef } from "preact/hooks";
+import type { Config as PurifyConfig } from "dompurify";
+import MarkdownIt from "markdown-it";
+import type { MarkdownItOptions, Token } from "markdown-it";
+import DOMPurify from "dompurify";
+import { watchForHydration } from "./hydration";
+import { t } from "./i18n";
+import footnote from "markdown-it-footnote";
+import deflist from "markdown-it-deflist";
+import taskLists from "markdown-it-task-lists";
+import alerts from "markdown-it-github-alerts";
+import { choose } from "./choose";
+import { errorMessage } from "./errors";
 
 /** Escapes a string for use inside a double-quoted attribute. */
 function escapeAttr(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -93,11 +93,16 @@ function escapeAttr(s: string): string {
  *                    does not become a link, which is what the old renderer did and
  *                    the less surprising behaviour in a transcript.
  */
-const md = new MarkdownIt({ html: true, breaks: false, linkify: false, typographer: false })
+const md = new MarkdownIt({
+  html: true,
+  breaks: false,
+  linkify: false,
+  typographer: false,
+})
   .use(footnote)
   .use(deflist)
   .use(taskLists, { label: true })
-  .use(alerts)
+  .use(alerts);
 
 /**
  * `$$ ... $$` as a display formula.
@@ -119,57 +124,65 @@ function scanMathBlock(
   endLine: number,
   afterOpen: string,
 ): { content: string; nextLine: number } | null {
-  const lines: string[] = choose(afterOpen.trim() === '', [], [afterOpen])
+  const lines: string[] = choose(afterOpen.trim() === "", [], [afterOpen]);
   for (let line = startLine + 1; line < endLine; line++) {
-    const ls = state.bMarks[line] + state.tShift[line]
-    const le = state.eMarks[line]
-    const text = state.src.slice(ls, le)
-    const close = text.indexOf('$$')
+    const ls = state.bMarks[line] + state.tShift[line];
+    const le = state.eMarks[line];
+    const text = state.src.slice(ls, le);
+    const close = text.indexOf("$$");
     if (close >= 0) {
-      const head = text.slice(0, close)
-      if (head.trim() !== '') { lines.push(head) }
-      return { content: lines.join('\n'), nextLine: line + 1 }
+      const head = text.slice(0, close);
+      if (head.trim() !== "") {
+        lines.push(head);
+      }
+      return { content: lines.join("\n"), nextLine: line + 1 };
     }
-    lines.push(text)
+    lines.push(text);
   }
-  return null
+  return null;
 }
 
 md.block.ruler.before(
-  'fence',
-  'math_block',
+  "fence",
+  "math_block",
   (state, startLine, endLine, silent): boolean => {
-    const start = state.bMarks[startLine] + state.tShift[startLine]
-    const max = state.eMarks[startLine]
-    if (state.src.slice(start, start + 2) !== '$$') { return false }
-
-    const afterOpen = state.src.slice(start + 2, max)
-    let content: string
-    let nextLine: number
-
-    const sameLine = afterOpen.indexOf('$$')
-    if (sameLine >= 0) {
-      // `$$ x^2 $$` on one line.
-      content = afterOpen.slice(0, sameLine)
-      nextLine = startLine + 1
-    } else {
-      const block = scanMathBlock(state, startLine, endLine, afterOpen)
-      // An unclosed `$$` is not a formula: it stays as the reader wrote it.
-      if (!block) { return false }
-      content = block.content
-      nextLine = block.nextLine
+    const start = state.bMarks[startLine] + state.tShift[startLine];
+    const max = state.eMarks[startLine];
+    if (state.src.slice(start, start + 2) !== "$$") {
+      return false;
     }
 
-    if (silent) { return true }
-    const token = state.push('math_block', 'math', 0)
-    token.block = true
-    token.content = content.trim()
-    token.map = [startLine, nextLine]
-    state.line = nextLine
-    return true
+    const afterOpen = state.src.slice(start + 2, max);
+    let content: string;
+    let nextLine: number;
+
+    const sameLine = afterOpen.indexOf("$$");
+    if (sameLine >= 0) {
+      // `$$ x^2 $$` on one line.
+      content = afterOpen.slice(0, sameLine);
+      nextLine = startLine + 1;
+    } else {
+      const block = scanMathBlock(state, startLine, endLine, afterOpen);
+      // An unclosed `$$` is not a formula: it stays as the reader wrote it.
+      if (!block) {
+        return false;
+      }
+      content = block.content;
+      nextLine = block.nextLine;
+    }
+
+    if (silent) {
+      return true;
+    }
+    const token = state.push("math_block", "math", 0);
+    token.block = true;
+    token.content = content.trim();
+    token.map = [startLine, nextLine];
+    state.line = nextLine;
+    return true;
   },
-  { alt: ['paragraph', 'reference', 'blockquote', 'list'] },
-)
+  { alt: ["paragraph", "reference", "blockquote", "list"] },
+);
 
 // A fence is one of four things, and none of them can be finished here: a diagram
 // and a formula need a module that may not be loaded yet, and code needs one that
@@ -178,17 +191,23 @@ md.block.ruler.before(
 // Each placeholder carries its source as TEXT (see the note at the top of the file)
 // and only safe flags as attributes.
 md.renderer.rules.fence = (tokens: Token[], idx: number): string => {
-  const token = tokens[idx]
-  const info = (token.info || '').trim().split(/\s+/)[0].toLowerCase()
-  const raw = token.content.replace(/\n$/, '')
+  const token = tokens[idx];
+  const info = (token.info || "").trim().split(/\s+/)[0].toLowerCase();
+  const raw = token.content.replace(/\n$/, "");
 
-  if (info === 'mermaid') {
+  if (info === "mermaid") {
     // Inert: `hydrate` fills it in. Whether the source is a valid diagram is decided
     // at RENDER time, never here.
-    return '<div class="mermaid-block">' + md.utils.escapeHtml(raw) + '</div>\n'
+    return (
+      '<div class="mermaid-block">' + md.utils.escapeHtml(raw) + "</div>\n"
+    );
   }
-  if (info === 'math') {
-    return '<div class="math-block" data-display="1">' + md.utils.escapeHtml(raw) + '</div>\n'
+  if (info === "math") {
+    return (
+      '<div class="math-block" data-display="1">' +
+      md.utils.escapeHtml(raw) +
+      "</div>\n"
+    );
   }
 
   // Code, emitted PLAIN and coloured later. The raw text is the <code> element's own
@@ -200,16 +219,22 @@ md.renderer.rules.fence = (tokens: Token[], idx: number): string => {
     // The copy button is added by sanitizeMessage AFTER the sanitizer: a message may not
     // carry a button of its own.
     '"><code' +
-    choose(info, ' class="' + escapeAttr('lang-' + info) + ' hljs"', ' class="hljs"') +
-    '>' +
+    choose(
+      info,
+      ' class="' + escapeAttr("lang-" + info) + ' hljs"',
+      ' class="hljs"',
+    ) +
+    ">" +
     md.utils.escapeHtml(raw) +
-    '</code></pre>\n'
-  )
-}
+    "</code></pre>\n"
+  );
+};
 
 // `$$` handled at block level above; the renderer for it.
 md.renderer.rules.math_block = (tokens: Token[], idx: number): string =>
-  '<div class="math-block" data-display="1">' + md.utils.escapeHtml(tokens[idx].content) + '</div>\n'
+  '<div class="math-block" data-display="1">' +
+  md.utils.escapeHtml(tokens[idx].content) +
+  "</div>\n";
 
 /**
  * Inline math: `$...$`.
@@ -220,12 +245,13 @@ md.renderer.rules.math_block = (tokens: Token[], idx: number): string =>
  * written. The closing `$` may not be followed by another one, so `$$b$$` is not read
  * as a formula between stray dollars.
  */
-const INLINE_MATH = /\$([^\s$][^$\n]*?)\$(?!\$)/g
-const MATH_OPEN = '<span class="math-inline">'
-const MATH_CLOSE = '</span>'
+const INLINE_MATH = /\$([^\s$][^$\n]*?)\$(?!\$)/g;
+const MATH_OPEN = '<span class="math-inline">';
+const MATH_CLOSE = "</span>";
 
 const defaultText =
-  md.renderer.rules.text || ((tokens: Token[], idx: number) => md.utils.escapeHtml(tokens[idx].content))
+  md.renderer.rules.text ||
+  ((tokens: Token[], idx: number) => md.utils.escapeHtml(tokens[idx].content));
 md.renderer.rules.text = (
   tokens: Token[],
   idx: number,
@@ -233,22 +259,24 @@ md.renderer.rules.text = (
   env,
   self,
 ): string => {
-  const token = tokens[idx]
-  if (!token.content.includes('$')) { return defaultText(tokens, idx, options, env, self) }
+  const token = tokens[idx];
+  if (!token.content.includes("$")) {
+    return defaultText(tokens, idx, options, env, self);
+  }
 
   // Escaped gap by gap, around the placeholders that are inserted verbatim. Walking
   // the matches explicitly is what keeps this honest: the alternative (replace, then
   // split on the inserted markup) has to reconstruct where the real HTML was, and a
   // formula whose TeX happens to contain the placeholder text escapes that.
-  let out = ''
-  let last = 0
+  let out = "";
+  let last = 0;
   for (const m of token.content.matchAll(INLINE_MATH)) {
-    out += md.utils.escapeHtml(token.content.slice(last, m.index))
-    out += MATH_OPEN + md.utils.escapeHtml(m[1]) + MATH_CLOSE
-    last = m.index + m[0].length
+    out += md.utils.escapeHtml(token.content.slice(last, m.index));
+    out += MATH_OPEN + md.utils.escapeHtml(m[1]) + MATH_CLOSE;
+    last = m.index + m[0].length;
   }
-  return out + md.utils.escapeHtml(token.content.slice(last))
-}
+  return out + md.utils.escapeHtml(token.content.slice(last));
+};
 
 // Built once, not per render: this runs for every message on every update.
 //
@@ -286,75 +314,94 @@ md.renderer.rules.text = (
 // `sanitizeMessage`, which takes `style` away (a `position:fixed` block can lay a fake
 // approval dialog over the real one) and every form control with it: nothing in an
 // answer should look like, or be, something to click and type into.
-const FORM_TAGS = ['form', 'button', 'textarea', 'select', 'option', 'optgroup', 'input']
+const FORM_TAGS = [
+  "form",
+  "button",
+  "textarea",
+  "select",
+  "option",
+  "optgroup",
+  "input",
+];
 
 const PURIFY_CONFIG: PurifyConfig = {
   USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
-  ADD_ATTR: ['style'],
+  ADD_ATTR: ["style"],
   ALLOW_DATA_ATTR: true,
   // The diagram's node labels live in an XHTML island inside the SVG.
-  ADD_TAGS: ['foreignObject'],
+  ADD_TAGS: ["foreignObject"],
   HTML_INTEGRATION_POINTS: { foreignobject: true },
   FORBID_TAGS: FORM_TAGS,
-}
+};
 
 /** Sanitizes what a renderer produced (math, diagrams), keeping its inline styles. */
 export function sanitize(html: string): string {
-  return DOMPurify.sanitize(html, PURIFY_CONFIG)
+  return DOMPurify.sanitize(html, PURIFY_CONFIG);
 }
 
 // A separate instance, because DOMPurify's hooks belong to an instance and these two must
 // not touch the renderers' output.
-const messagePurify = DOMPurify(window)
+const messagePurify = DOMPurify(window);
 
 // The one style a message keeps: a table column's alignment, which markdown-it itself
 // writes as `style="text-align:..."`.
-const ALIGN_ONLY = /^\s*text-align:\s*(left|right|center)\s*(?:;\s*)?$/i
-messagePurify.addHook('uponSanitizeAttribute', (_node, data) => {
-  if (data.attrName === 'style' && !ALIGN_ONLY.test(data.attrValue)) { data.keepAttr = false }
-})
+const ALIGN_ONLY = /^\s*text-align:\s*(left|right|center)\s*(?:;\s*)?$/i;
+messagePurify.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName === "style" && !ALIGN_ONLY.test(data.attrValue)) {
+    data.keepAttr = false;
+  }
+});
 
 // The one input a message keeps: a task list's checkbox, which markdown-it-task-lists
 // renders disabled. It is a picture of a tick, not a control.
-messagePurify.addHook('uponSanitizeElement', (node, data) => {
-  if (data.tagName !== 'input') { return }
-  const el = node as Element
-  if (el.getAttribute('type') === 'checkbox' && el.hasAttribute('disabled')) {
-    data.allowedTags.input = true
-  } else {
-    data.allowedTags.input = false
+messagePurify.addHook("uponSanitizeElement", (node, data) => {
+  if (data.tagName !== "input") {
+    return;
   }
-})
+  const el = node as Element;
+  if (el.getAttribute("type") === "checkbox" && el.hasAttribute("disabled")) {
+    data.allowedTags.input = true;
+  } else {
+    data.allowedTags.input = false;
+  }
+});
 
 const MESSAGE_CONFIG: PurifyConfig = {
   USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
-  ADD_ATTR: ['style'],
+  ADD_ATTR: ["style"],
   ALLOW_DATA_ATTR: true,
-  FORBID_TAGS: FORM_TAGS.filter((tag) => tag !== 'input'),
-}
+  FORBID_TAGS: FORM_TAGS.filter((tag) => tag !== "input"),
+};
 
 /**
  * Sanitizes the HTML of a message: no free-form styles and no form controls. Each code
  * block then gets the interface's own copy button, which only copies the block.
  */
 export function sanitizeMessage(html: string): string {
-  const frag = messagePurify.sanitize(html, { ...MESSAGE_CONFIG, RETURN_DOM_FRAGMENT: true })
-  for (const pre of Array.from(frag.querySelectorAll('pre.code-block'))) {
-    const button = document.createElement('button')
-    button.className = 'copy-btn'
-    button.textContent = t('copy')
-    pre.insertBefore(button, pre.firstChild)
+  const frag = messagePurify.sanitize(html, {
+    ...MESSAGE_CONFIG,
+    RETURN_DOM_FRAGMENT: true,
+  });
+  for (const pre of Array.from(frag.querySelectorAll("pre.code-block"))) {
+    const button = document.createElement("button");
+    button.className = "copy-btn";
+    button.textContent = t("copy");
+    pre.insertBefore(button, pre.firstChild);
   }
-  const box = document.createElement('div')
-  box.appendChild(frag)
-  return box.innerHTML
+  const box = document.createElement("div");
+  box.appendChild(frag);
+  return box.innerHTML;
 }
 
 // --- The deferred half --------------------------------------------------------
 
 /** The source a placeholder was left carrying, as TEXT. */
 function sourceOf(el: HTMLElement): string {
-  return (el.querySelector('code')?.textContent ?? el.textContent ?? '').replace(/\n$/, '')
+  return (
+    el.querySelector("code")?.textContent ??
+    el.textContent ??
+    ""
+  ).replace(/\n$/, "");
 }
 
 /**
@@ -371,26 +418,46 @@ function sourceOf(el: HTMLElement): string {
  * answer that contains a comment marker.
  */
 async function hydrate(root: HTMLElement): Promise<void> {
-  const math = Array.from(root.querySelectorAll<HTMLElement>('.math-inline:not([data-done]), .math-block:not([data-done])'))
-  const code = Array.from(root.querySelectorAll<HTMLElement>('pre.code-block:not([data-done])'))
-  const diagrams = Array.from(root.querySelectorAll<HTMLElement>('.mermaid-block:not([data-done])'))
+  const math = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      ".math-inline:not([data-done]), .math-block:not([data-done])",
+    ),
+  );
+  const code = Array.from(
+    root.querySelectorAll<HTMLElement>("pre.code-block:not([data-done])"),
+  );
+  const diagrams = Array.from(
+    root.querySelectorAll<HTMLElement>(".mermaid-block:not([data-done])"),
+  );
   // Emoji is the one step that is not a placeholder: it rewrites text that is already
   // rendered, so its marker goes on the ROOT and it runs on every mount that has not had it.
-  const wantsEmoji = root.dataset.emoji !== 'ok'
-  if (math.length + code.length + diagrams.length === 0 && !wantsEmoji) { return }
+  const wantsEmoji = root.dataset.emoji !== "ok";
+  if (math.length + code.length + diagrams.length === 0 && !wantsEmoji) {
+    return;
+  }
 
   // Marked BEFORE any await: two effects can overlap while a module loads, and an
   // unmarked element would be picked up by both.
-  for (const el of [...math, ...code, ...diagrams]) { el.dataset.done = 'pending' }
+  for (const el of [...math, ...code, ...diagrams]) {
+    el.dataset.done = "pending";
+  }
 
-  if (code.length > 0) { await hydrateCode(code) }
-  if (math.length > 0) { await hydrateMath(math) }
-  if (diagrams.length > 0) { await hydrateDiagrams(diagrams) }
+  if (code.length > 0) {
+    await hydrateCode(code);
+  }
+  if (math.length > 0) {
+    await hydrateMath(math);
+  }
+  if (diagrams.length > 0) {
+    await hydrateDiagrams(diagrams);
+  }
 
   // LAST, and after every await: the emoji pass rewrites text nodes, and doing it before
   // the math and diagram placeholders were replaced would convert inside content that is
   // about to be thrown away (and, for a formula, inside LaTeX source).
-  if (wantsEmoji) { await hydrateEmoji(root) }
+  if (wantsEmoji) {
+    await hydrateEmoji(root);
+  }
 }
 
 // hydrateCode restores the copy payload of the code blocks and colours them.
@@ -399,40 +466,48 @@ async function hydrateCode(code: HTMLElement[]): Promise<void> {
   // element's content: it has to be the pristine source either way, and reading it
   // after highlighting would depend on what the grammar chose to wrap.
   for (const el of code) {
-    const btn = el.querySelector<HTMLElement>('.copy-btn')
-    if (btn) { btn.dataset.copyText = sourceOf(el) }
+    const btn = el.querySelector<HTMLElement>(".copy-btn");
+    if (btn) {
+      btn.dataset.copyText = sourceOf(el);
+    }
   }
   try {
-    const { highlight } = await import('./highlight')
+    const { highlight } = await import("./highlight");
     for (const el of code) {
-      const target = el.querySelector('code')
-      if (!target) { continue }
+      const target = el.querySelector("code");
+      if (!target) {
+        continue;
+      }
       // The highlighter does its OWN escaping, which is what keeps the code shown and
       // the code copied byte-identical: the copy payload is the pristine source
       // restored above, and the highlighted text is escaped once, from that source.
-      target.innerHTML = highlight(sourceOf(el), el.dataset.codeLang || '')
-      el.dataset.done = 'ok'
+      target.innerHTML = highlight(sourceOf(el), el.dataset.codeLang || "");
+      el.dataset.done = "ok";
     }
   } catch (err) {
     // Uncoloured code is still correct code: nothing is shown to the reader.
-    for (const el of code) { el.dataset.done = 'plain' }
-    console.info('motita: syntax highlighting is unavailable:', err)
+    for (const el of code) {
+      el.dataset.done = "plain";
+    }
+    console.info("motita: syntax highlighting is unavailable:", err);
   }
 }
 
 // hydrateMath typesets the formulas.
 async function hydrateMath(math: HTMLElement[]): Promise<void> {
   try {
-    const { renderMath } = await import('./math')
+    const { renderMath } = await import("./math");
     for (const el of math) {
       // Written back so `fail` and any styling can read it; the DOM is the source.
-      const tex = (el.dataset.math || el.textContent || '').trim()
-      el.dataset.math = tex
-      el.innerHTML = sanitize(renderMath(tex, el.dataset.display === '1'))
-      el.dataset.done = 'ok'
+      const tex = (el.dataset.math || el.textContent || "").trim();
+      el.dataset.math = tex;
+      el.innerHTML = sanitize(renderMath(tex, el.dataset.display === "1"));
+      el.dataset.done = "ok";
     }
   } catch (err) {
-    for (const el of math) { fail(el, t('the math renderer could not be loaded'), err) }
+    for (const el of math) {
+      fail(el, t("the math renderer could not be loaded"), err);
+    }
   }
 }
 
@@ -440,34 +515,41 @@ async function hydrateMath(math: HTMLElement[]): Promise<void> {
 // leaves the others alone.
 async function hydrateDiagrams(diagrams: HTMLElement[]): Promise<void> {
   try {
-    const { renderMermaid } = await import('./mermaid')
-    for (const el of diagrams) { await drawDiagram(el, renderMermaid) }
+    const { renderMermaid } = await import("./mermaid");
+    for (const el of diagrams) {
+      await drawDiagram(el, renderMermaid);
+    }
   } catch (err) {
-    for (const el of diagrams) { fail(el, t('the diagram renderer could not be loaded'), err) }
+    for (const el of diagrams) {
+      fail(el, t("the diagram renderer could not be loaded"), err);
+    }
   }
 }
 
-async function drawDiagram(el: HTMLElement, renderMermaid: (source: string) => Promise<string>): Promise<void> {
-  const source = sourceOf(el)
-  el.dataset.mermaid = source
+async function drawDiagram(
+  el: HTMLElement,
+  renderMermaid: (source: string) => Promise<string>,
+): Promise<void> {
+  const source = sourceOf(el);
+  el.dataset.mermaid = source;
   try {
-    el.innerHTML = sanitize(await renderMermaid(source))
-    el.dataset.done = 'ok'
+    el.innerHTML = sanitize(await renderMermaid(source));
+    el.dataset.done = "ok";
   } catch (err) {
-    fail(el, t('this diagram could not be drawn'), err)
+    fail(el, t("this diagram could not be drawn"), err);
   }
 }
 
 // hydrateEmoji draws the emoji of the message as images.
 async function hydrateEmoji(root: HTMLElement): Promise<void> {
-  root.dataset.emoji = 'ok'
+  root.dataset.emoji = "ok";
   try {
-    const { renderEmoji } = await import('./emoji')
-    root.dataset.emojiCount = String(renderEmoji(root))
+    const { renderEmoji } = await import("./emoji");
+    root.dataset.emojiCount = String(renderEmoji(root));
   } catch (err) {
     // An emoji that stays a character is exactly as readable as before this existed.
-    root.dataset.emoji = 'plain'
-    console.info('motita: the emoji images are unavailable:', err)
+    root.dataset.emoji = "plain";
+    console.info("motita: the emoji images are unavailable:", err);
   }
 }
 
@@ -478,17 +560,17 @@ async function hydrateEmoji(root: HTMLElement): Promise<void> {
  * whether the answer was wrong or the page was.
  */
 function fail(el: HTMLElement, what: string, err: unknown): void {
-  const source = el.dataset.math || el.dataset.mermaid || ''
-  el.dataset.done = 'failed'
-  el.classList.add('render-error')
+  const source = el.dataset.math || el.dataset.mermaid || "";
+  el.dataset.done = "failed";
+  el.classList.add("render-error");
   el.innerHTML =
-    '<p>' +
+    "<p>" +
     escapeAttr(what) +
-    '.</p><pre>' +
+    ".</p><pre>" +
     escapeAttr(source) +
     '</pre><p class="render-error-reason">' +
     escapeAttr(errorMessage(err)) +
-    '</p>'
+    "</p>";
 }
 
 /**
@@ -503,22 +585,30 @@ export function renderMessage(source: string): string {
   // The copy button is the interface's own, built here around the sanitized message: the
   // message itself may not contain a button.
   return (
-    '<div class="markdown-body">' + '<button class="copy-msg-btn">' + md.utils.escapeHtml(t('copy')) + '</button>' +
-    sanitizeMessage(md.render(source)) + '</div>'
-  )
+    '<div class="markdown-body">' +
+    '<button class="copy-msg-btn">' +
+    md.utils.escapeHtml(t("copy")) +
+    "</button>" +
+    sanitizeMessage(md.render(source)) +
+    "</div>"
+  );
 }
 
 export function Markdown({ content }: { content: string }) {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) { return undefined }
+    const el = ref.current;
+    if (!el) {
+      return undefined;
+    }
     // The copy button's payload, restored after the sanitizer has run: an answer
     // containing an HTML comment marker or an arrow would otherwise have had this
     // attribute dropped, and the button would copy an empty string.
-    const body = el.querySelector<HTMLElement>('.markdown-body')
-    if (body) { body.dataset.raw = content }
+    const body = el.querySelector<HTMLElement>(".markdown-body");
+    if (body) {
+      body.dataset.raw = content;
+    }
 
     // The expensive half — formulas, diagrams, code colours, emoji — is DEFERRED until this
     // message is about to be read. Everything stays in the DOM either way: the message is
@@ -533,16 +623,22 @@ export function Markdown({ content }: { content: string }) {
     // message's subtree, and bubbling so it reaches the conversation container.
     return watchForHydration(el, () => {
       return hydrate(el).then(
-        () => el.dispatchEvent(new CustomEvent('motita:hydrated', { bubbles: true })),
-        () => el.dispatchEvent(new CustomEvent('motita:hydrated', { bubbles: true })),
-      )
-    })
-  }, [content])
+        () =>
+          el.dispatchEvent(
+            new CustomEvent("motita:hydrated", { bubbles: true }),
+          ),
+        () =>
+          el.dispatchEvent(
+            new CustomEvent("motita:hydrated", { bubbles: true }),
+          ),
+      );
+    });
+  }, [content]);
 
   // Parsed and sanitized once per content, not once per render. The conversation re-renders on
   // every streamed event, and every message used to be re-parsed by markdown-it and re-sanitized
   // by DOMPurify each time — a long transcript turned each token into a full re-parse of the whole
   // conversation, and the strings and fragments it left behind are what the collector had to chase.
-  const html = useMemo(() => renderMessage(content), [content])
-  return <div ref={ref} dangerouslySetInnerHTML={{ __html: html }} />
+  const html = useMemo(() => renderMessage(content), [content]);
+  return <div ref={ref} dangerouslySetInnerHTML={{ __html: html }} />;
 }

@@ -70,7 +70,7 @@ the model-facing cap. Never let a response like that arrive whole:
   (`/repos/<owner>/<repo>`) beats a search that returns fifty of them.
 - **`grep -o` is the poor man's JSON reader** and it is a reader, so it survives plan-mode terms and
   never needs a confirmation. `jq` is on the reader list but is **not installed on every machine**;
-  `python3` is installed but is a *writer* (refused in plan mode, a hard refuse under strict). Reach
+  `python3` is installed but is a _writer_ (refused in plan mode, a hard refuse under strict). Reach
   for `grep` first.
 
 ## Method and body
@@ -85,7 +85,7 @@ the model-facing cap. Never let a response like that arrive whole:
 
 ## Reading a response that is not JSON
 
-- **`w3m -dump` turns HTML into text** but it is *unclassified*: a confirmation in task mode, refused
+- **`w3m -dump` turns HTML into text** but it is _unclassified_: a confirmation in task mode, refused
   in plan mode. `r.jina.ai` does the same job through a plain `curl` when the page must be read.
 - **A redirect is not followed by default.** `-L` follows it. Without it, a `301`/`302` means you
   fetched the redirect page, and the body is a sentence about where to go.
@@ -98,8 +98,8 @@ the model-facing cap. Never let a response like that arrive whole:
   (`x-ratelimit-limit: 10`), and its rate-limit headers are visible with `-D -`. A loop over a search
   endpoint exhausts the budget and then answers `403` for everything — including calls that would
   otherwise work.
-- **Some endpoints require a token and say so with `401`.** Measured: GitHub's *code* search answers
-  `401` without a credential while the *repository* search works. Do not retry a `401`; report that
+- **Some endpoints require a token and say so with `401`.** Measured: GitHub's _code_ search answers
+  `401` without a credential while the _repository_ search works. Do not retry a `401`; report that
   the credential is missing.
 - **Never invent or replay a credential.** If a call needs one, say so. A `401`/`403` is the answer to
   report, not a puzzle to solve by trying variants.
