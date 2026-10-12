@@ -11,8 +11,9 @@ import (
 // procedure it points at must say the same.
 func TestThePromptsDemandProofOfNewBehaviour(t *testing.T) {
 	for name, tc := range map[string]struct{ text, want string }{
-		"execute leaves a test":        {BaseExecuteTemplate.User, "LEAVE THE CHANGE PROVEN"},
-		"execute runs it before done":  {BaseExecuteTemplate.User, "Only report \"done\": true after you have seen the new test pass"},
+		"execute leaves a test": {BaseExecuteTemplate.User, "LEAVE THE CHANGE PROVEN"},
+		"execute runs it before done": {BaseExecuteTemplate.User,
+			"Only report \"done\": true after you have seen the new test pass"},
 		"execute points at the skill":  {BaseExecuteTemplate.User, "verifying-a-change"},
 		"execute points at the audit":  {BaseExecuteTemplate.User, "auditing-code"},
 		"execute points at the vulns":  {BaseExecuteTemplate.User, "finding-vulnerabilities"},
@@ -30,7 +31,8 @@ func TestThePromptsDemandProofOfNewBehaviour(t *testing.T) {
 // TestTheSynthesisPromptAsksForTheReportShape: the final answer is data a front end draws, so the
 // prompt has to name every field the program decodes (see agent.Report).
 func TestTheSynthesisPromptAsksForTheReportShape(t *testing.T) {
-	for _, key := range []string{`"status"`, `"summary"`, `"changes"`, `"verification"`, `"risks"`, `"next_steps"`, `"evidence"`} {
+	for _, key := range []string{`"status"`, `"summary"`, `"changes"`, `"verification"`, `"risks"`, `"next_steps"`,
+		`"evidence"`} {
 		if !strings.Contains(BaseSynthesizeTemplate.User, key) {
 			t.Errorf("the synthesis prompt must ask for %s", key)
 		}

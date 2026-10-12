@@ -414,7 +414,7 @@
   .term {
     background: rgba(5, 8, 10, 0.88); border: 1px solid rgba(0, 240, 255, .3);
     box-shadow: 0 0 30px rgba(0, 240, 255, .1), inset 0 0 60px rgba(0,0,0,.4);
-    display: flex; flex-direction: column; min-height: 470px; position: relative; overflow: hidden;
+    display: flex; flex-direction: column; min-height: 470px; position: relative; overflow: hidden; margin: 0;
   }
   /* CRT scanlines: faint, and they are the only texture on the panel. */
   .term::after {
@@ -435,7 +435,7 @@
   .replay-btn:hover { border-color: var(--accent); color: var(--accent); }
   .term-body {
     flex: 1; padding: var(--space-4) var(--space-5); font-family: var(--mono); font-size: .8rem;
-    line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--fg); overflow: hidden;
+    line-height: 1.7; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; color: var(--fg); overflow: hidden;
   }
   .term-body .ln { display: block; animation: lnIn .25s ease-out; }
   @keyframes lnIn { from { opacity: 0; transform: translateX(-6px); } }
@@ -718,7 +718,7 @@
           <code>irm https://madkoding.github.io/motita/install.ps1 | iex</code>
         </div>
       </noscript>
-      <span class="sr" role="status" id="copy-status"></span>
+      <output class="sr" id="copy-status"></output>
       <p class="hero-note">Then type <code>motita</code>. A one-minute wizard connects your AI and finds your project's tests. One static binary — no Docker, no runtime. It even runs on a 2008 netbook with 484 MB of RAM.</p>
     </div>
   </div>
@@ -754,10 +754,10 @@
           <li data-step="5" class="good"><b>The check passes</b>— only now is it done</li>
           <li data-step="6"><b>You get a report</b>what changed, how it was proven</li>
         </ol>
-        <div class="term" role="img" aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report.">
+        <figure class="term" aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report.">
           <div class="term-bar"><span>motita · notes</span><span>openai / gpt-5.1-codex</span><span class="live" id="live"><i></i>live</span><button class="replay-btn" type="button" id="replay">↻ replay</button></div>
           <div class="term-body" id="term" aria-hidden="true"></div>
-        </div>
+        </figure>
       </div>
       <p class="replay-note">Replayed from a real run — the commands, the error and the report are the ones in the screenshots below.</p>
     </div>
@@ -1099,7 +1099,7 @@ motita -isolation</code></pre>
         by tests, so this page cannot drift away from the behaviour.
       </p>
       <div class="stats" data-reveal>
-        <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 35 of 35 (<code>./internal/... ./cmd/...</code>), checked one by one so a gap can't hide behind an average; the CI harnesses in <code>tools/</code> are counted separately</span></div>
+        <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 37 of 37 (<code>./internal/... ./cmd/...</code>), checked one by one so a gap can't hide behind an average; the CI harnesses in <code>tools/</code> are counted separately</span></div>
         <div class="stat"><span class="n">0</span><span class="l">external dependencies — <code>go.mod</code> has no <code>require</code> line, and there is no <code>go.sum</code></span></div>
         <div class="stat"><span class="n">9</span><span class="l">platforms, one static binary each: Linux <code>386 · amd64 · arm · arm64</code>, Windows <code>386 · amd64 · arm64</code>, macOS <code>amd64 · arm64</code></span></div>
         <div class="stat"><span class="n">17.8–18.9&nbsp;MiB</span><span class="l">per published static binary, measured across all 9 targets — copy it over <code>scp</code> and walk away</span></div>
@@ -1145,6 +1145,32 @@ motita -isolation</code></pre>
   <img id="lb-img" src="shots/webui-report.webp" alt="">
 </dialog>
 
+<!-- The replay, line by line: [step, class, text, delay before the line in ms]. Data, read by the
+     script below; the step is the rail entry the line belongs to. -->
+<script type="application/json" id="replay-script">
+[
+  [0,"t-you","› Add a --json flag to `notes` that prints the list as JSON, with a test for it.",300],
+  [1,"t-think","◇ done means: notes --json prints a valid JSON array · the plain output is unchanged · go test ./... passes",900],
+  [1,"t-dim","  plan: read main.go → add --json and listJSON() → add a round-trip test → run the check",700],
+  [2,"t-cmd","sed -n 1,60p main.go",700],
+  [2,"t-dim","  [ok] 38 lines · type Note, var store, func list",400],
+  [2,"t-cmd","go test ./...",500],
+  [2,"t-dim","  ok   example.com/notes   0.006s   (baseline: green before the change)",500],
+  [2,"t-file","✎ edit_file  main.go       + --json flag, listJSON()",700],
+  [2,"t-file","✚ write_file json_test.go  + TestListJSONRoundTrips",500],
+  [3,"t-dim","◆ validating with anchor: go test ./...",800],
+  [3,"t-bad","✕ attempt 1 FAIL  ./main.go:37:9: undefined: json",700],
+  [3,"t-dim","  the failing command and its real output go back to the model",600],
+  [4,"t-think","◇ the import is missing — add encoding/json and run the gate again",900],
+  [4,"t-file","✎ edit_file  main.go       + import \"encoding/json\"",600],
+  [4,"t-cmd","go test ./... && go run . --json",500],
+  [4,"t-dim","  ok   example.com/notes   0.004s\n  [ { \"id\": 1, \"title\": \"Buy coffee beans\", \"done\": false }, … ]",600],
+  [5,"t-dim","◆ validating with anchor: go test ./...",700],
+  [5,"t-good","✓ attempt 2 PASS  the check passed — the task is done",700],
+  [6,"t-you","■ DONE · 3/3 checks passed · 2 changes",800],
+  [6,"t-dim","  main.go (edited) · json_test.go (new)\n  worth knowing: the JSON field names are now a public contract for scripts",400]
+]
+</script>
 <script>
   // Everything below is progressive: the page reads and works without it. The `js`
   // class is what arms the scroll reveal, so with scripting off nothing starts hidden.
@@ -1152,6 +1178,33 @@ motita -isolation</code></pre>
     var root = document.documentElement;
     root.classList.add('js');
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var ARIA_SELECTED = 'aria-selected';
+    // How long a copy button says it copied.
+    var COPIED_MS = 1800;
+    // How far down the window a section's top has to be to count as the one being read.
+    var READING_LINE = 0.4;
+    // How far the hero frame leans toward the pointer, in degrees, and where it rests.
+    var LEAN_Y = 10, LEAN_Y_REST = 3, LEAN_X = 8;
+    // The replay's last step, and where each line's delay is in a row of the script.
+    var LAST_STEP = 6, DELAY_AT = 3;
+    // How far the newest line may run past the panel before the oldest one goes.
+    var OVERFLOW_SLACK = 4;
+    var glide = 'smooth';
+    if (still) { glide = 'auto'; }
+
+    // selectTab marks one tab of a tab list as the selected one; only it can be reached with Tab.
+    function selectTab(tab, on) {
+      var index = -1;
+      if (on) { index = 0; }
+      tab.setAttribute(ARIA_SELECTED, String(on));
+      tab.tabIndex = index;
+    }
+    // arrowStep is where an arrow key moves in a tab list: forward, back, or nowhere.
+    function arrowStep(key, forward, back) {
+      if (forward.includes(key)) { return 1; }
+      if (back.includes(key)) { return -1; }
+      return 0;
+    }
 
     // ── Install tabs ────────────────────────────────────────────────
     var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
@@ -1159,15 +1212,14 @@ motita -isolation</code></pre>
       tabs.forEach(function (other) {
         var panel = document.getElementById(other.getAttribute('aria-controls'));
         var on = other === tab;
-        other.setAttribute('aria-selected', on ? 'true' : 'false');
-        other.tabIndex = on ? 0 : -1;
+        selectTab(other, on);
         panel.hidden = !on;
       });
     }
     tabs.forEach(function (tab, index) {
       tab.addEventListener('click', function () { select(tab); });
       tab.addEventListener('keydown', function (event) {
-        var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        var step = arrowStep(event.key, ['ArrowRight'], ['ArrowLeft']);
         if (!step) { return; }
         event.preventDefault();
         var next = tabs[(index + step + tabs.length) % tabs.length];
@@ -1186,10 +1238,12 @@ motita -isolation</code></pre>
           await navigator.clipboard.writeText(target.textContent.trim());
           btn.textContent = 'Copied ✓'; btn.classList.add('done');
           status.textContent = 'Install command copied to clipboard.';
-        } catch (e) {
+        } catch {
+          // The browser refused the clipboard (no permission, or not a secure page): the reader
+          // is told to copy it by hand, which is all there is to do about it.
           status.textContent = 'Copy failed — select the command and copy it manually.';
         }
-        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1800);
+        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, COPIED_MS);
       });
     });
 
@@ -1199,7 +1253,7 @@ motita -isolation</code></pre>
         var target = document.querySelector(a.getAttribute('href'));
         if (!target) { return; }
         e.preventDefault();
-        target.scrollIntoView({ behavior: still ? 'auto' : 'smooth' });
+        target.scrollIntoView({ behavior: glide });
         history.pushState(null, '', a.getAttribute('href'));
       });
     });
@@ -1209,11 +1263,13 @@ motita -isolation</code></pre>
     var links = Array.prototype.slice.call(document.querySelectorAll('nav a[href^="#"]'));
     function onScroll() {
       var max = document.documentElement.scrollHeight - innerHeight;
-      meter.style.setProperty('--read', max > 0 ? Math.min(1, scrollY / max) : 0);
+      var read = 0;
+      if (max > 0) { read = Math.min(1, scrollY / max); }
+      meter.style.setProperty('--read', read);
       var current = null;
       links.forEach(function (a) {
         var s = document.querySelector(a.getAttribute('href'));
-        if (s && s.getBoundingClientRect().top < innerHeight * 0.4) { current = a; }
+        if (s && s.getBoundingClientRect().top < innerHeight * READING_LINE) { current = a; }
       });
       links.forEach(function (a) {
         if (a === current) { a.setAttribute('aria-current', 'true'); } else { a.removeAttribute('aria-current'); }
@@ -1234,8 +1290,8 @@ motita -isolation</code></pre>
       stage.addEventListener('pointermove', function (e) {
         var r = stage.getBoundingClientRect();
         var x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
-        frame.style.setProperty('--ry', (x * 10 - 3).toFixed(2) + 'deg');
-        frame.style.setProperty('--rx', (-y * 8 + 1).toFixed(2) + 'deg');
+        frame.style.setProperty('--ry', (x * LEAN_Y - LEAN_Y_REST).toFixed(2) + 'deg');
+        frame.style.setProperty('--rx', (-y * LEAN_X + 1).toFixed(2) + 'deg');
       });
       stage.addEventListener('pointerleave', function () { frame.style.removeProperty('--ry'); frame.style.removeProperty('--rx'); });
     }
@@ -1251,28 +1307,7 @@ motita -isolation</code></pre>
 
     // ── The replay: the real run, line by line ──────────────────────
     // [step, class, text, delay before the line in ms]
-    var SCRIPT = [
-      [0, 't-you', '› Add a --json flag to `notes` that prints the list as JSON, with a test for it.', 300],
-      [1, 't-think', '◇ done means: notes --json prints a valid JSON array · the plain output is unchanged · go test ./... passes', 900],
-      [1, 't-dim', '  plan: read main.go → add --json and listJSON() → add a round-trip test → run the check', 700],
-      [2, 't-cmd', 'sed -n 1,60p main.go', 700],
-      [2, 't-dim', '  [ok] 38 lines · type Note, var store, func list', 400],
-      [2, 't-cmd', 'go test ./...', 500],
-      [2, 't-dim', '  ok   example.com/notes   0.006s   (baseline: green before the change)', 500],
-      [2, 't-file', '✎ edit_file  main.go       + --json flag, listJSON()', 700],
-      [2, 't-file', '✚ write_file json_test.go  + TestListJSONRoundTrips', 500],
-      [3, 't-dim', '◆ validating with anchor: go test ./...', 800],
-      [3, 't-bad', '✕ attempt 1 FAIL  ./main.go:37:9: undefined: json', 700],
-      [3, 't-dim', '  the failing command and its real output go back to the model', 600],
-      [4, 't-think', '◇ the import is missing — add encoding/json and run the gate again', 900],
-      [4, 't-file', '✎ edit_file  main.go       + import "encoding/json"', 600],
-      [4, 't-cmd', 'go test ./... && go run . --json', 500],
-      [4, 't-dim', '  ok   example.com/notes   0.004s\n  [ { "id": 1, "title": "Buy coffee beans", "done": false }, … ]', 600],
-      [5, 't-dim', '◆ validating with anchor: go test ./...', 700],
-      [5, 't-good', '✓ attempt 2 PASS  the check passed — the task is done', 700],
-      [6, 't-you', '■ DONE · 3/3 checks passed · 2 changes', 800],
-      [6, 't-dim', '  main.go (edited) · json_test.go (new)\n  worth knowing: the JSON field names are now a public contract for scripts', 400]
-    ];
+    var SCRIPT = JSON.parse(document.getElementById('replay-script').textContent);
     var term = document.getElementById('term');
     var rail = Array.prototype.slice.call(document.querySelectorAll('#rail li'));
     var live = document.getElementById('live');
@@ -1287,10 +1322,11 @@ motita -isolation</code></pre>
     function finish() {
       term.textContent = '';
       SCRIPT.forEach(function (r) { term.appendChild(line(r)); });
-      mark(6); live.style.visibility = 'hidden';
+      mark(LAST_STEP); live.style.visibility = 'hidden';
     }
     function play() {
-      var my = ++run;
+      run++;
+      var my = run;
       clearTimeout(timer);
       term.textContent = ''; live.style.visibility = '';
       var cursor = document.createElement('span'); cursor.className = 'cursor';
@@ -1298,7 +1334,8 @@ motita -isolation</code></pre>
       (function next() {
         if (my !== run) { return; }
         if (i >= SCRIPT.length) { term.appendChild(cursor); live.style.visibility = 'hidden'; return; }
-        var row = SCRIPT[i++];
+        var row = SCRIPT[i];
+        i++;
         timer = setTimeout(function () {
           if (my !== run) { return; }
           if (cursor.parentNode) { cursor.remove(); }
@@ -1306,12 +1343,14 @@ motita -isolation</code></pre>
           term.appendChild(cursor);
           mark(row[0]);
           // Keep the newest lines in view inside the fixed-height panel.
-          while (term.scrollHeight > term.clientHeight + 4 && term.firstChild !== cursor) { term.removeChild(term.firstChild); }
+          while (term.scrollHeight > term.clientHeight + OVERFLOW_SLACK && term.firstChild !== cursor) { term.firstChild.remove(); }
           next();
-        }, row[3]);
+        }, row[DELAY_AT]);
       })();
     }
-    document.getElementById('replay').addEventListener('click', function () { still ? finish() : play(); });
+    document.getElementById('replay').addEventListener('click', function () {
+      if (still) { finish(); } else { play(); }
+    });
     if (still) { finish(); }
     else {
       var started = false;
@@ -1323,25 +1362,28 @@ motita -isolation</code></pre>
     // ── The tour: tabs that advance on their own until touched ──────
     var ttabs = Array.prototype.slice.call(document.querySelectorAll('.tour-tab'));
     var auto = !still, tick = null, DUR = 7000;
+    // reflow makes the browser lay the element out now, by reading its width. Between removing a
+    // class and adding it back, that is what restarts the class's animation from its start.
+    function reflow(el) { return el.offsetWidth; }
     function show(t, user) {
       ttabs.forEach(function (o) {
         var on = o === t, pane = document.getElementById(o.getAttribute('aria-controls'));
-        o.setAttribute('aria-selected', on ? 'true' : 'false'); o.tabIndex = on ? 0 : -1;
+        selectTab(o, on);
         pane.hidden = !on;
-        if (on) { pane.classList.remove('enter'); void pane.offsetWidth; pane.classList.add('enter'); }
-        var p = o.querySelector('.prog'); p.classList.remove('run');
+        if (on) { pane.classList.remove('enter'); reflow(pane); pane.classList.add('enter'); }
+        o.querySelector('.prog').classList.remove('run');
       });
       if (user) { auto = false; }
       clearTimeout(tick);
       if (auto) {
-        var p = t.querySelector('.prog'); void p.offsetWidth; p.style.setProperty('--dur', DUR + 'ms'); p.classList.add('run');
+        var p = t.querySelector('.prog'); reflow(p); p.style.setProperty('--dur', DUR + 'ms'); p.classList.add('run');
         tick = setTimeout(function () { show(ttabs[(ttabs.indexOf(t) + 1) % ttabs.length]); }, DUR);
       }
     }
     ttabs.forEach(function (t, i) {
       t.addEventListener('click', function () { show(t, true); });
       t.addEventListener('keydown', function (e) {
-        var k = e.key, step = (k === 'ArrowDown' || k === 'ArrowRight') ? 1 : (k === 'ArrowUp' || k === 'ArrowLeft') ? -1 : 0;
+        var step = arrowStep(e.key, ['ArrowDown', 'ArrowRight'], ['ArrowUp', 'ArrowLeft']);
         if (!step) { return; }
         e.preventDefault();
         var n = ttabs[(i + step + ttabs.length) % ttabs.length]; show(n, true); n.focus();
@@ -1349,7 +1391,7 @@ motita -isolation</code></pre>
     });
     var tour = document.querySelector('.tour');
     tour.addEventListener('pointerenter', function () { if (auto) { clearTimeout(tick); ttabs.forEach(function (o) { o.querySelector('.prog').classList.remove('run'); }); } });
-    tour.addEventListener('pointerleave', function () { if (auto) { show(ttabs.filter(function (o) { return o.getAttribute('aria-selected') === 'true'; })[0]); } });
+    tour.addEventListener('pointerleave', function () { if (auto) { show(ttabs.find(function (o) { return o.getAttribute(ARIA_SELECTED) === 'true'; })); } });
     if (auto) {
       new IntersectionObserver(function (entries, obs) {
         if (entries[0].isIntersecting) { show(ttabs[0]); obs.disconnect(); }

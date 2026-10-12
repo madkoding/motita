@@ -143,6 +143,8 @@ func TestTheVerdictCommandsAreInTheCatalogue(t *testing.T) {
 		switch c.Name {
 		case "/good", "/bad", "/value":
 			found++
+		default:
+			// not one of the verdict commands
 		}
 	}
 	if found != 3 {

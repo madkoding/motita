@@ -221,7 +221,11 @@ func TestRestoreRefusesWhatItCannotDo(t *testing.T) {
 	}
 
 	go func() {
-		req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"slow"}`))
+		req, _ := http.NewRequest(
+			http.MethodPost,
+			srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+			strings.NewReader(`{"task":"slow"}`),
+		)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		if resp, err := http.DefaultClient.Do(req); err == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)

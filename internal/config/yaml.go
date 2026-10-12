@@ -132,46 +132,12 @@ func (p *yamlParser) parseMapWithFirst(indent int, firstKey, firstRest string) (
 	m := map[string]any{}
 
 	process := func(key, rest string, line int) error {
-		switch {
-		case rest == "":
-			// It may be a nested block, a sequence at the same level or null.
-			p.skipBlank()
-			if p.done() {
-				m[key] = nil
-				return nil
-			}
-			next := p.current()
-			if next.indent > indent {
-				value, err := p.parseBlock(next.indent)
-				if err != nil {
-					return err
-				}
-				m[key] = value
-				return nil
-			}
-			if next.indent == indent && isItem(next.text) {
-				value, err := p.parseSequence(indent)
-				if err != nil {
-					return err
-				}
-				m[key] = value
-				return nil
-			}
-			m[key] = nil
-			return nil
-
-		case isBlockIndicator(rest):
-			m[key] = p.readBlockScalar(indent, rest)
-			return nil
-
-		default:
-			value, err := parseScalar(rest, line)
-			if err != nil {
-				return err
-			}
-			m[key] = value
-			return nil
+		value, err := p.mapValue(indent, rest, line)
+		if err != nil {
+			return err
 		}
+		m[key] = value
+		return nil
 	}
 
 	if firstKey != "" || firstRest != "" {
@@ -199,6 +165,35 @@ func (p *yamlParser) parseMapWithFirst(indent int, firstKey, firstRest string) (
 		}
 	}
 	return m, nil
+}
+
+// mapValue reads the value of a key of a map at indent, given what followed the colon.
+func (p *yamlParser) mapValue(indent int, rest string, line int) (any, error) {
+	switch {
+	case rest == "":
+		return p.nestedValue(indent)
+	case isBlockIndicator(rest):
+		return p.readBlockScalar(indent, rest), nil
+	default:
+		return parseScalar(rest, line)
+	}
+}
+
+// nestedValue reads the value of a key with nothing after the colon: it may be a nested block,
+// a sequence at the same level or null.
+func (p *yamlParser) nestedValue(indent int) (any, error) {
+	p.skipBlank()
+	if p.done() {
+		return nil, nil
+	}
+	next := p.current()
+	if next.indent > indent {
+		return p.parseBlock(next.indent)
+	}
+	if next.indent == indent && isItem(next.text) {
+		return p.parseSequence(indent)
+	}
+	return nil, nil
 }
 
 func (p *yamlParser) parseSequence(indent int) ([]any, error) {
@@ -262,62 +257,14 @@ func (p *yamlParser) readBlockScalar(parentIndent int, indicator string) string 
 	keep := strings.Contains(indicator, "+")
 	singleLine := strings.Contains(indicator, "-")
 
-	var raw []yamlLine
-	for !p.done() {
-		line := p.current()
-		if strings.TrimSpace(line.text) == "" {
-			raw = append(raw, line)
-			p.advance()
-			continue
-		}
-		if line.indent <= parentIndent {
-			break
-		}
-		raw = append(raw, line)
-		p.advance()
-	}
-
-	// Effective indentation = the smallest of the lines with content.
-	minIndent := -1
-	for _, l := range raw {
-		if strings.TrimSpace(l.text) == "" {
-			continue
-		}
-		if minIndent < 0 || l.indent < minIndent {
-			minIndent = l.indent
-		}
-	}
-
-	var parts []string
-	for _, l := range raw {
-		if strings.TrimSpace(l.text) == "" {
-			parts = append(parts, "")
-			continue
-		}
-		rawLine := strings.Repeat(" ", l.indent) + l.text
-		if minIndent > 0 && minIndent <= len(rawLine) {
-			rawLine = rawLine[minIndent:]
-		}
-		parts = append(parts, rawLine)
-	}
+	raw := p.blockScalarLines(parentIndent)
+	parts := dedentBlock(raw, blockIndent(raw))
 
 	var text string
 	if literal {
 		text = strings.Join(parts, "\n")
 	} else {
-		// Folded: consecutive lines with content are joined with spaces.
-		var sb strings.Builder
-		for i, part := range parts {
-			if i > 0 {
-				if part == "" || parts[i-1] == "" {
-					sb.WriteString("\n")
-				} else {
-					sb.WriteString(" ")
-				}
-			}
-			sb.WriteString(part)
-		}
-		text = sb.String()
+		text = foldBlock(parts)
 	}
 
 	// Chomping: by default a single trailing line; "-" removes it; "+" keeps it.
@@ -331,6 +278,75 @@ func (p *yamlParser) readBlockScalar(parentIndent int, indicator string) string 
 		text += "\n"
 	}
 	return text
+}
+
+// blockScalarLines consumes the lines of a block scalar: the blank ones and the ones indented
+// past its parent.
+func (p *yamlParser) blockScalarLines(parentIndent int) []yamlLine {
+	var raw []yamlLine
+	for !p.done() {
+		line := p.current()
+		if strings.TrimSpace(line.text) != "" && line.indent <= parentIndent {
+			break
+		}
+		raw = append(raw, line)
+		p.advance()
+	}
+	return raw
+}
+
+// blockIndent is the effective indentation of a block scalar: the smallest of the lines with
+// content, or -1 when there is none.
+func blockIndent(raw []yamlLine) int {
+	minIndent := -1
+	for _, l := range raw {
+		if strings.TrimSpace(l.text) == "" {
+			continue
+		}
+		if minIndent < 0 || l.indent < minIndent {
+			minIndent = l.indent
+		}
+	}
+	return minIndent
+}
+
+// dedentBlock returns the lines of a block scalar with its indentation removed; a blank line
+// becomes empty.
+func dedentBlock(raw []yamlLine, minIndent int) []string {
+	var parts []string
+	for _, l := range raw {
+		if strings.TrimSpace(l.text) == "" {
+			parts = append(parts, "")
+			continue
+		}
+		rawLine := strings.Repeat(" ", l.indent) + l.text
+		if minIndent > 0 && minIndent <= len(rawLine) {
+			rawLine = rawLine[minIndent:]
+		}
+		parts = append(parts, rawLine)
+	}
+	return parts
+}
+
+// foldBlock joins the lines of a folded block scalar: consecutive lines with content are joined
+// with spaces, and an empty line is kept as a line break.
+func foldBlock(parts []string) string {
+	var sb strings.Builder
+	for i, part := range parts {
+		if i > 0 {
+			sb.WriteString(foldSeparator(part, parts[i-1]))
+		}
+		sb.WriteString(part)
+	}
+	return sb.String()
+}
+
+// foldSeparator is what goes between two lines of a folded block scalar.
+func foldSeparator(part, previous string) string {
+	if part == "" || previous == "" {
+		return "\n"
+	}
+	return " "
 }
 
 // --- scalars ----------------------------------------------------------------
@@ -347,7 +363,7 @@ func isBlockIndicator(s string) bool {
 		return false
 	}
 	for _, r := range s[1:] {
-		if r != '-' && r != '+' && r != '1' && r != '2' && r != '3' && r != '4' && r != '5' && r != '6' && r != '7' && r != '8' && r != '9' {
+		if !strings.ContainsRune("-+123456789", r) {
 			return false
 		}
 	}
@@ -378,26 +394,31 @@ func tryKey(text string) (string, string, error) {
 			}
 		case c == '\'' || c == '"':
 			quote = c
-		case c == ':':
+		case c == ':' && (i+1 == len(text) || text[i+1] == ' '):
 			// In YAML the key ends at ": " or ":<end>".
-			if i+1 == len(text) || text[i+1] == ' ' {
-				key := strings.TrimSpace(text[:i])
-				rest := strings.TrimSpace(stripComment(strings.TrimSpace(text[i+1:])))
-				if key == "" {
-					return "", "", fmt.Errorf("empty key in %q", text)
-				}
-				if key[0] == '\'' || key[0] == '"' {
-					unquoted, err := unquote(key)
-					if err != nil {
-						return "", "", err
-					}
-					key = unquoted
-				}
-				return key, rest, nil
-			}
+			return splitKeyAt(text, i)
+		default:
+			// Part of the key, or a colon inside it (a URL, a time).
 		}
 	}
 	return "", "", fmt.Errorf("expected 'key: value' and found %q", text)
+}
+
+// splitKeyAt separates "key: value" at the colon in position i.
+func splitKeyAt(text string, i int) (string, string, error) {
+	key := strings.TrimSpace(text[:i])
+	rest := strings.TrimSpace(stripComment(strings.TrimSpace(text[i+1:])))
+	if key == "" {
+		return "", "", fmt.Errorf("empty key in %q", text)
+	}
+	if key[0] == '\'' || key[0] == '"' {
+		unquoted, err := unquote(key)
+		if err != nil {
+			return "", "", err
+		}
+		key = unquoted
+	}
+	return key, rest, nil
 }
 
 func parseScalar(text string, num int) (any, error) {
@@ -434,6 +455,8 @@ func parseScalar(text string, num int) (any, error) {
 		return true, nil
 	case "false":
 		return false, nil
+	default:
+		// Not a keyword: a number or plain text, decided below.
 	}
 	if integer, err := strconv.ParseInt(text, 10, 64); err == nil {
 		return integer, nil
@@ -555,6 +578,8 @@ func splitTop(text string, sep byte) ([]string, error) {
 		case c == sep && depth == 0:
 			parts = append(parts, strings.TrimSpace(text[start:i]))
 			start = i + 1
+		default:
+			// Any other character belongs to the current part.
 		}
 	}
 	if quote != 0 {
@@ -578,6 +603,8 @@ func stripComment(text string) string {
 			quote = c
 		case c == '#' && (i == 0 || text[i-1] == ' '):
 			return strings.TrimRight(text[:i], " ")
+		default:
+			// Any other character is part of the text.
 		}
 	}
 	return text

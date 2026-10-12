@@ -80,8 +80,9 @@ func isShell(name string) bool {
 	switch name {
 	case "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish", "ash", "busybox":
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // writers, readers and argumentRules live in readers.go, which is the file the refusal

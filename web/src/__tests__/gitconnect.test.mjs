@@ -12,6 +12,11 @@ const src = (f) => readFileSync(join(here, '..', f), 'utf8')
 const g = await import('../gitApi.ts')
 const es = (await import('../i18n.es.ts')).default
 
+const HTTP_NOT_FOUND = 404
+const DAY_S = 86400
+// The git screens say at least this many different things.
+const MIN_GIT_STRINGS = 40
+
 const flow = { flow_id: 'f1', method: 'device', service: 'github', url: 'https://github.com/login/device', code: 'ABCD-1234' }
 
 test('flow state machine: start, pending, connected', () => {
@@ -38,9 +43,9 @@ test('flow state machine: failure and reset', () => {
 test('pollFlow stops on a terminal state', async () => {
   const answers = [{ status: 'pending' }, { status: 'pending' }, { status: 'connected', account: 'octo' }]
   let calls = 0
-  const r = await g.pollFlow({ get: async () => answers[calls++], sleep: async () => {}, cancelled: () => false })
+  const r = await g.pollFlow({ get: async () => { const a = answers[calls]; calls++; return a }, sleep: async () => {}, cancelled: () => false })
   assert.equal(r.status, 'connected')
-  assert.equal(calls, 3)
+  assert.equal(calls, answers.length)
 })
 
 test('pollFlow stops when cancelled and survives a few errors', async () => {
@@ -48,7 +53,7 @@ test('pollFlow stops when cancelled and survives a few errors', async () => {
   const r = await g.pollFlow({ get: async () => { n++; if (n === 2) { stop = true; } return { status: 'pending' } }, sleep: async () => {}, cancelled: () => stop })
   assert.equal(r, null)
   let k = 0
-  const ok = await g.pollFlow({ get: async () => { if (k++ < 2) { throw new Error('net'); } return { status: 'failed', error: 'no' } }, sleep: async () => {}, cancelled: () => false })
+  const ok = await g.pollFlow({ get: async () => { k++; if (k <= 2) { throw new Error('net'); } return { status: 'failed', error: 'no' } }, sleep: async () => {}, cancelled: () => false })
   assert.equal(ok.error, 'no')
 })
 
@@ -56,7 +61,7 @@ test('pollFlow gives up after repeated errors and on an unknown flow', async () 
   const r = await g.pollFlow({ get: async () => { throw new Error('down') }, sleep: async () => {}, cancelled: () => false, maxErrors: 3 })
   assert.equal(r.status, 'failed')
   assert.equal(r.error, 'down')
-  const gone = await g.pollFlow({ get: async () => { throw new g.GitError('x', 404) }, sleep: async () => {}, cancelled: () => false })
+  const gone = await g.pollFlow({ get: async () => { throw new g.GitError('x', HTTP_NOT_FOUND) }, sleep: async () => {}, cancelled: () => false })
   assert.equal(gone.status, 'failed')
 })
 
@@ -86,12 +91,19 @@ test('primaryMethod prefers oauth only when the gateway is ready', () => {
 test('relativeTime buckets', () => {
   const now = Date.parse('2026-01-01T00:00:00Z')
   const at = (s) => new Date(now - s * 1000).toISOString()
-  assert.equal(g.relativeTime(at(5), now).unit, 'now')
-  assert.deepEqual(g.relativeTime(at(300), now), { unit: 'minute', n: 5 })
-  assert.deepEqual(g.relativeTime(at(7200), now), { unit: 'hour', n: 2 })
-  assert.deepEqual(g.relativeTime(at(86400 * 3), now), { unit: 'day', n: 3 })
-  assert.deepEqual(g.relativeTime(at(86400 * 90), now), { unit: 'month', n: 3 })
-  assert.deepEqual(g.relativeTime(at(86400 * 800), now), { unit: 'year', n: 2 })
+  // How long ago each time is (in seconds, or in days) and the bucket it falls in.
+  const cases = [
+    { seconds: 5, want: 'now' },
+    { seconds: 300, want: { unit: 'minute', n: 5 } },
+    { seconds: 7200, want: { unit: 'hour', n: 2 } },
+    { days: 3, want: { unit: 'day', n: 3 } },
+    { days: 90, want: { unit: 'month', n: 3 } },
+    { days: 800, want: { unit: 'year', n: 2 } },
+  ]
+  for (const c of cases) {
+    const r = g.relativeTime(at(c.seconds ?? c.days * DAY_S), now)
+    if (typeof c.want === 'string') { assert.equal(r.unit, c.want) } else { assert.deepEqual(r, c.want) }
+  }
   assert.equal(g.relativeTime('garbage', now), null)
   assert.equal(g.relativeTime(undefined, now), null)
 })
@@ -117,10 +129,10 @@ test('api calls hit the documented endpoints', async () => {
 test('every string in the git screens has a Spanish translation', () => {
   const keys = new Set()
   for (const f of ['GitConnect.tsx', 'RepoPicker.tsx', 'Settings.tsx']) {
-    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) { keys.add(m[1].replace(/\\'/g, "'")) }
+    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) { keys.add(m[1].replaceAll(String.raw`\'`, "'")) }
   }
   for (const k of ['Choose from my repositories', 'Connect GitHub, GitLab or Bitbucket to pick one of your repositories', 'The login expired. Try again.', 'The host did not authorize the login.']) { keys.add(k) }
-  assert.ok(keys.size > 40)
+  assert.ok(keys.size > MIN_GIT_STRINGS)
   const missing = [...keys].filter(k => !es[k])
   assert.deepEqual(missing, [])
   // placeholders survive translation

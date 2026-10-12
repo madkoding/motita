@@ -37,7 +37,8 @@ func prSession(t *testing.T, origin string, opts ...func(*Options)) (*Server, *g
 
 func connectGitHub(t *testing.T, srv *Server) {
 	t.Helper()
-	if w := postJSON(t, srv, "/v1/git/connect", testToken, `{"service":"github","token":"gho_x"}`); w.Code != http.StatusOK {
+	if w := postJSON(t, srv, "/v1/git/connect", testToken,
+		`{"service":"github","token":"gho_x"}`); w.Code != http.StatusOK {
 		t.Fatalf("connect: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -51,12 +52,14 @@ func TestPRNeedsAProjectSession(t *testing.T) {
 
 func TestPRReasonsItCannotBeRead(t *testing.T) {
 	srv, _, ss := prSession(t, "")
-	if w := get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != errPRNoRemote {
+	if w := get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken); w.Code != http.StatusConflict ||
+		decode(t, w)["code"] != errPRNoRemote {
 		t.Errorf("no origin: %d %s", w.Code, w.Body.String())
 	}
 
 	srv, _, ss = prSession(t, "https://nowhere.example/o/r.git")
-	if w := get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != errPRNoHost {
+	if w := get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken); w.Code != http.StatusConflict ||
+		decode(t, w)["code"] != errPRNoHost {
 		t.Errorf("unknown host: %d %s", w.Code, w.Body.String())
 	}
 
@@ -77,14 +80,22 @@ func TestPRReportsTheCIOfTheBranch(t *testing.T) {
 		t.Fatalf("a branch with no pull request: %v", m)
 	}
 
-	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
-		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(ss.ID)+`"},"base":{"ref":"main"}}]`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(
+			ss.ID,
+		)+`"},"base":{"ref":"main"}}]`,
+	)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc123"}}`)
-	host.set("GET https://api.github.com/repos/o/r/commits/abc123/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc123/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`,
+	)
 	host.set("GET https://api.github.com/repos/o/r/commits/abc123/status", `{"statuses":[]}`)
 	m := decode(t, get(t, srv, path, testToken))
 	ci, _ := m["ci"].(map[string]any)
-	if m["state"] != "open" || ci["state"] != "failure" || ci["rev"] != "abc123" || m["pr"].(map[string]any)["number"] != float64(7) {
+	if m["state"] != "open" || ci["state"] != "failure" || ci["rev"] != "abc123" ||
+		m["pr"].(map[string]any)["number"] != float64(7) {
 		t.Fatalf("an open pull request with a failing CI: %v", m)
 	}
 
@@ -165,11 +176,18 @@ func TestPRWatchFollowsAFailureToAPass(t *testing.T) {
 	srv, host, ss := prSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	c := srv.sessions[ss.ID]
-	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
-		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(ss.ID)+`"},"base":{"ref":"main"}}]`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(
+			ss.ID,
+		)+`"},"base":{"ref":"main"}}]`,
+	)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"}}`)
 	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`,
+	)
 
 	w := &prWatchState{status: prFollowing}
 	if srv.pollPR(c, w) {
@@ -183,7 +201,10 @@ func TestPRWatchFollowsAFailureToAPass(t *testing.T) {
 		t.Errorf("the list must say what the watch is doing: %+v", st.PRWatch)
 	}
 
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`,
+	)
 	if srv.pollPR(c, w) {
 		t.Fatal("a pass is not the end: the pull request is watched until it is merged or closed")
 	}
@@ -193,11 +214,17 @@ func TestPRWatchFollowsAFailureToAPass(t *testing.T) {
 
 	// Merging is refused until the CI has passed, and goes through once it has.
 	path := sessionPath(srv, ss.ID, "/pr/merge")
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"in_progress"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"in_progress"}]}`,
+	)
 	if w := postJSON(t, srv, path, testToken, `{}`); w.Code != http.StatusConflict {
 		t.Fatalf("merging a running CI: %d %s", w.Code, w.Body.String())
 	}
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`,
+	)
 	host.set("PUT https://api.github.com/repos/o/r/pulls/7/merge", `{"merged":true}`)
 	if w := postJSON(t, srv, path, testToken, `{}`); w.Code != http.StatusOK {
 		t.Fatalf("merge: %d %s", w.Code, w.Body.String())
@@ -260,15 +287,25 @@ func TestPRWatchStopsWhenTheBaseBranchIsRedToo(t *testing.T) {
 	srv, host, ss := prSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	c := srv.sessions[ss.ID]
-	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
-		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(ss.ID)+`"},"base":{"ref":"main"}}]`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(
+			ss.ID,
+		)+`"},"base":{"ref":"main"}}]`,
+	)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"}}`)
 	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`,
+	)
 	host.set("GET https://api.github.com/repos/o/r/commits/main/status", `{"statuses":[]}`)
 
 	// Red on main for another job: this change's failure is its own.
-	host.set("GET https://api.github.com/repos/o/r/commits/main/check-runs", `{"check_runs":[{"id":2,"name":"lint","status":"completed","conclusion":"failure"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/main/check-runs",
+		`{"check_runs":[{"id":2,"name":"lint","status":"completed","conclusion":"failure"}]}`,
+	)
 	w := &prWatchState{status: prFollowing}
 	if srv.pollPR(c, w) || w.status != prFixing || w.attempts != 1 {
 		t.Fatalf("a failure of its own is fixed: done=%v %s %d", false, w.status, w.attempts)
@@ -280,7 +317,10 @@ func TestPRWatchStopsWhenTheBaseBranchIsRedToo(t *testing.T) {
 	srv.baseCI = nil
 	srv.prMu.Unlock()
 	w = &prWatchState{status: prFollowing}
-	host.set("GET https://api.github.com/repos/o/r/commits/main/check-runs", `{"check_runs":[{"id":2,"name":"test","status":"completed","conclusion":"failure"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/main/check-runs",
+		`{"check_runs":[{"id":2,"name":"test","status":"completed","conclusion":"failure"}]}`,
+	)
 	if !srv.pollPR(c, w) || w.status != prBaseRed || w.attempts != 0 {
 		t.Fatalf("a failure the base has too ends the watch: %s %d", w.status, w.attempts)
 	}
@@ -311,10 +351,14 @@ func TestProjectMergeMethodIsValidated(t *testing.T) {
 // prHost arms the fake host with an open pull request #7 whose CI is `conclusion`.
 func prHost(host *gitHost, branch, conclusion, mergeState string) {
 	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
-		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+branch+`"},"base":{"ref":"main"}}]`)
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x",`+
+			`"head":{"ref":"`+branch+`"},"base":{"ref":"main"}}]`)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"},"mergeable_state":"`+mergeState+`"}`)
 	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"`+conclusion+`"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"`+conclusion+`"}]}`,
+	)
 	host.set("PUT https://api.github.com/repos/o/r/pulls/7/merge", `{"merged":true,"sha":"cafe01"}`)
 }
 
@@ -331,7 +375,8 @@ func TestPRMergeIsRefusedWhenTheHostWouldRefuseIt(t *testing.T) {
 	srv, host, ss := prSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	prHost(host, sessionBranch(ss.ID), "success", "blocked")
-	if m := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken)); m["merge"].(map[string]any)["code"] != "blocked" {
+	if m := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr"),
+		testToken)); m["merge"].(map[string]any)["code"] != "blocked" {
 		t.Fatalf("the view says why it cannot be merged: %v", m)
 	}
 	w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr/merge"), testToken, `{}`)
@@ -395,7 +440,8 @@ func TestPRAttemptsAreAProjectChoice(t *testing.T) {
 			t.Errorf("%s: %d", bad, code)
 		}
 	}
-	if patchProjectCode(t, srv, ss.ProjectID, `{"pr_max_fixes":0}`) != http.StatusOK || srv.prMaxFixes(c) != defaultPRMaxFixes {
+	if patchProjectCode(t, srv, ss.ProjectID, `{"pr_max_fixes":0}`) != http.StatusOK ||
+		srv.prMaxFixes(c) != defaultPRMaxFixes {
 		t.Error("zero goes back to the default")
 	}
 }
@@ -417,7 +463,10 @@ func TestPRMergedSomewhereElseIsNoticed(t *testing.T) {
 
 	// Gone from the open ones, and the host says it was merged.
 	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
-	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"feed42"}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/pulls/7",
+		`{"state":"closed","merged":true,"merge_commit_sha":"feed42"}`,
+	)
 	if !srv.pollPR(c, w) {
 		t.Fatal("a merged pull request ends the watch")
 	}
@@ -501,10 +550,16 @@ func TestPRWatchRunsByItself(t *testing.T) {
 		}
 		t.Fatalf("timed out waiting for %s: %+v", what, c.prWatchView())
 	}
-	waitFor("the failure to be answered", func() bool { v := c.prWatchView(); return v != nil && v.Status == prFixing && v.Attempts == 1 })
+	waitFor("the failure to be answered", func() bool {
+		v := c.prWatchView()
+		return v != nil && v.Status == prFixing && v.Attempts == 1
+	})
 
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
-	waitFor("the pass", func() bool { v := c.prWatchView(); return v != nil && v.Status == prPassed })
+	waitFor("the pass", func() bool {
+		v := c.prWatchView()
+		return v != nil && v.Status == prPassed
+	})
 
 	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"beef"}`)

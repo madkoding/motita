@@ -114,34 +114,12 @@ func GitUser(svc Service, cred oauth.Credential) string {
 // error carrying the host's own message, which is what tells the user whether
 // the token is wrong, expired or short of a scope.
 func (a API) do(ctx context.Context, method, target string, body, out any) error {
-	var rdr io.Reader
-	if body != nil {
-		data, _ := json.Marshal(body) // the bodies are maps and structs of strings
-		rdr = bytes.NewReader(data)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, target, rdr)
+	req, err := a.newRequest(ctx, method, target, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", a.authHeader())
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "motita")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	cacheKey, cached := "", etagEntry{}
-	if a.Cache != nil && method == http.MethodGet && body == nil {
-		cacheKey = a.etagKey(target)
-		if e, ok := a.Cache.get(cacheKey); ok {
-			cached = e
-			req.Header.Set("If-None-Match", e.etag)
-		}
-	}
-	hc := a.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := hc.Do(req)
+	cacheKey, cached := a.useCache(req, method, target, body)
+	resp, err := a.client().Do(req)
 	if err != nil {
 		return err
 	}
@@ -150,15 +128,8 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode == http.StatusNotModified && cached.etag != "" {
-		// Nothing changed since the answer that is kept.
-		data = cached.body
-	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &HTTPError{Status: resp.StatusCode, Message: apiMessage(data)}
-	} else if cacheKey != "" {
-		if et := resp.Header.Get("ETag"); et != "" && len(data) <= etagBodyMax {
-			a.Cache.put(cacheKey, etagEntry{etag: et, body: data})
-		}
+	if data, err = a.answerBody(resp, data, cacheKey, cached); err != nil {
+		return err
 	}
 	// Some hosts answer a success with no body (Gitea's merge).
 	if out == nil || len(bytes.TrimSpace(data)) == 0 {
@@ -168,6 +139,66 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 		return fmt.Errorf("could not read the answer of %s: %w", a.Service.Name, err)
 	}
 	return nil
+}
+
+// newRequest builds a request to the host's API with this token and, when there is one, a JSON body.
+func (a API) newRequest(ctx context.Context, method, target string, body any) (*http.Request, error) {
+	var rdr io.Reader
+	if body != nil {
+		data, _ := json.Marshal(body) // the bodies are maps and structs of strings
+		rdr = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, rdr)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", a.authHeader())
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "motita")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+// useCache asks the host, for a plain GET with a cache, to answer 304 when nothing changed since the
+// kept answer. It returns the cache key ("" when the request is not cached) and the kept answer.
+func (a API) useCache(req *http.Request, method, target string, body any) (string, etagEntry) {
+	if a.Cache == nil || method != http.MethodGet || body != nil {
+		return "", etagEntry{}
+	}
+	cacheKey := a.etagKey(target)
+	e, ok := a.Cache.get(cacheKey)
+	if ok {
+		req.Header.Set("If-None-Match", e.etag)
+	}
+	return cacheKey, e
+}
+
+// client is the HTTP client requests go through: the configured one, or one with a timeout.
+func (a API) client() oauth.HTTPClient {
+	if a.HTTP == nil {
+		return &http.Client{Timeout: 30 * time.Second}
+	}
+	return a.HTTP
+}
+
+// answerBody is the body to decode: the kept one on a 304, the received one on a success (kept for
+// next time when it carries an ETag), or the host's refusal as an error.
+func (a API) answerBody(resp *http.Response, data []byte, cacheKey string, cached etagEntry) ([]byte, error) {
+	if resp.StatusCode == http.StatusNotModified && cached.etag != "" {
+		// Nothing changed since the answer that is kept.
+		return cached.body, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &HTTPError{Status: resp.StatusCode, Message: apiMessage(data)}
+	}
+	if cacheKey != "" {
+		if et := resp.Header.Get("ETag"); et != "" && len(data) <= etagBodyMax {
+			a.Cache.put(cacheKey, etagEntry{etag: et, body: data})
+		}
+	}
+	return data, nil
 }
 
 // HTTPError is a refusal from a host's API.
@@ -205,6 +236,8 @@ func apiMessage(data []byte) string {
 		if s, ok := e["message"].(string); ok {
 			return s
 		}
+	default:
+		// No error field, or one of a shape no host uses: the raw body below.
 	}
 	return strings.TrimSpace(string(data))
 }
@@ -271,7 +304,8 @@ func (a API) ListRepos(ctx context.Context, query string, page int) (repos []Rep
 
 func matches(query string, repo Repo) bool {
 	q := strings.ToLower(query)
-	return q == "" || strings.Contains(strings.ToLower(repo.FullName), q) || strings.Contains(strings.ToLower(repo.Description), q)
+	return q == "" || strings.Contains(strings.ToLower(repo.FullName), q) ||
+		strings.Contains(strings.ToLower(repo.Description), q)
 }
 
 func (a API) listGitHub(ctx context.Context, query string, page int) ([]Repo, bool, error) {
@@ -320,7 +354,10 @@ func (a API) listGitLab(ctx context.Context, query string, page int) ([]Repo, bo
 		DefaultBranch string `json:"default_branch"`
 		LastActivity  string `json:"last_activity_at"`
 	}
-	q := url.Values{"membership": {"true"}, "order_by": {"last_activity_at"}, "per_page": {strconv.Itoa(repoPageSize)}, "page": {strconv.Itoa(page)}}
+	q := url.Values{
+		"membership": {"true"}, "order_by": {"last_activity_at"},
+		"per_page": {strconv.Itoa(repoPageSize)}, "page": {strconv.Itoa(page)},
+	}
 	if query != "" {
 		q.Set("search", query)
 	}
@@ -353,7 +390,10 @@ func (a API) listBitbucket(ctx context.Context, query string, page int) ([]Repo,
 			} `json:"links"`
 		} `json:"values"`
 	}
-	q := url.Values{"role": {"member"}, "sort": {"-updated_on"}, "pagelen": {strconv.Itoa(repoPageSize)}, "page": {strconv.Itoa(page)}}
+	q := url.Values{
+		"role": {"member"}, "sort": {"-updated_on"},
+		"pagelen": {strconv.Itoa(repoPageSize)}, "page": {strconv.Itoa(page)},
+	}
 	if query != "" {
 		q.Set("q", `name ~ "`+strings.NewReplacer(`"`, ``, `\`, ``).Replace(query)+`"`)
 	}
@@ -363,7 +403,8 @@ func (a API) listBitbucket(ctx context.Context, query string, page int) ([]Repo,
 	out := make([]Repo, 0, len(raw.Values))
 	for _, r := range raw.Values {
 		out = append(out, Repo{FullName: r.FullName, Description: r.Description, WebURL: r.Links.HTML.Href,
-			CloneURL: r.Links.HTML.Href + ".git", Private: r.IsPrivate, DefaultBranch: r.MainBranch.Name, UpdatedAt: r.UpdatedOn})
+			CloneURL: r.Links.HTML.Href + ".git", Private: r.IsPrivate, DefaultBranch: r.MainBranch.Name,
+			UpdatedAt: r.UpdatedOn})
 	}
 	return out, raw.Next != "", nil
 }
@@ -417,53 +458,17 @@ type PROptions struct {
 // CreatePR opens a pull request (a merge request on GitLab).
 func (a API) CreatePR(ctx context.Context, r Remote, o PROptions) (PullRequest, error) {
 	pr := PullRequest{Title: o.Title, Head: o.Head, Base: o.Base, State: "open"}
+	var err error
 	switch a.Service.Kind {
 	case KindGitLab:
-		var out struct {
-			IID    int    `json:"iid"`
-			WebURL string `json:"web_url"`
-		}
-		title := o.Title
-		if o.Draft && !strings.HasPrefix(strings.ToLower(title), "draft:") {
-			title = "Draft: " + title
-		}
-		body := map[string]any{"source_branch": o.Head, "target_branch": o.Base, "title": title, "description": o.Body}
-		if err := a.do(ctx, http.MethodPost, a.Service.APIBase+"/projects/"+url.PathEscape(r.Path)+"/merge_requests", body, &out); err != nil {
-			return PullRequest{}, err
-		}
-		pr.Number, pr.URL = out.IID, out.WebURL
+		pr.Number, pr.URL, err = a.createGitLabMR(ctx, r, o)
 	case KindBitbucket:
-		var out struct {
-			ID    int `json:"id"`
-			Links struct {
-				HTML struct {
-					Href string `json:"href"`
-				} `json:"html"`
-			} `json:"links"`
-		}
-		body := map[string]any{
-			"title": o.Title, "description": o.Body,
-			"source":      map[string]any{"branch": map[string]string{"name": o.Head}},
-			"destination": map[string]any{"branch": map[string]string{"name": o.Base}},
-		}
-		if err := a.do(ctx, http.MethodPost, a.Service.APIBase+"/repositories/"+r.Path+"/pullrequests", body, &out); err != nil {
-			return PullRequest{}, err
-		}
-		pr.Number, pr.URL = out.ID, out.Links.HTML.Href
+		pr.Number, pr.URL, err = a.createBitbucketPR(ctx, r, o)
 	default:
-		var out struct {
-			Number  int    `json:"number"`
-			HTMLURL string `json:"html_url"`
-		}
-		body := map[string]any{"title": o.Title, "body": o.Body, "head": o.Head, "base": o.Base}
-		endpoint := a.Service.APIBase + "/repos/" + r.Path + "/pulls"
-		if a.Service.Kind == KindGitHub {
-			body["draft"] = o.Draft
-		}
-		if err := a.do(ctx, http.MethodPost, endpoint, body, &out); err != nil {
-			return PullRequest{}, err
-		}
-		pr.Number, pr.URL = out.Number, out.HTMLURL
+		pr.Number, pr.URL, err = a.createPullsPR(ctx, r, o)
+	}
+	if err != nil {
+		return PullRequest{}, err
 	}
 	if pr.Number == 0 || pr.URL == "" {
 		return PullRequest{}, errors.New("the host created the pull request but did not return its number and link")
@@ -471,70 +476,155 @@ func (a API) CreatePR(ctx context.Context, r Remote, o PROptions) (PullRequest, 
 	return pr, nil
 }
 
+// gitLabProject is the API path of a GitLab project.
+func (a API) gitLabProject(r Remote) string {
+	return a.Service.APIBase + "/projects/" + url.PathEscape(r.Path)
+}
+
+// createGitLabMR opens a merge request on GitLab, where a draft is a title prefix.
+func (a API) createGitLabMR(ctx context.Context, r Remote, o PROptions) (int, string, error) {
+	var out struct {
+		IID    int    `json:"iid"`
+		WebURL string `json:"web_url"`
+	}
+	title := o.Title
+	if o.Draft && !strings.HasPrefix(strings.ToLower(title), "draft:") {
+		title = "Draft: " + title
+	}
+	body := map[string]any{"source_branch": o.Head, "target_branch": o.Base, "title": title, "description": o.Body}
+	if err := a.do(ctx, http.MethodPost, a.gitLabProject(r)+"/merge_requests", body, &out); err != nil {
+		return 0, "", err
+	}
+	return out.IID, out.WebURL, nil
+}
+
+// createBitbucketPR opens a pull request on Bitbucket.
+func (a API) createBitbucketPR(ctx context.Context, r Remote, o PROptions) (int, string, error) {
+	var out struct {
+		ID    int `json:"id"`
+		Links struct {
+			HTML struct {
+				Href string `json:"href"`
+			} `json:"html"`
+		} `json:"links"`
+	}
+	body := map[string]any{
+		"title": o.Title, "description": o.Body,
+		"source":      map[string]any{"branch": map[string]string{"name": o.Head}},
+		"destination": map[string]any{"branch": map[string]string{"name": o.Base}},
+	}
+	endpoint := a.Service.APIBase + "/repositories/" + r.Path + "/pullrequests"
+	if err := a.do(ctx, http.MethodPost, endpoint, body, &out); err != nil {
+		return 0, "", err
+	}
+	return out.ID, out.Links.HTML.Href, nil
+}
+
+// createPullsPR opens a pull request through the /pulls API GitHub and Gitea share; only GitHub
+// takes the draft flag.
+func (a API) createPullsPR(ctx context.Context, r Remote, o PROptions) (int, string, error) {
+	var out struct {
+		Number  int    `json:"number"`
+		HTMLURL string `json:"html_url"`
+	}
+	body := map[string]any{"title": o.Title, "body": o.Body, "head": o.Head, "base": o.Base}
+	endpoint := a.Service.APIBase + "/repos/" + r.Path + "/pulls"
+	if a.Service.Kind == KindGitHub {
+		body["draft"] = o.Draft
+	}
+	if err := a.do(ctx, http.MethodPost, endpoint, body, &out); err != nil {
+		return 0, "", err
+	}
+	return out.Number, out.HTMLURL, nil
+}
+
 // FindPR returns the open pull request from head, or false when there is none.
 func (a API) FindPR(ctx context.Context, r Remote, head string) (PullRequest, bool, error) {
 	switch a.Service.Kind {
 	case KindGitLab:
-		var out []struct {
-			IID    int    `json:"iid"`
-			WebURL string `json:"web_url"`
-			Title  string `json:"title"`
-			Target string `json:"target_branch"`
-		}
-		q := url.Values{"source_branch": {head}, "state": {"opened"}}
-		if err := a.do(ctx, http.MethodGet, a.Service.APIBase+"/projects/"+url.PathEscape(r.Path)+"/merge_requests?"+q.Encode(), nil, &out); err != nil || len(out) == 0 {
-			return PullRequest{}, false, err
-		}
-		return PullRequest{Number: out[0].IID, URL: out[0].WebURL, Title: out[0].Title, Head: head, Base: out[0].Target, State: "open"}, true, nil
+		return a.findGitLabMR(ctx, r, head)
 	case KindBitbucket:
-		var out struct {
-			Values []struct {
-				ID    int    `json:"id"`
-				Title string `json:"title"`
-				Links struct {
-					HTML struct {
-						Href string `json:"href"`
-					} `json:"html"`
-				} `json:"links"`
-			} `json:"values"`
-		}
-		q := url.Values{"q": {`source.branch.name = "` + strings.ReplaceAll(head, `"`, "") + `" AND state = "OPEN"`}}
-		if err := a.do(ctx, http.MethodGet, a.Service.APIBase+"/repositories/"+r.Path+"/pullrequests?"+q.Encode(), nil, &out); err != nil || len(out.Values) == 0 {
-			return PullRequest{}, false, err
-		}
-		v := out.Values[0]
-		return PullRequest{Number: v.ID, URL: v.Links.HTML.Href, Title: v.Title, Head: head, State: "open"}, true, nil
+		return a.findBitbucketPR(ctx, r, head)
 	default:
-		var out []struct {
-			Number  int    `json:"number"`
-			HTMLURL string `json:"html_url"`
-			Title   string `json:"title"`
-			Head    struct {
-				Ref string `json:"ref"`
-			} `json:"head"`
-			Base struct {
-				Ref string `json:"ref"`
-			} `json:"base"`
-		}
-		endpoint := a.Service.APIBase + "/repos/" + r.Path + "/pulls?state=open"
-		if a.Service.Kind == KindGitHub {
-			endpoint += "&head=" + url.QueryEscape(r.Owner()+":"+head)
-		}
-		if err := a.do(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
-			return PullRequest{}, false, err
-		}
-		// Gitea has no head filter, so every host's list is matched by branch.
-		for _, p := range out {
-			if p.Head.Ref == head {
-				return PullRequest{Number: p.Number, URL: p.HTMLURL, Title: p.Title, Head: head, Base: p.Base.Ref, State: "open"}, true, nil
-			}
-		}
-		return PullRequest{}, false, nil
+		return a.findPullsPR(ctx, r, head)
 	}
+}
+
+// findGitLabMR finds the open merge request from head on GitLab.
+func (a API) findGitLabMR(ctx context.Context, r Remote, head string) (PullRequest, bool, error) {
+	var out []struct {
+		IID    int    `json:"iid"`
+		WebURL string `json:"web_url"`
+		Title  string `json:"title"`
+		Target string `json:"target_branch"`
+	}
+	q := url.Values{"source_branch": {head}, "state": {"opened"}}
+	endpoint := a.gitLabProject(r) + "/merge_requests?" + q.Encode()
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &out); err != nil || len(out) == 0 {
+		return PullRequest{}, false, err
+	}
+	mr := out[0]
+	return PullRequest{Number: mr.IID, URL: mr.WebURL, Title: mr.Title, Head: head, Base: mr.Target, State: "open"},
+		true, nil
+}
+
+// findBitbucketPR finds the open pull request from head on Bitbucket.
+func (a API) findBitbucketPR(ctx context.Context, r Remote, head string) (PullRequest, bool, error) {
+	var out struct {
+		Values []struct {
+			ID    int    `json:"id"`
+			Title string `json:"title"`
+			Links struct {
+				HTML struct {
+					Href string `json:"href"`
+				} `json:"html"`
+			} `json:"links"`
+		} `json:"values"`
+	}
+	q := url.Values{"q": {`source.branch.name = "` + strings.ReplaceAll(head, `"`, "") + `" AND state = "OPEN"`}}
+	endpoint := a.Service.APIBase + "/repositories/" + r.Path + "/pullrequests?" + q.Encode()
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &out); err != nil || len(out.Values) == 0 {
+		return PullRequest{}, false, err
+	}
+	v := out.Values[0]
+	return PullRequest{Number: v.ID, URL: v.Links.HTML.Href, Title: v.Title, Head: head, State: "open"}, true, nil
+}
+
+// findPullsPR finds the open pull request from head through the /pulls API GitHub and Gitea share.
+func (a API) findPullsPR(ctx context.Context, r Remote, head string) (PullRequest, bool, error) {
+	var out []struct {
+		Number  int    `json:"number"`
+		HTMLURL string `json:"html_url"`
+		Title   string `json:"title"`
+		Head    struct {
+			Ref string `json:"ref"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+	}
+	endpoint := a.Service.APIBase + "/repos/" + r.Path + "/pulls?state=open"
+	if a.Service.Kind == KindGitHub {
+		endpoint += "&head=" + url.QueryEscape(r.Owner()+":"+head)
+	}
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &out); err != nil {
+		return PullRequest{}, false, err
+	}
+	// Gitea has no head filter, so every host's list is matched by branch.
+	for _, p := range out {
+		if p.Head.Ref == head {
+			return PullRequest{Number: p.Number, URL: p.HTMLURL, Title: p.Title, Head: head, Base: p.Base.Ref,
+				State: "open"}, true, nil
+		}
+	}
+	return PullRequest{}, false, nil
 }
 
 // MergeMethods are the ways a pull request can be merged. The empty method is the host's default.
 var MergeMethods = []string{"merge", "squash", "rebase"}
+
+// mergePath is the suffix of a pull request's API path that merges it.
+const mergePath = "/merge"
 
 // MergeOptions says how a pull request is merged.
 type MergeOptions struct {
@@ -577,20 +667,16 @@ func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) (sha 
 	switch a.Service.Kind {
 	case KindGitLab:
 		body := map[string]any{"squash": method == "squash", "should_remove_source_branch": o.DeleteBranch}
-		err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), body, &out)
+		err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/merge_requests/%d/merge", a.gitLabProject(r), n), body, &out)
 	case KindBitbucket:
 		strategy := map[string]string{"merge": "merge_commit", "squash": "squash", "rebase": "fast_forward"}[method]
 		body := map[string]any{"merge_strategy": strategy, "close_source_branch": o.DeleteBranch}
-		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
+		err = a.do(ctx, http.MethodPost, a.bitbucketPRPath(r, n)+mergePath, body, nil)
 	case KindGitea:
 		body := map[string]any{"Do": method, "delete_branch_after_merge": o.DeleteBranch}
-		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
+		err = a.do(ctx, http.MethodPost, a.pullsPath(r, n)+mergePath, body, nil)
 	default:
-		body := map[string]any{"merge_method": method}
-		ref, refOK := refPath(o.Branch)
-		if err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, &out); err == nil && o.DeleteBranch && refOK {
-			_ = a.do(ctx, http.MethodDelete, fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, ref), nil, nil)
-		}
+		err = a.mergeGitHubPR(ctx, r, n, method, o, &out)
 	}
 	if err != nil {
 		return "", err
@@ -599,6 +685,29 @@ func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) (sha 
 		return out.SHA, nil
 	}
 	return out.MergeCommitSHA, nil
+}
+
+// pullsPath is the API path of pull request n on GitHub or Gitea.
+func (a API) pullsPath(r Remote, n int) string {
+	return fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n)
+}
+
+// bitbucketPRPath is the API path of pull request n on Bitbucket.
+func (a API) bitbucketPRPath(r Remote, n int) string {
+	return fmt.Sprintf("%s/repositories/%s/pullrequests/%d", a.Service.APIBase, r.Path, n)
+}
+
+// mergeGitHubPR merges pull request n on GitHub and then, when asked and the branch has a valid
+// name, deletes its branch; a failed deletion is not an error, the merge has happened.
+func (a API) mergeGitHubPR(ctx context.Context, r Remote, n int, method string, o MergeOptions, out any) error {
+	body := map[string]any{"merge_method": method}
+	ref, refOK := refPath(o.Branch)
+	err := a.do(ctx, http.MethodPut, a.pullsPath(r, n)+mergePath, body, out)
+	if err == nil && o.DeleteBranch && refOK {
+		_ = a.do(ctx, http.MethodDelete,
+			fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, ref), nil, nil)
+	}
+	return err
 }
 
 // Why a pull request cannot be merged yet, whatever the CI says.
@@ -627,57 +736,86 @@ func (m MergeState) Refuses() bool {
 func (a API) MergeState(ctx context.Context, r Remote, n int) (MergeState, error) {
 	switch a.Service.Kind {
 	case KindGitLab:
-		var mr struct {
-			Status string `json:"detailed_merge_status"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d", a.Service.APIBase, url.PathEscape(r.Path), n), nil, &mr); err != nil {
-			return MergeState{}, err
-		}
-		switch mr.Status {
-		case "mergeable":
-			return MergeState{MergeOK}, nil
-		case "not_approved", "discussions_not_resolved", "blocked_status", "requested_changes", "approvals_syncing", "external_status_checks":
-			return MergeState{MergeBlocked}, nil
-		case "conflict", "need_rebase":
-			return MergeState{MergeConflict}, nil
-		case "draft_status":
-			return MergeState{MergeDraft}, nil
-		}
-		return MergeState{MergeUnknown}, nil
+		return a.gitLabMergeState(ctx, r, n)
 	case KindBitbucket:
 		return MergeState{MergeUnknown}, nil
 	case KindGitea:
-		var pr struct {
-			Mergeable bool `json:"mergeable"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
-			return MergeState{}, err
-		}
-		if !pr.Mergeable {
-			return MergeState{MergeConflict}, nil
-		}
-		return MergeState{MergeOK}, nil
+		return a.giteaMergeState(ctx, r, n)
 	default:
-		var pr struct {
-			Draft bool   `json:"draft"`
-			State string `json:"mergeable_state"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
-			return MergeState{}, err
-		}
-		switch {
-		case pr.Draft || pr.State == "draft":
-			return MergeState{MergeDraft}, nil
-		case pr.State == "dirty":
-			return MergeState{MergeConflict}, nil
-		case pr.State == "blocked":
-			return MergeState{MergeBlocked}, nil
-		case pr.State == "behind":
-			return MergeState{MergeBehind}, nil
-		case pr.State == "clean" || pr.State == "unstable" || pr.State == "has_hooks":
-			return MergeState{MergeOK}, nil
-		}
-		return MergeState{MergeUnknown}, nil
+		return a.gitHubMergeState(ctx, r, n)
+	}
+}
+
+// gitLabMergeState reads a GitLab merge request's detailed merge status.
+func (a API) gitLabMergeState(ctx context.Context, r Remote, n int) (MergeState, error) {
+	var mr struct {
+		Status string `json:"detailed_merge_status"`
+	}
+	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/merge_requests/%d", a.gitLabProject(r), n), nil, &mr); err != nil {
+		return MergeState{}, err
+	}
+	return MergeState{gitLabMergeCode(mr.Status)}, nil
+}
+
+// gitLabMergeCode maps GitLab's detailed merge status to a merge state code.
+func gitLabMergeCode(status string) string {
+	switch status {
+	case "mergeable":
+		return MergeOK
+	case "not_approved", "discussions_not_resolved", "blocked_status", "requested_changes", "approvals_syncing",
+		"external_status_checks":
+		return MergeBlocked
+	case "conflict", "need_rebase":
+		return MergeConflict
+	case "draft_status":
+		return MergeDraft
+	default:
+		return MergeUnknown
+	}
+}
+
+// giteaMergeState reads whether a Gitea pull request is mergeable: Gitea only says yes or no.
+func (a API) giteaMergeState(ctx context.Context, r Remote, n int) (MergeState, error) {
+	var pr struct {
+		Mergeable bool `json:"mergeable"`
+	}
+	if err := a.do(ctx, http.MethodGet, a.pullsPath(r, n), nil, &pr); err != nil {
+		return MergeState{}, err
+	}
+	if !pr.Mergeable {
+		return MergeState{MergeConflict}, nil
+	}
+	return MergeState{MergeOK}, nil
+}
+
+// gitHubMergeState reads a GitHub pull request's draft flag and mergeable state.
+func (a API) gitHubMergeState(ctx context.Context, r Remote, n int) (MergeState, error) {
+	var pr struct {
+		Draft bool   `json:"draft"`
+		State string `json:"mergeable_state"`
+	}
+	if err := a.do(ctx, http.MethodGet, a.pullsPath(r, n), nil, &pr); err != nil {
+		return MergeState{}, err
+	}
+	if pr.Draft || pr.State == "draft" {
+		return MergeState{MergeDraft}, nil
+	}
+	return MergeState{gitHubMergeCode(pr.State)}, nil
+}
+
+// gitHubMergeCode maps GitHub's mergeable_state to a merge state code.
+func gitHubMergeCode(state string) string {
+	switch state {
+	case "dirty":
+		return MergeConflict
+	case "blocked":
+		return MergeBlocked
+	case "behind":
+		return MergeBehind
+	case "clean", "unstable", "has_hooks":
+		return MergeOK
+	default:
+		return MergeUnknown
 	}
 }
 
@@ -699,49 +837,67 @@ type PRState struct {
 func (a API) PRState(ctx context.Context, r Remote, n int) (PRState, error) {
 	switch a.Service.Kind {
 	case KindGitLab:
-		var mr struct {
-			State string `json:"state"`
-			SHA   string `json:"merge_commit_sha"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d", a.Service.APIBase, url.PathEscape(r.Path), n), nil, &mr); err != nil {
-			return PRState{}, err
-		}
-		switch mr.State {
-		case "merged":
-			return PRState{PRMerged, mr.SHA}, nil
-		case "closed", "locked":
-			return PRState{State: PRClosed}, nil
-		}
-		return PRState{State: PROpen}, nil
+		return a.gitLabPRState(ctx, r, n)
 	case KindBitbucket:
-		var pr struct {
-			State string `json:"state"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repositories/%s/pullrequests/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
-			return PRState{}, err
-		}
-		switch strings.ToUpper(pr.State) {
-		case "MERGED":
-			return PRState{State: PRMerged}, nil
-		case "DECLINED", "SUPERSEDED":
-			return PRState{State: PRClosed}, nil
-		}
-		return PRState{State: PROpen}, nil
+		return a.bitbucketPRState(ctx, r, n)
 	default:
-		var pr struct {
-			State          string `json:"state"`
-			Merged         bool   `json:"merged"`
-			MergeCommitSHA string `json:"merge_commit_sha"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
-			return PRState{}, err
-		}
-		switch {
-		case pr.Merged:
-			return PRState{PRMerged, pr.MergeCommitSHA}, nil
-		case pr.State == "closed":
-			return PRState{State: PRClosed}, nil
-		}
+		return a.gitHubPRState(ctx, r, n)
+	}
+}
+
+// gitLabPRState reads a GitLab merge request's state and merge commit.
+func (a API) gitLabPRState(ctx context.Context, r Remote, n int) (PRState, error) {
+	var mr struct {
+		State string `json:"state"`
+		SHA   string `json:"merge_commit_sha"`
+	}
+	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/merge_requests/%d", a.gitLabProject(r), n), nil, &mr); err != nil {
+		return PRState{}, err
+	}
+	switch mr.State {
+	case "merged":
+		return PRState{PRMerged, mr.SHA}, nil
+	case "closed", "locked":
+		return PRState{State: PRClosed}, nil
+	default:
+		return PRState{State: PROpen}, nil
+	}
+}
+
+// bitbucketPRState reads a Bitbucket pull request's state; Bitbucket does not name the merge commit.
+func (a API) bitbucketPRState(ctx context.Context, r Remote, n int) (PRState, error) {
+	var pr struct {
+		State string `json:"state"`
+	}
+	if err := a.do(ctx, http.MethodGet, a.bitbucketPRPath(r, n), nil, &pr); err != nil {
+		return PRState{}, err
+	}
+	switch strings.ToUpper(pr.State) {
+	case "MERGED":
+		return PRState{State: PRMerged}, nil
+	case "DECLINED", "SUPERSEDED":
+		return PRState{State: PRClosed}, nil
+	default:
+		return PRState{State: PROpen}, nil
+	}
+}
+
+// gitHubPRState reads a GitHub or Gitea pull request's state and merge commit.
+func (a API) gitHubPRState(ctx context.Context, r Remote, n int) (PRState, error) {
+	var pr struct {
+		State          string `json:"state"`
+		Merged         bool   `json:"merged"`
+		MergeCommitSHA string `json:"merge_commit_sha"`
+	}
+	if err := a.do(ctx, http.MethodGet, a.pullsPath(r, n), nil, &pr); err != nil {
+		return PRState{}, err
+	}
+	switch {
+	case pr.Merged:
+		return PRState{PRMerged, pr.MergeCommitSHA}, nil
+	case pr.State == "closed":
+		return PRState{State: PRClosed}, nil
+	default:
 		return PRState{State: PROpen}, nil
 	}
 }

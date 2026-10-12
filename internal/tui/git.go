@@ -14,7 +14,8 @@ import (
 )
 
 // gitNudgeText is the one sentence shown when the interface opens with no git host connected.
-const gitNudgeText = "No git host is connected. /git connects GitHub, GitLab or Bitbucket so motita can clone, push and open pull requests for you."
+const gitNudgeText = "No git host is connected. /git connects GitHub, GitLab or Bitbucket so motita can clone, " +
+	"push and open pull requests for you."
 
 // gitReposPageLimit bounds how many repositories /git repos prints per host: it is a list to see
 // what is reachable, not a browser, and a query narrows it.
@@ -102,7 +103,8 @@ func (t *TUI) gitHost(arg string) (gitforge.Service, error) {
 			return svc, nil
 		}
 	}
-	return gitforge.Service{}, fmt.Errorf("%s", t.trf("unknown git host %q: use github, gitlab, bitbucket or kind:host (gitlab:git.example.com)", arg))
+	return gitforge.Service{}, fmt.Errorf("%s", t.trf(
+		"unknown git host %q: use github, gitlab, bitbucket or kind:host (gitlab:git.example.com)", arg))
 }
 
 // gitDisconnect forgets a host's login.
@@ -139,41 +141,47 @@ func (t *TUI) gitRepos(ctx context.Context, query string) {
 			continue
 		}
 		connected++
-		api, err := st.Open(ctx, a.Service)
-		var repos []gitforge.Repo
-		var more bool
-		if err == nil {
-			repos, more, err = api.ListRepos(ctx, query, 1)
-		}
-		fmt.Fprintf(&b, "%s (%s)\n", a.Service.Name, a.Username)
-		if err != nil {
-			fmt.Fprintf(&b, "  %s\n", t.trf("could not list the repositories: %v", err))
-			continue
-		}
-		if len(repos) == 0 {
-			fmt.Fprintf(&b, "  %s\n", t.tr("no repositories found"))
-		}
-		for i, r := range repos {
-			if i == gitReposPageLimit {
-				more = true
-				break
-			}
-			n++
-			vis := ""
-			if r.Private {
-				vis = "  " + t.tr("private")
-			}
-			fmt.Fprintf(&b, "  %2d. %s%s\n", n, r.FullName, vis)
-		}
-		if more {
-			fmt.Fprintf(&b, "  %s\n", t.tr("… more: narrow the list with /git repos <query>"))
-		}
+		t.writeRepos(ctx, &b, st, a, query, &n)
 	}
 	if connected == 0 {
 		t.addMessage(AuthorSystem, t.tr("No git host is connected. Type /git connect first."))
 		return
 	}
 	t.addPreformatted(AuthorSystem, strings.TrimRight(b.String(), "\n"))
+}
+
+// writeRepos writes the repositories one connected account can reach, numbered on from *n.
+func (t *TUI) writeRepos(ctx context.Context, b *strings.Builder, st gitforge.Store, a gitforge.Account,
+	query string, n *int) {
+	api, err := st.Open(ctx, a.Service)
+	var repos []gitforge.Repo
+	var more bool
+	if err == nil {
+		repos, more, err = api.ListRepos(ctx, query, 1)
+	}
+	fmt.Fprintf(b, "%s (%s)\n", a.Service.Name, a.Username)
+	if err != nil {
+		fmt.Fprintf(b, "  %s\n", t.trf("could not list the repositories: %v", err))
+		return
+	}
+	if len(repos) == 0 {
+		fmt.Fprintf(b, "  %s\n", t.tr("no repositories found"))
+	}
+	for i, r := range repos {
+		if i == gitReposPageLimit {
+			more = true
+			break
+		}
+		*n++
+		vis := ""
+		if r.Private {
+			vis = "  " + t.tr("private")
+		}
+		fmt.Fprintf(b, "  %2d. %s%s\n", *n, r.FullName, vis)
+	}
+	if more {
+		fmt.Fprintf(b, "  %s\n", t.tr("… more: narrow the list with /git repos <query>"))
+	}
 }
 
 // gitConnect signs in to a host, choosing the best way the host offers.
@@ -194,13 +202,18 @@ func (t *TUI) gitConnect(ctx context.Context, arg string) {
 	} else if svc, err = t.gitHost(arg); err != nil {
 		t.addMessage(AuthorSystem, err.Error())
 		return
+	} else {
+		// The host was named and found.
 	}
 	st := t.forge()
 	method := svc.Methods()[0]
 	if forceToken {
 		method = gitforge.MethodToken
 	} else if method == gitforge.MethodToken {
-		t.addMessage(AuthorSystem, t.trf("One-click login for %s needs %s_CLIENT_ID; connecting with a token instead.", svc.Name, svc.EnvPrefix))
+		t.addMessage(AuthorSystem, t.trf(
+			"One-click login for %s needs %s_CLIENT_ID; connecting with a token instead.", svc.Name, svc.EnvPrefix))
+	} else {
+		// The host's one-click login is used.
 	}
 	var user string
 	switch method {
@@ -261,7 +274,8 @@ func (t *TUI) gitDevice(ctx context.Context, st gitforge.Store, svc gitforge.Ser
 	if err != nil {
 		return "", err
 	}
-	t.addPreformatted(AuthorSystem, t.trf("To connect %s:\n  1. Open  %s\n  2. Enter the code  %s\nWaiting for you to approve it in the browser... (Esc cancels)", svc.Name, flow.URL, flow.Code))
+	t.addPreformatted(AuthorSystem, t.trf("To connect %s:\n  1. Open  %s\n  2. Enter the code  %s\n"+
+		"Waiting for you to approve it in the browser... (Esc cancels)", svc.Name, flow.URL, flow.Code))
 	t.openBrowser(flow.URL)
 	return t.gitAwait(ctx, func(c context.Context, _ <-chan string) (string, error) { return flow.Wait(c) })
 }
@@ -272,7 +286,9 @@ func (t *TUI) gitCode(ctx context.Context, st gitforge.Store, svc gitforge.Servi
 	if err != nil {
 		return "", err
 	}
-	t.addPreformatted(AuthorSystem, t.trf("To connect %s, open this address and approve:\n  %s\nWaiting for the browser... If it runs on another machine, paste here the address it ends on. (Esc cancels)", svc.Name, flow.URL))
+	t.addPreformatted(AuthorSystem, t.trf("To connect %s, open this address and approve:\n  %s\n"+
+		"Waiting for the browser... If it runs on another machine, paste here the address it ends on. "+
+		"(Esc cancels)", svc.Name, flow.URL))
 	t.openBrowser(flow.URL)
 	user, err := t.gitAwait(ctx, flow.Wait)
 	if err == errGitCancelled {
@@ -400,8 +416,12 @@ func openCommand(goos, url string) (string, []string) {
 		return "open", []string{url}
 	case "windows":
 		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	case "android":
+		// Termux has no xdg-open; its own opener hands the URL to the Android browser.
+		return "termux-open-url", []string{url}
+	default:
+		return "xdg-open", []string{url}
 	}
-	return "xdg-open", []string{url}
 }
 
 // openInBrowser opens url in the user's browser. A machine without a display has no browser to

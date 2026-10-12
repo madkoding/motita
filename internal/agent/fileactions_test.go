@@ -111,7 +111,9 @@ func TestFileActionsStayInsideTheWorkspace(t *testing.T) {
 	}
 	// An absolute path INSIDE the workspace is fine.
 	inside := filepath.Join(e.dir, "in.txt")
-	if _, err := e.agent.runActions(context.Background(), []Command{{Kind: "write_file", Command: inside + "\nok"}}, ""); err != nil {
+	if _, err := e.agent.runActions(
+		context.Background(), []Command{{Kind: "write_file", Command: inside + "\nok"}}, "",
+	); err != nil {
 		t.Fatal(err)
 	}
 	if readBack(t, inside) != "ok" {
@@ -171,7 +173,9 @@ func TestFileActionsDoNotFollowSymlinksOut(t *testing.T) {
 	if err := os.Symlink("real", filepath.Join(e.dir, "alias")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.agent.runActions(context.Background(), []Command{{Kind: "write_file", Command: "alias/f\nok"}}, ""); err != nil {
+	if _, err := e.agent.runActions(
+		context.Background(), []Command{{Kind: "write_file", Command: "alias/f\nok"}}, "",
+	); err != nil {
 		t.Fatal(err)
 	}
 	if readBack(t, filepath.Join(e.dir, "real", "f")) != "ok" {
@@ -244,6 +248,8 @@ func TestAFileActionCountsAsAWriteInTheLoop(t *testing.T) {
 					"command": "f.txt\n<<<<<<< SEARCH\nv1\n=======\nv2\n>>>>>>> REPLACE"}}})
 		case 3:
 			return step(false, "cat f.txt")
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}

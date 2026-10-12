@@ -124,10 +124,12 @@ func TestTheTaskPathKeepsTheLibraryPromise(t *testing.T) {
 	silence(t)
 	dir := t.TempDir()
 	stub := &llmStub{
-		analyze: `{"understandable":true,"summary":"list the skills","success_criteria":[],"risks":[],"needs_subtasks":false}`,
-		plan:    `{"plan":[{"step":1,"action":"list skills","command":""}],"subtasks":[],"expected_result":"the index"}`,
+		analyze: `{"understandable":true,"summary":"list the skills","success_criteria":[],"risks":[],` +
+			`"needs_subtasks":false}`,
+		plan: `{"plan":[{"step":1,"action":"list skills","command":""}],"subtasks":[],"expected_result":"the index"}`,
 		act: func(string) string {
-			return `{"reasoning":"ask the library","actions":[{"kind":"list_skills","description":"see what exists","command":""}],"final_action":{"command":""}}`
+			return `{"reasoning":"ask the library","actions":[{"kind":"list_skills","description":"see what ` +
+				`exists","command":""}],"final_action":{"command":""}}`
 		},
 	}
 	srv := stub.server()
@@ -208,7 +210,8 @@ func TestAnUnknownActionKindIsRefusedNotExecuted(t *testing.T) {
 		plan:    `{"plan":[{"step":1,"action":"read it","command":""}],"subtasks":[],"expected_result":"contents"}`,
 		act: func(seen string) string {
 			// The model does exactly what the skill's table told it to do.
-			return `{"reasoning":"the skill says to use read_file","actions":[{"kind":"read_file","description":"read the file","command":"` + script + `"}],"final_action":{"command":""}}`
+			return `{"reasoning":"the skill says to use read_file","actions":[{"kind":"read_file","description":"read the ` +
+				`file","command":"` + script + `"}],"final_action":{"command":""}}`
 		},
 	}
 	srv := stub.server()

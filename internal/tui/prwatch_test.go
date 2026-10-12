@@ -72,7 +72,10 @@ func TestTheInterfaceAsksTheGatewayAndSpeaksWhenACIEnds(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { defer close(done); tu.watchPRs(ctx) }()
+	go func() {
+		defer close(done)
+		tu.watchPRs(ctx)
+	}()
 
 	eventually(t, "the first look", func() bool { return g.asked() >= 2 })
 	if n := liveNoticeOf(tu); n != "" {
@@ -92,7 +95,10 @@ func TestTheInterfaceAsksTheGatewayAndSpeaksWhenACIEnds(t *testing.T) {
 func TestWatchingNeedsAGatewayThatHoldsSessions(t *testing.T) {
 	tu := newFakeTUI("", &fakeRunner{})
 	done := make(chan struct{})
-	go func() { defer close(done); tu.watchPRs(context.Background()) }()
+	go func() {
+		defer close(done)
+		tu.watchPRs(context.Background())
+	}()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -159,7 +165,8 @@ func TestEveryStateOfAPullRequestHasWords(t *testing.T) {
 }
 
 func TestTheSessionListSaysWhatTheCIIsDoing(t *testing.T) {
-	r := &switcherRunner{sessions: []SessionInfo{{ID: "default", Current: true, PR: "passed", PRNumber: 7}}, current: "default"}
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default", Current: true, PR: "passed", PRNumber: 7}},
+		current: "default"}
 	out, err := switcher(r).sessionsText(context.Background())
 	if err != nil || !strings.Contains(out, "[PR #7: CI passed, ready to merge]") {
 		t.Errorf("%q %v", out, err)

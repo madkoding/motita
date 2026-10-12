@@ -219,7 +219,8 @@ func TestPostJSONNilClient(t *testing.T) {
 
 func TestPostJSONMarshalError(t *testing.T) {
 	// A channel cannot be JSON-marshaled.
-	if err := postJSON(context.Background(), newFakeClient(nil), "http://example.com", make(chan int), nil, nil); err == nil {
+	if err := postJSON(context.Background(), newFakeClient(nil), "http://example.com", make(chan int), nil,
+		nil); err == nil {
 		t.Error("expected error for unmarshalable body")
 	}
 }
@@ -256,7 +257,8 @@ func TestPostJSONSuccessWithHeaders(t *testing.T) {
 		},
 	})
 	var dest map[string]string
-	if err := postJSON(context.Background(), client, "http://example.com", map[string]string{"k": "v"}, map[string]string{"X-Custom": "val"}, &dest); err != nil {
+	if err := postJSON(context.Background(), client, "http://example.com", map[string]string{"k": "v"},
+		map[string]string{"X-Custom": "val"}, &dest); err != nil {
 		t.Errorf("postJSON: %v", err)
 	}
 }
@@ -271,7 +273,8 @@ func TestGetJSONSuccessWithHeaders(t *testing.T) {
 		},
 	})
 	var dest map[string]string
-	if err := getJSON(context.Background(), client, "http://example.com", map[string]string{"X-Custom": "val"}, &dest); err != nil {
+	if err := getJSON(context.Background(), client, "http://example.com", map[string]string{"X-Custom": "val"},
+		&dest); err != nil {
 		t.Errorf("getJSON: %v", err)
 	}
 }
@@ -347,7 +350,8 @@ func TestCopilotPollAccessToken400WithPollError(t *testing.T) {
 			}, nil
 		},
 	})
-	if _, err := CopilotPollAccessToken(context.Background(), client, CopilotConfig{}, DeviceCode{}); err != ErrAuthorizationPending {
+	if _, err := CopilotPollAccessToken(context.Background(), client, CopilotConfig{},
+		DeviceCode{}); err != ErrAuthorizationPending {
 		t.Errorf("err = %v, want ErrAuthorizationPending", err)
 	}
 }
@@ -358,7 +362,8 @@ func TestCopilotPollAccessTokenExpiredToken(t *testing.T) {
 			return jsonResp(copilotAccessTokenResponse{Error: "expired_token"}), nil
 		},
 	})
-	if _, err := CopilotPollAccessToken(context.Background(), client, CopilotConfig{}, DeviceCode{}); err != ErrExpiredToken {
+	if _, err := CopilotPollAccessToken(context.Background(), client, CopilotConfig{},
+		DeviceCode{}); err != ErrExpiredToken {
 		t.Errorf("err = %v, want ErrExpiredToken", err)
 	}
 }
@@ -623,7 +628,8 @@ func TestCopilotFullFlowPendingThenSuccess(t *testing.T) {
 func TestCopilotPollAccessTokenAccessDeniedOn400(t *testing.T) {
 	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
 		"github.com/login/oauth/access_token": func(*http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":"access_denied"}`)), Header: make(http.Header)}, nil
+			return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":"access_denied"}`)),
+				Header: make(http.Header)}, nil
 		},
 	})
 	_, err := CopilotPollAccessToken(context.Background(), client, CopilotConfig{}, DeviceCode{DeviceCode: "dc"})

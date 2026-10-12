@@ -19,8 +19,28 @@ func TestThePageMeetsItsHardRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Content(/): %v", err)
 	}
-	html := string(htmlB)
+	checkThePageShell(t, string(htmlB))
 
+	// 5. The JS and CSS are discovered dynamically, so find them by Content-Type
+	// rather than a hardcoded path. The properties are checked across ALL served
+	// JS and ALL served CSS, because a Vite build may split code into chunks.
+	jsBytes, cssBytes := servedScriptsAndStyles()
+	js := string(jsBytes)
+	css := string(cssBytes)
+
+	if len(jsBytes) == 0 {
+		t.Fatal("no JavaScript is served: the page would be inert")
+	}
+	if len(cssBytes) == 0 {
+		t.Fatal("no CSS is served: the page would be unstyled")
+	}
+	checkNoCredentialInWebStorage(t, js)
+	checkTheScriptAndStyleRequirements(t, js, css)
+}
+
+// checkThePageShell: requirements 1 to 4 of TestThePageMeetsItsHardRequirements, on the page
+// itself.
+func checkThePageShell(t *testing.T, html string) {
 	// 1. The page must have a root div for the app to mount on.
 	if !strings.Contains(html, `id="root"`) {
 		t.Error("the page has no #root div: the app has nowhere to mount")
@@ -44,11 +64,10 @@ func TestThePageMeetsItsHardRequirements(t *testing.T) {
 			t.Errorf("the page reaches outside itself (%q); it must be self-contained", needle)
 		}
 	}
+}
 
-	// 5. The JS and CSS are discovered dynamically, so find them by Content-Type
-	// rather than a hardcoded path. The properties are checked across ALL served
-	// JS and ALL served CSS, because a Vite build may split code into chunks.
-	var jsBytes, cssBytes []byte
+// servedScriptsAndStyles is every served JavaScript file, and every served stylesheet, joined.
+func servedScriptsAndStyles() (jsBytes, cssBytes []byte) {
 	for _, name := range Names() {
 		body, ctype, err := Content(name)
 		if err != nil {
@@ -61,16 +80,11 @@ func TestThePageMeetsItsHardRequirements(t *testing.T) {
 			cssBytes = append(cssBytes, body...)
 		}
 	}
-	js := string(jsBytes)
-	css := string(cssBytes)
+	return jsBytes, cssBytes
+}
 
-	if len(jsBytes) == 0 {
-		t.Fatal("no JavaScript is served: the page would be inert")
-	}
-	if len(cssBytes) == 0 {
-		t.Fatal("no CSS is served: the page would be unstyled")
-	}
-
+// checkNoCredentialInWebStorage is requirement 6 of TestThePageMeetsItsHardRequirements.
+func checkNoCredentialInWebStorage(t *testing.T, js string) {
 	// 6. The script stores no credential in web storage: the token lives in the
 	// HttpOnly cookie. localStorage/sessionStorage may be used for UI preferences
 	// (sidebar state, last session id) but MUST NOT hold the token, API key, or
@@ -90,7 +104,11 @@ func TestThePageMeetsItsHardRequirements(t *testing.T) {
 			t.Errorf("a JS file stores a credential in web storage (%q): the token belongs in the HttpOnly cookie", needle)
 		}
 	}
+}
 
+// checkTheScriptAndStyleRequirements: requirements 7 to 13 of
+// TestThePageMeetsItsHardRequirements, on the served JavaScript and CSS.
+func checkTheScriptAndStyleRequirements(t *testing.T, js, css string) {
 	// 7. The fragment is dropped after it is used.
 	if !strings.Contains(js, "replaceState") {
 		t.Error("the JS never clears the URL fragment: the token would stay in the address bar and in history")
@@ -523,6 +541,33 @@ func TestThePageNamesAssetsThatAreActuallyThere(t *testing.T) {
 	}
 }
 
+// unservedPrecacheEntries is every same-origin precache entry this server does not serve.
+func unservedPrecacheEntries(urls []string) []string {
+	served := make(map[string]bool)
+	for _, name := range Names() {
+		served[name] = true
+	}
+	var missing []string
+	for _, u := range urls {
+		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+			continue
+		}
+		if !strings.HasPrefix(u, "/") {
+			u = "/" + u
+		}
+		if !served[u] {
+			missing = append(missing, u)
+		}
+	}
+	return missing
+}
+
+// isDocumentEntry reports whether a precache entry is the page itself.
+func isDocumentEntry(u string) bool {
+	base := strings.TrimPrefix(strings.TrimPrefix(u, "/"), "./")
+	return base == "" || base == "index.html" || strings.HasSuffix(base, "/index.html")
+}
+
 func TestTheServiceWorkerPrecachesOnlyWhatIsServed(t *testing.T) {
 	// Two real bugs, both silent, both with the same symptom: the reader reloads after a fix and
 	// sees no change at all.
@@ -554,23 +599,7 @@ func TestTheServiceWorkerPrecachesOnlyWhatIsServed(t *testing.T) {
 		t.Fatalf("the worker listed %d precache entr(ies): the scan has gone blind, not the "+
 			"build (expected the bundles, the fonts and the manifest)", len(urls))
 	}
-	served := make(map[string]bool)
-	for _, name := range Names() {
-		served[name] = true
-	}
-	var missing []string
-	for _, u := range urls {
-		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
-			continue
-		}
-		if !strings.HasPrefix(u, "/") {
-			u = "/" + u
-		}
-		if !served[u] {
-			missing = append(missing, u)
-		}
-	}
-	if len(missing) > 0 {
+	if missing := unservedPrecacheEntries(urls); len(missing) > 0 {
 		sort.Strings(missing)
 		t.Fatalf("the service worker precaches %d file(s) this server does not serve: %v\n"+
 			"`cache.addAll` rejects the ENTIRE install on a single 404, so the worker never "+
@@ -582,8 +611,7 @@ func TestTheServiceWorkerPrecachesOnlyWhatIsServed(t *testing.T) {
 	// (2) The document must not be precached, and navigation must not be answered cache-first:
 	// together they are what pins a browser to a previous build.
 	for _, u := range urls {
-		base := strings.TrimPrefix(strings.TrimPrefix(u, "/"), "./")
-		if base == "" || base == "index.html" || strings.HasSuffix(base, "/index.html") {
+		if isDocumentEntry(u) {
 			t.Fatalf("the service worker precaches the document (%q). It names the bundle by "+
 				"hash, so a cached copy keeps naming the OLD bundle and the reader goes on "+
 				"running the previous build. Exclude it from the precache.", u)

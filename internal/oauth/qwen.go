@@ -149,6 +149,8 @@ func QwenBaseURL(resource string) string {
 		r = r[len(httpsScheme):]
 	} else if strings.HasPrefix(lower, "http://") {
 		r = r[len("http://"):]
+	} else {
+		// No scheme: the bare host gets https below.
 	}
 	r = httpsScheme + r
 	if !strings.HasSuffix(r, "/v1") {
@@ -160,7 +162,9 @@ func QwenBaseURL(resource string) string {
 // PollDevice polls a device flow until it ends: approved, denied, expired, or
 // cancelled. It honours the server's interval and slows down when told to.
 // sleep is injectable so a test does not wait.
-func PollDevice[T any](ctx context.Context, interval int, sleep func(time.Duration) <-chan time.Time, poll func() (T, error)) (T, error) {
+func PollDevice[T any](
+	ctx context.Context, interval int, sleep func(time.Duration) <-chan time.Time, poll func() (T, error),
+) (T, error) {
 	if interval <= 0 {
 		interval = 5
 	}

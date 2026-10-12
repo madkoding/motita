@@ -40,20 +40,25 @@ type Command struct {
 // commands is every slash command, in the order the popup presents them: the ones that
 // change mode first, then the ones that act, then the ones about the session, then leaving.
 var commands = []Command{
-	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check", Group: "mode"},
+	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check",
+		Group: "mode"},
 	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
 	{Name: "/decisions", Help: "what /goal decided; undo n removes one", Arg: "[undo n]", Group: "action"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
-	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
+	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]",
+		Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
 	{Name: "/git", Help: "connect GitHub, GitLab or Bitbucket", Arg: "[connect]", Group: "mode"},
-	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "how hard the model thinks: off, low, medium, high", Group: "mode"},
-	{Name: "/language", Aliases: []string{"/lang"}, Help: "the interface's language: en, es or auto", Arg: "[en|es|auto]", Group: "mode"},
+	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "how hard the model thinks: off, low, medium, high",
+		Group: "mode"},
+	{Name: "/language", Aliases: []string{"/lang"}, Help: "the interface's language: en, es or auto",
+		Arg: "[en|es|auto]", Group: "mode"},
 	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text", Group: "action"},
 	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and what was carried over", Group: "session"},
 	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
 	{Name: "/attach", Help: "switch to another conversation", Arg: "session id", Group: "session"},
-	{Name: "/artifacts", Help: "files the agent saved: list, show one, or save it here", Arg: "[name | save name]", Group: "session"},
+	{Name: "/artifacts", Help: "files the agent saved: list, show one, or save it here", Arg: "[name | save name]",
+		Group: "session"},
 	{Name: "/agents", Help: "show or hide the run's agents: purpose, time, tokens", Group: "session"},
 	{Name: "/good", Help: "rate the last answer as good", Arg: "note", Group: "action"},
 	{Name: "/bad", Help: "rate the last answer as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
@@ -76,7 +81,10 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 // `/bad <note>` without a second, parallel list of "commands that carry an argument". Two
 // lists meant two places to add a command, and the one that was forgotten did nothing.
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
-	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
+	"/task": func(t *TUI, _ context.Context, _ string) bool {
+		t.setScreen(ScreenTask)
+		return false
+	},
 	"/decisions": func(t *TUI, _ context.Context, arg string) bool {
 		ws := t.Runner.Config().Agent.WorkspaceDir
 		if f := strings.Fields(arg); len(f) == 2 && f[0] == "undo" {
@@ -101,7 +109,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.drawFrame()
 		return false
 	},
-	"/plan": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenPlan); return false },
+	"/plan": func(t *TUI, _ context.Context, _ string) bool {
+		t.setScreen(ScreenPlan)
+		return false
+	},
 	// A goal is a task the agent runs without asking. The prefix travels with the text, so the
 	// gateway and the agent need no new field to know the run is autonomous.
 	"/goal": func(t *TUI, ctx context.Context, arg string) bool {
@@ -135,9 +146,19 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.setScreen(ScreenTask)
 		return false
 	},
-	"/git":       func(t *TUI, ctx context.Context, arg string) bool { t.runGit(ctx, arg); return false },
-	"/reasoning": func(t *TUI, _ context.Context, _ string) bool { t.cycleReasoning(); return false },
-	"/language":  func(t *TUI, _ context.Context, arg string) bool { t.runLanguage(arg); t.drawFrame(); return false },
+	"/git": func(t *TUI, ctx context.Context, arg string) bool {
+		t.runGit(ctx, arg)
+		return false
+	},
+	"/reasoning": func(t *TUI, _ context.Context, _ string) bool {
+		t.cycleReasoning()
+		return false
+	},
+	"/language": func(t *TUI, _ context.Context, arg string) bool {
+		t.runLanguage(arg)
+		t.drawFrame()
+		return false
+	},
 	// The typed alternative to Ctrl+F, and the one that works everywhere: a terminal in
 	// canonical mode consumes control bytes itself (Ctrl+U is the driver's kill-line,
 	// Ctrl+D its EOF), so the shortcut cannot be relied on. This goes through the ordinary
@@ -145,7 +166,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	//
 	// With an argument it applies the filter in one step; without one it opens the box.
 	// applyFind already draws that distinction, so it is not repeated here.
-	"/find": func(t *TUI, _ context.Context, arg string) bool { t.applyFind(arg); return false },
+	"/find": func(t *TUI, _ context.Context, arg string) bool {
+		t.applyFind(arg)
+		return false
+	},
 	// The session report: the window, what is in use, and what a compaction carried. A
 	// conversation the user cannot inspect is one they cannot trust.
 	"/session": func(t *TUI, _ context.Context, _ string) bool {
@@ -154,9 +178,18 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	},
 	// The list of conversations, and which one this interface is on. It is how a user discovers
 	// that the gateway holds more than one, and the ids the other command takes.
-	"/sessions":  func(t *TUI, ctx context.Context, _ string) bool { t.printSessions(ctx); return false },
-	"/agents":    func(t *TUI, _ context.Context, _ string) bool { t.toggleAgents(); return false },
-	"/artifacts": func(t *TUI, ctx context.Context, arg string) bool { t.artifactsCommand(ctx, arg); return false },
+	"/sessions": func(t *TUI, ctx context.Context, _ string) bool {
+		t.printSessions(ctx)
+		return false
+	},
+	"/agents": func(t *TUI, _ context.Context, _ string) bool {
+		t.toggleAgents()
+		return false
+	},
+	"/artifacts": func(t *TUI, ctx context.Context, arg string) bool {
+		t.artifactsCommand(ctx, arg)
+		return false
+	},
 	// Moving to another conversation, and READING it: coming back to a conversation means seeing
 	// what happened while you were away, so the announcement is made by attachTo itself - one
 	// place says what entering a session means, and a second message here would be a second
@@ -174,8 +207,14 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		}
 		return false
 	},
-	"/good": func(t *TUI, _ context.Context, note string) bool { t.recordVerdict(true, note); return false },
-	"/bad":  func(t *TUI, _ context.Context, note string) bool { t.recordVerdict(false, note); return false },
+	"/good": func(t *TUI, _ context.Context, note string) bool {
+		t.recordVerdict(true, note)
+		return false
+	},
+	"/bad": func(t *TUI, _ context.Context, note string) bool {
+		t.recordVerdict(false, note)
+		return false
+	},
 	// What the library has learned, worst first: the entries that need attention are the ones
 	// at the top, and the complaints attached to them are what a fix is written from.
 	"/value": func(t *TUI, _ context.Context, _ string) bool {
@@ -195,7 +234,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	},
 	// The gateway replaces its own binary and restarts, so the interface says what is
 	// happening and then lets the user decide when to come back.
-	"/update": func(t *TUI, ctx context.Context, _ string) bool { t.runUpdate(ctx); return false },
+	"/update": func(t *TUI, ctx context.Context, _ string) bool {
+		t.runUpdate(ctx)
+		return false
+	},
 	"/help": func(t *TUI, _ context.Context, _ string) bool {
 		t.addPreformatted(AuthorSystem, buildHelp(t.Lang))
 		return false
@@ -290,42 +332,16 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 	// up. The guide is explicit that columnar data must align.
 	nameWidth := 0
 	for _, c := range cands {
-		label := c.Name
-		if c.Arg != "" {
-			label += " " + t.tr(c.Arg)
-		}
-		if n := visibleLen(label); n > nameWidth {
+		if n := visibleLen(t.commandLabel(c)); n > nameWidth {
 			nameWidth = n
 		}
 	}
 
-	// The cap counts EVERY row this function will return, including the "and N more" row: a cap
-	// that bounded only the candidates would let the trailer push the frame past the bottom of the
-	// terminal. The keys that work in the popup are in the footer, so no row is spent on them here.
-	showMore := false
-	shown := cands
-	hidden := 0
-	if max > 0 && len(cands) > max {
-		// The budget is at least one because the cap is never below one: the layout owns that
-		// floor, and duplicating it would be a guard that cannot be reached.
-		keep := max
-		// The "and N more" line costs a row too, and only makes sense when a candidate survives
-		// beside it — with a budget of one the candidate wins, because seeing WHICH command is
-		// offered matters more than being told how many others there are.
-		if keep > 1 {
-			keep--
-			showMore = true
-		}
-		hidden = len(cands) - keep
-		shown = cands[:keep]
-	}
+	shown, hidden, showMore := capCompletions(cands, max)
 
 	lines := make([]string, 0, len(shown)+2)
 	for i, c := range shown {
-		label := c.Name
-		if c.Arg != "" {
-			label += " " + t.tr(c.Arg)
-		}
+		label := t.commandLabel(c)
 		pad := strings.Repeat(" ", nameWidth-visibleLen(label))
 		row := t.color(colAccent, 0, label) + pad + "  " + t.muted(t.tr(c.Help))
 		if !t.fits(row, w-2*leftMargin-2) {
@@ -356,6 +372,35 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		lines = append(lines, t.plainLine(t.muted(t.trf("… and %d more, keep typing", hidden))))
 	}
 	return lines
+}
+
+// commandLabel is a command's name with its argument, as the popup shows it.
+func (t *TUI) commandLabel(c Command) string {
+	if c.Arg != "" {
+		return c.Name + " " + t.tr(c.Arg)
+	}
+	return c.Name
+}
+
+// capCompletions cuts the candidates to max rows (zero meaning no limit). The cap counts EVERY
+// row the popup returns, including the "and N more" row: a cap that bounded only the candidates
+// would let the trailer push the frame past the bottom of the terminal. The keys that work in
+// the popup are in the footer, so no row is spent on them here.
+func capCompletions(cands []Command, max int) (shown []Command, hidden int, showMore bool) {
+	if max <= 0 || len(cands) <= max {
+		return cands, 0, false
+	}
+	// The budget is at least one because the cap is never below one: the layout owns that
+	// floor, and duplicating it would be a guard that cannot be reached.
+	keep := max
+	// The "and N more" line costs a row too, and only makes sense when a candidate survives
+	// beside it — with a budget of one the candidate wins, because seeing WHICH command is
+	// offered matters more than being told how many others there are.
+	if keep > 1 {
+		keep--
+		showMore = true
+	}
+	return cands[:keep], len(cands) - keep, showMore
 }
 
 // completing reports whether the popup should be drawn: the user is typing a command and

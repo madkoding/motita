@@ -30,7 +30,8 @@ const (
 	GoogleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
 	GoogleTokenURL = "https://oauth2.googleapis.com/token"
 	// GeminiScopes are the scopes the Gemini API documents for OAuth.
-	GeminiScopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language.retriever"
+	GeminiScopes = "https://www.googleapis.com/auth/cloud-platform " +
+		"https://www.googleapis.com/auth/generative-language.retriever"
 )
 
 // GeminiClient is the user's own OAuth client.
@@ -76,7 +77,9 @@ type googleTokenResponse struct {
 }
 
 // GeminiExchangeCode trades the authorisation code for tokens.
-func GeminiExchangeCode(ctx context.Context, hc HTTPClient, client GeminiClient, code, redirectURI string, p PKCE, project string) (Credential, error) {
+func GeminiExchangeCode(
+	ctx context.Context, hc HTTPClient, client GeminiClient, code, redirectURI string, p PKCE, project string,
+) (Credential, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -158,7 +161,8 @@ func fileExists(p string) bool {
 func GeminiFromADC(path, project string) (Credential, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Credential{}, fmt.Errorf("no gcloud credentials at %s (run `gcloud auth application-default login`): %w", path, err)
+		return Credential{}, fmt.Errorf(
+			"no gcloud credentials at %s (run `gcloud auth application-default login`): %w", path, err)
 	}
 	var adc struct {
 		Type           string `json:"type"`

@@ -9,7 +9,8 @@ func TestStringMasksSecrets(t *testing.T) {
 	cases := []struct {
 		name, in, want string
 	}{
-		{"authorization bearer header", `curl -H "Authorization: Bearer abc.def-123"`, `curl -H "Authorization: Bearer [REDACTED]"`},
+		{"authorization bearer header", `curl -H "Authorization: Bearer abc.def-123"`,
+			`curl -H "Authorization: Bearer [REDACTED]"`},
 		{"authorization basic header", "Authorization: Basic dXNlcjpwYXNz", "Authorization: Basic [REDACTED]"},
 		{"authorization raw value", "authorization=s3cr3tvalue0123456789", "authorization=[REDACTED]"},
 		{"bearer outside a header", "token is Bearer eyJhbGciOiJIUzI1NiJ9.x", "token is Bearer [REDACTED]"},
@@ -21,8 +22,10 @@ func TestStringMasksSecrets(t *testing.T) {
 		{"aws access key", "aws AKIAIOSFODNN7EXAMPLE ok", "aws [REDACTED] ok"},
 		{"google api key", "AIzaSyA-abcdefghijklmnopqrstuvwxyz01234", "[REDACTED]"},
 		{"slack token", "xoxb-1234567890-abcdefghij", "[REDACTED]"},
-		{"url credentials", "cloning https://user:hunter2@github.com/o/r.git", "cloning https://[REDACTED]@github.com/o/r.git"},
-		{"secret query params", "GET /x?a=1&access_token=abc&api_key=def&password=ghi#frag", "GET /x?a=1&access_token=[REDACTED]&api_key=[REDACTED]&password=[REDACTED]#frag"},
+		{"url credentials", "cloning https://user:hunter2@github.com/o/r.git",
+			"cloning https://[REDACTED]@github.com/o/r.git"},
+		{"secret query params", "GET /x?a=1&access_token=abc&api_key=def&password=ghi#frag",
+			"GET /x?a=1&access_token=[REDACTED]&api_key=[REDACTED]&password=[REDACTED]#frag"},
 		{"bare query string", "token=abc&state=xyz", "token=[REDACTED]&state=xyz"},
 		{
 			"pem private key",

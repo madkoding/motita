@@ -30,8 +30,9 @@ import re
 import subprocess
 import sys
 import time
+from typing import Any
 
-from cdp_http import fetch_json, chrome_env, LAUNCHER
+from cdp_http import JSON, AsyncSocket, fetch_json, chrome_env, LAUNCHER
 
 import websockets
 
@@ -50,17 +51,20 @@ CHROME = os.path.expanduser(
 )
 
 
-def token():
+def token() -> str:
+    """The gateway token, read from TOKEN_FILE."""
     with open(os.path.expanduser(TOKEN_FILE)) as f:
         return f.read().strip()
 
 
 class CDP:
-    def __init__(self, ws):
+    """A minimal Chrome DevTools Protocol client over one websocket."""
+
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
-    async def call(self, method, **params):
+    async def call(self, method: str, **params: Any) -> dict[str, Any]:
         self.i += 1
         mid = self.i
         await self.ws.send(json.dumps({"id": mid, "method": method, "params": params}))
@@ -71,13 +75,13 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr):
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))
         return r.get("result", {}).get("value")
 
-    async def shot(self, path):
+    async def shot(self, path: str) -> str:
         r = await self.call("Page.captureScreenshot", format="png")
         await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
@@ -181,7 +185,8 @@ MEASURE = r"""
     for (const el of aside.querySelectorAll('.session-row *, .project-header *')) {
       const b = box(el);
       if (b.w > 0 && b.right > out.sidebar.right + 1) {
-        out.spill.push({ cls: el.className.toString().slice(0, 50), right: b.right, text: el.textContent.trim().slice(0, 30) });
+        out.spill.push({ cls: el.className.toString().slice(0, 50), right: b.right,
+                         text: el.textContent.trim().slice(0, 30) });
       }
     }
   }
@@ -190,12 +195,335 @@ MEASURE = r"""
 """
 
 
-def fail(msg):
+def fail(msg: str) -> int:
+    """Print one failure; returns 1 so the caller can add it to its count."""
     print(f"  FAIL {msg}")
     return 1
 
 
-def main():
+# Read the project header's collapse state as the user sees it: the list's real height and
+# visibility, and the chevron's computed transform.
+COLLAPSE_STATE = """(() => {
+    const h = document.querySelector('.project-header');
+    if (!h) return null;
+    const svg = h.querySelector('svg');
+    const pl = svg ? svg.querySelector('polyline') : null;
+    const list = document.querySelector('.project-sessions');
+    const inner = document.querySelector('.project-sessions-inner');
+    return {
+        points: pl ? pl.getAttribute('points') : null,
+        transform: svg ? getComputedStyle(svg).transform : null,
+        rows: document.querySelectorAll('.session-row').length,
+        listHeight: list ? Math.round(list.getBoundingClientRect().height) : null,
+        innerHeight: inner ? Math.round(inner.getBoundingClientRect().height) : null,
+        visibility: list ? getComputedStyle(list).visibility : null,
+        gridRows: list ? getComputedStyle(list).gridTemplateRows : null,
+        transition: list ? getComputedStyle(list).transitionProperty : null,
+    };
+})()"""
+
+STAMP_FORMAT = re.compile(r"\d\d/\d\d/\d{4} :: \d\d:\d\d:\d\d")
+COLOUR_CLASS = re.compile(r"text-\[(#[0-9a-fA-F]+)\]|text-(accent|muted-foreground|danger)")
+
+
+def wait_page_ws() -> str | None:
+    """The websocket URL of the first page target, polling the DevTools endpoint for ~15 s."""
+    # Wait for the DevTools endpoint, and attach to a PAGE target: the
+    # browser-level endpoint has no Page domain, so a session against it
+    # cannot navigate or screenshot.
+    for _ in range(60):
+        try:
+            targets = fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=1)
+            pages = [t for t in targets if t.get("type") == "page"]
+            if pages:
+                return pages[0]["webSocketDebuggerUrl"]
+        except Exception:
+            pass
+        time.sleep(0.25)
+    return None
+
+
+def print_session(s: dict[str, Any]) -> None:
+    """Print one session row's measured geometry and chips."""
+    print(f"  - title {s['titleText']!r}")
+    print(f"      title bottom={s['titleBottom']:.1f}  stamp top={s['stampTop']:.1f}"
+          f"  facts top={s['metaTop']:.1f}")
+    print(f"      stamp {s['stampText']!r}  under={s['stampUnder']}  aboveFacts={s['stampAboveFacts']}")
+    print(f"      title width={s['titleWidth']:.1f} (starved={not s['titleNotStarved']})")
+    for ch in s["chips"]:
+        print(f"      chip {ch['text']!r:46} w={ch['w']:.1f} clipped={ch['clipped']}")
+
+
+def check_session_layout(s: dict[str, Any], label: str) -> int:
+    """Facts and timestamp sit under the title, the title keeps its width; returns the failures."""
+    failures = 0
+    if not s["under"]:
+        failures += fail(f"facts are not under the title in {label}: {s['titleText']!r}")
+    # The timestamp must be on its own line, BETWEEN the
+    # title and the facts - that is the break the user asked
+    # for. Sharing the facts line is the old behaviour.
+    if not s["stampUnder"] or not s["stampAboveFacts"]:
+        failures += fail(f"the timestamp is not on its own line under the title in {label}: "
+                         f"{s['titleText']!r}")
+    # The timestamp LINE is what must carry the format, not a
+    # chip: it moved out of the facts row deliberately.
+    if not STAMP_FORMAT.search(s["stampText"]):
+        failures += fail(f"the timestamp line is not dd/mm/yyyy :: HH:mm:ss in {label}: "
+                         f"{s['stampText']!r}")
+    if not s["titleNotStarved"]:
+        failures += fail(f"title squeezed to {s['titleWidth']:.1f}px in {label}: {s['titleText']!r}")
+    if not s["metaInsideRow"]:
+        failures += fail(f"meta sticks out of its row in {label}: {s['titleText']!r}")
+    return failures
+
+
+def check_chip_colours(s: dict[str, Any], label: str) -> int:
+    """Each kind of fact has its own colour; returns the failures."""
+    # Each KIND of fact is drawn in its own colour, so the
+    # eye separates them before reading them. Comparing the
+    # class is enough here: the colours are literals in the
+    # class, and this asserts they differ per kind rather
+    # than that a particular palette is in use.
+    colours = {}
+    for ch in s["chips"]:
+        m2 = COLOUR_CLASS.search(ch.get("valueCls", ""))
+        if m2:
+            kind = (ch.get("label") or "").lower()
+            colours.setdefault(kind, set()).add(m2.group(0))
+    distinct = {k: sorted(v) for k, v in colours.items()}
+    print(f"      colours by kind: {distinct}")
+    used = [c for v in colours.values() for c in v]
+    if len(used) > 1 and len(set(used)) < len(colours):
+        return fail(f"two kinds of fact share a colour in {label}: {distinct}")
+    return 0
+
+
+def check_session_chips(s: dict[str, Any], label: str) -> int:
+    """Chips do not collide, name themselves, are not clipped and do not repeat the id."""
+    failures = 0
+    # Chips that share a line must not collide.
+    chips = sorted(s["chips"], key=lambda x: (x["line"], x["left"]))
+    for a, b in zip(chips, chips[1:]):
+        if a["line"] == b["line"] and b["left"] < a["right"] - 0.5:
+            failures += fail(f"meta chips overlap in {label}: {a['text']!r} / {b['text']!r}")
+    failures += check_chip_colours(s, label)
+    # Every session fact must NAME itself: `main` beside a
+    # count says nothing about which is a branch and which a
+    # worktree. A chip with no label element is unlabelled.
+    for ch in s["chips"]:
+        if (ch.get("text") or "").strip() and not ch.get("label"):
+            failures += fail(f"session chip in {label} has no label element: {ch['text']!r}")
+    # An unbroken string of 25 chars can still be clipped by
+    # the max-width, which would hide the value being shown.
+    for ch in s["chips"]:
+        if ch["clipped"]:
+            failures += fail(f"meta chip clipped in {label}: {ch['text']!r} (title {ch['title']!r})")
+    # The id must not be printed twice on one row: the session
+    # branch and its worktree are the same id when the session
+    # has not been moved, and repeating it is noise, not data.
+    ids = [c for c in (ch["text"] for ch in s["chips"]) if re.match(r"^(motita/|⌥ )", c)]
+    if len(ids) != len(set(ids)):
+        failures += fail(f"the same id is printed twice in {label}: {ids}")
+    return failures
+
+
+def check_session(s: dict[str, Any], label: str) -> int:
+    """Measure one session row; returns the failures."""
+    if s.get("error"):
+        return fail(f"session row unreadable: {s['error']}")
+    print_session(s)
+    return check_session_layout(s, label) + check_session_chips(s, label)
+
+
+def check_collapsed(expanded: dict[str, Any], mid: dict[str, Any] | None, collapsed: dict[str, Any]) -> int:
+    """The list closes fully, hides, and animates through a middle height; returns the failures."""
+    failures = 0
+    if collapsed["listHeight"] >= 1:
+        failures += fail(
+            f"collapsing a project did not collapse its list: "
+            f"{expanded['listHeight']}px -> {collapsed['listHeight']}px")
+    if collapsed["visibility"] != "hidden":
+        failures += fail(
+            "a collapsed project's list is still visible "
+            f"(visibility: {collapsed['visibility']}) - the rows stay "
+            "clickable and in the tab order")
+    if mid and mid["listHeight"] >= expanded["listHeight"] - 1:
+        failures += fail(
+            "the collapse is not animated: the list is still at full "
+            f"height 90ms in ({mid['listHeight']}px of {expanded['listHeight']}px)")
+    if mid and mid["listHeight"] <= 0:
+        failures += fail(
+            "the collapse is not animated: the list had already closed "
+            "90ms in, so the transition is not applying")
+    if "grid-template-rows" not in (expanded["transition"] or ""):
+        failures += fail(
+            "the session list has no grid-template-rows transition, so its "
+            f"height cannot animate (transition-property: {expanded['transition']})")
+    return failures
+
+
+def check_arrow(expanded: dict[str, Any], collapsed: dict[str, Any]) -> int:
+    """The chevron turns -90deg by a transform on the same path; returns the failures."""
+    failures = 0
+    # The arrow must MOVE, and it must move by rotating:
+    # the same path, a different computed transform. Two
+    # different paths would satisfy "the points differ"
+    # while the icon still snaps.
+    if expanded["points"] != collapsed["points"]:
+        failures += fail(
+            "the arrow swaps its path instead of rotating, so it cannot "
+            f"animate: {expanded['points']!r} -> {collapsed['points']!r}")
+    if expanded["transform"] == collapsed["transform"]:
+        failures += fail(
+            "the collapse arrow does not move: computed transform is "
+            f"{expanded['transform']!r} in both states")
+    elif collapsed["transform"] in ("none", None):
+        failures += fail(
+            "the collapsed arrow has no transform applied, so it still "
+            "points the wrong way")
+    # Rotating -90deg from "down" must end pointing right:
+    # the matrix is [cos, sin, -sin, cos] = [0, -1, 1, 0].
+    elif not collapsed["transform"].startswith("matrix(0, -1, 1, 0"):
+        failures += fail(
+            f"the collapsed arrow should point right (-90deg), got "
+            f"{collapsed['transform']!r}")
+    return failures
+
+
+def check_restored(expanded: dict[str, Any], restored: dict[str, Any]) -> int:
+    """Re-expanding gives back the same height, visibility, arrow and rows; returns the failures."""
+    failures = 0
+    print(f"  EXPAND: list height -> {restored['listHeight']}px")
+    if restored["listHeight"] != expanded["listHeight"]:
+        failures += fail(
+            "expanding did not restore the list to its height: had "
+            f"{expanded['listHeight']}px, now {restored['listHeight']}px")
+    if restored["visibility"] != "visible":
+        failures += fail(
+            f"an expanded list is not visible (visibility: {restored['visibility']})")
+    if restored["transform"] != expanded["transform"]:
+        failures += fail("the arrow did not return when re-expanded")
+    if restored["rows"] != expanded["rows"]:
+        failures += fail(
+            f"the session count changed across a collapse cycle: "
+            f"{expanded['rows']} -> {restored['rows']}")
+    return failures
+
+
+async def check_collapse(c: CDP) -> int:
+    """Collapse and re-expand the first project, measuring what the user sees; returns the failures."""
+    # Expand/collapse: click the project header and measure what
+    # the user actually sees. Two earlier versions of this check
+    # were weak and both passed over a real bug:
+    #   * one compared the chevron's CLASS STRING while the icon
+    #     never moved (Tailwind's `transform` plugin is off, so
+    #     `.rotate-90` emitted `translate(var(--tw-translate-x))`
+    #     with that variable undefined, the declaration was
+    #     dropped, and computed `transform` stayed `none`);
+    #   * one COUNTED `.session-row` elements, which stops being
+    #     evidence the moment the list is animated instead of
+    #     unmounted - the rows stay in the DOM at zero height.
+    # So this now measures the collapsed list's real HEIGHT and
+    # its computed `visibility`, which is true whether the rows
+    # are removed or merely closed to nothing.
+    expanded = await c.js(COLLAPSE_STATE)
+    if not expanded:
+        return fail("no project header to collapse")
+    # Mid-flight sample: with the transition running, the
+    # list must be at a height BETWEEN open and closed.
+    # That is the only way to prove it animates rather
+    # than jump-cutting, and it is invisible to any check
+    # that only samples the two end states.
+    await c.js("document.querySelector('.project-header').click()")
+    await asyncio.sleep(0.09)
+    mid = await c.js(COLLAPSE_STATE)
+    await asyncio.sleep(0.9)
+    collapsed = await c.js(COLLAPSE_STATE)
+    print(f"  COLLAPSE: list height {expanded['listHeight']}px -> "
+          f"{mid['listHeight']}px (mid-flight) -> {collapsed['listHeight']}px")
+    print(f"            arrow transform {expanded['transform']!r} -> {collapsed['transform']!r}")
+
+    failures = check_collapsed(expanded, mid, collapsed)
+    failures += check_arrow(expanded, collapsed)
+
+    await c.js("document.querySelector('.project-header').click()")
+    await asyncio.sleep(0.9)
+    restored = await c.js(COLLAPSE_STATE)
+    failures += check_restored(expanded, restored)
+    return failures
+
+
+def check_project(p: dict[str, Any], label: str) -> int:
+    """Measure one project header; returns the failures."""
+    if p.get("error"):
+        return fail(f"project header unreadable: {p['error']}")
+    failures = 0
+    print(f"  - project {p['titleText']!r}  under={p['under']} title w={p['titleWidth']:.1f}")
+    for ch in p["chips"]:
+        print(f"      chip label={ch.get('label')!r:12} value={ch.get('valueText')!r}")
+    if not p["under"]:
+        failures += fail(f"project facts are not under the title in {label}: {p['titleText']!r}")
+    if not p["titleNotStarved"]:
+        failures += fail(f"project title squeezed in {label}: {p['titleText']!r}")
+    # A project's facts must name themselves too: the whole
+    # complaint was a bare `3` beside an icon nobody could
+    # identify.
+    for ch in p["chips"]:
+        if (ch.get("text") or "").strip() and not ch.get("label"):
+            failures += fail(f"project chip in {label} has no label element: {ch['text']!r}")
+    return failures
+
+
+async def measure_viewport(c: CDP, label: str, w: int, h: int) -> int:
+    """Load the app at w x h, measure the sidebar and check every row; returns the failures."""
+    failures = 0
+    await c.call("Emulation.setDeviceMetricsOverride", width=w, height=h,
+                 deviceScaleFactor=1, mobile=False)
+    url = f"{BASE}/#t={token()}"
+    await c.call("Page.navigate", url=url)
+    await asyncio.sleep(2.5)
+    # The service worker can serve a stale bundle; drop it so the
+    # measurement is of the build under test.
+    await c.js("""(async () => {
+        for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+        for (const k of await caches.keys()) await caches.delete(k);
+    })()""")
+    await c.call("Page.navigate", url=url)
+    await asyncio.sleep(3)
+
+    m = await c.js(MEASURE)
+    await c.shot(f"{SHOTS}/sidebar-{label}.png")
+    print(f"\n=== {label} ({w}x{h}) ===")
+    print(f"  sidebar: {m.get('sidebar')}")
+    print(f"  sessions measured: {len(m['sessions'])}, projects: {len(m['projects'])}")
+    for s in m["sessions"]:
+        failures += check_session(s, label)
+    if label == "narrow":
+        failures += await check_collapse(c)
+    for p in m["projects"]:
+        failures += check_project(p, label)
+    for sp in m["spill"]:
+        failures += fail(f"spills past the sidebar in {label}: {sp}")
+    return failures
+
+
+async def run(ws_url: str) -> int:
+    """Measure the sidebar at a narrow and a desktop width; returns the failures."""
+    failures = 0
+    async with websockets.connect(ws_url, max_size=50 * 1024 * 1024) as ws:
+        c = CDP(ws)
+        await c.call("Page.enable")
+        await c.call("Runtime.enable")
+
+        # A narrow viewport is the honest test: the request is about a
+        # sidebar that must stay readable when space is tight.
+        for label, w, h in [("narrow", 390, 844), ("desktop", 1280, 900)]:
+            failures += await measure_viewport(c, label, w, h)
+    return failures
+
+
+def main() -> int:
+    """Start a headless browser, measure the sidebar and print the verdict; returns the exit code."""
     os.makedirs(SHOTS, exist_ok=True)
     failures = 0
     proc = subprocess.Popen(
@@ -204,253 +532,11 @@ def main():
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
-        # Wait for the DevTools endpoint, and attach to a PAGE target: the
-        # browser-level endpoint has no Page domain, so a session against it
-        # cannot navigate or screenshot.
-        ws_url = None
-        for _ in range(60):
-            try:
-                targets = fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=1)
-                pages = [t for t in targets if t.get("type") == "page"]
-                if pages:
-                    ws_url = pages[0]["webSocketDebuggerUrl"]
-                    break
-            except Exception:
-                pass
-            time.sleep(0.25)
+        ws_url = wait_page_ws()
         if not ws_url:
             print("  FAIL could not reach a page target on the DevTools endpoint")
             return 1
-
-        async def run():
-            nonlocal failures
-            async with websockets.connect(ws_url, max_size=50 * 1024 * 1024) as ws:
-                c = CDP(ws)
-                await c.call("Page.enable")
-                await c.call("Runtime.enable")
-
-                # A narrow viewport is the honest test: the request is about a
-                # sidebar that must stay readable when space is tight.
-                for label, w, h in [("narrow", 390, 844), ("desktop", 1280, 900)]:
-                    await c.call("Emulation.setDeviceMetricsOverride", width=w, height=h,
-                                 deviceScaleFactor=1, mobile=False)
-                    url = f"{BASE}/#t={token()}"
-                    await c.call("Page.navigate", url=url)
-                    await asyncio.sleep(2.5)
-                    # The service worker can serve a stale bundle; drop it so the
-                    # measurement is of the build under test.
-                    await c.js("""(async () => {
-                        for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
-                        for (const k of await caches.keys()) await caches.delete(k);
-                    })()""")
-                    await c.call("Page.navigate", url=url)
-                    await asyncio.sleep(3)
-
-                    m = await c.js(MEASURE)
-                    await c.shot(f"{SHOTS}/sidebar-{label}.png")
-                    print(f"\n=== {label} ({w}x{h}) ===")
-                    print(f"  sidebar: {m.get('sidebar')}")
-                    print(f"  sessions measured: {len(m['sessions'])}, projects: {len(m['projects'])}")
-                    for s in m["sessions"]:
-                        if s.get("error"):
-                            failures += fail(f"session row unreadable: {s['error']}")
-                            continue
-                        print(f"  - title {s['titleText']!r}")
-                        print(f"      title bottom={s['titleBottom']:.1f}  stamp top={s['stampTop']:.1f}  facts top={s['metaTop']:.1f}")
-                        print(f"      stamp {s['stampText']!r}  under={s['stampUnder']}  aboveFacts={s['stampAboveFacts']}")
-                        print(f"      title width={s['titleWidth']:.1f} (starved={not s['titleNotStarved']})")
-                        for ch in s["chips"]:
-                            print(f"      chip {ch['text']!r:46} w={ch['w']:.1f} clipped={ch['clipped']}")
-                        if not s["under"]:
-                            failures += fail(f"facts are not under the title in {label}: {s['titleText']!r}")
-                        # The timestamp must be on its own line, BETWEEN the
-                        # title and the facts - that is the break the user asked
-                        # for. Sharing the facts line is the old behaviour.
-                        if not s["stampUnder"] or not s["stampAboveFacts"]:
-                            failures += fail(f"the timestamp is not on its own line under the title in {label}: {s['titleText']!r}")
-                        # The timestamp LINE is what must carry the format, not a
-                        # chip: it moved out of the facts row deliberately.
-                        if not re.search(r"\d\d/\d\d/\d{4} :: \d\d:\d\d:\d\d", s["stampText"]):
-                            failures += fail(f"the timestamp line is not dd/mm/yyyy :: HH:mm:ss in {label}: {s['stampText']!r}")
-                        if not s["titleNotStarved"]:
-                            failures += fail(f"title squeezed to {s['titleWidth']:.1f}px in {label}: {s['titleText']!r}")
-                        if not s["metaInsideRow"]:
-                            failures += fail(f"meta sticks out of its row in {label}: {s['titleText']!r}")
-                        # Chips that share a line must not collide.
-                        chips = sorted(s["chips"], key=lambda x: (x["line"], x["left"]))
-                        for a, b in zip(chips, chips[1:]):
-                            if a["line"] == b["line"] and b["left"] < a["right"] - 0.5:
-                                failures += fail(f"meta chips overlap in {label}: {a['text']!r} / {b['text']!r}")
-                        # Each KIND of fact is drawn in its own colour, so the
-                        # eye separates them before reading them. Comparing the
-                        # class is enough here: the colours are literals in the
-                        # class, and this asserts they differ per kind rather
-                        # than that a particular palette is in use.
-                        colours = {}
-                        for ch in s["chips"]:
-                            m2 = re.search(r"text-\[(#[0-9a-fA-F]+)\]|text-(accent|muted-foreground|danger)", ch.get("valueCls", ""))
-                            if m2:
-                                kind = (ch.get("label") or "").lower()
-                                colours.setdefault(kind, set()).add(m2.group(0))
-                        distinct = {k: sorted(v) for k, v in colours.items()}
-                        print(f"      colours by kind: {distinct}")
-                        used = [c for v in colours.values() for c in v]
-                        if len(used) > 1 and len(set(used)) < len(colours):
-                            failures += fail(f"two kinds of fact share a colour in {label}: {distinct}")
-                        # Every session fact must NAME itself: `main` beside a
-                        # count says nothing about which is a branch and which a
-                        # worktree. A chip with no label element is unlabelled.
-                        for ch in s["chips"]:
-                            if (ch.get("text") or "").strip() and not ch.get("label"):
-                                failures += fail(f"session chip in {label} has no label element: {ch['text']!r}")
-                        # An unbroken string of 25 chars can still be clipped by
-                        # the max-width, which would hide the value being shown.
-                        for ch in s["chips"]:
-                            if ch["clipped"]:
-                                failures += fail(f"meta chip clipped in {label}: {ch['text']!r} (title {ch['title']!r})")
-                        # The id must not be printed twice on one row: the session
-                        # branch and its worktree are the same id when the session
-                        # has not been moved, and repeating it is noise, not data.
-                        ids = [c for c in (ch["text"] for ch in s["chips"]) if re.match(r"^(motita/|⌥ )", c)]
-                        if len(ids) != len(set(ids)):
-                            failures += fail(f"the same id is printed twice in {label}: {ids}")
-                    # Expand/collapse: click the project header and measure what
-                    # the user actually sees. Two earlier versions of this check
-                    # were weak and both passed over a real bug:
-                    #   * one compared the chevron's CLASS STRING while the icon
-                    #     never moved (Tailwind's `transform` plugin is off, so
-                    #     `.rotate-90` emitted `translate(var(--tw-translate-x))`
-                    #     with that variable undefined, the declaration was
-                    #     dropped, and computed `transform` stayed `none`);
-                    #   * one COUNTED `.session-row` elements, which stops being
-                    #     evidence the moment the list is animated instead of
-                    #     unmounted - the rows stay in the DOM at zero height.
-                    # So this now measures the collapsed list's real HEIGHT and
-                    # its computed `visibility`, which is true whether the rows
-                    # are removed or merely closed to nothing.
-                    if label == "narrow":
-                        async def collapse_state():
-                            return await c.js("""(() => {
-                                const h = document.querySelector('.project-header');
-                                if (!h) return null;
-                                const svg = h.querySelector('svg');
-                                const pl = svg ? svg.querySelector('polyline') : null;
-                                const list = document.querySelector('.project-sessions');
-                                const inner = document.querySelector('.project-sessions-inner');
-                                return {
-                                    points: pl ? pl.getAttribute('points') : null,
-                                    transform: svg ? getComputedStyle(svg).transform : null,
-                                    rows: document.querySelectorAll('.session-row').length,
-                                    listHeight: list ? Math.round(list.getBoundingClientRect().height) : null,
-                                    innerHeight: inner ? Math.round(inner.getBoundingClientRect().height) : null,
-                                    visibility: list ? getComputedStyle(list).visibility : null,
-                                    gridRows: list ? getComputedStyle(list).gridTemplateRows : null,
-                                    transition: list ? getComputedStyle(list).transitionProperty : null,
-                                };
-                            })()""")
-
-                        expanded = await collapse_state()
-                        if not expanded:
-                            failures += fail("no project header to collapse")
-                        else:
-                            # Mid-flight sample: with the transition running, the
-                            # list must be at a height BETWEEN open and closed.
-                            # That is the only way to prove it animates rather
-                            # than jump-cutting, and it is invisible to any check
-                            # that only samples the two end states.
-                            await c.js("document.querySelector('.project-header').click()")
-                            await asyncio.sleep(0.09)
-                            mid = await collapse_state()
-                            await asyncio.sleep(0.9)
-                            collapsed = await collapse_state()
-                            print(f"  COLLAPSE: list height {expanded['listHeight']}px -> "
-                                  f"{mid['listHeight']}px (mid-flight) -> {collapsed['listHeight']}px")
-                            print(f"            arrow transform {expanded['transform']!r} -> {collapsed['transform']!r}")
-
-                            if collapsed["listHeight"] >= 1:
-                                failures += fail(
-                                    f"collapsing a project did not collapse its list: "
-                                    f"{expanded['listHeight']}px -> {collapsed['listHeight']}px")
-                            if collapsed["visibility"] != "hidden":
-                                failures += fail(
-                                    "a collapsed project's list is still visible "
-                                    f"(visibility: {collapsed['visibility']}) - the rows stay "
-                                    "clickable and in the tab order")
-                            if mid and mid["listHeight"] >= expanded["listHeight"] - 1:
-                                failures += fail(
-                                    "the collapse is not animated: the list is still at full "
-                                    f"height 90ms in ({mid['listHeight']}px of {expanded['listHeight']}px)")
-                            if mid and mid["listHeight"] <= 0:
-                                failures += fail(
-                                    "the collapse is not animated: the list had already closed "
-                                    "90ms in, so the transition is not applying")
-                            if "grid-template-rows" not in (expanded["transition"] or ""):
-                                failures += fail(
-                                    "the session list has no grid-template-rows transition, so its "
-                                    f"height cannot animate (transition-property: {expanded['transition']})")
-
-                            # The arrow must MOVE, and it must move by rotating:
-                            # the same path, a different computed transform. Two
-                            # different paths would satisfy "the points differ"
-                            # while the icon still snaps.
-                            if expanded["points"] != collapsed["points"]:
-                                failures += fail(
-                                    "the arrow swaps its path instead of rotating, so it cannot "
-                                    f"animate: {expanded['points']!r} -> {collapsed['points']!r}")
-                            if expanded["transform"] == collapsed["transform"]:
-                                failures += fail(
-                                    "the collapse arrow does not move: computed transform is "
-                                    f"{expanded['transform']!r} in both states")
-                            elif collapsed["transform"] in ("none", None):
-                                failures += fail(
-                                    "the collapsed arrow has no transform applied, so it still "
-                                    "points the wrong way")
-                            # Rotating -90deg from "down" must end pointing right:
-                            # the matrix is [cos, sin, -sin, cos] = [0, -1, 1, 0].
-                            elif not collapsed["transform"].startswith("matrix(0, -1, 1, 0"):
-                                failures += fail(
-                                    f"the collapsed arrow should point right (-90deg), got "
-                                    f"{collapsed['transform']!r}")
-
-                            await c.js("document.querySelector('.project-header').click()")
-                            await asyncio.sleep(0.9)
-                            restored = await collapse_state()
-                            print(f"  EXPAND: list height -> {restored['listHeight']}px")
-                            if restored["listHeight"] != expanded["listHeight"]:
-                                failures += fail(
-                                    "expanding did not restore the list to its height: had "
-                                    f"{expanded['listHeight']}px, now {restored['listHeight']}px")
-                            if restored["visibility"] != "visible":
-                                failures += fail(
-                                    f"an expanded list is not visible (visibility: {restored['visibility']})")
-                            if restored["transform"] != expanded["transform"]:
-                                failures += fail("the arrow did not return when re-expanded")
-                            if restored["rows"] != expanded["rows"]:
-                                failures += fail(
-                                    f"the session count changed across a collapse cycle: "
-                                    f"{expanded['rows']} -> {restored['rows']}")
-
-                    for p in m["projects"]:
-                        if p.get("error"):
-                            failures += fail(f"project header unreadable: {p['error']}")
-                            continue
-                        print(f"  - project {p['titleText']!r}  under={p['under']} title w={p['titleWidth']:.1f}")
-                        for ch in p["chips"]:
-                            print(f"      chip label={ch.get('label')!r:12} value={ch.get('valueText')!r}")
-                        if not p["under"]:
-                            failures += fail(f"project facts are not under the title in {label}: {p['titleText']!r}")
-                        if not p["titleNotStarved"]:
-                            failures += fail(f"project title squeezed in {label}: {p['titleText']!r}")
-                        # A project's facts must name themselves too: the whole
-                        # complaint was a bare `3` beside an icon nobody could
-                        # identify.
-                        for ch in p["chips"]:
-                            if (ch.get("text") or "").strip() and not ch.get("label"):
-                                failures += fail(f"project chip in {label} has no label element: {ch['text']!r}")
-                    if m["spill"]:
-                        for sp in m["spill"]:
-                            failures += fail(f"spills past the sidebar in {label}: {sp}")
-        asyncio.run(run())
+        failures = asyncio.run(run(ws_url))
     finally:
         proc.terminate()
         try:
@@ -464,7 +550,6 @@ def main():
         return 1
     print("SIDEBAR VERIFICATION PASSED: every meta line is under its title, nothing overlaps or spills")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

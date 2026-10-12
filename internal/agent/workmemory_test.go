@@ -26,6 +26,8 @@ func TestAReadIsKeptAndNotRunTwice(t *testing.T) {
 			return step(false, "echo CONTENT-OF-THE-FILE")
 		case 2, 3:
 			return step(false, "echo  CONTENT-OF-THE-FILE") // same words, different spacing
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}
@@ -53,6 +55,8 @@ func TestAWriteForgetsEveryKeptRead(t *testing.T) {
 			return step(false, "echo new > f.txt")
 		case 3:
 			return step(false, "cat f.txt")
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}
@@ -101,6 +105,8 @@ func TestNotesSurviveEveryRound(t *testing.T) {
 			m["notes"] = "PLAN-ALPHA: schema done, route left"
 		case 5:
 			m["notes"] = "PLAN-BETA: route done"
+		default:
+			// The other rounds keep the notes they already have.
 		}
 		return mustJSON(m)
 	}}

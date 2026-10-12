@@ -16,7 +16,12 @@ import (
 // the prompt sent to the provider and into the transcript, so a token it printed is
 // masked on the way, in the agent loop and in the tool-call path of plan and chat.
 func TestCommandOutputIsRedactedBeforeTheModelReadsIt(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	const secret = "ghp_abcdefghijklmnopqrstuvwxyz0123"
 	e.agent.ExecCommand = func(context.Context, execx.Request) (string, bool, int, error) {

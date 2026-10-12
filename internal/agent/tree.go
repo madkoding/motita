@@ -72,39 +72,61 @@ func treeFingerprint(dir string, sourcesOnly bool) (string, bool) {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return "", false
 	}
-	var lines []string
-	tooMany := false
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// A file that vanished mid-walk is not a failure of the walk.
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if p != dir && (alwaysSkipDirs[name] || (sourcesOnly && outputDirs[name])) {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if sourcesOnly && lockFiles[name] {
-			return nil
-		}
-		// A file that cannot be stat'ed (it vanished between the listing and now) simply is not
-		// part of the fingerprint.
-		if info, ierr := d.Info(); ierr == nil {
-			rel, _ := filepath.Rel(dir, p)
-			lines = append(lines, rel+"\x00"+strconv.FormatInt(info.Size(), 10)+"\x00"+strconv.FormatInt(info.ModTime().UnixNano(), 10))
-			if len(lines) > fingerprintMaxFiles {
-				tooMany = true
-				return fs.SkipAll
-			}
-		}
-		return nil
-	})
-	if err != nil || tooMany {
+	w := &treeWalk{dir: dir, sourcesOnly: sourcesOnly}
+	err := filepath.WalkDir(dir, w.visit)
+	if err != nil || w.tooMany {
 		return "", false
 	}
-	sort.Strings(lines)
-	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	sort.Strings(w.lines)
+	sum := sha256.Sum256([]byte(strings.Join(w.lines, "\n")))
 	return hex.EncodeToString(sum[:]), true
+}
+
+// treeWalk is one walk of treeFingerprint: a line per file it counts, and whether there were
+// too many to count.
+type treeWalk struct {
+	dir         string
+	sourcesOnly bool
+	lines       []string
+	tooMany     bool
+}
+
+// visit is the WalkDir callback of the walk.
+func (w *treeWalk) visit(p string, d fs.DirEntry, err error) error {
+	if err != nil {
+		// A file that vanished mid-walk is not a failure of the walk.
+		return nil
+	}
+	name := d.Name()
+	if d.IsDir() {
+		return w.enterDir(p, name)
+	}
+	if w.sourcesOnly && lockFiles[name] {
+		return nil
+	}
+	// A file that cannot be stat'ed (it vanished between the listing and now) simply is not
+	// part of the fingerprint.
+	if info, ierr := d.Info(); ierr == nil {
+		rel, _ := filepath.Rel(w.dir, p)
+		w.lines = append(w.lines, rel+"\x00"+strconv.FormatInt(info.Size(), 10)+"\x00"+
+			strconv.FormatInt(info.ModTime().UnixNano(), 10))
+	}
+	return w.limit()
+}
+
+// enterDir says whether the walk goes into a directory.
+func (w *treeWalk) enterDir(p, name string) error {
+	if p != w.dir && (alwaysSkipDirs[name] || (w.sourcesOnly && outputDirs[name])) {
+		return fs.SkipDir
+	}
+	return nil
+}
+
+// limit stops the walk once it has counted more files than a fingerprint takes.
+func (w *treeWalk) limit() error {
+	if len(w.lines) > fingerprintMaxFiles {
+		w.tooMany = true
+		return fs.SkipAll
+	}
+	return nil
 }

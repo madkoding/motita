@@ -107,8 +107,9 @@ func contentType(name string) string {
 		return "font/woff"
 	case ".woff2":
 		return "font/woff2"
+	default:
+		return "application/octet-stream"
 	}
-	return "application/octet-stream"
 }
 
 // files is the route table, built once at package load from the embedded filesystem. The list is

@@ -26,7 +26,10 @@ func frameText(t *TUI, w, h int) string {
 // untouched by the change, since English is the text itself.
 func TestTheWelcomeScreenSpeaksSpanish(t *testing.T) {
 	es := frameText(spanishTUI(), 80, 40)
-	for _, want := range []string{"¿Qué debería hacer motita?", "Prueba algo como", "Tarea", "enviar", "ayuda", "Modo plan"} { // spanish-fixture: the Spanish screen
+	for _, want := range []string{
+		"¿Qué debería hacer motita?", "Prueba algo como", "Tarea", // spanish-fixture: the Spanish screen
+		"enviar", "ayuda", "Modo plan", // spanish-fixture: the Spanish screen
+	} {
 		if !strings.Contains(es, want) {
 			t.Errorf("the Spanish welcome must show %q:\n%s", want, es)
 		}
@@ -54,7 +57,13 @@ func TestEveryWelcomeScreenSpeaksSpanish(t *testing.T) {
 
 // Spanish runs longer than English; at the narrowest width the gate accepts, no row may spill.
 func TestSpanishFitsTheNarrowestWindow(t *testing.T) {
-	for _, tui := range []*TUI{spanishTUI(), func() *TUI { x := agentsTUI(sampleAgents()); x.Lang = i18n.ES; x.agentsOpen = true; return x }()} {
+	for _, tui := range []*TUI{spanishTUI(),
+		func() *TUI {
+			x := agentsTUI(sampleAgents())
+			x.Lang = i18n.ES
+			x.agentsOpen = true
+			return x
+		}()} {
 		tui.busy = true
 		tui.scroll = 3
 		tui.Width, tui.Height = minWidth, 30
@@ -68,7 +77,10 @@ func TestSpanishFitsTheNarrowestWindow(t *testing.T) {
 
 func TestTheHelpSpeaksSpanish(t *testing.T) {
 	help := buildHelp(i18n.ES)
-	for _, want := range []string{"Teclas (sin Enter)", "Modos y configuración", "id de sesión", "el idioma de la interfaz", "/language"} { // spanish-fixture: the Spanish help
+	for _, want := range []string{
+		"Teclas (sin Enter)", "Modos y configuración", "id de sesión", // spanish-fixture: the Spanish help
+		"el idioma de la interfaz", "/language", // spanish-fixture: the Spanish help
+	} {
 		if !strings.Contains(help, want) {
 			t.Errorf("the Spanish help must show %q:\n%s", want, help)
 		}
@@ -90,7 +102,8 @@ func TestTheAgentsPanelSpeaksSpanish(t *testing.T) {
 	}
 	empty := agentsTUI(nil)
 	empty.Lang = i18n.ES
-	if got := strings.Join(empty.agentsLines(60), "\n"); !strings.Contains(got, "ninguno todavía") { // spanish-fixture: the Spanish panel
+	if got := strings.Join(empty.agentsLines(60), "\n"); !strings.Contains(got,
+		"ninguno todavía") { // spanish-fixture: the Spanish panel
 		t.Errorf("empty panel:\n%s", got)
 	}
 }
@@ -110,8 +123,10 @@ func TestEventLabelsAreTranslatedWhenDrawn(t *testing.T) {
 			t.Errorf("eventLabel(%q) = %q, want %q", in, got, want)
 		}
 	}
-	tui.messages = []Message{{Author: AuthorAgent, Text: "3 actions", Frozen: true}, {Author: AuthorAgent, Text: "[using tool: x]"}}
-	if got := frameText(tui, 80, 40); !strings.Contains(got, "3 acciones") || !strings.Contains(got, "usando x") { // spanish-fixture: a translated label
+	tui.messages = []Message{{Author: AuthorAgent, Text: "3 actions", Frozen: true},
+		{Author: AuthorAgent, Text: "[using tool: x]"}}
+	if got := frameText(tui, 80, 40); !strings.Contains(got, "3 acciones") || // spanish-fixture: a translated label
+		!strings.Contains(got, "usando x") { // spanish-fixture: a translated label
 		t.Errorf("frame:\n%s", got)
 	}
 }
@@ -119,10 +134,12 @@ func TestEventLabelsAreTranslatedWhenDrawn(t *testing.T) {
 func TestAnErrorAndItsHintInSpanish(t *testing.T) {
 	tui := spanishTUI()
 	got := tui.errorText(errors.New("dial tcp: connection refused"))
-	if !strings.HasPrefix(got, "error: dial tcp") || !strings.Contains(got, "pista: motita no pudo conectarse") { // spanish-fixture: the Spanish hint
+	if !strings.HasPrefix(got, "error: dial tcp") ||
+		!strings.Contains(got, "pista: motita no pudo conectarse") { // spanish-fixture: the Spanish hint
 		t.Errorf("errorText = %q", got)
 	}
-	if got := tui.errorText(errors.New("the key is missing")); !strings.Contains(got, "no hay clave de API para") { // spanish-fixture: the Spanish hint
+	if got := tui.errorText(errors.New("the key is missing")); !strings.Contains(got,
+		"no hay clave de API para") { // spanish-fixture: the Spanish hint
 		t.Errorf("errorText = %q", got)
 	}
 }
@@ -131,11 +148,13 @@ func TestTheConfirmationSpeaksSpanish(t *testing.T) {
 	tui := spanishTUI()
 	tui.confirm = &confirmState{req: agent.ApprovalRequest{Command: "rm -rf build"}, reply: make(chan bool, 1)}
 	window := strings.Join(tui.confirmLines(0), "\n")
-	if !strings.Contains(window, "El agente quiere ejecutar:") || !strings.Contains(window, "s o y = sí") { // spanish-fixture: the Spanish window
+	if !strings.Contains(window, "El agente quiere ejecutar:") || // spanish-fixture: the Spanish window
+		!strings.Contains(window, "s o y = sí") { // spanish-fixture: the Spanish window
 		t.Errorf("window:\n%s", window)
 	}
 	req := agent.ApprovalRequest{Command: " ls "}
-	if got := confirmHintText(i18n.ES, req, true); got != "[aprobado por el usuario] ls" { // spanish-fixture: the Spanish record
+	got := confirmHintText(i18n.ES, req, true)
+	if got != "[aprobado por el usuario] ls" { // spanish-fixture: the Spanish record
 		t.Errorf("approved = %q", got)
 	}
 	if got := confirmHintText(i18n.EN, req, false); got != "[rejected by the user] ls" {
@@ -197,11 +216,13 @@ func TestLanguageCommand(t *testing.T) {
 	if tui.Lang != i18n.ES || len(lr.saved) != 1 || lr.saved[0] != "es" {
 		t.Fatalf("lang %q, saved %v", tui.Lang, lr.saved)
 	}
-	if got := lastSystem(tui); got != "idioma cambiado a es: la interfaz ahora está en español." { // spanish-fixture: the Spanish confirmation
+	want := "idioma cambiado a es: la interfaz ahora está en español." // spanish-fixture: the Spanish confirmation
+	if got := lastSystem(tui); got != want {
 		t.Errorf("set = %q", got)
 	}
 	run(tui, ctx, "")
-	if got := lastSystem(tui); !strings.Contains(got, "idioma: es (se muestra en español)") { // spanish-fixture: the Spanish show
+	if got := lastSystem(tui); !strings.Contains(got,
+		"idioma: es (se muestra en español)") { // spanish-fixture: the Spanish show
 		t.Errorf("show = %q", got)
 	}
 	run(tui, ctx, "en")
@@ -221,7 +242,10 @@ func TestTheLocalRunnerSavesTheLanguage(t *testing.T) {
 	old := saveUILanguage
 	defer func() { saveUILanguage = old }()
 	var gotPath, gotLang string
-	saveUILanguage = func(path, lang string) error { gotPath, gotLang = path, lang; return nil }
+	saveUILanguage = func(path, lang string) error {
+		gotPath, gotLang = path, lang
+		return nil
+	}
 
 	r := &AppRunner{}
 	if r.UILanguage() != "" {

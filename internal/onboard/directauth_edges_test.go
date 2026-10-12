@@ -168,8 +168,12 @@ func TestALoginThatCannotBeSavedIsReported(t *testing.T) {
 	t.Cleanup(func() { authDir = old })
 	instantSleep(t)
 	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
-		"/login/device/code":         func(*http.Request) (*http.Response, error) { return resp200(`{"device_code":"d","interval":1}`) },
-		"/login/oauth/access_token":  func(*http.Request) (*http.Response, error) { return resp200(`{"access_token":"gho"}`) },
+		"/login/device/code": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"device_code":"d","interval":1}`)
+		},
+		"/login/oauth/access_token": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"access_token":"gho"}`)
+		},
 		"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) { return resp200(`{"token":"t"}`) },
 	}})
 	if err := direct("copilot", ""); err == nil || !strings.Contains(err.Error(), "could not be saved") {

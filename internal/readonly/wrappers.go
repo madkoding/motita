@@ -74,6 +74,32 @@ func unknownOption(a string) string {
 		"cannot be classified", a)
 }
 
+// flagSet is a set of option names.
+type flagSet map[string]bool
+
+var (
+	envFlags = flagSet{"-": true, "-i": true, "--ignore-environment": true, "-0": true, "--null": true,
+		"-v": true, "--debug": true}
+	timeoutFlags = flagSet{"--preserve-status": true, "--foreground": true, "-v": true, "--verbose": true}
+	stdbufModes  = flagSet{"-i": true, "-o": true, "-e": true, "--input": true, "--output": true, "--error": true}
+	setsidFlags  = flagSet{"-c": true, "--ctty": true, "-f": true, "--fork": true, "-w": true, "--wait": true}
+)
+
+// hasAnyPrefix reports whether s starts with one of prefixes.
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// envGluedUnset reports whether a is `--unset=NAME` or `-uNAME`.
+func envGluedUnset(a string) bool {
+	return strings.HasPrefix(a, "--unset=") || (strings.HasPrefix(a, "-u") && !strings.HasPrefix(a, "--"))
+}
+
 // envProgram: `env [OPTION]... [-] [NAME=VALUE]... [COMMAND [ARG]...]`.
 func envProgram(args []string) (int, string) {
 	options := true
@@ -82,11 +108,12 @@ func envProgram(args []string) (int, string) {
 		switch {
 		case options && a == "--":
 			options = false
-		case options && (a == "-" || a == "-i" || a == "--ignore-environment" ||
-			a == "-0" || a == "--null" || a == "-v" || a == "--debug"):
+		case options && envFlags[a]:
+			// A flag that changes only the environment the program sees.
 		case options && (a == "-u" || a == "--unset"):
 			i++
-		case options && (strings.HasPrefix(a, "--unset=") || (strings.HasPrefix(a, "-u") && !strings.HasPrefix(a, "--"))):
+		case options && envGluedUnset(a):
+			// The name to unset is glued to the option.
 		case options && strings.HasPrefix(a, "-"):
 			// -S/--split-string builds a NEW command line out of one string, -C/--chdir moves
 			// the directory the program runs in, -P replaces the PATH it is found through.
@@ -108,6 +135,7 @@ func commandProgram(args []string) (int, string) {
 		case a == "-v" || a == "-V":
 			return len(args), ""
 		case a == "-p":
+			// -p only uses a default PATH to find the program.
 		case a == "--":
 			return i + 1, ""
 		case strings.HasPrefix(a, "-"):
@@ -126,8 +154,8 @@ func niceProgram(args []string) (int, string) {
 		switch {
 		case a == "-n" || a == "--adjustment":
 			i++
-		case strings.HasPrefix(a, "--adjustment=") || strings.HasPrefix(a, "-n") ||
-			(len(a) > 1 && a[0] == '-' && isNumber(a[1:])):
+		case hasAnyPrefix(a, "--adjustment=", "-n") || (len(a) > 1 && a[0] == '-' && isNumber(a[1:])):
+			// The adjustment is glued to the option.
 		case a == "--":
 			return i + 1, ""
 		case strings.HasPrefix(a, "-"):
@@ -158,9 +186,8 @@ func timeoutProgram(args []string) (int, string) {
 		switch {
 		case a == "-s" || a == "--signal" || a == "-k" || a == "--kill-after":
 			i++
-		case strings.HasPrefix(a, "--signal=") || strings.HasPrefix(a, "--kill-after=") ||
-			strings.HasPrefix(a, "-s") && !strings.HasPrefix(a, "--") || strings.HasPrefix(a, "-k"),
-			a == "--preserve-status" || a == "--foreground" || a == "-v" || a == "--verbose":
+		case hasAnyPrefix(a, "--signal=", "--kill-after=", "-s", "-k"), timeoutFlags[a]:
+			// A value glued to its option, or a flag that takes none.
 		case a == "--":
 			return i + 2, ""
 		case strings.HasPrefix(a, "-"):
@@ -177,11 +204,10 @@ func stdbufProgram(args []string) (int, string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "-i" || a == "-o" || a == "-e" || a == "--input" || a == "--output" || a == "--error":
+		case stdbufModes[a]:
 			i++
-		case strings.HasPrefix(a, "--input=") || strings.HasPrefix(a, "--output=") ||
-			strings.HasPrefix(a, "--error=") ||
-			len(a) > 2 && (strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "-e")):
+		case hasAnyPrefix(a, "--input=", "--output=", "--error=") || len(a) > 2 && hasAnyPrefix(a, "-i", "-o", "-e"):
+			// The mode is glued to the option.
 		case a == "--":
 			return i + 1, ""
 		case strings.HasPrefix(a, "-"):
@@ -197,7 +223,8 @@ func stdbufProgram(args []string) (int, string) {
 func setsidProgram(args []string) (int, string) {
 	for i, a := range args {
 		switch {
-		case a == "-c" || a == "--ctty" || a == "-f" || a == "--fork" || a == "-w" || a == "--wait":
+		case setsidFlags[a]:
+			// A flag that changes only the session the program runs in.
 		case a == "--":
 			return i + 1, ""
 		case strings.HasPrefix(a, "-"):

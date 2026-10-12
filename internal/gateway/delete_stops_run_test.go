@@ -191,7 +191,9 @@ func TestDeletingASessionWaitsForTheRunToUnwind(t *testing.T) {
 		t.Fatalf("delete: status = %d, want 204 (body %s)", del.Code, del.Body.String())
 	}
 	if !finished.Load() {
-		t.Error("the deletion answered before the run had finished unwinding: the turn can still write to the session it removed")
+		t.Error(
+			"the deletion answered before the run had finished unwinding: the turn can still write to the session it removed",
+		)
 	}
 }
 

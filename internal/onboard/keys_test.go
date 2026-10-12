@@ -30,7 +30,8 @@ func (k *fakeKeys) mode() (func(), bool) {
 func runKeys(ctx context.Context, t *testing.T, keys string, k *fakeKeys) (string, Result, error) {
 	t.Helper()
 	var out bytes.Buffer
-	res, err := RunWithKeys(ctx, strings.NewReader(keys), &out, filepath.Join(t.TempDir(), "config.yaml"), Answers{}, fixedTime(), k.mode)
+	res, err := RunWithKeys(ctx, strings.NewReader(keys), &out, filepath.Join(t.TempDir(), "config.yaml"), Answers{},
+		fixedTime(), k.mode)
 	return out.String(), res, err
 }
 
@@ -52,7 +53,8 @@ func TestTheArrowsDriveTheMenus(t *testing.T) {
 		t.Fatalf("Run: %v\n%s", err, stripANSI(out))
 	}
 	anthropic, _ := Lookup("anthropic")
-	if res.Provider.ID != "anthropic" || res.Model != anthropic.Models[len(anthropic.Models)-1].ID || res.CredentialsPath == "" {
+	if res.Provider.ID != "anthropic" || res.Model != anthropic.Models[len(anthropic.Models)-1].ID ||
+		res.CredentialsPath == "" {
 		t.Errorf("res = %+v", res)
 	}
 	plain := stripANSI(out)
@@ -72,7 +74,8 @@ func TestTheArrowsDriveTheMenus(t *testing.T) {
 // The editing keys: backspace, keys that are not text, Escape and the SS3 arrows.
 func TestTheLineEditor(t *testing.T) {
 	k := &fakeKeys{}
-	keys := "\x1bOB" + "\x1b[C" + "\x1b" + "\x01" + "\r" + // provider: SS3 down to Codex; right, Escape and Ctrl+A do nothing
+	// provider: SS3 down to Codex; right, Escape and Ctrl+A do nothing
+	keys := "\x1bOB" + "\x1b[C" + "\x1b" + "\x01" + "\r" +
 		"\r" + // sign-in: the first option is the stub's login
 		"xy\x7f\x7fmodel-日本\r" + // model: typed, with a correction and characters past ASCII
 		"\r" + "\r"
@@ -108,7 +111,8 @@ func TestACancelledContextLeavesTheEditor(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	var out bytes.Buffer
-	if _, err := RunWithKeys(ctx, pr, &out, filepath.Join(t.TempDir(), "c.yaml"), Answers{}, fixedTime(), (&fakeKeys{}).mode); !errors.Is(err, ErrCancelled) {
+	if _, err := RunWithKeys(ctx, pr, &out, filepath.Join(t.TempDir(), "c.yaml"), Answers{}, fixedTime(),
+		(&fakeKeys{}).mode); !errors.Is(err, ErrCancelled) {
 		t.Errorf("err = %v, want ErrCancelled", err)
 	}
 }
@@ -117,7 +121,8 @@ func TestACancelledContextLeavesTheEditor(t *testing.T) {
 func TestWithoutCharacterModeTheSetupReadsLines(t *testing.T) {
 	never := func() (func(), bool) { return func() {}, false }
 	var out bytes.Buffer
-	res, err := RunWithKeys(context.Background(), strings.NewReader("anthropic\n\n\n3\n\n"), &out, filepath.Join(t.TempDir(), "c.yaml"), Answers{}, fixedTime(), never)
+	res, err := RunWithKeys(context.Background(), strings.NewReader("anthropic\n\n\n3\n\n"), &out,
+		filepath.Join(t.TempDir(), "c.yaml"), Answers{}, fixedTime(), never)
 	if err != nil || res.Provider.ID != "anthropic" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}

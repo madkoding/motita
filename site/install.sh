@@ -13,6 +13,8 @@
 #                              install even when the release cannot be verified
 #                              (no SHA256SUMS, or no entry for this platform).
 #                              A checksum MISMATCH is refused regardless.
+#   MOTITA_NO_MODIFY_PATH=1    do not add the install directory to the shell's
+#                              rc file when it is not on the PATH
 #
 # Exit codes: 0 installed · 1 failed (nothing is left half-installed).
 #
@@ -46,9 +48,19 @@ warn() { printf 'warning: %s\n' "$*" >&2; }
 # reports the chip it is running on (armv6l, armv7l, armv8l) rather than the
 # architecture the binary is built for. All of them run the arm build, which is
 # ARMv7, so they all map to `arm`.
+# Android (Termux) reports Linux in `uname -s`, but a GOOS=linux binary dies there
+# with SIGSYS: Android's seccomp policy kills the process on syscalls such as
+# faccessat2, which the Go linux runtime calls and the android one avoids. So
+# Android is told apart by `uname -o` (or Termux's own variable) and gets the
+# android build.
+is_android() {
+	[ -n "${TERMUX_VERSION:-}" ] && return 0
+	[ "$(uname -o 2>/dev/null)" = Android ]
+}
+
 detect_os() {
 	case "$(uname -s)" in
-		Linux)  echo linux ;;
+		Linux)  if is_android; then echo android; else echo linux; fi ;;
 		Darwin) echo darwin ;;
 		*)      die "unsupported system: $(uname -s). Only Linux and macOS are supported; on Windows use the .exe asset from the release page." ;;
 	esac
@@ -139,6 +151,43 @@ verify_signature() {
 	say "  signature: ok"
 }
 
+# --- 6a. put the directory on the PATH for the next shells ----------------------
+#
+# A piped installer runs in a CHILD shell: an export here dies with it, so the
+# shell the user typed into cannot be changed from here. What can be changed is
+# the file that shell reads when it starts, so the next terminal finds motita.
+# One block, marked, written once: running the installer again adds nothing.
+# MOTITA_NO_MODIFY_PATH=1 leaves every file alone.
+PATH_MARK="# added by the motita installer"
+
+shell_rc() {
+	case "$(basename "${SHELL:-sh}")" in
+		zsh)  echo "${ZDOTDIR:-$HOME}/.zshrc" ;;
+		bash)
+			# macOS opens login shells, which read .bash_profile and not .bashrc.
+			if [ "$(uname -s)" = Darwin ]; then echo "${HOME}/.bash_profile"; else echo "${HOME}/.bashrc"; fi ;;
+		fish) echo "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/motita.fish" ;;
+		*)    echo "${HOME}/.profile" ;;
+	esac
+}
+
+add_to_path() {
+	# add_to_path <dir>: prints the file it wrote to, or nothing when it left them alone.
+	[ "${MOTITA_NO_MODIFY_PATH:-}" = 1 ] && return 0
+	rc="$(shell_rc)"
+	if [ -f "$rc" ] && grep -qF "$PATH_MARK" "$rc" 2>/dev/null; then
+		echo "$rc"
+		return 0
+	fi
+	mkdir -p "$(dirname "$rc")" 2>/dev/null || return 0
+	case "$rc" in
+		*.fish) line="fish_add_path -g \"$1\"" ;;
+		*)      line="export PATH=\"$1:\$PATH\"" ;;
+	esac
+	printf '\n%s\n%s\n' "$PATH_MARK" "$line" >> "$rc" 2>/dev/null || return 0
+	echo "$rc"
+}
+
 main() {
 find_tools
 
@@ -146,11 +195,13 @@ find_tools
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
 
-case "$OS" in
-	linux)  EXT="" ;;
-	darwin) EXT="" ;;
-esac
-[ "$OS" = windows ] && EXT=".exe"
+# Only arm64 is published for Android: it is the one android target Go links
+# without cgo, and every phone Termux still supports is 64-bit ARM.
+if [ "$OS" = android ] && [ "$ARCH" != arm64 ]; then
+	die "unsupported Android architecture: ${ARCH}. Only android/arm64 is published."
+fi
+
+EXT=""
 
 ASSET="${BIN}-${OS}-${ARCH}${EXT}"
 
@@ -176,8 +227,8 @@ if ! download "${BASE}/${ASSET}" "${TMP}/${ASSET}"; then
 	rm -rf "$TMP"
 	die "could not download ${ASSET} from ${VERSION}.
   The release may not publish this platform (linux/386, linux/amd64, linux/arm,
-  linux/arm64, windows/386, windows/amd64, windows/arm64, darwin/amd64,
-  darwin/arm64). Check ${BASE}/${ASSET}"
+  linux/arm64, android/arm64, windows/386, windows/amd64, windows/arm64,
+  darwin/amd64, darwin/arm64). Check ${BASE}/${ASSET}"
 fi
 
 # --- 5. verify against the release's own checksums ----------------------------
@@ -211,9 +262,12 @@ fi
 # A user-writable directory is preferred over /usr/local/bin: it keeps the
 # installer from needing root, which is what lets it run from a pipe. If the
 # chosen directory is not on the PATH, say so instead of failing: the install
-# worked, and the user only needs to add it.
+# worked, and the user only needs to add it. Termux has no /usr/local/bin; its
+# own $PREFIX/bin is user-writable and already on the PATH.
 if [ -n "${MOTITA_INSTALL_DIR:-}" ]; then
 	DIR="$MOTITA_INSTALL_DIR"
+elif [ "$OS" = android ] && [ -n "${PREFIX:-}" ] && [ -w "${PREFIX}/bin" ]; then
+	DIR="${PREFIX}/bin"
 elif [ -w /usr/local/bin ] 2>/dev/null; then
 	DIR=/usr/local/bin
 else
@@ -237,10 +291,22 @@ else
 	warn "${DIR}/${BIN} was installed but does not run on this system"
 fi
 
+RUN="$BIN"
 case ":${PATH}:" in
 	*":${DIR}:"*) ;;
-	*) warn "${DIR} is not on your PATH. Add it:
-    export PATH=\"${DIR}:\$PATH\"" ;;
+	*)
+		# Until a new shell starts, the full path is what works, so that is what
+		# the last line tells the user to type.
+		RUN="${DIR}/${BIN}"
+		rc="$(add_to_path "$DIR")"
+		if [ -n "$rc" ]; then
+			say "  path:      added ${DIR} to the PATH in ${rc}"
+			say "             open a new terminal, or run in this one:"
+		else
+			warn "${DIR} is not on your PATH. Add it:"
+		fi
+		say "    export PATH=\"${DIR}:\$PATH\""
+		;;
 esac
 
 if [ "$SIGNED" != 1 ]; then
@@ -249,7 +315,7 @@ if [ "$SIGNED" != 1 ]; then
 fi
 
 say ""
-say "Next: ${BIN} config    (writes a configuration that works)"
+say "Next: ${RUN} config    (writes a configuration that works)"
 }
 
 main "$@"

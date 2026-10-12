@@ -287,15 +287,7 @@ func WithBaseline(res Result, before map[string]CheckLog) Result {
 	}
 	res.PreExisting = old
 	if !allOld || len(old) == 0 {
-		if len(old) > 0 {
-			res.Reason += "; already failing before this change: " + strings.Join(old, ", ")
-		}
-		if len(changed) > 0 {
-			res.Reason += "; failing before this change, but differently now: " + strings.Join(changed, ", ")
-		}
-		if len(broken) > 0 {
-			res.Reason += "; passed before this change: " + strings.Join(broken, ", ")
-		}
+		res.Reason += baselineNotes(old, changed, broken)
 		return res
 	}
 	res.Pass = true
@@ -303,6 +295,22 @@ func WithBaseline(res Result, before map[string]CheckLog) Result {
 		"on the code the run started from, so they are not this change's doing, and they are not "+
 		"verified either): %s", len(res.Checks)-len(old), strings.Join(old, ", "))
 	return res
+}
+
+// baselineNotes is what a failed result adds to its reason about the baseline: the checks that
+// were already failing the same way, the ones failing differently now, and the ones that passed.
+func baselineNotes(old, changed, broken []string) string {
+	notes := ""
+	if len(old) > 0 {
+		notes += "; already failing before this change: " + strings.Join(old, ", ")
+	}
+	if len(changed) > 0 {
+		notes += "; failing before this change, but differently now: " + strings.Join(changed, ", ")
+	}
+	if len(broken) > 0 {
+		notes += "; passed before this change: " + strings.Join(broken, ", ")
+	}
+	return notes
 }
 
 // checks normalises the configuration into a homogeneous list.

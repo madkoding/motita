@@ -158,7 +158,8 @@ func TestToolEnvironment(t *testing.T) {
 	}
 	t.Setenv("MOTITA_TOOLS_PROBE", "yes")
 	inherited := strings.Join(ToolEnvironment(tools, nil), "\n")
-	if !strings.Contains(inherited, "MOTITA_TOOLS_PROBE=yes") || !strings.Contains(inherited, "PATH="+filepath.Join(tools, "bin")) {
+	if !strings.Contains(inherited, "MOTITA_TOOLS_PROBE=yes") ||
+		!strings.Contains(inherited, "PATH="+filepath.Join(tools, "bin")) {
 		t.Errorf("the process environment must be inherited with the tools on PATH: %s", inherited)
 	}
 }

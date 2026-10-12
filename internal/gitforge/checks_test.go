@@ -41,23 +41,30 @@ func TestMapState(t *testing.T) {
 
 func TestCIGitHub(t *testing.T) {
 	a, _ := newAPI(t, KindGitHub, map[string]string{
-		"GET /repos/o/r/pulls/5":                `{"head":{"sha":"abc"}}`,
-		"GET /repos/o/r/commits/abc/check-runs": `{"check_runs":[{"id":11,"name":"build","status":"completed","conclusion":"success","html_url":"u1"},{"id":12,"name":"test","status":"completed","conclusion":"failure","html_url":"u2","output":{"title":"2 tests failed\nmore","summary":"s"}},{"id":13,"name":"lint","status":"in_progress"},{"id":14,"name":"docs","status":"completed","conclusion":"cancelled","output":{"summary":"only a summary"}}]}`,
-		"GET /repos/o/r/commits/abc/status":     `{"statuses":[{"context":"legacy","state":"success","target_url":"u3","description":"ok"}]}`,
+		"GET /repos/o/r/pulls/5": `{"head":{"sha":"abc"}}`,
+		"GET /repos/o/r/commits/abc/check-runs": `{"check_runs":[{"id":11,"name":"build","status":"completed",` +
+			`"conclusion":"success","html_url":"u1"},{"id":12,"name":"test","status":"completed","conclusion":"failure",` +
+			`"html_url":"u2","output":{"title":"2 tests failed\nmore","summary":"s"}},{"id":13,"name":"lint",` +
+			`"status":"in_progress"},{"id":14,"name":"docs","status":"completed","conclusion":"cancelled",` +
+			`"output":{"summary":"only a summary"}}]}`,
+		"GET /repos/o/r/commits/abc/status": `{"statuses":[{"context":"legacy","state":"success","target_url":"u3",` +
+			`"description":"ok"}]}`,
 	})
 	st, err := a.CI(context.Background(), Remote{Path: "o/r"}, 5)
 	if err != nil || st.State != StateFailure || len(st.Checks) != 5 {
 		t.Fatalf("%+v %v", st, err)
 	}
-	if st.Checks[1].Detail != "2 tests failed" || st.Checks[1].jobID != 12 || st.Checks[2].State != StatePending || st.Checks[3].Detail != "only a summary" {
+	if st.Checks[1].Detail != "2 tests failed" || st.Checks[1].jobID != 12 || st.Checks[2].State != StatePending ||
+		st.Checks[3].Detail != "only a summary" {
 		t.Errorf("checks = %+v", st.Checks)
 	}
 }
 
 func TestCIGitea(t *testing.T) {
 	a, _ := newAPI(t, KindGitea, map[string]string{
-		"GET /repos/o/r/pulls/5":            `{"head":{"sha":"abc"}}`,
-		"GET /repos/o/r/commits/abc/status": `{"statuses":[{"context":"ci","status":"success"},{"context":"x","state":"pending"}]}`,
+		"GET /repos/o/r/pulls/5": `{"head":{"sha":"abc"}}`,
+		"GET /repos/o/r/commits/abc/status": `{"statuses":[{"context":"ci","status":"success"},{"context":"x",` +
+			`"state":"pending"}]}`,
 	})
 	st, err := a.CI(context.Background(), Remote{Path: "o/r"}, 5)
 	if err != nil || st.State != StatePending || len(st.Checks) != 2 || st.Checks[0].State != StateSuccess {
@@ -79,11 +86,14 @@ func TestCIGitHubFailures(t *testing.T) {
 	if _, err := a.CI(context.Background(), r, 5); err == nil {
 		t.Error("check runs failing must surface")
 	}
-	a, _ = newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/pulls/5": `{"head":{"sha":"abc"}}`, "GET /repos/o/r/commits/abc/check-runs": `{}`})
+	a, _ = newAPI(t, KindGitHub,
+		map[string]string{"GET /repos/o/r/pulls/5": `{"head":{"sha":"abc"}}`, "GET /repos/o/r/commits/abc/check-runs": `{}`})
 	if _, err := a.CI(context.Background(), r, 5); err == nil {
 		t.Error("statuses failing must surface")
 	}
-	a, _ = newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/pulls/5": `{"head":{"sha":"abc"}}`, "GET /repos/o/r/commits/abc/check-runs": `{}`, "GET /repos/o/r/commits/abc/status": `{}`})
+	a, _ = newAPI(t, KindGitHub,
+		map[string]string{"GET /repos/o/r/pulls/5": `{"head":{"sha":"abc"}}`, "GET /repos/o/r/commits/abc/check-runs": `{}`,
+			"GET /repos/o/r/commits/abc/status": `{}`})
 	if st, err := a.CI(context.Background(), r, 5); err != nil || st.State != StateNone {
 		t.Errorf("no checks: %+v %v", st, err)
 	}
@@ -93,10 +103,13 @@ func TestCIGitLab(t *testing.T) {
 	r := Remote{Path: "g/r"}
 	a, _ := newAPI(t, KindGitLab, map[string]string{
 		"GET /projects/g%2Fr/merge_requests/3/pipelines": `[{"id":99},{"id":98}]`,
-		"GET /projects/g%2Fr/pipelines/99/jobs":          `[{"name":"build","status":"success","web_url":"u1"},{"name":"flaky","status":"failed","allow_failure":true},{"name":"test","status":"failed","web_url":"u2","failure_reason":"script_failure"},{"name":"deploy","status":"running"}]`,
+		"GET /projects/g%2Fr/pipelines/99/jobs": `[{"name":"build","status":"success","web_url":"u1"},` +
+			`{"name":"flaky","status":"failed","allow_failure":true},{"name":"test","status":"failed","web_url":"u2",` +
+			`"failure_reason":"script_failure"},{"name":"deploy","status":"running"}]`,
 	})
 	st, err := a.CI(context.Background(), r, 3)
-	if err != nil || st.State != StateFailure || len(st.Checks) != 4 || st.Checks[1].State != StateSuccess || st.Checks[2].Detail != "script_failure" {
+	wrong := err != nil || st.State != StateFailure || len(st.Checks) != 4
+	if wrong || st.Checks[1].State != StateSuccess || st.Checks[2].Detail != "script_failure" {
 		t.Fatalf("%+v %v", st, err)
 	}
 	a, _ = newAPI(t, KindGitLab, map[string]string{"GET /projects/g%2Fr/merge_requests/3/pipelines": `[]`})
@@ -115,7 +128,10 @@ func TestCIGitLab(t *testing.T) {
 
 func TestCIBitbucket(t *testing.T) {
 	r := Remote{Path: "ws/r"}
-	a, _ := newAPI(t, KindBitbucket, map[string]string{"GET /repositories/ws/r/pullrequests/2/statuses": `{"values":[{"name":"pipe","state":"SUCCESSFUL","url":"u","description":"d"},{"name":"b","state":"INPROGRESS"}]}`})
+	a, _ := newAPI(t, KindBitbucket,
+		map[string]string{
+			"GET /repositories/ws/r/pullrequests/2/statuses": `{"values":[{"name":"pipe","state":"SUCCESSFUL","url":"u",` +
+				`"description":"d"},{"name":"b","state":"INPROGRESS"}]}`})
 	st, err := a.CI(context.Background(), r, 2)
 	if err != nil || st.State != StatePending || len(st.Checks) != 2 {
 		t.Fatalf("%+v %v", st, err)
@@ -131,7 +147,8 @@ func TestFailureLog(t *testing.T) {
 	big := strings.Repeat("x", logTail) + "THE END"
 	a, h := newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/actions/jobs/12/logs": big})
 	log, ok, err := a.FailureLog(context.Background(), r, Check{jobID: 12})
-	if err != nil || !ok || len(log) != logTail || !strings.HasSuffix(log, "THE END") || h.auth != "Bearer tok" {
+	wrong := err != nil || !ok || len(log) != logTail
+	if wrong || !strings.HasSuffix(log, "THE END") || h.auth != "Bearer tok" {
 		t.Fatalf("len=%d ok=%v err=%v", len(log), ok, err)
 	}
 	// A short log is returned whole.
@@ -147,23 +164,31 @@ func TestFailureLog(t *testing.T) {
 	if _, ok, err = gl.FailureLog(context.Background(), r, Check{jobID: 1}); ok || err != nil {
 		t.Errorf("%v %v", ok, err)
 	}
-	a, _ = newAPI(t, KindGitHub, nil)
-	if _, _, err = a.FailureLog(context.Background(), r, Check{jobID: 12}); err == nil {
+	checkFailureLogHosts(t, r)
+}
+
+// checkFailureLogHosts: a refused, unreachable or malformed host is an error, and the
+// default client is used when none is given.
+func checkFailureLogHosts(t *testing.T, r Remote) {
+	a, _ := newAPI(t, KindGitHub, nil)
+	if _, _, err := a.FailureLog(context.Background(), r, Check{jobID: 12}); err == nil {
 		t.Error("a refused log must be an error")
 	}
-	dead := API{Service: Service{Kind: KindGitHub, APIBase: "http://127.0.0.1:1"}, Cred: oauth.Credential{AccessToken: "t"}}
-	if _, _, err = dead.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
+	dead := API{Service: Service{Kind: KindGitHub, APIBase: "http://127.0.0.1:1"},
+		Cred: oauth.Credential{AccessToken: "t"}}
+	if _, _, err := dead.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
 		t.Error("an unreachable host must be an error")
 	}
 	bad := API{Service: Service{Kind: KindGitHub, APIBase: "http://bad host/%"}}
-	if _, _, err = bad.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
+	if _, _, err := bad.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
 		t.Error("a malformed URL must be an error")
 	}
 	// The default client is used when none is given.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hi")) }))
+	srv := httptest.NewServer(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hi")) }))
 	defer srv.Close()
 	plain := API{Service: Service{Kind: KindGitHub, APIBase: srv.URL}, Cred: oauth.Credential{AccessToken: "t"}}
-	if log, ok, _ = plain.FailureLog(context.Background(), r, Check{jobID: 1}); log != "hi" || !ok {
+	if log, ok, _ := plain.FailureLog(context.Background(), r, Check{jobID: 1}); log != "hi" || !ok {
 		t.Errorf("log = %q ok=%v", log, ok)
 	}
 }

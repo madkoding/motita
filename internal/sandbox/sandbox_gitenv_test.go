@@ -16,7 +16,8 @@ func TestEnvironmentCarriesGitConfiguration(t *testing.T) {
 	}
 	s.op.GitAuthDir = "/auth"
 	env := strings.Join(s.environmentWithTmp("/tmp", true), "\n")
-	for _, want := range []string{"MOTITA_AUTH_DIR=/auth", "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_VALUE_0=!'/opt/motita' git-credential"} {
+	for _, want := range []string{"MOTITA_AUTH_DIR=/auth", "GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_VALUE_0=!'/opt/motita' git-credential"} {
 		if !strings.Contains(env, want) {
 			t.Errorf("missing %q in\n%s", want, env)
 		}

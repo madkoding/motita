@@ -134,7 +134,10 @@ func TestTheSetupFieldIsTheWizardThatRuns(t *testing.T) {
 	runner := &fakeRunner{}
 	tu := newFakeTUI("/config\nq\n", runner)
 	ran := false
-	tu.Setup = func(context.Context) error { ran = true; return nil }
+	tu.Setup = func(context.Context) error {
+		ran = true
+		return nil
+	}
 	tu.Run(context.Background())
 	if !ran || runner.configCalled {
 		t.Errorf("the Setup field must run instead of the runner's wizard (setup=%v runner=%v)", ran, runner.configCalled)
@@ -156,7 +159,8 @@ func TestEnterOnTheSetupScreenRunsTheSetup(t *testing.T) {
 func writeSetup(t *testing.T, yaml, creds string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	for _, v := range []string{"MOTITA_LLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MOTITA_LLM_PROVIDER", "MOTITA_LLM_MODEL"} {
+	for _, v := range []string{"MOTITA_LLM_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MOTITA_LLM_PROVIDER",
+		"MOTITA_LLM_MODEL"} {
 		t.Setenv(v, "")
 		os.Unsetenv(v)
 	}
@@ -176,7 +180,8 @@ func writeSetup(t *testing.T, yaml, creds string) {
 func TestReloadConfigAppliesTheNewSetup(t *testing.T) {
 	writeSetup(t, "llm:\n  provider: anthropic\n  model: claude-sonnet-5-5\nanchor:\n  kind: auto\n",
 		"export ANTHROPIC_API_KEY='sk-ant-new'\n")
-	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, configWithKey("sk-old"), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, configWithKey("sk-old"), &llm.Client{}, &sandbox.Sandbox{},
+		logx.Global())
 	r.SetLLM("gemini", "") // remembers an endpoint, which the reload must forget
 	if err := r.ReloadConfig(context.Background()); err != nil {
 		t.Fatalf("ReloadConfig: %v", err)
@@ -196,7 +201,8 @@ func TestReloadConfigAppliesTheNewSetup(t *testing.T) {
 // A setup with no key yet is still applied: the interface then says the key is missing.
 func TestReloadConfigAppliesASetupWithNoKey(t *testing.T) {
 	writeSetup(t, "llm:\n  provider: anthropic\n  model: m\n", "")
-	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, configWithKey("sk-old"), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, configWithKey("sk-old"), &llm.Client{}, &sandbox.Sandbox{},
+		logx.Global())
 	if err := r.ReloadConfig(context.Background()); err != nil {
 		t.Fatalf("ReloadConfig: %v", err)
 	}
@@ -207,7 +213,8 @@ func TestReloadConfigAppliesASetupWithNoKey(t *testing.T) {
 
 func TestReloadConfigRefusesAFileThatDoesNotLoad(t *testing.T) {
 	writeSetup(t, "llm: [not, a, map\n", "")
-	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, configWithKey("sk-old"), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, configWithKey("sk-old"), &llm.Client{}, &sandbox.Sandbox{},
+		logx.Global())
 	if err := r.ReloadConfig(context.Background()); err == nil {
 		t.Fatal("a file that does not load must be an error")
 	}

@@ -83,7 +83,8 @@ func TestCustom(t *testing.T) {
 	}
 	for _, c := range cases {
 		s, err := Custom(c.kind, c.host, noEnv)
-		if err != nil || s.ID != c.id || s.APIBase != c.api || s.Kind != c.kind || s.TokenURL == "" || s.Name == "" {
+		wrong := err != nil || s.ID != c.id || s.APIBase != c.api
+		if wrong || s.Kind != c.kind || s.TokenURL == "" || s.Name == "" {
 			t.Errorf("%s: %+v %v", c.host, s, err)
 		}
 	}
@@ -116,8 +117,10 @@ func TestParseRemote(t *testing.T) {
 			t.Errorf("%q: %+v %v, want %+v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", "madkoding/motita", "https://github.com/onlyowner", "https://", "http://[::1", "git@host-without-path",
-		"https://github.com/o/..", "https://github.com/../r", "git@github.com:o/r?x=1", "https://github.com/o/r%3Fa", "git@host:o//r"} {
+	for _, bad := range []string{"", "madkoding/motita", "https://github.com/onlyowner", "https://", "http://[::1",
+		"git@host-without-path",
+		"https://github.com/o/..", "https://github.com/../r", "git@github.com:o/r?x=1", "https://github.com/o/r%3Fa",
+		"git@host:o//r"} {
 		if _, err := ParseRemote(bad); err == nil {
 			t.Errorf("%q must be refused", bad)
 		}

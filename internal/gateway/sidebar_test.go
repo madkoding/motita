@@ -162,7 +162,12 @@ func TestProjectReportsItsChangesAndWorktrees(t *testing.T) {
 	}
 
 	if got := proj(); got.Changes != 0 || got.Worktrees != 0 || got.Sessions != 0 {
-		t.Errorf("fresh project: changes=%d worktrees=%d sessions=%d, want all zero", got.Changes, got.Worktrees, got.Sessions)
+		t.Errorf(
+			"fresh project: changes=%d worktrees=%d sessions=%d, want all zero",
+			got.Changes,
+			got.Worktrees,
+			got.Sessions,
+		)
 	}
 
 	createSessionIn(t, srv, pid)
@@ -223,7 +228,12 @@ func TestProjectWithoutGitReportsNoChangesOrWorktrees(t *testing.T) {
 	}
 	got := resp.Projects[0]
 	if got.Changes != 0 || got.Worktrees != 0 || got.Branch != "" {
-		t.Errorf("non-repo project: branch=%q changes=%d worktrees=%d, want all empty", got.Branch, got.Changes, got.Worktrees)
+		t.Errorf(
+			"non-repo project: branch=%q changes=%d worktrees=%d, want all empty",
+			got.Branch,
+			got.Changes,
+			got.Worktrees,
+		)
 	}
 }
 

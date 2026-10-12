@@ -499,9 +499,10 @@ func TestTheTranscriptGivenToTheSummariserIncludesToolTraffic(t *testing.T) {
 		llm.Message{
 			Role: "assistant",
 			ToolCalls: []llm.ToolCall{{
-				ID:       "c1",
-				Type:     "function",
-				Function: llm.FunctionCall{Name: "execute_command", Arguments: []byte(`{"command":"find . -name '*.txt' | wc -l"}`)},
+				ID:   "c1",
+				Type: "function",
+				Function: llm.FunctionCall{Name: "execute_command",
+					Arguments: []byte(`{"command":"find . -name '*.txt' | wc -l"}`)},
 			}},
 		},
 		toolResult("0"),

@@ -41,7 +41,11 @@ func (f *fakeHost) Do(req *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
 		}
 	}
-	return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(`{"message":"no route"}`)), Header: http.Header{}}, nil
+	return &http.Response{
+		StatusCode: 404,
+		Body:       io.NopCloser(strings.NewReader(`{"message":"no route"}`)),
+		Header:     http.Header{},
+	}, nil
 }
 
 // forgeFixture connects GitHub in a fresh auth dir, points the commands at a fake git and a
@@ -60,7 +64,13 @@ func newForge(t *testing.T, connected bool) *forgeFixture {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("MOTITA_AUTH_DIR", dir)
-	f := &forgeFixture{t: t, host: &fakeHost{routes: map[string]string{}}, remote: "git@github.com:o/r.git", branch: "feat/x", head: "origin/main"}
+	f := &forgeFixture{
+		t:      t,
+		host:   &fakeHost{routes: map[string]string{}},
+		remote: "git@github.com:o/r.git",
+		branch: "feat/x",
+		head:   "origin/main",
+	}
 	if connected {
 		s := gitforge.Store{Dir: dir}
 		gh := gitforge.Defaults(func(string) string { return "" })[0]
@@ -83,6 +93,8 @@ func newForge(t *testing.T, connected bool) *forgeFixture {
 				return "", errors.New("not set")
 			}
 			return f.head, nil
+		default:
+			// Any other git call is unexpected and fails below.
 		}
 		t.Fatalf("unexpected git %v", args)
 		return "", nil
@@ -115,13 +127,16 @@ func TestForgePRCreate(t *testing.T) {
 		t.Fatalf("code %d: %s %s", code, f.out.String(), f.errs.String())
 	}
 	// The number comes WITH its link, ready to be repeated to the user.
-	for _, want := range []string{"Pull request #12 opened: https://github.com/o/r/pull/12", "[o/r#12](https://github.com/o/r/pull/12)"} {
+	for _, want := range []string{
+		"Pull request #12 opened: https://github.com/o/r/pull/12", "[o/r#12](https://github.com/o/r/pull/12)",
+	} {
 		if !strings.Contains(f.out.String(), want) {
 			t.Errorf("missing %q in %q", want, f.out.String())
 		}
 	}
 	last := f.host.bodies[len(f.host.bodies)-1]
-	if !strings.Contains(last, `"head":"feat/x"`) || !strings.Contains(last, `"base":"main"`) || !strings.Contains(last, `"body":"why"`) {
+	if !strings.Contains(last, `"head":"feat/x"`) || !strings.Contains(last, `"base":"main"`) ||
+		!strings.Contains(last, `"body":"why"`) {
 		t.Errorf("body = %s", last)
 	}
 }
@@ -130,7 +145,8 @@ func TestForgePRCreateRefusesANonSemanticTitleBeforeAnythingElse(t *testing.T) {
 	// Not even connected: the title is the first thing checked.
 	f := newForge(t, false)
 	for _, title := range []string{"", "Update stuff", "feat add"} {
-		if code := f.run("pr", "create", "--title", title); code != ConfigError || !strings.Contains(f.errs.String(), "type(scope): description") {
+		if code := f.run("pr", "create", "--title", title); code != ConfigError ||
+			!strings.Contains(f.errs.String(), "type(scope): description") {
 			t.Errorf("title %q: code %d err %q", title, code, f.errs.String())
 		}
 	}
@@ -141,8 +157,10 @@ func TestForgePRCreateRefusesANonSemanticTitleBeforeAnythingElse(t *testing.T) {
 
 func TestForgePRCreateReusesTheOpenPullRequest(t *testing.T) {
 	f := newForge(t, true)
-	f.host.routes["GET https://api.github.com/repos/o/r/pulls?"] = `[{"number":5,"html_url":"https://github.com/o/r/pull/5","title":"t","head":{"ref":"feat/x"},"base":{"ref":"main"}}]`
-	if code := f.run("pr", "create", "--title", "fix: x"); code != Success || !strings.Contains(f.out.String(), "#5 is already open") {
+	f.host.routes["GET https://api.github.com/repos/o/r/pulls?"] = `[{"number":5,` +
+		`"html_url":"https://github.com/o/r/pull/5","title":"t","head":{"ref":"feat/x"},"base":{"ref":"main"}}]`
+	if code := f.run("pr", "create", "--title", "fix: x"); code != Success ||
+		!strings.Contains(f.out.String(), "#5 is already open") {
 		t.Fatalf("code %d out %q", code, f.out.String())
 	}
 	for _, s := range f.host.seen {
@@ -159,7 +177,9 @@ func TestForgePRCreateInputs(t *testing.T) {
 	// A description from a file and from stdin; a draft; explicit base and head.
 	file := filepath.Join(t.TempDir(), "body.md")
 	_ = os.WriteFile(file, []byte("from file"), 0o600)
-	if code := f.run("pr", "create", "--title", "feat: x", "--body-file", file, "--base", "develop", "--head", "other", "--draft"); code != Success {
+	if code := f.run(
+		"pr", "create", "--title", "feat: x", "--body-file", file, "--base", "develop", "--head", "other", "--draft",
+	); code != Success {
 		t.Fatalf("code %d: %s", code, f.errs.String())
 	}
 	last := f.host.bodies[len(f.host.bodies)-1]
@@ -168,11 +188,20 @@ func TestForgePRCreateInputs(t *testing.T) {
 			t.Errorf("missing %s in %s", want, last)
 		}
 	}
-	op := Options{Args: []string{"forge", "pr", "create", "--title", "feat: x", "--body-file", "-"}, Out: &f.out, Err: &f.errs, Stdin: strings.NewReader("from stdin"), BaseCtx: context.Background()}
+	op := Options{
+		Args:    []string{"forge", "pr", "create", "--title", "feat: x", "--body-file", "-"},
+		Out:     &f.out,
+		Err:     &f.errs,
+		Stdin:   strings.NewReader("from stdin"),
+		BaseCtx: context.Background(),
+	}
 	if code := Run(op); code != Success || !strings.Contains(f.host.bodies[len(f.host.bodies)-1], "from stdin") {
 		t.Fatalf("code %d: %s", code, f.errs.String())
 	}
-	if code := f.run("pr", "create", "--title", "feat: x", "--body-file", filepath.Join(t.TempDir(), "missing")); code != ConfigError || !strings.Contains(f.errs.String(), "could not read") {
+	if code := f.run(
+		"pr", "create", "--title", "feat: x", "--body-file", filepath.Join(t.TempDir(), "missing"),
+	); code != ConfigError ||
+		!strings.Contains(f.errs.String(), "could not read") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	if code := f.run("pr", "create", "--nonsense"); code != ConfigError {
@@ -183,11 +212,13 @@ func TestForgePRCreateInputs(t *testing.T) {
 func TestForgePRCreateRefusals(t *testing.T) {
 	f := newForge(t, true)
 	f.branch = ""
-	if code := f.run("pr", "create", "--title", "feat: x"); code != ConfigError || !strings.Contains(f.errs.String(), "no branch") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != ConfigError ||
+		!strings.Contains(f.errs.String(), "no branch") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	f.branch = "main"
-	if code := f.run("pr", "create", "--title", "feat: x"); code != ConfigError || !strings.Contains(f.errs.String(), "make a branch") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != ConfigError ||
+		!strings.Contains(f.errs.String(), "make a branch") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	// With no origin/HEAD the default is main.
@@ -230,40 +261,48 @@ func TestForgePRCreateHostErrorsSayWhatToDo(t *testing.T) {
 
 func TestForgeRepoResolution(t *testing.T) {
 	f := newForge(t, false)
-	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError || !strings.Contains(f.errs.String(), "not connected") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError ||
+		!strings.Contains(f.errs.String(), "not connected") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	f.remote = ""
-	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError || !strings.Contains(f.errs.String(), "no remote named origin") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError ||
+		!strings.Contains(f.errs.String(), "no remote named origin") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	f.remote = "https://example.org/a/b.git"
-	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError || !strings.Contains(f.errs.String(), "example.org is not a git host") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError ||
+		!strings.Contains(f.errs.String(), "example.org is not a git host") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	f.remote = "nonsense"
-	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError || !strings.Contains(f.errs.String(), "not a repository address") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError ||
+		!strings.Contains(f.errs.String(), "not a repository address") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	// A login file that cannot be read is reported, not mistaken for "not connected".
 	f.remote = "git@github.com:o/r.git"
 	_ = os.WriteFile(oauth.CredentialPath(os.Getenv("MOTITA_AUTH_DIR"), "git-github"), []byte("{not json"), 0o600)
-	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError || !strings.Contains(f.errs.String(), "unreadable") {
+	if code := f.run("pr", "create", "--title", "feat: x"); code != RunError ||
+		!strings.Contains(f.errs.String(), "unreadable") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 }
 
 func TestForgeChecks(t *testing.T) {
 	f := newForge(t, true)
-	f.host.routes["GET https://api.github.com/repos/o/r/pulls?"] = `[{"number":12,"html_url":"u","head":{"ref":"feat/x"},"base":{"ref":"main"}}]`
+	f.host.routes["GET https://api.github.com/repos/o/r/pulls?"] = `[{"number":12,"html_url":"u",` +
+		`"head":{"ref":"feat/x"},"base":{"ref":"main"}}]`
 	f.host.routes["GET https://api.github.com/repos/o/r/pulls/12"] = `{"head":{"sha":"abc"}}`
 	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/status"] = `{"statuses":[]}`
-	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/check-runs"] = `{"check_runs":[{"id":7,"name":"build","status":"completed","conclusion":"success"}]}`
+	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/check-runs"] = `{"check_runs":[{"id":7,` +
+		`"name":"build","status":"completed","conclusion":"success"}]}`
 	if code := f.run("pr", "checks"); code != Success || !strings.Contains(f.out.String(), "o/r#12 CI: success") {
 		t.Fatalf("code %d out %q", code, f.out.String())
 	}
 	// pr status is the same report, by number, and never waits.
-	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/check-runs"] = `{"check_runs":[{"id":7,"name":"test","status":"in_progress"}]}`
+	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/check-runs"] = `{"check_runs":[{"id":7,` +
+		`"name":"test","status":"in_progress"}]}`
 	if code := f.run("pr", "status", "12"); code != forgeCIPending || !strings.Contains(f.out.String(), "pending") {
 		t.Fatalf("code %d out %q", code, f.out.String())
 	}
@@ -273,12 +312,17 @@ func TestForgeChecks(t *testing.T) {
 		t.Fatalf("code %d out %q", code, f.out.String())
 	}
 	// A failure prints the job, its detail and its log.
-	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/check-runs"] = `{"check_runs":[{"id":7,"name":"test","status":"completed","conclusion":"failure","html_url":"https://x/job/7","output":{"title":"2 failed"}},{"id":8,"name":"lint","status":"completed","conclusion":"success"},{"id":9,"name":"docs","status":"completed","conclusion":"failure"}]}`
+	f.host.routes["GET https://api.github.com/repos/o/r/commits/abc/check-runs"] = `{"check_runs":[{"id":7,` +
+		`"name":"test","status":"completed","conclusion":"failure","html_url":"https://x/job/7","output":{"title":"2 ` +
+		`failed"}},{"id":8,"name":"lint","status":"completed","conclusion":"success"},{"id":9,"name":"docs",` +
+		`"status":"completed","conclusion":"failure"}]}`
 	f.host.routes["GET https://api.github.com/repos/o/r/actions/jobs/7/logs"] = "FAIL TestX"
 	if code := f.run("pr", "checks", "12", "--logs"); code != RunError {
 		t.Fatalf("code %d", code)
 	}
-	for _, want := range []string{"failure   test - 2 failed (https://x/job/7)", "--- end of the log of test ---", "FAIL TestX"} {
+	for _, want := range []string{
+		"failure   test - 2 failed (https://x/job/7)", "--- end of the log of test ---", "FAIL TestX",
+	} {
 		if !strings.Contains(f.out.String(), want) {
 			t.Errorf("missing %q in\n%s", want, f.out.String())
 		}
@@ -296,9 +340,15 @@ func TestForgeChecksWait(t *testing.T) {
 	polls := 0
 	pending := `{"check_runs":[{"id":7,"name":"test","status":"in_progress"}]}`
 	done := `{"check_runs":[{"id":7,"name":"test","status":"completed","conclusion":"success"}]}`
-	wait := &sequenceHost{inner: f.host, key: "GET https://api.github.com/repos/o/r/commits/abc/check-runs", bodies: []string{pending, pending, done}, calls: &polls}
+	wait := &sequenceHost{
+		inner:  f.host,
+		key:    "GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		bodies: []string{pending, pending, done},
+		calls:  &polls,
+	}
 	forgeHTTP = wait
-	if code := f.run("pr", "checks", "12", "--wait"); code != Success || polls != 3 || !strings.Contains(f.out.String(), "success") {
+	if code := f.run("pr", "checks", "12", "--wait"); code != Success || polls != 3 ||
+		!strings.Contains(f.out.String(), "success") {
 		t.Fatalf("code %d polls %d out %q", code, polls, f.out.String())
 	}
 	// A timeout ends the wait with the CI still pending.
@@ -338,7 +388,8 @@ func (s *sequenceHost) Do(req *http.Request) (*http.Response, error) {
 
 func TestForgeChecksErrors(t *testing.T) {
 	f := newForge(t, true)
-	if code := f.run("pr", "checks", "zero"); code != ConfigError || !strings.Contains(f.errs.String(), "not a pull request number") {
+	if code := f.run("pr", "checks", "zero"); code != ConfigError ||
+		!strings.Contains(f.errs.String(), "not a pull request number") {
 		t.Errorf("code %d: %s", code, f.errs.String())
 	}
 	if code := f.run("pr", "checks", "-3"); code != ConfigError && code != RunError {
@@ -398,14 +449,26 @@ func TestForgeGitDefault(t *testing.T) {
 func TestGitCredentialSubcommand(t *testing.T) {
 	f := newForge(t, true)
 	var out, errs bytes.Buffer
-	op := Options{Args: []string{"git-credential", "get"}, Out: &out, Err: &errs, Stdin: strings.NewReader("protocol=https\nhost=github.com\n\n"), BaseCtx: context.Background()}
+	op := Options{
+		Args:    []string{"git-credential", "get"},
+		Out:     &out,
+		Err:     &errs,
+		Stdin:   strings.NewReader("protocol=https\nhost=github.com\n\n"),
+		BaseCtx: context.Background(),
+	}
 	if code := Run(op); code != Success || out.String() != "username=x-access-token\npassword=gho_tok\n" {
 		t.Fatalf("code %d out %q err %q", code, out.String(), errs.String())
 	}
 	// git also runs it with `store` and `erase`, and with no action at all.
 	for _, args := range [][]string{{"git-credential", "store"}, {"git-credential"}} {
 		out.Reset()
-		op = Options{Args: args, Out: &out, Err: &errs, Stdin: strings.NewReader("host=github.com\n"), BaseCtx: context.Background()}
+		op = Options{
+			Args:    args,
+			Out:     &out,
+			Err:     &errs,
+			Stdin:   strings.NewReader("host=github.com\n"),
+			BaseCtx: context.Background(),
+		}
 		if code := Run(op); code != Success || out.String() != "" {
 			t.Errorf("%v: code %d out %q", args, code, out.String())
 		}

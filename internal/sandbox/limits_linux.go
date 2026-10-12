@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/madkoding/motita/internal/execx"
 )
 
 // ---------------------------------------------------------------------------
@@ -55,7 +57,7 @@ func wrapWithUlimit(l Limits, command string, args []string) (string, []string) 
 
 	finalArgs := []string{"sh", "-c", script, "motita-sandbox", command}
 	finalArgs = append(finalArgs, args...)
-	return "/bin/sh", finalArgs
+	return execx.Shell, finalArgs
 }
 
 // ulimitCommands builds the `ulimit` orders, sorted so that the output is
@@ -119,7 +121,7 @@ func ulimitLines(l Limits, onFailure func(name string) string) []string {
 }
 
 // probeShell is the shell unappliedLimits asks, a variable so a test can make it missing.
-var probeShell = "/bin/sh"
+var probeShell = execx.Shell
 
 // unappliedLimits are the limits the shell cannot apply on this machine, found by
 // trying each one once in a throwaway shell. A run would otherwise only say so in

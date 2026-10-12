@@ -16,9 +16,18 @@ func TestLimitFromRefusal(t *testing.T) {
 		name, msg string
 		want      int
 	}{
-		{"openai", "max_tokens is too large: 65536. This model supports at most 16384 completion tokens, whereas you provided 65536.", 16384},
+		{
+			"openai",
+			"max_tokens is too large: 65536. This model supports at most 16384 completion tokens, whereas you provided 65536.",
+			16384,
+		},
 		{"anthropic", "max_tokens: 65536 > 32000, which is the maximum allowed number of output tokens for claude-x", 32000},
-		{"context window is not the output limit", "This model's maximum context length is 8192 tokens. However, you requested 70000 tokens (4000 in the messages, 66000 in the completion).", 0},
+		{
+			"context window is not the output limit",
+			"This model's maximum context length is 8192 tokens. However, you requested 70000 tokens (4000 in the messages, " +
+				"66000 in the completion).",
+			0,
+		},
 		{"unrelated", "invalid api key 4096", 0},
 	}
 	for _, tc := range cases {
@@ -40,7 +49,11 @@ func TestAnOutputLimitTheModelRefusesIsLearnedAndKept(t *testing.T) {
 		asked = append(asked, n)
 		if n > 16384 {
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"error":{"message":"max_tokens is too large: 65536. This model supports at most 16384 completion tokens"}}`))
+			_, _ = w.Write(
+				[]byte(
+					`{"error":{"message":"max_tokens is too large: 65536. This model supports at most 16384 completion tokens"}}`,
+				),
+			)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
@@ -49,7 +62,15 @@ func TestAnOutputLimitTheModelRefusesIsLearnedAndKept(t *testing.T) {
 	defer srv.Close()
 
 	c := textClient(t, srv)
-	c.cfg = config.LLM{Provider: "openai", Model: "test", APIKey: "k", BaseURL: srv.URL, MaxTokens: 65536, MaxAttempts: 1, Timeout: c.cfg.Timeout}
+	c.cfg = config.LLM{
+		Provider:    "openai",
+		Model:       "test",
+		APIKey:      "k",
+		BaseURL:     srv.URL,
+		MaxTokens:   65536,
+		MaxAttempts: 1,
+		Timeout:     c.cfg.Timeout,
+	}
 	msgs := []Message{{Role: "user", Content: "hi"}}
 	for i := 0; i < 2; i++ {
 		if got, err := c.Complete(context.Background(), msgs); err != nil || got != "ok" {
@@ -77,7 +98,8 @@ func TestOutputLimitRewriting(t *testing.T) {
 		t.Errorf("gemini limit = %d, want 9000", got)
 	}
 	var out map[string]map[string]float64
-	if err := json.Unmarshal(rewriteOutputLimit(gemini, func(int) (int, bool) { return 100, true }), &out); err != nil || out["generationConfig"]["maxOutputTokens"] != 100 {
+	if err := json.Unmarshal(rewriteOutputLimit(gemini, func(int) (int, bool) { return 100, true }), &out); err != nil ||
+		out["generationConfig"]["maxOutputTokens"] != 100 {
 		t.Errorf("the nested limit must be replaced: %v %v", out, err)
 	}
 	for name, data := range map[string][]byte{"not json": []byte("nope"), "no limit": []byte(`{"model":"m"}`)} {

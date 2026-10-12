@@ -34,16 +34,7 @@ func LinkDependencyDirs(projectDir, worktree string) {
 	var walk func(rel string, depth int)
 	walk = func(rel string, depth int) {
 		visited++
-		for _, name := range dependencyDirs {
-			src := filepath.Join(projectDir, rel, name)
-			dst := filepath.Join(worktree, rel, name)
-			// Nothing to share, or something is already there: both are "leave it alone". A
-			// link that cannot be made is left alone too - see above.
-			if !isReadableDir(src) || pathExists(dst) {
-				continue
-			}
-			_ = os.Symlink(src, dst)
-		}
+		linkDependencyDirsAt(projectDir, worktree, rel)
 		if depth >= dependencyDirsMaxDepth {
 			return
 		}
@@ -57,14 +48,34 @@ func LinkDependencyDirs(projectDir, worktree string) {
 			if visited >= dependencyDirsMaxVisits {
 				return
 			}
-			// DirEntry reports a symlink as a symlink, so a link made above is never entered.
-			if !e.IsDir() || e.Name() == ".git" || isDependencyDir(e.Name()) {
+			if !isWalkableDir(e) {
 				continue
 			}
 			walk(filepath.Join(rel, e.Name()), depth+1)
 		}
 	}
 	walk("", 0)
+}
+
+// linkDependencyDirsAt links the dependency directories of projectDir/rel into worktree/rel.
+// Nothing to share, or something is already there: both are "leave it alone". A link that cannot
+// be made is left alone too - see LinkDependencyDirs.
+func linkDependencyDirsAt(projectDir, worktree, rel string) {
+	for _, name := range dependencyDirs {
+		src := filepath.Join(projectDir, rel, name)
+		dst := filepath.Join(worktree, rel, name)
+		if !isReadableDir(src) || pathExists(dst) {
+			continue
+		}
+		_ = os.Symlink(src, dst)
+	}
+}
+
+// isWalkableDir reports whether the walk enters e: a real directory that is neither .git nor a
+// dependency directory. DirEntry reports a symlink as a symlink, so a link made by the walk is
+// never entered.
+func isWalkableDir(e os.DirEntry) bool {
+	return e.IsDir() && e.Name() != ".git" && !isDependencyDir(e.Name())
 }
 
 // dependencyDirsMaxDepth is how deep below the checkout's root dependency directories are looked

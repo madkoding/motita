@@ -51,7 +51,8 @@ func (t *TUI) runLanguage(arg string) {
 		return
 	}
 	if !canSave {
-		t.addMessage(AuthorSystem, t.tr("this interface cannot save the language: set ui.language in the configuration file."))
+		t.addMessage(AuthorSystem, t.tr(
+			"this interface cannot save the language: set ui.language in the configuration file."))
 		return
 	}
 	if err := lr.SetUILanguage(arg); err != nil {
@@ -62,7 +63,8 @@ func (t *TUI) runLanguage(arg string) {
 	t.Lang = i18n.Resolve(arg, os.Getenv)
 	t.draw.Unlock()
 	// Said in the language just chosen: it is the first sentence the user reads in it.
-	t.addMessage(AuthorSystem, t.trf("language set to %s: the interface is now in %s.", arg, t.languageName(t.currentLang())))
+	t.addMessage(AuthorSystem, t.trf("language set to %s: the interface is now in %s.",
+		arg, t.languageName(t.currentLang())))
 }
 
 // currentLang is the language the interface is drawn in, read under the lock /language writes it

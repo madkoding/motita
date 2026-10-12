@@ -24,16 +24,20 @@ var gitReading = map[string]bool{
 	"show-ref": true, "for-each-ref": true, "count-objects": true,
 }
 
+// gitHarmless are the options before a git subcommand that change nothing it runs or where.
+var gitHarmless = map[string]bool{
+	"--no-pager": true, "-P": true, "--no-replace-objects": true, "--literal-pathspecs": true,
+	"--glob-pathspecs": true, "--noglob-pathspecs": true, "--icase-pathspecs": true,
+	"--no-optional-locks": true,
+}
+
 // gitRule allows read-only git: a reading subcommand, with the options before it limited to
 // the ones that change nothing (`-c core.pager=…` and `-C dir` change what runs and where),
 // no `--output` file, and `branch`, `tag` and `remote` only in their listing forms.
 func gitRule(args []string) (string, bool) {
 	i := 0
 	for ; i < len(args) && strings.HasPrefix(args[i], "-"); i++ {
-		switch args[i] {
-		case "--no-pager", "-P", "--no-replace-objects", "--literal-pathspecs",
-			"--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks":
-		default:
+		if !gitHarmless[args[i]] {
 			return fmt.Sprintf("git %s changes what git runs or where, and read-only mode cannot check it", args[i]), true
 		}
 	}
@@ -49,34 +53,61 @@ func gitRule(args []string) (string, bool) {
 			return fmt.Sprintf("git %s %s writes a file", sub, a), true
 		}
 	}
+	return gitSubcommandRule(sub, rest)
+}
+
+// gitSubcommandRule applies the rule of the reading subcommands that also have a writing form.
+func gitSubcommandRule(sub string, rest []string) (string, bool) {
 	switch sub {
 	case "config":
 		return gitConfigRule(rest)
 	case "grep":
-		// `-O CMD` / `--open-files-in-pager=CMD` runs CMD on the matching files. git accepts
-		// abbreviated long options, and the short one clusters (`-nOvim`).
-		for _, a := range rest {
-			name, _, _ := strings.Cut(a, "=")
-			if (!strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, "O")) ||
-				(len(name) > 3 && strings.HasPrefix("--open-files-in-pager", name)) {
-				return fmt.Sprintf("git grep %s runs a program on the matches", a), true
-			}
-		}
+		return gitGrepRule(rest)
 	case "branch", "tag":
 		return gitListRule(sub, rest)
 	case "remote":
-		// `git remote`, `git remote -v`, `git remote get-url NAME` and `git remote show NAME`.
-		verb := firstNonFlag(rest)
-		if verb != "" && verb != "get-url" && verb != "show" {
-			return fmt.Sprintf("git remote %s can change the repository", verb), true
-		}
-		for _, a := range rest {
-			if verb == "" && a != "-v" && a != "--verbose" {
-				return fmt.Sprintf("git remote %s is not a listing form", a), true
-			}
+		return gitRemoteRule(rest)
+	default:
+		return "", false
+	}
+}
+
+// gitGrepRule refuses `-O CMD` / `--open-files-in-pager=CMD`, which runs CMD on the matching
+// files. git accepts abbreviated long options, and the short one clusters (`-nOvim`).
+func gitGrepRule(rest []string) (string, bool) {
+	for _, a := range rest {
+		name, _, _ := strings.Cut(a, "=")
+		if shortClusterHas(a, "O") || (len(name) > 3 && strings.HasPrefix("--open-files-in-pager", name)) {
+			return fmt.Sprintf("git grep %s runs a program on the matches", a), true
 		}
 	}
 	return "", false
+}
+
+// shortClusterHas reports whether a is a cluster of short options that holds letter.
+func shortClusterHas(a, letter string) bool {
+	return !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, letter)
+}
+
+// gitRemoteRule allows `git remote`, `git remote -v`, `git remote get-url NAME` and
+// `git remote show NAME`.
+func gitRemoteRule(rest []string) (string, bool) {
+	verb := firstNonFlag(rest)
+	if verb != "" && verb != "get-url" && verb != "show" {
+		return fmt.Sprintf("git remote %s can change the repository", verb), true
+	}
+	for _, a := range rest {
+		if verb == "" && a != "-v" && a != "--verbose" {
+			return fmt.Sprintf("git remote %s is not a listing form", a), true
+		}
+	}
+	return "", false
+}
+
+// gitConfigWriting are the subcommands of the newer `git config` forms that write or open an
+// editor.
+var gitConfigWriting = map[string]bool{
+	"set": true, "unset": true, "edit": true, "rename-section": true, "remove-section": true,
 }
 
 // gitConfigRule: `git config` reads with no value and writes with one:
@@ -95,8 +126,8 @@ func gitConfigRule(rest []string) (string, bool) {
 			a == "--replace-all", a == "--rename-section", a == "--remove-section":
 			return fmt.Sprintf("git config %s writes the configuration", a), true
 		case strings.HasPrefix(a, "-"):
-		case positional == 0 && (a == "set" || a == "unset" || a == "edit" ||
-			a == "rename-section" || a == "remove-section"):
+			// Any other option only selects or formats what is read.
+		case positional == 0 && gitConfigWriting[a]:
 			return fmt.Sprintf("git config %s writes the configuration", a), true
 		default:
 			positional++
@@ -165,19 +196,9 @@ func gitListRule(sub string, rest []string) (string, bool) {
 // `go vet` compiles into the build cache, and that is not "changing the system": it is what the
 // check does, and refusing it would make plan mode useless for the case this project is about.
 func goRule(args []string) (string, bool) {
-	for i, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			continue
-		}
-		name, value, glued := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		if !glued && i+1 < len(args) {
-			value = args[i+1]
-		}
-		switch {
-		case name == "vettool" || name == "toolexec" || name == "exec":
-			return fmt.Sprintf("go %s runs a program of its choosing", a), true
-		case name == "o" || name == "modfile" || (name == "mod" && value == "mod"):
-			return fmt.Sprintf("go %s writes a file", a), true
+	for i := range args {
+		if reason, bad := goOption(args, i); bad {
+			return reason, true
 		}
 	}
 	sub := firstNonFlag(args)
@@ -185,20 +206,46 @@ func goRule(args []string) (string, bool) {
 	case "version", "list", "doc", "vet", "":
 		return "", false
 	case "env":
-		for _, a := range args {
-			if a == "-w" || a == "-u" {
-				return fmt.Sprintf("go env %s writes the go environment file", a), true
-			}
-		}
-		return "", false
+		return goEnvRule(args)
 	case "test":
 		return "go test compiles and runs the package's code", true
 	case "fmt":
 		return "go fmt rewrites the files", true
 	case "build":
 		return "go build writes a binary", true
+	default:
+		return fmt.Sprintf("go %s can write to the module cache or the tree", sub), true
 	}
-	return fmt.Sprintf("go %s can write to the module cache or the tree", sub), true
+}
+
+// goOption refuses the option at args[i] when it hands go a program to run or a file to write.
+func goOption(args []string, i int) (string, bool) {
+	a := args[i]
+	if !strings.HasPrefix(a, "-") {
+		return "", false
+	}
+	name, value, glued := strings.Cut(strings.TrimLeft(a, "-"), "=")
+	if !glued && i+1 < len(args) {
+		value = args[i+1]
+	}
+	switch {
+	case name == "vettool" || name == "toolexec" || name == "exec":
+		return fmt.Sprintf("go %s runs a program of its choosing", a), true
+	case name == "o" || name == "modfile" || (name == "mod" && value == "mod"):
+		return fmt.Sprintf("go %s writes a file", a), true
+	default:
+		return "", false
+	}
+}
+
+// goEnvRule refuses `go env -w` and `go env -u`, which write the go environment file.
+func goEnvRule(args []string) (string, bool) {
+	for _, a := range args {
+		if a == "-w" || a == "-u" {
+			return fmt.Sprintf("go env %s writes the go environment file", a), true
+		}
+	}
+	return "", false
 }
 
 var sortLongOptions = []string{
@@ -220,26 +267,46 @@ func sortRule(args []string) (string, bool) {
 		case a == "--":
 			return "", false
 		case strings.HasPrefix(a, "--"):
-			name, _, _ := strings.Cut(a, "=")
-			switch resolveLong(name, sortLongOptions) {
-			case flagOutput:
-				return fmt.Sprintf("sort %s writes a file", a), true
-			case "--compress-program":
-				return fmt.Sprintf("sort %s runs a program of its choosing", a), true
+			if reason, bad := sortLong(a); bad {
+				return reason, true
 			}
 		case strings.HasPrefix(a, "-"):
-			for j := 1; j < len(a); j++ {
-				if a[j] == 'o' {
-					return fmt.Sprintf("sort %s writes a file", a), true
-				}
-				if strings.IndexByte("ktST", a[j]) >= 0 {
-					// The rest of the token, or the next one, is this option's value.
-					if j == len(a)-1 {
-						i++
-					}
-					break
-				}
+			if reason, bad := sortShort(a, &i); bad {
+				return reason, true
 			}
+		default:
+			// An operand: a file sort reads.
+		}
+	}
+	return "", false
+}
+
+// sortLong refuses a long sort option that writes a file or runs a program.
+func sortLong(a string) (string, bool) {
+	name, _, _ := strings.Cut(a, "=")
+	switch resolveLong(name, sortLongOptions) {
+	case flagOutput:
+		return fmt.Sprintf("sort %s writes a file", a), true
+	case "--compress-program":
+		return fmt.Sprintf("sort %s runs a program of its choosing", a), true
+	default:
+		return "", false
+	}
+}
+
+// sortShort reads a cluster of short sort options: `-o` is refused, and *i moves past the next
+// argument when it is the last option's value.
+func sortShort(a string, i *int) (string, bool) {
+	for j := 1; j < len(a); j++ {
+		if a[j] == 'o' {
+			return fmt.Sprintf("sort %s writes a file", a), true
+		}
+		if strings.IndexByte("ktST", a[j]) >= 0 {
+			// The rest of the token, or the next one, is this option's value.
+			if j == len(a)-1 {
+				*i++
+			}
+			return "", false
 		}
 	}
 	return "", false

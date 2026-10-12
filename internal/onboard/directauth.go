@@ -69,7 +69,8 @@ func copilotDirectAuth(ctx context.Context, out io.Writer) (oauth.Credential, er
 		return oauth.Credential{}, fmt.Errorf("copilot authentication failed: %w", err)
 	}
 	if result.CopilotToken.Token == "" {
-		return oauth.Credential{}, errors.New("GitHub returned no Copilot token: the account has no active Copilot subscription")
+		return oauth.Credential{}, errors.New(
+			"GitHub returned no Copilot token: the account has no active Copilot subscription")
 	}
 	printSuccess(out, "Connected to GitHub Copilot!")
 	return result.Credential(), nil
@@ -155,7 +156,8 @@ func geminiDirectAuth(ctx context.Context, out io.Writer, in *bufio.Reader) (oau
 			return oauth.Credential{}, err
 		}
 		if cred.ProjectID == "" {
-			return oauth.Credential{}, errors.New("no Google Cloud project is known: type one, or run `gcloud auth application-default set-quota-project <project>`")
+			return oauth.Credential{}, errors.New("no Google Cloud project is known: type one, or run " +
+				"`gcloud auth application-default set-quota-project <project>`")
 		}
 		// Renew once now, so a credential that cannot reach Gemini fails here and
 		// not on the first task.
@@ -212,7 +214,9 @@ func printPasteHint(out io.Writer, listenErr error) {
 // browser wins, the reader started for the paste is still waiting for a line, so
 // the user is asked for one Enter: a reader left behind would swallow the answer
 // to whatever is asked next.
-func waitForCode(ctx context.Context, out io.Writer, in *bufio.Reader, lb *oauth.Loopback, state string) (string, error) {
+func waitForCode(
+	ctx context.Context, out io.Writer, in *bufio.Reader, lb *oauth.Loopback, state string,
+) (string, error) {
 	lines := make(chan string, 1)
 	go func() {
 		line, err := in.ReadString('\n')

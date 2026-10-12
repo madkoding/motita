@@ -37,7 +37,8 @@ func TestVerificationKeysRecognisesChecksOnAnyProject(t *testing.T) {
 		"cd a;; npm test ; ;":                         {"a|npm test"}, // empty segments are skipped
 		"(cd a && npm test) && (cd b && npm test)":    {"a|npm test", "b|npm test"},
 		// The real session: a search whose PATTERN names a runner is not a run of it.
-		`cd /w && grep -rnE '"running: |running: ' internal | grep -v _test; grep -n '"test\|vitest\|testing-library' web/package.json`: nil,
+		`cd /w && grep -rnE '"running: |running: ' internal | grep -v _test; grep -n '"test\|vitest\|testing-library' ` +
+			`web/package.json`: nil,
 		`grep -c "a|make check|b" Makefile`:                            nil,
 		`echo "x" | grep -q "y\" | go test" || npm test`:               {"|npm test"},
 		`printf %s \| && npm test`:                                     {"|npm test"},
@@ -104,7 +105,8 @@ func TestAPassClosesAFailureAndANewFailureReopensIt(t *testing.T) {
 	m := &workMemory{}
 	m.noteVerification("cd server && npm test 2>&1 | tail -60", 4, 0, nil, "# fail 22")
 	m.noteVerification("npm run lint", 4, 0, nil, "ok")
-	if open := m.openFailures(); len(open) != 1 || open[0].command != "cd server && npm test 2>&1 | tail -60" || !open[0].masked {
+	if open := m.openFailures(); len(open) != 1 || open[0].command != "cd server && npm test 2>&1 | tail -60" ||
+		!open[0].masked {
 		t.Fatalf("open = %+v", open)
 	}
 	if got := m.failedInRound(4); len(got) != 1 {
@@ -147,15 +149,23 @@ func TestOpenFailuresAreOneRecordPerCommandOldestFirst(t *testing.T) {
 
 func TestTheNotesTellTheModelWhatAFailedCheckMeans(t *testing.T) {
 	note := failedCheckNote([]verifRecord{{command: "cd server && npm test | tail", masked: true}, {command: "npx tsc"}})
-	for _, want := range []string{"A CHECK FAILED", "cd server && npm test | tail", "PIPE's", "exit=$?", "information, not a stopping point",
-		"WITHOUT your change"} {
+	for _, want := range []string{
+		"A CHECK FAILED", "cd server && npm test | tail", "PIPE's", "exit=$?", "information, not a stopping point",
+		"WITHOUT your change",
+	} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note lacks %q:\n%s", want, note)
 		}
 	}
-	first := unresolvedCheckChallenge([]verifRecord{{command: "npm test", round: 4, exit: 1, tail: "a\nb", masked: true}}, 1)
+	first := unresolvedCheckChallenge(
+		[]verifRecord{{command: "npm test", round: 4, exit: 1, tail: "a\nb", masked: true}},
+		1,
+	)
 	again := unresolvedCheckChallenge([]verifRecord{{command: "npm test", round: 4, exit: 1, tail: "a"}}, 2)
-	for _, want := range []string{"STILL FAILING", "FIX it", "PROVE it is not yours", "CHANGE the way you check", "to demonstrate, not to assume", "    a\n    b", "PIPE's"} {
+	for _, want := range []string{
+		"STILL FAILING", "FIX it", "PROVE it is not yours", "CHANGE the way you check", "to demonstrate, not to assume",
+		"    a\n    b", "PIPE's",
+	} {
 		if !strings.Contains(first, want) {
 			t.Errorf("first challenge lacks %q:\n%s", want, first)
 		}
@@ -193,6 +203,8 @@ func TestDoneOverAFailingCheckIsSentBackToIt(t *testing.T) {
 			return step(true) // claims again without doing anything about it
 		case 5:
 			return step(false, "echo fixed > fixed.flag", run)
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}
@@ -235,7 +247,12 @@ func TestAChallengedRunThatCannotFixTheCheckStillEnds(t *testing.T) {
 		t.Fatalf("err=%v reason=%s", err, result.Reason)
 	}
 	if want := 1 + maxVerifyChallenges + 1; result.Attempts != want {
-		t.Errorf("rounds = %d, want %d (the check, %d sent back, the claim that goes through)", result.Attempts, want, maxVerifyChallenges)
+		t.Errorf(
+			"rounds = %d, want %d (the check, %d sent back, the claim that goes through)",
+			result.Attempts,
+			want,
+			maxVerifyChallenges,
+		)
 	}
 }
 
@@ -273,7 +290,9 @@ func TestThePromptNamesTheGateThatWillDecide(t *testing.T) {
 	}
 	e := mount(t, srv, auto, func(c *config.Config) { c.Agent.WorkspaceDir = dir })
 	rules := e.agent.describeRules()
-	for _, want := range []string{"npm run lint", "npm run typecheck", "npm run test", "BEFORE claiming done", "must pass"} {
+	for _, want := range []string{
+		"npm run lint", "npm run typecheck", "npm run test", "BEFORE claiming done", "must pass",
+	} {
 		if !strings.Contains(rules, want) {
 			t.Errorf("rules lack %q:\n%s", want, rules)
 		}

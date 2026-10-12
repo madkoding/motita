@@ -114,6 +114,8 @@ func (t *TUI) askLines(max int) []string {
 		out = append(out, t.askLine(hint, width))
 	} else if a.answers[0] != "" {
 		out = append(out, t.askLine(t.tr("Enter confirms"), width))
+	} else {
+		// One question with no answer yet: there is nothing to confirm.
 	}
 
 	if max > 0 && len(out) > max {
@@ -263,6 +265,8 @@ func (t *TUI) handleAskKey(ctx context.Context, line string) bool {
 		t.ask = nil
 		t.drawFrame()
 		return true
+	default:
+		// Anything else is an answer, read below.
 	}
 	// Anything else is an answer typed for the question being shown. It is recorded WITHOUT
 	// advancing: the reader collects the whole line, so the next Enter would otherwise submit

@@ -26,11 +26,20 @@ var ignoreBase = []struct {
 	patterns []string
 }{
 	{[]string{"go.mod", "go.work"}, []string{"*.test", "*.out", "coverage.out"}},
-	{[]string{"package.json"}, []string{"node_modules/", ".next/", ".nuxt/", ".turbo/", ".parcel-cache/", ".vite/", "*.tsbuildinfo", "npm-debug.log*", "yarn-error.log*"}},
-	{[]string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"}, []string{"__pycache__/", "*.py[cod]", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", ".tox/", "*.egg-info/"}},
+	{[]string{"package.json"}, []string{
+		"node_modules/", ".next/", ".nuxt/", ".turbo/", ".parcel-cache/", ".vite/",
+		"*.tsbuildinfo", "npm-debug.log*", "yarn-error.log*",
+	}},
+	{[]string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"}, []string{
+		"__pycache__/", "*.py[cod]", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/",
+		".ruff_cache/", ".tox/", "*.egg-info/",
+	}},
 	{[]string{"Cargo.toml"}, []string{"target/"}},
 	{[]string{"pom.xml"}, []string{"target/", "*.class"}},
-	{[]string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}, []string{".gradle/", "*.class"}},
+	{
+		[]string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"},
+		[]string{".gradle/", "*.class"},
+	},
 	{[]string{"Gemfile"}, []string{".bundle/"}},
 	{[]string{"composer.json"}, []string{"/vendor/"}},
 	{[]string{"Podfile"}, []string{"Pods/"}},

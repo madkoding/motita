@@ -96,22 +96,35 @@ func (op Options) runForge(ctx context.Context, args []string) int {
 	case "status":
 		return op.forgeStatus()
 	case "pr":
-		if len(args) < 2 {
-			fmt.Fprint(op.Err, forgeHelp)
-			return ConfigError
-		}
-		switch args[1] {
-		case "create":
-			return op.forgePRCreate(ctx, args[2:])
-		case "status":
-			return op.forgePRChecks(ctx, args[2:], false)
-		case "checks":
-			return op.forgePRChecks(ctx, args[2:], true)
-		}
+		return op.runForgePR(ctx, args)
 	case "help", "-h", "--help":
 		fmt.Fprint(op.Out, forgeHelp)
 		return Success
+	default:
+		return op.unknownForgeCommand(args)
 	}
+}
+
+// runForgePR dispatches `motita forge pr <command>`; args still starts with "pr".
+func (op Options) runForgePR(ctx context.Context, args []string) int {
+	if len(args) < 2 {
+		fmt.Fprint(op.Err, forgeHelp)
+		return ConfigError
+	}
+	switch args[1] {
+	case "create":
+		return op.forgePRCreate(ctx, args[2:])
+	case "status":
+		return op.forgePRChecks(ctx, args[2:], false)
+	case "checks":
+		return op.forgePRChecks(ctx, args[2:], true)
+	default:
+		return op.unknownForgeCommand(args)
+	}
+}
+
+// unknownForgeCommand refuses a forge command line it does not know, with the help.
+func (op Options) unknownForgeCommand(args []string) int {
 	fmt.Fprintf(op.Err, "unknown forge command %q\n\n%s", strings.Join(args, " "), forgeHelp)
 	return ConfigError
 }
@@ -126,7 +139,8 @@ func (op Options) forgeStatus() int {
 		fmt.Fprintf(op.Out, "%s: connected as %s\n", a.Service.Name, a.Username)
 	}
 	if !listed {
-		fmt.Fprintln(op.Out, "no git host is connected: connect one in the motita settings (or with /git in the terminal interface)")
+		fmt.Fprintln(op.Out, "no git host is connected: "+
+			"connect one in the motita settings (or with /git in the terminal interface)")
 	}
 	return Success
 }
@@ -147,19 +161,24 @@ func (op Options) openRepo(ctx context.Context) (forgeRepo, gitforge.API, error)
 	dir, _ := os.Getwd()
 	url, err := forgeGit(ctx, dir, "remote", "get-url", "origin")
 	if err != nil || url == "" {
-		return forgeRepo{}, gitforge.API{}, errors.New("this repository has no remote named origin: add one with `git remote add origin <url>`")
+		return forgeRepo{}, gitforge.API{}, errors.New("this repository has no remote named origin: " +
+			"add one with `git remote add origin <url>`")
 	}
 	store := forgeStore()
 	svc, remote, err := store.ForRemote(url)
 	switch {
 	case errors.Is(err, gitforge.ErrNoService):
-		return forgeRepo{}, gitforge.API{}, fmt.Errorf("%s is not a git host motita knows: it handles GitHub, GitLab, Bitbucket and Gitea", remote.Host)
+		return forgeRepo{}, gitforge.API{}, fmt.Errorf("%s is not a git host motita knows: "+
+			"it handles GitHub, GitLab, Bitbucket and Gitea", remote.Host)
 	case err != nil:
 		return forgeRepo{}, gitforge.API{}, err
+	default:
+		// The origin belongs to a service motita knows.
 	}
 	api, err := store.Open(ctx, svc)
 	if gitforge.IsNotConnected(err) {
-		return forgeRepo{}, gitforge.API{}, fmt.Errorf("%s is not connected: connect it in the motita settings (or with /git in the terminal interface) and try again", svc.Name)
+		return forgeRepo{}, gitforge.API{}, fmt.Errorf("%s is not connected: connect it in the motita settings "+
+			"(or with /git in the terminal interface) and try again", svc.Name)
 	}
 	if err != nil {
 		return forgeRepo{}, gitforge.API{}, err
@@ -235,13 +254,38 @@ func (op Options) forgePRCreate(ctx context.Context, args []string) int {
 		op.printPR(repo, existing, "is already open")
 		return Success
 	}
-	pr, err := api.CreatePR(ctx, repo.remote, gitforge.PROptions{Title: *title, Body: text, Head: *head, Base: *base, Draft: *draft})
+	pr, err := api.CreatePR(ctx, repo.remote,
+		gitforge.PROptions{Title: *title, Body: text, Head: *head, Base: *base, Draft: *draft})
 	if err != nil {
 		fmt.Fprintf(op.Err, "❌ %v\n", describePRError(err, *head))
 		return RunError
 	}
 	op.printPR(repo, pr, "opened")
 	return Success
+}
+
+// ciCheckLine is how one check of the CI is listed.
+func ciCheckLine(c gitforge.Check) string {
+	line := fmt.Sprintf("  %-9s %s", c.State, c.Name)
+	if c.Detail != "" {
+		line += " - " + c.Detail
+	}
+	if c.URL != "" && c.State == gitforge.StateFailure {
+		line += " (" + c.URL + ")"
+	}
+	return line
+}
+
+// printFailureLogs prints the end of the log of every failed check the host can give one for.
+func (op Options) printFailureLogs(ctx context.Context, repo forgeRepo, api gitforge.API, st gitforge.CIStatus) {
+	for _, c := range st.Checks {
+		if c.State != gitforge.StateFailure {
+			continue
+		}
+		if text, ok, err := api.FailureLog(ctx, repo.remote, c); err == nil && ok {
+			fmt.Fprintf(op.Out, "\n--- end of the log of %s ---\n%s\n", c.Name, text)
+		}
+	}
 }
 
 // describePRError adds what the user can do to the refusals people actually hit.
@@ -255,6 +299,8 @@ func describePRError(err error, head string) error {
 			return fmt.Errorf("%w (the login may lack permission to open pull requests on this repository)", err)
 		case 422:
 			return fmt.Errorf("%w (is the branch %s pushed? run `git push -u origin %s` first)", err, head, head)
+		default:
+			// Any other refusal is reported as the host gave it.
 		}
 	}
 	return err
@@ -301,24 +347,9 @@ func (op Options) forgePRChecks(ctx context.Context, args []string, checks bool)
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
 		return RunError
 	}
-	var pr gitforge.PullRequest
-	if len(positional) > 0 {
-		n := positional[0]
-		if _, err := fmt.Sscanf(n, "%d", &pr.Number); err != nil || pr.Number <= 0 {
-			fmt.Fprintf(op.Err, "❌ %q is not a pull request number\n", n)
-			return ConfigError
-		}
-	} else {
-		found, ok, err := api.FindPR(ctx, repo.remote, repo.branch)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return RunError
-		}
-		if !ok {
-			fmt.Fprintf(op.Err, "❌ the branch %q has no open pull request: open one with `motita forge pr create`\n", repo.branch)
-			return RunError
-		}
-		pr = found
+	pr, code := op.choosePR(ctx, api, repo, positional)
+	if code != Success {
+		return code
 	}
 	deadline := time.Now().Add(*timeout)
 	for {
@@ -338,28 +369,43 @@ func (op Options) forgePRChecks(ctx context.Context, args []string, checks bool)
 	}
 }
 
+// choosePR is the pull request a checks command is about: the number given, or the open one of
+// the branch checked out.
+func (op Options) choosePR(
+	ctx context.Context, api gitforge.API, repo forgeRepo, positional []string,
+) (gitforge.PullRequest, int) {
+	var pr gitforge.PullRequest
+	if len(positional) > 0 {
+		n := positional[0]
+		if _, err := fmt.Sscanf(n, "%d", &pr.Number); err != nil || pr.Number <= 0 {
+			fmt.Fprintf(op.Err, "❌ %q is not a pull request number\n", n)
+			return pr, ConfigError
+		}
+		return pr, Success
+	}
+	found, ok, err := api.FindPR(ctx, repo.remote, repo.branch)
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ %v\n", err)
+		return pr, RunError
+	}
+	if !ok {
+		fmt.Fprintf(op.Err, "❌ the branch %q has no open pull request: open one with `motita forge pr create`\n",
+			repo.branch)
+		return pr, RunError
+	}
+	return found, Success
+}
+
 // printCI reports the checks and maps the state to the exit status.
-func (op Options) printCI(ctx context.Context, repo forgeRepo, api gitforge.API, pr gitforge.PullRequest, st gitforge.CIStatus, logs bool) int {
+func (op Options) printCI(
+	ctx context.Context, repo forgeRepo, api gitforge.API, pr gitforge.PullRequest, st gitforge.CIStatus, logs bool,
+) int {
 	fmt.Fprintf(op.Out, "%s#%d CI: %s\n", repo.remote.Path, pr.Number, st.State)
 	for _, c := range st.Checks {
-		line := fmt.Sprintf("  %-9s %s", c.State, c.Name)
-		if c.Detail != "" {
-			line += " - " + c.Detail
-		}
-		if c.URL != "" && c.State == gitforge.StateFailure {
-			line += " (" + c.URL + ")"
-		}
-		fmt.Fprintln(op.Out, line)
+		fmt.Fprintln(op.Out, ciCheckLine(c))
 	}
 	if logs {
-		for _, c := range st.Checks {
-			if c.State != gitforge.StateFailure {
-				continue
-			}
-			if text, ok, err := api.FailureLog(ctx, repo.remote, c); err == nil && ok {
-				fmt.Fprintf(op.Out, "\n--- end of the log of %s ---\n%s\n", c.Name, text)
-			}
-		}
+		op.printFailureLogs(ctx, repo, api, st)
 	}
 	switch st.State {
 	case gitforge.StateSuccess:

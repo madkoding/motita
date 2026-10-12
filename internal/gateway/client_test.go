@@ -599,17 +599,21 @@ func TestTheEventReaderUnderstandsTheEventWriter(t *testing.T) {
 
 	var events []string
 	var result string
-	err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(_ uint64, event string, data []byte) error {
-		events = append(events, event)
-		if event == EventDone {
-			var d doneEvent
-			if err := json.Unmarshal(data, &d); err != nil {
-				return err
+	err := streamEvents(
+		context.Background(),
+		strings.NewReader(rec.Body.String()),
+		func(_ uint64, event string, data []byte) error {
+			events = append(events, event)
+			if event == EventDone {
+				var d doneEvent
+				if err := json.Unmarshal(data, &d); err != nil {
+					return err
+				}
+				result = d.Result
 			}
-			result = d.Result
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("streamEvents: %v", err)
 	}
@@ -682,7 +686,8 @@ func TestALongLineIsNotTruncated(t *testing.T) {
 	}
 
 	var got string
-	if err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(_ uint64, _ string, data []byte) error {
+	if err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(_ uint64, _ string,
+		data []byte) error {
 		var p progressEvent
 		if err := json.Unmarshal(data, &p); err != nil {
 			return err

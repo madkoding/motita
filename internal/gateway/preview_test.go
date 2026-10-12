@@ -148,15 +148,8 @@ func TestDoneCarriesTheChangesTheRunMade(t *testing.T) {
 		}
 		<-rn.done
 		evs, _ := rn.since(0)
-		var done doneEvent
-		for _, e := range evs {
-			if e.Event == EventDone {
-				if err := json.Unmarshal(e.Data, &done); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		if edit && (done.Changes == nil || len(done.Changes.Files) != 1 || len(done.Changes.Previews) != 1) {
+		done := decodeDoneEvents(t, evs)
+		if edit && !reportsOneEdit(done.Changes) {
 			t.Errorf("edit: changes = %+v", done.Changes)
 		}
 		if !edit && done.Changes != nil {
@@ -164,6 +157,25 @@ func TestDoneCarriesTheChangesTheRunMade(t *testing.T) {
 		}
 		os.Remove(filepath.Join(ws, "b.txt"))
 	}
+}
+
+// decodeDoneEvents decodes every `done` in evs, in order, into one doneEvent.
+func decodeDoneEvents(t *testing.T, evs []loggedEvent) doneEvent {
+	t.Helper()
+	var done doneEvent
+	for _, e := range evs {
+		if e.Event == EventDone {
+			if err := json.Unmarshal(e.Data, &done); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return done
+}
+
+// reportsOneEdit reports whether r holds the one file and the one screenshot the editing run made.
+func reportsOneEdit(r *changeReport) bool {
+	return r != nil && len(r.Files) == 1 && len(r.Previews) == 1
 }
 
 func TestBuildChangeReportSurvivesAGitFailure(t *testing.T) {

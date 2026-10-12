@@ -64,9 +64,11 @@ func StartLoopback(addr, redirectHost, path string) (*Loopback, error) {
 		}
 		if res.err != "" || res.code == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, "<!doctype html><title>motita</title><p>The login did not complete. You can close this tab and look at the terminal.</p>")
+			fmt.Fprint(w, "<!doctype html><title>motita</title>"+
+				"<p>The login did not complete. You can close this tab and look at the terminal.</p>")
 		} else {
-			fmt.Fprint(w, "<!doctype html><title>motita</title><p>Logged in. You can close this tab and go back to the terminal.</p>")
+			fmt.Fprint(w, "<!doctype html><title>motita</title>"+
+				"<p>Logged in. You can close this tab and go back to the terminal.</p>")
 		}
 		select {
 		case l.results <- res:
@@ -96,7 +98,9 @@ func (l *Loopback) Close() {
 //
 // pasted reports whether the answer came from paste, so a caller knows whether
 // the reader feeding it is still waiting for a line.
-func (l *Loopback) Wait(ctx context.Context, wantState string, paste <-chan string) (code string, pasted bool, err error) {
+func (l *Loopback) Wait(
+	ctx context.Context, wantState string, paste <-chan string,
+) (code string, pasted bool, err error) {
 	var browser <-chan callbackResult
 	if l != nil {
 		l.want.Store(wantState)
@@ -141,15 +145,10 @@ func ParseAuthCode(input, wantState string) (string, error) {
 	carriesState := true
 	switch {
 	case strings.Contains(s, "://"):
-		u, err := url.Parse(s)
-		if err != nil {
-			return "", fmt.Errorf("the pasted URL is not valid: %w", err)
+		var err error
+		if code, state, err = parseAuthURL(s); err != nil {
+			return "", err
 		}
-		q := u.Query()
-		if e := q.Get("error"); e != "" {
-			return "", fmt.Errorf("the provider refused the login: %s", e)
-		}
-		code, state = q.Get("code"), q.Get("state")
 	case strings.Contains(s, "code="):
 		q, err := url.ParseQuery(strings.TrimPrefix(s, "?"))
 		if err != nil {
@@ -171,4 +170,18 @@ func ParseAuthCode(input, wantState string) (string, error) {
 		return "", errors.New("the pasted code belongs to another login (the state does not match)")
 	}
 	return code, nil
+}
+
+// parseAuthURL reads the code and state off a pasted redirect URL, or the
+// provider's refusal when it carries an error.
+func parseAuthURL(s string) (code, state string, err error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", "", fmt.Errorf("the pasted URL is not valid: %w", err)
+	}
+	q := u.Query()
+	if e := q.Get("error"); e != "" {
+		return "", "", fmt.Errorf("the provider refused the login: %s", e)
+	}
+	return q.Get("code"), q.Get("state"), nil
 }

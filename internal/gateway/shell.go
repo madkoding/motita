@@ -53,7 +53,7 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	}
 	c := convOf(r)
 	if c.merged {
-		writeError(w, http.StatusConflict, "this session has already been integrated into the project; continue in a new session to keep working")
+		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
 	sh, ok := c.svc.(shellRunner)
@@ -62,7 +62,8 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c.isRunning() {
-		writeError(w, http.StatusConflict, "the agent is working in this session: stop it or wait for it to finish before running a command")
+		writeError(w, http.StatusConflict,
+			"the agent is working in this session: stop it or wait for it to finish before running a command")
 		return
 	}
 

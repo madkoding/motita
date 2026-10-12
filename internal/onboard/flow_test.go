@@ -95,7 +95,8 @@ func TestAFailedBackupStopsTheWrite(t *testing.T) {
 		return old(p, c)
 	}
 	t.Cleanup(func() { writeFileAtomicFn = old })
-	_, _, err := run(context.Background(), t, dir, nil, Answers{Provider: "openai", Model: "m", AnchorCommand: "true", APIKey: "k"})
+	_, _, err := run(context.Background(), t, dir, nil,
+		Answers{Provider: "openai", Model: "m", AnchorCommand: "true", APIKey: "k"})
 	if err == nil || !strings.Contains(err.Error(), "copy of the current configuration") {
 		t.Fatalf("err = %v", err)
 	}
@@ -113,7 +114,8 @@ func TestAStaleKeyIsRemoved(t *testing.T) {
 	if err := os.WriteFile(cred, []byte("export MOTITA_LLM_API_KEY='old'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := run(context.Background(), t, dir, nil, Answers{Provider: "claude-code", Model: "sonnet", AnchorCommand: "true"}); err != nil {
+	if _, _, err := run(context.Background(), t, dir, nil,
+		Answers{Provider: "claude-code", Model: "sonnet", AnchorCommand: "true"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if _, err := os.Stat(cred); !os.IsNotExist(err) {
@@ -125,7 +127,8 @@ func TestAStaleKeyThatCannotBeRemovedIsReported(t *testing.T) {
 	old := removeFile
 	removeFile = func(string) error { return errors.New("read-only") }
 	t.Cleanup(func() { removeFile = old })
-	out, _, err := run(context.Background(), t, t.TempDir(), nil, Answers{Provider: "claude-code", Model: "sonnet", AnchorCommand: "true"})
+	out, _, err := run(context.Background(), t, t.TempDir(), nil,
+		Answers{Provider: "claude-code", Model: "sonnet", AnchorCommand: "true"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -138,7 +141,9 @@ func TestAStaleKeyThatCannotBeRemovedIsReported(t *testing.T) {
 func writeOldSetup(t *testing.T, dir, provider, creds string) {
 	t.Helper()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, renderConfig(configValues{provider: provider, model: "m", baseURL: DefaultBaseURL(provider), anchorAuto: true}), 0o600); err != nil {
+	if err := os.WriteFile(path,
+		renderConfig(configValues{provider: provider, model: "m", baseURL: DefaultBaseURL(provider), anchorAuto: true}),
+		0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(credentialsPathFor(path), []byte(creds), 0o600); err != nil {
@@ -204,7 +209,8 @@ func TestTheCurrentSignInIsOfferedBack(t *testing.T) {
 	old := authDir
 	authDir = func() string { return dir }
 	t.Cleanup(func() { authDir = old })
-	if err := oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", AccessToken: "a", RefreshToken: "r"}); err != nil {
+	if err := oauth.SaveCredential(dir,
+		oauth.Credential{Provider: "qwen", AccessToken: "a", RefreshToken: "r"}); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -239,7 +245,8 @@ func TestAFailedSignInIsOfferedAgain(t *testing.T) {
 	t.Cleanup(func() { directAuthRunner = old })
 
 	// sign in (fails), then paste a key instead.
-	out, res, err := run(context.Background(), t, t.TempDir(), []string{"gemini", "1", "2", "AIza-key-0123456", "", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, t.TempDir(),
+		[]string{"gemini", "1", "2", "AIza-key-0123456", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -251,7 +258,8 @@ func TestAFailedSignInIsOfferedAgain(t *testing.T) {
 	}
 
 	// Three failures end the step.
-	if _, _, err := run(context.Background(), t, t.TempDir(), []string{"gemini", "1", "1", "1"}, Answers{}); err == nil || !strings.Contains(err.Error(), "no sign-in") {
+	if _, _, err := run(context.Background(), t, t.TempDir(), []string{"gemini", "1", "1", "1"}, Answers{}); err == nil ||
+		!strings.Contains(err.Error(), "no sign-in") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -353,7 +361,9 @@ func TestAModelNumberOutsideTheMenuIsRefused(t *testing.T) {
 }
 
 func TestAnUnreachableCatalogueIsExplained(t *testing.T) {
-	if got := unreachable(io.Discard, errors.New(`Get "http://localhost:11434/v1/models": dial tcp 127.0.0.1:11434: connect: connection refused`)); !strings.Contains(got, "ollama serve") {
+	refused := errors.New(
+		`Get "http://localhost:11434/v1/models": dial tcp 127.0.0.1:11434: connect: connection refused`)
+	if got := unreachable(io.Discard, refused); !strings.Contains(got, "ollama serve") {
 		t.Errorf("unreachable = %q", got)
 	}
 	if got := unreachable(io.Discard, errors.New("HTTP 401")); got != "HTTP 401" {

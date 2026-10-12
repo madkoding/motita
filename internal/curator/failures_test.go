@@ -121,7 +121,11 @@ func TestPreviewAndRunAgree(t *testing.T) {
 		"gone-one":  agentEntry(now.Add(-40 * 24 * time.Hour)),
 		"gone-two":  agentEntry(now.Add(-60 * 24 * time.Hour)),
 		"fresh":     agentEntry(now.Add(-time.Hour)),
-		"pinned":    func() usage.Entry { e := agentEntry(now.Add(-99 * 24 * time.Hour)); e.Pinned = true; return e }(),
+		"pinned": func() usage.Entry {
+			e := agentEntry(now.Add(-99 * 24 * time.Hour))
+			e.Pinned = true
+			return e
+		}(),
 	}
 	previewCurator, _, _, _ := testCurator(t, config.Curator{}, entries)
 	preview, err := previewCurator.RunWith(context.Background(), RunOptions{DryRun: true})
@@ -541,6 +545,8 @@ func TestTheCandidateListSkipsSkillsThatAreNotTheCurators(t *testing.T) {
 		t.Errorf("the candidate list offers a user-authored skill:\n%s", got)
 	} else if !strings.Contains(got, "### mine") {
 		t.Errorf("the candidate list is missing the curator's own skill:\n%s", got)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 

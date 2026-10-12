@@ -26,7 +26,9 @@ type KeyMode func() (restore func(), ok bool)
 // typed.
 //
 // With a nil keys, or one that cannot switch the terminal, it is exactly Run.
-func RunWithKeys(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode) (Result, error) {
+func RunWithKeys(
+	ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode,
+) (Result, error) {
 	return runSetup(ctx, in, out, configPath, preset, now, keys)
 }
 
@@ -112,17 +114,8 @@ func (s *session) question(ctx context.Context, prompt string, m *menu, secret b
 
 // edit reads one answer a key at a time, drawing the line itself (the terminal's echo is off).
 func (s *session) edit(ctx context.Context, prompt string, m *menu, secret bool) (string, error) {
-	var buf []rune
-	draw := func() {
-		shown := string(buf)
-		if secret {
-			shown = strings.Repeat("•", len(buf))
-		}
-		fmt.Fprint(s.lines.w, "\r\x1b[2K")
-		printPrompt(s.lines.w, withDefault(prompt, m))
-		fmt.Fprint(s.lines.w, shown)
-	}
-	draw()
+	e := &lineEditor{s: s, prompt: prompt, m: m, secret: secret}
+	e.draw()
 	for {
 		b, err := s.readByte(ctx)
 		if err != nil {
@@ -130,35 +123,69 @@ func (s *session) edit(ctx context.Context, prompt string, m *menu, secret bool)
 		}
 		switch {
 		case b == '\r' || b == '\n':
-			// Enter on an empty line takes the highlighted option, and writes it on the line, so
-			// what was chosen stays readable above the next question.
-			if len(buf) == 0 && m != nil {
-				buf = []rune(strconv.Itoa(m.sel + 1))
-				draw()
-			}
-			fmt.Fprintln(s.out)
-			return string(buf), nil
-		case b == 0x03 || (b == 0x04 && len(buf) == 0):
+			return e.accept(), nil
+		case b == 0x03 || (b == 0x04 && len(e.buf) == 0):
 			// Ctrl+C reaches the read only if the terminal does not turn it into a signal, and
 			// Ctrl+D on an empty line is the end of the input: both leave, as EOF always has.
 			fmt.Fprintln(s.out)
 			return "", ErrCancelled
 		case b == 0x7f || b == 0x08:
-			if len(buf) > 0 {
-				buf = buf[:len(buf)-1]
-			}
-			draw()
+			e.backspace()
 		case b == 0x1b:
-			if m != nil && s.moveSelection(m, s.readEscape()) {
-				s.redrawMenu(m)
-				draw()
-			}
+			e.arrow()
 		case b < 0x20:
 			// Any other control key is not text.
 		default:
-			buf = append(buf, s.readRune(b))
-			draw()
+			e.buf = append(e.buf, s.readRune(b))
+			e.draw()
 		}
+	}
+}
+
+// lineEditor is the line being typed in edit: what was typed so far and how to draw it.
+type lineEditor struct {
+	s      *session
+	prompt string
+	m      *menu
+	secret bool
+	buf    []rune
+}
+
+// draw rewrites the prompt line with what was typed, masked when it is a secret.
+func (e *lineEditor) draw() {
+	shown := string(e.buf)
+	if e.secret {
+		shown = strings.Repeat("•", len(e.buf))
+	}
+	fmt.Fprint(e.s.lines.w, "\r\x1b[2K")
+	printPrompt(e.s.lines.w, withDefault(e.prompt, e.m))
+	fmt.Fprint(e.s.lines.w, shown)
+}
+
+// accept ends the line on Enter. Enter on an empty line takes the highlighted option, and writes
+// it on the line, so what was chosen stays readable above the next question.
+func (e *lineEditor) accept() string {
+	if len(e.buf) == 0 && e.m != nil {
+		e.buf = []rune(strconv.Itoa(e.m.sel + 1))
+		e.draw()
+	}
+	fmt.Fprintln(e.s.out)
+	return string(e.buf)
+}
+
+// backspace removes the last rune typed, if any.
+func (e *lineEditor) backspace() {
+	if len(e.buf) > 0 {
+		e.buf = e.buf[:len(e.buf)-1]
+	}
+	e.draw()
+}
+
+// arrow reads an escape sequence and moves the menu's highlight when it is an arrow.
+func (e *lineEditor) arrow() {
+	if e.m != nil && e.s.moveSelection(e.m, e.s.readEscape()) {
+		e.s.redrawMenu(e.m)
+		e.draw()
 	}
 }
 

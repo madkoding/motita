@@ -34,8 +34,9 @@ func Valid(setting string) bool {
 	switch strings.ToLower(strings.TrimSpace(setting)) {
 	case "", Auto, string(EN), string(ES):
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // Resolve turns the ui.language setting into a language. en and es are taken as they are;
@@ -48,18 +49,27 @@ func Resolve(setting string, getenv func(string) string) Lang {
 		return EN
 	case ES:
 		return ES
+	default:
+		// auto, empty or unknown: the locale variables decide below.
 	}
 	for _, name := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
 		v := strings.TrimSpace(getenv(name))
 		if v == "" {
 			continue
 		}
-		if l := strings.ToLower(v); l == "es" || strings.HasPrefix(l, "es_") || strings.HasPrefix(l, "es-") || strings.HasPrefix(l, "es.") {
+		if namesSpanish(strings.ToLower(v)) {
 			return ES
 		}
 		return EN
 	}
 	return EN
+}
+
+// namesSpanish reports whether a lower-cased locale value (es, es_CL.UTF-8, es-419, ...) names
+// Spanish.
+func namesSpanish(locale string) bool {
+	return locale == "es" || strings.HasPrefix(locale, "es_") || strings.HasPrefix(locale, "es-") ||
+		strings.HasPrefix(locale, "es.")
 }
 
 // catalogs holds every translation, by language, keyed by the English text.

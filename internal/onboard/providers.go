@@ -63,143 +63,183 @@ type Model struct {
 // Providers returns the supported providers, in the order they are offered.
 func Providers() []Provider {
 	return []Provider{
-		{
-			ID:             "openai",
-			Name:           "OpenAI (platform key)",
-			Short:          "OpenAI",
-			Access:         "API key from platform.openai.com",
-			DefaultBaseURL: "https://api.openai.com/v1",
-			EnvKey:         "MOTITA_LLM_API_KEY",
-			ConsoleURL:     "https://platform.openai.com/api-keys",
-			AskBaseURL:     true,
-			Models: []Model{
-				{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "cheap and fast, the right default"},
-				{ID: "gpt-5", Label: "GPT-5", Note: "strongest reasoning, more expensive"},
-				{ID: "gpt-4.1", Label: "GPT-4.1", Note: "no reasoning step, honours temperature"},
-				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest"},
-			},
+		openAIProvider(),
+		codexProvider(),
+		copilotProvider(),
+		ollamaProvider(),
+		anthropicProvider(),
+		claudeCodeProvider(),
+		geminiProvider(),
+		qwenProvider(),
+	}
+}
+
+// openAIProvider is the openai entry of the catalogue.
+func openAIProvider() Provider {
+	return Provider{
+		ID:             "openai",
+		Name:           "OpenAI (platform key)",
+		Short:          "OpenAI",
+		Access:         "API key from platform.openai.com",
+		DefaultBaseURL: "https://api.openai.com/v1",
+		EnvKey:         "MOTITA_LLM_API_KEY",
+		ConsoleURL:     "https://platform.openai.com/api-keys",
+		AskBaseURL:     true,
+		Models: []Model{
+			{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "cheap and fast, the right default"},
+			{ID: "gpt-5", Label: "GPT-5", Note: "strongest reasoning, more expensive"},
+			{ID: "gpt-4.1", Label: "GPT-4.1", Note: "no reasoning step, honours temperature"},
+			{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest"},
 		},
-		{
-			// Codex models are served by /responses only; with a ChatGPT login the
-			// requests are billed to the user's ChatGPT plan instead of API credit.
-			ID:                 "codex",
-			Name:               "OpenAI Codex (ChatGPT plan or OpenAI key)",
-			Short:              "OpenAI Codex",
-			Access:             "sign in with ChatGPT, or an API key",
-			DefaultBaseURL:     "https://api.openai.com/v1",
-			EnvKey:             "MOTITA_LLM_API_KEY",
-			ConsoleURL:         "https://platform.openai.com/api-keys",
-			SupportsDirectAuth: true,
-			Models: []Model{
-				{ID: "gpt-5.2-codex", Label: "GPT-5.2 Codex", Note: "agentic coding, strongest"},
-				{ID: "gpt-5.1-codex", Label: "GPT-5.1 Codex", Note: "agentic coding, previous gen"},
-				{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, first gen"},
-			},
+	}
+}
+
+// codexProvider is the codex entry of the catalogue.
+func codexProvider() Provider {
+	return Provider{
+		// Codex models are served by /responses only; with a ChatGPT login the
+		// requests are billed to the user's ChatGPT plan instead of API credit.
+		ID:                 "codex",
+		Name:               "OpenAI Codex (ChatGPT plan or OpenAI key)",
+		Short:              "OpenAI Codex",
+		Access:             "sign in with ChatGPT, or an API key",
+		DefaultBaseURL:     "https://api.openai.com/v1",
+		EnvKey:             "MOTITA_LLM_API_KEY",
+		ConsoleURL:         "https://platform.openai.com/api-keys",
+		SupportsDirectAuth: true,
+		Models: []Model{
+			{ID: "gpt-5.2-codex", Label: "GPT-5.2 Codex", Note: "agentic coding, strongest"},
+			{ID: "gpt-5.1-codex", Label: "GPT-5.1 Codex", Note: "agentic coding, previous gen"},
+			{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, first gen"},
 		},
-		{
-			ID:                 "copilot",
-			Name:               "GitHub Copilot (subscription)",
-			Short:              "GitHub Copilot",
-			Access:             "sign in with GitHub (Copilot plan)",
-			DefaultBaseURL:     "https://api.githubcopilot.com",
-			EnvKey:             "GITHUB_COPILOT_TOKEN",
-			ConsoleURL:         "https://github.com/settings/copilot",
-			SupportsDirectAuth: true,
-			// The ids the Copilot API uses, which are NOT the vendors' own: Copilot
-			// answers "claude-sonnet-4", and refuses "claude-sonnet-4-20250514".
-			Models: []Model{
-				{ID: "gpt-4.1", Label: "Copilot: GPT-4.1", Note: "included in every plan"},
-				{ID: "gpt-5-mini", Label: "Copilot: GPT-5 mini", Note: "included in every plan"},
-				{ID: "claude-sonnet-4", Label: "Copilot: Claude Sonnet 4", Note: "premium requests"},
-				{ID: "gemini-2.5-pro", Label: "Copilot: Gemini 2.5 Pro", Note: "premium requests"},
-			},
+	}
+}
+
+// copilotProvider is the copilot entry of the catalogue.
+func copilotProvider() Provider {
+	return Provider{
+		ID:                 "copilot",
+		Name:               "GitHub Copilot (subscription)",
+		Short:              "GitHub Copilot",
+		Access:             "sign in with GitHub (Copilot plan)",
+		DefaultBaseURL:     "https://api.githubcopilot.com",
+		EnvKey:             "GITHUB_COPILOT_TOKEN",
+		ConsoleURL:         "https://github.com/settings/copilot",
+		SupportsDirectAuth: true,
+		// The ids the Copilot API uses, which are NOT the vendors' own: Copilot
+		// answers "claude-sonnet-4", and refuses "claude-sonnet-4-20250514".
+		Models: []Model{
+			{ID: "gpt-4.1", Label: "Copilot: GPT-4.1", Note: "included in every plan"},
+			{ID: "gpt-5-mini", Label: "Copilot: GPT-5 mini", Note: "included in every plan"},
+			{ID: "claude-sonnet-4", Label: "Copilot: Claude Sonnet 4", Note: "premium requests"},
+			{ID: "gemini-2.5-pro", Label: "Copilot: Gemini 2.5 Pro", Note: "premium requests"},
 		},
-		{
-			ID:             "ollama",
-			Name:           "Ollama (local or Ollama Cloud)",
-			Short:          "Ollama",
-			Access:         "free on your own machine, or Ollama Cloud",
-			DefaultBaseURL: "https://ollama.com/v1",
-			EnvKey:         "OLLAMA_API_KEY",
-			ConsoleURL:     "https://ollama.com/settings/keys",
-			// Populated at runtime from the live catalogue. The list below is what
-			// is offered when the API cannot be reached, so the wizard never leaves
-			// the user with an empty menu and no idea what to type.
-			Models: []Model{
-				{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model"},
-				{ID: "qwen3.5:397b", Label: "qwen3.5:397b", Note: "large open model"},
-				{ID: "deepseek-v4.1-flash", Label: "deepseek-v4.1-flash", Note: "fast and inexpensive"},
-				{ID: "glm-5.3", Label: "glm-5.3", Note: "strong reasoning"},
-				{ID: "kimi-k2.6", Label: "kimi-k2.6", Note: "long context"},
-				{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick"},
-				{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight"},
-				{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box"},
-			},
-			FetchModels: true,
+	}
+}
+
+// ollamaProvider is the ollama entry of the catalogue.
+func ollamaProvider() Provider {
+	return Provider{
+		ID:             "ollama",
+		Name:           "Ollama (local or Ollama Cloud)",
+		Short:          "Ollama",
+		Access:         "free on your own machine, or Ollama Cloud",
+		DefaultBaseURL: "https://ollama.com/v1",
+		EnvKey:         "OLLAMA_API_KEY",
+		ConsoleURL:     "https://ollama.com/settings/keys",
+		// Populated at runtime from the live catalogue. The list below is what
+		// is offered when the API cannot be reached, so the wizard never leaves
+		// the user with an empty menu and no idea what to type.
+		Models: []Model{
+			{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model"},
+			{ID: "qwen3.5:397b", Label: "qwen3.5:397b", Note: "large open model"},
+			{ID: "deepseek-v4.1-flash", Label: "deepseek-v4.1-flash", Note: "fast and inexpensive"},
+			{ID: "glm-5.3", Label: "glm-5.3", Note: "strong reasoning"},
+			{ID: "kimi-k2.6", Label: "kimi-k2.6", Note: "long context"},
+			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick"},
+			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight"},
+			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box"},
 		},
-		{
-			// An API key from the Claude Console. A Claude Pro/Max subscription is NOT
-			// reached from here: Anthropic only allows it through its own Claude Code
-			// client, which is the claude-code provider below.
-			ID:             "anthropic",
-			Name:           "Anthropic Claude (Console key)",
-			Short:          "Anthropic Claude",
-			Access:         "API key from console.anthropic.com",
-			DefaultBaseURL: "https://api.anthropic.com",
-			EnvKey:         "ANTHROPIC_API_KEY",
-			ConsoleURL:     "https://console.anthropic.com/settings/keys",
-			Models: []Model{
-				{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Note: "the right default"},
-				{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Note: "strongest, more expensive"},
-				{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast"},
-			},
+		FetchModels: true,
+	}
+}
+
+// anthropicProvider is the anthropic entry of the catalogue.
+func anthropicProvider() Provider {
+	return Provider{
+		// An API key from the Claude Console. A Claude Pro/Max subscription is NOT
+		// reached from here: Anthropic only allows it through its own Claude Code
+		// client, which is the claude-code provider below.
+		ID:             "anthropic",
+		Name:           "Anthropic Claude (Console key)",
+		Short:          "Anthropic Claude",
+		Access:         "API key from console.anthropic.com",
+		DefaultBaseURL: "https://api.anthropic.com",
+		EnvKey:         "ANTHROPIC_API_KEY",
+		ConsoleURL:     "https://console.anthropic.com/settings/keys",
+		Models: []Model{
+			{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Note: "the right default"},
+			{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Note: "strongest, more expensive"},
+			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast"},
 		},
-		{
-			// The local claude CLI on the user's own subscription: motita never sees
-			// the credentials, `claude auth login` (Anthropic's own OAuth) holds them.
-			ID:         "claude-code",
-			Name:       "Claude subscription (Pro/Max, via Claude Code CLI)",
-			Short:      "Claude Pro/Max",
-			Access:     "your Claude plan, via the Claude Code CLI",
-			ConsoleURL: "https://code.claude.com/docs/en/setup",
-			Login:      "claude auth login",
-			Models: []Model{
-				{ID: "sonnet", Label: "Sonnet", Note: "the right default"},
-				{ID: "opus", Label: "Opus"},
-				{ID: "haiku", Label: "Haiku"},
-				{ID: "fable", Label: "Fable"},
-			},
+	}
+}
+
+// claudeCodeProvider is the claude-code entry of the catalogue.
+func claudeCodeProvider() Provider {
+	return Provider{
+		// The local claude CLI on the user's own subscription: motita never sees
+		// the credentials, `claude auth login` (Anthropic's own OAuth) holds them.
+		ID:         "claude-code",
+		Name:       "Claude subscription (Pro/Max, via Claude Code CLI)",
+		Short:      "Claude Pro/Max",
+		Access:     "your Claude plan, via the Claude Code CLI",
+		ConsoleURL: "https://code.claude.com/docs/en/setup",
+		Login:      "claude auth login",
+		Models: []Model{
+			{ID: "sonnet", Label: "Sonnet", Note: "the right default"},
+			{ID: "opus", Label: "Opus"},
+			{ID: "haiku", Label: "Haiku"},
+			{ID: "fable", Label: "Fable"},
 		},
-		{
-			ID:                 "gemini",
-			Name:               "Google Gemini (AI Studio key or Google login)",
-			Short:              "Google Gemini",
-			Access:             "sign in with Google, or an AI Studio key",
-			DefaultBaseURL:     "https://generativelanguage.googleapis.com",
-			EnvKey:             "GEMINI_API_KEY",
-			ConsoleURL:         "https://aistudio.google.com/apikey",
-			SupportsDirectAuth: true,
-			Models: []Model{
-				{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "cheap and fast"},
-				{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning"},
-				{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest"},
-			},
+	}
+}
+
+// geminiProvider is the gemini entry of the catalogue.
+func geminiProvider() Provider {
+	return Provider{
+		ID:                 "gemini",
+		Name:               "Google Gemini (AI Studio key or Google login)",
+		Short:              "Google Gemini",
+		Access:             "sign in with Google, or an AI Studio key",
+		DefaultBaseURL:     "https://generativelanguage.googleapis.com",
+		EnvKey:             "GEMINI_API_KEY",
+		ConsoleURL:         "https://aistudio.google.com/apikey",
+		SupportsDirectAuth: true,
+		Models: []Model{
+			{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "cheap and fast"},
+			{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning"},
+			{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest"},
 		},
-		{
-			// A DashScope (Alibaba Model Studio) key, or a qwen.ai account login.
-			ID:                 "qwen",
-			Name:               "Qwen (qwen.ai login or DashScope key)",
-			Short:              "Qwen",
-			Access:             "sign in with qwen.ai, or a DashScope key",
-			DefaultBaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-			EnvKey:             "DASHSCOPE_API_KEY",
-			ConsoleURL:         "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",
-			SupportsDirectAuth: true,
-			Models: []Model{
-				{ID: "qwen3-coder-plus", Label: "Qwen3 Coder Plus", Note: "agentic coding, the right default"},
-				{ID: "qwen3-coder-flash", Label: "Qwen3 Coder Flash", Note: "faster and cheaper"},
-				{ID: "qwen-max", Label: "Qwen Max", Note: "general reasoning (DashScope key)"},
-			},
+	}
+}
+
+// qwenProvider is the qwen entry of the catalogue.
+func qwenProvider() Provider {
+	return Provider{
+		// A DashScope (Alibaba Model Studio) key, or a qwen.ai account login.
+		ID:                 "qwen",
+		Name:               "Qwen (qwen.ai login or DashScope key)",
+		Short:              "Qwen",
+		Access:             "sign in with qwen.ai, or a DashScope key",
+		DefaultBaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+		EnvKey:             "DASHSCOPE_API_KEY",
+		ConsoleURL:         "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",
+		SupportsDirectAuth: true,
+		Models: []Model{
+			{ID: "qwen3-coder-plus", Label: "Qwen3 Coder Plus", Note: "agentic coding, the right default"},
+			{ID: "qwen3-coder-flash", Label: "Qwen3 Coder Flash", Note: "faster and cheaper"},
+			{ID: "qwen-max", Label: "Qwen Max", Note: "general reasoning (DashScope key)"},
 		},
 	}
 }
