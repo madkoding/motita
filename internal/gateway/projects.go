@@ -700,7 +700,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
-	if c.workspace == "" {
+	if c.workspace == "" || c.projectID == "" {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
@@ -771,7 +771,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	if !c.merged {
 		return nil, http.StatusConflict, errors.New("this session has not been integrated yet; merge it first")
 	}
-	if c.workspace == "" {
+	if c.workspace == "" || c.projectID == "" {
 		return nil, http.StatusConflict,
 			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}

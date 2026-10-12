@@ -877,6 +877,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	default:
 		if project != nil {
 			s.placeInProject(conv, body.ProjectID, project)
+		} else {
+			s.placeFreeStanding(conv)
 		}
 		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())
@@ -917,6 +919,51 @@ func (s *Server) placeInProject(conv *conversation, projectID string, project *P
 	// procedure written into one would be lost with it.
 	scopeProceduresTo(conv.svc, project.Dir)
 	applyRuntimeTo(conv.svc, project)
+}
+
+// freeSessionDir is where a session that belongs to no project works: a directory of its own under
+// the workspace root, named after the session.
+//
+// Free-standing sessions used to share the workspace root itself, so two of them working at once
+// wrote into one directory - and the root is also where projects and worktrees live. A directory
+// per session is the same isolation a project session gets from its worktree, without needing git.
+func (s *Server) freeSessionDir(id string) string {
+	root := strings.TrimSpace(s.opts.WorkspaceDir)
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "sessions", id)
+}
+
+// placeFreeStanding gives a new session that belongs to no project its own directory. Without a
+// workspace root, or when the directory cannot be made, the session keeps the configured workspace,
+// which is what it always had.
+func (s *Server) placeFreeStanding(conv *conversation) {
+	dir := s.freeSessionDir(conv.id)
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		s.warn("the session will run in the shared workspace: its own directory could not be created",
+			"id", conv.id, "dir", dir, "error", err.Error())
+		return
+	}
+	conv.setProjectID("", dir, "")
+	conv.svc.SetWorkspace(dir)
+}
+
+// releaseFreeSessionDir removes a deleted free-standing session's directory when nothing is left in
+// it. A directory that still holds files is kept: they are the user's work, and nothing here can
+// tell whether they are wanted.
+func (s *Server) releaseFreeSessionDir(c *conversation) {
+	c.stateMu.Lock()
+	ws, projectDir := c.workspace, c.projectDir
+	c.stateMu.Unlock()
+	dir := s.freeSessionDir(c.id)
+	if dir == "" || projectDir != "" || !gitx.SamePath(ws, dir) {
+		return
+	}
+	_ = os.Remove(dir)
 }
 
 // handleListSessions answers what this gateway is holding.
@@ -1049,6 +1096,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)
 	s.forget(c.id)
 	s.deletePersistedSession(c.id)
