@@ -14,37 +14,19 @@
       {
         "id": "request-path",
         "label": "Request lifecycle",
-        "focus": [
-          "user",
-          "gateway",
-          "agent",
-          "llm",
-          "sandbox",
-          "anchor"
-        ],
+        "focus": ["user", "gateway", "agent", "llm", "sandbox", "anchor"],
         "note": "A task enters via the gateway or TUI, the agent asks the model, executes in the sandbox, and the anchor validates the result."
       },
       {
         "id": "clients",
         "label": "Clients",
-        "focus": [
-          "user",
-          "tui",
-          "webui",
-          "gateway"
-        ],
+        "focus": ["user", "tui", "webui", "gateway"],
         "note": "Two front-ends share one gateway: a terminal TUI and a browser web UI."
       },
       {
         "id": "guardrails",
         "label": "Guardrails",
-        "focus": [
-          "policy",
-          "sandbox",
-          "netrules",
-          "anchor",
-          "reward"
-        ],
+        "focus": ["policy", "sandbox", "netrules", "anchor", "reward"],
         "note": "The layers that prevent untrusted action: policy decisions, sandbox isolation, network rules, and the anchor check."
       }
     ]
@@ -55,14 +37,8 @@
       "type": "external",
       "label": "User",
       "sublabel": "Terminal / Browser",
-      "pos": [
-        40,
-        180
-      ],
-      "size": [
-        120,
-        56
-      ],
+      "pos": [40, 180],
+      "size": [120, 56],
       "sources": [
         {
           "path": "cmd/agent/main.go",
@@ -75,14 +51,8 @@
       "type": "frontend",
       "label": "TUI",
       "sublabel": "internal/tui",
-      "pos": [
-        240,
-        100
-      ],
-      "size": [
-        120,
-        56
-      ],
+      "pos": [240, 100],
+      "size": [120, 56],
       "sources": [
         {
           "path": "internal/tui/render.go",
@@ -95,14 +65,8 @@
       "type": "frontend",
       "label": "Web UI",
       "sublabel": "internal/webui",
-      "pos": [
-        240,
-        260
-      ],
-      "size": [
-        120,
-        56
-      ],
+      "pos": [240, 260],
+      "size": [120, 56],
       "sources": [
         {
           "path": "internal/webui/assets/index.html",
@@ -115,14 +79,8 @@
       "type": "backend",
       "label": "Gateway",
       "sublabel": "internal/gateway :7477",
-      "pos": [
-        460,
-        180
-      ],
-      "size": [
-        130,
-        60
-      ],
+      "pos": [460, 180],
+      "size": [130, 60],
       "sources": [
         {
           "path": "internal/gateway/server.go",
@@ -135,14 +93,8 @@
       "type": "backend",
       "label": "App",
       "sublabel": "internal/app",
-      "pos": [
-        680,
-        180
-      ],
-      "size": [
-        130,
-        60
-      ],
+      "pos": [680, 180],
+      "size": [130, 60],
       "sources": [
         {
           "path": "internal/app/app.go",
@@ -155,14 +107,8 @@
       "type": "backend",
       "label": "Plan",
       "sublabel": "internal/plan",
-      "pos": [
-        900,
-        100
-      ],
-      "size": [
-        130,
-        56
-      ],
+      "pos": [900, 100],
+      "size": [130, 56],
       "sources": [
         {
           "path": "internal/plan/plan.go",
@@ -175,14 +121,8 @@
       "type": "backend",
       "label": "Agent",
       "sublabel": "internal/agent",
-      "pos": [
-        900,
-        220
-      ],
-      "size": [
-        130,
-        60
-      ],
+      "pos": [900, 220],
+      "size": [130, 60],
       "sources": [
         {
           "path": "internal/agent/agent.go",
@@ -195,14 +135,8 @@
       "type": "external",
       "label": "LLM",
       "sublabel": "internal/llm",
-      "pos": [
-        1120,
-        160
-      ],
-      "size": [
-        120,
-        56
-      ],
+      "pos": [1120, 160],
+      "size": [120, 56],
       "sources": [
         {
           "path": "internal/llm/llm.go",
@@ -215,14 +149,8 @@
       "type": "security",
       "label": "Sandbox",
       "sublabel": "internal/sandbox",
-      "pos": [
-        680,
-        340
-      ],
-      "size": [
-        120,
-        56
-      ],
+      "pos": [680, 340],
+      "size": [120, 56],
       "sources": [
         {
           "path": "internal/sandbox/sandbox.go",
@@ -235,14 +163,8 @@
       "type": "security",
       "label": "Anchor",
       "sublabel": "internal/anchor",
-      "pos": [
-        900,
-        380
-      ],
-      "size": [
-        120,
-        56
-      ],
+      "pos": [900, 380],
+      "size": [120, 56],
       "sources": [
         {
           "path": "internal/anchor/anchor.go",
@@ -255,14 +177,8 @@
       "type": "security",
       "label": "Policy",
       "sublabel": "internal/policy",
-      "pos": [
-        240,
-        420
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [240, 420],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/policy/policy.go",
@@ -275,14 +191,8 @@
       "type": "security",
       "label": "Net Rules",
       "sublabel": "internal/netrules",
-      "pos": [
-        460,
-        420
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [460, 420],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/netrules/rules.go",
@@ -295,14 +205,8 @@
       "type": "backend",
       "label": "Reward",
       "sublabel": "internal/reward",
-      "pos": [
-        900,
-        520
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [900, 520],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/reward/ledger.go",
@@ -315,14 +219,8 @@
       "type": "database",
       "label": "Config",
       "sublabel": "internal/config",
-      "pos": [
-        40,
-        420
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [40, 420],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/config/config.go",
@@ -335,14 +233,8 @@
       "type": "database",
       "label": "Session",
       "sublabel": "internal/session",
-      "pos": [
-        1120,
-        300
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [1120, 300],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/session/session.go",
@@ -355,14 +247,8 @@
       "type": "database",
       "label": "Skills",
       "sublabel": "internal/skills",
-      "pos": [
-        1120,
-        440
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [1120, 440],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/skills/skills.go",
@@ -375,14 +261,8 @@
       "type": "backend",
       "label": "Curator",
       "sublabel": "internal/curator",
-      "pos": [
-        1120,
-        525
-      ],
-      "size": [
-        120,
-        50
-      ],
+      "pos": [1120, 525],
+      "size": [120, 50],
       "sources": [
         {
           "path": "internal/curator/curator.go",
@@ -476,18 +356,9 @@
       "fromSide": "right",
       "toSide": "bottom",
       "via": [
-        [
-          860,
-          210
-        ],
-        [
-          860,
-          600
-        ],
-        [
-          100,
-          600
-        ]
+        [860, 210],
+        [860, 600],
+        [100, 600]
       ]
     },
     {

@@ -30,29 +30,30 @@ changing `internal/gateway/pr*.go`, `internal/gitforge/` or the PR bar in `web/s
    ```
 
    Commit both to `main`.
+
 4. In motita: **Settings → Git connections** → connect the host. Then **New project** from that
-   repository. In the project's edit dialog set *Attempts to fix a failing CI* to `3` and leave
-   *Merge automatically* off.
+   repository. In the project's edit dialog set _Attempts to fix a failing CI_ to `3` and leave
+   _Merge automatically_ off.
 
 ## The run
 
-| Step | Do | Expect |
-| --- | --- | --- |
-| 1 | In a new session ask: "Add a line to the README about the sandbox." | work appears; the bar shows **Create PR** |
-| 2 | Press **Create PR** (allow notifications when asked) | the agent commits, pushes, opens the PR with a semantic title; the bar shows `Pull request #N` and *CI running* |
-| 3 | Wait | the CI fails (no `FIXED`); a **CI failed** toast says *attempt 1 of 3*; the chat shows the agent reading the log |
-| 4 | Wait | the agent creates `FIXED`, commits (`fix(ci): …`), pushes; the bar goes back to *CI running* |
-| 5 | Wait | the CI passes: **CI passed** toast, a browser notification if the tab is in the background, and **Merge** appears |
-| 6 | Press **Merge**, then press it again | the PR merges on the host; the toast says merged; the bar offers **Continue in a new session**; the PR branch is gone |
-| 7 | Check the project directory | it is fast-forwarded to the merged `main` (clean checkouts only) |
+| Step | Do                                                                  | Expect                                                                                                                |
+| ---- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1    | In a new session ask: "Add a line to the README about the sandbox." | work appears; the bar shows **Create PR**                                                                             |
+| 2    | Press **Create PR** (allow notifications when asked)                | the agent commits, pushes, opens the PR with a semantic title; the bar shows `Pull request #N` and _CI running_       |
+| 3    | Wait                                                                | the CI fails (no `FIXED`); a **CI failed** toast says _attempt 1 of 3_; the chat shows the agent reading the log      |
+| 4    | Wait                                                                | the agent creates `FIXED`, commits (`fix(ci): …`), pushes; the bar goes back to _CI running_                          |
+| 5    | Wait                                                                | the CI passes: **CI passed** toast, a browser notification if the tab is in the background, and **Merge** appears     |
+| 6    | Press **Merge**, then press it again                                | the PR merges on the host; the toast says merged; the bar offers **Continue in a new session**; the PR branch is gone |
+| 7    | Check the project directory                                         | it is fast-forwarded to the merged `main` (clean checkouts only)                                                      |
 
 ## Variants worth one run each
 
-- **Gives up**: set attempts to `1` and make `check.sh` impossible to satisfy → *Motita could not fix the CI*, a **Try again** button; pressing it starts over with the count at zero.
-- **Base is red too**: break `check.sh` on `main` first → the watch stops with *The CI is red on the base branch too* and no attempt is spent.
-- **Merged elsewhere**: after the CI passes, merge from the host's page → within about a minute the session turns *merged* and the project is brought up to date.
-- **Closed**: close the PR on the host instead → *Pull request closed*.
-- **Needs approval**: turn on a branch protection rule requiring one review → the bar says *Waiting for approvals or required checks* and **Merge** is hidden.
+- **Gives up**: set attempts to `1` and make `check.sh` impossible to satisfy → _Motita could not fix the CI_, a **Try again** button; pressing it starts over with the count at zero.
+- **Base is red too**: break `check.sh` on `main` first → the watch stops with _The CI is red on the base branch too_ and no attempt is spent.
+- **Merged elsewhere**: after the CI passes, merge from the host's page → within about a minute the session turns _merged_ and the project is brought up to date.
+- **Closed**: close the PR on the host instead → _Pull request closed_.
+- **Needs approval**: turn on a branch protection rule requiring one review → the bar says _Waiting for approvals or required checks_ and **Merge** is hidden.
 - **Auto-merge**: turn it on in the project → the PR merges itself the moment the CI passes (and not while a review is missing).
 - **Auto-continue**: turn it on in the project → when the PR merges a new session `continue: …` appears by itself, and the bar of the old one offers **Open the new session**.
 - **Several at once**: run two sessions of the same repository to the end together → one toast (and one terminal notice) says both moved.

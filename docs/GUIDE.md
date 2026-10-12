@@ -24,9 +24,9 @@ doing, for how long and at what cost in tokens.
 
 ## The problem with every other agent
 
-You give an AI agent a task. It says *"done"*. You check. It wasn't done.
+You give an AI agent a task. It says _"done"_. You check. It wasn't done.
 
-Worse: it *sounded* done. Confident, detailed, plausible. So you shipped it.
+Worse: it _sounded_ done. Confident, detailed, plausible. So you shipped it.
 
 That isn't a bug in one model — it's the architecture. When the model is both the
 worker and the judge of its own work, "done" means "the model felt like
@@ -36,7 +36,7 @@ guaranteed to do well.
 
 ## The model proposes, your code disposes
 
-motita splits every task in three, and the model only ever gets to *propose*.
+motita splits every task in three, and the model only ever gets to _propose_.
 
 ```mermaid
 flowchart TD
@@ -55,17 +55,17 @@ flowchart TD
     style F fill:#3fb95022,stroke:#3fb950
 ```
 
-**The one rule that makes it work: the model can *propose* a `PASS`, but only
-layer A can *declare* one.** With no real check behind it, nothing is ever declared
+**The one rule that makes it work: the model can _propose_ a `PASS`, but only
+layer A can _declare_ one.** With no real check behind it, nothing is ever declared
 `PASS`: a batch run with `anchor.kind: none` refuses to start, and an interactive one
 reports every result as unverified. There is no "trust me" mode — a `PASS` with nothing
 behind it is the exact failure this architecture exists to prevent.
 
-| Layer | What it is | Why it matters |
-|---|---|---|
-| **A · The anchor** | Deterministic code. By default it **reads the gate the project already declares** (`.motita/anchor`, a Makefile's `check`/`test`, `go test ./...`, a `package.json`'s `lint`/`typecheck`/`test`, `cargo test`, `pytest`); or it runs your own command and checks, exit code and output pattern. | It cannot be talked into a different answer. Fast, boring, predictable. |
-| **B · The reasoning engine** | A hand-written client for the OpenAI chat and Responses APIs, Anthropic, Gemini, Copilot and Qwen, plus the official `claude` CLI for a Claude subscription. It counts the tokens each provider reports, per agent. | Point it at OpenAI, Codex, Claude, Gemini, Qwen, Copilot, Ollama (local or Cloud), Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
-| **C · The sandbox** | Runs the proposed action under real limits, with its HOME, temporary files and installed toolchains kept **outside** your repository. | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is. |
+| Layer                        | What it is                                                                                                                                                                                                                                                                                      | Why it matters                                                                                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A · The anchor**           | Deterministic code. By default it **reads the gate the project already declares** (`.motita/anchor`, a Makefile's `check`/`test`, `go test ./...`, a `package.json`'s `lint`/`typecheck`/`test`, `cargo test`, `pytest`); or it runs your own command and checks, exit code and output pattern. | It cannot be talked into a different answer. Fast, boring, predictable.                                                                                                |
+| **B · The reasoning engine** | A hand-written client for the OpenAI chat and Responses APIs, Anthropic, Gemini, Copilot and Qwen, plus the official `claude` CLI for a Claude subscription. It counts the tokens each provider reports, per agent.                                                                             | Point it at OpenAI, Codex, Claude, Gemini, Qwen, Copilot, Ollama (local or Cloud), Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
+| **C · The sandbox**          | Runs the proposed action under real limits, with its HOME, temporary files and installed toolchains kept **outside** your repository.                                                                                                                                                           | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is.                                                               |
 
 ## Why that changes what you get
 
@@ -137,11 +137,11 @@ The result is a **single static binary** — copy it to a machine over `scp`, wa
 away, and it works. No Go toolchain, no runtime, no container, no dependency tree
 you'll regret in two years.
 
-| | |
-|---|---|
-| **Linux** | `386`, `amd64`, `arm` (ARMv7), `arm64` |
-| **Windows** | `386`, `amd64`, `arm64` |
-| **macOS** | `amd64`, `arm64` |
+|                    |                                                                                |
+| ------------------ | ------------------------------------------------------------------------------ |
+| **Linux**          | `386`, `amd64`, `arm` (ARMv7), `arm64`                                         |
+| **Windows**        | `386`, `amd64`, `arm64`                                                        |
+| **macOS**          | `amd64`, `arm64`                                                               |
 | **Published size** | 17.8 – 18.9 MiB per binary (measured on all 9 binaries of the v0.10.0 release) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
@@ -200,7 +200,7 @@ result:
    in your browser (and, for device logins, enter a one-time code) — or paste an API key.
    A login that fails is offered again instead of ending the setup.
 3. **Model**: each provider ships curated defaults (the first one is marked
-   *recommended*), Ollama lists what your server actually has, or type any model ID.
+   _recommended_), Ollama lists what your server actually has, or type any model ID.
 4. **Check**: what decides whether a task is really done. This is the question other
    tools never ask — and the default answer is **detect it from the project**, so one
    configuration works on every repository (`check`/`test` from a Makefile,
@@ -230,16 +230,16 @@ you already have, keeps the previous configuration as `motita.yaml.bak`, and the
 
 ### Providers and how each one authenticates
 
-| Provider (`llm.provider`) | API key (variable) | Account login | Protocol |
-|---|---|---|---|
-| `openai` | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY` | — | `/chat/completions` (any OpenAI-compatible host) |
-| `codex` | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY` | **Sign in with ChatGPT** (PKCE; Plus/Pro/Business plans) | `/responses` |
-| `copilot` | `GITHUB_COPILOT_TOKEN` (a GitHub OAuth token) | **GitHub device code** (active Copilot subscription) | `/chat/completions`, session token renewed every ~30 min |
-| `ollama` | `OLLAMA_API_KEY` (Ollama Cloud only) | — (a local server needs nothing) | `/chat/completions` |
-| `anthropic` | `ANTHROPIC_API_KEY` | — (see `claude-code`) | `/v1/messages` |
-| `claude-code` | — | `claude auth login` (Anthropic's own CLI holds it) | the `claude` CLI |
-| `gemini` | `GEMINI_API_KEY` | **Google login** with your own OAuth client, or gcloud's ADC | `generateContent` |
-| `qwen` | `DASHSCOPE_API_KEY` | **qwen.ai device code** (Qwen Code account) | `/chat/completions` |
+| Provider (`llm.provider`) | API key (variable)                            | Account login                                                | Protocol                                                 |
+| ------------------------- | --------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
+| `openai`                  | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY`       | —                                                            | `/chat/completions` (any OpenAI-compatible host)         |
+| `codex`                   | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY`       | **Sign in with ChatGPT** (PKCE; Plus/Pro/Business plans)     | `/responses`                                             |
+| `copilot`                 | `GITHUB_COPILOT_TOKEN` (a GitHub OAuth token) | **GitHub device code** (active Copilot subscription)         | `/chat/completions`, session token renewed every ~30 min |
+| `ollama`                  | `OLLAMA_API_KEY` (Ollama Cloud only)          | — (a local server needs nothing)                             | `/chat/completions`                                      |
+| `anthropic`               | `ANTHROPIC_API_KEY`                           | — (see `claude-code`)                                        | `/v1/messages`                                           |
+| `claude-code`             | —                                             | `claude auth login` (Anthropic's own CLI holds it)           | the `claude` CLI                                         |
+| `gemini`                  | `GEMINI_API_KEY`                              | **Google login** with your own OAuth client, or gcloud's ADC | `generateContent`                                        |
+| `qwen`                    | `DASHSCOPE_API_KEY`                           | **qwen.ai device code** (Qwen Code account)                  | `/chat/completions`                                      |
 
 Logins live in `~/.motita/auth/<provider>.json` (`0600`, override the directory with
 `MOTITA_AUTH_DIR`) together with their refresh token; motita renews the access token
@@ -255,7 +255,7 @@ your shell still wins over it.
 - **Gemini login** needs an OAuth client you own: either run
   `gcloud auth application-default login --client-id-file=client_secret.json --scopes='https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever'`
   (the wizard copies those credentials), or export `MOTITA_GEMINI_CLIENT_ID` and
-  `MOTITA_GEMINI_CLIENT_SECRET` for a *Desktop app* client. The calls are billed to the
+  `MOTITA_GEMINI_CLIENT_SECRET` for a _Desktop app_ client. The calls are billed to the
   Google Cloud project you name.
 - **Codex login** receives the browser on `http://localhost:1455`. On a machine the browser
   cannot reach (SSH), paste the URL the browser ends on into the wizard.
@@ -274,7 +274,7 @@ loop, tools and sandbox: claude only answers with text and tool calls.
 ```yaml
 llm:
   provider: claude-code
-  model: sonnet        # or opus, haiku, fable, or a full model id
+  model: sonnet # or opus, haiku, fable, or a full model id
 ```
 
 `/models` lists the models your account offers, as claude's own picker does, and
@@ -324,11 +324,11 @@ token travels unencrypted. Once exposed it enforces **no origin rules** until yo
 
 ```yaml
 gateway:
-  listen: "0.0.0.0:7477"    # explicit: every interface, plain HTTP
-  allow: ["lan"]            # only the local network; everything else still gets in
-  allow: ["lan", "!any"]    # the local network ONLY — usually what you want
-  allow: ["!any"]           # this machine only
-  allow: ["10.0.0.5"]       # one machine, everything else still gets in
+  listen: "0.0.0.0:7477" # explicit: every interface, plain HTTP
+  allow: ["lan"] # only the local network; everything else still gets in
+  allow: ["lan", "!any"] # the local network ONLY — usually what you want
+  allow: ["!any"] # this machine only
+  allow: ["10.0.0.5"] # one machine, everything else still gets in
   allow: ["!192.168.1.0/24"] # everything except one network
 ```
 
@@ -398,7 +398,7 @@ loopback address because a wildcard bind has to be normalised into something a c
 actually dial — which is exactly why the exposure is reported separately rather than read
 out of the link.
 
-The second list exists for the same reason. The address a *remote* browser needs cannot be
+The second list exists for the same reason. The address a _remote_ browser needs cannot be
 derived from the listener, and asking the operator to substitute their own address is a
 networking question asked at the moment they are least equipped to answer it — the symptom
 being a page that reports `not connected` with nothing to explain why. So the addresses this
@@ -449,7 +449,7 @@ emoji set) loaded only when a message needs them. A test fails if the assets out
 
 A gateway holds **several conversations at once**, each with its own run slot, its
 own transcript, and its own approval prompt. Two clients working at the same time
-do not wait for each other, and a second run in the *same* conversation is refused
+do not wait for each other, and a second run in the _same_ conversation is refused
 with a `409` instead of being queued: one conversation has one slot, and saying so
 is more useful than pretending otherwise.
 
@@ -468,40 +468,40 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:7477/v1/sessions/s7f3a1c9e
 ```
 
-| Endpoint | What it does |
-|---|---|
-| `GET /v1/health` | the only one that needs no token: liveness |
-| `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}` | the repositories motita works on; adding one runs `git init` when it is not a repository yet |
-| `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}` | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment; `POST .../{name}/pin` (`{"pinned":true}`) exempts a file from the retention, and the list says when each unpinned one expires. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
-| `GET /v1/runtimes` | which container runtimes the machine has (`{"podman": true, "podman_ready": true, "podman_compose": true}`: installed, answers `podman info`, and has `podman compose`); the New project dialog offers podman only when it is installed |
-| `PATCH /v1/projects/{id}` | change the "run with podman" answer after creation; open sessions are told, so the agent uses `podman` instead of docker |
-| `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
-| `GET /v1/git/accounts` · `DELETE /v1/git/accounts/{id}` | the git hosts, who you are on each, and how each can be connected; disconnect one |
-| `POST /v1/git/connect` · `GET` `DELETE /v1/git/flows/{id}` · `POST …/paste` | log in to a host (device code, browser code, or a token); poll, cancel or finish a login in progress |
-| `GET /v1/git/repos?service=&q=&page=` | your repositories on a connected host, for the new-project picker (`409 git_auth_required` when a login is missing) |
-| `GET` `POST /v1/sessions` | list what is held, or open one more (in a project: its own worktree and branch) |
-| `GET` `PATCH` `DELETE /v1/sessions/{id}` | that conversation's figures (`running`, `agents_running`, branch, changes), rename it, or close it and give its worktree back |
-| `GET /v1/sessions/{id}/deletion-preview` | the uncommitted work a deletion would lose; `DELETE …?force=1` confirms |
-| `POST /v1/sessions/{id}/task` `/plan` | run a task (or a read-only one), streamed as server-sent events |
-| `GET /v1/sessions/{id}/events?from=<seq>` `/run` | re-attach to the run in flight from the last event seen, or ask whether there is one |
-| `POST /v1/sessions/{id}/cancel` | stop the run |
-| `POST /v1/sessions/{id}/runs/approval` `/auto-approve` | answer a pending confirmation, or allow every command for this session |
-| `GET /v1/sessions/{id}/agents` | the run's agents: purpose, state, elapsed time, tokens, branch |
-| `GET /v1/sessions/{id}/checkpoints` · `POST …/checkpoints/{turn}/restore` | the turns you can go back to; the conversation always rewinds, the files only with `{"files":true}` |
-| `POST /v1/sessions/{id}/merge` `/continue` | the agent integrates the session's branch (the session becomes read-only), or a fresh session starts from the updated base |
-| `GET /v1/sessions/{id}/pr` · `POST …/pr` `/pr/fix` `/pr/merge` | the session's pull request and its CI (with whether the host would merge it, and what the gateway is doing about it); open it with the agent; send the agent to fix a failing CI again; merge it once the CI passed |
-| `GET /v1/sessions/{id}/messages` `/report` | the transcript, and the conversation so far |
-| `GET /v1/sessions/{id}/config` `/models` `/model-list` `/providers` `/reward` `/questions` `/skills` | the read-only views |
-| `PATCH /v1/sessions/{id}/config` · `POST …/reasoning` `/verdict` `/reset` | change the provider or the model, the thinking budget, grade a turn, start over |
-| `POST /v1/sessions/{id}/config/reload` | apply the configuration file as it is now (what `/config` calls after the setup) |
-| `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
-| `GET` `POST /v1/schedules` · `PATCH` `DELETE /v1/schedules/{id}` · `POST …/run` | tasks that fire on their own: list, add, pause, retarget, remove, run now |
-| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` · `/v1/skills/proposed` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive, and the background review's proposals to accept or reject |
-| `POST /v1/skills/{name}/pin` `/restore` `/disable` | exempt one from curation, bring it back, or turn it off |
-| `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
-| `GET /v1/update/check` `POST /v1/update/run` | is there a newer release, and install it (verified against `SHA256SUMS`) |
-| `GET /v1/commands` | the slash commands, for a client that offers them |
-| `GET` `PUT /v1/ui` | the interface language: auto, en or es, saved in the configuration |
+| Endpoint                                                                                                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                                                                               | the only one that needs no token: liveness                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}`                                                         | the repositories motita works on; adding one runs `git init` when it is not a repository yet                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}`                    | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment; `POST .../{name}/pin` (`{"pinned":true}`) exempts a file from the retention, and the list says when each unpinned one expires. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
+| `GET /v1/runtimes`                                                                                             | which container runtimes the machine has (`{"podman": true, "podman_ready": true, "podman_compose": true}`: installed, answers `podman info`, and has `podman compose`); the New project dialog offers podman only when it is installed                                                                                                                                                                                                                                                                                                                                |
+| `PATCH /v1/projects/{id}`                                                                                      | change the "run with podman" answer after creation; open sessions are told, so the agent uses `podman` instead of docker                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `GET /v1/projects/{id}/deletion-preview`                                                                       | what deleting a project would discard, before you confirm with `?force=1`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET /v1/git/accounts` · `DELETE /v1/git/accounts/{id}`                                                        | the git hosts, who you are on each, and how each can be connected; disconnect one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `POST /v1/git/connect` · `GET` `DELETE /v1/git/flows/{id}` · `POST …/paste`                                    | log in to a host (device code, browser code, or a token); poll, cancel or finish a login in progress                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `GET /v1/git/repos?service=&q=&page=`                                                                          | your repositories on a connected host, for the new-project picker (`409 git_auth_required` when a login is missing)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GET` `POST /v1/sessions`                                                                                      | list what is held, or open one more (in a project: its own worktree and branch)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET` `PATCH` `DELETE /v1/sessions/{id}`                                                                       | that conversation's figures (`running`, `agents_running`, branch, changes), rename it, or close it and give its worktree back                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `GET /v1/sessions/{id}/deletion-preview`                                                                       | the uncommitted work a deletion would lose; `DELETE …?force=1` confirms                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `POST /v1/sessions/{id}/task` `/plan`                                                                          | run a task (or a read-only one), streamed as server-sent events                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET /v1/sessions/{id}/events?from=<seq>` `/run`                                                               | re-attach to the run in flight from the last event seen, or ask whether there is one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `POST /v1/sessions/{id}/cancel`                                                                                | stop the run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `POST /v1/sessions/{id}/runs/approval` `/auto-approve`                                                         | answer a pending confirmation, or allow every command for this session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `GET /v1/sessions/{id}/agents`                                                                                 | the run's agents: purpose, state, elapsed time, tokens, branch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `GET /v1/sessions/{id}/checkpoints` · `POST …/checkpoints/{turn}/restore`                                      | the turns you can go back to; the conversation always rewinds, the files only with `{"files":true}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `POST /v1/sessions/{id}/merge` `/continue`                                                                     | the agent integrates the session's branch (the session becomes read-only), or a fresh session starts from the updated base                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `GET /v1/sessions/{id}/pr` · `POST …/pr` `/pr/fix` `/pr/merge`                                                 | the session's pull request and its CI (with whether the host would merge it, and what the gateway is doing about it); open it with the agent; send the agent to fix a failing CI again; merge it once the CI passed                                                                                                                                                                                                                                                                                                                                                    |
+| `GET /v1/sessions/{id}/messages` `/report`                                                                     | the transcript, and the conversation so far                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `GET /v1/sessions/{id}/config` `/models` `/model-list` `/providers` `/reward` `/questions` `/skills`           | the read-only views                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `PATCH /v1/sessions/{id}/config` · `POST …/reasoning` `/verdict` `/reset`                                      | change the provider or the model, the thinking budget, grade a turn, start over                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `POST /v1/sessions/{id}/config/reload`                                                                         | apply the configuration file as it is now (what `/config` calls after the setup)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `GET /v1/sessions/{id}/ws`                                                                                     | **WebSocket**: bidirectional, flag-based message protocol (see below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `GET` `POST /v1/schedules` · `PATCH` `DELETE /v1/schedules/{id}` · `POST …/run`                                | tasks that fire on their own: list, add, pause, retarget, remove, run now                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` · `/v1/skills/proposed` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive, and the background review's proposals to accept or reject                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `POST /v1/skills/{name}/pin` `/restore` `/disable`                                                             | exempt one from curation, bring it back, or turn it off                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `GET /v1/curator` `POST /v1/curator/run`                                                                       | the maintenance pass: report it, or run one                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `GET /v1/update/check` `POST /v1/update/run`                                                                   | is there a newer release, and install it (verified against `SHA256SUMS`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `GET /v1/commands`                                                                                             | the slash commands, for a client that offers them                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `GET` `PUT /v1/ui`                                                                                             | the interface language: auto, en or es, saved in the configuration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
@@ -535,7 +535,7 @@ never touched while they work.
   be recovered.
 - **The agent integrates its own work.** Ask for it (the button in the browser, or
   `POST …/merge`) and the agent commits what is left and merges the branch into the
-  project's; the session then becomes read-only, and *continue* opens a fresh session
+  project's; the session then becomes read-only, and _continue_ opens a fresh session
   from the updated base.
 - **Deleting asks first.** A session or project with uncommitted work shows exactly
   which files would be lost, and nothing is discarded until you confirm.
@@ -561,12 +561,12 @@ list your repositories in the project dialog, open pull requests, read the CI �
 against the host before it is saved. Create one at the page the dialog links to, and paste it in
 Settings → Git connections, or run `/git connect <host> token` in the terminal:
 
-| Host | Create it at | What it needs |
-| --- | --- | --- |
-| GitHub | Settings → Developer settings → Personal access tokens | classic: `repo` and `workflow`; fine-grained: Contents, Pull requests (read and write), Actions and Metadata (read) |
-| GitLab | Preferences → Access tokens | `api`, `read_repository`, `write_repository` |
-| Bitbucket | Personal settings → App passwords | Repositories and Pull requests (read and write), Account (read). It also asks for your **account name**: Bitbucket sends an app password with it |
-| Gitea (self-hosted) | Settings → Applications | `repository` (read and write) |
+| Host                | Create it at                                           | What it needs                                                                                                                                    |
+| ------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GitHub              | Settings → Developer settings → Personal access tokens | classic: `repo` and `workflow`; fine-grained: Contents, Pull requests (read and write), Actions and Metadata (read)                              |
+| GitLab              | Preferences → Access tokens                            | `api`, `read_repository`, `write_repository`                                                                                                     |
+| Bitbucket           | Personal settings → App passwords                      | Repositories and Pull requests (read and write), Account (read). It also asks for your **account name**: Bitbucket sends an app password with it |
+| Gitea (self-hosted) | Settings → Applications                                | `repository` (read and write)                                                                                                                    |
 
 Tokens are stored in `~/.motita/auth/` (`git-<host>.json`, mode 0600), never in the
 configuration file. Disconnecting a host deletes its file.
@@ -589,7 +589,7 @@ configuration file. Disconnecting a host deletes its file.
   bare number. It then offers to follow the CI (`motita forge pr checks --wait --logs`): if a
   job fails it reads the log, fixes the cause, pushes, and checks again until it is green.
 - **Create PR, and the CI followed for you.** A session with work shows **Create PR**. From
-  then on the *gateway* follows the CI (not the browser tab): when it fails it sends the agent to
+  then on the _gateway_ follows the CI (not the browser tab): when it fails it sends the agent to
   fix it, push after push, up to the project's limit (5 by default), and stops when the CI passes,
   when the same checks also fail on the base branch, or when there is no CI. A toast (and a
   browser or terminal notification) tells you; **Merge** appears once the host would accept it,
@@ -646,45 +646,45 @@ against a binary whose ceiling is a runaway-growth guard, not a per-feature budg
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `msg_id` | string | UUID v4 — unique per message |
-| `type` | string | Message type (see table below) |
-| `flags` | string[] | State/condition indicators (see table below) |
-| `timestamp` | string | ISO-8601 |
-| `payload` | object | Type-specific data |
+| Field       | Type     | Description                                  |
+| ----------- | -------- | -------------------------------------------- |
+| `msg_id`    | string   | UUID v4 — unique per message                 |
+| `type`      | string   | Message type (see table below)               |
+| `flags`     | string[] | State/condition indicators (see table below) |
+| `timestamp` | string   | ISO-8601                                     |
+| `payload`   | object   | Type-specific data                           |
 
 **Message types:**
 
-| Type | Direction | Description |
-|---|---|---|
-| `auth` | Client → Server | Initial authentication |
-| `auth_response` | Server → Client | Authentication result |
-| `query` | Client → Server | A query or request |
+| Type             | Direction       | Description                                    |
+| ---------------- | --------------- | ---------------------------------------------- |
+| `auth`           | Client → Server | Initial authentication                         |
+| `auth_response`  | Server → Client | Authentication result                          |
+| `query`          | Client → Server | A query or request                             |
 | `query_response` | Server → Client | Answer to a query (ack, partial, or completed) |
-| `heartbeat` | Bidirectional | Keep-alive probe |
-| `heartbeat_ack` | Bidirectional | Keep-alive confirmation |
-| `notification` | Server → Client | Push notification |
-| `error` | Server → Client | Error message |
+| `heartbeat`      | Bidirectional   | Keep-alive probe                               |
+| `heartbeat_ack`  | Bidirectional   | Keep-alive confirmation                        |
+| `notification`   | Server → Client | Push notification                              |
+| `error`          | Server → Client | Error message                                  |
 
 **Flags:**
 
-| Flag | Meaning |
-|---|---|
-| `AUTHENTICATED` | The client is authenticated |
-| `UNAUTHORIZED` | Authentication failed |
-| `IDLE` | The agent is idle / waiting |
-| `BUSY` | The agent is processing a task |
-| `PROCESSING` | The query is being processed |
-| `COMPLETED` | The task / query finished successfully |
-| `PARTIAL` | The response is partial (streaming) |
-| `ERROR_RECOVERABLE` | An error the connection can recover from |
-| `FATAL_ERROR` | A critical error; the connection will close |
-| `LOW_MEMORY` | The agent is low on memory |
-| `RATE_LIMITED` | The client exceeded the rate limit |
-| `CACHE_HIT` | The response came from cache |
-| `CACHE_MISS` | The response was generated in real time |
-| `ENCRYPTED` | The payload is encrypted |
+| Flag                | Meaning                                     |
+| ------------------- | ------------------------------------------- |
+| `AUTHENTICATED`     | The client is authenticated                 |
+| `UNAUTHORIZED`      | Authentication failed                       |
+| `IDLE`              | The agent is idle / waiting                 |
+| `BUSY`              | The agent is processing a task              |
+| `PROCESSING`        | The query is being processed                |
+| `COMPLETED`         | The task / query finished successfully      |
+| `PARTIAL`           | The response is partial (streaming)         |
+| `ERROR_RECOVERABLE` | An error the connection can recover from    |
+| `FATAL_ERROR`       | A critical error; the connection will close |
+| `LOW_MEMORY`        | The agent is low on memory                  |
+| `RATE_LIMITED`      | The client exceeded the rate limit          |
+| `CACHE_HIT`         | The response came from cache                |
+| `CACHE_MISS`        | The response was generated in real time     |
+| `ENCRYPTED`         | The payload is encrypted                    |
 
 **Connection flow:**
 
@@ -725,34 +725,34 @@ motita gateway stop     # stop the one the service file names
 
 And why plain `motita` now **attaches** instead of always starting its own:
 
-| Situation | What you get |
-|---|---|
+| Situation                    | What you get                                                                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | a gateway is already running | the interface connects to it and shuts nothing down — a service you started on purpose is not killed because a terminal connected |
-| nothing is running | one is brought up for this interface, in-process, and goes away with it |
-| `-gateway off` | no gateway: the direct path, as before |
+| nothing is running           | one is brought up for this interface, in-process, and goes away with it                                                           |
+| `-gateway off`               | no gateway: the direct path, as before                                                                                            |
 
 The interface's gateway is in-process on purpose, which is the opposite of what
-`gateway start` does: the service exists to outlive its shell, while this one exists *for*
+`gateway start` does: the service exists to outlive its shell, while this one exists _for_
 the interface and must die with it however the process dies. A re-executed child would
 survive a `SIGKILL` and leak. Two terminals against one service are not two agents on two
 ports — they are **two views of one conversation**.
 
-| Command | What it does |
-|---|---|
-| `/task` `/plan` | switch between doing work and read-only exploration |
-| `/goal <text>` | autonomous task: never asks, takes the recommended option and reports each decision |
-| `/decisions` `/decisions undo <n>` | what `/goal` decided, numbered; `undo` removes one. Kept in `.motita/decisions.md`, which is versioned with the project on purpose (it is the spec) and respected by later runs |
-| `/models` `/models <id>` | your provider, your key status and the models it really publishes; with an id, switch to that model for this session |
-| `/reasoning` | cycle the thinking budget |
-| `/good` `/bad` | tell the agent how a turn went |
-| `/value` | see what it has learned from those verdicts |
-| `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
-| `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
-| `/config` | run the setup again; the new configuration applies to the session you are in |
+| Command                                                                            | What it does                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/task` `/plan`                                                                    | switch between doing work and read-only exploration                                                                                                                                                                                                                                                                                                                               |
+| `/goal <text>`                                                                     | autonomous task: never asks, takes the recommended option and reports each decision                                                                                                                                                                                                                                                                                               |
+| `/decisions` `/decisions undo <n>`                                                 | what `/goal` decided, numbered; `undo` removes one. Kept in `.motita/decisions.md`, which is versioned with the project on purpose (it is the spec) and respected by later runs                                                                                                                                                                                                   |
+| `/models` `/models <id>`                                                           | your provider, your key status and the models it really publishes; with an id, switch to that model for this session                                                                                                                                                                                                                                                              |
+| `/reasoning`                                                                       | cycle the thinking budget                                                                                                                                                                                                                                                                                                                                                         |
+| `/good` `/bad`                                                                     | tell the agent how a turn went                                                                                                                                                                                                                                                                                                                                                    |
+| `/value`                                                                           | see what it has learned from those verdicts                                                                                                                                                                                                                                                                                                                                       |
+| `/agents` or `Ctrl+G`                                                              | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity                                                                                                                                                                                                                                                                                |
+| `/sessions` `/attach <id>`                                                         | the conversations the gateway holds, and move to another one                                                                                                                                                                                                                                                                                                                      |
+| `/config`                                                                          | run the setup again; the new configuration applies to the session you are in                                                                                                                                                                                                                                                                                                      |
 | `/git` `/git connect [host] [token]` `/git disconnect <host>` `/git repos [query]` | connect GitHub, GitLab or Bitbucket (or a self-hosted `gitlab:git.example.com`) so motita can clone, push and open pull requests: a browser login with a code when the host offers it, otherwise a token typed in without echo; `/git` alone shows who you are connected as, `/git repos` lists the repositories you can reach. motita says so on start when no host is connected |
-| `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
-| `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
-| `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |
+| `/language [en\|es\|auto]`                                                         | show or change the language of the interfaces; it is saved in the configuration                                                                                                                                                                                                                                                                                                   |
+| `/update`                                                                          | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it                                                                                                                                   |
+| `/session` `/find` `/new` `/help` `/quit`                                          | context, search, fresh start, help, leave                                                                                                                                                                                                                                                                                                                                         |
 
 The steps a turn runs show as one line that counts them ("7 actions");
 `gateway.show_actions: true` lists every one instead.
@@ -772,7 +772,7 @@ flowchart LR
 ```
 
 Pipes and shell metacharacters aren't filtered out in plan mode: there is nothing
-to filter *and* nothing to bypass, because the shell is never in the path.
+to filter _and_ nothing to bypass, because the shell is never in the path.
 
 ## It learns from you, not from a retraining pipeline
 
@@ -898,7 +898,7 @@ the program directly and the policy can see it is yours.
 
 There is no YAML key, no environment variable and no flag that relaxes the floor.
 **That's the point.** A guardrail an operator can switch off is a guardrail that
-*will* be switched off — during the incident it was meant for, by whoever wants
+_will_ be switched off — during the incident it was meant for, by whoever wants
 the task to finish.
 
 And it isn't a claim on a slide: a test in the repository asserts the sentences
@@ -909,13 +909,13 @@ the behaviour.
 
 This is tested the way you'd test something you were about to bet on.
 
-| | |
-|---|---|
-| **Statement coverage** | **100% in every package that ships** — 37 of 37 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
-| **Test functions** | 4,169 across 343 files |
-| **Code vs tests** | 57,596 lines of Go · 108,527 lines of test |
-| **External dependencies** | 0 |
-| **Platforms CI builds** | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS |
+|                           |                                                                                                                                                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Statement coverage**    | **100% in every package that ships** — 37 of 37 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Test functions**        | 4,169 across 343 files                                                                                                                                                                                    |
+| **Code vs tests**         | 57,596 lines of Go · 108,527 lines of test                                                                                                                                                                |
+| **External dependencies** | 0                                                                                                                                                                                                         |
+| **Platforms CI builds**   | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                 |
 
 That coverage number isn't a badge. It's the mechanism that found the bugs
 documented in the reference: the `RLIMIT_CPU` that never fired, the process group
@@ -939,11 +939,11 @@ flowchart LR
 
 ## Three workloads it's built for
 
-| | |
-|---|---|
-| **Development** | task in a file → LLM → networkless sandbox → **`go test` + `go vet` + `gofmt` as the anchor** → commit |
-| **Data analysis** | task from an API → isolated analysis → **report invariants as the anchor** → publish the result |
-| **Automation** | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notify |
+|                   |                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| **Development**   | task in a file → LLM → networkless sandbox → **`go test` + `go vet` + `gofmt` as the anchor** → commit |
+| **Data analysis** | task from an API → isolated analysis → **report invariants as the anchor** → publish the result        |
+| **Automation**    | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notify   |
 
 Everything is configured in YAML, validated without running anything
 (`-validate-config`), and every setting has a `MOTITA_*` environment override

@@ -141,12 +141,12 @@ If `verify.sh` passes locally, CI will pass.
 The CI pipeline (`.github/workflows/ci.yml`) runs on every push to
 `main`, every tag, and every pull request:
 
-| Job | What it does |
-|-----|-------------|
-| **verify** | `gofmt`, `go vet`, `go test -race`, `staticcheck`, `govulncheck`, Go floor check, 100% coverage gate per package |
+| Job                     | What it does                                                                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **verify**              | `gofmt`, `go vet`, `go test -race`, `staticcheck`, `govulncheck`, Go floor check, 100% coverage gate per package                                                            |
 | **build** (9 platforms) | Cross-compiles for every supported OS/arch, verifies the binary format (ELF/PE/Mach-O), runs smoke tests in containers, validates config without an LLM key, runs E2E tests |
-| **gateway** | HTTP E2E test of the gateway + binary size ceiling |
-| **release** | Only on tags (`v*`): publishes binaries + SHA256SUMS to GitHub Releases |
+| **gateway**             | HTTP E2E test of the gateway + binary size ceiling                                                                                                                          |
+| **release**             | Only on tags (`v*`): publishes binaries + SHA256SUMS to GitHub Releases                                                                                                     |
 
 A PR must have **all required jobs green** before it can be merged.
 

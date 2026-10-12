@@ -140,21 +140,50 @@ jobs:
         include:
           # Every platform Go can build the binary for. windows/arm,
           # darwin/386 and darwin/arm do not exist in Go.
-          - { goos: linux,   goarch: "386",   container: i386/debian:bookworm-slim,     platform: linux/386,   e2e: "true" }
-          - { goos: linux,   goarch: amd64,   container: debian:bookworm-slim,         platform: linux/amd64, e2e: "true" }
-          - { goos: linux,   goarch: arm,     container: arm32v7/debian:bookworm-slim, platform: linux/arm/v7, e2e: "true" }
-          - { goos: linux,   goarch: arm64,   container: arm64v8/debian:bookworm-slim, platform: linux/arm64, e2e: "true" }
+          - {
+              goos: linux,
+              goarch: "386",
+              container: i386/debian:bookworm-slim,
+              platform: linux/386,
+              e2e: "true",
+            }
+          - {
+              goos: linux,
+              goarch: amd64,
+              container: debian:bookworm-slim,
+              platform: linux/amd64,
+              e2e: "true",
+            }
+          - {
+              goos: linux,
+              goarch: arm,
+              container: arm32v7/debian:bookworm-slim,
+              platform: linux/arm/v7,
+              e2e: "true",
+            }
+          - {
+              goos: linux,
+              goarch: arm64,
+              container: arm64v8/debian:bookworm-slim,
+              platform: linux/arm64,
+              e2e: "true",
+            }
           # Termux. Android kills a GOOS=linux binary with SIGSYS (its seccomp policy
           # blocks faccessat2, which the linux runtime calls), so it needs its own build.
           # arm64 is the one android target Go links without cgo. termux-docker is a real
           # Android userland (bionic, /system/bin/sh), so the smoke test proves the build
           # loads and runs there.
-          - { goos: android, goarch: arm64,   container: termux/termux-docker:aarch64, platform: linux/arm64 }
+          - {
+              goos: android,
+              goarch: arm64,
+              container: termux/termux-docker:aarch64,
+              platform: linux/arm64,
+            }
           - { goos: windows, goarch: "386" }
           - { goos: windows, goarch: amd64 }
           - { goos: windows, goarch: arm64 }
-          - { goos: darwin,  goarch: amd64 }
-          - { goos: darwin,  goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
     env:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
