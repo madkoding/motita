@@ -8,10 +8,10 @@ many files at once.
 
 The same library is served to both modes, so this document has to say what exists where.
 
-| Mode | How you act | Names |
-| --- | --- | --- |
-| **Plan** (read-only) | tool calls | `list_directory`, `read_file`, `search_in_files`, `execute_command` |
-| **Task** (writes) | JSON actions | `{"kind":"command","command":"..."}`, plus the four skill kinds |
+| Mode                 | How you act  | Names                                                               |
+| -------------------- | ------------ | ------------------------------------------------------------------- |
+| **Plan** (read-only) | tool calls   | `list_directory`, `read_file`, `search_in_files`, `execute_command` |
+| **Task** (writes)    | JSON actions | `{"kind":"command","command":"..."}`, plus the four skill kinds     |
 
 In **task mode there is no `read_file`**. A `kind` of `read_file` is refused — the text is not
 guessed at and executed — so do not reach for it. Read with a command instead: `cat file`,
@@ -22,14 +22,14 @@ Everything below is written as the GOAL plus the command that achieves it, so it
 
 ## Reading and finding
 
-| Goal | Command | Note |
-| --- | --- | --- |
-| List a directory | `ls -la dir` | sizes, modes, hidden entries |
-| Read a file | `cat file` | binary in the context is unrecoverable — `file` it first |
-| A slice of a big file | `head -n 40 f` / `tail -n 40 f` / `head -c 4096 f` | never pull 100 MB in to read 10 lines |
-| Find text in files | `grep -n pattern path` | line numbers, one shot |
-| Find files by name | `find dir -name '*.go'` | quote the pattern |
-| Where a name is used | `grep -rn 'symbol' dir` | recursive |
+| Goal                  | Command                                            | Note                                                     |
+| --------------------- | -------------------------------------------------- | -------------------------------------------------------- |
+| List a directory      | `ls -la dir`                                       | sizes, modes, hidden entries                             |
+| Read a file           | `cat file`                                         | binary in the context is unrecoverable — `file` it first |
+| A slice of a big file | `head -n 40 f` / `tail -n 40 f` / `head -c 4096 f` | never pull 100 MB in to read 10 lines                    |
+| Find text in files    | `grep -n pattern path`                             | line numbers, one shot                                   |
+| Find files by name    | `find dir -name '*.go'`                            | quote the pattern                                        |
+| Where a name is used  | `grep -rn 'symbol' dir`                            | recursive                                                |
 
 `grep` beats read-then-look: search for the symbol, then read only what matched. Reading each
 candidate in turn is how a context fills with files that were never relevant.

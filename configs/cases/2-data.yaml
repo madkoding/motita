@@ -61,7 +61,7 @@ llm:
   model: claude-sonnet-4-5
   base_url: https://api.anthropic.com
   max_tokens: 4096
-  temperature: 0.0        # deterministic: this is analysis, not creativity
+  temperature: 0.0 # deterministic: this is analysis, not creativity
   timeout: 180s
   max_attempts: 4
   backoff_initial: 2s

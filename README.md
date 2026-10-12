@@ -42,15 +42,15 @@ proves a task is done. The installer verifies the binary against `SHA256SUMS` an
 
 ## ✨ Why motita
 
-| | |
-|---|---|
-| 🎯 **Proof, not vibes** | Done means your tests, linter or own command passed. It detects the gate from a `Makefile`, `go.mod`, `package.json`, `Cargo.toml` or `pytest`. |
-| 🔁 **Retries that learn** | A failure goes back to the model with the real command output, not a re-roll of the dice. |
-| 🔑 **Bring your own model** | OpenAI, Codex, Claude, Gemini, Copilot, Qwen, Ollama, Groq, OpenRouter, DeepSeek. Use an API key or the subscription you already pay for. |
-| 🧱 **Real sandbox** | Memory, CPU, time and network limits, and it tells you what it could not enforce. |
-| 🤖 **Agents in parallel** | Split a big job across background agents, each on its own git branch, with time and token cost per agent. |
-| 🛡️ **Guardrails always on** | `rm -rf /`, `mkfs`, `dd` to a device and friends are refused, even through `sudo`, `xargs` or `sh -c`. |
-| 🪶 **Runs anywhere** | Pure Go, one static binary. Linux, macOS, Windows, 32-bit included. Works on a 2008 netbook. |
+|                             |                                                                                                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🎯 **Proof, not vibes**     | Done means your tests, linter or own command passed. It detects the gate from a `Makefile`, `go.mod`, `package.json`, `Cargo.toml` or `pytest`. |
+| 🔁 **Retries that learn**   | A failure goes back to the model with the real command output, not a re-roll of the dice.                                                       |
+| 🔑 **Bring your own model** | OpenAI, Codex, Claude, Gemini, Copilot, Qwen, Ollama, Groq, OpenRouter, DeepSeek. Use an API key or the subscription you already pay for.       |
+| 🧱 **Real sandbox**         | Memory, CPU, time and network limits, and it tells you what it could not enforce.                                                               |
+| 🤖 **Agents in parallel**   | Split a big job across background agents, each on its own git branch, with time and token cost per agent.                                       |
+| 🛡️ **Guardrails always on** | `rm -rf /`, `mkfs`, `dd` to a device and friends are refused, even through `sudo`, `xargs` or `sh -c`.                                          |
+| 🪶 **Runs anywhere**        | Pure Go, one static binary. Linux, macOS, Windows, 32-bit included. Works on a 2008 netbook.                                                    |
 
 ## 🖥️ Terminal and browser, same process
 
@@ -73,16 +73,16 @@ Join the same conversation from a laptop or a phone through an SSH tunnel:
 The gateway binds to `127.0.0.1` by default on purpose: it speaks plain HTTP and drives an agent
 that runs commands on this machine. To reach it from your network, pick one of these:
 
-| How | Example |
-|---|---|
-| Config file (permanent; `motita config` shows where it lives) | see the YAML below |
-| Environment variable | `MOTITA_GATEWAY_LISTEN=0.0.0.0:7477 motita gateway start` |
-| Flag, for one run | `motita -gateway 0.0.0.0:7477` |
+| How                                                           | Example                                                   |
+| ------------------------------------------------------------- | --------------------------------------------------------- |
+| Config file (permanent; `motita config` shows where it lives) | see the YAML below                                        |
+| Environment variable                                          | `MOTITA_GATEWAY_LISTEN=0.0.0.0:7477 motita gateway start` |
+| Flag, for one run                                             | `motita -gateway 0.0.0.0:7477`                            |
 
 ```yaml
 gateway:
   listen: "0.0.0.0:7477"
-  allow: ["lan", "!any"]   # recommended: the local network only (loopback is always allowed)
+  allow: ["lan", "!any"] # recommended: the local network only (loopback is always allowed)
 ```
 
 Restart the gateway afterwards (`motita gateway stop`, then `motita gateway start`). It warns
@@ -93,12 +93,12 @@ when it opens on every interface. There is no TLS: the token travels unencrypted
 
 ## 📚 Go deeper
 
-| | |
-|---|---|
-| 📖 **[Full guide](docs/GUIDE.md)** | Providers and logins, the gateway, sessions, git hosts, background agents, guardrails, testing |
-| 🔧 **[Reference](docs/REFERENCE.md)** | Every config key, sandbox layers, logging format, extending the agent |
-| 🌐 **[Website](https://madkoding.github.io/motita/)** | Live demo and interactive architecture diagram |
-| 🤝 **[Contributing](CONTRIBUTING.md)** · 🔒 **[Security](SECURITY.md)** | How to help and how to report a vulnerability |
+|                                                                         |                                                                                                |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 📖 **[Full guide](docs/GUIDE.md)**                                      | Providers and logins, the gateway, sessions, git hosts, background agents, guardrails, testing |
+| 🔧 **[Reference](docs/REFERENCE.md)**                                   | Every config key, sandbox layers, logging format, extending the agent                          |
+| 🌐 **[Website](https://madkoding.github.io/motita/)**                   | Live demo and interactive architecture diagram                                                 |
+| 🤝 **[Contributing](CONTRIBUTING.md)** · 🔒 **[Security](SECURITY.md)** | How to help and how to report a vulnerability                                                  |
 
 <div align="center">
 <br>
