@@ -13,7 +13,7 @@
 // is mounted, and the text nodes are then cut to the first N characters and grown. Cutting
 // text nodes leaves every <span class="hljs-..."> in place, so the colours are there from the
 // first letter and nothing has to be re-highlighted per keystroke.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import DOMPurify from 'dompurify'
 import { t } from './i18n'
 import { choose } from './choose'
@@ -252,12 +252,10 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
     return () => cancelAnimationFrame(raf)
   }, [html, cps, instant, boost])
 
-  // The markup is ours (escaped text and highlight.js output), and goes through DOMPurify anyway:
-  // only span/class survive, which is all the colouring uses. Sanitized once per html: every
-  // entry of the history re-renders on each streamed event, closed drawer included.
-  const clean = useMemo(() => DOMPurify.sanitize(html, TERM_PURIFY), [html])
   const Tag = as as 'span'
-  return <Tag ref={ref as never} class={cls} dangerouslySetInnerHTML={{ __html: clean }} />
+  // The markup is ours (escaped text and highlight.js output), and goes through DOMPurify anyway:
+  // only span/class survive, which is all the colouring uses.
+  return <Tag ref={ref as never} class={cls} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, TERM_PURIFY) }} />
 }
 
 // ── Pieces ────────────────────────────────────────────────────────────────────
