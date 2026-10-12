@@ -104,6 +104,18 @@ export interface ProjectInfo {
   auto_continue?: boolean
   changes?: number
   created: string
+  // repos are the project's other repositories, after the main one in dir.
+  repos?: ProjectRepoInfo[]
+}
+
+// ProjectRepoInfo is one of a project's other repositories, cloned inside its folder.
+export interface ProjectRepoInfo {
+  name: string
+  git_url: string
+  dir: string
+  main_branch?: string
+  branch?: string
+  changes?: number
 }
 
 export interface ConfigView {
@@ -280,6 +292,9 @@ export interface EditProjectDraft {
   prMaxFixes: number
   autoMerge: boolean
   autoContinue: boolean
+  // The repositories, which change at once rather than on Save: adding one clones it.
+  mainRepo: { name: string; source: string }
+  repos: ProjectRepoInfo[]
 }
 
 // GitConnectRequest opens the git host connect modal; `after` says what to do once the host is
