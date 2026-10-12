@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func TestTheConfigViewNeverCarriesTheAPIKey(t *testing.T) {
 		APIKeyPresent: true,
 		BaseURL:       "https://api.openai.com/v1",
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("view = %+v, want %+v", got, want)
 	}
 }

@@ -176,8 +176,8 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 		_, _ = w.Write([]byte(`{"sessions":[
 			{"id":"default","running":true,"last_used":"2026-09-22T10:00:00Z"},
 			{"id":"sother","running":false,"last_used":"2026-09-23T00:30:00Z",
-			 "pr_watch":{"status":"fixing","attempts":2,"max":5,"number":7}}
-		]}`))
+			 "pr_watch":{"status":"fixing","attempts":2,"max":5,"number":7},"model":"haiku"}
+		],"max_sessions":64}`))
 	}))
 	defer srv.Close()
 
@@ -188,6 +188,9 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 	}
 	if len(all) != 2 {
 		t.Fatalf("listed %d sessions, want 2", len(all))
+	}
+	if all[1].Model != "haiku" || sw.MaxSessions() != 64 {
+		t.Errorf("the model or the ceiling was lost in the translation: %q / %d", all[1].Model, sw.MaxSessions())
 	}
 	if all[0].ID != "default" || !all[0].Running {
 		t.Errorf("the running flag was lost in the translation: %+v", all[0])

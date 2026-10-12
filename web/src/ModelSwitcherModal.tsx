@@ -7,6 +7,7 @@ import { firstModelOf, modelOptions, reasoningOf } from './appFormat'
 import { IconClose, IconMonitor, IconSpinner } from './icons'
 import type { ConfigView } from './appTypes'
 import { REASONING_LEVELS } from './appConst'
+import { switchWarning } from './sessionWatch'
 
 const FIELD = 'w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent'
 const LABEL = 'block text-sm text-[#9a9aaa] mb-1.5'
@@ -97,6 +98,17 @@ function ReasoningField() {
   )
 }
 
+// SwitchNote warns, before Done, that the switch lands in a conversation that already talked or
+// in a turn still running. The model is this session's own, so the switch is never refused.
+function SwitchNote() {
+  const { model, rs } = useApp()
+  const { config, draftProvider, draftModel } = model
+  const changed = draftProvider !== (config?.provider || '') || draftModel !== (config?.model || '')
+  const note = switchWarning(changed, rs.messages.length > 0, rs.running)
+  if (!note) { return null }
+  return <p class="text-xs text-[#f0c040] bg-[#f0c040]/10 rounded-lg px-3 py-2" role="note">⚠ {note}</p>
+}
+
 export function ModelSwitcherModal() {
   const { config, draftProvider, draftModel, draftReasoning, savingConfig, closeModelSwitcher, discardModelSwitcher, applyProviderModel } = useApp().model
   const unchanged = modelUnchanged(config, draftProvider, draftModel, draftReasoning)
@@ -119,6 +131,7 @@ export function ModelSwitcherModal() {
           <ProviderField />
           <ModelField />
           <ReasoningField />
+          <SwitchNote />
           {config && (
             <div class="text-xs text-[#7a7a8c] space-y-1 pt-2 border-t border-white/5">
               <div>{t('API key')}: {choose(config.api_key_present, '✓ ' + t('set'), '✗ ' + t('missing'))}</div>

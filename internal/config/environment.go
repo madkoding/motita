@@ -144,6 +144,7 @@ func integerBindings(c *Config) []binding[int] {
 
 func boolBindings(c *Config) []binding[bool] {
 	return []binding[bool]{
+		{"MOTITA_GATEWAY_FREE_SESSION_GIT", &c.Gateway.FreeSessionGit},
 		{"MOTITA_ANCHOR_BASELINE", &c.Anchor.Baseline},
 		{"MOTITA_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
 		{"MOTITA_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},

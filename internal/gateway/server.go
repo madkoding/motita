@@ -105,6 +105,9 @@ type Options struct {
 	// MaxSessions caps how many conversations this process will hold. Zero means
 	// defaultMaxSessions.
 	MaxSessions int
+	// FreeSessionGit makes a free-standing session's own directory a git repository when it is
+	// created, unless the request says otherwise. See config.Gateway.FreeSessionGit.
+	FreeSessionGit bool
 	// Log receives the one line a gateway has to say when it starts: where it is listening.
 	// That line is the only way an operator learns the port when 0 was asked for.
 	Log *logx.Logger

@@ -53,6 +53,10 @@ export interface SessionInfo {
   // agents_running counts the background agents the session's run started that are still
   // working. Older gateways do not send it.
   agents_running?: number
+  // provider and model are what this session's next turn runs with: each session keeps its own.
+  // Older gateways do not send them.
+  provider?: string
+  model?: string
 }
 
 // AgentInfo is one agent of a run, as the gateway reports it (agent.AgentInfo). The row with no
@@ -108,6 +112,10 @@ export interface ConfigView {
   reasoning: string
   reasoning_enabled: boolean
   api_key_present: boolean
+  // Set only on the answer to a model change: "history" when the conversation so far was written
+  // with another model, "running" when the turn in flight finishes with the old one.
+  warnings?: string[]
+  previous_model?: string
 }
 
 export interface ProviderInfo {

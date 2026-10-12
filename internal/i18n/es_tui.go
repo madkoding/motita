@@ -284,6 +284,10 @@ var esTUI = map[string]string{
 	"go back to the conversation you left last": "vuelve a la última conversación que dejaste",
 	"1 other session working":                   "1 sesión más trabajando",
 	"%d other sessions working":                 "%d sesiones más trabajando",
+	"%d of %d sessions in use":                  "%d de %d sesiones en uso",
+	"⚠ this conversation was written with %s; %s takes it over from the next turn and may answer differently. /new keeps each model in its own session.": "⚠ esta conversación se escribió con %s; " +
+		"%s la retoma desde el próximo turno y puede responder distinto. /new mantiene cada modelo en su propia sesión.",
+	"⚠ the turn in progress finishes with the previous model.": "⚠ el turno en curso termina con el modelo anterior.",
 	"the gateway could not be asked whether a turn is in flight: %s": "no se pudo preguntar al gateway si hay un turno " +
 		"en curso: %s",
 	"the turn could not be followed: %v": "no se pudo seguir el turno: %v",

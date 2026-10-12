@@ -50,6 +50,14 @@ type SessionInfo struct {
 	// Zero means the gateway has no record of it being used, which the list reports as no age
 	// rather than as an age computed from a zero time.
 	LastUsed time.Time
+	// Model is what the session's next turn runs with. Each session keeps its own.
+	Model string
+}
+
+// SessionCeiling is a runner that knows how many sessions its gateway can hold, so /sessions can
+// say how close to the limit it is before /new is refused.
+type SessionCeiling interface {
+	MaxSessions() int
 }
 
 // Turn is one turn of a conversation, as the interface draws it.
@@ -571,6 +579,9 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 
 	var b strings.Builder
 	b.WriteString(t.tr("sessions (most recent first):") + "\n")
+	if c, ok := t.Runner.(SessionCeiling); ok && c.MaxSessions() > 0 {
+		b.WriteString(t.trf("%d of %d sessions in use", len(all), c.MaxSessions()) + "\n")
+	}
 	now := time.Now()
 	for _, s := range all {
 		marker := "  "
@@ -587,6 +598,9 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 			detail = "  " + t.trf("(last used %s)", t.humanSince(now.Sub(s.LastUsed)))
 		default:
 			// Never used and not running: there is nothing to say about when.
+		}
+		if s.Model != "" {
+			detail += "  " + s.Model
 		}
 		if s.Branch != "" {
 			detail += "  [" + s.Branch + "]"
@@ -645,4 +659,25 @@ func (t *TUI) humanSince(d time.Duration) string {
 	default:
 		return t.trf("%dd ago", int(d.Hours()/24))
 	}
+}
+
+// modelSwitchWarning is what a model switch deserves to be told in THIS session. The model is the
+// session's own, so the switch is never refused; it is worth a word when the conversation already
+// has turns (the new model takes over a transcript another one wrote) or a turn is running (it
+// finishes with the old one).
+func (t *TUI) modelSwitchWarning(previous, next string) string {
+	if previous == next {
+		return ""
+	}
+	var lines []string
+	for _, m := range t.messages {
+		if m.Author == AuthorUser {
+			lines = append(lines, t.trf("⚠ this conversation was written with %s; %s takes it over from the next turn and may answer differently. /new keeps each model in its own session.", previous, next))
+			break
+		}
+	}
+	if t.busy {
+		lines = append(lines, t.tr("⚠ the turn in progress finishes with the previous model."))
+	}
+	return strings.Join(lines, "\n")
 }

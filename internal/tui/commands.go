@@ -130,8 +130,12 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		// With an id it picks the model for this session, the way /reasoning picks the level:
 		// in memory, from the next turn on.
 		if model := strings.TrimSpace(arg); model != "" {
+			previous := t.Runner.Config().LLM.Model
 			t.Runner.SetLLM("", model)
 			t.addMessage(AuthorSystem, t.trf("model set to %s for this session", model))
+			if warning := t.modelSwitchWarning(previous, model); warning != "" {
+				t.addMessage(AuthorSystem, warning)
+			}
 			t.drawFrame()
 			return false
 		}

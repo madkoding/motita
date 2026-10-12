@@ -52,6 +52,8 @@ func (s sessionSwitcher) ListSessions(ctx context.Context) ([]tui.SessionInfo, e
 			// LastUsed travels so the list can be ordered by it: "where was I?" is answered by the
 			// most recent conversation, and a front end that dropped the time would have to guess.
 			LastUsed: item.LastUsed,
+			// The model is the session's own, so the list says which one each runs.
+			Model: item.Model,
 		})
 	}
 	return out, nil

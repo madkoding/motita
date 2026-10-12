@@ -63,7 +63,9 @@ type Client struct {
 	mu     sync.Mutex
 	cfg    config.Config
 	hasCfg bool
-	snap   session.Snapshot
+	// maxSessions is the ceiling the last session list reported.
+	maxSessions int
+	snap        session.Snapshot
 
 	approverMu sync.Mutex
 	approver   agent.Approver
@@ -194,18 +196,30 @@ func (c *Client) CreateSession(ctx context.Context) (SessionStatus, error) {
 // ListSessions answers what the gateway is holding.
 func (c *Client) ListSessions(ctx context.Context) ([]SessionStatus, error) {
 	var out struct {
-		Sessions []SessionStatus `json:"sessions"`
+		Sessions    []SessionStatus `json:"sessions"`
+		MaxSessions int             `json:"max_sessions"`
 	}
 	// Not scoped, for the same reason as CreateSession.
 	if err := c.do(ctx, http.MethodGet, "/v1/sessions", nil, &out); err != nil {
 		return nil, err
 	}
+	c.mu.Lock()
+	c.maxSessions = out.MaxSessions
+	c.mu.Unlock()
 	if out.Sessions == nil {
 		// An empty LIST rather than null: a caller that has to tell "none" from "the field is
 		// missing" is a caller with a bug waiting to happen.
 		out.Sessions = []SessionStatus{}
 	}
 	return out.Sessions, nil
+}
+
+// MaxSessions is the gateway's ceiling as the last ListSessions reported it, or 0 when no list was
+// read yet or the gateway is older than the field.
+func (c *Client) MaxSessions() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.maxSessions
 }
 
 // CloseSession drops one conversation. It is the other session's id that is named, never this
