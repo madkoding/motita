@@ -9,6 +9,8 @@ import { podmanNote } from './appFormat'
 import { connectedAccounts } from './gitApi'
 import { IconClose, IconFolder, IconFolderPlus, IconSpinner } from './icons'
 import { NEW_PROJECT } from './appConst'
+import { ReposSection } from './ReposField'
+import type { MainRepo } from './projectRepos'
 
 // The look of the dialog's fields.
 const FIELD = 'w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent'
@@ -140,6 +142,31 @@ function folderPlaceholder(mode: string | null, git: string, title: string): str
   return slugOf(name) || 'my-project'
 }
 
+// newMainRepo is how the main repository of the project being made is shown: the repository
+// typed above, or the new folder of an empty project.
+function newMainRepo(mode: string | null, git: string, title: string, dir: string): MainRepo | null {
+  if (mode === 'git') {
+    const url = git.trim()
+    return choose(url, { name: repoNameOf(url) || url, source: url }, null)
+  }
+  return { name: dir.trim() || folderPlaceholder(mode, git, title), source: t('A new folder') }
+}
+
+// NewProjectRepos lists the repositories the project will have: the main one, and any others.
+function NewProjectRepos() {
+  const p = useApp().projects
+  return (
+    <ReposSection
+      main={newMainRepo(p.newProjectMode, p.newProjectGit, p.newProjectTitle, p.newProjectDir)}
+      repos={p.newProjectRepos}
+      busy=""
+      onRemove={(name) => p.removeNewProjectRepo(name)}
+      onAdd={p.addNewProjectRepo}
+      hint={t('The first one is the main repository, the project\'s folder. The others are cloned inside it, and every session gets its own copy of each.')}
+    />
+  )
+}
+
 // MoreOptions is everything with a sensible default, behind one line.
 function MoreOptions() {
   const p = useApp().projects
@@ -235,6 +262,7 @@ function ProjectForm() {
           />
         </div>
         <MainBranchField />
+        <NewProjectRepos />
         <MoreOptions />
       </div>
       <CreateButtons />

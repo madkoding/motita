@@ -149,7 +149,9 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	// SAME shelf it had before the restart, or the procedures it learned while
 	// working on this project would silently disappear from its answers.
 	scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
-	applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
+	project := s.projectOf(rec.ProjectID)
+	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
+	applyRuntimeTo(svc, project)
 	s.sessionsMu.Lock()
 	s.sessions[rec.ID] = conv
 	s.sessionsMu.Unlock()
