@@ -25,7 +25,9 @@ import (
 // The runner is the same tui.AppRunner the text interface uses, which is the whole point of the
 // design: there is ONE agent, and a client on a phone and a terminal in front of the machine talk
 // to the same conversation, the same procedure library and the same reward ledger.
-func (op Options) runServe(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
+func (op Options) runServe(
+	ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger,
+) int {
 	// owned=false: this IS the service the user asked for. It stops when it is told to, and nothing
 	// about the interface's lifetime has any say over it.
 	// An upgrade ends this process by cancelling the same context a signal does, so there is ONE
@@ -124,9 +126,11 @@ func (op Options) runGatewayLoop(ctx context.Context, srv *gateway.Server, log *
 //
 // restart is what the updater calls once a new binary is installed, and nil for a gateway that
 // cannot replace itself (see gateway.Options.Restart).
-func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, owned bool, restart func()) (*gateway.Server, error) {
-	switch {
-	case strings.EqualFold(strings.TrimSpace(fl.gateway), "off"):
+func (op Options) startGateway(
+	fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, owned bool,
+	restart func(),
+) (*gateway.Server, error) {
+	if strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
 		return nil, errors.New("the gateway was turned off with -gateway off")
 	}
 	// The token is generated BEFORE the listener is bound: a gateway that could not keep its
@@ -205,13 +209,15 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		Service:     runner,
 		NewService:  newService,
 		MaxSessions: cfg.Gateway.MaxSessions,
-		Listen:      listen,
-		Token:       token,
-		Allow:       allow,
-		Hosts:       cfg.Gateway.Hosts,
-		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
-		Version:     op.Version,
-		ExePath:     op.ExePath,
+		// Opt-in: a session with no project gets a plain directory unless this is set.
+		FreeSessionGit: cfg.Gateway.FreeSessionGit,
+		Listen:         listen,
+		Token:          token,
+		Allow:          allow,
+		Hosts:          cfg.Gateway.Hosts,
+		MaxBodyKB:      cfg.Gateway.MaxBodyKB,
+		Version:        op.Version,
+		ExePath:        op.ExePath,
 		// The git logins: the connection the user makes in the settings, which the
 		// credential helper then serves to every git a session runs.
 		GitAuthDir: config.AuthDir(),

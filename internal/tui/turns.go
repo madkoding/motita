@@ -176,11 +176,19 @@ var busyCommands = map[string]bool{
 }
 
 // refuseWhileBusy answers a command that has to wait for the turn to end.
+//
+// Behind a gateway, /new and /attach are not refused: they move to ANOTHER session, and the run in
+// flight stays in the one it belongs to (see detachRun). Without a gateway the run is this process's
+// own and the conversation is the one it writes into, so they still wait.
 func (t *TUI) refuseWhileBusy(name string) bool {
 	if t.current == nil || !busyCommands[name] {
 		return false
 	}
-	t.addMessage(AuthorSystem, t.trf("%s has to wait: motita is still working. Press Esc to stop it first.", strings.TrimPrefix(name, "/")))
+	if (name == "/new" || name == "/attach") && t.gatewaySessions() {
+		return false
+	}
+	t.addMessage(AuthorSystem, t.trf("%s has to wait: motita is still working. Press Esc to stop it first.",
+		strings.TrimPrefix(name, "/")))
 	return true
 }
 

@@ -10,12 +10,12 @@ const m = await import('../settings.ts')
 test('settings are applied and persisted', () => {
   assert.deepEqual(m.loadSettings(), m.DEFAULT_SETTINGS)
   m.saveSettings({ fontSize: 'small', density: 'compact' })
-  assert.equal(document.documentElement.getAttribute('data-font-size'), 'small')
-  assert.equal(document.documentElement.getAttribute('data-density'), 'compact')
+  assert.equal(document.documentElement.dataset.fontSize, 'small')
+  assert.equal(document.documentElement.dataset.density, 'compact')
   assert.deepEqual(JSON.parse(localStorage.getItem(m.SETTINGS_KEY)), { fontSize: 'small', density: 'compact' })
-  document.documentElement.removeAttribute('data-density')
+  delete document.documentElement.dataset.density
   m.initSettings()
-  assert.equal(document.documentElement.getAttribute('data-density'), 'compact')
+  assert.equal(document.documentElement.dataset.density, 'compact')
 })
 
 test('notifications: on by default, the switch is kept, and the state says what to show', () => {

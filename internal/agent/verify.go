@@ -32,10 +32,16 @@ const (
 // linter, a type checker, a build. They are matched on the start of one shell segment, after the
 // wrappers (`npx`, `pnpm exec`, `time`, `VAR=x`) are removed.
 var verifyPhrases = []*regexp.Regexp{
-	regexp.MustCompile(`^(npm|yarn|pnpm|bun)( run| run-script)? (test|lint|typecheck|type-check|check|build|e2e|verify)(:\S+)?\b`),
-	regexp.MustCompile(`^(vitest|jest|mocha|ava|tap|playwright test|cypress run|tsc|eslint|biome (check|lint|ci)|prettier (--check|-c)|svelte-check|vue-tsc|next (build|lint)|vite build|nuxt (build|typecheck)|ng (test|lint|build)|stylelint|knip)\b`),
-	regexp.MustCompile(`^(go (test|vet|build)|cargo (test|check|clippy|build|nextest)|dotnet (test|build)|deno (test|lint|check)|mvn (-\S+ )*(test|verify|package)|(\./)?gradlew? (test|check|build)|ctest|zig (build|test))\b`),
-	regexp.MustCompile(`^(pytest|py\.test|tox|nox|mypy|ruff( check)?|flake8|pylint|pyright|black --check|python3? -m (pytest|unittest|mypy|ruff)|uv run (pytest|mypy|ruff)|poetry run (pytest|mypy|ruff))\b`),
+	regexp.MustCompile(`^(npm|yarn|pnpm|bun)( run| run-script)? (test|lint|typecheck|type-check|check|build|e2e|` +
+		`verify)(:\S+)?\b`),
+	regexp.MustCompile(`^(vitest|jest|mocha|ava|tap|playwright test|cypress run|tsc|eslint|biome (check|lint|ci)|` +
+		`prettier (--check|-c)|svelte-check|vue-tsc|next (build|lint)|vite build|nuxt (build|typecheck)|` +
+		`ng (test|lint|build)|stylelint|knip)\b`),
+	regexp.MustCompile(`^(go (test|vet|build)|cargo (test|check|clippy|build|nextest)|dotnet (test|build)|` +
+		`deno (test|lint|check)|mvn (-\S+ )*(test|verify|package)|(\./)?gradlew? (test|check|build)|ctest|` +
+		`zig (build|test))\b`),
+	regexp.MustCompile(`^(pytest|py\.test|tox|nox|mypy|ruff( check)?|flake8|pylint|pyright|black --check|` +
+		`python3? -m (pytest|unittest|mypy|ruff)|uv run (pytest|mypy|ruff)|poetry run (pytest|mypy|ruff))\b`),
 	regexp.MustCompile(`^(make|gmake|ninja|cmake --build) ?(test|tests|check|lint|build|verify|ci|all)?\b`),
 	regexp.MustCompile(`^(node|bun|deno) --test\b`),
 	regexp.MustCompile(`^(bundle exec )?(rspec|rake (test|spec))\b`),
@@ -44,12 +50,16 @@ var verifyPhrases = []*regexp.Regexp{
 }
 
 // verifyWrappers are dropped from the front of a segment to reach the command itself.
-var verifyWrappers = regexp.MustCompile(`^((npx|pnpm exec|pnpm dlx|yarn dlx|bunx|time|env|nice|timeout \d+\S*)( --no-install| -y| --yes)? +|[A-Za-z_][A-Za-z0-9_]*=\S* +)+`)
+var verifyWrappers = regexp.MustCompile(`^((npx|pnpm exec|pnpm dlx|yarn dlx|bunx|time|env|nice|` +
+	`timeout \d+\S*)( --no-install| -y| --yes)? +|[A-Za-z_][A-Za-z0-9_]*=\S* +)+`)
 
 // verifyFailure is what a failing check prints, in the runners that print one. It is read from the
 // OUTPUT because the exit status cannot be trusted: a check piped into `tail` exits with tail's
 // status. It asks for a NON-ZERO count, so "0 failed" and "Found 0 errors" do not match.
-var verifyFailure = regexp.MustCompile(`(?im)(^\s*(not ok\b|FAIL\b|FAILED\b|✗|✖|×)|^--- FAIL|\b[1-9]\d*\s+(failed|failing|errors?)\b|#\s*fail\s+[1-9]|npm ERR!|error TS\d+|Test Files\s+.*\b[1-9]\d*\s+failed|^panic:|Traceback \(most recent call last\)|AssertionError|Assertion failed|^E\s{2,}|Cannot find module|command not found|^\S+: \d+: \S+: not found)`)
+var verifyFailure = regexp.MustCompile(`(?im)(^\s*(not ok\b|FAIL\b|FAILED\b|✗|✖|×)|^--- FAIL|` +
+	`\b[1-9]\d*\s+(failed|failing|errors?)\b|#\s*fail\s+[1-9]|npm ERR!|error TS\d+|` +
+	`Test Files\s+.*\b[1-9]\d*\s+failed|^panic:|Traceback \(most recent call last\)|AssertionError|` +
+	`Assertion failed|^E\s{2,}|Cannot find module|command not found|^\S+: \d+: \S+: not found)`)
 
 // verifRecord is the last run of one check.
 type verifRecord struct {
@@ -80,29 +90,42 @@ func verificationKeys(command string) []string {
 			cwd = strings.Trim(strings.TrimSpace(rest), `'"`)
 			continue
 		}
-		seg = strings.ToLower(seg)
-		seg = verifyWrappers.ReplaceAllString(seg, "")
-		for _, re := range verifyPhrases {
-			if m := re.FindString(seg); m != "" {
-				// `npm run lint` and `npm lint` are the same check: only the script-runner words are
-				// dropped, and only as a whole word, so `run-tests.sh` keeps its name.
-				words := strings.Fields(m)
-				kept := words[:0]
-				for _, w := range words {
-					if w != "run" && w != "run-script" {
-						kept = append(kept, w)
-					}
-				}
-				k := cwd + "|" + strings.Join(kept, " ")
-				if !seen[k] {
-					seen[k] = true
-					keys = append(keys, k)
-				}
-				break
-			}
+		check, ok := matchedCheck(seg)
+		if !ok {
+			continue
+		}
+		k := cwd + "|" + check
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
 		}
 	}
 	return keys
+}
+
+// matchedCheck is the check one segment runs, in its own words, and whether it runs one.
+func matchedCheck(seg string) (string, bool) {
+	seg = strings.ToLower(seg)
+	seg = verifyWrappers.ReplaceAllString(seg, "")
+	for _, re := range verifyPhrases {
+		if m := re.FindString(seg); m != "" {
+			return withoutRunWords(m), true
+		}
+	}
+	return "", false
+}
+
+// withoutRunWords drops the script-runner words: `npm run lint` and `npm lint` are the same
+// check. They are dropped only as a whole word, so `run-tests.sh` keeps its name.
+func withoutRunWords(m string) string {
+	words := strings.Fields(m)
+	kept := words[:0]
+	for _, w := range words {
+		if w != "run" && w != "run-script" {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 // splitSegments cuts a command line at the separators of the shell: `&&`, `||`, `;`, `|` and
@@ -117,89 +140,133 @@ func verificationKeys(command string) []string {
 // claims of done were sent back over a check that had never run. A heredoc that writes a Makefile
 // or a README has the same shape: its `make test` line is text being written, not a test that ran.
 func splitSegments(command string) []string {
-	var segs []string
-	var cur strings.Builder
-	cut := func() {
-		segs = append(segs, cur.String())
-		cur.Reset()
+	sp := &segmentSplitter{s: command}
+	for ; sp.i < len(command); sp.i++ {
+		sp.step()
 	}
-	var heredocs []string // terminators of the heredocs opened on the current line
-	for i := 0; i < len(command); i++ {
-		ch := command[i]
-		switch {
-		case ch == '\'':
-			// Nothing is special inside single quotes, not even a backslash. An unclosed quote runs
-			// to the end of the line, which is what the shell would complain about anyway.
-			end := strings.IndexByte(command[i+1:], '\'')
-			if end < 0 {
-				cur.WriteString(command[i:])
-				i = len(command)
-				continue
-			}
-			cur.WriteString(command[i : i+end+2])
-			i += end + 1
-		case ch == '"':
-			j := i + 1
-			for ; j < len(command) && command[j] != '"'; j++ {
-				if command[j] == '\\' {
-					j++
-				}
-			}
-			if j >= len(command) {
-				cur.WriteString(command[i:])
-				i = len(command)
-				continue
-			}
-			cur.WriteString(command[i : j+1])
-			i = j
-		case ch == '\\' && i+1 < len(command):
-			cur.WriteString(command[i : i+2])
-			i++
-		case strings.HasPrefix(command[i:], "<<<"):
-			// A here-string: its word is on the same line, and no body follows.
-			cur.WriteString("<<<")
-			i += 2
-		case strings.HasPrefix(command[i:], "<<"):
-			word, n := heredocWord(command[i+2:])
-			// A number is a shift in arithmetic (`$((1 << 2))`), not the start of a heredoc.
-			if strings.Trim(word, "0123456789") != "" {
-				heredocs = append(heredocs, word)
-			}
-			cur.WriteString(command[i : i+2+n])
-			i += 1 + n
-		case ch == '\n':
-			cut()
-			// The lines after a heredoc's opening line, up to its terminator, are its body.
-			for _, word := range heredocs {
-				for i+1 < len(command) {
-					end := strings.IndexByte(command[i+1:], '\n')
-					line := command[i+1:]
-					if end >= 0 {
-						line = command[i+1 : i+1+end]
-					}
-					i += len(line) + 1
-					if strings.TrimLeft(line, "\t") == word {
-						break
-					}
-				}
-			}
-			heredocs = nil
-		case ch == ';':
-			cut()
-		case ch == '&' && i+1 < len(command) && command[i+1] == '&':
-			cut()
-			i++
-		case ch == '|':
-			cut()
-			if i+1 < len(command) && command[i+1] == '|' {
-				i++
-			}
-		default:
-			cur.WriteByte(ch)
+	sp.cut()
+	return sp.segs
+}
+
+// segmentSplitter is one pass of splitSegments over a command line.
+type segmentSplitter struct {
+	s        string
+	i        int
+	segs     []string
+	cur      strings.Builder
+	heredocs []string // terminators of the heredocs opened on the current line
+}
+
+// cut ends the current segment.
+func (sp *segmentSplitter) cut() {
+	sp.segs = append(sp.segs, sp.cur.String())
+	sp.cur.Reset()
+}
+
+// step reads the byte at sp.i, and whatever that byte starts.
+func (sp *segmentSplitter) step() {
+	s, i := sp.s, sp.i
+	ch := s[i]
+	switch {
+	case ch == '\'':
+		sp.singleQuoted()
+	case ch == '"':
+		sp.doubleQuoted()
+	case ch == '\\' && i+1 < len(s):
+		sp.cur.WriteString(s[i : i+2])
+		sp.i++
+	case strings.HasPrefix(s[i:], "<<<"):
+		// A here-string: its word is on the same line, and no body follows.
+		sp.cur.WriteString("<<<")
+		sp.i += 2
+	case strings.HasPrefix(s[i:], "<<"):
+		sp.heredocStart()
+	case ch == '\n':
+		sp.cut()
+		sp.skipHeredocBodies()
+	case ch == ';':
+		sp.cut()
+	case ch == '&' && i+1 < len(s) && s[i+1] == '&':
+		sp.cut()
+		sp.i++
+	case ch == '|':
+		sp.cut()
+		if i+1 < len(s) && s[i+1] == '|' {
+			sp.i++
+		}
+	default:
+		sp.cur.WriteByte(ch)
+	}
+}
+
+// singleQuoted reads a single-quoted word. Nothing is special inside single quotes, not even a
+// backslash. An unclosed quote runs to the end of the line, which is what the shell would complain
+// about anyway.
+func (sp *segmentSplitter) singleQuoted() {
+	s, i := sp.s, sp.i
+	end := strings.IndexByte(s[i+1:], '\'')
+	if end < 0 {
+		sp.cur.WriteString(s[i:])
+		sp.i = len(s)
+		return
+	}
+	sp.cur.WriteString(s[i : i+end+2])
+	sp.i += end + 1
+}
+
+// doubleQuoted reads a double-quoted word, where a backslash escapes the next byte.
+func (sp *segmentSplitter) doubleQuoted() {
+	s, i := sp.s, sp.i
+	j := i + 1
+	for ; j < len(s) && s[j] != '"'; j++ {
+		if s[j] == '\\' {
+			j++
 		}
 	}
-	cut()
-	return segs
+	if j >= len(s) {
+		sp.cur.WriteString(s[i:])
+		sp.i = len(s)
+		return
+	}
+	sp.cur.WriteString(s[i : j+1])
+	sp.i = j
+}
+
+// heredocStart reads `<<` and the word after it.
+func (sp *segmentSplitter) heredocStart() {
+	s, i := sp.s, sp.i
+	word, n := heredocWord(s[i+2:])
+	// A number is a shift in arithmetic (`$((1 << 2))`), not the start of a heredoc.
+	if strings.Trim(word, "0123456789") != "" {
+		sp.heredocs = append(sp.heredocs, word)
+	}
+	sp.cur.WriteString(s[i : i+2+n])
+	sp.i += 1 + n
+}
+
+// skipHeredocBodies skips the lines after a heredoc's opening line, up to its terminator: they
+// are its body.
+func (sp *segmentSplitter) skipHeredocBodies() {
+	for _, word := range sp.heredocs {
+		sp.skipBody(word)
+	}
+	sp.heredocs = nil
+}
+
+// skipBody skips the lines of one heredoc body, up to and including its terminator.
+func (sp *segmentSplitter) skipBody(word string) {
+	s := sp.s
+	for sp.i+1 < len(s) {
+		end := strings.IndexByte(s[sp.i+1:], '\n')
+		line := s[sp.i+1:]
+		if end >= 0 {
+			line = s[sp.i+1 : sp.i+1+end]
+		}
+		sp.i += len(line) + 1
+		if strings.TrimLeft(line, "\t") == word {
+			break
+		}
+	}
 }
 
 // heredocWord reads the terminator of a heredoc from what follows `<<`: an optional `-`, blanks,
@@ -268,7 +335,8 @@ func (m *workMemory) openFailures() []verifRecord {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool {
-		return m.verif[keys[i]].round < m.verif[keys[j]].round || (m.verif[keys[i]].round == m.verif[keys[j]].round && keys[i] < keys[j])
+		ri, rj := m.verif[keys[i]].round, m.verif[keys[j]].round
+		return ri < rj || (ri == rj && keys[i] < keys[j])
 	})
 	for _, k := range keys {
 		r := m.verif[k]
@@ -318,9 +386,11 @@ func failedCheckNote(failed []verifRecord) string {
 func unresolvedCheckChallenge(open []verifRecord, attempt int) string {
 	var b strings.Builder
 	if attempt == 1 {
-		b.WriteString("You reported \"done\": true, but a check you ran yourself is STILL FAILING and no later run of it passed:\n")
+		b.WriteString("You reported \"done\": true, but a check you ran yourself is STILL FAILING " +
+			"and no later run of it passed:\n")
 	} else {
-		b.WriteString("You reported \"done\": true AGAIN, and the same kind of check is still failing with nothing shown about it:\n")
+		b.WriteString("You reported \"done\": true AGAIN, and the same kind of check is still failing " +
+			"with nothing shown about it:\n")
 	}
 	for _, r := range open {
 		fmt.Fprintf(&b, "- `%s` (round %d, exit %d)", collapse(truncate(r.command, 200)), r.round, r.exit)

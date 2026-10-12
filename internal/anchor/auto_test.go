@@ -225,6 +225,8 @@ func TestAutoRunsTheDetectedGateForReal(t *testing.T) {
 		t.Fatalf("a declared gate that exits 0 must PASS, reason: %s", res.Reason)
 	} else if len(res.Checks) != 1 || !strings.Contains(res.Checks[0].Output, "the-gate-ran") {
 		t.Errorf("the declared gate did not run: %+v", res.Checks)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 
 	fail := t.TempDir()
@@ -364,7 +366,8 @@ func TestPlannedNamesTheGateWithoutRunningIt(t *testing.T) {
 	}
 	writeFile(t, dir, "package.json", `{"scripts":{"lint":"eslint .","test":"vitest run"}}`)
 	got := autoAnchor(dir).Planned()
-	if len(got) != 2 || got[0].Command != "npm" || strings.Join(got[0].Args, " ") != "run lint" || got[1].Name != "npm test" {
+	if len(got) != 2 || got[0].Command != "npm" || strings.Join(got[0].Args, " ") != "run lint" ||
+		got[1].Name != "npm test" {
 		t.Fatalf("planned = %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "node_modules")); err == nil {

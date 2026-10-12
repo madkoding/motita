@@ -74,7 +74,11 @@ func TestCopilotExchangesTheGitHubTokenAndSendsTheEditorHeaders(t *testing.T) {
 			if r.Header.Get("Authorization") != "token gho_abc" {
 				t.Errorf("the exchange must use the GitHub token, got %q", r.Header.Get("Authorization"))
 			}
-			fmt.Fprintf(w, `{"token":"tid=session","expires_at":%d,"endpoints":{"api":"https://api.business.githubcopilot.com"}}`, time.Now().Add(30*time.Minute).Unix())
+			fmt.Fprintf(
+				w,
+				`{"token":"tid=session","expires_at":%d,"endpoints":{"api":"https://api.business.githubcopilot.com"}}`,
+				time.Now().Add(30*time.Minute).Unix(),
+			)
 		case "/chat/completions":
 			chatAuth = r.Header.Get("Authorization")
 			integration = r.Header.Get("Copilot-Integration-Id")
@@ -118,7 +122,11 @@ func TestStoredLoginIsRenewedOnceOn401(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/copilot_internal/v2/token":
-			fmt.Fprintf(w, `{"token":"new","expires_at":%d,"endpoints":{"api":"https://api.githubcopilot.com"}}`, time.Now().Add(time.Hour).Unix())
+			fmt.Fprintf(
+				w,
+				`{"token":"new","expires_at":%d,"endpoints":{"api":"https://api.githubcopilot.com"}}`,
+				time.Now().Add(time.Hour).Unix(),
+			)
 		case "/chat/completions":
 			calls++
 			if r.Header.Get("Authorization") == "Bearer old" {
@@ -126,6 +134,8 @@ func TestStoredLoginIsRenewedOnceOn401(t *testing.T) {
 				return
 			}
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		default:
+			// Any other path gets an empty 200.
 		}
 	}))
 	defer srv.Close()
@@ -152,7 +162,8 @@ func TestStoredLoginIsRenewedOnceOn401(t *testing.T) {
 const responsesStream = "event: response.output_text.delta\n" +
 	`data: {"type":"response.output_text.delta","delta":"Hel"}` + "\n\n" +
 	`data: {"type":"response.output_text.delta","delta":"lo"}` + "\n\n" +
-	`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"a\"}"}}` + "\n\n" +
+	`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"read_file",` +
+	`"arguments":"{\"path\":\"a\"}"}}` + "\n\n" +
 	`data: {"type":"response.completed","response":{"status":"completed"}}` + "\n\n"
 
 // TestCodexWithAKeyUsesTheResponsesAPI: the codex models are not served by
@@ -169,7 +180,10 @@ func TestCodexWithAKeyUsesTheResponsesAPI(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c, err := New(config.LLM{Provider: "codex", Model: "gpt-5-codex", APIKey: "sk", BaseURL: srv.URL, MaxTokens: 100, MaxAttempts: 1}, nil)
+	c, err := New(
+		config.LLM{Provider: "codex", Model: "gpt-5-codex", APIKey: "sk", BaseURL: srv.URL, MaxTokens: 100, MaxAttempts: 1},
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +191,16 @@ func TestCodexWithAKeyUsesTheResponsesAPI(t *testing.T) {
 	reply, err := c.CompleteTools(context.Background(), []Message{
 		{Role: "system", Content: "be brief"},
 		{Role: "user", Content: "read a"},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c0", Type: "function", Function: FunctionCall{Name: "read_file", Arguments: json.RawMessage(`"{\"path\":\"b\"}"`)}}}},
+		{
+			Role: "assistant",
+			ToolCalls: []ToolCall{
+				{
+					ID:       "c0",
+					Type:     "function",
+					Function: FunctionCall{Name: "read_file", Arguments: json.RawMessage(`"{\"path\":\"b\"}"`)},
+				},
+			},
+		},
 		{Role: "tool", ToolCallID: "c0", Content: "B"},
 	}, tools)
 	if err != nil {
@@ -216,7 +239,16 @@ func TestCodexWithAKeyUsesTheResponsesAPI(t *testing.T) {
 // TestCodexWithAChatGPTLoginGoesToTheChatGPTBackend: the login is billed to the
 // ChatGPT plan, with the account in a header and no output cap.
 func TestCodexWithAChatGPTLoginGoesToTheChatGPTBackend(t *testing.T) {
-	withLogin(t, oauth.Credential{Provider: "codex", AccessToken: "at", RefreshToken: "rt", AccountID: "acct", ExpiresAt: time.Now().Add(time.Hour)})
+	withLogin(
+		t,
+		oauth.Credential{
+			Provider:     "codex",
+			AccessToken:  "at",
+			RefreshToken: "rt",
+			AccountID:    "acct",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	)
 	var hdr http.Header
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +269,8 @@ func TestCodexWithAChatGPTLoginGoesToTheChatGPTBackend(t *testing.T) {
 	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err != nil {
 		t.Fatal(err)
 	}
-	if hdr.Get("X-Original-Host") != "chatgpt.com" || hdr.Get("Authorization") != "Bearer at" || hdr.Get("Chatgpt-Account-Id") != "acct" {
+	if hdr.Get("X-Original-Host") != "chatgpt.com" || hdr.Get("Authorization") != "Bearer at" ||
+		hdr.Get("Chatgpt-Account-Id") != "acct" {
 		t.Errorf("headers = %v", hdr)
 	}
 	if _, capped := body["max_output_tokens"]; capped {
@@ -252,7 +285,11 @@ func TestCodexRefreshReadsTheAccountFromTheToken(t *testing.T) {
 	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL)
-	cred, err := oauth.CodexRefresh(context.Background(), &http.Client{Transport: rewriteTransport{u}}, oauth.Credential{RefreshToken: "rt"})
+	cred, err := oauth.CodexRefresh(
+		context.Background(),
+		&http.Client{Transport: rewriteTransport{u}},
+		oauth.Credential{RefreshToken: "rt"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,8 +321,25 @@ func TestQwenKeyGoesToDashScopeAndLoginToItsResourceHost(t *testing.T) {
 		t.Errorf("key: host=%q auth=%q", host, auth)
 	}
 
-	withLogin(t, oauth.Credential{Provider: "qwen", AccessToken: "qa", RefreshToken: "qr", BaseURL: "https://portal.qwen.ai/v1", ExpiresAt: time.Now().Add(time.Hour)})
-	c, err = New(config.LLM{Provider: "qwen", Model: "qwen3-coder-plus", BaseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", MaxAttempts: 1}, nil)
+	withLogin(
+		t,
+		oauth.Credential{
+			Provider:     "qwen",
+			AccessToken:  "qa",
+			RefreshToken: "qr",
+			BaseURL:      "https://portal.qwen.ai/v1",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	)
+	c, err = New(
+		config.LLM{
+			Provider:    "qwen",
+			Model:       "qwen3-coder-plus",
+			BaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			MaxAttempts: 1,
+		},
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +355,16 @@ func TestQwenKeyGoesToDashScopeAndLoginToItsResourceHost(t *testing.T) {
 // TestQwenLoginNeverSendsItsTokenInClearText: a resource host stored as "http://"
 // (by an older version, or because the server answered that) is reached over https.
 func TestQwenLoginNeverSendsItsTokenInClearText(t *testing.T) {
-	withLogin(t, oauth.Credential{Provider: "qwen", AccessToken: "qa", RefreshToken: "qr", BaseURL: "http://portal.qwen.ai/v1", ExpiresAt: time.Now().Add(time.Hour)})
+	withLogin(
+		t,
+		oauth.Credential{
+			Provider:     "qwen",
+			AccessToken:  "qa",
+			RefreshToken: "qr",
+			BaseURL:      "http://portal.qwen.ai/v1",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	)
 	var scheme, host string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scheme, host = r.Header.Get("X-Original-Scheme"), r.Header.Get("X-Original-Host")
@@ -324,7 +387,17 @@ func TestQwenLoginNeverSendsItsTokenInClearText(t *testing.T) {
 // --- Gemini ---------------------------------------------------------------------
 
 func TestGeminiLoginSendsBearerAndProject(t *testing.T) {
-	withLogin(t, oauth.Credential{Provider: "gemini", AccessToken: "ya29", RefreshToken: "r", ClientID: "cid", ProjectID: "proj", ExpiresAt: time.Now().Add(time.Hour)})
+	withLogin(
+		t,
+		oauth.Credential{
+			Provider:     "gemini",
+			AccessToken:  "ya29",
+			RefreshToken: "r",
+			ClientID:     "cid",
+			ProjectID:    "proj",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	)
 	var hdr http.Header
 	var rawURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +412,8 @@ func TestGeminiLoginSendsBearerAndProject(t *testing.T) {
 	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err != nil {
 		t.Fatal(err)
 	}
-	if hdr.Get("Authorization") != "Bearer ya29" || hdr.Get("X-Goog-User-Project") != "proj" || strings.Contains(rawURL, "key=") {
+	if hdr.Get("Authorization") != "Bearer ya29" || hdr.Get("X-Goog-User-Project") != "proj" ||
+		strings.Contains(rawURL, "key=") {
 		t.Errorf("headers=%v url=%s", hdr, rawURL)
 	}
 }
@@ -352,10 +426,17 @@ func TestGeminiToolsAreDeclaredAndAnsweredTheWayTheAPIRequires(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"x"}},"thoughtSignature":"sig"}]},"finishReason":"STOP"}]}`)
+		fmt.Fprint(
+			w,
+			`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"x"}},`+
+				`"thoughtSignature":"sig"}]},"finishReason":"STOP"}]}`,
+		)
 	}))
 	defer srv.Close()
-	c, _ := New(config.LLM{Provider: "gemini", Model: "gemini-2.5-pro", APIKey: "k", BaseURL: srv.URL, MaxAttempts: 1}, nil)
+	c, _ := New(
+		config.LLM{Provider: "gemini", Model: "gemini-2.5-pro", APIKey: "k", BaseURL: srv.URL, MaxAttempts: 1},
+		nil,
+	)
 	tools := []Tool{
 		NewTool("read_file", "reads", ObjectSchema(map[string]any{"path": StringProperty("p")}, "path")),
 		NewTool("list_skills", "lists", ObjectSchema(map[string]any{})),
@@ -417,7 +498,10 @@ func TestAnthropicToolsAreDeclaredAndAnsweredTheWayTheAPIRequires(t *testing.T) 
 		fmt.Fprint(w, `{"content":[{"type":"text","text":"done"}],"stop_reason":"end_turn"}`)
 	}))
 	defer srv.Close()
-	c, _ := New(config.LLM{Provider: "anthropic", Model: "claude-sonnet-5-5", APIKey: "sk-ant", BaseURL: srv.URL, MaxAttempts: 1}, nil)
+	c, _ := New(
+		config.LLM{Provider: "anthropic", Model: "claude-sonnet-5-5", APIKey: "sk-ant", BaseURL: srv.URL, MaxAttempts: 1},
+		nil,
+	)
 	tools := []Tool{NewTool("read_file", "reads", ObjectSchema(map[string]any{"path": StringProperty("p")}, "path"))}
 	if _, err := c.CompleteTools(context.Background(), []Message{
 		{Role: "system", Content: "sys"},
@@ -474,12 +558,24 @@ func TestOpenAIReasoningModelsGetTheParametersTheyAccept(t *testing.T) {
 	}))
 	defer srv.Close()
 	for _, model := range []string{"gpt-5-mini", "gpt-4o-mini"} {
-		c, _ := New(config.LLM{Provider: "openai", Model: model, APIKey: "k", BaseURL: srv.URL, MaxTokens: 50, Temperature: 0.2, MaxAttempts: 1}, nil)
+		c, _ := New(
+			config.LLM{
+				Provider:    "openai",
+				Model:       model,
+				APIKey:      "k",
+				BaseURL:     srv.URL,
+				MaxTokens:   50,
+				Temperature: 0.2,
+				MaxAttempts: 1,
+			},
+			nil,
+		)
 		if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, has := bodies[0]["temperature"]; has || bodies[0]["max_completion_tokens"] != float64(50) || bodies[0]["max_tokens"] != nil {
+	if _, has := bodies[0]["temperature"]; has || bodies[0]["max_completion_tokens"] != float64(50) ||
+		bodies[0]["max_tokens"] != nil {
 		t.Errorf("gpt-5-mini body = %v", bodies[0])
 	}
 	if bodies[1]["temperature"] != 0.2 || bodies[1]["max_tokens"] != float64(50) {
@@ -523,7 +619,8 @@ func TestEveryProviderIsAccepted(t *testing.T) {
 	if _, err := New(config.LLM{Provider: "nope", Model: "m", APIKey: "k"}, nil); err == nil {
 		t.Error("an unknown provider must be refused")
 	}
-	if _, err := New(config.LLM{Provider: "codex", Model: "m"}, nil); err == nil || !strings.Contains(err.Error(), "log in") {
+	if _, err := New(config.LLM{Provider: "codex", Model: "m"}, nil); err == nil ||
+		!strings.Contains(err.Error(), "log in") {
 		t.Errorf("a provider with a login must say so when nothing is configured: %v", err)
 	}
 }
@@ -535,7 +632,11 @@ func TestListModelsUsesEachProvidersOwnAuthentication(t *testing.T) {
 		case r.URL.Path == "/v1/models" && r.Header.Get("x-api-key") == "ka":
 			fmt.Fprint(w, `{"data":[{"id":"claude-x"}]}`)
 		case r.URL.Path == "/v1beta/models" && r.Header.Get("x-goog-api-key") == "kg":
-			fmt.Fprint(w, `{"models":[{"name":"models/gemini-x","supportedGenerationMethods":["generateContent"]},{"name":"models/embed","supportedGenerationMethods":["embedContent"]}]}`)
+			fmt.Fprint(
+				w,
+				`{"models":[{"name":"models/gemini-x","supportedGenerationMethods":["generateContent"]},{"name":"models/embed",`+
+					`"supportedGenerationMethods":["embedContent"]}]}`,
+			)
 		default:
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = io.WriteString(w, r.URL.String())

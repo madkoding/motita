@@ -59,8 +59,10 @@ func TestSetUILanguageEditsOnlyTheOneLine(t *testing.T) {
 	}{
 		{
 			"an existing language is replaced, its comment kept",
-			"# motita\nllm:\n  provider: openai  # mine\nui:\n    # the language\n    language: en   # en | es\nschedule:\n  enabled: true\n",
-			"# motita\nllm:\n  provider: openai  # mine\nui:\n    # the language\n    language: es   # en | es\nschedule:\n  enabled: true\n",
+			"# motita\nllm:\n  provider: openai  # mine\nui:\n    # the language\n    language: en   # en | es\nschedule:\n  " +
+				"enabled: true\n",
+			"# motita\nllm:\n  provider: openai  # mine\nui:\n    # the language\n    language: es   # en | es\nschedule:\n  " +
+				"enabled: true\n",
 		},
 		{
 			"a block without language gets one, at its own indentation",

@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { plural, t } from './i18n'
+import { choose } from './choose'
 
 // actionLabel is the counter shown while the list of actions is collapsed.
 export function actionLabel(n: number): string {
@@ -19,7 +20,7 @@ export function ActionTrail({ count, children }: { count: number; children: Comp
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        <span class="action-trail-caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <span class="action-trail-caret" aria-hidden="true">{choose(open, '▾', '▸')}</span>
         <span class="action-trail-count">{actionLabel(count)}</span>
       </button>
       {open && <div class="activity-trail" aria-label={t('steps')}>{children}</div>}

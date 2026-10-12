@@ -13,26 +13,81 @@
 // is mounted, and the text nodes are then cut to the first N characters and grown. Cutting
 // text nodes leaves every <span class="hljs-..."> in place, so the colours are there from the
 // first letter and nothing has to be re-highlighted per keystroke.
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import DOMPurify from 'dompurify'
 import { t } from './i18n'
+import { choose } from './choose'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 // A `path/file.ext:line` or `path/file.ext:line:col` location, which is what a compiler or a
-// test names when it says WHERE. Escaped text is matched, and none of the characters the
-// pattern allows is one that escaping changes.
-const LOCATION = /([\w./-]+\.\w{1,6}:\d+(?::\d+)?)/g
+// test names when it says WHERE. Escaped text is matched, and none of the characters a
+// location is made of is one that escaping changes.
+//
+// Locations are found by a scan, not by one global pattern: a pattern that opens with a run of
+// path characters is retried from every character of a long run that holds no location, which
+// is quadratic. The scan reads each run once and finds exactly what
+// /[\w./-]+\.\w{1,6}:\d+(?::\d+)?/g found: a run of path characters that ends in `.ext` with
+// something before the dot, right before `:line` and an optional `:col`.
+const PATH_CHAR = /[\w./-]/
+const EXTENSION = /\.\w{1,6}$/
+const LINE_COL = /:\d+(?::\d+)?/y
 
-const FAIL = /^\s*(--- FAIL|FAIL\b|panic:|fatal:|error\b|Error\b|ERROR\b|E\d{3,}|.*\bexit status [1-9])/
+// pathRunEnd is where the run of path characters that starts at `i` ends.
+function pathRunEnd(s: string, i: number): number {
+  let j = i
+  while (j < s.length && PATH_CHAR.test(s[j])) { j++ }
+  return j
+}
+
+// locationEnd is where the location that starts at `i` ends, or -1 when none starts there. A run
+// that does not hold one from its first character holds none from a later one either: the run, its
+// extension and what follows it are the same, and a later start only has less before the dot.
+function locationEnd(s: string, i: number, runEnd: number): number {
+  const ext = EXTENSION.exec(s.slice(i, runEnd))
+  if (!ext || ext.index === 0) { return -1 }
+  LINE_COL.lastIndex = runEnd
+  const tail = LINE_COL.exec(s)
+  if (!tail) { return -1 }
+  return runEnd + tail[0].length
+}
+
+// markLocations wraps every location in the line in a `to-loc` span.
+function markLocations(s: string): string {
+  let out = ''
+  let copied = 0
+  let i = 0
+  while (i < s.length) {
+    if (PATH_CHAR.test(s[i])) {
+      const runEnd = pathRunEnd(s, i)
+      const end = locationEnd(s, i, runEnd)
+      if (end < 0) { i = runEnd } else {
+        out += s.slice(copied, i) + '<span class="to-loc">' + s.slice(i, end) + '</span>'
+        copied = end
+        i = end
+      }
+    } else { i++ }
+  }
+  return out + s.slice(copied)
+}
+
+// A failure line. Leading blanks are skipped by `^\s*`; "exit status N" anywhere in the line
+// counts too, reached through a first non-blank so the two runs of blanks cannot trade.
+const FAIL = /^\s*(?:--- FAIL|FAIL\b|panic:|fatal:|error\b|Error\b|ERROR\b|E\d{3,}|\S.*\bexit status [1-9]|\bexit status [1-9])/
 const PASS = /^\s*(ok\b|--- PASS|PASS\b|OK\b|success\b)/
 const WARN = /^\s*(warn(ing)?\b|WARN\b|deprecated\b)/i
 
+// diffHeadClass is the colour of a diff's file header: red when it reports a failure.
+function diffHeadClass(line: string): string {
+  if (line.startsWith('---') && FAIL.test(line)) { return 'to-err' }
+  return 'to-diffhead'
+}
+
 // lineClass names the colour a whole output line takes, or '' for the plain one.
 function lineClass(line: string): string {
-  if (line.startsWith('+++') || line.startsWith('---')) { return line.startsWith('---') && FAIL.test(line) ? 'to-err' : 'to-diffhead' }
+  if (line.startsWith('+++') || line.startsWith('---')) { return diffHeadClass(line) }
   if (line.startsWith('@@')) { return 'to-hunk' }
   if (line.startsWith('+')) { return 'to-add' }
   if (line.startsWith('-')) { return 'to-del' }
@@ -48,8 +103,9 @@ export function colorizeOutput(text: string): string {
     .split('\n')
     .map(line => {
       const cls = lineClass(line)
-      const html = esc(line).replace(LOCATION, '<span class="to-loc">$1</span>')
-      return cls ? '<span class="' + cls + '">' + html + '</span>' : html
+      const html = markLocations(esc(line))
+      if (cls) { return '<span class="' + cls + '">' + html + '</span>' }
+      return html
     })
     .join('\n')
 }
@@ -58,8 +114,9 @@ export function colorizeOutput(text: string): string {
 // merely begins with a bracket ("[ok] built") must not be sent to a grammar that would
 // colour it as nonsense.
 function looksLikeJSON(text: string): boolean {
-  const t = text.trim()
-  return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']') && t.includes('"'))
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) { return true }
+  return trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.includes('"')
 }
 
 // ── The typewriter ────────────────────────────────────────────────────────────
@@ -85,14 +142,22 @@ function collect(root: HTMLElement): { slices: Slice[]; total: number } {
   return { slices, total }
 }
 
+// The UTF-16 range of the first half of a surrogate pair.
+const HIGH_SURROGATE_MIN = 0xd800
+const HIGH_SURROGATE_MAX = 0xdbff
+// The first code point outside the Basic Multilingual Plane: one written as a surrogate pair.
+const SUPPLEMENTARY_MIN = 0x10000
+
 // reveal shows the first `n` characters of the whole text and hides the rest.
 function reveal(slices: Slice[], n: number) {
   for (const s of slices) {
     let k = Math.max(0, Math.min(s.full.length, n - s.start))
     // Never cut between the two halves of a surrogate pair: that draws a broken glyph.
+    // codePointAt reads the whole pair when the cut falls inside one, and a lone first half as
+    // itself: either way the character before the cut starts with a first half.
     if (k > 0 && k < s.full.length) {
-      const c = s.full.charCodeAt(k - 1)
-      if (c >= 0xd800 && c <= 0xdbff) { k-- }
+      const c = s.full.codePointAt(k - 1) ?? 0
+      if (c >= SUPPLEMENTARY_MIN || (c >= HIGH_SURROGATE_MIN && c <= HIGH_SURROGATE_MAX)) { k-- }
     }
     if (s.node.data.length !== k) { s.node.data = s.full.slice(0, k) }
   }
@@ -125,6 +190,11 @@ interface TypedProps {
  * The speed is chosen so a short line is unhurried and a long output never takes more than
  * about a second and a quarter: 70 to 900 characters per second.
  */
+// The typing speed's bounds, in characters per second, and the time a long text is typed in.
+const TYPE_MIN_CPS = 70
+const TYPE_MAX_CPS = 900
+const TYPE_TARGET_S = 1.2
+
 export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, instant, boost = 1 }: TypedProps) {
   const ref = useRef<HTMLElement>(null)
   const shown = useRef(0)
@@ -139,8 +209,8 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
 
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) { return }
-    if (!mounted.current || mounted.current.html !== html) { mounted.current = { html, ...collect(el) } }
+    if (!el) { return undefined }
+    if (mounted.current?.html !== html) { mounted.current = { html, ...collect(el) } }
     const { slices, total } = mounted.current
     const finish = () => {
       el.classList.remove('is-typing')
@@ -154,17 +224,17 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
       shown.current = total
       cb.current.onTick?.()
       finish()
-      return
+      return undefined
     }
     if (shown.current < total) { finished.current = false }
     reveal(slices, shown.current)
     cb.current.onTick?.()
     if (shown.current >= total) {
       finish()
-      return
+      return undefined
     }
     el.classList.add('is-typing')
-    const rate = (cps ?? Math.min(900, Math.max(70, total / 1.2))) * boost
+    const rate = (cps ?? Math.min(TYPE_MAX_CPS, Math.max(TYPE_MIN_CPS, total / TYPE_TARGET_S))) * boost
     const base = shown.current
     const t0 = performance.now()
     let raf = 0
@@ -258,6 +328,8 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
 } & Pick<PieceProps, 'onTick'>) {
   const [cmdDone, setCmdDone] = useState(false)
   const [outDone, setOutDone] = useState(false)
+  const onCmdDone = useCallback(() => setCmdDone(true), [])
+  const onOutDone = useCallback(() => setOutDone(true), [])
   if (phase === 'wait') { return null }
   const instant = phase === 'done'
   const showOut = !!out && (instant || cmdDone)
@@ -265,21 +337,32 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
   const showStatus = instant || (cmdDone && !outPending)
   return (
     <div class="term-entry">
-      <TermCommand cmd={cmd} instant={instant} boost={boost} onTick={onTick} onDone={() => setCmdDone(true)} />
-      {showOut && <TermOutput text={out} instant={instant} boost={boost} onTick={onTick} onDone={() => setOutDone(true)} />}
-      {showStatus && (
-        <div class={`term-status${status.kind ? ' ' + status.kind : ''}`}>
-          <Typed
-            key={status.label}
-            html={esc(status.label)}
-            instant={instant}
-            boost={boost}
-            onTick={onTick}
-            onDone={() => { if (status.kind !== 'running') { onFinished?.() } }}
-          />
-          {status.kind === 'running' && <span class="term-caret" />}
-        </div>
-      )}
+      <TermCommand cmd={cmd} instant={instant} boost={boost} onTick={onTick} onDone={onCmdDone} />
+      {showOut && <TermOutput text={out} instant={instant} boost={boost} onTick={onTick} onDone={onOutDone} />}
+      {showStatus && <TermStatus status={status} instant={instant} boost={boost} onTick={onTick} onFinished={onFinished} />}
+    </div>
+  )
+}
+
+/** How a command ended, typed in after its output; a running one keeps the caret blinking. */
+function TermStatus({ status, instant, boost, onTick, onFinished }: {
+  status: ShellStatusView
+  instant: boolean
+  boost?: number
+  onFinished?: () => void
+} & Pick<PieceProps, 'onTick'>) {
+  const onDone = useCallback(() => { if (status.kind !== 'running') { onFinished?.() } }, [status.kind, onFinished])
+  return (
+    <div class={`term-status${choose(status.kind, ' ' + status.kind, '')}`}>
+      <Typed
+        key={status.label}
+        html={esc(status.label)}
+        instant={instant}
+        boost={boost}
+        onTick={onTick}
+        onDone={onDone}
+      />
+      {status.kind === 'running' && <span class="term-caret" />}
     </div>
   )
 }

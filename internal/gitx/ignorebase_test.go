@@ -90,7 +90,8 @@ func TestIgnoreBaseIsIdempotentAndKeepsTheUsersRules(t *testing.T) {
 		}
 	}
 	got := excludeOf(t, repo)
-	if strings.Count(got, ignoreBlockBegin) != 1 || !strings.HasPrefix(got, "mine-no-newline\n") || !strings.Contains(got, "target/") {
+	if strings.Count(got, ignoreBlockBegin) != 1 || !strings.HasPrefix(got, "mine-no-newline\n") ||
+		!strings.Contains(got, "target/") {
 		t.Fatalf("one block, the user's line kept:\n%s", got)
 	}
 	// A rule the user adds after the block survives the next rewrite, and a change of
@@ -101,7 +102,8 @@ func TestIgnoreBaseIsIdempotentAndKeepsTheUsersRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = excludeOf(t, repo)
-	if strings.Count(got, ignoreBlockBegin) != 1 || !strings.Contains(got, "after-block\n") || !strings.Contains(got, ".bundle/") {
+	if strings.Count(got, ignoreBlockBegin) != 1 || !strings.Contains(got, "after-block\n") ||
+		!strings.Contains(got, ".bundle/") {
 		t.Fatalf("block rewritten in place:\n%s", got)
 	}
 	// Torn: begin marker, no end.
@@ -327,4 +329,10 @@ func mustChangesSince(t *testing.T, dir string) []FileChange {
 		t.Fatal(err)
 	}
 	return files
+}
+
+func TestIgnoreBaseHidesTheProjectsOtherRepositories(t *testing.T) {
+	if !strings.Contains(ignoreBlock(t.TempDir(), ""), "/"+ReposDir+"/") {
+		t.Errorf("the folder of the project's other repositories must be ignored")
+	}
 }

@@ -33,6 +33,7 @@ import (
 	"syscall"
 
 	"github.com/madkoding/motita/internal/app"
+	"github.com/madkoding/motita/internal/dnsfix"
 )
 
 // version is injected with -ldflags "-X main.version=v1.0.0".
@@ -68,6 +69,7 @@ func setupSignals(injected chan os.Signal) (context.Context, chan os.Signal, fun
 }
 
 func main() {
+	dnsfix.Install()
 	ctx, signals, stop := setupSignals(nil)
 	defer stop()
 

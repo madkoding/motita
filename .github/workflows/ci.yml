@@ -27,8 +27,16 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # Node 22 runs the web tests' TypeScript imports as they are (type stripping).
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+
       - name: Build web UI (Vite + Preact + Tailwind)
         run: cd web && npm ci && npm run build
+
+      - name: Web UI tests
+        run: cd web && npm test
 
       - name: gofmt
         run: |
@@ -122,7 +130,12 @@ jobs:
             fi
           done
           [ "$failed" -eq 0 ] || exit 1
-          go test -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >/dev/null
+          # The output is kept rather than thrown away: when this run fails, the log has to name
+          # the test that failed, not just the exit code.
+          if ! go test -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >aggregate.log 2>&1; then
+            grep -E -B2 -A20 '^(--- FAIL|FAIL|panic:)' aggregate.log || tail -n 100 aggregate.log
+            exit 1
+          fi
           printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
 
   build:
@@ -139,6 +152,12 @@ jobs:
           - { goos: linux,   goarch: amd64,   container: debian:bookworm-slim,         platform: linux/amd64, e2e: "true" }
           - { goos: linux,   goarch: arm,     container: arm32v7/debian:bookworm-slim, platform: linux/arm/v7, e2e: "true" }
           - { goos: linux,   goarch: arm64,   container: arm64v8/debian:bookworm-slim, platform: linux/arm64, e2e: "true" }
+          # Termux. Android kills a GOOS=linux binary with SIGSYS (its seccomp policy
+          # blocks faccessat2, which the linux runtime calls), so it needs its own build.
+          # arm64 is the one android target Go links without cgo. termux-docker is a real
+          # Android userland (bionic, /system/bin/sh), so the smoke test proves the build
+          # loads and runs there.
+          - { goos: android, goarch: arm64,   container: termux/termux-docker:aarch64, platform: linux/arm64 }
           - { goos: windows, goarch: "386" }
           - { goos: windows, goarch: amd64 }
           - { goos: windows, goarch: arm64 }
@@ -172,7 +191,7 @@ jobs:
         run: |
           # A wrong cross-compile is invisible until the binary is run somewhere
           # else, so each container format is checked by its magic number:
-          #   ELF    (linux)   7f 45 4c 46 + class in byte 5 (01 = 32-bit, 02 = 64-bit)
+          #   ELF    (linux, android) 7f 45 4c 46 + class in byte 5 (01 = 32-bit, 02 = 64-bit)
           #   PE     (windows) 4d 5a
           #   Mach-O (darwin)  cf fa ed fe (64-bit)
           for binary in "$BINARY"; do
@@ -187,7 +206,7 @@ jobs:
                 [ "$header" = "cffaedfe" ] || { echo "::error::$binary is not a 64-bit Mach-O ($header)"; exit 1; }
                 echo "Mach-O confirmed in $binary ($header)"
                 ;;
-              linux)
+              linux|android)
                 want="7f454c4602"
                 case "${{ matrix.goarch }}" in 386|arm) want="7f454c4601" ;; esac
                 header="$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')"
@@ -212,14 +231,14 @@ jobs:
         # The action runs its binfmt image --privileged, in the job that builds the
         # release binaries, so the image is pinned by digest as well as the action
         # by commit: a moved tag cannot change what runs with that privilege.
-        if: matrix.goos == 'linux' && (matrix.goarch == 'arm' || matrix.goarch == 'arm64')
+        if: matrix.platform == 'linux/arm/v7' || matrix.platform == 'linux/arm64'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           image: tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
           platforms: arm,arm64
 
       - name: Run the binaries in their own container (smoke test)
-        if: matrix.goos == 'linux'
+        if: matrix.container != ''
         run: |
           chmod +x dist/*
           # The real artifact name is used (BINARY includes goos-goarch), never a
@@ -228,7 +247,7 @@ jobs:
             "${{ matrix.container }}" sh -c "/t/$(basename "$BINARY") -version"
 
       - name: Configuration validation (without calling the LLM)
-        if: matrix.goos == 'linux'
+        if: matrix.container != ''
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform "${{ matrix.platform }}" \
             "${{ matrix.container }}" sh -c \
@@ -247,6 +266,24 @@ jobs:
           path: |
             ${{ env.BINARY }}
           if-no-files-found: error
+
+  android-seccomp:
+    name: android build under Android's seccomp rule
+    needs: verify
+    # Native arm64: qemu-user refuses seccomp filters, so the trap cannot be emulated.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Termux crashed with SIGSYS on faccessat2. The linux build must still die under the
+      # trap (the control) and the android build must reach the setup wizard.
+      - name: The android build survives the faccessat2 trap
+        run: ./scripts/verify-android-seccomp.sh
 
   gateway:
     name: gateway over HTTP
@@ -281,7 +318,7 @@ jobs:
   release:
     name: publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, android-seccomp]
     runs-on: ubuntu-latest
     # id-token and attestations are granted here only: they are what the provenance
     # attestation below needs, and no other job signs anything.

@@ -65,7 +65,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	c := convOf(r)
 	if c.merged {
-		writeError(w, http.StatusConflict, "this session has already been integrated into the project; continue in a new session to keep working")
+		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
 	if _, started := s.startDetachedRun(c, body.Task, schedule.KindTask, "", s.approverFactory(c)); started {

@@ -26,6 +26,8 @@ func updateGateway(t *testing.T, status int, check any, run string) *Client {
 		case "/v1/update/run":
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprint(w, run)
+		default:
+			// No other route is served: the client under test never asks for one.
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -33,11 +35,21 @@ func updateGateway(t *testing.T, status int, check any, run string) *Client {
 }
 
 func sseEvent(evt updater.ProgressEvent) string {
-	return fmt.Sprintf("event: progress\ndata: {\"stage\":%q,\"message\":%q,\"version\":%q}\n\n", evt.Stage, evt.Message, evt.Version)
+	return fmt.Sprintf(
+		"event: progress\ndata: {\"stage\":%q,\"message\":%q,\"version\":%q}\n\n",
+		evt.Stage,
+		evt.Message,
+		evt.Version,
+	)
 }
 
 func TestUpdateAvailableReportsTheGatewaysAnswer(t *testing.T) {
-	c := updateGateway(t, http.StatusOK, updater.CheckResult{CurrentVersion: "v1.0.0", LatestVersion: "v1.1.0", UpdateAvailable: true}, "")
+	c := updateGateway(
+		t,
+		http.StatusOK,
+		updater.CheckResult{CurrentVersion: "v1.0.0", LatestVersion: "v1.1.0", UpdateAvailable: true},
+		"",
+	)
 	cur, latest, ok, err := c.UpdateAvailable(context.Background())
 	if err != nil || cur != "v1.0.0" || latest != "v1.1.0" || !ok {
 		t.Fatalf("got %q %q %v %v", cur, latest, ok, err)
@@ -46,7 +58,12 @@ func TestUpdateAvailableReportsTheGatewaysAnswer(t *testing.T) {
 
 // TestAFailedCheckIsAnErrorNotUpToDate: "nobody could look" must not read as "nothing to install".
 func TestAFailedCheckIsAnErrorNotUpToDate(t *testing.T) {
-	c := updateGateway(t, http.StatusOK, updater.CheckResult{CurrentVersion: "v1.0.0", Error: "could not reach GitHub"}, "")
+	c := updateGateway(
+		t,
+		http.StatusOK,
+		updater.CheckResult{CurrentVersion: "v1.0.0", Error: "could not reach GitHub"},
+		"",
+	)
 	_, _, ok, err := c.UpdateAvailable(context.Background())
 	if err == nil || ok || !strings.Contains(err.Error(), "GitHub") {
 		t.Fatalf("a failed check must be an error, got ok=%v err=%v", ok, err)
@@ -82,15 +99,26 @@ func TestRunUpdateReportsEachStageOnceAndReturnsTheVersion(t *testing.T) {
 }
 
 func TestRunUpdateReturnsTheGatewaysError(t *testing.T) {
-	c := updateGateway(t, http.StatusOK, nil, sseEvent(updater.ProgressEvent{Stage: "error", Message: "checksum mismatch"}))
-	if _, err := c.RunUpdate(context.Background(), func(string) {}); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+	c := updateGateway(
+		t,
+		http.StatusOK,
+		nil,
+		sseEvent(updater.ProgressEvent{Stage: "error", Message: "checksum mismatch"}),
+	)
+	if _, err := c.RunUpdate(context.Background(), func(string) {}); err == nil ||
+		!strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("got %v", err)
 	}
 }
 
 // TestRunUpdateCutShortIsNotSuccess: a connection that dropped halfway is not an upgrade.
 func TestRunUpdateCutShortIsNotSuccess(t *testing.T) {
-	c := updateGateway(t, http.StatusOK, nil, sseEvent(updater.ProgressEvent{Stage: "downloading", Message: "Downloading"}))
+	c := updateGateway(
+		t,
+		http.StatusOK,
+		nil,
+		sseEvent(updater.ProgressEvent{Stage: "downloading", Message: "Downloading"}),
+	)
 	if _, err := c.RunUpdate(context.Background(), func(string) {}); err == nil {
 		t.Fatal("a stream that ends before done must be an error")
 	}

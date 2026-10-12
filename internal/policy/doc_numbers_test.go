@@ -135,7 +135,8 @@ func checkTestFuncClaim(t *testing.T, doc, name string, funcs, files int) {
 	t.Helper()
 	m := funcClaimRe.FindStringSubmatch(doc)
 	if m == nil {
-		t.Errorf("%s: the \"<N> across <M> files\" test claim is gone; if the wording changed, change this test with it", name)
+		t.Errorf("%s: the \"<N> across <M> files\" test claim is gone; if the wording changed, change this test with it",
+			name)
 		return
 	}
 	gotF := atoi(t, strings.ReplaceAll(m[1], ",", ""))

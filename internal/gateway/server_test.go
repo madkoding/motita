@@ -227,7 +227,8 @@ func TestHealthAnswersWithoutAToken(t *testing.T) {
 func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	paths := []string{
-		sessionPath(srv, DefaultSession, "/config"), sessionPath(srv, DefaultSession, ""), sessionPath(srv, DefaultSession, "/report"), sessionPath(srv, DefaultSession, "/models"),
+		sessionPath(srv, DefaultSession, "/config"), sessionPath(srv, DefaultSession, ""),
+		sessionPath(srv, DefaultSession, "/report"), sessionPath(srv, DefaultSession, "/models"),
 		sessionPath(srv, DefaultSession, "/reward"), sessionPath(srv, DefaultSession, "/questions"),
 	}
 	for _, path := range paths {
@@ -240,7 +241,11 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
+	for _, path := range []string{
+		sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"),
+		sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"),
+		sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval"),
+	} {
 		t.Run("POST "+path, func(t *testing.T) {
 			req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+path, strings.NewReader("{}"))
 			w := httptest.NewRecorder()
@@ -324,7 +329,10 @@ func TestANonLoopbackAddressNeedsNoOtherSetting(t *testing.T) {
 func TestANetworkBindWarnsThatTrafficIsPlainHTTP(t *testing.T) {
 	for listen, want := range map[string]bool{"0.0.0.0:0": true, "127.0.0.1:0": false} {
 		sink := newLogSink(t)
-		newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = listen; o.Log = sink.log })
+		newTestServer(t, &fakeService{}, func(o *Options) {
+			o.Listen = listen
+			o.Log = sink.log
+		})
 		deadline := time.Now().Add(5 * time.Second)
 		var logged string
 		for time.Now().Before(deadline) {
@@ -397,7 +405,10 @@ func TestARefusedOriginIsNotToldTheRules(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	sink := newLogSink(t)
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy; o.Log = sink.log })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.Allow = policy
+		o.Log = sink.log
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
 	req.RemoteAddr = "192.168.100.90:41234"
@@ -530,7 +541,11 @@ func TestTheGatewayDescribesItsOwnRules(t *testing.T) {
 	}
 	strict := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
 	if got := strict.AllowDescription(); got != policy.Describe() {
-		t.Errorf("the gateway describes its rules as %q, want %q: the description must be the policy's own", got, policy.Describe())
+		t.Errorf(
+			"the gateway describes its rules as %q, want %q: the description must be the policy's own",
+			got,
+			policy.Describe(),
+		)
 	}
 	// And the description is not the open one, which is the assertion that would catch a gateway
 	// reporting the default while enforcing something else.
@@ -919,7 +934,8 @@ func TestTheGatewayAnswersNoCrossOriginRequest(t *testing.T) {
 		t.Fatalf("do: %v", err)
 	}
 	defer resp2.Body.Close()
-	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers"} {
+	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods",
+		"Access-Control-Allow-Headers"} {
 		if got := resp2.Header.Get(h); got != "" {
 			t.Errorf("the gateway answered %s on a request carrying an Origin: %q", h, got)
 		}

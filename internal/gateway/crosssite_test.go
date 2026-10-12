@@ -89,7 +89,11 @@ func TestACookieRequestWithANonJSONBodyIsRefused(t *testing.T) {
 // A bearer client - the CLI, a script - needs none of it: no page can attach the token.
 func TestABearerClientNeedsNoBrowserHeader(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	req := httptest.NewRequest(http.MethodPatch, "/v1/sessions/"+DefaultSession, strings.NewReader(`{"title":"from the cli"}`))
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/v1/sessions/"+DefaultSession,
+		strings.NewReader(`{"title":"from the cli"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	if w := serve(srv, req); w.Code != http.StatusOK {
 		t.Fatalf("a bearer rename with no extra header answered %d, want 200: %s", w.Code, w.Body)

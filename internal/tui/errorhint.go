@@ -38,12 +38,7 @@ func (t *TUI) errorHint(err error) string {
 	}
 	switch {
 	case has("connection refused", "no such host", "i/o timeout", "network is unreachable", "dial tcp"):
-		if config.IsSelfHostedOllama(llmCfg) {
-			return "hint: motita could not reach your Ollama server. Start it with `ollama serve`, " +
-				"then try /models to check the connection."
-		}
-		return "hint: motita could not reach the provider's server. Check your connection, " +
-			"try /models to test the endpoint, or /config to change it."
+		return unreachableHint(llmCfg)
 	case has("already in progress"):
 		return "hint: the previous task is still stopping. Wait a moment and send it again."
 	case has("key is missing"):
@@ -58,6 +53,18 @@ func (t *TUI) errorHint(err error) string {
 			"Wait a moment, or switch model with /models."
 	case has("404", "model not found", "does not exist", "no such model"):
 		return "hint: the model may not exist on this provider. /models lists the ones you can use."
+	default:
+		return ""
 	}
-	return ""
+}
+
+// unreachableHint is the hint for a server that cannot be reached: the user's own Ollama server
+// is started by them, any other is checked or changed.
+func unreachableHint(llmCfg config.LLM) string {
+	if config.IsSelfHostedOllama(llmCfg) {
+		return "hint: motita could not reach your Ollama server. Start it with `ollama serve`, " +
+			"then try /models to check the connection."
+	}
+	return "hint: motita could not reach the provider's server. Check your connection, " +
+		"try /models to test the endpoint, or /config to change it."
 }

@@ -100,8 +100,9 @@ func mouseScroll(seq string) (int, bool) {
 		return 1, true // wheel up: go back in the conversation
 	case 65:
 		return -1, true // wheel down: towards the newest line
+	default:
+		return 0, false
 	}
-	return 0, false
 }
 
 // KeyModeFor is the setup wizard's switch into character-at-a-time input, for an input that is a

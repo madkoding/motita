@@ -204,6 +204,8 @@ func (cl *wsClient) readLoop(reqCtx context.Context, ackCh chan<- struct{}) {
 			// a preceding fragment is a protocol violation.
 			cl.sendError(FlagErrorRecoverable, "fragmented frames are not supported")
 			continue
+		default:
+			// A text frame: dispatched below.
 		}
 
 		// opText: decode the JSON envelope and dispatch.

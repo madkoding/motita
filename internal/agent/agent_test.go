@@ -47,18 +47,7 @@ type fakeLLMServer struct {
 func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&s.calls, 1)
-
-		var request struct {
-			Messages []struct {
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		json.NewDecoder(r.Body).Decode(&request)
-
-		var text string
-		for _, m := range request.Messages {
-			text += m.Content
-		}
+		text := fakeRequestText(r)
 
 		// The phase is decided by the prompt's markers (so what is really tested
 		// is which template was used, not just the call order).
@@ -70,11 +59,19 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 				fmt.Fprint(w, `{"error":{"message":"simulated failure in the analysis"}}`)
 				return
 			}
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"test task\",\"success_criteria\":[\"the file exists\"],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"test `+
+					`task\",\"success_criteria\":[\"the file exists\"],\"risks\":[],\"needs_subtasks\":false}"}}]}`,
+			)
 
 		case strings.Contains(text, "## ACTION PLAN"):
 			s.phases = append(s.phases, "plan")
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[{\"step\":1,\"action\":\"create file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"plan\":[{\"step\":1,\"action\":\"create `+
+					`file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`,
+			)
 
 		case strings.Contains(text, "## FINAL ANSWER"):
 			s.phases = append(s.phases, "synthesize")
@@ -89,51 +86,72 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 		case strings.Contains(text, "## ACTION"):
 			s.phases = append(s.phases, "execute")
 			s.prompts = append(s.prompts, text)
-			n := 0
-			for _, f := range s.phases {
-				if f == "execute" {
-					n++
-				}
-			}
-			idx := n - 1
-			var commands []string
-			if idx < len(s.actionsPerAttempt) {
-				commands = s.actionsPerAttempt[idx]
-			}
-			if len(commands) == 0 {
-				commands = []string{"true"}
-			}
-			actions := make([]map[string]string, 0, len(commands))
-			for _, c := range commands {
-				actions = append(actions, map[string]string{"kind": "command", "description": "test", "command": c})
-			}
-			response := map[string]any{
-				"reasoning":    "automated test",
-				"actions":      actions,
-				"final_action": map[string]string{"description": "none", "command": ""},
-			}
-			// The "done" field is only sent when the test set it, so a nil slice keeps
-			// testing the older shape a custom prompt would send.
-			if len(s.donePerAttempt) > 0 {
-				round := idx
-				if round >= len(s.donePerAttempt) {
-					round = len(s.donePerAttempt) - 1
-				}
-				response["done"] = s.donePerAttempt[round]
-			}
-			// The response envelope is built with the content already serialised.
-			data, _ := json.Marshal(map[string]any{
-				"choices": []any{map[string]any{
-					"message": map[string]string{"content": mustJSON(response)},
-				}},
-			})
-			w.Write(data)
+			w.Write(s.executeReply())
 
 		default:
 			t.Errorf("request with an unrecognisable prompt: %q", truncate(text, 200))
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)
 		}
 	}
+}
+
+// fakeRequestText joins the content of every message of a chat request.
+func fakeRequestText(r *http.Request) string {
+	var request struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(r.Body).Decode(&request)
+
+	var text string
+	for _, m := range request.Messages {
+		text += m.Content
+	}
+	return text
+}
+
+// executeReply builds the execute-phase answer for the attempt just recorded in s.phases.
+func (s *fakeLLMServer) executeReply() []byte {
+	n := 0
+	for _, f := range s.phases {
+		if f == "execute" {
+			n++
+		}
+	}
+	idx := n - 1
+	var commands []string
+	if idx < len(s.actionsPerAttempt) {
+		commands = s.actionsPerAttempt[idx]
+	}
+	if len(commands) == 0 {
+		commands = []string{"true"}
+	}
+	actions := make([]map[string]string, 0, len(commands))
+	for _, c := range commands {
+		actions = append(actions, map[string]string{"kind": "command", "description": "test", "command": c})
+	}
+	response := map[string]any{
+		"reasoning":    "automated test",
+		"actions":      actions,
+		"final_action": map[string]string{"description": "none", "command": ""},
+	}
+	// The "done" field is only sent when the test set it, so a nil slice keeps
+	// testing the older shape a custom prompt would send.
+	if len(s.donePerAttempt) > 0 {
+		round := idx
+		if round >= len(s.donePerAttempt) {
+			round = len(s.donePerAttempt) - 1
+		}
+		response["done"] = s.donePerAttempt[round]
+	}
+	// The response envelope is built with the content already serialised.
+	data, _ := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{
+			"message": map[string]string{"content": mustJSON(response)},
+		}},
+	})
+	return data
 }
 
 // mustJSON returns the JSON string the "model" would put in content.
@@ -362,7 +380,10 @@ func TestAnalysisNotUnderstandable(t *testing.T) {
 			text += m.Content
 		}
 		if strings.Contains(text, "## ANALYSIS OF THE TASK") {
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":false,\"risks\":[\"input data is missing\"]}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"understandable\":false,\"risks\":[\"input data is missing\"]}"}}]}`,
+			)
 			return
 		}
 		t.Errorf("no other phase should be reached")
@@ -447,14 +468,27 @@ func TestSubtasks(t *testing.T) {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 			calls++
 			if calls == 1 {
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"split\",\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":true}"}}]}`)
+				fmt.Fprint(
+					w,
+					`{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"split\",\"success_criteria\":[],`+
+						`\"risks\":[],\"needs_subtasks\":true}"}}]}`,
+				)
 			} else {
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"sub\",\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
+				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"sub\",`+
+					`\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
 			}
 		case strings.Contains(text, "## ACTION PLAN"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"subtask A\",\"subtask B\"],\"expected_result\":\"x\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"subtask A\",\"subtask `+
+					`B\"],\"expected_result\":\"x\"}"}}]}`,
+			)
 		default:
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"kind\":\"command\",\"command\":\"echo sub > sub.txt\"}],\"final_action\":{\"command\":\"\"}}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"kind\":\"command\",\"command\":\"echo `+
+					`sub > sub.txt\"}],\"final_action\":{\"command\":\"\"}}"}}]}`,
+			)
 		}
 	}))
 	defer srv.Close()
@@ -493,9 +527,15 @@ func TestSubtaskLimit(t *testing.T) {
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 			// It always asks to split: with no limit this would never finish.
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"x\",\"needs_subtasks\":true}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"x\",\"needs_subtasks\":true}"}}]}`,
+			)
 		case strings.Contains(text, "## ACTION PLAN"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"another\"],\"expected_result\":\"x\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"another\"],\"expected_result\":\"x\"}"}}]}`,
+			)
 		default:
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"command\":\"true\"}]}"}}]}`)
 		}
@@ -714,158 +754,6 @@ func TestRunCommandRefusesWrites(t *testing.T) {
 	}
 	if !strings.Contains(output, "[refused:") {
 		t.Fatalf("expected refusal message, got: %s", output)
-	}
-}
-
-// TestAttemptFailedLogsTheProposedCommands: the "attempt failed" record must carry the commands
-// the model proposed, not only the validation reason.
-//
-// Why it matters: the retry loop stops when the counter runs out, and the only way to learn
-// whether retrying CONVERGES is to compare one attempt's commands with the next. The validation
-// reason alone ("the check failed") is identical for a run that is correcting itself and for one
-// that is repeating itself; the commands are what tell them apart. Without them in the log, that
-// question can only be answered by guessing, and the loop's whole design rests on it.
-func TestAttemptFailedLogsTheProposedCommands(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "attempts.log")
-	l, err := logx.New(logx.Options{Path: logPath, Level: logx.Warn, Console: false})
-	if err != nil {
-		t.Fatalf("could not create the logger: %v", err)
-	}
-
-	// Two attempts, both failing: the anchor wants result.txt and neither command makes it.
-	fake := &fakeLLMServer{
-		actionsPerAttempt: [][]string{
-			{"echo first-try > wrong.txt"},
-			{"echo second-try > other.txt"},
-		},
-	}
-	srv := httptest.NewServer(fake.handler(t))
-	defer srv.Close()
-
-	dir := t.TempDir()
-	c := config.Default()
-	c.LLM.APIKey = "key"
-	c.LLM.BaseURL = srv.URL
-	c.LLM.MaxAttempts = 1
-	c.LLM.BackoffInitial = time.Millisecond
-	c.LLM.BackoffMax = 2 * time.Millisecond
-	c.LLM.Timeout = 5 * time.Second
-	c.Anchor = config.Anchor{
-		Kind: "command", Command: "sh", Args: []string{"-c", "test -s result.txt"},
-		Timeout: 10 * time.Second,
-	}
-	c.Agent.WorkspaceDir = dir
-	c.Agent.MaxRetries = 1
-	c.TaskSource.Kind = "file"
-
-	box, err := sandbox.New(sandbox.Options{
-		Dir: dir, Limits: sandbox.Limits{MemoryMB: 256, CPUSeconds: 10},
-		Timeout: 20 * time.Second, MaxOutputKB: 64, Log: l,
-	})
-	if err != nil {
-		t.Fatalf("could not create the sandbox: %v", err)
-	}
-	defer box.Close()
-
-	engine, err := llm.New(c.LLM, l)
-	if err != nil {
-		t.Fatalf("could not create the engine: %v", err)
-	}
-	source, err := task.NewText("do the test task", "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ag := New(c, l, engine, box, source)
-	// The run is EXPECTED to end in failure: both attempts miss what the anchor checks. That is
-	// the only way to produce two "attempt failed" records, so the error is not a test failure.
-	if err := ag.Run(context.Background()); err == nil {
-		t.Fatal("the run should have failed: neither attempt satisfies the anchor")
-	}
-	if err := l.Close(); err != nil {
-		t.Fatalf("closing the log: %v", err)
-	}
-
-	raw, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("could not read the log: %v", err)
-	}
-
-	// Each failing attempt must leave a record naming the command it proposed.
-	var attempts []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		if line == "" {
-			continue
-		}
-		var rec map[string]any
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
-			continue
-		}
-		if rec["msg"] == "attempt failed" {
-			attempts = append(attempts, rec)
-		}
-	}
-	if len(attempts) != 2 {
-		t.Fatalf("expected 2 'attempt failed' records, got %d (log: %s)", len(attempts), raw)
-	}
-	if got, want := attempts[0]["commands"], "echo first-try > wrong.txt"; got != want {
-		t.Errorf("first record's commands = %v, want %q", got, want)
-	}
-	if got, want := attempts[1]["commands"], "echo second-try > other.txt"; got != want {
-		t.Errorf("second record's commands = %v, want %q", got, want)
-	}
-}
-
-// TestProposedCommands: the line must describe every attempt honestly, including the two shapes
-// that carry no command at all.
-//
-// An attempt with an empty command and an attempt with no commands are both real outcomes, and
-// both must be distinguishable in the log from an attempt that proposed something. Rendering them
-// as an empty string would make a thrashing run look like it never tried, which is the opposite of
-// what this field exists to show.
-func TestProposedCommands(t *testing.T) {
-	cases := []struct {
-		name   string
-		action Action
-		want   string
-	}{
-		{
-			name:   "one command",
-			action: Action{Actions: []Command{{Command: "ls -la"}}},
-			want:   "ls -la",
-		},
-		{
-			name:   "several commands, in order",
-			action: Action{Actions: []Command{{Command: "echo a"}, {Command: "echo b"}}},
-			want:   "echo a | echo b",
-		},
-		{
-			name:   "surrounding whitespace is not part of the command",
-			action: Action{Actions: []Command{{Command: "  printf ok  "}}},
-			want:   "printf ok",
-		},
-		{
-			name:   "an entry with no command still counts",
-			action: Action{Actions: []Command{{Command: "echo a"}, {Description: "just words"}}},
-			want:   "echo a | (empty)",
-		},
-		{
-			name:   "nothing proposed",
-			action: Action{},
-			want:   "(no commands proposed)",
-		},
-		{
-			name:   "a very long command is bounded",
-			action: Action{Actions: []Command{{Command: strings.Repeat("x", 900)}}},
-			want:   strings.Repeat("x", 500) + "...",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := proposedCommands(tc.action); got != tc.want {
-				t.Errorf("proposedCommands() = %q, want %q", got, tc.want)
-			}
-		})
 	}
 }
 

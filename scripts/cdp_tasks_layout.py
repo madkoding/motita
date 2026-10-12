@@ -24,8 +24,11 @@ import tempfile
 import re
 import subprocess
 import sys
+from typing import Any
 
 import websockets
+
+from cdp_http import JSON, AsyncSocket
 
 PORT = int(os.environ.get("CDP_PORT", "9344"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7479")
@@ -34,22 +37,26 @@ SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-tasks-lay
 fail = 0
 
 
-def ok(msg):
+def ok(msg: str) -> None:
+    """Print one passed check."""
     print("  ok    " + msg)
 
 
-def bad(msg):
+def bad(msg: str) -> None:
+    """Count one failure and print it."""
     global fail
     fail += 1
     print("  FAIL  " + msg)
 
 
 class CDP:
-    def __init__(self, ws):
+    """A minimal Chrome DevTools Protocol client over one websocket."""
+
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
-    async def call(self, method, **params):
+    async def call(self, method: str, **params: Any) -> dict[str, Any]:
         self.i += 1
         mid = self.i
         await self.ws.send(json.dumps({"id": mid, "method": method, "params": params}))
@@ -60,13 +67,13 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr):
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))
         return r.get("result", {}).get("value")
 
-    async def shot(self, path):
+    async def shot(self, path: str) -> str:
         r = await self.call("Page.captureScreenshot", format="png")
         await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
@@ -98,7 +105,9 @@ OPEN_JS = """
     if (menu) { menu.click(); await sleep(500); open = byText(/^Scheduled tasks$/i); }
   }
   if (!open) return 'no Scheduled tasks button (' +
-    [...document.querySelectorAll('button')].map(b => (b.innerText || b.getAttribute('aria-label') || '?').trim()).join(' / ').slice(0, 400) + ')';
+    [...document.querySelectorAll('button')]
+      .map(b => (b.innerText || b.getAttribute('aria-label') || '?').trim())
+      .join(' / ').slice(0, 400) + ')';
   open.click();
   await sleep(700);
   return document.querySelector('.tasks-body') ? 'open' : 'the panel did not open';
@@ -165,17 +174,18 @@ MEASURE_JS = """
 """
 
 
-async def main():
-    os.makedirs(SHOTS, exist_ok=True)
-    token = ""
+async def read_token() -> str:
+    """The gateway token from the GATEWAY_STATE file, or "" when there is none."""
     gw = os.environ.get("GATEWAY_STATE", "")
     if gw and os.path.exists(gw):
-        token = json.loads(await asyncio.to_thread(pathlib.Path(gw).read_text))["token"]
-    if not token:
-        print("NO_TOKEN")
-        return 1
+        return json.loads(await asyncio.to_thread(pathlib.Path(gw).read_text))["token"]
+    return ""
 
-    await asyncio.to_thread(subprocess.run, ["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
+
+async def find_target() -> dict[str, Any] | None:
+    """Open a blank tab and return the newest page target, waiting up to ~15 s for it."""
+    await asyncio.to_thread(subprocess.run,
+                            ["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
                             capture_output=True)
     target = None
     for _ in range(60):
@@ -186,10 +196,42 @@ async def main():
         if target:
             break
         await asyncio.sleep(0.25)
-    if not target:
-        print("NO_TARGET")
-        return 1
+    return target
 
+
+async def open_and_measure(c: CDP, token: str, label: str, w: int, h: int,
+                           mobile: bool) -> dict[str, Any] | None:
+    """Load the app at one viewport, open the panel through the sidebar and measure it."""
+    await c.call("Emulation.setDeviceMetricsOverride",
+                 width=w, height=h, deviceScaleFactor=1, mobile=mobile)
+    # A fragment-only navigation does not re-run the app's startup: go
+    # through about:blank so the token is exchanged for a fresh cookie.
+    await c.call("Page.navigate", url="about:blank")
+    await asyncio.sleep(0.4)
+    await c.call("Page.navigate", url=f"{BASE}/#t={token}")
+    await asyncio.sleep(3.5)
+    # The service worker serves the OLD bundle after a rebuild.
+    await c.js("(async () => { for (const r of await navigator.serviceWorker.getRegistrations())"
+               " await r.unregister(); for (const k of await caches.keys()) await caches.delete(k);"
+               " return 'ok'; })()")
+    if not await c.js("document.body.innerText.includes('Scheduled tasks')"):
+        await c.call("Page.reload", ignoreCache=True)
+        await asyncio.sleep(3.5)
+    state = await c.js(OPEN_JS)
+    if state != "open":
+        bad(f"{label}: the panel did not open ({state})")
+        return None
+    await asyncio.sleep(0.6)
+    m = await c.js(MEASURE_JS)
+    if not m:
+        bad(f"{label}: nothing to measure (panel closed again?)")
+        return None
+    await c.shot(f"{SHOTS}/tasks-{label}.png")
+    return m
+
+
+async def collect(target: dict[str, Any], token: str) -> dict[str, Any]:
+    """Measure the panel on a phone and on a desktop, plus two desktop reads to see the tick."""
     async with websockets.connect(target["webSocketDebuggerUrl"], max_size=64 * 1024 * 1024) as ws:
         c = CDP(ws)
         await c.call("Page.enable")
@@ -200,32 +242,9 @@ async def main():
 
         results = {}
         for label, w, h, mobile in (("mobile", 390, 844, True), ("desktop", 1440, 900, False)):
-            await c.call("Emulation.setDeviceMetricsOverride",
-                         width=w, height=h, deviceScaleFactor=1, mobile=mobile)
-            # A fragment-only navigation does not re-run the app's startup: go
-            # through about:blank so the token is exchanged for a fresh cookie.
-            await c.call("Page.navigate", url="about:blank")
-            await asyncio.sleep(0.4)
-            await c.call("Page.navigate", url=f"{BASE}/#t={token}")
-            await asyncio.sleep(3.5)
-            # The service worker serves the OLD bundle after a rebuild.
-            await c.js("(async () => { for (const r of await navigator.serviceWorker.getRegistrations())"
-                       " await r.unregister(); for (const k of await caches.keys()) await caches.delete(k);"
-                       " return 'ok'; })()")
-            if not await c.js("document.body.innerText.includes('Scheduled tasks')"):
-                await c.call("Page.reload", ignoreCache=True)
-                await asyncio.sleep(3.5)
-            state = await c.js(OPEN_JS)
-            if state != "open":
-                bad(f"{label}: the panel did not open ({state})")
-                continue
-            await asyncio.sleep(0.6)
-            m = await c.js(MEASURE_JS)
-            if not m:
-                bad(f"{label}: nothing to measure (panel closed again?)")
-                continue
-            results[label] = m
-            await c.shot(f"{SHOTS}/tasks-{label}.png")
+            m = await open_and_measure(c, token, label, w, h, mobile)
+            if m:
+                results[label] = m
 
         # The chronometer ticks: two reads 2.5s apart must differ, or it is a date.
         m1 = await c.js(MEASURE_JS)
@@ -233,105 +252,157 @@ async def main():
         m2 = await c.js(MEASURE_JS)
         results["tick"] = {"before": m1, "after": m2}
         await c.shot(f"{SHOTS}/tasks-desktop-2.png")
+    return results
+
+
+def check_mobile(mo: dict[str, Any]) -> None:
+    """A phone shows ONE column: the list first, scrolling on its own, full width."""
+    # A phone shows ONE column: normal flow (display: block), list first.
+    if mo["bodyDisplay"] != "grid" and mo["form"]["y"] > mo["col"]["y"]:
+        ok("mobile: one column, the list above the create form")
+    else:
+        bad(f"mobile: display={mo['bodyDisplay']} form.y={mo['form']['y']:.0f} "
+            f"list.y={mo['col']['y']:.0f} (expected a stacked column with the list first)")
+    if mo["listOverflowY"] == "auto":
+        ok(f"mobile: the list scrolls on its own (max-height {mo['listMaxHeight']})")
+    else:
+        bad(f"mobile: the list does not scroll (overflow-y {mo['listOverflowY']})")
+    if mo["form"]["right"] <= mo["viewport"]["w"] + 1 and mo["col"]["right"] <= mo["viewport"]["w"] + 1:
+        ok("mobile: both blocks fit the viewport")
+    else:
+        bad("mobile: a block overflows the viewport")
+    if abs(mo["form"]["w"] - mo["col"]["w"]) < 2:
+        ok(f"mobile: both blocks span the full width ({mo['form']['w']:.0f}px)")
+    else:
+        bad(f"mobile: the blocks have different widths ({mo['form']['w']:.0f} vs {mo['col']['w']:.0f})")
+
+
+def check_desktop(d: dict[str, Any]) -> None:
+    """A desktop shows a grid: the form left of the list, aligned, not overlapping, inside the card."""
+    if d["bodyDisplay"] == "grid":
+        ok(f"desktop: the body is a grid ({d['bodyCols']})")
+    else:
+        bad(f"desktop: the body is not a grid (display {d['bodyDisplay']})")
+    if d["form"]["x"] < d["col"]["x"]:
+        ok(f"desktop: the form is LEFT of the list (form.x {d['form']['x']:.0f} < list.x {d['col']['x']:.0f})")
+    else:
+        bad(f"desktop: the form is not left of the list (form.x {d['form']['x']:.0f}, list.x {d['col']['x']:.0f})")
+    if abs(d["form"]["y"] - d["col"]["y"]) < 2:
+        ok("desktop: both columns start on the same line")
+    else:
+        bad(f"desktop: the columns are not aligned (form.y {d['form']['y']:.0f}, list.y {d['col']['y']:.0f})")
+    if d["form"]["right"] <= d["col"]["x"]:
+        ok("desktop: the columns do not overlap")
+    else:
+        bad("desktop: the columns overlap")
+    if d["panel"]["w"] <= 56 * 16 + 1:
+        ok(f"desktop: the panel stays inside its 56rem ceiling ({d['panel']['w']:.0f}px)")
+    else:
+        bad(f"desktop: the panel is {d['panel']['w']:.0f}px, past the 56rem ceiling")
+    if d["panel"]["h"] <= d["viewport"]["h"] - 30:
+        ok(f"desktop: the panel fits the viewport ({d['panel']['h']:.0f}px of {d['viewport']['h']})")
+    else:
+        bad(f"desktop: the panel is taller than the viewport ({d['panel']['h']:.0f} > {d['viewport']['h']})")
+
+
+# The Go form of a duration, e.g. "24h0m0s": a digit run, a unit, a digit run, a unit, then "0".
+# Read by splitting on digit runs rather than with one regex, so the scan is linear by construction.
+DURATION_UNITS = frozenset("hms")
+
+
+def has_go_duration(text: str) -> bool:
+    """Whether text holds <digits><h|m|s><digits><h|m|s>0 anywhere."""
+    # re.split with a group alternates text and digit runs: parts[1], parts[3]... are the runs.
+    parts = re.split(r"(\d+)", text)
+    for i in range(1, len(parts) - 3, 2):
+        unit_a, unit_b, last = parts[i + 1], parts[i + 3], parts[i + 4] if i + 4 < len(parts) else ""
+        if unit_a in DURATION_UNITS and unit_b in DURATION_UNITS and last.startswith("0"):
+            return True
+    return False
+
+
+def check_rows(label: str, m: dict[str, Any]) -> None:
+    """Every row: no horizontal spill, a cadence tag in the user's spelling, a chronometer."""
+    # No horizontal scrollbar inside a column: a child wider than its column paints a bar
+    # across the whole card and clips the content beside it.
+    if not m.get("spill"):
+        ok(f"{label}: no column spills horizontally")
+    else:
+        bad(f"{label}: a column overflows horizontally: {m['spill'][:4]}")
+    tags = [r["tag"] for r in m["rows"] if r["tag"]]
+    if len(tags) == len(m["rows"]):
+        ok(f"{label}: every row carries the cadence as a tag ({tags})")
+    else:
+        bad(f"{label}: a row has no cadence tag ({m['rows']})")
+    # The gateway sends the normalised Go form ("24h0m0s" for "24h"): a tag
+    # that prints it is showing the machine's spelling of the user's choice.
+    raw = [t for t in tags if has_go_duration(t)]
+    if tags and not raw:
+        ok(f"{label}: the tag is written as the user typed it ({tags})")
+    else:
+        bad(f"{label}: the tag shows the raw Go duration form ({raw})")
+    cds = [r["countdown"] for r in m["rows"] if r["countdown"]]
+    if cds and all(":" in x for x in cds):
+        ok(f"{label}: the countdown is a chronometer {cds}")
+    else:
+        bad(f"{label}: no chronometer countdown on the enabled rows ({m['rows']})")
+    tag_css = m["rows"][0]["tagFontSize"] if m["rows"] else None
+    if tag_css and float(tag_css.rstrip("px")) <= 11:
+        ok(f"{label}: the tag is recessed ({tag_css}), not the row's headline")
+    else:
+        bad(f"{label}: the tag is not styled as a tag ({tag_css})")
+
+
+def check_tick(tk: dict[str, Any]) -> None:
+    """The countdown moves between two samples, and a paused task shows none."""
+    b = [r["countdown"] for r in tk["before"]["rows"] if r["countdown"]]
+    a = [r["countdown"] for r in tk["after"]["rows"] if r["countdown"]]
+    if b and a and all(x != y for x, y in zip(b, a)):
+        ok(f"desktop: the countdown MOVES between samples ({b} -> {a})")
+    else:
+        bad(f"desktop: the countdown is static ({b} -> {a})")
+    paused = [r for r in tk["after"]["rows"] if "Paused" in r["text"]]
+    if not paused:
+        # Not a failure: whether a paused task exists is a property of the TASKS IN THE
+        # GATEWAY, not of the build. A fixture with a paused one exercises the rule; a live
+        # gateway whose tasks are all enabled simply has nothing to check, and reporting a
+        # failure there would blame the code for the data.
+        print("  skip  desktop: no paused task in this gateway, so the rule was not exercised")
+    elif all(not r["countdown"] for r in paused):
+        ok("desktop: a paused task shows no countdown")
+    else:
+        bad(f"desktop: a paused task is counting down ({paused})")
+
+
+async def main() -> int:
+    """Measure the panel and print one line per assertion; returns the exit code."""
+    os.makedirs(SHOTS, exist_ok=True)
+    token = await read_token()
+    if not token:
+        print("NO_TOKEN")
+        return 1
+
+    target = await find_target()
+    if not target:
+        print("NO_TARGET")
+        return 1
+
+    results = await collect(target, token)
 
     print(json.dumps(results, indent=2)[:12000])
 
     d = results.get("desktop")
     mo = results.get("mobile")
     if mo:
-        # A phone shows ONE column: normal flow (display: block), list first.
-        if mo["bodyDisplay"] != "grid" and mo["form"]["y"] > mo["col"]["y"]:
-            ok("mobile: one column, the list above the create form")
-        else:
-            bad(f"mobile: display={mo['bodyDisplay']} form.y={mo['form']['y']:.0f} "
-                f"list.y={mo['col']['y']:.0f} (expected a stacked column with the list first)")
-        if mo["listOverflowY"] == "auto":
-            ok(f"mobile: the list scrolls on its own (max-height {mo['listMaxHeight']})")
-        else:
-            bad(f"mobile: the list does not scroll (overflow-y {mo['listOverflowY']})")
-        if mo["form"]["right"] <= mo["viewport"]["w"] + 1 and mo["col"]["right"] <= mo["viewport"]["w"] + 1:
-            ok("mobile: both blocks fit the viewport")
-        else:
-            bad("mobile: a block overflows the viewport")
-        if abs(mo["form"]["w"] - mo["col"]["w"]) < 2:
-            ok(f"mobile: both blocks span the full width ({mo['form']['w']:.0f}px)")
-        else:
-            bad(f"mobile: the blocks have different widths ({mo['form']['w']:.0f} vs {mo['col']['w']:.0f})")
+        check_mobile(mo)
     if d:
-        if d["bodyDisplay"] == "grid":
-            ok(f"desktop: the body is a grid ({d['bodyCols']})")
-        else:
-            bad(f"desktop: the body is not a grid (display {d['bodyDisplay']})")
-        if d["form"]["x"] < d["col"]["x"]:
-            ok(f"desktop: the form is LEFT of the list (form.x {d['form']['x']:.0f} < list.x {d['col']['x']:.0f})")
-        else:
-            bad(f"desktop: the form is not left of the list (form.x {d['form']['x']:.0f}, list.x {d['col']['x']:.0f})")
-        if abs(d["form"]["y"] - d["col"]["y"]) < 2:
-            ok("desktop: both columns start on the same line")
-        else:
-            bad(f"desktop: the columns are not aligned (form.y {d['form']['y']:.0f}, list.y {d['col']['y']:.0f})")
-        if d["form"]["right"] <= d["col"]["x"]:
-            ok("desktop: the columns do not overlap")
-        else:
-            bad("desktop: the columns overlap")
-        if d["panel"]["w"] <= 56 * 16 + 1:
-            ok(f"desktop: the panel stays inside its 56rem ceiling ({d['panel']['w']:.0f}px)")
-        else:
-            bad(f"desktop: the panel is {d['panel']['w']:.0f}px, past the 56rem ceiling")
-        if d["panel"]["h"] <= d["viewport"]["h"] - 30:
-            ok(f"desktop: the panel fits the viewport ({d['panel']['h']:.0f}px of {d['viewport']['h']})")
-        else:
-            bad(f"desktop: the panel is taller than the viewport ({d['panel']['h']:.0f} > {d['viewport']['h']})")
+        check_desktop(d)
     for label, m in (("mobile", mo), ("desktop", d)):
-        if not m:
-            continue
-        # No horizontal scrollbar inside a column: a child wider than its column paints a bar
-        # across the whole card and clips the content beside it.
-        if not m.get("spill"):
-            ok(f"{label}: no column spills horizontally")
-        else:
-            bad(f"{label}: a column overflows horizontally: {m['spill'][:4]}")
-        tags = [r["tag"] for r in m["rows"] if r["tag"]]
-        if len(tags) == len(m["rows"]):
-            ok(f"{label}: every row carries the cadence as a tag ({tags})")
-        else:
-            bad(f"{label}: a row has no cadence tag ({m['rows']})")
-        # The gateway sends the normalised Go form ("24h0m0s" for "24h"): a tag
-        # that prints it is showing the machine's spelling of the user's choice.
-        raw = [t for t in tags if re.search(r"\d+(h|m|s)\d+[hms]0", t)]
-        if tags and not raw:
-            ok(f"{label}: the tag is written as the user typed it ({tags})")
-        else:
-            bad(f"{label}: the tag shows the raw Go duration form ({raw})")
-        cds = [r["countdown"] for r in m["rows"] if r["countdown"]]
-        if cds and all(":" in x for x in cds):
-            ok(f"{label}: the countdown is a chronometer {cds}")
-        else:
-            bad(f"{label}: no chronometer countdown on the enabled rows ({m['rows']})")
-        tag_css = m["rows"][0]["tagFontSize"] if m["rows"] else None
-        if tag_css and float(tag_css.rstrip("px")) <= 11:
-            ok(f"{label}: the tag is recessed ({tag_css}), not the row's headline")
-        else:
-            bad(f"{label}: the tag is not styled as a tag ({tag_css})")
+        if m:
+            check_rows(label, m)
     tk = results.get("tick")
     if tk:
-        b = [r["countdown"] for r in tk["before"]["rows"] if r["countdown"]]
-        a = [r["countdown"] for r in tk["after"]["rows"] if r["countdown"]]
-        if b and a and all(x != y for x, y in zip(b, a)):
-            ok(f"desktop: the countdown MOVES between samples ({b} -> {a})")
-        else:
-            bad(f"desktop: the countdown is static ({b} -> {a})")
-        paused = [r for r in tk["after"]["rows"] if "Paused" in r["text"]]
-        if not paused:
-            # Not a failure: whether a paused task exists is a property of the TASKS IN THE
-            # GATEWAY, not of the build. A fixture with a paused one exercises the rule; a live
-            # gateway whose tasks are all enabled simply has nothing to check, and reporting a
-            # failure there would blame the code for the data.
-            print("  skip  desktop: no paused task in this gateway, so the rule was not exercised")
-        elif all(not r["countdown"] for r in paused):
-            ok("desktop: a paused task shows no countdown")
-        else:
-            bad(f"desktop: a paused task is counting down ({paused})")
+        check_tick(tk)
 
     print("SHOTS:", ", ".join(sorted(os.path.join(SHOTS, f) for f in os.listdir(SHOTS))))
     if fail:
@@ -340,6 +411,5 @@ async def main():
         print("VERDICT: the panel is two columns on a desktop and one on a phone, "
               "with a tag and a moving countdown per row")
     return 1 if fail else 0
-
 
 sys.exit(asyncio.run(main()))

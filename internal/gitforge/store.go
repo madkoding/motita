@@ -162,7 +162,8 @@ func (s Store) Accounts() []Account {
 	var out []Account
 	for _, svc := range s.All() {
 		a := Account{Service: svc}
-		if cred, err := oauth.LoadCredential(s.Dir, s.key(svc)); err == nil && (cred.AccessToken != "" || cred.RefreshToken != "") {
+		if cred, err := oauth.LoadCredential(s.Dir, s.key(svc)); err == nil &&
+			(cred.AccessToken != "" || cred.RefreshToken != "") {
 			a.Connected, a.Username = true, cred.Username
 		}
 		out = append(out, a)

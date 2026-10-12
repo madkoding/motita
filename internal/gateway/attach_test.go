@@ -2,14 +2,11 @@ package gateway
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -51,6 +48,8 @@ func firstEvents(t *testing.T, srv *Server, path string, n int) []event {
 			name = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
 			out = append(out, event{name, strings.TrimPrefix(line, "data: ")})
+		default:
+			// Blank separators and comment lines carry nothing to collect.
 		}
 	}
 	return out
@@ -144,7 +143,12 @@ func startInBackground(t *testing.T, srv *Server, id, path, body string) context
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.BaseURL()+sessionPath(srv, id, path), strings.NewReader(body))
+		req, _ := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			srv.BaseURL()+sessionPath(srv, id, path),
+			strings.NewReader(body),
+		)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		req.Header.Set("Accept", "text/event-stream")
 		if resp, err := http.DefaultClient.Do(req); err == nil {
@@ -164,17 +168,20 @@ func startInBackground(t *testing.T, srv *Server, id, path, body string) context
 // number and is told the rest, which is what makes a client a remote control.
 func TestARunSurvivesItsClientAndCanBeWatchedFromWhereItWas(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		for i := 0; i < 3; i++ {
-			progress("line %d", i)
-		}
-		select {
-		case <-release:
-			return "late result", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			for i := 0; i < 3; i++ {
+				progress("line %d", i)
+			}
+			select {
+			case <-release:
+				return "late result", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	waitForLog(t, srv, DefaultSession, 3)
@@ -198,7 +205,11 @@ func TestARunSurvivesItsClientAndCanBeWatchedFromWhereItWas(t *testing.T) {
 	}
 
 	if len(events) < 4 {
-		t.Fatalf("the reattached client received %d events, the preamble and the three lines must be there: %+v", len(events), events)
+		t.Fatalf(
+			"the reattached client received %d events, the preamble and the three lines must be there: %+v",
+			len(events),
+			events,
+		)
 	}
 	if events[0].Event != EventAttached {
 		t.Fatalf("the first frame is %q, a joining client must be told what it joined", events[0].Event)
@@ -228,15 +239,18 @@ func TestARunSurvivesItsClientAndCanBeWatchedFromWhereItWas(t *testing.T) {
 // what comes NEXT rather than the history again, and still sees the end.
 func TestTheReattachedClientSeesTheRunReachItsEnd(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("working")
-		select {
-		case <-release:
-			return "the result", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("working")
+			select {
+			case <-release:
+				return "the result", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	waitForLog(t, srv, DefaultSession, 1)
@@ -279,10 +293,13 @@ func TestTheReattachedClientSeesTheRunReachItsEnd(t *testing.T) {
 // The wire is read RAW rather than parsed: a parser that dropped the `id:` line would hide the very
 // field being checked.
 func TestEveryEventCarriesItsSequenceNumber(t *testing.T) {
-	srv := newTestServer(t, &fakeService{task: func(_ context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("one")
-		return "done", nil
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(_ context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("one")
+			return "done", nil
+		}},
+	)
 	raw := rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	// The preamble is not part of the numbering and carries 0; the run's own events start at 1, so
 	// this turn (one progress line and the done) is numbered 1 and 2.
@@ -326,18 +343,21 @@ func rawStream(t *testing.T, srv *Server, method, path, body string) string {
 // preamble is where the gateway says so.
 func TestTheReattachingClientIsToldWhatItMissed(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		// Overfill the log, so there really is a gap to report.
-		for i := 0; i < maxLoggedEvents+10; i++ {
-			progress("line %d", i)
-		}
-		select {
-		case <-release:
-			return "done", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			// Overfill the log, so there really is a gap to report.
+			for i := 0; i < maxLoggedEvents+10; i++ {
+				progress("line %d", i)
+			}
+			select {
+			case <-release:
+				return "done", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	// Wait for the EVICTION, not merely for the run: the gap is what is being reported.
@@ -486,15 +506,18 @@ func TestASequenceNumberPastTheEndReplaysNothing(t *testing.T) {
 // costs one JSON reply. Opening a stream to find out would be a stream to close immediately.
 func TestTheRunStatusReportsWhatIsRunning(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("working")
-		select {
-		case <-release:
-			return "done", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("working")
+			select {
+			case <-release:
+				return "done", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	defer cancel()
@@ -538,10 +561,13 @@ func TestTheStatusOfANonRunningSessionIsNotFound(t *testing.T) {
 // run may be one they walked away from and came back to. Cancelling is addressed to the
 // CONVERSATION, so it never depends on remembering a run id from an earlier connection.
 func TestAClientCanStopTheRunItIsNotWatching(t *testing.T) {
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
-		<-ctx.Done()
-		return "", ctx.Err()
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	defer cancel()
@@ -576,16 +602,24 @@ func TestCancellingNothingIsReported(t *testing.T) {
 // on a socket the gateway has already finished with. And it is told it was CANCELLED rather than
 // that it failed, because cancelling is something the user asked for.
 func TestACancelledRunEndsItsStream(t *testing.T) {
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
-		<-ctx.Done()
-		return "", ctx.Err()
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}},
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan []event, 1)
 	go func() {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+		req, _ := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+			strings.NewReader(`{"task":"x"}`),
+		)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		req.Header.Set("Accept", "text/event-stream")
 		resp, err := (&http.Client{}).Do(req)
@@ -617,14 +651,10 @@ func TestACancelledRunEndsItsStream(t *testing.T) {
 
 // --- the question nobody was there to answer -----------------------------------------------------
 
-// TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach is the case that makes reconnection more than
-// a nicety.
-//
-// The approval BLOCKS the run, so a client that reconnects and is not told about it sits forever
-// watching a run that is waiting for the answer it will never give.
-func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
-	svc := &fakeService{}
-	svc.task = func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+// askBeforeCleaning is the run of the reattach test: it logs a line and then blocks on the
+// approval of a destructive command.
+func askBeforeCleaning(svc *fakeService) func(context.Context, string, func(string, ...any)) (string, error) {
+	return func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
 		// A turn does something before it asks, so the log has real history behind the question -
 		// which is what a client that reconnects actually finds waiting for it.
 		progress("about to clean the tree")
@@ -642,6 +672,43 @@ func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
 		}
 		return "the command ran", nil
 	}
+}
+
+// pendingPreamble decodes the attach preamble at the head of events and checks that it carries
+// the open question whole: its command, its reason and rule, and the id that answers it.
+func pendingPreamble(t *testing.T, events []event) attachedEvent {
+	t.Helper()
+	if events[0].Event != EventAttached {
+		t.Fatalf("no preamble: %+v", events)
+	}
+	var preamble attachedEvent
+	if err := json.Unmarshal([]byte(events[0].Data), &preamble); err != nil {
+		t.Fatalf("the preamble is not JSON: %v", err)
+	}
+	if preamble.PendingApproval == nil {
+		t.Fatal("the preamble does not carry the pending question, " +
+			"so the reattached client waits forever for an answer it is never asked for")
+	}
+	if preamble.PendingApproval.Command != "rm -rf ./build" {
+		t.Errorf("the pending question lost its command: %+v", preamble.PendingApproval)
+	}
+	if preamble.PendingApproval.Reason != "it deletes a directory" || preamble.PendingApproval.Rule != "destructive" {
+		t.Errorf("the pending question lost its reason or rule: %+v", preamble.PendingApproval)
+	}
+	if preamble.PendingApproval.ID == "" {
+		t.Fatal("the pending question has no id, so it cannot be answered")
+	}
+	return preamble
+}
+
+// TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach is the case that makes reconnection more than
+// a nicety.
+//
+// The approval BLOCKS the run, so a client that reconnects and is not told about it sits forever
+// watching a run that is waiting for the answer it will never give.
+func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
+	svc := &fakeService{}
+	svc.task = askBeforeCleaning(svc)
 	srv := newTestServer(t, svc)
 	conv := srv.sessions[DefaultSession]
 
@@ -665,25 +732,7 @@ func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
 	if len(events) < 2 {
 		t.Fatalf("events = %+v", events)
 	}
-	if events[0].Event != EventAttached {
-		t.Fatalf("no preamble: %+v", events)
-	}
-	var preamble attachedEvent
-	if err := json.Unmarshal([]byte(events[0].Data), &preamble); err != nil {
-		t.Fatalf("the preamble is not JSON: %v", err)
-	}
-	if preamble.PendingApproval == nil {
-		t.Fatal("the preamble does not carry the pending question, so the reattached client waits forever for an answer it is never asked for")
-	}
-	if preamble.PendingApproval.Command != "rm -rf ./build" {
-		t.Errorf("the pending question lost its command: %+v", preamble.PendingApproval)
-	}
-	if preamble.PendingApproval.Reason != "it deletes a directory" || preamble.PendingApproval.Rule != "destructive" {
-		t.Errorf("the pending question lost its reason or rule: %+v", preamble.PendingApproval)
-	}
-	if preamble.PendingApproval.ID == "" {
-		t.Fatal("the pending question has no id, so it cannot be answered")
-	}
+	preamble := pendingPreamble(t, events)
 	// The line emitted before the question is replayed too, so the client sees what led to it.
 	if !strings.Contains(events[1].Data, "about to clean") {
 		t.Errorf("the replay does not carry the line before the question: %+v", events)
@@ -720,539 +769,5 @@ func TestAPreambleWithoutAQuestionSaysNothingAboutOne(t *testing.T) {
 	}
 	if strings.Contains(events[0].Data, "pending_approval") {
 		t.Errorf("the preamble mentions an approval although nothing is being asked: %s", events[0].Data)
-	}
-}
-
-// --- the log, at the level the run owns it -------------------------------------------------------
-
-// TestAQueuedEventIsHandedOverWhenTheRunEnds: an event can reach the subscriber's channel without
-// being in the replay - it is appended after `since` read the log, or it is dropped from the replay
-// because the client already had it. If nothing drained the queue, the run's `done` would be
-// selected first and the event would be stranded: the client would be told the turn finished
-// without ever being shown its last line.
-//
-// This drives the branch attach takes when it sees `done`, which is the only place the queue is
-// drained for an event the replay did not carry.
-func TestAQueuedEventIsHandedOverWhenTheRunEnds(t *testing.T) {
-	rn := newTestRun()
-	sub := rn.subscribe()
-	defer rn.unsubscribe(sub)
-	rn.append(EventProgress, progressEvent{Text: "queued"})
-	rn.finish("done", "the result", "", session.Snapshot{})
-
-	// The client says it already had seq 1, so the replay is empty and the queue holds the only
-	// copy of that event.
-	replay, _ := rn.since(1)
-	if len(replay) != 0 {
-		t.Fatalf("the replay should be empty, got %+v", replay)
-	}
-	var out bytes.Buffer
-	fw := &flushableBuffer{&out}
-	// `after` is where the replay stopped as far as this client is concerned: 1.
-	if err := rn.drainFrom(fw, http.NewResponseController(fw), sub, 0); err != nil {
-		t.Fatalf("drainFrom: %v", err)
-	}
-	if !strings.Contains(out.String(), "queued") {
-		t.Errorf("the queued event was not handed over: %q", out.String())
-	}
-}
-
-// TestDrainingSkipsWhatTheReplayAlreadyCarried: the same event can be in the replay AND in the
-// queue, and sending it twice would make the client render one line as two. The sequence number is
-// what tells them apart.
-func TestDrainingSkipsWhatTheReplayAlreadyCarried(t *testing.T) {
-	rn := newTestRun()
-	sub := rn.subscribe()
-	defer rn.unsubscribe(sub)
-	rn.append(EventProgress, progressEvent{Text: "already replayed"})
-
-	_, info := rn.since(0)
-	var out bytes.Buffer
-	fw := &flushableBuffer{&out}
-	if err := rn.drainFrom(fw, http.NewResponseController(fw), sub, info.LastSeq); err != nil {
-		t.Fatalf("drainFrom: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Errorf("an event the replay already carried was sent again: %q", out.String())
-	}
-}
-
-// TestDrainingStopsOnAFailedWrite: draining writes what is left, and a write that fails ends it.
-// Retrying into a socket that is gone would spin for a client that is never coming back.
-func TestDrainingStopsOnAFailedWrite(t *testing.T) {
-	rn := newTestRun()
-	sub := rn.subscribe()
-	defer rn.unsubscribe(sub)
-	rn.append(EventProgress, progressEvent{Text: "one"})
-
-	rc := http.NewResponseController(noFlushWriter{})
-	if err := rn.drainFrom(noFlushWriter{}, rc, sub, 0); err == nil {
-		t.Error("a failed write while draining must be reported, so the caller stops")
-	}
-}
-
-// TestAReaderThatCannotKeepUpIsToldAndDetached: the subscriber's buffer fills when the run outruns
-// the reader, and the honest answer is to CUT IT OFF and say so. Dropping events would leave the
-// client rendering a stream with invisible holes; being told lets it reconnect from its last
-// sequence number and be given the rest.
-func TestAReaderThatCannotKeepUpIsToldAndDetached(t *testing.T) {
-	rn := newTestRun()
-	sub := rn.subscribe()
-	defer rn.unsubscribe(sub)
-
-	// Nobody is reading the channel, so the run outruns it.
-	for i := 0; i < subscriberBuffer+1; i++ {
-		rn.append(EventProgress, progressEvent{Text: "line"})
-	}
-
-	select {
-	case <-sub.lost:
-	case <-time.After(5 * time.Second):
-		t.Fatal("a reader that could not keep up was never told, so it would render a stream with holes")
-	}
-	// And nothing was lost: the events are in the log for whoever attaches next.
-	if replay, _ := rn.since(0); len(replay) != subscriberBuffer+1 {
-		t.Errorf("the log holds %d events, none may be lost when a reader is cut off", len(replay))
-	}
-}
-
-// --- a connection that fails part-way ------------------------------------------------------------
-//
-// The write order inside attach is: 1 the ": connected" line, 2 the preamble, then the replay, then
-// whatever was queued, then the live events.
-//
-// Every test below drives a WRITE that fails, and a real socket cannot be asked to die on demand.
-// scriptedWriter is a connection told which write to fail or block, which is the only way to reach
-// these paths - and an error path nothing can provoke is an error path that rots.
-
-// scriptedWriter is a connection whose body writes can be made to fail or to block.
-//
-// It implements Flush, so http.ResponseController accepts it and the handler goes on to the NEXT
-// write: without that, the stream would stop at the headers and everything below would be
-// unreachable.
-type scriptedWriter struct {
-	mu  sync.Mutex
-	n   int
-	buf bytes.Buffer
-	// failAt is the write that fails, counted from 1. Zero never fails.
-	failAt int
-	// blockAt is the write after which to wait for release. Zero never blocks.
-	blockAt int
-	release chan struct{}
-}
-
-func (s *scriptedWriter) Header() http.Header { return http.Header{} }
-
-func (s *scriptedWriter) WriteHeader(int) {}
-
-func (s *scriptedWriter) Flush() {}
-
-func (s *scriptedWriter) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	s.n++
-	n := s.n
-	s.mu.Unlock()
-
-	// The lock is NOT held while blocking: the test has to be able to look at the writer, and a
-	// lock held across a wait is a deadlock waiting for a slow machine.
-	if s.blockAt != 0 && n >= s.blockAt && s.release != nil {
-		<-s.release
-	}
-	if s.failAt != 0 && n == s.failAt {
-		return 0, fmt.Errorf("the connection is gone")
-	}
-	s.mu.Lock()
-	s.buf.Write(p)
-	s.mu.Unlock()
-	return len(p), nil
-}
-
-func (s *scriptedWriter) body() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.buf.String()
-}
-
-// writeCount is how many writes have been made, for a test waiting for the handler to get somewhere.
-func (s *scriptedWriter) writeCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.n
-}
-
-// attachInBackground runs attach against a scripted writer and reports when it returned.
-func attachInBackground(t *testing.T, srv *Server, conv *conversation, rn *run, w http.ResponseWriter) <-chan struct{} {
-	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		req := httptest.NewRequest(http.MethodGet, sessionPath(srv, DefaultSession, "/events"), nil)
-		srv.attach(w, req, conv, rn, 0)
-	}()
-	return done
-}
-
-// waitForWrites blocks until the writer has been written to at least n times.
-func waitForWrites(t *testing.T, w *scriptedWriter, n int) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if w.writeCount() >= n {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatalf("the handler only made %d writes, it never reached %d", w.writeCount(), n)
-}
-
-// TestTheStreamStopsWhenTheClientIsGoneAtThePreamble: a client that vanished between the headers and
-// the first event is a reader that failed, and the handler must let it go. The RUN is untouched -
-// that is the property the whole design is for.
-func TestTheStreamStopsWhenTheClientIsGoneAtThePreamble(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	conv := srv.sessions[DefaultSession]
-	rn := newTestRun()
-	rn.append(EventProgress, progressEvent{Text: "one"})
-
-	done := attachInBackground(t, srv, conv, rn, &scriptedWriter{failAt: 2})
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("attach never returned after its preamble could not be written")
-	}
-	if _, _, _, finished := rn.outcomeOf(); finished {
-		t.Error("a failed write finished the run, which is a statement about the reader and not the turn")
-	}
-	// The event is in the log, which is what makes the failed reader recoverable.
-	if replay, _ := rn.since(0); len(replay) != 1 {
-		t.Errorf("the log holds %d events, the one nobody could be sent must stay", len(replay))
-	}
-}
-
-// TestTheStreamStopsWhenAReplayedEventCannotBeWritten: the replay is a loop of writes and the
-// connection can die in the middle of it. The handler stops at the first failure instead of pushing
-// the rest into a socket that is gone.
-func TestTheStreamStopsWhenAReplayedEventCannotBeWritten(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	conv := srv.sessions[DefaultSession]
-	rn := newTestRun()
-	rn.append(EventProgress, progressEvent{Text: "one"})
-
-	// 3 is the first replayed event: 1 the connection line, 2 the preamble.
-	done := attachInBackground(t, srv, conv, rn, &scriptedWriter{failAt: 3})
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("attach never returned after a replayed event could not be written")
-	}
-}
-
-// TestTheStreamStopsWhenALiveEventCannotBeWritten: the steady state of a run is events arriving and
-// being written out. A connection that dies there is the commonest way a client goes away, and the
-// handler must return rather than keep writing into nothing.
-func TestTheStreamStopsWhenALiveEventCannotBeWritten(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	conv := srv.sessions[DefaultSession]
-	rn := newTestRun()
-
-	// Nothing to replay and nothing queued, so 3 is the first LIVE event. The test waits for the
-	// preamble before appending, so the handler really is in its read loop.
-	w := &scriptedWriter{failAt: 3}
-	done := attachInBackground(t, srv, conv, rn, w)
-	waitForWrites(t, w, 2)
-	rn.append(EventProgress, progressEvent{Text: "live"})
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("attach never returned after a live event could not be written")
-	}
-}
-
-// TestAReaderCutOffWhileAttachedIsToldAndReleased: the run cuts a slow reader off, and the handler
-// has to act on it - write the refusal that tells the client it can reconnect, and return. Left
-// alone, the reader would sit on a socket for a run it will never be told about again.
-func TestAReaderCutOffWhileAttachedIsToldAndReleased(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	conv := srv.sessions[DefaultSession]
-	rn := newTestRun()
-
-	// The writer blocks on the preamble, so the handler is NOT reading its channel while the run
-	// fills it - which is what a stalled socket looks like, and the only way to make the run decide
-	// the reader cannot keep up.
-	w := &scriptedWriter{blockAt: 2, release: make(chan struct{})}
-	done := attachInBackground(t, srv, conv, rn, w)
-	waitForWrites(t, w, 2)
-
-	// The handler has subscribed by now; overfilling the queue is what triggers the cut-off.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && rn.subscriberCount() == 0 {
-		time.Sleep(time.Millisecond)
-	}
-	for i := 0; i < subscriberBuffer+1; i++ {
-		rn.append(EventProgress, progressEvent{Text: "line"})
-	}
-	close(w.release)
-
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("a reader that was cut off was never released from its socket")
-	}
-	if !strings.Contains(w.body(), "fell behind") {
-		t.Errorf("the cut-off reader was not told why, so the client cannot reconnect knowingly: %q", w.body())
-	}
-	if n := rn.subscriberCount(); n != 0 {
-		t.Errorf("the run still holds %d subscribers after the handler returned", n)
-	}
-}
-
-// --- writers -------------------------------------------------------------------------------------
-
-// flushableBuffer is a writer that supports Flush, so a ResponseController around it really does
-// flush and the handler goes on to the NEXT write rather than stopping at the first one.
-type flushableBuffer struct{ b *bytes.Buffer }
-
-func (f *flushableBuffer) Header() http.Header         { return http.Header{} }
-func (f *flushableBuffer) WriteHeader(int)             {}
-func (f *flushableBuffer) Flush()                      {}
-func (f *flushableBuffer) Write(p []byte) (int, error) { return f.b.Write(p) }
-
-// TestWriteIfNewSkipsWhatTheReplayAlreadyCarried: the event can be in the replay AND in the queue,
-// and sending it twice would make the client render one line as two. The sequence number is what
-// tells the two cases apart - and this window is only a few nanoseconds wide on a real run, so it is
-// driven here rather than waited for.
-func TestWriteIfNewSkipsWhatTheReplayAlreadyCarried(t *testing.T) {
-	rn := newTestRun()
-
-	var out bytes.Buffer
-	fw := &flushableBuffer{&out}
-	rc := http.NewResponseController(fw)
-
-	// At or below the replay's last: already written, so it is skipped.
-	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 3, Event: EventProgress, Data: []byte(`{"text":"old"}`)}, 3); err != nil {
-		t.Fatalf("writeIfNew: %v", err)
-	}
-	if out.Len() != 0 {
-		t.Errorf("an event the replay already carried was written again: %q", out.String())
-	}
-
-	// Beyond it: this is the only copy the client will get, so it must be written.
-	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 4, Event: EventProgress, Data: []byte(`{"text":"new"}`)}, 3); err != nil {
-		t.Fatalf("writeIfNew: %v", err)
-	}
-	if !strings.Contains(out.String(), "new") || !strings.Contains(out.String(), "id: 4") {
-		t.Errorf("the queued event was not written: %q", out.String())
-	}
-}
-
-// A long turn must not be cut by a middlebox that decided an idle connection was dead.
-//
-// The failure this prevents is silent and misread as the RUN dying: a mobile carrier NAT commonly
-// drops a connection idle for 30 to 60 seconds, and a turn can easily run longer than that with
-// nothing to report. The client sees the stream close, reattaches, and the user loses the tail of
-// work that was still going - so this is asserted on the wire rather than trusted.
-func TestALongStreamIsKeptAlive(t *testing.T) {
-	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("working")
-		select {
-		case <-release:
-			return "the result", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}}, func(o *Options) { o.Heartbeat = 20 * time.Millisecond })
-	defer close(release)
-
-	// A run has to be IN FLIGHT: /events has nothing to stream otherwise, and a stream that
-	// never opens cannot show a keepalive.
-	startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
-	waitForLog(t, srv, DefaultSession, 1)
-
-	// Read until a keepalive arrives, or give up. The deadline is generous compared with the
-	// 20ms interval so a loaded machine does not make this fail for the wrong reason.
-	got := readUntil(t, srv, sessionPath(srv, DefaultSession, "/events"), ": keepalive", 5*time.Second)
-	if !strings.Contains(got, ": keepalive") {
-		t.Fatalf("a stream that outlives the heartbeat must carry keepalives, or a phone's "+
-			"connection is dropped silently. Got:\n%s", got)
-	}
-	// And the keepalive is a COMMENT: it must not consume a sequence number or appear as an
-	// event, because the numbering belongs to the run's log and a keepalive is not in it.
-	if strings.Contains(got, "event: ") && strings.Contains(got, "id: ") {
-		if idx := strings.Index(got, ": keepalive"); idx >= 0 && strings.Contains(got[:idx], "id: ") {
-			// A preamble may legitimately precede it; what must not happen is a keepalive being
-			// framed as an event.
-			if strings.Contains(got[:idx], "event: keepalive") {
-				t.Errorf("the keepalive was framed as an event: %s", got)
-			}
-		}
-	}
-	if strings.Contains(got, "event: keepalive") {
-		t.Errorf("the keepalive must be a comment, not an event: %s", got)
-	}
-}
-
-// readUntil opens a stream and reads it until the marker appears or the deadline passes, returning
-// what it read. The reading is done on another goroutine so the deadline actually bounds the wait:
-// a blocking Read in the test goroutine would make the test hang instead of fail.
-func readUntil(t *testing.T, srv *Server, path, marker string, within time.Duration) string {
-	t.Helper()
-	type chunk struct{ data string }
-	ch := make(chan chunk, 1)
-	go func() {
-		req, err := http.NewRequest(http.MethodGet, srv.BaseURL()+path, nil)
-		if err != nil {
-			ch <- chunk{}
-			return
-		}
-		req.Header.Set("Authorization", "Bearer "+testToken)
-		req.Header.Set("Accept", "text/event-stream")
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			ch <- chunk{}
-			return
-		}
-		defer resp.Body.Close()
-		var sb strings.Builder
-		buf := make([]byte, 512)
-		for {
-			n, err := resp.Body.Read(buf)
-			if n > 0 {
-				sb.Write(buf[:n])
-				if strings.Contains(sb.String(), marker) {
-					ch <- chunk{data: sb.String()}
-					return
-				}
-			}
-			if err != nil {
-				ch <- chunk{data: sb.String()}
-				return
-			}
-		}
-	}()
-	select {
-	case c := <-ch:
-		return c.data
-	case <-time.After(within):
-		return ""
-	}
-}
-
-// TestTheStreamStopsWhenTheKeepaliveCannotBeWritten: a connection that died during a quiet stretch
-// is exactly when the keepalive is the next thing written, so this is the commonest way the
-// heartbeat path ends. The handler must return rather than keep writing into nothing.
-//
-// The write count matters: 1 is the connection line and 2 is the preamble, so 3 is the keepalive,
-// because nothing else has been written - the run is deliberately silent.
-//
-// The body is asserted AFTER the failure to prove the count landed on the keepalive: a test that
-// fails on the wrong write passes for the wrong reason. The partial write is NOT recorded by the
-// failing writer, which is what makes the check meaningful rather than a tautology.
-func TestTheStreamStopsWhenTheKeepaliveCannotBeWritten(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Heartbeat = 10 * time.Millisecond })
-	conv := srv.sessions[DefaultSession]
-	rn := newTestRun()
-
-	w := &scriptedWriter{failAt: 3}
-	done := attachInBackground(t, srv, conv, rn, w)
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("attach never returned after its keepalive could not be written")
-	}
-	if strings.Contains(w.body(), ": keepalive") {
-		t.Fatalf("the keepalive was recorded, so the write did not fail where this test says: %q", w.body())
-	}
-	if !strings.Contains(w.body(), "event: attached") {
-		t.Fatalf("the preamble is missing, so the write count is off: %q", w.body())
-	}
-}
-
-// TestTheStreamStopsWhenTheKeepaliveCannotBeFlushed: writing the comment succeeded but pushing it
-// out did not, which is the same dead connection seen one layer lower. The handler must return
-// rather than keep writing into a socket that is not carrying anything.
-//
-// noFlushWriter is the existing stand-in for it: it accepts writes and cannot flush, which is how
-// every other flush failure in this package is produced.
-func TestTheStreamStopsWhenTheKeepaliveCannotBeFlushed(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Heartbeat = 10 * time.Millisecond })
-	conv := srv.sessions[DefaultSession]
-	rn := newTestRun()
-
-	// A LATE flush failure, not an immediate one: noFlushWriter cannot flush at all, so startStream
-	// fails on the very first flush and the keepalive is never reached. The flush that must fail
-	// here is the third - 1 is the connection line, 2 is the preamble, 3 is the keepalive.
-	w := &lateFlushFailure{failAt: 3}
-	done := attachInBackground(t, srv, conv, rn, w)
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("attach never returned after its keepalive could not be flushed")
-	}
-	if w.flushes != 3 {
-		t.Fatalf("the failure landed on flush %d, not on the keepalive, so this test does not "+
-			"assert what it says", w.flushes)
-	}
-}
-
-// lateFlushFailure accepts writes and fails on one specific FLUSH, which is the shape a connection
-// dying during a quiet stretch has: everything was written, and now nothing gets out.
-//
-// It implements FlushError rather than Flusher, because that is the method the standard library
-// consults first and the only one through which a flush can report an error at all.
-type lateFlushFailure struct {
-	flushes int
-	failAt  int
-}
-
-func (w *lateFlushFailure) Header() http.Header         { return http.Header{} }
-func (w *lateFlushFailure) WriteHeader(int)             {}
-func (w *lateFlushFailure) Write(p []byte) (int, error) { return len(p), nil }
-
-func (w *lateFlushFailure) FlushError() error {
-	w.flushes++
-	if w.flushes == w.failAt {
-		return fmt.Errorf("the connection is gone")
-	}
-	return nil
-}
-
-// TestAHeartbeatOfZeroIsOff: a negative interval is how a caller asks for a quiet stream, and it
-// must not be read as "use the default" - the two are one comparison apart and the difference is a
-// stream that keeps writing when the caller asked it not to.
-func TestAHeartbeatOfZeroIsOff(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Heartbeat = -1 })
-	if srv.heartbeat != 0 {
-		t.Fatalf("a negative heartbeat must mean OFF, got %s", srv.heartbeat)
-	}
-	// A caller who says nothing gets the default, and it is a real interval.
-	other := newTestServer(t, &fakeService{})
-	if other.heartbeat != defaultHeartbeat {
-		t.Fatalf("an unset heartbeat = %s, want %s", other.heartbeat, defaultHeartbeat)
-	}
-}
-
-// TestTheDoneEventCarriesTheStructuredReport: a front end lays the answer out from FIELDS, so the
-// done event has to carry them next to the flat text, and a plan (which has no report) must not
-// borrow the task's.
-func TestTheDoneEventCarriesTheStructuredReport(t *testing.T) {
-	rep := &agent.Report{Version: agent.ReportVersion, Status: "done", Summary: "added Foo",
-		Verification: []agent.ReportCheck{{Check: "go test", Result: "pass", Evidence: "3 passed"}}}
-	svc := &fakeService{structured: rep, task: func(context.Context, string, func(string, ...any)) (string, error) {
-		return "added Foo", nil
-	}, plan: func(context.Context, string, func(string, ...any)) (string, error) { return "a plan", nil }}
-	srv := newTestServer(t, svc)
-
-	raw := rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
-	for _, want := range []string{`"report":{"version":1,"status":"done"`, `"check":"go test"`, `"evidence":"3 passed"`} {
-		if !strings.Contains(raw, want) {
-			t.Errorf("the done event lacks %s:\n%s", want, raw)
-		}
-	}
-	raw = rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"x"}`)
-	if strings.Contains(raw, `"report"`) {
-		t.Errorf("a plan must not carry a task report:\n%s", raw)
 	}
 }

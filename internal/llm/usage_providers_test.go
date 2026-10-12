@@ -91,7 +91,11 @@ func TestARefusedReplyWasStillBilled(t *testing.T) {
 }
 
 func TestAStreamWithUsageOnItsLastChunkIsRead(t *testing.T) {
-	srv := sseServer(t, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}],"+openAIUsageJSON+"}\n\n", http.StatusOK)
+	srv := sseServer(
+		t,
+		"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}],"+openAIUsageJSON+"}\n\n",
+		http.StatusOK,
+	)
 	c := clientFor(t, srv.URL, nil)
 	ctx, m := metered()
 	var reply Reply
@@ -159,7 +163,8 @@ func TestOpenAIIsAskedForTheUsageOfAStream(t *testing.T) {
 	})
 	ctx, m := metered()
 	reply := streamReply(t, c, ctx)
-	if want := (Usage{Input: 10, Output: 3, CacheRead: 2}); reply.Usage != want || m.Usage() != want || reply.Content != "hi" {
+	if want := (Usage{Input: 10, Output: 3, CacheRead: 2}); reply.Usage != want || m.Usage() != want ||
+		reply.Content != "hi" {
 		t.Errorf("reply %+v meter %+v", reply, m.Usage())
 	}
 	opts, _ := (*bodies)[0]["stream_options"].(map[string]any)
@@ -200,7 +205,11 @@ func TestOtherOpenAICompatibleServersAreNotAskedForUsage(t *testing.T) {
 
 func TestAnthropicCallsRecordTheirUsage(t *testing.T) {
 	cap := &captureServer{}
-	srv := cap.start(t, `{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":4,"output_tokens":2,"cache_read_input_tokens":1,"cache_creation_input_tokens":8}}`)
+	srv := cap.start(
+		t,
+		`{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":4,"output_tokens":2,"cache_read_input_tokens":1,`+
+			`"cache_creation_input_tokens":8}}`,
+	)
 	c := clientFor(t, srv.URL, func(cfg *config.LLM) { cfg.Provider = "anthropic" })
 	ctx, m := metered()
 	if _, err := c.Complete(ctx, hi); err != nil {
@@ -223,7 +232,11 @@ func TestAnthropicCallsRecordTheirUsage(t *testing.T) {
 
 func TestGeminiCallsRecordTheirUsage(t *testing.T) {
 	cap := &captureServer{}
-	srv := cap.start(t, `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":2,"cachedContentTokenCount":4,"thoughtsTokenCount":1}}`)
+	srv := cap.start(
+		t,
+		`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,`+
+			`"candidatesTokenCount":2,"cachedContentTokenCount":4,"thoughtsTokenCount":1}}`,
+	)
 	c := clientFor(t, srv.URL, func(cfg *config.LLM) { cfg.Provider = "gemini" })
 	ctx, m := metered()
 	if _, err := c.Complete(ctx, hi); err != nil {
@@ -241,7 +254,8 @@ func TestGeminiCallsRecordTheirUsage(t *testing.T) {
 
 func TestResponsesStreamRecordsItsUsage(t *testing.T) {
 	c := codexStream(t, `data: {"type":"response.output_text.delta","delta":"hi"}`+"\n"+
-		`data: {"type":"response.completed","response":{"usage":{"input_tokens":20,"output_tokens":5,"input_tokens_details":{"cached_tokens":15}}}}`+"\n", nil)
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":20,"output_tokens":5,`+
+		`"input_tokens_details":{"cached_tokens":15}}}}`+"\n", nil)
 	ctx, m := metered()
 	reply, err := c.callResponses(ctx, hi, nil)
 	if err != nil {
@@ -254,7 +268,11 @@ func TestResponsesStreamRecordsItsUsage(t *testing.T) {
 }
 
 func usageDelta(stop string, u string) string {
-	return fmt.Sprintf(`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":%q},"usage":%s}}`, stop, u)
+	return fmt.Sprintf(
+		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":%q},"usage":%s}}`,
+		stop,
+		u,
+	)
 }
 
 // TestClaudeCodeAddsUpTheMessagesOfATurn: a turn that ends at message_stop is never followed by a
@@ -299,7 +317,11 @@ func TestClaudeCodeTakesTheTurnTotalsFromItsResult(t *testing.T) {
 
 // TestAFailedClaudeTurnRecordsNothing: an error is not a reply, and there is no total to record.
 func TestAFailedClaudeTurnRecordsNothing(t *testing.T) {
-	c, _ := claudeTestClient(t, lines(`{"type":"result","subtype":"error_during_execution","is_error":true,"usage":{"input_tokens":5}}`), nil)
+	c, _ := claudeTestClient(
+		t,
+		lines(`{"type":"result","subtype":"error_during_execution","is_error":true,"usage":{"input_tokens":5}}`),
+		nil,
+	)
 	ctx, m := metered()
 	if _, err := c.CompleteTools(ctx, hi, nil); err == nil {
 		t.Fatal("a failed turn must fail")

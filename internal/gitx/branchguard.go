@@ -152,27 +152,40 @@ func parseWorktreeList(out string) ([]Worktree, error) {
 			continue
 		}
 		key, value, _ := strings.Cut(line, " ")
-		switch key {
-		case "worktree":
+		if key == "worktree" {
 			flush()
 			cur = &Worktree{Path: value}
-		case "branch":
-			if cur == nil {
-				return nil, errors.New("the worktree listing named a branch before naming a worktree")
-			}
-			cur.Branch = strings.TrimPrefix(value, "refs/heads/")
-		case "detached":
-			if cur == nil {
-				return nil, errors.New("the worktree listing named a detached checkout before naming a worktree")
-			}
-			cur.Detached = true
-		case "prunable":
-			if cur == nil {
-				return nil, errors.New("the worktree listing named a prunable registration before naming a worktree")
-			}
-			cur.Prunable = true
+			continue
+		}
+		if err := applyWorktreeAttr(cur, key, value); err != nil {
+			return nil, err
 		}
 	}
 	flush()
 	return list, nil
+}
+
+// applyWorktreeAttr records one attribute line of a worktree listing on cur, the worktree it
+// belongs to. An attribute before any worktree line is an error: it belongs to nobody.
+func applyWorktreeAttr(cur *Worktree, key, value string) error {
+	switch key {
+	case "branch":
+		if cur == nil {
+			return errors.New("the worktree listing named a branch before naming a worktree")
+		}
+		cur.Branch = strings.TrimPrefix(value, "refs/heads/")
+	case "detached":
+		if cur == nil {
+			return errors.New("the worktree listing named a detached checkout before naming a worktree")
+		}
+		cur.Detached = true
+	case "prunable":
+		if cur == nil {
+			return errors.New("the worktree listing named a prunable registration before naming a worktree")
+		}
+		cur.Prunable = true
+	default:
+		// HEAD, locked and any other attribute are not needed.
+	}
+	return nil
 }

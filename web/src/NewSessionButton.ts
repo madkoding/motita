@@ -14,6 +14,30 @@ import { h } from 'preact'
  * Written with `h` rather than JSX so the node test can import it directly: the
  * test runner strips types but does not transform JSX.
  */
+// The plus is drawn smaller and with a bolder stroke in the compact button.
+const PLUS_FULL = { size: 16, stroke: 2 }
+const PLUS_COMPACT = { size: 12, stroke: 2.5 }
+
+// buttonIcon is the spinner while the session is being created, the plus otherwise.
+function buttonIcon(loading: boolean, compact = false) {
+  if (loading) { return h('span', { class: 'btn-spinner', 'aria-hidden': 'true' }) }
+  let plus = PLUS_FULL
+  if (compact) { plus = PLUS_COMPACT }
+  return h('svg', {
+    width: plus.size,
+    height: plus.size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': plus.stroke,
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  },
+  h('line', { x1: 12, y1: 5, x2: 12, y2: 19 }),
+  h('line', { x1: 5, y1: 12, x2: 19, y2: 12 }),
+  )
+}
+
 export function NewSessionButton({ loading, onClick, compact, title, label }: {
   loading: boolean
   onClick: (e: MouseEvent) => void
@@ -21,21 +45,7 @@ export function NewSessionButton({ loading, onClick, compact, title, label }: {
   title?: string
   label?: string
 }) {
-  const icon = loading
-    ? h('span', { class: 'btn-spinner', 'aria-hidden': 'true' })
-    : h('svg', {
-        width: compact ? 12 : 16,
-        height: compact ? 12 : 16,
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': compact ? 2.5 : 2,
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-      },
-      h('line', { x1: 12, y1: 5, x2: 12, y2: 19 }),
-      h('line', { x1: 5, y1: 12, x2: 19, y2: 12 }),
-    )
+  const icon = buttonIcon(loading, compact)
 
   if (compact) {
     return h('button', {

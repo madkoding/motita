@@ -204,6 +204,8 @@ func waitForEvent(t *testing.T, resp *http.Response, want string) string {
 					found <- strings.TrimPrefix(line, "data: ")
 					return
 				}
+			default:
+				// Blank separators and comment lines carry nothing to collect.
 			}
 		}
 	}()

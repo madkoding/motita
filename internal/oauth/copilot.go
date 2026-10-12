@@ -214,7 +214,9 @@ func CopilotRefreshCredential(ctx context.Context, client HTTPClient, old Creden
 // The interval between polls is taken from the device code response (default
 // 5s) and grows when GitHub answers slow_down. The function blocks until the
 // user authorises, denies, or the code expires.
-func CopilotFullFlow(ctx context.Context, client HTTPClient, cfg CopilotConfig, onCode func(DeviceCode), onPoll func()) (CopilotAuthResult, error) {
+func CopilotFullFlow(
+	ctx context.Context, client HTTPClient, cfg CopilotConfig, onCode func(DeviceCode), onPoll func(),
+) (CopilotAuthResult, error) {
 	dc, err := CopilotRequestDeviceCode(ctx, client, cfg)
 	if err != nil {
 		return CopilotAuthResult{}, err

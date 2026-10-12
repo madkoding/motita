@@ -214,7 +214,8 @@ func TestSaveSkillReportsWhatItRefused(t *testing.T) {
 	lib.MaxFileBytes = 32
 	p := (&Planner{}).WithLibrary(lib)
 
-	if got := p.toolSaveSkill(raw(`{"name":"x","body":"` + strings.Repeat("a", 200) + `"}`)); !strings.Contains(got, "Error") {
+	oversized := raw(`{"name":"x","body":"` + strings.Repeat("a", 200) + `"}`)
+	if got := p.toolSaveSkill(oversized); !strings.Contains(got, "Error") {
 		t.Errorf("an oversized skill must be refused:\n%s", got)
 	}
 	if got := p.toolSaveSkill(raw(`{"name":"x","body":"   "}`)); !strings.Contains(got, "Error") {
@@ -522,49 +523,41 @@ func TestSearchSkillsDoesNotCountAsUse(t *testing.T) {
 // save, agent when the review fork is doing it.
 func TestSaveSkillBumpsPatchUsageWhenLedgerIsSet(t *testing.T) {
 	t.Run("foreground", func(t *testing.T) {
-		l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
-		if err != nil {
-			t.Fatalf("opening usage ledger: %v", err)
-		}
-		p := (&Planner{}).
-			WithLibrary(skills.New(t.TempDir())).
-			WithUsage(l)
-
-		got := p.toolSaveSkill(raw(`{"name":"my-skill","body":"# My Skill\n\ndo stuff\n"}`))
-		if !strings.Contains(got, "Saved") {
-			t.Fatalf("the save must still succeed:\n%s", got)
-		}
-		e := l.Get("my-skill")
-		if e.PatchCount == 0 {
-			t.Error("saving a skill must bump the patch counter")
-		}
-		if e.CreatedBy != usage.ByForeground {
-			t.Errorf("created_by = %q, want %q", e.CreatedBy, usage.ByForeground)
-		}
+		checkSaveSkillUsage(t, false, "my-skill",
+			`{"name":"my-skill","body":"# My Skill\n\ndo stuff\n"}`, usage.ByForeground)
 	})
 
 	t.Run("agent", func(t *testing.T) {
-		l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
-		if err != nil {
-			t.Fatalf("opening usage ledger: %v", err)
-		}
-		p := (&Planner{}).
-			WithLibrary(skills.New(t.TempDir())).
-			WithUsage(l)
-		p.IsReviewFork = true
-
-		got := p.toolSaveSkill(raw(`{"name":"agent-skill","body":"# Agent Skill\n\ndo stuff\n"}`))
-		if !strings.Contains(got, "Saved") {
-			t.Fatalf("the save must still succeed:\n%s", got)
-		}
-		e := l.Get("agent-skill")
-		if e.PatchCount == 0 {
-			t.Error("saving a skill must bump the patch counter")
-		}
-		if e.CreatedBy != usage.ByAgent {
-			t.Errorf("created_by = %q, want %q", e.CreatedBy, usage.ByAgent)
-		}
+		checkSaveSkillUsage(t, true, "agent-skill",
+			`{"name":"agent-skill","body":"# Agent Skill\n\ndo stuff\n"}`, usage.ByAgent)
 	})
+}
+
+// checkSaveSkillUsage saves a skill through a planner with a usage ledger (a review fork or
+// not) and checks the ledger counted the patch and who made it.
+func checkSaveSkillUsage(t *testing.T, reviewFork bool, name, args string, want usage.CreatedBy) {
+	l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
+	if err != nil {
+		t.Fatalf("opening usage ledger: %v", err)
+	}
+	p := (&Planner{}).
+		WithLibrary(skills.New(t.TempDir())).
+		WithUsage(l)
+	if reviewFork {
+		p.IsReviewFork = true
+	}
+
+	got := p.toolSaveSkill(raw(args))
+	if !strings.Contains(got, "Saved") {
+		t.Fatalf("the save must still succeed:\n%s", got)
+	}
+	e := l.Get(name)
+	if e.PatchCount == 0 {
+		t.Error("saving a skill must bump the patch counter")
+	}
+	if e.CreatedBy != want {
+		t.Errorf("created_by = %q, want %q", e.CreatedBy, want)
+	}
 }
 
 // TestRunTriggersReviewAfterFinalAnswer: when a review fork is installed, Run
@@ -590,7 +583,8 @@ func TestRunTriggersReviewAfterFinalAnswer(t *testing.T) {
 // safety-net Complete call that forces the final answer.
 func TestRunTriggersReviewAfterForcedAnswer(t *testing.T) {
 	a, _ := makeAgent(t, true)
-	call := llm.ToolCall{ID: "c1", Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
+	call := llm.ToolCall{ID: "c1",
+		Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
 	engine := &fakeEngine{
 		chunks: []llm.StreamChunk{{Event: llm.StreamToolCall, Call: &call}},
 	}

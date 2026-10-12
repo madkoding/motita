@@ -48,7 +48,10 @@ func drawn(ui *TUI) string {
 }
 
 func TestArtifactsListsTheFiles(t *testing.T) {
-	ui := artifactTUI(&artifactRunner{list: []ArtifactInfo{{Name: "report.md", Type: "text/markdown", Size: 4096}, {Name: "tiny.txt", Type: "text/plain", Size: 3}}})
+	ui := artifactTUI(
+		&artifactRunner{
+			list: []ArtifactInfo{{Name: "report.md", Type: "text/markdown", Size: 4096},
+				{Name: "tiny.txt", Type: "text/plain", Size: 3}}})
 	ui.artifactsCommand(context.Background(), "")
 	out := drawn(ui)
 	if !strings.Contains(out, "report.md") || !strings.Contains(out, "4 KB") || !strings.Contains(out, "1 KB") {

@@ -5,12 +5,9 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -94,10 +91,12 @@ type AgentRunner interface {
 // place that knows: a run started from the TUI has one, a task piped in from a script does not,
 // and the agent behaves differently — it asks when it can, and proceeds on its stated assumption
 // when there is nobody to ask.
-type agentFactory func(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source taskpkg.Source, interactive bool) AgentRunner
+type agentFactory func(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox,
+	source taskpkg.Source, interactive bool) AgentRunner
 
 // defaultAgentFactory uses the real agent package.
-func defaultAgentFactory(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source taskpkg.Source, interactive bool) AgentRunner {
+func defaultAgentFactory(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox,
+	source taskpkg.Source, interactive bool) AgentRunner {
 	ag := agent.New(cfg, log, engine, box, source)
 	ag.Interactive = interactive
 	return ag
@@ -181,6 +180,9 @@ type AppRunner struct {
 	// swap it. Guarded by sessionMu, like the session it edits.
 	containerRuntime string
 	runtimeNote      string
+	// projectNote is what the gateway tells the agent about the project's other repositories,
+	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
+	projectNote string
 
 	// rewardMu guards the last attribution.
 	//
@@ -198,7 +200,8 @@ type AppRunner struct {
 }
 
 // NewAppRunner creates the production runner.
-func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) *AppRunner {
+func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox,
+	log *logx.Logger) *AppRunner {
 	return &AppRunner{
 		Out: out, Err: errs, Cfg: cfg, Engine: engine, Box: box, Log: log,
 		newAgent:     defaultAgentFactory,
@@ -271,7 +274,10 @@ func installApproverOn(ag AgentRunner, fn agent.Approver) {
 // runner's installed one, because that one belongs to whichever run is in flight and a shell
 // command typed meanwhile must not borrow its question.
 func (r *AppRunner) RunShell(ctx context.Context, command string, approver agent.Approver) (string, int, error) {
-	ag := r.newAgent(r.Config(), r.Log, r.Engine, r.Box, nil, true)
+	r.cfgMu.Lock()
+	cfg, engine := r.Cfg, r.Engine
+	r.cfgMu.Unlock()
+	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
 	installApproverOn(ag, approver)
 	return ag.RunCommand(ctx, command)
 }
@@ -297,7 +303,12 @@ func (r *AppRunner) Config() config.Config {
 // the model was still asked at the old one - measured on a served gateway, `POST
 // /sessions/{id}/reasoning high` left the body sent upstream at `reasoning_effort: "medium"`,
 // while the same level through PATCH /config (which calls SetLLM first) arrived as "high".
+//
+// Both setters take cfgMu: a front end calls them while a turn of the same session may be reading
+// the configuration, and a model or level written without the lock was a data race.
 func (r *AppRunner) SetReasoning(level string) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
 	r.Cfg.LLM.Reasoning.Level = level
 	r.Cfg.LLM.Reasoning.Enabled = level != "off"
 	r.Engine = nil
@@ -309,6 +320,8 @@ func (r *AppRunner) SetReasoning(level string) {
 // changes, so a caller that reads it back does not get the one built from the old
 // settings.
 func (r *AppRunner) SetLLM(provider, model string) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
 	if provider != "" && !strings.EqualFold(provider, r.Cfg.LLM.Provider) {
 		r.switchEndpoint(provider)
 		r.Cfg.LLM.Provider = provider
@@ -320,7 +333,7 @@ func (r *AppRunner) SetLLM(provider, model string) {
 	}
 }
 
-// switchEndpoint moves the key and the base URL along with a provider switch.
+// switchEndpoint moves the key and the base URL along with a provider switch. Called with cfgMu held.
 //
 // They used to stay behind: switching from openai to anthropic in the model picker sent the
 // next request to api.openai.com with the OpenAI key and an Anthropic model id, and switching
@@ -366,24 +379,27 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	if dir == "" {
 		return
 	}
+	r.cfgMu.Lock()
 	r.Cfg.Agent.WorkspaceDir = dir
+	cfg := r.Cfg
+	r.cfgMu.Unlock()
 	// Rebuild the sandbox with the new workspace directory so commands
 	// actually execute there, not in the directory the runner was born with.
 	op := sandbox.Options{
-		Dir: r.Cfg.Agent.WorkspaceDir,
+		Dir: cfg.Agent.WorkspaceDir,
 		Limits: sandbox.Limits{
-			MemoryMB:      r.Cfg.Sandbox.MemoryMB,
-			CPUSeconds:    r.Cfg.Sandbox.CPUSeconds,
-			Processes:     r.Cfg.Sandbox.Processes,
-			OpenFiles:     r.Cfg.Sandbox.OpenFiles,
-			MaxFileSizeMB: r.Cfg.Sandbox.MaxFileSizeMB,
+			MemoryMB:      cfg.Sandbox.MemoryMB,
+			CPUSeconds:    cfg.Sandbox.CPUSeconds,
+			Processes:     cfg.Sandbox.Processes,
+			OpenFiles:     cfg.Sandbox.OpenFiles,
+			MaxFileSizeMB: cfg.Sandbox.MaxFileSizeMB,
 		},
-		CgroupRoot:    r.Cfg.Sandbox.CgroupRoot,
-		Timeout:       r.Cfg.Sandbox.Timeout,
-		MaxOutputKB:   r.Cfg.Sandbox.MaxOutputKB,
-		Keep:          r.Cfg.Sandbox.KeepEphemeral,
-		ToolsDir:      r.Cfg.Sandbox.ToolsDir,
-		ConfineWrites: r.Cfg.Sandbox.ConfineWrites,
+		CgroupRoot:    cfg.Sandbox.CgroupRoot,
+		Timeout:       cfg.Sandbox.Timeout,
+		MaxOutputKB:   cfg.Sandbox.MaxOutputKB,
+		Keep:          cfg.Sandbox.KeepEphemeral,
+		ToolsDir:      cfg.Sandbox.ToolsDir,
+		ConfineWrites: cfg.Sandbox.ConfineWrites,
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
 		HiddenPaths:   config.SecretFiles(""),
@@ -393,23 +409,23 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		// The sandbox this one replaces may hide more: the file the run was configured from.
 		op.HiddenPaths = r.Box.HiddenPaths()
 	}
-	switch r.Cfg.Sandbox.Kind {
+	switch cfg.Sandbox.Kind {
 	case "none":
 		op.Limits = sandbox.Limits{}
 		op.UseCgroups = false
 		op.UseChroot = false
 	case "chroot":
 		op.UseChroot = true
-		op.Root = r.Cfg.Sandbox.Root
+		op.Root = cfg.Sandbox.Root
 	default:
 		op.UseCgroups = false
 	}
-	if r.Cfg.Sandbox.User != "" {
-		if uid, gid, err := config.ParseUser(r.Cfg.Sandbox.User); err == nil {
+	if cfg.Sandbox.User != "" {
+		if uid, gid, err := config.ParseUser(cfg.Sandbox.User); err == nil {
 			op.Uid, op.Gid, op.DropPrivs = uid, gid, true
 		}
 	}
-	op.Limits.NoNetwork = r.Cfg.Sandbox.IsolateNetwork
+	op.Limits.NoNetwork = cfg.Sandbox.IsolateNetwork
 	if box, err := sandbox.New(op); err == nil {
 		r.Box = box
 	}
@@ -427,13 +443,26 @@ func (r *AppRunner) SetContainerRuntime(name string) {
 	}
 }
 
-// applyRuntimeNote rewrites the runtime sentence at the end of the system prompt.
+// SetProjectNote sets what the agent is told about the project it works in (its other
+// repositories), at the end of the system prompt. An empty note clears it.
+func (r *AppRunner) SetProjectNote(note string) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.projectNote = note
+	if r.session != nil {
+		r.applyRuntimeNote()
+	}
+}
+
+// applyRuntimeNote rewrites the runtime and project sentences at the end of the system prompt.
 // The caller holds sessionMu and has a session.
 func (r *AppRunner) applyRuntimeNote() {
 	note := ""
 	if r.containerRuntime == "podman" {
-		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project has a compose file) to build and start it, and do not use docker."
+		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project " +
+			"has a compose file) to build and start it, and do not use docker."
 	}
+	note += r.projectNote
 	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
 	r.runtimeNote = note
 }
@@ -475,93 +504,16 @@ func (r *AppRunner) SetProjectScope(projectDir string) {
 	r.sessionMu.Unlock()
 }
 
-// GenerateTitle asks the model for a short descriptive title for the conversation.
-// It uses a lightweight single-shot call (no tools, no agent loop) with a tight
-// timeout. On any error or timeout it falls back to a truncated version of the
-// first user message, so the caller always gets something usable.
-func (r *AppRunner) GenerateTitle(ctx context.Context, firstUserMessage string) string {
-	_, engine, err := r.engine()
-	if err != nil {
-		return fallbackTitle(firstUserMessage)
-	}
-	prompt := "Generate a short, descriptive title (at most 6 words, no quotes, no trailing " +
-		"punctuation) for a conversation that starts with this user message:\n\n" + firstUserMessage +
-		"\n\nReply with ONLY the title, nothing else."
-	tctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	title, err := engine.Complete(tctx, []llm.Message{
-		{Role: "system", Content: "You are a title generator. Respond with only a short title, no quotes, no punctuation at the end. Use the same language as the user's message."},
-		{Role: "user", Content: prompt},
-	})
-	if err != nil {
-		return fallbackTitle(firstUserMessage)
-	}
-	title = titleFromReply(title)
-	if title == "" {
-		return fallbackTitle(firstUserMessage)
-	}
-	// Clean up: strip quotes, trailing punctuation, collapse whitespace, cap length.
-	title = strings.Trim(title, "\"'`.,;:!?")
-	title = strings.Join(strings.Fields(title), " ")
-	if len([]rune(title)) > 60 {
-		title = string([]rune(title)[:59]) + "…"
-	}
-	return title
-}
-
-// titleFromReply is the title in what the model answered, or "" when there is none.
-//
-// A model does not always answer with only a title, whatever it was asked: a reasoning model
-// opens with a <think> block, another answers in JSON, another adds a line of explanation.
-// Measured: a session was named `{"actions":[{"command":"printf ...` in the sidebar. The think
-// block is dropped, a JSON reply gives its "title" field or nothing, and only the first line
-// of prose counts.
-func titleFromReply(reply string) string {
-	for {
-		start := strings.Index(reply, "<think>")
-		if start < 0 {
-			break
-		}
-		end := strings.Index(reply[start:], "</think>")
-		if end < 0 {
-			reply = reply[:start]
-			break
-		}
-		reply = reply[:start] + reply[start+end+len("</think>"):]
-	}
-	reply = strings.TrimSpace(reply)
-	if strings.HasPrefix(reply, "{") || strings.HasPrefix(reply, "[") {
-		var shaped struct {
-			Title string `json:"title"`
-		}
-		if json.Unmarshal([]byte(reply), &shaped) != nil {
-			return ""
-		}
-		return strings.TrimSpace(shaped.Title)
-	}
-	line, _, _ := strings.Cut(reply, "\n")
-	return strings.TrimSpace(line)
-}
-
-// fallbackTitle collapses whitespace and truncates the first user message to a
-// short label. It is used when the LLM call fails or times out.
-func fallbackTitle(text string) string {
-	fields := strings.Fields(text)
-	title := strings.Join(fields, " ")
-	if len([]rune(title)) > 60 {
-		title = string([]rune(title)[:59]) + "…"
-	}
-	return title
-}
-
 // engine returns the injected engine if it exists, otherwise it builds one from
 // the current configuration. This lets the TUI start with no engine (for
 // example when there is no configuration file yet) and still run plan/task when
 // the user chooses them.
 func (r *AppRunner) engine() (config.Config, *llm.Client, error) {
-	cfg := r.Cfg
-	if r.Engine != nil {
-		return cfg, r.Engine, nil
+	r.cfgMu.Lock()
+	cfg, cached := r.Cfg, r.Engine
+	r.cfgMu.Unlock()
+	if cached != nil {
+		return cfg, cached, nil
 	}
 	engine, err := llm.New(cfg.LLM, r.Log)
 	return cfg, engine, err
@@ -731,303 +683,6 @@ func (r *AppRunner) conversation(cfg config.Config, engine session.Summariser) *
 	return r.session
 }
 
-// library is the procedure library the skill tools read and write.
-//
-// It is resolved once and kept: the directory does not change during a session, and creating
-// it per turn would be a filesystem call for nothing.
-func (r *AppRunner) library() *skills.Library { return r.procedures().Library }
-
-// procedures returns the library and its ledger, building them on first use.
-func (r *AppRunner) procedures() *procedures.Store {
-	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
-	if r.store == nil {
-		// Build them through internal/procedures, the same constructor the command line's task
-		// and plan runs use. Both fields below used to be built here directly, which is how
-		// this interface ended up with a library while two other paths promised the model one
-		// and then answered that none was configured.
-		st := procedures.Open(r.Config(), r.Log)
-		// A scope remembered before the store existed is applied HERE, on the way in: the
-		// gateway may name a session's project before any turn has run, and a library built
-		// afterwards must not come up unscoped just because of the order the two happened in.
-		if r.projectScope != "" && st.Library != nil {
-			lib := *st.Library
-			projectskills.Scope(&lib, r.projectScope)
-			st.Library = &lib
-		}
-		r.store = st
-	}
-	return r.store
-}
-
-// UseStore installs the procedure library and its ledger.
-//
-// It exists so that several conversations in ONE process share them, which is what sessions need.
-// The ledger is a file read once into memory, so two runners with two ledgers over one file would
-// each save their own view over the other's - and a verdict would be lost with nothing to show for
-// it. One store means one in-memory truth, and the ledger's own lock makes it safe to touch from
-// two runs at once.
-//
-// A runner given none still builds its own on first use, which is what every other caller wants:
-// the command line's task and plan runs have one conversation and no reason to share.
-func (r *AppRunner) UseStore(st *procedures.Store) {
-	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
-	r.store = st
-}
-
-// rewardOrNil returns the ledger, or nil when it could not be opened.
-//
-// A nil ledger is a working arrangement, not a broken one: the library still answers, the
-// search still ranks, and only the value-based tie-break is off. The caller is expected to say
-// so rather than to treat it as a failure.
-func (r *AppRunner) rewardOrNil() *reward.Ledger { return r.procedures().Ledger }
-
-// Skills is the index the INTERFACE draws, so it includes the documents turned off: they belong
-// in the list with a badge, which is what makes turning one back on a click rather than a hunt
-// for a file that is no longer visible. The model's own list is Library.List, and it drops them.
-func (r *AppRunner) Skills() ([]skills.Skill, error) { return r.library().Catalog() }
-
-// Skill returns one document with its body.
-func (r *AppRunner) Skill(name string) (skills.Skill, error) { return r.library().Get(name) }
-
-// SaveSkill writes a document, creating or replacing it.
-//
-// The provenance marker is ByForeground and that is a SECURITY decision, not bookkeeping:
-// only created_by="agent" skills may be archived or merged by the curator, so a skill a
-// person wrote from the interface must never be marked as the background fork's.
-func (r *AppRunner) SaveSkill(name, body string) (skills.Skill, error) {
-	s, err := r.library().Save(name, body)
-	if err != nil {
-		return skills.Skill{}, err
-	}
-	if u := r.procedures().Usage; u != nil {
-		u.BumpPatch(s.Name, usage.ByForeground)
-		_ = u.Save()
-	}
-	return s, nil
-}
-
-// SkillTelemetry returns the lifecycle sidecar. Empty rather than nil when the ledger
-// could not be opened: a front end that ranges over nil and one that ranges over an
-// empty map draw the same thing.
-func (r *AppRunner) SkillTelemetry() map[string]usage.Entry {
-	if u := r.procedures().Usage; u != nil {
-		return u.All()
-	}
-	return map[string]usage.Entry{}
-}
-
-// SetSkillPinned pins or unpins a skill.
-//
-// It is REFUSED without a ledger rather than silently ignored: the pin is the user's veto
-// over every automatic transition, and a front end that reported success for a veto it
-// could not remember would be lying about the one thing that protects their work.
-func (r *AppRunner) SetSkillPinned(name string, pinned bool) error {
-	u := r.procedures().Usage
-	if u == nil {
-		return errors.New("no usage ledger is configured, so a skill cannot be pinned")
-	}
-	u.SetPinned(skills.Name(name), pinned)
-	return u.Save()
-}
-
-// ArchiveSkill moves a document aside; RestoreSkill brings it back. Neither is a
-// delete, and that is the promise these two exist to keep.
-//
-// Both work without a ledger: the document moves either way, and only the telemetry that
-// would have recorded it is absent.
-func (r *AppRunner) ArchiveSkill(name string) error {
-	if err := r.library().Archive(name); err != nil {
-		return err
-	}
-	if u := r.procedures().Usage; u != nil {
-		u.SetState(skills.Name(name), usage.StateArchived)
-		return u.Save()
-	}
-	return nil
-}
-
-// RestoreSkill brings an archived document back.
-func (r *AppRunner) RestoreSkill(name string) error {
-	if err := r.library().Restore(name); err != nil {
-		return err
-	}
-	if u := r.procedures().Usage; u != nil {
-		u.SetState(skills.Name(name), usage.StateActive)
-		return u.Save()
-	}
-	return nil
-}
-
-// SetSkillDisabled turns a skill off or back on.
-//
-// It is REFUSED without a ledger for the same reason the pin is: the flag is the promise that
-// the agent stops seeing the document, and a front end told "done" for a promise nobody could
-// remember would be lying about the one thing it was asked to change.
-func (r *AppRunner) SetSkillDisabled(name string, disabled bool) error {
-	u := r.procedures().Usage
-	if u == nil {
-		return errors.New("no usage ledger is configured, so a skill cannot be disabled")
-	}
-	u.SetDisabled(skills.Name(name), disabled)
-	return u.Save()
-}
-
-// DeleteSkill removes a document for good, and the telemetry that describes it.
-//
-// The ledger entry goes too: a name left behind would be handed to the curator as a skill that
-// no longer exists, and a document re-created under the same name later would arrive carrying
-// the counters and complaints of the one that was deleted.
-//
-// A missing ledger does not block it. The document is what the user asked to be rid of, and the
-// telemetry that would have described it is exactly the thing that is not there.
-func (r *AppRunner) DeleteSkill(name string) error {
-	if err := r.library().Delete(name); err != nil {
-		return err
-	}
-	if u := r.procedures().Usage; u != nil {
-		u.Forget(skills.Name(name))
-		return u.Save()
-	}
-	return nil
-}
-
-// ArchivedSkills lists what the archive holds.
-func (r *AppRunner) ArchivedSkills() ([]string, error) { return r.library().Archived() }
-
-// ProposedSkills lists the skills the background review proposed, waiting for the user.
-func (r *AppRunner) ProposedSkills() ([]string, error) { return r.library().Proposed() }
-
-// ProposedSkill reads one proposal.
-func (r *AppRunner) ProposedSkill(name string) (skills.Skill, error) {
-	return r.library().Proposal(name)
-}
-
-// AcceptProposedSkill puts a proposal in the shared library.
-func (r *AppRunner) AcceptProposedSkill(name string) error {
-	return r.library().AcceptProposal(name)
-}
-
-// RejectProposedSkill deletes a proposal.
-func (r *AppRunner) RejectProposedSkill(name string) error {
-	return r.library().RejectProposal(name)
-}
-
-// truncateLine bounds a string for a one-line report, on a rune boundary.
-func truncateLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
-
-// rememberUsage stores which skills the turn consulted, ready for the verdict that follows.
-func (r *AppRunner) rememberUsage(used map[string]int, task string) {
-	r.rewardMu.Lock()
-	defer r.rewardMu.Unlock()
-	r.lastUsed = used
-	r.lastTask = task
-}
-
-// recordVerdict applies a verdict to the skills of the last turn and saves it.
-//
-// Everything the user needs to know is said in the chat, including the case where there is
-// nothing to apply it to: a verdict that quietly did nothing would make the feature look like
-// it works when it has nothing to learn from.
-func (r *AppRunner) RecordVerdict(good bool, note string) string {
-	led := r.rewardOrNil()
-	if led == nil {
-		return "the reward ledger is unavailable, so the verdict was not recorded."
-	}
-	r.rewardMu.Lock()
-	used := make(map[string]int, len(r.lastUsed))
-	for k, v := range r.lastUsed {
-		used[k] = v
-	}
-	task := r.lastTask
-	r.rewardMu.Unlock()
-
-	names := make([]string, 0, len(used))
-	for n := range used {
-		names = append(names, n)
-	}
-	sort.Strings(names) // deterministic order for the ledger file
-
-	err := led.Attribute(names, used, good, note)
-	switch {
-	case errors.Is(err, reward.ErrNoSkill):
-		// Honest and specific: the turn did not consult the library, so there is no skill for
-		// the verdict to land on. Saying which turn it was helps the user see why.
-		msg := "no skill took part in the last turn, so there was nothing to learn from it."
-		if strings.TrimSpace(task) != "" {
-			msg += "\n(last turn: " + truncateLine(task, 90) + ")"
-		}
-		msg += "\nThe value moves when a turn reads a skill — the library is what this learns about."
-		return msg
-	}
-	// No other error case: Attribute returns ErrNoSkill or nil and nothing else, so a branch
-	// for "some other failure" would be unreachable. A new error from it would be caught here
-	// by the compiler the moment it is added, because this switch is exhaustive over the cases
-	// that exist.
-	if err := led.Save(); err != nil {
-		return fmt.Sprintf("the verdict was applied but could not be saved: %v", err)
-	}
-
-	verdict := "good"
-	if !good {
-		verdict = "bad"
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "recorded: %s", verdict)
-	if strings.TrimSpace(note) != "" {
-		fmt.Fprintf(&b, " — %q", truncateLine(note, 120))
-	}
-	fmt.Fprintf(&b, "\napplied to %d skill(s), by how much the turn leaned on each:", len(names))
-	for _, n := range names {
-		s, _ := led.Get(n)
-		fmt.Fprintf(&b, "\n  %s: value %+.2f (%d good, %d bad)", n, s.Value, s.Good, s.Bad)
-	}
-	if !good && strings.TrimSpace(note) == "" {
-		b.WriteString("\n\nA note would make this fixable: /bad <what was wrong> tells the agent which step to repair, instead of only that it did not work.")
-	}
-	return b.String()
-}
-
-// RewardReport renders what the library has learned, worst first.
-func (r *AppRunner) RewardReport() string {
-	led := r.rewardOrNil()
-	if led == nil {
-		return "the reward ledger is unavailable: no verdicts have been recorded."
-	}
-	entries := led.Sorted()
-	if len(entries) == 0 {
-		return "no verdicts recorded yet.\n\nMark a turn with /good or /bad [what was wrong] right after it runs: the value lands on the skills that turn read, and it is the only thing that changes how the library is searched. An unmarked turn changes nothing."
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) with a verdict. Value is a running average in [-1, 1]; recent verdicts weigh more.\n", len(entries))
-	for _, e := range entries {
-		fmt.Fprintf(&b, "\n  %-28s value %+.2f   %d good / %d bad", e.Name, e.Score.Value, e.Score.Good, e.Score.Bad)
-		if !e.Score.Updated.IsZero() {
-			fmt.Fprintf(&b, "   last %s", e.Score.Updated.Format("2006-01-02 15:04"))
-		}
-		for _, n := range e.Score.Recent(3) {
-			mark := "bad "
-			if n.Good {
-				mark = "good"
-			}
-			fixed := ""
-			if n.Addressed {
-				fixed = " [fixed]"
-			}
-			fmt.Fprintf(&b, "\n      %s  %q%s", mark, truncateLine(n.Text, 80), fixed)
-		}
-	}
-	return b.String()
-}
-
 // ConversationSummary returns the session figures for the status bar.
 //
 // A zero Snapshot means no conversation has started, which the caller renders as no figure
@@ -1136,26 +791,7 @@ func summarise(tr agent.TaskResult) string {
 	// The question is shown with the assumption, so the user can confirm in one word instead of
 	// writing the request again.
 	case tr.NeedsInput:
-		var b strings.Builder
-		if tr.Question != "" {
-			b.WriteString(tr.Question)
-		} else {
-			b.WriteString("I did not fully understand the request.")
-		}
-		if tr.Assumption != "" {
-			// The assumption is shown ON ITS OWN, with no sentence of the interface's invention
-			// in front of it — the same rule the QUESTION above already follows, for the same
-			// reason: both fields are written by the MODEL, in the language of the request.
-			//
-			// There used to be a lead here, written in Spanish. It was wrong in every
-			// conversation that was not Spanish: a user writing English read a Spanish sentence
-			// prefixed to an English assumption, so the line mixed two languages and read as a
-			// system error rather than as the agent proposing something. The field already says
-			// what the agent would do — that is its whole purpose — so it needs no introduction.
-			b.WriteString("\n\n")
-			b.WriteString(tr.Assumption)
-		}
-		return b.String()
+		return questionText(tr)
 	// The structured report is shown as plain text: this is the answer the terminal draws, and the
 	// fallback for any client that does not lay the report out itself.
 	case tr.Pass && tr.Report != nil && tr.Report.Summary != "":
@@ -1171,6 +807,31 @@ func summarise(tr agent.TaskResult) string {
 	default:
 		return fmt.Sprintf("failed: %s", tr.Reason)
 	}
+}
+
+// questionText is the question of a turn that needs the user, with the assumption the agent
+// would proceed on.
+func questionText(tr agent.TaskResult) string {
+	var b strings.Builder
+	if tr.Question != "" {
+		b.WriteString(tr.Question)
+	} else {
+		b.WriteString("I did not fully understand the request.")
+	}
+	if tr.Assumption != "" {
+		// The assumption is shown ON ITS OWN, with no sentence of the interface's invention
+		// in front of it — the same rule the QUESTION above already follows, for the same
+		// reason: both fields are written by the MODEL, in the language of the request.
+		//
+		// There used to be a lead here, written in Spanish. It was wrong in every
+		// conversation that was not Spanish: a user writing English read a Spanish sentence
+		// prefixed to an English assumption, so the line mixed two languages and read as a
+		// system error rather than as the agent proposing something. The field already says
+		// what the agent would do — that is its whole purpose — so it needs no introduction.
+		b.WriteString("\n\n")
+		b.WriteString(tr.Assumption)
+	}
+	return b.String()
 }
 
 // RunTask runs the agent with a single text task and returns a human-readable summary.
@@ -1189,27 +850,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// about is proposed in the middle of the turn, and an approver installed afterwards would
 	// arrive after the question had already been answered with a refusal.
 	installApproverOn(ag, r.approverOrNil())
-	// The same library and the same ledger Plan mode uses.
-	//
-	// Both modes reach one shelf of procedures: a procedure written down while working is
-	// available whichever mode does the work next, and a verdict lands on the same skills
-	// either way. Two libraries would be two bodies of knowledge that drift apart.
-	if lib := r.library(); lib != nil {
-		if setter, ok := ag.(interface{ SetLibrary(*skills.Library) }); ok {
-			setter.SetLibrary(lib)
-		}
-	}
-	if led := r.rewardOrNil(); led != nil {
-		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
-			setter.SetReward(led)
-		}
-	}
-	// The same sidecar the library screen reads, so what this run consults is counted.
-	if u := r.procedures().Usage; u != nil {
-		if setter, ok := ag.(interface{ SetUsage(*usage.Ledger) }); ok {
-			setter.SetUsage(u)
-		}
-	}
+	r.equipAgent(ag)
 	// The conversation goes in before the run and comes back out after it. That round trip is
 	// what makes the agent conversational: the turn that asked a question recorded it, and the
 	// next turn reads it together with the user's answer, so "yes" means something.
@@ -1221,17 +862,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		live.SetLiveThinking(true)
 	}
 	if o, ok := ag.(taskObserver); ok {
-		o.SetProgress(progress)
-		o.SetObserver(func(tr agent.TaskResult) {
-			result = summarise(tr)
-			r.setReport(tr.Report)
-			// The questions are handed to the caller as STRUCTURE, not only as the sentence
-			// above: the window needs the question, its assumption and its options to draw a
-			// pickable list, and none of that survives being flattened into a string.
-			if tr.NeedsInput && len(tr.Questions) > 0 {
-				r.setPendingQuestions(tr.Questions, task)
-			}
-		})
+		r.observe(o, task, progress, &result)
 	}
 	runErr := ag.Run(ctx)
 	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
@@ -1257,6 +888,45 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		return "the task finished without reporting a result", nil
 	}
 	return result, nil
+}
+
+// equipAgent hands the agent the same library and the same ledger Plan mode uses.
+//
+// Both modes reach one shelf of procedures: a procedure written down while working is
+// available whichever mode does the work next, and a verdict lands on the same skills
+// either way. Two libraries would be two bodies of knowledge that drift apart.
+func (r *AppRunner) equipAgent(ag AgentRunner) {
+	if lib := r.library(); lib != nil {
+		if setter, ok := ag.(interface{ SetLibrary(*skills.Library) }); ok {
+			setter.SetLibrary(lib)
+		}
+	}
+	if led := r.rewardOrNil(); led != nil {
+		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
+			setter.SetReward(led)
+		}
+	}
+	// The same sidecar the library screen reads, so what this run consults is counted.
+	if u := r.procedures().Usage; u != nil {
+		if setter, ok := ag.(interface{ SetUsage(*usage.Ledger) }); ok {
+			setter.SetUsage(u)
+		}
+	}
+}
+
+// observe has the agent report its progress and, when the turn ends, its result into *result.
+func (r *AppRunner) observe(o taskObserver, task string, progress func(string, ...any), result *string) {
+	o.SetProgress(progress)
+	o.SetObserver(func(tr agent.TaskResult) {
+		*result = summarise(tr)
+		r.setReport(tr.Report)
+		// The questions are handed to the caller as STRUCTURE, not only as the sentence
+		// above: the window needs the question, its assumption and its options to draw a
+		// pickable list, and none of that survives being flattened into a string.
+		if tr.NeedsInput && len(tr.Questions) > 0 {
+			r.setPendingQuestions(tr.Questions, task)
+		}
+	})
 }
 
 // setPendingQuestions records the questions a turn asked, for the interface to open a window on.
@@ -1327,9 +997,8 @@ func (r *AppRunner) remember(turns []agent.DialogueTurn) {
 // anything it currently holds. It is how a session persisted to disk and
 // reloaded on startup carries its history forward.
 func (r *AppRunner) RestoreTranscript(turns []agent.DialogueTurn) {
-	r.transcriptMu.Lock()
-	defer r.transcriptMu.Unlock()
-	r.transcript = append([]agent.DialogueTurn(nil), turns...)
+	// Loading a saved conversation is storing it, exactly as a finished turn does.
+	r.remember(turns)
 }
 
 // ResetTranscript drops the Task-mode conversation, which is how /new leaves a subject

@@ -8,6 +8,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/tui"
 )
@@ -52,13 +53,9 @@ func (op Options) runCuratorCommand(ctx context.Context, fl flags) int {
 
 	procs := procedures.Open(cfg, log)
 
-	var engine *llm.Client
-	if fl.curatorConsolidate {
-		engine, err = op.newEngine(cfg.LLM, log)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ the consolidation pass needs a working engine: %v\n", err)
-			return ConfigError
-		}
+	engine, code := op.consolidationEngine(cfg, fl, log)
+	if code != Success {
+		return code
 	}
 	c := curator.New(cfg.Curator, procs, engine, log, buildSkillRunner)
 
@@ -70,20 +67,7 @@ func (op Options) runCuratorCommand(ctx context.Context, fl flags) int {
 		fmt.Fprint(op.Out, c.Status())
 		return Success
 	case "run":
-		report, err := c.RunWith(ctx, curator.RunOptions{
-			Consolidate: fl.curatorConsolidate,
-			DryRun:      fl.curatorDryRun,
-		})
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return RunError
-		}
-		what := "pass"
-		if fl.curatorDryRun {
-			what = "preview (nothing was changed)"
-		}
-		fmt.Fprintf(op.Out, "%s: %d stale, %d archived\n", what, report.Stale, report.Archived)
-		return Success
+		return op.curatorRun(ctx, c, fl)
 	case "pin":
 		return op.reportSkillAction(c.Pin(fl.curatorSkill), fl.curatorSkill, "pinned")
 	case "unpin":
@@ -92,41 +76,12 @@ func (op Options) runCuratorCommand(ctx context.Context, fl flags) int {
 		return op.reportSkillAction(c.Restore(fl.curatorSkill), fl.curatorSkill, "restored")
 	case "list-archived":
 		names, err := c.ListArchived()
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return RunError
-		}
-		if len(names) == 0 {
-			fmt.Fprintln(op.Out, "the archive is empty.")
-			return Success
-		}
-		for _, n := range names {
-			fmt.Fprintln(op.Out, n)
-		}
-		return Success
+		return op.printNames(names, err, "the archive is empty.")
 	case "list-proposed":
 		names, err := procs.Library.Proposed()
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return RunError
-		}
-		if len(names) == 0 {
-			fmt.Fprintln(op.Out, "no skill is waiting for review.")
-			return Success
-		}
-		for _, n := range names {
-			fmt.Fprintln(op.Out, n)
-		}
-		return Success
+		return op.printNames(names, err, "no skill is waiting for review.")
 	case "show-proposed":
-		sk, err := procs.Library.Proposal(fl.curatorSkill)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return RunError
-		}
-		// The body was written by a model that read untrusted text: shown, not obeyed.
-		fmt.Fprint(op.Out, tui.EscapeControls(sk.Body))
-		return Success
+		return op.showProposal(procs, fl.curatorSkill)
 	case "accept":
 		return op.reportSkillAction(procs.Library.AcceptProposal(fl.curatorSkill), fl.curatorSkill, "accepted")
 	case "reject":
@@ -139,6 +94,67 @@ func (op Options) runCuratorCommand(ctx context.Context, fl flags) int {
 		fmt.Fprint(op.Out, curatorCommandHelp)
 		return Success
 	}
+}
+
+// consolidationEngine builds the reasoning engine for a consolidation run; any other action
+// gets none, because nothing else calls a model.
+func (op Options) consolidationEngine(cfg config.Config, fl flags, log *logx.Logger) (*llm.Client, int) {
+	var engine *llm.Client
+	var err error
+	if fl.curatorConsolidate {
+		engine, err = op.newEngine(cfg.LLM, log)
+	}
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ the consolidation pass needs a working engine: %v\n", err)
+		return nil, ConfigError
+	}
+	return engine, Success
+}
+
+// curatorRun runs one curator pass, or its preview, and reports what it did.
+func (op Options) curatorRun(ctx context.Context, c *curator.Curator, fl flags) int {
+	report, err := c.RunWith(ctx, curator.RunOptions{
+		Consolidate: fl.curatorConsolidate,
+		DryRun:      fl.curatorDryRun,
+	})
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ %v\n", err)
+		return RunError
+	}
+	what := "pass"
+	if fl.curatorDryRun {
+		what = "preview (nothing was changed)"
+	}
+	fmt.Fprintf(op.Out, "%s: %d stale, %d archived\n", what, report.Stale, report.Archived)
+	return Success
+}
+
+// printNames prints a list of skill names one per line, or empty when there is none.
+func (op Options) printNames(names []string, err error, empty string) int {
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ %v\n", err)
+		return RunError
+	}
+	if len(names) == 0 {
+		fmt.Fprintln(op.Out, empty)
+		return Success
+	}
+	for _, n := range names {
+		fmt.Fprintln(op.Out, n)
+	}
+	return Success
+}
+
+// showProposal prints a proposed skill.
+func (op Options) showProposal(procs *procedures.Store, name string) int {
+	sk, err := procs.Library.Proposal(name)
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ %v\n", err)
+		return RunError
+	}
+	// The body was written by a model that read untrusted text: shown, not obeyed.
+	fmt.Fprint(op.Out, tui.EscapeControls(sk.Body))
+	return Success
 }
 
 // curatorConfig loads the configuration the way `run` does: an invalid file is an error

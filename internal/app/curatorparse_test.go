@@ -164,7 +164,8 @@ func TestTheCuratorSwitchesTakeBothSpellings(t *testing.T) {
 // The help text names every action the parser accepts, so the two cannot drift.
 func TestTheCuratorHelpListsEveryAction(t *testing.T) {
 	for _, want := range []string{"status", "run", "pin", "unpin", "restore", "list-archived",
-		"list-proposed", "show-proposed", "accept", "reject", "--consolidate", "--dry-run", "Usage: motita curator <action>"} {
+		"list-proposed", "show-proposed", "accept", "reject", "--consolidate", "--dry-run",
+		"Usage: motita curator <action>"} {
 		if !strings.Contains(curatorCommandHelp, want) {
 			t.Errorf("the help does not mention %q:\n%s", want, curatorCommandHelp)
 		}

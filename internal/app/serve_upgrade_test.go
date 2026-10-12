@@ -34,7 +34,12 @@ func startUpgradeRun(t *testing.T, spawnErr error) *upgradeRun {
 	t.Cleanup(cancel)
 
 	cfgPath, logPath := gatewayConfig(t, srv)
-	r := &upgradeRun{done: make(chan int, 1), spawned: make(chan spawnSpec, 1), portFree: make(chan bool, 1), out: &syncBuffer{}}
+	r := &upgradeRun{
+		done:     make(chan int, 1),
+		spawned:  make(chan spawnSpec, 1),
+		portFree: make(chan bool, 1),
+		out:      &syncBuffer{},
+	}
 	opts := gatewayTestOptions(t, r.out, "", "-serve", "-config", cfgPath)
 	opts.BaseCtx = ctx
 	opts.Signals = nil
@@ -118,11 +123,16 @@ func TestAPlainStopStartsNothing(t *testing.T) {
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
 	spawned := false
-	opts.SpawnGateway = func(context.Context, spawnSpec) error { spawned = true; return nil }
+	opts.SpawnGateway = func(context.Context, spawnSpec) error {
+		spawned = true
+		return nil
+	}
 	done := make(chan int, 1)
 	go func() { done <- Run(opts) }()
 	waitForAddress(t, logPath)
-	if resp, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + waitForAddress(t, logPath) + "/v1/health"); err == nil {
+	if resp, err := (&http.Client{Timeout: 5 * time.Second}).Get(
+		"http://" + waitForAddress(t, logPath) + "/v1/health",
+	); err == nil {
 		_ = resp.Body.Close()
 	}
 	cancel()

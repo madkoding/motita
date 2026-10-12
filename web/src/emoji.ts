@@ -22,7 +22,7 @@ let set: Set<string> | null = null
 
 /** The codepoint names in use, built once from the generated string. */
 function codepoints(): Set<string> {
-  if (!set) { set = new Set(CODEPOINTS.split(',')) }
+  set ??= new Set(CODEPOINTS.split(','))
   return set
 }
 
@@ -46,7 +46,8 @@ function codepoints(): Set<string> {
 function assetFor(part: string): string | null {
   const key = partsOf(part)
   if (!key) { return null }
-  return codepoints().has(key) ? key : null
+  if (codepoints().has(key)) { return key }
+  return null
 }
 
 /**
@@ -58,6 +59,11 @@ function assetFor(part: string): string | null {
  * them. A mismatch here is silent — the key is simply not in the set and the emoji stays a
  * character — so the two sides are kept in step by testing the real assets.
  */
+// The emoji and text presentation selectors, and the zero-width joiner.
+const VS16 = 0xFE0F
+const VS15 = 0xFE0E
+const ZWJ = 0x200D
+
 function partsOf(part: string): string | null {
   // No special case for a keycap (`1️⃣` = `1` + FE0F + 20E3): the loop below already produces
   // the key the generator writes (`31-20e3`), because it drops FE0F the same way. A branch
@@ -67,11 +73,11 @@ function partsOf(part: string): string | null {
   for (const ch of part) {
     const cp = ch.codePointAt(0)
     if (cp === undefined) { return null }
-    if (cp === 0xFE0F || cp === 0xFE0E || cp === 0x200D) {
+    if (cp === VS16 || cp === VS15 || cp === ZWJ) {
       // The presentation selector is dropped: a picker-inserted character carries it and a
       // hand-typed one does not, and both name the same glyph — keeping it would give the
       // same emoji two keys and let half of real-world input miss.
-      if (cp === 0x200D) { out.push('200d') }
+      if (cp === ZWJ) { out.push('200d') }
       continue
     }
     out.push(hex(cp))
@@ -79,7 +85,8 @@ function partsOf(part: string): string | null {
   // `fe0f` only ever modifies the character before it; on its own it names nothing. The
   // generator drops it for the same reason, so this has to as well.
   const cleaned = out.filter((p, i) => !(p === 'fe0f' && i > 0))
-  return cleaned.length > 0 ? cleaned.join('-') : null
+  if (cleaned.length > 0) { return cleaned.join('-') }
+  return null
 }
 
 // Ranges that are emoji, kept wide on purpose: the codepoint set is what decides whether an
@@ -149,7 +156,8 @@ function replaceInNode(root: HTMLElement): number {
         return NodeFilter.FILTER_REJECT
       }
       const t = node as Text
-      return EMOJI.test(t.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+      if (EMOJI.test(t.data)) { return NodeFilter.FILTER_ACCEPT }
+      return NodeFilter.FILTER_REJECT
     },
   })
 

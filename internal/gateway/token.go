@@ -33,6 +33,16 @@ var (
 	writeFile = os.WriteFile
 )
 
+// usableToken is the token a token file holds, or why it is not usable.
+func usableToken(path string, data []byte) (string, error) {
+	tok := strings.TrimSpace(string(data))
+	if len(tok) < 2*MinTokenBytes || !isHex(tok) {
+		return "", fmt.Errorf("the token in %s is not usable: it must be at least %d hexadecimal characters",
+			path, 2*MinTokenBytes)
+	}
+	return tok, nil
+}
+
 // LoadOrCreateToken returns the bearer token stored at path, generating one the first time.
 //
 // It generates rather than asking, because a gateway that ships with a default token is a
@@ -50,14 +60,11 @@ func LoadOrCreateToken(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		tok := strings.TrimSpace(string(data))
-		if len(tok) < 2*MinTokenBytes || !isHex(tok) {
-			return "", fmt.Errorf("the token in %s is not usable: it must be at least %d hexadecimal characters",
-				path, 2*MinTokenBytes)
-		}
-		return tok, nil
+		return usableToken(path, data)
 	case !os.IsNotExist(err):
 		return "", fmt.Errorf("could not read the token file %s: %w", path, err)
+	default:
+		// No token file yet: one is made below.
 	}
 
 	tok, err := newToken()
@@ -95,7 +102,8 @@ func ReadToken(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no token file at %s: it is written by the gateway that created it, so copy it from there", path)
+			return "", fmt.Errorf(
+				"no token file at %s: it is written by the gateway that created it, so copy it from there", path)
 		}
 		return "", fmt.Errorf("could not read the token file %s: %w", path, err)
 	}

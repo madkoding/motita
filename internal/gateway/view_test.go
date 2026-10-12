@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func TestTheConfigViewNeverCarriesTheAPIKey(t *testing.T) {
 		APIKeyPresent: true,
 		BaseURL:       "https://api.openai.com/v1",
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("view = %+v, want %+v", got, want)
 	}
 }
@@ -86,7 +87,9 @@ func TestTheViewReportsAMissingKey(t *testing.T) {
 // the key field is whether it is EMPTY (the status dot turns red when it is), so the sentinel
 // is documented rather than clever and this pins the contract.
 func TestConfigFromViewPutsASentinelWhereTheKeyWas(t *testing.T) {
-	cfg := configFromView(configView{Provider: "ollama", Model: "m", Reasoning: "low", ReasoningOn: true, APIKeyPresent: true})
+	cfg := configFromView(
+		configView{Provider: "ollama", Model: "m", Reasoning: "low", ReasoningOn: true, APIKeyPresent: true},
+	)
 	if cfg.LLM.APIKey != RedactedKey {
 		t.Errorf("api key = %q, want the sentinel %q", cfg.LLM.APIKey, RedactedKey)
 	}
@@ -119,7 +122,8 @@ func TestViewOfCannotDescribeAnImpossibleReasoningPair(t *testing.T) {
 		want   string
 		wantOn bool
 	}{
-		{"a level with the flag forgotten still travels as on", config.Reasoning{Enabled: false, Level: "high"}, "high", true},
+		{"a level with the flag forgotten still travels as on", config.Reasoning{Enabled: false, Level: "high"}, "high",
+			true},
 		{"off travels as off", config.Reasoning{Enabled: true, Level: "off"}, "off", false},
 		{"medium with the flag set", config.Reasoning{Enabled: true, Level: "medium"}, "medium", true},
 	} {

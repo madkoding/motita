@@ -357,7 +357,19 @@ above.
 
 Inside the interface, `/sessions` lists the conversations the gateway holds — marking the
 one you are on and naming any with a run in flight — and `/attach <id>` moves to another
-one. The token is **read** from `gateway.token`, never minted, and a `-session` the
+one. `/new` opens a new session of its own and `/back` returns to the one you left last.
+Moving between sessions works while the agent is working: the run keeps going in its own
+session, nothing of it shows up in the one you moved to, and the status line counts the
+other sessions that are still working. `/sessions` also names each session's model and how
+many of the gateway's sessions are in use.
+
+The **model belongs to the session**: `/models <id>` (or the model picker in the web
+interface) changes it for this conversation only, and every other session keeps its own,
+across a restart too. Switching it in a conversation that already has turns is allowed and
+comes with a warning: the new model takes over a transcript another one wrote, and a turn
+still running finishes with the old one. `/new` is the clean way to try another model.
+
+The token is **read** from `gateway.token`, never minted, and a `-session` the
 gateway does not hold is refused at start with the list of the ones it does.
 
 `/artifacts` lists the files the agent saved in the conversation (a report, a page, a
@@ -475,6 +487,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}` | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment; `POST .../{name}/pin` (`{"pinned":true}`) exempts a file from the retention, and the list says when each unpinned one expires. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
 | `GET /v1/runtimes` | which container runtimes the machine has (`{"podman": true, "podman_ready": true, "podman_compose": true}`: installed, answers `podman info`, and has `podman compose`); the New project dialog offers podman only when it is installed |
 | `PATCH /v1/projects/{id}` | change the "run with podman" answer after creation; open sessions are told, so the agent uses `podman` instead of docker |
+| `POST /v1/projects/{id}/repos` · `DELETE /v1/projects/{id}/repos/{name}` | a project's other repositories: `{"git_url":…,"name":…}` clones one more into `.motita-repos/<name>` inside the project (the project's own folder stays the main one), and every session gets a worktree of it on its own branch; removing one deletes its clone and those worktrees, refused while they hold uncommitted work unless confirmed with `?force=1` |
 | `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
 | `GET /v1/git/accounts` · `DELETE /v1/git/accounts/{id}` | the git hosts, who you are on each, and how each can be connected; disconnect one |
 | `POST /v1/git/connect` · `GET` `DELETE /v1/git/flows/{id}` · `POST …/paste` | log in to a host (device code, browser code, or a token); poll, cancel or finish a login in progress |
@@ -747,12 +760,12 @@ ports — they are **two views of one conversation**.
 | `/good` `/bad` | tell the agent how a turn went |
 | `/value` | see what it has learned from those verdicts |
 | `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
-| `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
+| `/sessions` `/attach <id>` `/back` | the conversations the gateway holds, move to another one, or back to the one you left last (a run in flight keeps going) |
 | `/config` | run the setup again; the new configuration applies to the session you are in |
 | `/git` `/git connect [host] [token]` `/git disconnect <host>` `/git repos [query]` | connect GitHub, GitLab or Bitbucket (or a self-hosted `gitlab:git.example.com`) so motita can clone, push and open pull requests: a browser login with a code when the host offers it, otherwise a token typed in without echo; `/git` alone shows who you are connected as, `/git repos` lists the repositories you can reach. motita says so on start when no host is connected |
 | `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
 | `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
-| `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |
+| `/session` `/find` `/new` `/help` `/quit` | context, search, a new session (behind a gateway the old one keeps its history and its run), help, leave |
 
 The steps a turn runs show as one line that counts them ("7 actions");
 `gateway.show_actions: true` lists every one instead.
@@ -911,7 +924,7 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 35 of 35 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage** | **100% in every package that ships** — 37 of 37 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions** | 4,169 across 343 files |
 | **Code vs tests** | 57,596 lines of Go · 108,527 lines of test |
 | **External dependencies** | 0 |

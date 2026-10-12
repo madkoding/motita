@@ -13,12 +13,14 @@ import (
 // tool used to become the Anthropic or Gemini key too, which the vendor refused.
 func TestOpenAIKeyIsNotHandedToOtherVendors(t *testing.T) {
 	t.Setenv("MOTITA_AUTH_DIR", t.TempDir())
-	for _, v := range []string{"MOTITA_LLM_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DASHSCOPE_API_KEY", "OLLAMA_API_KEY"} {
+	for _, v := range []string{"MOTITA_LLM_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DASHSCOPE_API_KEY",
+		"OLLAMA_API_KEY"} {
 		t.Setenv(v, "")
 		os.Unsetenv(v)
 	}
 	t.Setenv("OPENAI_API_KEY", "sk-openai")
-	for provider, want := range map[string]string{"openai": "sk-openai", "codex": "sk-openai", "anthropic": "", "gemini": "", "qwen": "", "ollama": ""} {
+	for provider, want := range map[string]string{"openai": "sk-openai", "codex": "sk-openai", "anthropic": "",
+		"gemini": "", "qwen": "", "ollama": ""} {
 		c := Default()
 		c.LLM.Provider = provider
 		c.LLM.APIKey = ""

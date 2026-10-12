@@ -80,6 +80,10 @@ type Gateway struct {
 	// close what it opened cannot turn the agent into a memory leak, not so that an operator
 	// has to pick a number.
 	MaxSessions int `yaml:"max_sessions"`
+	// FreeSessionGit makes the directory of a session that belongs to no project a git
+	// repository from the start. Off by default: such a session needs no git, and one that wants
+	// it can still run `git init` itself. A client can ask for either per session.
+	FreeSessionGit bool `yaml:"free_session_git"`
 	// ArtifactDays is how many days a saved artifact is kept before the gateway deletes it.
 	// Zero keeps them for ever. The default is 30: artifacts are generated work product, and
 	// a store nobody ever prunes is one that fills a disk slowly enough to go unnoticed.
@@ -583,9 +587,10 @@ func expandHome(p string) string {
 // speaks plain HTTP and drives an agent that runs commands here: reaching it from another machine
 // is something the operator asks for by naming a LAN address or the wildcard in gateway.listen,
 // not something every install does silently (an SSH tunnel reaches a loopback gateway without
-// exposing it at all). The fixed port because the gateway can outlive the process that started it, and a later process has
-// to be able to find it: an ephemeral port is chosen at bind time, so an address that exists only
-// in the memory of one process is an address no other process can reach.
+// exposing it at all). The fixed port because the gateway can outlive the process that started
+// it, and a later process has to be able to find it: an ephemeral port is chosen at bind time,
+// so an address that exists only in the memory of one process is an address no other process
+// can reach.
 //
 // 7477 is unassigned in the IANA registry (7475-7477 is "Unassigned"), absent from /etc/services,
 // and below the default ephemeral range on Linux, so it does not compete with outgoing connections.
@@ -826,7 +831,8 @@ func (c *Config) validateGateway() error {
 		return nil
 	}
 	if strings.TrimSpace(c.Gateway.TokenFile) == "" {
-		return errors.New("gateway.token_file is empty: the gateway needs a file to keep its token in, and an unauthenticated agent is a remote shell")
+		return errors.New("gateway.token_file is empty: the gateway needs a file to keep its token in, " +
+			"and an unauthenticated agent is a remote shell")
 	}
 	if c.Gateway.MaxBodyKB < 0 {
 		return fmt.Errorf("gateway.max_body_kb is %d: it cannot be negative", c.Gateway.MaxBodyKB)
@@ -835,10 +841,12 @@ func (c *Config) validateGateway() error {
 		// NEGATIVE is refused and ZERO is accepted, which is not the same as being lenient: zero
 		// means "the built-in default" and says so, while a negative ceiling is a number nobody
 		// meant - and silently treating it as the default would hide the typo that produced it.
-		return fmt.Errorf("gateway.max_sessions is %d: it cannot be negative (0 means the built-in default)", c.Gateway.MaxSessions)
+		return fmt.Errorf("gateway.max_sessions is %d: it cannot be negative (0 means the built-in default)",
+			c.Gateway.MaxSessions)
 	}
 	if c.Gateway.ArtifactDays < 0 {
-		return fmt.Errorf("gateway.artifact_days is %d: it cannot be negative (0 keeps artifacts for ever)", c.Gateway.ArtifactDays)
+		return fmt.Errorf("gateway.artifact_days is %d: it cannot be negative (0 keeps artifacts for ever)",
+			c.Gateway.ArtifactDays)
 	}
 	// The rules are parsed HERE, at load time, and not only where they are enforced.
 	//
@@ -923,8 +931,10 @@ func (c *Config) validateTaskSource() error {
 		return requireField("task_source.kind=queue", "dir", c.TaskSource.Dir)
 	case "api":
 		return requireField("task_source.kind=api", "url", c.TaskSource.URL)
+	default:
+		// stdin needs nothing else.
+		return nil
 	}
-	return nil
 }
 
 func (c *Config) validateAnchor() error {
@@ -969,12 +979,14 @@ func (c *Config) validateLLM(requireKey bool) error {
 		// Ollama Cloud that is OLLAMA_API_KEY, and telling the user to export
 		// OPENAI_API_KEY would send them to a name the loader ignores.
 		if SupportsLogin(c.LLM.Provider) {
-			return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s, or log in with `motita config`", ProviderKeyVariable(c.LLM.Provider))
+			return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s, or log in with `motita config`",
+				ProviderKeyVariable(c.LLM.Provider))
 		}
 		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s", ProviderKeyVariable(c.LLM.Provider))
 	}
 	if c.LLM.APIKey != "" && IsClearTextToRemote(c.LLM.BaseURL) {
-		return fmt.Errorf("llm.base_url %q is plain http to a host outside this machine and its network: the key would travel in clear text, use https", c.LLM.BaseURL)
+		return fmt.Errorf("llm.base_url %q is plain http to a host outside this machine and its network: "+
+			"the key would travel in clear text, use https", c.LLM.BaseURL)
 	}
 	if c.LLM.MaxAttempts < 1 {
 		return fmt.Errorf("llm.max_attempts must be >= 1")
@@ -1009,10 +1021,12 @@ func (c *Config) validateSchedule() error {
 		return fmt.Errorf("schedule.tick is %s: it cannot be negative (0 means the built-in default)", c.Schedule.Tick)
 	}
 	if c.Schedule.MinEvery < 0 {
-		return fmt.Errorf("schedule.min_every is %s: it cannot be negative (0 means the built-in default)", c.Schedule.MinEvery)
+		return fmt.Errorf("schedule.min_every is %s: it cannot be negative (0 means the built-in default)",
+			c.Schedule.MinEvery)
 	}
 	if c.Schedule.MaxRunsKept < 0 {
-		return fmt.Errorf("schedule.max_runs_kept is %d: it cannot be negative (0 means the built-in default)", c.Schedule.MaxRunsKept)
+		return fmt.Errorf("schedule.max_runs_kept is %d: it cannot be negative (0 means the built-in default)",
+			c.Schedule.MaxRunsKept)
 	}
 	return nil
 }
@@ -1064,8 +1078,9 @@ func orList(items []string) string {
 		return "nothing"
 	case 1:
 		return items[0]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 	}
-	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
 // requireField reports the field a setting cannot work without. An optional hint

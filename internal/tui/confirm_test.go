@@ -578,7 +578,8 @@ func TestTheWindowOnlyAnswersTheQuestion(t *testing.T) {
 // agent's question is refused at once, with a reason, and no window opens.
 func TestABackgroundAgentsQuestionIsNeverOpened(t *testing.T) {
 	tui := &TUI{}
-	ok, err := tui.askConfirm(context.Background(), agent.ApprovalRequest{Command: "npm test", Background: true, Agent: "a1"})
+	ok, err := tui.askConfirm(context.Background(),
+		agent.ApprovalRequest{Command: "npm test", Background: true, Agent: "a1"})
 	if ok || err == nil || !strings.Contains(err.Error(), "background agent cannot ask") {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}

@@ -159,7 +159,8 @@ func TestProviderKeyFromEnvFallsBackToTheHomeCredentials(t *testing.T) {
 	if err := os.MkdirAll(Dir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(CredentialsPath(File()), []byte("export GEMINI_API_KEY='g'\nexport MOTITA_LLM_API_KEY='generic'\n"), 0o600); err != nil {
+	if err := os.WriteFile(CredentialsPath(File()),
+		[]byte("export GEMINI_API_KEY='g'\nexport MOTITA_LLM_API_KEY='generic'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := ProviderKeyFromEnv("gemini"); got != "g" {

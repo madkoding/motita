@@ -24,13 +24,12 @@ import (
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
+	"github.com/madkoding/motita/internal/doctor"
 	"github.com/madkoding/motita/internal/gateway"
 	"github.com/madkoding/motita/internal/gitforge"
-	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/onboard"
-	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/sandbox"
@@ -74,6 +73,9 @@ type Options struct {
 	// example by a Ctrl+C handler in main), interactive modes return
 	// immediately. If nil, context.Background() is used.
 	BaseCtx context.Context
+
+	// DoctorEnv is the machine `motita doctor` checks. Nil means this process's (doctor.System).
+	DoctorEnv *doctor.Env
 
 	// Construction hooks, to replace the layers in tests.
 	NewLogger  func(config.Agent) (*logx.Logger, error)
@@ -204,6 +206,8 @@ Options:
 Commands:
   config             setup wizard: choose the provider, the model and the check,
                      and write a working configuration
+  doctor             check this machine: platform, shell, DNS, PATH, the
+                     configuration and the sandbox
   gateway start      bring the gateway up as a service and leave it running
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
@@ -240,6 +244,7 @@ type flags struct {
 	version        bool
 	isolation      bool
 	initConfig     bool
+	doctor         bool
 	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
 	// curator switches, so neither swallows the word after it.
 	tokenOnly bool
@@ -323,6 +328,10 @@ func Run(op Options) int {
 		return code
 	}
 
+	if fl.doctor {
+		return op.runDoctor(fl)
+	}
+
 	// A subcommand is dispatched here, before the main path, because it pays for neither the
 	// reasoning engine nor a sandbox: `gateway start` re-executes the program rather than serving in
 	// this process, and `stop` and `status` only read a file and ask a port a question.
@@ -342,6 +351,13 @@ func Run(op Options) int {
 
 // complete fills in the default values of the dependencies.
 func (op *Options) complete() {
+	op.completeIO()
+	op.completeProcess()
+	op.completeGateway()
+}
+
+// completeIO fills in the streams, the onboarding wizard and the identity of the build.
+func (op *Options) completeIO() {
 	if op.Out == nil {
 		op.Out = io.Discard
 	}
@@ -349,7 +365,9 @@ func (op *Options) complete() {
 		op.Stdin = os.Stdin
 	}
 	if op.RunOnboard == nil {
-		op.RunOnboard = func(ctx context.Context, in io.Reader, out io.Writer, path string, preset onboard.Answers) (onboard.Result, error) {
+		op.RunOnboard = func(
+			ctx context.Context, in io.Reader, out io.Writer, path string, preset onboard.Answers,
+		) (onboard.Result, error) {
 			// The menus follow the arrow keys when the answers come from a terminal; from a pipe
 			// they are read as lines, so a script can still answer them.
 			return onboard.RunWithKeys(ctx, in, out, path, preset, time.Now(), tui.KeyModeFor(in))
@@ -370,6 +388,10 @@ func (op *Options) complete() {
 		// showing "dev": it looks like the version is broken instead of like an unversioned build.
 		op.Version = "dev"
 	}
+}
+
+// completeProcess fills in how the process waits, exits, re-executes itself and runs its child.
+func (op *Options) completeProcess() {
 	if op.waitSignal == nil {
 		op.waitSignal = func(d time.Duration) <-chan time.Time { return time.After(d) }
 	}
@@ -391,6 +413,10 @@ func (op *Options) complete() {
 			op.ExePath = os.Args[0]
 		}
 	}
+}
+
+// completeGateway fills in how the gateway is started, signalled and installed as a service.
+func (op *Options) completeGateway() {
 	if op.SpawnGateway == nil {
 		op.SpawnGateway = spawnDetached
 	}
@@ -403,234 +429,6 @@ func (op *Options) complete() {
 	if op.WriteServiceFile == nil {
 		op.WriteServiceFile = gateway.WriteServiceFile
 	}
-}
-
-// valueFlags are the flags that consume the argument after them. The list exists for ONE reason: to
-// tell a flag's VALUE apart from a subcommand. `-session gateway` names a conversation called
-// "gateway", and reading that word as a command would make `motita -session gateway -connect
-// host` start a service instead of attaching a client - a silent reversal of what was asked for.
-var valueFlags = map[string]bool{
-	"-config": true, "--config": true,
-	"-task": true, "--task": true,
-	"-task-file": true, "--task-file": true,
-	"-gateway": true, "--gateway": true,
-	"-connect": true, "--connect": true,
-	"-session": true, "--session": true,
-	"-p": true, "--prompt": true,
-}
-
-// flagValues marks the positions of arguments that are a flag's VALUE rather than a word of their
-// own. It is derived from valueFlags and not written out again, so a flag added above is skipped
-// below without anyone remembering to do it.
-func flagValues(args []string) []bool {
-	skip := make([]bool, len(args))
-	for i := 0; i < len(args); i++ {
-		name, _, hasValue := strings.Cut(args[i], "=")
-		// "-flag=value" carries its own value, so the next argument is a word of its own.
-		if hasValue || !valueFlags[name] {
-			continue
-		}
-		if i+1 < len(args) {
-			skip[i+1] = true
-			i++
-		}
-	}
-	return skip
-}
-
-// parse reads the accepted flags. It is done by hand, and not with the flag
-// package over os.Args, so the function stays pure and does not depend on the
-// process' global state (which is what used to make it impossible to test).
-func parse(args []string) (flags, error) {
-	var b flags
-
-	// The subcommands are read FIRST, because they are POSITIONAL arguments and the loop below is
-	// written for flags: `motita gateway start` reaching that loop would be reported as an
-	// unknown flag named "gateway", which is a confusing way to say the user used the right word in
-	// the right place.
-	//
-	// They are found by scanning for the word while SKIPPING the values of flags, which is why there
-	// is a list of the flags that take one. Without that skipping, `-session gateway` would be read
-	// as the subcommand and `motita -session gateway -connect host` would start a SERVICE instead
-	// of a client that attaches to a conversation called "gateway".
-	//
-	// The scan RESTARTS after every word it removes, so one line can carry two subcommands
-	// (`motita gateway start curator status`) without the second being read at a stale index.
-	for {
-		skip := flagValues(args)
-		consumed := false
-		for i := 0; i < len(args); i++ {
-			if skip[i] {
-				continue
-			}
-			switch args[i] {
-			case "gateway":
-				if i+1 >= len(args) {
-					return b, fmt.Errorf("gateway needs an action: start, stop or status")
-				}
-				switch strings.ToLower(strings.TrimSpace(args[i+1])) {
-				case "start", "stop", "status":
-					// Recorded as the user wrote it: what they typed is what gets reported.
-					b.gatewayAction = args[i+1]
-					// Removed from the argument list so the flag loop below never sees them: a
-					// positional argument is not a flag, and leaving it there would end in
-					// "unknown flag: gateway".
-					args = append(append([]string{}, args[:i]...), args[i+2:]...)
-				default:
-					// Rejected with the list rather than ignored: falling through would turn a
-					// typo into something else entirely - `motita gateway strat` starting the
-					// interface.
-					return b, fmt.Errorf("unknown gateway action %q: start, stop or status", args[i+1])
-				}
-				consumed = true
-			case "config":
-				// The setup wizard. A word and not a flag because -config already names the
-				// YAML file; `motita config` is the one place the two cannot be confused.
-				b.initConfig = true
-				args = append(append([]string{}, args[:i]...), args[i+1:]...)
-				consumed = true
-			case "curator":
-				if i+1 >= len(args) {
-					return b, fmt.Errorf("curator needs an action: %s", curatorActions)
-				}
-				action := strings.ToLower(strings.TrimSpace(args[i+1]))
-				switch action {
-				case "status", "run", "list-archived", "list-proposed":
-					b.curatorAction = action
-					args = append(append([]string{}, args[:i]...), args[i+2:]...)
-				case "pin", "unpin", "restore", "show-proposed", "accept", "reject":
-					if i+2 >= len(args) {
-						return b, fmt.Errorf("curator %s needs a skill name", action)
-					}
-					b.curatorAction = action
-					// The name is data and is kept EXACTLY as typed: it is not an action, so
-					// lower-casing it would be inventing a skill the user did not name.
-					b.curatorSkill = strings.TrimSpace(args[i+2])
-					args = append(append([]string{}, args[:i]...), args[i+3:]...)
-				default:
-					return b, fmt.Errorf("unknown curator action %q: %s", args[i+1], curatorActions)
-				}
-				consumed = true
-			}
-			if consumed {
-				break
-			}
-		}
-		if !consumed {
-			break
-		}
-	}
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		// Both forms are accepted: -flag value and -flag=value.
-		name, value, hasValue := strings.Cut(arg, "=")
-
-		next := func() (string, error) {
-			if hasValue {
-				return value, nil
-			}
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("%s is missing its value", name)
-			}
-			i++
-			return args[i], nil
-		}
-
-		switch name {
-		case "-config", "--config":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			b.configPath = v
-		case "-task", "--task":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			b.task = v
-		case "-task-file", "--task-file":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			b.taskFile = v
-		case "-plan", "--plan":
-			if hasValue {
-				b.plan = value == "true" || value == "1"
-			} else {
-				b.plan = true
-			}
-		case "-tui", "--tui":
-			b.tui = true
-		case "-serve", "--serve":
-			b.serve = true
-		case "-gateway", "--gateway":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			b.gateway = v
-		case "-connect", "--connect":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			// An EMPTY address is refused here rather than passed on: "-connect" with nothing
-			// after it, or "-connect=" with nothing after the equals, would otherwise produce a
-			// client pointed at nothing and fail somewhere far from the mistake.
-			if strings.TrimSpace(v) == "" {
-				return b, fmt.Errorf("-connect needs an address, like -connect 127.0.0.1:7477")
-			}
-			b.connect = strings.TrimSpace(v)
-		case "-session", "--session":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			b.session = strings.TrimSpace(v)
-		case "-p", "--prompt":
-			v, err := next()
-			if err != nil {
-				return b, err
-			}
-			b.prompt = v
-		case "-token-only", "--token-only":
-			b.tokenOnly = true
-		case "-json", "--json":
-			b.jsonOut = true
-		case "-validate-config", "--validate-config":
-			b.validateConfig = true
-		case "-version", "--version":
-			b.version = true
-		case "-isolation", "--isolation":
-			b.isolation = true
-		// The switches of `curator run`. They take NO value: a boolean flag that consumed
-		// the argument after it would swallow a word the user meant as a command, which is
-		// why neither appears in valueFlags.
-		case "-consolidate", "--consolidate":
-			b.curatorConsolidate = true
-		case "-dry-run", "--dry-run":
-			b.curatorDryRun = true
-		case "-h", "-help", "--help":
-			return b, fmt.Errorf("help requested")
-		case "":
-			return b, fmt.Errorf("empty argument")
-		default:
-			return b, fmt.Errorf("unknown flag: %q", arg)
-		}
-	}
-	// A process cannot be a gateway and a client of one at the same time.
-	//
-	// Refused rather than resolved because there is no sensible resolution: -serve makes this
-	// process the thing that holds conversations, -connect makes it a viewer of somebody else's,
-	// and the two contradict. Picking one silently would leave the user with an interface for the
-	// thing they did not ask for.
-	if b.serve && b.connect != "" {
-		return b, fmt.Errorf("-serve and -connect cannot be used together: -serve makes this process a gateway, and -connect makes it a client of one")
-	}
-	return b, nil
 }
 
 // initConfig runs the first-run wizard. The default destination is
@@ -734,7 +532,7 @@ func loadPreferringKey(path string, fl flags) (config.Config, error) {
 
 // diagnosticNeedsNoKey reports whether this invocation can be served without an LLM key.
 func diagnosticNeedsNoKey(fl flags) bool {
-	if fl.validateConfig || fl.isolation {
+	if fl.validateConfig || fl.isolation || fl.doctor {
 		return true
 	}
 	// A curator command, unless it is the consolidation pass.
@@ -799,16 +597,11 @@ func (op Options) run(fl flags) int {
 		}
 		// The interface clears the screen when it opens, and the wizard's summary goes with it:
 		// the first thing it shows is therefore what just happened, in one line.
-		fl.notice = "Setup complete. Describe your first task below, or press Tab to ask questions first."
-		if !written {
-			fl.notice = "The setup was cancelled, so nothing is configured yet. Type /config whenever you are ready."
-		}
+		fl.notice = onboardingNotice(written)
 		// The wizard wrote the file, so now it is there to be loaded. Continue
 		// with the normal path.
 	}
 
-	var cfg config.Config
-	var err error
 	// Which file is read is decided in ONE place, because a second caller needs the same answer:
 	// the gateway subcommands resolve whether to announce the browser interface from it, and a
 	// caller that re-derived it would eventually derive it differently. See resolvedConfigPath.
@@ -816,18 +609,10 @@ func (op Options) run(fl flags) int {
 	// When no explicit -config is given, the file is looked for in the motita home
 	// (~/.motita/motita.yaml) and then in the current directory. If neither exists, the
 	// program starts from defaults so the TUI or wizard can run without a file.
-	if cfgPath := resolvedConfigPath(fl); cfgPath != "" {
-		cfg, err = loadPreferringKey(cfgPath, fl)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return ConfigError
-		}
-	} else {
-		cfg, err = config.LoadOrDefault("")
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return ConfigError
-		}
+	cfg, err := loadRunConfig(fl)
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ %v\n", err)
+		return ConfigError
 	}
 
 	// When entering the conversational TUI, keep the chat clean by writing structured
@@ -893,14 +678,17 @@ func (op Options) run(fl flags) int {
 	}
 	defer box.Close()
 
+	return op.runSandboxed(ctx, fl, cfg, box, log)
+}
+
+// runSandboxed is the rest of run once the sandbox exists: the diagnostic modes, then the mode
+// the flags ask for.
+func (op Options) runSandboxed(
+	ctx context.Context, fl flags, cfg config.Config, box *sandbox.Sandbox, log *logx.Logger,
+) int {
+
 	if fl.isolation {
-		fmt.Fprintf(op.Out, "applied isolation: %v\n", box.Isolation())
-		if notApplied := box.NotApplied(); len(notApplied) > 0 {
-			fmt.Fprintf(op.Out, "requested and not applied:\n")
-			for _, s := range notApplied {
-				fmt.Fprintf(op.Out, "  - %s\n", s)
-			}
-		}
+		op.reportIsolation(box)
 		return Success
 	}
 
@@ -926,12 +714,11 @@ func (op Options) run(fl flags) int {
 	// example when there is no configuration file yet); the TUI creates it lazily
 	// when the user actually starts plan, task or model listing. For all non-TUI
 	// modes the engine is required up front.
-	var engine *llm.Client
 	if op.willRunTUI(fl) {
 		return op.runTUI(ctx, fl, cfg, nil, box, log)
 	}
 
-	engine, err = op.newEngine(cfg.LLM, log)
+	engine, err := op.newEngine(cfg.LLM, log)
 	if err != nil {
 		log.Error("could not prepare the reasoning engine", "error", err)
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
@@ -951,6 +738,15 @@ func (op Options) run(fl flags) int {
 		return op.runPlan(ctx, fl, cfg, engine, box, log, procs)
 	}
 
+	return op.runTask(ctx, fl, cfg, engine, box, log, procs)
+}
+
+// runTask runs the agent on the task source: the single task of the flags, or the configured
+// source.
+func (op Options) runTask(
+	ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger,
+	procs *procedures.Store,
+) int {
 	// Task source (a single task takes priority over the configured one).
 	source, err := BuildSource(cfg, fl.task, fl.taskFile, log)
 	if err != nil {
@@ -972,10 +768,7 @@ func (op Options) run(fl flags) int {
 	// Curator: run the deterministic pass on session start if enough time has
 	// passed. Cheap (no LLM) and keeps the library tidy without a daemon.
 	if cfg.Curator.Enabled {
-		c := curator.New(cfg.Curator, procs, engine, log, buildSkillRunner)
-		if err := c.MaybeRun(ctx); err != nil {
-			log.Warn("curator pass failed", "error", err)
-		}
+		curateOnStart(ctx, cfg, procs, engine, log)
 	}
 
 	started := time.Now()
@@ -988,6 +781,44 @@ func (op Options) run(fl flags) int {
 	}
 	log.Info("run completed", "duration", time.Since(started).String())
 	return Success
+}
+
+// onboardingNotice is the first line the interface shows after the wizard ran.
+func onboardingNotice(written bool) string {
+	if !written {
+		return "The setup was cancelled, so nothing is configured yet. Type /config whenever you are ready."
+	}
+	return "Setup complete. Describe your first task below, or press Tab to ask questions first."
+}
+
+// loadRunConfig reads the configuration this run uses: the file resolvedConfigPath names, or the
+// defaults when there is none.
+func loadRunConfig(fl flags) (config.Config, error) {
+	if cfgPath := resolvedConfigPath(fl); cfgPath != "" {
+		return loadPreferringKey(cfgPath, fl)
+	}
+	return config.LoadOrDefault("")
+}
+
+// reportIsolation prints the isolation the sandbox applied, and what was asked for and not.
+func (op Options) reportIsolation(box *sandbox.Sandbox) {
+	fmt.Fprintf(op.Out, "applied isolation: %v\n", box.Isolation())
+	if notApplied := box.NotApplied(); len(notApplied) > 0 {
+		fmt.Fprintf(op.Out, "requested and not applied:\n")
+		for _, s := range notApplied {
+			fmt.Fprintf(op.Out, "  - %s\n", s)
+		}
+	}
+}
+
+// curateOnStart runs the curator's pass when enough time has passed since the last one.
+func curateOnStart(
+	ctx context.Context, cfg config.Config, procs *procedures.Store, engine *llm.Client, log *logx.Logger,
+) {
+	c := curator.New(cfg.Curator, procs, engine, log, buildSkillRunner)
+	if err := c.MaybeRun(ctx); err != nil {
+		log.Warn("curator pass failed", "error", err)
+	}
 }
 
 // newLogger builds the structured log with rotation.
@@ -1025,7 +856,9 @@ func (op Options) newEngine(c config.LLM, log *logx.Logger) (*llm.Client, error)
 }
 
 // newReview builds the background self-improvement fork, or the replacement a test injected.
-func (op Options) newReview(cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, build review.RunnerBuilder) *review.Review {
+func (op Options) newReview(
+	cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, build review.RunnerBuilder,
+) *review.Review {
 	if op.NewReview != nil {
 		return op.NewReview(cfg, engine, procs, log, build)
 	}
@@ -1046,7 +879,9 @@ func (op Options) runAgent(ctx context.Context, ag *agent.Agent) error {
 //
 // It returns the context and a function to uninstall the handler (needed so no
 // goroutines are left alive between tests).
-func (op Options) contextWithShutdown(parent context.Context, cfg config.Config, log *logx.Logger) (context.Context, func()) {
+func (op Options) contextWithShutdown(
+	parent context.Context, cfg config.Config, log *logx.Logger,
+) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(parent)
 	if op.Signals == nil {
 		return ctx, cancel
@@ -1095,7 +930,10 @@ func (op Options) contextWithShutdown(parent context.Context, cfg config.Config,
 	// is left alive after control returns.
 	var once sync.Once
 	return ctx, func() {
-		once.Do(func() { close(done); cancel() })
+		once.Do(func() {
+			close(done)
+			cancel()
+		})
 		<-finished
 	}
 }
@@ -1188,300 +1026,4 @@ func LogPath(cfg config.Config) string {
 		return "stderr"
 	}
 	return cfg.Agent.LogFile
-}
-
-// willRunTUI reports whether the invocation ends in the conversational interface.
-//
-// This is the ONLY predicate that answers that question, and that is the point. The logger
-// has to be silenced before the configuration is loaded — structured lines printed into the
-// chat are not a rendering bug, they are the wrong decision taken about where the log goes —
-// and the interface is launched further down. When those two places each carried their own
-// copy of the test they drifted, and every invocation that reached the interface through the
-// defaults kept writing logs to the terminal: the raw JSON that appeared in the middle of the
-// chat. One question, one function.
-//
-// It is a method on Options rather than a flag field because the answer depends on the
-// positional arguments too, which are not part of the flag set.
-func (op Options) willRunTUI(fl flags) bool {
-	// FIRST, before the -tui check below: -serve draws nothing, so a process asked to serve is
-	// not a process asked to draw. "-tui -serve" is contradictory and -serve wins.
-	if fl.serve {
-		return false
-	}
-	if fl.tui {
-		return true
-	}
-	// Any explicit request that produces its own output rules the interface out: it would
-	// otherwise swallow the result the user asked for.
-	if fl.configPath != "" || fl.task != "" || fl.taskFile != "" {
-		return false
-	}
-	if fl.validateConfig || fl.isolation || fl.version || fl.initConfig {
-		return false
-	}
-	return len(op.Args) == 0
-}
-
-// runTUI starts the interactive text user interface.
-//
-// The interface is handed a CLIENT of a gateway, not a second door into the agent. Two doors would
-// be two places the conversation lives, and the phone and the terminal would then be talking to
-// different agents: the text interface is a front end like any other, and this is where that stops
-// being a slogan.
-func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
-	if op.RunTUI != nil {
-		return op.RunTUI(ctx, cfg, engine, box, log)
-	}
-	// Built through the constructor, not a struct literal: the literal leaves the
-	// injected factory nil and RunPlan then calls it, which panics. The constructor
-	// is the only place that sets every dependency.
-	runner := tui.NewAppRunner(op.Out, op.Err, cfg, engine, box, log)
-	ui := tui.New(runner)
-	ui.In = op.Stdin
-	ui.Out = op.Out
-	ui.Err = op.Err
-	ui.NoColor = noColour(os.Getenv, op.Out)
-	ui.Notice = fl.notice
-	ui.ShowActions = cfg.Gateway.ShowActions
-	ui.Lang = i18n.Resolve(cfg.UI.Language, os.Getenv)
-
-	// The interface CONNECTS to a gateway rather than assuming it is the only one.
-	//
-	// This is the split the user asked for: `motita` brings up an interface, and the agent behind
-	// it is a service that can already be running. Attaching to one that is there is also what makes
-	// `gateway start` mean anything - a service nobody can connect to is a service for nobody.
-	client, version, release, code := op.attachGateway(ctx, fl, cfg, engine, box, log)
-	if code != Success {
-		return code
-	}
-	if release != nil {
-		defer release()
-	}
-	if client == nil {
-		// The documented escape hatch: with the gateway off the interface takes the direct path it
-		// has always had.
-		return ui.Run(ctx)
-	}
-	// The interface names the build ACTUALLY ANSWERING, which is not always this one: a service an
-	// earlier `gateway start` left running can be an older binary, and a version drawn from this
-	// process would then be a confident lie - the exact thing the version row exists to prevent.
-	ui.Version = version
-
-	// The wizard runs HERE, in the terminal this process was started from: it reads lines from
-	// stdin, so it cannot travel over a socket, and a wizard answered on the gateway's host would
-	// configure the wrong machine. It is handed to the interface as its Setup, and the client is
-	// handed over UNWRAPPED: a wrapper exposes only the methods it declares, and the one that used
-	// to sit here hid every optional capability of the client - stopping a run on the gateway,
-	// listing and switching sessions, the agent's questions - so /sessions answered "not attached
-	// to a gateway" from inside one.
-	ui.Runner = client
-	ui.Setup = runner.RunConfig
-	return ui.Run(ctx)
-}
-
-// attachGateway resolves WHICH gateway this process will speak through, and returns the client for
-// it together with the function that releases it.
-//
-// It is a function of its own because the decision is the whole feature and it is otherwise
-// invisible: the interface is handed a client either way, and which gateway is behind that client
-// is not something the rest of this file can see. (The same reason the NewClient seam exists.)
-//
-// Three outcomes, and all of them are deliberate:
-//
-//   - The gateway is off, or was turned off with -gateway off: no client, no release, and the
-//     caller keeps the direct path it has always had. A nil client is the escape hatch, not a
-//     failure.
-//   - A gateway is ALREADY running: attach to it and release nothing. It is not ours to shut down.
-//     Killing a service the user deliberately started, because a terminal happened to attach to it,
-//     would be destroying their setup by looking at it.
-//   - Nothing is running: bring one up in THIS process and attach to it, and give back the release.
-//     This one IS ours, and it is shut down when the interface ends.
-//
-// The gateway is brought up here rather than re-executed with -serve, and that is deliberate. The
-// re-exec belongs to `gateway start`, whose whole purpose is a gateway that outlives the shell that
-// started it. Here the opposite is wanted: this gateway exists for this interface, so it is bound
-// in-process and dies with the process no matter how the process dies. A child would survive a
-// SIGKILL of the interface and leak, and a leaked gateway is invisible until somebody counts ports.
-func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (tui.Runner, string, func(), int) {
-	if !cfg.Gateway.Enabled || strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
-		return nil, "", nil, Success
-	}
-
-	found, ok, err := op.discover(ctx)
-	if err != nil {
-		fmt.Fprintf(op.Err, "%v\n", err)
-		return nil, "", nil, ConfigError
-	}
-	if ok {
-		// Somebody else's gateway, or one an earlier command started: either way it is not ours.
-		//
-		// The version comes from THAT gateway through discovery, not from this process. The two
-		// differ whenever a service is left running across an upgrade, and reporting our own build
-		// there would name a binary that is not answering anything.
-		return op.newClient(found.BaseURL, found.Token, fl.session), found.Version, nil, Success
-	}
-
-	// Nothing is running, so one is brought up for this interface and it is OURS: whatever happens
-	// to this process, its gateway goes with it.
-	baseURL, token, srv, err := op.startOwnGateway(ctx, fl, cfg, engine, box, log)
-	if err != nil {
-		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
-		return nil, "", nil, ConfigError
-	}
-	// runGatewayLoop is what STARTS the server - it serves in a goroutine and hands back the
-	// shutdown. Starting the gateway without it would leave a bound socket that nobody answers on:
-	// every client would connect and then wait forever, which is exactly how this was found.
-	shutdown := func() {
-		// No gateway was started, so there is nothing to shut down.
-	}
-	if srv != nil {
-		shutdown = op.runGatewayLoop(ctx, srv, log)
-	}
-	release := func() {
-		shutdown()
-		// The file is cleared as part of the release rather than left to the next start: between
-		// this process ending and the next one looking, the file would name a gateway that is gone,
-		// and a stale entry is exactly what discovery trusts.
-		_ = gateway.RemoveServiceFile(op.serviceFilePath())
-	}
-	// The gateway we just brought up IS this process (the same Options build it), so its version is
-	// ours - unlike the branch above, where it belongs to somebody else.
-	return op.newClient(baseURL, token, fl.session), op.Version, release, Success
-}
-
-// startOwnGateway brings up the gateway this process will speak through, in-process.
-//
-// It is in-process rather than a re-executed child, and that is the opposite of what
-// `gateway start` does - deliberately. The service exists to outlive the shell that started it.
-// This one exists FOR this interface, so it must die with it however the process dies: a child
-// would survive a SIGKILL of the interface and leak, and a leaked gateway is invisible until
-// somebody counts ports.
-//
-// The test seam returns only the three things the caller uses - where, what token, and whether it
-// worked - so a test asserts the DECISION without binding a port or depending on the machine.
-func (op Options) startOwnGateway(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (string, string, *gateway.Server, error) {
-	if op.StartGatewayForTest != nil {
-		baseURL, token, err := op.StartGatewayForTest(true)
-		return baseURL, token, nil, err
-	}
-	srv, err := op.startGateway(fl, cfg, engine, box, log, true, nil)
-	if err != nil {
-		return "", "", nil, err
-	}
-	return srv.BaseURL(), srv.Token(), srv, nil
-}
-
-// noColour reports whether the interface must render without colour.
-//
-// Two rules, both from the design guide, and both were missing: the NO_COLOR
-// variable is the cross-tool convention a user sets once and expects every
-// program to honour, and TERM=dumb means the terminal cannot do escapes at all —
-// sending them there prints the sequences as text.
-//
-// The writer is checked for being a terminal only as a last resort, and the check
-// is deliberately conservative: when the output is not a file or a terminal at all
-// (a buffer in a test, a pipe into a log) colour is left off, because nothing is
-// watching that can interpret it.
-func noColour(getenv func(string) string, out io.Writer) bool {
-	if _, set := os.LookupEnv("NO_COLOR"); set {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(getenv("TERM"))) {
-	case "dumb", "":
-		return true
-	}
-	// The question "is anything watching that can interpret escapes" is answered in one
-	// place, tui.IsTerminal, and asked from both the colour decision and the mouse
-	// feature. Two implementations of it drifted apart once already: the mouse code had
-	// its own copy under a different name.
-	return !tui.IsTerminal(out)
-}
-
-// runPlan runs the read-only plan/chat mode. It uses the reasoning engine and the
-// sandbox, but it never delegates to the task/anchor flow.
-func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, procs *procedures.Store) int {
-	cfg.Agent.ReadOnly = true
-	ag := agent.New(cfg, log, engine, box, nil)
-	ag.SetLibrary(procs.Library)
-	ag.SetReward(procs.Ledger)
-	ag.SetUsage(procs.Usage)
-
-	// Background self-improvement: the review fork runs on the conversation's engine.
-	//
-	// The second engine this used to build (cfg.Review.LLM, a cheaper model for the fork) was
-	// UNREACHABLE, and it was removed rather than left as an uncovered branch:
-	//
-	//   - the YAML decoder refuses a pointed-to struct. Review.LLM is *config.LLM, so a
-	//     `review: {llm: {...}}` block fails with "expected a simple value and found a nested
-	//     block", which is the one shape the decoder cannot fill;
-	//   - there is no MOTITA_REVIEW_LLM_* overlay, unlike the other LLM settings;
-	//   - the option appears in neither configs/agent.yaml.example nor docs/.
-	//
-	// So no configuration could ever reach it, and the fallback below is the path every real
-	// deployment takes. Restoring the feature means wiring ONE of those three - which is a change
-	// with a config surface, and should land with one. The field stays in config.Review so that a
-	// wired implementation has somewhere to read from.
-	var reviewer *review.Review
-	if cfg.Review.Enabled {
-		reviewer = review.New(cfg.Review, engine, procs, log, buildSkillRunner)
-	}
-
-	planner := plan.New(engine, ag).
-		WithTimeout(planDefaultTimeout(cfg)).
-		WithLoops(planDefaultLoops(cfg)).
-		// Without the model the session falls back to the 8192-token floor and a one-shot
-		// run that reads a single file dies with "context is full".
-		WithSessionPolicy(cfg.LLM.Model, cfg.LLM.Session.ContextWindow, cfg.LLM.Session.Reserve,
-			cfg.LLM.Session.CompactAt, cfg.LLM.Session.KeepRecent).
-		// The same library the task path uses, so a procedure written down in one mode is
-		// reachable from the other and a verdict lands on one shelf rather than two.
-		WithLibrary(procs.Library).
-		WithReward(procs.Ledger).
-		WithUsage(procs.Usage).
-		WithReview(reviewer).
-		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
-
-	if fl.prompt != "" {
-		answer, err := planner.Run(ctx, fl.prompt)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return RunError
-		}
-		fmt.Fprintln(op.Out, answer)
-		return Success
-	}
-
-	// No one-shot prompt: send the user to the TUI, which has a dedicated plan mode.
-	return op.runTUI(ctx, fl, cfg, engine, box, log)
-}
-
-func planDefaultTimeout(cfg config.Config) time.Duration {
-	if cfg.Sandbox.Timeout > 0 {
-		return cfg.Sandbox.Timeout
-	}
-	return 120 * time.Second
-}
-
-func planDefaultLoops(cfg config.Config) int {
-	if cfg.Agent.MaxRetries > 0 && cfg.Agent.MaxRetries <= 10 {
-		return cfg.Agent.MaxRetries
-	}
-	return 5
-}
-
-// buildSkillRunner is the RunnerBuilder for the background review fork and the
-// curator's LLM consolidation pass. It creates a *plan.Planner with only the
-// skill tools (no filesystem, no command execution), marked as a review fork
-// so save_skill sets created_by="agent". The planner is constructed with a nil
-// CommandRunner, which disables execute_command; the skill tools do not need
-// it. The soul is the review-specific prompt, not the normal operational prompt.
-func buildSkillRunner(engine *llm.Client, procs *procedures.Store, soul string, maxLoops int) review.SkillRunner {
-	p := plan.New(engine, nil).
-		WithLoops(maxLoops).
-		WithLibrary(procs.Library).
-		WithReward(procs.Ledger).
-		WithUsage(procs.Usage).
-		WithSoul(soul)
-	p.IsReviewFork = true
-	return p
 }

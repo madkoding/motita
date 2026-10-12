@@ -48,6 +48,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		all[i].Branch = gitx.Display(ctx, all[i].Dir)
 		all[i].MainBranch = mainBranchOf(ctx, &all[i])
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
+		liveRepos(ctx, &all[i])
 		// Worktrees counts the session checkouts, and it is asked of git rather
 		// than of the session list so that a worktree left behind by a session
 		// that is gone is still counted - which is the state a user wants to
@@ -166,26 +167,12 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the title cannot be empty")
 		return
 	}
-	dirName := strings.TrimSpace(body.Dir)
-	if dirName == "" {
-		writeError(w, http.StatusBadRequest, "the folder name cannot be empty")
+	dirName, ok := projectFolderName(w, body.Dir)
+	if !ok {
 		return
 	}
-	// The folder must be a simple name, not a path: a session inside a project
-	// works in that folder, and a relative path with separators would let the
-	// agent escape the workspace.
-	if strings.ContainsAny(dirName, "/\\..") || !filepath.IsLocal(dirName) {
-		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
-		return
-	}
-
-	// The default needs no check, and not asking git for it keeps a machine without git failing
-	// where it always did (initialising the repository) rather than here.
-	mainBranch := strings.TrimSpace(body.MainBranch)
-	if mainBranch == "" {
-		mainBranch = defaultMainBranch
-	} else if !gitx.ValidBranch(r.Context(), mainBranch) {
-		writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
+	mainBranch, ok := requestedMainBranch(w, r, body.MainBranch)
+	if !ok {
 		return
 	}
 
@@ -200,37 +187,12 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	gitURL := strings.TrimSpace(body.GitURL)
 	var cloneLog string
 	if gitURL != "" {
-		// A folder that holds something else is not overwritten or refused: the clone goes to
-		// the next free "<name>-2", "<name>-3"... and the project records that path.
-		absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv())
-		// Clone the repo into the directory.
-		var err error
-		cloneLog, err = cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
-		if err != nil {
-			s.writeCloneError(w, gitURL, err)
-			return
-		}
-		// A clone arrives on the remote's default branch, which may not be the one asked for:
-		// the main branch becomes the requested one when the repository has it, and otherwise
-		// whichever of main/master it does have.
-		mainBranch = settleMainBranch(r.Context(), absDir, mainBranch)
+		absDir, mainBranch, cloneLog, ok = s.cloneProject(w, r, gitURL, absDir, mainBranch)
 	} else {
-		// The folder is created in the workspace when it does not exist, and a
-		// folder that is new or empty becomes a git repository. A folder that
-		// already holds files is somebody's work and is not turned into one.
-		if willInit(absDir) && !s.ensureGitIdentity(w, r, body.GitUserName, body.GitUserEmail) {
-			return
-		}
-		if err := os.MkdirAll(absDir, 0o755); err != nil {
-			writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
-			return
-		}
-		if entries, err := os.ReadDir(absDir); err == nil && len(entries) == 0 {
-			if err := gitx.InitOn(r.Context(), absDir, mainBranch); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
+		ok = s.prepareProjectFolder(w, r, absDir, mainBranch, body.GitUserName, body.GitUserEmail)
+	}
+	if !ok {
+		return
 	}
 
 	id, err := newSessionID()
@@ -263,6 +225,81 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})
+}
+
+// projectFolderName reads the folder name of a new project. The folder must be a simple name,
+// not a path: a session inside a project works in that folder, and a relative path with
+// separators would let the agent escape the workspace. It answers the request itself, and
+// returns false, when the name is not usable.
+func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
+	dirName := strings.TrimSpace(raw)
+	if dirName == "" {
+		writeError(w, http.StatusBadRequest, "the folder name cannot be empty")
+		return "", false
+	}
+	if strings.ContainsAny(dirName, "/\\..") || !filepath.IsLocal(dirName) {
+		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
+		return "", false
+	}
+	return dirName, true
+}
+
+// requestedMainBranch reads the main branch a new project asks for. The default needs no check,
+// and not asking git for it keeps a machine without git failing where it always did
+// (initialising the repository) rather than here.
+func requestedMainBranch(w http.ResponseWriter, r *http.Request, raw string) (string, bool) {
+	mainBranch := strings.TrimSpace(raw)
+	if mainBranch == "" {
+		return defaultMainBranch, true
+	}
+	if !gitx.ValidBranch(r.Context(), mainBranch) {
+		writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
+		return "", false
+	}
+	return mainBranch, true
+}
+
+// cloneProject clones gitURL for a new project, and returns the folder it went to, the project's
+// main branch and git's report. It answers the request itself, and returns false, when the clone
+// fails.
+func (s *Server) cloneProject(
+	w http.ResponseWriter, r *http.Request, gitURL, absDir, mainBranch string,
+) (dir, branch, cloneLog string, ok bool) {
+	// A folder that holds something else is not overwritten or refused: the clone goes to
+	// the next free "<name>-2", "<name>-3"... and the project records that path.
+	absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv())
+	cloneLog, err := cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
+	if err != nil {
+		s.writeCloneError(w, gitURL, err)
+		return "", "", "", false
+	}
+	// A clone arrives on the remote's default branch, which may not be the one asked for:
+	// the main branch becomes the requested one when the repository has it, and otherwise
+	// whichever of main/master it does have.
+	return absDir, settleMainBranch(r.Context(), absDir, mainBranch), cloneLog, true
+}
+
+// prepareProjectFolder makes the folder of a new project that is not a clone. The folder is
+// created in the workspace when it does not exist, and a folder that is new or empty becomes a
+// git repository. A folder that already holds files is somebody's work and is not turned into
+// one. It answers the request itself, and returns false, when it cannot.
+func (s *Server) prepareProjectFolder(
+	w http.ResponseWriter, r *http.Request, absDir, mainBranch, gitName, gitEmail string,
+) bool {
+	if willInit(absDir) && !s.ensureGitIdentity(w, r, gitName, gitEmail) {
+		return false
+	}
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
+		return false
+	}
+	if entries, err := os.ReadDir(absDir); err == nil && len(entries) == 0 {
+		if err := gitx.InitOn(r.Context(), absDir, mainBranch); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return false
+		}
+	}
+	return true
 }
 
 // errGitIdentityRequired is the machine-readable reason a project was not
@@ -314,73 +351,12 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
 	}
-	// Every field is optional: a client changes what it sends and nothing else.
-	var body struct {
-		Title        *string `json:"title"`
-		Description  *string `json:"description"`
-		Podman       *bool   `json:"podman"`
-		MainBranch   *string `json:"main_branch"`
-		MergeMethod  *string `json:"merge_method"`
-		PRMaxFixes   *int    `json:"pr_max_fixes"`
-		AutoMerge    *bool   `json:"auto_merge"`
-		AutoContinue *bool   `json:"auto_continue"`
-	}
+	var body projectUpdate
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if body.MergeMethod != nil {
-		m := strings.TrimSpace(*body.MergeMethod)
-		if m != "" && !slices.Contains(gitforge.MergeMethods, m) {
-			writeError(w, http.StatusBadRequest, "the merge method must be merge, squash or rebase")
-			return
-		}
-		p.MergeMethod = m
-	}
-	if body.PRMaxFixes != nil {
-		if *body.PRMaxFixes < 0 || *body.PRMaxFixes > maxPRFixesLimit {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("the attempts to fix a CI must be between 0 (the default) and %d", maxPRFixesLimit))
-			return
-		}
-		p.PRMaxFixes = *body.PRMaxFixes
-	}
-	if body.AutoMerge != nil {
-		p.AutoMerge = *body.AutoMerge
-	}
-	if body.AutoContinue != nil {
-		p.AutoContinue = *body.AutoContinue
-	}
-	if body.Title != nil {
-		title := strings.TrimSpace(*body.Title)
-		if title == "" {
-			writeError(w, http.StatusBadRequest, "the title cannot be empty")
-			return
-		}
-		p.Title = title
-	}
-	if body.Description != nil {
-		p.Description = strings.TrimSpace(*body.Description)
-	}
-	if body.Podman != nil {
-		if *body.Podman && !podmanInstalled() {
-			writeError(w, http.StatusConflict, "podman is not installed on this machine")
-			return
-		}
-		p.Podman = *body.Podman
-	}
-	if body.MainBranch != nil {
-		branch := strings.TrimSpace(*body.MainBranch)
-		if !gitx.ValidBranch(r.Context(), branch) {
-			writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
-			return
-		}
-		// In a repository the branch has to be one it has (or the one an empty repository is
-		// on): the project goes back to it, and a name git cannot check out would leave it
-		// stranded. A folder that is not a repository only remembers the name.
-		if gitx.Repo(r.Context(), p.Dir) == nil && !branchAvailable(r.Context(), p.Dir, branch) {
-			writeError(w, http.StatusBadRequest, "this project has no branch named "+branch)
-			return
-		}
-		p.MainBranch = branch
+	if !body.applyPR(w, p) || !body.applyDetails(w, p) || !body.applyMainBranch(w, r, p) {
+		return
 	}
 	if err := s.projects.save(*p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -392,6 +368,93 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	// With no sessions the checkout belongs on the main branch, including a main branch just chosen.
 	s.returnToMain(p)
 	writeJSON(w, http.StatusOK, p)
+}
+
+// projectUpdate is the body of handleUpdateProject. Every field is optional: a client changes
+// what it sends and nothing else.
+type projectUpdate struct {
+	Title        *string `json:"title"`
+	Description  *string `json:"description"`
+	Podman       *bool   `json:"podman"`
+	MainBranch   *string `json:"main_branch"`
+	MergeMethod  *string `json:"merge_method"`
+	PRMaxFixes   *int    `json:"pr_max_fixes"`
+	AutoMerge    *bool   `json:"auto_merge"`
+	AutoContinue *bool   `json:"auto_continue"`
+}
+
+// applyPR applies the pull-request settings to p. It answers the request itself, and returns
+// false, when one is not valid.
+func (u projectUpdate) applyPR(w http.ResponseWriter, p *Project) bool {
+	if u.MergeMethod != nil {
+		m := strings.TrimSpace(*u.MergeMethod)
+		if m != "" && !slices.Contains(gitforge.MergeMethods, m) {
+			writeError(w, http.StatusBadRequest, "the merge method must be merge, squash or rebase")
+			return false
+		}
+		p.MergeMethod = m
+	}
+	if u.PRMaxFixes != nil {
+		if *u.PRMaxFixes < 0 || *u.PRMaxFixes > maxPRFixesLimit {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("the attempts to fix a CI must be between 0 (the default) and %d", maxPRFixesLimit))
+			return false
+		}
+		p.PRMaxFixes = *u.PRMaxFixes
+	}
+	if u.AutoMerge != nil {
+		p.AutoMerge = *u.AutoMerge
+	}
+	if u.AutoContinue != nil {
+		p.AutoContinue = *u.AutoContinue
+	}
+	return true
+}
+
+// applyDetails applies the title, the description and the podman answer to p. It answers the
+// request itself, and returns false, when one is not valid.
+func (u projectUpdate) applyDetails(w http.ResponseWriter, p *Project) bool {
+	if u.Title != nil {
+		title := strings.TrimSpace(*u.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "the title cannot be empty")
+			return false
+		}
+		p.Title = title
+	}
+	if u.Description != nil {
+		p.Description = strings.TrimSpace(*u.Description)
+	}
+	if u.Podman != nil {
+		if *u.Podman && !podmanInstalled() {
+			writeError(w, http.StatusConflict, "podman is not installed on this machine")
+			return false
+		}
+		p.Podman = *u.Podman
+	}
+	return true
+}
+
+// applyMainBranch applies the main branch to p. It answers the request itself, and returns false,
+// when the branch is not valid.
+func (u projectUpdate) applyMainBranch(w http.ResponseWriter, r *http.Request, p *Project) bool {
+	if u.MainBranch == nil {
+		return true
+	}
+	branch := strings.TrimSpace(*u.MainBranch)
+	if !gitx.ValidBranch(r.Context(), branch) {
+		writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
+		return false
+	}
+	// In a repository the branch has to be one it has (or the one an empty repository is
+	// on): the project goes back to it, and a name git cannot check out would leave it
+	// stranded. A folder that is not a repository only remembers the name.
+	if gitx.Repo(r.Context(), p.Dir) == nil && !branchAvailable(r.Context(), p.Dir, branch) {
+		writeError(w, http.StatusBadRequest, "this project has no branch named "+branch)
+		return false
+	}
+	p.MainBranch = branch
+	return true
 }
 
 // handleProjectBranches lists what the main-branch selector can offer for a project.
@@ -547,7 +610,8 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if stopped, settled := c.stopRunForDeletion(deleteStopTimeout); stopped && !settled {
 			writeError(w, http.StatusConflict,
-				"a run in one of this project's sessions did not stop in time, so the project was not deleted: stop it and try again")
+				"a run in one of this project's sessions did not stop in time, so the project was not deleted: "+
+					"stop it and try again")
 			return
 		}
 	}
@@ -596,7 +660,13 @@ func (s *Server) ownsProjectDir(dir string) bool {
 		return false
 	}
 	rel, err := filepath.Rel(root, dir)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	return err == nil && !relLeavesRoot(rel) && !filepath.IsAbs(rel)
+}
+
+// relLeavesRoot reports whether a path relative to a root names the root itself or a place
+// outside it.
+func relLeavesRoot(rel string) bool {
+	return rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // projectOf returns the project a request is about, or nil when it does not exist.
@@ -631,7 +701,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
-	if c.workspace == "" {
+	if c.workspace == "" || c.projectID == "" {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
@@ -652,7 +722,8 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 	// integrated - measured.
 	if base == branch {
 		writeError(w, http.StatusConflict,
-			"the project's checkout is on this session's branch ("+branch+"), so there is nothing to integrate and the merge would report a success that changed nothing; check the project out on its own branch first")
+			"the project's checkout is on this session's branch ("+branch+"), so there is nothing to integrate "+
+				"and the merge would report a success that changed nothing; check the project out on its own branch first")
 		return
 	}
 	// With nothing ahead and no uncommitted work, there is nothing to integrate. This check
@@ -660,13 +731,16 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 	ahead, _, _ := gitx.CommitsBetween(r.Context(), p.Dir, base, branch)
 	changes, _ := gitx.WorkingTreeChanges(r.Context(), c.workspace)
 	if len(ahead) == 0 && changes == 0 {
-		writeError(w, http.StatusConflict, "this session has no work to integrate: its branch has no commits the project's branch lacks and its worktree has no uncommitted changes")
+		writeError(w, http.StatusConflict, "this session has no work to integrate: its branch has no commits "+
+			"the project's branch lacks and its worktree has no uncommitted changes")
 		return
 	}
 
 	task := fmt.Sprintf(`Integrate this session's work into the project.
 
-Follow the git-in-a-repository skill. Commit any pending changes on the session branch, then merge the session branch into the project's base branch with a merge commit whose subject is "chore(motita): integrate session %s".
+Follow the git-in-a-repository skill. Commit any pending changes on the session branch, `+
+		`then merge the session branch into the project's base branch with a merge commit whose subject is `+
+		`"chore(motita): integrate session %s".
 
 Session ID: %s
 Session branch: %s
@@ -674,7 +748,9 @@ Session worktree: %s
 Project directory: %s
 Project base branch: %s
 
-Report the merge commit SHA and the files changed. If there is a conflict, abort the merge and explain what needs to be resolved first.`, c.id, c.id, branch, c.workspace, p.Dir, base)
+Report the merge commit SHA and the files changed. If there is a conflict, abort the merge `+
+		`and explain what needs to be resolved first.`, c.id, c.id, branch, c.workspace, p.Dir, base) +
+		otherReposMergeNote(p, c.workspace, branch)
 
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, runIntentMerge)
 }
@@ -697,8 +773,9 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	if !c.merged {
 		return nil, http.StatusConflict, errors.New("this session has not been integrated yet; merge it first")
 	}
-	if c.workspace == "" {
-		return nil, http.StatusConflict, errors.New("this session does not belong to a project, so there is nothing to continue from")
+	if c.workspace == "" || c.projectID == "" {
+		return nil, http.StatusConflict,
+			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
 	p := s.projectOf(c.projectID)
 	if p == nil {
@@ -730,6 +807,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	} else {
 		dir = wt
 	}
+	s.attachProjectRepos(ctx, p, dir, newConv.id)
 	newConv.setProjectID(c.projectID, dir, p.Dir)
 	newConv.svc.SetWorkspace(dir)
 	// The title says where it came from, but only if the old session had a real one.

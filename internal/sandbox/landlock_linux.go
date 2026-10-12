@@ -274,26 +274,8 @@ var readDir = os.ReadDir
 // directory on the way cannot be listed: what it holds could not be granted, and denying it every
 // read would break the commands that only read there.
 func readableAround(hidden []string) []string {
-	var targets []string
-	onTheWay := map[string]bool{}
-	for _, h := range hidden {
-		if !filepath.IsAbs(h) {
-			continue
-		}
-		target := resolveExisting(filepath.Clean(h))
-		targets = append(targets, target)
-		for p := target; !onTheWay[p]; p = filepath.Dir(p) {
-			onTheWay[p] = true
-		}
-	}
-	isHidden := func(p string) bool {
-		for _, t := range targets {
-			if p == t || strings.HasPrefix(p, t+"/") {
-				return true
-			}
-		}
-		return false
-	}
+	targets, onTheWay := hiddenTargets(hidden)
+	isHidden := func(p string) bool { return underAny(p, targets) }
 	var dirs []string
 	for p := range onTheWay {
 		if !isHidden(p) {
@@ -313,15 +295,51 @@ func readableAround(hidden []string) []string {
 		if err != nil {
 			return nil
 		}
-		for _, entry := range entries {
-			resolved, err := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
-			if err != nil || onTheWay[resolved] || isHidden(resolved) {
-				continue
-			}
-			readable = append(readable, resolved)
-		}
+		readable = append(readable, grantableEntries(dir, entries, onTheWay, isHidden)...)
 	}
 	return readable
+}
+
+// hiddenTargets resolves the absolute hidden paths and collects every directory on the way to
+// each of them (the targets included).
+func hiddenTargets(hidden []string) (targets []string, onTheWay map[string]bool) {
+	onTheWay = map[string]bool{}
+	for _, h := range hidden {
+		if !filepath.IsAbs(h) {
+			continue
+		}
+		target := resolveExisting(filepath.Clean(h))
+		targets = append(targets, target)
+		for p := target; !onTheWay[p]; p = filepath.Dir(p) {
+			onTheWay[p] = true
+		}
+	}
+	return targets, onTheWay
+}
+
+// underAny reports whether p is one of targets or beneath one.
+func underAny(p string, targets []string) bool {
+	for _, t := range targets {
+		if p == t || strings.HasPrefix(p, t+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// grantableEntries resolves the entries of dir and keeps those that are neither on the way to a
+// hidden path nor hidden themselves.
+func grantableEntries(dir string, entries []fs.DirEntry, onTheWay map[string]bool,
+	isHidden func(string) bool) []string {
+	var out []string
+	for _, entry := range entries {
+		resolved, err := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
+		if err != nil || onTheWay[resolved] || isHidden(resolved) {
+			continue
+		}
+		out = append(out, resolved)
+	}
+	return out
 }
 
 // resolveExisting is p with the links of the part of it that exists resolved: a hidden path that

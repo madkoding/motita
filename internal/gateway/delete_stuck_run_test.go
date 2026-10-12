@@ -87,11 +87,14 @@ func TestStopRunForDeletionReportsNothingToStop(t *testing.T) {
 // returns as soon as it has settled.
 func TestStopRunForDeletionStopsAnHonestRun(t *testing.T) {
 	var sawCancel atomic.Bool
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
-		<-ctx.Done()
-		sawCancel.Store(true)
-		return "", ctx.Err()
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-ctx.Done()
+			sawCancel.Store(true)
+			return "", ctx.Err()
+		}},
+	)
 	conv, _ := srv.lookup(DefaultSession)
 
 	abandon := startInBackground(t, srv, DefaultSession, "/task", `{"task":"work"}`)

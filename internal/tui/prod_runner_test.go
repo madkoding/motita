@@ -128,7 +128,8 @@ func TestReasoningAloneAlsoDropsTheEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	if engine == injected {
-		t.Error("the engine built from the old level must not run the next turn: the model would be asked at the level the user just changed")
+		t.Error("the engine built from the old level must not run the next turn: the model would be asked at the level the " +
+			"user just changed")
 	}
 	if got.LLM.Reasoning.Level != "high" || !got.LLM.Reasoning.Enabled {
 		t.Errorf("the turn runs with %+v, want the level AND the flag set together", got.LLM.Reasoning)
@@ -184,7 +185,8 @@ func TestAppRunnerRunTaskMapsEveryOutcome(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+			r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{},
+				logx.Global())
 			r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 				return &resultAgent{tr: tc.tr}
 			}
@@ -515,7 +517,8 @@ func TestRunPlanHandsTheConversationToThePlanner(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		if bytes.Contains(body, []byte(`"stream":true`)) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
+			chunk, _ := json.Marshal(
+				map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
@@ -671,7 +674,8 @@ func TestRunPlanRecordsTheTurnInTheTranscript(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		if bytes.Contains(body, []byte(`"stream":true`)) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
+			chunk, _ := json.Marshal(
+				map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
@@ -761,5 +765,27 @@ func TestThePodmanNoteFollowsTheUsersAnswer(t *testing.T) {
 	r.SetContainerRuntime("")
 	if s.System != base {
 		t.Fatalf("clearing the answer must restore the prompt, got %q", s.System)
+	}
+}
+
+// TestTheProjectNoteFollowsTheProject: the note about a project's other repositories is in the
+// prompt, after the podman one, and is swapped out when the project changes.
+func TestTheProjectNoteFollowsTheProject(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	r.SetProjectNote("\n\nother repos") // before any session: remembered
+	s := r.conversation(r.Cfg, nil)
+	if !strings.HasSuffix(s.System, "other repos") {
+		t.Fatalf("the note must be in the prompt of a new session: %q", s.System)
+	}
+	base := strings.TrimSuffix(s.System, r.runtimeNote)
+	r.SetContainerRuntime("podman")
+	if !strings.HasSuffix(s.System, "other repos") || !strings.Contains(s.System, "run with podman") {
+		t.Fatalf("both notes must be there: %q", s.System)
+	}
+	r.SetContainerRuntime("")
+	r.SetProjectNote("")
+	if s.System != base {
+		t.Fatalf("clearing the note must restore the prompt, got %q", s.System)
 	}
 }

@@ -87,7 +87,8 @@ func TestACheckThatFailedBeforeTheRunDoesNotBlockIt(t *testing.T) {
 	if len(s.executes) != 1 {
 		t.Errorf("the run must end on its first claim, it took %d rounds", len(s.executes))
 	}
-	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "declared") {
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") ||
+		!strings.Contains(result.Reason, "declared") {
 		t.Errorf("the verdict must name the old failure: %s", result.Reason)
 	}
 	if result.Validation == nil || len(result.Validation.PreExisting) != 1 {
@@ -132,6 +133,8 @@ func TestACheckTheRunBrokeIsNamedAsSuch(t *testing.T) {
 			return step(true, "touch broken.flag")
 		case 2:
 			return step(true, "true")
+		default:
+			// Later rounds fall through to the fix below.
 		}
 		return step(true, "rm broken.flag")
 	}}
@@ -168,10 +171,14 @@ func TestAnOldFailureBesideANewOneIsNamedButStillBlocks(t *testing.T) {
 	}
 	second := s.executes[1]
 	if !strings.Contains(second, "passed before your change") || !strings.Contains(second, "broke it: declared") ||
-		!strings.Contains(second, "Already failing before your change, the same way (not yours; do not spend rounds on them): declared 2") {
+		!strings.Contains(
+			second,
+			"Already failing before your change, the same way (not yours; do not spend rounds on them): declared 2",
+		) {
 		t.Errorf("the rejection must name the new failure and the old one:\n%s", second)
 	}
-	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "declared 2") {
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") ||
+		!strings.Contains(result.Reason, "declared 2") {
 		t.Errorf("the final verdict must keep the caveat about the old failure: %s", result.Reason)
 	}
 }
@@ -193,7 +200,8 @@ func TestTheRunCannotPassAGateItRewrote(t *testing.T) {
 	if len(s.executes) != 2 {
 		t.Fatalf("a PASS from the rewritten gate must be refused: rounds = %d, want 2", len(s.executes))
 	}
-	if !strings.Contains(s.executes[1], "gate changed during this run") || !strings.Contains(s.executes[1], "nobody to ask") {
+	if !strings.Contains(s.executes[1], "gate changed during this run") ||
+		!strings.Contains(s.executes[1], "nobody to ask") {
 		t.Errorf("the rejection must say the gate changed:\n%s", s.executes[1])
 	}
 }

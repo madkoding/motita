@@ -30,7 +30,9 @@ func TestTheInterfaceConnectsToAGatewayThatIsAlreadyRunning(t *testing.T) {
 
 	// A service that is ALREADY running, described by the file.
 	_, address := fakeGatewayProcess(t, nil)
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "tok", PID: 4242, Owned: false}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "tok", PID: 4242, Owned: false},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -69,7 +71,9 @@ func TestTheInterfaceNamesTheBuildItFoundAndNotItsOwn(t *testing.T) {
 
 	// The gateway standing in here reports a version that is NOT this process's.
 	_, address := fakeGatewayProcess(t, nil)
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "tok", PID: 4242, Owned: false}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "tok", PID: 4242, Owned: false},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -166,7 +170,9 @@ func TestTheInterfaceShutsDownTheGatewayItStarted(t *testing.T) {
 		if !owned {
 			t.Error("a gateway started for the interface must be marked as owned by it")
 		}
-		if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "own", PID: 4242, Owned: true}); err != nil {
+		if err := gateway.WriteServiceFile(
+			servicePath, gateway.ServiceFile{Address: address, Token: "own", PID: 4242, Owned: true},
+		); err != nil {
 			return "", "", err
 		}
 		return "http://" + address, "own", nil
@@ -204,7 +210,9 @@ func TestTheInterfaceLeavesAGatewayItFoundRunning(t *testing.T) {
 	address := strings.TrimPrefix(srv.URL, "http://")
 
 	// A service the USER started: owned=false.
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "user", PID: 777, Owned: false}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "user", PID: 777, Owned: false},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 

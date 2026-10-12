@@ -5,299 +5,407 @@ package i18n
 //
 // Terms, kept the same everywhere: task = tarea, plan mode = modo plan, session = sesión,
 // conversation = conversación, check = verificación, setup = configuración, gateway = gateway.
-func init() {
-	Register(ES, map[string]string{
-		// The agents panel and footer.
-		"No agents yet: a task lists here the agents it starts, with their time and tokens.": "Todavía no hay agentes: una tarea muestra aquí los agentes que inicia, con su tiempo y sus tokens.",
-		"%s %d running %s %s tok":  "%s %d en curso %s %s tok",
-		"Agents":                   "Agentes",
-		"Ctrl+G or /agents closes": "Ctrl+G o /agents lo cierra",
-		"none yet":                 "ninguno todavía",
-		"main":                     "principal",
+var esTUI = map[string]string{
+	// The agents panel and footer.
+	"No agents yet: a task lists here the agents it starts, with their time and tokens.": "Todavía no hay agentes: una " +
+		"tarea muestra aquí los agentes que inicia, con su tiempo y sus tokens.",
+	"%s %d running %s %s tok":  "%s %d en curso %s %s tok",
+	"Agents":                   "Agentes",
+	"Ctrl+G or /agents closes": "Ctrl+G o /agents lo cierra",
+	"none yet":                 "ninguno todavía",
+	"main":                     "principal",
 
-		// The questions window.
-		"question %d of %d":          "pregunta %d de %d",
-		"(if you do not answer: %s)": "(si no respondes: %s)",
-		"← → switch question":        "← → cambiar de pregunta",
-		"Enter confirms all":         "Enter confirma todo",
-		"%d left":                    "faltan %d",
-		"Enter confirms":             "Enter confirma",
-		"… and %d more":              "… y %d más",
-		"answer:":                    "respuesta:",
+	// The questions window.
+	"question %d of %d":          "pregunta %d de %d",
+	"(if you do not answer: %s)": "(si no respondes: %s)",
+	"← → switch question":        "← → cambiar de pregunta",
+	"Enter confirms all":         "Enter confirma todo",
+	"%d left":                    "faltan %d",
+	"Enter confirms":             "Enter confirma",
+	"… and %d more":              "… y %d más",
+	"answer:":                    "respuesta:",
 
-		// Artifacts.
-		"files the agent saved: list, show one, or save it here":                                             "archivos que guardó el agente: lista, muestra uno o guárdalo aquí",
-		"this interface is not attached to a gateway that keeps artifacts":                                   "esta interfaz no está conectada a un gateway que guarde artefactos",
-		"usage: /artifacts [name | save name]":                                                               "uso: /artifacts [nombre | save nombre]",
-		"the gateway could not be asked for the artifacts: %w":                                               "no se pudo pedir los artefactos al gateway: %w",
-		"Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.": "Aún no hay nada guardado en esta sesión. Pide un informe, una página o un diagrama y aparecerá aquí.",
-		"%s is not text: /artifacts save %s writes it to the current directory":                              "%s no es texto: /artifacts save %s lo escribe en el directorio actual",
-		"… and %d more lines: /artifacts save %s writes the whole file":                                      "… y %d líneas más: /artifacts save %s escribe el archivo completo",
-		"an artifact is saved under its plain name, without a path":                                          "un artefacto se guarda con su nombre simple, sin ruta",
-		"%s already exists here: move it or rename it first":                                                 "%s ya existe aquí: muévelo o renómbralo primero",
-		"saved %s (%d bytes)": "guardado %s (%d bytes)",
+	// Artifacts.
+	"files the agent saved: list, show one, or save it here": "archivos que guardó el agente: lista, muestra uno o " +
+		"guárdalo aquí",
+	"this interface is not attached to a gateway that keeps artifacts": "esta interfaz no está conectada a un gateway " +
+		"que guarde artefactos",
+	"usage: /artifacts [name | save name]": "uso: /artifacts [nombre " +
+		"| save nombre]",
+	"the gateway could not be asked for the artifacts: %w": "no se pudo pedir " +
+		"los artefactos al gateway: %w",
+	"Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.": "Aún no hay " +
+		"nada guardado en esta sesión. Pide un informe, una página o un diagrama y aparecerá aquí.",
+	"%s is not text: /artifacts save %s writes it to the current directory": "%s no es texto: /artifacts save %s lo " +
+		"escribe en el directorio actual",
+	"… and %d more lines: /artifacts save %s writes the whole file": "… y %d líneas más: /artifacts save %s escribe el " +
+		"archivo completo",
+	"an artifact is saved under its plain name, without a path": "un artefacto se guarda con " +
+		"su nombre simple, sin ruta",
+	"%s already exists here: move it or rename it first": "%s ya existe aquí: " +
+		"muévelo o renómbralo primero",
+	"saved %s (%d bytes)": "guardado %s (%d bytes)",
 
-		// Commands.
-		"model set to %s for this session":                           "modelo cambiado a %s para esta sesión",
-		"usage: /attach <session id> — /sessions lists them.":        "uso: /attach <id de sesión> — /sessions las lista.",
-		"Started a new conversation: the next message begins fresh.": "Empezaste una conversación nueva: el próximo mensaje parte de cero.",
-		"… and %d more, keep typing":                                 "… y %d más, sigue escribiendo",
-		"Task mode: make changes and prove them with your check":     "Modo tarea: hace cambios y los comprueba con tu verificación",
-		"Plan mode: ask about the project, nothing is changed":       "Modo plan: pregunta sobre el proyecto, no se cambia nada",
-		"list the provider's models, or switch to one":               "lista los modelos del proveedor, o cambia a uno",
-		"run the setup again: provider, key, model, check":           "vuelve a ejecutar la configuración: proveedor, clave, modelo, verificación",
-		"how hard the model thinks: off, low, medium, high":          "cuánto piensa el modelo: off, low, medium, high",
-		"the interface's language: en, es or auto":                   "el idioma de la interfaz: en, es o auto",
-		"filter the conversation":                                    "filtra la conversación",
-		"context used, and what was carried over":                    "contexto usado, y lo que se conservó",
-		"list the conversations the gateway holds":                   "lista las conversaciones que tiene el gateway",
-		"switch to another conversation":                             "cambia a otra conversación",
-		"show or hide the run's agents: purpose, time, tokens":       "muestra u oculta los agentes de la ejecución: propósito, tiempo, tokens",
-		"rate the last answer as good":                               "califica la última respuesta como buena",
-		"rate the last answer as bad; the note says what to fix":     "califica la última respuesta como mala; la nota dice qué corregir",
-		"what motita has learned from your ratings":                  "lo que motita aprendió de tus calificaciones",
-		"start a fresh conversation":                                 "empieza una conversación nueva",
-		"install the newest motita release":                          "instala la versión más reciente de motita",
-		"every command and key":                                      "todos los comandos y teclas",
-		"leave motita":                                               "sale de motita",
-		"[id]":                                                       "[id]",
-		"[en|es|auto]":                                               "[en|es|auto]",
-		"text":                                                       "texto",
-		"session id":                                                 "id de sesión",
-		"note":                                                       "nota",
-		"what was wrong":                                             "qué estuvo mal",
+	// Commands.
+	"model set to %s for this session":                    "modelo cambiado a %s para esta sesión",
+	"usage: /attach <session id> — /sessions lists them.": "uso: /attach <id de sesión> — /sessions las lista.",
+	"Started a new conversation: the next message begins fresh.": "Empezaste una conversación nueva: el próximo " +
+		"mensaje parte de cero.",
+	"… and %d more, keep typing": "… y %d más, sigue escribiendo",
+	"Task mode: make changes and prove them with your check": "Modo tarea: hace cambios y los comprueba con tu " +
+		"verificación",
+	"Plan mode: ask about the project, nothing is changed": "Modo plan: pregunta sobre el " +
+		"proyecto, no se cambia nada",
+	"list the provider's models, or switch to one": "lista los modelos del proveedor, o cambia a uno",
+	"run the setup again: provider, key, model, check": "vuelve a ejecutar la configuración: proveedor, clave, modelo, " +
+		"verificación",
+	"how hard the model thinks: off, low, medium, high": "cuánto piensa el modelo: off, low, medium, high",
+	"the interface's language: en, es or auto":          "el idioma de la interfaz: en, es o auto",
+	"filter the conversation":                           "filtra la conversación",
+	"context used, and what was carried over":           "contexto usado, y lo que se conservó",
+	"list the conversations the gateway holds":          "lista las conversaciones que tiene el gateway",
+	"switch to another conversation":                    "cambia a otra conversación",
+	"show or hide the run's agents: purpose, time, tokens": "muestra u oculta los agentes de la ejecución: propósito, " +
+		"tiempo, tokens",
+	"rate the last answer as good": "califica la última respuesta como buena",
+	"rate the last answer as bad; the note says what to fix": "califica la última respuesta como mala; la nota dice " +
+		"qué corregir",
+	"what motita has learned from your ratings": "lo que motita aprendió de tus calificaciones",
+	"start a fresh conversation":                "empieza una conversación nueva",
+	"install the newest motita release":         "instala la versión más reciente de motita",
+	"every command and key":                     "todos los comandos y teclas",
+	"leave motita":                              "sale de motita",
+	"[id]":                                      "[id]",
+	"[en|es|auto]":                              "[en|es|auto]",
+	"text":                                      "texto",
+	"session id":                                "id de sesión",
+	"note":                                      "nota",
+	"what was wrong":                            "qué estuvo mal",
 
-		// The confirmation window.
-		"The agent wants to run:":           "El agente quiere ejecutar:",
-		"y = yes, run it · Enter or n = no": "s o y = sí, ejecútalo · Enter o n = no",
-		"[approved by the user] %s":         "[aprobado por el usuario] %s",
-		"[rejected by the user] %s":         "[rechazado por el usuario] %s",
+	// The confirmation window.
+	"The agent wants to run:":           "El agente quiere ejecutar:",
+	"y = yes, run it · Enter or n = no": "s o y = sí, ejecútalo · Enter o n = no",
+	"[approved by the user] %s":         "[aprobado por el usuario] %s",
+	"[rejected by the user] %s":         "[rechazado por el usuario] %s",
 
-		// Errors and their hints.
-		"error: %v": "error: %v",
-		"hint: there is no API key for %s. Type /config to add one.":                                                                            "pista: no hay clave de API para %s. Escribe /config para agregar una.",
-		"hint: motita could not reach your Ollama server. Start it with `ollama serve`, then try /models to check the connection.":              "pista: motita no pudo conectarse a tu servidor de Ollama. Inícialo con `ollama serve` y luego prueba /models para revisar la conexión.",
-		"hint: motita could not reach the provider's server. Check your connection, try /models to test the endpoint, or /config to change it.": "pista: motita no pudo conectarse al servidor del proveedor. Revisa tu conexión, prueba /models para probar el endpoint, o /config para cambiarlo.",
-		"hint: the previous task is still stopping. Wait a moment and send it again.":                                                           "pista: la tarea anterior todavía se está deteniendo. Espera un momento y vuelve a enviarla.",
-		"hint: the provider refused the key or the login. Type /config to enter a new one.":                                                     "pista: el proveedor rechazó la clave o el inicio de sesión. Escribe /config para ingresar otra.",
-		"hint: the provider is limiting requests or the account is out of credit. Wait a moment, or switch model with /models.":                 "pista: el proveedor está limitando las solicitudes o la cuenta se quedó sin crédito. Espera un momento, o cambia de modelo con /models.",
-		"hint: the model may not exist on this provider. /models lists the ones you can use.":                                                   "pista: puede que el modelo no exista en este proveedor. /models lista los que puedes usar.",
+	// Errors and their hints.
+	"error: %v": "error: %v",
+	"hint: there is no API key for %s. Type /config to add one.": "pista: no hay clave de API para %s. Escribe /config " +
+		"para agregar una.",
+	"hint: motita could not reach your Ollama server. Start it with `ollama serve`, then try /models to check the " +
+		"connection.": "pista: motita no pudo conectarse a tu servidor de Ollama. Inícialo con `ollama serve` y luego " +
+		"prueba /models para revisar la conexión.",
+	"hint: motita could not reach the provider's server. Check your connection, try /models to test the endpoint, or " +
+		"/config to change it.": "pista: motita no pudo conectarse al servidor del proveedor. Revisa tu conexión, prueba " +
+		"/models para probar el endpoint, o /config para cambiarlo.",
+	"hint: the previous task is still stopping. Wait a moment and send it again.": "pista: la tarea anterior todavía " +
+		"se está deteniendo. Espera un momento y vuelve a enviarla.",
+	"hint: the provider refused the key or the login. Type /config to enter a new one.": "pista: el proveedor rechazó " +
+		"la clave o el inicio de sesión. Escribe /config para ingresar otra.",
+	"hint: the provider is limiting requests or the account is out of credit. Wait a moment, or switch model with " +
+		"/models.": "pista: el proveedor está limitando las solicitudes o la cuenta se quedó sin crédito. Espera un " +
+		"momento, o cambia de modelo con /models.",
+	"hint: the model may not exist on this provider. /models lists the ones you can use.": "pista: puede que el modelo " +
+		"no exista en este proveedor. /models lista los que puedes usar.",
 
-		// /git and the git hosts.
-		"connect GitHub, GitLab or Bitbucket": "conecta GitHub, GitLab o Bitbucket",
-		"[connect]":                           "[connect]",
-		"No git host is connected. /git connects GitHub, GitLab or Bitbucket so motita can clone, push and open pull requests for you.": "No hay ningún host de git conectado. /git conecta GitHub, GitLab o Bitbucket para que motita pueda clonar, subir cambios y abrir pull requests por ti.",
-		"hint: git could not sign in to the host. Type /git connect to connect GitHub, GitLab or Bitbucket.":                            "pista: git no pudo iniciar sesión en el host. Escribe /git connect para conectar GitHub, GitLab o Bitbucket.",
-		"usage: /git [status | connect [host] [token] | disconnect <host> | repos [query]]":                                             "uso: /git [status | connect [host] [token] | disconnect <host> | repos [consulta]]",
-		"not connected":   "sin conectar",
-		"connected as %s": "conectado como %s",
-		"/git connect <host> signs in; self-hosted: /git connect gitlab:git.example.com":           "/git connect <host> inicia sesión; con servidor propio: /git connect gitlab:git.example.com",
-		"unknown git host %q: use github, gitlab, bitbucket or kind:host (gitlab:git.example.com)": "host de git desconocido %q: usa github, gitlab, bitbucket o tipo:host (gitlab:git.example.com)",
-		"usage: /git disconnect <host>":                      "uso: /git disconnect <host>",
-		"%s is not connected.":                               "%s no está conectado.",
-		"could not disconnect %s: %v":                        "no se pudo desconectar %s: %v",
-		"%s disconnected.":                                   "%s desconectado.",
-		"could not list the repositories: %v":                "no se pudieron listar los repositorios: %v",
-		"no repositories found":                              "no se encontraron repositorios",
-		"private":                                            "privado",
-		"… more: narrow the list with /git repos <query>":    "… hay más: acota la lista con /git repos <consulta>",
-		"No git host is connected. Type /git connect first.": "No hay ningún host de git conectado. Escribe primero /git connect.",
-		"One-click login for %s needs %s_CLIENT_ID; connecting with a token instead.":          "El inicio de sesión con un clic en %s necesita %s_CLIENT_ID; se conecta con un token.",
-		"git connect cancelled: nothing was stored.":                                           "conexión de git cancelada: no se guardó nada.",
-		"could not connect %s: %v":                                                             "no se pudo conectar %s: %v",
-		"You can connect with a token instead: /git connect %s token":                          "También puedes conectar con un token: /git connect %s token",
-		"%s: connected as %s.":                                                                 "%s: conectado como %s.",
-		"Connect to which git host?":                                                           "¿A qué host de git quieres conectarte?",
-		"Type a number or a name (gitlab:git.example.com for a self-hosted one); Esc cancels.": "Escribe un número o un nombre (gitlab:git.example.com para uno propio); Esc cancela.",
-		"To connect %s:\n  1. Open  %s\n  2. Enter the code  %s\nWaiting for you to approve it in the browser... (Esc cancels)":                                           "Para conectar %s:\n  1. Abre  %s\n  2. Escribe el código  %s\nEsperando a que lo apruebes en el navegador... (Esc cancela)",
-		"To connect %s, open this address and approve:\n  %s\nWaiting for the browser... If it runs on another machine, paste here the address it ends on. (Esc cancels)": "Para conectar %s, abre esta dirección y aprueba:\n  %s\nEsperando al navegador... Si corre en otra máquina, pega aquí la dirección en la que termina. (Esc cancela)",
-		"Create a token for motita at:\n  %s":             "Crea un token para motita en:\n  %s",
-		"Your Bitbucket account name:":                    "El nombre de tu cuenta de Bitbucket:",
-		"Paste the token (it is not shown); Esc cancels:": "Pega el token (no se muestra); Esc cancela:",
+	// /git and the git hosts.
+	"connect GitHub, GitLab or Bitbucket": "conecta GitHub, GitLab o Bitbucket",
+	"[connect]":                           "[connect]",
+	"No git host is connected. /git connects GitHub, GitLab or Bitbucket so motita can clone, push and open pull " +
+		"requests for you.": "No hay ningún host de git conectado. /git conecta GitHub, GitLab o Bitbucket para que " +
+		"motita pueda clonar, subir cambios y abrir pull requests por ti.",
+	"hint: git could not sign in to the host. Type /git connect to connect GitHub, GitLab or Bitbucket.": "pista: git " +
+		"no pudo iniciar sesión en el host. Escribe /git connect para conectar GitHub, GitLab o Bitbucket.",
+	"usage: /git [status | connect [host] [token] | disconnect <host> | repos [query]]": "uso: /git [status | connect " +
+		"[host] [token] | disconnect <host> | repos [consulta]]",
+	"not connected":   "sin conectar",
+	"connected as %s": "conectado como %s",
+	"/git connect <host> signs in; self-hosted: /git connect gitlab:git.example.com": "/git connect <host> inicia " +
+		"sesión; con servidor propio: /git connect gitlab:git.example.com",
+	"unknown git host %q: use github, gitlab, bitbucket or kind:host (gitlab:git.example.com)": "host de git " +
+		"desconocido %q: usa github, gitlab, bitbucket o tipo:host (gitlab:git.example.com)",
+	"usage: /git disconnect <host>":                   "uso: /git disconnect <host>",
+	"%s is not connected.":                            "%s no está conectado.",
+	"could not disconnect %s: %v":                     "no se pudo desconectar %s: %v",
+	"%s disconnected.":                                "%s desconectado.",
+	"could not list the repositories: %v":             "no se pudieron listar los repositorios: %v",
+	"no repositories found":                           "no se encontraron repositorios",
+	"private":                                         "privado",
+	"… more: narrow the list with /git repos <query>": "… hay más: acota la lista con /git repos <consulta>",
+	"No git host is connected. Type /git connect first.": "No hay ningún host de git conectado. Escribe primero /git " +
+		"connect.",
+	"One-click login for %s needs %s_CLIENT_ID; connecting with a token instead.": "El inicio de sesión con un clic en " +
+		"%s necesita %s_CLIENT_ID; se conecta con un token.",
+	"git connect cancelled: nothing was stored.": "conexión de git cancelada: " +
+		"no se guardó nada.",
+	"could not connect %s: %v": "no se pudo conectar %s: %v",
+	"You can connect with a token instead: /git connect %s token": "También puedes conectar con un token: /git connect " +
+		"%s token",
+	"%s: connected as %s.": "%s: conectado como %s.",
+	"Connect to which git host?": "¿A qué host " +
+		"de git quieres conectarte?",
+	"Type a number or a name (gitlab:git.example.com for a self-hosted one); Esc cancels.": "Escribe un número o un " +
+		"nombre (gitlab:git.example.com para uno propio); Esc cancela.",
+	"To connect %s:\n  1. Open  %s\n  2. Enter the code  %s\nWaiting for you to approve it in the browser... (Esc " +
+		"cancels)": "Para conectar %s:\n  1. Abre  %s\n  2. Escribe el código  %s\nEsperando a que lo apruebes en el " +
+		"navegador... (Esc cancela)",
+	"To connect %s, open this address and approve:\n  %s\nWaiting for the browser... If it runs on another machine, " +
+		"paste here the address it ends on. (Esc cancels)": "Para conectar %s, abre esta dirección y aprueba:\n  " +
+		"%s\nEsperando al navegador... Si corre en otra máquina, pega aquí la dirección en la que termina. (Esc cancela)",
+	"Create a token for motita at:\n  %s":             "Crea un token para motita en:\n  %s",
+	"Your Bitbucket account name:":                    "El nombre de tu cuenta de Bitbucket:",
+	"Paste the token (it is not shown); Esc cancels:": "Pega el token (no se muestra); Esc cancela:",
 
-		// /language.
-		"Spanish": "español",
-		"English": "inglés",
-		"language: %s (showing %s). /language en, es or auto changes it.":                     "idioma: %s (se muestra en %s). /language en, es o auto lo cambia.",
-		"unknown language %q: use en, es or auto.":                                            "idioma desconocido %q: usa en, es o auto.",
-		"this interface cannot save the language: set ui.language in the configuration file.": "esta interfaz no puede guardar el idioma: define ui.language en el archivo de configuración.",
-		"the language could not be saved: %v":                                                 "no se pudo guardar el idioma: %v",
-		"language set to %s: the interface is now in %s.":                                     "idioma cambiado a %s: la interfaz ahora está en %s.",
+	// /language.
+	"Spanish": "español",
+	"English": "inglés",
+	"language: %s (showing %s). /language en, es or auto changes it.": "idioma: %s (se muestra en %s). /language en, " +
+		"es o auto lo cambia.",
+	"unknown language %q: use en, es or auto.": "idioma desconocido %q: usa " +
+		"en, es o auto.",
+	"this interface cannot save the language: set ui.language in the configuration file.": "esta interfaz no puede " +
+		"guardar el idioma: define ui.language en el archivo de configuración.",
+	"the language could not be saved: %v": "no se pudo " +
+		"guardar el idioma: %v",
+	"language set to %s: the interface is now in %s.": "idioma cambiado a %s: la " +
+		"interfaz ahora está en %s.",
 
-		// The conversation and its frame.
-		"... %d earlier lines":                               "... %d líneas anteriores",
-		"... %d earlier messages":                            "... %d mensajes anteriores",
-		"No line matches %q":                                 "Ninguna línea coincide con %q",
-		"Ctrl+F  search again":                               "Ctrl+F  buscar de nuevo",
-		"Esc     show the whole conversation":                "Esc     mostrar toda la conversación",
-		"%s No API key for %s yet: type /config to add one,": "%s Todavía no hay clave de API para %s: escribe /config para agregar una,",
-		"  or export %s before starting motita.":             "  o exporta %s antes de iniciar motita.",
-		"you":                                                "tú",
-		"working":                                            "trabajando",
-		"unknown":                                            "desconocido",
-		"no API key":                                         "sin clave de API",
-		"reasoning":                                          "razonamiento",
-		"filter %s":                                          "filtro %s",
-		"%s %d lines up":                                     "%s %d líneas arriba",
-		"context %d%% (%d/%d)":                               "contexto %d%% (%d/%d)",
-		", Esc stops":                                        ", Esc lo detiene",
-		"find":                                               "buscar",
-		"%d lines":                                           "%d líneas",
-		"using %s":                                           "usando %s",
-		"using a tool":                                       "usando una herramienta",
-		"%d actions":                                         "%d acciones",
-		"1 action":                                           "1 acción",
+	// The conversation and its frame.
+	"... %d earlier lines":                "... %d líneas anteriores",
+	"... %d earlier messages":             "... %d mensajes anteriores",
+	"No line matches %q":                  "Ninguna línea coincide con %q",
+	"Ctrl+F  search again":                "Ctrl+F  buscar de nuevo",
+	"Esc     show the whole conversation": "Esc     mostrar toda la conversación",
+	"%s No API key for %s yet: type /config to add one,": "%s Todavía no hay clave de API para %s: escribe /config " +
+		"para agregar una,",
+	"  or export %s before starting motita.": "  o exporta %s antes de iniciar motita.",
+	"you":                                    "tú",
+	"working":                                "trabajando",
+	"unknown":                                "desconocido",
+	"no API key":                             "sin clave de API",
+	"reasoning":                              "razonamiento",
+	"filter %s":                              "filtro %s",
+	"%s %d lines up":                         "%s %d líneas arriba",
+	"context %d%% (%d/%d)":                   "contexto %d%% (%d/%d)",
+	", Esc stops":                            ", Esc lo detiene",
+	"find":                                   "buscar",
+	"%d lines":                               "%d líneas",
+	"using %s":                               "usando %s",
+	"using a tool":                           "usando una herramienta",
+	"%d actions":                             "%d acciones",
+	"1 action":                               "1 acción",
 
-		// The welcome screen.
-		"Plan mode: ask anything about your project.":                                   "Modo plan: pregunta lo que quieras sobre tu proyecto.",
-		"motita reads files and runs read-only commands to answer. Nothing is changed.": "motita lee archivos y ejecuta comandos de solo lectura para responder. No se cambia nada.",
-		"Try something like": "Prueba algo como",
-		"Press Enter to ask the provider which models it offers.":                              "Presiona Enter para preguntarle al proveedor qué modelos ofrece.",
-		"It also checks that the endpoint and the key in your setup really work.":              "También comprueba que el endpoint y la clave de tu configuración funcionen de verdad.",
-		"Press Enter to run the setup again: provider, sign-in, model and check.":              "Presiona Enter para volver a ejecutar la configuración: proveedor, inicio de sesión, modelo y verificación.",
-		"Your current settings are kept as a backup, and the new ones apply right away.":       "Tu configuración actual se guarda como respaldo, y la nueva se aplica de inmediato.",
-		"What should motita do? Describe the task and press Enter.":                            "¿Qué debería hacer motita? Describe la tarea y presiona Enter.",
-		"It makes the change, then runs your check to prove it worked before calling it done.": "Hace el cambio y luego ejecuta tu verificación para comprobar que funcionó antes de darlo por terminado.",
-		"how is the configuration loaded?":                                                     "¿cómo se carga la configuración?",
-		"what would it take to add a --json flag?":                                             "¿qué haría falta para agregar una opción --json?",
-		"add a --verbose flag and a test for it":                                               "agrega una opción --verbose y un test para ella",
-		"fix the failing test in the parser":                                                   "arregla el test que falla en el parser",
-		"back to Task mode, to make changes":                                                   "volver al modo tarea, para hacer cambios",
-		"switch to that model for this session":                                                "cambiar a ese modelo en esta sesión",
-		"Plan mode: ask questions, nothing is changed":                                         "Modo plan: haz preguntas, no se cambia nada",
-		"choose another model":                                                                 "elegir otro modelo",
-		"change provider, key or check":                                                        "cambiar proveedor, clave o verificación",
+	// The welcome screen.
+	"Plan mode: ask anything about your project.": "Modo plan: pregunta lo " +
+		"que quieras sobre tu proyecto.",
+	"motita reads files and runs read-only commands to answer. Nothing is changed.": "motita lee archivos y ejecuta " +
+		"comandos de solo lectura para responder. No se cambia nada.",
+	"Try something like": "Prueba algo como",
+	"Press Enter to ask the provider which models it offers.": "Presiona Enter para preguntarle al proveedor qué " +
+		"modelos ofrece.",
+	"It also checks that the endpoint and the key in your setup really work.": "También comprueba que el endpoint y la " +
+		"clave de tu configuración funcionen de verdad.",
+	"Press Enter to run the setup again: provider, sign-in, model and check.": "Presiona Enter para volver a ejecutar " +
+		"la configuración: proveedor, inicio de sesión, modelo y verificación.",
+	"Your current settings are kept as a backup, and the new ones apply right away.": "Tu configuración actual se " +
+		"guarda como respaldo, y la nueva se aplica de inmediato.",
+	"What should motita do? Describe the task and press Enter.": "¿Qué debería hacer motita? Describe la tarea y " +
+		"presiona Enter.",
+	"It makes the change, then runs your check to prove it worked before calling it done.": "Hace el cambio y luego " +
+		"ejecuta tu verificación para comprobar que funcionó antes de darlo por terminado.",
+	"how is the configuration loaded?": "¿cómo se " +
+		"carga la configuración?",
+	"what would it take to add a --json flag?": "¿qué haría falta para " +
+		"agregar una opción --json?",
+	"add a --verbose flag and a test for it": "agrega una opción --verbose " +
+		"y un test para ella",
+	"fix the failing test in the parser": "arregla el test que " +
+		"falla en el parser",
+	"back to Task mode, to make changes": "volver al modo " +
+		"tarea, para hacer cambios",
+	"switch to that model for this session": "cambiar a ese " +
+		"modelo en esta sesión",
+	"Plan mode: ask questions, nothing is changed": "Modo plan: haz preguntas, " +
+		"no se cambia nada",
+	"choose another model": "elegir otro modelo",
+	"change provider, key or check": "cambiar proveedor, " +
+		"clave o verificación",
 
-		// Footer hints.
-		"run it":          "ejecutar",
-		"don't":           "no",
-		"pick":            "elegir",
-		"question":        "pregunta",
-		"send answers":    "enviar respuestas",
-		"close":           "cerrar",
-		"apply":           "aplicar",
-		"clear":           "limpiar",
-		"choose":          "elegir",
-		"run":             "ejecutar",
-		"complete":        "completar",
-		"stop":            "detener",
-		"scroll":          "desplazar",
-		"quit":            "salir",
-		"newest":          "lo más reciente",
-		"show everything": "mostrar todo",
-		"search again":    "buscar de nuevo",
-		"send":            "enviar",
-		"commands":        "comandos",
-		"help":            "ayuda",
-		"Plan mode":       "Modo plan",
-		"Task mode":       "Modo tarea",
+	// Footer hints.
+	"run it":          "ejecutar",
+	"don't":           "no",
+	"pick":            "elegir",
+	"question":        "pregunta",
+	"send answers":    "enviar respuestas",
+	"close":           "cerrar",
+	"apply":           "aplicar",
+	"clear":           "limpiar",
+	"choose":          "elegir",
+	"run":             "ejecutar",
+	"complete":        "completar",
+	"stop":            "detener",
+	"scroll":          "desplazar",
+	"quit":            "salir",
+	"newest":          "lo más reciente",
+	"show everything": "mostrar todo",
+	"search again":    "buscar de nuevo",
+	"send":            "enviar",
+	"commands":        "comandos",
+	"help":            "ayuda",
+	"Plan mode":       "Modo plan",
+	"Task mode":       "Modo tarea",
 
-		// The input box's title.
-		"Approve":                              "Aprobar",
-		"the agent is waiting for your answer": "el agente espera tu respuesta",
-		"Answer":                               "Responder",
-		"type an answer, or pick an option above": "escribe una respuesta, o elige una opción de arriba",
-		"Search":                           "Buscar",
-		"Plan":                             "Plan",
-		"read-only: explores and explains": "solo lectura: explora y explica",
-		"Models":                           "Modelos",
-		"Enter lists them, /models <id> switches": "Enter los lista, /models <id> cambia",
-		"Setup":                      "Configuración",
-		"Enter runs the setup again": "Enter vuelve a ejecutar la configuración",
-		"Task":                       "Tarea",
-		"makes changes, then proves them with your check": "hace cambios y luego los comprueba con tu verificación",
+	// The input box's title.
+	"Approve":                              "Aprobar",
+	"the agent is waiting for your answer": "el agente espera tu respuesta",
+	"Answer":                               "Responder",
+	"type an answer, or pick an option above": "escribe una respuesta, o elige una opción de arriba",
+	"Search":                           "Buscar",
+	"Plan":                             "Plan",
+	"read-only: explores and explains": "solo lectura: explora y explica",
+	"Models":                           "Modelos",
+	"Enter lists them, /models <id> switches": "Enter los lista, /models <id> cambia",
+	"Setup":                      "Configuración",
+	"Enter runs the setup again": "Enter vuelve a ejecutar la configuración",
+	"Task":                       "Tarea",
+	"makes changes, then proves them with your check": "hace cambios y luego los comprueba con tu verificación",
 
-		// Sessions.
-		"this interface is not attached to a gateway that holds several sessions": "esta interfaz no está conectada a un gateway que tenga varias sesiones",
-		"attached to session %s, but its conversation could not be read: %w":      "conectado a la sesión %s, pero no se pudo leer su conversación: %w",
-		"attached to session %s, which has no turns yet.":                         "conectado a la sesión %s, que todavía no tiene turnos.",
-		"attached to session %s.":                                                 "conectado a la sesión %s.",
-		"the gateway could not be asked whether a turn is in flight: %s":          "no se pudo preguntar al gateway si hay un turno en curso: %s",
-		"the turn could not be followed: %v":                                      "no se pudo seguir el turno: %v",
-		"the turn finished.":                                                      "el turno terminó.",
-		"1 turn in the conversation.":                                             "1 turno en la conversación.",
-		"%d turns in the conversation.":                                           "%d turnos en la conversación.",
-		"the gateway could not be asked which sessions it holds: %w":              "no se pudo preguntar al gateway qué sesiones tiene: %w",
-		"the gateway reports no sessions, which should not be possible":           "el gateway no informa ninguna sesión, lo que no debería ser posible",
-		"sessions (most recent first):":                                           "sesiones (las más recientes primero):",
-		"PR #%d: the CI passed, you can go and merge it":                          "PR #%d: el CI pasó, ya puedes mergearlo",
-		"PR #%d: the CI failed, fixing it (attempt %d of %d)":                     "PR #%d: el CI falló, arreglándolo (intento %d de %d)",
-		"PR #%d: the CI is still failing after %d attempts, it needs you":         "PR #%d: el CI sigue fallando tras %d intentos, te necesita",
-		"PR #%d: the CI also fails on the base branch, not caused by this change": "PR #%d: el CI también falla en la rama base, no lo causó este cambio",
-		"PR #%d: this repository has no CI to wait for":                           "PR #%d: este repositorio no tiene CI que esperar",
-		"PR #%d was closed without being merged":                                  "PR #%d se cerró sin mergearse",
-		"%d pull requests moved: %s":                                              "%d pull requests cambiaron: %s",
-		"PR #%d was merged":                                                       "PR #%d fue mergeado",
-		"CI running":                                                              "CI corriendo",
-		"CI failed, being fixed":                                                  "CI falló, se está arreglando",
-		"CI passed, ready to merge":                                               "CI aprobado, listo para mergear",
-		"CI failed, needs you":                                                    "CI falló, te necesita",
-		"no CI":                                                                   "sin CI",
-		"CI also red on the base branch":                                          "CI también en rojo en la rama base",
-		"closed":                                                                  "cerrado",
-		"merged":                                                                  "mergeado",
-		"(a run is in flight)":                                                    "(hay una ejecución en curso)",
-		"(last used %s)":                                                          "(último uso %s)",
-		"/attach <id> to go back to one.":                                         "/attach <id> para volver a una.",
-		"just now":                                                                "recién",
-		"%dm ago":                                                                 "hace %d min",
-		"%dh ago":                                                                 "hace %d h",
-		"%dd ago":                                                                 "hace %d d",
+	// Sessions.
+	"this interface is not attached to a gateway that holds several sessions": "esta interfaz no está conectada a un " +
+		"gateway que tenga varias sesiones",
+	"attached to session %s, but its conversation could not be read: %w": "conectado a la sesión %s, pero no se pudo " +
+		"leer su conversación: %w",
+	"attached to session %s, which has no turns yet.": "conectado a la sesión %s, " +
+		"que todavía no tiene turnos.",
+	"attached to session %s.":                    "conectado a la sesión %s.",
+	"a new conversation could not be opened: %s": "no se pudo abrir una conversación nueva: %s",
+	"there is no session to go back to: /sessions lists them.": "no hay una sesión a la que volver: " +
+		"/sessions las muestra.",
+	"go back to the conversation you left last": "vuelve a la última conversación que dejaste",
+	"1 other session working":                   "1 sesión más trabajando",
+	"%d other sessions working":                 "%d sesiones más trabajando",
+	"%d of %d sessions in use":                  "%d de %d sesiones en uso",
+	"⚠ this conversation was written with %s; %s takes it over from the next turn and may answer differently. /new keeps each model in its own session.": "⚠ esta conversación se escribió con %s; " +
+		"%s la retoma desde el próximo turno y puede responder distinto. /new mantiene cada modelo en su propia sesión.",
+	"⚠ the turn in progress finishes with the previous model.": "⚠ el turno en curso termina con el modelo anterior.",
+	"the gateway could not be asked whether a turn is in flight: %s": "no se pudo preguntar al gateway si hay un turno " +
+		"en curso: %s",
+	"the turn could not be followed: %v": "no se pudo seguir el turno: %v",
+	"the turn finished.":                 "el turno terminó.",
+	"1 turn in the conversation.":        "1 turno en la conversación.",
+	"%d turns in the conversation.":      "%d turnos en la conversación.",
+	"the gateway could not be asked which sessions it holds: %w": "no se pudo preguntar al gateway qué sesiones tiene: " +
+		"%w",
+	"the gateway reports no sessions, which should not be possible": "el gateway no informa ninguna sesión, lo que no " +
+		"debería ser posible",
+	"sessions (most recent first):":                  "sesiones (las más recientes primero):",
+	"PR #%d: the CI passed, you can go and merge it": "PR #%d: el CI pasó, ya puedes mergearlo",
+	"PR #%d: the CI failed, fixing it (attempt %d of %d)": "PR #%d: el CI falló, " +
+		"arreglándolo (intento %d de %d)",
+	"PR #%d: the CI is still failing after %d attempts, it needs you": "PR #%d: el CI sigue fallando tras %d intentos, " +
+		"te necesita",
+	"PR #%d: the CI also fails on the base branch, not caused by this change": "PR #%d: el CI también falla en la rama " +
+		"base, no lo causó este cambio",
+	"PR #%d: this repository has no CI to wait for": "PR #%d: este repositorio " +
+		"no tiene CI que esperar",
+	"PR #%d was closed without being merged": "PR #%d se cerró sin mergearse",
+	"%d pull requests moved: %s":             "%d pull requests cambiaron: %s",
+	"PR #%d was merged":                      "PR #%d fue mergeado",
+	"CI running":                             "CI corriendo",
+	"CI failed, being fixed":                 "CI falló, se está arreglando",
+	"CI passed, ready to merge":              "CI aprobado, listo para mergear",
+	"CI failed, needs you":                   "CI falló, te necesita",
+	"no CI":                                  "sin CI",
+	"CI also red on the base branch":         "CI también en rojo en la rama base",
+	"closed":                                 "cerrado",
+	"merged":                                 "mergeado",
+	"(a run is in flight)":                   "(hay una ejecución en curso)",
+	"(last used %s)":                         "(último uso %s)",
+	"/attach <id> to go back to one.":        "/attach <id> para volver a una.",
+	"just now":                               "recién",
+	"%dm ago":                                "hace %d min",
+	"%dh ago":                                "hace %d h",
+	"%dd ago":                                "hace %d d",
 
-		// Turns, models and the setup.
-		"the command %s is listed but has no implementation.": "el comando %s aparece en la lista pero no tiene implementación.",
-		"reasoning set to %s": "razonamiento cambiado a %s",
-		"cancelled.":          "cancelado.",
-		"the task finished without reporting a result.":                                "la tarea terminó sin informar un resultado.",
-		"the model returned nothing to show.":                                          "el modelo no devolvió nada que mostrar.",
-		"asking the provider for its catalogue...":                                     "pidiéndole al proveedor su catálogo...",
-		"the catalogue could not be read: %v":                                          "no se pudo leer el catálogo: %v",
-		"the provider published no models.":                                            "el proveedor no publicó ningún modelo.",
-		"/models <id> switches to one of them for this session.":                       "/models <id> cambia a uno de ellos para esta sesión.",
-		"opening the setup...":                                                         "abriendo la configuración...",
-		"setup cancelled: nothing was changed.":                                        "configuración cancelada: no se cambió nada.",
-		"the setup failed: %v":                                                         "la configuración falló: %v",
-		"setup saved. Restart motita to use it.":                                       "configuración guardada. Reinicia motita para usarla.",
-		"setup saved, but it could not be applied now (%v). Restart motita to use it.": "configuración guardada, pero no se pudo aplicar ahora (%v). Reinicia motita para usarla.",
-		"setup saved and applied: now using %s %s %s.":                                 "configuración guardada y aplicada: ahora se usa %s %s %s.",
-		"There is no API key yet: run /config again to add one.":                       "Todavía no hay clave de API: vuelve a ejecutar /config para agregar una.",
+	// Turns, models and the setup.
+	"the command %s is listed but has no implementation.": "el comando %s aparece en la lista pero no tiene " +
+		"implementación.",
+	"reasoning set to %s": "razonamiento cambiado a %s",
+	"cancelled.":          "cancelado.",
+	"the task finished without reporting a result.": "la tarea terminó " +
+		"sin informar un resultado.",
+	"the model returned nothing to show.": "el modelo no " +
+		"devolvió nada que mostrar.",
+	"asking the provider for its catalogue...": "pidiéndole al " +
+		"proveedor su catálogo...",
+	"the catalogue could not be read: %v": "no se pudo leer el catálogo: %v",
+	"the provider published no models.": "el proveedor no " +
+		"publicó ningún modelo.",
+	"/models <id> switches to one of them for this session.": "/models <id> cambia a uno " +
+		"de ellos para esta sesión.",
+	"opening the setup...": "abriendo la configuración...",
+	"setup cancelled: nothing was changed.": "configuración cancelada: no " +
+		"se cambió nada.",
+	"the setup failed: %v": "la configuración falló: %v",
+	"setup saved. Restart motita to use it.": "configuración guardada. Reinicia " +
+		"motita para usarla.",
+	"setup saved, but it could not be applied now (%v). Restart motita to use it.": "configuración guardada, pero no " +
+		"se pudo aplicar ahora (%v). Reinicia motita para usarla.",
+	"setup saved and applied: now using %s %s %s.": "configuración guardada y aplicada: ahora " +
+		"se usa %s %s %s.",
+	"There is no API key yet: run /config again to add one.": "Todavía no hay clave de API: vuelve a ejecutar /config " +
+		"para agregar una.",
 
-		// The help screen.
-		"Keys (no Enter needed)":       "Teclas (sin Enter)",
-		"Modes and setup":              "Modos y configuración",
-		"Conversations":                "Conversaciones",
-		"Search and feedback":          "Búsqueda y calificaciones",
-		"Help":                         "Ayuda",
-		"send what you typed":          "envía lo que escribiste",
-		"switch between Task and Plan": "cambia entre Tarea y Plan",
-		"open the command list (↑↓ choose, → complete)":     "abre la lista de comandos (↑↓ elegir, → completar)",
-		"scroll the conversation (also j/k, Ctrl+U/Ctrl+D)": "desplaza la conversación (también j/k, Ctrl+U/Ctrl+D)",
-		"oldest / newest":                                    "lo más antiguo / lo más reciente",
-		"search the conversation (or /find)":                 "busca en la conversación (o /find)",
-		"show or hide the run's agents (or /agents)":         "muestra u oculta los agentes de la ejecución (o /agents)",
-		"close / stop the running task / back to the newest": "cierra / detiene la tarea en curso / vuelve a lo más reciente",
-		"stop and quit":                                      "detiene y sale",
+	// The help screen.
+	"Keys (no Enter needed)":       "Teclas (sin Enter)",
+	"Modes and setup":              "Modos y configuración",
+	"Conversations":                "Conversaciones",
+	"Search and feedback":          "Búsqueda y calificaciones",
+	"Help":                         "Ayuda",
+	"send what you typed":          "envía lo que escribiste",
+	"switch between Task and Plan": "cambia entre Tarea y Plan",
+	"open the command list (↑↓ choose, → complete)":     "abre la lista de comandos (↑↓ elegir, → completar)",
+	"scroll the conversation (also j/k, Ctrl+U/Ctrl+D)": "desplaza la conversación (también j/k, Ctrl+U/Ctrl+D)",
+	"oldest / newest":                                    "lo más antiguo / lo más reciente",
+	"search the conversation (or /find)":                 "busca en la conversación (o /find)",
+	"show or hide the run's agents (or /agents)":         "muestra u oculta los agentes de la ejecución (o /agents)",
+	"close / stop the running task / back to the newest": "cierra / detiene la tarea en curso / vuelve a lo más reciente",
+	"stop and quit":                                      "detiene y sale",
 
-		// The size gate.
-		"The window is too small to draw Motita.":       "La ventana es demasiado pequeña para dibujar Motita.",
-		"resize it to at least %d columns and %d rows,": "agrándala a por lo menos %d columnas y %d filas,",
-		"or press q to quit.":                           "o presiona q para salir.",
-		"now: %d x %d":                                  "ahora: %d x %d",
+	// The size gate.
+	"The window is too small to draw Motita.":       "La ventana es demasiado pequeña para dibujar Motita.",
+	"resize it to at least %d columns and %d rows,": "agrándala a por lo menos %d columnas y %d filas,",
+	"or press q to quit.":                           "o presiona q para salir.",
+	"now: %d x %d":                                  "ahora: %d x %d",
 
-		// The queue while a task runs.
-		"Stopped. Your queued message was not sent; it is in the input box if it was empty.": "Detenido. Tu mensaje en cola no se envió; está en la caja de entrada si estaba vacía.",
-		"Queued: it will be sent when the current task finishes. Esc stops the current one.": "En cola: se enviará cuando termine la tarea actual. Esc detiene la actual.",
-		"Queued, replacing the message queued before. Esc stops the current task.":           "En cola, en reemplazo del mensaje que estaba en cola. Esc detiene la tarea actual.",
-		"%s has to wait: motita is still working. Press Esc to stop it first.":               "%s tiene que esperar: motita sigue trabajando. Presiona Esc para detenerlo primero.",
+	// The queue while a task runs.
+	"Stopped. Your queued message was not sent; it is in the input box if it was empty.": "Detenido. Tu mensaje en " +
+		"cola no se envió; está en la caja de entrada si estaba vacía.",
+	"Queued: it will be sent when the current task finishes. Esc stops the current one.": "En cola: se enviará cuando " +
+		"termine la tarea actual. Esc detiene la actual.",
+	"Queued, replacing the message queued before. Esc stops the current task.": "En cola, en reemplazo del mensaje que " +
+		"estaba en cola. Esc detiene la tarea actual.",
+	"%s has to wait: motita is still working. Press Esc to stop it first.": "%s tiene que esperar: motita sigue " +
+		"trabajando. Presiona Esc para detenerlo primero.",
 
-		// Updates.
-		"motita %s is available (this is %s). Type /update to install it.":                              "motita %s está disponible (esta es la %s). Escribe /update para instalarla.",
-		"update: this interface is not attached to a gateway, and the gateway is what upgrades itself.": "actualización: esta interfaz no está conectada a un gateway, y es el gateway el que se actualiza.",
-		"update: could not check for a newer release: %s":                                               "actualización: no se pudo revisar si hay una versión más reciente: %s",
-		"update: motita %s is the newest release.":                                                      "actualización: motita %s es la versión más reciente.",
-		"update: installing %s (this is %s)…":                                                           "actualización: instalando %s (esta es la %s)…",
-		"update:":                                                                                       "actualización:",
-		"update failed: %s":                                                                             "la actualización falló: %s",
-		"update: %s is installed. The gateway is restarting: quit (/quit) and start motita again to use it.": "actualización: %s quedó instalada. El gateway se está reiniciando: sal (/quit) y vuelve a iniciar motita para usarla.",
-	})
+	// Updates.
+	"motita %s is available (this is %s). Type /update to install it.": "motita %s está disponible (esta es la %s). " +
+		"Escribe /update para instalarla.",
+	"update: this interface is not attached to a gateway, and the gateway is what upgrades itself.": "actualización: " +
+		"esta interfaz no está conectada a un gateway, y es el gateway el que se actualiza.",
+	"update: could not check for a newer release: %s": "actualización: no se pudo revisar si hay una versión más " +
+		"reciente: %s",
+	"update: motita %s is the newest release.": "actualización: motita %s es " +
+		"la versión más reciente.",
+	"update: installing %s (this is %s)…": "actualización: instalando %s " +
+		"(esta es la %s)…",
+	"update:": "actualización:",
+	"update failed: %s": "la actualización " +
+		"falló: %s",
+	"update: %s is installed. The gateway is restarting: " +
+		"quit (/quit) and start motita again to use it.": "actualización: %s quedó instalada. El gateway se está " +
+		"reiniciando: sal (/quit) y vuelve a iniciar motita para usarla.",
 }
+
+// init registers the terminal interface in Spanish.
+func init() { Register(ES, esTUI) }

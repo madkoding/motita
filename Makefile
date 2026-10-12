@@ -23,7 +23,7 @@ STATICCHECK_GO ?= go1.26.0
 
 # Every platform Go can build cmd/agent for. windows/arm, darwin/386 and
 # darwin/arm do not exist in Go: the toolchain refuses them, so they are not listed.
-PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
+PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 android/arm64 \
              windows/386 windows/amd64 windows/arm64 \
              darwin/amd64 darwin/arm64
 
@@ -81,7 +81,7 @@ verify-dist: ## Check each built file really is for the system its name says
 #   PE     (windows)  4d 5a ("MZ")
 #   Mach-O (darwin)   cf fa ed fe (64-bit little endian) or ce fa ed fe (32-bit)
 	@fail=0; \
-	for f in $(DIST)/motita-linux-* $(DIST)/motita-darwin-* $(DIST)/motita-windows-*.exe; do \
+	for f in $(DIST)/motita-linux-* $(DIST)/motita-android-* $(DIST)/motita-darwin-* $(DIST)/motita-windows-*.exe; do \
 		[ -f "$$f" ] || continue; \
 		case "$$f" in \
 			*windows*) \

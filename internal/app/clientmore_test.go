@@ -176,8 +176,8 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 		_, _ = w.Write([]byte(`{"sessions":[
 			{"id":"default","running":true,"last_used":"2026-09-22T10:00:00Z"},
 			{"id":"sother","running":false,"last_used":"2026-09-23T00:30:00Z",
-			 "pr_watch":{"status":"fixing","attempts":2,"max":5,"number":7}}
-		]}`))
+			 "pr_watch":{"status":"fixing","attempts":2,"max":5,"number":7},"model":"haiku"}
+		],"max_sessions":64}`))
 	}))
 	defer srv.Close()
 
@@ -188,6 +188,9 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 	}
 	if len(all) != 2 {
 		t.Fatalf("listed %d sessions, want 2", len(all))
+	}
+	if all[1].Model != "haiku" || sw.MaxSessions() != 64 {
+		t.Errorf("the model or the ceiling was lost in the translation: %q / %d", all[1].Model, sw.MaxSessions())
 	}
 	if all[0].ID != "default" || !all[0].Running {
 		t.Errorf("the running flag was lost in the translation: %+v", all[0])
@@ -616,5 +619,39 @@ func TestTheAdapterTranslatesTheArtifacts(t *testing.T) {
 	denied := sessionSwitcher{gateway.NewClientForSession(srv.URL, "wrong", "default")}
 	if _, err := denied.ListArtifacts(context.Background()); err == nil {
 		t.Fatal("a refused ask must be an error")
+	}
+}
+
+// TestTheAdapterOpensANewSession: /new behind a gateway opens a conversation of its own, and the
+// interface only needs its id to enter it. A refusal (a gateway at its ceiling) comes back as one.
+func TestTheAdapterOpensANewSession(t *testing.T) {
+	full := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/sessions" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if full {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"at its ceiling"}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"snew"}`))
+	}))
+	defer srv.Close()
+
+	var _ tui.SessionCreator = sessionSwitcher{}
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	id, err := sw.NewSession(context.Background())
+	if err != nil || id != "snew" {
+		t.Fatalf("NewSession = %q, %v", id, err)
+	}
+	if sw.CurrentSession() != "default" {
+		t.Errorf("opening a session moved the client to %q: entering it is the interface's call", sw.CurrentSession())
+	}
+	full = true
+	if _, err := sw.NewSession(context.Background()); err == nil || !strings.Contains(err.Error(), "ceiling") {
+		t.Errorf("a refused session came back as %v", err)
 	}
 }

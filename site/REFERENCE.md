@@ -238,7 +238,12 @@ MOTITA_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
 ```
 
 The installer prefers `/usr/local/bin` when it is writable and falls back to
-`~/.local/bin`, so it never needs root. It downloads into a temporary directory
+`~/.local/bin` (`$PREFIX/bin` on Termux), so it never needs root. When that
+directory is not on the `PATH`, it adds one marked `export` line to your shell's
+startup file (`~/.bashrc`, `~/.zshrc`, fish's `conf.d`, or `~/.profile`), once,
+so every new terminal finds `motita`; `MOTITA_NO_MODIFY_PATH=1` leaves the files
+alone. A piped installer cannot change the shell you typed it into, so the
+terminal you are in gets the `export` line to paste and the full path to run. It downloads into a temporary directory
 and moves the binary into place **only after** the checksum matches: a failed or
 corrupted download leaves the system as it was. Finally it runs the binary once,
 because reporting success without executing it would miss the one failure that
@@ -302,8 +307,19 @@ curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-
 | System | Architectures | Asset suffix |
 |---|---|---|
 | Linux | `386`, `amd64`, `arm`, `arm64` | `-linux-<arch>` |
+| Android (Termux) | `arm64` | `-android-<arch>` |
 | Windows | `386`, `amd64`, `arm64` | `-windows-<arch>.exe` |
 | macOS | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>` |
+
+`android/arm64` is for **Termux**: Android's seccomp policy kills a `linux/arm64`
+binary with `SIGSYS: bad system call` (it blocks `faccessat2`, which the Go linux
+runtime uses), so Android gets its own build. The installer picks it on its own, and
+a `linux/arm64` binary already installed on Android moves to it on its next update.
+Commands run through `/system/bin/sh`, since Android has no `/bin`. That shell is
+mksh, which has no `ulimit -u`, so `limits.processes` is reported as not applied on
+Termux, the same as under dash. motita deliberately does not fall back to `-p`:
+RLIMIT_NPROC counts every process the Termux user owns, so a small limit would stop the
+command from forking at all. The other limits (CPU, memory, files) apply as usual.
 
 `linux/arm` is **ARMv7** (the Go default, `GOARM=7`): it runs on a Raspberry Pi 2
 or newer, and on the ARMv8 boards running a 32-bit userland. A Raspberry Pi 1 or
@@ -316,6 +332,21 @@ Each release also carries a `SHA256SUMS` file:
 ```bash
 curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
+```
+
+## Checking the machine: `motita doctor`
+
+`motita doctor` checks what motita needs before anything runs, one line per check:
+the build against the system (a `linux` build on Android is flagged), the shell
+commands go through, where name servers come from and whether `api.github.com`
+resolves, whether the binary is on the `PATH`, `stty` and `git`, and then the
+configuration a run would read and the sandbox it would build from it, with every limit
+that could not be applied. It needs no key and calls no model. ❌ is something motita
+needs that does not work, and makes it exit with 1; ⚠️ is worth a look.
+
+```bash
+motita doctor                    # the configuration a run would find
+motita doctor -config my.yaml    # a specific one
 ```
 
 ## First run: the setup
@@ -613,6 +644,7 @@ interface is a client of it.
 | `hosts` | *empty* | Extra host **names** the gateway answers to, for a reverse proxy or a DNS name in front of it. An IP address, `localhost`, this machine's host name (and its `.local` name) and the host in `listen` are always accepted; a request whose `Host` header names anything else is refused with `421`, which is what stops a DNS-rebinding page from reaching the gateway under its own name. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
+| `free_session_git` | `false` | Make the own directory of a session that belongs to no project a git repository when it is created. Off by default: such a session needs no git. A client can ask per session with `"git": true` or `false` in `POST /v1/sessions`. Also read from `MOTITA_GATEWAY_FREE_SESSION_GIT`. |
 | `artifact_days` | `30` | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`. |
 
 #### Running the gateway as a service

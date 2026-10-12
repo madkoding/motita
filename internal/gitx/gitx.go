@@ -194,6 +194,8 @@ func Repo(ctx context.Context, dir string) error {
 		return ErrNoGit
 	case err != nil, out != "true":
 		return ErrNotARepo
+	default:
+		// Inside a work tree.
 	}
 	return nil
 }
@@ -298,7 +300,8 @@ func Head(ctx context.Context, dir string) (branch string, detached string, err 
 	if err := Repo(ctx, dir); err != nil {
 		return "", "", err
 	}
-	if name, nameErr := execute(ctx, dir, gitRevParse, "--abbrev-ref", "HEAD"); nameErr == nil && name != "" && name != "HEAD" {
+	if name, nameErr := execute(ctx, dir, gitRevParse, "--abbrev-ref", "HEAD"); nameErr == nil &&
+		name != "" && name != "HEAD" {
 		return name, "", nil
 	}
 	if sha, shaErr := execute(ctx, dir, gitRevParse, gitShort, "HEAD"); shaErr == nil && sha != "" {
@@ -338,6 +341,8 @@ func Root(ctx context.Context, dir string) (string, error) {
 		return "", ErrNoGit
 	case err != nil, out == "":
 		return "", ErrNotARepo
+	default:
+		// The top-level directory was read.
 	}
 	return out, nil
 }
@@ -384,11 +389,13 @@ func parseCommits(out string) []Commit {
 // when the session began: the base branch may have moved since, and a recorded
 // number would then be a number that used to be true.
 func CommitsBetween(ctx context.Context, dir, baseBranch, branch string) (ahead, behind []Commit, err error) {
-	out, err := noGitOr(ctx, "could not read the branch's commits", dir, "log", "--format=%h\t%s", "--end-of-options", baseBranch+".."+branch)
+	out, err := noGitOr(ctx, "could not read the branch's commits",
+		dir, "log", "--format=%h\t%s", "--end-of-options", baseBranch+".."+branch)
 	if err != nil {
 		return nil, nil, err
 	}
-	behindOut, err := noGitOr(ctx, "could not read the base branch's commits", dir, "log", "--format=%h\t%s", "--end-of-options", branch+".."+baseBranch)
+	behindOut, err := noGitOr(ctx, "could not read the base branch's commits",
+		dir, "log", "--format=%h\t%s", "--end-of-options", branch+".."+baseBranch)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -445,7 +452,9 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 		return err
 	}
 	if !samePath(root, repoDir) {
-		return fmt.Errorf("%q is not the root of its repository (%s): a worktree of the whole repository is not this project", repoDir, root)
+		return fmt.Errorf(
+			"%q is not the root of its repository (%s): a worktree of the whole repository is not this project",
+			repoDir, root)
 	}
 	if !HasCommits(ctx, repoDir) {
 		return errors.New("the repository has no commits to branch from")
@@ -454,7 +463,8 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 	// is cleared first. `worktree prune` only removes registrations git itself
 	// considers missing, so a live worktree is never touched by this.
 	if !dirExists(path) {
-		if _, pruneErr := noGitOr(ctx, "the stale worktree registration could not be cleared", repoDir, "worktree", "prune"); pruneErr != nil {
+		if _, pruneErr := noGitOr(ctx, "the stale worktree registration could not be cleared",
+			repoDir, "worktree", "prune"); pruneErr != nil {
 			return pruneErr
 		}
 	}
@@ -582,10 +592,14 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 		return MergeResult{}, err
 	}
 	if branchNow == "" {
-		return MergeResult{}, fmt.Errorf("the checkout is detached at %s, so there is no branch to merge into: check out %q first", detached, baseBranch)
+		return MergeResult{}, fmt.Errorf(
+			"the checkout is detached at %s, so there is no branch to merge into: check out %q first",
+			detached, baseBranch)
 	}
 	if branchNow != baseBranch {
-		return MergeResult{}, fmt.Errorf("the checkout is on %q, and this session branched from %q: check out %q first", branchNow, baseBranch, baseBranch)
+		return MergeResult{}, fmt.Errorf(
+			"the checkout is on %q, and this session branched from %q: check out %q first",
+			branchNow, baseBranch, baseBranch)
 	}
 	name, email := Identity(ctx, repoDir)
 	out, err := execute(ctx, repoDir, "-c", "user.name="+name, "-c", "user.email="+email,
@@ -606,7 +620,8 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	if _, mhErr := execute(ctx, repoDir, gitRevParse, "-q", gitVerify, "MERGE_HEAD"); mhErr != nil {
 		return MergeResult{}, fmt.Errorf("the merge did not happen: %s", firstLine(out))
 	}
-	if _, abErr := noGitOr(ctx, "the merge conflicted and could not be rolled back", repoDir, "merge", "--abort"); abErr != nil {
+	if _, abErr := noGitOr(ctx, "the merge conflicted and could not be rolled back",
+		repoDir, "merge", "--abort"); abErr != nil {
 		return MergeResult{}, abErr
 	}
 	return MergeResult{}, fmt.Errorf("the merge conflicted and was rolled back; nothing was changed: %s", firstLine(out))

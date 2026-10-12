@@ -26,11 +26,20 @@ var ignoreBase = []struct {
 	patterns []string
 }{
 	{[]string{"go.mod", "go.work"}, []string{"*.test", "*.out", "coverage.out"}},
-	{[]string{"package.json"}, []string{"node_modules/", ".next/", ".nuxt/", ".turbo/", ".parcel-cache/", ".vite/", "*.tsbuildinfo", "npm-debug.log*", "yarn-error.log*"}},
-	{[]string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"}, []string{"__pycache__/", "*.py[cod]", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", ".tox/", "*.egg-info/"}},
+	{[]string{"package.json"}, []string{
+		"node_modules/", ".next/", ".nuxt/", ".turbo/", ".parcel-cache/", ".vite/",
+		"*.tsbuildinfo", "npm-debug.log*", "yarn-error.log*",
+	}},
+	{[]string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"}, []string{
+		"__pycache__/", "*.py[cod]", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/",
+		".ruff_cache/", ".tox/", "*.egg-info/",
+	}},
 	{[]string{"Cargo.toml"}, []string{"target/"}},
 	{[]string{"pom.xml"}, []string{"target/", "*.class"}},
-	{[]string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}, []string{".gradle/", "*.class"}},
+	{
+		[]string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"},
+		[]string{".gradle/", "*.class"},
+	},
 	{[]string{"Gemfile"}, []string{".bundle/"}},
 	{[]string{"composer.json"}, []string{"/vendor/"}},
 	{[]string{"Podfile"}, []string{"Pods/"}},
@@ -38,9 +47,15 @@ var ignoreBase = []struct {
 	{[]string{"mix.exs"}, []string{"_build/", "deps/"}},
 }
 
-// ignoreEverywhere is the editor and OS litter that belongs in no project, and the home of the
-// tools the agent runs (see toolHomeDirs).
-var ignoreEverywhere = append([]string{".DS_Store", "Thumbs.db", "*.swp", "*~"}, toolHomePatterns()...)
+// ReposDir is the folder, at the root of a project's checkout and of each session's worktree,
+// that holds the project's OTHER repositories: one checkout of each, by name. It is ignored, so
+// the repository that holds it never reports another repository as its own change.
+const ReposDir = ".motita-repos"
+
+// ignoreEverywhere is the editor and OS litter that belongs in no project, the home of the
+// tools the agent runs (see toolHomeDirs), and the project's other repositories (ReposDir).
+var ignoreEverywhere = append([]string{".DS_Store", "Thumbs.db", "*.swp", "*~", "/" + ReposDir + "/"},
+	toolHomePatterns()...)
 
 // toolHomeDirs are what the programs a run executes leave in their HOME.
 //
