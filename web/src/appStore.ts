@@ -1,70 +1,152 @@
 // The page's state and what can be done with it, gathered in one place and handed to every part
 // of the page through a context, so each component reads what it draws.
-import { createContext } from 'preact'
-import { useCallback, useContext, useMemo, useState } from 'preact/hooks'
-import { useRunState } from './useRunState'
-import { useToastStatus } from './useToastStatus'
-import { useSessionList } from './useSessionList'
-import { useChatScroll } from './useChatScroll'
-import { useModelSwitcher } from './useModelSwitcher'
-import { useSkills } from './useSkills'
-import { useProjects } from './useProjects'
-import { useArtifacts } from './useArtifacts'
-import { useSchedules } from './useSchedules'
-import { useConversation } from './useConversation'
-import { useSessionActions } from './useSessionActions'
-import { useDeletion } from './useDeletion'
-import { useDrawers } from './useDrawers'
-import { useStream } from './useStream'
-import { useShellApproval } from './useShellApproval'
-import { useComposer } from './useComposer'
-import { useCheckpoints } from './useCheckpoints'
-import { useAuth, useLanguage } from './useAuth'
-import { useUpdates } from './useUpdates'
-import { useRowMenus } from './useRowMenus'
-import { useFinishedElsewhere } from './sessionWatch'
-import type { Api } from './prApi'
+import { createContext } from "preact";
+import { useCallback, useContext, useMemo, useState } from "preact/hooks";
+import { useRunState } from "./useRunState";
+import { useToastStatus } from "./useToastStatus";
+import { useSessionList } from "./useSessionList";
+import { useChatScroll } from "./useChatScroll";
+import { useModelSwitcher } from "./useModelSwitcher";
+import { useSkills } from "./useSkills";
+import { useProjects } from "./useProjects";
+import { useArtifacts } from "./useArtifacts";
+import { useSchedules } from "./useSchedules";
+import { useConversation } from "./useConversation";
+import { useSessionActions } from "./useSessionActions";
+import { useDeletion } from "./useDeletion";
+import { useDrawers } from "./useDrawers";
+import { useStream } from "./useStream";
+import { useShellApproval } from "./useShellApproval";
+import { useComposer } from "./useComposer";
+import { useCheckpoints } from "./useCheckpoints";
+import { useAuth, useLanguage } from "./useAuth";
+import { useUpdates } from "./useUpdates";
+import { useRowMenus } from "./useRowMenus";
+import { useFinishedElsewhere } from "./sessionWatch";
+import type { Api } from "./prApi";
 
 export function useAppStore(api: Api) {
-  const rs = useRunState()
-  const status = useToastStatus()
-  const { setState, setToast } = status
-  const lists = useSessionList(api, rs)
-  const scroll = useChatScroll({ messages: rs.messages, activity: rs.activity, liveThought: rs.liveThought, stepsByTurn: rs.stepsByTurn })
-  const model = useModelSwitcher(api, rs.sessionId, setState, setToast, lists.fetchSessions)
-  useFinishedElsewhere(lists.sessions, rs.sessionId, setToast)
-  const skills = useSkills(api, rs.sessionId, setState)
-  const projects = useProjects({ api, lists, setState, setToast })
-  const artifacts = useArtifacts(api, rs.sessionId, setState)
-  const schedules = useSchedules(api, setToast)
-  const conv = useConversation({ api, rs, lists, setState, setConfig: model.setConfig, requestModal: scroll.requestModal })
-  const actions = useSessionActions({ api, rs, lists, conv, setState, setToast })
-  const deletion = useDeletion({ api, deleteSession: actions.deleteSession, deleteSkill: skills.deleteSkill, deleteProject: projects.deleteProject })
-  const drawers = useDrawers(rs)
-  const shell = useShellApproval({ api, rs, lists, drawers, setState, setToast })
-  const stream = useStream({ api, rs, lists, conv, setState, setToast })
-  const composer = useComposer({ rs, drawers, stream, runShellLine: shell.runShellLine })
-  const checkpoints = useCheckpoints({ api, rs, conv, setInput: composer.setInput, setToast })
-  const auth = useAuth({ api, rs, lists, conv, setState, setSlashCommands: composer.setSlashCommands })
-  const updates = useUpdates(api, setToast, auth.authState === 'ok')
-  const language = useLanguage(api, auth.authState, setToast)
-  const menus = useRowMenus()
-  const [showSettings, setShowSettings] = useState(false)
-  const openSettings = useCallback(() => setShowSettings(true), [])
-  const closeSettings = useCallback(() => setShowSettings(false), [])
-  const selectedSession = useMemo(() => lists.sessions.find(s => s.id === rs.sessionId), [lists.sessions, rs.sessionId])
+  const rs = useRunState();
+  const status = useToastStatus();
+  const { setState, setToast } = status;
+  const lists = useSessionList(api, rs);
+  const scroll = useChatScroll({
+    messages: rs.messages,
+    activity: rs.activity,
+    liveThought: rs.liveThought,
+    stepsByTurn: rs.stepsByTurn,
+  });
+  const model = useModelSwitcher(
+    api,
+    rs.sessionId,
+    setState,
+    setToast,
+    lists.fetchSessions,
+  );
+  useFinishedElsewhere(lists.sessions, rs.sessionId, setToast);
+  const skills = useSkills(api, rs.sessionId, setState);
+  const projects = useProjects({ api, lists, setState, setToast });
+  const artifacts = useArtifacts(api, rs.sessionId, setState);
+  const schedules = useSchedules(api, setToast);
+  const conv = useConversation({
+    api,
+    rs,
+    lists,
+    setState,
+    setConfig: model.setConfig,
+    requestModal: scroll.requestModal,
+  });
+  const actions = useSessionActions({
+    api,
+    rs,
+    lists,
+    conv,
+    setState,
+    setToast,
+  });
+  const deletion = useDeletion({
+    api,
+    deleteSession: actions.deleteSession,
+    deleteSkill: skills.deleteSkill,
+    deleteProject: projects.deleteProject,
+  });
+  const drawers = useDrawers(rs);
+  const shell = useShellApproval({
+    api,
+    rs,
+    lists,
+    drawers,
+    setState,
+    setToast,
+  });
+  const stream = useStream({ api, rs, lists, conv, setState, setToast });
+  const composer = useComposer({
+    rs,
+    drawers,
+    stream,
+    runShellLine: shell.runShellLine,
+  });
+  const checkpoints = useCheckpoints({
+    api,
+    rs,
+    conv,
+    setInput: composer.setInput,
+    setToast,
+  });
+  const auth = useAuth({
+    api,
+    rs,
+    lists,
+    conv,
+    setState,
+    setSlashCommands: composer.setSlashCommands,
+  });
+  const updates = useUpdates(api, setToast, auth.authState === "ok");
+  const language = useLanguage(api, auth.authState, setToast);
+  const menus = useRowMenus();
+  const [showSettings, setShowSettings] = useState(false);
+  const openSettings = useCallback(() => setShowSettings(true), []);
+  const closeSettings = useCallback(() => setShowSettings(false), []);
+  const selectedSession = useMemo(
+    () => lists.sessions.find((s) => s.id === rs.sessionId),
+    [lists.sessions, rs.sessionId],
+  );
   return {
-    api, rs, status, lists, scroll, model, skills, projects, artifacts, schedules, conv, actions, deletion,
-    drawers, shell, stream, composer, checkpoints, auth, updates, language, menus,
-    showSettings, openSettings, closeSettings, selectedSession, isMerged: selectedSession?.merged === true,
-  }
+    api,
+    rs,
+    status,
+    lists,
+    scroll,
+    model,
+    skills,
+    projects,
+    artifacts,
+    schedules,
+    conv,
+    actions,
+    deletion,
+    drawers,
+    shell,
+    stream,
+    composer,
+    checkpoints,
+    auth,
+    updates,
+    language,
+    menus,
+    showSettings,
+    openSettings,
+    closeSettings,
+    selectedSession,
+    isMerged: selectedSession?.merged === true,
+  };
 }
 
-export type Store = ReturnType<typeof useAppStore>
+export type Store = ReturnType<typeof useAppStore>;
 
-export const AppCtx = createContext<Store | null>(null)
+export const AppCtx = createContext<Store | null>(null);
 
 // useApp is the store, for a component under App.
 export function useApp(): Store {
-  return useContext(AppCtx) as Store
+  return useContext(AppCtx) as Store;
 }

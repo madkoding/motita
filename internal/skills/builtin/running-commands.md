@@ -9,11 +9,11 @@ answers cost the user nothing; the third is the one that wastes a turn.
 Every line is classified before it runs. The verdict is the WORST any segment earned, so one
 `>` at the end of an otherwise harmless line is enough to change the answer.
 
-| Verdict | What happens | What earns it |
-| --- | --- | --- |
-| **allow** | Runs, silently. | A known reader. A writer whose target is inside the workspace (`mkdir`, `touch`, `>` a log, `rm` a path in the project). The ordinary verbs of a project's own tooling. |
-| **ask** | The user sees the exact line and decides. | A writer whose target is outside the workspace; a program that reaches the network or the system (`git push`, `curl`, `ssh`, `systemctl restart`, a package manager); anything the policy cannot classify. |
-| **refuse** | Does not run. Do not retry it. | The mandatory floor: `mkfs.*`, `fdisk`/`parted`, `dd` with an `of=`, `shred`, `wipefs`, `shutdown`/`reboot`, and `rm`/`mv`/`cp`/`ln` aimed at a root or a home tree. |
+| Verdict    | What happens                              | What earns it                                                                                                                                                                                              |
+| ---------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **allow**  | Runs, silently.                           | A known reader. A writer whose target is inside the workspace (`mkdir`, `touch`, `>` a log, `rm` a path in the project). The ordinary verbs of a project's own tooling.                                    |
+| **ask**    | The user sees the exact line and decides. | A writer whose target is outside the workspace; a program that reaches the network or the system (`git push`, `curl`, `ssh`, `systemctl restart`, a package manager); anything the policy cannot classify. |
+| **refuse** | Does not run. Do not retry it.            | The mandatory floor: `mkfs.*`, `fdisk`/`parted`, `dd` with an `of=`, `shred`, `wipefs`, `shutdown`/`reboot`, and `rm`/`mv`/`cp`/`ln` aimed at a root or a home tree.                                       |
 
 A question is not a failure: it is one keystroke for the user. **A refusal is final** — no YAML key,
 environment variable or flag relaxes it, so rephrasing only spends a second turn. Say what you
@@ -25,7 +25,7 @@ needed and why, and find another route.
 approved as a whole: it always costs a confirmation. **Run the program directly and it is judged on
 its own merits.** That is the whole reason plan mode can be a guarantee rather than a request —
 there, the program runs with no shell at all, so a pipe or a `$(...)` is not refused, it is
-*impossible*.
+_impossible_.
 
 ## Plan mode is a different world: readers only
 
@@ -70,7 +70,7 @@ cut makes it worse. `file path` first. For a peek: `xxd -l 256 path` or `strings
 ## Reading a value out of structured text without a parser
 
 `jq` is on the reader list but is **not installed on every machine**; `python3` is installed
-essentially everywhere but it is a *writer* (refused in plan mode, and a hard **refuse** under
+essentially everywhere but it is a _writer_ (refused in plan mode, and a hard **refuse** under
 `agent.policy.strict`). So the tool that is both a reader and always present is `grep`:
 
 ```sh

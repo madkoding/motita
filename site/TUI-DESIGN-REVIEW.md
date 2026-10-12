@@ -1,7 +1,7 @@
 # Motita TUI — design review
 
 An audit of the terminal interface against the **TUI design guide**
-(`tui-design` skill, Workflow 3: *redesign an existing TUI*) and its review
+(`tui-design` skill, Workflow 3: _redesign an existing TUI_) and its review
 checklist. It records what was wrong, what changed, and what is still open, so the
 next pass does not have to rediscover any of it.
 
@@ -25,26 +25,26 @@ never by reading the raw escapes.
 
 ## Score before the pass
 
-| Category | Score | Why |
-|---|---|---|
-| Visual design | 4 | One border used once; restrained palette; wordmark unframed. |
-| Layout and composition | 2 | **No minimum-size handling**; a short terminal shed every part and still drew. |
-| Information architecture | 4 | Modes are clear, the status line answers what you are talking to. |
-| Interaction design | 2 | **No scrolling at all**; **no Escape**; the footer hid the scroll keys that did not exist. |
-| State handling | 4 | Designed empty state, spinner, errors reported in the chat. |
-| Navigation | 3 | Modes clear, but history was unreachable and there was no escape route. |
-| Component quality | 3 | Truncation and wrapping handled; no position indicator for a long conversation. |
-| Accessibility | 2 | `NO_COLOR` was **implemented but never wired**; colour-only status dot. |
-| Architecture and code quality | 4 | Render/state/input separated; seams injectable. |
-| Terminal resilience | 3 | Height shedding, one-column margin; **no undersized gate**; resize only on restart. |
-| **Total** | **31/50** | *Functional prototype — needs significant UX work.* |
+| Category                      | Score     | Why                                                                                        |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------ |
+| Visual design                 | 4         | One border used once; restrained palette; wordmark unframed.                               |
+| Layout and composition        | 2         | **No minimum-size handling**; a short terminal shed every part and still drew.             |
+| Information architecture      | 4         | Modes are clear, the status line answers what you are talking to.                          |
+| Interaction design            | 2         | **No scrolling at all**; **no Escape**; the footer hid the scroll keys that did not exist. |
+| State handling                | 4         | Designed empty state, spinner, errors reported in the chat.                                |
+| Navigation                    | 3         | Modes clear, but history was unreachable and there was no escape route.                    |
+| Component quality             | 3         | Truncation and wrapping handled; no position indicator for a long conversation.            |
+| Accessibility                 | 2         | `NO_COLOR` was **implemented but never wired**; colour-only status dot.                    |
+| Architecture and code quality | 4         | Render/state/input separated; seams injectable.                                            |
+| Terminal resilience           | 3         | Height shedding, one-column margin; **no undersized gate**; resize only on restart.        |
+| **Total**                     | **31/50** | _Functional prototype — needs significant UX work._                                        |
 
 ## What was fixed
 
 ### P0 — keyboard navigation (interaction design, navigation)
 
-The guide: *"All navigation and actions must work via keyboard"* and *"any state the
-user can enter, they must be able to exit."* The conversation could only ever show
+The guide: _"All navigation and actions must work via keyboard"_ and _"any state the
+user can enter, they must be able to exit."_ The conversation could only ever show
 its newest rows.
 
 - `↑ ↓`, `PgUp PgDn`, `Home End`, `j k`, `g G` now move a window anchored to the
@@ -75,7 +75,7 @@ leaving a second `┐` in the middle of the top border:
 
 Fixed by measuring both ends with `visibleLen`, the same function that pads every
 other row, so the arithmetic cannot drift from what is drawn. The test asserts the
-invariant at the minimum, default and maximum width *with the indicator shown* —
+invariant at the minimum, default and maximum width _with the indicator shown_ —
 the case the original width test never exercised — and was proved non-vacuous by
 reintroducing the bug and watching it fail.
 
@@ -104,19 +104,19 @@ prompt that was never drawn.
 
 ## Score after the pass
 
-| Category | Score | Change |
-|---|---|---|
-| Visual design | 4 | — |
-| Layout and composition | 4 | Minimum-size gate |
-| Information architecture | 4 | — |
-| Interaction design | 4 | Scrolling, Escape route, hints that exist |
-| State handling | 4 | — |
-| Navigation | 4 | History reachable, position indicator |
-| Component quality | 4 | Position indicator, invariant tested |
-| Accessibility | 4 | `NO_COLOR` wired, `TERM=dumb` honoured |
-| Architecture and code quality | 4 | Dead code removed |
-| Terminal resilience | 4 | Undersized gate, still one column short |
-| **Total** | **40/50** | *Good with polish needed.* |
+| Category                      | Score     | Change                                    |
+| ----------------------------- | --------- | ----------------------------------------- |
+| Visual design                 | 4         | —                                         |
+| Layout and composition        | 4         | Minimum-size gate                         |
+| Information architecture      | 4         | —                                         |
+| Interaction design            | 4         | Scrolling, Escape route, hints that exist |
+| State handling                | 4         | —                                         |
+| Navigation                    | 4         | History reachable, position indicator     |
+| Component quality             | 4         | Position indicator, invariant tested      |
+| Accessibility                 | 4         | `NO_COLOR` wired, `TERM=dumb` honoured    |
+| Architecture and code quality | 4         | Dead code removed                         |
+| Terminal resilience           | 4         | Undersized gate, still one column short   |
+| **Total**                     | **40/50** | _Good with polish needed._                |
 
 ## Still open — the honest list
 
@@ -159,19 +159,19 @@ explanation rather than by code.
 
 ## Score after the second pass
 
-| Category | Score | Change |
-|---|---|---|
-| Visual design | 4 | — |
-| Layout and composition | 4 | — |
-| Information architecture | 4 | — |
-| Interaction design | 5 | Half-page scroll, search, mouse |
-| State handling | 4 | — |
-| Navigation | 4 | — |
-| Component quality | 4 | — |
-| Accessibility | 5 | Status differs by shape, not only colour |
-| Architecture and code quality | 4 | — |
-| Terminal resilience | 5 | Live resize, measured from the driver |
-| **Total** | **45/50** | *Production premium — ship it.* |
+| Category                      | Score     | Change                                   |
+| ----------------------------- | --------- | ---------------------------------------- |
+| Visual design                 | 4         | —                                        |
+| Layout and composition        | 4         | —                                        |
+| Information architecture      | 4         | —                                        |
+| Interaction design            | 5         | Half-page scroll, search, mouse          |
+| State handling                | 4         | —                                        |
+| Navigation                    | 4         | —                                        |
+| Component quality             | 4         | —                                        |
+| Accessibility                 | 5         | Status differs by shape, not only colour |
+| Architecture and code quality | 4         | —                                        |
+| Terminal resilience           | 5         | Live resize, measured from the driver    |
+| **Total**                     | **45/50** | _Production premium — ship it._          |
 
 ## What the second pass fixed
 
@@ -190,7 +190,6 @@ explanation rather than by code.
   `cfg` without setting `cfgSet` silently asserted against the defaults. The failure
   looked like a production bug in the status line and was a fixture swallowing the
   case under test.
-
 
 None of these is a correctness problem; they are the difference between "good" and
 "delightful" on the guide's scale, and they are listed so nobody has to audit this
