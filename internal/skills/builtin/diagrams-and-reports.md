@@ -10,10 +10,10 @@ side-by-side carries it in one look.
 The same text is drawn by a browser (the gateway web interface) and by the terminal (the TUI).
 They are not equal, and a diagram sent to the wrong one costs the reader the whole answer.
 
-| Surface | Markdown | ` ```mermaid ` | Inline HTML/SVG |
-| --- | --- | --- | --- |
-| **Web interface** | rendered (CommonMark + GFM) | drawn | kept, minus the dangerous parts |
-| **TUI** | NOT rendered — plain text, wrapped | **not** drawn | **not** kept — shown as literal tags |
+| Surface           | Markdown                           | ` ```mermaid ` | Inline HTML/SVG                      |
+| ----------------- | ---------------------------------- | -------------- | ------------------------------------ |
+| **Web interface** | rendered (CommonMark + GFM)        | drawn          | kept, minus the dangerous parts      |
+| **TUI**           | NOT rendered — plain text, wrapped | **not** drawn  | **not** kept — shown as literal tags |
 
 So in a terminal, a diagram block arrives as its own source code and an HTML report arrives as a
 wall of tags. Both are worse than the prose they replaced. **When the surface is a terminal, say
@@ -25,14 +25,14 @@ diagram for a surface that draws it, or put the diagram's meaning in a sentence 
 Every mermaid family is available (the full library is loaded, not a subset), and these are the
 ones that carry engineering work. Each is verified to draw, labels included:
 
-| Question | Type | Fence |
-| --- | --- | --- |
-| What is the shape of the change? | `flowchart` | ` ```mermaid ` |
-| What happened in time / in what order? | `sequenceDiagram` | |
-| What are the types and how do they relate? | `classDiagram` | |
-| What states can this thing be in? | `stateDiagram-v2` | |
-| What is planned, and when? | `gantt` | |
-| What did the branches do? | `gitGraph` | |
+| Question                                   | Type              | Fence          |
+| ------------------------------------------ | ----------------- | -------------- |
+| What is the shape of the change?           | `flowchart`       | ` ```mermaid ` |
+| What happened in time / in what order?     | `sequenceDiagram` |                |
+| What are the types and how do they relate? | `classDiagram`    |                |
+| What states can this thing be in?          | `stateDiagram-v2` |                |
+| What is planned, and when?                 | `gantt`           |                |
+| What did the branches do?                  | `gitGraph`        |                |
 
 Rules that keep a diagram readable instead of decorative:
 
@@ -81,17 +81,17 @@ settles arguments about coupling that three paragraphs only make longer.
 The web interface keeps inline HTML and inline SVG in an answer. **Measured** on this renderer,
 not assumed:
 
-| Written | Kept? |
-| --- | --- |
-| `<div style="display:flex;gap:12px">`, colours, borders, widths | **yes** — `style` is allowed and the computed style is real |
-| `<section>`, `<h4>`, `<details><summary>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>` | **yes** |
-| A `<style>` block | **yes**, and its rules apply |
-| `<svg>` with `<rect>`/`<text>`/`fill` | **yes** — painted, with real colours and sizes |
-| `<img src="…">` (also `![…](…)` in Markdown) | **yes**, any origin |
-| `[text](https://…)` and `[text](/path)` | **yes**, both relative and absolute |
-| `<video>`, `<audio>`, `<canvas>` | kept as elements (useful, easy to misuse) |
-| `<script>`, `<iframe>`, `onerror=`/`onclick=` and other handlers | **REMOVED** — do not plan around one |
-| `href="javascript:…"` | the attribute is stripped |
+| Written                                                                        | Kept?                                                       |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `<div style="display:flex;gap:12px">`, colours, borders, widths                | **yes** — `style` is allowed and the computed style is real |
+| `<section>`, `<h4>`, `<details><summary>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>` | **yes**                                                     |
+| A `<style>` block                                                              | **yes**, and its rules apply                                |
+| `<svg>` with `<rect>`/`<text>`/`fill`                                          | **yes** — painted, with real colours and sizes              |
+| `<img src="…">` (also `![…](…)` in Markdown)                                   | **yes**, any origin                                         |
+| `[text](https://…)` and `[text](/path)`                                        | **yes**, both relative and absolute                         |
+| `<video>`, `<audio>`, `<canvas>`                                               | kept as elements (useful, easy to misuse)                   |
+| `<script>`, `<iframe>`, `onerror=`/`onclick=` and other handlers               | **REMOVED** — do not plan around one                        |
+| `href="javascript:…"`                                                          | the attribute is stripped                                   |
 
 Two consequences:
 
@@ -111,8 +111,8 @@ Two consequences:
   so plain text is the choice that cannot lose.
 - **A mermaid syntax error is shown as its own reason plus the source**, not as a red icon, so a
   bad diagram is visibly bad rather than silently empty. Check the syntax: `gitGraph` is picky
-  (do not `branch` the branch you are already on — it answers *Trying to create an existing
-  branch*), and a `gantt` needs its `dateFormat` before the tasks.
+  (do not `branch` the branch you are already on — it answers _Trying to create an existing
+  branch_), and a `gantt` needs its `dateFormat` before the tasks.
 - **`-->` inside a diagram is not a problem, but it is the reason diagrams travelled as text.**
   That is history inside the renderer; write the arrow normally.
 - **A diagram is not a substitute for the sentence.** A reader on a terminal, or someone reading

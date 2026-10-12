@@ -7,10 +7,10 @@ because a plausible guess is worse than a fetched line.
 
 ## First: whether you can reach the network AT ALL, because it differs by mode
 
-| Mode | Can you fetch? | What happens |
-| --- | --- | --- |
-| **Task** (writes) | **Yes, with one confirmation** | `curl` is classified `external-effect`: the user is asked once per line. Approved, it runs normally. |
-| **Plan** (read-only) | **No** | `curl`, `wget`, `python3` and `nc` are refused BY NAME as writers. `w3m` and `lynx` are refused as unclassified. No amount of phrasing gets a fetch through. |
+| Mode                 | Can you fetch?                 | What happens                                                                                                                                                 |
+| -------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Task** (writes)    | **Yes, with one confirmation** | `curl` is classified `external-effect`: the user is asked once per line. Approved, it runs normally.                                                         |
+| **Plan** (read-only) | **No**                         | `curl`, `wget`, `python3` and `nc` are refused BY NAME as writers. `w3m` and `lynx` are refused as unclassified. No amount of phrasing gets a fetch through. |
 
 So in **plan mode there is no web access**, and the honest answer is to say so and reason from
 what you have. Do not present a remembered version number as a fetched one: in plan mode you
@@ -34,18 +34,18 @@ a pipeline.** The commands below are written that way on purpose.
 These are the endpoints that were measured working from this machine. Each returns JSON, so one
 field can be read without pulling a page in.
 
-| Question | Command |
-| --- | --- |
-| The official summary of a topic | `curl -s -f "https://en.wikipedia.org/api/rest_v1/page/summary/<Title>"` |
-| What pages exist about it | `curl -s -f "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=<words>&format=json&srlimit=5"` |
-| A Python package's version and metadata | `curl -s -f "https://pypi.org/pypi/<package>/json"` |
-| An npm package's latest version | `curl -s -f "https://registry.npmjs.org/<package>/latest"` |
-| A repository's description, stars, last push | `curl -s -f "https://api.github.com/repos/<owner>/<repo>"` |
-| Repositories matching a query | `curl -s -f "https://api.github.com/search/repositories?q=<words>&per_page=5"` |
-| What people have written about a topic | `curl -s -f "https://hn.algolia.com/api/v1/search?query=<words>&hitsPerPage=5"` |
-| Questions already answered | `curl -s -f "https://api.stackexchange.com/2.3/search?order=desc&sort=relevance&intitle=<words>&site=stackoverflow"` |
-| An academic paper | `curl -s -f "https://export.arxiv.org/api/query?search_query=all:<words>&max_results=5"` |
-| A page as readable text | `curl -s -f "https://r.jina.ai/https://<the-page>"` |
+| Question                                     | Command                                                                                                              |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| The official summary of a topic              | `curl -s -f "https://en.wikipedia.org/api/rest_v1/page/summary/<Title>"`                                             |
+| What pages exist about it                    | `curl -s -f "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=<words>&format=json&srlimit=5"`    |
+| A Python package's version and metadata      | `curl -s -f "https://pypi.org/pypi/<package>/json"`                                                                  |
+| An npm package's latest version              | `curl -s -f "https://registry.npmjs.org/<package>/latest"`                                                           |
+| A repository's description, stars, last push | `curl -s -f "https://api.github.com/repos/<owner>/<repo>"`                                                           |
+| Repositories matching a query                | `curl -s -f "https://api.github.com/search/repositories?q=<words>&per_page=5"`                                       |
+| What people have written about a topic       | `curl -s -f "https://hn.algolia.com/api/v1/search?query=<words>&hitsPerPage=5"`                                      |
+| Questions already answered                   | `curl -s -f "https://api.stackexchange.com/2.3/search?order=desc&sort=relevance&intitle=<words>&site=stackoverflow"` |
+| An academic paper                            | `curl -s -f "https://export.arxiv.org/api/query?search_query=all:<words>&max_results=5"`                             |
+| A page as readable text                      | `curl -s -f "https://r.jina.ai/https://<the-page>"`                                                                  |
 
 **There is no general web search that works reliably from here.** DuckDuckGo's HTML endpoint
 answers `202` with a challenge page instead of results — measured six times in a row, zero results
@@ -71,8 +71,8 @@ instead: two `-o` targets, and no shell metacharacter either.
 
 Task mode has a shell, so `curl ... | grep -o ...` works. **In plan mode it does not exist**, and a
 single program that can read a field is the shape that survives both. When a pipeline really is the
-right tool, remember what the classifier does with it: `curl | grep` and `curl | cut` stay *ask*
-even under strict, while `curl | python3` and `curl | w3m` become a hard *deny* under
+right tool, remember what the classifier does with it: `curl | grep` and `curl | cut` stay _ask_
+even under strict, while `curl | python3` and `curl | w3m` become a hard _deny_ under
 `agent.policy.strict`. Readers pipe safely; interpreters do not.
 
 Practical consequences:
@@ -87,10 +87,10 @@ Practical consequences:
   flat field. It is not enough for nested data — and note that `jq` is on the reader list but is
   **not installed** on every machine, so reach for `grep` first and check `jq` only if the shape
   demands it.
-- **`w3m -dump` turns a page into text** and it is installed here, but it is *unclassified*, so it
+- **`w3m -dump` turns a page into text** and it is installed here, but it is _unclassified_, so it
   costs a confirmation in task mode and is refused in plan mode. `r.jina.ai` above does the same job
   through a plain `curl`, which is the cheaper route when the page must be read.
-- **`sed`, `awk` and `python3` are writers by definition**, refused in plan mode and *deny* under
+- **`sed`, `awk` and `python3` are writers by definition**, refused in plan mode and _deny_ under
   strict. Never reach for them to slice JSON.
 
 ## Keep the output SMALL, on the server's side

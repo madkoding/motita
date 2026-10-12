@@ -4,6 +4,8 @@
 // variables, translated strings): both are evaluated before the call, so it is only used where
 // evaluating the branch that is not picked has no effect and cannot fail.
 export function choose<A, B>(cond: unknown, whenTrue: A, whenFalse: B): A | B {
-  if (cond) { return whenTrue }
-  return whenFalse
+  if (cond) {
+    return whenTrue;
+  }
+  return whenFalse;
 }

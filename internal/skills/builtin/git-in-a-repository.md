@@ -9,11 +9,11 @@ was never recorded anywhere.
 `git` is classified per VERB, not as one program. That is the difference between "inspecting" and
 "changing", and it decides whether a line runs, is asked about, or is refused.
 
-| Group | Verbs | In plan mode (read-only) | In task mode |
-| --- | --- | --- | --- |
-| Inspect | `status`, `log`, `diff`, `show`, `branch`, `remote`, `tag`, `describe`, `rev-parse`, `blame`, `shortlog`, `ls-files`, `cat-file`, `config` (read), `grep`, `whatchanged`, `reflog`, `show-ref`, `for-each-ref`, `count-objects` | **allowed** | runs silently |
-| Local change | `add`, `commit`, `checkout`, `switch`, `restore`, `stash`, `merge`, `rebase`, `init`, `clone`, `worktree`, `rm`, `mv` | **refused** | runs silently |
-| Reaches out / rewrites | `push`, `pull`, `fetch`, `reset`, `clean`, `filter-branch`, `gc`, `submodule`, `cherry-pick` | **refused** | **the user is asked** |
+| Group                  | Verbs                                                                                                                                                                                                                           | In plan mode (read-only) | In task mode          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | --------------------- |
+| Inspect                | `status`, `log`, `diff`, `show`, `branch`, `remote`, `tag`, `describe`, `rev-parse`, `blame`, `shortlog`, `ls-files`, `cat-file`, `config` (read), `grep`, `whatchanged`, `reflog`, `show-ref`, `for-each-ref`, `count-objects` | **allowed**              | runs silently         |
+| Local change           | `add`, `commit`, `checkout`, `switch`, `restore`, `stash`, `merge`, `rebase`, `init`, `clone`, `worktree`, `rm`, `mv`                                                                                                           | **refused**              | runs silently         |
+| Reaches out / rewrites | `push`, `pull`, `fetch`, `reset`, `clean`, `filter-branch`, `gc`, `submodule`, `cherry-pick`                                                                                                                                    | **refused**              | **the user is asked** |
 
 `git push`, `git pull` and `git clone` authenticate through the login the user made in motita's
 settings, in a session's worktree as much as in the main checkout (and the user's own git
@@ -111,14 +111,14 @@ working in the same tree, and leave theirs in the working tree.
 
 ## Undoing, in order of least damage
 
-| Want | Command | Note |
-| --- | --- | --- |
-| Unstage a file | `git restore --staged <path>` | keeps your edits |
-| Discard unstaged edits | `git restore <path>` | **destroys them**; confirm the path |
-| Discard staged and unstaged | `git restore --source=HEAD --staged --worktree <path>` | the full reset of one file |
-| Move the last commit but keep the files | `git reset --soft HEAD~1` | commit is gone, work stays staged |
-| Undo a commit that is already pushed | `git revert <sha>` | a NEW commit; safe on a shared branch |
-| Change the last message | `git commit --amend` | never on a pushed commit without coordination |
+| Want                                    | Command                                                | Note                                          |
+| --------------------------------------- | ------------------------------------------------------ | --------------------------------------------- |
+| Unstage a file                          | `git restore --staged <path>`                          | keeps your edits                              |
+| Discard unstaged edits                  | `git restore <path>`                                   | **destroys them**; confirm the path           |
+| Discard staged and unstaged             | `git restore --source=HEAD --staged --worktree <path>` | the full reset of one file                    |
+| Move the last commit but keep the files | `git reset --soft HEAD~1`                              | commit is gone, work stays staged             |
+| Undo a commit that is already pushed    | `git revert <sha>`                                     | a NEW commit; safe on a shared branch         |
+| Change the last message                 | `git commit --amend`                                   | never on a pushed commit without coordination |
 
 `git reset --hard`, `git clean -fdx` and `git checkout -- .` are the ones that lose work, and all
 three ask the user first. Read what they would remove (`git clean -ndx`, `git diff`) before running
@@ -164,7 +164,7 @@ gitGraph
 ```
 
 `gitGraph` is picky about one thing: do not `branch` the branch you are already on. It fails with
-*Trying to create an existing branch* and the diagram draws nothing, which reads as "the feature
+_Trying to create an existing branch_ and the diagram draws nothing, which reads as "the feature
 is broken" rather than "the syntax is wrong". `git log --oneline --graph --all` is the text
 version, and it is what a terminal surface gets — see the `diagrams-and-reports` procedure for
 which surface draws what.
@@ -172,13 +172,12 @@ which surface draws what.
 **The files that moved**, as a table, from `git show --stat` (or `git diff --stat` for work not
 yet committed) — never from memory, and never with a count you did not just read:
 
-| file | + | − |
-| --- | ---: | ---: |
-| `internal/gitx/gitx.go` | 42 | 7 |
-| `internal/gitx/gitx_test.go` | 61 | 0 |
+| file                         |   + |   − |
+| ---------------------------- | --: | --: |
+| `internal/gitx/gitx.go`      |  42 |   7 |
+| `internal/gitx/gitx_test.go` |  61 |   0 |
 
 For a squash merge or a branch that is already pushed, `git log --oneline main..<branch>` gives
 the commits that are actually in it, and `git diff --stat <base>...<branch>` the total. `...`
 (three dots) is the one you want against a base that has moved on: two dots reports every commit
 the base gained since the fork as if the branch were removing them.
-
