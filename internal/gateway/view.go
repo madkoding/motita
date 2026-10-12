@@ -39,6 +39,12 @@ type configView struct {
 	// a self-hosted Ollama (no key) from Ollama Cloud (a key): without it the terminal interface
 	// marked every local Ollama as "no key", because the provider alone cannot say which one it is.
 	BaseURL string `json:"base_url,omitempty"`
+	// Warnings is set only on the answer to a model change, and names what the change means for
+	// THIS session: "history" when the conversation so far was written with another model, and
+	// "running" when a turn in flight finishes with the old one. They are codes and not sentences
+	// so each front end says them in its own language. PreviousModel is the model replaced.
+	Warnings      []string `json:"warnings,omitempty"`
+	PreviousModel string   `json:"previous_model,omitempty"`
 }
 
 // viewOf reduces a configuration to what may leave the process.

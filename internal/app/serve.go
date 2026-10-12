@@ -209,13 +209,15 @@ func (op Options) startGateway(
 		Service:     runner,
 		NewService:  newService,
 		MaxSessions: cfg.Gateway.MaxSessions,
-		Listen:      listen,
-		Token:       token,
-		Allow:       allow,
-		Hosts:       cfg.Gateway.Hosts,
-		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
-		Version:     op.Version,
-		ExePath:     op.ExePath,
+		// Opt-in: a session with no project gets a plain directory unless this is set.
+		FreeSessionGit: cfg.Gateway.FreeSessionGit,
+		Listen:         listen,
+		Token:          token,
+		Allow:          allow,
+		Hosts:          cfg.Gateway.Hosts,
+		MaxBodyKB:      cfg.Gateway.MaxBodyKB,
+		Version:        op.Version,
+		ExePath:        op.ExePath,
 		// The git logins: the connection the user makes in the settings, which the
 		// credential helper then serves to every git a session runs.
 		GitAuthDir: config.AuthDir(),

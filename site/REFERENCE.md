@@ -644,6 +644,7 @@ interface is a client of it.
 | `hosts` | *empty* | Extra host **names** the gateway answers to, for a reverse proxy or a DNS name in front of it. An IP address, `localhost`, this machine's host name (and its `.local` name) and the host in `listen` are always accepted; a request whose `Host` header names anything else is refused with `421`, which is what stops a DNS-rebinding page from reaching the gateway under its own name. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
+| `free_session_git` | `false` | Make the own directory of a session that belongs to no project a git repository when it is created. Off by default: such a session needs no git. A client can ask per session with `"git": true` or `false` in `POST /v1/sessions`. Also read from `MOTITA_GATEWAY_FREE_SESSION_GIT`. |
 | `artifact_days` | `30` | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`. |
 
 #### Running the gateway as a service

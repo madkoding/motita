@@ -357,7 +357,19 @@ above.
 
 Inside the interface, `/sessions` lists the conversations the gateway holds — marking the
 one you are on and naming any with a run in flight — and `/attach <id>` moves to another
-one. The token is **read** from `gateway.token`, never minted, and a `-session` the
+one. `/new` opens a new session of its own and `/back` returns to the one you left last.
+Moving between sessions works while the agent is working: the run keeps going in its own
+session, nothing of it shows up in the one you moved to, and the status line counts the
+other sessions that are still working. `/sessions` also names each session's model and how
+many of the gateway's sessions are in use.
+
+The **model belongs to the session**: `/models <id>` (or the model picker in the web
+interface) changes it for this conversation only, and every other session keeps its own,
+across a restart too. Switching it in a conversation that already has turns is allowed and
+comes with a warning: the new model takes over a transcript another one wrote, and a turn
+still running finishes with the old one. `/new` is the clean way to try another model.
+
+The token is **read** from `gateway.token`, never minted, and a `-session` the
 gateway does not hold is refused at start with the list of the ones it does.
 
 `/artifacts` lists the files the agent saved in the conversation (a report, a page, a
@@ -747,12 +759,12 @@ ports — they are **two views of one conversation**.
 | `/good` `/bad` | tell the agent how a turn went |
 | `/value` | see what it has learned from those verdicts |
 | `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
-| `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
+| `/sessions` `/attach <id>` `/back` | the conversations the gateway holds, move to another one, or back to the one you left last (a run in flight keeps going) |
 | `/config` | run the setup again; the new configuration applies to the session you are in |
 | `/git` `/git connect [host] [token]` `/git disconnect <host>` `/git repos [query]` | connect GitHub, GitLab or Bitbucket (or a self-hosted `gitlab:git.example.com`) so motita can clone, push and open pull requests: a browser login with a code when the host offers it, otherwise a token typed in without echo; `/git` alone shows who you are connected as, `/git repos` lists the repositories you can reach. motita says so on start when no host is connected |
 | `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
 | `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
-| `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |
+| `/session` `/find` `/new` `/help` `/quit` | context, search, a new session (behind a gateway the old one keeps its history and its run), help, leave |
 
 The steps a turn runs show as one line that counts them ("7 actions");
 `gateway.show_actions: true` lists every one instead.

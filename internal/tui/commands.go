@@ -57,6 +57,7 @@ var commands = []Command{
 	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and what was carried over", Group: "session"},
 	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
 	{Name: "/attach", Help: "switch to another conversation", Arg: "session id", Group: "session"},
+	{Name: "/back", Help: "go back to the conversation you left last", Group: "session"},
 	{Name: "/artifacts", Help: "files the agent saved: list, show one, or save it here", Arg: "[name | save name]",
 		Group: "session"},
 	{Name: "/agents", Help: "show or hide the run's agents: purpose, time, tokens", Group: "session"},
@@ -129,8 +130,12 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		// With an id it picks the model for this session, the way /reasoning picks the level:
 		// in memory, from the next turn on.
 		if model := strings.TrimSpace(arg); model != "" {
+			previous := t.Runner.Config().LLM.Model
 			t.Runner.SetLLM("", model)
 			t.addMessage(AuthorSystem, t.trf("model set to %s for this session", model))
+			if warning := t.modelSwitchWarning(previous, model); warning != "" {
+				t.addMessage(AuthorSystem, warning)
+			}
 			t.drawFrame()
 			return false
 		}
@@ -207,6 +212,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		}
 		return false
 	},
+	"/back": func(t *TUI, ctx context.Context, _ string) bool {
+		t.back(ctx)
+		return false
+	},
 	"/good": func(t *TUI, _ context.Context, note string) bool {
 		t.recordVerdict(true, note)
 		return false
@@ -224,7 +233,14 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	// A new conversation is a clean screen: the old one is gone from the model's memory, and
 	// leaving it on screen would suggest the next answer can still see it. The welcome screen says
 	// what happened, the way it greets a first run.
-	"/new": func(t *TUI, _ context.Context, _ string) bool {
+	//
+	// Behind a gateway it is a NEW session, a conversation of its own with its own agent: the one
+	// left behind keeps its history, and a run in flight there keeps going.
+	"/new": func(t *TUI, ctx context.Context, _ string) bool {
+		if creator, ok := t.Runner.(SessionCreator); ok && t.gatewaySessions() {
+			t.newSession(ctx, creator)
+			return false
+		}
 		t.Runner.ResetConversation()
 		t.messages = nil
 		t.scroll = 0

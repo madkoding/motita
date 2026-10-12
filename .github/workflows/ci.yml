@@ -27,8 +27,16 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # Node 22 runs the web tests' TypeScript imports as they are (type stripping).
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+
       - name: Build web UI (Vite + Preact + Tailwind)
         run: cd web && npm ci && npm run build
+
+      - name: Web UI tests
+        run: cd web && npm test
 
       - name: gofmt
         run: |

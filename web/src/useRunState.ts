@@ -1,6 +1,7 @@
 // The state of the conversation on screen: its messages, the steps of every turn, what the agent
 // is doing right now, the commands it ran, the question it is waiting on and its agents.
 import { useCallback, useRef, useState } from 'preact/hooks'
+import type { RunLink } from './runLink'
 import type { AgentInfo, CheckpointInfo, Message, PendingApproval, ShellEntry, StepView } from './appTypes'
 
 // stepSeq numbers the steps as they arrive, so a trail can tell them apart when it draws them.
@@ -59,6 +60,8 @@ export function useRunState() {
   // that carries one): the gateway starts the next run on its own when this one ends, and this
   // tab never opened that stream, so finish() asks the gateway for it and follows it.
   const handoffRef = useRef(false)
+  // linkRef is the stream this tab is reading, and the session it was opened for. See runLink.ts.
+  const linkRef = useRef<RunLink | null>(null)
 
   const nextId = useCallback(() => {
     msgIdRef.current += 1
@@ -85,7 +88,7 @@ export function useRunState() {
     stepsByTurn, setStepsByTurn, cpInfo, setCpInfo, liveTurnRef, liveThought, setLiveThought,
     shellLog, setShellLog, termSeenId, setTermSeenId, agents, setAgents, agentOpenId, setAgentOpenId,
     approval, setApproval, approvalSel, setApprovalSel, approvalRef, sessionId, setSessionId,
-    lastIdRef, runningRef, reconnectTimer, sessionRef, runSessionRef, handoffRef, nextId, clearConversation,
+    lastIdRef, runningRef, reconnectTimer, sessionRef, runSessionRef, handoffRef, linkRef, nextId, clearConversation,
   }
 }
 

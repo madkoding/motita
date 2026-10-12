@@ -80,6 +80,10 @@ type Gateway struct {
 	// close what it opened cannot turn the agent into a memory leak, not so that an operator
 	// has to pick a number.
 	MaxSessions int `yaml:"max_sessions"`
+	// FreeSessionGit makes the directory of a session that belongs to no project a git
+	// repository from the start. Off by default: such a session needs no git, and one that wants
+	// it can still run `git init` itself. A client can ask for either per session.
+	FreeSessionGit bool `yaml:"free_session_git"`
 	// ArtifactDays is how many days a saved artifact is kept before the gateway deletes it.
 	// Zero keeps them for ever. The default is 30: artifacts are generated work product, and
 	// a store nobody ever prunes is one that fills a disk slowly enough to go unnoticed.
