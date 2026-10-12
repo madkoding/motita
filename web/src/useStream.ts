@@ -5,8 +5,9 @@ import { t } from './i18n'
 import { choose } from './choose'
 import { parseFrame } from './appParse'
 import { handleStreamEvent, type StreamPayload } from './streamEvents'
+import { cutLink, isLive, openLink, type RunLink } from './runLink'
 import type { RunState } from './useRunState'
-import type { SessionList } from './useSessionList'
+import { withSession, type SessionList } from './useSessionList'
 import type { Conversation } from './useConversation'
 import type { Api } from './prApi'
 import type { SetStatus, SetToast } from './appTypes'
@@ -35,9 +36,12 @@ async function refusalOf(res: Response): Promise<{ msg: string; merged: boolean 
 }
 
 export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
-  const { sessionRef, runSessionRef, runningRef, lastIdRef, reconnectTimer, handoffRef, liveTurnRef } = rs
-  const { setRunningState, fetchSessions } = lists
-  const { loadCheckpoints, loadAgents, switchSessionRef, transcript, followRef } = conv
+  const { sessionRef, runSessionRef, runningRef, lastIdRef, reconnectTimer, handoffRef, liveTurnRef, linkRef } = rs
+  const { setRunningState, fetchSessions, setSessions } = lists
+  const { loadCheckpoints, loadAgents, switchSessionRef, transcript, followRef, detachRef } = conv
+
+  // live says whether a stream may still draw: see runLink.ts.
+  const live = (link: RunLink) => isLive(link, linkRef, sessionRef.current)
 
   // finish marks the run as done.
   const finish = useCallback(() => {
@@ -76,7 +80,10 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
   }, [fetchSessions, loadCheckpoints])
 
   // dispatchEvent handles one parsed SSE event.
-  const dispatchEvent = useCallback((name: string, data: string | null, id: string | null) => {
+  // An event of a stream that is no longer the one on screen is dropped: it belongs to another
+  // conversation, and drawing it here is how two sessions ended up mixed in one view.
+  const dispatchEvent = useCallback((link: RunLink, name: string, data: string | null, id: string | null) => {
+    if (!live(link)) { return }
     if (id) { lastIdRef.current = Number.parseInt(id, 10) || lastIdRef.current }
     if (data === null) { return }
     let payload: StreamPayload
@@ -90,17 +97,21 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
   }, [finish])
 
   // readStream consumes an SSE response body and dispatches each frame.
-  const readStream = useCallback(async (res: Response) => {
+  const readStream = useCallback(async (res: Response, link: RunLink) => {
     const reader = res.body!.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
     const dispatchFrame = (raw: string) => {
       const frame = parseFrame(raw)
-      if (frame.data !== null) { dispatchEvent(frame.event || 'message', frame.data, frame.id) }
+      if (frame.data !== null) { dispatchEvent(link, frame.event || 'message', frame.data, frame.id) }
     }
     for (;;) {
       const { done, value } = await reader.read()
       if (done) { break }
+      if (!live(link)) {
+        void reader.cancel().catch(() => {})
+        return
+      }
       buffer += decoder.decode(value, { stream: true })
       let idx: number
       while ((idx = buffer.indexOf(SSE_FRAME_END)) !== -1) {
@@ -113,20 +124,27 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
   }, [dispatchEvent])
 
   // followReconnect reattaches to a dropped stream.
+  //
+  // It follows the session ON SCREEN, so a timer left over from a session the reader has left must
+  // not fire into the one they are on now: detach() clears it, and a call with no run in flight is
+  // a no-op.
   const followReconnect = useCallback(async () => {
+    if (!runningRef.current) { return }
+    const link = openLink(linkRef, sessionRef.current)
     const retry = () => {
-      if (runningRef.current) {
+      if (live(link) && runningRef.current) {
         setState('reconnecting', true)
         reconnectTimer.current = setTimeout(followReconnect, RECONNECT_MS)
       }
     }
     let res: Response
     try {
-      res = await api(SESSIONS_PATH + sessionRef.current + '/events?from=' + lastIdRef.current)
+      res = await api(SESSIONS_PATH + link.sid + '/events?from=' + lastIdRef.current, { signal: link.ctrl.signal })
     } catch {
       retry()
       return
     }
+    if (!live(link)) { return }
     if (res.status === HTTP_NOT_FOUND) {
       if (runningRef.current) {
         finish()
@@ -139,7 +157,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
       return
     }
     try {
-      await readStream(res)
+      await readStream(res, link)
     } catch {
       // Stream broke mid-read.
     }
@@ -147,6 +165,34 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
   }, [finish, transcript, readStream])
 
   useEffect(() => { followRef.current = followReconnect }, [followReconnect])
+
+  // detach lets go of the run this tab is following, because the reader is leaving its session.
+  //
+  // The run is NOT stopped: it belongs to the gateway, and it keeps working while the reader looks
+  // at another conversation. What is dropped is this tab's view of it - the stream, the reconnect
+  // timer and the `running` flag - so the conversation the reader opens next starts idle and its
+  // composer can send. The row of the session that is still working keeps its spinner until the
+  // gateway's own list says the run is over, and opening that session again follows it from the
+  // start (showTranscript asks the gateway whether a run is in flight).
+  const detach = useCallback(() => {
+    const linked = cutLink(linkRef)
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current)
+      reconnectTimer.current = null
+    }
+    if (!runningRef.current) { return }
+    const runSid = runSessionRef.current || linked
+    runningRef.current = false
+    rs.setRunning(false)
+    runSessionRef.current = ''
+    handoffRef.current = false
+    liveTurnRef.current = null
+    rs.setActivity(null)
+    rs.setLiveThought(null)
+    if (runSid) { setSessions(prev => withSession(prev, runSid, { running: true })) }
+  }, [])
+
+  useEffect(() => { detachRef.current = detach }, [detach])
 
   // refused tells the user why the gateway would not take the turn.
   const refused = async (res: Response) => {
@@ -168,6 +214,8 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
 
   // submit sends a task and reads the SSE response.
   const submit = useCallback(async (text: string, endpoint?: string) => {
+    const sid = sessionRef.current
+    const link = openLink(linkRef, sid)
     rs.setMessages(prev => [...prev, { id: rs.nextId(), role: 'user', text }])
     rs.setLiveThought(null)
     // A new run numbers its events from 1 again: a cursor left over from the last one would
@@ -175,30 +223,34 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     lastIdRef.current = 0
     // Pinned BEFORE the run starts, so the spinner and its clearing are both
     // addressed to the conversation this turn belongs to.
-    runSessionRef.current = sessionRef.current
+    runSessionRef.current = sid
     setRunningState(true)
     setState('working')
     let res: Response
     try {
-      res = await api(endpoint || SESSIONS_PATH + sessionRef.current + '/task', {
+      res = await api(endpoint || SESSIONS_PATH + sid + '/task', {
         method: 'POST',
         headers: JSON_HEADERS,
-        body: JSON.stringify({ task: text })
+        body: JSON.stringify({ task: text }),
+        signal: link.ctrl.signal,
       })
     } catch {
+      // Cut because the reader left the session: the run goes on in the gateway, nothing failed.
+      if (!live(link)) { return }
       setState(TURN_REFUSED, true)
       finish()
       return
     }
+    if (!live(link)) { return }
     if (!res.ok) {
       await refused(res)
       return
     }
     try {
-      await readStream(res)
+      await readStream(res, link)
     } catch {
       // Stream broke mid-flight — try to reconnect.
-      if (runningRef.current) {
+      if (live(link) && runningRef.current) {
         setState('reconnecting', true)
         reconnectTimer.current = setTimeout(followReconnect, RECONNECT_MS)
       }
@@ -207,7 +259,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     // Stream ended normally. If finish() was already called by the done/error
     // event, runningRef is false and this is a no-op. If the server closed
     // the connection without a terminal event, we must still finish.
-    if (runningRef.current) {
+    if (live(link) && runningRef.current) {
       finish()
     }
   }, [finish, readStream, followReconnect])
@@ -240,7 +292,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     }).catch(() => {})
   }
 
-  return { finish, readStream, followReconnect, submit, sendWhileRunning, stopRun }
+  return { finish, readStream, followReconnect, detach, submit, sendWhileRunning, stopRun }
 }
 
 export type Stream = ReturnType<typeof useStream>

@@ -69,6 +69,8 @@ interface Deps {
 export function useConversation({ api, rs, lists, setState, setConfig, requestModal }: Deps) {
   const { sessionRef, liveTurnRef, nextId, setStepsByTurn, setCpInfo, setShellLog, setTermSeenId, setMessages, setAgents } = rs
   const followRef = useRef<() => void | Promise<void>>(() => {})
+  // detachRef lets go of the run this tab is following; useStream fills it in. See detach there.
+  const detachRef = useRef<() => void>(() => {})
   const switchSessionRef = useRef<((id: string, urlMode?: UrlMode, soft?: boolean) => Promise<void>) | null>(null)
 
   // loadCheckpoints reads the steps the gateway kept for every input of a conversation.
@@ -174,6 +176,11 @@ export function useConversation({ api, rs, lists, setState, setConfig, requestMo
   // `soft` re-reads the conversation already on screen (the handoff to a run this tab did not
   // start): nothing is blanked and no loading modal opens, the new messages just replace the old.
   const switchSession = useCallback(async (id: string, urlMode: UrlMode = 'push', soft = false) => {
+    // The run this tab was following belongs to the conversation being left. It keeps running in
+    // the gateway, but its stream must not reach the next conversation, and its `running` flag
+    // must not lock that conversation's composer. A soft re-read stays in the same conversation
+    // and keeps it.
+    if (!soft) { detachRef.current() }
     adoptSession(id, urlMode)
     if (!soft) { rs.clearConversation() }
     void loadAgents(id)
@@ -183,13 +190,6 @@ export function useConversation({ api, rs, lists, setState, setConfig, requestMo
     // spinner covers the fetch AND the deferred rendering that follows, and is cleared below
     // once the messages are on screen and their formulas and diagrams are built.
     if (!soft) { requestModal(true) }
-    // This tab's run belongs to ONE conversation, and it keeps running while
-    // the user looks elsewhere. Carry its flag into the row it belongs to, so
-    // coming back to that conversation shows the spinner its own turn earned -
-    // the gateway does not know about this tab's view of the list, and the
-    // next fetchSessions would otherwise paint the row idle for a tick.
-    const liveRun = rs.runSessionRef.current
-    if (liveRun) { lists.setRunningState(true, liveRun) }
     // Load transcript for the new session.
     try {
       if (!await showTranscript(id)) { return }
@@ -226,7 +226,7 @@ export function useConversation({ api, rs, lists, setState, setConfig, requestMo
     void loadCheckpoints(sessionRef.current, true)
   }, [])
 
-  return { switchSession, switchSessionRef, followRef, loadCheckpoints, loadAgents, transcript }
+  return { switchSession, switchSessionRef, followRef, detachRef, loadCheckpoints, loadAgents, transcript }
 }
 
 export type Conversation = ReturnType<typeof useConversation>
