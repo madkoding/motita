@@ -767,3 +767,25 @@ func TestThePodmanNoteFollowsTheUsersAnswer(t *testing.T) {
 		t.Fatalf("clearing the answer must restore the prompt, got %q", s.System)
 	}
 }
+
+// TestTheProjectNoteFollowsTheProject: the note about a project's other repositories is in the
+// prompt, after the podman one, and is swapped out when the project changes.
+func TestTheProjectNoteFollowsTheProject(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	r.SetProjectNote("\n\nother repos") // before any session: remembered
+	s := r.conversation(r.Cfg, nil)
+	if !strings.HasSuffix(s.System, "other repos") {
+		t.Fatalf("the note must be in the prompt of a new session: %q", s.System)
+	}
+	base := strings.TrimSuffix(s.System, r.runtimeNote)
+	r.SetContainerRuntime("podman")
+	if !strings.HasSuffix(s.System, "other repos") || !strings.Contains(s.System, "run with podman") {
+		t.Fatalf("both notes must be there: %q", s.System)
+	}
+	r.SetContainerRuntime("")
+	r.SetProjectNote("")
+	if s.System != base {
+		t.Fatalf("clearing the note must restore the prompt, got %q", s.System)
+	}
+}

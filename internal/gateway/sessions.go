@@ -627,6 +627,11 @@ func applyRuntimeTo(svc Service, p *Project) {
 	if setter, ok := svc.(interface{ SetContainerRuntime(string) }); ok {
 		setter.SetContainerRuntime(runtimeOf(p))
 	}
+	// The project's other repositories, so the agent knows where they are and that each one is
+	// committed on its own.
+	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
+		setter.SetProjectNote(projectReposNote(p))
+	}
 }
 
 // setProjectID records which project this conversation belongs to, the project's
@@ -923,6 +928,7 @@ func (s *Server) placeInProject(conv *conversation, projectID string, project *P
 	} else {
 		dir = wt
 	}
+	s.attachProjectRepos(context.Background(), project, dir, conv.id)
 	conv.setProjectID(projectID, dir, project.Dir)
 	conv.svc.SetWorkspace(dir)
 	// The procedures learned here belong to THIS project. A session inside a
@@ -1298,6 +1304,9 @@ type worktreeRelease struct {
 	Workspace string
 	// ProjectDir is the repository the checkout belongs to, needed by the removal.
 	ProjectDir string
+	// Repos are the worktrees of the project's other repositories inside the checkout: each
+	// repository's clone and the worktree's path.
+	Repos [][2]string
 	// Changes names what the checkout holds and has not committed.
 	Changes []gitx.Change
 	// Inspected is false when the count could not be read, which is NOT the same as a
@@ -1332,10 +1341,24 @@ func (s *Server) inspectWorktree(c *conversation) worktreeRelease {
 	}
 	release.Workspace = workspace
 	release.ProjectDir = projectDir
+	release.Repos = sessionRepoWorktrees(context.Background(), s.projectOf(c.projectID), workspace)
 	changes, err := worktreeInspectList(context.Background(), workspace)
 	if err != nil {
 		release.InspectErr = err
 		return release
+	}
+	// The worktrees of the project's other repositories are part of the session's checkout, and
+	// their work is lost with it just the same: their changes are listed, under their folder.
+	for _, wt := range release.Repos {
+		more, err := worktreeInspectList(context.Background(), wt[1])
+		if err != nil {
+			release.InspectErr = err
+			return release
+		}
+		for _, ch := range more {
+			ch.Path = filepath.Join(gitx.ReposDir, filepath.Base(wt[1]), ch.Path)
+			changes = append(changes, ch)
+		}
 	}
 	release.Changes = changes
 	release.Inspected = true
@@ -1379,6 +1402,17 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 			"id", c.id, "worktree", workspace, "changes", len(release.Changes))
 	}
 
+	// The other repositories' worktrees go first, so the session's own is left with nothing
+	// nested in it. Best effort: removing the session's worktree removes their folders anyway,
+	// and the registration git keeps of one is pruned once it is gone.
+	for _, wt := range release.Repos {
+		_ = worktreeRemove(context.Background(), wt[0], wt[1], discard)
+	}
+	defer func() {
+		for _, wt := range release.Repos {
+			_ = gitx.PruneWorktrees(context.Background(), wt[0])
+		}
+	}()
 	// `force` is passed when the discard was confirmed: git refuses a dirty checkout, and
 	// the refusal would otherwise arrive after the user had already said yes.
 	err := worktreeRemove(context.Background(), release.ProjectDir, workspace, discard)
