@@ -12,7 +12,7 @@ declare const self: ServiceWorkerGlobalScope;
 // Bumping this name is what retires the previous generation of the cache: `activate` deletes every
 // cache that is not this one, so a worker that was broken (or served a shell from a stale build)
 // does not leave its entries behind for the next one to match.
-const SHELL_CACHE = "motita-shell-v20";
+const SHELL_CACHE = "motita-shell-v21";
 
 // Shell assets to pre-cache on install. The PWA plugin injects the actual
 // build manifest entries here via self.__WB_MANIFEST.
@@ -129,19 +129,85 @@ self.addEventListener("fetch", (event: FetchEvent) => {
   );
 });
 
-// A tap on a notification (a CI that ended) brings the app back: the open window when there is
-// one, a new one otherwise.
+// A push from the gateway (a CI that ended, sent while the page may be closed): the notification
+// it describes. The page tells the same news with its own toast, so a window on screen is left to
+// it; a browser only lets a push go unshown while one of its windows is in front. The test from
+// the settings is always shown: it is sent from that very window.
+self.addEventListener("push", (event: PushEvent) => {
+  let m: { title?: string; body?: string; tag?: string; url?: string } = {};
+  try {
+    m = event.data?.json() ?? {};
+  } catch {
+    m = { title: event.data?.text() };
+  }
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((list) => {
+        if (
+          m.tag !== "motita-test" &&
+          list.some((c) => c.visibilityState === "visible")
+        ) {
+          return undefined;
+        }
+        return self.registration.showNotification(m.title || "Motita", {
+          body: m.body,
+          tag: m.tag,
+          icon: "/icon-192.png",
+          badge: "/badge-96.png",
+          data: { url: m.url || "/" },
+        });
+      }),
+  );
+});
+
+// A tap on a notification (a CI that ended) brings the app back on the session it is about: the
+// open window is focused and told which one, or a new one opens there.
 self.addEventListener("notificationclick", (event: NotificationEvent) => {
   event.notification.close();
+  const url: string = event.notification.data?.url || "/";
   event.waitUntil(
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((list) => {
         const open = list[0];
         if (open) {
+          open.postMessage({ type: "motita-open", url });
           return open.focus().then(() => undefined);
         }
-        return self.clients.openWindow("/").then(() => undefined);
+        return self.clients.openWindow(url).then(() => undefined);
       }),
   );
 });
+
+// The browser renewed the subscription on its own (it does, now and then): the gateway is handed
+// the new one, so the notifications keep arriving. The page's cookie goes with the request.
+self.addEventListener("pushsubscriptionchange", ((
+  event: ExtendableEvent & {
+    oldSubscription?: PushSubscription | null;
+    newSubscription?: PushSubscription | null;
+  },
+) => {
+  const options = event.oldSubscription?.options;
+  event.waitUntil(
+    (event.newSubscription
+      ? Promise.resolve(event.newSubscription)
+      : options
+        ? self.registration.pushManager.subscribe(options)
+        : Promise.resolve(null)
+    ).then((sub) => {
+      if (!sub) {
+        return undefined;
+      }
+      return fetch("/v1/push/subscriptions", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...sub.toJSON(),
+          lang: self.navigator.language.startsWith("es") ? "es" : "en",
+        }),
+      }).then(() => undefined);
+    }),
+  );
+}) as EventListener);
