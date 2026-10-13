@@ -34,6 +34,7 @@ import {
   type ToastType,
 } from "./prApi";
 import { choose } from "./choose";
+import { modeOf } from "./appParse";
 import { errorMessage } from "./errors";
 import { clearCredential } from "./appAuth";
 import { AppCtx, useApp, useAppStore, type Store } from "./appStore";
@@ -847,12 +848,16 @@ function Turn({ g, isLast }: { g: Group; isLast: boolean }) {
   const head = choose(g.items[0].role === "user", g.items[0], null);
   const rest = choose(head, g.items.slice(1), g.items);
   const shown = stepsOf(stepsByTurn, g.turn);
+  // The mode auto mode picked, when this turn went through it: its first step says so.
+  const mode = shown.length > 0 ? modeOf(shown[0].text) : null;
   const liveHere = running && isLast;
   // The step in progress is the activity line below, so it is not drawn twice.
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
   return (
     <div class="turn">
-      {head && <TurnHead head={head} turn={g.turn} liveHere={liveHere} />}
+      {head && (
+        <TurnHead head={head} turn={g.turn} liveHere={liveHere} mode={mode} />
+      )}
       {trail.length > 0 && <Trail steps={trail} liveHere={liveHere} />}
       {rest.map((m) => (
         <MessageItem key={m.id} m={m} />

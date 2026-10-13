@@ -3374,3 +3374,31 @@ button.plain-btn:not(.auto-approve-pill):not(.term-tab) {
 fieldset.approval-panel {
   min-inline-size: 0;
 }
+
+/* The mode auto mode picked for a turn, with the button that sends the message again in the
+   other one. */
+.mode-chip {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid rgba(76, 194, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(10, 10, 16, 0.94);
+  font-size: 0.72em;
+  color: #a8d4ef;
+}
+.mode-chip-switch {
+  border: 0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: rgba(76, 194, 255, 0.15);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mode-chip-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
