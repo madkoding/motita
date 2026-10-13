@@ -44,8 +44,10 @@ import { useRunState } from './useRunState'
 import { useSessionList } from './useSessionList'
 import { useConversation } from './useConversation'
 import { useStream } from './useStream'
+import { useSessionActions } from './useSessionActions'
+import { lastSessionOf } from './useAuth'
 import { isLive, openLink, cutLink } from './runLink'
-export { isLive, openLink, cutLink }
+export { isLive, openLink, cutLink, lastSessionOf }
 export function mount(api, onStore) {
   const noop = () => {}
   function H() {
@@ -53,7 +55,8 @@ export function mount(api, onStore) {
     const lists = useSessionList(api, rs)
     const conv = useConversation({ api, rs, lists, setState: noop, setConfig: noop, requestModal: noop })
     const stream = useStream({ api, rs, lists, conv, setState: noop, setToast: noop })
-    onStore({ rs, lists, conv, stream })
+    const actions = useSessionActions({ api, rs, lists, conv, setState: noop, setToast: noop })
+    onStore({ rs, lists, conv, stream, actions })
     return null
   }
   const root = document.createElement('div')
@@ -142,9 +145,11 @@ const json = (body, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
-// fakeGateway holds two sessions, A and B. A run in A is held open by the test.
-function fakeGateway() {
+// fakeGateway holds two sessions, A and B. A run in A is held open by the test. `history` gives
+// a session's transcript and checkpoints; a DELETE forgets the session.
+function fakeGateway(history = {}) {
   const calls = [];
+  const alive = new Set(["A", "B"]);
   const streams = { task: {}, events: {} };
   const runningIn = new Set();
   const api = async (path, init = {}) => {
@@ -176,11 +181,15 @@ function fakeGateway() {
         ? json({ outcome: "" })
         : json({ error: "none" }, 404);
     }
-    if (path.endsWith("/messages")) {
-      return json({ messages: [] });
+    if ((m = path.match(/^\/v1\/sessions\/(\w+)$/)) && method === "DELETE") {
+      alive.delete(m[1]);
+      return new Response(null, { status: 204 });
     }
-    if (path.endsWith("/checkpoints")) {
-      return json({ checkpoints: [] });
+    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/messages$/))) {
+      return json({ messages: history[m[1]]?.messages ?? [] });
+    }
+    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/checkpoints$/))) {
+      return json({ checkpoints: history[m[1]]?.checkpoints ?? [] });
     }
     if (path.endsWith("/agents")) {
       return json({ agents: [] });
@@ -190,7 +199,7 @@ function fakeGateway() {
     }
     if (path === "/v1/sessions") {
       return json({
-        sessions: ["A", "B"].map((id) => ({
+        sessions: [...alive].map((id) => ({
           id,
           title: id,
           running: runningIn.has(id),
@@ -351,4 +360,105 @@ test("a reconnect timer left by a session the reader left never follows the new 
     "B was never followed",
   );
   unmount();
+});
+
+test("a session opened again shows each answer as it was shown live", async () => {
+  // The transcript keeps the agent's one-line account; the checkpoint keeps the answer the
+  // reader saw, with its report and the files it changed. Switching back used to draw the
+  // one-liner and drop the rest.
+  const gw = fakeGateway({
+    A: {
+      messages: [
+        { User: "explain it", Agent: "short account" },
+        { User: "and now?", Agent: "the task did not complete" },
+      ],
+      checkpoints: [
+        {
+          turn: 0,
+          task: "explain it",
+          files: false,
+          steps: [],
+          outcome: {
+            result: "the whole answer, as it was read",
+            report: { status: "done", risks: ["one risk"] },
+            files: [{ path: "a.go", status: "modified", added: 1, deleted: 0 }],
+          },
+        },
+        {
+          turn: 1,
+          task: "and now?",
+          files: false,
+          steps: [],
+          outcome: { error: "the provider refused" },
+        },
+        {
+          turn: 2,
+          task: "once more",
+          files: false,
+          steps: [],
+          outcome: { error: "cancelled before it began" },
+        },
+      ],
+    },
+  });
+  let store;
+  const unmount = H.mount(gw.api, (s) => {
+    store = s;
+  });
+  await tick();
+
+  await store.conv.switchSession("B", "none");
+  await store.conv.switchSession("A", "none");
+  await tick();
+  assert.deepEqual(texts(store.rs), [
+    "explain it",
+    "the whole answer, as it was read",
+    "and now?",
+    "the task did not complete",
+    "the provider refused",
+    "once more",
+    "cancelled before it began",
+  ]);
+  const answer = store.rs.messages[1];
+  assert.equal(answer.report?.status, "done", "the report comes back");
+  assert.equal(answer.changes?.files?.[0]?.path, "a.go", "the changed files come back");
+  assert.equal(store.rs.messages[4].kind, "error");
+  unmount();
+});
+
+test("deleting every session leaves the chat waiting and creates none", async () => {
+  const gw = fakeGateway();
+  let store;
+  const unmount = H.mount(gw.api, (s) => {
+    store = s;
+  });
+  await tick();
+
+  await store.lists.fetchSessions();
+  await store.conv.switchSession("A", "none");
+  await store.actions.deleteSession("A");
+  await tick();
+  assert.equal(store.rs.sessionRef.current, "B", "the one left is opened");
+  await store.actions.deleteSession("B");
+  await tick();
+  assert.equal(store.rs.noSession, true, "the chat waits for a new session");
+  assert.equal(store.rs.sessionRef.current, "");
+  assert.equal(store.lists.sessions.length, 0);
+  assert.ok(
+    !gw.calls.some((c) => c === "POST /v1/sessions"),
+    "no session is created behind the user's back",
+  );
+  unmount();
+});
+
+test("with no session at all, none is chosen to open", () => {
+  assert.equal(H.lastSessionOf([]), "");
+  assert.equal(
+    H.lastSessionOf([
+      { id: "old", last_used: "2026-01-01T00:00:00Z" },
+      { id: "new", last_used: "2026-02-01T00:00:00Z" },
+    ]),
+    "new",
+    "an address or memory naming a session that is gone opens the most recent one",
+  );
 });

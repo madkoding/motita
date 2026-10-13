@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { t, setLang, resolveLang, type LangSetting } from "./i18n";
 import { choose } from "./choose";
 import { authGate, exchange, submitToken } from "./appAuth";
-import { sessionFromUrl } from "./appFormat";
+import { mostRecent, sessionFromUrl } from "./appFormat";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
 import type { Conversation } from "./useConversation";
@@ -25,8 +25,9 @@ import {
 export type AuthState = "checking" | "needed" | "ok";
 
 // lastSessionOf is the conversation to open: the one the address names, else the one used last,
-// else the default one.
-function lastSessionOf(list: SessionInfo[]): string {
+// else the most recently used one the gateway has. With none, it is "": nothing is opened and the
+// chat waits for a new session.
+export function lastSessionOf(list: SessionInfo[]): string {
   let lastId = "";
   try {
     lastId = localStorage.getItem(STORAGE_KEY) || "";
@@ -37,8 +38,10 @@ function lastSessionOf(list: SessionInfo[]): string {
   if (fromUrl && list.some((s) => s.id === fromUrl)) {
     lastId = fromUrl;
   }
-  const exists = list.some((s) => s.id === lastId);
-  return choose(exists, lastId, "default");
+  if (list.some((s) => s.id === lastId)) {
+    return lastId;
+  }
+  return mostRecent(list)?.id ?? "";
 }
 
 // langSettingOf reads the gateway's ui.language: anything it does not name is the browser's.
@@ -78,7 +81,7 @@ export function useAuth({
   const [authBusy, setAuthBusy] = useState(false);
 
   // loadAll loads everything the page shows, as if it had just started: the projects, the slash
-  // commands for autocomplete, the sessions, and the last-used session (or the default one).
+  // commands for autocomplete, the sessions, and the last-used session (or none).
   const loadAll = async () => {
     try {
       await fetchProjects();
@@ -90,7 +93,12 @@ export function useAuth({
         /* non-fatal */
       }
       const list = await fetchSessions();
-      await switchSession(lastSessionOf(list), "replace");
+      const id = lastSessionOf(list);
+      if (id) {
+        await switchSession(id, "replace");
+      } else {
+        conv.showNoSession();
+      }
       setState("ready");
     } catch {
       setState(NOT_CONNECTED, true);

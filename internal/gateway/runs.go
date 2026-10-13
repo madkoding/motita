@@ -184,16 +184,13 @@ func (s *Server) startDetachedRun(
 
 		switch {
 		case errors.Is(err, context.Canceled):
-			rn.append(EventError, map[string]string{"error": "the run was cancelled"})
-			rn.finish("cancelled", "", "the run was cancelled", session.Snapshot{})
+			s.reportFailed(c, rn, "cancelled", "the run was cancelled")
 		case err != nil:
-			rn.append(EventError, map[string]string{"error": err.Error()})
-			rn.finish("error", "", err.Error(), session.Snapshot{})
+			s.reportFailed(c, rn, "error", err.Error())
 		case result == "":
 			// A run that returns nothing and no error is reported as the failure it is:
 			// an empty answer rendered as success is the interface lying.
-			rn.append(EventError, map[string]string{"error": "the run finished without reporting a result"})
-			rn.finish("error", "", "the run finished without reporting a result", session.Snapshot{})
+			s.reportFailed(c, rn, "error", "the run finished without reporting a result")
 		default:
 			s.reportDone(c, rn, kind, startRev, result, madeArtifacts)
 		}
@@ -256,9 +253,22 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 		done.Changes = &rep
 	}
 	done.Artifacts = made
+	out := turnOutcome{Result: result, Report: done.Report, Artifacts: made}
+	if done.Changes != nil {
+		out.Files = done.Changes.Files
+	}
+	c.recordOutcome(rn.turn, out)
 	rn.append(EventDone, done)
 	rn.finish("done", result, "", snap)
 	s.maybeAutoTitle(c)
+}
+
+// reportFailed ends a run that did not answer, and keeps the error with its turn so the
+// conversation opened again still says why it stopped.
+func (s *Server) reportFailed(c *conversation, rn *run, outcome, msg string) {
+	c.recordOutcome(rn.turn, turnOutcome{Error: msg})
+	rn.append(EventError, map[string]string{"error": msg})
+	rn.finish(outcome, "", msg, session.Snapshot{})
 }
 
 // approverFactory adapts approverFor to the factory startDetachedRun takes.

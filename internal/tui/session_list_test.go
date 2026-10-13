@@ -90,6 +90,19 @@ func TestTheListingSaysWhenThereIsNothing(t *testing.T) {
 	}
 }
 
+// TestTheListingShowsTheSessionThisInterfaceIsIn: the gateway leaves an empty default session out
+// of its list, and the terminal that is sitting in it must still see where it is.
+func TestTheListingShowsTheSessionThisInterfaceIsIn(t *testing.T) {
+	r := &switcherRunner{current: "default"}
+	ui := switcher(r)
+	ui.printSessions(context.Background())
+
+	drawn := stripANSI(outputOf(ui))
+	if !strings.Contains(drawn, "* default") || strings.Contains(drawn, "should not be possible") {
+		t.Errorf("the session this interface is in is not listed in:\n%s", drawn)
+	}
+}
+
 // TestTheSessionListIsOrderedByRecency: the user opening /sessions is asking "where was I?", and the
 // answer is the most recent conversation. A list in arbitrary order - which is what a map gives -
 // makes them read every line to find it.

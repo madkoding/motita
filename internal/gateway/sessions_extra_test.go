@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
 )
 
@@ -286,9 +287,10 @@ func (s *trackingService) RunTask(ctx context.Context, _ string, _ func(string, 
 }
 
 // TestTheListReportsEverySession: a front end has to be able to see what is open, including the
-// default one, and whether anything is running.
+// default one once it has been used, and whether anything is running.
 func TestTheListReportsEverySession(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, withFactory())
+	used := &fakeService{transcript: []agent.DialogueTurn{{User: "hi", Agent: "hello"}}}
+	srv := newTestServer(t, used, withFactory())
 	_ = post(t, srv, "/v1/sessions", "{}", testToken)
 
 	var listed struct {

@@ -47,6 +47,7 @@ import {
   AUTH_NEEDED_EVENT,
   COPIED_MS,
   HTTP_UNAUTHORIZED,
+  NEW_SESSION_TITLE,
   PR_POLL_MS,
   SAME_ORIGIN,
   SESSIONS_PATH,
@@ -58,6 +59,7 @@ import { ChatHeader } from "./ChatHeader";
 import { AgentsDrawer, TermDrawer, ThinkDrawer } from "./Drawers";
 import { ApprovalPanel, ChatLoadingModal } from "./ChatPanels";
 import { Composer } from "./Composer";
+import { NewSessionButton } from "./NewSessionButton";
 import {
   ActivityLine,
   ChangesCard,
@@ -949,11 +951,46 @@ function ImagePreview() {
   return <Lightbox images={[previewImage]} start={0} onClose={closePreview} />;
 }
 
+// NoSession is the chat when there is no conversation: none was created yet, or every one was
+// deleted. Nothing is created behind the user's back; the chat waits, and says how to start one.
+function NoSession() {
+  const { actions } = useApp();
+  const { createSession } = actions;
+  const newSession = useCallback(() => createSession(), [createSession]);
+  return (
+    <main
+      class="chat-bg flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center"
+      aria-live="polite"
+      data-no-session="1"
+    >
+      <p class="text-base font-semibold">{t("Waiting for a new session")}</p>
+      <p class="text-sm text-[#9a9aaa] max-w-sm">
+        {t("Create a session to start talking to the agent.")}
+      </p>
+      <div class="w-full max-w-[220px] flex">
+        <NewSessionButton
+          loading={actions.creatingSession === ""}
+          onClick={newSession}
+          label={t(NEW_SESSION_TITLE)}
+        />
+      </div>
+    </main>
+  );
+}
+
 // MainColumn is the header, the conversation, the drawers and panels over it, and the composer.
 // `relative` is what anchors the chat spinner to THIS column: without it the spinner would be
 // positioned against the nearest positioned ancestor, or the window, and would cover the sidebar.
 function MainColumn({ pr }: { pr: PullRequest }) {
   const { rs, scroll } = useApp();
+  if (rs.noSession) {
+    return (
+      <div class="flex flex-col flex-1 min-w-0 h-dvh relative">
+        <ChatHeader />
+        <NoSession />
+      </div>
+    );
+  }
   return (
     <div class="flex flex-col flex-1 min-w-0 h-dvh relative">
       <ChatHeader />

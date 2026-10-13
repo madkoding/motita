@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -561,6 +562,11 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 	all, err := sw.ListSessions(ctx)
 	if err != nil {
 		return "", fmt.Errorf(t.tr("the gateway could not be asked which sessions it holds: %w"), err)
+	}
+	// The gateway leaves an empty default session out of its list - nobody created it - but this
+	// interface may be in it, and the list must still say where the user is.
+	if cur := sw.CurrentSession(); cur != "" && !slices.ContainsFunc(all, func(s SessionInfo) bool { return s.ID == cur }) {
+		all = append(all, SessionInfo{ID: cur, Current: true})
 	}
 	if len(all) == 0 {
 		return "", errors.New(t.tr("the gateway reports no sessions, which should not be possible"))
