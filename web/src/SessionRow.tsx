@@ -262,7 +262,7 @@ function RenameField({ s }: { s: SessionInfo }) {
 function SessionFacts({ s }: { s: SessionInfo }) {
   const worktree = sessionWorktreeChip(s);
   return (
-    <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
+    <div class="session-facts flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
       {s.branch && (
         <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10">
           <span class="text-accent/50 uppercase tracking-wide text-[9px]">
@@ -324,7 +324,7 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
           each gets its own line.
           Its full date, like every label's meaning, is the tooltip of the row's button (see
           SessionRow). */}
-      <div class="mt-0.5 text-[10px] tabular-nums text-[#9a9aaa]">
+      <div class="session-when mt-0.5 text-[10px] tabular-nums text-[#9a9aaa]">
         {formatUpdated(s.last_used)}
         {agentsRunning > 0 && (
           <span class="ml-1.5 text-[#79c0ff]">⧉ {agentsRunning}</span>

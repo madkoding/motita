@@ -108,9 +108,17 @@ test("font size and density are applied globally, not only to the chat", () => {
 test("compact density tightens the Tailwind spacing and keeps the fixed sizes", () => {
   assert.match(
     css,
-    /html\[data-density="compact"\]\s*\{\s*--spacing:\s*0\.1875rem;/,
-    "compact lowers the spacing unit every utility multiplies",
+    /html\[data-density="compact"\]\s*\{\s*--spacing:\s*0\.125rem;/,
+    "compact halves the spacing unit every utility multiplies",
   );
+  assert.match(
+    css,
+    /html\[data-density="compact"\] :is\(\.session-when, \.session-facts\)\s*\{\s*display:\s*inline-flex;/,
+    "a compact session row puts the timestamp and the facts on one line",
+  );
+  const row = readFileSync(join(here, "..", "SessionRow.tsx"), "utf8");
+  assert.ok(row.includes('class="session-when '), "the timestamp line carries its hook");
+  assert.ok(row.includes('class="session-facts '), "the facts line carries its hook");
   const sizeUtil = /^(?:[a-z]+:)*(?:min-|max-)?(?:w|h|size)-(\d+(?:\.\d+)?)$/;
   const used = new Set();
   for (const f of readdirSync(join(here, ".."))) {

@@ -3012,7 +3012,7 @@ html[data-font-size="large"] {
  * layout's geometry does not move; ui.test.mjs fails if a new one is used and not pinned here.
  * The pins sit in the utilities layer, so they lose to any plain rule exactly as the utility did. */
 html[data-density="compact"] {
-  --spacing: 0.1875rem;
+  --spacing: 0.125rem;
 }
 @layer utilities {
   html[data-density="compact"] .h-2 { height: 0.5rem; }
@@ -3033,32 +3033,55 @@ html[data-density="compact"] {
   html[data-density="compact"] .min-w-36 { min-width: 9rem; }
 }
 
+/* Compact is meant to be used on a phone too, so it is a big step, not a nudge: half the
+ * spacing unit, tight chat bubbles and line height, and a session row of two lines instead of
+ * three (the timestamp and the facts share one). The 44px touch floor under (pointer: coarse)
+ * still wins, so nothing gets harder to hit. */
 html[data-density="compact"] .turn {
-  gap: 6px;
+  gap: 3px;
 }
 html[data-density="compact"] .msg {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding: 3px 8px;
+  font-size: 0.76em;
+}
+html[data-density="compact"] .markdown-body p {
+  line-height: 1.3em;
 }
 html[data-density="compact"] .session-row {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+html[data-density="compact"] :is(.session-when, .session-facts) {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-top: 0;
+}
+html[data-density="compact"] .session-when {
+  margin-right: 6px;
 }
 html[data-density="compact"] .project-header {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 html[data-density="compact"] .term-screen {
-  padding-top: 6px;
-  padding-bottom: 10px;
+  padding-top: 4px;
+  padding-bottom: 6px;
 }
 html[data-density="compact"] .agent-row {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 html[data-density="compact"] .row-menu-item {
-  padding-top: 5px;
-  padding-bottom: 5px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+@media (max-width: 640px) {
+  html[data-density="compact"] .msg {
+    font-size: 0.7em;
+  }
+  html[data-density="compact"] .turn-head .msg.user {
+    padding: 2px 6px;
+  }
 }
 
 /* Phones: a more compact chat, and the pinned input capped so it cannot cover the answer. */
