@@ -1918,12 +1918,14 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Row actions (⋯) stay out of the way until the row is hovered. Guarded
- * by `hover: hover` so a touch device, which never hovers, keeps them
- * always visible — hiding them there would make the menu unreachable. */
+/* Row actions (⋯) and a project's "+" stay out of the way until the row is
+ * hovered. Guarded by `hover: hover` so a touch device, which never hovers,
+ * keeps them always visible — hiding them there would make the menu and the
+ * new-session button unreachable. */
 @media (hover: hover) {
   .session-row .row-actions,
-  .project-header .row-actions {
+  .project-header .row-actions,
+  .project-header .project-new-session {
     opacity: 0;
     transition: opacity 0.15s ease-out;
   }
@@ -1931,8 +1933,14 @@ button:disabled {
   .session-row:focus-within .row-actions,
   .project-header:hover .row-actions,
   .project-header:focus-within .row-actions,
-  .row-actions.row-actions-open {
+  .row-actions.row-actions-open,
+  .project-header:hover .project-new-session,
+  .project-header:focus-within .project-new-session {
     opacity: 1;
+  }
+  /* While the session is being created the spinner shows, hovered or not. */
+  .project-header .project-new-session:disabled {
+    opacity: 0.6;
   }
 }
 

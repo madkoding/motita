@@ -198,3 +198,18 @@ test("fields are 16px on a touch screen, so iOS does not zoom into them", () => 
     /:root :is\(input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\), textarea, select\) \{\s*font-size: 16px;/,
   );
 });
+
+test("a project's + is visible on a touch screen", () => {
+  const button = src("NewSessionButton.ts");
+  assert.doesNotMatch(button, /group-hover:|opacity-0/, "no hover-only utility");
+  assert.match(button, /project-new-session/);
+  assert.doesNotMatch(
+    outsideMedia("(hover: hover)"),
+    /\.project-new-session[^{]*\{\s*opacity: 0;/,
+  );
+  assert.match(
+    mediaBlocks("(hover: hover)"),
+    /\.project-header \.project-new-session \{\s*opacity: 0;/,
+  );
+  assert.match(mediaBlocks("(hover: hover)"), /\.project-header:hover \.project-new-session/);
+});
