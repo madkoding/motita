@@ -27,3 +27,6 @@ declare module "markdown-it-task-lists" {
   const plugin: PluginWithOptions<TaskListOptions>;
   export default plugin;
 }
+
+// Stylesheets are imported for their side effect; Vite bundles them.
+declare module "*.css";

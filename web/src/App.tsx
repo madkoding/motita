@@ -874,7 +874,9 @@ function Conversation() {
   const { rs, scroll } = useApp();
   const groups = groupsOf(rs.messages);
   return (
-    <main
+    // A div, not a main: a `main` cannot take role="log" (its role is fixed), and the log role is
+    // what screen readers need here; the explicit role already hid the landmark.
+    <div
       ref={scroll.scrollRef}
       role="log"
       aria-live="polite"
@@ -889,7 +891,7 @@ function Conversation() {
       {groups.map((g, gi) => (
         <Turn key={g.key} g={g} isLast={gi === groups.length - 1} />
       ))}
-    </main>
+    </div>
   );
 }
 

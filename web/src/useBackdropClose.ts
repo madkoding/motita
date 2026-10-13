@@ -7,7 +7,7 @@ import type { RefObject } from "preact";
 // attached to the element directly: the backdrop is a plain container, not a control, and the
 // keyboard closes the dialog through useDialog (Escape).
 export function useBackdropClose(
-  ref: RefObject<HTMLElement>,
+  ref: RefObject<HTMLElement | null>,
   onClose: () => void,
 ) {
   const closeRef = useRef(onClose);
