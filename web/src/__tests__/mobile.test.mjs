@@ -163,7 +163,8 @@ test("the shell is the visible height and keeps clear of the notch and home indi
   assert.match(app, /class="app-shell app-bg /);
   assert.match(app, /useVisualViewport\(\);/);
   assert.doesNotMatch(app, /h-dvh/, "nothing sizes itself past the keyboard");
-  assert.match(src("ToastCard.tsx"), /env\(safe-area-inset-bottom\)/);
+  // The toast sits under the header bar, so it keeps clear of the notch rather than the home bar.
+  assert.match(src("ToastCard.tsx"), /top-\[calc\([^\]]*env\(safe-area-inset-top\)/);
 });
 
 test("copy buttons are hidden for hover only where something can hover", () => {
