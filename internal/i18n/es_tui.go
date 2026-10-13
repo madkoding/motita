@@ -272,6 +272,9 @@ var esTUI = map[string]string{
 	"Auto mode: picks plan or task from what you write": "Modo auto: elige plan o tarea según lo que " +
 		"escribes",
 
+	// Auto mode applying the suggestions whose answer is obvious.
+	"Applied without asking, they are needed:": "Se aplican sin preguntar, son necesarias:",
+
 	// The input box's title.
 	"Approve":                              "Aprobar",
 	"the agent is waiting for your answer": "el agente espera tu respuesta",

@@ -201,7 +201,22 @@ func (t *TUI) openAskIfPending() {
 	if len(items) == 0 {
 		return
 	}
+	// In auto mode the suggestions whose answer is obvious are not asked about: they are applied,
+	// alone when nothing else is left, or with whatever the user accepts from the rest.
+	var needed []agent.AskItem
+	if t.autoTurn {
+		needed, items = agent.SplitNeeded(items)
+	}
+	if len(items) == 0 {
+		t.addMessage(AuthorSystem, t.tr("Applied without asking, they are needed:")+"\n"+neededMarks(needed))
+		t.submitProposals(&askState{needed: needed})
+		return
+	}
 	t.ask = newAsk(items, origin)
+	t.ask.needed = needed
+	if len(needed) > 0 {
+		t.addMessage(AuthorSystem, t.tr("Applied without asking, they are needed:")+"\n"+neededMarks(needed))
+	}
 	// The cursor lands on the first question that needs an answer, which on a fresh window is
 	// the first one.
 	if i := t.ask.firstUnanswered(); i >= 0 {
@@ -506,4 +521,14 @@ func (t *TUI) suspendForWizard(ctx context.Context) error {
 	t.painted = false
 	t.drawFrame()
 	return err
+}
+
+// neededMarks is each suggestion auto mode applies on its own, with the reason it is needed, so
+// the decision taken for the user can be checked.
+func neededMarks(needed []agent.AskItem) string {
+	lines := make([]string, 0, len(needed))
+	for _, it := range needed {
+		lines = append(lines, "✓ "+EscapeControls(it.Text)+" ("+EscapeControls(it.Why)+")")
+	}
+	return strings.Join(lines, "\n")
 }

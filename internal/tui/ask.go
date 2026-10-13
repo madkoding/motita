@@ -31,6 +31,9 @@ type askState struct {
 	// origin is the request being clarified, kept so the follow-up can restate what is being
 	// answered. Without it the answers arrive with nothing to attach them to.
 	origin string
+	// needed are the proposals auto mode accepted on its own (agent.SplitNeeded). They are not
+	// asked about; they ride in the same follow-up as whatever the user accepts.
+	needed []agent.AskItem
 }
 
 // newAsk builds the window for a turn that asked questions.
@@ -356,7 +359,7 @@ func (t *TUI) confirmAsk() {
 // about that proposal, and it goes to the agent as such rather than being read as a yes or a no.
 // With nothing accepted and nothing said there is no turn at all.
 func (t *TUI) submitProposals(a *askState) {
-	var accepted []agent.AskItem
+	accepted := append([]agent.AskItem(nil), a.needed...)
 	var notes []agent.Answers
 	for i, it := range a.items {
 		switch a.answers[i] {
@@ -395,7 +398,10 @@ const proposalLead = "Apply these suggestions you made, and nothing else:"
 // proposalMarks is each suggestion with what was decided for it: ✓ applied, ✗ not applied, or the
 // user's own words when they typed an answer.
 func proposalMarks(a *askState) string {
-	lines := make([]string, 0, len(a.items))
+	lines := make([]string, 0, len(a.needed)+len(a.items))
+	for _, it := range a.needed {
+		lines = append(lines, "✓ "+it.Text)
+	}
 	for i, it := range a.items {
 		switch a.answers[i] {
 		case agent.ProposalApply, agent.ProposalApplyRest:
@@ -433,7 +439,11 @@ func (t *TUI) submitPrompt(prompt string) {
 }
 
 // submitPromptAs is submitPrompt with `shown` drawn in the conversation instead of the prompt.
+//
+// The turn it starts is a follow-up, never an auto-mode message of the user's: its own needed
+// suggestions are asked about, so applying suggestions cannot chain into more of itself.
 func (t *TUI) submitPromptAs(prompt, shown string) {
+	t.autoTurn = false
 	if strings.TrimSpace(prompt) == "" {
 		t.drawFrame()
 		return

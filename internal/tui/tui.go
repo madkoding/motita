@@ -161,7 +161,10 @@ type TUI struct {
 	lastFrame     []string
 	paintedScreen bool
 
-	screen   Screen
+	screen Screen
+	// autoTurn says the last message was routed by auto mode, which applies the needed
+	// suggestions of its turn without asking (see openAskIfPending).
+	autoTurn bool
 	messages []Message
 	// current is the turn in flight and nil when there is none; queued is the message typed while
 	// it ran, sent when it ends. Both belong to the input loop's goroutine (see turns.go).

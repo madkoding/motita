@@ -163,7 +163,8 @@ func (t *TUI) queue(line string) {
 // loop while it waits. The gateway's auto mode, which is not on the input loop, also asks the
 // model when the rules have nothing.
 func (t *TUI) submit(ctx context.Context, line string) {
-	if t.screen == ScreenAuto {
+	t.autoTurn = t.screen == ScreenAuto
+	if t.autoTurn {
 		d := intent.Classify(line)
 		if strings.TrimSpace(d.Prompt) != "" {
 			t.addMessage(AuthorSystem, d.Note()+" · "+t.tr("Tab, /plan or /task to choose it yourself"))

@@ -12,6 +12,7 @@ import { choose } from "./choose";
 import {
   pickAt,
   proposalRequest,
+  initialVerdicts,
   settle,
   type Pick,
   type ProposalAnswer,
@@ -38,7 +39,14 @@ export interface TaskReport {
   next_steps?: string[];
   // What the agent noticed and did NOT do. Each is a proposal the user decides on; nothing in it
   // has been applied.
-  suggestions?: { title?: string; detail?: string }[];
+  // `needed` marks the ones whose answer is obvious: auto mode applies them without asking.
+  // `why_needed` says what makes one needed, so the decision taken for the user can be checked.
+  suggestions?: {
+    title?: string;
+    detail?: string;
+    needed?: boolean;
+    why_needed?: string;
+  }[];
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -196,8 +204,11 @@ export function ReportCard({
   answers,
   expired,
   onAnswer,
+  auto,
 }: {
   report: TaskReport;
+  // auto says the turn went through auto mode, which applies the needed suggestions on its own.
+  auto?: boolean;
   loadImage?: LoadImage;
   // answers are how the suggestions were already answered, when they were.
   answers?: SuggestionAnswers;
@@ -280,6 +291,7 @@ export function ReportCard({
           answers={answers}
           expired={expired}
           onAnswer={onAnswer}
+          auto={!!auto}
         />
       )}
       {zoom && (
@@ -473,14 +485,16 @@ function SuggestionsSection({
   answers,
   expired,
   onAnswer,
+  auto,
 }: {
   suggestions: Suggestion[];
   answers?: SuggestionAnswers;
   expired?: boolean;
   onAnswer?: (answers: SuggestionAnswers) => void;
+  auto: boolean;
 }) {
-  const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(
-    () => answers?.verdicts ?? suggestions.map(() => undefined),
+  const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(() =>
+    initialVerdicts(suggestions, auto, answers?.verdicts),
   );
   const [picks, setPicks] = useState<Pick[]>(
     () => answers?.picks ?? suggestions.map(() => ""),
@@ -489,42 +503,74 @@ function SuggestionsSection({
   const stale = !!expired && picks.every((p) => !p);
   const done = stale || verdicts.every((v) => v !== undefined);
   const current = verdicts.findIndex((v) => v === undefined);
+  const finish = (next: (Verdict | undefined)[], pressed: Pick[]) => {
+    if (!onAnswer) {
+      return;
+    }
+    const request = proposalRequest(
+      t("Apply these suggestions you made, and nothing else:"),
+      suggestions,
+      next,
+    );
+    onAnswer({ picks: pressed, verdicts: next as Verdict[], request });
+  };
   const answer = (pick: ProposalAnswer) => {
     const next = settle(verdicts, current, pick);
     const pressed = pickAt(picks, current, pick);
     setVerdicts(next);
     setPicks(pressed);
-    if (next.every((v) => v !== undefined) && onAnswer) {
-      const request = proposalRequest(
-        t("Apply these suggestions you made, and nothing else:"),
-        suggestions,
-        next,
-      );
-      onAnswer({ picks: pressed, verdicts: next as Verdict[], request });
+    if (next.every((v) => v !== undefined)) {
+      finish(next, pressed);
     }
   };
+  // In auto mode a list whose every suggestion is needed has nothing to ask: it is applied as
+  // soon as it can be (no run in flight), once.
+  const applied = useRef(false);
+  useEffect(() => {
+    if (applied.current || answers || stale || !onAnswer || !auto) {
+      return;
+    }
+    if (verdicts.every((v) => v === "apply")) {
+      applied.current = true;
+      finish(verdicts, picks);
+    }
+  });
   const items = keyed(suggestions, (s) => `${s.title}|${s.detail}`);
   return (
     <section class={`rpt-sec rpt-suggest${choose(stale, " expired", "")}`}>
       <h4>{t("Suggestions")}</h4>
       {stale && (
         <p class="rpt-expired">
-          {t("Not answered before the conversation moved on; no longer offered.")}
+          {t(
+            "Not answered before the conversation moved on; no longer offered.",
+          )}
         </p>
       )}
       <ul>
         {items.map(({ key, item }, i) => (
           <li
             key={key}
-            class={verdicts[i] ?? choose(i === current && !stale, "current", "")}
+            class={
+              verdicts[i] ?? choose(i === current && !stale, "current", "")
+            }
           >
             <span class="rpt-body">
               <span class="rpt-check">{item.title}</span>
               {item.detail && <span class="rpt-evidence">{item.detail}</span>}
             </span>
+            {auto && item.needed && (
+              <span class="rpt-needed" title={item.why_needed}>
+                {t("needed")}
+                {item.why_needed && `: ${item.why_needed}`}
+              </span>
+            )}
             {verdicts[i] && (
               <span class="rpt-verdict">
-                {choose(verdicts[i] === "apply", t("will apply"), t("not applied"))}
+                {choose(
+                  verdicts[i] === "apply",
+                  t("will apply"),
+                  t("not applied"),
+                )}
               </span>
             )}
             {(picks[i] || (i === current && !done)) && (

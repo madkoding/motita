@@ -364,6 +364,10 @@ type AskItem struct {
 	Proposal bool `json:"proposal,omitempty"`
 	// Detail is what a proposal would change and why, shown under its title.
 	Detail string `json:"detail,omitempty"`
+	// Needed marks a proposal auto mode applies without asking (see ReportSuggestion.Needed), and
+	// Why says what makes it needed.
+	Needed bool   `json:"needed,omitempty"`
+	Why    string `json:"why,omitempty"`
 }
 
 // Kinds of message the analysis can report.

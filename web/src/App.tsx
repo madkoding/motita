@@ -796,7 +796,8 @@ function groupsOf(messages: Message[]): Group[] {
 }
 
 // MessageBody is an answer of the agent (a report card or Markdown), or any other line as text.
-function MessageBody({ m }: { m: Message }) {
+// `auto` says the turn went through auto mode, which applies the needed suggestions on its own.
+function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
   const { rs, answerSuggestions } = useApp();
   if (m.role !== "agent" || m.kind) {
@@ -823,20 +824,21 @@ function MessageBody({ m }: { m: Message }) {
         answers={m.answers}
         expired={expired}
         onAnswer={onAnswer}
+        auto={auto}
       />
     );
   }
   return <Markdown content={m.text} />;
 }
 
-function MessageItem({ m }: { m: Message }) {
+function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
   const answer = m.role === "agent" && !m.kind;
   return (
     <div
       class={`msg ${m.role}${choose(m.kind, " " + m.kind, "")}`}
       data-who={choose(answer, t("Agent"), undefined)}
     >
-      <MessageBody m={m} />
+      <MessageBody m={m} auto={auto} />
       {m.changes && <ChangesCard changes={m.changes} />}
       {m.artifacts && <RunArtifacts artifacts={m.artifacts} />}
     </div>
@@ -872,7 +874,7 @@ function Turn({ g, isLast }: { g: Group; isLast: boolean }) {
       )}
       {trail.length > 0 && <Trail steps={trail} liveHere={liveHere} />}
       {rest.map((m) => (
-        <MessageItem key={m.id} m={m} />
+        <MessageItem key={m.id} m={m} auto={mode !== null} />
       ))}
       {liveHere && activity && (
         <ActivityLine activity={activity} shown={shown} />

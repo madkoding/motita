@@ -21,6 +21,7 @@ const es: Record<string, string> = {
   Suggestions: "Sugerencias",
   Plan: "Plan",
   "Run as task": "Ejecutar como tarea",
+  needed: "necesaria",
   "Run as plan": "Ejecutar como plan",
   "Apply this one": "Aplicar esta",
   "Apply this one and the following": "Aplicar esta y las siguientes",

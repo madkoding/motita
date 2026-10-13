@@ -137,3 +137,13 @@ func TestReportTextListsTheScreenshots(t *testing.T) {
 		t.Errorf("Text() =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// With agent.auto_mode_ask_all_suggestions the synthesis keeps no suggestion needed.
+func TestSynthesizePhaseAsksAllWhenConfigured(t *testing.T) {
+	a := synthesisAgent(t, `{"summary":"done","suggestions":[{"title":"a","needed":true,"why_needed":"b"}]}`)
+	a.cfg.Agent.AutoModeAskAllSuggestions = true
+	rep := a.synthesizePhase(context.Background(), synthesisTask(t), "out", anchor.Result{Pass: true})
+	if rep == nil || len(rep.Suggestions) != 1 || rep.Suggestions[0].Needed {
+		t.Fatalf("report = %+v", rep)
+	}
+}

@@ -77,16 +77,57 @@ func TestNormalizeSuggestionsCapsTheList(t *testing.T) {
 func TestReportTextListsTheSuggestions(t *testing.T) {
 	r := Report{Summary: "done", Suggestions: []ReportSuggestion{
 		{Title: "test the empty header", Detail: "Parse panics on it"},
-		{Title: "share the retry helper"},
+		{Title: "share the retry helper", Needed: true, WhyNeeded: "two copies drift"},
 	}}
 	got := r.Text()
 	for _, want := range []string{
 		"Suggestions (not applied):",
 		"  test the empty header - Parse panics on it",
-		"  share the retry helper",
+		"  share the retry helper (needed: two copies drift)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the text should contain %q, got:\n%s", want, got)
 		}
+	}
+}
+
+func TestSplitNeededKeepsTheOrderAndNeverTakesAQuestion(t *testing.T) {
+	items := ProposalItems(&Report{Suggestions: []ReportSuggestion{
+		{Title: "a", Needed: true}, {Title: "b"}, {Title: "c", Needed: true},
+	}})
+	items = append(items, AskItem{Text: "which file?", Needed: true})
+	needed, rest := SplitNeeded(items)
+	if len(needed) != 2 || needed[0].Text != "a" || needed[1].Text != "c" {
+		t.Errorf("needed = %+v", needed)
+	}
+	if len(rest) != 2 || rest[0].Text != "b" || rest[1].Text != "which file?" {
+		t.Errorf("rest = %+v", rest)
+	}
+}
+
+// A suggestion marked needed has to say why, or it is the user's call like any other.
+func TestNeededWithoutAReasonIsOptional(t *testing.T) {
+	got := normalizeSuggestions([]ReportSuggestion{
+		{Title: "a", Needed: true, WhyNeeded: "  the test is missing "},
+		{Title: "b", Needed: true, WhyNeeded: "  "},
+		{Title: "c", WhyNeeded: "stray"},
+	})
+	if !got[0].Needed || got[0].WhyNeeded != "the test is missing" {
+		t.Errorf("a = %+v", got[0])
+	}
+	if got[1].Needed || got[1].WhyNeeded != "" || got[2].Needed || got[2].WhyNeeded != "" {
+		t.Errorf("b, c = %+v, %+v", got[1], got[2])
+	}
+	if items := ProposalItems(&Report{Suggestions: got}); items[0].Why != "the test is missing" {
+		t.Errorf("the reason must reach the interface: %+v", items[0])
+	}
+}
+
+// agent.auto_mode_ask_all_suggestions leaves every suggestion to the user.
+func TestAskAllSuggestionsClearsNeeded(t *testing.T) {
+	r := Report{Suggestions: []ReportSuggestion{{Title: "a", Needed: true, WhyNeeded: "x"}}}
+	r.askAllSuggestions()
+	if r.Suggestions[0].Needed || r.Suggestions[0].WhyNeeded != "" {
+		t.Errorf("%+v", r.Suggestions[0])
 	}
 }
