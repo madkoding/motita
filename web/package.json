@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/__tests__/*.test.mjs"
+    "test": "node --test src/__tests__/*.test.mjs",
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "dompurify": "^3.4.16",
