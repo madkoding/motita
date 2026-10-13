@@ -40,7 +40,13 @@ export interface TaskReport {
   // What the agent noticed and did NOT do. Each is a proposal the user decides on; nothing in it
   // has been applied.
   // `needed` marks the ones whose answer is obvious: auto mode applies them without asking.
-  suggestions?: { title?: string; detail?: string; needed?: boolean }[];
+  // `why_needed` says what makes one needed, so the decision taken for the user can be checked.
+  suggestions?: {
+    title?: string;
+    detail?: string;
+    needed?: boolean;
+    why_needed?: string;
+  }[];
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -553,7 +559,10 @@ function SuggestionsSection({
               {item.detail && <span class="rpt-evidence">{item.detail}</span>}
             </span>
             {auto && item.needed && (
-              <span class="rpt-needed">{t("needed")}</span>
+              <span class="rpt-needed" title={item.why_needed}>
+                {t("needed")}
+                {item.why_needed && `: ${item.why_needed}`}
+              </span>
             )}
             {verdicts[i] && (
               <span class="rpt-verdict">

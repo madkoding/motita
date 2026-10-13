@@ -22,9 +22,9 @@ func (p *pendingRunner) TakePendingQuestions() ([]agent.AskItem, string) {
 // mixedItems are two needed suggestions around an optional one.
 func mixedItems() []agent.AskItem {
 	return agent.ProposalItems(&agent.Report{Suggestions: []agent.ReportSuggestion{
-		{Title: "test the empty header", Needed: true},
+		{Title: "test the empty header", Needed: true, WhyNeeded: "the new parser has no test"},
 		{Title: "share the retry helper"},
-		{Title: "fix the panic the change exposed", Needed: true},
+		{Title: "fix the panic the change exposed", Needed: true, WhyNeeded: "the request is not correct with it"},
 	}})
 }
 
@@ -44,6 +44,13 @@ func TestAutoModeAppliesNeededSuggestionsWithoutAsking(t *testing.T) {
 	if tui.autoTurn {
 		t.Error("the follow-up is not an auto turn: its own needed suggestions must be asked about")
 	}
+	found := false
+	for _, m := range tui.messages {
+		found = found || (m.Author == AuthorSystem && strings.Contains(m.Text, "✓ test the empty header ("))
+	}
+	if !found {
+		t.Errorf("what is applied without asking must be said, with why: %+v", tui.messages)
+	}
 }
 
 // With optional ones left, only those are asked, and the needed ones ride in the same follow-up.
@@ -54,7 +61,8 @@ func TestAutoModeAsksOnlyTheOptionalSuggestions(t *testing.T) {
 	if !tui.asking() || len(tui.ask.items) != 1 || tui.ask.items[0].Text != "share the retry helper" {
 		t.Fatalf("only the optional suggestion should be asked, got %+v", tui.ask)
 	}
-	if last := tui.messages[len(tui.messages)-1]; !strings.Contains(last.Text, "✓ fix the panic the change exposed") {
+	if last := tui.messages[len(tui.messages)-1]; !strings.Contains(last.Text,
+		"✓ fix the panic the change exposed (the request is not correct with it)") {
 		t.Errorf("the needed ones must be named before asking: %+v", last)
 	}
 	tui.ask.pick(2) // none of the optional ones
