@@ -241,7 +241,7 @@ func TestPrMessageSaysWhatTheToastSays(t *testing.T) {
 		}
 	}
 	if m := prMessage(i18n.ES, prPassed, v, "", "s"); m.Title != "CI aprobado" ||
-		m.Body != "El pull request #7 está en verde: ya puedes ir a mergearlo." {
+		m.Body != "El pull request #7 está en verde: ya puedes ir a mergearlo." { // spanish-fixture: the catalog's translation
 		t.Errorf("es = %+v", m)
 	}
 	if m := prMessage(i18n.EN, prFixing, &PRWatchView{Attempts: 1, Max: 3}, "", "s"); m.Body != "Motita is fixing it — attempt 1 of 3." {
