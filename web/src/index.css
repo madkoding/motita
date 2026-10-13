@@ -189,6 +189,23 @@ body {
   background: transparent;
 }
 
+/* The "waiting for a new session" state. It used to sit straight on the background image, whose
+ * bright patches (the lamp, the bed) left the grey hint and even the title unreadable. The card is
+ * OPAQUE so the contrast does not depend on what part of the image is behind it: title 17:1, hint
+ * 11:1 and the accent button text over its 10% tint 8:1, all above WCAG AA (4.5:1). Pinned by
+ * nosession.test.mjs. */
+.no-session-card {
+  color: #f2f2f5;
+  background-color: #101018;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
+  border-radius: var(--radius-cut);
+}
+.no-session-card .no-session-hint {
+  color: #c8c8d4;
+  background-color: #101018;
+}
+
 /* The frosted glass panels and the sidebar are styled in the cyberpunk layer below, with their
  * borders. */
 
@@ -475,14 +492,49 @@ body {
   backdrop-filter: blur(14px);
   border-left: 3px solid #4cc2ff;
 }
+/* A note on an opaque chip: as bare grey text it sat straight on the background image and could
+ * not be read over its bright patches. #c8c8d4 on #101018 is 11.4:1. */
 .msg.kind {
   font-size: 11px;
-  color: #8a8a9a;
+  color: #c8c8d4;
+  background-color: #101018;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  background: transparent;
   backdrop-filter: none;
   border: none;
+  padding: 3px 10px;
+  border-radius: var(--radius-cut);
+}
+/* The placeholder of an empty conversation is an empty state, not a note: centred on an opaque
+ * card like the waiting-for-a-session one, in sentence case and at a readable size. Title text
+ * #f2f2f5 is 16.9:1 on #101018, the accent icon 9.4:1. Pinned by nosession.test.mjs. */
+.turn:has(> .msg.empty-note) {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.msg.kind.empty-note {
+  align-self: center;
+  width: 100%;
+  max-width: 24rem;
+  padding: 24px;
+  color: #f2f2f5;
+  background-color: #101018;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
+  font-size: 0.9rem;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: center;
+  white-space: normal;
+}
+.empty-note-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.empty-note-icon {
+  color: #4cc2ff;
 }
 .msg.error {
   border-color: rgba(255, 107, 107, 0.4);
