@@ -453,6 +453,32 @@ command ran on that standing answer). Around the conversation:
   and the schedules, and failures reported in a toast instead of a silent nothing.
 - It installs as an app (PWA).
 
+**Notifications need https.** The page can tell you when a pull request's CI ends while its
+tab is in the background (Settings → Notifications), but browsers only allow notifications on
+a secure origin: `https://`, or `localhost`. Two ways to get one:
+
+- **An SSH tunnel** (`ssh -N -L 7477:127.0.0.1:7477 the-host`) makes the page
+  `http://localhost:7477`, which already counts as secure on a computer.
+- **A reverse proxy that terminates TLS**, which is the way for a phone. Leave the gateway on
+  loopback and put the proxy in front; with [Caddy](https://caddyserver.com) and a domain that
+  points at the host, the certificate is obtained for you:
+
+  ```
+  motita.example.com {
+  	reverse_proxy 127.0.0.1:7477
+  }
+  ```
+
+  The gateway reads `X-Forwarded-Proto`, which Caddy sends, so the cookie is marked `Secure`
+  and the page's own requests pass the origin check. Every request now reaches the gateway from
+  loopback, so `gateway.allow` no longer says who gets in: the proxy and the token do. For a
+  name only the local network knows, `tls internal` makes Caddy sign its own certificate, and
+  each device has to trust Caddy's root certificate once.
+
+Once allowed, **Send** under *Test notification* shows one on the spot. When the browser has
+refused them, the same section lists where this browser, or the installed app, keeps the
+permission.
+
 It is compiled into the binary: the shell every visit downloads is **596 KiB**, against a
 **1,120 KiB** budget, with the heavy parts (syntax highlighting, formulas, diagrams, the
 emoji set) loaded only when a message needs them. A test fails if the assets outgrow it.
