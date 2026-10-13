@@ -11,6 +11,7 @@ import {
   SESSIONS_URL,
   SIDEBAR_KEY,
 } from "./appConst";
+import { initialSidebarOpen, isPhone } from "./viewport";
 
 // readCollapsed is the set of folded projects the browser remembers.
 function readCollapsed(): Set<string> {
@@ -44,11 +45,13 @@ export function useSessionList(api: Api, rs: RunState) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    let stored: string | null = null;
     try {
-      return localStorage.getItem(SIDEBAR_KEY) !== "false";
+      stored = localStorage.getItem(SIDEBAR_KEY);
     } catch {
-      return true;
+      /* ignore */
     }
+    return initialSidebarOpen(stored, isPhone());
   });
   // Collapsed projects: a set of project IDs whose session list is hidden.
   // Persisted in localStorage so a user's choice survives a reload, like the
@@ -72,8 +75,12 @@ export function useSessionList(api: Api, rs: RunState) {
     });
   }, []);
 
-  // Persist sidebar preference.
+  // Persist sidebar preference. Only a wide screen's choice is remembered: on a phone the sidebar
+  // is a sheet opened for one pick, and closing it there is not "I want no sidebar".
   useEffect(() => {
+    if (isPhone()) {
+      return;
+    }
     try {
       localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen));
     } catch {
@@ -210,6 +217,14 @@ export function useSessionList(api: Api, rs: RunState) {
       return [];
     }
   }, []);
+
+  // On a phone the sidebar covers the conversation, so picking or creating a session closes it:
+  // otherwise the reader taps a session and still sees the list, with the answer hidden under it.
+  useEffect(() => {
+    if (rs.sessionId && isPhone()) {
+      setSidebarOpen(false);
+    }
+  }, [rs.sessionId]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
