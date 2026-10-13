@@ -167,8 +167,8 @@ test("retryFix, mergePR and getPR speak to the gateway and carry its refusals", 
 });
 
 test("every string of the pull request bar has a Spanish translation", () => {
-  const app = readFileSync(join(here, "..", "App.tsx"), "utf8");
-  // The bar is two delimited stretches of App.tsx: the logic and the markup.
+  const app = readFileSync(join(here, "..", "PullRequestBar.tsx"), "utf8");
+  // The bar is two delimited stretches of PullRequestBar.tsx: the logic and the markup.
   let block = "";
   for (
     let at = app.indexOf("── Pull request bar");
@@ -177,7 +177,7 @@ test("every string of the pull request bar has a Spanish translation", () => {
   ) {
     block += app.slice(at, app.indexOf("── end of the pull request bar", at));
   }
-  assert.ok(block.length > 1000, "the bar is delimited in App.tsx");
+  assert.ok(block.length > 1000, "the bar is delimited in PullRequestBar.tsx");
   const keys = [
     ...block.matchAll(/\btf?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g),
   ].map((m) => m[2].replaceAll(/\\(['"])/g, "$1"));
