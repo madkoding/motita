@@ -265,6 +265,9 @@ func (op Options) startGateway(
 		// What the settings page shows and changes about the gateway's reach. See network.go.
 		AllowRules: cfg.Gateway.Allow,
 		Tailscale:  op.Tailscale,
+		// Phone notifications: the gateway's push key and the browsers subscribed, in
+		// ~/.motita/push.
+		PushDir: pushDir(),
 	}, cfg)
 	if err != nil {
 		return nil, err
@@ -329,6 +332,16 @@ func projectDir() string {
 		return ""
 	}
 	return filepath.Join(d, "projects")
+}
+
+// pushDir returns the directory where the phone notifications' key and subscriptions are kept:
+// ~/.motita/push. Empty when there is no home directory, and then there are none.
+func pushDir() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "push")
 }
 
 // scheduleDir returns the directory where scheduled tasks are persisted:
