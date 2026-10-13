@@ -686,7 +686,32 @@ motita gateway start -token-only   # prints just the token, for scripts
 motita gateway start -json         # url, pid, version, token and links as JSON
 motita gateway status   # says whether one is running, where, and WHICH BUILD
 motita gateway stop     # stops the one the service file names
+motita gateway setup    # where it answers: this machine, the local network or everywhere
 ```
+
+**Where it answers is asked once.** The first `gateway start` with a configuration file that
+names no `gateway.listen` asks it, at a terminal, and saves the answer in the file:
+
+| Answer              | `gateway.listen`   | `gateway.allow`     |
+| ------------------- | ------------------ | ------------------- |
+| this machine only   | `127.0.0.1:<port>` | left as it is       |
+| the local network   | `0.0.0.0:<port>`   | `["lan", "!any"]`   |
+| everywhere          | `0.0.0.0:<port>`   | `[]` (every origin) |
+
+The default answer is the first. Nothing is asked when `-gateway`, `MOTITA_GATEWAY_LISTEN`,
+`-json` or `-token-only` already decided, or when there is no terminal. `motita gateway setup`
+asks again, and the page shows the same choice under Settings → Network, where a change needs
+an explicit confirmation. Either way the file changes and the running gateway keeps its socket:
+the new address applies when it restarts. Any other pair of the two settings is shown as
+"custom" and only replaced when you choose an answer.
+
+**Tailscale.** When `tailscale status` says Tailscale is running, the same question offers to
+publish the gateway in the tailnet with `tailscale serve --bg --https=443 http://127.0.0.1:<port>`:
+https on the machine's tailnet name, reachable only from your own devices, with the gateway still
+on loopback. Funnel (the internet) is never used. The gateway answers to its tailnet name without
+listing it in `gateway.hosts`, `gateway start` adds a `tailscale` row to the address table while
+it is published, and Settings → Network turns the publication on and off. On Linux,
+`tailscale serve` may need `sudo tailscale set --operator=$USER` once.
 
 Those commands name the build they found — `the gateway is running at
 http://127.0.0.1:7477 (pid 1234, v0.5.0-70-g9e7baf4)` — because "is one running" is

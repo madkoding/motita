@@ -3780,6 +3780,45 @@ html[data-keyboard="open"] .app-shell {
     flex: none;
   }
 }
+/* A setting whose control is too wide to share its line (the network choices) keeps it under
+ * the name at every width. */
+.settings-row.settings-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+/* The confirmation a network change asks for, inside the card under the setting it changes. */
+.settings-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.settings-confirm + .settings-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.settings-confirm-lines {
+  margin: 0;
+  padding-left: 1.125rem;
+  list-style: disc;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #b4b4c2;
+}
+.settings-confirm-lines li + li {
+  margin-top: 0.25rem;
+}
+/* A line of text at the end of a card: an error, or what a service reported. */
+.settings-card-note {
+  margin: 0;
+  padding: 0.5rem 0.875rem 0.75rem;
+}
+.settings-seg:has(input:disabled) .settings-seg-opt {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 /* The steps that turn blocked notifications back on, under the setting they belong to. */
 .settings-steps {
   margin: 0;
@@ -4053,6 +4092,9 @@ html[data-density="compact"] .settings-pane {
   padding: 0.5rem 0.75rem;
 }
 html[data-density="compact"] .settings-row {
+  padding: 0.375rem 0.625rem;
+}
+html[data-density="compact"] .settings-confirm {
   padding: 0.375rem 0.625rem;
 }
 html[data-density="compact"] .settings-group + .settings-group {

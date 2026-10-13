@@ -132,10 +132,10 @@ func withoutArgs(args []string, i, n int) []string {
 // gatewaySubcommand reads `gateway <action>` at args[i].
 func (b *flags) gatewaySubcommand(args []string, i int) ([]string, bool, error) {
 	if i+1 >= len(args) {
-		return nil, false, fmt.Errorf("gateway needs an action: start, stop or status")
+		return nil, false, fmt.Errorf("gateway needs an action: start, stop, status or setup")
 	}
 	switch strings.ToLower(strings.TrimSpace(args[i+1])) {
-	case "start", "stop", "status":
+	case "start", "stop", "status", "setup":
 		// Recorded as the user wrote it: what they typed is what gets reported.
 		b.gatewayAction = args[i+1]
 		// Removed from the argument list so the flag loop never sees them: a positional argument
@@ -145,7 +145,7 @@ func (b *flags) gatewaySubcommand(args []string, i int) ([]string, bool, error) 
 		// Rejected with the list rather than ignored: falling through would turn a
 		// typo into something else entirely - `motita gateway strat` starting the
 		// interface.
-		return nil, false, fmt.Errorf("unknown gateway action %q: start, stop or status", args[i+1])
+		return nil, false, fmt.Errorf("unknown gateway action %q: start, stop, status or setup", args[i+1])
 	}
 }
 

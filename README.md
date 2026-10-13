@@ -75,6 +75,7 @@ that runs commands on this machine. To reach it from your network, pick one of t
 
 | How                                                           | Example                                                   |
 | ------------------------------------------------------------- | --------------------------------------------------------- |
+| The question (asked on the first `gateway start`, or any time) | `motita gateway setup`, or Settings → Network in the page |
 | Config file (permanent; `motita config` shows where it lives) | see the YAML below                                        |
 | Environment variable                                          | `MOTITA_GATEWAY_LISTEN=0.0.0.0:7477 motita gateway start` |
 | Flag, for one run                                             | `motita -gateway 0.0.0.0:7477`                            |
@@ -84,6 +85,12 @@ gateway:
   listen: "0.0.0.0:7477"
   allow: ["lan", "!any"] # recommended: the local network only (loopback is always allowed)
 ```
+
+The question offers three answers: this machine only (`127.0.0.1`, the default), the local
+network (`0.0.0.0` with `allow: ["lan", "!any"]`) or everywhere (`0.0.0.0`, no rules). When
+[Tailscale](https://tailscale.com) is running it also offers to publish the gateway in your
+tailnet with `tailscale serve`: https for your own devices only, while the gateway stays on
+loopback (Funnel, which would publish it to the internet, is never used).
 
 Restart the gateway afterwards (`motita gateway stop`, then `motita gateway start`). It warns
 when it opens on every interface. The plain port has no TLS: the token travels unencrypted, and

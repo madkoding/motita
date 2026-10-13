@@ -195,6 +195,12 @@ type Options struct {
 	TLSListen string
 	TLSCert   string
 	TLSKey    string
+	// AllowRules is gateway.allow as written, so the network settings can name the exposure in
+	// force (see network.go). The policy enforced is Allow; this is only its description.
+	AllowRules []string
+	// Tailscale finds Tailscale on this machine and publishes the gateway inside the tailnet.
+	// Nil means it is never looked for, and the network settings report it as not installed.
+	Tailscale TailscaleService
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -272,7 +278,8 @@ type Server struct {
 	etags gitforge.ETagCache
 	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
 	// address and localhost. See hostPolicy.
-	hosts map[string]bool
+	hosts   map[string]bool
+	hostsMu sync.RWMutex
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -344,6 +351,13 @@ func Start(opts Options) (*Server, error) {
 	// The policy is enforced BEFORE the token check, so a refused origin does not even learn
 	// whether its credential was good.
 	s.hosts = knownHosts(opts.Listen, opts.Hosts)
+	// This machine's tailnet name is one of its own names, like its .local one, and the one
+	// `tailscale serve` forwards under. Learned in the background: asking the daemon must not
+	// hold the start, and a request under that name before the answer is a rare 421 that a
+	// reload clears.
+	if opts.Tailscale != nil {
+		go s.learnTailnetName(s.baseCtx)
+	}
 	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
 		Handler: s.mux,
@@ -673,6 +687,11 @@ func (s *Server) routes() *http.ServeMux {
 	// Speech input: process-wide too, and the recording is never stored. See voice.go.
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
+	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
+	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
+	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))
+	mux.Handle("POST /v1/network/tailscale", plain(s.handleTailscale))
+	mux.Handle("POST /v1/network/restart", plain(s.handleRestartNetwork))
 
 	// The procedure library and its maintenance pass. PROCESS-WIDE, like /v1/projects
 	// and /v1/commands: a skill is not a property of one conversation, and the ledger
@@ -963,7 +982,7 @@ func (s *Server) hostPolicy(next http.Handler) http.Handler {
 			host = h
 		}
 		host = normalHost(host)
-		if !isLocalHostName(host) && !s.hosts[host] {
+		if !isLocalHostName(host) && !s.knowsHost(host) {
 			writeError(w, http.StatusMisdirectedRequest, fmt.Sprintf(
 				"this gateway does not answer to the host name %q: add it to gateway.hosts if it is yours", host))
 			return

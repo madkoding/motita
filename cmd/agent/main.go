@@ -34,6 +34,7 @@ import (
 
 	"github.com/madkoding/motita/internal/app"
 	"github.com/madkoding/motita/internal/dnsfix"
+	"github.com/madkoding/motita/internal/tailscale"
 )
 
 // version is injected with -ldflags "-X main.version=v1.0.0".
@@ -82,6 +83,9 @@ func main() {
 		Goarch:  runtime.GOARCH,
 		Signals: signals,
 		BaseCtx: ctx,
+		// A person at the terminal is asked where the gateway answers on its first start.
+		Interactive: app.TerminalSession,
+		Tailscale:   tailscale.New(),
 	})
 	os.Exit(code)
 }

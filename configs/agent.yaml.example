@@ -209,8 +209,11 @@ agent:
 # to the machines you meant.
 gateway:
   enabled: true
-  # host:port, and EMPTY means "resolve it": the wildcard 0.0.0.0:7477, which is
-  # what the program binds unless you name something else here. A FIXED port,
+  # host:port, and EMPTY means "resolve it": loopback, 127.0.0.1:7477, which is
+  # what the program binds unless you name something else here. The first
+  # `motita gateway start` at a terminal asks where it should answer (this machine,
+  # the local network or everywhere) and writes the answer here; `motita gateway
+  # setup` and Settings -> Network in the page change it later. A FIXED port,
   # because `motita gateway start` runs the gateway as a service that a later
   # process has to find: an ephemeral port exists only in the memory of the
   # process that asked for it, so nothing else can reach it. `motita` with no

@@ -169,6 +169,12 @@ type Options struct {
 	// same reason as the two above: whether the link is announced is a behaviour worth pinning,
 	// and pinning it must not depend on what this machine's configuration file happens to say.
 	InterfaceEnabled func() bool
+	// Interactive reports whether a person is at the terminal to answer a question. Nil means
+	// nobody is: `gateway start` then asks nothing and binds what the configuration says.
+	Interactive func() bool
+	// Tailscale finds Tailscale and publishes the gateway inside the tailnet. Nil means it is
+	// never looked for, which is what a test wants: the machine running it may have Tailscale.
+	Tailscale gateway.TailscaleService
 
 	// waitSignal is the countdown function for forced shutdown.
 	waitSignal func(time.Duration) <-chan time.Time
