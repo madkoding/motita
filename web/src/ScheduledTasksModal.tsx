@@ -130,7 +130,7 @@ function TaskForm() {
       />
       <div class="flex gap-2">
         <input
-          class={"flex-1 " + INPUT + " font-mono"}
+          class={"flex-1 min-w-0 " + INPUT + " font-mono"}
           placeholder="24h"
           value={s.newTaskEvery}
           onInput={(e) =>

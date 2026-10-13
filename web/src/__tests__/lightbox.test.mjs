@@ -74,10 +74,14 @@ test("zoom, fit, pair navigation and close work", async () => {
     );
   });
   const zoom = () =>
-    root.querySelector("[data-testid=lightbox-zoom]").textContent;
-  const img = () => root.querySelector(".lb-img").getAttribute("src");
+    document.querySelector("[data-testid=lightbox-zoom]").textContent;
+  const img = () => document.querySelector(".lb-img").getAttribute("src");
   assert.equal(zoom(), "100%");
   assert.equal(img(), "a.png");
+  // A report opens it from inside a chat bubble, whose backdrop-filter would trap a fixed layer
+  // in the bubble's box: it is drawn at the end of <body>, out of the tree that rendered it.
+  assert.equal(root.querySelector(".lb"), null);
+  assert.equal(document.querySelector(".lb").parentElement, document.body);
 
   await act(() => key("+"));
   assert.equal(zoom(), "125%");
@@ -91,12 +95,14 @@ test("zoom, fit, pair navigation and close work", async () => {
 
   await act(() => key("ArrowRight"));
   assert.equal(img(), "b.png");
-  assert.match(root.querySelector(".lb-title").textContent, /B \(2\/2\)/);
+  assert.match(document.querySelector(".lb-title").textContent, /B \(2\/2\)/);
   await act(() => key("ArrowRight"));
   assert.equal(img(), "a.png", "the set wraps around");
 
   await act(() => key("Escape"));
   assert.equal(closed, 1);
+  await act(() => render(null, root));
+  assert.equal(document.querySelector(".lb"), null, "unmounting takes the portal down");
 });
 
 test("a single image has no navigation", async () => {
@@ -112,6 +118,6 @@ test("a single image has no navigation", async () => {
       root,
     );
   });
-  assert.equal(root.querySelector('[aria-label="Next image"]'), null);
-  assert.doesNotMatch(root.querySelector(".lb-title").textContent, /\(/);
+  assert.equal(document.querySelector('[aria-label="Next image"]'), null);
+  assert.doesNotMatch(document.querySelector(".lb-title").textContent, /\(/);
 });

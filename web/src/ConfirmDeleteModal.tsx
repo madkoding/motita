@@ -264,7 +264,11 @@ export function ContextMenu() {
     return null;
   }
   return (
-    <ModalBackdrop onClose={closeContextMenu} class="fixed inset-0 z-50">
+    <ModalBackdrop
+      onClose={closeContextMenu}
+      class="fixed inset-0 z-50"
+      modal={false}
+    >
       <div
         class="frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[160px]"
         style={{

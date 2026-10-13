@@ -70,6 +70,7 @@ export function AuthModal() {
     <div
       ref={ref}
       class="fixed inset-0 z-100 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+      data-modal
     >
       <div class="frosted rounded-2xl border border-accent/20 w-full max-w-sm p-6 shadow-2xl">
         <div class="flex items-center gap-3 mb-4">
