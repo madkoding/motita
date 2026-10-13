@@ -15,6 +15,8 @@ func TestPRStateSaysWhatTheCIIsDoing(t *testing.T) {
 		"gave_up":   "[PR #7: CI failed, needs you]",
 		"base_red":  "[PR #7: CI also red on the base branch]",
 		"merged":    "[PR #7: merged]",
+		"reviewing": "[PR #7: new review, being answered]",
+		"resolving": "[PR #7: conflict, being resolved]",
 	} {
 		if got := tu.prState(state, 7); got != want {
 			t.Errorf("%s: %q, want %q", state, got, want)
@@ -44,6 +46,12 @@ func TestPRNoticeTextOnlyForNews(t *testing.T) {
 	}
 	if f, a := prNoticeText(seen("following", 1), cur("fixing", 2)); f == "" || a[1] != 2 {
 		t.Errorf("a new attempt is news: %q %v", f, a)
+	}
+	if f, a := prNoticeText(seen("passed", 1), cur("reviewing", 2)); !strings.Contains(f, "comments") || a[1] != 2 {
+		t.Errorf("an answer to a review is news: %q %v", f, a)
+	}
+	if f, _ := prNoticeText(seen("following", 0), cur("resolving", 1)); !strings.Contains(f, "conflicts") {
+		t.Errorf("a conflict being resolved is news: %q", f)
 	}
 	for _, st := range []string{"gave_up", "base_red", "no_ci", "merged", "closed"} {
 		if f, _ := prNoticeText(seen("following", 0), cur(st, 0)); f == "" {

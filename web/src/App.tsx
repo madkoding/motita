@@ -171,6 +171,24 @@ function noticeToast(
           max: String(cur.max),
         }),
       };
+    case "reviewing":
+      return {
+        message: t("New review comments") + where,
+        type: "warning",
+        detail: tf(
+          "Motita is answering the comments on pull request {pr} — attempt {n} of {max}.",
+          { pr, n, max: String(cur.max) },
+        ),
+      };
+    case "resolving":
+      return {
+        message: t("Merge conflict") + where,
+        type: "warning",
+        detail: tf(
+          "Pull request {pr} conflicts with its base branch: Motita is resolving it — attempt {n} of {max}.",
+          { pr, n, max: String(cur.max) },
+        ),
+      };
     case "gave_up":
       return {
         message: t("Motita could not fix the CI") + where,

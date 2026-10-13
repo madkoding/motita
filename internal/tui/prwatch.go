@@ -34,14 +34,22 @@ func prNoticeText(prev *prSeen, cur SessionInfo) (format string, args []any) {
 		return "", nil
 	}
 	changed := prev.state != cur.PR
-	// A fix in progress is news again at every new attempt, not only when the state changes.
-	if cur.PR == "fixing" && (changed || cur.PRAttempts > prev.attempts) {
-		return "PR #%d: the CI failed, fixing it (attempt %d of %d)", []any{cur.PRNumber, cur.PRAttempts, cur.PRMax}
+	// Sending the agent is news again at every new attempt, not only when the state changes.
+	if f, ok := prAttemptNotices[cur.PR]; ok && (changed || cur.PRAttempts > prev.attempts) {
+		return f, []any{cur.PRNumber, cur.PRAttempts, cur.PRMax}
 	}
 	if !changed {
 		return "", nil
 	}
 	return prStateNotice(cur)
+}
+
+// prAttemptNotices are the notices of the states that send the agent, each a format of the pull
+// request's number, the attempt and the most attempts.
+var prAttemptNotices = map[string]string{
+	"fixing":    "PR #%d: the CI failed, fixing it (attempt %d of %d)",
+	"reviewing": "PR #%d: new comments or reviews, answering them (attempt %d of %d)",
+	"resolving": "PR #%d: it conflicts with its base branch, resolving it (attempt %d of %d)",
 }
 
 // prStateNotices are the notices for the states that are news when a pull request reaches them,

@@ -41,6 +41,15 @@ test("each attempt to fix the CI is told, the same one is not", () => {
   assert.equal(p.prNotice(w("fixing", 1), w("fixing", 2)), "fixing");
 });
 
+test("each time the agent is sent to a review or a conflict is told", () => {
+  assert.equal(p.prNotice(w("passed"), w("reviewing", 1)), "reviewing");
+  assert.equal(p.prNotice(w("reviewing", 1), w("reviewing", 1)), null);
+  assert.equal(p.prNotice(w("reviewing", 1), w("reviewing", 2)), "reviewing");
+  assert.equal(p.prNotice(w("following"), w("resolving", 1)), "resolving");
+  assert.equal(p.shouldPoll(w("reviewing")), true);
+  assert.equal(p.shouldPoll(w("resolving")), true);
+});
+
 test("giving up, no CI and merged are told", () => {
   assert.equal(
     p.prNotice(w("fixing", MAX_ATTEMPTS), w("gave_up", MAX_ATTEMPTS)),

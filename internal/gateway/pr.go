@@ -213,6 +213,47 @@ Do not merge the pull request. After pushing, stop: the gateway watches the new 
 		`and sends you back here if it fails again.`, branch, pr.URL, pr.Number)
 }
 
+// reviewTask is what the agent is told when somebody comments on or reviews the session's pull
+// request: the comments themselves, so it does not have to go and read them.
+func reviewTask(branch string, pr gitforge.PullRequest, news []gitforge.Comment) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "New comments or reviews arrived on the pull request %s (#%d):\n", pr.URL, pr.Number)
+	for _, c := range news {
+		where := c.Kind
+		if c.State != "" {
+			where += " " + c.State
+		}
+		if c.Path != "" {
+			where += " on " + c.Path
+		}
+		if c.Author != "" {
+			where += " by @" + c.Author
+		}
+		fmt.Fprintf(&b, "\n- [%s] %s\n", where, strings.ReplaceAll(c.Body, "\n", "\n  "))
+	}
+	fmt.Fprintf(&b, `
+Answer them in code: make the changes they ask for that are right for this pull request, `+
+		`with a test where behaviour changes, run the project's own check, commit with a semantic message `+
+		`and push to %s. If a comment asks for nothing, or for something wrong, change nothing for it and `+
+		`say why in your answer. Do not post comments on the pull request and do not merge it. After `+
+		`pushing, stop: the gateway watches the pull request and sends you back if anything else needs you.`, branch)
+	return b.String()
+}
+
+// conflictTask is what the agent is told when the session's branch stops merging cleanly into its base.
+func conflictTask(branch string, pr gitforge.PullRequest) string {
+	base := pr.Base
+	if base == "" {
+		base = "its base branch"
+	}
+	return fmt.Sprintf(`The pull request %[2]s (#%[3]d) conflicts with %[4]s.
+
+Fetch origin, merge %[4]s into %[1]s and resolve the conflicts keeping the intent of both sides, `+
+		`run the project's own check, commit the merge and push to %[1]s. Do not rebase or force-push, `+
+		`and do not merge the pull request. After pushing, stop: the gateway watches the pull request.`,
+		branch, pr.URL, pr.Number, base)
+}
+
 // handleFixPR sends the agent to fix the CI of the pull request now and follows it again from
 // the start: it is what "Try again" does after the gateway gave up.
 func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {

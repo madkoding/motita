@@ -124,7 +124,9 @@ export type WatchStatus =
   | "no_ci"
   | "merged"
   | "base_red"
-  | "closed";
+  | "closed"
+  | "reviewing"
+  | "resolving";
 
 export interface PRWatch {
   status: WatchStatus;
@@ -143,6 +145,8 @@ export type Notice =
   | "merged"
   | "base_red"
   | "closed"
+  | "reviewing"
+  | "resolving"
   | null;
 
 // prNotice says what the user is to be told when the watch of a session moves from prev to cur.
@@ -155,9 +159,14 @@ export function prNotice(
   if (prev === undefined || !cur) {
     return null;
   }
-  if (cur.status === "fixing") {
-    if (prev?.status !== "fixing" || cur.attempts > prev.attempts) {
-      return "fixing";
+  // Sending the agent is news again at every new attempt, not only when the state changes.
+  if (
+    cur.status === "fixing" ||
+    cur.status === "reviewing" ||
+    cur.status === "resolving"
+  ) {
+    if (prev?.status !== cur.status || cur.attempts > prev.attempts) {
+      return cur.status;
     }
     return null;
   }
@@ -172,7 +181,12 @@ export function prNotice(
 
 // shouldPoll: the bar asks the gateway about the CI only while the gateway is following it.
 export function shouldPoll(w: PRWatch | null | undefined): boolean {
-  return w?.status === "following" || w?.status === "fixing";
+  return (
+    w?.status === "following" ||
+    w?.status === "fixing" ||
+    w?.status === "reviewing" ||
+    w?.status === "resolving"
+  );
 }
 
 export function ciSummary(v: PRView): { passed: number; total: number } {

@@ -27,6 +27,8 @@ const (
 	prMerged    = "merged"    // the user merged it from here
 	prBaseRed   = "base_red"  // the CI fails on the base branch too: not this change's fault
 	prClosed    = "closed"    // it was closed on the host without being merged
+	prReviewing = "reviewing" // somebody commented or reviewed, and the agent has been sent to answer
+	prResolving = "resolving" // the branch conflicts with its base, and the agent has been sent to resolve it
 )
 
 const (
@@ -84,6 +86,9 @@ type prWatchState struct {
 	// matched it: a CI that has not moved is asked about less often.
 	sig  string
 	same int
+	// talk remembers which comments and conflicts were already handed to the agent; its first
+	// reading is the baseline, so what was said before the watch began is not news.
+	talk gitforge.Tracker
 }
 
 const (
@@ -276,6 +281,25 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 	}()
 }
 
+// followOpenedPR starts following the session's pull request when a run ends with one open that is
+// not followed yet: the agent may have opened it from its shell rather than through the pull
+// request button, and from here on the waiting is the gateway's and not the model's.
+func (s *Server) followOpenedPR(c *conversation) {
+	if c.merged || c.projectID == "" || c.prWatchView() != nil {
+		return
+	}
+	t, perr := s.prTargetOf(s.baseCtx, c)
+	if perr != nil {
+		return
+	}
+	pr, found, err := t.api.FindPR(s.baseCtx, t.remote, t.branch)
+	if err != nil || !found {
+		return
+	}
+	c.setPRWatch(&PRWatchView{Status: prFollowing, Max: s.prMaxFixes(c), Number: pr.Number})
+	s.startPRWatch(c, nil)
+}
+
 // pollPR asks the host once and acts on the answer. It reports whether the watch is over.
 func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	if c.merged {
@@ -288,6 +312,10 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	t, perr := s.prTargetOf(ctx, c)
 	if perr != nil {
 		return s.prFailed(c, w)
+	}
+	if (w.status == prReviewing || w.status == prResolving) && c.isRunning() {
+		// The agent is answering: its push is what the next reading is about.
+		return false
 	}
 	if w.status == prPassed {
 		return s.pollPassed(c, w, t)
@@ -324,8 +352,42 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 		over = s.answerCIFailure(ctx, c, w, t, pr, &ci)
 	default:
 		// The CI is still running, or this push was already handed to the agent.
+		over = s.pollTalk(ctx, c, w, t, pr)
 	}
 	return over
+}
+
+// pollTalk reads what the CI does not say: new comments and reviews, and a branch that stopped
+// merging cleanly. Either sends the agent, once per comment and once per conflict, out of the same
+// attempts as the CI. A host that will not answer these reads is not a failed poll: the CI is
+// what the watch stands on. It reports whether the watch is over.
+func (s *Server) pollTalk(ctx context.Context, c *conversation, w *prWatchState, t prTarget, pr gitforge.PullRequest) bool {
+	if c.isRunning() {
+		return false
+	}
+	var task, status string
+	if act, err := t.api.Activity(ctx, t.remote, pr.Number); err == nil {
+		if news := w.talk.NewComments(act); len(news) > 0 {
+			task, status = reviewTask(t.branch, pr, news), prReviewing
+		}
+	}
+	if m, err := t.api.MergeState(ctx, t.remote, pr.Number); err == nil && w.talk.Conflict(m) && task == "" {
+		task, status = conflictTask(t.branch, pr), prResolving
+	}
+	if task == "" {
+		return false
+	}
+	max := s.prMaxFixes(c)
+	if w.attempts >= max {
+		w.status = prGaveUp
+		s.publishPR(c, w, pr.Number)
+		return true
+	}
+	w.attempts++
+	w.status = status
+	s.publishPR(c, w, pr.Number)
+	s.sendToAgent(c, task)
+	return false
 }
 
 // answerCIFailure sends the agent to fix a failed CI, and reports whether the watch is over. A
@@ -361,12 +423,12 @@ func (s *Server) branchFailsAll(ctx context.Context, t prTarget, branch string, 
 // merged or closed, by the user in the host's own page or by anyone else, and says so when it is.
 func (s *Server) pollPassed(c *conversation, w *prWatchState, t prTarget) bool {
 	ctx := s.baseCtx
-	if _, found, err := t.api.FindPR(ctx, t.remote, t.branch); err != nil {
+	if pr, found, err := t.api.FindPR(ctx, t.remote, t.branch); err != nil {
 		return s.prFailed(c, w)
 	} else if found {
 		w.errors = 0
 		w.idle++
-		return w.idle >= prIdleLimit
+		return w.idle >= prIdleLimit || s.pollTalk(ctx, c, w, t, pr)
 	}
 	number := c.prNumber()
 	if number == 0 {

@@ -206,6 +206,7 @@ func (s *Server) startDetachedRun(
 		// finished session relaunched 25 times).
 		if s.baseCtx.Err() == nil {
 			s.saveEndedSession(c)
+			go s.followOpenedPR(c)
 		} else {
 			s.saveSession(c)
 		}
