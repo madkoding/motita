@@ -258,6 +258,31 @@ export function writeSessionUrl(id: string, mode: "push" | "replace") {
   }
 }
 
+// mostRecent is the session used last, or undefined when there is none.
+export function mostRecent(list: SessionInfo[]): SessionInfo | undefined {
+  let best: SessionInfo | undefined;
+  for (const s of list) {
+    if (!best || (s.last_used || "") > (best.last_used || "")) {
+      best = s;
+    }
+  }
+  return best;
+}
+
+// clearSessionUrl takes the conversation out of the address: there is none open.
+export function clearSessionUrl() {
+  try {
+    const u = new URL(window.location.href);
+    if (!u.searchParams.has("session")) {
+      return;
+    }
+    u.searchParams.delete("session");
+    history.replaceState(null, "", u.pathname + u.search + u.hash);
+  } catch {
+    /* ignore */
+  }
+}
+
 // ─── Scheduled tasks: reading a cadence in words, and a countdown ────────────
 //
 // `every` arrives from the gateway as a Go duration string (the DTO formats it),
@@ -581,15 +606,10 @@ export function podmanNote(ready: boolean, compose: boolean): string {
   );
 }
 
-// deleteWarning is what the delete confirmation says will be lost, for a session (the default
-// one is only cleared), a skill or a project.
-export function deleteWarning(type: string, id: string): string {
+// deleteWarning is what the delete confirmation says will be lost, for a session, a skill or a
+// project.
+export function deleteWarning(type: string): string {
   if (type === "session") {
-    if (id === "default") {
-      return t(
-        "This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.",
-      );
-    }
     return t(
       "This conversation will be permanently deleted. This cannot be undone.",
     );

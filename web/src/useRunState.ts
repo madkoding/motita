@@ -52,6 +52,9 @@ export function useRunState() {
   const [approvalSel, setApprovalSel] = useState(0);
   const approvalRef = useRef<HTMLFieldSetElement>(null);
   const [sessionId, setSessionId] = useState<string>("");
+  // noSession is true once the page knows there is no conversation to show (none exists, or the
+  // last one was deleted), and false while one is open or before anything was loaded.
+  const [noSession, setNoSession] = useState(false);
 
   const lastIdRef = useRef(0);
   const runningRef = useRef(false);
@@ -122,6 +125,8 @@ export function useRunState() {
     setApprovalSel,
     approvalRef,
     sessionId,
+    noSession,
+    setNoSession,
     setSessionId,
     lastIdRef,
     runningRef,
