@@ -44,8 +44,8 @@ func TestAServedGatewayCanOpenAnotherSession(t *testing.T) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	// Listing works and reports the default conversation: this is the endpoint a remote front end
-	// uses to find where it can talk.
+	// Listing works and reports nothing yet: the default conversation exists for the terminal, but
+	// nobody has talked in it, so a remote front end is not shown a session nobody created.
 	var listed struct {
 		Sessions []struct {
 			ID string `json:"id"`
@@ -54,8 +54,8 @@ func TestAServedGatewayCanOpenAnotherSession(t *testing.T) {
 	if err := getJSONInto(t, client, "http://"+addr+"/v1/sessions", token, &listed); err != nil {
 		t.Fatalf("listing sessions: %v", err)
 	}
-	if len(listed.Sessions) != 1 || listed.Sessions[0].ID != "default" {
-		t.Fatalf("a fresh gateway reports %+v, it must report only the default session", listed.Sessions)
+	if len(listed.Sessions) != 0 {
+		t.Fatalf("a fresh gateway reports %+v, it must report no session", listed.Sessions)
 	}
 
 	// And it can open one, which is the factory being wired.

@@ -217,7 +217,7 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
           </div>
         </div>
         <p class="text-sm text-[#9a9aaa] mb-5">
-          {deleteWarning(target.type, target.id)}
+          {deleteWarning(target.type)}
         </p>
 
         {target.type === "session" && target.id !== "default" && (

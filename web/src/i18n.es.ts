@@ -223,6 +223,9 @@ const es: Record<string, string> = {
   "Nothing matches “{q}”.": "Nada coincide con “{q}”.",
   "Nothing to integrate yet": "Todavía no hay nada que integrar",
   "Nothing yet. Ask for something below.": "Nada todavía. Pide algo abajo.",
+  "Waiting for a new session": "Esperando por una nueva sesión",
+  "Create a session to start talking to the agent.":
+    "Crea una sesión para empezar a hablar con el agente.",
   "Open sidebar": "Abrir la barra lateral",
   "Open the agents": "Abrir los agentes",
   "Open the terminal history": "Abrir el historial de la terminal",
@@ -290,8 +293,6 @@ const es: Record<string, string> = {
     "Este checkpoint no guardó los archivos",
   "This conversation will be permanently deleted. This cannot be undone.":
     "Esta conversación se eliminará para siempre. No se puede deshacer.",
-  "This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.":
-    "Esta es la sesión por defecto. Eliminarla borra su historial y restablece su título, pero la sesión sigue existiendo.",
   "This needs your approval": "Esto necesita tu aprobación",
   "This project, all its sessions and its folder will be permanently deleted. This cannot be undone.":
     "Este proyecto, todas sus sesiones y su carpeta se eliminarán para siempre. No se puede deshacer.",
