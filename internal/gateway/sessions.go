@@ -660,6 +660,14 @@ func (c *conversation) setMerged(sha string) {
 	c.mergedSha = sha
 }
 
+// isMerged reads the merged mark under its lock: the pull request watch and the end of a run read
+// it from their own goroutines while setMerged may be writing it.
+func (c *conversation) isMerged() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.merged
+}
+
 // setTitle sets the human-readable label for this conversation. Called after the first turn
 // completes to derive an auto-title, and by the rename endpoint when the user edits one.
 func (c *conversation) setTitle(t string) {
