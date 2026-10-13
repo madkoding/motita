@@ -183,9 +183,8 @@ function MicButton({ disabled }: { disabled: boolean }) {
 // ListeningBadge says the microphone is open for the wake phrase, for as long as it is.
 function ListeningBadge() {
   return (
-    <span
+    <output
       class="absolute -top-3 left-4 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ff4d6d]/15 text-[#ff8da1] border border-[#ff4d6d]/30"
-      role="status"
       data-testid="voice-listening"
     >
       <span
@@ -193,7 +192,7 @@ function ListeningBadge() {
         aria-hidden="true"
       />
       {t("Listening for the wake phrase")}
-    </span>
+    </output>
   );
 }
 
@@ -219,7 +218,7 @@ export function Composer() {
   useLayoutEffect(() => {
     const el = inputRef.current;
     if (!el || typeof ResizeObserver === "undefined") {
-      return;
+      return undefined;
     }
     let width = el.clientWidth;
     const ro = new ResizeObserver(() => {

@@ -3651,7 +3651,7 @@ html[data-keyboard="open"] .app-shell {
 }
 .settings-tab[aria-selected="true"] {
   color: #e8e8ea;
-  background: rgba(76, 194, 255, 0.12);
+  background: rgba(38, 89, 118, 0.28);
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 .settings-tab:focus-visible,
@@ -3761,7 +3761,7 @@ html[data-keyboard="open"] .app-shell {
   height: 2rem;
   border-radius: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(43, 43, 48, 0.3);
   color: #9a9aaa;
 }
 .git-account-state::before {
@@ -3862,7 +3862,7 @@ html[data-keyboard="open"] .app-shell {
   .settings-tab:not([aria-selected="true"]):hover,
   .settings-seg-opt:not(:has(input:checked)):hover {
     color: #e8e8ea;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(51, 51, 55, 0.36);
   }
 }
 /* A finger gets 44px targets, 36px in compact density (the same floors as every button). */

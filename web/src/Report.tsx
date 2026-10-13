@@ -266,16 +266,7 @@ export function ReportCard({
         />
       )}
 
-      {risks.length > 0 && (
-        <BulletSection
-          cls="rpt-risks"
-          title={t("Worth knowing")}
-          items={risks}
-        />
-      )}
-      {next.length > 0 && (
-        <BulletSection cls="rpt-next" title={t("Next")} items={next} />
-      )}
+      <ClosingSections risks={risks} next={next} />
       {suggestions.length > 0 && (
         <SuggestionsSection
           suggestions={suggestions}
@@ -469,6 +460,31 @@ function EvidenceSet({
       </div>
       {e.caption && <div class="rpt-evidence-caption">{e.caption}</div>}
     </div>
+  );
+}
+
+// ClosingSections are the report's last two lists, each drawn only when it has items: what is worth
+// knowing and what comes next.
+function ClosingSections({
+  risks,
+  next,
+}: {
+  risks: { key: string; item: string }[];
+  next: { key: string; item: string }[];
+}) {
+  return (
+    <>
+      {risks.length > 0 && (
+        <BulletSection
+          cls="rpt-risks"
+          title={t("Worth knowing")}
+          items={risks}
+        />
+      )}
+      {next.length > 0 && (
+        <BulletSection cls="rpt-next" title={t("Next")} items={next} />
+      )}
+    </>
   );
 }
 

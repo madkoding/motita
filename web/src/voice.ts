@@ -200,7 +200,7 @@ export function appendText(current: string, addition: string): string {
   if (!current.trim()) {
     return add;
   }
-  return current.replace(/\s+$/, "") + " " + add;
+  return current.trimEnd() + " " + add;
 }
 
 // errorOf is the message of a refused request: the gateway's {"error": ...} when there is one.
@@ -230,7 +230,10 @@ export async function transcribe(
   audio: Blob,
   wake: boolean,
 ): Promise<Transcript> {
-  const path = "/v1/voice/transcribe" + (wake ? "?wake=1" : "");
+  let path = "/v1/voice/transcribe";
+  if (wake) {
+    path += "?wake=1";
+  }
   const res = await api(path, {
     method: "POST",
     headers: { "Content-Type": audio.type || "audio/webm" },
