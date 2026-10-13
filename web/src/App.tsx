@@ -80,6 +80,7 @@ import { UpgradeModal } from "./UpgradeModal";
 import { SkillLibraryModal } from "./SkillLibraryModal";
 import { ArtifactsModal } from "./ArtifactsModal";
 import { ScheduledTasksModal } from "./ScheduledTasksModal";
+import { useVisualViewport } from "./viewport";
 
 // api is the one place a request is built. The cookie is sent automatically
 // by the browser; the X-Motita header is what tells the gateway a request was
@@ -1016,14 +1017,14 @@ function MainColumn({ pr }: { pr: PullRequest }) {
   const { rs, scroll } = useApp();
   if (rs.noSession) {
     return (
-      <div class="flex flex-col flex-1 min-w-0 h-dvh relative">
+      <div class="flex flex-col flex-1 min-w-0 h-full relative">
         <ChatHeader />
         <NoSession />
       </div>
     );
   }
   return (
-    <div class="flex flex-col flex-1 min-w-0 h-dvh relative">
+    <div class="flex flex-col flex-1 min-w-0 h-full relative">
       <ChatHeader />
       <Conversation />
       <TermDrawer />
@@ -1110,13 +1111,14 @@ function LibraryModals() {
 export default function App() {
   // Every component under App re-renders when the language changes: App itself subscribes.
   useLang();
+  useVisualViewport();
   const store = useAppStore(api);
   const pr = usePullRequest(store);
   const loadEvidenceImage = useEvidenceLoader(store);
   return (
     <AppCtx.Provider value={store}>
       <EvidenceCtx.Provider value={loadEvidenceImage}>
-        <div class="app-bg flex h-dvh text-[#e8e8ea] overflow-hidden">
+        <div class="app-shell app-bg flex text-[#e8e8ea] overflow-hidden">
           {/* Blocking auth modal — shown when the browser has no valid credential.
               It covers the entire screen and cannot be dismissed without a token. */}
           {store.auth.authState !== "ok" && <AuthModal />}

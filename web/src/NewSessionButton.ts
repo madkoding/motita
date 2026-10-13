@@ -9,7 +9,10 @@ import { h } from "preact";
  * visibly acknowledged and cannot be repeated.
  *
  * `compact` is the small icon-only variant used in a project header; the default
- * is the full-width "New session" button in the sidebar footer.
+ * is the full-width "New session" button in the sidebar footer. The compact one
+ * hides until its header is hovered, and only where something can hover: that
+ * rule lives in index.css under `(hover: hover)`, because a hover-only utility
+ * here left it invisible, and unreachable, on a phone.
  *
  * Written with `h` rather than JSX so the node test can import it directly: the
  * test runner strips types but does not transform JSX.
@@ -65,7 +68,7 @@ export function NewSessionButton({
       {
         type: "button",
         class:
-          "p-0.5 rounded-sm hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none disabled:opacity-60",
+          "project-new-session p-0.5 rounded-sm hover:bg-white/10 flex-none disabled:opacity-60",
         title,
         onClick,
         disabled: loading,
