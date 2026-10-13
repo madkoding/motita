@@ -187,34 +187,62 @@ function UpgradeFailure({ error }: { error: string }) {
   );
 }
 
-// ProgressView is the upgrade in progress, done or failed.
+// ReloadNotice is what the modal shows once the gateway restarts: a spinner while the page waits to
+// reload by itself, with nothing to press. Only if the gateway does not come back in time does it
+// offer to reload by hand.
+function ReloadNotice() {
+  const { reloadStalled, reloadPage } = useApp().updates;
+  if (reloadStalled) {
+    return (
+      <div class="space-y-3" data-testid="upgrade-reload-stalled">
+        <p class="text-xs text-[#9a9aaa] leading-relaxed">
+          {t(
+            "The gateway did not come back in time. Reload the page to check again.",
+          )}
+        </p>
+        <button class={"w-full " + SECONDARY} onClick={reloadPage}>
+          {t("Reload page")}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div
+      class="flex items-center gap-3 p-3 rounded-xl bg-accent/10 border border-accent/20"
+      role="status"
+      aria-live="polite"
+      data-testid="upgrade-reloading"
+    >
+      <IconSpinner size={20} class="animate-spin flex-none text-accent" />
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-[#e8e8ea]">
+          {t("Wait for the page to reload automatically")}
+        </p>
+        <p class="text-xs text-[#7a7a8c] mt-0.5 leading-relaxed">
+          {t("The gateway is restarting with the new version.")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ProgressView is the upgrade in progress, done or failed. Once the gateway restarts there is no
+// button to press: the page reloads by itself.
 function ProgressView({ p }: { p: UpgradeProgressEvent }) {
-  const { upgradeBusy, upgradeError, finishUpgrade } = useApp().updates;
+  const { upgradeBusy, upgradeError, finishUpgrade, awaitingReload } =
+    useApp().updates;
   return (
     <>
       <div class="space-y-4">
         <ProgressBar p={p} />
         <StageLine p={p} />
         {upgradeError && <UpgradeFailure error={upgradeError} />}
-        {p.stage === "restarting" && (
-          <p class="text-xs text-[#7a7a8c] leading-relaxed">
-            {t(
-              "The gateway is restarting. This page will reload automatically once it is back.",
-            )}
-          </p>
-        )}
-        {p.stage === "done" && (
-          <p class="text-xs text-[#7a7a8c] leading-relaxed">
-            {t(
-              "The upgrade is complete and the gateway is restarting. This page will reload automatically in a moment.",
-            )}
-          </p>
-        )}
+        {awaitingReload && <ReloadNotice />}
       </div>
-      {!upgradeBusy && p.stage !== "restarting" && (
+      {!upgradeBusy && !awaitingReload && (
         <div class="flex gap-2 mt-5">
           <button class={"flex-1 " + SECONDARY} onClick={finishUpgrade}>
-            {choose(p.stage === "error", t("Close"), t("Done"))}
+            {t("Close")}
           </button>
         </div>
       )}
