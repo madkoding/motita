@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -59,31 +60,30 @@ func TestStatusNeverPrintsTheToken(t *testing.T) {
 	}
 }
 
-// The announced URL must carry the token in its FRAGMENT.
+// The token is printed ONCE, and no address carries it.
 //
-// A fragment and not a query string, and that is the whole reason for this shape: a query is sent
-// to the server, written into every intermediate log, and kept in the browser's history in full,
-// while a fragment is stripped before the request is made and never appears in a Referer. It is
-// the only way to put a secret in a URL without it travelling.
-func TestTheAnnouncedURLCarriesTheTokenInItsFragment(t *testing.T) {
+// Repeating it inside every link turned the announcement into a wall of copies of the credential,
+// and an address that carries no token can be read out or shared without handing over the key.
+func TestTheTokenIsPrintedOnceAndNoAddressCarriesIt(t *testing.T) {
 	var out strings.Builder
-	announceWebUI(&out, gateway.Found{BaseURL: "http://127.0.0.1:7477", Token: testToken})
+	announceWebUI(&out, gateway.Found{BaseURL: "http://127.0.0.1:7477", Token: testToken, Reachable: true})
 
 	got := out.String()
-	want := "http://127.0.0.1:7477/#t=" + testToken
-	if !strings.Contains(got, want) {
-		t.Fatalf("the announced URL does not carry the fragment:\n%s\nwant to contain: %s", got, want)
+	if n := strings.Count(got, testToken); n != 1 {
+		t.Fatalf("the token appears %d times, want exactly once:\n%s", n, got)
 	}
-	if strings.Contains(got, "?t=") {
-		t.Fatalf("the token is in a QUERY string, which travels to the server and into logs:\n%s", got)
+	if strings.Contains(got, "#t=") || strings.Contains(got, "?t=") {
+		t.Fatalf("an address still carries the token:\n%s", got)
 	}
-	// It must also say what the link is and what to do with it: a URL with a token in it is not
-	// obviously something to open exactly once.
-	if !strings.Contains(got, "interface") {
-		t.Fatalf("the announcement does not say what the URL is for:\n%s", got)
+	// It must say what the addresses are for and what to do with the token.
+	if !strings.Contains(got, "INTERFACE") || !strings.Contains(got, "ADDRESS") {
+		t.Fatalf("the addresses are not laid out as a table:\n%s", got)
 	}
-	if !strings.Contains(got, "open") {
-		t.Fatalf("the announcement does not say what to do with the link:\n%s", got)
+	if !strings.Contains(got, "paste the token") {
+		t.Fatalf("the announcement does not say what to do with the token:\n%s", got)
+	}
+	if !strings.Contains(got, "this machine") || !strings.Contains(got, "http://127.0.0.1:7477\n") {
+		t.Fatalf("the local address is missing:\n%s", got)
 	}
 }
 
@@ -142,19 +142,14 @@ func TestTheAnnouncementSaysWhenTheGatewayIsReachableFromTheNetwork(t *testing.T
 	if !strings.Contains(got, "notifications over https") {
 		t.Fatalf("the exposure does not say notifications need https:\n%s", got)
 	}
-	// And it still hands over the working link, which is the point of the announcement.
-	if !strings.Contains(got, "http://127.0.0.1:7477/#t="+testToken) {
-		t.Fatalf("the link was lost while adding the warning:\n%s", got)
+	// And it still hands over the working address, which is the point of the announcement.
+	if !strings.Contains(got, "http://127.0.0.1:7477\n") {
+		t.Fatalf("the address was lost while adding the warning:\n%s", got)
 	}
-	// The reader is redirected from the local link, and handed one that works from where they are.
-	// Both halves matter: without the first they try the loopback address and blame the network,
-	// and without the second they have to work the address out themselves - which is how a page
-	// ends up reporting "not connected" with nothing to explain it.
-	if !strings.Contains(got, "only works on this machine") {
-		t.Fatalf("the loopback link is not qualified for a remote reader:\n%s", got)
-	}
-	if !strings.Contains(got, "from another machine") {
-		t.Fatalf("a reachable gateway does not tell a remote reader where to go:\n%s", got)
+	// The loopback row is named for the machine it works on, so a remote reader looks further down
+	// the table for their own network instead of trying it and blaming the network.
+	if !strings.Contains(got, "this machine") {
+		t.Fatalf("the loopback address is not qualified for a remote reader:\n%s", got)
 	}
 }
 
@@ -172,9 +167,9 @@ func TestALoopbackAnnouncementCarriesNoExposureWarning(t *testing.T) {
 	if strings.Contains(out.String(), "TLS") || strings.Contains(out.String(), "https") {
 		t.Fatalf("a loopback gateway was qualified with a TLS warning it does not need:\n%s", out.String())
 	}
-	// The link is still handed over: it is the credential's handoff and works locally.
-	if !strings.Contains(out.String(), "http://127.0.0.1:7477/#t="+testToken) {
-		t.Fatalf("the link is missing:\n%s", out.String())
+	// The address is still handed over: it works locally.
+	if !strings.Contains(out.String(), "http://127.0.0.1:7477\n") {
+		t.Fatalf("the address is missing:\n%s", out.String())
 	}
 }
 
@@ -228,11 +223,11 @@ func TestANetworkReachableAnnouncementOffersALANLink(t *testing.T) {
 	announceWebUI(&out, found)
 
 	got := out.String()
-	// The loopback link is still printed: it is the one a browser ON this machine needs.
-	if !strings.Contains(got, "http://127.0.0.1:7477/#t="+testToken) {
-		t.Fatalf("the local link was lost:\n%s", got)
+	// The loopback address is still printed: it is the one a browser ON this machine needs.
+	if !strings.Contains(got, "http://127.0.0.1:7477\n") {
+		t.Fatalf("the local address was lost:\n%s", got)
 	}
-	lan := lanAddresses()
+	lan := lanEndpoints()
 	if len(lan) == 0 {
 		// This host may genuinely have no network address. The branch that says so is asserted
 		// instead, so the test is meaningful on either kind of machine.
@@ -241,10 +236,11 @@ func TestANetworkReachableAnnouncementOffersALANLink(t *testing.T) {
 		}
 		return
 	}
-	for _, addr := range lan {
-		want := "http://" + addr + ":7477/#t=" + testToken
-		if !strings.Contains(got, want) {
-			t.Errorf("the announcement does not offer %s:\n%s", want, got)
+	for _, e := range lan {
+		// Each address sits on the row of its interface, so the operator can tell the networks apart.
+		row := regexp.MustCompile(regexp.QuoteMeta(e.Name) + ` +` + regexp.QuoteMeta("http://"+e.Addr+":7477") + "\n")
+		if !row.MatchString(got) {
+			t.Errorf("the table has no row for %s on %s:\n%s", e.Addr, e.Name, got)
 		}
 	}
 	// And it no longer asks the operator to work the address out for themselves.
@@ -269,8 +265,8 @@ func TestALoopbackAnnouncementOffersNoLANLink(t *testing.T) {
 			t.Errorf("a loopback-only gateway offered the network address %s:\n%s", addr, got)
 		}
 	}
-	if strings.Contains(got, "from another machine") {
-		t.Errorf("a loopback-only gateway invited another machine:\n%s", got)
+	if strings.Count(got, "http://") != 1 {
+		t.Errorf("a loopback-only gateway offered more than its own address:\n%s", got)
 	}
 }
 
@@ -459,9 +455,9 @@ func TestAReachableGatewayWithNoAddressSaysSo(t *testing.T) {
 	if !strings.Contains(got, "no network address to offer") {
 		t.Fatalf("a reachable gateway with no usable address did not say so:\n%s", got)
 	}
-	// And it still hands over the local link, which is the one thing that does work.
-	if !strings.Contains(got, "http://127.0.0.1:7477/#t="+testToken) {
-		t.Fatalf("the local link was lost:\n%s", got)
+	// And it still hands over the local address, which is the one thing that does work.
+	if !strings.Contains(got, "http://127.0.0.1:7477\n") {
+		t.Fatalf("the local address was lost:\n%s", got)
 	}
 }
 

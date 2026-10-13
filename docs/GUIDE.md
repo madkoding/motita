@@ -384,7 +384,7 @@ The gateway serves a web interface **from its own port** — no second server, n
 address, and no CORS, because the page and the API share an origin. It comes up with the
 gateway (`gateway.webui: false` turns it off):
 
-With `gateway.listen: "0.0.0.0:7477"` it reports both how far it reaches and the link:
+With `gateway.listen: "0.0.0.0:7477"` it reports both how far it reaches and where to open it:
 
 ```
 $ motita gateway start
@@ -399,27 +399,35 @@ there is no TLS, so the token travels in clear text to every one of them.
 browsers only allow notifications over https (or localhost): use an SSH tunnel
 or a TLS proxy in front of the gateway (docs/GUIDE.md, "Notifications need https").
 
-the interface is at http://127.0.0.1:7477/#t=<token>
-open that link once: the page trades the fragment for a cookie and drops it
+ACCESS TOKEN
+  <token>
+  (also kept in the token file; the page and every client ask for it once)
 
-from another machine, use whichever of these reaches this host - same port,
-same fragment, and the link above only works on this machine:
-  http://192.168.1.20:7477/#t=<token>
+INTERFACE: open one of these in a browser and paste the token when it asks
+  INTERFACE     ADDRESS
+  this machine  http://127.0.0.1:7477
+  eth0          http://192.168.1.20:7477
+  wlan0         http://10.0.0.5:7477
 ```
 
-Notice the two answers: **where the socket is open** and **who may use it**. The link is a
+Notice the two answers: **where the socket is open** and **who may use it**. The first row is a
 loopback address because a wildcard bind has to be normalised into something a client can
 actually dial — which is exactly why the exposure is reported separately rather than read
-out of the link.
+out of the address.
 
-The second list exists for the same reason. The address a _remote_ browser needs cannot be
+The other rows exist for the same reason. The address a _remote_ browser needs cannot be
 derived from the listener, and asking the operator to substitute their own address is a
 networking question asked at the moment they are least equipped to answer it — the symptom
 being a page that reports `not connected` with nothing to explain why. So the addresses this
-host actually answers on are printed instead, IPv4 first, with the container-only bridges
-left out because nothing outside the machine can reach them.
+host actually answers on are printed instead, each next to its interface so you can tell
+the networks apart, IPv4 first, with the container-only bridges left out because nothing
+outside the machine can reach them. The token is printed **once**, above the table, and no
+address carries it: an address can be read out or shared without handing over the key.
 
-The token rides in the URL **fragment**, which a browser never sends to the server, and
+The page asks for the token the first time; pasting it there, or opening an address with
+`#t=<token>` appended, has the same effect.
+
+A token in the URL rides in the **fragment**, which a browser never sends to the server, and
 the page immediately trades it for an `HttpOnly`, `SameSite=Strict` cookie whose value is
 an **HMAC of the token** rather than the token itself. So a cookie lifted from a browser
 is not a reusable credential, nothing is stored server-side, and **rotating the token
@@ -428,10 +436,9 @@ like a login form — and therefore holds no secret at all.
 
 The token is **not a setting to configure**. Nothing in the YAML mints it and nothing needs
 to: the gateway generates one the first time it starts, keeps it in `gateway.token_file`
-(mode 0600) and prints it inside the link. So opening the plain address — the IP with no
-`#t=…` — lands on a page that reports `not connected`, and the honest reading of that is
-"open the link, not the address", never "go and configure a token". The page says exactly
-that, because the first reading sends people hunting for a key that was never meant to exist.
+(mode 0600) and prints it when it starts. The page asks for that printed token, never for one
+"to configure", because that reading sends people hunting for a key that was never meant to
+exist.
 
 The page paints the conversation the gateway already has, streams a turn live, resumes
 from the last event it saw when the connection drops, and shows an approval with the
