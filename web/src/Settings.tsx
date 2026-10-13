@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { useDialog } from "./useDialog";
-import { IconClose } from "./icons";
+import { IconAlert, IconClose } from "./icons";
 import "./dialog.css";
 import { t, tf } from "./i18n";
 import {
@@ -18,6 +18,8 @@ import {
   saveSettings,
   loadNotify,
   saveNotify,
+  loadCiToast,
+  saveCiToast,
   notifyState,
   notifyPlatform,
   type NotifyState,
@@ -72,13 +74,9 @@ export interface VoiceSettingsProps {
   setPrefs: (p: VoicePrefs) => void;
 }
 
-// voiceBlocker explains why speech input cannot be used, or "" when it can.
+// voiceBlocker explains why speech input cannot be used, or "" when it can. An insecure page is
+// not one of them: that one is the InsecureWarning pill (see voiceWarning).
 function voiceBlocker(state: string): string {
-  if (state === "insecure") {
-    return t(
-      "Needs https or localhost: the browser only allows the microphone there.",
-    );
-  }
   if (state === "unsupported") {
     return t("This browser cannot record audio.");
   }
@@ -89,6 +87,59 @@ function voiceBlocker(state: string): string {
     return t("Add voice.wake_phrases to the configuration first.");
   }
   return "";
+}
+
+// The guide sections that say how to give the page a secure address.
+const NOTIFY_GUIDE =
+  "https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#the-browser-interface-from-the-same-port";
+const VOICE_GUIDE =
+  "https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#voice-input";
+
+// InsecureWarning is the amber pill a setting shows when the page was opened without a secure
+// connection, so the browser hides the feature. It says that in plain words; the technical reason
+// (https or localhost) and the way out stay folded under "Why?" for whoever wants them.
+export function InsecureWarning({
+  text,
+  guide,
+}: {
+  text: string;
+  guide: string;
+}) {
+  return (
+    <div class="settings-warn" role="note" data-testid="insecure-warning">
+      <div class="settings-warn-title">
+        <IconAlert size={14} class="settings-warn-icon" />
+        {t("Connection not secure")}
+      </div>
+      <p class="settings-warn-text">{text}</p>
+      <details class="settings-warn-more">
+        <summary>{t("Why?")}</summary>
+        <p>
+          {t(
+            "Browsers only allow it on a secure address: one that starts with https://, or localhost on this same computer. Open Motita through https to use it.",
+          )}{" "}
+          <a href={guide} target="_blank" rel="noopener noreferrer">
+            {t("How to set it up")}
+          </a>
+        </p>
+      </details>
+    </div>
+  );
+}
+
+// voiceWarning is the pill for a voice switch the browser hides on an insecure page.
+function voiceWarning(state: string) {
+  if (state !== "insecure") {
+    return undefined;
+  }
+  return (
+    <InsecureWarning
+      text={t(
+        "Your browser blocks the microphone because Motita was opened without a secure connection.",
+      )}
+      guide={VOICE_GUIDE}
+    />
+  );
 }
 
 // VoiceSwitch is one switch of the speech section, greyed out while it cannot be used.
@@ -144,11 +195,14 @@ function VoiceSettings({
         <Row
           id="settings-mic"
           label={t("Microphone button")}
+          warning={voiceWarning(state)}
           hint={
-            voiceBlocker(state) ||
-            t(
-              "Dictate into the message box. You read and edit the text before sending it.",
-            )
+            state === "insecure"
+              ? undefined
+              : voiceBlocker(state) ||
+                t(
+                  "Dictate into the message box. You read and edit the text before sending it.",
+                )
           }
         >
           <VoiceSwitch
@@ -161,12 +215,15 @@ function VoiceSettings({
         <Row
           id="settings-listen"
           label={t("Listen for the wake phrase")}
+          warning={voiceWarning(hands)}
           hint={
-            voiceBlocker(hands) ||
-            tf(
-              "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
-              { phrases: phrases.map((p) => `“${p}”`).join(", ") },
-            )
+            hands === "insecure"
+              ? undefined
+              : voiceBlocker(hands) ||
+                tf(
+                  "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
+                  { phrases: phrases.map((p) => `“${p}”`).join(", ") },
+                )
           }
         >
           <VoiceSwitch
@@ -182,11 +239,13 @@ function VoiceSettings({
 }
 
 // notifyHint explains the desktop-notification switch for the state the browser is in.
-function notifyHint(ns: NotifyState, platform: NotifyPlatform): string {
+// An insecure page has no hint: it shows the InsecureWarning pill instead.
+function notifyHint(
+  ns: NotifyState,
+  platform: NotifyPlatform,
+): string | undefined {
   if (ns === "insecure") {
-    return t(
-      "Browsers only allow notifications on an https:// address (or localhost). Open Motita through https to turn them on.",
-    );
+    return undefined;
   }
   if (ns === "unsupported") {
     if (platform === "ios") {
@@ -333,13 +392,15 @@ function Segmented<T extends string>({
   );
 }
 
-// Row is one setting: its name (and a hint under it) on one side and its control on the other.
-// On a narrow phone the control goes under the name, full width (see .settings-row in index.css).
+// Row is one setting: its name (and a hint or a warning under it) on one side and its control on
+// the other. On a narrow phone the control goes under the name, full width (see .settings-row in
+// index.css).
 function Row({
   id,
   label,
   hint,
   stack,
+  warning,
   children,
 }: {
   id: string;
@@ -347,6 +408,7 @@ function Row({
   hint?: ComponentChildren;
   // stack keeps the control under the name at every width, for a control too wide to share it.
   stack?: boolean;
+  warning?: ComponentChildren;
   children: ComponentChildren;
 }) {
   return (
@@ -356,6 +418,7 @@ function Row({
           {label}
         </div>
         {hint && <div class="text-xs text-[#7a7a8c] mt-0.5">{hint}</div>}
+        {warning}
       </div>
       <div class="settings-row-control">{children}</div>
     </div>
@@ -439,6 +502,36 @@ function GeneralSettings({
       {voice && <VoiceSettings {...voice} />}
       {network && <NetworkSettings api={network.api} />}
     </>
+  );
+}
+
+// CiToastSetting is the toast inside the page when a CI ends: on by default, and usable on any
+// address, since it needs no permission from the browser.
+function CiToastSetting() {
+  const [on, setOn] = useState(() => loadCiToast());
+  return (
+    <div class="settings-card" data-testid="ci-toast-setting">
+      <Row
+        id="settings-ci-toast"
+        label={t("Notice when a CI ends")}
+        hint={t("A message inside Motita. Works on any connection.")}
+      >
+        <label class="settings-switch-hit">
+          <input
+            type="checkbox"
+            role="switch"
+            class="settings-switch"
+            aria-labelledby="settings-ci-toast"
+            checked={on}
+            onChange={(e) => {
+              const v = (e.target as HTMLInputElement).checked;
+              setOn(v);
+              saveCiToast(v);
+            }}
+          />
+        </label>
+      </Row>
+    </div>
   );
 }
 
@@ -564,7 +657,7 @@ function NotifyTestRow({
   );
 }
 
-// NotifySetting is the CI notifications: a button that asks the browser while it has not been asked,
+// NotifySetting is the desktop notifications for a CI that ends: a button that asks the browser while it has not been asked,
 // the steps to allow them again once refused, and the user's own on/off switch once allowed.
 function NotifySetting() {
   const [notifyOn, setNotifyOn] = useState(() => loadNotify());
@@ -611,10 +704,21 @@ function NotifySetting() {
       <h3 id="settings-notify-h" class="settings-group-title">
         {t("Notifications")}
       </h3>
+      <CiToastSetting />
       <div class="settings-card" data-testid="notifications-setting">
         <Row
           id="settings-notify"
-          label={t("Notify me when a CI ends")}
+          label={t("Desktop notification")}
+          warning={
+            ns === "insecure" && (
+              <InsecureWarning
+                text={t(
+                  "Your browser blocks notifications because Motita was opened without a secure connection.",
+                )}
+                guide={NOTIFY_GUIDE}
+              />
+            )
+          }
           hint={choose(
             ignored,
             t("The browser did not ask. To allow them by hand:"),

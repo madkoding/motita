@@ -27,6 +27,7 @@ import {
   COPIED_MS,
   HTTP_UNAUTHORIZED,
   NEW_SESSION_TITLE,
+  NOTHING_YET,
   SAME_ORIGIN,
 } from "./appConst";
 import type { Message, StepView } from "./appTypes";
@@ -144,6 +145,9 @@ function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
     if (m.role === "user") {
       return <UserText m={m} />;
     }
+    if (isEmptyNote(m)) {
+      return <EmptyNote />;
+    }
     return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
   }
   if (m.report) {
@@ -171,11 +175,42 @@ function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   return <Markdown content={m.text} />;
 }
 
+// isEmptyNote says the message is the placeholder of a conversation with nothing in it yet.
+function isEmptyNote(m: Message): boolean {
+  return m.kind === "kind" && m.text === NOTHING_YET;
+}
+
+// EmptyNote is that placeholder drawn as an empty state: an icon and the sentence on an opaque
+// card, centred in the conversation. As a bare note it was small grey capitals straight on the
+// background image, and could not be read over its bright patches.
+function EmptyNote() {
+  return (
+    <span class="empty-note-body">
+      <svg
+        class="empty-note-icon"
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+      <span>{t(NOTHING_YET)}</span>
+    </span>
+  );
+}
+
 function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
   const answer = m.role === "agent" && !m.kind;
+  const empty = choose(isEmptyNote(m), " empty-note", "");
   return (
     <div
-      class={`msg ${m.role}${choose(m.kind, " " + m.kind, "")}`}
+      class={`msg ${m.role}${choose(m.kind, " " + m.kind, "")}${empty}`}
       data-who={choose(answer, t("Agent"), undefined)}
     >
       <MessageBody m={m} auto={auto} />
@@ -335,6 +370,8 @@ function ImagePreview() {
 
 // NoSession is the chat when there is no conversation: none was created yet, or every one was
 // deleted. Nothing is created behind the user's back; the chat waits, and says how to start one.
+// The words sit on an opaque card (.no-session-card in index.css): straight on the background
+// image they fell on its bright patches and could not be read.
 function NoSession() {
   const { actions } = useApp();
   const { createSession } = actions;
@@ -345,16 +382,18 @@ function NoSession() {
       aria-live="polite"
       data-no-session="1"
     >
-      <p class="text-base font-semibold">{t("Waiting for a new session")}</p>
-      <p class="text-sm text-[#9a9aaa] max-w-sm">
-        {t("Create a session to start talking to the agent.")}
-      </p>
-      <div class="w-full max-w-[220px] flex">
-        <NewSessionButton
-          loading={actions.creatingSession === ""}
-          onClick={newSession}
-          label={t(NEW_SESSION_TITLE)}
-        />
+      <div class="no-session-card w-full max-w-sm flex flex-col items-center gap-4 px-6 py-6">
+        <p class="no-session-title text-base font-semibold">{t("Waiting for a new session")}</p>
+        <p class="no-session-hint text-sm">
+          {t("Create a session to start talking to the agent.")}
+        </p>
+        <div class="w-full max-w-[220px] flex">
+          <NewSessionButton
+            loading={actions.creatingSession === ""}
+            onClick={newSession}
+            label={t(NEW_SESSION_TITLE)}
+          />
+        </div>
       </div>
     </main>
   );

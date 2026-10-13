@@ -227,7 +227,7 @@ func announceExposure(out io.Writer, found gateway.Found) {
 	// The same missing TLS is why a browser on another machine never lets the page notify: it only
 	// allows notifications on https or localhost, and says nothing more than "blocked" about it.
 	fmt.Fprintln(out, "  browsers only allow notifications over https (or localhost): use an SSH tunnel")
-	fmt.Fprintln(out, "  or a TLS proxy in front of the gateway (docs/GUIDE.md, \"Notifications need https\").")
+	fmt.Fprintln(out, "  or a TLS proxy in front of the gateway (docs/GUIDE.md, \"Desktop notifications need https\").")
 }
 
 // portOf extracts the port from a base URL, for the sentence above it.

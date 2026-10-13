@@ -1,7 +1,7 @@
 // The pull request bar under the conversation, and the toasts that follow its CI.
 import { useState, useEffect, useRef, useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
-import { loadNotify } from "./settings";
+import { loadCiToast, loadNotify } from "./settings";
 import { showNotification } from "./notify";
 import {
   getPR,
@@ -143,13 +143,16 @@ function noticeToast(
   }
 }
 
-// announce shows the toast and, when the tab is in the background, a browser notification as well:
-// the CI ending is exactly what someone looking at another window wants to hear about.
+// announce shows the toast (unless turned off in the settings) and, when the tab is in the
+// background, a browser notification as well: the CI ending is exactly what someone looking at
+// another window wants to hear about. The two are separate switches.
 function announce(
   setToast: Store["status"]["setToast"],
   n: { message: string; type: ToastType; detail?: string },
 ) {
-  setToast(n);
+  if (loadCiToast()) {
+    setToast(n);
+  }
   try {
     if (
       typeof Notification !== "undefined" &&

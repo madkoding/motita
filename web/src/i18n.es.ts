@@ -680,7 +680,10 @@ const es: Record<string, string> = {
     "El pull request {pr} se cerró sin mergearse.",
   "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.":
     "0 usa el valor por defecto (5). Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
-  "Notify me when a CI ends": "Avisarme cuando termine un CI",
+  "Notice when a CI ends": "Aviso cuando termine un CI",
+  "A message inside Motita. Works on any connection.":
+    "Un mensaje dentro de Motita. Funciona con cualquier conexión.",
+  "Desktop notification": "Notificación de escritorio",
   Voice: "Voz",
   "Microphone button": "Botón de micrófono",
   "Dictate into the message box. You read and edit the text before sending it.":
@@ -688,8 +691,15 @@ const es: Record<string, string> = {
   "Listen for the wake phrase": "Escuchar la frase de activación",
   "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}":
     "Solo con esta pestaña abierta. Lo que digas se envía al servicio de transcripción. Di: {phrases}",
-  "Needs https or localhost: the browser only allows the microphone there.":
-    "Requiere https o localhost: el navegador solo permite el micrófono ahí.",
+  "Connection not secure": "Conexión no segura",
+  "Why?": "¿Por qué?",
+  "How to set it up": "Cómo configurarlo",
+  "Browsers only allow it on a secure address: one that starts with https://, or localhost on this same computer. Open Motita through https to use it.":
+    "Los navegadores solo lo permiten en una dirección segura: una que empiece con https://, o localhost en este mismo computador. Abre Motita por https para usarlo.",
+  "Your browser blocks the microphone because Motita was opened without a secure connection.":
+    "Tu navegador bloquea el micrófono porque Motita se abrió sin una conexión segura.",
+  "Your browser blocks notifications because Motita was opened without a secure connection.":
+    "Tu navegador bloquea las notificaciones porque Motita se abrió sin una conexión segura.",
   "This browser cannot record audio.": "Este navegador no puede grabar audio.",
   "Off on the gateway: set voice.enabled in the configuration.":
     "Desactivado en el gateway: activa voice.enabled en la configuración.",
@@ -703,8 +713,6 @@ const es: Record<string, string> = {
   "Heard “{phrase}”": "Escuché “{phrase}”",
   "This browser cannot show notifications.":
     "Este navegador no puede mostrar notificaciones.",
-  "Browsers only allow notifications on an https:// address (or localhost). Open Motita through https to turn them on.":
-    "Los navegadores solo permiten notificaciones en una dirección https:// (o localhost). Abre Motita por https para activarlas.",
   "On iPhone and iPad they only work in the installed app: tap Share, then Add to Home Screen, and open Motita from there.":
     "En iPhone y iPad solo funcionan en la app instalada: toca Compartir, luego Agregar a inicio, y abre Motita desde ahí.",
   "Blocked in this browser. To turn them back on:":

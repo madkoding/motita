@@ -397,7 +397,7 @@ add a rule to gateway.allow to narrow it: "lan", an address, a network, or
 "!any" for this machine only.
 there is no TLS, so the token travels in clear text to every one of them.
 browsers only allow notifications over https (or localhost): use an SSH tunnel
-or a TLS proxy in front of the gateway (docs/GUIDE.md, "Notifications need https").
+or a TLS proxy in front of the gateway (docs/GUIDE.md, "Desktop notifications need https").
 
 ACCESS TOKEN
   <token>
@@ -462,9 +462,10 @@ command ran on that standing answer). Around the conversation:
   and the schedules, and failures reported in a toast instead of a silent nothing.
 - It installs as an app (PWA).
 
-**Notifications need https.** The page can tell you when a pull request's CI ends while its
-tab is in the background (Settings → Notifications), but browsers only allow notifications on
-a secure origin: `https://`, or `localhost`. Two ways to get one:
+**Desktop notifications need https.** When a pull request's CI ends the page shows a
+toast (Settings → Notifications → *Notice when a CI ends*, on by default, on any address). It
+can also put up a desktop notification while its tab is in the background, but browsers only
+allow those on a secure origin: `https://`, or `localhost`. Two ways to get one:
 
 - **An SSH tunnel** (`ssh -N -L 7477:127.0.0.1:7477 the-host`) makes the page
   `http://localhost:7477`, which already counts as secure on a computer.
