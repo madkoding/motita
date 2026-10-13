@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
-import { withSession, type SessionList } from "./useSessionList";
+import type { SessionList } from "./useSessionList";
+import { mostRecent } from "./appFormat";
 import type { RunState } from "./useRunState";
 import type { Conversation } from "./useConversation";
 import type { Api } from "./prApi";
@@ -13,7 +14,6 @@ import {
   HTTP_NO_CONTENT,
   HTTP_OK,
   JSON_HEADERS,
-  NEW_SESSION_TITLE,
   SESSIONS_PATH,
   SESSIONS_URL,
 } from "./appConst";
@@ -28,23 +28,15 @@ interface Deps {
 }
 
 // deleteRefused says whether the gateway refused a deletion: 204 is deleted, 200 is the default
-// session reset instead of removed.
+// session reset instead of removed (empty again, the gateway stops listing it).
 function deleteRefused(res: Response): boolean {
   return !res.ok && res.status !== HTTP_NO_CONTENT && res.status !== HTTP_OK;
 }
 
-// nextAfterDelete is the conversation to show once the one on screen was deleted: the default
-// session when it was the one reset (or none is left), the most recent remaining one otherwise.
-function nextAfterDelete(
-  status: number,
-  list: SessionInfo[],
-  id: string,
-): string {
-  if (status === HTTP_OK) {
-    return "default";
-  }
-  const last = list.find((s) => s.id !== id);
-  return last?.id ?? "default";
+// nextAfterDelete is the conversation to show once the one on screen was deleted: the most
+// recently used one left, or "" when none is - nothing is created in its place.
+export function nextAfterDelete(list: SessionInfo[], id: string): string {
+  return mostRecent(list.filter((s) => s.id !== id))?.id ?? "";
 }
 
 export function useSessionActions({
@@ -57,7 +49,7 @@ export function useSessionActions({
 }: Deps) {
   const { sessionRef } = rs;
   const { fetchSessions, setSessions } = lists;
-  const { switchSession } = conv;
+  const { switchSession, showNoSession } = conv;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   // Which "+" is creating a session right now: '' for the free-standing button, a
@@ -132,26 +124,25 @@ export function useSessionActions({
         // the refetch. A 3-second polling interval (or a run's deferred
         // saveSession resurrecting the file) can slip a stale list in between
         // the DELETE and fetchSessions, making the session flicker back into
-        // the sidebar. For 200 (default reset) we keep the row but clear its
-        // title locally so the placeholder shows without waiting for the refetch.
-        if (res.status === HTTP_NO_CONTENT) {
-          setSessions((prev) => prev.filter((s) => s.id !== id));
-        } else {
-          setSessions((prev) =>
-            withSession(prev, id, { title: NEW_SESSION_TITLE }),
-          );
-        }
+        // the sidebar. A default session that was reset (200) is empty, and the
+        // gateway no longer lists it either.
+        setSessions((prev) => prev.filter((s) => s.id !== id));
         const list = await fetchSessions();
-        // If we deleted the active session, switch to the most recent remaining one; a default
-        // session that was reset reloads its now-empty transcript.
+        // If we deleted the active session, switch to the most recent remaining one, or to
+        // no session at all when it was the last.
         if (id === sessionRef.current) {
-          await switchSession(nextAfterDelete(res.status, list, id));
+          const next = nextAfterDelete(list, id);
+          if (next) {
+            await switchSession(next);
+          } else {
+            showNoSession();
+          }
         }
       } catch {
         setState("could not delete the session", true);
       }
     },
-    [fetchSessions, switchSession],
+    [fetchSessions, switchSession, showNoSession],
   );
 
   // renameSession changes the title of a conversation.

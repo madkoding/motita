@@ -1046,6 +1046,9 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 	all := s.snapshot()
 	out := make([]SessionStatus, 0, len(all))
 	for _, c := range all {
+		if c.dormant() {
+			continue
+		}
 		out = append(out, c.status())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -1054,13 +1057,37 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": out, "max_sessions": s.maxSessions()})
 }
 
+// dormant reports whether this is the default session with nothing in it: no turn, no
+// checkpoint, no run and no name of its own.
+//
+// The default session always exists in memory, because the terminal that started the gateway
+// and the scheduler talk to it. But a conversation the user never opened is not one they have,
+// and listing it is what made a fresh gateway - or one whose sessions were all deleted - show a
+// "New session" nobody created. So it is left out of the list until something is said in it,
+// and a front end with an empty list waits for the user to create a session.
+func (c *conversation) dormant() bool {
+	if c.id != DefaultSession || c.svc == nil {
+		return false
+	}
+	c.stateMu.Lock()
+	idle := !c.running && (c.title == "" || c.title == placeholderTitle)
+	c.stateMu.Unlock()
+	if !idle {
+		return false
+	}
+	c.cpMu.Lock()
+	marks := len(c.checkpoints)
+	c.cpMu.Unlock()
+	return marks == 0 && len(c.svc.Transcript()) == 0
+}
+
 // handleDeleteSession drops one conversation.
 //
 // The default one cannot be removed — it belongs to the process that started this
 // gateway — but deleting it is treated as a reset: the transcript is cleared, the
 // title is restored to the "New session" placeholder, and the persisted file is
-// removed. The session stays alive but empty, which is what a user who presses
-// "delete" on it expects.
+// removed. Empty again, it is dormant and leaves the list, which is what a user who
+// presses "delete" on it expects.
 //
 // isForced reports whether the request says the user has SEEN what will be discarded and
 // means to discard it.

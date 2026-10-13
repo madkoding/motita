@@ -68,6 +68,24 @@ type checkpoint struct {
 	Head  string       `json:"head,omitempty"`
 	Snap  string       `json:"snap,omitempty"`
 	Steps []stepRecord `json:"steps"`
+	// Outcome is how the turn ended, as the stream reported it; nil until it ends.
+	Outcome *turnOutcome `json:"outcome,omitempty"`
+}
+
+// turnOutcome is the end of a turn as the live view drew it: the answer, its report, the
+// files it changed and the artifacts it left, or the error it failed with.
+//
+// The transcript keeps only the agent's one-line account of a task (it is what the model
+// reads back on the next turn), so a conversation opened again from it lost the answer the
+// user had read: the full text, the report card, the changed files. Kept here, with the
+// turn, the conversation comes back as it was shown. The pictures of the change are NOT
+// kept: they are inline images, and a session file is not where megabytes of them belong.
+type turnOutcome struct {
+	Result    string            `json:"result,omitempty"`
+	Error     string            `json:"error,omitempty"`
+	Report    *agent.Report     `json:"report,omitempty"`
+	Files     []gitx.FileChange `json:"files,omitempty"`
+	Artifacts []Artifact        `json:"artifacts,omitempty"`
 }
 
 // checkpointView is the checkpoint as a client sees it: the anchors are the gateway's business.
@@ -78,6 +96,7 @@ type checkpointView struct {
 	Created time.Time    `json:"created"`
 	Files   bool         `json:"files"`
 	Steps   []stepRecord `json:"steps"`
+	Outcome *turnOutcome `json:"outcome,omitempty"`
 }
 
 // checkpointRef names the git reference that keeps a turn's snapshot alive.
@@ -196,6 +215,16 @@ func (c *conversation) recordStep(turn int, text string) {
 	}
 }
 
+// recordOutcome keeps how a turn ended with its checkpoint. The outcome is never changed
+// after it is set, so the views and the session file can share it.
+func (c *conversation) recordOutcome(turn int, out turnOutcome) {
+	c.cpMu.Lock()
+	defer c.cpMu.Unlock()
+	if cp := c.checkpointLocked(turn); cp != nil {
+		cp.Outcome = &out
+	}
+}
+
 // checkpointViews copies the checkpoints for a client, oldest first.
 func (c *conversation) checkpointViews() []checkpointView {
 	c.cpMu.Lock()
@@ -204,7 +233,7 @@ func (c *conversation) checkpointViews() []checkpointView {
 	for _, cp := range c.checkpoints {
 		out = append(out, checkpointView{
 			Turn: cp.Turn, Task: cp.Task, Kind: cp.Kind, Created: cp.Created,
-			Files: cp.Snap != "", Steps: append([]stepRecord{}, cp.Steps...),
+			Files: cp.Snap != "", Steps: append([]stepRecord{}, cp.Steps...), Outcome: cp.Outcome,
 		})
 	}
 	return out

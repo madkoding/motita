@@ -2,12 +2,18 @@
 // its configuration; and following the address bar when the reader goes back and forward.
 import { useCallback, useEffect, useRef } from "preact/hooks";
 import { choose } from "./choose";
-import { sessionFromUrl, sortAgents, writeSessionUrl } from "./appFormat";
+import {
+  clearSessionUrl,
+  sessionFromUrl,
+  sortAgents,
+  writeSessionUrl,
+} from "./appFormat";
 import { commandOf } from "./appParse";
 import { keyed } from "./useRunState";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
+import { transcriptMessages, type Checkpoint } from "./transcript";
 import type {
   ConfigView,
   Message,
@@ -23,32 +29,6 @@ import {
   SHELL_LOG_MAX,
   STORAGE_KEY,
 } from "./appConst";
-
-interface Checkpoint {
-  turn: number;
-  files: boolean;
-  steps: StepView[];
-}
-
-// transcriptMessages turns the gateway's transcript into the messages drawn for it.
-function transcriptMessages(
-  msgs: { User?: string; Agent?: string }[],
-  nextId: () => number,
-): Message[] {
-  const out: Message[] = [];
-  for (const [i, m] of msgs.entries()) {
-    if (m.User) {
-      out.push({ id: nextId(), role: "user", text: m.User, turn: i });
-    }
-    // A turn still open carries what the run had done before it was cut. The stream only
-    // brings what happens FROM NOW ON, so this is the one place the reader can see where
-    // it got to - it is drawn whether or not the run is live.
-    if (m.Agent) {
-      out.push({ id: nextId(), role: "agent", text: m.Agent });
-    }
-  }
-  return out;
-}
 
 // placeholder is what a conversation with nothing in it yet shows.
 function placeholder(nextId: () => number): Message {
@@ -96,7 +76,7 @@ interface Deps {
   rs: RunState;
   lists: SessionList;
   setState: SetStatus;
-  setConfig: (c: ConfigView) => void;
+  setConfig: (c: ConfigView | null) => void;
   requestModal: (open: boolean) => void;
 }
 
@@ -132,35 +112,43 @@ export function useConversation({
   // that was closed, reloaded or restarted are still there, because the gateway kept them.
   // A refresh at the end of a run leaves the terminal alone - it already has those commands,
   // and rebuilding it would type them all again.
+  const fetchCheckpoints = async (id: string): Promise<Checkpoint[] | null> => {
+    try {
+      const res = await api(
+        SESSIONS_PATH + encodeURIComponent(id) + "/checkpoints",
+      );
+      if (!res.ok) {
+        return null;
+      }
+      return (await res.json()).checkpoints ?? [];
+    } catch {
+      return null;
+    }
+  };
+
+  // applyCheckpoints draws the steps of checkpoints already fetched.
+  const applyCheckpoints = (cps: Checkpoint[], rebuildTerm: boolean) => {
+    const live = liveTurnRef.current;
+    setStepsByTurn((prev) => mergeSteps(prev, cps, live, rebuildTerm));
+    setCpInfo(
+      Object.fromEntries(cps.map((cp) => [cp.turn, { files: cp.files }])),
+    );
+    if (rebuildTerm) {
+      const kept = shellEntriesOf(cps, nextId);
+      setShellLog(kept);
+      // What was already there is drawn whole, not typed again.
+      setTermSeenId(kept[kept.length - 1]?.id ?? 0);
+    }
+  };
+
   const loadCheckpoints = useCallback(
     async (id: string, rebuildTerm = false) => {
-      let cps: Checkpoint[];
-      try {
-        const res = await api(
-          SESSIONS_PATH + encodeURIComponent(id) + "/checkpoints",
-        );
-        if (!res.ok) {
-          return;
-        }
-        cps = (await res.json()).checkpoints ?? [];
-      } catch {
-        return;
-      }
+      const cps = await fetchCheckpoints(id);
       // A late answer must not paint over the conversation now on screen.
-      if (sessionRef.current !== id) {
+      if (cps === null || sessionRef.current !== id) {
         return;
       }
-      const live = liveTurnRef.current;
-      setStepsByTurn((prev) => mergeSteps(prev, cps, live, rebuildTerm));
-      setCpInfo(
-        Object.fromEntries(cps.map((cp) => [cp.turn, { files: cp.files }])),
-      );
-      if (rebuildTerm) {
-        const kept = shellEntriesOf(cps, nextId);
-        setShellLog(kept);
-        // What was already there is drawn whole, not typed again.
-        setTermSeenId(kept[kept.length - 1]?.id ?? 0);
-      }
+      applyCheckpoints(cps, rebuildTerm);
     },
     [],
   );
@@ -224,6 +212,7 @@ export function useConversation({
   // adoptSession makes a conversation the one on screen, in the state and in the address bar.
   const adoptSession = (id: string, urlMode: UrlMode) => {
     rs.setSessionId(id);
+    rs.setNoSession(false);
     sessionRef.current = id;
     try {
       localStorage.setItem(STORAGE_KEY, id);
@@ -246,16 +235,21 @@ export function useConversation({
       return false;
     }
     const msgs = data.messages || [];
-    const live = await runIsLive(id);
+    const [live, cps] = await Promise.all([
+      runIsLive(id),
+      fetchCheckpoints(id),
+    ]);
     if (sessionRef.current !== id) {
       return false;
     }
-    const out = transcriptMessages(msgs, nextId);
+    const out = transcriptMessages(msgs, cps ?? [], nextId);
     if (out.length === 0) {
       out.push(placeholder(nextId));
     }
     setMessages(out);
-    await loadCheckpoints(id, true);
+    if (cps !== null) {
+      applyCheckpoints(cps, true);
+    }
     setState("ready");
     if (live && !rs.runningRef.current) {
       rs.runSessionRef.current = id;
@@ -327,20 +321,48 @@ export function useConversation({
 
   // transcript paints the conversation that already exists.
   const transcript = useCallback(async () => {
-    const res = await api(SESSIONS_PATH + sessionRef.current + "/messages");
+    const id = sessionRef.current;
+    const res = await api(SESSIONS_PATH + id + "/messages");
     const data = await res.json();
     const msgs = data.messages || [];
-    if (msgs.length === 0) {
+    const cps = await fetchCheckpoints(id);
+    if (sessionRef.current !== id) {
+      return;
+    }
+    const out = transcriptMessages(msgs, cps ?? [], nextId);
+    if (out.length === 0) {
       setMessages([placeholder(nextId)]);
       return;
     }
-    setMessages(transcriptMessages(msgs, nextId));
-    void loadCheckpoints(sessionRef.current, true);
+    setMessages(out);
+    if (cps !== null) {
+      applyCheckpoints(cps, true);
+    }
+  }, []);
+
+  // showNoSession leaves the screen with no conversation: every session was deleted, or none
+  // was ever created. Nothing is created in its place; the chat waits for the user to open one.
+  const showNoSession = useCallback(() => {
+    detachRef.current();
+    rs.setSessionId("");
+    rs.setNoSession(true);
+    sessionRef.current = "";
+    rs.clearConversation();
+    setConfig(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    clearSessionUrl();
+    requestModal(false);
+    setState("ready");
   }, []);
 
   return {
     switchSession,
     switchSessionRef,
+    showNoSession,
     followRef,
     detachRef,
     loadCheckpoints,
