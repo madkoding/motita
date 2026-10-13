@@ -48,7 +48,9 @@ await build({
   resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
   logLevel: "silent",
 });
-const { SettingsModal } = await import(pathToFileURL(join(out, "nw.mjs")).href);
+const { SettingsModal, restartTiming } = await import(
+  pathToFileURL(join(out, "nw.mjs")).href
+);
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
@@ -56,6 +58,8 @@ const net = await import("../networkApi.ts");
 const es = (await import("../i18n.es.ts")).default;
 
 const HTTP_OK = 200;
+const HTTP_ACCEPTED = 202;
+const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const HTTP_CONFLICT = 409;
 const HTTP_BAD_GATEWAY = 502;
@@ -120,6 +124,15 @@ function fakeGateway(initial, overrides = {}) {
         restart_needed: body.mode !== state.active_mode,
       };
       return json(state);
+    }
+    if (key === "POST /v1/network/restart") {
+      if (body?.confirm !== true) {
+        return json({ error: "confirm is required" }, HTTP_BAD_REQUEST);
+      }
+      if (!state.can_restart) {
+        return json({ error: "cannot restart here" }, HTTP_CONFLICT);
+      }
+      return json(state, HTTP_ACCEPTED);
     }
     if (key === "POST /v1/network/tailscale") {
       state = {
@@ -431,8 +444,7 @@ test("Tailscale running: publishing asks first, then shows the URL; off applies 
 });
 
 test("a failed tailscale command shows the gateway's message", async () => {
-  const msg =
-    "tailscale serve: access denied; run sudo tailscale set --operator=$USER";
+  const msg = "tailscale serve: not running";
   const gw = fakeGateway(netView(), {
     "POST /v1/network/tailscale": () => json({ error: msg }, HTTP_BAD_GATEWAY),
   });
@@ -445,7 +457,49 @@ test("a failed tailscale command shows the gateway's message", async () => {
     root.querySelector("[data-testid=network-error]").textContent,
     msg,
   );
+  assert.equal(root.querySelector("[data-testid=operator-command]"), null);
   assert.equal(root.querySelector(`${CARD} input[role=switch]`).checked, false);
+  await done();
+});
+
+test("a denied tailscale serve sets the operator command apart, with Copy", async () => {
+  const msg =
+    "tailscale serve: access denied. Allow your user to change it, once: sudo tailscale set --operator=$USER";
+  const gw = fakeGateway(netView(), {
+    "POST /v1/network/tailscale": () => json({ error: msg }, HTTP_BAD_GATEWAY),
+  });
+  const { root, done } = await open(gw.api);
+  const sw = root.querySelector(`${CARD} input[role=switch]`);
+  sw.checked = true;
+  await act(() => sw.dispatchEvent(new Event("change", { bubbles: true })));
+  await click(buttonNamed(root, "Publish"));
+  const err = root.querySelector("[data-testid=network-error]");
+  assert.equal(err.getAttribute("role"), "alert");
+  assert.ok(
+    err.textContent.startsWith(
+      "tailscale serve: access denied. Allow your user to change it, once:",
+    ),
+  );
+  const code = err.querySelector("code[data-testid=operator-command]");
+  assert.ok(code, "the command is in a code element");
+  assert.equal(code.textContent, "sudo tailscale set --operator=$USER");
+  assert.match(err.textContent, /Then turn the switch on again\./);
+  const copy = [...err.querySelectorAll("button")].find(
+    (b) => b.textContent === "Copy",
+  );
+  assert.ok(copy, "a Copy button next to the command");
+  let copied = "";
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    value: { writeText: async (t) => void (copied = t) },
+    configurable: true,
+  });
+  try {
+    await click(copy);
+    assert.equal(copied, "sudo tailscale set --operator=$USER");
+    assert.equal(copy.textContent, "Copied");
+  } finally {
+    delete globalThis.navigator.clipboard;
+  }
   await done();
 });
 
@@ -484,6 +538,177 @@ test("the client hits the documented endpoints", async () => {
   await assert.rejects(net.setNetworkMode(refused.api, "lan"), (e) => {
     assert.equal(e.status, HTTP_CONFLICT);
     assert.equal(e.message, "nope");
+    return true;
+  });
+});
+
+// fastRestart makes the wait after a restart quick, and stands in for the health check and the
+// page reload. It returns what it saw, and a function that puts the real ones back.
+function fastRestart({ healthy = () => true, waitMs = 1000 } = {}) {
+  const saved = { ...restartTiming };
+  const seen = { health: 0, reloads: 0 };
+  Object.assign(restartTiming, {
+    firstPollMs: 1,
+    pollMs: 1,
+    waitMs,
+    health: async () => {
+      seen.health++;
+      if (!healthy(seen.health)) {
+        throw new TypeError("Failed to fetch");
+      }
+      return { ok: true };
+    },
+    reload: () => {
+      seen.reloads++;
+    },
+  });
+  return { seen, restore: () => Object.assign(restartTiming, saved) };
+}
+
+async function until(cond, what) {
+  for (let i = 0; i < 200; i++) {
+    if (cond()) {
+      return;
+    }
+    await act(() => new Promise((r) => setTimeout(r, 5)));
+  }
+  assert.fail("timed out waiting for " + what);
+}
+
+const RESTART_NOW = "[data-testid=network-restart-now]";
+const PENDING = {
+  mode: "lan",
+  listen: "0.0.0.0:7477",
+  restart_needed: true,
+};
+
+test("Restart now shows only when a restart is needed and the gateway can restart itself", async () => {
+  for (const [over, want] of [
+    [{ ...PENDING, can_restart: true }, true],
+    [{ ...PENDING, can_restart: false }, false],
+    [{ ...PENDING }, false],
+    [{ can_restart: true }, false],
+  ]) {
+    const gw = fakeGateway(netView(over));
+    const { root, done } = await open(gw.api);
+    assert.equal(!!root.querySelector(RESTART_NOW), want, JSON.stringify(over));
+    const notice = root.querySelector("[data-testid=network-restart]");
+    if (over.restart_needed && !over.can_restart) {
+      assert.match(
+        notice.textContent,
+        /motita gateway stop, then motita gateway start/,
+        "without a self restart it says how to restart by hand",
+      );
+    }
+    await done();
+  }
+});
+
+test("Restart now asks first, sends confirm:true, waits for the gateway and reloads", async () => {
+  const fast = fastRestart({ healthy: (n) => n >= 3 });
+  try {
+    const gw = fakeGateway(netView({ ...PENDING, can_restart: true }));
+    const { root, done } = await open(gw.api);
+    await click(root.querySelector(RESTART_NOW));
+    const confirm = root.querySelector(CONFIRM);
+    assert.ok(confirm, "it asks first");
+    assert.match(confirm.textContent, /restarts to apply the saved setting/);
+    assert.match(confirm.textContent, /saved sessions resume/);
+    assert.match(confirm.textContent, /This machine only/);
+    assert.match(confirm.textContent, /open it from the gateway's machine/);
+    assert.equal(document.activeElement, buttonNamed(root, "Cancel"));
+    assert.ok(
+      gw.calls.every((c) => c.method === "GET"),
+      "nothing sent yet",
+    );
+
+    await click(buttonNamed(root, "Cancel"));
+    assert.equal(root.querySelector(CONFIRM), null);
+    assert.ok(gw.calls.every((c) => c.method === "GET"));
+
+    await click(root.querySelector(RESTART_NOW));
+    await click(buttonNamed(root, "Restart"));
+    const post = gw.calls.find((c) => c.method === "POST");
+    assert.equal(post.path, "/v1/network/restart");
+    assert.deepEqual(post.body, { confirm: true });
+    assert.equal(
+      new Headers(post.headers).get("Content-Type"),
+      "application/json",
+    );
+    const status = root.querySelector("[data-testid=network-restarting]");
+    assert.ok(status);
+    assert.equal(status.getAttribute("role"), "status");
+    assert.equal(status.textContent, "Restarting the gateway…");
+    await until(() => fast.seen.reloads > 0, "the reload");
+    assert.equal(fast.seen.health, 3, "it polled until the gateway answered");
+    assert.equal(fast.seen.reloads, 1);
+    await done();
+  } finally {
+    fast.restore();
+  }
+});
+
+test("a gateway that does not come back says where to open it", async () => {
+  const fast = fastRestart({ healthy: () => false, waitMs: 30 });
+  try {
+    const gw = fakeGateway(netView({ ...PENDING, can_restart: true }));
+    const { root, done } = await open(gw.api);
+    await click(root.querySelector(RESTART_NOW));
+    await click(buttonNamed(root, "Restart"));
+    const status = () => root.querySelector("[data-testid=network-restarting]");
+    await until(
+      () => /did not come back/.test(status().textContent),
+      "giving up",
+    );
+    assert.equal(
+      status().textContent,
+      "The gateway did not come back here. If you changed who can reach it, open it from an address that the new setting allows.",
+    );
+    assert.ok(fast.seen.health > 0);
+    assert.equal(fast.seen.reloads, 0);
+    await done();
+  } finally {
+    fast.restore();
+  }
+});
+
+test("a restart the gateway refuses shows its error and does not wait", async () => {
+  const fast = fastRestart();
+  try {
+    const gw = fakeGateway(netView({ ...PENDING, can_restart: true }), {
+      "POST /v1/network/restart": () =>
+        json({ error: "cannot restart here" }, HTTP_CONFLICT),
+    });
+    const { root, done } = await open(gw.api);
+    await click(root.querySelector(RESTART_NOW));
+    await click(buttonNamed(root, "Restart"));
+    const err = root.querySelector("[data-testid=network-error]");
+    assert.ok(err);
+    assert.equal(err.textContent, "cannot restart here");
+    assert.equal(root.querySelector(CONFIRM), null);
+    assert.equal(root.querySelector("[data-testid=network-restarting]"), null);
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    assert.equal(fast.seen.health, 0);
+    assert.equal(root.querySelector(RESTART_NOW).disabled, false);
+    await done();
+  } finally {
+    fast.restore();
+  }
+});
+
+test("restartGateway posts confirm:true and surfaces a refusal", async () => {
+  const gw = fakeGateway(netView({ can_restart: true }));
+  assert.equal((await net.restartGateway(gw.api)).mode, "local");
+  assert.deepEqual(gw.calls.at(-1), {
+    path: "/v1/network/restart",
+    method: "POST",
+    body: { confirm: true },
+    headers: { "Content-Type": "application/json" },
+  });
+  const refused = fakeGateway(netView({ can_restart: false }));
+  await assert.rejects(net.restartGateway(refused.api), (e) => {
+    assert.equal(e.status, HTTP_CONFLICT);
+    assert.equal(e.message, "cannot restart here");
     return true;
   });
 });

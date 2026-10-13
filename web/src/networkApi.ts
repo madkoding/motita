@@ -30,6 +30,9 @@ export interface NetworkView {
   active_listen: string;
   restart_needed: boolean;
   can_save: boolean;
+  // Whether the gateway can restart itself (it runs as a service). False for the gateway embedded
+  // in a terminal UI, and absent on an older gateway: then it is restarted by hand.
+  can_restart?: boolean;
   tailscale?: TailscaleView;
 }
 
@@ -37,6 +40,7 @@ const HTTP_NOT_FOUND = 404;
 const JSON_HEADERS = { "Content-Type": "application/json" };
 export const NETWORK_PATH = "/v1/network";
 export const TAILSCALE_PATH = "/v1/network/tailscale";
+export const RESTART_PATH = "/v1/network/restart";
 
 // NetworkError carries the HTTP status next to the gateway's message.
 export class NetworkError extends Error {
@@ -91,6 +95,18 @@ export async function setTailscale(
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({ enable }),
+  });
+  return view(res);
+}
+
+// restartGateway asks the gateway to restart itself so the saved exposure applies. It answers 202
+// with the network view, then the process restarts a moment later. The page only calls it after
+// the person confirmed, and says so: the gateway refuses a restart without confirm.
+export async function restartGateway(api: Api): Promise<NetworkView> {
+  const res = await api(RESTART_PATH, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ confirm: true }),
   });
   return view(res);
 }

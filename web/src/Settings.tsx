@@ -39,7 +39,9 @@ import {
   getNetwork,
   setNetworkMode,
   setTailscale,
+  restartGateway,
 } from "./networkApi";
+import { copyText } from "./clipboard";
 
 initSettings();
 
@@ -748,6 +750,115 @@ function NotifySetting() {
 // The page Tailscale is installed from, opened in a new tab.
 const TAILSCALE_DOWNLOAD = "https://tailscale.com/download";
 
+// How the page waits for the gateway after asking it to restart: the first health check comes
+// after firstPollMs (the process restarts about half a second after it answers), then one every
+// pollMs, for up to waitMs. health and reload are here so the tests can stand in for them.
+export const restartTiming = {
+  firstPollMs: 1500,
+  pollMs: 1000,
+  waitMs: 30000,
+  health: (): Promise<Response> =>
+    fetch("/v1/health", { credentials: "same-origin", cache: "no-store" }),
+  reload: (): void => window.location.reload(),
+};
+
+// waitForGateway polls the health endpoint until the restarted gateway answers, then reloads the
+// page. It calls onGone when the gateway does not come back in time (the new setting may no longer
+// reach this device). The returned function stops the polling.
+function waitForGateway(onGone: () => void): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = Date.now() + restartTiming.waitMs;
+  const poll = async () => {
+    if (stopped) {
+      return;
+    }
+    let ok = false;
+    try {
+      ok = (await restartTiming.health()).ok;
+    } catch {
+      /* not back yet */
+    }
+    if (stopped) {
+      return;
+    }
+    if (ok) {
+      restartTiming.reload();
+      return;
+    }
+    if (Date.now() >= deadline) {
+      onGone();
+      return;
+    }
+    timer = setTimeout(() => void poll(), restartTiming.pollMs);
+  };
+  timer = setTimeout(() => void poll(), restartTiming.firstPollMs);
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+}
+
+// The command that lets the person's user run tailscale serve without sudo; the gateway's error
+// names it when tailscale refuses.
+const OPERATOR_COMMAND = "sudo tailscale set --operator=$USER";
+
+// CommandCopy is a copy button for a command shown next to it.
+function CommandCopy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      class={smallBtn}
+      onClick={async () => {
+        if (await copyText(text)) {
+          setDone(true);
+          setTimeout(() => setDone(false), 1800);
+        }
+      }}
+    >
+      {choose(done, t("Copied"), t("Copy"))}
+    </button>
+  );
+}
+
+// NetworkErrorText is an error of the network section. When tailscale refused for lack of
+// permission, the command that fixes it is set apart, with a copy button and what to do next.
+function NetworkErrorText({ text }: { text: string }) {
+  if (!text.includes("--operator")) {
+    return <>{text}</>;
+  }
+  const at = text.indexOf("sudo tailscale set");
+  const before = choose(at >= 0, text.slice(0, at).trimEnd(), text);
+  return (
+    <>
+      {before}{" "}
+      <span class="inline-flex flex-wrap items-center gap-2 mt-1 text-[#e8e8ea]">
+        <code class="break-all" data-testid="operator-command">
+          {OPERATOR_COMMAND}
+        </code>
+        <CommandCopy text={OPERATOR_COMMAND} />
+      </span>
+      <span class="block mt-1 text-[#7a7a8c]">
+        {t("Then turn the switch on again.")}
+      </span>
+    </>
+  );
+}
+
+// restartLines is what the confirmation spells out before the gateway restarts itself.
+function restartLines(): string[] {
+  return [
+    t("The gateway restarts to apply the saved setting."),
+    t(
+      "Running work is interrupted for a moment; saved sessions resume after the restart.",
+    ),
+    t(
+      "If the new setting no longer reaches this device (for example, you chose “This machine only” and opened this page from another device), this page will stop working: open it from the gateway's machine.",
+    ),
+  ];
+}
+
 // modeLabel names a network mode the way the choices do.
 function modeLabel(m: NetworkMode): string {
   if (m === "local") {
@@ -892,7 +1003,8 @@ function InlineConfirm({
 
 type NetworkPending =
   | { kind: "mode"; mode: ChosenMode }
-  | { kind: "tailscale" };
+  | { kind: "tailscale" }
+  | { kind: "restart" };
 
 // TailscaleRow is Tailscale's state: how to get it, that it is not connected, or the switch that
 // publishes the gateway inside the tailnet with `tailscale serve`.
@@ -1008,6 +1120,11 @@ function NetworkSettings({ api }: { api: Api }) {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<NetworkPending | null>(null);
+  // While the gateway restarts: waiting for it, or it did not come back here in time.
+  const [restarting, setRestarting] = useState<"" | "waiting" | "gone">("");
+  const stopWaiting = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => stopWaiting.current?.(), []);
 
   useEffect(() => {
     let live = true;
@@ -1037,6 +1154,26 @@ function NetworkSettings({ api }: { api: Api }) {
     }
     setPending(null);
     setBusy(false);
+  };
+
+  const restart = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      setView(await restartGateway(api));
+    } catch (e) {
+      setErr(errorMessage(e));
+      setPending(null);
+      setBusy(false);
+      return;
+    }
+    setPending(null);
+    setRestarting("waiting");
+    stopWaiting.current = waitForGateway(() => {
+      stopWaiting.current = null;
+      setRestarting("gone");
+      setBusy(false);
+    });
   };
 
   if (view === null || (view === undefined && !loadErr)) {
@@ -1128,16 +1265,71 @@ function NetworkSettings({ api }: { api: Api }) {
                     {t("Saved. Applies when the gateway restarts")}
                   </div>
                   <div class="text-xs text-[#7a7a8c] mt-0.5">
-                    {tf(
-                      "Running now: {mode} ({listen}). Restart it with motita gateway stop, then motita gateway start.",
-                      {
+                    {choose(
+                      view.can_restart,
+                      tf("Running now: {mode} ({listen}).", {
                         mode: modeLabel(view.active_mode),
                         listen: view.active_listen,
-                      },
+                      }),
+                      tf(
+                        "Running now: {mode} ({listen}). Restart it with motita gateway stop, then motita gateway start.",
+                        {
+                          mode: modeLabel(view.active_mode),
+                          listen: view.active_listen,
+                        },
+                      ),
                     )}
                   </div>
                 </div>
+                {view.can_restart && (
+                  <div class="settings-row-control">
+                    <button
+                      type="button"
+                      class={smallBtn}
+                      disabled={busy || restarting === "waiting"}
+                      aria-expanded={pending?.kind === "restart"}
+                      data-testid="network-restart-now"
+                      onClick={() => {
+                        setErr("");
+                        setRestarting("");
+                        setPending({ kind: "restart" });
+                      }}
+                    >
+                      {t("Restart now")}
+                    </button>
+                  </div>
+                )}
               </div>
+            )}
+            {pending?.kind === "restart" && (
+              <InlineConfirm
+                id="settings-restart-confirm"
+                title={t("Restart the gateway now?")}
+                lines={restartLines()}
+                confirmLabel={t("Restart")}
+                danger={false}
+                busy={busy}
+                onConfirm={() => void restart()}
+                onCancel={() => setPending(null)}
+              />
+            )}
+            {restarting && (
+              <p
+                class={
+                  "settings-card-note text-xs " +
+                  choose(restarting === "gone", "text-danger", "text-warning")
+                }
+                role="status"
+                data-testid="network-restarting"
+              >
+                {choose(
+                  restarting === "gone",
+                  t(
+                    "The gateway did not come back here. If you changed who can reach it, open it from an address that the new setting allows.",
+                  ),
+                  t("Restarting the gateway…"),
+                )}
+              </p>
             )}
             <TailscaleRow
               view={view}
@@ -1169,7 +1361,11 @@ function NetworkSettings({ api }: { api: Api }) {
             )}
             {view.tailscale?.error && (
               <p class="settings-card-note text-xs text-[#7a7a8c]">
-                {tf("Tailscale: {error}", { error: view.tailscale.error })}
+                <NetworkErrorText
+                  text={tf("Tailscale: {error}", {
+                    error: view.tailscale.error,
+                  })}
+                />
               </p>
             )}
           </>
@@ -1180,7 +1376,7 @@ function NetworkSettings({ api }: { api: Api }) {
             role="alert"
             data-testid="network-error"
           >
-            {err}
+            <NetworkErrorText text={err} />
           </p>
         )}
       </div>

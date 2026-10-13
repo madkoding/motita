@@ -799,7 +799,7 @@ const es: Record<string, string> = {
   "Who can connect": "Quién puede conectarse",
   "This machine only": "Solo este equipo",
   "Local network": "Red local",
-  Everywhere: "Desde cualquier lugar",
+  Everywhere: "Cualquier lugar",
   "Custom address": "Dirección personalizada",
   "Safest: only this machine can open Motita (127.0.0.1).":
     "La opción más segura: solo este equipo puede abrir Motita (127.0.0.1).",
@@ -846,6 +846,20 @@ const es: Record<string, string> = {
     "Quien use esos dispositivos igual necesita el token para entrar.",
   Publish: "Publicar",
   "Tailscale: {error}": "Tailscale: {error}",
+  "Running now: {mode} ({listen}).": "Ahora en uso: {mode} ({listen}).",
+  "Restart now": "Reiniciar ahora",
+  "Restart the gateway now?": "¿Reiniciar el gateway ahora?",
+  Restart: "Reiniciar",
+  "The gateway restarts to apply the saved setting.":
+    "El gateway se reinicia para aplicar la configuración guardada.",
+  "Running work is interrupted for a moment; saved sessions resume after the restart.":
+    "El trabajo en curso se interrumpe un momento; las sesiones guardadas se reanudan después del reinicio.",
+  "If the new setting no longer reaches this device (for example, you chose “This machine only” and opened this page from another device), this page will stop working: open it from the gateway's machine.":
+    "Si la nueva configuración ya no llega a este dispositivo (por ejemplo, elegiste “Solo este equipo” y abriste esta página desde otro dispositivo), esta página dejará de funcionar: ábrela desde el equipo del gateway.",
+  "Restarting the gateway…": "Reiniciando el gateway…",
+  "The gateway did not come back here. If you changed who can reach it, open it from an address that the new setting allows.":
+    "El gateway no volvió aquí. Si cambiaste quién puede acceder, ábrelo desde una dirección que la nueva configuración permita.",
+  "Then turn the switch on again.": "Luego vuelve a activar el interruptor.",
 };
 
 export default es;
