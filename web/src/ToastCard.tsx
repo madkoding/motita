@@ -77,7 +77,7 @@ export function ToastCard({ toast }: { toast: Toast }) {
   const { updateInfo, openUpgrade, dismissUpgradeToast } = updates;
   const offersUpgrade = !!updateInfo?.update_available && !!toast.update;
   return (
-    <div class="fixed bottom-6 inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
+    <div class="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
       <div
         class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
         style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, "rgba(239,68,68,0.35)", "rgba(237,181,88,0.35)", "rgba(76,194,255,0.35)")}`}

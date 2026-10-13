@@ -1086,8 +1086,20 @@ div[role="log"]:not(.chat-loading) > * {
   border: 1px solid rgba(76, 194, 255, 0.25);
   border-radius: 3px;
   cursor: pointer;
-  opacity: 0;
   transition: opacity 0.2s;
+}
+/* Hidden until the block is hovered, but only where something CAN hover: a touch screen never
+ * does, and there the button stays visible or copying would be out of reach. Focus shows it
+ * too, so a keyboard reader finds it. */
+@media (hover: hover) {
+  .markdown-body .copy-btn,
+  .markdown-body .copy-msg-btn {
+    opacity: 0;
+  }
+}
+.markdown-body .copy-btn:focus-visible,
+.markdown-body .copy-msg-btn:focus-visible {
+  opacity: 1;
 }
 .markdown-body pre:hover .copy-btn {
   opacity: 1;
@@ -1112,7 +1124,6 @@ div[role="log"]:not(.chat-loading) > * {
   border: 1px solid rgba(76, 194, 255, 0.2);
   border-radius: 3px;
   cursor: pointer;
-  opacity: 0;
   transition: opacity 0.2s;
 }
 .markdown-body .markdown-body-wrap:hover .copy-msg-btn,
@@ -1676,8 +1687,13 @@ button {
     color 0.15s ease-out,
     box-shadow 0.2s ease-out;
 }
-button:not(:disabled):hover {
-  transform: translateY(-1px);
+/* The lift is for a mouse. A touch screen keeps `:hover` on the last button tapped until the
+ * next tap elsewhere, which left it lifted, and a transform makes it a stacking context that
+ * can paint over (and take the taps of) the row's click target. */
+@media (hover: hover) {
+  button:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
 }
 button:not(:disabled):active {
   transform: translateY(0) scale(0.96);
@@ -1902,12 +1918,14 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Row actions (⋯) stay out of the way until the row is hovered. Guarded
- * by `hover: hover` so a touch device, which never hovers, keeps them
- * always visible — hiding them there would make the menu unreachable. */
+/* Row actions (⋯) and a project's "+" stay out of the way until the row is
+ * hovered. Guarded by `hover: hover` so a touch device, which never hovers,
+ * keeps them always visible — hiding them there would make the menu and the
+ * new-session button unreachable. */
 @media (hover: hover) {
   .session-row .row-actions,
-  .project-header .row-actions {
+  .project-header .row-actions,
+  .project-header .project-new-session {
     opacity: 0;
     transition: opacity 0.15s ease-out;
   }
@@ -1915,8 +1933,14 @@ button:disabled {
   .session-row:focus-within .row-actions,
   .project-header:hover .row-actions,
   .project-header:focus-within .row-actions,
-  .row-actions.row-actions-open {
+  .row-actions.row-actions-open,
+  .project-header:hover .project-new-session,
+  .project-header:focus-within .project-new-session {
     opacity: 1;
+  }
+  /* While the session is being created the spinner shows, hovered or not. */
+  .project-header .project-new-session:disabled {
+    opacity: 0.6;
   }
 }
 
@@ -3407,4 +3431,68 @@ fieldset.approval-panel {
 .mode-chip-switch:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ─── Phones and touch screens ───────────────────────────────────────
+ * The desktop layout is untouched: everything below is either keyed to a touch pointer or to
+ * the phone breakpoint (Tailwind's `md`, 768px, the one the sidebar already switches at), or it
+ * resolves to nothing on a screen without a notch or an on-screen keyboard.
+ *
+ * The shell is the height the reader can SEE: `--app-h` is the visual viewport, kept by
+ * useVisualViewport (viewport.ts), because iOS does not shrink `100dvh` for the keyboard and the
+ * composer ended up behind it. `viewport-fit=cover` lets the page run under the notch and the
+ * home indicator, so the shell pads itself by the safe area; while the keyboard is up the
+ * bottom inset is the keyboard's, not the home indicator's, and is dropped. */
+.app-shell {
+  height: 100dvh;
+  height: var(--app-h, 100dvh);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+html[data-keyboard="open"] .app-shell {
+  padding-bottom: 0;
+}
+@media (max-width: 767px) {
+  /* The sidebar is `fixed` here, outside the shell's padding, so it keeps clear of the notch
+   * and the home indicator itself. */
+  .sidebar {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+}
+
+/* A finger needs a 44px target (Apple HIG, WCAG 2.5.5). Only where the primary pointer IS a
+ * finger, so a desktop keeps its compact controls. `.row-hit` is excluded because it already
+ * covers its whole row, and the drawer tab is sized on its own below. Icon-only buttons (the
+ * ones named by an aria-label or a title) get the width too; a text button is wide enough. */
+@media (pointer: coarse) {
+  button:not(.row-hit):not(.term-tab),
+  select,
+  summary,
+  [role="button"] {
+    min-height: 44px;
+  }
+  button:is([aria-label], [title]):not(.row-hit):not(.term-tab),
+  .term-close,
+  .cp-btn,
+  .markdown-body .copy-btn,
+  .markdown-body .copy-msg-btn {
+    min-width: 44px;
+  }
+  .term-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* The drawer tabs grow to 44px wide. The conversation's 46px right gutter already leaves
+   * room for them. */
+  .term-tab {
+    left: -44px;
+    width: 44px;
+  }
+  /* Under 16px iOS zooms the page into a field when it is focused, and leaves it zoomed. */
+  :root :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    font-size: 16px;
+  }
 }

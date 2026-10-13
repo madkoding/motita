@@ -18,6 +18,7 @@ import {
 } from "./icons";
 import type { LangSetting } from "./i18n";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
+import { closesOnPhone, isPhone } from "./viewport";
 
 // The look of the buttons at the bottom of the sidebar.
 const FOOT_BUTTON =
@@ -217,7 +218,14 @@ export function Sidebar() {
     <>
       {/* Mobile overlay: click to close the sidebar. */}
       <div ref={overlay} class="fixed inset-0 bg-black/50 z-20 md:hidden" />
-      <aside class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 z-30 flex flex-col border-r border-white/5">
+      <aside
+        class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 max-w-[85vw] z-30 flex flex-col border-r border-white/5"
+        onClick={(e) => {
+          if (isPhone() && closesOnPhone(e.target)) {
+            lists.closeSidebar();
+          }
+        }}
+      >
         <SidebarHeader />
         <NewButtons />
         <SessionList />
