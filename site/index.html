@@ -2236,12 +2236,9 @@
             It gets it wrong. Then it <em>proves</em> it got it right.
           </h2>
           <p class="sub">
-            Every agent makes mistakes. The difference is who notices. Here
-            motita adds a
-            <code>--json</code> flag to a small CLI — its first try doesn't
-            compile, <strong>the real check catches it</strong>, the exact error
-            goes back, and the second try passes. Nobody had to read a line of
-            code to know.
+            motita adds a <code>--json</code> flag to a small CLI. The first try
+            doesn't compile, <strong>the real check catches it</strong>, and the
+            second try passes.
           </p>
 
           <div class="replay" data-reveal>
@@ -2577,7 +2574,15 @@
             Describe the outcome. motita works out the steps, runs them, and
             keeps going until your project's own check agrees.
           </p>
-          <div class="cards">
+          <div
+            class="cards"
+            style="
+              grid-template-columns: repeat(
+                auto-fit,
+                minmax(min(100%, 320px), 1fr)
+              );
+            "
+          >
             <div class="card" data-reveal style="--d: 0s">
               <span class="ic"
                 ><svg
@@ -2620,27 +2625,6 @@
               </p>
               <span class="ex">add a --verbose flag and a test for it</span>
             </div>
-            <div class="card" data-reveal style="--d: 0.12s">
-              <span class="ic"
-                ><svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  aria-hidden="true"
-                >
-                  <circle cx="11" cy="11" r="6" />
-                  <path d="M20 20l-4.5-4.5" /></svg
-              ></span>
-              <h3>Ask before you change</h3>
-              <p>
-                Plan mode is read-only by construction: explore a codebase, ask
-                how something works — nothing on disk can change.
-              </p>
-              <span class="ex">Tab → where is the session token renewed?</span>
-            </div>
             <div class="card" data-reveal style="--d: 0.18s">
               <span class="ic"
                 ><svg
@@ -2661,30 +2645,6 @@
                 undo — any of them later.
               </p>
               <span class="ex">/goal migrate the config loader to YAML</span>
-            </div>
-            <div class="card" data-reveal style="--d: 0s">
-              <span class="ic"
-                ><svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  aria-hidden="true"
-                >
-                  <circle cx="6" cy="6" r="2.5" />
-                  <circle cx="6" cy="18" r="2.5" />
-                  <circle cx="18" cy="12" r="2.5" />
-                  <path d="M6 8.5v7M8.3 7l7.4 4M8.3 17l7.4-4" /></svg
-              ></span>
-              <h3>Split big jobs in parallel</h3>
-              <p>
-                It can start its own helpers for independent pieces — tests,
-                docs, an investigation — each on its own git branch, while it
-                keeps going.
-              </p>
-              <span class="ex">3 agents · 48.2k tokens · live</span>
             </div>
             <div class="card" data-reveal style="--d: 0.06s">
               <span class="ic"
@@ -2854,11 +2814,10 @@
               <span class="k">Layer B · reasoning</span>
               <h3>Any provider, one client</h3>
               <p>
-                A hand-written client for OpenAI (chat and Responses),
-                Anthropic, Gemini, Copilot, Qwen and Ollama — and your Claude
-                subscription through the official Claude Code CLI. Replies are
-                held to a schema where the provider can enforce one, and every
-                token is counted per agent.
+                One hand-written client for every
+                <a href="#providers">provider</a>. Replies are held to a schema
+                where the provider can enforce one, and every token is counted
+                per agent.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.16s">
@@ -3128,12 +3087,6 @@ Agents  1 running · 48.2k tok
               so the next attempt fixes the actual problem instead of re-rolling
               the dice.
             </li>
-            <li>
-              <strong>Long tasks without wasted rounds:</strong> files are
-              written exactly as they are, replies are held to a schema, and a
-              toolchain installed once is on <code>PATH</code> in every later
-              session.
-            </li>
           </ul>
         </div>
       </section>
@@ -3182,53 +3135,10 @@ motita -p "how many files are there?"</code></pre>
               </p>
             </div>
           </div>
-          <details class="more" data-reveal>
-            <summary>The gateway, configuration and exit codes</summary>
-            <div class="run" style="margin-top: var(--space-4)">
-              <div>
-                <h3>The gateway</h3>
-                <pre><code><span class="c"># in the background, outliving the shell that started it</span>
-motita gateway start
-motita gateway status
-motita gateway stop
-
-<span class="c"># foreground, gateway only: no interface, for remote clients</span>
-motita -serve -gateway 127.0.0.1:7477</code></pre>
-                <p class="hint">
-                  <code>gateway start</code> prints the token once and the
-                  addresses to open, such as <code>http://127.0.0.1:7477</code>.
-                  The same port serves the page and its
-                  <code>/v1/...</code> API, so there is no CORS and no second
-                  server. <code>gateway.allow</code> says who may reach it.
-                </p>
-              </div>
-              <div>
-                <h3>Configuration</h3>
-                <pre><code><span class="c"># -config names a file; without it: ~/.motita/motita.yaml,</span>
-<span class="c"># then ./motita.yaml, then the built-in defaults</span>
-motita -config configs/agent.yaml.example
-
-<span class="c"># check a file without running anything</span>
-motita -validate-config
-
-<span class="c"># the sandbox limits this machine can apply</span>
-motita -isolation</code></pre>
-                <p class="hint">
-                  Every setting also takes a <code>MOTITA_*</code> environment
-                  override. A pasted key goes to
-                  <code>~/.motita/motita.env</code> and a login to
-                  <code>~/.motita/auth/&lt;provider&gt;.json</code>, both
-                  <code>0600</code> — so the config can be committed and shared.
-                </p>
-              </div>
-              <div>
-                <h3>Your exit code means something</h3>
-                <pre><code><span class="g">0</span>  every task passed its check
-<span class="y">1</span>  a task failed — with the reason in the message itself
-<span class="y">2</span>  bad configuration</code></pre>
-              </div>
-            </div>
-          </details>
+          <p class="hint" data-reveal>
+            The gateway, every setting and the exit codes are in the
+            <a href="REFERENCE.md">reference</a>.
+          </p>
         </div>
       </section>
 
