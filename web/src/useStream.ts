@@ -292,14 +292,15 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     finish();
   };
 
-  // submit sends a task and reads the SSE response.
+  // submit sends a task and reads the SSE response. `shown`, when given, is what the
+  // conversation draws for the task instead of its text.
   const submit = useCallback(
-    async (text: string, endpoint?: string) => {
+    async (text: string, endpoint?: string, shown?: string) => {
       const sid = sessionRef.current;
       const link = openLink(linkRef, sid);
       rs.setMessages((prev) => [
         ...prev,
-        { id: rs.nextId(), role: "user", text },
+        { id: rs.nextId(), role: "user", text, shown },
       ]);
       rs.setLiveThought(null);
       // A new run numbers its events from 1 again: a cursor left over from the last one would

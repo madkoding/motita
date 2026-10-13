@@ -197,6 +197,7 @@ function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
         id: rs.nextId(),
         role: "agent",
         text: result,
+        turn: rs.liveTurnRef.current ?? undefined,
         changes: payload.changes,
         artifacts: choose(
           Array.isArray(payload.artifacts) && payload.artifacts.length,

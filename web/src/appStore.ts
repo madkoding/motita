@@ -16,6 +16,7 @@ import { useSessionActions } from "./useSessionActions";
 import { useDeletion } from "./useDeletion";
 import { useDrawers } from "./useDrawers";
 import { useStream } from "./useStream";
+import { useSuggestions } from "./useSuggestions";
 import { useShellApproval } from "./useShellApproval";
 import { useComposer } from "./useComposer";
 import { useCheckpoints } from "./useCheckpoints";
@@ -80,6 +81,7 @@ export function useAppStore(api: Api) {
     setToast,
   });
   const stream = useStream({ api, rs, lists, conv, setState, setToast });
+  const { answerSuggestions } = useSuggestions(api, rs, stream);
   const composer = useComposer({
     rs,
     drawers,
@@ -128,6 +130,7 @@ export function useAppStore(api: Api) {
     drawers,
     shell,
     stream,
+    answerSuggestions,
     composer,
     checkpoints,
     auth,

@@ -207,6 +207,14 @@
   opacity: 0.5;
   cursor: default;
 }
+/* The button that was pressed: it stays, marked, so the card says what was chosen. */
+.rpt-suggest-actions button.picked,
+.rpt-suggest-actions button.picked:disabled {
+  opacity: 1;
+  border-color: #4cc2ff;
+  background: rgba(76, 194, 255, 0.18);
+  font-weight: 600;
+}
 
 /* Evidence: the before and after screenshots, side by side. Two columns while there is room, one
  * under the other on a narrow screen; each image keeps its own proportions. */

@@ -250,7 +250,7 @@ export function TurnHead({
   return (
     <div class="turn-head">
       <div class="msg user" data-who={t("You")}>
-        <span>{head.text}</span>
+        <span>{head.shown ?? head.text}</span>
       </div>
       {liveHere && <RunMenu />}
       {canGoBack && <CheckpointMenu turn={turn} />}

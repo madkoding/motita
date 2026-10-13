@@ -70,6 +70,22 @@ type checkpoint struct {
 	Steps []stepRecord `json:"steps"`
 	// Outcome is how the turn ended, as the stream reported it; nil until it ends.
 	Outcome *turnOutcome `json:"outcome,omitempty"`
+	// Answers are how the user answered the suggestions of this turn's report; nil until they do.
+	Answers *suggestionAnswers `json:"answers,omitempty"`
+}
+
+// suggestionAnswers is the user's answer to a report's suggestions, kept with the turn so the
+// card draws the buttons that were pressed, and not fresh ones, when the conversation is opened
+// again. Like the outcome it is set once and never changed, so it can be shared.
+type suggestionAnswers struct {
+	// Picks is the button pressed on each suggestion: "this", "rest" or "none", or "" on one
+	// that was settled by the answer to an earlier one.
+	Picks []string `json:"picks"`
+	// Verdicts is what was decided for each one: "apply" or "skip".
+	Verdicts []string `json:"verdicts"`
+	// Request is the turn sent to apply the accepted ones, "" when none was. It is how the
+	// client recognises that turn and shows it as "Applying suggestions" instead of the prompt.
+	Request string `json:"request,omitempty"`
 }
 
 // turnOutcome is the end of a turn as the live view drew it: the answer, its report, the
@@ -90,13 +106,14 @@ type turnOutcome struct {
 
 // checkpointView is the checkpoint as a client sees it: the anchors are the gateway's business.
 type checkpointView struct {
-	Turn    int          `json:"turn"`
-	Task    string       `json:"task"`
-	Kind    string       `json:"kind"`
-	Created time.Time    `json:"created"`
-	Files   bool         `json:"files"`
-	Steps   []stepRecord `json:"steps"`
-	Outcome *turnOutcome `json:"outcome,omitempty"`
+	Turn    int                `json:"turn"`
+	Task    string             `json:"task"`
+	Kind    string             `json:"kind"`
+	Created time.Time          `json:"created"`
+	Files   bool               `json:"files"`
+	Steps   []stepRecord       `json:"steps"`
+	Outcome *turnOutcome       `json:"outcome,omitempty"`
+	Answers *suggestionAnswers `json:"answers,omitempty"`
 }
 
 // checkpointRef names the git reference that keeps a turn's snapshot alive.
@@ -234,6 +251,7 @@ func (c *conversation) checkpointViews() []checkpointView {
 		out = append(out, checkpointView{
 			Turn: cp.Turn, Task: cp.Task, Kind: cp.Kind, Created: cp.Created,
 			Files: cp.Snap != "", Steps: append([]stepRecord{}, cp.Steps...), Outcome: cp.Outcome,
+			Answers: cp.Answers,
 		})
 	}
 	return out

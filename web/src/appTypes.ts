@@ -1,6 +1,7 @@
 // The shapes the web interface reads from the gateway and keeps in its own state.
 import type { TaskReport } from "./Report";
 import type { PRWatch, ToastType } from "./prApi";
+import type { SuggestionAnswers } from "./proposals";
 import type { SelfHosted } from "./GitConnect";
 
 export interface Message {
@@ -15,8 +16,14 @@ export interface Message {
   // artifacts are the files this run saved for the person, offered under the answer.
   artifacts?: { name: string; type: string; size: number }[];
   // turn, on a message of the user's, is the checkpoint that input became: the number the
-  // gateway knows it by. It is unset until the gateway has said which one it is.
+  // gateway knows it by. It is unset until the gateway has said which one it is. On an answer it
+  // is the turn that answer ended.
   turn?: number;
+  // shown, on a message of the user's, is what is drawn instead of the text sent: the turn that
+  // applies accepted suggestions reads "Applying suggestions", not the prompt it carries.
+  shown?: string;
+  // answers, on an answer with suggestions, is how they were answered.
+  answers?: SuggestionAnswers;
 }
 
 export interface ChangeReport {

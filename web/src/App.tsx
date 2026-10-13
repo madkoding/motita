@@ -9,6 +9,7 @@ import {
 import { Markdown } from "./Markdown";
 import { Lightbox } from "./Lightbox";
 import { ReportCard } from "./Report";
+import type { SuggestionAnswers } from "./proposals";
 import "./report.css";
 import { copyText } from "./clipboard";
 import { t, tf, useLang } from "./i18n";
@@ -794,22 +795,25 @@ function groupsOf(messages: Message[]): Group[] {
 // MessageBody is an answer of the agent (a report card or Markdown), or any other line as text.
 function MessageBody({ m }: { m: Message }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
-  const { stream, rs } = useApp();
+  const { rs, answerSuggestions } = useApp();
   if (m.role !== "agent" || m.kind) {
-    return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
+    return (
+      <span>{m.shown ?? choose(m.kind === "kind", t(m.text), m.text)}</span>
+    );
   }
   if (m.report) {
     // The suggestions of a report are answered only while nothing runs: applying them is a turn.
-    const onApply = choose(
+    const onAnswer = choose(
       rs.running,
       undefined,
-      (request: string) => void stream.submit(request),
+      (a: SuggestionAnswers) => void answerSuggestions(m, a),
     );
     return (
       <ReportCard
         report={m.report}
         loadImage={loadEvidenceImage}
-        onApply={onApply}
+        answers={m.answers}
+        onAnswer={onAnswer}
       />
     );
   }

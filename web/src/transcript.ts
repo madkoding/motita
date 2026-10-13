@@ -1,6 +1,8 @@
 // A conversation as it is drawn again when it is opened: the gateway's transcript, with each
 // turn's answer as the live view showed it.
 import { choose } from "./choose";
+import { t } from "./i18n";
+import { isApplying, type SuggestionAnswers } from "./proposals";
 import { hasReport, type TaskReport } from "./Report";
 import type { ChangeReport, Message, StepView } from "./appTypes";
 
@@ -19,6 +21,8 @@ export interface Checkpoint {
   files: boolean;
   steps: StepView[];
   outcome?: TurnOutcome;
+  // answers are how the suggestions of this turn's report were answered.
+  answers?: SuggestionAnswers;
 }
 
 export interface TranscriptTurn {
@@ -30,10 +34,18 @@ export interface TranscriptTurn {
 // files it changed and its artifacts. The transcript only keeps the agent's one-line account of
 // a task, which is what the model reads back; drawing that instead is how a conversation opened
 // again came back shorter than it was.
-function answerOf(id: number, said: string, out: TurnOutcome): Message {
+function answerOf(
+  id: number,
+  said: string,
+  out: TurnOutcome,
+  turn?: number,
+  answers?: SuggestionAnswers,
+): Message {
   return {
     id,
     role: "agent",
+    turn,
+    answers,
     text: out.result || said,
     changes: choose(!!out.files?.length, { files: out.files }, undefined),
     report: choose(hasReport(out.report), out.report, undefined),
@@ -47,9 +59,10 @@ function agentMessages(
   said: string | undefined,
   out: TurnOutcome | undefined,
   nextId: () => number,
+  cp?: Checkpoint,
 ): Message[] {
   if (out?.result) {
-    return [answerOf(nextId(), said ?? "", out)];
+    return [answerOf(nextId(), said ?? "", out, cp?.turn, cp?.answers)];
   }
   const msgs: Message[] = [];
   if (said) {
@@ -68,21 +81,27 @@ export function transcriptMessages(
   cps: Checkpoint[],
   nextId: () => number,
 ): Message[] {
-  const outcomes = new Map<number, TurnOutcome>();
+  const byTurn = new Map<number, Checkpoint>();
   for (const cp of cps) {
-    if (cp.outcome) {
-      outcomes.set(cp.turn, cp.outcome);
-    }
+    byTurn.set(cp.turn, cp);
   }
   const out: Message[] = [];
   for (const [i, m] of turns.entries()) {
     if (m.User) {
-      out.push({ id: nextId(), role: "user", text: m.User, turn: i });
+      // The turn that applies the suggestions answered on the turn before it is drawn by name:
+      // the prompt it carries is for the agent, not for the reader.
+      const shown = choose(
+        isApplying(byTurn.get(i - 1)?.answers, m.User),
+        t("Applying suggestions"),
+        undefined,
+      );
+      out.push({ id: nextId(), role: "user", text: m.User, turn: i, shown });
     }
     // A turn still open carries what the run had done before it was cut. The stream only
     // brings what happens FROM NOW ON, so this is the one place the reader can see where
     // it got to - it is drawn whether or not the run is live.
-    out.push(...agentMessages(m.Agent, outcomes.get(i), nextId));
+    const cp = byTurn.get(i);
+    out.push(...agentMessages(m.Agent, cp?.outcome, nextId, cp));
   }
   // A run that failed before it left a turn still has its checkpoint: the input and why it
   // stopped are what the reader saw, so they are drawn after the turns.

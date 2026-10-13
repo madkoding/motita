@@ -31,6 +31,8 @@ var esTUI = map[string]string{
 	"Apply this one and the following": "Aplicar esta y las siguientes",
 	"Apply none":                       "No aplicar ninguna",
 	"About your other suggestions:":    "Sobre tus otras sugerencias:",
+	"Applying suggestions":             "Aplicando sugerencias",
+	"No suggestions applied:":          "No se aplicó ninguna sugerencia:",
 	"Apply these suggestions you made, and nothing else:": "Aplica estas sugerencias que hiciste, y nada " +
 		"más:",
 

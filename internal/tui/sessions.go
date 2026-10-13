@@ -194,7 +194,7 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 	t.draw.Lock()
 	for _, turn := range turns {
 		if turn.User != "" {
-			t.messages = append(t.messages, Message{Author: AuthorUser, Text: turn.User})
+			t.messages = append(t.messages, Message{Author: AuthorUser, Text: t.shownTurn(turn.User)})
 		}
 		if turn.Agent != "" {
 			t.messages = append(t.messages, Message{Author: AuthorAgent, Text: turn.Agent})
