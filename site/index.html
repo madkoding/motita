@@ -3780,7 +3780,14 @@ motita -p "how many files are there?"</code></pre>
               return r.ok ? r.json() : null;
             })
             .then(function (rel) {
-              var latest = semver(rel && rel.tag_name);
+              // The release exists before ci.yml uploads its binaries, so a version
+              // is shown only once SHA256SUMS is among its assets.
+              var ready = (rel && rel.assets ? rel.assets : []).some(
+                function (a) {
+                  return a.name === "SHA256SUMS";
+                },
+              );
+              var latest = ready ? semver(rel.tag_name) : null;
               var shown = semver(stamp.textContent.trim());
               if (latest && (!shown || newer(latest, shown))) {
                 stamp.textContent = rel.tag_name;

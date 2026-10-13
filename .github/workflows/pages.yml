@@ -28,20 +28,18 @@ on:
   # query string still reported `x-cache: MISS` and `last-modified` at the merge
   # deploy's timestamp.
   #
-  # Deploying only on tags removes the race by removing the second contender: a
-  # release is the moment the version is known, and the page publishes with it.
-  # Editing site/ on main no longer publishes by itself - run this workflow from
-  # the Actions tab when the page must go live between releases, which is one
-  # click and is deliberate rather than accidental.
+  # Deploying only on releases removes the race by removing the second
+  # contender: a release is the moment the version is known, and the page
+  # publishes with it. Editing site/ on main no longer publishes by itself - run
+  # this workflow from the Actions tab when the page must go live between
+  # releases, which is one click and is deliberate rather than accidental.
   #
-  # NESTED under push, not a sibling of it. `on.tags` is not a trigger GitHub
-  # knows, and an unrecognised key there does not warn - the whole workflow
-  # fails instantly with "workflow file issue", no job, no log. That is exactly
-  # how this was first written, and the pages run on main was green right up
-  # until the branch that carried it.
-  push:
-    tags:
-      - "v*"
+  # NOT on the tag push itself: ci.yml calls this workflow (workflow_call) after
+  # its `release` job has uploaded the binaries, SHA256SUMS and signature. A
+  # deploy triggered by the tag ran in parallel with the build, so the page
+  # advertised a version whose binaries did not exist yet and the one-line
+  # installer failed for anyone who followed it in that window.
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -56,14 +54,16 @@ permissions:
 # on v1.14.0 through v1.21.0. Cancelling is safe because deploy-pages switches
 # the site atomically: a cancelled run leaves the previous deploy live, and the
 # newer run publishes a site that is a superset of the older one.
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
+#
+# Job-level, not workflow-level: this workflow also runs as a called workflow
+# inside ci.yml, and the group must stay the same for both callers.
 jobs:
   deploy:
     name: publish site
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
