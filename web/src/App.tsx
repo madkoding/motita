@@ -335,6 +335,8 @@ function ImagePreview() {
 
 // NoSession is the chat when there is no conversation: none was created yet, or every one was
 // deleted. Nothing is created behind the user's back; the chat waits, and says how to start one.
+// The words sit on an opaque card (.no-session-card in index.css): straight on the background
+// image they fell on its bright patches and could not be read.
 function NoSession() {
   const { actions } = useApp();
   const { createSession } = actions;
@@ -345,16 +347,18 @@ function NoSession() {
       aria-live="polite"
       data-no-session="1"
     >
-      <p class="text-base font-semibold">{t("Waiting for a new session")}</p>
-      <p class="text-sm text-[#9a9aaa] max-w-sm">
-        {t("Create a session to start talking to the agent.")}
-      </p>
-      <div class="w-full max-w-[220px] flex">
-        <NewSessionButton
-          loading={actions.creatingSession === ""}
-          onClick={newSession}
-          label={t(NEW_SESSION_TITLE)}
-        />
+      <div class="no-session-card w-full max-w-sm flex flex-col items-center gap-4 px-6 py-6">
+        <p class="no-session-title text-base font-semibold">{t("Waiting for a new session")}</p>
+        <p class="no-session-hint text-sm">
+          {t("Create a session to start talking to the agent.")}
+        </p>
+        <div class="w-full max-w-[220px] flex">
+          <NewSessionButton
+            loading={actions.creatingSession === ""}
+            onClick={newSession}
+            label={t(NEW_SESSION_TITLE)}
+          />
+        </div>
       </div>
     </main>
   );

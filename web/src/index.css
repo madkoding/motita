@@ -189,6 +189,23 @@ body {
   background: transparent;
 }
 
+/* The "waiting for a new session" state. It used to sit straight on the background image, whose
+ * bright patches (the lamp, the bed) left the grey hint and even the title unreadable. The card is
+ * OPAQUE so the contrast does not depend on what part of the image is behind it: title 17:1, hint
+ * 11:1 and the accent button text over its 10% tint 8:1, all above WCAG AA (4.5:1). Pinned by
+ * nosession.test.mjs. */
+.no-session-card {
+  color: #f2f2f5;
+  background-color: #101018;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
+  border-radius: var(--radius-cut);
+}
+.no-session-card .no-session-hint {
+  color: #c8c8d4;
+  background-color: #101018;
+}
+
 /* The frosted glass panels and the sidebar are styled in the cyberpunk layer below, with their
  * borders. */
 
