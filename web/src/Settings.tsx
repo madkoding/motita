@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { useDialog } from "./useDialog";
@@ -167,6 +167,14 @@ function VoiceSettings({
   prefs,
   setPrefs,
 }: VoiceSettingsProps) {
+  const setMic = useCallback(
+    (mic: boolean) => setPrefs({ ...prefs, mic }),
+    [prefs, setPrefs],
+  );
+  const setListen = useCallback(
+    (listen: boolean) => setPrefs({ ...prefs, listen }),
+    [prefs, setPrefs],
+  );
   return (
     <section class="settings-group" aria-labelledby="settings-voice-h">
       <h3 id="settings-voice-h" class="settings-group-title">
@@ -190,7 +198,7 @@ function VoiceSettings({
             id="settings-mic"
             usable={state === "ready"}
             checked={prefs.mic}
-            onChange={(mic) => setPrefs({ ...prefs, mic })}
+            onChange={setMic}
           />
         </Row>
         <Row
@@ -211,7 +219,7 @@ function VoiceSettings({
             id="settings-listen"
             usable={hands === "ready"}
             checked={prefs.listen}
-            onChange={(listen) => setPrefs({ ...prefs, listen })}
+            onChange={setListen}
           />
         </Row>
       </div>
@@ -291,9 +299,11 @@ export function unblockSteps(
   }
   if (platform === "chrome" || platform === "edge") {
     return [
-      installed
-        ? t("Open the app's menu (⋮ or ⋯ at the top), then App info.")
-        : t("Click the icon to the left of the address."),
+      choose(
+        installed,
+        t("Open the app's menu (⋮ or ⋯ at the top), then App info."),
+        t("Click the icon to the left of the address."),
+      ),
       t("Set Notifications to Allow (or press Reset permission)."),
       t("Reload the page."),
     ];
@@ -410,6 +420,14 @@ function GeneralSettings({
     setS(next);
     saveSettings(next);
   };
+  const setFontSize = useCallback(
+    (fontSize: FontSize) => update({ ...s, fontSize }),
+    [s],
+  );
+  const setDensity = useCallback(
+    (density: Density) => update({ ...s, density }),
+    [s],
+  );
   return (
     <>
       <section class="settings-group" aria-labelledby="settings-look-h">
@@ -437,7 +455,7 @@ function GeneralSettings({
               name="settings-font"
               labelledBy="settings-font"
               value={s.fontSize}
-              onChange={(fontSize) => update({ ...s, fontSize })}
+              onChange={setFontSize}
               options={[
                 { value: "small", label: t("Small") },
                 { value: "normal", label: t("Normal") },
@@ -450,7 +468,7 @@ function GeneralSettings({
               name="settings-density"
               labelledBy="settings-density"
               value={s.density}
-              onChange={(density) => update({ ...s, density })}
+              onChange={setDensity}
               options={[
                 { value: "comfortable", label: t("Comfortable") },
                 { value: "compact", label: t("Compact") },
@@ -495,17 +513,13 @@ function CiToastSetting() {
   );
 }
 
-// NotifySetting is the desktop notifications for a CI that ends: a button that asks the browser while it has not been asked,
-// the steps to allow them again once refused, and the user's own on/off switch once allowed.
-function NotifySetting() {
-  const [notifyOn, setNotifyOn] = useState(() => loadNotify());
-  // The browser's answer is read on every render: it can change in the browser's own settings
-  // while this is open, so a permission change and coming back to the tab both draw it again.
+// usePermissionRedraw redraws the component whenever the browser's notification permission may
+// have changed: it can change in the browser's own settings while this is open, so a permission
+// change and coming back to the tab both draw it again. It returns the function that redraws.
+function usePermissionRedraw(): () => void {
   const [, bump] = useState(0);
-  const [asked, setAsked] = useState(false);
-  const [tested, setTested] = useState<string | undefined>();
+  const again = useCallback(() => bump((n) => n + 1), []);
   useEffect(() => {
-    const again = () => bump((n) => n + 1);
     window.addEventListener("focus", again);
     document.addEventListener("visibilitychange", again);
     let status: PermissionStatus | undefined;
@@ -523,7 +537,112 @@ function NotifySetting() {
       document.removeEventListener("visibilitychange", again);
       status?.removeEventListener("change", again);
     };
-  }, []);
+  }, [again]);
+  return again;
+}
+
+// requestNotify asks the browser for the permission. It resolves to undefined where the browser
+// gives no promise back: Safari before 15 only takes a callback, and the focus listener redraws.
+// A call that throws becomes a rejected promise.
+function requestNotify(): Promise<NotificationPermission | undefined> {
+  return Promise.resolve().then(
+    () =>
+      Notification.requestPermission() as
+        | Promise<NotificationPermission>
+        | undefined,
+  );
+}
+
+// NotifyControl is the control of the notifications row for the state the browser is in: a
+// button that asks, one that reads a refused permission again, or the user's own switch.
+function NotifyControl({
+  ns,
+  onAsk,
+  onRecheck,
+  onSwitch,
+}: {
+  ns: NotifyState;
+  onAsk: () => void;
+  onRecheck: () => void;
+  onSwitch: (on: boolean) => void;
+}) {
+  if (ns === "ask") {
+    return (
+      <button type="button" class={smallBtn} onClick={onAsk}>
+        {t("Allow notifications")}
+      </button>
+    );
+  }
+  if (ns === "blocked") {
+    return (
+      <button type="button" class={smallBtn} onClick={onRecheck}>
+        {t("Check again")}
+      </button>
+    );
+  }
+  if (ns !== "on" && ns !== "off") {
+    return null;
+  }
+  return (
+    <label class="settings-switch-hit">
+      <input
+        type="checkbox"
+        role="switch"
+        class="settings-switch"
+        aria-labelledby="settings-notify"
+        checked={ns === "on"}
+        onChange={(e) => onSwitch((e.target as HTMLInputElement).checked)}
+      />
+    </label>
+  );
+}
+
+// NotifyTestRow shows one notification on demand, to check that they arrive. The outcome lives in
+// NotifySetting, so it outlasts the switch going off and on.
+function NotifyTestRow({
+  tested,
+  setTested,
+}: {
+  tested: string | undefined;
+  setTested: (outcome: string) => void;
+}) {
+  const send = () => {
+    void showNotification(t("Motita notifications work"), {
+      body: t("This is how a CI that ends will look."),
+      tag: "motita-test",
+    }).then((ok) =>
+      setTested(
+        choose(
+          ok,
+          t(
+            "Sent. If nothing showed up, check the system's do-not-disturb mode.",
+          ),
+          t("The browser did not show it."),
+        ),
+      ),
+    );
+  };
+  return (
+    <Row
+      id="settings-notify-test"
+      label={t("Test notification")}
+      hint={tested ?? t("Shows one now, to check that they arrive.")}
+    >
+      <button type="button" class={smallBtn} onClick={send}>
+        {t("Send")}
+      </button>
+    </Row>
+  );
+}
+
+// NotifySetting is the desktop notifications for a CI that ends: a button that asks the browser while it has not been asked,
+// the steps to allow them again once refused, and the user's own on/off switch once allowed.
+function NotifySetting() {
+  const [notifyOn, setNotifyOn] = useState(() => loadNotify());
+  // The browser's answer is read on every render (see usePermissionRedraw).
+  const redraw = usePermissionRedraw();
+  const [asked, setAsked] = useState(false);
+  const [tested, setTested] = useState<string | undefined>();
   const permission = readPermission();
   const secure =
     typeof window === "undefined" || window.isSecureContext !== false;
@@ -534,29 +653,30 @@ function NotifySetting() {
   );
   // A browser that quietly ignored the request (Chrome after a few dismissals) leaves it at
   // "default": the steps are the only way left then too.
-  const showSteps = ns === "blocked" || (ns === "ask" && asked);
-  const ask = () => {
-    let p: Promise<NotificationPermission> | undefined;
-    try {
-      p = Notification.requestPermission();
-    } catch {
-      /* Safari before 15 only takes a callback; the focus listener redraws */
-    }
-    void p
-      ?.then((r) => {
+  const ignored = ns === "ask" && asked;
+  const showSteps = ns === "blocked" || ignored;
+  // Handed to NotifyControl, so they keep their identity between renders.
+  const turn = useCallback((on: boolean) => {
+    setNotifyOn(on);
+    saveNotify(on);
+  }, []);
+  const ask = useCallback(() => {
+    requestNotify()
+      .then((r) => {
         if (r === "granted") {
-          setNotifyOn(true);
-          saveNotify(true);
+          turn(true);
         }
+        // No promise back: the answer comes through the focus listener alone.
+        return r !== undefined;
       })
-      .catch(() => {
-        /* ignore */
-      })
-      .finally(() => {
-        setAsked(true);
-        bump((n) => n + 1);
+      .catch(() => true)
+      .then((answered) => {
+        if (answered) {
+          setAsked(true);
+          redraw();
+        }
       });
-  };
+  }, [turn, redraw]);
   return (
     <section class="settings-group" aria-labelledby="settings-notify-h">
       <h3 id="settings-notify-h" class="settings-group-title">
@@ -577,71 +697,20 @@ function NotifySetting() {
               />
             )
           }
-          hint={
-            ns === "ask" && asked
-              ? t("The browser did not ask. To allow them by hand:")
-              : notifyHint(ns, platform)
-          }
+          hint={choose(
+            ignored,
+            t("The browser did not ask. To allow them by hand:"),
+            notifyHint(ns, platform),
+          )}
         >
-          {ns === "ask" && (
-            <button type="button" class={smallBtn} onClick={ask}>
-              {t("Allow notifications")}
-            </button>
-          )}
-          {ns === "blocked" && (
-            <button
-              type="button"
-              class={smallBtn}
-              onClick={() => bump((n) => n + 1)}
-            >
-              {t("Check again")}
-            </button>
-          )}
-          {(ns === "on" || ns === "off") && (
-            <label class="settings-switch-hit">
-              <input
-                type="checkbox"
-                role="switch"
-                class="settings-switch"
-                aria-labelledby="settings-notify"
-                checked={ns === "on"}
-                onChange={(e) => {
-                  const v = (e.target as HTMLInputElement).checked;
-                  setNotifyOn(v);
-                  saveNotify(v);
-                }}
-              />
-            </label>
-          )}
+          <NotifyControl
+            ns={ns}
+            onAsk={ask}
+            onRecheck={redraw}
+            onSwitch={turn}
+          />
         </Row>
-        {ns === "on" && (
-          <Row
-            id="settings-notify-test"
-            label={t("Test notification")}
-            hint={tested ?? t("Shows one now, to check that they arrive.")}
-          >
-            <button
-              type="button"
-              class={smallBtn}
-              onClick={() => {
-                void showNotification(t("Motita notifications work"), {
-                  body: t("This is how a CI that ends will look."),
-                  tag: "motita-test",
-                }).then((ok) =>
-                  setTested(
-                    ok
-                      ? t(
-                          "Sent. If nothing showed up, check the system's do-not-disturb mode.",
-                        )
-                      : t("The browser did not show it."),
-                  ),
-                );
-              }}
-            >
-              {t("Send")}
-            </button>
-          </Row>
-        )}
+        {ns === "on" && <NotifyTestRow tested={tested} setTested={setTested} />}
         {showSteps && (
           <ol class="settings-steps" data-testid="notify-steps">
             {unblockSteps(platform, isInstalled()).map((step) => (
@@ -757,6 +826,7 @@ export function SettingsModal({
         {tabs.length > 1 && (
           <div
             role="tablist"
+            tabIndex={-1}
             aria-label={t("Settings")}
             class="settings-nav"
             onKeyDown={onTabKey}
@@ -822,18 +892,24 @@ const FORGE_LOGOS: Record<string, { color: string; d: string }> = {
   },
 };
 
+// ForgeLogo is the logo of a known git host, or the generic branch icon.
+function ForgeLogo({ kind }: { kind: string }) {
+  const logo = FORGE_LOGOS[kind];
+  if (!logo) {
+    return <IconBranch />;
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
+      <path d={logo.d} />
+    </svg>
+  );
+}
+
 // ForgeIcon is the logo of an account's git host, on a small tile at the start of its row.
 function ForgeIcon({ kind }: { kind: string }) {
-  const logo = FORGE_LOGOS[kind];
   return (
     <span class="git-account-icon" aria-hidden="true" data-kind={kind}>
-      {logo ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
-          <path d={logo.d} />
-        </svg>
-      ) : (
-        <IconBranch />
-      )}
+      <ForgeLogo kind={kind} />
     </span>
   );
 }

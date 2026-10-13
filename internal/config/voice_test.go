@@ -61,7 +61,10 @@ func TestValidateVoice(t *testing.T) {
 		{"ok", func(*Config) {}, ""},
 		{"negative", func(c *Config) { c.Voice.MaxAudioKB = -1 }, "voice.max_audio_kb"},
 		{"model", func(c *Config) { c.Voice.Model = "  " }, "voice.model"},
-		{"no endpoint", func(c *Config) { c.LLM.Provider = "anthropic"; c.LLM.APIKey = "k" }, "voice.base_url is empty"},
+		{"no endpoint", func(c *Config) {
+			c.LLM.Provider = "anthropic"
+			c.LLM.APIKey = "k"
+		}, "voice.base_url is empty"},
 		{"scheme", func(c *Config) { c.Voice.BaseURL = "ftp://x" }, "not an http(s) URL"},
 		{"no host", func(c *Config) { c.Voice.BaseURL = "http://" }, "not an http(s) URL"},
 		{"unparsable", func(c *Config) { c.Voice.BaseURL = "http://a b\x7f" }, "not an http(s) URL"},
@@ -129,8 +132,9 @@ func TestVoiceAndTLSComeFromTheEnvironment(t *testing.T) {
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatal(err)
 	}
-	if !c.Voice.Enabled || c.Voice.BaseURL != "http://127.0.0.1:8080/v1" || c.Voice.Model != "whisper-large-v3-turbo" ||
-		c.Voice.MaxAudioKB != 512 || c.Gateway.TLS.Listen != "0.0.0.0:7478" {
+	endpointOK := c.Voice.BaseURL == "http://127.0.0.1:8080/v1" && c.Voice.Model == "whisper-large-v3-turbo"
+	voiceOK := c.Voice.Enabled && endpointOK
+	if !voiceOK || c.Voice.MaxAudioKB != 512 || c.Gateway.TLS.Listen != "0.0.0.0:7478" {
 		t.Errorf("voice = %+v tls = %+v", c.Voice, c.Gateway.TLS)
 	}
 }

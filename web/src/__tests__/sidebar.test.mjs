@@ -12,6 +12,8 @@ import { JSDOM } from "jsdom";
 import { build } from "esbuild";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const SIDEBAR_EMPTY = "[data-testid=sidebar-empty]";
+const UPGRADE_RELOADING = "[data-testid=upgrade-reloading]";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -141,14 +143,8 @@ test("the sidebar labels sessions and projects and says when each is empty", asy
     sessions.getAttribute("aria-labelledby"),
     sessions.querySelector("h2").id,
   );
-  assert.equal(
-    text(sessions.querySelector("[data-testid=sidebar-empty]")),
-    "No sessions",
-  );
-  assert.equal(
-    text(projects.querySelector("[data-testid=sidebar-empty]")),
-    "No projects",
-  );
+  assert.equal(text(sessions.querySelector(SIDEBAR_EMPTY)), "No sessions");
+  assert.equal(text(projects.querySelector(SIDEBAR_EMPTY)), "No projects");
   await done();
 });
 
@@ -165,8 +161,8 @@ test("a free session goes under Sessions, a project's session under its project"
   );
   const sessions = section(root, "sessions");
   const projects = section(root, "projects");
-  assert.equal(sessions.querySelector("[data-testid=sidebar-empty]"), null);
-  assert.equal(projects.querySelector("[data-testid=sidebar-empty]"), null);
+  assert.equal(sessions.querySelector(SIDEBAR_EMPTY), null);
+  assert.equal(projects.querySelector(SIDEBAR_EMPTY), null);
   assert.match(text(sessions), /Loose one/);
   assert.doesNotMatch(text(sessions), /In project/);
   assert.match(text(projects), /Motita/);
@@ -180,15 +176,10 @@ test("only projects: the sessions section still says there are none", async () =
     store({ projects: [{ id: "p1", title: "Motita" }] }),
   );
   assert.equal(
-    text(
-      section(root, "sessions").querySelector("[data-testid=sidebar-empty]"),
-    ),
+    text(section(root, "sessions").querySelector(SIDEBAR_EMPTY)),
     "No sessions",
   );
-  assert.equal(
-    section(root, "projects").querySelector("[data-testid=sidebar-empty]"),
-    null,
-  );
+  assert.equal(section(root, "projects").querySelector(SIDEBAR_EMPTY), null);
   await done();
 });
 
@@ -209,7 +200,7 @@ for (const stage of ["done", "restarting"]) {
         },
       }),
     );
-    const notice = root.querySelector("[data-testid=upgrade-reloading]");
+    const notice = root.querySelector(UPGRADE_RELOADING);
     assert.ok(notice, "the reload notice is shown");
     assert.equal(notice.getAttribute("role"), "status");
     assert.ok(notice.querySelector(".animate-spin"), "it spins");
@@ -234,11 +225,13 @@ test("if the gateway never comes back, the modal offers a manual reload", async 
         upgradeProgress: { stage: "done", percent: 100 },
         awaitingReload: true,
         reloadStalled: true,
-        reloadPage: () => reloads++,
+        reloadPage: () => {
+          reloads += 1;
+        },
       },
     }),
   );
-  assert.equal(root.querySelector("[data-testid=upgrade-reloading]"), null);
+  assert.equal(root.querySelector(UPGRADE_RELOADING), null);
   const reload = [...root.querySelectorAll("button")].find(
     (b) => text(b) === "Reload page",
   );
@@ -257,11 +250,13 @@ test("a failed upgrade still has a Close button", async () => {
       updates: {
         upgradeProgress: { stage: "error", percent: 40, message: "boom" },
         upgradeError: "boom",
-        finishUpgrade: () => closed++,
+        finishUpgrade: () => {
+          closed += 1;
+        },
       },
     }),
   );
-  assert.equal(root.querySelector("[data-testid=upgrade-reloading]"), null);
+  assert.equal(root.querySelector(UPGRADE_RELOADING), null);
   const close = [...root.querySelectorAll("button")].find(
     (b) => text(b) === "Close",
   );
@@ -284,7 +279,7 @@ test("a run that ends without a restart keeps its message and a Close button", a
       },
     }),
   );
-  assert.equal(root.querySelector("[data-testid=upgrade-reloading]"), null);
+  assert.equal(root.querySelector(UPGRADE_RELOADING), null);
   assert.ok(buttonLabels(root).includes("Close"));
   assert.match(text(root), /Already up to date/);
   await done();
@@ -296,9 +291,10 @@ async function runStream(events) {
     .map((e) => `event: progress\ndata: ${JSON.stringify(e)}\n\n`)
     .join("");
   const api = async () => new Response(body, { status: 200 });
-  let state;
+  // The hook's state lives on an object: the probe writes it on every render.
+  const probe = {};
   function Probe() {
-    state = useUpdates(api, noop, false);
+    probe.state = useUpdates(api, noop, false);
     return null;
   }
   const root = document.createElement("div");
@@ -307,13 +303,14 @@ async function runStream(events) {
   mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   try {
     await act(async () => {
-      await state.runUpgrade();
+      await probe.state.runUpgrade();
     });
   } finally {
     mock.timers.reset();
   }
-  const snapshot = state;
+  const snapshot = probe.state;
   await act(() => render(null, root));
+  assert.ok(snapshot, "the hook rendered");
   return snapshot;
 }
 

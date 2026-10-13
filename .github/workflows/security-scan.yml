@@ -1,5 +1,6 @@
 # Análisis de seguridad de KodingVibes: SonarQube + Trivy + Semgrep (+ gosec y govulncheck si hay Go).
-# - En cada Pull Request: analiza, comenta el resultado y FALLA si el PR toca algo CRITICAL/HIGH.
+# - En cada Pull Request: analiza, comenta el resultado y FALLA si el PR toca algo CRITICAL/HIGH, o si
+#   SonarQube encuentra cualquier issue (bug, vulnerabilidad o code smell) en las líneas que agrega o cambia.
 #   Solo cuentan los hallazgos en archivos que el PR modifica (o en dependencias, si cambia un manifiesto/lockfile).
 # - En push a main/master: analiza todo y lo publica en SonarQube (https://sonar.kodingvibes.com), sin bloquear.
 # Secretos del repositorio necesarios: SONAR_TOKEN y SONAR_HOST_URL (si faltan, se omite solo la parte de SonarQube).
@@ -53,8 +54,10 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git diff --name-only "$PR_BASE_SHA"...HEAD -- . > "$KV/changed.txt" || git diff --name-only "$PR_BASE_SHA" HEAD > "$KV/changed.txt"
+            # Las líneas que agrega o cambia el PR: los hallazgos de SonarQube en ellas bloquean.
+            git diff -U0 --no-color "$PR_BASE_SHA"...HEAD -- . > "$KV/changed.diff" || git diff -U0 --no-color "$PR_BASE_SHA" HEAD > "$KV/changed.diff"
           else
-            : > "$KV/changed.txt"
+            : > "$KV/changed.txt"; : > "$KV/changed.diff"
           fi
           echo "Archivos modificados: $(wc -l < "$KV/changed.txt")"
           git ls-files '*go.mod' | head -6 > "$KV/gomods.txt" || true
@@ -142,11 +145,15 @@ jobs:
         run: |
           set -uo pipefail
           # Community Build no analiza Pull Requests: se usa un proyecto temporal que se borra al terminar.
+          # Fuentes, exclusiones y reglas ignoradas salen de sonar-project.properties, igual que en el
+          # análisis de main, para que el PR vea los mismos hallazgos que verá main al integrarse.
           KEY="${GITHUB_REPOSITORY//\//_}-pr-${PR_NUMBER}"
           echo "SONAR_PR_KEY=$KEY" >> "$GITHUB_ENV"
           ARGS=(-Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" -Dsonar.projectKey="$KEY" -Dsonar.projectName="${GITHUB_REPOSITORY#*/} PR #${PR_NUMBER}"
-                -Dsonar.sources=. -Dsonar.exclusions='**/node_modules/**,**/vendor/**,**/dist/**,**/build/**,**/target/**,**/.venv/**'
                 -Dsonar.working.directory="$KV/scannerwork" -Dsonar.scm.revision="$HEAD_SHA")
+          if [ ! -f sonar-project.properties ]; then
+            ARGS+=(-Dsonar.sources=. -Dsonar.exclusions='**/node_modules/**,**/vendor/**,**/dist/**,**/build/**,**/target/**,**/.venv/**')
+          fi
           git ls-files '*.java' | head -1 | grep -q . && ARGS+=(-Dsonar.java.binaries=.)
           sonar-scanner "${ARGS[@]}" || exit 0
           TASK_URL="$(sed -n 's/^ceTaskUrl=//p' "$KV/scannerwork/report-task.txt")"
@@ -242,9 +249,34 @@ jobs:
               if f["tool"] in ("Trivy", "govulncheck") and deps_changed and (os.path.basename(f["path"]) in DEPS or f["tool"] == "govulncheck"): return True
               return False
 
+          # Las líneas nuevas o cambiadas de cada archivo, leídas de los hunks de git diff -U0.
+          new_lines = {}
+          cur = None
+          for l in open(f"{KV}/changed.diff", errors="replace"):
+              if l.startswith("+++ "):
+                  cur = l[4:].strip()
+                  cur = cur[2:] if cur.startswith("b/") else None
+              elif l.startswith("@@") and cur:
+                  m = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", l)
+                  if m:
+                      start, count = int(m.group(1)), int(m.group(2) or "1")
+                      new_lines.setdefault(cur, set()).update(range(start, start + count))
+
+          def blocks(f):
+              # Seguridad: CRITICAL/HIGH en lo que toca el PR. SonarQube: cualquier hallazgo (bug,
+              # vulnerabilidad o code smell, de cualquier severidad) en una línea que agrega o cambia
+              # el PR, o sin línea (todo el archivo) en un archivo que el PR modifica.
+              if f["sev"] in ("CRITICAL", "HIGH") and f["blocking_kind"] == "security":
+                  return True
+              if f["tool"] != "SonarQube":
+                  return False
+              if not f["line"]:
+                  return f["path"] in changed
+              return f["line"] in new_lines.get(f["path"], set())
+
           scoped = [f for f in findings if in_scope(f)]
           other = len(findings) - len(scoped)
-          blocking = [f for f in scoped if f["sev"] in ("CRITICAL", "HIGH") and f["blocking_kind"] == "security"] if is_pr else []
+          blocking = [f for f in scoped if blocks(f)] if is_pr else []
           tools = sorted({f["tool"] for f in findings})
           lines = ["<!-- kv-security-scan -->", "## 🔒 Análisis de seguridad (KodingVibes)", ""]
           if is_pr:
@@ -259,7 +291,8 @@ jobs:
               for t in tools:
                   row = [sum(1 for f in scoped if f["tool"] == t and f["sev"] == s) for s in ORDER]
                   if sum(row): lines.append(f"| {t} | " + " | ".join(str(x) if x else "·" for x in row) + " |")
-              top = sorted(scoped, key=lambda f: (ORDER.index(f["sev"]), f["tool"]))[:15]
+              # Los que bloquean van primero, para que se vean aunque haya muchos.
+              top = sorted(scoped, key=lambda f: (f not in blocking, ORDER.index(f["sev"]), f["tool"]))[:15]
               lines += ["", "<details><summary>Principales hallazgos</summary>", ""]
               for f in top:
                   loc = f["path"] + (f":{f['line']}" if f["line"] else "")
@@ -268,7 +301,11 @@ jobs:
               lines += ["", "</details>"]
           if other and is_pr: lines += ["", f"ℹ️ Otros {other} hallazgos previos en archivos que este PR no toca (no bloquean)."]
           if is_pr:
-              lines += ["", ("❌ **Bloqueado**: hay " + str(len(blocking)) + " hallazgos CRITICAL/HIGH de seguridad en lo que cambia este PR.") if blocking else "✅ Sin hallazgos CRITICAL/HIGH en lo que cambia este PR."]
+              if not os.path.exists(sj) and os.environ.get("SONAR_TOKEN"):
+                  lines += ["", "⚠️ SonarQube no entregó resultados: este PR no se pudo revisar con sus reglas."]
+              lines += ["", ("❌ **Bloqueado**: hay " + str(len(blocking)) + " hallazgos que este PR introduce (CRITICAL/HIGH de seguridad, o de SonarQube en las líneas que cambia).") if blocking else "✅ Sin hallazgos bloqueantes en lo que cambia este PR."]
+              for f in blocking[:30]:
+                  print(f"::error file={f['path']},line={f['line'] or 1}::{f['tool']} {f['rule']}: {f['msg']}")
           lines += ["", "Detalle completo: https://sonar.kodingvibes.com"]
           body = "\n".join(lines)
           open(f"{KV}/comment.md", "w").write(body[:60000]); open(os.environ["GITHUB_STEP_SUMMARY"], "a").write(body)
@@ -302,9 +339,9 @@ jobs:
           KEY="${GITHUB_REPOSITORY//\//_}-pr-${PR_NUMBER}"
           curl -s -u "$SONAR_TOKEN:" -X POST "${SONAR_HOST_URL%/}/api/projects/delete" -d "project=$KEY" -o /dev/null -w "borrado temporal: %{http_code}\n"
 
-      - name: Resultado (bloquea el PR si hay CRITICAL/HIGH)
+      - name: Resultado (bloquea el PR si hay hallazgos bloqueantes)
         if: always() && github.event_name == 'pull_request'
         run: |
           n="$(cat "$KV/blocking_count" 2>/dev/null || echo 0)"
-          if [ "$n" -gt 0 ]; then echo "::error::$n hallazgos CRITICAL/HIGH de seguridad en lo que cambia este PR"; exit 1; fi
+          if [ "$n" -gt 0 ]; then echo "::error::$n hallazgos bloqueantes en lo que cambia este PR (ver el comentario del PR)"; exit 1; fi
           echo "Sin hallazgos bloqueantes"

@@ -87,6 +87,11 @@ const ACCOUNTS = [
   },
   { id: "forge", name: "Forgejo", kind: "gitea", host: "git.corp.io" },
 ];
+const SWITCH = "input[role=switch]";
+const NOTIFY_KEY = "motita.ui.notifications";
+const NOTIFY_CARD = "[data-testid=notifications-setting]";
+const NOTIFY_STEPS = "[data-testid=notify-steps]";
+
 const fakeApi = async () =>
   new Response(JSON.stringify({ accounts: ACCOUNTS }), { status: 200 });
 
@@ -100,7 +105,9 @@ async function open(extra = {}) {
         langSetting: "auto",
         langAvailable: true,
         onLang: (s) => calls.lang.push(s),
-        onClose: () => calls.close++,
+        onClose: () => {
+          calls.close += 1;
+        },
         git: {
           api: fakeApi,
           rev: 0,
@@ -130,7 +137,11 @@ test("the general tab offers every choice as one tap and applies it", async () =
     ["true", "false"],
     "general is the first tab, and it is open",
   );
-  assert.equal(root.querySelectorAll("[role=radiogroup]").length, 3);
+  const languageFontAndDensity = 3;
+  assert.equal(
+    root.querySelectorAll("[role=radiogroup]").length,
+    languageFontAndDensity,
+  );
   assert.equal(root.querySelector("select"), null, "no dropdowns are left");
   assert.equal(radio(root, "settings-density", "comfortable").checked, true);
 
@@ -142,13 +153,11 @@ test("the general tab offers every choice as one tap and applies it", async () =
   await act(() => radio(root, "settings-lang", "es").click());
   assert.deepEqual(calls.lang, ["es"]);
 
-  const sw = root.querySelector(
-    "[data-testid=notifications-setting] input[role=switch]",
-  );
+  const sw = root.querySelector(`${NOTIFY_CARD} ${SWITCH}`);
   assert.ok(sw, "the desktop notifications are an on/off switch");
   assert.equal(sw.checked, true);
   await act(() => sw.click());
-  assert.equal(localStorage.getItem("motita.ui.notifications"), "off");
+  assert.equal(localStorage.getItem(NOTIFY_KEY), "off");
   await done();
 });
 
@@ -160,10 +169,10 @@ test("notifications not yet asked: a button asks the browser, and allowing turns
     answer: "granted",
     asked: 0,
   });
-  localStorage.removeItem("motita.ui.notifications");
+  localStorage.removeItem(NOTIFY_KEY);
   const { root, done } = await open();
-  const card = root.querySelector("[data-testid=notifications-setting]");
-  assert.equal(card.querySelector("input[role=switch]"), null);
+  const card = root.querySelector(NOTIFY_CARD);
+  assert.equal(card.querySelector(SWITCH), null);
   const btn = [...card.querySelectorAll("button")].find(
     (b) => b.textContent === "Allow notifications",
   );
@@ -171,7 +180,7 @@ test("notifications not yet asked: a button asks the browser, and allowing turns
   await act(() => btn.click());
   await settle();
   assert.equal(fakeNotification.asked, 1);
-  const sw = card.querySelector("input[role=switch]");
+  const sw = card.querySelector(SWITCH);
   assert.ok(sw, "once allowed, the on/off switch takes the button's place");
   assert.equal(sw.checked, true);
   await done();
@@ -184,8 +193,8 @@ test("a browser that ignores the request gets the steps to allow it by hand", as
     asked: 0,
   });
   const { root, done } = await open();
-  const card = root.querySelector("[data-testid=notifications-setting]");
-  assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  const card = root.querySelector(NOTIFY_CARD);
+  assert.equal(card.querySelector(NOTIFY_STEPS), null);
   await act(() => card.querySelector("button").click());
   await settle();
   assert.match(card.textContent, /did not ask/);
@@ -200,19 +209,19 @@ test("blocked notifications explain how to allow them again, and pick it up once
     asked: 0,
   });
   const { root, done } = await open();
-  const card = root.querySelector("[data-testid=notifications-setting]");
+  const card = root.querySelector(NOTIFY_CARD);
   assert.match(card.textContent, /Blocked in this browser/);
   const steps = [...card.querySelectorAll("[data-testid=notify-steps] li")];
   assert.ok(steps.length >= 2, "the steps to unblock them are listed");
-  assert.equal(card.querySelector("input[role=switch]"), null);
+  assert.equal(card.querySelector(SWITCH), null);
   // The person allows them in the browser's settings and comes back.
   fakeNotification.permission = "granted";
   const again = [...card.querySelectorAll("button")].find(
     (b) => b.textContent === "Check again",
   );
   await act(() => again.click());
-  assert.ok(card.querySelector("input[role=switch]"));
-  assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  assert.ok(card.querySelector(SWITCH));
+  assert.equal(card.querySelector(NOTIFY_STEPS), null);
   await done();
 });
 
@@ -244,7 +253,7 @@ test("on a plain http address the setting says https is needed, with nothing to 
     configurable: true,
   });
   const { root, done } = await open();
-  const card = root.querySelector("[data-testid=notifications-setting]");
+  const card = root.querySelector(NOTIFY_CARD);
   const pill = card.querySelector("[data-testid=insecure-warning]");
   assert.ok(pill, "the reason is a warning pill");
   assert.equal(pill.getAttribute("role"), "note");
@@ -254,7 +263,7 @@ test("on a plain http address the setting says https is needed, with nothing to 
   assert.match(pill.querySelector("details").textContent, /https:\/\//);
   assert.equal(pill.querySelector("a").rel, "noopener noreferrer");
   assert.equal(card.querySelector("button"), null);
-  assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  assert.equal(card.querySelector(NOTIFY_STEPS), null);
   delete window.isSecureContext;
   fakeNotification.permission = "granted";
   await done();
@@ -262,7 +271,7 @@ test("on a plain http address the setting says https is needed, with nothing to 
 
 test("once allowed, a test notification goes up through the service worker", async () => {
   Object.assign(fakeNotification, { permission: "granted" });
-  localStorage.removeItem("motita.ui.notifications");
+  localStorage.removeItem(NOTIFY_KEY);
   const shown = [];
   Object.defineProperty(navigator, "serviceWorker", {
     value: {
@@ -273,7 +282,7 @@ test("once allowed, a test notification goes up through the service worker", asy
     configurable: true,
   });
   const { root, done } = await open();
-  const card = root.querySelector("[data-testid=notifications-setting]");
+  const card = root.querySelector(NOTIFY_CARD);
   const send = [...card.querySelectorAll("button")].find(
     (b) => b.textContent === "Send",
   );
@@ -312,7 +321,7 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
   assert.equal(document.activeElement, git, "focus follows the chosen tab");
   await act(() => new Promise((r) => setTimeout(r, 0)));
   const rows = [...root.querySelectorAll(".git-account")];
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, ACCOUNTS.length);
   const icons = rows.map((r) => r.querySelector(".git-account-icon"));
   assert.deepEqual(
     icons.map((i) => i.dataset.kind),
@@ -341,7 +350,8 @@ test("Escape, the ✕ and a click outside close the dialog", async () => {
   root
     .querySelector(".settings-backdrop")
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  assert.equal(calls.close, 3);
+  const escapeCloseAndOutside = 3;
+  assert.equal(calls.close, escapeCloseAndOutside);
   await done();
 });
 
@@ -359,8 +369,9 @@ test("the app draws the dialog, outside the sidebar's frosted glass", () => {
   const app = src("App.tsx");
   const host = app.indexOf("<SettingsHost />");
   assert.ok(host > 0, "App renders the settings");
+  const lookBehind = 200;
   assert.ok(
-    host < app.indexOf("<ProjectModals />", host - 200),
+    host < app.indexOf("<ProjectModals />", host - lookBehind),
     "it comes before the git connect dialog, which stacks on top of it",
   );
 });
@@ -395,17 +406,17 @@ test("the dialog fills a phone and is a centred two-column window from md up", (
 
 test("the voice switches are greyed out until the page and the gateway allow them", async () => {
   const saved = [];
-  const voice = (state, hands, prefs = { mic: true, listen: false }) => ({
+  const voice = (state, hands, prefs) => ({
     state,
     hands,
     phrases: ["hey motita", "motita"],
-    prefs,
+    prefs: prefs ?? { mic: true, listen: false },
     setPrefs: (p) => saved.push(p),
   });
   let v = await open({ voice: voice("insecure", "insecure") });
   const section = v.root.querySelector("[data-testid=voice-setting]");
   assert.ok(section, "the voice section is drawn");
-  const [mic, listen] = section.querySelectorAll("input[role=switch]");
+  const [mic, listen] = section.querySelectorAll(SWITCH);
   assert.equal(mic.disabled, true);
   assert.equal(listen.disabled, true);
   assert.equal(mic.checked, false, "an unusable switch never reads as on");
