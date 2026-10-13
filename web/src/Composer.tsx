@@ -134,6 +134,69 @@ function SendButton({ disabled }: { disabled: boolean }) {
   );
 }
 
+// micLabel names what the dictation button does now.
+function micLabel(phase: string): string {
+  if (phase === "recording") {
+    return t("Stop and transcribe");
+  }
+  if (phase === "transcribing") {
+    return t("Transcribing…");
+  }
+  return t("Dictate");
+}
+
+// MicButton dictates into the field: one tap records, the next one stops and transcribes. The text
+// lands in the field to be read and edited; it is never sent on its own.
+function MicButton({ disabled }: { disabled: boolean }) {
+  const { voice } = useApp();
+  const { phase } = voice;
+  return (
+    <button
+      type="button"
+      disabled={disabled || phase === "transcribing"}
+      onClick={() => void voice.toggleDictation()}
+      title={micLabel(phase)}
+      aria-label={micLabel(phase)}
+      aria-pressed={phase === "recording"}
+      data-testid="composer-mic"
+      class={`composer-mic min-h-[44px] min-w-[44px] rounded-2xl flex items-center justify-center border border-white/10 disabled:opacity-40 active:scale-95 transition-transform ${choose(phase === "recording", "bg-[#ff4d6d] text-white animate-pulse", "bg-black/30 text-[#e8e8ea]")}`}
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="9" y="2" width="6" height="12" rx="3" />
+        <path d="M5 10a7 7 0 0 0 14 0" />
+        <line x1="12" y1="17" x2="12" y2="22" />
+      </svg>
+    </button>
+  );
+}
+
+// ListeningBadge says the microphone is open for the wake phrase, for as long as it is.
+function ListeningBadge() {
+  return (
+    <span
+      class="absolute -top-3 left-4 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ff4d6d]/15 text-[#ff8da1] border border-[#ff4d6d]/30"
+      role="status"
+      data-testid="voice-listening"
+    >
+      <span
+        class="w-2 h-2 rounded-full bg-[#ff4d6d] animate-pulse"
+        aria-hidden="true"
+      />
+      {t("Listening for the wake phrase")}
+    </span>
+  );
+}
+
 // placeholderOf is what the empty field says.
 function placeholderOf(isMerged: boolean, tagged: boolean): string {
   if (isMerged) {
@@ -143,7 +206,7 @@ function placeholderOf(isMerged: boolean, tagged: boolean): string {
 }
 
 export function Composer() {
-  const { composer, isMerged, rs } = useApp();
+  const { composer, isMerged, rs, voice } = useApp();
   const { slashPopup, input } = composer;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -191,6 +254,7 @@ export function Composer() {
         </span>
       )}
       {slashPopup && <SlashPopup items={slashPopup.items} />}
+      {voice.listening && <ListeningBadge />}
 
       <label htmlFor={TASK_INPUT_ID} class="sr-only">
         {t("Task")}
@@ -211,6 +275,7 @@ export function Composer() {
           class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 composer-input font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
+      {voice.showMic && <MicButton disabled={isMerged} />}
       <SendButton disabled={rs.running || isMerged} />
     </form>
   );

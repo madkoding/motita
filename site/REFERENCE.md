@@ -531,7 +531,7 @@ honoured. The documented one wins when both are set.
 | `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
 | `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                                                                          |
+| `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
 | `skills`       | `dir`, `max_file_bytes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `gateway`      | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click)                                                                                                                                                                                                                                                                                                                                                                                  |
 | `schedule`     | `enabled`, `tick`, `min_every`, `max_runs_kept`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -658,6 +658,7 @@ interface is a client of it.
 | `max_sessions`     | `0`             | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it.                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `free_session_git` | `false`         | Make the own directory of a session that belongs to no project a git repository when it is created. Off by default: such a session needs no git. A client can ask per session with `"git": true` or `false` in `POST /v1/sessions`. Also read from `MOTITA_GATEWAY_FREE_SESSION_GIT`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `artifact_days`    | `30`            | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `tls`              | _empty_         | A **second listener that speaks https**: `listen` (`host:port`), `cert` and `key` (PEM files, relative to the motita home), all three or none. The plain listener stays as it is for the local clients; a browser on another device uses this one, which is also what lets it use the microphone (browsers only allow it on https or localhost). Certificates from `mkcert` or `tailscale cert` work as they are. Also read from `MOTITA_GATEWAY_TLS_LISTEN`, `_CERT` and `_KEY`.                                                                                                                                                                                                                                                      |
 
 #### Running the gateway as a service
 
@@ -860,12 +861,14 @@ page _is_ the size of the executable. The one item that can spend the margin is 
 webfont — the page uses the system font deliberately, and a test fails if the assets
 grow past 64 KB.
 
-**There is no TLS in this version.** Reaching the gateway over the network without a
-tunnel sends the token in clear text, so anyone on it can read the credential in
-transit — and nothing about the token or the page changes that. The gateway prints a
-warning saying so at the moment it starts, because that is when the decision is still
-being made. When the two machines can reach each other, the supported way is a tunnel,
-which never exposes the gateway at all:
+**The plain listener has no TLS.** Reaching it over the network without a tunnel sends the
+token in clear text, so anyone on it can read the credential in transit — and nothing about
+the token or the page changes that. The gateway prints a warning saying so at the moment it
+starts, because that is when the decision is still being made. There are three ways to keep
+it encrypted: `gateway.tls`, a second listener that speaks https with a certificate you give
+it (`mkcert`, `tailscale cert`); a reverse proxy that terminates TLS in front of it (Caddy,
+`tailscale serve`), with its name in `gateway.hosts`; or a tunnel, which never exposes the
+gateway at all:
 
 ```bash
 ssh -N -L 7477:127.0.0.1:7477 the-host
@@ -1094,6 +1097,51 @@ with (in place: comments and every other line are kept).
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/ui` | `{"language":"auto","resolved":"es"}`: the setting, and what it means on the gateway's host                                                         |
 | `PUT /v1/ui` | `{"language":"es"}` saves it; `400` for anything but `auto`, `en`, `es`, `409` when the gateway runs on the built-in defaults with no file to write |
+
+### Voice input
+
+The browser interface can take speech: a microphone button beside **Send** dictates into the
+message box, and a hands-free mode listens for a wake phrase while the tab is open. The text
+always lands in the box to be read and edited; it is never sent on its own.
+
+```yaml
+voice:
+  enabled: true
+  # Empty means the language model's own endpoint when the provider speaks the OpenAI
+  # API (llm.base_url, then https://api.openai.com/v1), with its key.
+  base_url: "" # a whisper.cpp server: http://127.0.0.1:8080/v1
+  api_key: "" # empty: the LLM's key for its own endpoint, none otherwise
+  model: whisper-1 # Groq: whisper-large-v3-turbo
+  language: es # empty lets the model detect it
+  wake_phrases: ["hey motita", "motita new task"]
+  max_audio_kb: 10240
+```
+
+The browser records, the gateway forwards the recording to `POST {base_url}/audio/transcriptions`
+(the OpenAI transcription API, which OpenAI, Groq and a local `whisper-server` answer) and returns
+the text. The audio is held in memory for that one request and never written to disk. There is no
+model and no codec in the binary, so a private setup is a `base_url` away.
+
+Hands-free mode detects speech by its level in the page (no model, no WebAssembly: the page's
+content policy allows neither), sends each phrase to the same endpoint, and uses only one that
+opens with a wake phrase; the match ignores case, accents and punctuation, tolerates one wrong
+letter in a long word, and allows two filler words before the phrase. **Everything said while it
+listens goes to the transcription endpoint**, which is why it is off by default and why a local
+`whisper-server` is the private choice.
+
+The microphone only exists for a page served over **https or from localhost**: opened by a LAN
+address over plain http, the settings show both switches greyed out with that reason. See
+`gateway.tls`. Both switches (the microphone button, and listening for the wake phrase) are kept
+in the browser, per device.
+
+| Endpoint                    | What it does                                                                                                                                                                                                                                                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/voice`             | `{"enabled":true,"wake_phrases":["hey motita"],"max_audio_bytes":10485760}`                                                                                                                                                                                                                                       |
+| `POST /v1/voice/transcribe` | The raw recording as the body, typed by `Content-Type` (`audio/webm`, `audio/mp4`, `audio/wav`, ...). `{"text":"..."}`; with `?wake=1` also `"wake":{"phrase","rest"}` when one opened it. `415` for another type, `413` over the cap, `501` when voice is off, `502` with the endpoint's answer when it refused. |
+
+The variables are `MOTITA_VOICE_ENABLED`, `MOTITA_VOICE_BASE_URL`, `MOTITA_VOICE_API_KEY`,
+`MOTITA_VOICE_MODEL`, `MOTITA_VOICE_LANGUAGE` and `MOTITA_VOICE_MAX_AUDIO_KB`; the phrases are set
+in the file.
 
 ### The skill library
 

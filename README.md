@@ -86,8 +86,9 @@ gateway:
 ```
 
 Restart the gateway afterwards (`motita gateway stop`, then `motita gateway start`). It warns
-when it opens on every interface. There is no TLS: the token travels unencrypted, and without
-`allow` any origin that reaches the port gets in. Across the internet, use an SSH tunnel
+when it opens on every interface. The plain port has no TLS: the token travels unencrypted, and
+without `allow` any origin that reaches the port gets in. Add an https port with `gateway.tls`
+(a certificate from `mkcert` or `tailscale cert`), use an SSH tunnel
 (`ssh -N -L 7477:127.0.0.1:7477 the-host`) or a TLS reverse proxy. Add the proxy's DNS name to
 `gateway.hosts`. More in the [guide](docs/GUIDE.md) and the [reference](docs/REFERENCE.md).
 

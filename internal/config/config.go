@@ -37,6 +37,7 @@ type Config struct {
 	Curator     Curator     `yaml:"curator"`
 	Schedule    Schedule    `yaml:"schedule"`
 	UI          UI          `yaml:"ui"`
+	Voice       Voice       `yaml:"voice"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -96,6 +97,8 @@ type Gateway struct {
 	WebUI bool `yaml:"webui"`
 	// ShowActions lists every command and action; false shows only a counter.
 	ShowActions bool `yaml:"show_actions"`
+	// TLS is an optional second listener that speaks https. See GatewayTLS.
+	TLS GatewayTLS `yaml:"tls"`
 }
 
 // TaskSource describes where the tasks come from.
@@ -509,7 +512,8 @@ func Default() Config {
 			MinEvery:    time.Minute,
 			MaxRunsKept: 50,
 		},
-		UI: UI{Language: "auto"},
+		UI:    UI{Language: "auto"},
+		Voice: defaultVoice(),
 	}
 }
 
@@ -697,6 +701,8 @@ func resolvePaths(c *Config, base string) {
 	c.Agent.LogFile = join(c.Agent.LogFile)
 	c.Skills.Dir = join(c.Skills.Dir)
 	c.Gateway.TokenFile = join(c.Gateway.TokenFile)
+	c.Gateway.TLS.Cert = join(c.Gateway.TLS.Cert)
+	c.Gateway.TLS.Key = join(c.Gateway.TLS.Key)
 }
 
 // LoadOrDefault applies environment variables to the default configuration when
@@ -826,6 +832,9 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateUI(); err != nil {
 		return err
 	}
+	if err := c.validateVoice(); err != nil {
+		return err
+	}
 	return c.validateAgent()
 }
 
@@ -870,6 +879,9 @@ func (c *Config) validateGateway() error {
 		// The operator's own string is named back to them, not the resolved one: when they typed an
 		// address, that is what they need to see to fix it.
 		return fmt.Errorf("gateway.listen %q is not host:port: %w", c.Gateway.Listen, err)
+	}
+	if err := c.validateGatewayTLS(); err != nil {
+		return err
 	}
 	// Any address is acceptable, including a non-loopback one: the socket is no longer what
 	// decides who may connect. Who may connect is gateway.allow, applied to every request, and an

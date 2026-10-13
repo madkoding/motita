@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,14 +180,31 @@ type Options struct {
 	// UILanguage is ui.language as the configuration had it at start: auto, en or es. Empty
 	// means auto.
 	UILanguage string
+	// Voice transcribes the browser's recordings. Nil means speech input is off, and the
+	// transcription endpoint answers 501. See voice.go.
+	Voice VoiceService
+	// WakePhrases are the phrases the interface's hands-free mode listens for.
+	WakePhrases []string
+	// MaxAudioBytes caps one recording. Zero means defaultMaxAudioBytes.
+	MaxAudioBytes int64
+	// TLSListen is a SECOND listener that speaks https, with the PEM pair in TLSCert and
+	// TLSKey. Empty means there is none. It is a second socket, not a mode of the first, so the
+	// local clients keep speaking plain HTTP to loopback and never have to trust a certificate;
+	// a browser on another device uses this one, and only a page served over https (or from
+	// localhost) may use the microphone.
+	TLSListen string
+	TLSCert   string
+	TLSKey    string
 }
 
 // Server is the HTTP face of the conversations this process holds.
 type Server struct {
 	opts     Options
 	listener net.Listener
-	server   *http.Server
-	mux      http.Handler
+	// tlsListener is the https listener, nil when Options.TLSListen is empty.
+	tlsListener net.Listener
+	server      *http.Server
+	mux         http.Handler
 
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
@@ -281,13 +299,19 @@ func Start(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("could not listen on %s: %w", addr, err)
 	}
 
+	tlsLn, err := listenTLS(opts)
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+
 	if opts.MaxBodyKB <= 0 {
 		opts.MaxBodyKB = defaultMaxBodyKB
 	}
 	first := newConversation(DefaultSession, opts.Service)
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	s := &Server{
-		opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first},
+		opts: opts, listener: ln, tlsListener: tlsLn, sessions: map[string]*conversation{DefaultSession: first},
 		baseCtx: baseCtx, baseCancel: baseCancel,
 		heartbeat: resolveHeartbeat(opts.Heartbeat),
 	}
@@ -330,6 +354,33 @@ func Start(opts Options) (*Server, error) {
 	s.startUpdateChecker()
 	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
+}
+
+// listenTLS binds the https listener, or returns nil when none is configured. The key pair is
+// loaded HERE, at start, so a missing or mismatched certificate is a startup error that names the
+// file rather than a handshake failure every browser reports differently.
+func listenTLS(opts Options) (net.Listener, error) {
+	if strings.TrimSpace(opts.TLSListen) == "" {
+		return nil, nil
+	}
+	cert, err := tls.LoadX509KeyPair(opts.TLSCert, opts.TLSKey)
+	if err != nil {
+		return nil, fmt.Errorf("gateway.tls: the certificate %s and key %s could not be loaded: %w",
+			opts.TLSCert, opts.TLSKey, err)
+	}
+	ln, err := net.Listen("tcp", strings.TrimSpace(opts.TLSListen))
+	if err != nil {
+		return nil, fmt.Errorf("could not listen on %s for https: %w", opts.TLSListen, err)
+	}
+	return tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}), nil
+}
+
+// TLSAddr is the address of the https listener, or "" when there is none.
+func (s *Server) TLSAddr() string {
+	if s.tlsListener == nil {
+		return ""
+	}
+	return s.tlsListener.Addr().String()
 }
 
 // listenAddr is the address the gateway binds: the configured one, or a free loopback port.
@@ -500,9 +551,19 @@ func (s *Server) Serve() error {
 			// Said in EVERY mode, not only by `gateway start`: an interface with an embedded
 			// gateway on a LAN address exposes exactly the same plain-HTTP socket.
 			s.opts.Log.Warn("the gateway is reachable from the network over plain HTTP: the token and "+
-				"every request travel unencrypted; an SSH tunnel to a loopback listen avoids this",
+				"every request travel unencrypted; gateway.tls or an SSH tunnel to a loopback listen avoids this",
 				"address", s.listener.Addr().String())
 		}
+	}
+	if s.tlsListener != nil {
+		s.info("the gateway is listening over https", "address", s.TLSAddr())
+		// Same server, second socket: Shutdown closes both, and a failure of this one is
+		// reported without taking the plain listener - the one the local clients use - down.
+		go func() {
+			if err := s.server.Serve(s.tlsListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.warn("the https listener stopped", "error", err.Error())
+			}
+		}()
 	}
 	if err := s.server.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -598,6 +659,9 @@ func (s *Server) routes() *http.ServeMux {
 	// one configuration every conversation runs on.
 	mux.Handle("GET /v1/ui", plain(s.handleGetUI))
 	mux.Handle("PUT /v1/ui", plain(s.handlePutUI))
+	// Speech input: process-wide too, and the recording is never stored. See voice.go.
+	mux.Handle("GET /v1/voice", plain(s.handleVoice))
+	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
 
 	// The procedure library and its maintenance pass. PROCESS-WIDE, like /v1/projects
 	// and /v1/commands: a skill is not a property of one conversation, and the ledger
@@ -743,7 +807,7 @@ func (s *Server) handleWebUISession(w http.ResponseWriter, r *http.Request) {
 //     server sends no CORS header, so no other origin can read a response.
 //   - Secure: whenever the browser reached the gateway over TLS, directly or through a proxy that
 //     terminates it (X-Forwarded-Proto). Over plain http it is NOT set, deliberately: the gateway
-//     has no TLS of its own (the supported remote path is an SSH tunnel), and a Secure cookie is one
+//     plain listener has no TLS (gateway.tls is a second one that does), and a Secure cookie is one
 //     a browser refuses to send over http, so setting it there would silently break the interface -
 //     the browser would never stay connected, with nothing in any log to say why. That case is
 //     written as the same header by hand, without the Secure attribute, for that reason alone.

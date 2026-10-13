@@ -272,6 +272,16 @@ gateway:
   # true lists every one of them.
   show_actions: false
 
+  # A SECOND listener that speaks https, for a browser on another device: the plain
+  # one above keeps serving the local clients. All three or none. A browser only lets
+  # a page use the microphone over https or from localhost, so this is also what
+  # voice input from a phone needs. Certificates from `mkcert <name>` or
+  # `tailscale cert` work as they are; relative paths are under the motita home.
+  tls:
+    listen: "" # e.g. "0.0.0.0:7478"
+    cert: ""
+    key: ""
+
 schedule:
   # Tasks that fire on their own. On by default, because the browser interface ships a
   # window for them and a window over a disabled feature says nothing useful.
@@ -292,3 +302,24 @@ ui:
   # auto follows the terminal's locale (LC_ALL, LC_MESSAGES, LANG) and the browser's
   # language. Changing it from the browser or the terminal saves it here.
   language: auto
+
+voice:
+  # Speech input in the browser interface: a microphone button that dictates into the
+  # message box, and a hands-free mode that listens for a wake phrase while the tab is
+  # open. Off by default, because it sends audio to the transcription endpoint.
+  enabled: false
+  # An endpoint that speaks the OpenAI transcription API (/audio/transcriptions).
+  # Empty means the LLM's own endpoint, with its key, when the provider is OpenAI or
+  # OpenAI-compatible (Groq). A local whisper.cpp server keeps the audio on this
+  # machine: base_url: "http://127.0.0.1:8080/v1".
+  base_url: ""
+  api_key: ""
+  # whisper-1 or gpt-4o-mini-transcribe on OpenAI, whisper-large-v3-turbo on Groq.
+  model: whisper-1
+  # The ISO-639-1 code of the speech; empty lets the model detect it.
+  language: ""
+  # The phrases that open a command in hands-free mode. Case, accents and punctuation
+  # are ignored. Empty turns hands-free mode off.
+  wake_phrases: []
+  # Cap on one recording, in KB.
+  max_audio_kb: 10240
