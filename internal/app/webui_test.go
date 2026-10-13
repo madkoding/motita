@@ -137,6 +137,11 @@ func TestTheAnnouncementSaysWhenTheGatewayIsReachableFromTheNetwork(t *testing.T
 	if !strings.Contains(got, "TLS") {
 		t.Fatalf("the exposure is not qualified with the lack of TLS:\n%s", got)
 	}
+	// A browser elsewhere will not notify over plain http, and the page cannot explain why it is
+	// blocked: the terminal says it while the operator is deciding how to expose the gateway.
+	if !strings.Contains(got, "notifications over https") {
+		t.Fatalf("the exposure does not say notifications need https:\n%s", got)
+	}
 	// And it still hands over the working link, which is the point of the announcement.
 	if !strings.Contains(got, "http://127.0.0.1:7477/#t="+testToken) {
 		t.Fatalf("the link was lost while adding the warning:\n%s", got)
@@ -164,7 +169,7 @@ func TestALoopbackAnnouncementCarriesNoExposureWarning(t *testing.T) {
 	if out.String() != "" && strings.Contains(out.String(), "every interface") {
 		t.Fatalf("a loopback gateway announced an exposure it does not have:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "TLS") {
+	if strings.Contains(out.String(), "TLS") || strings.Contains(out.String(), "https") {
 		t.Fatalf("a loopback gateway was qualified with a TLS warning it does not need:\n%s", out.String())
 	}
 	// The link is still handed over: it is the credential's handoff and works locally.

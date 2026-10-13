@@ -396,6 +396,8 @@ no origin rules are set, so EVERY origin is accepted (gateway.allow is empty).
 add a rule to gateway.allow to narrow it: "lan", an address, a network, or
 "!any" for this machine only.
 there is no TLS, so the token travels in clear text to every one of them.
+browsers only allow notifications over https (or localhost): use an SSH tunnel
+or a TLS proxy in front of the gateway (docs/GUIDE.md, "Notifications need https").
 
 the interface is at http://127.0.0.1:7477/#t=<token>
 open that link once: the page trades the fragment for a cookie and drops it
