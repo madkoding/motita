@@ -160,10 +160,19 @@ func (c *Client) do(ctx context.Context, args ...string) error {
 	defer cancel()
 	out, err := c.Run(ctx, bin, args...)
 	if err != nil {
-		return errors.New(commandError(err, out, nil))
+		msg := commandError(err, out, nil)
+		if strings.Contains(strings.ToLower(msg), "access denied") {
+			// The usual first failure on Linux: the daemon only takes serve changes from root or
+			// from the user named as its operator, and the fix is one command, once.
+			msg += OperatorHint
+		}
+		return errors.New(msg)
 	}
 	return nil
 }
+
+// OperatorHint is the fix for "Access denied" from tailscale serve, appended to that error.
+const OperatorHint = ". Allow your user to change it, once: sudo tailscale set --operator=$USER"
 
 // commandError is the sentence for a failed call: the command's own words when it said any,
 // which is where "Access denied" and the fix for it are.

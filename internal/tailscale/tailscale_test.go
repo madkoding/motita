@@ -141,7 +141,7 @@ func TestServeReportsWhatTheCommandSaid(t *testing.T) {
 		"serve --bg --https=443 x": {out: "Access denied: serve config denied", err: errors.New("exit 1")},
 	}}
 	err := f.client().Serve(context.Background(), "x")
-	if err == nil || !strings.Contains(err.Error(), "Access denied") {
+	if err == nil || !strings.Contains(err.Error(), "Access denied") || !strings.HasSuffix(err.Error(), OperatorHint) {
 		t.Fatalf("err = %v", err)
 	}
 	if err := (&fake{missing: true}).client().Unserve(context.Background()); err == nil ||

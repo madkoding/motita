@@ -680,6 +680,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
 	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))
 	mux.Handle("POST /v1/network/tailscale", plain(s.handleTailscale))
+	mux.Handle("POST /v1/network/restart", plain(s.handleRestartNetwork))
 
 	// The procedure library and its maintenance pass. PROCESS-WIDE, like /v1/projects
 	// and /v1/commands: a skill is not a property of one conversation, and the ledger

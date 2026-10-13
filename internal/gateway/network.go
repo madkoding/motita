@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/tailscale"
@@ -38,8 +39,11 @@ type networkView struct {
 	// RestartNeeded says the two differ, so the saved exposure applies when the gateway restarts.
 	RestartNeeded bool `json:"restart_needed"`
 	// CanSave is false when there is no configuration file to save a change in.
-	CanSave   bool             `json:"can_save"`
-	Tailscale tailscale.Status `json:"tailscale"`
+	CanSave bool `json:"can_save"`
+	// CanRestart is true when this gateway can restart itself to apply a saved change: a service
+	// can, while the gateway that lives inside a terminal's interface cannot.
+	CanRestart bool             `json:"can_restart"`
+	Tailscale  tailscale.Status `json:"tailscale"`
 }
 
 // setGatewayExposure and loadConfig are the config package's, as variables so a test can make
@@ -48,6 +52,10 @@ var (
 	setGatewayExposure = config.SetGatewayExposure
 	loadConfig         = config.LoadWithoutKey
 )
+
+// restartDelay is how long the restart waits for its answer to reach the page before the process
+// stops. A variable so a test does not wait for it.
+var restartDelay = 500 * time.Millisecond
 
 // knowsHost reports whether host is one of the names this gateway answers to.
 func (s *Server) knowsHost(host string) bool {
@@ -92,6 +100,7 @@ func (s *Server) networkView(ctx context.Context) (networkView, error) {
 	v := networkView{
 		ActiveMode:   active.Exposure(),
 		ActiveListen: s.listener.Addr().String(),
+		CanRestart:   s.opts.Restart != nil,
 		Tailscale:    s.tailscaleStatus(ctx),
 	}
 	saved := active
@@ -183,4 +192,39 @@ func (s *Server) handleTailscale(w http.ResponseWriter, r *http.Request) {
 	}
 	s.info("the gateway's tailnet publication was changed from the settings", "enabled", body.Enable)
 	s.writeNetwork(w, r)
+}
+
+// handleRestartNetwork restarts the gateway so a saved exposure applies now.
+//
+// It needs confirm like the change itself: the socket moves, a page opened from another device may
+// lose the gateway, and the runs in flight are interrupted (they are saved first and resume in the
+// new process, as they do after an upgrade).
+func (s *Server) handleRestartNetwork(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Confirm bool `json:"confirm"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if !body.Confirm {
+		writeError(w, http.StatusBadRequest, "restarting the gateway needs confirm: true")
+		return
+	}
+	if s.opts.Restart == nil {
+		writeError(w, http.StatusConflict, "this gateway lives inside a terminal's interface and cannot restart itself: "+
+			"close motita and start it again")
+		return
+	}
+	v, err := s.networkView(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the configuration could not be read: "+err.Error())
+		return
+	}
+	s.info("the gateway is restarting from the settings to apply its network exposure", "mode", v.Mode)
+	s.saveAllSessions()
+	writeJSON(w, http.StatusAccepted, v)
+	go func() {
+		time.Sleep(restartDelay)
+		s.opts.Restart()
+	}()
 }

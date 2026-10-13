@@ -217,3 +217,56 @@ func TestAddHostIgnoresAnEmptyName(t *testing.T) {
 		t.Fatal("an empty name was added")
 	}
 }
+
+// TestTheGatewayRestartsToApplyASavedExposure: only with a confirmation, only where it can, and
+// the answer reaches the page before the process stops.
+func TestTheGatewayRestartsToApplyASavedExposure(t *testing.T) {
+	old := restartDelay
+	restartDelay = 0
+	t.Cleanup(func() { restartDelay = old })
+
+	bare := newTestServer(t, &fakeService{})
+	if v := decodeNetwork(t, get(t, bare, "/v1/network", testToken)); v.CanRestart {
+		t.Fatal("a gateway without Restart says it can restart")
+	}
+	if w := sendNetwork(t, bare, http.MethodPost, "/v1/network/restart", `{"confirm":true}`); w.Code != http.StatusConflict {
+		t.Errorf("no Restart = %d, want 409", w.Code)
+	}
+
+	restarted := make(chan struct{}, 1)
+	path := networkConfig(t, "gateway:\n  enabled: true\n  listen: \"0.0.0.0:0\"\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ConfigPath = path
+		o.Restart = func() { restarted <- struct{}{} }
+	})
+	for _, body := range []string{`{}`, `{"confirm":false}`, `nope`} {
+		if w := sendNetwork(t, srv, http.MethodPost, "/v1/network/restart", body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", body, w.Code)
+		}
+	}
+
+	oldLoad := loadConfig
+	loadConfig = func(string) (config.Config, error) { return config.Config{}, errors.New("broken yaml") }
+	w := sendNetwork(t, srv, http.MethodPost, "/v1/network/restart", `{"confirm":true}`)
+	loadConfig = oldLoad
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("an unreadable file = %d, want 500", w.Code)
+	}
+	select {
+	case <-restarted:
+		t.Fatal("restarted although the configuration could not be read")
+	default:
+	}
+
+	w = sendNetwork(t, srv, http.MethodPost, "/v1/network/restart", `{"confirm":true}`)
+	var v networkView
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusAccepted ||
+		!v.CanRestart || v.Mode != config.ExposureAll || !v.RestartNeeded {
+		t.Fatalf("restart = %d %s", w.Code, w.Body.String())
+	}
+	select {
+	case <-restarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Restart was not called")
+	}
+}

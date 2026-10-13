@@ -207,7 +207,7 @@ func TestTailscaleIsOfferedForWhatItCanDo(t *testing.T) {
 		op, out, _ := netOptions("")
 		op.Tailscale = tc.ts
 		err := op.offerTailscale(context.Background(), bufio.NewReader(strings.NewReader(tc.input)), "0.0.0.0:7477")
-		if (err != nil) != tc.fails || (tc.fails && !strings.Contains(err.Error(), "--operator")) {
+		if (err != nil) != tc.fails || (tc.fails && !strings.Contains(err.Error(), "Access denied")) {
 			t.Errorf("%s: err = %v", tc.name, err)
 		}
 		if !strings.Contains(out.String(), tc.want) {

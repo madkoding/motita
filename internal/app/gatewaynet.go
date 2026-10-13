@@ -69,9 +69,6 @@ func (op Options) gatewaySetup(ctx context.Context, fl flags) int {
 	return Success
 }
 
-// exposureChoices are the answers in the order they are offered; the first is the default.
-var exposureChoices = []string{config.ExposureLocal, config.ExposureLAN, config.ExposureAll}
-
 // errNoAnswer is the input ending before an answer was given.
 var errNoAnswer = errors.New("no answer was given")
 
@@ -158,7 +155,7 @@ func (op Options) offerTailscale(ctx context.Context, in *bufio.Reader, listen s
 		return nil
 	}
 	if err := op.Tailscale.Serve(ctx, target); err != nil {
-		return fmt.Errorf("%w (Linux may need `sudo tailscale set --operator=$USER` once)", err)
+		return err
 	}
 	fmt.Fprintf(op.Out, "published: %s\n", st.URL)
 	return nil
