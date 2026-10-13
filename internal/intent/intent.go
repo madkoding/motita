@@ -81,7 +81,7 @@ var actionVerbs = set(
 	"implementa", "implementar", "crea", "crear", "elimina", "eliminar", "borra", "borrar",
 	"actualiza", "actualizar", "refactoriza", "refactorizar", "renombra", "renombrar",
 	"escribe", "escribir", "ejecuta", "ejecutar", "corre", "correr", "instala", "instalar",
-	"migra", "migrar", "cambia", "cambiar", "mueve", "mover", "haz", "hacer", "sube", "subir",
+	"migra", "migrar", "cambia", "cambiar", "mueve", "mover", "haz", "hacer", "sube", "subir", // spanish-fixture: the Spanish the classifier reads
 	"publica", "publicar", "abre", "abrir", "reemplaza", "reemplazar", "aplica", "aplicar",
 	"convierte", "convertir", "limpia", "limpiar", "genera", "generar", "edita", "editar",
 	"modifica", "modificar", "traduce", "traducir", "pon", "quita", "quitar", "integra",
@@ -99,7 +99,7 @@ var planVerbs = set(
 // questionWords open a question.
 var questionWords = set(
 	"how", "what", "why", "where", "which", "who", "when", "is", "are", "does", "should",
-	"como", "que", "cual", "cuales", "porque", "donde", "cuando", "quien", "quienes", "cuanto",
+	"como", "que", "cual", "cuales", "porque", "donde", "cuando", "quien", "quienes", "cuanto", // spanish-fixture: the Spanish the classifier reads
 	"cuantos", "deberia", "conviene", "existe", "hay",
 )
 
@@ -197,7 +197,7 @@ func imperative(word string) string {
 	return word
 }
 
-// isPorQue reports whether a sentence opens with "por que" (why), folded from "por qué".
+// isPorQue reports whether a sentence opens with "por que" (why), folded from "por qué". (spanish-fixture: the Spanish the classifier reads)
 func isPorQue(words []string) bool {
 	return len(words) > 1 && words[0] == "por" && words[1] == "que"
 }
@@ -209,7 +209,7 @@ type sentence struct {
 }
 
 // splitSentences cuts folded text at . ! ? and line breaks. A sentence is a question when it
-// ends with ? or opened with ¿.
+// ends with ? or opened with ¿. (spanish-fixture: the Spanish the classifier reads)
 func splitSentences(plain string) []sentence {
 	var out []sentence
 	var cur strings.Builder
@@ -226,7 +226,7 @@ func splitSentences(plain string) []sentence {
 	}
 	for _, r := range plain {
 		switch r {
-		case '¿':
+		case '¿': // spanish-fixture: the Spanish the classifier reads
 			question = true
 		case '?':
 			flush(true)
@@ -242,10 +242,10 @@ func splitSentences(plain string) []sentence {
 
 // accents takes the accents off the letters Spanish and English write with them.
 var accents = strings.NewReplacer(
-	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n", "’", "'",
+	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n", "’", "'", // spanish-fixture: the Spanish the classifier reads
 )
 
-// fold lowercases text and takes the accents off, so "Añade" and "anade" are the same word.
+// fold lowercases text and takes the accents off, so "Añade" and "anade" are the same word. (spanish-fixture: the Spanish the classifier reads)
 func fold(text string) string {
 	return accents.Replace(strings.ToLower(text))
 }
