@@ -1054,7 +1054,14 @@ function MainColumn({ pr }: { pr: PullRequest }) {
 // page, the terminal), saved in the gateway's configuration, and the git host connections. It is
 // drawn here and not in the sidebar, whose frosted glass would trap a `fixed` dialog in its width.
 function SettingsHost() {
-  const { closeSettings, language, projects, api: request, status } = useApp();
+  const {
+    closeSettings,
+    language,
+    projects,
+    api: request,
+    status,
+    voice,
+  } = useApp();
   const { changeLanguage } = language;
   const { setGitConnect } = projects;
   const { setToast } = status;
@@ -1068,6 +1075,13 @@ function SettingsHost() {
       langAvailable={language.uiLangAvailable}
       onLang={onLang}
       onClose={closeSettings}
+      voice={{
+        state: voice.state,
+        hands: voice.hands,
+        phrases: voice.info?.wake_phrases || [],
+        prefs: voice.prefs,
+        setPrefs: voice.setPrefs,
+      }}
       git={{
         api: request,
         rev: projects.gitRev,

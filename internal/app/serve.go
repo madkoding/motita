@@ -18,6 +18,7 @@ import (
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/tui"
+	"github.com/madkoding/motita/internal/voice"
 )
 
 // runServe runs the gateway and no interface.
@@ -250,6 +251,14 @@ func (op Options) startGateway(
 		// loaded: resolvedConfigPath is the one answer to "which file", shared with run.
 		ConfigPath: resolvedConfigPath(fl),
 		UILanguage: cfg.UI.Language,
+		// Speech input, off unless voice.enabled; the recording is forwarded, never stored.
+		Voice:         voiceFor(cfg),
+		WakePhrases:   cfg.Voice.WakePhrases,
+		MaxAudioBytes: cfg.VoiceMaxAudioBytes(),
+		// The optional https listener, beside the plain one the local clients use.
+		TLSListen: cfg.Gateway.TLS.Listen,
+		TLSCert:   cfg.Gateway.TLS.Cert,
+		TLSKey:    cfg.Gateway.TLS.Key,
 	}, cfg)
 	if err != nil {
 		return nil, err
@@ -340,4 +349,17 @@ func (op Options) newGateway(opts gateway.Options, cfg config.Config) (*gateway.
 		return op.NewGateway(opts, cfg)
 	}
 	return gateway.Start(opts)
+}
+
+// voiceFor is the transcription service the configuration asks for, or nil when speech input is
+// off. Nil is returned as an untyped nil on purpose: a nil pointer inside the interface would read
+// as "on" to the gateway.
+func voiceFor(cfg config.Config) gateway.VoiceService {
+	if !cfg.Voice.Enabled {
+		return nil
+	}
+	return voice.Transcriber{
+		BaseURL: cfg.VoiceBaseURL(), APIKey: cfg.VoiceAPIKey(),
+		Model: cfg.Voice.Model, Language: cfg.Voice.Language,
+	}
 }

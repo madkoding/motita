@@ -681,6 +681,26 @@ const es: Record<string, string> = {
   "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.":
     "0 usa el valor por defecto (5). Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
   "Notify me when a CI ends": "Avisarme cuando termine un CI",
+  Voice: "Voz",
+  "Microphone button": "Botón de micrófono",
+  "Dictate into the message box. You read and edit the text before sending it.":
+    "Dicta en el cuadro de mensaje. Lees y editas el texto antes de enviarlo.",
+  "Listen for the wake phrase": "Escuchar la frase de activación",
+  "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}":
+    "Solo con esta pestaña abierta. Lo que digas se envía al servicio de transcripción. Di: {phrases}",
+  "Needs https or localhost: the browser only allows the microphone there.":
+    "Requiere https o localhost: el navegador solo permite el micrófono ahí.",
+  "This browser cannot record audio.": "Este navegador no puede grabar audio.",
+  "Off on the gateway: set voice.enabled in the configuration.":
+    "Desactivado en el gateway: activa voice.enabled en la configuración.",
+  "Add voice.wake_phrases to the configuration first.":
+    "Primero agrega voice.wake_phrases a la configuración.",
+  Dictate: "Dictar",
+  "Stop and transcribe": "Detener y transcribir",
+  "Transcribing…": "Transcribiendo…",
+  "Listening for the wake phrase": "Escuchando la frase de activación",
+  "Speech input failed": "Falló la entrada de voz",
+  "Heard “{phrase}”": "Escuché “{phrase}”",
   "This browser cannot show notifications.":
     "Este navegador no puede mostrar notificaciones.",
   "Browsers only allow notifications on an https:// address (or localhost). Open Motita through https to turn them on.":

@@ -29,6 +29,7 @@ import {
 import { choose } from "./choose";
 import { showNotification } from "./notify";
 import { errorMessage } from "./errors";
+import type { VoicePrefs, VoiceState } from "./voice";
 
 initSettings();
 
@@ -48,6 +49,117 @@ interface Props {
     ) => void;
     onNotice: (message: string, error?: boolean) => void;
   };
+  // Speech input. Absent where the page has no voice store (the tests of other sections).
+  voice?: VoiceSettingsProps;
+}
+
+export interface VoiceSettingsProps {
+  state: VoiceState;
+  hands: VoiceState | "no-phrases";
+  phrases: string[];
+  prefs: VoicePrefs;
+  setPrefs: (p: VoicePrefs) => void;
+}
+
+// voiceBlocker explains why speech input cannot be used, or "" when it can.
+function voiceBlocker(state: string): string {
+  if (state === "insecure") {
+    return t(
+      "Needs https or localhost: the browser only allows the microphone there.",
+    );
+  }
+  if (state === "unsupported") {
+    return t("This browser cannot record audio.");
+  }
+  if (state === "off") {
+    return t("Off on the gateway: set voice.enabled in the configuration.");
+  }
+  if (state === "no-phrases") {
+    return t("Add voice.wake_phrases to the configuration first.");
+  }
+  return "";
+}
+
+// VoiceSwitch is one switch of the speech section, greyed out while it cannot be used.
+function VoiceSwitch({
+  id,
+  usable,
+  checked,
+  onChange,
+}: {
+  id: string;
+  usable: boolean;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label class="settings-switch-hit">
+      <input
+        type="checkbox"
+        role="switch"
+        class="settings-switch"
+        aria-labelledby={id}
+        disabled={!usable}
+        checked={usable && checked}
+        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
+      />
+    </label>
+  );
+}
+
+// VoiceSettings are the microphone and the wake phrase, which only work where the browser grants
+// the microphone (https or localhost) and the gateway has speech input on.
+function VoiceSettings({
+  state,
+  hands,
+  phrases,
+  prefs,
+  setPrefs,
+}: VoiceSettingsProps) {
+  return (
+    <section class="settings-group" aria-labelledby="settings-voice-h">
+      <h3 id="settings-voice-h" class="settings-group-title">
+        {t("Voice")}
+      </h3>
+      <div class="settings-card" data-testid="voice-setting">
+        <Row
+          id="settings-mic"
+          label={t("Microphone button")}
+          hint={
+            voiceBlocker(state) ||
+            t(
+              "Dictate into the message box. You read and edit the text before sending it.",
+            )
+          }
+        >
+          <VoiceSwitch
+            id="settings-mic"
+            usable={state === "ready"}
+            checked={prefs.mic}
+            onChange={(mic) => setPrefs({ ...prefs, mic })}
+          />
+        </Row>
+        <Row
+          id="settings-listen"
+          label={t("Listen for the wake phrase")}
+          hint={
+            voiceBlocker(hands) ||
+            tf(
+              "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
+              { phrases: phrases.map((p) => `“${p}”`).join(", ") },
+            )
+          }
+        >
+          <VoiceSwitch
+            id="settings-listen"
+            usable={hands === "ready"}
+            checked={prefs.listen}
+            onChange={(listen) => setPrefs({ ...prefs, listen })}
+          />
+        </Row>
+      </div>
+    </section>
+  );
 }
 
 // notifyHint explains the desktop-notification switch for the state the browser is in.
@@ -228,7 +340,8 @@ function GeneralSettings({
   langSetting,
   langAvailable,
   onLang,
-}: Pick<Props, "langSetting" | "langAvailable" | "onLang">) {
+  voice,
+}: Pick<Props, "langSetting" | "langAvailable" | "onLang" | "voice">) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const update = (next: UISettings) => {
     setS(next);
@@ -284,6 +397,7 @@ function GeneralSettings({
         </div>
       </section>
       <NotifySetting />
+      {voice && <VoiceSettings {...voice} />}
     </>
   );
 }
@@ -412,7 +526,9 @@ function NotifySetting() {
                 }).then((ok) =>
                   setTested(
                     ok
-                      ? t("Sent. If nothing showed up, check the system's do-not-disturb mode.")
+                      ? t(
+                          "Sent. If nothing showed up, check the system's do-not-disturb mode.",
+                        )
                       : t("The browser did not show it."),
                   ),
                 );
@@ -482,6 +598,7 @@ export function SettingsModal({
   onLang,
   onClose,
   git,
+  voice,
 }: Props) {
   const [tab, setTab] = useState<Tab>("general");
   const ref = useRef<HTMLDialogElement>(null);
@@ -569,6 +686,7 @@ export function SettingsModal({
               langSetting={langSetting}
               langAvailable={langAvailable}
               onLang={onLang}
+              voice={voice}
             />
           )}
           {tab === "git" && git && <GitConnections {...git} />}
@@ -695,8 +813,7 @@ function GitConnections({
               <ForgeIcon kind={a.kind} />
               <div class="settings-row-text">
                 <div class="text-sm text-[#e8e8ea] truncate">
-                  {a.name}{" "}
-                  <span class="text-xs text-[#7a7a8c]">{a.host}</span>
+                  {a.name} <span class="text-xs text-[#7a7a8c]">{a.host}</span>
                 </div>
                 <div
                   class={
@@ -745,7 +862,9 @@ function GitConnections({
                 )}
                 {confirm !== a.id && !a.connected && (
                   <button
-                    class={smallBtn + " bg-accent text-white border-transparent"}
+                    class={
+                      smallBtn + " bg-accent text-white border-transparent"
+                    }
                     aria-label={tf("Connect {host}", { host: a.name })}
                     onClick={() => onConnect(a.id)}
                   >

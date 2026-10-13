@@ -362,3 +362,54 @@ test("the dialog fills a phone and is a centred two-column window from md up", (
     "the hover highlight is only for a mouse",
   );
 });
+
+test("the voice switches are greyed out until the page and the gateway allow them", async () => {
+  const saved = [];
+  const voice = (state, hands, prefs = { mic: true, listen: false }) => ({
+    state,
+    hands,
+    phrases: ["hey motita", "motita"],
+    prefs,
+    setPrefs: (p) => saved.push(p),
+  });
+  let v = await open({ voice: voice("insecure", "insecure") });
+  const section = v.root.querySelector("[data-testid=voice-setting]");
+  assert.ok(section, "the voice section is drawn");
+  const [mic, listen] = section.querySelectorAll("input[role=switch]");
+  assert.equal(mic.disabled, true);
+  assert.equal(listen.disabled, true);
+  assert.equal(mic.checked, false, "an unusable switch never reads as on");
+  assert.match(section.textContent, /https or localhost/);
+  await v.done();
+
+  v = await open({ voice: voice("ready", "no-phrases") });
+  const [mic2, listen2] = v.root.querySelectorAll(
+    "[data-testid=voice-setting] input[role=switch]",
+  );
+  assert.equal(mic2.disabled, false);
+  assert.equal(mic2.checked, true);
+  assert.equal(listen2.disabled, true);
+  assert.match(v.root.textContent, /voice\.wake_phrases/);
+  await act(() => mic2.click());
+  assert.deepEqual(saved.pop(), { mic: false, listen: false });
+  await v.done();
+
+  v = await open({ voice: voice("ready", "ready") });
+  const listen3 = v.root.querySelectorAll(
+    "[data-testid=voice-setting] input[role=switch]",
+  )[1];
+  assert.equal(listen3.disabled, false);
+  assert.match(v.root.textContent, /“hey motita”, “motita”/);
+  await act(() => listen3.click());
+  assert.deepEqual(saved.pop(), { mic: true, listen: true });
+  await v.done();
+
+  for (const [state, text] of [
+    ["unsupported", /cannot record audio/],
+    ["off", /voice\.enabled/],
+  ]) {
+    v = await open({ voice: voice(state, state) });
+    assert.match(v.root.textContent, text);
+    await v.done();
+  }
+});

@@ -1,6 +1,7 @@
-// The toast: an auto-dismissing notification at the bottom of the screen.
+// The toast: an auto-dismissing notification at the top right, just under the header bar, where
+// it covers neither the message box nor the conversation's last lines. On a phone it spans the width.
 //
-// Centred with flex on a full-width wrapper rather than with translate-x-1/2: the slideUp keyframe
+// Centred with flex on a full-width wrapper rather than with translate-x-1/2: the toastIn keyframe
 // animates `transform`, and a transform on the card would OVERRIDE the translate that centres it,
 // which pushed the card off the right edge of a narrow window. `detail` is the second line: a
 // merge names the commit it produced, and a failure says what did NOT change, which is the part a
@@ -77,10 +78,13 @@ export function ToastCard({ toast }: { toast: Toast }) {
   const { updateInfo, openUpgrade, dismissUpgradeToast } = updates;
   const offersUpgrade = !!updateInfo?.update_available && !!toast.update;
   return (
-    <div class="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
+    <div
+      class="fixed top-[calc(4.75rem+env(safe-area-inset-top))] inset-x-0 z-60 flex justify-center sm:justify-end px-4 sm:px-6 pointer-events-none"
+      data-testid="toast-layer"
+    >
       <div
         class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
-        style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, "rgba(239,68,68,0.35)", "rgba(237,181,88,0.35)", "rgba(76,194,255,0.35)")}`}
+        style={`animation: toastIn 0.25s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, "rgba(239,68,68,0.35)", "rgba(237,181,88,0.35)", "rgba(76,194,255,0.35)")}`}
       >
         <ToastIcon kind={toastIcon(toast.type, toast.update, updateInfo)} />
         <div class="flex-1 min-w-0">

@@ -25,6 +25,7 @@ import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useFinishedElsewhere } from "./sessionWatch";
 import type { Api } from "./prApi";
+import { useVoice } from "./useVoice";
 
 export function useAppStore(api: Api) {
   const rs = useRunState();
@@ -104,6 +105,12 @@ export function useAppStore(api: Api) {
     setSlashCommands: composer.setSlashCommands,
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
+  const voice = useVoice({
+    api,
+    authed: auth.authState === "ok",
+    setInput: composer.setInput,
+    setToast,
+  });
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();
   const [showSettings, setShowSettings] = useState(false);
@@ -135,6 +142,7 @@ export function useAppStore(api: Api) {
     checkpoints,
     auth,
     updates,
+    voice,
     language,
     menus,
     showSettings,
