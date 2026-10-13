@@ -40,10 +40,14 @@ export function useSuggestions(api: Api, rs: RunState, stream: Stream) {
           /* the marks stay on screen; only a reload loses them */
         }
       }
+      // Sent as a task, not through auto mode: applying accepted changes is work by definition,
+      // and the wording of the request must not route it to the read-only planner.
       if (answers.request) {
         await stream.submit(
           answers.request,
-          undefined,
+          SESSIONS_PATH +
+            encodeURIComponent(rs.sessionRef.current) +
+            "/task",
           t("Applying suggestions"),
         );
       }

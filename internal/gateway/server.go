@@ -353,6 +353,13 @@ func resolveHeartbeat(heartbeat time.Duration) time.Duration {
 	return heartbeat
 }
 
+// info logs an event when the gateway has a logger.
+func (s *Server) info(msg string, args ...any) {
+	if s.opts.Log != nil {
+		s.opts.Log.Info(msg, args...)
+	}
+}
+
 // warn logs a warning when the gateway has a logger.
 func (s *Server) warn(msg string, args ...any) {
 	if s.opts.Log != nil {
@@ -657,6 +664,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
+	mux.Handle("POST /v1/sessions/{id}/run", scoped(s.handleRun))
 	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
 	mux.Handle("POST /v1/sessions/{id}/continue", scoped(s.handleContinueSession))
 	mux.Handle("GET /v1/sessions/{id}/pr", scoped(s.handleGetPR))

@@ -45,6 +45,7 @@ var commands = []Command{
 	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
 	{Name: "/decisions", Help: "what /goal decided; undo n removes one", Arg: "[undo n]", Group: "action"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
+	{Name: "/auto", Help: "Auto mode: picks plan or task from what you write", Group: "mode"},
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]",
 		Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
@@ -112,6 +113,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	},
 	"/plan": func(t *TUI, _ context.Context, _ string) bool {
 		t.setScreen(ScreenPlan)
+		return false
+	},
+	"/auto": func(t *TUI, _ context.Context, _ string) bool {
+		t.setScreen(ScreenAuto)
 		return false
 	},
 	// A goal is a task the agent runs without asking. The prefix travels with the text, so the

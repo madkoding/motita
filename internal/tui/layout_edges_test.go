@@ -373,7 +373,7 @@ func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
 	//	n-3-i       the box's top border, titled with the mode
 	fieldStart := n - 2 - inputRows
 	above := stripANSI(lines[fieldStart-1])
-	if !strings.Contains(above, glyphTopLeft) || !strings.Contains(above, "Task") {
+	if !strings.Contains(above, glyphTopLeft) || !strings.Contains(above, "Auto") {
 		t.Errorf("the row above the input must open the box with the mode, got %q", above)
 	}
 	field := lines[fieldStart : n-2]
@@ -533,7 +533,7 @@ func TestThePopupIsCappedRatherThanPushingTheFrameOff(t *testing.T) {
 	if !strings.Contains(body, "›") {
 		t.Error("the input must survive a capped popup")
 	}
-	if !strings.Contains(body, "Task") {
+	if !strings.Contains(body, "Auto") {
 		t.Error("the status bar must survive a capped popup")
 	}
 
@@ -551,7 +551,7 @@ func TestThePopupIsCappedRatherThanPushingTheFrameOff(t *testing.T) {
 	if !strings.Contains(tightBody, "/task") {
 		t.Errorf("the popup must still offer the first candidate:\n%s", tightBody)
 	}
-	if !strings.Contains(tightBody, "›") || !strings.Contains(tightBody, "Task") {
+	if !strings.Contains(tightBody, "›") || !strings.Contains(tightBody, "Auto") {
 		t.Errorf("the input and the bar must survive:\n%s", tightBody)
 	}
 }

@@ -73,6 +73,9 @@ type run struct {
 	// "merge" means the run is integrating the session's work into its project.
 	// The intent is read when the run finishes to trigger post-run bookkeeping.
 	intent string
+	// note is the first progress line of the turn, written once its checkpoint is open: auto
+	// mode's "mode: plan (question)". Empty writes nothing.
+	note string
 	// done is closed when the run has finished, whatever the outcome.
 	done chan struct{}
 	// turn is the conversation turn this run became, and onLine receives every progress line

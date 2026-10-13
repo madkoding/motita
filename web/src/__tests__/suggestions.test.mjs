@@ -201,5 +201,6 @@ test("the conversation draws the label, the stream keeps the turn of the answer,
   assert.match(src("streamEvents.ts"), /turn: rs\.liveTurnRef\.current/);
   assert.match(src("useSuggestions.ts"), /t\("Applying suggestions"\)/);
   assert.match(src("useSuggestions.ts"), /method: "PUT"/);
+  assert.match(src("useSuggestions.ts"), /"\/task"/, "applying is a task, never routed to the planner");
   assert.match(src("useSuggestions.ts"), /\/checkpoints\//);
 });

@@ -88,6 +88,20 @@ export function durationOf(every: string): { ms: number; short: string } {
   return { ms, short: short || every };
 }
 
+// modeOf reads the line auto mode opens a turn with, "mode: plan (question)", and returns the
+// mode it picked, or null for any other line.
+export function modeOf(text: string): "plan" | "task" | null {
+  const m = /^mode: (plan|task) \(/.exec(text);
+  return m ? (m[1] as "plan" | "task") : null;
+}
+
+// switchedText is a message sent again in the other mode: a leading /plan or /task (or its
+// alias) is replaced, so the gateway runs it in the mode named and records the correction.
+export function switchedText(text: string, from: "plan" | "task"): string {
+  const rest = text.replace(/^\/(plan|p|task|t)(\s+|$)/i, "");
+  return (from === "plan" ? "/task " : "/plan ") + rest;
+}
+
 // classifyProgress reads the prefix of a progress line and returns the kind.
 const PROGRESS_PREFIXES: [string, string][] = [
   ["thinking:", "thought"],
@@ -95,6 +109,7 @@ const PROGRESS_PREFIXES: [string, string][] = [
   ["approved (all commands", "check"],
   ["running:", "command"],
   ["action:", "reasoning"],
+  ["mode:", "analysis"],
 ];
 const PROGRESS_PATTERNS: [RegExp, string][] = [
   [/^(validating|validation)/, "check"],

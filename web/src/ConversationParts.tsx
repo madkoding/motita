@@ -7,7 +7,12 @@ import { useApp } from "./appStore";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
 import { ActionTrail } from "./ActionTrail";
-import { classifyProgress, oneLine, progressText } from "./appParse";
+import {
+  classifyProgress,
+  oneLine,
+  progressText,
+  switchedText,
+} from "./appParse";
 import { lastExit, statusLabel } from "./appFormat";
 import { RUN_MENU } from "./useCheckpoints";
 import type { ChangeReport, Message, StepView } from "./appTypes";
@@ -253,10 +258,12 @@ export function TurnHead({
   head,
   turn,
   liveHere,
+  mode,
 }: {
   head: Message;
   turn?: number;
   liveHere: boolean;
+  mode?: "plan" | "task" | null;
 }) {
   const { rs } = useApp();
   const canGoBack =
@@ -266,8 +273,36 @@ export function TurnHead({
       <div class="msg user" data-who={t("You")}>
         <UserText m={head} />
       </div>
+      {mode && <ModeChip mode={mode} text={head.text} />}
       {liveHere && <RunMenu />}
       {canGoBack && <CheckpointMenu turn={turn} />}
+    </div>
+  );
+}
+
+// ModeChip says which mode auto mode picked for a turn, and sends the same message again in the
+// other one: the one-click correction of a wrong guess.
+export function ModeChip({
+  mode,
+  text,
+}: {
+  mode: "plan" | "task";
+  text: string;
+}) {
+  const { rs, stream } = useApp();
+  const label = mode === "plan" ? t("Plan") : t("Task");
+  const other = mode === "plan" ? t("Run as task") : t("Run as plan");
+  return (
+    <div class="mode-chip">
+      <span class="mode-chip-kind">{label}</span>
+      <button
+        type="button"
+        class="mode-chip-switch"
+        disabled={rs.running}
+        onClick={() => void stream.submit(switchedText(text, mode))}
+      >
+        {other}
+      </button>
     </div>
   );
 }

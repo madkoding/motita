@@ -12,6 +12,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/intent"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/session"
 )
@@ -78,6 +79,62 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	s.startRun(w, r, c, body.Prompt, schedule.KindPlan)
 }
 
+// handleRun is auto mode: it reads the message, picks plan or task with intent.Classify, and
+// runs it as the matching endpoint would. The first line of the stream says which mode was
+// picked and why, so the person can send it again with /plan or /task when the guess is wrong.
+func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Task string `json:"task"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	d := intent.Classify(body.Task)
+	if strings.TrimSpace(d.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "the task is empty")
+		return
+	}
+	c := convOf(r)
+	if c.merged {
+		writeError(w, http.StatusConflict, msgSessionIntegrated)
+		return
+	}
+	d = intent.Refine(r.Context(), d, completerOf(c.svc))
+	c.stateMu.Lock()
+	prev := c.lastAuto
+	c.lastAuto = d
+	c.stateMu.Unlock()
+	if intent.Corrects(prev, d) {
+		s.info("auto mode corrected", "from", prev.Kind, "to", d.Kind,
+			"source", prev.Source, "reason", prev.Reason)
+	}
+	rn, started := s.startNotedRun(c, d.Prompt, d.Kind, "", d.Note(), s.approverFactory(c))
+	if !started {
+		writeError(w, http.StatusConflict,
+			"a run is already in progress in this session; a conversation is served one run at a time")
+		return
+	}
+	s.attach(w, r, c, rn, 0)
+}
+
+// intentModel is a Service that can answer auto mode's question when the rules cannot. It is a
+// separate interface so a service without a model (a test's fake) simply keeps the rules' answer.
+type intentModel interface {
+	CompleteIntent(ctx context.Context, system, user string) (string, error)
+}
+
+// completerOf is the service's model call for auto mode, or nil when it has none or the
+// configuration keeps auto mode to its rules (agent.auto_mode_rules_only).
+func completerOf(svc Service) intent.Completer {
+	if svc.Config().Agent.AutoModeRulesOnly {
+		return nil
+	}
+	if m, ok := svc.(intentModel); ok {
+		return m.CompleteIntent
+	}
+	return nil
+}
+
 // startRun begins a turn and streams it to the caller.
 //
 // The slot is taken BEFORE the headers are written, so a refused second client gets a 409
@@ -122,6 +179,15 @@ func (s *Server) startRunWithIntent(
 func (s *Server) startDetachedRun(
 	c *conversation, task, kind, intent string, approverFor func(*run) agent.Approver,
 ) (*run, bool) {
+	return s.startNotedRun(c, task, kind, intent, "", approverFor)
+}
+
+// startNotedRun is startDetachedRun with a first progress line, written before the agent says
+// anything: auto mode uses it to tell the person which mode it picked. It is written from the
+// run's own goroutine (see executeTurn), so it cannot land after a line of the agent's.
+func (s *Server) startNotedRun(
+	c *conversation, task, kind, intent, note string, approverFor func(*run) agent.Approver,
+) (*run, bool) {
 	if c == nil || c.svc == nil {
 		return nil, false
 	}
@@ -138,6 +204,7 @@ func (s *Server) startDetachedRun(
 	rn.turn = turnFor(turns, task)
 	resumed := rn.turn < len(turns)
 	rn.onLine = func(text string) { c.recordStep(rn.turn, text) }
+	rn.note = note
 	// The last run's agents are not this one's: the list starts over with the run.
 	c.setAgents(nil)
 	rn.onAgents = c.setAgents
@@ -219,6 +286,11 @@ func (s *Server) executeTurn(
 ) (string, error) {
 	if c.openCheckpoint(rn.turn, task, kind, resumed) {
 		s.takeSnapshot(c, rn.turn)
+	}
+	// The note goes out after the checkpoint is open, so it is recorded as the turn's first step
+	// and a client that reloads the conversation still sees which mode the turn ran in.
+	if rn.note != "" {
+		rn.progress()("%s", rn.note)
 	}
 	if kind == schedule.KindPlan {
 		return c.svc.RunPlan(ctx, task, rn.progress())

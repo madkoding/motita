@@ -916,8 +916,13 @@ func (t *TUI) hintList() [][2]string {
 		return [][2]string{{"Esc", "show everything"}, {"^F", "search again"}}
 	default:
 		other := "Plan mode"
-		if t.screen == ScreenPlan {
+		switch t.screen {
+		case ScreenPlan:
+			other = "Auto mode"
+		case ScreenAuto:
 			other = "Task mode"
+		default:
+			// Task, and the screens outside the cycle, go to Plan.
 		}
 		return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
 	}
