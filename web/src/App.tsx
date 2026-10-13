@@ -383,7 +383,9 @@ function NoSession() {
       data-no-session="1"
     >
       <div class="no-session-card w-full max-w-sm flex flex-col items-center gap-4 px-6 py-6">
-        <p class="no-session-title text-base font-semibold">{t("Waiting for a new session")}</p>
+        <p class="no-session-title text-base font-semibold">
+          {t("Waiting for a new session")}
+        </p>
         <p class="no-session-hint text-sm">
           {t("Create a session to start talking to the agent.")}
         </p>
@@ -458,6 +460,11 @@ function SettingsHost() {
         phrases: voice.info?.wake_phrases || [],
         prefs: voice.prefs,
         setPrefs: voice.setPrefs,
+      }}
+      llm={{
+        api: request,
+        onNotice: (message, error) =>
+          setToast({ message, type: choose(error, "error", "success") }),
       }}
       git={{
         api: request,

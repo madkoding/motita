@@ -795,6 +795,69 @@ const es: Record<string, string> = {
   "Could not remove {name}": "No se pudo quitar {name}",
   'Project "{title}" created, but some repositories could not be added: {names}':
     'Proyecto "{title}" creado, pero no se pudieron agregar algunos repositorios: {names}',
+  Providers: "Proveedores",
+  "Connect the AI providers Motita can use, and pick the model new sessions start with.":
+    "Conecta los proveedores de IA que Motita puede usar y elige el modelo con el que empiezan las sesiones nuevas.",
+  "A key you type here travels to Motita unencrypted, because it was opened without a secure connection.":
+    "Una clave que escribas aquí viaja a Motita sin cifrar, porque se abrió sin una conexión segura.",
+  "Only an address that starts with https:// (or localhost on this same computer) encrypts what you send. Open Motita through https before pasting a key.":
+    "Solo una dirección que empieza con https:// (o localhost en este mismo computador) cifra lo que envías. Abre Motita por https antes de pegar una clave.",
+  "This gateway runs without a configuration file, so nothing can be saved here. Run motita config on its machine first.":
+    "Este gateway funciona sin archivo de configuración, así que aquí no se puede guardar nada. Ejecuta primero motita config en su máquina.",
+  "Default model": "Modelo por defecto",
+  Default: "Por defecto",
+  "Sessions already open keep their own model.":
+    "Las sesiones ya abiertas mantienen su propio modelo.",
+  "Connect a provider below first.": "Primero conecta un proveedor más abajo.",
+  "New sessions will start with {model}":
+    "Las sesiones nuevas empezarán con {model}",
+  "Connected · key saved": "Conectado · clave guardada",
+  "Connected · key from {name}": "Conectado · clave desde {name}",
+  "Connected · key in the configuration file":
+    "Conectado · clave en el archivo de configuración",
+  "Connected · signed in": "Conectado · sesión iniciada",
+  "Ready · no key needed": "Listo · no necesita clave",
+  Manage: "Gestionar",
+  "Set up {name}": "Configurar {name}",
+  "It uses the login of its own command: run {cmd} on the gateway's machine.":
+    "Usa el inicio de sesión de su propio comando: ejecuta {cmd} en la máquina del gateway.",
+  "Your own server needs no key.": "Tu propio servidor no necesita clave.",
+  "The key comes from {name} on the gateway's machine, and it wins over one saved here.":
+    "La clave viene de {name} en la máquina del gateway, y tiene prioridad sobre una guardada aquí.",
+  "The key is written in the configuration file (llm.api_key). Remove it from there to manage the key here.":
+    "La clave está escrita en el archivo de configuración (llm.api_key). Quítala de ahí para gestionarla desde aquí.",
+  "Get a key": "Obtener una clave",
+  "You can also sign in with your account from the terminal: motita config":
+    "También puedes iniciar sesión con tu cuenta desde la terminal: motita config",
+  "Saved. Paste a new one to replace it":
+    "Guardada. Pega una nueva para reemplazarla",
+  "Paste the key": "Pega la clave",
+  Endpoint: "Endpoint",
+  "It works: {n} models available.": "Funciona: {n} modelos disponibles.",
+  "It did not connect: {err}": "No se pudo conectar: {err}",
+  "Test connection": "Probar conexión",
+  "Testing…": "Probando…",
+  "{name} saved": "{name} guardado",
+  "The key comes from an environment variable on the gateway's machine, which wins over one saved here.":
+    "La clave viene de una variable de entorno en la máquina del gateway, que tiene prioridad sobre una guardada aquí.",
+  "That address is plain http outside your network: the key would travel unencrypted. Use https.":
+    "Esa dirección es http sin cifrar fuera de tu red: la clave viajaría sin cifrar. Usa https.",
+  "Type the key again to try it on a new address: a saved key is only sent where it was saved for.":
+    "Vuelve a escribir la clave para probarla en una dirección nueva: una clave guardada solo se envía a donde se guardó.",
+  "API key from platform.openai.com": "Clave de API de platform.openai.com",
+  "sign in with ChatGPT, or an API key":
+    "inicia sesión con ChatGPT, o una clave de API",
+  "sign in with GitHub (Copilot plan)":
+    "inicia sesión con GitHub (plan de Copilot)",
+  "free on your own machine, or Ollama Cloud":
+    "gratis en tu propia máquina, u Ollama Cloud",
+  "API key from console.anthropic.com": "Clave de API de console.anthropic.com",
+  "your Claude plan, via the Claude Code CLI":
+    "tu plan de Claude, mediante la CLI de Claude Code",
+  "sign in with Google, or an AI Studio key":
+    "inicia sesión con Google, o una clave de AI Studio",
+  "sign in with qwen.ai, or a DashScope key":
+    "inicia sesión con qwen.ai, o una clave de DashScope",
 };
 
 export default es;
