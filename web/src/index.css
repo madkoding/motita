@@ -3581,3 +3581,318 @@ html[data-keyboard="open"] .app-shell {
     font-size: 16px;
   }
 }
+
+/* ─── Settings ───────────────────────────────────────────────────────
+ * Phone first: the dialog takes the whole visible screen (`--app-h`, padded by the safe area)
+ * and its sections are tabs across the top. From the md breakpoint it is a centred window with
+ * the sections listed down the left and the chosen one on the right. Sizes are set here and not
+ * with Tailwind size utilities, so compact density (which shrinks `--spacing`) cannot squeeze
+ * the window; compact only tightens the inside, below. */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  height: var(--app-h, 100dvh);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  color: #e8e8ea;
+}
+.settings-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.settings-nav {
+  flex: none;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.settings-tab {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 0.6rem;
+  font-size: 0.8125rem;
+  color: #9a9aaa;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+.settings-tab[aria-selected="true"] {
+  color: #e8e8ea;
+  background: rgba(76, 194, 255, 0.12);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+.settings-tab:focus-visible,
+.settings-seg-opt:has(input:focus-visible),
+.settings-switch:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.settings-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+}
+.settings-group + .settings-group {
+  margin-top: 1.5rem;
+}
+.settings-group-title {
+  margin-bottom: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7a7a8c;
+}
+.settings-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  background: rgba(0, 0, 0, 0.22);
+}
+/* A setting: on a narrow phone its control goes under its name, full width; with room they
+ * share one line, the name on the left and the control on the right. */
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+}
+.settings-row + .settings-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.settings-row-text {
+  min-width: 0;
+}
+.settings-row-control {
+  display: flex;
+  gap: 0.5rem;
+}
+/* A switch sits on the right even on a phone: it is too small to stretch. */
+.settings-row:has(.settings-switch-hit) {
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+}
+.settings-row:has(.settings-switch-hit) .settings-row-text {
+  flex: 1 1 auto;
+}
+@media (min-width: 480px) {
+  .settings-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .settings-row-text {
+    flex: 1 1 auto;
+  }
+  .settings-row-control {
+    flex: none;
+  }
+}
+/* An account keeps its buttons beside its name while they fit, and moves them under it, to the
+ * right, when they do not. */
+.settings-row.git-account {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 1rem;
+}
+.git-account .settings-row-text {
+  flex: 1 1 9rem;
+}
+.git-account-actions {
+  margin-left: auto;
+}
+.git-account-state::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: currentColor;
+}
+.settings-add {
+  padding: 0.75rem 0.875rem;
+}
+.settings-add-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+@media (min-width: 480px) {
+  .settings-add-fields {
+    flex-direction: row;
+  }
+}
+
+/* A segmented control: one radio button per choice, the chosen one filled. Under a setting's
+ * name on a phone it fills the row. */
+.settings-seg {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+}
+.settings-seg-opt {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 0.75rem;
+  border-radius: 0.45rem;
+  font-size: 0.75rem;
+  color: #9a9aaa;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s, color 0.15s;
+}
+.settings-seg-opt:has(input:checked) {
+  background: var(--color-accent);
+  color: #0b0b10;
+  font-weight: 600;
+}
+
+/* An on/off switch, drawn on the checkbox itself so it keeps its role and keyboard. */
+.settings-switch-hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.settings-switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 2.5rem;
+  height: 1.5rem;
+  margin: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.settings-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e8e8ea;
+  transition: transform 0.15s;
+}
+.settings-switch:checked {
+  background: var(--color-accent);
+}
+.settings-switch:checked::after {
+  transform: translateX(1rem);
+}
+
+@media (hover: hover) {
+  .settings-tab:not([aria-selected="true"]):hover,
+  .settings-seg-opt:not(:has(input:checked)):hover {
+    color: #e8e8ea;
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+/* A finger gets 44px targets, 36px in compact density (the same floors as every button). */
+@media (pointer: coarse) {
+  .settings-seg-opt,
+  .settings-switch-hit {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  html[data-density="compact"] :is(.settings-seg-opt, .settings-switch-hit) {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}
+
+@media (min-width: 768px) {
+  .settings-backdrop {
+    padding: 1rem;
+  }
+  .settings-panel {
+    display: grid;
+    grid-template-columns: 12.5rem minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    width: min(48rem, 100%);
+    height: min(36rem, calc(100vh - 2rem));
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+  }
+  .settings-head {
+    grid-column: 1 / -1;
+    padding: 0.875rem 1.25rem;
+  }
+  .settings-nav {
+    flex-direction: column;
+    padding: 0.75rem;
+    border-bottom: 0;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .settings-tab {
+    flex: none;
+    justify-content: flex-start;
+  }
+  .settings-tab[aria-selected="true"] {
+    box-shadow: inset 2px 0 0 var(--color-accent);
+  }
+  .settings-panel:not(:has(.settings-nav)) .settings-pane {
+    grid-column: 1 / -1;
+  }
+  .settings-pane {
+    padding: 1.25rem 1.5rem;
+  }
+}
+
+/* Compact density: the same window, a tighter inside. */
+html[data-density="compact"] .settings-pane {
+  padding: 0.5rem 0.75rem;
+}
+html[data-density="compact"] .settings-row {
+  padding: 0.375rem 0.625rem;
+}
+html[data-density="compact"] .settings-group + .settings-group {
+  margin-top: 0.75rem;
+}
+html[data-density="compact"] .settings-head {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
