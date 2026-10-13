@@ -66,9 +66,15 @@ func crossSiteRefusal(r *http.Request) string {
 
 // requestOrigin is the scheme://host the request was addressed to, as a browser would write it in
 // an Origin header for a page served by this server.
+//
+// Behind a proxy that terminates TLS (the way to serve the interface over https, which browsers
+// require for notifications) the connection here is plain http, but the page was https: the proxy
+// says so in X-Forwarded-Proto, as setSessionCookie already trusts. Trusting it widens nothing a
+// browser can use: a page cannot add that header to a cross-origin request, and the host part must
+// still be this server's.
 func requestOrigin(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host
