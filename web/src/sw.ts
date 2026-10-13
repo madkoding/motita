@@ -128,3 +128,20 @@ self.addEventListener("fetch", (event: FetchEvent) => {
     }),
   );
 });
+
+// A tap on a notification (a CI that ended) brings the app back: the open window when there is
+// one, a new one otherwise.
+self.addEventListener("notificationclick", (event: NotificationEvent) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((list) => {
+        const open = list[0];
+        if (open) {
+          return open.focus().then(() => undefined);
+        }
+        return self.clients.openWindow("/").then(() => undefined);
+      }),
+  );
+});
