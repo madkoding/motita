@@ -35,9 +35,18 @@ func ProposalItems(rep *Report) []AskItem {
 			Options:  append([]string(nil), ProposalOptions...),
 			Proposal: true,
 			Needed:   s.Needed,
+			Why:      s.WhyNeeded,
 		})
 	}
 	return items
+}
+
+// askAllSuggestions turns every proposal back into the user's call, for a configuration that does
+// not let auto mode apply any on its own (agent.auto_mode_ask_all_suggestions).
+func (r *Report) askAllSuggestions() {
+	for i := range r.Suggestions {
+		r.Suggestions[i].Needed, r.Suggestions[i].WhyNeeded = false, ""
+	}
 }
 
 // SplitNeeded separates the proposals auto mode applies on its own from the ones it still asks

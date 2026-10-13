@@ -299,6 +299,9 @@ type Agent struct {
 	// message the rules cannot place costs one short model call; this turns that call off, and
 	// such a message runs as a task.
 	AutoModeRulesOnly bool `yaml:"auto_mode_rules_only"`
+	// AutoModeAskAllSuggestions keeps every suggestion of a finished task the user's call, even in
+	// auto mode: none is marked needed, so none is applied without asking.
+	AutoModeAskAllSuggestions bool `yaml:"auto_mode_ask_all_suggestions"`
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
 	// the platform default (sh on Unix, the command processor on Windows).
 	Shell string `yaml:"shell"`

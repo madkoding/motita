@@ -52,6 +52,10 @@ type ReportSuggestion struct {
 	// or correct without it, it stays in scope and it is safe. Auto mode applies these without
 	// asking; every other proposal is still the user's call.
 	Needed bool `json:"needed,omitempty"`
+	// WhyNeeded is the reason a proposal is needed, shown with it so the decision can be checked.
+	// A proposal marked needed without one is demoted to optional: a decision taken for the user
+	// has to say why.
+	WhyNeeded string `json:"why_needed,omitempty"`
 }
 
 // maxSuggestions bounds the proposals of one report. Past a few the user is reading a backlog,
@@ -143,6 +147,11 @@ func normalizeSuggestions(in []ReportSuggestion) []ReportSuggestion {
 		s.Title, s.Detail = strings.TrimSpace(s.Title), strings.TrimSpace(s.Detail)
 		if s.Title == "" {
 			continue
+		}
+		s.WhyNeeded = strings.TrimSpace(s.WhyNeeded)
+		s.Needed = s.Needed && s.WhyNeeded != ""
+		if !s.Needed {
+			s.WhyNeeded = ""
 		}
 		out = append(out, s)
 		if len(out) == maxSuggestions {
@@ -283,7 +292,7 @@ func (r *Report) Text() string {
 			line += " - " + p.Detail
 		}
 		if p.Needed {
-			line += " (needed)"
+			line += " (needed: " + p.WhyNeeded + ")"
 		}
 		proposals = append(proposals, line)
 	}

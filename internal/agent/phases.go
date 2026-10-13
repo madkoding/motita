@@ -132,6 +132,9 @@ func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string,
 		return nil
 	}
 	rep.normalize(validation.Pass)
+	if a.cfg.Agent.AutoModeAskAllSuggestions {
+		rep.askAllSuggestions()
+	}
 	if rep.Summary == "" {
 		return nil
 	}
