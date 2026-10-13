@@ -664,6 +664,9 @@ jobs:
         with:
           subject-path: dist/motita-*
 
+      # semantic-release created this tag's release as a draft. This step finds it
+      # by tag, uploads the files and then publishes it (no `draft: true` here), so
+      # the release turns public only with every binary already attached.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
