@@ -794,11 +794,24 @@ function groupsOf(messages: Message[]): Group[] {
 // MessageBody is an answer of the agent (a report card or Markdown), or any other line as text.
 function MessageBody({ m }: { m: Message }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
+  const { stream, rs } = useApp();
   if (m.role !== "agent" || m.kind) {
     return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
   }
   if (m.report) {
-    return <ReportCard report={m.report} loadImage={loadEvidenceImage} />;
+    // The suggestions of a report are answered only while nothing runs: applying them is a turn.
+    const onApply = choose(
+      rs.running,
+      undefined,
+      (request: string) => void stream.submit(request),
+    );
+    return (
+      <ReportCard
+        report={m.report}
+        loadImage={loadEvidenceImage}
+        onApply={onApply}
+      />
+    );
   }
   return <Markdown content={m.text} />;
 }

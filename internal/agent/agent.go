@@ -358,6 +358,12 @@ type AskItem struct {
 	// Options are the concrete answers to offer, in the user's words. Empty is normal: it means
 	// the question has no short list of plausible answers.
 	Options []string `json:"options,omitempty"`
+	// Proposal marks an item that offers a change the agent found but did not make, rather than
+	// a question about the request. Its options are the fixed ProposalOptions, and answering one
+	// can settle the items after it (see ProposalOptions).
+	Proposal bool `json:"proposal,omitempty"`
+	// Detail is what a proposal would change and why, shown under its title.
+	Detail string `json:"detail,omitempty"`
 }
 
 // Kinds of message the analysis can report.

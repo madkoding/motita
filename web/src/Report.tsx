@@ -9,6 +9,12 @@ import { Markdown } from "./Markdown";
 import { Lightbox } from "./Lightbox";
 import { t, tf, plural } from "./i18n";
 import { choose } from "./choose";
+import {
+  proposalRequest,
+  settle,
+  type ProposalAnswer,
+  type Verdict,
+} from "./proposals";
 
 // The structured account of a finished task, as the gateway sends it in the `done` event
 // (agent.Report in Go). Every field is optional here on purpose: a report from a build that
@@ -27,6 +33,9 @@ export interface TaskReport {
   }[];
   risks?: string[];
   next_steps?: string[];
+  // What the agent noticed and did NOT do. Each is a proposal the user decides on; nothing in it
+  // has been applied.
+  suggestions?: { title?: string; detail?: string }[];
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -58,6 +67,7 @@ export function hasReport(r?: TaskReport | null): r is TaskReport {
     r.evidence?.length,
     r.risks?.length,
     r.next_steps?.length,
+    r.suggestions?.length,
   ];
   return counts.some((n) => !!n);
 }
@@ -180,9 +190,13 @@ function keyedReport(report: TaskReport) {
 export function ReportCard({
   report,
   loadImage,
+  onApply,
 }: {
   report: TaskReport;
   loadImage?: LoadImage;
+  // onApply starts the turn that applies the accepted suggestions. Without it (a run in flight, or
+  // an old answer read back) the suggestions are shown but cannot be answered.
+  onApply?: (request: string) => void;
 }) {
   const [zoom, setZoom] = useState<Zoom | null>(null);
   const closeZoom = useCallback(() => setZoom(null), []);
@@ -250,6 +264,12 @@ export function ReportCard({
       )}
       {next.length > 0 && (
         <BulletSection cls="rpt-next" title={t("Next")} items={next} />
+      )}
+      {(report.suggestions?.length ?? 0) > 0 && (
+        <SuggestionsSection
+          suggestions={report.suggestions ?? []}
+          onApply={onApply}
+        />
       )}
       {zoom && (
         <Lightbox images={zoom.images} start={zoom.start} onClose={closeZoom} />
@@ -417,6 +437,74 @@ function BulletSection({
       <ul>
         {items.map(({ key, item }) => (
           <li key={key}>{item}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+type Suggestion = NonNullable<TaskReport["suggestions"]>[number];
+
+// SuggestionsSection asks about each suggestion in turn: apply this one, apply this one and the
+// following, or apply none. Nothing is applied until every one has an answer, and then only the
+// accepted ones are sent, as a new turn.
+function SuggestionsSection({
+  suggestions,
+  onApply,
+}: {
+  suggestions: Suggestion[];
+  onApply?: (request: string) => void;
+}) {
+  const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(() =>
+    suggestions.map(() => undefined),
+  );
+  const [sent, setSent] = useState(false);
+  const current = verdicts.findIndex((v) => v === undefined);
+  const answer = (pick: ProposalAnswer) => {
+    const next = settle(verdicts, current, pick);
+    setVerdicts(next);
+    if (next.every((v) => v !== undefined)) {
+      setSent(true);
+      const request = proposalRequest(
+        t("Apply these suggestions you made, and nothing else:"),
+        suggestions,
+        next,
+      );
+      if (request && onApply) {
+        onApply(request);
+      }
+    }
+  };
+  const items = keyed(suggestions, (s) => `${s.title}|${s.detail}`);
+  return (
+    <section class="rpt-sec rpt-suggest">
+      <h4>{t("Suggestions")}</h4>
+      <ul>
+        {items.map(({ key, item }, i) => (
+          <li key={key} class={verdicts[i] ?? choose(i === current, "current", "")}>
+            <span class="rpt-body">
+              <span class="rpt-check">{item.title}</span>
+              {item.detail && <span class="rpt-evidence">{item.detail}</span>}
+            </span>
+            {verdicts[i] && (
+              <span class="rpt-verdict">
+                {choose(verdicts[i] === "apply", t("will apply"), t("not applied"))}
+              </span>
+            )}
+            {i === current && !sent && (
+              <div class="rpt-suggest-actions">
+                <button type="button" disabled={!onApply} onClick={() => answer("this")}>
+                  {t("Apply this one")}
+                </button>
+                <button type="button" disabled={!onApply} onClick={() => answer("rest")}>
+                  {t("Apply this one and the following")}
+                </button>
+                <button type="button" disabled={!onApply} onClick={() => answer("none")}>
+                  {t("Apply none")}
+                </button>
+              </div>
+            )}
+          </li>
         ))}
       </ul>
     </section>

@@ -171,6 +171,43 @@
   background: #4cc2ff;
 }
 
+/* Suggestions: what the agent found and did not do, asked about one at a time. */
+.rpt-suggest li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  padding: 4px 0;
+}
+.rpt-suggest li.skip {
+  opacity: 0.55;
+}
+.rpt-verdict {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+.rpt-suggest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.rpt-suggest-actions button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  cursor: pointer;
+}
+.rpt-suggest-actions button:first-child {
+  border-color: #4cc2ff;
+}
+.rpt-suggest-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Evidence: the before and after screenshots, side by side. Two columns while there is room, one
  * under the other on a narrow screen; each image keeps its own proportions. */
 .rpt-evidence-set {

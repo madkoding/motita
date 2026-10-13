@@ -25,6 +25,15 @@ var esTUI = map[string]string{
 	"… and %d more":              "… y %d más",
 	"answer:":                    "respuesta:",
 
+	// The suggestions window: what the agent found and offers to do.
+	"suggestion %d of %d":              "sugerencia %d de %d",
+	"Apply this one":                   "Aplicar esta",
+	"Apply this one and the following": "Aplicar esta y las siguientes",
+	"Apply none":                       "No aplicar ninguna",
+	"About your other suggestions:":    "Sobre tus otras sugerencias:",
+	"Apply these suggestions you made, and nothing else:": "Aplica estas sugerencias que hiciste, y nada " +
+		"más:",
+
 	// Artifacts.
 	"files the agent saved: list, show one, or save it here": "archivos que guardó el agente: lista, muestra uno o " +
 		"guárdalo aquí",

@@ -36,7 +36,23 @@ type Report struct {
 	// Decisions are the choices a GOAL run took on the user's behalf, each with its reason. Empty
 	// for an ordinary task, where the user made the decisions.
 	Decisions []ReportDecision `json:"decisions"`
+	// Suggestions are what the agent noticed while working and did NOT do: an issue next to the
+	// change, a missing test, an alternative worth weighing. They are proposals, never applied
+	// on their own: the interface asks the user, one by one, whether to apply each.
+	Suggestions []ReportSuggestion `json:"suggestions"`
 }
+
+// ReportSuggestion is one proposal the user decides on.
+type ReportSuggestion struct {
+	// Title is the proposal in one line, as the user would name it.
+	Title string `json:"title"`
+	// Detail is why it is worth doing and what applying it would change.
+	Detail string `json:"detail"`
+}
+
+// maxSuggestions bounds the proposals of one report. Past a few the user is reading a backlog,
+// not deciding, and the ones that matter get lost among the ones that do not.
+const maxSuggestions = 5
 
 // ReportDecision is one choice taken without asking.
 type ReportDecision struct {
@@ -113,6 +129,23 @@ func (r *Report) normalize(pass bool) {
 	r.Risks = cleanLines(r.Risks)
 	r.NextSteps = cleanLines(r.NextSteps)
 	r.Decisions = normalizeDecisions(r.Decisions)
+	r.Suggestions = normalizeSuggestions(r.Suggestions)
+}
+
+// normalizeSuggestions keeps the proposals that name something, up to maxSuggestions.
+func normalizeSuggestions(in []ReportSuggestion) []ReportSuggestion {
+	out := make([]ReportSuggestion, 0, len(in))
+	for _, s := range in {
+		s.Title, s.Detail = strings.TrimSpace(s.Title), strings.TrimSpace(s.Detail)
+		if s.Title == "" {
+			continue
+		}
+		out = append(out, s)
+		if len(out) == maxSuggestions {
+			break
+		}
+	}
+	return out
 }
 
 // normalizeChanges drops the empty changes and folds an unknown kind into "other".
@@ -239,5 +272,14 @@ func (r *Report) Text() string {
 	block("Screenshots", shots)
 	block("Worth knowing", r.Risks)
 	block("Next", r.NextSteps)
+	var proposals []string
+	for _, p := range r.Suggestions {
+		line := p.Title
+		if p.Detail != "" {
+			line += " - " + p.Detail
+		}
+		proposals = append(proposals, line)
+	}
+	block("Suggestions (not applied)", proposals)
 	return b.String()
 }
