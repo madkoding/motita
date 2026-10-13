@@ -2,10 +2,8 @@
 // skill library, the artifacts, the scheduled tasks and the settings.
 import { useCallback, useEffect, useRef } from "preact/hooks";
 import { t } from "./i18n";
-import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { useBackdropClose } from "./useBackdropClose";
-import { SettingsModal } from "./Settings";
 import { NewSessionButton } from "./NewSessionButton";
 import { SessionRow } from "./SessionRow";
 import { ProjectGroup } from "./ProjectGroup";
@@ -16,7 +14,6 @@ import {
   IconDownload,
   IconFolderPlus,
 } from "./icons";
-import type { LangSetting } from "./i18n";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 
@@ -108,28 +105,13 @@ function UpgradeButton() {
   );
 }
 
-// Settings is the settings button and its modal: the language of every interface (this page, the
-// terminal), saved in the gateway's configuration, and the git host connections.
+// Settings is the settings button. The modal it opens is drawn by the app (SettingsHost in
+// App.tsx), outside the sidebar: the sidebar's frosted glass is a containing block for anything
+// `fixed` inside it, and the modal ended up squeezed into the sidebar's width.
 function Settings() {
-  const {
-    showSettings,
-    openSettings,
-    closeSettings,
-    language,
-    projects,
-    api,
-    status,
-  } = useApp();
-  const { changeLanguage } = language;
-  const { setGitConnect } = projects;
-  const { setToast } = status;
-  const onLang = useCallback(
-    (s: LangSetting) => void changeLanguage(s),
-    [changeLanguage],
-  );
+  const { openSettings } = useApp();
   return (
-    <>
-      <button class={FOOT_BUTTON} onClick={openSettings}>
+    <button class={FOOT_BUTTON} onClick={openSettings}>
         <svg
           width="18"
           height="18"
@@ -146,23 +128,6 @@ function Settings() {
         </svg>
         {t("Settings")}
       </button>
-      {showSettings && (
-        <SettingsModal
-          langSetting={language.uiLangSetting}
-          langAvailable={language.uiLangAvailable}
-          onLang={onLang}
-          onClose={closeSettings}
-          git={{
-            api,
-            rev: projects.gitRev,
-            onConnect: (service, selfHosted) =>
-              setGitConnect({ service, selfHosted }),
-            onNotice: (message, error) =>
-              setToast({ message, type: choose(error, "error", "success") }),
-          }}
-        />
-      )}
-    </>
   );
 }
 

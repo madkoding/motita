@@ -12,7 +12,8 @@ import { ReportCard } from "./Report";
 import type { SuggestionAnswers } from "./proposals";
 import "./report.css";
 import { copyText } from "./clipboard";
-import { t, tf, useLang } from "./i18n";
+import { t, tf, useLang, type LangSetting } from "./i18n";
+import { SettingsModal } from "./Settings";
 import { GitConnectModal } from "./GitConnect";
 import { RepoPicker } from "./RepoPicker";
 import { connectedAccounts } from "./gitApi";
@@ -1048,6 +1049,36 @@ function MainColumn({ pr }: { pr: PullRequest }) {
   );
 }
 
+// SettingsHost is the settings dialog, wired to the app: the language of every interface (this
+// page, the terminal), saved in the gateway's configuration, and the git host connections. It is
+// drawn here and not in the sidebar, whose frosted glass would trap a `fixed` dialog in its width.
+function SettingsHost() {
+  const { closeSettings, language, projects, api: request, status } = useApp();
+  const { changeLanguage } = language;
+  const { setGitConnect } = projects;
+  const { setToast } = status;
+  const onLang = useCallback(
+    (s: LangSetting) => void changeLanguage(s),
+    [changeLanguage],
+  );
+  return (
+    <SettingsModal
+      langSetting={language.uiLangSetting}
+      langAvailable={language.uiLangAvailable}
+      onLang={onLang}
+      onClose={closeSettings}
+      git={{
+        api: request,
+        rev: projects.gitRev,
+        onConnect: (service, selfHosted) =>
+          setGitConnect({ service, selfHosted }),
+        onNotice: (message, error) =>
+          setToast({ message, type: choose(error, "error", "success") }),
+      }}
+    />
+  );
+}
+
 // ProjectModals are the dialogs of a project: editing it, creating it, and the git host
 // connections it can need.
 function ProjectModals() {
@@ -1135,6 +1166,8 @@ export default function App() {
           {/* Sidebar — sessions list, toggleable on all sizes. */}
           {store.lists.sidebarOpen && <Sidebar />}
           <MainColumn pr={pr} />
+          {/* Before ProjectModals: the git connect dialog it opens stacks on top of it. */}
+          {store.showSettings && <SettingsHost />}
           <ProjectModals />
           <DialogModals />
           <LibraryModals />

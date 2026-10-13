@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { useBackdropClose } from "./useBackdropClose";
+import type { ComponentChildren } from "preact";
+import { ModalBackdrop } from "./ModalBackdrop";
+import { useDialog } from "./useDialog";
+import { IconClose } from "./icons";
 import "./dialog.css";
 import { t, tf } from "./i18n";
 import {
@@ -61,13 +64,79 @@ function notifyHint(ns: string): string {
   return t("Only while this tab is in the background.");
 }
 
-export function SettingsModal({
+type Tab = "general" | "git";
+
+interface Choice<T extends string> {
+  value: T;
+  label: string;
+}
+
+// Segmented draws a short list of choices as one row of radio buttons: every option is in sight
+// and a finger picks it in one tap, where a <select> takes two and hides the others.
+function Segmented<T extends string>({
+  name,
+  labelledBy,
+  value,
+  options,
+  onChange,
+}: {
+  name: string;
+  labelledBy: string;
+  value: T;
+  options: Choice<T>[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-labelledby={labelledBy} class="settings-seg">
+      {options.map((o) => (
+        <label key={o.value} class="settings-seg-opt">
+          <input
+            type="radio"
+            class="sr-only"
+            name={name}
+            value={o.value}
+            checked={value === o.value}
+            onChange={() => onChange(o.value)}
+          />
+          {o.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// Row is one setting: its name (and a hint under it) on one side and its control on the other.
+// On a narrow phone the control goes under the name, full width (see .settings-row in index.css).
+function Row({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <div class="settings-row">
+      <div class="settings-row-text">
+        <div id={id} class="text-sm text-[#e8e8ea]">
+          {label}
+        </div>
+        {hint && <div class="text-xs text-[#7a7a8c] mt-0.5">{hint}</div>}
+      </div>
+      <div class="settings-row-control">{children}</div>
+    </div>
+  );
+}
+
+// GeneralSettings is how the page looks (language, font size, density) and the CI notifications.
+function GeneralSettings({
   langSetting,
   langAvailable,
   onLang,
-  onClose,
-  git,
-}: Props) {
+}: Pick<Props, "langSetting" | "langAvailable" | "onLang">) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const update = (next: UISettings) => {
     setS(next);
@@ -81,122 +150,242 @@ export function SettingsModal({
   }
   const [, bump] = useState(0);
   const ns = notifyState(permission, notifyOn);
-  const sel =
-    "min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent";
-  const backdrop = useRef<HTMLDivElement>(null);
-  useBackdropClose(backdrop, onClose);
   return (
-    <div
-      ref={backdrop}
-      class="fixed inset-0 z-100 flex items-center justify-center bg-black/60"
-      data-testid="settings-modal"
+    <>
+      <section class="settings-group" aria-labelledby="settings-look-h">
+        <h3 id="settings-look-h" class="settings-group-title">
+          {t("Appearance")}
+        </h3>
+        <div class="settings-card">
+          {langAvailable && (
+            <Row id="settings-lang" label={t("Language")}>
+              <Segmented<LangSetting>
+                name="settings-lang"
+                labelledBy="settings-lang"
+                value={langSetting}
+                onChange={onLang}
+                options={[
+                  { value: "auto", label: t("Automatic") },
+                  { value: "en", label: "English" },
+                  { value: "es", label: "Español" },
+                ]}
+              />
+            </Row>
+          )}
+          <Row id="settings-font" label={t("Font size")}>
+            <Segmented<FontSize>
+              name="settings-font"
+              labelledBy="settings-font"
+              value={s.fontSize}
+              onChange={(fontSize) => update({ ...s, fontSize })}
+              options={[
+                { value: "small", label: t("Small") },
+                { value: "normal", label: t("Normal") },
+                { value: "large", label: t("Large") },
+              ]}
+            />
+          </Row>
+          <Row id="settings-density" label={t("Density")}>
+            <Segmented<Density>
+              name="settings-density"
+              labelledBy="settings-density"
+              value={s.density}
+              onChange={(density) => update({ ...s, density })}
+              options={[
+                { value: "comfortable", label: t("Comfortable") },
+                { value: "compact", label: t("Compact") },
+              ]}
+            />
+          </Row>
+        </div>
+      </section>
+      <section class="settings-group" aria-labelledby="settings-notify-h">
+        <h3 id="settings-notify-h" class="settings-group-title">
+          {t("Notifications")}
+        </h3>
+        <div class="settings-card" data-testid="notifications-setting">
+          <Row
+            id="settings-notify"
+            label={t("Notify me when a CI ends")}
+            hint={notifyHint(ns)}
+          >
+            {ns === "ask" && (
+              <button
+                type="button"
+                class={smallBtn}
+                onClick={() => {
+                  void Notification.requestPermission().then(() =>
+                    bump((n) => n + 1),
+                  );
+                }}
+              >
+                {t("Allow")}
+              </button>
+            )}
+            {(ns === "on" || ns === "off") && (
+              <label class="settings-switch-hit">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  class="settings-switch"
+                  aria-labelledby="settings-notify"
+                  checked={ns === "on"}
+                  onChange={(e) => {
+                    const v = (e.target as HTMLInputElement).checked;
+                    setNotifyOn(v);
+                    saveNotify(v);
+                  }}
+                />
+              </label>
+            )}
+          </Row>
+        </div>
+      </section>
+    </>
+  );
+}
+
+// The icons of the two tabs.
+function IconSliders() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
     >
+      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+    </svg>
+  );
+}
+function IconBranch() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M6 9v6M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  );
+}
+
+// SettingsModal is the settings dialog. On a screen with room it is a centred window with the
+// sections listed on the left; on a phone it takes the whole screen and the sections become tabs
+// across the top. The layout lives in index.css (.settings-panel), keyed to the md breakpoint.
+export function SettingsModal({
+  langSetting,
+  langAvailable,
+  onLang,
+  onClose,
+  git,
+}: Props) {
+  const [tab, setTab] = useState<Tab>("general");
+  const ref = useRef<HTMLDialogElement>(null);
+  useDialog(ref, onClose);
+  const tabs: { id: Tab; label: string; icon: ComponentChildren }[] = [
+    { id: "general", label: t("General"), icon: <IconSliders /> },
+  ];
+  if (git) {
+    tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });
+  }
+  // Arrow keys move between the tabs, as in any tab list.
+  const onTabKey = (e: KeyboardEvent) => {
+    const keys = ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"];
+    const k = keys.indexOf(e.key);
+    if (k < 0) {
+      return;
+    }
+    e.preventDefault();
+    const i = tabs.findIndex((x) => x.id === tab);
+    const next = tabs[(i + choose(k < 2, tabs.length - 1, 1)) % tabs.length];
+    setTab(next.id);
+    ref.current
+      ?.querySelector<HTMLElement>(`#settings-tab-${next.id}`)
+      ?.focus();
+  };
+  return (
+    <ModalBackdrop onClose={onClose} class="settings-backdrop">
       <dialog
         open
-        class="modal-dialog w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-solid p-4 space-y-3"
-        aria-label={t("Settings")}
+        ref={ref}
+        data-dialog-root
+        data-testid="settings-modal"
+        class="modal-dialog settings-panel frosted"
+        aria-modal="true"
+        aria-labelledby="settings-title"
       >
-        <div class="flex items-center">
-          <h2 class="flex-1 text-sm font-semibold text-[#e8e8ea]">
+        <div class="settings-head">
+          <h2
+            id="settings-title"
+            class="flex-1 text-base font-semibold text-[#e8e8ea]"
+          >
             {t("Settings")}
           </h2>
           <button
-            class="text-[#9a9aaa] px-2"
+            class="p-1.5 rounded-lg hover:bg-white/5 text-[#9a9aaa]"
             aria-label={t("Close")}
             onClick={onClose}
           >
-            ×
+            <IconClose size={18} />
           </button>
         </div>
-        {langAvailable && (
-          <label class="flex items-center gap-2 text-sm text-[#e8e8ea]">
-            <span class="flex-1">{t("Language")}</span>
-            <select
-              class={sel}
-              value={langSetting}
-              aria-label={t("Language")}
-              onChange={(e) =>
-                onLang((e.target as HTMLSelectElement).value as LangSetting)
-              }
-            >
-              <option value="auto">{t("Automatic")}</option>
-              <option value="en">English</option>
-              <option value="es">Español</option>
-            </select>
-          </label>
+        {tabs.length > 1 && (
+          <div
+            role="tablist"
+            aria-label={t("Settings")}
+            class="settings-nav"
+            onKeyDown={onTabKey}
+          >
+            {tabs.map((x) => (
+              <button
+                key={x.id}
+                id={`settings-tab-${x.id}`}
+                type="button"
+                role="tab"
+                class="settings-tab"
+                aria-selected={tab === x.id}
+                aria-controls="settings-pane"
+                tabIndex={choose(tab === x.id, 0, -1)}
+                onClick={() => setTab(x.id)}
+              >
+                {x.icon}
+                {x.label}
+              </button>
+            ))}
+          </div>
         )}
-        <label class="flex items-center gap-2 text-sm text-[#e8e8ea]">
-          <span class="flex-1">{t("Font size")}</span>
-          <select
-            class={sel}
-            value={s.fontSize}
-            aria-label={t("Font size")}
-            onChange={(e) =>
-              update({
-                ...s,
-                fontSize: (e.target as HTMLSelectElement).value as FontSize,
-              })
-            }
-          >
-            <option value="small">{t("Small")}</option>
-            <option value="normal">{t("Normal")}</option>
-            <option value="large">{t("Large")}</option>
-          </select>
-        </label>
-        <label class="flex items-center gap-2 text-sm text-[#e8e8ea]">
-          <span class="flex-1">{t("Density")}</span>
-          <select
-            class={sel}
-            value={s.density}
-            aria-label={t("Density")}
-            onChange={(e) =>
-              update({
-                ...s,
-                density: (e.target as HTMLSelectElement).value as Density,
-              })
-            }
-          >
-            <option value="comfortable">{t("Comfortable")}</option>
-            <option value="compact">{t("Compact")}</option>
-          </select>
-        </label>
         <div
-          class="flex items-center gap-2 text-sm text-[#e8e8ea]"
-          data-testid="notifications-setting"
+          id="settings-pane"
+          role="tabpanel"
+          class="settings-pane"
+          aria-labelledby={`settings-tab-${tab}`}
         >
-          <span class="flex-1">
-            {t("Notify me when a CI ends")}
-            <span class="block text-xs text-[#7a7a8c]">{notifyHint(ns)}</span>
-          </span>
-          {ns === "ask" && (
-            <button
-              type="button"
-              class={smallBtn}
-              onClick={() => {
-                void Notification.requestPermission().then(() =>
-                  bump((n) => n + 1),
-                );
-              }}
-            >
-              {t("Allow")}
-            </button>
-          )}
-          {(ns === "on" || ns === "off") && (
-            <input
-              type="checkbox"
-              aria-label={t("Notify me when a CI ends")}
-              checked={ns === "on"}
-              onChange={(e) => {
-                const v = (e.target as HTMLInputElement).checked;
-                setNotifyOn(v);
-                saveNotify(v);
-              }}
+          {tab === "general" && (
+            <GeneralSettings
+              langSetting={langSetting}
+              langAvailable={langAvailable}
+              onLang={onLang}
             />
           )}
+          {tab === "git" && git && <GitConnections {...git} />}
         </div>
-        {git && <GitConnections {...git} />}
       </dialog>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -204,6 +393,39 @@ const inputCls =
   "min-w-0 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent";
 const smallBtn =
   "btn-outline px-3 min-h-[32px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform";
+
+// The logo of each git host, from Simple Icons (CC0), in the host's own colour. Gitea, Forgejo and
+// any host the page does not know get the generic branch icon.
+const FORGE_LOGOS: Record<string, { color: string; d: string }> = {
+  github: {
+    color: "#e8e8ea",
+    d: "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12",
+  },
+  gitlab: {
+    color: "#fc6d26",
+    d: "m23.6 9.593-.033-.086L20.3.98a.851.851 0 0 0-.336-.405.875.875 0 0 0-1 .054.875.875 0 0 0-.29.44L16.47 7.818H7.537L5.333 1.07a.857.857 0 0 0-.29-.441.875.875 0 0 0-1-.054.859.859 0 0 0-.336.405L.433 9.502l-.032.086a6.066 6.066 0 0 0 2.012 7.01l.01.009.03.021 4.977 3.727 2.462 1.863 1.5 1.132a1.008 1.008 0 0 0 1.22 0l1.499-1.132 2.461-1.863 5.006-3.75.013-.01a6.068 6.068 0 0 0 2.01-7.002z",
+  },
+  bitbucket: {
+    color: "#2684ff",
+    d: "M.778 1.213a.768.768 0 00-.768.892l3.263 19.81c.084.5.515.868 1.022.873H19.95a.772.772 0 00.77-.646l3.27-20.03a.768.768 0 00-.768-.891zM14.52 15.53H9.522L8.17 8.466h7.561z",
+  },
+};
+
+// ForgeIcon is the logo of an account's git host, on a small tile at the start of its row.
+function ForgeIcon({ kind }: { kind: string }) {
+  const logo = FORGE_LOGOS[kind];
+  return (
+    <span class="git-account-icon" aria-hidden="true" data-kind={kind}>
+      {logo ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
+          <path d={logo.d} />
+        </svg>
+      ) : (
+        <IconBranch />
+      )}
+    </span>
+  );
+}
 
 // GitConnections lists every git host with its state, and connects, disconnects or adds one.
 function GitConnections({
@@ -256,14 +478,15 @@ function GitConnections({
   );
   return (
     <section
-      class="pt-2 border-t border-white/10 space-y-2"
+      class="settings-group"
       aria-labelledby="git-conn-h"
       data-testid="git-connections"
     >
-      <h3 id="git-conn-h" class="text-sm font-semibold text-[#e8e8ea]">
+      {/* The tab already names the section on screen; the heading stays for screen readers. */}
+      <h3 id="git-conn-h" class="sr-only">
         {t("Git connections")}
       </h3>
-      <p class="text-xs text-[#7a7a8c]">
+      <p class="text-xs text-[#7a7a8c] mb-3">
         {t(
           "Connect a git host to pick your repositories and clone private ones.",
         )}
@@ -272,79 +495,82 @@ function GitConnections({
         <output class="block text-xs text-[#9a9aaa]">{t("Loading…")}</output>
       )}
       {err && (
-        <p class="text-xs text-danger" role="alert">
+        <p class="text-xs text-danger mb-2" role="alert">
           {err}
         </p>
       )}
-      <ul class="space-y-1.5">
-        {accounts?.map((a) => (
-          <li
-            key={a.id}
-            class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#e8e8ea]"
-          >
-            <div class="flex-1 min-w-36">
-              <div>
-                {a.name} <span class="text-xs text-[#7a7a8c]">{a.host}</span>
+      {!!accounts?.length && (
+        <ul class="settings-card">
+          {accounts.map((a) => (
+            <li key={a.id} class="settings-row git-account">
+              <ForgeIcon kind={a.kind} />
+              <div class="settings-row-text">
+                <div class="text-sm text-[#e8e8ea] truncate">
+                  {a.name}{" "}
+                  <span class="text-xs text-[#7a7a8c]">{a.host}</span>
+                </div>
+                <div
+                  class={
+                    "git-account-state text-xs " +
+                    choose(a.connected, "text-[#5fd08a]", "text-[#7a7a8c]")
+                  }
+                >
+                  {choose(
+                    a.connected,
+                    tf("Connected as {user}", { user: a.username || "…" }),
+                    t("Not connected"),
+                  )}
+                </div>
               </div>
-              <div
-                class={
-                  "text-xs " +
-                  choose(a.connected, "text-[#5fd08a]", "text-[#7a7a8c]")
-                }
-              >
-                {choose(
-                  a.connected,
-                  tf("Connected as {user}", { user: a.username || "…" }),
-                  t("Not connected"),
+              <div class="settings-row-control git-account-actions">
+                {confirm === a.id && (
+                  <>
+                    <button
+                      class={smallBtn + " text-danger"}
+                      onClick={() => doDisconnect(a)}
+                    >
+                      {t("Confirm")}
+                    </button>
+                    <button class={smallBtn} onClick={() => setConfirm("")}>
+                      {t("Cancel")}
+                    </button>
+                  </>
+                )}
+                {confirm !== a.id && a.connected && (
+                  <>
+                    <button
+                      class={smallBtn}
+                      aria-label={tf("Reconnect {host}", { host: a.name })}
+                      onClick={() => onConnect(a.id)}
+                    >
+                      {t("Reconnect")}
+                    </button>
+                    <button
+                      class={smallBtn}
+                      aria-label={tf("Disconnect {host}", { host: a.name })}
+                      onClick={() => setConfirm(a.id)}
+                    >
+                      {t("Disconnect")}
+                    </button>
+                  </>
+                )}
+                {confirm !== a.id && !a.connected && (
+                  <button
+                    class={smallBtn + " bg-accent text-white border-transparent"}
+                    aria-label={tf("Connect {host}", { host: a.name })}
+                    onClick={() => onConnect(a.id)}
+                  >
+                    {t("Connect")}
+                  </button>
                 )}
               </div>
-            </div>
-            {confirm === a.id && (
-              <>
-                <button
-                  class={smallBtn + " text-danger"}
-                  onClick={() => doDisconnect(a)}
-                >
-                  {t("Confirm")}
-                </button>
-                <button class={smallBtn} onClick={() => setConfirm("")}>
-                  {t("Cancel")}
-                </button>
-              </>
-            )}
-            {confirm !== a.id && a.connected && (
-              <>
-                <button
-                  class={smallBtn}
-                  aria-label={tf("Reconnect {host}", { host: a.name })}
-                  onClick={() => onConnect(a.id)}
-                >
-                  {t("Reconnect")}
-                </button>
-                <button
-                  class={smallBtn}
-                  aria-label={tf("Disconnect {host}", { host: a.name })}
-                  onClick={() => setConfirm(a.id)}
-                >
-                  {t("Disconnect")}
-                </button>
-              </>
-            )}
-            {confirm !== a.id && !a.connected && (
-              <button
-                class={smallBtn + " bg-accent text-white border-transparent"}
-                aria-label={tf("Connect {host}", { host: a.name })}
-                onClick={() => onConnect(a.id)}
-              >
-                {t("Connect")}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
       {adding && (
         <form
-          class="space-y-2"
+          class="settings-card settings-add space-y-2 mt-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (cleanHost) {
@@ -354,7 +580,7 @@ function GitConnections({
             }
           }}
         >
-          <div class="flex gap-2">
+          <div class="settings-add-fields">
             <select
               class={inputCls}
               value={kind}
@@ -375,14 +601,7 @@ function GitConnections({
               onInput={(e) => setHost((e.target as HTMLInputElement).value)}
             />
           </div>
-          <div class="flex gap-2">
-            <button
-              type="submit"
-              class={smallBtn + " bg-accent text-white border-transparent"}
-              disabled={!cleanHost}
-            >
-              {t("Continue")}
-            </button>
+          <div class="flex justify-end gap-2">
             <button
               type="button"
               class={smallBtn}
@@ -390,11 +609,18 @@ function GitConnections({
             >
               {t("Cancel")}
             </button>
+            <button
+              type="submit"
+              class={smallBtn + " bg-accent text-white border-transparent"}
+              disabled={!cleanHost}
+            >
+              {t("Continue")}
+            </button>
           </div>
         </form>
       )}
       {!adding && (
-        <button class={smallBtn} onClick={() => setAdding(true)}>
+        <button class={smallBtn + " mt-3"} onClick={() => setAdding(true)}>
           {t("Add self-hosted server")}
         </button>
       )}
