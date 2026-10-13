@@ -79,7 +79,7 @@ export function ToastCard({ toast }: { toast: Toast }) {
   const offersUpgrade = !!updateInfo?.update_available && !!toast.update;
   return (
     <div
-      class="fixed top-[calc(4.75rem+env(safe-area-inset-top))] inset-x-0 z-60 flex justify-center sm:justify-end px-4 sm:px-6 pointer-events-none"
+      class="toast-layer fixed top-[calc(4.75rem+env(safe-area-inset-top))] inset-x-0 z-60 flex justify-center sm:justify-end px-4 sm:px-6 pointer-events-none"
       data-testid="toast-layer"
     >
       <div

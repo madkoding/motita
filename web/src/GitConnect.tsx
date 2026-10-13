@@ -158,6 +158,7 @@ export function GitConnectModal({
       ref={backdrop}
       class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
       data-testid="git-connect-modal"
+      data-modal
     >
       <dialog
         open
