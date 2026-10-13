@@ -683,8 +683,54 @@ const es: Record<string, string> = {
   "Notify me when a CI ends": "Avisarme cuando termine un CI",
   "This browser cannot show notifications.":
     "Este navegador no puede mostrar notificaciones.",
-  "Blocked: allow notifications for this site in the browser settings.":
-    "Bloqueadas: permite las notificaciones de este sitio en los ajustes del navegador.",
+  "Browsers only allow notifications on an https:// address (or localhost). Open Motita through https to turn them on.":
+    "Los navegadores solo permiten notificaciones en una dirección https:// (o localhost). Abre Motita por https para activarlas.",
+  "On iPhone and iPad they only work in the installed app: tap Share, then Add to Home Screen, and open Motita from there.":
+    "En iPhone y iPad solo funcionan en la app instalada: toca Compartir, luego Agregar a inicio, y abre Motita desde ahí.",
+  "Blocked in this browser. To turn them back on:":
+    "Bloqueadas en este navegador. Para volver a activarlas:",
+  "The browser did not ask. To allow them by hand:":
+    "El navegador no mostró la pregunta. Para permitirlas a mano:",
+  "Allow notifications": "Permitir notificaciones",
+  "Check again": "Comprobar de nuevo",
+  "Come back here: the switch shows up on its own.":
+    "Vuelve aquí: el interruptor aparece solo.",
+  "Open the Settings app, then Notifications.":
+    "Abre la app Ajustes y entra en Notificaciones.",
+  "Find Motita in the list and turn on Allow Notifications.":
+    "Busca Motita en la lista y activa Permitir notificaciones.",
+  "Touch and hold the Motita icon, then tap App info.":
+    "Mantén pulsado el icono de Motita y toca Información de la app.",
+  "Open Notifications and turn them on.":
+    "Entra en Notificaciones y actívalas.",
+  "Tap the icon to the left of the address, then Permissions.":
+    "Toca el icono a la izquierda de la dirección y luego Permisos.",
+  "Turn Notifications on.": "Activa Notificaciones.",
+  "Click the icon to the left of the address.":
+    "Haz clic en el icono a la izquierda de la dirección.",
+  "Next to Send notifications, click × to clear the block.":
+    "Junto a Enviar notificaciones, haz clic en × para quitar el bloqueo.",
+  "Reload the page and press Allow here.":
+    "Recarga la página y pulsa Permitir aquí.",
+  "Open Safari, then Settings, then Websites, then Notifications.":
+    "Abre Safari, luego Ajustes, Sitios web y Notificaciones.",
+  "Set this site to Allow.": "Pon este sitio en Permitir.",
+  "Open the app's menu (⋮ or ⋯ at the top), then App info.":
+    "Abre el menú de la app (⋮ o ⋯ arriba) y luego Información de la app.",
+  "Set Notifications to Allow (or press Reset permission).":
+    "Pon Notificaciones en Permitir (o pulsa Restablecer permiso).",
+  "Reload the page.": "Recarga la página.",
+  "Open this site's settings in the browser (usually the icon to the left of the address).":
+    "Abre los ajustes de este sitio en el navegador (suele ser el icono a la izquierda de la dirección).",
+  "Allow notifications.": "Permite las notificaciones.",
+  "Test notification": "Notificación de prueba",
+  "Shows one now, to check that they arrive.":
+    "Muestra una ahora, para comprobar que llegan.",
+  "Motita notifications work": "Las notificaciones de Motita funcionan",
+  "This is how a CI that ends will look.": "Así se verá cuando termine un CI.",
+  "Sent. If nothing showed up, check the system's do-not-disturb mode.":
+    "Enviada. Si no apareció, revisa el modo no molestar del sistema.",
+  "The browser did not show it.": "El navegador no la mostró.",
   "Only while this tab is in the background. The browser has to allow it first.":
     "Solo mientras esta pestaña está en segundo plano. Primero el navegador tiene que permitirlo.",
   "Only while this tab is in the background.":

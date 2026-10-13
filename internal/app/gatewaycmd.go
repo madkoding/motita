@@ -213,6 +213,10 @@ func announceExposure(out io.Writer, found gateway.Found) {
 		fmt.Fprintf(out, "  rules: gateway.allow: %s\n", found.Allow)
 	}
 	fmt.Fprintln(out, "  there is no TLS, so the token travels in clear text to every one of them.")
+	// The same missing TLS is why a browser on another machine never lets the page notify: it only
+	// allows notifications on https or localhost, and says nothing more than "blocked" about it.
+	fmt.Fprintln(out, "  browsers only allow notifications over https (or localhost): use an SSH tunnel")
+	fmt.Fprintln(out, "  or a TLS proxy in front of the gateway (docs/GUIDE.md, \"Notifications need https\").")
 }
 
 // portOf extracts the port from a base URL, for the sentence above it.
@@ -227,47 +231,52 @@ func portOf(baseURL string) string {
 	return ""
 }
 
-// announceWebUI prints the one link into the browser interface.
+// announceWebUI prints the token once and a table of the addresses the interface answers on.
 //
-// The token goes in the URL FRAGMENT and nowhere else. A fragment is never sent to the server and
-// never appears in a Referer or a server log, which is the only way to hand a secret over in a
-// URL without it travelling - and this is the one moment the token is handed out in full. The
-// page trades it for a cookie immediately and drops it.
+// The token is printed ONCE, on its own: repeating it inside every address made the announcement a
+// wall of copies of the credential, and the page asks for it anyway when it has no cookie. The
+// addresses carry no token, so one can be read out, pasted into a chat or shown on screen without
+// handing over the key with it.
 //
 // It is written to Out, never through the logger: a log file is kept, copied and pasted into
-// issues, and this link IS the credential.
+// issues, and the token IS the credential.
 func announceWebUI(out io.Writer, found gateway.Found) {
 	if strings.TrimSpace(found.Token) == "" {
 		return
 	}
 	port := portOf(found.BaseURL)
 	fmt.Fprintf(out, "\nACCESS TOKEN\n  %s\n", found.Token)
-	fmt.Fprintln(out, "  (also kept in the token file; a client asks for it when connecting)")
-	fmt.Fprintln(out, "\nINTERFACE: open a link once in a browser (the web interface trades the token for a")
-	fmt.Fprintln(out, "cookie and drops it)")
-	fmt.Fprintf(out, "  this machine       %s/#t=%s\n", found.BaseURL, found.Token)
-	if !found.Reachable {
-		// Bound to loopback: the link above IS the only way in, and offering network addresses
-		// would send the reader to an address that refuses them.
-		return
+	fmt.Fprintln(out, "  (also kept in the token file; the page and every client ask for it once)")
+	rows := []endpoint{{Name: "this machine", Addr: strings.TrimSuffix(found.BaseURL, "/")}}
+	if found.Reachable {
+		// Reachable from the network, so the loopback row is NOT the one a browser on another
+		// machine needs: every machine resolves loopback to itself. The rows below are this host's
+		// own addresses, by interface, so the operator picks the network the client is on.
+		for _, e := range lanEndpoints() {
+			rows = append(rows, endpoint{Name: e.Name, Addr: fmt.Sprintf("http://%s:%s", e.Addr, port)})
+		}
 	}
-	// Reachable from the network, so the link above is NOT the one a browser on another machine
-	// needs: it names loopback, which every machine resolves to itself. The addresses below are
-	// this host's own, so one of them is ready to paste - which is the whole point, because the
-	// address a client must use is not something the operator can work out from a loopback link.
-	addresses := lanAddresses()
-	if len(addresses) == 0 {
+	fmt.Fprintln(out, "\nINTERFACE: open one of these in a browser and paste the token when it asks")
+	width := len("INTERFACE")
+	for _, r := range rows {
+		width = max(width, len(r.Name))
+	}
+	fmt.Fprintf(out, "  %-*s  %s\n", width, "INTERFACE", "ADDRESS")
+	for _, r := range rows {
+		fmt.Fprintf(out, "  %-*s  %s\n", width, r.Name, r.Addr)
+	}
+	if found.Reachable && len(rows) == 1 {
 		// No address to offer. Saying so is better than a guess: a made-up address is an error the
 		// reader cannot tell from a broken network.
 		fmt.Fprintln(out, "\nthis host has no network address to offer, so from another machine use this")
-		fmt.Fprintln(out, "host's address on THAT machine's network: same port, same #t=<token> ending.")
-		return
+		fmt.Fprintln(out, "host's address on THAT machine's network, same port.")
 	}
-	fmt.Fprintln(out, "  from another machine, use whichever reaches this host")
-	fmt.Fprintln(out, "  (the \"this machine\" link only works on this machine):")
-	for _, addr := range addresses {
-		fmt.Fprintf(out, "  other machine      http://%s:%s/#t=%s\n", addr, port, found.Token)
-	}
+}
+
+// endpoint is one row of the address table: the interface and the address it answers on.
+type endpoint struct {
+	Name string
+	Addr string
 }
 
 // listInterfaces is net.Interfaces, as a variable so a test can inject the failure and the odd
@@ -291,13 +300,23 @@ var listInterfaces = net.Interfaces
 // client is - something this process cannot see. The operator recognises their own network in the
 // list, which is a question they can answer and this program cannot.
 func lanAddresses() []string {
+	var out []string
+	for _, e := range lanEndpoints() {
+		out = append(out, e.Addr)
+	}
+	return out
+}
+
+// lanEndpoints is lanAddresses with the interface each address belongs to, for the table the
+// operator reads: "wlan0" says which network an address is on where the number alone does not.
+func lanEndpoints() []endpoint {
 	interfaces, err := listInterfaces()
 	if err != nil {
 		// No interfaces to read is the same outcome as none to offer, and the caller has a sentence
 		// for that. Reporting the error instead would be noise: nothing the operator can change.
 		return nil
 	}
-	return lanAddressesOf(interfaces)
+	return lanEndpointsOf(interfaces)
 }
 
 // interfaceAddrs reads one interface's addresses, as a variable for the same reason listInterfaces
@@ -328,6 +347,16 @@ func isVirtualInterface(name string) bool {
 // lanAddressesOf is the part that reads an interface list, split out so a test supplies one.
 func lanAddressesOf(interfaces []net.Interface) []string {
 	var out []string
+	for _, e := range lanEndpointsOf(interfaces) {
+		out = append(out, e.Addr)
+	}
+	return out
+}
+
+// lanEndpointsOf walks the interfaces and keeps, with its interface's name, every address a client
+// could use.
+func lanEndpointsOf(interfaces []net.Interface) []endpoint {
+	var out []endpoint
 	for _, iface := range interfaces {
 		// A down interface cannot carry a client, and a loopback one only reaches this machine.
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
@@ -343,18 +372,20 @@ func lanAddressesOf(interfaces []net.Interface) []string {
 			// one candidate missing from a list, not a reason to refuse the ones that work.
 			continue
 		}
-		out = append(out, usableAddressesOf(addrs)...)
+		for _, a := range usableAddressesOf(addrs) {
+			out = append(out, endpoint{Name: iface.Name, Addr: a})
+		}
 	}
 	// IPv4 first, and sorted within each family, so two runs on the same machine print the same
 	// order: an address list that reorders itself looks like the machine changed networks. IPv4
 	// leads because it is what a LAN almost always uses, and a list whose first entry is an IPv6
 	// address reads as if that were the answer to type.
 	sort.Slice(out, func(i, j int) bool {
-		i4, j4 := !strings.HasPrefix(out[i], "["), !strings.HasPrefix(out[j], "[")
+		i4, j4 := !strings.HasPrefix(out[i].Addr, "["), !strings.HasPrefix(out[j].Addr, "[")
 		if i4 != j4 {
 			return i4
 		}
-		return out[i] < out[j]
+		return out[i].Addr < out[j].Addr
 	})
 	return out
 }

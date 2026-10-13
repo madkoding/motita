@@ -132,6 +132,25 @@ func TestRequestOriginFollowsTheScheme(t *testing.T) {
 	}
 }
 
+// Behind a proxy that terminates TLS, the page the browser loaded was https even though this
+// connection is not, so a same-origin upgrade from it must pass and another origin still must not.
+func TestAProxyThatTerminatesTLSKeepsTheOriginCheck(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if got := requestOrigin(r); got != "https://example.com" {
+		t.Errorf("proxied origin = %q", got)
+	}
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Origin", "https://example.com")
+	if msg := crossSiteRefusal(r); msg != "" {
+		t.Errorf("an upgrade from the proxied page was refused: %s", msg)
+	}
+	r.Header.Set("Origin", "https://evil.example")
+	if crossSiteRefusal(r) == "" {
+		t.Error("an upgrade from another origin was let through behind the proxy")
+	}
+}
+
 // The page and the API both carry the security headers: no framing by another site, no type
 // sniffing, no Referer, and a script policy with neither inline code nor eval.
 func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {

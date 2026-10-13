@@ -3713,6 +3713,18 @@ html[data-keyboard="open"] .app-shell {
     flex: none;
   }
 }
+/* The steps that turn blocked notifications back on, under the setting they belong to. */
+.settings-steps {
+  margin: 0;
+  padding: 0 0.875rem 0.75rem 2.125rem;
+  list-style: decimal;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #b4b4c2;
+}
+.settings-steps li + li {
+  margin-top: 0.25rem;
+}
 /* An account keeps its buttons beside its name while they fit, and moves them under it, to the
  * right, when they do not. */
 .settings-row.git-account {
