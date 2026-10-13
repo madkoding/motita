@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/intent"
 )
 
 // turn is a run in flight as the input loop sees it: the channels it reports through, and what to
@@ -156,7 +158,23 @@ func (t *TUI) queue(line string) {
 // submit sends a message in the current mode. The two screens that are not conversations turn a
 // typed message into a task rather than refusing it: someone who just listed the models and then
 // types what they want done meant a task, and "press Enter to refresh" would be a dead end.
+//
+// Auto mode classifies the message with the rules alone: a model call here would hold the input
+// loop while it waits. The gateway's auto mode, which is not on the input loop, also asks the
+// model when the rules have nothing.
 func (t *TUI) submit(ctx context.Context, line string) {
+	if t.screen == ScreenAuto {
+		d := intent.Classify(line)
+		if strings.TrimSpace(d.Prompt) != "" {
+			t.addMessage(AuthorSystem, d.Note()+" · "+t.tr("Tab, /plan or /task to choose it yourself"))
+		}
+		if d.Kind == intent.KindPlan {
+			t.runPlan(ctx, d.Prompt)
+			return
+		}
+		t.runTask(ctx, d.Prompt)
+		return
+	}
 	if t.screen == ScreenPlan {
 		t.runPlan(ctx, line)
 		return

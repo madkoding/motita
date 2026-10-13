@@ -64,6 +64,9 @@ const (
 	ScreenPlan
 	ScreenModels
 	ScreenConfig
+	// ScreenAuto picks Plan or Task for each message from its wording (internal/intent). It is
+	// last so the values of the screens before it do not move.
+	ScreenAuto
 )
 
 func (s Screen) String() string {
@@ -76,6 +79,8 @@ func (s Screen) String() string {
 		return "Models"
 	case ScreenConfig:
 		return "Config"
+	case ScreenAuto:
+		return "Auto"
 	default:
 		return "?"
 	}
@@ -819,13 +824,18 @@ func (t *TUI) bodyLines() []string {
 // while working were buried in a four-stop cycle. The other two are still reachable by their
 // commands (/models, /config), which is where they belong — they are things you go to on
 // purpose, not things you rotate through by accident.
+//
+// Auto mode joined the cycle as its third stop: Task, Plan, Auto, and back to Task. Anything
+// else goes to Plan, so a stray screen never traps the toggle.
 func (t *TUI) nextScreen() {
-	// Anything that is not Plan goes to Task, so a stray screen never traps the toggle.
-	if t.screen == ScreenPlan {
+	switch t.screen {
+	case ScreenPlan:
+		t.setScreen(ScreenAuto)
+	case ScreenAuto:
 		t.setScreen(ScreenTask)
-		return
+	default:
+		t.setScreen(ScreenPlan)
 	}
-	t.setScreen(ScreenPlan)
 }
 
 func (t *TUI) setScreen(s Screen) {

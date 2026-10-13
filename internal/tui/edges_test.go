@@ -40,11 +40,11 @@ func TestRunPlanAndRunTaskWithoutAnEngine(t *testing.T) {
 // TestTypingTheWordTabNavigates: typing "tab" is the escape hatch for a terminal
 // that sends a Tab the interface cannot see, so the word has to keep working.
 func TestTypingTheWordTabNavigates(t *testing.T) {
-	tui := newFakeTUI("tab\ntab\nq\n", &fakeRunner{})
+	tui := newFakeTUI("tab\ntab\ntab\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
-	// Two Tabs are a round trip: the toggle is Task <-> Plan.
+	// Three Tabs are a round trip: the cycle is Task -> Plan -> Auto -> Task.
 	if tui.screen != ScreenTask {
-		t.Errorf("screen = %v, want Task after two 'tab' words", tui.screen)
+		t.Errorf("screen = %v, want Task after three 'tab' words", tui.screen)
 	}
 }
 
