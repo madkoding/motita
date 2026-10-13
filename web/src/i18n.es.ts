@@ -795,6 +795,71 @@ const es: Record<string, string> = {
   "Could not remove {name}": "No se pudo quitar {name}",
   'Project "{title}" created, but some repositories could not be added: {names}':
     'Proyecto "{title}" creado, pero no se pudieron agregar algunos repositorios: {names}',
+  Network: "Red",
+  "Who can connect": "Quién puede conectarse",
+  "This machine only": "Solo este equipo",
+  "Local network": "Red local",
+  Everywhere: "Cualquier lugar",
+  "Custom address": "Dirección personalizada",
+  "Safest: only this machine can open Motita (127.0.0.1).":
+    "La opción más segura: solo este equipo puede abrir Motita (127.0.0.1).",
+  "Listens on every interface, but only private (local network) addresses may connect. This machine only is the safest choice.":
+    "Escucha en todas las interfaces, pero solo pueden conectarse direcciones privadas (de la red local). Solo este equipo es la opción más segura.",
+  "Listens on 0.0.0.0: any address that can reach this machine may connect. This machine only is the safest choice.":
+    "Escucha en 0.0.0.0: puede conectarse cualquier dirección que llegue a este equipo. Solo este equipo es la opción más segura.",
+  "Set by hand in the configuration: {listen}. Choosing an option replaces it.":
+    "Configurada a mano en la configuración: {listen}. Elegir una opción la reemplaza.",
+  "The gateway runs on its built-in defaults, without a configuration file, so this cannot be changed here.":
+    "El gateway usa sus valores predeterminados, sin archivo de configuración, así que esto no se puede cambiar aquí.",
+  "Switch to “{mode}”?": "¿Cambiar a “{mode}”?",
+  "Other devices will lose access: only this machine will be able to open Motita.":
+    "Los demás dispositivos perderán el acceso: solo este equipo podrá abrir Motita.",
+  "Devices on your local network will be able to reach the gateway.":
+    "Los dispositivos de tu red local podrán acceder al gateway.",
+  "Anyone who can reach this machine over the network will be able to reach the gateway.":
+    "Cualquiera que pueda llegar a este equipo por la red podrá acceder al gateway.",
+  "The gateway speaks plain HTTP: the token travels unencrypted over the network.":
+    "El gateway usa HTTP simple: el token viaja sin cifrar por la red.",
+  "The token is the only thing protecting a program that runs commands on this machine.":
+    "El token es lo único que protege un programa que ejecuta comandos en este equipo.",
+  "The change is saved to the configuration and applies when the gateway restarts: run motita gateway stop, then motita gateway start.":
+    "El cambio se guarda en la configuración y se aplica cuando el gateway se reinicia: ejecuta motita gateway stop y luego motita gateway start.",
+  "Saved. Applies when the gateway restarts":
+    "Guardado. Se aplica cuando el gateway se reinicie",
+  "Running now: {mode} ({listen}). Restart it with motita gateway stop, then motita gateway start.":
+    "Ahora en uso: {mode} ({listen}). Reinícialo con motita gateway stop y luego motita gateway start.",
+  "Not installed. Tailscale gives you private https access from your own devices, without opening the gateway to the network.":
+    "No está instalado. Tailscale te da acceso privado por https desde tus propios dispositivos, sin abrir el gateway a la red.",
+  "Get Tailscale": "Descargar Tailscale",
+  "Tailscale is installed but not connected ({state}).":
+    "Tailscale está instalado pero no conectado ({state}).",
+  "Tailscale is installed but not connected.":
+    "Tailscale está instalado pero no conectado.",
+  "Publish in my tailnet (https)": "Publicar en mi tailnet (https)",
+  "Only the devices in your tailnet can open it, with https; not the internet.":
+    "Solo los dispositivos de tu tailnet pueden abrirlo, con https; no internet.",
+  "Published at": "Publicado en",
+  "Publish in your tailnet?": "¿Publicar en tu tailnet?",
+  "This runs tailscale serve: the gateway is published with https only to the devices in your tailnet, not to the internet.":
+    "Esto ejecuta tailscale serve: el gateway se publica con https solo para los dispositivos de tu tailnet, no en internet.",
+  "Anyone on those devices still needs the token to get in.":
+    "Quien use esos dispositivos igual necesita el token para entrar.",
+  Publish: "Publicar",
+  "Tailscale: {error}": "Tailscale: {error}",
+  "Running now: {mode} ({listen}).": "Ahora en uso: {mode} ({listen}).",
+  "Restart now": "Reiniciar ahora",
+  "Restart the gateway now?": "¿Reiniciar el gateway ahora?",
+  Restart: "Reiniciar",
+  "The gateway restarts to apply the saved setting.":
+    "El gateway se reinicia para aplicar la configuración guardada.",
+  "Running work is interrupted for a moment; saved sessions resume after the restart.":
+    "El trabajo en curso se interrumpe un momento; las sesiones guardadas se reanudan después del reinicio.",
+  "If the new setting no longer reaches this device (for example, you chose “This machine only” and opened this page from another device), this page will stop working: open it from the gateway's machine.":
+    "Si la nueva configuración ya no llega a este dispositivo (por ejemplo, elegiste “Solo este equipo” y abriste esta página desde otro dispositivo), esta página dejará de funcionar: ábrela desde el equipo del gateway.",
+  "Restarting the gateway…": "Reiniciando el gateway…",
+  "The gateway did not come back here. If you changed who can reach it, open it from an address that the new setting allows.":
+    "El gateway no volvió aquí. Si cambiaste quién puede acceder, ábrelo desde una dirección que la nueva configuración permita.",
+  "Then turn the switch on again.": "Luego vuelve a activar el interruptor.",
 };
 
 export default es;

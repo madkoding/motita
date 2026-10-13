@@ -459,6 +459,7 @@ function SettingsHost() {
         prefs: voice.prefs,
         setPrefs: voice.setPrefs,
       }}
+      network={{ api: request }}
       git={{
         api: request,
         rev: projects.gitRev,
