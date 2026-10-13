@@ -3719,13 +3719,26 @@ html[data-keyboard="open"] .app-shell {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  column-gap: 1rem;
+  column-gap: 0.75rem;
 }
 .git-account .settings-row-text {
   flex: 1 1 9rem;
 }
 .git-account-actions {
   margin-left: auto;
+}
+/* The host's logo, on a tile the size of two text lines. */
+.git-account-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #9a9aaa;
 }
 .git-account-state::before {
   content: "";

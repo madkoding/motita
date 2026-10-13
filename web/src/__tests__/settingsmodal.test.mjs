@@ -60,11 +60,19 @@ const ACCOUNTS = [
   {
     id: "github",
     name: "GitHub",
+    kind: "github",
     host: "github.com",
     connected: true,
     username: "octo",
   },
-  { id: "gitlab", name: "GitLab", host: "gitlab.com", connected: false },
+  {
+    id: "gitlab",
+    name: "GitLab",
+    kind: "gitlab",
+    host: "gitlab.com",
+    connected: false,
+  },
+  { id: "forge", name: "Forgejo", kind: "gitea", host: "git.corp.io" },
 ];
 const fakeApi = async () =>
   new Response(JSON.stringify({ accounts: ACCOUNTS }), { status: 200 });
@@ -143,7 +151,19 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
   assert.equal(document.activeElement, git, "focus follows the chosen tab");
   await act(() => new Promise((r) => setTimeout(r, 0)));
   const rows = [...root.querySelectorAll(".git-account")];
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
+  const icons = rows.map((r) => r.querySelector(".git-account-icon"));
+  assert.deepEqual(
+    icons.map((i) => i.dataset.kind),
+    ["github", "gitlab", "gitea"],
+    "every account shows its host's icon",
+  );
+  assert.equal(icons[0].querySelector("svg").getAttribute("fill"), "#e8e8ea");
+  assert.equal(icons[1].querySelector("svg").getAttribute("fill"), "#fc6d26");
+  assert.ok(
+    icons[2].querySelector("circle"),
+    "a host without a logo gets the branch icon",
+  );
   assert.match(rows[0].textContent, /octo/);
   assert.ok(root.querySelector("[aria-label='Reconnect GitHub']"));
   await act(() => root.querySelector("[aria-label='Connect GitLab']").click());
