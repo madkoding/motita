@@ -49,11 +49,16 @@ permissions:
   pages: write
   id-token: write
 
-# Let a running deploy finish rather than cancelling it: the artifact is cheap and
-# a half-published site is worse than a slightly stale one.
+# A newer tag replaces whatever deploy is still in the group. With
+# cancel-in-progress: false one run stuck "waiting" on the github-pages
+# environment (v1.14.1, 2026-10-13) held the group for hours: every later
+# release queued behind it and was cancelled by the next one, so the page stayed
+# on v1.14.0 through v1.21.0. Cancelling is safe because deploy-pages switches
+# the site atomically: a cancelled run leaves the previous deploy live, and the
+# newer run publishes a site that is a superset of the older one.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
