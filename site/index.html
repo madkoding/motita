@@ -3195,8 +3195,9 @@ motita gateway stop
 <span class="c"># foreground, gateway only: no interface, for remote clients</span>
 motita -serve -gateway 127.0.0.1:7477</code></pre>
                 <p class="hint">
-                  <code>gateway start</code> prints the interface link —
-                  <code>http://127.0.0.1:7477/#t=&lt;token&gt;</code>. The same
+                  <code>gateway start</code> prints the token once and the
+                  addresses to open, such as
+                  <code>http://127.0.0.1:7477</code>. The same
                   port serves the page and its <code>/v1/...</code> API, so
                   there is no CORS and no second server.
                   <code>gateway.allow</code> says who may reach it.

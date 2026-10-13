@@ -83,6 +83,8 @@ const es: Record<string, string> = {
   Cancel: "Cancelar",
   "Checking credentials…": "Verificando credenciales…",
   "Checking latest release": "Buscando la última versión",
+  "Upgrade complete. The gateway is restarting.":
+    "Actualización completa. El gateway se está reiniciando.",
   "Checking what this project's sessions are holding…":
     "Revisando qué tienen las sesiones de este proyecto…",
   "Checking what this session is holding…": "Revisando qué tiene esta sesión…",
@@ -235,6 +237,8 @@ const es: Record<string, string> = {
   "No session holds uncommitted changes, so nothing uncommitted is lost. The project's own checkout is not touched.":
     "Ninguna sesión tiene cambios sin commitear, así que no se pierde nada sin commitear. El checkout propio del proyecto no se toca.",
   "No sessions yet": "Todavía no hay sesiones",
+  "No projects": "No hay proyectos",
+  "No sessions": "No hay sesiones",
   "No skills yet. The agent writes one when it works something out.":
     "Todavía no hay skills. El agente escribe una cuando resuelve algo.",
   "Not completed": "No completado",
@@ -292,8 +296,6 @@ const es: Record<string, string> = {
     "El agente deja de verla en su índice y en sus búsquedas",
   "The agent will see this again": "El agente volverá a verla",
   "The curator will leave this alone": "El curador no la tocará",
-  "The gateway is restarting. This page will reload automatically once it is back.":
-    "El gateway se está reiniciando. Esta página se recargará sola cuando vuelva.",
   "The gateway is still running the version it had before. Nothing was replaced, so you can keep using it and try again.":
     "El gateway sigue con la versión que tenía antes. No se reemplazó nada, así que puedes seguir usándolo e intentarlo de nuevo.",
   "The project checkout has {what}": "El checkout del proyecto tiene {what}",
@@ -301,8 +303,6 @@ const es: Record<string, string> = {
     "El checkout de la sesión está limpio, así que no se pierde nada sin commitear.",
   "The task could not be created": "No se pudo crear la tarea",
   "The upgrade did not finish": "La actualización no terminó",
-  "The upgrade is complete and the gateway is restarting. This page will reload automatically in a moment.":
-    "La actualización terminó y el gateway se está reiniciando. Esta página se recargará sola en un momento.",
   "These files are not committed anywhere. Deleting the project discards them for good.":
     "Estos archivos no están commiteados en ningún lado. Eliminar el proyecto los descarta para siempre.",
   "These files are not committed anywhere. Deleting the session discards them for good.":
@@ -616,6 +616,15 @@ const es: Record<string, string> = {
   "CI passed — ready to merge": "CI aprobado — listo para mergear",
   "No CI checks yet": "Aún no hay checks de CI",
   "Wait for the current turn to end": "Espera a que termine el turno actual",
+  "Wait for the page to reload automatically":
+    "Espera a que la página se recargue automáticamente",
+  "The gateway is restarting with the new version.":
+    "El gateway se está reiniciando con la nueva versión.",
+  "The gateway did not come back in time. Reload the page to check again.":
+    "El gateway no volvió a tiempo. Recarga la página para comprobarlo de nuevo.",
+  "Reload page": "Recargar página",
+  Projects: "Proyectos",
+  Sessions: "Sesiones",
   "Commit, push and open a pull request with this session's work":
     "Hacer commit, push y abrir un pull request con el trabajo de esta sesión",
   "Motita is fixing it — attempt {n} of {max}.":
@@ -694,8 +703,54 @@ const es: Record<string, string> = {
   "Heard “{phrase}”": "Escuché “{phrase}”",
   "This browser cannot show notifications.":
     "Este navegador no puede mostrar notificaciones.",
-  "Blocked: allow notifications for this site in the browser settings.":
-    "Bloqueadas: permite las notificaciones de este sitio en los ajustes del navegador.",
+  "Browsers only allow notifications on an https:// address (or localhost). Open Motita through https to turn them on.":
+    "Los navegadores solo permiten notificaciones en una dirección https:// (o localhost). Abre Motita por https para activarlas.",
+  "On iPhone and iPad they only work in the installed app: tap Share, then Add to Home Screen, and open Motita from there.":
+    "En iPhone y iPad solo funcionan en la app instalada: toca Compartir, luego Agregar a inicio, y abre Motita desde ahí.",
+  "Blocked in this browser. To turn them back on:":
+    "Bloqueadas en este navegador. Para volver a activarlas:",
+  "The browser did not ask. To allow them by hand:":
+    "El navegador no mostró la pregunta. Para permitirlas a mano:",
+  "Allow notifications": "Permitir notificaciones",
+  "Check again": "Comprobar de nuevo",
+  "Come back here: the switch shows up on its own.":
+    "Vuelve aquí: el interruptor aparece solo.",
+  "Open the Settings app, then Notifications.":
+    "Abre la app Ajustes y entra en Notificaciones.",
+  "Find Motita in the list and turn on Allow Notifications.":
+    "Busca Motita en la lista y activa Permitir notificaciones.",
+  "Touch and hold the Motita icon, then tap App info.":
+    "Mantén pulsado el icono de Motita y toca Información de la app.",
+  "Open Notifications and turn them on.":
+    "Entra en Notificaciones y actívalas.",
+  "Tap the icon to the left of the address, then Permissions.":
+    "Toca el icono a la izquierda de la dirección y luego Permisos.",
+  "Turn Notifications on.": "Activa Notificaciones.",
+  "Click the icon to the left of the address.":
+    "Haz clic en el icono a la izquierda de la dirección.",
+  "Next to Send notifications, click × to clear the block.":
+    "Junto a Enviar notificaciones, haz clic en × para quitar el bloqueo.",
+  "Reload the page and press Allow here.":
+    "Recarga la página y pulsa Permitir aquí.",
+  "Open Safari, then Settings, then Websites, then Notifications.":
+    "Abre Safari, luego Ajustes, Sitios web y Notificaciones.",
+  "Set this site to Allow.": "Pon este sitio en Permitir.",
+  "Open the app's menu (⋮ or ⋯ at the top), then App info.":
+    "Abre el menú de la app (⋮ o ⋯ arriba) y luego Información de la app.",
+  "Set Notifications to Allow (or press Reset permission).":
+    "Pon Notificaciones en Permitir (o pulsa Restablecer permiso).",
+  "Reload the page.": "Recarga la página.",
+  "Open this site's settings in the browser (usually the icon to the left of the address).":
+    "Abre los ajustes de este sitio en el navegador (suele ser el icono a la izquierda de la dirección).",
+  "Allow notifications.": "Permite las notificaciones.",
+  "Test notification": "Notificación de prueba",
+  "Shows one now, to check that they arrive.":
+    "Muestra una ahora, para comprobar que llegan.",
+  "Motita notifications work": "Las notificaciones de Motita funcionan",
+  "This is how a CI that ends will look.": "Así se verá cuando termine un CI.",
+  "Sent. If nothing showed up, check the system's do-not-disturb mode.":
+    "Enviada. Si no apareció, revisa el modo no molestar del sistema.",
+  "The browser did not show it.": "El navegador no la mostró.",
   "Only while this tab is in the background. The browser has to allow it first.":
     "Solo mientras esta pestaña está en segundo plano. Primero el navegador tiene que permitirlo.",
   "Only while this tab is in the background.":

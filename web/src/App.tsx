@@ -18,6 +18,7 @@ import { GitConnectModal } from "./GitConnect";
 import { RepoPicker } from "./RepoPicker";
 import { connectedAccounts } from "./gitApi";
 import { loadNotify } from "./settings";
+import { showNotification } from "./notify";
 import {
   getPR,
   retryFix,
@@ -265,7 +266,7 @@ function announce(
         loadNotify(),
       )
     ) {
-      new Notification(n.message, { body: n.detail, tag: "motita-pr" });
+      void showNotification(n.message, { body: n.detail, tag: "motita-pr" });
     }
   } catch {
     /* a browser that cannot notify just does not */

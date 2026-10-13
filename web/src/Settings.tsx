@@ -19,11 +19,15 @@ import {
   loadNotify,
   saveNotify,
   notifyState,
+  notifyPlatform,
+  type NotifyState,
+  type NotifyPlatform,
   type UISettings,
   type FontSize,
   type Density,
 } from "./settings";
 import { choose } from "./choose";
+import { showNotification } from "./notify";
 import { errorMessage } from "./errors";
 import type { VoicePrefs, VoiceState } from "./voice";
 
@@ -159,14 +163,22 @@ function VoiceSettings({
 }
 
 // notifyHint explains the desktop-notification switch for the state the browser is in.
-function notifyHint(ns: string): string {
+function notifyHint(ns: NotifyState, platform: NotifyPlatform): string {
+  if (ns === "insecure") {
+    return t(
+      "Browsers only allow notifications on an https:// address (or localhost). Open Motita through https to turn them on.",
+    );
+  }
   if (ns === "unsupported") {
+    if (platform === "ios") {
+      return t(
+        "On iPhone and iPad they only work in the installed app: tap Share, then Add to Home Screen, and open Motita from there.",
+      );
+    }
     return t("This browser cannot show notifications.");
   }
   if (ns === "blocked") {
-    return t(
-      "Blocked: allow notifications for this site in the browser settings.",
-    );
+    return t("Blocked in this browser. To turn them back on:");
   }
   if (ns === "ask") {
     return t(
@@ -174,6 +186,86 @@ function notifyHint(ns: string): string {
     );
   }
   return t("Only while this tab is in the background.");
+}
+
+// unblockSteps says where this browser (or the installed app) keeps the permission once it was
+// refused: the page itself can no longer ask, only the person can allow it again.
+export function unblockSteps(
+  platform: NotifyPlatform,
+  installed: boolean,
+): string[] {
+  const reload = t("Come back here: the switch shows up on its own.");
+  if (platform === "ios") {
+    return [
+      t("Open the Settings app, then Notifications."),
+      t("Find Motita in the list and turn on Allow Notifications."),
+      reload,
+    ];
+  }
+  if (platform === "android") {
+    if (installed) {
+      return [
+        t("Touch and hold the Motita icon, then tap App info."),
+        t("Open Notifications and turn them on."),
+        reload,
+      ];
+    }
+    return [
+      t("Tap the icon to the left of the address, then Permissions."),
+      t("Turn Notifications on."),
+      reload,
+    ];
+  }
+  if (platform === "firefox") {
+    return [
+      t("Click the icon to the left of the address."),
+      t("Next to Send notifications, click × to clear the block."),
+      t("Reload the page and press Allow here."),
+    ];
+  }
+  if (platform === "safari") {
+    return [
+      t("Open Safari, then Settings, then Websites, then Notifications."),
+      t("Set this site to Allow."),
+      reload,
+    ];
+  }
+  if (platform === "chrome" || platform === "edge") {
+    return [
+      installed
+        ? t("Open the app's menu (⋮ or ⋯ at the top), then App info.")
+        : t("Click the icon to the left of the address."),
+      t("Set Notifications to Allow (or press Reset permission)."),
+      t("Reload the page."),
+    ];
+  }
+  return [
+    t(
+      "Open this site's settings in the browser (usually the icon to the left of the address).",
+    ),
+    t("Allow notifications."),
+    t("Reload the page."),
+  ];
+}
+
+// isInstalled says whether the page runs as the installed app rather than in a browser tab.
+function isInstalled(): boolean {
+  try {
+    return (
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+// readPermission is the browser's answer right now, or undefined where there are no notifications.
+function readPermission(): NotificationPermission | undefined {
+  if (typeof Notification === "undefined") {
+    return undefined;
+  }
+  return Notification.permission;
 }
 
 type Tab = "general" | "git";
@@ -255,14 +347,6 @@ function GeneralSettings({
     setS(next);
     saveSettings(next);
   };
-  const [notifyOn, setNotifyOn] = useState(() => loadNotify());
-  // The browser's answer is read on every render: it can change in the browser's own settings while this is open.
-  let permission: NotificationPermission | undefined;
-  if (typeof Notification !== "undefined") {
-    permission = Notification.permission;
-  }
-  const [, bump] = useState(0);
-  const ns = notifyState(permission, notifyOn);
   return (
     <>
       <section class="settings-group" aria-labelledby="settings-look-h">
@@ -312,50 +396,157 @@ function GeneralSettings({
           </Row>
         </div>
       </section>
-      <section class="settings-group" aria-labelledby="settings-notify-h">
-        <h3 id="settings-notify-h" class="settings-group-title">
-          {t("Notifications")}
-        </h3>
-        <div class="settings-card" data-testid="notifications-setting">
-          <Row
-            id="settings-notify"
-            label={t("Notify me when a CI ends")}
-            hint={notifyHint(ns)}
-          >
-            {ns === "ask" && (
-              <button
-                type="button"
-                class={smallBtn}
-                onClick={() => {
-                  void Notification.requestPermission().then(() =>
-                    bump((n) => n + 1),
-                  );
-                }}
-              >
-                {t("Allow")}
-              </button>
-            )}
-            {(ns === "on" || ns === "off") && (
-              <label class="settings-switch-hit">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  class="settings-switch"
-                  aria-labelledby="settings-notify"
-                  checked={ns === "on"}
-                  onChange={(e) => {
-                    const v = (e.target as HTMLInputElement).checked;
-                    setNotifyOn(v);
-                    saveNotify(v);
-                  }}
-                />
-              </label>
-            )}
-          </Row>
-        </div>
-      </section>
+      <NotifySetting />
       {voice && <VoiceSettings {...voice} />}
     </>
+  );
+}
+
+// NotifySetting is the CI notifications: a button that asks the browser while it has not been asked,
+// the steps to allow them again once refused, and the user's own on/off switch once allowed.
+function NotifySetting() {
+  const [notifyOn, setNotifyOn] = useState(() => loadNotify());
+  // The browser's answer is read on every render: it can change in the browser's own settings
+  // while this is open, so a permission change and coming back to the tab both draw it again.
+  const [, bump] = useState(0);
+  const [asked, setAsked] = useState(false);
+  const [tested, setTested] = useState<string | undefined>();
+  useEffect(() => {
+    const again = () => bump((n) => n + 1);
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    let status: PermissionStatus | undefined;
+    navigator.permissions
+      ?.query({ name: "notifications" as PermissionName })
+      .then((s) => {
+        status = s;
+        s.addEventListener("change", again);
+      })
+      .catch(() => {
+        /* no Permissions API: focus is enough */
+      });
+    return () => {
+      window.removeEventListener("focus", again);
+      document.removeEventListener("visibilitychange", again);
+      status?.removeEventListener("change", again);
+    };
+  }, []);
+  const permission = readPermission();
+  const secure =
+    typeof window === "undefined" || window.isSecureContext !== false;
+  const ns = notifyState(permission, notifyOn, secure);
+  const platform = notifyPlatform(
+    navigator.userAgent,
+    navigator.maxTouchPoints || 0,
+  );
+  // A browser that quietly ignored the request (Chrome after a few dismissals) leaves it at
+  // "default": the steps are the only way left then too.
+  const showSteps = ns === "blocked" || (ns === "ask" && asked);
+  const ask = () => {
+    let p: Promise<NotificationPermission> | undefined;
+    try {
+      p = Notification.requestPermission();
+    } catch {
+      /* Safari before 15 only takes a callback; the focus listener redraws */
+    }
+    void p
+      ?.then((r) => {
+        if (r === "granted") {
+          setNotifyOn(true);
+          saveNotify(true);
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      })
+      .finally(() => {
+        setAsked(true);
+        bump((n) => n + 1);
+      });
+  };
+  return (
+    <section class="settings-group" aria-labelledby="settings-notify-h">
+      <h3 id="settings-notify-h" class="settings-group-title">
+        {t("Notifications")}
+      </h3>
+      <div class="settings-card" data-testid="notifications-setting">
+        <Row
+          id="settings-notify"
+          label={t("Notify me when a CI ends")}
+          hint={
+            ns === "ask" && asked
+              ? t("The browser did not ask. To allow them by hand:")
+              : notifyHint(ns, platform)
+          }
+        >
+          {ns === "ask" && (
+            <button type="button" class={smallBtn} onClick={ask}>
+              {t("Allow notifications")}
+            </button>
+          )}
+          {ns === "blocked" && (
+            <button
+              type="button"
+              class={smallBtn}
+              onClick={() => bump((n) => n + 1)}
+            >
+              {t("Check again")}
+            </button>
+          )}
+          {(ns === "on" || ns === "off") && (
+            <label class="settings-switch-hit">
+              <input
+                type="checkbox"
+                role="switch"
+                class="settings-switch"
+                aria-labelledby="settings-notify"
+                checked={ns === "on"}
+                onChange={(e) => {
+                  const v = (e.target as HTMLInputElement).checked;
+                  setNotifyOn(v);
+                  saveNotify(v);
+                }}
+              />
+            </label>
+          )}
+        </Row>
+        {ns === "on" && (
+          <Row
+            id="settings-notify-test"
+            label={t("Test notification")}
+            hint={tested ?? t("Shows one now, to check that they arrive.")}
+          >
+            <button
+              type="button"
+              class={smallBtn}
+              onClick={() => {
+                void showNotification(t("Motita notifications work"), {
+                  body: t("This is how a CI that ends will look."),
+                  tag: "motita-test",
+                }).then((ok) =>
+                  setTested(
+                    ok
+                      ? t(
+                          "Sent. If nothing showed up, check the system's do-not-disturb mode.",
+                        )
+                      : t("The browser did not show it."),
+                  ),
+                );
+              }}
+            >
+              {t("Send")}
+            </button>
+          </Row>
+        )}
+        {showSteps && (
+          <ol class="settings-steps" data-testid="notify-steps">
+            {unblockSteps(platform, isInstalled()).map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </section>
   );
 }
 

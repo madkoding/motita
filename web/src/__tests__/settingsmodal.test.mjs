@@ -31,8 +31,19 @@ Object.defineProperty(globalThis, "navigator", {
   value: dom.window.navigator,
   configurable: true,
 });
-// The browser already allowed notifications, so the dialog shows the on/off switch.
-globalThis.Notification = { permission: "granted" };
+// The browser already allowed notifications, so the dialog shows the on/off switch. Each test
+// that needs another answer sets it, and what requestPermission resolves to.
+const fakeNotification = {
+  permission: "granted",
+  answer: "granted",
+  asked: 0,
+  requestPermission() {
+    this.asked++;
+    this.permission = this.answer;
+    return Promise.resolve(this.answer);
+  },
+};
+globalThis.Notification = fakeNotification;
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
@@ -51,7 +62,9 @@ await build({
   resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
   logLevel: "silent",
 });
-const { SettingsModal } = await import(pathToFileURL(join(out, "st.mjs")).href);
+const { SettingsModal, unblockSteps } = await import(
+  pathToFileURL(join(out, "st.mjs")).href
+);
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
@@ -135,6 +148,124 @@ test("the general tab offers every choice as one tap and applies it", async () =
   await act(() => sw.click());
   assert.equal(localStorage.getItem("motita.ui.notifications"), "off");
   await done();
+});
+
+const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+test("notifications not yet asked: a button asks the browser, and allowing turns the switch on", async () => {
+  Object.assign(fakeNotification, {
+    permission: "default",
+    answer: "granted",
+    asked: 0,
+  });
+  localStorage.removeItem("motita.ui.notifications");
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=notifications-setting]");
+  assert.equal(card.querySelector("input[role=switch]"), null);
+  const btn = [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === "Allow notifications",
+  );
+  assert.ok(btn, "there is a button that asks for the permission");
+  await act(() => btn.click());
+  await settle();
+  assert.equal(fakeNotification.asked, 1);
+  const sw = card.querySelector("input[role=switch]");
+  assert.ok(sw, "once allowed, the on/off switch takes the button's place");
+  assert.equal(sw.checked, true);
+  await done();
+});
+
+test("a browser that ignores the request gets the steps to allow it by hand", async () => {
+  Object.assign(fakeNotification, {
+    permission: "default",
+    answer: "default",
+    asked: 0,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=notifications-setting]");
+  assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  await act(() => card.querySelector("button").click());
+  await settle();
+  assert.match(card.textContent, /did not ask/);
+  assert.ok(card.querySelector("[data-testid=notify-steps] li"));
+  await done();
+});
+
+test("blocked notifications explain how to allow them again, and pick it up once allowed", async () => {
+  Object.assign(fakeNotification, {
+    permission: "denied",
+    answer: "denied",
+    asked: 0,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=notifications-setting]");
+  assert.match(card.textContent, /Blocked in this browser/);
+  const steps = [...card.querySelectorAll("[data-testid=notify-steps] li")];
+  assert.ok(steps.length >= 2, "the steps to unblock them are listed");
+  assert.equal(card.querySelector("input[role=switch]"), null);
+  // The person allows them in the browser's settings and comes back.
+  fakeNotification.permission = "granted";
+  const again = [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === "Check again",
+  );
+  await act(() => again.click());
+  assert.ok(card.querySelector("input[role=switch]"));
+  assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  await done();
+});
+
+test("on a plain http address the setting says https is needed, with nothing to press", async () => {
+  Object.assign(fakeNotification, { permission: "denied", asked: 0 });
+  Object.defineProperty(window, "isSecureContext", {
+    value: false,
+    configurable: true,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=notifications-setting]");
+  assert.match(card.textContent, /https/);
+  assert.equal(card.querySelector("button"), null);
+  assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  delete window.isSecureContext;
+  fakeNotification.permission = "granted";
+  await done();
+});
+
+test("once allowed, a test notification goes up through the service worker", async () => {
+  Object.assign(fakeNotification, { permission: "granted" });
+  localStorage.removeItem("motita.ui.notifications");
+  const shown = [];
+  Object.defineProperty(navigator, "serviceWorker", {
+    value: {
+      getRegistration: async () => ({
+        showNotification: async (title, opts) => shown.push([title, opts.tag]),
+      }),
+    },
+    configurable: true,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=notifications-setting]");
+  const send = [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === "Send",
+  );
+  assert.ok(send, "there is a button to send a test notification");
+  await act(() => send.click());
+  await settle();
+  assert.deepEqual(shown, [["Motita notifications work", "motita-test"]]);
+  assert.match(card.textContent, /Sent\./);
+  delete navigator.serviceWorker;
+  await done();
+});
+
+test("the unblock steps fit the platform and whether Motita is installed", () => {
+  const androidApp = unblockSteps("android", true).join(" ");
+  assert.match(androidApp, /App info/);
+  assert.match(unblockSteps("android", false).join(" "), /left of the address/);
+  assert.match(unblockSteps("ios", true).join(" "), /Settings app/);
+  assert.match(unblockSteps("firefox", false).join(" "), /Send notifications/);
+  assert.match(unblockSteps("safari", false).join(" "), /Websites/);
+  assert.match(unblockSteps("chrome", true).join(" "), /App info/);
+  assert.match(unblockSteps("edge", false).join(" "), /Reset permission/);
+  assert.ok(unblockSteps("other", false).length > 0);
 });
 
 test("the git tab lists the accounts, and the arrow keys move between tabs", async () => {

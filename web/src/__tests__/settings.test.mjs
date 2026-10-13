@@ -36,3 +36,40 @@ test("notifications: on by default, the switch is kept, and the state says what 
   assert.equal(m.notifyState("granted", true), "on");
   assert.equal(m.notifyState("granted", false), "off");
 });
+
+test("notifications over plain http say https is needed, whatever the browser reports", () => {
+  // Chrome reports "denied" on an insecure page, where no browser setting can allow them.
+  assert.equal(m.notifyState("denied", true, false), "insecure");
+  assert.equal(m.notifyState("default", true, false), "insecure");
+  assert.equal(m.notifyState(undefined, true, false), "insecure");
+  assert.equal(m.notifyState("granted", true, false), "on");
+  assert.equal(m.notifyState("denied", true, true), "blocked");
+});
+
+test("the platform is read from the user agent, for the steps that unblock notifications", () => {
+  const ua = {
+    iphone:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    ipadDesktop:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    android:
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
+    edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+    chrome:
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    firefox:
+      "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
+  };
+  assert.equal(m.notifyPlatform(ua.iphone), "ios");
+  assert.equal(
+    m.notifyPlatform(ua.ipadDesktop, 5),
+    "ios",
+    "an iPad asking for the desktop site",
+  );
+  assert.equal(m.notifyPlatform(ua.ipadDesktop, 0), "safari", "a Mac");
+  assert.equal(m.notifyPlatform(ua.android), "android");
+  assert.equal(m.notifyPlatform(ua.edge), "edge");
+  assert.equal(m.notifyPlatform(ua.chrome), "chrome");
+  assert.equal(m.notifyPlatform(ua.firefox), "firefox");
+  assert.equal(m.notifyPlatform("curl/8"), "other");
+});

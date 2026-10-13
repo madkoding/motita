@@ -812,14 +812,21 @@ the gateway to every page the user has open.
 It comes up **with** the gateway, and `gateway.webui: false` (or
 `MOTITA_GATEWAY_WEBUI=false`) turns it off for an API-only gateway.
 
-**Getting in.** `motita gateway start` prints one link:
+**Getting in.** `motita gateway start` prints the token once and a table of addresses
+that carry no token:
 
 ```
-the interface is at http://127.0.0.1:7477/#t=<token>
-open that link once: the page trades the fragment for a cookie and drops it
+ACCESS TOKEN
+  <token>
+
+INTERFACE: open one of these in a browser and paste the token when it asks
+  INTERFACE     ADDRESS
+  this machine  http://127.0.0.1:7477
 ```
 
-The token travels in the URL **fragment**, not a query string, and that is the whole
+A gateway that listens on the network adds one row per interface (`eth0`, `wlan0`, ...).
+The page asks for the token once. It also takes one appended as `http://…/#t=<token>`, and
+the token travels in the URL **fragment**, not a query string, and that is the whole
 reason for the shape: a browser never sends a fragment to the server, so it does not
 appear in a request line, a proxy log or a `Referer`. Open the link once and the page
 exchanges it for a cookie, then erases it from the address bar and the history entry.
