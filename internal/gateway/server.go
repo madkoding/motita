@@ -353,6 +353,13 @@ func resolveHeartbeat(heartbeat time.Duration) time.Duration {
 	return heartbeat
 }
 
+// info logs an event when the gateway has a logger.
+func (s *Server) info(msg string, args ...any) {
+	if s.opts.Log != nil {
+		s.opts.Log.Info(msg, args...)
+	}
+}
+
 // warn logs a warning when the gateway has a logger.
 func (s *Server) warn(msg string, args ...any) {
 	if s.opts.Log != nil {

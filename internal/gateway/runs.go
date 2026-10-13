@@ -99,6 +99,15 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
+	d = intent.Refine(r.Context(), d, completerOf(c.svc))
+	c.stateMu.Lock()
+	prev := c.lastAuto
+	c.lastAuto = d
+	c.stateMu.Unlock()
+	if intent.Corrects(prev, d) {
+		s.info("auto mode corrected", "from", prev.Kind, "to", d.Kind,
+			"source", prev.Source, "reason", prev.Reason)
+	}
 	rn, started := s.startNotedRun(c, d.Prompt, d.Kind, "", d.Note(), s.approverFactory(c))
 	if !started {
 		writeError(w, http.StatusConflict,
@@ -106,6 +115,20 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.attach(w, r, c, rn, 0)
+}
+
+// intentModel is a Service that can answer auto mode's question when the rules cannot. It is a
+// separate interface so a service without a model (a test's fake) simply keeps the rules' answer.
+type intentModel interface {
+	CompleteIntent(ctx context.Context, system, user string) (string, error)
+}
+
+// completerOf is the service's model call for auto mode, or nil when it has none.
+func completerOf(svc Service) intent.Completer {
+	if m, ok := svc.(intentModel); ok {
+		return m.CompleteIntent
+	}
+	return nil
 }
 
 // startRun begins a turn and streams it to the caller.

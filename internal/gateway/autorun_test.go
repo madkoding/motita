@@ -67,3 +67,55 @@ func TestAutoRunRefusesWhatItCannotServe(t *testing.T) {
 		t.Errorf("an integrated session: status %d, want 409", w.Code)
 	}
 }
+
+// modelService is a fakeService with auto mode's model call.
+type modelService struct {
+	*fakeService
+	answer string
+	asked  int
+}
+
+func (m *modelService) CompleteIntent(context.Context, string, string) (string, error) {
+	m.asked++
+	return m.answer, nil
+}
+
+// When the rules have nothing, the service's model decides; when they do, it is not asked.
+func TestAutoRunAsksTheModelOnlyWhenTheRulesHaveNothing(t *testing.T) {
+	var got []string
+	svc := &modelService{fakeService: autoService(&got), answer: `{"kind":"plan"}`}
+	srv := newTestServer(t, svc)
+	path := sessionPath(srv, DefaultSession, "/run")
+
+	events := withoutPreamble(t, collect(t, srv, http.MethodPost, path, `{"task":"the retry policy"}`))
+	if len(events) == 0 || !strings.Contains(events[0].Data, "mode: plan (model)") {
+		t.Fatalf("the model's decision was not announced: %+v", events)
+	}
+	collect(t, srv, http.MethodPost, path, `{"task":"fix the retry policy"}`)
+	if svc.asked != 1 {
+		t.Errorf("the model was asked %d times, want 1", svc.asked)
+	}
+	if strings.Join(got, ",") != "plan:the retry policy,task:fix the retry policy" {
+		t.Errorf("ran %v", got)
+	}
+}
+
+// Sending the same message again with the other mode is logged as a correction of the guess.
+func TestAutoRunLogsACorrection(t *testing.T) {
+	var got []string
+	sink := newLogSink(t)
+	srv := newTestServer(t, autoService(&got), func(o *Options) { o.Log = sink.log })
+	path := sessionPath(srv, DefaultSession, "/run")
+	collect(t, srv, http.MethodPost, path, `{"task":"how does the cache work?"}`)
+	collect(t, srv, http.MethodPost, path, `{"task":"/task how does the cache work?"}`)
+	logged := strings.Join(sink.lines(t), "\n")
+	if !strings.Contains(logged, "auto mode corrected") || !strings.Contains(logged, `"to":"task"`) {
+		t.Errorf("the correction was not logged:\n%s", logged)
+	}
+}
+
+func TestInfoWithoutALoggerDoesNothing(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	srv.opts.Log = nil
+	srv.info("nothing to write to")
+}
