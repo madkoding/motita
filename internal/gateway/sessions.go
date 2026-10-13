@@ -16,6 +16,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/intent"
 )
 
 // deleteStopTimeout is how long a deletion waits for a cancelled run to finish
@@ -81,6 +82,9 @@ type conversation struct {
 	// lastKind is "task" or "plan", recording which mode the last run was
 	// in. An interrupted plan and an interrupted task resume differently.
 	lastKind string
+	// lastAuto is how auto mode routed the last message it classified, so the next one can be
+	// recognised as the person correcting it.
+	lastAuto intent.Decision
 	// agents is the latest snapshot of the agents of the run in flight, or of the last run. It is
 	// kept here and not on the run so a session whose agents finished still says what they did.
 	agents []agent.AgentInfo

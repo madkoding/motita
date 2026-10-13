@@ -147,6 +147,8 @@ func (t *TUI) modeTitle() (string, string) {
 		return "Models", "Enter lists them, /models <id> switches"
 	case ScreenConfig:
 		return "Setup", "Enter runs the setup again"
+	case ScreenAuto:
+		return "Auto", "picks plan or task from what you write"
 	default:
 		return "Task", "makes changes, then proves them with your check"
 	}

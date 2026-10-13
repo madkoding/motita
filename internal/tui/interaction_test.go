@@ -13,8 +13,8 @@ import (
 // These tests cover the interactive loop itself: the view switch, the input
 // reading edge cases and the outcome handling of a plan run.
 
-// TestNextScreenTogglesBetweenTaskAndPlan: Tab switches between the two modes a user works in
-// and nothing else.
+// TestNextScreenTogglesBetweenTaskAndPlan: Tab cycles through the modes a user works in (Task,
+// Plan, and Auto, which picks one of the two per message) and nothing else.
 //
 // It used to walk the whole screen order — Task, Plan, Models, Config — which meant pressing it
 // twice to get back where you started landed somewhere else, and the two modes that ARE toggled
@@ -24,7 +24,7 @@ func TestNextScreenTogglesBetweenTaskAndPlan(t *testing.T) {
 	tui := newFakeTUI("q\n", &fakeRunner{})
 	tui.screen = ScreenTask
 
-	want := []Screen{ScreenPlan, ScreenTask, ScreenPlan, ScreenTask}
+	want := []Screen{ScreenPlan, ScreenAuto, ScreenTask, ScreenPlan}
 	for i, w := range want {
 		tui.nextScreen()
 		if tui.screen != w {
@@ -84,7 +84,7 @@ func TestAuthorAndScreenStrings(t *testing.T) {
 func TestTabIsConsumedAndNeverBecomesInput(t *testing.T) {
 	runner := &fakeRunner{}
 	// \t is the escape the tabReader turns into a real Tab byte.
-	tui := newFakeTUI("\\t\n\\t\nq\n", runner)
+	tui := newFakeTUI("\\t\n\\t\n\\t\nq\n", runner)
 	tui.Run(context.Background())
 
 	frame := stripANSI(lastFrame(t, tui))
@@ -94,12 +94,12 @@ func TestTabIsConsumedAndNeverBecomesInput(t *testing.T) {
 	if strings.Contains(frame, "\\t") {
 		t.Errorf("the escape must not be shown literally either:\n%q", frame)
 	}
-	// Two Tabs are a round trip: Task -> Plan -> Task. Starting and ending on the same screen is
+	// Three Tabs are a round trip: Task -> Plan -> Auto -> Task. Starting and ending on the same screen is
 	// also the strongest assertion available here — a test that ended on a DIFFERENT screen would
-	// pass even if both Tabs were swallowed as one, while returning to the start proves the second
-	// one arrived and moved it back.
+	// pass even if two Tabs were swallowed as one, while returning to the start proves every one
+	// arrived.
 	if tui.screen != ScreenTask {
-		t.Errorf("screen = %v, want Task after two Tabs from Task: the toggle is a round trip", tui.screen)
+		t.Errorf("screen = %v, want Task after three Tabs from Task: the cycle is a round trip", tui.screen)
 	}
 }
 

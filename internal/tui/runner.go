@@ -553,6 +553,17 @@ func (r *AppRunner) countReviewIters(turn int) int {
 	return r.reviewIters
 }
 
+// CompleteIntent is auto mode's model call: one completion, no tools, for the message the rules
+// could not route. It uses the same engine as the turn it decides, so it needs no setting of
+// its own.
+func (r *AppRunner) CompleteIntent(ctx context.Context, system, user string) (string, error) {
+	_, engine, err := r.engine()
+	if err != nil {
+		return "", err
+	}
+	return engine.Complete(ctx, []llm.Message{{Role: "system", Content: system}, {Role: "user", Content: user}})
+}
+
 // RunPlan executes the read-only planner and writes the final answer to Out.
 func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
 	cfg, engine, err := r.engine()
