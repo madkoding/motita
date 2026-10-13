@@ -44,8 +44,16 @@ func TestTheProcessLimitIsAppliedOrReported(t *testing.T) {
 	// the hard limit a non-root user cannot raise.
 	limit := uint64(54321)
 	var rl syscall.Rlimit
-	if err := syscall.Getrlimit(rlimitNproc, &rl); err == nil && rl.Max < limit {
-		limit = rl.Max
+	if err := syscall.Getrlimit(rlimitNproc, &rl); err == nil {
+		if rl.Max < limit {
+			limit = rl.Max
+		}
+		// The check below recognises the limit by its value in /proc/self/limits, so the value
+		// must differ from the one already in force: otherwise a limit the shell refused looks
+		// applied, and the test fails on a machine whose hard limit is below 54321.
+		if rl.Cur == limit && limit > 1 {
+			limit--
+		}
 	}
 	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{Processes: int(limit)}})
 	if err != nil {
