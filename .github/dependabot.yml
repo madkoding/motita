@@ -27,6 +27,12 @@ updates:
     # one is usually yanked before a pull request offers it.
     cooldown:
       default-days: 7
+    # Major 10 of the preset needs conventional-changelog-writer@9, but
+    # @semantic-release/release-notes-generator still loads writer@8 and the
+    # release fails at generateNotes. Lift this once the generator moves on.
+    ignore:
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types: ["version-update:semver-major"]
     groups:
       release-tooling:
         patterns: ["*"]
