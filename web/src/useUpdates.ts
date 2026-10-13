@@ -1,6 +1,6 @@
 // New versions of Motita: the check the page polls, the toast that offers one, and the upgrade
 // itself with its progress bar.
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { sseData } from "./appParse";
 import type { Api } from "./prApi";
@@ -15,8 +15,9 @@ import {
 } from "./appConst";
 
 // reloadWhenBack waits for the gateway to come back from an upgrade and reloads the page to pick
-// up the new version. It gives up after a while: the page then stays as it is.
-function reloadWhenBack() {
+// up the new version. It gives up after a while and calls giveUp, so the page can offer a manual
+// reload instead of waiting forever.
+function reloadWhenBack(giveUp: () => void) {
   setTimeout(() => {
     // Poll health until the gateway is back.
     const poll = setInterval(async () => {
@@ -30,7 +31,10 @@ function reloadWhenBack() {
         /* keep polling */
       }
     }, HEALTH_POLL_MS);
-    setTimeout(() => clearInterval(poll), RESTART_WAIT_MS);
+    setTimeout(() => {
+      clearInterval(poll);
+      giveUp();
+    }, RESTART_WAIT_MS);
   }, RESTART_FIRST_POLL_MS);
 }
 
@@ -55,6 +59,15 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
   // the same reason as the toast: the explanation is the point, the exception
   // string is a footnote for a bug report.
   const [showUpgradeError, setShowUpgradeError] = useState(false);
+  // Whether the gateway did not come back in time after an upgrade, so the page did not reload by
+  // itself and the modal offers to reload it by hand.
+  const [reloadStalled, setReloadStalled] = useState(false);
+  // Whether the gateway said it is restarting, so the page will reload by itself once it is back.
+  // A run that ends without a restart (already up to date, or a gateway that cannot restart
+  // itself) leaves the modal open with its message and a Close button. The ref is what the stream
+  // reads, since its callback outlives the render that started it.
+  const [awaitingReload, setAwaitingReload] = useState(false);
+  const restarting = useRef(false);
 
   // checkForUpdates polls /v1/update/check. When a new version is found, a
   // toast is shown (unless the user has dismissed this version before) and
@@ -86,11 +99,11 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
     }
   }, []);
 
-  // onUpgradeFrame applies one event of the upgrade stream.
-  const onUpgradeFrame = (frame: string) => {
+  // onUpgradeFrame applies one event of the upgrade stream and returns its stage.
+  const onUpgradeFrame = (frame: string): string | undefined => {
     const dataLine = sseData(frame);
     if (!dataLine) {
-      return;
+      return undefined;
     }
     try {
       const evt: UpgradeProgressEvent = JSON.parse(dataLine);
@@ -98,16 +111,25 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
       if (evt.stage === "error") {
         setUpgradeError(evt.message || t("upgrade failed"));
         setUpgradeBusy(false);
+      } else if (evt.stage === "restarting") {
+        restarting.current = true;
+        setAwaitingReload(true);
+      } else if (evt.stage === "done" && restarting.current) {
+        // The modal stays locked with a spinner until the gateway is back and the page reloads
+        // by itself; only if it never comes back is it unlocked.
+        reloadWhenBack(() => {
+          setUpgradeBusy(false);
+          setReloadStalled(true);
+        });
       } else if (evt.stage === "done") {
         setUpgradeBusy(false);
-        // The gateway is restarting. Show a message and wait for it
-        // to come back, then reload the page.
-        reloadWhenBack();
       } else {
         // A stage on the way: the progress bar above already shows it.
       }
+      return evt.stage;
     } catch {
       /* ignore parse error */
+      return undefined;
     }
   };
 
@@ -116,11 +138,17 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
     setUpgradeBusy(true);
     setUpgradeError("");
     setShowUpgradeError(false);
+    setReloadStalled(false);
+    setAwaitingReload(false);
+    restarting.current = false;
     setUpgradeProgress({
       stage: "starting",
       percent: 0,
       message: t("Starting upgrade…"),
     });
+    // Once the upgrade is done the gateway restarts, and the stream may break as it goes down:
+    // that is the restart, not a failure.
+    let finished = false;
     try {
       const res = await api("/v1/update/run", { method: "POST" });
       if (!res.ok) {
@@ -142,10 +170,15 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
         while ((idx = buffer.indexOf(SSE_FRAME_END)) !== -1) {
           const frame = buffer.slice(0, idx);
           buffer = buffer.slice(idx + SSE_FRAME_END.length);
-          onUpgradeFrame(frame);
+          if (onUpgradeFrame(frame) === "done" && restarting.current) {
+            finished = true;
+          }
         }
       }
     } catch (e) {
+      if (finished) {
+        return;
+      }
       setUpgradeError(String(e));
       setUpgradeBusy(false);
     }
@@ -195,6 +228,7 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
     () => setShowUpgradeError((v) => !v),
     [],
   );
+  const reloadPage = useCallback(() => window.location.reload(), []);
 
   return {
     updateInfo,
@@ -203,6 +237,9 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
     upgradeBusy,
     upgradeError,
     showUpgradeError,
+    reloadStalled,
+    awaitingReload,
+    reloadPage,
     runUpgrade,
     dismissUpgradeToast,
     openUpgrade,

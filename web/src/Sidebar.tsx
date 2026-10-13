@@ -68,20 +68,61 @@ function NewButtons() {
   );
 }
 
-// SessionList is the free-standing sessions, then one group per project.
-function SessionList() {
+// SectionTitle is the label over one part of the list, so a session and a project are never
+// mistaken for each other.
+function SectionTitle({ id, label }: { id: string; label: string }) {
+  return (
+    <h2
+      id={id}
+      class="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#7a7a8c]"
+    >
+      {label}
+    </h2>
+  );
+}
+
+// EmptySection says a part of the list has nothing in it, rather than leaving a blank gap.
+function EmptySection({ label }: { label: string }) {
+  return (
+    <div
+      class="mx-1 px-3 py-2 rounded-xl border border-dashed border-white/6 text-xs text-[#7a7a8c] italic"
+      data-testid="sidebar-empty"
+    >
+      {label}
+    </div>
+  );
+}
+
+// SessionList is two labelled sections: the free-standing sessions, then one group per project.
+// Each says so when it is empty.
+export function SessionList() {
   const { lists } = useApp();
+  const loose = lists.sessions.filter((s) => !s.project_id);
   return (
     <div class="flex-1 overflow-y-auto px-2 pb-2">
-      {/* Free-standing sessions (no project) */}
-      {lists.sessions
-        .filter((s) => !s.project_id)
-        .map((s) => (
+      <section
+        aria-labelledby="sidebar-sessions"
+        data-testid="sidebar-sessions"
+      >
+        <SectionTitle id="sidebar-sessions" label={t("Sessions")} />
+        {loose.map((s) => (
           <SessionRow key={s.id} s={s} />
         ))}
-      {lists.projects.map((p) => (
-        <ProjectGroup key={p.id} p={p} />
-      ))}
+        {loose.length === 0 && <EmptySection label={t("No sessions")} />}
+      </section>
+      <section
+        aria-labelledby="sidebar-projects"
+        class="mt-2 pt-1 border-t border-white/5"
+        data-testid="sidebar-projects"
+      >
+        <SectionTitle id="sidebar-projects" label={t("Projects")} />
+        {lists.projects.map((p) => (
+          <ProjectGroup key={p.id} p={p} />
+        ))}
+        {lists.projects.length === 0 && (
+          <EmptySection label={t("No projects")} />
+        )}
+      </section>
     </div>
   );
 }
@@ -112,22 +153,22 @@ function Settings() {
   const { openSettings } = useApp();
   return (
     <button class={FOOT_BUTTON} onClick={openSettings}>
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="flex-none"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-        {t("Settings")}
-      </button>
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        class="flex-none"
+      >
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+      {t("Settings")}
+    </button>
   );
 }
 
