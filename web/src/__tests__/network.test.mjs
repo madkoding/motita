@@ -716,7 +716,7 @@ test("restartGateway posts confirm:true and surfaces a refusal", async () => {
 test("every string of the network section has a Spanish translation", () => {
   const settings = readFileSync(join(here, "..", "Settings.tsx"), "utf8");
   const start = settings.indexOf("const TAILSCALE_DOWNLOAD");
-  const end = settings.indexOf("// The icons of the two tabs.");
+  const end = settings.indexOf("// The icons of the tabs.");
   assert.ok(start > 0 && end > start);
   const keys = new Set();
   for (const m of settings

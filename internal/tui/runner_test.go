@@ -583,3 +583,31 @@ func TestRunShellRunsThroughTheAgentWithTheGivenApprover(t *testing.T) {
 		t.Error("the approver must reach the agent")
 	}
 }
+
+// TestASwitchTakesTheEndpointSavedInTheSettings: an endpoint saved from the browser is the one a
+// switch runs with, and a refresh hands a new key to the session already on that provider.
+func TestASwitchTakesTheEndpointSavedInTheSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OLLAMA_API_KEY", "")
+	cfgPath := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := config.SetCredential(cfgPath, config.ProviderBaseURLVariable("ollama"), "http://box.lan:11434/v1"); err != nil {
+		t.Fatal(err)
+	}
+	config.UseCredentialsBeside(cfgPath)
+	defer config.UseCredentialsBeside("")
+	cfg := config.Default()
+	cfg.LLM.Provider, cfg.LLM.APIKey = "openai", "sk"
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.SetLLM("ollama", "gpt-oss:20b")
+	if got := r.Config().LLM.BaseURL; got != "http://box.lan:11434/v1" {
+		t.Errorf("base = %q", got)
+	}
+	r.RefreshProvider("anthropic", "sk-ant", "https://api.anthropic.com")
+	if got := r.Config().LLM; got.Provider != "ollama" || got.APIKey != "" {
+		t.Errorf("another provider's refresh leaves this one alone: %+v", got)
+	}
+	r.RefreshProvider("OLLAMA", "k2", "https://ollama.com/v1")
+	if got := r.Config().LLM; got.APIKey != "k2" || got.BaseURL != "https://ollama.com/v1" || r.Engine != nil {
+		t.Errorf("refresh: %+v", got)
+	}
+}

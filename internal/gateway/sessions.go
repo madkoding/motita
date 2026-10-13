@@ -831,6 +831,7 @@ func (s *Server) createSession() (*conversation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("a conversation could not be started: %w", err)
 	}
+	s.startingLLM(svc)
 	return s.newSession(svc)
 }
 

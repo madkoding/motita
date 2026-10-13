@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { useDialog } from "./useDialog";
-import { IconAlert, IconClose } from "./icons";
+import { IconClose } from "./icons";
+import { InsecureWarning } from "./InsecureWarning";
 import "./dialog.css";
 import { t, tf } from "./i18n";
 import {
@@ -33,6 +34,10 @@ import { showNotification } from "./notify";
 import { errorMessage } from "./errors";
 import type { VoicePrefs, VoiceState } from "./voice";
 import {
+  ProviderSettings,
+  type ProviderSettingsProps,
+} from "./ProviderSettings";
+import {
   type ChosenMode,
   type NetworkMode,
   type NetworkView,
@@ -44,6 +49,8 @@ import {
 import { copyText } from "./clipboard";
 
 initSettings();
+
+export { InsecureWarning };
 
 interface Props {
   langSetting: LangSetting;
@@ -63,6 +70,8 @@ interface Props {
   };
   // Speech input. Absent where the page has no voice store (the tests of other sections).
   voice?: VoiceSettingsProps;
+  // The LLM providers and the default model. Absent where the page has no API to reach them.
+  llm?: ProviderSettingsProps;
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
   // the section stays hidden on a gateway without the network API.
   network?: { api: Api };
@@ -96,38 +105,6 @@ const NOTIFY_GUIDE =
   "https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#the-browser-interface-from-the-same-port";
 const VOICE_GUIDE =
   "https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#voice-input";
-
-// InsecureWarning is the amber pill a setting shows when the page was opened without a secure
-// connection, so the browser hides the feature. It says that in plain words; the technical reason
-// (https or localhost) and the way out stay folded under "Why?" for whoever wants them.
-export function InsecureWarning({
-  text,
-  guide,
-}: {
-  text: string;
-  guide: string;
-}) {
-  return (
-    <div class="settings-warn" role="note" data-testid="insecure-warning">
-      <div class="settings-warn-title">
-        <IconAlert size={14} class="settings-warn-icon" />
-        {t("Connection not secure")}
-      </div>
-      <p class="settings-warn-text">{text}</p>
-      <details class="settings-warn-more">
-        <summary>{t("Why?")}</summary>
-        <p>
-          {t(
-            "Browsers only allow it on a secure address: one that starts with https://, or localhost on this same computer. Open Motita through https to use it.",
-          )}{" "}
-          <a href={guide} target="_blank" rel="noopener noreferrer">
-            {t("How to set it up")}
-          </a>
-        </p>
-      </details>
-    </div>
-  );
-}
 
 // voiceWarning is the pill for a voice switch the browser hides on an insecure page.
 function voiceWarning(state: string) {
@@ -350,7 +327,7 @@ function readPermission(): NotificationPermission | undefined {
   return Notification.permission;
 }
 
-type Tab = "general" | "git";
+type Tab = "general" | "providers" | "git";
 
 interface Choice<T extends string> {
   value: T;
@@ -1384,7 +1361,7 @@ function NetworkSettings({ api }: { api: Api }) {
   );
 }
 
-// The icons of the two tabs.
+// The icons of the tabs.
 function IconSliders() {
   return (
     <svg
@@ -1399,6 +1376,24 @@ function IconSliders() {
       aria-hidden="true"
     >
       <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+    </svg>
+  );
+}
+function IconChip() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
     </svg>
   );
 }
@@ -1433,6 +1428,7 @@ export function SettingsModal({
   onClose,
   git,
   voice,
+  llm,
   network,
 }: Props) {
   const [tab, setTab] = useState<Tab>("general");
@@ -1441,6 +1437,9 @@ export function SettingsModal({
   const tabs: { id: Tab; label: string; icon: ComponentChildren }[] = [
     { id: "general", label: t("General"), icon: <IconSliders /> },
   ];
+  if (llm) {
+    tabs.push({ id: "providers", label: t("Providers"), icon: <IconChip /> });
+  }
   if (git) {
     tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });
   }
@@ -1526,6 +1525,7 @@ export function SettingsModal({
               network={network}
             />
           )}
+          {tab === "providers" && llm && <ProviderSettings {...llm} />}
           {tab === "git" && git && <GitConnections {...git} />}
         </div>
       </dialog>
