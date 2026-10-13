@@ -63,7 +63,8 @@ func TestVoiceIsOffWithoutAService(t *testing.T) {
 	if v.Enabled || v.WakePhrases == nil || len(v.WakePhrases) != 0 || v.MaxAudioBytes != defaultMaxAudioBytes {
 		t.Errorf("view = %+v", v)
 	}
-	if w := postAudio(t, srv, "/v1/voice/transcribe", "audio/webm", strings.NewReader("a")); w.Code != http.StatusNotImplemented {
+	w = postAudio(t, srv, "/v1/voice/transcribe", "audio/webm", strings.NewReader("a"))
+	if w.Code != http.StatusNotImplemented {
 		t.Errorf("POST = %d", w.Code)
 	}
 	if w := get(t, srv, "/v1/voice", ""); w.Code != http.StatusUnauthorized {
@@ -173,7 +174,8 @@ func writeTestCert(t *testing.T) (certPath, keyPath string, pool *x509.CertPool)
 	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cert, _ := x509.ParseCertificate(der)
@@ -192,7 +194,8 @@ func TestTheGatewayAlsoServesHTTPS(t *testing.T) {
 	if srv.TLSAddr() == "" {
 		t.Fatal("the https listener must be bound")
 	}
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	tlsConfig := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig}}
 	resp, err := client.Get("https://" + srv.TLSAddr() + "/v1/health")
 	if err != nil {
 		t.Fatalf("https: %v", err)

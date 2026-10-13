@@ -14,6 +14,7 @@ import type { Api } from "./prApi";
 import type { SetToast } from "./appTypes";
 import { TASK_INPUT_ID } from "./appConst";
 import { errorMessage } from "./errors";
+import { choose } from "./choose";
 import {
   type VoiceInfo,
   type VoicePrefs,
@@ -56,7 +57,7 @@ function recorderFor(stream: MediaStream): {
   const mimeType = pickMimeType((m) => MediaRecorder.isTypeSupported(m));
   const recorder = new MediaRecorder(
     stream,
-    mimeType ? { mimeType } : undefined,
+    choose(mimeType, { mimeType }, undefined),
   );
   const chunks: Blob[] = [];
   const done = new Promise<Blob>((resolve) => {
@@ -173,7 +174,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const active = prefs.listen && hands === "ready" && authed;
   useEffect(() => {
     if (!active) {
-      return;
+      return undefined;
     }
     let stopped = false;
     let stream: MediaStream | null = null;
@@ -189,9 +190,10 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       if (current && current.recorder.state !== "inactive") {
         current.recorder.stop();
       }
-      current = stream
-        ? { ...recorderFor(stream), at: performance.now() }
-        : null;
+      current = null;
+      if (stream) {
+        current = { ...recorderFor(stream), at: performance.now() };
+      }
     };
     const send = async (audio: Promise<Blob>) => {
       try {

@@ -2,7 +2,7 @@
 
 The gateway's tests drive this flow against a fake host. This is the one run that needs a real
 one: a throwaway repository, a CI that fails on purpose, and about ten minutes. Do it after
-changing `internal/gateway/pr*.go`, `internal/gitforge/` or the PR bar in `web/src/App.tsx`.
+changing `internal/gateway/pr*.go`, `internal/gitforge/` or the PR bar in `web/src/PullRequestBar.tsx`.
 
 ## Set up (once)
 

@@ -38,6 +38,28 @@ function reloadWhenBack(giveUp: () => void) {
   }, RESTART_FIRST_POLL_MS);
 }
 
+// readFrames reads an event stream to its end and hands each complete frame to onFrame, in order.
+async function readFrames(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onFrame: (frame: string) => void,
+): Promise<void> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let idx = buffer.indexOf(SSE_FRAME_END);
+    while (idx !== -1) {
+      onFrame(buffer.slice(0, idx));
+      buffer = buffer.slice(idx + SSE_FRAME_END.length);
+      idx = buffer.indexOf(SSE_FRAME_END);
+    }
+  }
+}
+
 // notDismissed says whether a version's toast may be shown: the person did not close it before.
 // A browser whose storage cannot be read shows none.
 function notDismissed(version: string): boolean {
@@ -157,24 +179,11 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
         setUpgradeBusy(false);
         return;
       }
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
+      await readFrames(res.body!.getReader(), (frame) => {
+        if (onUpgradeFrame(frame) === "done" && restarting.current) {
+          finished = true;
         }
-        buffer += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buffer.indexOf(SSE_FRAME_END)) !== -1) {
-          const frame = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + SSE_FRAME_END.length);
-          if (onUpgradeFrame(frame) === "done" && restarting.current) {
-            finished = true;
-          }
-        }
-      }
+      });
     } catch (e) {
       if (finished) {
         return;
