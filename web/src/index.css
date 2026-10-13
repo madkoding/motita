@@ -3324,7 +3324,11 @@ main.chat-bg.chat-bg {
 /* ─── Native controls in place of the old clickable boxes ───────────
  * A row, a header or a picture that reacts to a click carries a transparent button over its
  * whole box (.row-hit). It takes the box's own cursor, does not move or clip like the other
- * buttons, and the controls of the box are positioned, so they are drawn above it. */
+ * buttons, and the controls of the box are positioned, so they are drawn above it. In a session
+ * row and a project header it sits after the text and before the actions in the markup: boxes
+ * of the same layer paint in document order, so a text style that makes a stacking context
+ * (opacity, transform) cannot cover it and swallow the click. No z-index: it would trap the
+ * fixed "⋯" menu inside the row and let the next row paint over it. */
 .project-header,
 .agent-row,
 .agent-detail,

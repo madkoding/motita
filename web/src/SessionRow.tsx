@@ -338,17 +338,8 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
           wrapped into a paragraph nobody could read: a timestamp and a
           set of labelled facts are two different kinds of information and
           each gets its own line.
-          Its colour is dimmed with the colour itself, never with `opacity`: an opacity below 1
-          makes the line a stacking context drawn ABOVE the row's `.row-hit` button, so a click
-          on the date landed on the line and never opened the session. */}
-      <div
-        class="mt-0.5 text-[10px] tabular-nums text-[#9a9aaa]"
-        title={choose(
-          s.last_used,
-          tf("Last used {when}", { when: fullUpdated(s.last_used) }),
-          undefined,
-        )}
-      >
+          Its full date is the tooltip of the row's button (see SessionRow). */}
+      <div class="mt-0.5 text-[10px] tabular-nums text-[#9a9aaa]">
         {formatUpdated(s.last_used)}
         {agentsRunning > 0 && (
           <span
@@ -415,18 +406,26 @@ export function SessionRow({ s }: { s: SessionInfo }) {
         class={`session-spinner${choose(busy, " is-running", "")}`}
         aria-hidden="true"
       />
-      {/* The row opens its conversation from anywhere on it: this button covers the row, and the
-          controls of the row are drawn above it. */}
+      {renaming && <RenameField s={s} />}
+      {!renaming && <SessionSummary s={s} busy={busy} />}
+      {/* The row opens its conversation from anywhere on it: this button covers the row. It comes
+          AFTER the text and BEFORE the actions on purpose: positioned boxes and stacking contexts
+          (opacity, transform...) are painted in document order, so whatever the text's styles
+          become it stays under the button, and the "⋯" stays above it. As the text is under it,
+          the button carries the text's tooltip. */}
       {!renaming && (
         <button
           type="button"
           class="row-hit"
           aria-label={sessionTitle(s)}
+          title={choose(
+            s.last_used,
+            tf("Last used {when}", { when: fullUpdated(s.last_used) }),
+            undefined,
+          )}
           onClick={() => conv.switchSession(s.id)}
         />
       )}
-      {renaming && <RenameField s={s} />}
-      {!renaming && <SessionSummary s={s} busy={busy} />}
       {!renaming && <SessionActions s={s} />}
     </div>
   );
