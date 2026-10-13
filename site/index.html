@@ -881,63 +881,6 @@
         display: none;
       }
 
-      /* ---------- logo strip ---------- */
-      .strip {
-        padding: var(--space-5) 0;
-        border-top: 1px solid var(--border);
-      }
-      .strip p {
-        text-align: center;
-        color: var(--muted-fg);
-        font-size: 0.82rem;
-        margin: 0 0 var(--space-3);
-        font-family: var(--mono);
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-      }
-      .marquee {
-        overflow: hidden;
-        mask-image: linear-gradient(
-          90deg,
-          transparent,
-          #000 12%,
-          #000 88%,
-          transparent
-        );
-      }
-      .marquee ul {
-        display: flex;
-        gap: var(--space-6);
-        width: max-content;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        animation: slide 38s linear infinite;
-      }
-      .marquee li {
-        font-family: var(--mono);
-        font-size: 1rem;
-        color: var(--fg);
-        opacity: 0.85;
-        white-space: nowrap;
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-      }
-      .marquee li::before {
-        content: "◆";
-        color: var(--neon-cyan);
-        font-size: 0.6rem;
-      }
-      .marquee:hover ul {
-        animation-play-state: paused;
-      }
-      @keyframes slide {
-        to {
-          transform: translateX(-50%);
-        }
-      }
-
       /* ---------- sections ---------- */
       section {
         padding: var(--space-9) 0;
@@ -1877,9 +1820,6 @@
         .frame {
           transform: none !important;
         }
-        .marquee ul {
-          animation: none;
-        }
       }
     </style>
   </head>
@@ -2196,36 +2136,6 @@
             and finds your project's tests. One static binary — no Docker, no
             runtime. It even runs on a 2008 netbook with 484 MB of RAM.
           </p>
-        </div>
-      </div>
-
-      <div class="strip" aria-label="Works with">
-        <p>Works with the AI you already have</p>
-        <div class="marquee">
-          <ul>
-            <li>Claude Pro / Max</li>
-            <li>ChatGPT Plus / Pro</li>
-            <li>GitHub Copilot</li>
-            <li>OpenAI API</li>
-            <li>Anthropic API</li>
-            <li>Google Gemini</li>
-            <li>Qwen</li>
-            <li>Ollama — local &amp; free</li>
-            <li>Groq</li>
-            <li>OpenRouter</li>
-            <li>DeepSeek</li>
-            <li aria-hidden="true">Claude Pro / Max</li>
-            <li aria-hidden="true">ChatGPT Plus / Pro</li>
-            <li aria-hidden="true">GitHub Copilot</li>
-            <li aria-hidden="true">OpenAI API</li>
-            <li aria-hidden="true">Anthropic API</li>
-            <li aria-hidden="true">Google Gemini</li>
-            <li aria-hidden="true">Qwen</li>
-            <li aria-hidden="true">Ollama — local &amp; free</li>
-            <li aria-hidden="true">Groq</li>
-            <li aria-hidden="true">OpenRouter</li>
-            <li aria-hidden="true">DeepSeek</li>
-          </ul>
         </div>
       </div>
 

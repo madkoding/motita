@@ -38,6 +38,11 @@ jobs:
       - run: npm ci --ignore-scripts
 
       - name: Compute the version from Conventional Commits, tag and publish
+        # The release is created as a DRAFT (draftRelease in .releaserc.json):
+        # ci.yml's `release` job uploads the binaries to it and publishes it, so
+        # releases/latest - what install.sh and the updater read - never points at
+        # a release without binaries.
+        #
         # A tag pushed with GITHUB_TOKEN does not trigger the tag workflows (ci
         # binaries, pages). Set the RELEASE_TOKEN secret to make them run, and make
         # it a FINE-GRAINED token scoped to this repository only, with Contents,
