@@ -18,6 +18,14 @@ const es: Record<string, string> = {
   After: "Después",
   Before: "Antes",
   "Before and after": "Antes y después",
+  Suggestions: "Sugerencias",
+  "Apply this one": "Aplicar esta",
+  "Apply this one and the following": "Aplicar esta y las siguientes",
+  "Apply none": "No aplicar ninguna",
+  "will apply": "se aplicará",
+  "not applied": "no se aplica",
+  "Apply these suggestions you made, and nothing else:":
+    "Aplica estas sugerencias que hiciste, y nada más:",
   "(active)": "(activo)",
   "(auto from git URL if empty)": "(se toma de la URL de git si está vacío)",
   "({n} event(s) were not kept while nothing was listening)":

@@ -923,8 +923,19 @@ func (r *AppRunner) observe(o taskObserver, task string, progress func(string, .
 		// The questions are handed to the caller as STRUCTURE, not only as the sentence
 		// above: the window needs the question, its assumption and its options to draw a
 		// pickable list, and none of that survives being flattened into a string.
-		if tr.NeedsInput && len(tr.Questions) > 0 {
+		//
+		// A finished task that found more it could do hands its suggestions over the same way,
+		// as proposals: the window asks whether to apply each one, and nothing is applied that
+		// the user did not accept.
+		switch {
+		case tr.NeedsInput && len(tr.Questions) > 0:
 			r.setPendingQuestions(tr.Questions, task)
+		case tr.Pass && tr.Kind != agent.KindChat:
+			if items := agent.ProposalItems(tr.Report); len(items) > 0 {
+				r.setPendingQuestions(items, task)
+			}
+		default:
+			// Nothing to ask.
 		}
 	})
 }

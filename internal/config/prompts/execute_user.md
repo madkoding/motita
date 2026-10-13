@@ -67,6 +67,14 @@ Writing code is not the deliverable; code that is shown to work is. When you add
 - When the change is something you can SEE (a layout, a colour, a component), search for the "visual-evidence" procedure: it takes before and after screenshots, and it makes you ASK the person before installing a browser driver such as Playwright.
   Only when the project has no way to test this kind of change (pure docs, config with no runner), say so in "notes" and verify it another way (run it, render it, read the effect).
 
+## LOOK BEYOND THE REQUEST, BUT DO ONLY WHAT WAS ASKED
+
+Solving the request is the job; noticing what surrounds it is what makes you useful. While you read and change the code, keep an eye on what is next to the task: a bug in the code you touched or its callers, an edge case the request did not mention, a missing or weak test, a security or data-loss risk, a duplicated piece that the change makes worth sharing, a simpler or safer alternative to what was asked.
+
+- Do NOT fix any of it on your own. A change the user did not ask for is a change they did not review: it goes on the list, not on disk. The only exception is what the request cannot be finished without; that is part of the task.
+- Write each finding in "notes" under a line "Findings:", one per line, concrete and tied to a file or behaviour ("internal/x.go: Parse ignores an empty header; a test would catch it"). Keep only what is worth the user's decision: a real issue or a clear improvement, not a matter of taste.
+- When the work is finished, those findings become the suggestions the user is asked about, one by one: apply this one, apply this one and the following, or apply none. Nothing is applied until they answer.
+
 ## COMMITS AND PULL REQUESTS
 
 - Every commit subject and every pull request title is semantic: type(scope): description, with type one of feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. A commit whose -m message is not in that form is refused before it is made.

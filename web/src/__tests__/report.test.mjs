@@ -32,7 +32,7 @@ test("clicking a screenshot opens the preview with the pair, after loading it wi
   assert.match(app, /loadEvidenceImage[\s\S]*artifactBase\(\)/);
   assert.match(
     app,
-    /<ReportCard report=\{m\.report\} loadImage=\{loadEvidenceImage\}/,
+    /<ReportCard\s+report=\{m\.report\}\s+loadImage=\{loadEvidenceImage\}/,
   );
 });
 
@@ -59,4 +59,46 @@ test("a picture in an answer opens the same preview, unless it is a link", () =>
     /target\.tagName === ['"]IMG['"] &&\s*target\.closest\(['"]\.markdown-body['"]\) &&\s*!target\.closest\(['"]a['"]\)/,
   );
   assert.match(app, /<Lightbox images=\{\[previewImage\]\}/);
+});
+
+const { settle, proposalRequest } = await import("../proposals.ts");
+const es = (await import("../i18n.es.ts")).default;
+
+test("a suggestion answer settles the ones after it, never the ones before", () => {
+  const none = [undefined, undefined, undefined];
+  assert.deepEqual(settle(none, 0, "this"), ["apply", undefined, undefined]);
+  assert.deepEqual(settle(["apply", undefined, undefined], 1, "none"), [
+    "apply",
+    "skip",
+    "skip",
+  ]);
+  assert.deepEqual(settle(none, 0, "rest"), ["apply", "apply", "apply"]);
+});
+
+test("only the accepted suggestions are sent, and none accepted sends nothing", () => {
+  const s = [
+    { title: "test the empty header", detail: "it panics" },
+    { title: "share the helper" },
+    { title: "log it" },
+  ];
+  assert.equal(proposalRequest("Apply:", s, ["skip", "skip", "skip"]), "");
+  assert.equal(
+    proposalRequest(" Apply: ", s, ["apply", "skip", "apply"]),
+    "Apply:\n- test the empty header: it panics\n- log it",
+  );
+});
+
+test("the report offers the three answers, in both languages, and only while nothing runs", () => {
+  for (const label of [
+    "Apply this one",
+    "Apply this one and the following",
+    "Apply none",
+    "Apply these suggestions you made, and nothing else:",
+  ]) {
+    assert.ok(report.includes(`t("${label}")`), label);
+    assert.ok(es[label], `missing Spanish for ${label}`);
+  }
+  assert.match(report, /r\.suggestions\?\.length/);
+  assert.match(app, /rs\.running,\s*undefined/);
+  assert.match(app, /onApply=\{onApply\}/);
 });

@@ -79,15 +79,25 @@ func (t *TUI) askLines(max int) []string {
 	var out []string
 
 	n := len(a.items)
-	// Header: where they are in the list, so "next" has a meaning before pressing it.
-	if n > 1 {
-		out = append(out, t.askLine(t.muted(t.trf("question %d of %d", a.cur+1, n)), width))
-	}
 	it := a.items[a.cur]
+	// Header: where they are in the list, so "next" has a meaning before pressing it. A proposal
+	// always has one, even alone: it says the item is something the agent offers to do, not a
+	// question about the request.
+	switch {
+	case it.Proposal:
+		out = append(out, t.askLine(t.muted(t.trf("suggestion %d of %d", a.cur+1, n)), width))
+	case n > 1:
+		out = append(out, t.askLine(t.muted(t.trf("question %d of %d", a.cur+1, n)), width))
+	default:
+		// A single question needs no position.
+	}
 	// The question and its options are the model's text: their control characters are shown.
 	out = append(out, t.askLine(t.color(colAccent, colBase, EscapeControls(it.Text)), width))
 	if it.Assumption != "" {
 		out = append(out, t.askLine(t.muted(t.trf("(if you do not answer: %s)", EscapeControls(it.Assumption))), width))
+	}
+	if it.Detail != "" {
+		out = append(out, t.askLine(t.muted(EscapeControls(it.Detail)), width))
 	}
 
 	// One row per option, numbered by the key that picks it. The numbers are the interface's,
@@ -97,7 +107,12 @@ func (t *TUI) askLines(max int) []string {
 		if a.answers[a.cur] == opt {
 			mark = "*"
 		}
-		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, EscapeControls(opt)), width))
+		label := EscapeControls(opt)
+		if it.Proposal {
+			// The answers of a proposal are the interface's own, so they are in its language.
+			label = t.tr(opt)
+		}
+		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, label), width))
 	}
 
 	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
@@ -169,8 +184,31 @@ func (a *askState) pick(i int) bool {
 		return false
 	}
 	a.answers[a.cur] = a.items[a.cur].Options[i]
+	if a.items[a.cur].Proposal {
+		a.settleAfter(a.cur)
+	}
 	a.next()
 	return true
+}
+
+// settleAfter carries a proposal's answer to the proposals after it when the answer says so:
+// "this one and the following" applies every later one, and "none" applies none of them. It is
+// what makes a list of suggestions one keypress to accept or dismiss instead of one per item.
+func (a *askState) settleAfter(i int) {
+	var fill string
+	switch a.answers[i] {
+	case agent.ProposalApplyRest:
+		fill = agent.ProposalApply
+	case agent.ProposalSkipAll:
+		fill = agent.ProposalSkipAll
+	default:
+		return
+	}
+	for k := i + 1; k < len(a.items); k++ {
+		if a.items[k].Proposal {
+			a.answers[k] = fill
+		}
+	}
 }
 
 // next moves to the next question, wrapping. It prefers an unanswered one, so after answering
@@ -298,17 +336,57 @@ func (t *TUI) confirmAsk() {
 		a.answers[a.cur] = free
 	}
 	t.draft = ""
-	answers := a.result()
 	t.ask = nil
+	if a.items[0].Proposal {
+		t.submitProposals(a)
+		return
+	}
+	answers := a.result()
 
 	// The answers go back as a reply to the request being clarified, so the agent re-reads the
 	// request WITH the gaps filled instead of treating the answer as a new, unrelated message.
 	t.submitAnswers(a.origin, answers)
 }
 
+// submitProposals runs the turn that applies the accepted proposals, and only those.
+//
+// Nothing is applied that the user did not accept: a proposal left unanswered, or answered with
+// "none", stays out of the request. An answer typed instead of picked is the user's own words
+// about that proposal, and it goes to the agent as such rather than being read as a yes or a no.
+// With nothing accepted and nothing said there is no turn at all.
+func (t *TUI) submitProposals(a *askState) {
+	var accepted []agent.AskItem
+	var notes []agent.Answers
+	for i, it := range a.items {
+		switch a.answers[i] {
+		case agent.ProposalApply, agent.ProposalApplyRest:
+			accepted = append(accepted, it)
+		case "", agent.ProposalSkipAll:
+			// Not accepted: it is not applied.
+		default:
+			notes = append(notes, agent.Answers{Question: it.Text, Answer: a.answers[i]})
+		}
+	}
+	var b strings.Builder
+	b.WriteString(agent.ProposalRequest(t.tr("Apply these suggestions you made, and nothing else:"), accepted))
+	if len(notes) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(t.tr("About your other suggestions:"))
+		for _, qa := range notes {
+			b.WriteString("\n- " + qa.Question + " -> " + qa.Answer)
+		}
+	}
+	t.submitPrompt(strings.TrimSpace(b.String()))
+}
+
 // submitAnswers runs the turn that carries the answers back.
 func (t *TUI) submitAnswers(origin string, answers []agent.Answers) {
-	prompt := composeAnswers(origin, answers)
+	t.submitPrompt(composeAnswers(origin, answers))
+}
+
+// submitPrompt runs the turn that carries a window's answers back, on the screen it was asked from.
+// An empty prompt runs nothing: the window closes and the frame is redrawn.
+func (t *TUI) submitPrompt(prompt string) {
 	if strings.TrimSpace(prompt) == "" {
 		t.drawFrame()
 		return

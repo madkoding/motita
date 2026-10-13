@@ -746,7 +746,14 @@ func (r *taskRun) finish(action Action, validation anchor.Result) (res TaskResul
 // synthesize writes the final answer from the work log.
 func (r *taskRun) synthesize(validation anchor.Result) {
 	r.a.report("synthesizing answer...")
-	if rep := r.a.synthesizePhase(r.ctx, r.t, r.workLog.String(), validation); rep != nil {
+	// The model's last notes go after the work log: they carry the "Findings:" it noticed and
+	// left alone, which is what the synthesis turns into suggestions for the user. They go at
+	// the END because the log is cut in its middle, never at its tail.
+	output := r.workLog.String()
+	if strings.TrimSpace(r.mem.notes) != "" {
+		output += "## Notes the agent kept while working\n" + r.mem.notes + "\n"
+	}
+	if rep := r.a.synthesizePhase(r.ctx, r.t, output, validation); rep != nil {
 		r.res.Summary, r.res.Report = rep.Summary, rep
 		r.a.report("%s", rep.Summary)
 	}
