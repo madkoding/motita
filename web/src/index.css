@@ -3882,6 +3882,80 @@ html[data-keyboard="open"] .app-shell {
   }
 }
 
+/* The providers tab. A provider's form opens under its row, the full width of the card. */
+.llm-icon {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #b4b4c2;
+}
+.llm-name {
+  overflow-wrap: anywhere;
+}
+.llm-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  border: 1px solid rgba(38, 89, 118, 0.6);
+  background: rgba(38, 89, 118, 0.28);
+  color: #9fd2ec;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.llm-form {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.llm-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #9a9aaa;
+}
+.llm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* Signing in with an account: the link and the device code the provider asks for. */
+.llm-login,
+.llm-login-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.llm-login-code {
+  align-self: flex-start;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+  color: #e8e8ea;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  user-select: all;
+}
+/* The default model's fields: full width on a phone, a fixed column with room. */
+@media (min-width: 480px) {
+  .llm-field {
+    flex: 0 1 18rem;
+  }
+}
+html[data-density="compact"] .llm-form {
+  gap: 0.25rem;
+  padding-top: 0.25rem;
+}
+
 /* A segmented control: one radio button per choice, the chosen one filled. Under a setting's
  * name on a phone it fills the row. */
 .settings-seg {

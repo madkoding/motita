@@ -1130,6 +1130,41 @@ with (in place: comments and every other line are kept).
 | `GET /v1/ui` | `{"language":"auto","resolved":"es"}`: the setting, and what it means on the gateway's host                                                         |
 | `PUT /v1/ui` | `{"language":"es"}` saves it; `400` for anything but `auto`, `en`, `es`, `409` when the gateway runs on the built-in defaults with no file to write |
 
+### LLM providers from the browser
+
+The browser's settings have a **Providers** tab: every provider the client speaks, where its
+key comes from, a field to paste a key (and the endpoint, for the OpenAI-compatible hosts and a
+self-hosted Ollama), a button that tests the connection by listing the provider's models, and
+the provider and model new conversations start with. Conversations already open keep their own.
+
+A key is written to the credentials file beside the configuration (`motita.env`, owner-only),
+under the provider's own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` for OpenAI and Codex,
+…), and an endpoint under `MOTITA_<PROVIDER>_BASE_URL`. A key is never sent back to the
+browser: the list says only where it comes from. An exported variable still wins over the
+file, and the settings say so instead of offering to replace it. The default provider and model
+are written into the `llm` block of the configuration, in place. A key of 16 characters or more
+shows its last four (`key_hint`, `…a1b2`), so two keys can be told apart without showing either.
+
+Copilot, Qwen, Codex and Gemini can also be connected with an account, the same logins `motita
+config` runs, driven by the gateway: Copilot and Qwen show a link and a code to type; Codex opens
+the provider's sign-in page and, when the browser is not on the gateway's machine, takes the
+address the page ended on (`http://localhost:1455/auth/callback?…`); Gemini takes the gcloud
+Application Default Credentials already on the gateway's machine. The login is stored where the
+setup stores it, and **Disconnect** forgets it. The models a connection test lists also show in
+each conversation's model picker.
+
+| Endpoint                            | What it does                                                                                                                                                                              |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/llm`                       | the default provider and model, whether there is a file to save in, and each provider with its catalogue, endpoint and `key`: `env`, `stored`, `config`, `login`, `not_needed`, `missing` |
+| `PUT /v1/llm/providers/{id}`        | `{"api_key":"…","base_url":"…"}` saves either; an empty `base_url` goes back to the default; `409` when an exported variable holds the key, `400` for plain http to a remote host         |
+| `DELETE /v1/llm/providers/{id}`     | removes the stored key and endpoint                                                                                                                                                       |
+| `POST /v1/llm/providers/{id}/test`  | lists the provider's models with the key and endpoint given, or the saved ones: `{"ok":true,"models":[…]}` or `{"ok":false,"error":"…"}`; a saved key is only sent to its own endpoint    |
+| `PUT /v1/llm/default`               | `{"provider":"anthropic","model":"claude-sonnet-5-5"}` saves the default; `409` when the provider has no key yet                                                                          |
+| `POST /v1/llm/providers/{id}/login` | starts a sign-in: `{"id":"…","method":"device"\|"code"\|"instant","url":"…","code":"…","status":"pending"}`; `400` for a provider without one, `502` when the provider refuses to start   |
+| `GET /v1/llm/logins/{flow}`         | the sign-in's `status`: `pending`, `connected` or `failed` (with `error`)                                                                                                                 |
+| `POST /v1/llm/logins/{flow}/paste`  | `{"code":"…"}` hands a `code` sign-in the address the browser ended on                                                                                                                    |
+| `DELETE /v1/llm/logins/{flow}`      | stops a pending sign-in                                                                                                                                                                   |
+
 ### Voice input
 
 The browser interface can take speech: a microphone button beside **Send** dictates into the

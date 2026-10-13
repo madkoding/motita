@@ -33,19 +33,26 @@ func credentialKey(configPath, provider string) string {
 	if v := creds[ProviderKeyVariable(provider)]; v != "" {
 		return v
 	}
-	return creds["MOTITA_LLM_API_KEY"]
+	// The variable a key saved from the browser goes under (OPENAI_API_KEY for the OpenAI pair).
+	if v := creds[ProviderStoreVariable(provider)]; v != "" {
+		return v
+	}
+	return creds[genericKeyVariable]
 }
 
 // homeCredentialKey is the key the motita home's credentials file holds under a provider's OWN
 // variable, for a switch to that provider. The generic variable is deliberately not consulted,
 // for the reason ProviderKeyFromEnv gives: it belongs to the configured provider, and handing it
 // to another one sends one vendor's key to another vendor.
+//
+// The OpenAI pair is read under OPENAI_API_KEY, the variable a key saved from the browser goes
+// under; the gateway's own credentials file is read before the home's (see UseCredentialsBeside).
 func homeCredentialKey(provider string) string {
-	name := ProviderKeyVariable(provider)
-	if name == "MOTITA_LLM_API_KEY" || File() == "" {
+	name := ProviderStoreVariable(provider)
+	if name == "" {
 		return ""
 	}
-	return readCredentials(CredentialsPath(File()))[name]
+	return storedValue(name)
 }
 
 // readCredentials parses the file the wizard writes: comments, blank lines and
