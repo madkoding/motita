@@ -292,7 +292,8 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     finish();
   };
 
-  // submit sends a task and reads the SSE response.
+  // submit sends a message in auto mode and reads the SSE response: the gateway picks plan or task
+  // from the wording (or a leading /plan or /task) and says which in the first progress line.
   const submit = useCallback(
     async (text: string, endpoint?: string) => {
       const sid = sessionRef.current;
@@ -312,7 +313,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
       setState("working");
       let res: Response;
       try {
-        res = await api(endpoint || SESSIONS_PATH + sid + "/task", {
+        res = await api(endpoint || SESSIONS_PATH + sid + "/run", {
           method: "POST",
           headers: JSON_HEADERS,
           body: JSON.stringify({ task: text }),

@@ -157,7 +157,7 @@ function fakeGateway(history = {}) {
     calls.push(method + " " + path);
     let m;
     if (
-      (m = path.match(/^\/v1\/sessions\/(\w+)\/task$/)) &&
+      (m = path.match(/^\/v1\/sessions\/(\w+)\/(?:task|run)$/)) &&
       method === "POST"
     ) {
       runningIn.add(m[1]);
@@ -292,7 +292,7 @@ test("opening another session while a run is in flight leaves it idle, unmixed a
   void store.stream.submit("task in B");
   await tick();
   assert.ok(
-    gw.calls.includes("POST /v1/sessions/B/task"),
+    gw.calls.includes("POST /v1/sessions/B/run"),
     "B started a run of its own",
   );
   assert.ok(

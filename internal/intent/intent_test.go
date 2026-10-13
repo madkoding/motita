@@ -1,0 +1,68 @@
+package intent
+
+import "testing"
+
+func TestClassify(t *testing.T) {
+	for _, tc := range []struct {
+		text, kind, source, prompt string
+	}{
+		// An explicit mode always wins, and the command that chose it is not part of the prompt.
+		{"/plan add a login page", KindPlan, SourceExplicit, "add a login page"},
+		{"/P how does it work?", KindPlan, SourceExplicit, "how does it work?"},
+		{"/task what is here?", KindTask, SourceExplicit, "what is here?"},
+		{"/t", KindTask, SourceExplicit, ""},
+		{"/goal ship the release", KindTask, SourceExplicit, "/goal ship the release"},
+		// Orders, in both languages, polite or not, with pronouns fused on.
+		{"Add a dark theme to the settings", KindTask, SourceHeuristic, ""},
+		{"can you please fix the flaky test?", KindTask, SourceHeuristic, ""},
+		{"Arréglalo", KindTask, SourceHeuristic, ""},
+		{"¿Puedes agregar un botón de exportar?", KindTask, SourceHeuristic, ""},
+		{"por favor actualiza las dependencias", KindTask, SourceHeuristic, ""},
+		{"¿Por qué falla el build? Corrígelo.", KindTask, SourceHeuristic, ""},
+		// Questions and asks for a plan.
+		{"como puede motita tener un auto mode?", KindPlan, SourceHeuristic, ""},
+		{"Por qué el gateway guarda la sesión dos veces", KindPlan, SourceHeuristic, ""},
+		{"What does the scheduler do", KindPlan, SourceHeuristic, ""},
+		{"the build is red, any idea?", KindPlan, SourceHeuristic, ""},
+		{"Diseña una migración a SQLite", KindPlan, SourceHeuristic, ""},
+		{"explain the retry policy", KindPlan, SourceHeuristic, ""},
+		// Holding off beats an order: the safe mistake.
+		{"Add OAuth, but don't change anything yet", KindPlan, SourceHeuristic, ""},
+		{"implementa el cache, solo el plan", KindPlan, SourceHeuristic, ""},
+		// Nothing matched: the mode every message had before auto mode.
+		{"hola!", KindTask, SourceDefault, ""},
+		{"can", KindTask, SourceDefault, ""},
+		{"thanks, looks good", KindTask, SourceDefault, ""},
+		{"", KindTask, SourceDefault, ""},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			d := Classify(tc.text)
+			if d.Kind != tc.kind || d.Source != tc.source {
+				t.Fatalf("Classify(%q) = %+v, want %s/%s", tc.text, d, tc.kind, tc.source)
+			}
+			want := tc.prompt
+			if tc.source != SourceExplicit {
+				want = tc.text
+			}
+			if d.Prompt != want {
+				t.Errorf("prompt = %q, want %q", d.Prompt, want)
+			}
+			if d.Reason == "" {
+				t.Error("a decision with no reason cannot be explained to the person")
+			}
+		})
+	}
+}
+
+func TestNoteNamesTheModeAndWhy(t *testing.T) {
+	got := Classify("fix it").Note()
+	if got != `mode: task (action "fix")` {
+		t.Errorf("Note() = %q", got)
+	}
+}
+
+func TestImperativeLeavesAWordThatIsNotAVerbAlone(t *testing.T) {
+	if got := imperative("hola"); got != "hola" {
+		t.Errorf("imperative(hola) = %q", got)
+	}
+}

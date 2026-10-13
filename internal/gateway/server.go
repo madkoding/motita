@@ -656,6 +656,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
+	mux.Handle("POST /v1/sessions/{id}/run", scoped(s.handleRun))
 	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
 	mux.Handle("POST /v1/sessions/{id}/continue", scoped(s.handleContinueSession))
 	mux.Handle("GET /v1/sessions/{id}/pr", scoped(s.handleGetPR))

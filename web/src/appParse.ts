@@ -95,6 +95,7 @@ const PROGRESS_PREFIXES: [string, string][] = [
   ["approved (all commands", "check"],
   ["running:", "command"],
   ["action:", "reasoning"],
+  ["mode:", "analysis"],
 ];
 const PROGRESS_PATTERNS: [RegExp, string][] = [
   [/^(validating|validation)/, "check"],

@@ -12,6 +12,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/intent"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/session"
 )
@@ -78,6 +79,35 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	s.startRun(w, r, c, body.Prompt, schedule.KindPlan)
 }
 
+// handleRun is auto mode: it reads the message, picks plan or task with intent.Classify, and
+// runs it as the matching endpoint would. The first line of the stream says which mode was
+// picked and why, so the person can send it again with /plan or /task when the guess is wrong.
+func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Task string `json:"task"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	d := intent.Classify(body.Task)
+	if strings.TrimSpace(d.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "the task is empty")
+		return
+	}
+	c := convOf(r)
+	if c.merged {
+		writeError(w, http.StatusConflict, msgSessionIntegrated)
+		return
+	}
+	rn, started := s.startNotedRun(c, d.Prompt, d.Kind, "", d.Note(), s.approverFactory(c))
+	if !started {
+		writeError(w, http.StatusConflict,
+			"a run is already in progress in this session; a conversation is served one run at a time")
+		return
+	}
+	s.attach(w, r, c, rn, 0)
+}
+
 // startRun begins a turn and streams it to the caller.
 //
 // The slot is taken BEFORE the headers are written, so a refused second client gets a 409
@@ -121,6 +151,15 @@ func (s *Server) startRunWithIntent(
 // path answers 409, the scheduler records "skipped" on the record.
 func (s *Server) startDetachedRun(
 	c *conversation, task, kind, intent string, approverFor func(*run) agent.Approver,
+) (*run, bool) {
+	return s.startNotedRun(c, task, kind, intent, "", approverFor)
+}
+
+// startNotedRun is startDetachedRun with a first progress line, written before the agent says
+// anything: auto mode uses it to tell the person which mode it picked. It is written from the
+// run's own goroutine, so it cannot land after a line of the agent's.
+func (s *Server) startNotedRun(
+	c *conversation, task, kind, intent, note string, approverFor func(*run) agent.Approver,
 ) (*run, bool) {
 	if c == nil || c.svc == nil {
 		return nil, false
@@ -169,6 +208,9 @@ func (s *Server) startDetachedRun(
 		defer s.drainQueue(c)
 		defer c.releaseRunSlot()
 		defer c.clearCurrentRun()
+		if note != "" {
+			rn.progress()("%s", note)
+		}
 		result, err := s.executeTurn(runCtx, c, rn, task, kind, resumed)
 
 		// A merge run that succeeded may have moved the project's HEAD. We check this AFTER
