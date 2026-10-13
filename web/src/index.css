@@ -492,14 +492,49 @@ body {
   backdrop-filter: blur(14px);
   border-left: 3px solid #4cc2ff;
 }
+/* A note on an opaque chip: as bare grey text it sat straight on the background image and could
+ * not be read over its bright patches. #c8c8d4 on #101018 is 11.4:1. */
 .msg.kind {
   font-size: 11px;
-  color: #8a8a9a;
+  color: #c8c8d4;
+  background-color: #101018;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  background: transparent;
   backdrop-filter: none;
   border: none;
+  padding: 3px 10px;
+  border-radius: var(--radius-cut);
+}
+/* The placeholder of an empty conversation is an empty state, not a note: centred on an opaque
+ * card like the waiting-for-a-session one, in sentence case and at a readable size. Title text
+ * #f2f2f5 is 16.9:1 on #101018, the accent icon 9.4:1. Pinned by nosession.test.mjs. */
+.turn:has(> .msg.empty-note) {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.msg.kind.empty-note {
+  align-self: center;
+  width: 100%;
+  max-width: 24rem;
+  padding: 24px;
+  color: #f2f2f5;
+  background-color: #101018;
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
+  font-size: 0.9rem;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: center;
+  white-space: normal;
+}
+.empty-note-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.empty-note-icon {
+  color: #4cc2ff;
 }
 .msg.error {
   border-color: rgba(255, 107, 107, 0.4);

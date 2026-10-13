@@ -1,4 +1,5 @@
-// The "waiting for a new session" state must stay readable whatever part of the background image
+// The "waiting for a new session" state, and the empty conversation's "Nothing yet" placeholder,
+// must stay readable whatever part of the background image
 // is behind it: its words sit on an opaque card, and every colour on it clears WCAG AA (4.5:1).
 // Run with: node --test web/src/__tests__/
 import test from "node:test";
@@ -76,4 +77,23 @@ test("the New session button text clears WCAG AA on its tint, resting and hovere
     const ratio = contrast(accent, over(accent, alpha, cardBg));
     assert.ok(ratio >= AA, `button contrast at ${alpha * 100}% tint ${ratio.toFixed(2)}:1`);
   }
+});
+
+test("the empty conversation placeholder is an empty state on an opaque card", () => {
+  assert.match(app, /function isEmptyNote[\s\S]*?m\.text === NOTHING_YET/);
+  assert.match(app, /choose\(isEmptyNote\(m\), " empty-note", ""\)/);
+  const note = rule(".msg.kind.empty-note");
+  assert.match(note, /text-transform:\s*none/, "no longer small capitals");
+  const bg = rgb(prop(note, "background-color"));
+  const ratio = contrast(rgb(prop(note, "color")), bg);
+  assert.ok(ratio >= AA, `placeholder contrast ${ratio.toFixed(2)}:1`);
+  const icon = contrast(rgb(prop(rule(".empty-note-icon"), "color")), bg);
+  assert.ok(icon >= 3, `icon contrast ${icon.toFixed(2)}:1 (non-text, 3:1)`);
+});
+
+test("every other note sits on an opaque chip and clears WCAG AA", () => {
+  const kind = rule(".msg.kind");
+  assert.doesNotMatch(kind, /background:\s*transparent/);
+  const ratio = contrast(rgb(prop(kind, "color")), rgb(prop(kind, "background-color")));
+  assert.ok(ratio >= AA, `note contrast ${ratio.toFixed(2)}:1`);
 });
