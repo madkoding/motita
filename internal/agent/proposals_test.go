@@ -77,16 +77,30 @@ func TestNormalizeSuggestionsCapsTheList(t *testing.T) {
 func TestReportTextListsTheSuggestions(t *testing.T) {
 	r := Report{Summary: "done", Suggestions: []ReportSuggestion{
 		{Title: "test the empty header", Detail: "Parse panics on it"},
-		{Title: "share the retry helper"},
+		{Title: "share the retry helper", Needed: true},
 	}}
 	got := r.Text()
 	for _, want := range []string{
 		"Suggestions (not applied):",
 		"  test the empty header - Parse panics on it",
-		"  share the retry helper",
+		"  share the retry helper (needed)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the text should contain %q, got:\n%s", want, got)
 		}
+	}
+}
+
+func TestSplitNeededKeepsTheOrderAndNeverTakesAQuestion(t *testing.T) {
+	items := ProposalItems(&Report{Suggestions: []ReportSuggestion{
+		{Title: "a", Needed: true}, {Title: "b"}, {Title: "c", Needed: true},
+	}})
+	items = append(items, AskItem{Text: "which file?", Needed: true})
+	needed, rest := SplitNeeded(items)
+	if len(needed) != 2 || needed[0].Text != "a" || needed[1].Text != "c" {
+		t.Errorf("needed = %+v", needed)
+	}
+	if len(rest) != 2 || rest[0].Text != "b" || rest[1].Text != "which file?" {
+		t.Errorf("rest = %+v", rest)
 	}
 }

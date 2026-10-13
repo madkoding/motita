@@ -29,7 +29,7 @@ in the field that names it, not into the summary.
 {"decision": "the choice that was taken", "why": "the reason, in one line"}
 ],
 "suggestions": [
-{"title": "what you propose to do, in one line", "detail": "why it is worth doing and what applying it would change"}
+{"title": "what you propose to do, in one line", "detail": "why it is worth doing and what applying it would change", "needed": false}
 ]
 }
 
@@ -39,6 +39,7 @@ in the field that names it, not into the summary.
 - "evidence" is only for screenshots that were really taken and saved as files; "before" and "after" are those file names exactly as they appear in the output above, with no directory. Leave a side empty when it does not exist. Never invent a file name; with no screenshots, use [].
 - "decisions" is only for a task that says it is a GOAL: every choice taken in place of the user (scope, approach, interface, trade-off). For any other task use [].
 - "suggestions" is where you are PROACTIVE: up to five things you noticed and did NOT do, that the user may want next. An issue next to the change (a bug, an edge case, a missing test, a risk), an improvement the change makes worth it, or a better alternative to what was asked. Take them from the "Findings:" in the notes and from the output above; each one is concrete, names the file or behaviour it is about, and is something you could carry out if the user says yes. They are proposals, never claims of work done: the user is asked about each one (apply this one, apply this one and the following, or apply none) and only what they accept is applied. Do not repeat what "next_steps" already says is left of the request itself, and do not pad the list: with nothing worth proposing, use [].
+- "needed" is true only when the answer is obvious from the context: the request is not really done or correct without it (a bug the change introduced or exposed, a test the new behaviour lacks, a check the change broke, a step the request plainly implies), it stays inside what was asked, it is safe to undo, and anyone who made this request would say yes. Everything else is false: an improvement, an alternative, more scope, a change of behaviour nobody asked for, or anything destructive or hard to undo. In auto mode the needed ones are applied without asking, so when in doubt, use false.
 - Every list may be empty ([]); never omit a key and never use null.
 - Write "summary", each "description", "evidence", "risks", "next_steps" and each suggestion in the user's language.
   You MAY use Markdown inside "summary" to format your answer: **bold**, `inline code`, fenced code blocks, lists. The front end renders it. But the JSON structure must be valid: the Markdown goes INSIDE the string value, not outside it.

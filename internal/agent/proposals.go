@@ -34,9 +34,24 @@ func ProposalItems(rep *Report) []AskItem {
 			Detail:   s.Detail,
 			Options:  append([]string(nil), ProposalOptions...),
 			Proposal: true,
+			Needed:   s.Needed,
 		})
 	}
 	return items
+}
+
+// SplitNeeded separates the proposals auto mode applies on its own from the ones it still asks
+// about, each in its original order. Items that are not proposals (questions about the request)
+// are never needed: a question is asked because the answer is not obvious.
+func SplitNeeded(items []AskItem) (needed, rest []AskItem) {
+	for _, it := range items {
+		if it.Proposal && it.Needed {
+			needed = append(needed, it)
+		} else {
+			rest = append(rest, it)
+		}
+	}
+	return needed, rest
 }
 
 // ProposalRequest writes the follow-up turn that applies the accepted proposals.

@@ -48,6 +48,10 @@ type ReportSuggestion struct {
 	Title string `json:"title"`
 	// Detail is why it is worth doing and what applying it would change.
 	Detail string `json:"detail"`
+	// Needed marks a proposal whose answer is obvious from the context: the request is not done
+	// or correct without it, it stays in scope and it is safe. Auto mode applies these without
+	// asking; every other proposal is still the user's call.
+	Needed bool `json:"needed,omitempty"`
 }
 
 // maxSuggestions bounds the proposals of one report. Past a few the user is reading a backlog,
@@ -277,6 +281,9 @@ func (r *Report) Text() string {
 		line := p.Title
 		if p.Detail != "" {
 			line += " - " + p.Detail
+		}
+		if p.Needed {
+			line += " (needed)"
 		}
 		proposals = append(proposals, line)
 	}
