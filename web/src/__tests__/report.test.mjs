@@ -61,7 +61,8 @@ test("a picture in an answer opens the same preview, unless it is a link", () =>
   assert.match(app, /<Lightbox images=\{\[previewImage\]\}/);
 });
 
-const { settle, proposalRequest } = await import("../proposals.ts");
+const { settle, proposalRequest, initialVerdicts } =
+  await import("../proposals.ts");
 const es = (await import("../i18n.es.ts")).default;
 
 test("a suggestion answer settles the ones after it, never the ones before", () => {
@@ -73,6 +74,25 @@ test("a suggestion answer settles the ones after it, never the ones before", () 
     "skip",
   ]);
   assert.deepEqual(settle(none, 0, "rest"), ["apply", "apply", "apply"]);
+});
+
+test("a needed suggestion auto mode accepted is never settled away by a later answer", () => {
+  assert.deepEqual(settle([undefined, "apply", undefined], 0, "none"), [
+    "skip",
+    "apply",
+    "skip",
+  ]);
+});
+
+test("auto mode starts with the needed suggestions accepted, and only in auto mode", () => {
+  const s = [{ title: "a", needed: true }, { title: "b" }];
+  assert.deepEqual(initialVerdicts(s, true), ["apply", undefined]);
+  assert.deepEqual(initialVerdicts(s, false), [undefined, undefined]);
+  assert.deepEqual(initialVerdicts(s, true, ["skip", "skip"]), [
+    "skip",
+    "skip",
+  ]);
+  assert.equal(es["needed"], "necesaria");
 });
 
 test("only the accepted suggestions are sent, and none accepted sends nothing", () => {

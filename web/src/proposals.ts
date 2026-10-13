@@ -7,8 +7,9 @@
 export type Verdict = "apply" | "skip";
 export type ProposalAnswer = "this" | "rest" | "none";
 
-// settle answers suggestion i and, for "rest" or "none", every one after it, so a list is one
-// click to accept or dismiss. The ones before i keep their own answers.
+// settle answers suggestion i and, for "rest" or "none", every undecided one after it, so a list is
+// one click to accept or dismiss. The ones before i keep their own answers, and so does one after
+// it that was already decided (a needed suggestion auto mode accepted on its own).
 export function settle(
   verdicts: (Verdict | undefined)[],
   i: number,
@@ -19,10 +20,24 @@ export function settle(
   next[i] = fill;
   if (answer !== "this") {
     for (let k = i + 1; k < next.length; k++) {
-      next[k] = fill;
+      next[k] = next[k] ?? fill;
     }
   }
   return next;
+}
+
+// initialVerdicts is where a list of suggestions starts: as it was answered, or, in a turn auto
+// mode routed, with the needed ones already accepted. Those are the ones whose answer is obvious
+// from the context, so auto mode does not ask about them.
+export function initialVerdicts(
+  suggestions: { needed?: boolean }[],
+  auto: boolean,
+  answered?: Verdict[],
+): (Verdict | undefined)[] {
+  if (answered) {
+    return answered;
+  }
+  return suggestions.map((s) => (auto && s.needed ? "apply" : undefined));
 }
 
 // proposalRequest is the message that applies the accepted suggestions and nothing else, behind
@@ -56,7 +71,11 @@ export interface SuggestionAnswers {
 
 // pickAt records the button pressed on suggestion i. The ones it settles keep "" as their pick:
 // only the button the user actually pressed is drawn as pressed.
-export function pickAt(picks: Pick[], i: number, answer: ProposalAnswer): Pick[] {
+export function pickAt(
+  picks: Pick[],
+  i: number,
+  answer: ProposalAnswer,
+): Pick[] {
   const next = [...picks];
   next[i] = answer;
   return next;

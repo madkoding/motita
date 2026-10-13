@@ -186,6 +186,14 @@
   font-size: 0.85em;
   opacity: 0.8;
 }
+/* A suggestion auto mode applies without asking: its answer is obvious from the context. */
+.rpt-needed {
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(80, 216, 120, 0.15);
+  color: #8fe0a8;
+}
 .rpt-suggest-actions {
   display: flex;
   flex-wrap: wrap;
