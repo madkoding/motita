@@ -337,9 +337,12 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
           with the branch and the counts, and at a narrow width the three
           wrapped into a paragraph nobody could read: a timestamp and a
           set of labelled facts are two different kinds of information and
-          each gets its own line. */}
+          each gets its own line.
+          Its colour is dimmed with the colour itself, never with `opacity`: an opacity below 1
+          makes the line a stacking context drawn ABOVE the row's `.row-hit` button, so a click
+          on the date landed on the line and never opened the session. */}
       <div
-        class="mt-0.5 text-[10px] tabular-nums text-muted-foreground opacity-70"
+        class="mt-0.5 text-[10px] tabular-nums text-[#9a9aaa]"
         title={choose(
           s.last_used,
           tf("Last used {when}", { when: fullUpdated(s.last_used) }),
