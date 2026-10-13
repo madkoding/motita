@@ -13,6 +13,138 @@ async function errorOf(res: Response): Promise<string | undefined> {
   return err.error;
 }
 
+type Setter<T> = (f: (prev: T) => T) => void;
+
+// useSkillToggles flips a skill's pin and its disabled flag.
+function useSkillToggles(
+  api: Api,
+  setState: SetStatus,
+  setSkills: Setter<SkillInfo[]>,
+  setSkillOpen: Setter<SkillInfo | null>,
+) {
+  // pinSkill changes the exemption. The row is patched locally rather than refetched: the
+  // answer is one boolean and the list is already on screen.
+  const pinSkill = useCallback(async (name: string, pinned: boolean) => {
+    try {
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + "/pin", {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) {
+        setState("could not change the pin", true);
+        return;
+      }
+      setSkills((prev) => prev.map((s) => patchNamed(s, name, { pinned })));
+      // The open document's own copy has to follow, or the button would flip the pin and
+      // keep painting the state it had when the document was opened.
+      setSkillOpen((prev) => prev && patchNamed(prev, name, { pinned }));
+    } catch {
+      setState("could not change the pin", true);
+    }
+  }, []);
+
+  // disableSkill turns a skill off or back on. The list is patched locally: the answer is
+  // one boolean and the row is already on screen, exactly like the pin.
+  const disableSkill = useCallback(async (name: string, disabled: boolean) => {
+    try {
+      const res = await api(
+        SKILLS_PATH + encodeURIComponent(name) + "/disable",
+        {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ disabled }),
+        },
+      );
+      if (!res.ok) {
+        setState((await errorOf(res)) || "could not change the skill", true);
+        return;
+      }
+      setSkills((prev) => prev.map((s) => patchNamed(s, name, { disabled })));
+      setSkillOpen((prev) => prev && patchNamed(prev, name, { disabled }));
+    } catch {
+      setState("could not change the skill", true);
+    }
+  }, []);
+
+  return { pinSkill, disableSkill };
+}
+
+// useProposals is the skills the background review proposed: no session reads one until the user
+// accepts it.
+function useProposals(
+  api: Api,
+  setState: SetStatus,
+  fetchSkills: () => Promise<void>,
+) {
+  const [proposalOpen, setProposalOpen] = useState<{
+    name: string;
+    body: string;
+  } | null>(null);
+
+  // openProposal shows a proposed skill, or hides it when it is the one already shown: the user
+  // reads what the review wrote before deciding.
+  const openProposal = useCallback(
+    async (name: string) => {
+      if (proposalOpen?.name === name) {
+        setProposalOpen(null);
+        return;
+      }
+      try {
+        const res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name));
+        if (!res.ok) {
+          setState(
+            (await errorOf(res)) || "could not open the proposed skill",
+            true,
+          );
+          return;
+        }
+        const data = await res.json();
+        setProposalOpen({ name, body: data.body || "" });
+      } catch {
+        setState("could not open the proposed skill", true);
+      }
+    },
+    [proposalOpen],
+  );
+
+  // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
+  // lists: a file moved or left, and the browser must not keep a guess about it.
+  const decideProposal = useCallback(
+    async (name: string, accept: boolean) => {
+      const what = choose(
+        accept,
+        "could not accept the skill",
+        "could not reject the skill",
+      );
+      try {
+        let res: Response;
+        if (accept) {
+          res = await api(
+            PROPOSED_SKILLS_PATH + encodeURIComponent(name) + "/accept",
+            { method: "POST" },
+          );
+        } else {
+          res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name), {
+            method: "DELETE",
+          });
+        }
+        if (!res.ok) {
+          setState((await errorOf(res)) || what, true);
+          return;
+        }
+        setProposalOpen((prev) => choose(prev?.name === name, null, prev));
+        await fetchSkills();
+      } catch {
+        setState(what, true);
+      }
+    },
+    [fetchSkills],
+  );
+
+  return { proposalOpen, openProposal, decideProposal };
+}
+
 export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
   const [showSkillLibrary, setShowSkillLibrary] = useState(false);
   // The library browser's state. The list is fetched when the modal OPENS and not on every
@@ -20,12 +152,8 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
   // network on a filter that runs locally.
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [archivedSkills, setArchivedSkills] = useState<string[]>([]);
-  // Skills the background review proposed: no session reads one until the user accepts it.
+  // The names of the skills the background review proposed.
   const [proposedSkills, setProposedSkills] = useState<string[]>([]);
-  const [proposalOpen, setProposalOpen] = useState<{
-    name: string;
-    body: string;
-  } | null>(null);
   const [skillQuery, setSkillQuery] = useState("");
   const [skillOpen, setSkillOpen] = useState<SkillInfo | null>(null);
   const [skillBody, setSkillBody] = useState("");
@@ -90,86 +218,16 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
     }
   }, []);
 
-  // pinSkill changes the exemption. The row is patched locally rather than refetched: the
-  // answer is one boolean and the list is already on screen.
-  const pinSkill = useCallback(async (name: string, pinned: boolean) => {
-    try {
-      const res = await api(SKILLS_PATH + encodeURIComponent(name) + "/pin", {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ pinned }),
-      });
-      if (!res.ok) {
-        setState("could not change the pin", true);
-        return;
-      }
-      setSkills((prev) => prev.map((s) => patchNamed(s, name, { pinned })));
-      // The open document's own copy has to follow, or the button would flip the pin and
-      // keep painting the state it had when the document was opened.
-      setSkillOpen((prev) => prev && patchNamed(prev, name, { pinned }));
-    } catch {
-      setState("could not change the pin", true);
-    }
-  }, []);
-
-  // openProposal shows a proposed skill, or hides it when it is the one already shown: the user
-  // reads what the review wrote before deciding.
-  const openProposal = useCallback(
-    async (name: string) => {
-      if (proposalOpen?.name === name) {
-        setProposalOpen(null);
-        return;
-      }
-      try {
-        const res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name));
-        if (!res.ok) {
-          setState(
-            (await errorOf(res)) || "could not open the proposed skill",
-            true,
-          );
-          return;
-        }
-        const data = await res.json();
-        setProposalOpen({ name, body: data.body || "" });
-      } catch {
-        setState("could not open the proposed skill", true);
-      }
-    },
-    [proposalOpen],
+  const { pinSkill, disableSkill } = useSkillToggles(
+    api,
+    setState,
+    setSkills,
+    setSkillOpen,
   );
-
-  // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
-  // lists: a file moved or left, and the browser must not keep a guess about it.
-  const decideProposal = useCallback(
-    async (name: string, accept: boolean) => {
-      const what = choose(
-        accept,
-        "could not accept the skill",
-        "could not reject the skill",
-      );
-      try {
-        let res: Response;
-        if (accept) {
-          res = await api(
-            PROPOSED_SKILLS_PATH + encodeURIComponent(name) + "/accept",
-            { method: "POST" },
-          );
-        } else {
-          res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name), {
-            method: "DELETE",
-          });
-        }
-        if (!res.ok) {
-          setState((await errorOf(res)) || what, true);
-          return;
-        }
-        setProposalOpen((prev) => choose(prev?.name === name, null, prev));
-        await fetchSkills();
-      } catch {
-        setState(what, true);
-      }
-    },
-    [fetchSkills],
+  const { proposalOpen, openProposal, decideProposal } = useProposals(
+    api,
+    setState,
+    fetchSkills,
   );
 
   // restoreSkill brings an archived document back, and then RELOADS both lists: what moved
@@ -192,29 +250,6 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
     },
     [fetchSkills],
   );
-
-  // disableSkill turns a skill off or back on. The list is patched locally: the answer is
-  // one boolean and the row is already on screen, exactly like the pin.
-  const disableSkill = useCallback(async (name: string, disabled: boolean) => {
-    try {
-      const res = await api(
-        SKILLS_PATH + encodeURIComponent(name) + "/disable",
-        {
-          method: "POST",
-          headers: JSON_HEADERS,
-          body: JSON.stringify({ disabled }),
-        },
-      );
-      if (!res.ok) {
-        setState((await errorOf(res)) || "could not change the skill", true);
-        return;
-      }
-      setSkills((prev) => prev.map((s) => patchNamed(s, name, { disabled })));
-      setSkillOpen((prev) => prev && patchNamed(prev, name, { disabled }));
-    } catch {
-      setState("could not change the skill", true);
-    }
-  }, []);
 
   // deleteSkill removes the document for good, then RELOADS the list: a file left the
   // library and the browser must not keep a guess about a directory it cannot see. The

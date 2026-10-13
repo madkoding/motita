@@ -18,6 +18,7 @@ import type {
   ProjectInfo,
   SetStatus,
   SetToast,
+  Toast,
 } from "./appTypes";
 import { mainRepoOf, reposOf, type RepoDraft } from "./projectRepos";
 import type { RepoConflict } from "./ReposField";
@@ -90,9 +91,12 @@ function useProjectRepos(
   const [repoBusy, setRepoBusy] = useState("");
   const [repoConflict, setRepoConflict] = useState<RepoConflict | null>(null);
   const settle = (p: ProjectInfo) => {
-    setEditProject((prev) =>
-      prev?.id === p.id ? { ...prev, repos: reposOf(p) } : prev,
-    );
+    setEditProject((prev) => {
+      if (prev?.id !== p.id) {
+        return prev;
+      }
+      return { ...prev, repos: reposOf(p) };
+    });
     void fetchProjects();
   };
 
@@ -298,9 +302,8 @@ interface Deps {
   setToast: SetToast;
 }
 
-export function useProjects({ api, lists, setState, setToast }: Deps) {
-  const { fetchProjects, fetchSessions } = lists;
-  const edit = useEditProject(api, fetchProjects, setToast);
+// useNewProjectForm holds what the New project dialog has been given so far, and empties it.
+function useNewProjectForm() {
   const [showNewProject, setShowNewProject] = useState(false);
   // How the new project starts: null is the first screen ("empty or from a repository?").
   const [newProjectMode, setNewProjectMode] = useState<NewProjectMode>(null);
@@ -312,27 +315,14 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const [newProjectRepos, setNewProjectRepos] = useState<RepoDraft[]>([]);
   // The branch the new project treats as its main line: main unless the person picks master.
   const [newProjectMain, setNewProjectMain] = useState("main");
-  // The branch the remote repository's HEAD points to, once asked; and whether the person has
-  // already chosen a main branch themselves (a detected one must never overwrite that).
-  const [remoteMain, setRemoteMain] = useState("");
+  // Whether the person has already chosen a main branch themselves (a detected one must never
+  // overwrite that).
   const mainChosen = useRef(false);
-  // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
-  const [hasPodman, setHasPodman] = useState(false);
-  const [hasPodmanCompose, setHasPodmanCompose] = useState(false);
-  // Installed is not the same as working: `podman info` can fail on a machine that has the binary.
-  const [podmanReady, setPodmanReady] = useState(false);
+  // The user's answer to podman.
   const [newProjectPodman, setNewProjectPodman] = useState(false);
   // The git identity dialog: opened when the gateway answers that git has no user, and
   // submitted together with the project it interrupted.
   const [showGitIdentity, setShowGitIdentity] = useState(false);
-  // Git host connections: the connect modal (from Settings, the New project dialog or a refused
-  // clone), the repository picker, and the hosts that are connected right now.
-  // `after` says what to do once the host is connected: pick a repository, or send the create again.
-  const [gitConnect, setGitConnect] = useState<GitConnectRequest | null>(null);
-  const [showRepoPicker, setShowRepoPicker] = useState(false);
-  const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null);
-  const [gitRev, setGitRev] = useState(0);
-  const createProjectRef = useRef<() => void>(() => {});
   const [gitUserName, setGitUserName] = useState("");
   const [gitUserEmail, setGitUserEmail] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
@@ -353,125 +343,6 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setCreatingProject(false);
   };
 
-  // createRefused handles the gateway's refusal to create the project. A clone refused for
-  // credentials connects that host and a git with no user asks for one: both send the same
-  // request again afterwards.
-  const createRefused = async (res: Response) => {
-    const err = await res.json().catch(() => ({}));
-    setCreatingProject(false);
-    if (res.status === HTTP_CONFLICT && err.code === "git_auth_required") {
-      setGitConnect({ service: err.service || undefined, after: "create" });
-      return;
-    }
-    if (res.status === HTTP_CONFLICT && err.code === "git_identity_required") {
-      // Nothing was created.
-      setShowGitIdentity(true);
-      return;
-    }
-    setState(err.error || "could not create the project", true);
-  };
-
-  // createProject sends a new project to the gateway. When a git URL is set,
-  // the gateway clones the repo and returns the clone log, which we show in
-  // the modal so the user can see what happened.
-  const createProject = useCallback(
-    async (identity?: { name: string; email: string }) => {
-      // An empty project ignores whatever was typed in the repository field before the person went
-      // back; a project from a repository takes its name and folder from the repository.
-      const gitUrl = choose(newProjectMode === "git", newProjectGit.trim(), "");
-      const fromUrl = choose(gitUrl, repoNameOf(gitUrl), "");
-      const title = newProjectTitle.trim() || fromUrl;
-      const dir = newProjectDir.trim() || slugOf(fromUrl) || slugOf(title);
-      if (!title || !dir) {
-        return;
-      }
-      setCreatingProject(true);
-      try {
-        const res = await api("/v1/projects", {
-          method: "POST",
-          headers: JSON_HEADERS,
-          body: JSON.stringify({
-            title,
-            description: newProjectDesc.trim(),
-            dir,
-            git_url: gitUrl || undefined,
-            use_podman: choose(hasPodman && newProjectPodman, true, undefined),
-            main_branch: newProjectMain,
-            git_user_name: identity?.name,
-            git_user_email: identity?.email,
-          }),
-        });
-        if (!res.ok) {
-          await createRefused(res);
-          return;
-        }
-        const data = await res.json();
-        const failed = await addReposToNew(data.id);
-        await fetchProjects();
-        // Auto-create a session in the new project so the user lands in the chat.
-        if (data.id) {
-          openSessionIn(data.id);
-        }
-        // Show a toast and close the modal.
-        if (failed.length > 0) {
-          setToast({
-            message: tf(
-              'Project "{title}" created, but some repositories could not be added: {names}',
-              { title, names: failed.join(", ") },
-            ),
-            type: "warning",
-          });
-        } else {
-          setToast({
-            message: tf(
-              choose(
-                data.clone_log,
-                'Project "{title}" created and repo cloned',
-                'Project "{title}" created',
-              ),
-              { title },
-            ),
-            type: "success",
-          });
-        }
-        resetNewProject();
-      } catch (e) {
-        setState(
-          tf("could not create the project: {err}", { err: String(e) }),
-          true,
-        );
-        setCreatingProject(false);
-      }
-    },
-    [
-      newProjectMode,
-      newProjectTitle,
-      newProjectDesc,
-      newProjectDir,
-      newProjectGit,
-      newProjectMain,
-      newProjectPodman,
-      hasPodman,
-      newProjectRepos,
-      fetchProjects,
-    ],
-  );
-
-  // addReposToNew clones the other repositories into the project just created, one after the
-  // other, and answers the names of the ones that could not be added.
-  async function addReposToNew(id: string | undefined): Promise<string[]> {
-    const failed: string[] = [];
-    for (const repo of newProjectRepos) {
-      const out = await addRepoTo(api, id || "", repo).catch(() => ({
-        project: undefined,
-      }));
-      if (!out.project) {
-        failed.push(repo.name);
-      }
-    }
-    return failed;
-  }
-
   // addNewProjectRepo and removeNewProjectRepo change the list of other repositories the New
   // project dialog holds. Nothing is cloned until the project is created.
   const addNewProjectRepo = useCallback((repo: RepoDraft) => {
@@ -482,9 +353,72 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectRepos((list) => list.filter((r) => r.name !== name));
   }, []);
 
-  createProjectRef.current = () => {
-    void createProject();
+  // openNewProject opens the New project dialog on its first screen.
+  const openNewProject = () => {
+    setNewProjectMode(null);
+    mainChosen.current = false;
+    setNewProjectMain("main");
+    setShowNewProject(true);
   };
+  const closeNewProject = useCallback(() => setShowNewProject(false), []);
+  // chooseMain is the person picking the main branch: a detected one no longer replaces it.
+  const chooseMain = (branch: string) => {
+    mainChosen.current = true;
+    setNewProjectMain(branch);
+  };
+  const closeGitIdentity = useCallback(() => setShowGitIdentity(false), []);
+
+  return {
+    showNewProject,
+    openNewProject,
+    closeNewProject,
+    newProjectMode,
+    setNewProjectMode,
+    newProjectTitle,
+    setNewProjectTitle,
+    newProjectDesc,
+    setNewProjectDesc,
+    newProjectDir,
+    setNewProjectDir,
+    newProjectGit,
+    setNewProjectGit,
+    newProjectMain,
+    setNewProjectMain,
+    mainChosen,
+    chooseMain,
+    newProjectRepos,
+    addNewProjectRepo,
+    removeNewProjectRepo,
+    newProjectPodman,
+    setNewProjectPodman,
+    showGitIdentity,
+    setShowGitIdentity,
+    closeGitIdentity,
+    gitUserName,
+    setGitUserName,
+    gitUserEmail,
+    setGitUserEmail,
+    creatingProject,
+    setCreatingProject,
+    resetNewProject,
+  };
+}
+
+type NewProjectForm = ReturnType<typeof useNewProjectForm>;
+
+// useGitHosts is the git host connections: the connect modal (from Settings, the New project
+// dialog or a refused clone), the repository picker, and the hosts that are connected right now.
+function useGitHosts(
+  api: Api,
+  showNewProject: boolean,
+  setToast: SetToast,
+  createProjectRef: { current: () => void },
+) {
+  // `after` says what to do once the host is connected: pick a repository, or send the create again.
+  const [gitConnect, setGitConnect] = useState<GitConnectRequest | null>(null);
+  const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null);
+  const [gitRev, setGitRev] = useState(0);
 
   // The hosts that are connected, for the New project dialog. Read when it opens and after a connect.
   useEffect(() => {
@@ -508,10 +442,63 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     };
   }, [showNewProject, gitRev]);
 
-  // When a repository URL is typed, ask its remote which branch it uses and offer that one: a
-  // repository on develop or master should not need the person to know to change the selector.
-  // Debounced, because the field changes on every key; and silent on failure, because the
-  // selector works without the answer (the gateway settles on a branch when it clones).
+  const onGitConnected = useCallback(
+    (_service: string, account: string) => {
+      const after = gitConnect?.after;
+      setGitRev((n) => n + 1);
+      setToast({
+        message: choose(
+          account,
+          tf("Connected as {user}", { user: account }),
+          t("Connected"),
+        ),
+        type: "success",
+      });
+      if (after === "picker") {
+        setShowRepoPicker(true);
+      }
+      if (after === "create") {
+        setTimeout(() => createProjectRef.current(), 0);
+      }
+    },
+    [gitConnect],
+  );
+
+  const closeRepoPicker = useCallback(() => setShowRepoPicker(false), []);
+  const connectAnother = useCallback(
+    () => setGitConnect({ after: "picker" }),
+    [],
+  );
+  const pickerAuthRequired = useCallback((service: string) => {
+    setShowRepoPicker(false);
+    setGitConnect({ service, after: "picker" });
+  }, []);
+  const closeGitConnect = useCallback(() => setGitConnect(null), []);
+
+  return {
+    gitConnect,
+    setGitConnect,
+    closeGitConnect,
+    onGitConnected,
+    showRepoPicker,
+    setShowRepoPicker,
+    closeRepoPicker,
+    connectAnother,
+    pickerAuthRequired,
+    gitAccounts,
+    gitRev,
+  };
+}
+
+// useRemoteMain answers the branch the remote repository's HEAD points to, once asked.
+//
+// When a repository URL is typed, ask its remote which branch it uses and offer that one: a
+// repository on develop or master should not need the person to know to change the selector.
+// Debounced, because the field changes on every key; and silent on failure, because the
+// selector works without the answer (the gateway settles on a branch when it clones).
+function useRemoteMain(api: Api, form: NewProjectForm) {
+  const { showNewProject, newProjectMode, newProjectGit } = form;
+  const [remoteMain, setRemoteMain] = useState("");
   useEffect(() => {
     setRemoteMain("");
     const url = newProjectGit.trim();
@@ -532,8 +519,8 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
           return;
         }
         setRemoteMain(d.branch);
-        if (!mainChosen.current) {
-          setNewProjectMain(d.branch);
+        if (!form.mainChosen.current) {
+          form.setNewProjectMain(d.branch);
         }
       } catch {
         /* the selector keeps what it has */
@@ -545,9 +532,17 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
       clearTimeout(timer);
     };
   }, [showNewProject, newProjectMode, newProjectGit]);
+  return remoteMain;
+}
 
-  // Ask the gateway which container runtimes the machine has, so podman is only offered when it is there.
-  // Read on start (the project menu needs it) and again when the dialog opens.
+// useRuntimes asks the gateway which container runtimes the machine has, so podman is only
+// offered when it is there. Read on start (the project menu needs it) and again when the dialog
+// opens.
+function useRuntimes(api: Api, showNewProject: boolean) {
+  const [hasPodman, setHasPodman] = useState(false);
+  const [hasPodmanCompose, setHasPodmanCompose] = useState(false);
+  // Installed is not the same as working: `podman info` can fail on a machine that has the binary.
+  const [podmanReady, setPodmanReady] = useState(false);
   useEffect(() => {
     let live = true;
     const set = (d: {
@@ -575,6 +570,166 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
       live = false;
     };
   }, [showNewProject]);
+  return { hasPodman, hasPodmanCompose, podmanReady };
+}
+
+// newProjectTarget is the git URL, title and folder a new project is created with. An empty
+// project ignores whatever was typed in the repository field before the person went back; a
+// project from a repository takes its name and folder from the repository.
+function newProjectTarget(form: NewProjectForm) {
+  const gitUrl = choose(
+    form.newProjectMode === "git",
+    form.newProjectGit.trim(),
+    "",
+  );
+  const fromUrl = choose(gitUrl, repoNameOf(gitUrl), "");
+  const title = form.newProjectTitle.trim() || fromUrl;
+  const dir = form.newProjectDir.trim() || slugOf(fromUrl) || slugOf(title);
+  return { gitUrl, title, dir };
+}
+
+// createdToast is the toast shown once a project exists: a warning when some of its other
+// repositories could not be added.
+function createdToast(
+  title: string,
+  failed: string[],
+  cloneLog: unknown,
+): Toast {
+  if (failed.length > 0) {
+    return {
+      message: tf(
+        'Project "{title}" created, but some repositories could not be added: {names}',
+        { title, names: failed.join(", ") },
+      ),
+      type: "warning",
+    };
+  }
+  return {
+    message: tf(
+      choose(
+        cloneLog,
+        'Project "{title}" created and repo cloned',
+        'Project "{title}" created',
+      ),
+      { title },
+    ),
+    type: "success",
+  };
+}
+
+// useCreateProject sends the New project dialog to the gateway, and handles its answer.
+function useCreateProject(
+  api: Api,
+  form: NewProjectForm,
+  hasPodman: boolean,
+  fetchProjects: () => Promise<unknown>,
+  setState: SetStatus,
+  setToast: SetToast,
+  setGitConnect: (r: GitConnectRequest | null) => void,
+) {
+  // createRefused handles the gateway's refusal to create the project. A clone refused for
+  // credentials connects that host and a git with no user asks for one: both send the same
+  // request again afterwards.
+  const createRefused = async (res: Response) => {
+    const err = await res.json().catch(() => ({}));
+    form.setCreatingProject(false);
+    if (res.status === HTTP_CONFLICT && err.code === "git_auth_required") {
+      setGitConnect({ service: err.service || undefined, after: "create" });
+      return;
+    }
+    if (res.status === HTTP_CONFLICT && err.code === "git_identity_required") {
+      // Nothing was created.
+      form.setShowGitIdentity(true);
+      return;
+    }
+    setState(err.error || "could not create the project", true);
+  };
+
+  // addReposToNew clones the other repositories into the project just created, one after the
+  // other, and answers the names of the ones that could not be added.
+  async function addReposToNew(id: string | undefined): Promise<string[]> {
+    const failed: string[] = [];
+    for (const repo of form.newProjectRepos) {
+      const out = await addRepoTo(api, id || "", repo).catch(() => ({
+        project: undefined,
+      }));
+      if (!out.project) {
+        failed.push(repo.name);
+      }
+    }
+    return failed;
+  }
+
+  // createProject sends a new project to the gateway. When a git URL is set,
+  // the gateway clones the repo and returns the clone log, which we show in
+  // the modal so the user can see what happened.
+  const createProject = useCallback(
+    async (identity?: { name: string; email: string }) => {
+      const { gitUrl, title, dir } = newProjectTarget(form);
+      if (!title || !dir) {
+        return;
+      }
+      form.setCreatingProject(true);
+      try {
+        const res = await api("/v1/projects", {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({
+            title,
+            description: form.newProjectDesc.trim(),
+            dir,
+            git_url: gitUrl || undefined,
+            use_podman: choose(
+              hasPodman && form.newProjectPodman,
+              true,
+              undefined,
+            ),
+            main_branch: form.newProjectMain,
+            git_user_name: identity?.name,
+            git_user_email: identity?.email,
+          }),
+        });
+        if (!res.ok) {
+          await createRefused(res);
+          return;
+        }
+        const data = await res.json();
+        const failed = await addReposToNew(data.id);
+        await fetchProjects();
+        // Auto-create a session in the new project so the user lands in the chat.
+        if (data.id) {
+          openSessionIn(data.id);
+        }
+        // Show a toast and close the modal.
+        setToast(createdToast(title, failed, data.clone_log));
+        form.resetNewProject();
+      } catch (e) {
+        setState(
+          tf("could not create the project: {err}", { err: String(e) }),
+          true,
+        );
+        form.setCreatingProject(false);
+      }
+    },
+    [
+      form.newProjectMode,
+      form.newProjectTitle,
+      form.newProjectDesc,
+      form.newProjectDir,
+      form.newProjectGit,
+      form.newProjectMain,
+      form.newProjectPodman,
+      hasPodman,
+      form.newProjectRepos,
+      fetchProjects,
+    ],
+  );
+  return createProject;
+}
+
+// useProjectAdmin changes and deletes projects that already exist.
+function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
+  const { fetchProjects, fetchSessions } = lists;
 
   // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
   const setProjectPodman = useCallback(
@@ -597,38 +752,6 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     },
     [fetchProjects],
   );
-
-  const onGitConnected = useCallback(
-    (_service: string, account: string) => {
-      const after = gitConnect?.after;
-      setGitRev((n) => n + 1);
-      setToast({
-        message: choose(
-          account,
-          tf("Connected as {user}", { user: account }),
-          t("Connected"),
-        ),
-        type: "success",
-      });
-      if (after === "picker") {
-        setShowRepoPicker(true);
-      }
-      if (after === "create") {
-        setTimeout(() => createProjectRef.current(), 0);
-      }
-    },
-    [gitConnect],
-  );
-
-  // pickRepo fills the New project form from a repository the user chose.
-  const pickRepo = useCallback((r: GitRepo) => {
-    const name = repoShortName(r);
-    setNewProjectMode("git");
-    setNewProjectGit(r.clone_url);
-    setNewProjectTitle((prev) => choose(prev.trim(), prev, name));
-    setNewProjectDesc((prev) => choose(prev.trim(), prev, r.description || ""));
-    setShowRepoPicker(false);
-  }, []);
 
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
@@ -654,79 +777,89 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     [fetchProjects, fetchSessions],
   );
 
-  // openNewProject opens the New project dialog on its first screen.
-  const openNewProject = () => {
-    setNewProjectMode(null);
-    mainChosen.current = false;
-    setNewProjectMain("main");
-    setShowNewProject(true);
-  };
-  const closeNewProject = useCallback(() => setShowNewProject(false), []);
-  // chooseMain is the person picking the main branch: a detected one no longer replaces it.
-  const chooseMain = (branch: string) => {
-    mainChosen.current = true;
-    setNewProjectMain(branch);
-  };
-  const closeGitIdentity = useCallback(() => setShowGitIdentity(false), []);
-  const closeRepoPicker = useCallback(() => setShowRepoPicker(false), []);
-  const connectAnother = useCallback(
-    () => setGitConnect({ after: "picker" }),
-    [],
+  return { setProjectPodman, deleteProject };
+}
+
+export function useProjects({ api, lists, setState, setToast }: Deps) {
+  const { fetchProjects } = lists;
+  const edit = useEditProject(api, fetchProjects, setToast);
+  const form = useNewProjectForm();
+  const createProjectRef = useRef<() => void>(() => {});
+  const git = useGitHosts(
+    api,
+    form.showNewProject,
+    setToast,
+    createProjectRef,
   );
-  const pickerAuthRequired = useCallback((service: string) => {
+  const remoteMain = useRemoteMain(api, form);
+  const runtimes = useRuntimes(api, form.showNewProject);
+  const createProject = useCreateProject(
+    api,
+    form,
+    runtimes.hasPodman,
+    fetchProjects,
+    setState,
+    setToast,
+    git.setGitConnect,
+  );
+  createProjectRef.current = () => {
+    void createProject();
+  };
+  const admin = useProjectAdmin(api, lists, setState);
+
+  // pickRepo fills the New project form from a repository the user chose.
+  const {
+    setNewProjectMode,
+    setNewProjectGit,
+    setNewProjectTitle,
+    setNewProjectDesc,
+  } = form;
+  const { setShowRepoPicker } = git;
+  const pickRepo = useCallback((r: GitRepo) => {
+    const name = repoShortName(r);
+    setNewProjectMode("git");
+    setNewProjectGit(r.clone_url);
+    setNewProjectTitle((prev) => choose(prev.trim(), prev, name));
+    setNewProjectDesc((prev) => choose(prev.trim(), prev, r.description || ""));
     setShowRepoPicker(false);
-    setGitConnect({ service, after: "picker" });
   }, []);
-  const closeGitConnect = useCallback(() => setGitConnect(null), []);
 
   return {
-    showNewProject,
-    openNewProject,
-    closeNewProject,
-    newProjectMode,
+    showNewProject: form.showNewProject,
+    openNewProject: form.openNewProject,
+    closeNewProject: form.closeNewProject,
+    newProjectMode: form.newProjectMode,
     setNewProjectMode,
-    newProjectTitle,
+    newProjectTitle: form.newProjectTitle,
     setNewProjectTitle,
-    newProjectDesc,
+    newProjectDesc: form.newProjectDesc,
     setNewProjectDesc,
-    newProjectDir,
-    setNewProjectDir,
-    newProjectGit,
+    newProjectDir: form.newProjectDir,
+    setNewProjectDir: form.setNewProjectDir,
+    newProjectGit: form.newProjectGit,
     setNewProjectGit,
-    newProjectMain,
-    chooseMain,
+    newProjectMain: form.newProjectMain,
+    chooseMain: form.chooseMain,
     remoteMain,
-    newProjectRepos,
-    addNewProjectRepo,
-    removeNewProjectRepo,
+    newProjectRepos: form.newProjectRepos,
+    addNewProjectRepo: form.addNewProjectRepo,
+    removeNewProjectRepo: form.removeNewProjectRepo,
     ...edit,
-    hasPodman,
-    hasPodmanCompose,
-    podmanReady,
-    newProjectPodman,
-    setNewProjectPodman,
-    setProjectPodman,
-    showGitIdentity,
-    closeGitIdentity,
-    gitUserName,
-    setGitUserName,
-    gitUserEmail,
-    setGitUserEmail,
-    gitConnect,
-    setGitConnect,
-    closeGitConnect,
-    onGitConnected,
-    showRepoPicker,
-    setShowRepoPicker,
-    closeRepoPicker,
-    connectAnother,
-    pickerAuthRequired,
-    gitAccounts,
-    gitRev,
+    ...runtimes,
+    newProjectPodman: form.newProjectPodman,
+    setNewProjectPodman: form.setNewProjectPodman,
+    setProjectPodman: admin.setProjectPodman,
+    showGitIdentity: form.showGitIdentity,
+    closeGitIdentity: form.closeGitIdentity,
+    gitUserName: form.gitUserName,
+    setGitUserName: form.setGitUserName,
+    gitUserEmail: form.gitUserEmail,
+    setGitUserEmail: form.setGitUserEmail,
+    ...git,
     pickRepo,
-    creatingProject,
+    creatingProject: form.creatingProject,
     createProject,
-    deleteProject,
+    deleteProject: admin.deleteProject,
   };
 }
 
