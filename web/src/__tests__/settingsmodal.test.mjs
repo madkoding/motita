@@ -129,13 +129,17 @@ async function open(extra = {}) {
 const radio = (root, group, value) =>
   root.querySelector(`input[type=radio][name=${group}][value=${value}]`);
 
-test("the general tab offers every choice as one tap and applies it", async () => {
-  const { root, calls, done } = await open();
+test("the appearance tab offers every choice as one tap and applies it", async () => {
+  let { root, calls, done } = await open();
   const tabs = [...root.querySelectorAll("[role=tab]")];
   assert.deepEqual(
-    tabs.map((t) => t.getAttribute("aria-selected")),
-    ["true", "false"],
-    "general is the first tab, and it is open",
+    tabs.map((t) => [t.id, t.getAttribute("aria-selected")]),
+    [
+      ["settings-tab-appearance", "true"],
+      ["settings-tab-notifications", "false"],
+      ["settings-tab-git", "false"],
+    ],
+    "one tab per kind of setting; appearance is the first, and it is open",
   );
   const languageFontAndDensity = 3;
   assert.equal(
@@ -152,7 +156,9 @@ test("the general tab offers every choice as one tap and applies it", async () =
   assert.equal(document.documentElement.dataset.fontSize, "large");
   await act(() => radio(root, "settings-lang", "es").click());
   assert.deepEqual(calls.lang, ["es"]);
+  assert.equal(root.querySelector(NOTIFY_CARD), null, "notifications have their own tab");
 
+  await act(() => root.querySelector("#settings-tab-notifications").click());
   const sw = root.querySelector(`${NOTIFY_CARD} ${SWITCH}`);
   assert.ok(sw, "the desktop notifications are an on/off switch");
   assert.equal(sw.checked, true);
@@ -170,7 +176,7 @@ test("notifications not yet asked: a button asks the browser, and allowing turns
     asked: 0,
   });
   localStorage.removeItem(NOTIFY_KEY);
-  const { root, done } = await open();
+  const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector(NOTIFY_CARD);
   assert.equal(card.querySelector(SWITCH), null);
   const btn = [...card.querySelectorAll("button")].find(
@@ -192,7 +198,7 @@ test("a browser that ignores the request gets the steps to allow it by hand", as
     answer: "default",
     asked: 0,
   });
-  const { root, done } = await open();
+  const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector(NOTIFY_CARD);
   assert.equal(card.querySelector(NOTIFY_STEPS), null);
   await act(() => card.querySelector("button").click());
@@ -208,7 +214,7 @@ test("blocked notifications explain how to allow them again, and pick it up once
     answer: "denied",
     asked: 0,
   });
-  const { root, done } = await open();
+  const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector(NOTIFY_CARD);
   assert.match(card.textContent, /Blocked in this browser/);
   const steps = [...card.querySelectorAll("[data-testid=notify-steps] li")];
@@ -231,7 +237,7 @@ test("the CI toast has its own switch, on by default, and it works without https
     value: false,
     configurable: true,
   });
-  const { root, done } = await open();
+  const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector("[data-testid=ci-toast-setting]");
   assert.ok(card, "the toast switch is drawn");
   const sw = card.querySelector("input[role=switch]");
@@ -252,7 +258,7 @@ test("on a plain http address the setting says https is needed, with nothing to 
     value: false,
     configurable: true,
   });
-  const { root, done } = await open();
+  const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector(NOTIFY_CARD);
   const pill = card.querySelector("[data-testid=insecure-warning]");
   assert.ok(pill, "the reason is a warning pill");
@@ -281,7 +287,7 @@ test("once allowed, a test notification goes up through the service worker", asy
     },
     configurable: true,
   });
-  const { root, done } = await open();
+  const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector(NOTIFY_CARD);
   const send = [...card.querySelectorAll("button")].find(
     (b) => b.textContent === "Send",
@@ -309,11 +315,26 @@ test("the unblock steps fit the platform and whether Motita is installed", () =>
 
 test("the git tab lists the accounts, and the arrow keys move between tabs", async () => {
   const { root, calls, done } = await open();
-  const general = root.querySelector("#settings-tab-general");
-  general.focus();
+  const first = root.querySelector("#settings-tab-appearance");
+  first.focus();
   await act(() =>
-    general.dispatchEvent(
+    first.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    ),
+  );
+  assert.equal(
+    root.querySelector("#settings-tab-notifications").getAttribute("aria-selected"),
+    "true",
+    "the right arrow goes to the next tab",
+  );
+  await act(() =>
+    document.activeElement.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+    ),
+  );
+  await act(() =>
+    document.activeElement.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
     ),
   );
   const git = root.querySelector("#settings-tab-git");
@@ -355,9 +376,12 @@ test("Escape, the ✕ and a click outside close the dialog", async () => {
   await done();
 });
 
-test("without a git API there are no tabs, only the general settings", async () => {
+test("a tab whose API is absent is not offered", async () => {
   const { root, done } = await open({ git: undefined, langAvailable: false });
-  assert.equal(root.querySelector("[role=tablist]"), null);
+  assert.deepEqual(
+    [...root.querySelectorAll("[role=tab]")].map((t) => t.id),
+    ["settings-tab-appearance", "settings-tab-notifications"],
+  );
   assert.equal(root.querySelectorAll("[role=radiogroup]").length, 2);
   await done();
 });
@@ -413,7 +437,7 @@ test("the voice switches are greyed out until the page and the gateway allow the
     prefs: prefs ?? { mic: true, listen: false },
     setPrefs: (p) => saved.push(p),
   });
-  let v = await open({ voice: voice("insecure", "insecure") });
+  let v = await open({ tab: "voice", voice: voice("insecure", "insecure") });
   const section = v.root.querySelector("[data-testid=voice-setting]");
   assert.ok(section, "the voice section is drawn");
   const [mic, listen] = section.querySelectorAll(SWITCH);
@@ -427,7 +451,7 @@ test("the voice switches are greyed out until the page and the gateway allow the
   assert.match(pills[0].querySelector("a").href, /REFERENCE\.md#voice-input$/);
   await v.done();
 
-  v = await open({ voice: voice("ready", "no-phrases") });
+  v = await open({ tab: "voice", voice: voice("ready", "no-phrases") });
   const [mic2, listen2] = v.root.querySelectorAll(
     "[data-testid=voice-setting] input[role=switch]",
   );
@@ -439,7 +463,7 @@ test("the voice switches are greyed out until the page and the gateway allow the
   assert.deepEqual(saved.pop(), { mic: false, listen: false });
   await v.done();
 
-  v = await open({ voice: voice("ready", "ready") });
+  v = await open({ tab: "voice", voice: voice("ready", "ready") });
   const listen3 = v.root.querySelectorAll(
     "[data-testid=voice-setting] input[role=switch]",
   )[1];
@@ -453,7 +477,7 @@ test("the voice switches are greyed out until the page and the gateway allow the
     ["unsupported", /cannot record audio/],
     ["off", /voice\.enabled/],
   ]) {
-    v = await open({ voice: voice(state, state) });
+    v = await open({ tab: "voice", voice: voice(state, state) });
     assert.match(v.root.textContent, text);
     await v.done();
   }
@@ -471,6 +495,7 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     test: () => tried++,
   });
   let v = await open({
+    tab: "voice",
     speech: speech(true, [{ voiceURI: "ana", name: "Ana", lang: "es-CL" }]),
   });
   const card = v.root.querySelector("[data-testid=speech-setting]");
@@ -496,11 +521,11 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
   assert.equal(tried, 1);
   await v.done();
 
-  v = await open({ speech: speech(true, []) });
+  v = await open({ tab: "voice", speech: speech(true, []) });
   assert.match(v.root.textContent, /no voice for the interface language/);
   await v.done();
 
-  v = await open({ speech: speech(false, []) });
+  v = await open({ tab: "voice", speech: speech(false, []) });
   const off = v.root.querySelector("[data-testid=speech-setting]");
   assert.match(off.textContent, /cannot read aloud/);
   assert.equal(off.querySelector("select").disabled, true);

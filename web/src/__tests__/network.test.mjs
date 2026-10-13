@@ -159,6 +159,7 @@ async function open(api) {
         onLang: () => {},
         onClose: () => {},
         network: { api },
+        tab: "network",
       }),
       root,
     );

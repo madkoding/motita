@@ -84,6 +84,8 @@ interface Props {
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
   // the section stays hidden on a gateway without the network API.
   network?: { api: Api };
+  // tab is the tab the dialog opens on; the first one when absent.
+  tab?: Tab;
 }
 
 export interface VoiceSettingsProps {
@@ -475,7 +477,14 @@ function readPermission(): NotificationPermission | undefined {
   return Notification.permission;
 }
 
-type Tab = "general" | "providers" | "git";
+// The tabs: one per kind of setting, so each is found where its name says.
+export type Tab =
+  | "appearance"
+  | "notifications"
+  | "voice"
+  | "network"
+  | "providers"
+  | "git";
 
 interface Choice<T extends string> {
   value: T;
@@ -552,18 +561,12 @@ function Row({
   );
 }
 
-// GeneralSettings is how the page looks (language, font size, density) and the CI notifications.
-function GeneralSettings({
+// AppearanceSettings is how the page looks: language, font size and density.
+function AppearanceSettings({
   langSetting,
   langAvailable,
   onLang,
-  voice,
-  speech,
-  network,
-}: Pick<
-  Props,
-  "langSetting" | "langAvailable" | "onLang" | "voice" | "speech" | "network"
->) {
+}: Pick<Props, "langSetting" | "langAvailable" | "onLang">) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const update = (next: UISettings) => {
     setS(next);
@@ -626,10 +629,6 @@ function GeneralSettings({
           </Row>
         </div>
       </section>
-      <NotifySetting />
-      {voice && <VoiceSettings {...voice} />}
-      {speech && <SpeechSettings {...speech} />}
-      {network && <NetworkSettings api={network.api} />}
     </>
   );
 }
@@ -1512,6 +1511,60 @@ function NetworkSettings({ api }: { api: Api }) {
 }
 
 // The icons of the tabs.
+function IconBell() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  );
+}
+function IconMic() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
+    </svg>
+  );
+}
+function IconGlobe() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  );
+}
 function IconSliders() {
   return (
     <svg
@@ -1581,13 +1634,25 @@ export function SettingsModal({
   speech,
   llm,
   network,
+  tab: firstTab = "appearance",
 }: Props) {
-  const [tab, setTab] = useState<Tab>("general");
+  const [tab, setTab] = useState<Tab>(firstTab);
   const ref = useRef<HTMLDialogElement>(null);
   useDialog(ref, onClose);
   const tabs: { id: Tab; label: string; icon: ComponentChildren }[] = [
-    { id: "general", label: t("General"), icon: <IconSliders /> },
+    { id: "appearance", label: t("Appearance"), icon: <IconSliders /> },
+    {
+      id: "notifications",
+      label: t("Notifications"),
+      icon: <IconBell />,
+    },
   ];
+  if (voice || speech) {
+    tabs.push({ id: "voice", label: t("Voice"), icon: <IconMic /> });
+  }
+  if (network) {
+    tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
+  }
   if (llm) {
     tabs.push({ id: "providers", label: t("Providers"), icon: <IconChip /> });
   }
@@ -1667,15 +1732,22 @@ export function SettingsModal({
           class="settings-pane"
           aria-labelledby={`settings-tab-${tab}`}
         >
-          {tab === "general" && (
-            <GeneralSettings
+          {tab === "appearance" && (
+            <AppearanceSettings
               langSetting={langSetting}
               langAvailable={langAvailable}
               onLang={onLang}
-              voice={voice}
-              speech={speech}
-              network={network}
             />
+          )}
+          {tab === "notifications" && <NotifySetting />}
+          {tab === "voice" && (
+            <>
+              {voice && <VoiceSettings {...voice} />}
+              {speech && <SpeechSettings {...speech} />}
+            </>
+          )}
+          {tab === "network" && network && (
+            <NetworkSettings api={network.api} />
           )}
           {tab === "providers" && llm && <ProviderSettings {...llm} />}
           {tab === "git" && git && <GitConnections {...git} />}

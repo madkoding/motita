@@ -3726,15 +3726,21 @@ html[data-keyboard="open"] .app-shell {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* On a phone the tabs are one row that scrolls sideways: six of them do not fit its width. */
 .settings-nav {
   flex: none;
   display: flex;
   gap: 0.25rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-nav::-webkit-scrollbar {
+  display: none;
 }
 .settings-tab {
-  flex: 1 1 0;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
