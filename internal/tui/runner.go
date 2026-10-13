@@ -351,12 +351,29 @@ func (r *AppRunner) switchEndpoint(provider string) {
 	if ep, ok := r.endpoints[next]; ok {
 		r.Cfg.LLM.BaseURL, r.Cfg.LLM.APIKey = ep.baseURL, ep.apiKey
 	} else {
-		r.Cfg.LLM.BaseURL = onboard.DefaultBaseURL(next)
+		// An endpoint saved from the browser's settings wins over the provider's default.
+		r.Cfg.LLM.BaseURL = config.StoredBaseURL(next)
+		if r.Cfg.LLM.BaseURL == "" {
+			r.Cfg.LLM.BaseURL = onboard.DefaultBaseURL(next)
+		}
 		r.Cfg.LLM.APIKey = config.ProviderKeyFromEnv(next)
 	}
 	// openai and codex are the same account: the key carries over between them.
 	if r.Cfg.LLM.APIKey == "" && sameOpenAIAccount(cur, next) {
 		r.Cfg.LLM.APIKey = r.endpoints[cur].apiKey
+	}
+}
+
+// RefreshProvider replaces the key and the endpoint one provider runs with, after they were
+// changed in the settings: the session that runs on it takes them on its next turn, and one that
+// switches to it later gets them instead of what it remembered.
+func (r *AppRunner) RefreshProvider(provider, apiKey, baseURL string) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	delete(r.endpoints, strings.ToLower(provider))
+	if strings.EqualFold(r.Cfg.LLM.Provider, provider) {
+		r.Cfg.LLM.APIKey, r.Cfg.LLM.BaseURL = apiKey, baseURL
+		r.Engine = nil
 	}
 }
 

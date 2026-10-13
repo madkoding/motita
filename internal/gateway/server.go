@@ -659,6 +659,9 @@ func (s *Server) routes() *http.ServeMux {
 	// one configuration every conversation runs on.
 	mux.Handle("GET /v1/ui", plain(s.handleGetUI))
 	mux.Handle("PUT /v1/ui", plain(s.handlePutUI))
+	// The LLM providers and the default model: process-wide too, saved beside and in the
+	// configuration. See llm.go.
+	s.llmRoutes(mux, plain)
 	// Speech input: process-wide too, and the recording is never stored. See voice.go.
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))

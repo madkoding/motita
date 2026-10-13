@@ -206,6 +206,9 @@ func (op Options) startGateway(
 		scheduleDirValue = ""
 	}
 
+	// A key saved from the browser's settings goes beside the file this gateway runs on, and a
+	// provider switch in any conversation must find it there.
+	config.UseCredentialsBeside(resolvedConfigPath(fl))
 	srv, err := op.newGateway(gateway.Options{
 		Service:     runner,
 		NewService:  newService,
