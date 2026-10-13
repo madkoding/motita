@@ -115,9 +115,8 @@ func TestAutoRunLogsACorrection(t *testing.T) {
 }
 
 func TestInfoWithoutALoggerDoesNothing(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	srv.opts.Log = nil
-	srv.info("nothing to write to")
+	// A bare server: changing the options of a running one would race with Serve reading them.
+	(&Server{}).info("nothing to write to")
 }
 
 // agent.auto_mode_rules_only keeps the model out of it: what the rules cannot place runs as a task.
