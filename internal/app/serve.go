@@ -259,6 +259,9 @@ func (op Options) startGateway(
 		TLSListen: cfg.Gateway.TLS.Listen,
 		TLSCert:   cfg.Gateway.TLS.Cert,
 		TLSKey:    cfg.Gateway.TLS.Key,
+		// What the settings page shows and changes about the gateway's reach. See network.go.
+		AllowRules: cfg.Gateway.Allow,
+		Tailscale:  op.Tailscale,
 	}, cfg)
 	if err != nil {
 		return nil, err

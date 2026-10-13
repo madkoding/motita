@@ -24,6 +24,8 @@ Actions:
   start    bring the gateway up as a service and leave it running
   stop     stop the gateway named by the service file
   status   report whether a gateway is running
+  setup    choose where the gateway answers (this machine, the local network or
+           everywhere) and, when Tailscale is running, publish it in the tailnet
 `
 
 // runGatewayCommand dispatches `motita gateway <action>`.
@@ -42,6 +44,8 @@ func (op Options) runGatewayCommand(ctx context.Context, action string, fl flags
 		return op.gatewayStop(ctx, fl)
 	case "status":
 		return op.gatewayStatus(ctx, fl)
+	case "setup":
+		return op.gatewaySetup(ctx, fl)
 	default:
 		fmt.Fprint(op.Out, gatewayCommandHelp)
 		return Success
@@ -92,6 +96,11 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		return Success
 	}
 
+	// The first start asks where the gateway should answer, once, and saves the answer: the
+	// exposure is a decision, and the moment the service is first brought up is when the person
+	// making it is looking. See gatewaynet.go.
+	op.askExposureOnFirstStart(ctx, fl)
+
 	// The child is this same program with -serve, detached. Everything it needs it reads from the
 	// same configuration this process read, so there is one source of truth for the listen address
 	// and the token path.
@@ -136,9 +145,11 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 	announceExposure(op.Out, found)
 	// The link is announced HERE and only here: it IS the credential's handoff. The token remains
 	// readable in the token file for anyone who needs the link again.
+	ts := op.tailscaleStatus(ctx, found.BaseURL)
 	if op.webUIEnabled(fl) {
-		announceWebUI(op.Out, found)
+		announceWebUI(op.Out, found, tailnetRows(ts)...)
 	}
+	announceTailscale(op.Out, ts)
 	return Success
 }
 
@@ -240,7 +251,7 @@ func portOf(baseURL string) string {
 //
 // It is written to Out, never through the logger: a log file is kept, copied and pasted into
 // issues, and the token IS the credential.
-func announceWebUI(out io.Writer, found gateway.Found) {
+func announceWebUI(out io.Writer, found gateway.Found, extra ...endpoint) {
 	if strings.TrimSpace(found.Token) == "" {
 		return
 	}
@@ -256,6 +267,7 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 			rows = append(rows, endpoint{Name: e.Name, Addr: fmt.Sprintf("http://%s:%s", e.Addr, port)})
 		}
 	}
+	rows = append(rows, extra...)
 	fmt.Fprintln(out, "\nINTERFACE: open one of these in a browser and paste the token when it asks")
 	width := len("INTERFACE")
 	for _, r := range rows {
@@ -265,7 +277,7 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 	for _, r := range rows {
 		fmt.Fprintf(out, "  %-*s  %s\n", width, r.Name, r.Addr)
 	}
-	if found.Reachable && len(rows) == 1 {
+	if found.Reachable && len(rows) == 1+len(extra) {
 		// No address to offer. Saying so is better than a guess: a made-up address is an error the
 		// reader cannot tell from a broken network.
 		fmt.Fprintln(out, "\nthis host has no network address to offer, so from another machine use this")
