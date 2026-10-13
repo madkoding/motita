@@ -173,6 +173,7 @@ export function RepoPicker({
       ref={backdrop}
       class="fixed inset-0 z-110 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
       data-testid="repo-picker"
+      data-modal
     >
       <dialog
         open
