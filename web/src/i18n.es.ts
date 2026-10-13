@@ -23,6 +23,8 @@ const es: Record<string, string> = {
   "Apply this one and the following": "Aplicar esta y las siguientes",
   "Apply none": "No aplicar ninguna",
   "Applying suggestions": "Aplicando sugerencias",
+  "Not answered before the conversation moved on; no longer offered.":
+    "No se respondieron antes de seguir la conversación; ya no se ofrecen.",
   "will apply": "se aplicará",
   "not applied": "no se aplica",
   "Apply these suggestions you made, and nothing else:":

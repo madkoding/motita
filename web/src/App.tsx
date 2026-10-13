@@ -67,6 +67,7 @@ import {
   RunArtifacts,
   Trail,
   TurnHead,
+  UserText,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
@@ -797,9 +798,10 @@ function MessageBody({ m }: { m: Message }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
   const { rs, answerSuggestions } = useApp();
   if (m.role !== "agent" || m.kind) {
-    return (
-      <span>{m.shown ?? choose(m.kind === "kind", t(m.text), m.text)}</span>
-    );
+    if (m.role === "user") {
+      return <UserText m={m} />;
+    }
+    return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
   }
   if (m.report) {
     // The suggestions of a report are answered only while nothing runs: applying them is a turn.
@@ -808,11 +810,16 @@ function MessageBody({ m }: { m: Message }) {
       undefined,
       (a: SuggestionAnswers) => void answerSuggestions(m, a),
     );
+    // Suggestions left unanswered once the conversation moved on are stale: the work they were
+    // about has changed since, so they are no longer offered.
+    const expired =
+      !m.answers && rs.messages.some((x) => x.role === "user" && x.id > m.id);
     return (
       <ReportCard
         report={m.report}
         loadImage={loadEvidenceImage}
         answers={m.answers}
+        expired={expired}
         onAnswer={onAnswer}
       />
     );

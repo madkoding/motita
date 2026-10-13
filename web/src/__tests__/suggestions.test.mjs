@@ -37,7 +37,8 @@ const out = mkdtempSync(join(here, ".sg-"));
 await build({
   stdin: {
     contents: `export { ReportCard } from "./Report";
-export { transcriptMessages } from "./transcript";`,
+export { transcriptMessages } from "./transcript";
+export { UserText } from "./ConversationParts";`,
     resolveDir: join(here, ".."),
     loader: "ts",
     sourcefile: "entry.ts",
@@ -52,7 +53,7 @@ export { transcriptMessages } from "./transcript";`,
   loader: { ".css": "empty" },
   logLevel: "silent",
 });
-const { ReportCard, transcriptMessages } = await import(
+const { ReportCard, transcriptMessages, UserText } = await import(
   pathToFileURL(join(out, "sg.mjs")).href
 );
 const { h, render } = await import("preact");
@@ -160,9 +161,43 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
   assert.deepEqual(answer.answers.picks, ["this", "none", ""]);
 });
 
+test("suggestions left unanswered when the conversation moved on are no longer offered", () => {
+  const root = mount({ expired: true, onAnswer: () => assert.fail("expired") });
+  assert.equal(root.querySelectorAll(".rpt-suggest button").length, 0);
+  assert.ok(root.querySelector(".rpt-suggest.expired"));
+  assert.match(root.querySelector(".rpt-expired").textContent, /no longer offered/);
+  root.remove();
+});
+
+test("an answered card keeps its marks even when the conversation moved on", () => {
+  const root = mount({
+    expired: true,
+    answers: { picks: ["none", "", ""], verdicts: ["skip", "skip", "skip"] },
+  });
+  assert.equal(root.querySelector(".rpt-expired"), null);
+  assert.deepEqual(pressed(rows(root)[0]), ["✓ Apply none"]);
+  root.remove();
+});
+
+test("the label folds the prompt it sent, to open on request", () => {
+  const root = document.createElement("div");
+  document.body.appendChild(root);
+  render(h(UserText, { m: { id: 1, role: "user", text: "the whole prompt", shown: "Applying suggestions" } }), root);
+  const det = root.querySelector("details.msg-shown");
+  assert.ok(det, "a label is drawn as a fold");
+  assert.equal(det.open, false, "closed until asked");
+  assert.equal(det.querySelector("summary").textContent, "Applying suggestions");
+  assert.equal(det.querySelector("pre").textContent, "the whole prompt");
+  render(h(UserText, { m: { id: 2, role: "user", text: "plain" } }), root);
+  assert.equal(root.querySelector("details"), null);
+  assert.equal(root.textContent, "plain");
+  root.remove();
+});
+
 test("the conversation draws the label, the stream keeps the turn of the answer, and Spanish has it", () => {
   const src = (f) => readFileSync(join(here, "..", f), "utf8");
-  assert.match(src("ConversationParts.tsx"), /head\.shown \?\? head\.text/);
+  assert.match(src("ConversationParts.tsx"), /<UserText m=\{head\} \/>/);
+  assert.match(src("App.tsx"), /expired=\{expired\}/);
   assert.match(src("streamEvents.ts"), /turn: rs\.liveTurnRef\.current/);
   assert.match(src("useSuggestions.ts"), /t\("Applying suggestions"\)/);
   assert.match(src("useSuggestions.ts"), /method: "PUT"/);

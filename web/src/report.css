@@ -352,3 +352,24 @@
   transform-origin: center;
   will-change: transform;
 }
+
+/* The turn that applies suggestions: its label, with the prompt it sent folded under it. */
+.msg-shown summary {
+  cursor: pointer;
+}
+.msg-shown pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+/* Suggestions the conversation moved on from: kept to read, no longer offered. */
+.rpt-suggest.expired li {
+  opacity: 0.55;
+}
+.rpt-expired {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 0 0 4px;
+}

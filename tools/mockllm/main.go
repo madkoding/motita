@@ -75,7 +75,12 @@ func contentJSON(phaseName string, n int) string {
 	switch phaseName {
 	case "synthesize":
 		// The structured report the final answer is asked to be (agent.Report), with every
-		// section filled, so a front end can be driven against the whole shape.
+		// section filled, so a front end can be driven against the whole shape. With
+		// MOCK_SUGGESTIONS set it also proposes follow-ups, so the suggestions flow can be
+		// driven end to end.
+		if os.Getenv("MOCK_SUGGESTIONS") != "" {
+			return synthesizeJSON[:len(synthesizeJSON)-1] + suggestionsJSON
+		}
 		return synthesizeJSON
 	case "analyze":
 		return analyzeJSON
@@ -93,6 +98,8 @@ const (
 		`"verification":[{"check":"anchor: content is valid","result":"pass","evidence":"ANCHOR_OK"},` +
 		`{"check":"browser screenshot","result":"skipped","evidence":"nothing visual to look at"}],` +
 		`"risks":["the file is overwritten on every run"],"next_steps":["commit report.txt"]}`
+	suggestionsJSON = `,"suggestions":[{"title":"test the empty report","detail":"nothing checks it"},` +
+		`{"title":"log the overwrite","detail":"it is silent today"}]}`
 	analyzeJSON = `{"understandable":true,"summary":"leave the report with the requested content",` +
 		`"success_criteria":["report.txt holds content-valid"],"risks":[],"needs_subtasks":false}`
 	planJSON = `{"plan":[{"step":1,"action":"write the report","command":"write report.txt"}],` +

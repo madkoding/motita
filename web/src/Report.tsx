@@ -194,12 +194,15 @@ export function ReportCard({
   report,
   loadImage,
   answers,
+  expired,
   onAnswer,
 }: {
   report: TaskReport;
   loadImage?: LoadImage;
   // answers are how the suggestions were already answered, when they were.
   answers?: SuggestionAnswers;
+  // expired says the conversation moved on without answering them: they are no longer offered.
+  expired?: boolean;
   // onAnswer keeps the answers and starts the turn that applies the accepted suggestions. Without
   // it (a run in flight) the suggestions are shown but cannot be answered.
   onAnswer?: (answers: SuggestionAnswers) => void;
@@ -275,6 +278,7 @@ export function ReportCard({
         <SuggestionsSection
           suggestions={report.suggestions ?? []}
           answers={answers}
+          expired={expired}
           onAnswer={onAnswer}
         />
       )}
@@ -467,10 +471,12 @@ const ANSWERS: { pick: ProposalAnswer; label: () => string }[] = [
 function SuggestionsSection({
   suggestions,
   answers,
+  expired,
   onAnswer,
 }: {
   suggestions: Suggestion[];
   answers?: SuggestionAnswers;
+  expired?: boolean;
   onAnswer?: (answers: SuggestionAnswers) => void;
 }) {
   const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(
@@ -479,7 +485,9 @@ function SuggestionsSection({
   const [picks, setPicks] = useState<Pick[]>(
     () => answers?.picks ?? suggestions.map(() => ""),
   );
-  const done = verdicts.every((v) => v !== undefined);
+  // Expired only while nothing was answered here: a half-answered list keeps its marks.
+  const stale = !!expired && picks.every((p) => !p);
+  const done = stale || verdicts.every((v) => v !== undefined);
   const current = verdicts.findIndex((v) => v === undefined);
   const answer = (pick: ProposalAnswer) => {
     const next = settle(verdicts, current, pick);
@@ -497,11 +505,19 @@ function SuggestionsSection({
   };
   const items = keyed(suggestions, (s) => `${s.title}|${s.detail}`);
   return (
-    <section class="rpt-sec rpt-suggest">
+    <section class={`rpt-sec rpt-suggest${choose(stale, " expired", "")}`}>
       <h4>{t("Suggestions")}</h4>
+      {stale && (
+        <p class="rpt-expired">
+          {t("Not answered before the conversation moved on; no longer offered.")}
+        </p>
+      )}
       <ul>
         {items.map(({ key, item }, i) => (
-          <li key={key} class={verdicts[i] ?? choose(i === current, "current", "")}>
+          <li
+            key={key}
+            class={verdicts[i] ?? choose(i === current && !stale, "current", "")}
+          >
             <span class="rpt-body">
               <span class="rpt-check">{item.title}</span>
               {item.detail && <span class="rpt-evidence">{item.detail}</span>}
