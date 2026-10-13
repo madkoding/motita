@@ -153,8 +153,8 @@ test("the general tab offers every choice as one tap and applies it", async () =
   await act(() => radio(root, "settings-lang", "es").click());
   assert.deepEqual(calls.lang, ["es"]);
 
-  const sw = root.querySelector(SWITCH);
-  assert.ok(sw, "the CI notifications are an on/off switch");
+  const sw = root.querySelector(`${NOTIFY_CARD} ${SWITCH}`);
+  assert.ok(sw, "the desktop notifications are an on/off switch");
   assert.equal(sw.checked, true);
   await act(() => sw.click());
   assert.equal(localStorage.getItem(NOTIFY_KEY), "off");
@@ -225,6 +225,27 @@ test("blocked notifications explain how to allow them again, and pick it up once
   await done();
 });
 
+test("the CI toast has its own switch, on by default, and it works without https", async () => {
+  localStorage.removeItem("motita.ui.ciToast");
+  Object.defineProperty(window, "isSecureContext", {
+    value: false,
+    configurable: true,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=ci-toast-setting]");
+  assert.ok(card, "the toast switch is drawn");
+  const sw = card.querySelector("input[role=switch]");
+  assert.equal(sw.disabled, false, "an insecure page does not grey it out");
+  assert.equal(sw.checked, true);
+  assert.equal(card.querySelector("[data-testid=insecure-warning]"), null);
+  await act(() => sw.click());
+  assert.equal(localStorage.getItem("motita.ui.ciToast"), "off");
+  await act(() => sw.click());
+  assert.equal(localStorage.getItem("motita.ui.ciToast"), "on");
+  delete window.isSecureContext;
+  await done();
+});
+
 test("on a plain http address the setting says https is needed, with nothing to press", async () => {
   Object.assign(fakeNotification, { permission: "denied", asked: 0 });
   Object.defineProperty(window, "isSecureContext", {
@@ -233,7 +254,14 @@ test("on a plain http address the setting says https is needed, with nothing to 
   });
   const { root, done } = await open();
   const card = root.querySelector(NOTIFY_CARD);
-  assert.match(card.textContent, /https/);
+  const pill = card.querySelector("[data-testid=insecure-warning]");
+  assert.ok(pill, "the reason is a warning pill");
+  assert.equal(pill.getAttribute("role"), "note");
+  assert.match(pill.textContent, /Connection not secure/);
+  assert.match(pill.textContent, /blocks notifications/);
+  assert.match(pill.querySelector("details summary").textContent, /Why\?/);
+  assert.match(pill.querySelector("details").textContent, /https:\/\//);
+  assert.equal(pill.querySelector("a").rel, "noopener noreferrer");
   assert.equal(card.querySelector("button"), null);
   assert.equal(card.querySelector(NOTIFY_STEPS), null);
   delete window.isSecureContext;
@@ -392,7 +420,11 @@ test("the voice switches are greyed out until the page and the gateway allow the
   assert.equal(mic.disabled, true);
   assert.equal(listen.disabled, true);
   assert.equal(mic.checked, false, "an unusable switch never reads as on");
-  assert.match(section.textContent, /https or localhost/);
+  const pills = section.querySelectorAll("[data-testid=insecure-warning]");
+  assert.equal(pills.length, 2, "each blocked switch shows the warning pill");
+  assert.match(pills[0].textContent, /without a secure connection/);
+  assert.match(pills[0].querySelector("details").textContent, /https:\/\//);
+  assert.match(pills[0].querySelector("a").href, /REFERENCE\.md#voice-input$/);
   await v.done();
 
   v = await open({ voice: voice("ready", "no-phrases") });
@@ -425,4 +457,20 @@ test("the voice switches are greyed out until the page and the gateway allow the
     assert.match(v.root.textContent, text);
     await v.done();
   }
+});
+
+test("the insecure-connection pill is translated, amber, and tighter in compact density", () => {
+  const es = readFileSync(join(here, "..", "i18n.es.ts"), "utf8");
+  for (const k of [
+    "Connection not secure",
+    "Why?",
+    "How to set it up",
+    "Your browser blocks the microphone because Motita was opened without a secure connection.",
+    "Your browser blocks notifications because Motita was opened without a secure connection.",
+  ]) {
+    assert.ok(es.includes(JSON.stringify(k)) || es.includes(`${k}:`), k);
+  }
+  const css = src("index.css");
+  assert.match(css, /\.settings-warn \{[^}]*rgba\(237, 181, 88/);
+  assert.match(css, /html\[data-density="compact"\] \.settings-warn \{/);
 });
