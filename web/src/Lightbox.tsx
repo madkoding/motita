@@ -3,6 +3,7 @@ import type { RefObject } from "preact";
 import { useDialog } from "./useDialog";
 import { t } from "./i18n";
 import { choose } from "./choose";
+import { BodyPortal } from "./BodyPortal";
 
 export interface LightboxImage {
   src: string;
@@ -203,88 +204,91 @@ export function Lightbox({
   useNativeEvents(bar, { click: stopHere });
 
   const cur = images[index];
+  // In a portal: a report draws this from inside its chat bubble (see BodyPortal).
   return (
-    <dialog
-      open
-      ref={root}
-      class="lb"
-      data-dialog-root
-      aria-modal="true"
-      aria-label={cur.label}
-      data-testid="lightbox"
-    >
-      <div ref={bar} class="lb-bar">
-        <span class="lb-title">
-          {cur.label}
-          {choose(images.length > 1, ` (${index + 1}/${images.length})`, "")}
-        </span>
-        <button
-          type="button"
-          class="btn-outline"
-          aria-label={t("Zoom out")}
-          onClick={() => zoomAt(1 / ZOOM_STEP)}
-        >
-          −
-        </button>
-        <span class="lb-zoom" data-testid="lightbox-zoom">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          type="button"
-          class="btn-outline"
-          aria-label={t("Zoom in")}
-          onClick={() => zoomAt(ZOOM_STEP)}
-        >
-          +
-        </button>
-        <button type="button" class="btn-outline" onClick={reset}>
-          {t("Fit")}
-        </button>
-        <button type="button" class="btn-outline" onClick={actual}>
-          1:1
-        </button>
-        {images.length > 1 && (
+    <BodyPortal>
+      <dialog
+        open
+        ref={root}
+        class="lb"
+        data-dialog-root
+        aria-modal="true"
+        aria-label={cur.label}
+        data-testid="lightbox"
+      >
+        <div ref={bar} class="lb-bar">
+          <span class="lb-title">
+            {cur.label}
+            {choose(images.length > 1, ` (${index + 1}/${images.length})`, "")}
+          </span>
           <button
             type="button"
             class="btn-outline"
-            aria-label={t("Previous image")}
-            onClick={() => step(-1)}
+            aria-label={t("Zoom out")}
+            onClick={() => zoomAt(1 / ZOOM_STEP)}
           >
-            ‹
+            −
           </button>
-        )}
-        {images.length > 1 && (
+          <span class="lb-zoom" data-testid="lightbox-zoom">
+            {Math.round(zoom * 100)}%
+          </span>
           <button
             type="button"
             class="btn-outline"
-            aria-label={t("Next image")}
-            onClick={() => step(1)}
+            aria-label={t("Zoom in")}
+            onClick={() => zoomAt(ZOOM_STEP)}
           >
-            ›
+            +
           </button>
-        )}
-        <button
-          type="button"
-          class="btn-outline"
-          data-autofocus
-          aria-label={t("Close")}
-          onClick={onClose}
-        >
-          ✕
-        </button>
-      </div>
-      <div ref={stage} class="lb-stage">
-        <img
-          ref={img}
-          class="lb-img"
-          src={cur.src}
-          alt={cur.label}
-          draggable={false}
-          style={{
-            transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
-          }}
-        />
-      </div>
-    </dialog>
+          <button type="button" class="btn-outline" onClick={reset}>
+            {t("Fit")}
+          </button>
+          <button type="button" class="btn-outline" onClick={actual}>
+            1:1
+          </button>
+          {images.length > 1 && (
+            <button
+              type="button"
+              class="btn-outline"
+              aria-label={t("Previous image")}
+              onClick={() => step(-1)}
+            >
+              ‹
+            </button>
+          )}
+          {images.length > 1 && (
+            <button
+              type="button"
+              class="btn-outline"
+              aria-label={t("Next image")}
+              onClick={() => step(1)}
+            >
+              ›
+            </button>
+          )}
+          <button
+            type="button"
+            class="btn-outline"
+            data-autofocus
+            aria-label={t("Close")}
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <div ref={stage} class="lb-stage">
+          <img
+            ref={img}
+            class="lb-img"
+            src={cur.src}
+            alt={cur.label}
+            draggable={false}
+            style={{
+              transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
+            }}
+          />
+        </div>
+      </dialog>
+    </BodyPortal>
   );
 }

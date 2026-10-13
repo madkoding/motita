@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { loadCiToast, loadNotify } from "./settings";
 import { showNotification } from "./notify";
+import { loadPushOn } from "./pushApi";
 import {
   getPR,
   retryFix,
@@ -145,7 +146,8 @@ function noticeToast(
 
 // announce shows the toast (unless turned off in the settings) and, when the tab is in the
 // background, a browser notification as well: the CI ending is exactly what someone looking at
-// another window wants to hear about. The two are separate switches.
+// another window wants to hear about. The two are separate switches. With phone notifications on
+// in this browser the gateway already pushes it, so the page does not show a second one.
 function announce(
   setToast: Store["status"]["setToast"],
   n: { message: string; type: ToastType; detail?: string },
@@ -159,7 +161,7 @@ function announce(
       shouldDesktopNotify(
         document.hidden,
         Notification.permission,
-        loadNotify(),
+        loadNotify() && !loadPushOn(),
       )
     ) {
       void showNotification(n.message, { body: n.detail, tag: "motita-pr" });

@@ -230,3 +230,25 @@ test("a project's + is visible on a touch screen", () => {
   );
   assert.match(mediaBlocks(HOVER), /\.project-header:hover \.project-new-session/);
 });
+
+test("the settings tabs fit a phone's width instead of running off the panel", () => {
+  const phone = mediaBlocks("(max-width: 767px)");
+  assert.match(phone, /\.settings-tab\s*\{[^}]*white-space:\s*normal/);
+  assert.match(phone, /\.settings-tab\s*\{[^}]*min-width:\s*0/);
+});
+
+test("an open dialog moves the toast off its title", () => {
+  assert.match(css, /body:has\(\[data-modal\]\) \.toast-layer\s*\{[^}]*bottom:/);
+  assert.match(src("ToastCard.tsx"), /class="toast-layer /);
+  assert.match(src("ModalBackdrop.tsx"), /data-modal=/);
+  for (const f of ["AuthModal.tsx", "GitConnect.tsx", "RepoPicker.tsx"]) {
+    assert.match(src(f), /\bdata-modal\b/, f);
+  }
+});
+
+test("full-window previews opened from a chat bubble are drawn in a portal", () => {
+  // A bubble's backdrop-filter is the containing block of a fixed descendant.
+  for (const f of ["Lightbox.tsx", "ConversationParts.tsx"]) {
+    assert.match(src(f), /<BodyPortal>/, f);
+  }
+});

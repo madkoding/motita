@@ -229,12 +229,14 @@ func (c *conversation) prWatchView() *PRWatchView {
 func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
 	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(c), Number: number}
 	c.stateMu.Lock()
-	changed := c.prWatch == nil || c.prWatch.Status != view.Status || c.prWatch.Attempts != view.Attempts ||
-		c.prWatch.Number != view.Number
+	prev := c.prWatch
+	changed := prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts ||
+		prev.Number != view.Number
 	c.prWatch, c.prFixedKey = view, w.fixedKey
 	c.stateMu.Unlock()
 	if changed {
 		s.saveSession(c)
+		s.pushPR(c, prev, view)
 	}
 }
 
@@ -553,7 +555,10 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, s
 	if sha == "" {
 		sha = fmt.Sprintf("pr-%d", number)
 	}
-	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number})
+	prev := c.prWatchView()
+	merged := &PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number}
+	c.setPRWatch(merged)
+	s.pushPR(c, prev, merged)
 	c.setMerged(sha)
 	s.saveSession(c)
 	s.syncProject(ctx, c, base)

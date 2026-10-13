@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { sseData } from "./appParse";
+import { choose } from "./choose";
 import type { Api } from "./prApi";
 import type { SetToast, UpdateInfo, UpgradeProgressEvent } from "./appTypes";
 import {
@@ -218,7 +219,12 @@ export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
     return () => clearInterval(interval);
   }, [authOk, checkForUpdates]);
 
-  const openUpgrade = useCallback(() => setShowUpgrade(true), []);
+  // Opening the modal takes the "new version" toast down: it offers what the modal now shows, and
+  // it was drawn over the modal's own title.
+  const openUpgrade = useCallback(() => {
+    setShowUpgrade(true);
+    setToast((prev) => choose(prev?.update === true, null, prev));
+  }, []);
   // closeUpgradeIfIdle closes the modal, unless an upgrade is running: it cannot be walked away from.
   const closeUpgradeIfIdle = useCallback(() => {
     if (!upgradeBusy) {

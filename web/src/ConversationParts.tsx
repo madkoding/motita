@@ -7,6 +7,7 @@ import { useApp } from "./appStore";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
 import { ActionTrail } from "./ActionTrail";
+import { BodyPortal } from "./BodyPortal";
 import {
   classifyProgress,
   oneLine,
@@ -41,23 +42,26 @@ export function ShellStatus({
 }
 
 // ChangesZoom is the full-size view of one preview: a click or Escape closes it. It holds nothing to
-// focus, so the focus stays on the preview that opened it.
+// focus, so the focus stays on the preview that opened it. It is drawn in a portal because its card
+// sits inside a chat bubble (see BodyPortal).
 function ChangesZoom({ url, onClose }: { url: string; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useDialog(ref, onClose);
   useListener(ref, "click", onClose);
   return (
-    <dialog
-      ref={ref}
-      open
-      data-dialog-root
-      class="changes-zoom app-dialog"
-      aria-modal="true"
-      aria-label={t("preview")}
-      tabIndex={-1}
-    >
-      <img src={url} alt={t("preview")} />
-    </dialog>
+    <BodyPortal>
+      <dialog
+        ref={ref}
+        open
+        data-dialog-root
+        class="changes-zoom app-dialog"
+        aria-modal="true"
+        aria-label={t("preview")}
+        tabIndex={-1}
+      >
+        <img src={url} alt={t("preview")} />
+      </dialog>
+    </BodyPortal>
   );
 }
 

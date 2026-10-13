@@ -1771,6 +1771,12 @@ form.frosted {
     transform: translateY(0);
   }
 }
+/* While a dialog is open the toast moves to the bottom of the window: at the top it sat over the
+ * dialog's title and its close button, on a phone over most of the header. */
+body:has([data-modal]) .toast-layer {
+  top: auto;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+}
 
 /* Textarea and inputs: smooth focus glow. */
 textarea,
@@ -3752,6 +3758,20 @@ html[data-keyboard="open"] .app-shell {
   color: #9a9aaa;
   white-space: nowrap;
   transition: background-color 0.15s, color 0.15s;
+}
+/* On a phone the three tabs share the width, and "Conexiones de git" did not fit in its third:
+ * nowrap pushed it past the panel's edge. The icon goes above the label, which may wrap. */
+@media (max-width: 767px) {
+  .settings-tab {
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    padding: 0.375rem 0.25rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+  }
 }
 .settings-tab[aria-selected="true"] {
   color: #e8e8ea;

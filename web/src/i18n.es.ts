@@ -676,6 +676,21 @@ const es: Record<string, string> = {
   "Still a draft": "Sigue en borrador",
   "Out of date with the base branch": "Desactualizado respecto a la rama base",
   "Pull request closed": "Pull request cerrado",
+  "Phone notifications": "Notificaciones en el celular",
+  "This browser cannot receive push notifications.":
+    "Este navegador no puede recibir notificaciones push.",
+  "This gateway cannot send them: it has no folder to keep them in, or it is older than this page.":
+    "Este gateway no puede enviarlas: no tiene una carpeta donde guardarlas, o es más antiguo que esta página.",
+  "Notifications are blocked for this site: allow them first (see the steps above).":
+    "Las notificaciones están bloqueadas para este sitio: permítelas primero (mira los pasos de arriba).",
+  "Even with Motita closed: the gateway sends them to this device when a CI ends.":
+    "Aunque Motita esté cerrado: el gateway las envía a este dispositivo cuando termina un CI.",
+  "The browser did not allow notifications.":
+    "El navegador no permitió las notificaciones.",
+  "Sending…": "Enviando…",
+  "Test on this device": "Probar en este dispositivo",
+  "The gateway sends one now, the same way a CI that ends will.":
+    "El gateway envía una ahora, igual que cuando termine un CI.",
   "Pull request {pr} was closed without being merged.":
     "El pull request {pr} se cerró sin mergearse.",
   "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.":
