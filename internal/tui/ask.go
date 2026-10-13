@@ -104,8 +104,25 @@ func (t *TUI) askLines(max int) []string {
 		out = append(out, t.askLine(t.muted(EscapeControls(it.Detail)), width))
 	}
 
-	// One row per option, numbered by the key that picks it. The numbers are the interface's,
-	// not the agent's: they are position, and the agent never sees them.
+	out = append(out, t.askOptionLines(it, width)...)
+
+	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
+	// it is what makes the questions answerable when the agent could think of no choices.
+	out = append(out, t.askAnswerLine(width))
+	out = append(out, t.askHintLines(width)...)
+
+	if max > 0 && len(out) > max {
+		out = out[:max]
+		out[max-1] = t.askLine(t.trf("… and %d more", len(t.askLines(0))-(max-1)), width)
+	}
+	return out
+}
+
+// askOptionLines is one row per option of it, numbered by the key that picks it. The numbers are
+// the interface's, not the agent's: they are position, and the agent never sees them.
+func (t *TUI) askOptionLines(it agent.AskItem, width int) []string {
+	a := t.ask
+	out := make([]string, 0, len(it.Options))
 	for i, opt := range it.Options {
 		mark := " "
 		if a.answers[a.cur] == opt {
@@ -118,30 +135,27 @@ func (t *TUI) askLines(max int) []string {
 		}
 		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, label), width))
 	}
+	return out
+}
 
-	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
-	// it is what makes the questions answerable when the agent could think of no choices.
-	out = append(out, t.askAnswerLine(width))
-
-	if n > 1 {
+// askHintLines is the keys hint under the answer line: how to move between several questions and
+// how many are left, or that Enter confirms the one answered question.
+func (t *TUI) askHintLines(width int) []string {
+	a := t.ask
+	if len(a.items) > 1 {
 		hint := t.tr("← → switch question")
 		if a.allAnswered() {
 			hint += " · " + t.tr("Enter confirms all")
 		} else {
 			hint += " · " + t.trf("%d left", a.unanswered())
 		}
-		out = append(out, t.askLine(hint, width))
+		return []string{t.askLine(hint, width)}
 	} else if a.answers[0] != "" {
-		out = append(out, t.askLine(t.tr("Enter confirms"), width))
+		return []string{t.askLine(t.tr("Enter confirms"), width)}
 	} else {
 		// One question with no answer yet: there is nothing to confirm.
+		return nil
 	}
-
-	if max > 0 && len(out) > max {
-		out = out[:max]
-		out[max-1] = t.askLine(t.trf("… and %d more", len(t.askLines(0))-(max-1)), width)
-	}
-	return out
 }
 
 // askAnswerLine is the row showing what the user is answering with.

@@ -150,16 +150,7 @@ func (t *Tracker) ci(ci CIStatus) (Event, bool) {
 	switch ci.State {
 	case StateFailure, StateSuccess:
 		t.noneCount = 0
-		key := ci.State + "@" + CIKey(ci)
-		if key == t.ciKey {
-			return Event{}, false
-		}
-		t.ciKey = key
-		kind := EventCIPassed
-		if ci.State == StateFailure {
-			kind = EventCIFailed
-		}
-		return Event{Kind: kind, CI: &ci}, true
+		return t.ciEnded(ci)
 	case StatePending:
 		t.noneCount = 0
 	default:
@@ -169,6 +160,20 @@ func (t *Tracker) ci(ci CIStatus) (Event, bool) {
 		}
 	}
 	return Event{}, false
+}
+
+// ciEnded reports a CI that passed or failed, once per run: the same run read again is no news.
+func (t *Tracker) ciEnded(ci CIStatus) (Event, bool) {
+	key := ci.State + "@" + CIKey(ci)
+	if key == t.ciKey {
+		return Event{}, false
+	}
+	t.ciKey = key
+	kind := EventCIPassed
+	if ci.State == StateFailure {
+		kind = EventCIFailed
+	}
+	return Event{Kind: kind, CI: &ci}, true
 }
 
 // CIKey identifies one run of the CI, so it is answered once per push and not once per reading. A

@@ -252,6 +252,17 @@ func (r *Report) Text() string {
 			b.WriteString("\n  " + l)
 		}
 	}
+	block("Changed", r.changeLines())
+	block("Checked", r.checkLines())
+	block("Screenshots", r.screenshotLines())
+	block("Worth knowing", r.Risks)
+	block("Next", r.NextSteps)
+	block("Suggestions (not applied)", r.suggestionLines())
+	return b.String()
+}
+
+// changeLines is one line per changed file for Text: its kind, its path and what changed.
+func (r *Report) changeLines() []string {
 	var changes []string
 	for _, c := range r.Changes {
 		line := "[" + c.Kind + "] " + c.Path
@@ -260,7 +271,11 @@ func (r *Report) Text() string {
 		}
 		changes = append(changes, strings.TrimSpace(strings.Replace(line, "]  ", "] ", 1)))
 	}
-	block("Changed", changes)
+	return changes
+}
+
+// checkLines is one line per verification for Text, led by a fixed-width mark of its result.
+func (r *Report) checkLines() []string {
 	marks := map[string]string{"pass": "ok  ", "fail": "FAIL", "skipped": "skip"}
 	var checks []string
 	for _, v := range r.Verification {
@@ -270,7 +285,11 @@ func (r *Report) Text() string {
 		}
 		checks = append(checks, line)
 	}
-	block("Checked", checks)
+	return checks
+}
+
+// screenshotLines is one line per piece of evidence for Text, with the before and after it has.
+func (r *Report) screenshotLines() []string {
 	var shots []string
 	for _, e := range r.Evidence {
 		line := e.Title
@@ -282,9 +301,11 @@ func (r *Report) Text() string {
 		}
 		shots = append(shots, strings.TrimSpace(line))
 	}
-	block("Screenshots", shots)
-	block("Worth knowing", r.Risks)
-	block("Next", r.NextSteps)
+	return shots
+}
+
+// suggestionLines is one line per suggestion for Text, saying why when it is needed.
+func (r *Report) suggestionLines() []string {
 	var proposals []string
 	for _, p := range r.Suggestions {
 		line := p.Title
@@ -296,6 +317,5 @@ func (r *Report) Text() string {
 		}
 		proposals = append(proposals, line)
 	}
-	block("Suggestions (not applied)", proposals)
-	return b.String()
+	return proposals
 }
