@@ -2,16 +2,15 @@
 // press opens a context menu with Rename / Delete.
 import { useRef } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { t, tf, plural } from "./i18n";
+import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { useLongPress, useStopClicks } from "./domHooks";
 import {
-  changesTitle,
   formatUpdated,
-  fullUpdated,
   rowMenuStyle,
   sessionTitle,
+  sessionTooltip,
   sessionWorktreeChip,
   shortBranch,
   shortID,
@@ -265,10 +264,7 @@ function SessionFacts({ s }: { s: SessionInfo }) {
   return (
     <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
       {s.branch && (
-        <span
-          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
-          title={tf("Branch: {branch}", { branch: s.branch })}
-        >
+        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10">
           <span class="text-accent/50 uppercase tracking-wide text-[9px]">
             {t("branch")}
           </span>
@@ -278,10 +274,7 @@ function SessionFacts({ s }: { s: SessionInfo }) {
         </span>
       )}
       {worktree && (
-        <span
-          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#a0a0f0]/10"
-          title={tf("Worktree: {worktree}", { worktree: s.worktree || "" })}
-        >
+        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#a0a0f0]/10">
           <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">
             {t("worktree")}
           </span>
@@ -291,13 +284,7 @@ function SessionFacts({ s }: { s: SessionInfo }) {
         </span>
       )}
       {s.model && (
-        <span
-          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#7ee0a0]/10"
-          title={tf("Model: {provider} / {model}", {
-            provider: s.provider || "",
-            model: s.model,
-          })}
-        >
+        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#7ee0a0]/10">
           <span class="text-[#7ee0a0]/50 uppercase tracking-wide text-[9px]">
             {t("model")}
           </span>
@@ -307,10 +294,7 @@ function SessionFacts({ s }: { s: SessionInfo }) {
         </span>
       )}
       {!!s.changes && (
-        <span
-          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
-          title={changesTitle(s.changes)}
-        >
+        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
           <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
             {choose(s.changes === 1, t("change"), t("changes"))}
           </span>
@@ -338,20 +322,12 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
           wrapped into a paragraph nobody could read: a timestamp and a
           set of labelled facts are two different kinds of information and
           each gets its own line.
-          Its full date is the tooltip of the row's button (see SessionRow). */}
+          Its full date, like every label's meaning, is the tooltip of the row's button (see
+          SessionRow). */}
       <div class="mt-0.5 text-[10px] tabular-nums text-[#9a9aaa]">
         {formatUpdated(s.last_used)}
         {agentsRunning > 0 && (
-          <span
-            class="ml-1.5 text-[#79c0ff]"
-            title={plural(
-              agentsRunning,
-              "1 background agent running",
-              "{n} background agents running",
-            )}
-          >
-            ⧉ {agentsRunning}
-          </span>
+          <span class="ml-1.5 text-[#79c0ff]">⧉ {agentsRunning}</span>
         )}
       </div>
       <SessionFacts s={s} />
@@ -412,17 +388,13 @@ export function SessionRow({ s }: { s: SessionInfo }) {
           AFTER the text and BEFORE the actions on purpose: positioned boxes and stacking contexts
           (opacity, transform...) are painted in document order, so whatever the text's styles
           become it stays under the button, and the "⋯" stays above it. As the text is under it,
-          the button carries the text's tooltip. */}
+          the button carries the text's tooltips (sessionTooltip). */}
       {!renaming && (
         <button
           type="button"
           class="row-hit"
           aria-label={sessionTitle(s)}
-          title={choose(
-            s.last_used,
-            tf("Last used {when}", { when: fullUpdated(s.last_used) }),
-            undefined,
-          )}
+          title={sessionTooltip(s)}
           onClick={() => conv.switchSession(s.id)}
         />
       )}

@@ -6,9 +6,11 @@
 // Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { build } from "esbuild";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
@@ -44,10 +46,31 @@ test("a session row's click target is drawn above its text and under its actions
   assert.match(row, /onClick=\{\(\) => conv\.switchSession\(s\.id\)\}/);
 });
 
-test("the session row's button carries the last-used tooltip its text cannot show", () => {
+test("the row buttons carry the tooltips of the labels they cover", () => {
   const row = component("SessionRow.tsx", "SessionRow");
   const hit = row.slice(row.indexOf('class="row-hit"'));
-  assert.match(hit.slice(0, hit.indexOf("/>")), /Last used \{when\}/);
+  assert.match(
+    hit.slice(0, hit.indexOf("/>")),
+    /title=\{sessionTooltip\(s\)\}/,
+  );
+  const header = component("ProjectGroup.tsx", "ProjectHeader");
+  const phit = header.slice(header.indexOf('class="row-hit"'));
+  assert.match(
+    phit.slice(0, phit.indexOf("/>")),
+    /title=\{projectTooltip\(p\)\}/,
+  );
+  // A label's own title would never show: the button is on top of it.
+  for (const [file, name] of [
+    ["SessionRow.tsx", "SessionFacts"],
+    ["SessionRow.tsx", "SessionSummary"],
+    ["ProjectGroup.tsx", "ProjectFacts"],
+  ]) {
+    assert.doesNotMatch(
+      component(file, name),
+      /\btitle=/,
+      `${name} has no dead title`,
+    );
+  }
 });
 
 test("a project header's click target is drawn above its title and under its actions", () => {
@@ -59,4 +82,58 @@ test("a project header's click target is drawn above its title and under its act
   ]);
   assert.ok(title < hit, "the button comes after the title");
   assert.ok(hit < actions, "the button comes before the actions");
+});
+
+// appFormat.ts imports its siblings without extensions, so it is bundled first.
+const dir = mkdtempSync(join(tmpdir(), "motita-sessionrow-test-"));
+const out = join(dir, "format.mjs");
+await build({
+  entryPoints: [join(here, "..", "appFormat.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  outfile: out,
+  logLevel: "silent",
+});
+const { sessionTooltip, projectTooltip } = await import(out);
+rmSync(dir, { recursive: true, force: true });
+
+test("sessionTooltip says every fact the row shows, one per line", () => {
+  const lines = sessionTooltip({
+    id: "s1",
+    last_used: "2026-10-13T04:00:00Z",
+    agents_running: 2,
+    branch: "feature/x",
+    worktree: "wt1",
+    model: "m1",
+    provider: "p1",
+    changes: 3,
+  }).split("\n");
+  assert.equal(lines.length, 6);
+  assert.match(lines[0], /2026/);
+  assert.match(lines[1], /2/);
+  assert.match(lines[2], /feature\/x/);
+  assert.match(lines[3], /wt1/);
+  assert.match(lines[4], /p1 \/ m1/);
+  assert.match(lines[5], /3/);
+});
+
+test("a row with nothing to say has no tooltip", () => {
+  assert.equal(sessionTooltip({ id: "s1" }), undefined);
+  assert.equal(projectTooltip({ id: "p1", title: "P", dir: "/p" }), undefined);
+});
+
+test("projectTooltip says the checkout's branch, podman and changes", () => {
+  const lines = projectTooltip({
+    id: "p1",
+    title: "P",
+    dir: "/p",
+    branch: "main",
+    podman: true,
+    changes: 1,
+  }).split("\n");
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /main/);
+  assert.match(lines[1], /podman/);
+  assert.match(lines[2], /1/);
 });
