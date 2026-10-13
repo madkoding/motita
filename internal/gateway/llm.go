@@ -12,6 +12,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/onboard"
 )
 
@@ -39,6 +40,9 @@ type llmProviderView struct {
 	// config.KeySource). KeyVariable names the variable when it is env, so the page can say which.
 	Key         string `json:"key"`
 	KeyVariable string `json:"key_variable,omitempty"`
+	// KeyHint is the key's last four characters ("…a1b2"), so a person can tell which key is in
+	// use without the page ever holding it. Empty for a short key, where four would be most of it.
+	KeyHint string `json:"key_hint,omitempty"`
 	// Login is the command that logs the provider's own tool in (claude-code). SupportsLogin says
 	// the setup (motita config) can store a login for it instead of a key.
 	Login         string `json:"login,omitempty"`
@@ -79,6 +83,7 @@ var listProviderModels = func(ctx context.Context, l config.LLM) ([]string, erro
 var (
 	setCredential = config.SetCredential
 	setLLMDefault = config.SetLLMDefault
+	deleteLogin   = oauth.DeleteCredential
 )
 
 // genericKey is the variable that belongs to whichever provider the configuration names.
@@ -158,10 +163,47 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 			pv.KeyVariable = "OPENAI_API_KEY"
 		}
 	}
+	if pv.Key == config.KeyEnv || pv.Key == config.KeyStored || pv.Key == config.KeyConfig {
+		pv.KeyHint = keyHint(effectiveKey(cfg, p.ID))
+	}
 	for _, m := range p.Models {
 		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note})
 	}
 	return pv
+}
+
+// minHintedKey is the shortest key whose last four characters are shown.
+const minHintedKey = 16
+
+// keyHint is a key's last four characters, or "" for a key too short to show any of.
+func keyHint(key string) string {
+	if len(key) < minHintedKey {
+		return ""
+	}
+	return "…" + key[len(key)-4:]
+}
+
+// rememberModels keeps the models a provider listed, for the model picker of every session.
+func (s *Server) rememberModels(id string, models []string) {
+	s.llmListedMu.Lock()
+	defer s.llmListedMu.Unlock()
+	if s.llmListed == nil {
+		s.llmListed = map[string][]string{}
+	}
+	s.llmListed[id] = models
+}
+
+// withListedModels puts the models each provider listed in its last test in place of its
+// catalogue: they are the ones it really serves to this account.
+func (s *Server) withListedModels(list []providerInfo) []providerInfo {
+	s.llmListedMu.Lock()
+	defer s.llmListedMu.Unlock()
+	for i, p := range list {
+		if models := s.llmListed[p.ID]; len(models) > 0 {
+			list[i].Models = append([]string(nil), models...)
+		}
+	}
+	return list
 }
 
 // handleLLM answers the providers, where each one's key comes from, and the default.
@@ -333,7 +375,12 @@ func (s *Server) handleLLMForget(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := s.configuredLLM()
 	setKey := config.ProviderNeedsKey(p.ID)
-	if err := s.saveProvider(cfg, p, setKey, "", canChangeBase(p), ""); err != nil {
+	err := s.saveProvider(cfg, p, setKey, "", canChangeBase(p), "")
+	if err == nil && config.SupportsLogin(p.ID) {
+		// Disconnecting a provider signed in from the browser or the setup forgets the login too.
+		err = deleteLogin(config.AuthDir(), p.ID)
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -409,6 +456,7 @@ func (s *Server) handleLLMTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sort.Strings(models)
+	s.rememberModels(p.ID, models)
 	writeJSON(w, http.StatusOK, testResult{OK: true, Models: models})
 }
 

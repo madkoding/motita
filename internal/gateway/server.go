@@ -217,6 +217,13 @@ type Server struct {
 	uiMu       sync.Mutex
 	uiLanguage string
 
+	// llmLogins are the provider sign-ins started from the browser (see llmlogin.go), and
+	// llmListed the models each provider listed when its connection was last tested (llm.go).
+	llmLoginMu  sync.Mutex
+	llmLogins   map[string]*llmLogin
+	llmListedMu sync.Mutex
+	llmListed   map[string][]string
+
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//
 	// A run is NOT bounded by its connection - that is the whole point of it being an object - so
@@ -662,6 +669,7 @@ func (s *Server) routes() *http.ServeMux {
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)
+	s.llmLoginRoutes(mux, plain)
 	// Speech input: process-wide too, and the recording is never stored. See voice.go.
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
