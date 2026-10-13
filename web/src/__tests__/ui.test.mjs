@@ -140,6 +140,20 @@ test("compact density tightens the Tailwind spacing and keeps the fixed sizes", 
   }
 });
 
+test("compact lowers the touch floor on phones and the composer grows with its draft", async () => {
+  assert.match(
+    css,
+    /@media \(pointer: coarse\) \{\s*html\[data-density="compact"\] :is\(button[^{]*\{\s*min-height: 36px;/,
+    "compact drops the 44px finger floor to 36px",
+  );
+  const { fitToContent } = await import("../autosize.ts");
+  const el = document.createElement("textarea");
+  Object.defineProperty(el, "scrollHeight", { value: 60 });
+  el.style.height = "34px";
+  fitToContent(el);
+  assert.equal(el.style.height, "60px", "a wrapped draft gets every line it needs");
+});
+
 test("every button carries the design system diagonal corners", () => {
   assert.match(
     css,

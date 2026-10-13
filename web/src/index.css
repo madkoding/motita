@@ -3075,12 +3075,45 @@ html[data-density="compact"] .row-menu-item {
   padding-top: 3px;
   padding-bottom: 3px;
 }
+html[data-density="compact"] .composer-input {
+  line-height: 1.35;
+}
+html[data-density="compact"] :is(.composer-field, .composer-send) {
+  min-height: 36px;
+}
+html[data-density="compact"] .composer-send {
+  min-width: 36px;
+}
+/* The task report is drawn with its own fixed gaps (report.css), which --spacing does not reach. */
+html[data-density="compact"] .rpt {
+  gap: 6px;
+}
+html[data-density="compact"] .rpt-sec {
+  padding-top: 4px;
+}
+html[data-density="compact"] .rpt-sec h4 {
+  margin-bottom: 2px;
+}
+html[data-density="compact"] .rpt-sec ul {
+  gap: 2px;
+}
 @media (max-width: 640px) {
   html[data-density="compact"] .msg {
     font-size: 0.7em;
+    max-width: 100%;
   }
   html[data-density="compact"] .turn-head .msg.user {
     padding: 2px 6px;
+  }
+}
+/* A finger still needs a target, but 44px is the comfortable floor: in compact, which a reader
+ * picks to fit more on a phone, it drops to 36px - still above WCAG 2.5.8's 24px minimum. */
+@media (pointer: coarse) {
+  html[data-density="compact"] :is(button:not(.row-hit):not(.term-tab), select, summary, [role="button"]) {
+    min-height: 36px;
+  }
+  html[data-density="compact"] :is(button:is([aria-label], [title]):not(.row-hit):not(.term-tab), .term-close, .cp-btn, .markdown-body .copy-btn, .markdown-body .copy-msg-btn) {
+    min-width: 36px;
   }
 }
 
