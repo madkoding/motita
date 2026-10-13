@@ -1,21 +1,27 @@
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import { InsecureWarning } from "./InsecureWarning";
+import { PROVIDER_LOGOS } from "./providerLogos";
 import {
   type Api,
   type LLMProvider,
   type LLMView,
+  type LoginView,
   type TestResult,
   LLMError,
   canTypeKey,
+  cancelLogin,
   forgetProvider,
   isConnected,
   loadLLM,
+  loginStatus,
   modelChoices,
+  pasteLogin,
   saveDefault,
   saveProvider,
+  startLogin,
   testProvider,
   trialOf,
 } from "./llmApi";
@@ -57,8 +63,14 @@ function failureText(e: unknown): string {
   return errorMessage(e);
 }
 
-// stateText is the line under a provider's name: whether it can run, and on what.
+// stateText is the line under a provider's name: whether it can run, and on what. A key's last
+// four characters follow, so two saved keys can be told apart without showing either.
 export function stateText(p: LLMProvider): string {
+  const s = keyState(p);
+  return choose(!!p.key_hint && isConnected(p), s + " " + p.key_hint, s);
+}
+
+function keyState(p: LLMProvider): string {
   switch (p.key) {
     case "stored":
       return t("Connected · key saved");
@@ -77,11 +89,18 @@ export function stateText(p: LLMProvider): string {
   }
 }
 
-// ProviderIcon is the provider's initial on the same tile the git hosts use.
+// ProviderIcon is the provider's logo, or its initial, on the same tile the git hosts use.
 function ProviderIcon({ p }: { p: LLMProvider }) {
+  const logo = PROVIDER_LOGOS[p.id];
   return (
-    <span class="git-account-icon llm-icon" aria-hidden="true">
-      {p.name.charAt(0)}
+    <span class="git-account-icon llm-icon" aria-hidden="true" data-logo={p.id}>
+      {logo ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
+          <path d={logo.d} />
+        </svg>
+      ) : (
+        p.name.charAt(0)
+      )}
     </span>
   );
 }
@@ -442,6 +461,7 @@ function ProviderForm({
   const canForget =
     writable &&
     (p.key === "stored" ||
+      p.key === "login" ||
       (!!p.ask_base_url && !!p.base_url && p.base_url !== p.default_base_url));
   return (
     <form class="llm-form" onSubmit={save} data-testid="llm-form">
@@ -461,12 +481,16 @@ function ProviderForm({
           </>
         )}
       </p>
-      {p.supports_login && p.key === "missing" && (
-        <p class="text-xs text-[#7a7a8c]">
-          {t(
-            "You can also sign in with your account from the terminal: motita config",
-          )}
-        </p>
+      {p.supports_login && writable && (
+        <AccountLogin
+          api={api}
+          p={p}
+          onDone={() => {
+            onNotice(tf("Signed in to {name}", { name: p.name }));
+            onChanged();
+            onToggle();
+          }}
+        />
       )}
       {typing && (
         <label class="llm-label">
@@ -477,7 +501,9 @@ function ProviderForm({
             value={key}
             placeholder={choose(
               p.key === "stored",
-              t("Saved. Paste a new one to replace it"),
+              tf("Saved ({hint}). Paste a new one to replace it", {
+                hint: p.key_hint || "…",
+              }),
               t("Paste the key"),
             )}
             autocomplete="off"
@@ -568,5 +594,190 @@ function ProviderForm({
         )}
       </div>
     </form>
+  );
+}
+
+// LOGIN_POLL is how often a pending sign-in asks the gateway whether the provider answered.
+export const LOGIN_POLL = 2000;
+
+// AccountLogin signs in with the provider's account. The gateway runs the login: the page shows
+// the link and the code, or takes the address the browser ended on, and waits for the end.
+function AccountLogin({
+  api,
+  p,
+  onDone,
+}: {
+  api: Api;
+  p: LLMProvider;
+  onDone: () => void;
+}) {
+  const [login, setLogin] = useState<LoginView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [pasted, setPasted] = useState("");
+  const [sent, setSent] = useState(false);
+  const flow = useRef("");
+  const done = useRef(onDone);
+  done.current = onDone;
+  // A login left pending when the form closes is stopped, so the gateway forgets it.
+  useEffect(
+    () => () => {
+      if (flow.current) {
+        void cancelLogin(api, flow.current);
+      }
+    },
+    [api],
+  );
+  const settle = useCallback((l: LoginView) => {
+    setLogin(l);
+    if (l.status === "pending") {
+      return;
+    }
+    flow.current = "";
+    if (l.status === "connected") {
+      done.current();
+    }
+  }, []);
+  useEffect(() => {
+    if (login?.status !== "pending") {
+      return;
+    }
+    const id = setTimeout(() => {
+      loginStatus(api, login.id)
+        .then(settle)
+        .catch((e) => {
+          flow.current = "";
+          setLogin(null);
+          setErr(failureText(e));
+        });
+    }, LOGIN_POLL);
+    return () => clearTimeout(id);
+  }, [api, login, settle]);
+  const start = async () => {
+    setBusy(true);
+    setErr("");
+    setSent(false);
+    setPasted("");
+    try {
+      const l = await startLogin(api, p.id);
+      flow.current = choose(l.status === "pending", l.id, "");
+      settle(l);
+    } catch (e) {
+      setErr(failureText(e));
+    }
+    setBusy(false);
+  };
+  const stop = () => {
+    void cancelLogin(api, flow.current);
+    flow.current = "";
+    setLogin(null);
+  };
+  const paste = async () => {
+    setErr("");
+    try {
+      await pasteLogin(api, login?.id || "", pasted.trim());
+      setSent(true);
+    } catch (e) {
+      setErr(failureText(e));
+    }
+  };
+  const pending = login?.status === "pending";
+  return (
+    <div class="llm-login" data-testid="llm-login">
+      {!pending && (
+        <div class="llm-actions">
+          <button
+            type="button"
+            class={smallBtn}
+            disabled={busy}
+            onClick={() => void start()}
+          >
+            {choose(
+              busy,
+              t("Starting…"),
+              choose(
+                p.key === "login",
+                t("Sign in again"),
+                t("Sign in with your account"),
+              ),
+            )}
+          </button>
+        </div>
+      )}
+      {pending && login.method === "device" && (
+        <div class="llm-login-step">
+          <p class="text-xs text-[#9a9aaa]">
+            {t("Open the link and type this code:")}
+          </p>
+          <code class="llm-login-code" data-testid="llm-login-code">
+            {login.code}
+          </code>
+          <a
+            class="text-xs text-accent underline underline-offset-2 break-all"
+            href={login.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {login.url} ↗
+          </a>
+        </div>
+      )}
+      {pending && login.method === "code" && (
+        <div class="llm-login-step">
+          <a
+            class="text-xs text-accent underline underline-offset-2"
+            href={login.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t("Open the sign-in page")} ↗
+          </a>
+          <p class="text-xs text-[#9a9aaa]">
+            {t(
+              "If the page ends on an address that does not load, paste that address here.",
+            )}
+          </p>
+          <div class="llm-actions">
+            <input
+              class={inputCls + " font-mono flex-1"}
+              value={pasted}
+              placeholder="localhost:1455/auth/callback?code=…"
+              aria-label={t("Address the browser ended on")}
+              autocapitalize="off"
+              spellcheck={false}
+              onInput={(e) => setPasted((e.target as HTMLInputElement).value)}
+            />
+            <button
+              type="button"
+              class={smallBtn}
+              disabled={!pasted.trim() || sent}
+              onClick={() => void paste()}
+            >
+              {t("Send")}
+            </button>
+          </div>
+        </div>
+      )}
+      {pending && (
+        <div class="llm-actions">
+          <output class="text-xs text-[#9a9aaa] flex-1">
+            {t("Waiting for the provider…")}
+          </output>
+          <button type="button" class={smallBtn} onClick={stop}>
+            {t("Cancel")}
+          </button>
+        </div>
+      )}
+      {login?.status === "failed" && (
+        <p class="text-xs text-danger" role="alert">
+          {tf("The sign-in did not finish: {err}", { err: login.error || "" })}
+        </p>
+      )}
+      {err && (
+        <p class="text-xs text-danger" role="alert">
+          {err}
+        </p>
+      )}
+    </div>
   );
 }

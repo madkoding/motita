@@ -827,10 +827,6 @@ const es: Record<string, string> = {
   "The key is written in the configuration file (llm.api_key). Remove it from there to manage the key here.":
     "La clave está escrita en el archivo de configuración (llm.api_key). Quítala de ahí para gestionarla desde aquí.",
   "Get a key": "Obtener una clave",
-  "You can also sign in with your account from the terminal: motita config":
-    "También puedes iniciar sesión con tu cuenta desde la terminal: motita config",
-  "Saved. Paste a new one to replace it":
-    "Guardada. Pega una nueva para reemplazarla",
   "Paste the key": "Pega la clave",
   Endpoint: "Endpoint",
   "It works: {n} models available.": "Funciona: {n} modelos disponibles.",
@@ -858,6 +854,19 @@ const es: Record<string, string> = {
     "inicia sesión con Google, o una clave de AI Studio",
   "sign in with qwen.ai, or a DashScope key":
     "inicia sesión con qwen.ai, o una clave de DashScope",
+  "Saved ({hint}). Paste a new one to replace it":
+    "Guardada ({hint}). Pega una nueva para reemplazarla",
+  "Signed in to {name}": "Sesión iniciada en {name}",
+  "Starting…": "Iniciando…",
+  "Sign in again": "Volver a iniciar sesión",
+  "Sign in with your account": "Iniciar sesión con tu cuenta",
+  "Open the link and type this code:": "Abre el enlace y escribe este código:",
+  "Open the sign-in page": "Abrir la página de inicio de sesión",
+  "If the page ends on an address that does not load, paste that address here.":
+    "Si la página termina en una dirección que no carga, pega esa dirección aquí.",
+  "Address the browser ended on": "Dirección en la que terminó el navegador",
+  "Waiting for the provider…": "Esperando al proveedor…",
+  "The sign-in did not finish: {err}": "El inicio de sesión no terminó: {err}",
 };
 
 export default es;

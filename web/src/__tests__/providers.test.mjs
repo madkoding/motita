@@ -292,6 +292,165 @@ test("a key is typed, tested and saved, and the field never holds it again", asy
   await done();
 });
 
+test("each provider shows its logo, and a saved key its last four characters", async () => {
+  const view = VIEW();
+  view.providers[0].key_hint = "…a1b2";
+  view.providers[2].key_hint = "…zz99";
+  view.providers.push(provider("acme", "Acme"));
+  const { root, done } = await open(fakeGateway(view));
+  for (const id of ["openai", "anthropic", "gemini", "claude-code", "qwen"]) {
+    assert.ok(
+      row(root, id).querySelector(`[data-logo="${id}"] svg path`),
+      id + " has a logo",
+    );
+  }
+  assert.equal(
+    row(root, "acme").querySelector("[data-logo]").textContent,
+    "A",
+    "an unknown provider keeps its initial",
+  );
+  assert.match(row(root, "openai").textContent, /key saved …a1b2/);
+  assert.match(row(root, "gemini").textContent, /GEMINI_API_KEY …zz99/);
+  await act(() => button(row(root, "openai"), "Manage").click());
+  assert.equal(
+    row(root, "openai").querySelector("input[type=password]").placeholder,
+    "Saved (…a1b2). Paste a new one to replace it",
+  );
+  await done();
+});
+
+// fastPolls makes the sign-in's two-second polls short for the test it runs in, and poll waits one.
+function fastPolls(t) {
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) =>
+    real(fn, ms === 2000 ? 20 : ms, ...a);
+  t.after(() => {
+    globalThis.setTimeout = real;
+  });
+}
+
+const poll = () => act(() => new Promise((r) => setTimeout(r, 60)));
+
+const LOGIN = {
+  id: "f1",
+  provider: "qwen",
+  method: "device",
+  url: "https://chat.qwen.ai/authorize",
+  code: "QW-12",
+  status: "pending",
+};
+
+test("a device sign-in shows the code, waits for the provider and reloads", async (t) => {
+  fastPolls(t);
+  const gw = fakeGateway(VIEW(), {
+    "POST /v1/llm/providers/qwen/login": [200, LOGIN],
+    "GET /v1/llm/logins/f1": [200, { ...LOGIN, status: "connected" }],
+  });
+  const { root, notices, done } = await open(gw);
+  await act(() => button(row(root, "qwen"), "Connect").click());
+  const form = row(root, "qwen").querySelector("[data-testid=llm-form]");
+  await act(() => button(form, "Sign in with your account").click());
+  await settle();
+  assert.equal(
+    form.querySelector("[data-testid=llm-login-code]").textContent,
+    "QW-12",
+  );
+  assert.equal(form.querySelector(`a[href="${LOGIN.url}"]`).target, "_blank");
+  assert.match(form.textContent, /Waiting for the provider/);
+  await poll();
+  assert.deepEqual(notices.at(-1), ["Signed in to Qwen", false]);
+  assert.equal(row(root, "qwen").querySelector("[data-testid=llm-form]"), null);
+  assert.equal(
+    gw.calls.filter((c) => c.path === "/v1/llm").length,
+    2,
+    "the providers are read again",
+  );
+  assert.equal(
+    gw.calls.filter((c) => c.method === "DELETE").length,
+    0,
+    "a finished sign-in is not cancelled",
+  );
+  await done();
+});
+
+test("a code sign-in takes the pasted address, and one that fails says why", async (t) => {
+  fastPolls(t);
+  const code = { ...LOGIN, method: "code", code: undefined };
+  const gw = fakeGateway(VIEW(), {
+    "POST /v1/llm/providers/qwen/login": [200, code],
+    "POST /v1/llm/logins/f1/paste": [200, {}],
+    "GET /v1/llm/logins/f1": [
+      200,
+      { ...code, status: "failed", error: "state mismatch" },
+    ],
+  });
+  const { root, done } = await open(gw);
+  await act(() => button(row(root, "qwen"), "Connect").click());
+  const form = row(root, "qwen").querySelector("[data-testid=llm-form]");
+  await act(() => button(form, "Sign in with your account").click());
+  await settle();
+  const field = form.querySelector("[data-testid=llm-login] input");
+  assert.equal(button(form, "Send").disabled, true);
+  await type(field, " http://localhost:1455/auth/callback?code=c ");
+  await act(() => button(form, "Send").click());
+  assert.deepEqual(gw.calls.at(-1), {
+    method: "POST",
+    path: "/v1/llm/logins/f1/paste",
+    body: { code: "http://localhost:1455/auth/callback?code=c" },
+  });
+  await poll();
+  assert.match(form.textContent, /The sign-in did not finish: state mismatch/);
+  assert.ok(button(form, "Sign in with your account"), "it can start again");
+  await done();
+});
+
+test("a sign-in left open is cancelled, and a refused one is reported", async () => {
+  const gw = fakeGateway(VIEW(), {
+    "POST /v1/llm/providers/qwen/login": [200, LOGIN],
+    "DELETE /v1/llm/logins/f1": [200, {}],
+  });
+  const { root, done } = await open(gw);
+  await act(() => button(row(root, "qwen"), "Connect").click());
+  let form = row(root, "qwen").querySelector("[data-testid=llm-form]");
+  await act(() => button(form, "Sign in with your account").click());
+  await settle();
+  await act(() => button(form, "Cancel").click());
+  assert.deepEqual(gw.calls.at(-1), {
+    method: "DELETE",
+    path: "/v1/llm/logins/f1",
+    body: undefined,
+  });
+  await act(() => button(form, "Sign in with your account").click());
+  await settle();
+  await act(() => button(row(root, "qwen"), "Close").click());
+  assert.equal(
+    gw.calls.filter((c) => c.method === "DELETE").length,
+    2,
+    "closing the form stops the sign-in",
+  );
+  await done();
+
+  const view = VIEW();
+  view.providers[2].supports_login = true;
+  view.providers[2].key = "login";
+  const second = await open(
+    fakeGateway(view, {
+      "POST /v1/llm/providers/gemini/login": [
+        502,
+        { error: "run gcloud auth application-default login" },
+      ],
+    }),
+  );
+  assert.match(row(second.root, "gemini").textContent, /signed in/);
+  await act(() => button(row(second.root, "gemini"), "Manage").click());
+  form = row(second.root, "gemini").querySelector("[data-testid=llm-form]");
+  assert.ok(button(form, "Disconnect"), "a login can be forgotten");
+  await act(() => button(form, "Sign in again").click());
+  await settle();
+  assert.match(form.textContent, /run gcloud auth application-default login/);
+  await second.done();
+});
+
 test("a failed test and a refused save say why, in the reader's words", async () => {
   const gw = fakeGateway(VIEW(), {
     "POST /v1/llm/providers/openai/test": [
@@ -345,7 +504,7 @@ test("a key from the environment or a login command is explained, not asked for"
   assert.match(form.textContent, /claude auth login/);
   await act(() => button(row(root, "qwen"), "Connect").click());
   form = row(root, "qwen").querySelector("[data-testid=llm-form]");
-  assert.match(form.textContent, /motita config/);
+  assert.ok(button(form, "Sign in with your account"));
   await done();
 });
 

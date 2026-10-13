@@ -28,6 +28,7 @@ export interface LLMProvider {
   console_url?: string;
   key: KeySource;
   key_variable?: string;
+  key_hint?: string;
   login?: string;
   supports_login?: boolean;
   ask_base_url?: boolean;
@@ -128,6 +129,49 @@ export function saveDefault(
     headers: JSON_HEADERS,
     body: JSON.stringify({ provider, model }),
   });
+}
+
+// A sign-in with the provider's account, run by the gateway. The page only learns its state.
+export interface LoginView {
+  id: string;
+  provider: string;
+  method: "device" | "code" | "instant";
+  url?: string;
+  code?: string;
+  status: "pending" | "connected" | "failed";
+  error?: string;
+}
+
+function loginPath(flow: string): string {
+  return "/v1/llm/logins/" + encodeURIComponent(flow);
+}
+
+export function startLogin(api: Api, id: string): Promise<LoginView> {
+  return send<LoginView>(api, providerPath(id) + "/login", { method: "POST" });
+}
+
+export function loginStatus(api: Api, flow: string): Promise<LoginView> {
+  return send<LoginView>(api, loginPath(flow));
+}
+
+// pasteLogin hands a code login the address the browser ended on.
+export async function pasteLogin(
+  api: Api,
+  flow: string,
+  code: string,
+): Promise<void> {
+  const res = await api(loginPath(flow) + "/paste", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    throw await failure(res);
+  }
+}
+
+export async function cancelLogin(api: Api, flow: string): Promise<void> {
+  await api(loginPath(flow), { method: "DELETE" }).catch(() => undefined);
 }
 
 // isConnected says whether a provider can run: it has a key, a login, or needs neither.
