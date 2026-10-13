@@ -239,6 +239,20 @@ function CheckpointMenu({ turn }: { turn: number }) {
   );
 }
 
+// UserText is what a message of the user's says. A message drawn under a label (the turn that
+// applies suggestions) shows the label, and the prompt it sent opens under it on request.
+export function UserText({ m }: { m: Message }) {
+  if (!m.shown) {
+    return <span>{m.text}</span>;
+  }
+  return (
+    <details class="msg-shown">
+      <summary>{m.shown}</summary>
+      <pre>{m.text}</pre>
+    </details>
+  );
+}
+
 // TurnHead is the input that opened a turn, sticky inside its group, with its menus.
 export function TurnHead({
   head,
@@ -257,7 +271,7 @@ export function TurnHead({
   return (
     <div class="turn-head">
       <div class="msg user" data-who={t("You")}>
-        <span>{head.text}</span>
+        <UserText m={head} />
       </div>
       {mode && <ModeChip mode={mode} text={head.text} />}
       {liveHere && <RunMenu />}

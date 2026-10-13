@@ -10,9 +10,12 @@ import { Lightbox } from "./Lightbox";
 import { t, tf, plural } from "./i18n";
 import { choose } from "./choose";
 import {
+  pickAt,
   proposalRequest,
   settle,
+  type Pick,
   type ProposalAnswer,
+  type SuggestionAnswers,
   type Verdict,
 } from "./proposals";
 
@@ -190,13 +193,19 @@ function keyedReport(report: TaskReport) {
 export function ReportCard({
   report,
   loadImage,
-  onApply,
+  answers,
+  expired,
+  onAnswer,
 }: {
   report: TaskReport;
   loadImage?: LoadImage;
-  // onApply starts the turn that applies the accepted suggestions. Without it (a run in flight, or
-  // an old answer read back) the suggestions are shown but cannot be answered.
-  onApply?: (request: string) => void;
+  // answers are how the suggestions were already answered, when they were.
+  answers?: SuggestionAnswers;
+  // expired says the conversation moved on without answering them: they are no longer offered.
+  expired?: boolean;
+  // onAnswer keeps the answers and starts the turn that applies the accepted suggestions. Without
+  // it (a run in flight) the suggestions are shown but cannot be answered.
+  onAnswer?: (answers: SuggestionAnswers) => void;
 }) {
   const [zoom, setZoom] = useState<Zoom | null>(null);
   const closeZoom = useCallback(() => setZoom(null), []);
@@ -268,7 +277,9 @@ export function ReportCard({
       {(report.suggestions?.length ?? 0) > 0 && (
         <SuggestionsSection
           suggestions={report.suggestions ?? []}
-          onApply={onApply}
+          answers={answers}
+          expired={expired}
+          onAnswer={onAnswer}
         />
       )}
       {zoom && (
@@ -445,43 +456,68 @@ function BulletSection({
 
 type Suggestion = NonNullable<TaskReport["suggestions"]>[number];
 
+// The three buttons of a suggestion, in the order they are drawn.
+const ANSWERS: { pick: ProposalAnswer; label: () => string }[] = [
+  { pick: "this", label: () => t("Apply this one") },
+  { pick: "rest", label: () => t("Apply this one and the following") },
+  { pick: "none", label: () => t("Apply none") },
+];
+
 // SuggestionsSection asks about each suggestion in turn: apply this one, apply this one and the
 // following, or apply none. Nothing is applied until every one has an answer, and then only the
-// accepted ones are sent, as a new turn.
+// accepted ones are sent, as a new turn. The button pressed stays on screen, marked and no longer
+// pressable, so the card says what was chosen; `answers` brings that back when the conversation
+// is opened again.
 function SuggestionsSection({
   suggestions,
-  onApply,
+  answers,
+  expired,
+  onAnswer,
 }: {
   suggestions: Suggestion[];
-  onApply?: (request: string) => void;
+  answers?: SuggestionAnswers;
+  expired?: boolean;
+  onAnswer?: (answers: SuggestionAnswers) => void;
 }) {
-  const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(() =>
-    suggestions.map(() => undefined),
+  const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(
+    () => answers?.verdicts ?? suggestions.map(() => undefined),
   );
-  const [sent, setSent] = useState(false);
+  const [picks, setPicks] = useState<Pick[]>(
+    () => answers?.picks ?? suggestions.map(() => ""),
+  );
+  // Expired only while nothing was answered here: a half-answered list keeps its marks.
+  const stale = !!expired && picks.every((p) => !p);
+  const done = stale || verdicts.every((v) => v !== undefined);
   const current = verdicts.findIndex((v) => v === undefined);
   const answer = (pick: ProposalAnswer) => {
     const next = settle(verdicts, current, pick);
+    const pressed = pickAt(picks, current, pick);
     setVerdicts(next);
-    if (next.every((v) => v !== undefined)) {
-      setSent(true);
+    setPicks(pressed);
+    if (next.every((v) => v !== undefined) && onAnswer) {
       const request = proposalRequest(
         t("Apply these suggestions you made, and nothing else:"),
         suggestions,
         next,
       );
-      if (request && onApply) {
-        onApply(request);
-      }
+      onAnswer({ picks: pressed, verdicts: next as Verdict[], request });
     }
   };
   const items = keyed(suggestions, (s) => `${s.title}|${s.detail}`);
   return (
-    <section class="rpt-sec rpt-suggest">
+    <section class={`rpt-sec rpt-suggest${choose(stale, " expired", "")}`}>
       <h4>{t("Suggestions")}</h4>
+      {stale && (
+        <p class="rpt-expired">
+          {t("Not answered before the conversation moved on; no longer offered.")}
+        </p>
+      )}
       <ul>
         {items.map(({ key, item }, i) => (
-          <li key={key} class={verdicts[i] ?? choose(i === current, "current", "")}>
+          <li
+            key={key}
+            class={verdicts[i] ?? choose(i === current && !stale, "current", "")}
+          >
             <span class="rpt-body">
               <span class="rpt-check">{item.title}</span>
               {item.detail && <span class="rpt-evidence">{item.detail}</span>}
@@ -491,17 +527,21 @@ function SuggestionsSection({
                 {choose(verdicts[i] === "apply", t("will apply"), t("not applied"))}
               </span>
             )}
-            {i === current && !sent && (
+            {(picks[i] || (i === current && !done)) && (
               <div class="rpt-suggest-actions">
-                <button type="button" disabled={!onApply} onClick={() => answer("this")}>
-                  {t("Apply this one")}
-                </button>
-                <button type="button" disabled={!onApply} onClick={() => answer("rest")}>
-                  {t("Apply this one and the following")}
-                </button>
-                <button type="button" disabled={!onApply} onClick={() => answer("none")}>
-                  {t("Apply none")}
-                </button>
+                {ANSWERS.map(({ pick, label }) => (
+                  <button
+                    key={pick}
+                    type="button"
+                    class={choose(picks[i] === pick, "picked", undefined)}
+                    aria-pressed={!!picks[i] && picks[i] === pick}
+                    disabled={!!picks[i] || !onAnswer}
+                    onClick={() => answer(pick)}
+                  >
+                    {choose(picks[i] === pick, "✓ ", "")}
+                    {label()}
+                  </button>
+                ))}
               </div>
             )}
           </li>

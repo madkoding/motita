@@ -151,3 +151,63 @@ func TestRefusingEveryProposalRunsNothing(t *testing.T) {
 		t.Fatalf("no turn should run and the window should close, got %q", rr.tasks)
 	}
 }
+
+// userLines are the user's messages on screen.
+func userLines(tui *TUI) []string {
+	var out []string
+	for _, m := range tui.messages {
+		if m.Author == AuthorUser {
+			out = append(out, m.Text)
+		}
+	}
+	return out
+}
+
+// The turn that applies the accepted proposals shows what was chosen, not the prompt it sends:
+// "Applying suggestions" and each suggestion marked as applied or not.
+func TestApplyingProposalsShowsTheChoicesNotThePrompt(t *testing.T) {
+	rr := &recordingRunner{}
+	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr}
+	tui.ask = newAsk(proposalItems(), "fix the parser")
+	tui.ask.pick(0)
+	tui.ask.pick(2)
+	tui.confirmAsk()
+	if len(rr.tasks) != 1 || !strings.HasPrefix(rr.tasks[0], "Apply these suggestions") {
+		t.Fatalf("the prompt should still be sent, got %q", rr.tasks)
+	}
+	lines := userLines(tui)
+	want := "Applying suggestions\n✓ test the empty header\n✗ share the retry helper\n✗ log the dropped rows"
+	if len(lines) != 1 || lines[0] != want {
+		t.Fatalf("the conversation shows %q, want %q", lines, want)
+	}
+}
+
+// Refusing every proposal runs no turn, but the conversation still says what was decided.
+func TestRefusingEveryProposalSaysSo(t *testing.T) {
+	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: &recordingRunner{}, Lang: i18n.ES}
+	tui.ask = newAsk(proposalItems(), "")
+	tui.ask.pick(2)
+	tui.confirmAsk()
+	last := tui.messages[len(tui.messages)-1]
+	if last.Author != AuthorSystem || !strings.HasPrefix(last.Text, "No se aplicó ninguna sugerencia:") ||
+		!strings.Contains(last.Text, "✗ log the dropped rows") {
+		t.Fatalf("last message = %+v", last)
+	}
+}
+
+// A conversation read back draws the turn that applied suggestions by its label, in either
+// language it was sent in, and every other turn as written.
+func TestAReadBackProposalTurnIsLabelled(t *testing.T) {
+	tui := &TUI{Lang: i18n.ES}
+	for _, sent := range []string{
+		"Apply these suggestions you made, and nothing else:\n- a",
+		"Aplica estas sugerencias que hiciste, y nada más:\n- a",
+	} {
+		if got := tui.shownTurn(sent); got != "Aplicando sugerencias" {
+			t.Fatalf("shownTurn(%q) = %q", sent, got)
+		}
+	}
+	if got := tui.shownTurn("fix the parser"); got != "fix the parser" {
+		t.Fatalf("an ordinary turn changed: %q", got)
+	}
+}

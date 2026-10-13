@@ -338,6 +338,10 @@ jobs:
       - name: End-to-end test of the gateway
         run: ./scripts/e2e-gateway.sh amd64
 
+      # The suggestions flow over HTTP: proposed, answered once, applied, kept across a restart.
+      - name: End-to-end test of the suggestions flow
+        run: ./scripts/e2e-suggestions.sh
+
       # The size ceiling guards against RUNAWAY growth rather than capping features: the
       # gateway is hand-written on the standard library, and a dependency added here would
       # land in the same binary this gate measures.

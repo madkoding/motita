@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/i18n"
 )
 
 // askState is the navigable window the agent's questions are answered in.
@@ -368,7 +369,7 @@ func (t *TUI) submitProposals(a *askState) {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(agent.ProposalRequest(t.tr("Apply these suggestions you made, and nothing else:"), accepted))
+	b.WriteString(agent.ProposalRequest(t.tr(proposalLead), accepted))
 	if len(notes) > 0 {
 		b.WriteString("\n\n")
 		b.WriteString(t.tr("About your other suggestions:"))
@@ -376,7 +377,48 @@ func (t *TUI) submitProposals(a *askState) {
 			b.WriteString("\n- " + qa.Question + " -> " + qa.Answer)
 		}
 	}
-	t.submitPrompt(strings.TrimSpace(b.String()))
+	prompt := strings.TrimSpace(b.String())
+	if prompt == "" {
+		// Nothing to apply: no turn, but the conversation still says what was decided.
+		t.addMessage(AuthorSystem, t.tr("No suggestions applied:")+"\n"+proposalMarks(a))
+		t.drawFrame()
+		return
+	}
+	// The prompt is for the agent. The conversation shows what the user chose instead: a short
+	// label and each suggestion marked as applied or not.
+	t.submitPromptAs(prompt, t.tr("Applying suggestions")+"\n"+proposalMarks(a))
+}
+
+// proposalLead opens the turn that applies accepted suggestions, in the interface's language.
+const proposalLead = "Apply these suggestions you made, and nothing else:"
+
+// proposalMarks is each suggestion with what was decided for it: ✓ applied, ✗ not applied, or the
+// user's own words when they typed an answer.
+func proposalMarks(a *askState) string {
+	lines := make([]string, 0, len(a.items))
+	for i, it := range a.items {
+		switch a.answers[i] {
+		case agent.ProposalApply, agent.ProposalApplyRest:
+			lines = append(lines, "✓ "+it.Text)
+		case "", agent.ProposalSkipAll:
+			lines = append(lines, "✗ "+it.Text)
+		default:
+			lines = append(lines, "• "+it.Text+" -> "+a.answers[i])
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// shownTurn is how a turn of the user's is drawn when a conversation is read back: the turn that
+// applied suggestions by its label, in either language it may have been sent in, and any other
+// turn as it was written.
+func (t *TUI) shownTurn(text string) string {
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ES} {
+		if strings.HasPrefix(text, i18n.T(lang, proposalLead)) {
+			return t.tr("Applying suggestions")
+		}
+	}
+	return text
 }
 
 // submitAnswers runs the turn that carries the answers back.
@@ -387,15 +429,20 @@ func (t *TUI) submitAnswers(origin string, answers []agent.Answers) {
 // submitPrompt runs the turn that carries a window's answers back, on the screen it was asked from.
 // An empty prompt runs nothing: the window closes and the frame is redrawn.
 func (t *TUI) submitPrompt(prompt string) {
+	t.submitPromptAs(prompt, prompt)
+}
+
+// submitPromptAs is submitPrompt with `shown` drawn in the conversation instead of the prompt.
+func (t *TUI) submitPromptAs(prompt, shown string) {
 	if strings.TrimSpace(prompt) == "" {
 		t.drawFrame()
 		return
 	}
 	switch t.screen {
 	case ScreenPlan:
-		t.runPlan(t.runningCtxOr(t.loopCtxOr(context.Background())), prompt)
+		t.runPlanAs(t.runningCtxOr(t.loopCtxOr(context.Background())), prompt, shown)
 	default:
-		t.runTask(t.runningCtxOr(t.loopCtxOr(context.Background())), prompt)
+		t.runTaskAs(t.runningCtxOr(t.loopCtxOr(context.Background())), prompt, shown)
 	}
 }
 

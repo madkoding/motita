@@ -9,6 +9,7 @@ import {
 import { Markdown } from "./Markdown";
 import { Lightbox } from "./Lightbox";
 import { ReportCard } from "./Report";
+import type { SuggestionAnswers } from "./proposals";
 import "./report.css";
 import { copyText } from "./clipboard";
 import { t, tf, useLang } from "./i18n";
@@ -67,6 +68,7 @@ import {
   RunArtifacts,
   Trail,
   TurnHead,
+  UserText,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
@@ -795,22 +797,31 @@ function groupsOf(messages: Message[]): Group[] {
 // MessageBody is an answer of the agent (a report card or Markdown), or any other line as text.
 function MessageBody({ m }: { m: Message }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
-  const { stream, rs } = useApp();
+  const { rs, answerSuggestions } = useApp();
   if (m.role !== "agent" || m.kind) {
+    if (m.role === "user") {
+      return <UserText m={m} />;
+    }
     return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
   }
   if (m.report) {
     // The suggestions of a report are answered only while nothing runs: applying them is a turn.
-    const onApply = choose(
+    const onAnswer = choose(
       rs.running,
       undefined,
-      (request: string) => void stream.submit(request),
+      (a: SuggestionAnswers) => void answerSuggestions(m, a),
     );
+    // Suggestions left unanswered once the conversation moved on are stale: the work they were
+    // about has changed since, so they are no longer offered.
+    const expired =
+      !m.answers && rs.messages.some((x) => x.role === "user" && x.id > m.id);
     return (
       <ReportCard
         report={m.report}
         loadImage={loadEvidenceImage}
-        onApply={onApply}
+        answers={m.answers}
+        expired={expired}
+        onAnswer={onAnswer}
       />
     );
   }

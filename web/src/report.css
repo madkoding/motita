@@ -207,6 +207,14 @@
   opacity: 0.5;
   cursor: default;
 }
+/* The button that was pressed: it stays, marked, so the card says what was chosen. */
+.rpt-suggest-actions button.picked,
+.rpt-suggest-actions button.picked:disabled {
+  opacity: 1;
+  border-color: #4cc2ff;
+  background: rgba(76, 194, 255, 0.18);
+  font-weight: 600;
+}
 
 /* Evidence: the before and after screenshots, side by side. Two columns while there is room, one
  * under the other on a narrow screen; each image keeps its own proportions. */
@@ -343,4 +351,25 @@
   user-select: none;
   transform-origin: center;
   will-change: transform;
+}
+
+/* The turn that applies suggestions: its label, with the prompt it sent folded under it. */
+.msg-shown summary {
+  cursor: pointer;
+}
+.msg-shown pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+/* Suggestions the conversation moved on from: kept to read, no longer offered. */
+.rpt-suggest.expired li {
+  opacity: 0.55;
+}
+.rpt-expired {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 0 0 4px;
 }

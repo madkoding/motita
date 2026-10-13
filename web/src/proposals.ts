@@ -41,3 +41,32 @@ export function proposalRequest(
   }
   return [lead.trim(), ...lines].join("\n");
 }
+
+// Pick is the button pressed on one suggestion, or "" on one settled by an earlier answer.
+export type Pick = ProposalAnswer | "";
+
+// SuggestionAnswers is how a report's suggestions were answered, as the gateway keeps it with
+// the turn: the button pressed on each, what was decided for each, and the turn sent to apply the
+// accepted ones ("" or absent when none was).
+export interface SuggestionAnswers {
+  picks: Pick[];
+  verdicts: Verdict[];
+  request?: string;
+}
+
+// pickAt records the button pressed on suggestion i. The ones it settles keep "" as their pick:
+// only the button the user actually pressed is drawn as pressed.
+export function pickAt(picks: Pick[], i: number, answer: ProposalAnswer): Pick[] {
+  const next = [...picks];
+  next[i] = answer;
+  return next;
+}
+
+// isApplying says whether a user turn is the one sent to apply the suggestions answered with
+// `answers`: it is then drawn as a short label, not as the prompt it carries.
+export function isApplying(
+  answers: SuggestionAnswers | undefined,
+  text: string | undefined,
+): boolean {
+  return !!answers?.request && answers.request === text;
+}

@@ -650,6 +650,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
 	mux.Handle("GET /v1/sessions/{id}/checkpoints", scoped(s.handleCheckpoints))
 	mux.Handle("POST /v1/sessions/{id}/checkpoints/{turn}/restore", scoped(s.handleRestoreCheckpoint))
+	mux.Handle("PUT /v1/sessions/{id}/checkpoints/{turn}/answers", scoped(s.handleSuggestionAnswers))
 	mux.Handle("GET /v1/sessions/{id}/config", scoped(s.handleConfig))
 	mux.Handle("PATCH /v1/sessions/{id}/config", scoped(s.handleUpdateConfig))
 	mux.Handle("POST /v1/sessions/{id}/config/reload", scoped(s.handleReloadConfig))

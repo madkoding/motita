@@ -285,7 +285,7 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 // not followed yet: the agent may have opened it from its shell rather than through the pull
 // request button, and from here on the waiting is the gateway's and not the model's.
 func (s *Server) followOpenedPR(c *conversation) {
-	if c.merged || c.projectID == "" || c.prWatchView() != nil {
+	if c.isMerged() || c.projectID == "" || c.prWatchView() != nil {
 		return
 	}
 	t, perr := s.prTargetOf(s.baseCtx, c)
@@ -302,7 +302,7 @@ func (s *Server) followOpenedPR(c *conversation) {
 
 // pollPR asks the host once and acts on the answer. It reports whether the watch is over.
 func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
-	if c.merged {
+	if c.isMerged() {
 		if v := c.prWatchView(); v == nil || v.Status != prMerged {
 			c.setPRWatch(nil)
 		}
@@ -345,7 +345,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	case prPassed:
 		// Not over: unless the project merged it, the pull request is watched until it is merged or closed.
 		s.autoMerge(c, t, pr)
-		over = c.merged
+		over = c.isMerged()
 	case prGaveUp, prNoCI:
 		over = true
 	case "fix":

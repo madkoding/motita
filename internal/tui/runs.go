@@ -109,11 +109,16 @@ func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan 
 }
 
 func (t *TUI) runTask(ctx context.Context, task string) {
+	t.runTaskAs(ctx, task, task)
+}
+
+// runTaskAs runs task and draws `shown` for it in the conversation.
+func (t *TUI) runTaskAs(ctx context.Context, task, shown string) {
 	if strings.TrimSpace(task) == "" {
 		t.drawFrame()
 		return
 	}
-	t.addMessage(AuthorUser, task)
+	t.addMessage(AuthorUser, shown)
 
 	// Cancel any previous run before starting a new one: a run followed from the gateway is
 	// driven from its own goroutine, and a new task replaces it.
@@ -310,11 +315,16 @@ func (s *planStream) setText(text string) {
 }
 
 func (t *TUI) runPlan(ctx context.Context, prompt string) {
+	t.runPlanAs(ctx, prompt, prompt)
+}
+
+// runPlanAs runs the planner on prompt and draws `shown` for it in the conversation.
+func (t *TUI) runPlanAs(ctx context.Context, prompt, shown string) {
 	if strings.TrimSpace(prompt) == "" {
 		t.drawFrame()
 		return
 	}
-	t.addMessage(AuthorUser, prompt)
+	t.addMessage(AuthorUser, shown)
 
 	if cancel := t.currentCancel(); cancel != nil {
 		cancel()

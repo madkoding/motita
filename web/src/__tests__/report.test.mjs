@@ -100,5 +100,5 @@ test("the report offers the three answers, in both languages, and only while not
   }
   assert.match(report, /r\.suggestions\?\.length/);
   assert.match(app, /rs\.running,\s*undefined/);
-  assert.match(app, /onApply=\{onApply\}/);
+  assert.match(app, /onAnswer=\{onAnswer\}/);
 });

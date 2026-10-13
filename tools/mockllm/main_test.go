@@ -351,3 +351,27 @@ func TestTheSynthesisReplyIsAFullStructuredReport(t *testing.T) {
 		t.Errorf("the report is missing a section: %+v", rep)
 	}
 }
+
+// With MOCK_SUGGESTIONS set the report proposes follow-ups, and stays valid JSON; without it the
+// report has none, so the other checks keep the answer they were written against.
+func TestSynthesizeProposesSuggestionsWhenAsked(t *testing.T) {
+	var plain struct {
+		Suggestions []any `json:"suggestions"`
+	}
+	if err := json.Unmarshal([]byte(contentJSON("synthesize", 1)), &plain); err != nil || plain.Suggestions != nil {
+		t.Fatalf("by default the report proposes nothing: %v %+v", err, plain)
+	}
+	t.Setenv("MOCK_SUGGESTIONS", "1")
+	var with struct {
+		Summary     string `json:"summary"`
+		Suggestions []struct {
+			Title string `json:"title"`
+		} `json:"suggestions"`
+	}
+	if err := json.Unmarshal([]byte(contentJSON("synthesize", 1)), &with); err != nil {
+		t.Fatalf("the report must stay JSON: %v", err)
+	}
+	if with.Summary == "" || len(with.Suggestions) != 2 || with.Suggestions[0].Title != "test the empty report" {
+		t.Fatalf("report = %+v", with)
+	}
+}
