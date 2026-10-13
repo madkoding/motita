@@ -290,8 +290,8 @@ export function ModeChip({
   text: string;
 }) {
   const { rs, stream } = useApp();
-  const label = mode === "plan" ? t("Plan") : t("Task");
-  const other = mode === "plan" ? t("Run as task") : t("Run as plan");
+  const label = choose(mode === "plan", t("Plan"), t("Task"));
+  const other = choose(mode === "plan", t("Run as task"), t("Run as plan"));
   return (
     <div class="mode-chip">
       <span class="mode-chip-kind">{label}</span>

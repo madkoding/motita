@@ -81,7 +81,8 @@ var actionVerbs = set(
 	"implementa", "implementar", "crea", "crear", "elimina", "eliminar", "borra", "borrar",
 	"actualiza", "actualizar", "refactoriza", "refactorizar", "renombra", "renombrar",
 	"escribe", "escribir", "ejecuta", "ejecutar", "corre", "correr", "instala", "instalar",
-	"migra", "migrar", "cambia", "cambiar", "mueve", "mover", "haz", "hacer", "sube", "subir", // spanish-fixture: the Spanish the classifier reads
+	"migra", "migrar", "cambia", "cambiar", "mueve", "mover", "sube", "subir",
+	"haz", "hacer", // spanish-fixture: the Spanish the classifier reads
 	"publica", "publicar", "abre", "abrir", "reemplaza", "reemplazar", "aplica", "aplicar",
 	"convierte", "convertir", "limpia", "limpiar", "genera", "generar", "edita", "editar",
 	"modifica", "modificar", "traduce", "traducir", "pon", "quita", "quitar", "integra",
@@ -99,7 +100,8 @@ var planVerbs = set(
 // questionWords open a question.
 var questionWords = set(
 	"how", "what", "why", "where", "which", "who", "when", "is", "are", "does", "should",
-	"como", "que", "cual", "cuales", "porque", "donde", "cuando", "quien", "quienes", "cuanto", // spanish-fixture: the Spanish the classifier reads
+	"como", "que", "cual", "cuales", "donde", "quien", "quienes", "cuanto",
+	"porque", "cuando", // spanish-fixture: the Spanish the classifier reads
 	"cuantos", "deberia", "conviene", "existe", "hay",
 )
 
@@ -168,13 +170,16 @@ func explicitMode(text string) (Decision, bool) {
 // opener ("can you", "puedes") is skipped, along with a "you" or "please" after it.
 func orders(words []string) (string, bool) {
 	i := 0
-	if len(words) > 1 && words[0] == "por" && words[1] == "favor" {
+	switch {
+	case len(words) > 1 && words[0] == "por" && words[1] == "favor":
 		i = 2
-	} else if politeOpeners[words[0]] {
+	case politeOpeners[words[0]]:
 		i++
 		for i < len(words) && (words[i] == "you" || words[i] == "please" || words[i] == "me") {
 			i++
 		}
+	default:
+		// No opener: the order, if there is one, starts at the first word.
 	}
 	if i == len(words) {
 		return "", false
@@ -197,7 +202,8 @@ func imperative(word string) string {
 	return word
 }
 
-// isPorQue reports whether a sentence opens with "por que" (why), folded from "por qué". (spanish-fixture: the Spanish the classifier reads)
+// isPorQue reports whether a sentence opens with "por que" (why),
+// folded from "por qué". (spanish-fixture: the Spanish the classifier reads)
 func isPorQue(words []string) bool {
 	return len(words) > 1 && words[0] == "por" && words[1] == "que"
 }
@@ -242,10 +248,12 @@ func splitSentences(plain string) []sentence {
 
 // accents takes the accents off the letters Spanish and English write with them.
 var accents = strings.NewReplacer(
-	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n", "’", "'", // spanish-fixture: the Spanish the classifier reads
+	"á", "a", "é", "e", "í", "i", "ó", "o", // spanish-fixture: the Spanish the classifier reads
+	"ú", "u", "ü", "u", "ñ", "n", "’", "'", // spanish-fixture: the Spanish the classifier reads
 )
 
-// fold lowercases text and takes the accents off, so "Añade" and "anade" are the same word. (spanish-fixture: the Spanish the classifier reads)
+// fold lowercases text and takes the accents off, so "Añade" (spanish-fixture: classifier input)
+// and "anade" are the same word.
 func fold(text string) string {
 	return accents.Replace(strings.ToLower(text))
 }

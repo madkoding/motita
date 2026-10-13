@@ -194,7 +194,8 @@ func TestRemovingARepositoryThatCannotBeSaved(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(srv.projects.dir, id+".json.tmp", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if w := send(t, srv, http.MethodDelete, "/v1/projects/"+id+"/repos/web-client", testToken, ""); w.Code != http.StatusInternalServerError {
+	w := send(t, srv, http.MethodDelete, "/v1/projects/"+id+"/repos/web-client", testToken, "")
+	if w.Code != http.StatusInternalServerError {
 		t.Errorf("a save that fails: %d", w.Code)
 	}
 }
@@ -215,7 +216,8 @@ func TestDeletingASessionGivesBackItsOtherRepositories(t *testing.T) {
 	if !strings.Contains(w.Body.String(), filepath.Join(gitx.ReposDir, "lib", "new.txt")) {
 		t.Fatalf("the preview must list the other repository's changes: %s", w.Body)
 	}
-	if w := send(t, srv, http.MethodDelete, sessionPath(srv, sessionID, ""), testToken, ""); w.Code != http.StatusConflict {
+	if w := send(t, srv, http.MethodDelete, sessionPath(srv, sessionID, ""), testToken, ""); w.Code !=
+		http.StatusConflict {
 		t.Fatalf("uncommitted work in another repository must stop the deletion: %d", w.Code)
 	}
 	if w := send(t, srv, http.MethodDelete, sessionPath(srv, sessionID, "?force=1"), testToken, ""); w.Code >= 300 {

@@ -15,14 +15,21 @@ import { build } from "esbuild";
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
 
+const SESSION_ROW = "SessionRow.tsx";
+const PROJECT_GROUP = "ProjectGroup.tsx";
+const ROW_HIT = 'class="row-hit"';
+
 // The body of a component, from its declaration to the next top-level function.
 function component(file, name) {
   const code = src(file);
-  const start = code.search(new RegExp(`function ${name}\\(`));
+  const start = code.search(new RegExp(String.raw`function ${name}\(`));
   assert.ok(start >= 0, `${name} exists`);
   const rest = code.slice(start + 1);
   const end = rest.search(/\n(?:export )?function /);
-  return code.slice(start, end < 0 ? undefined : start + 1 + end);
+  if (end < 0) {
+    return code.slice(start);
+  }
+  return code.slice(start, start + 1 + end);
 }
 
 // The position of each marker in the JSX, in the order given; each must be found.
@@ -35,10 +42,10 @@ function order(body, markers) {
 }
 
 test("a session row's click target is drawn above its text and under its actions", () => {
-  const row = component("SessionRow.tsx", "SessionRow");
+  const row = component(SESSION_ROW, "SessionRow");
   const [text, hit, actions] = order(row, [
     "<SessionSummary",
-    'class="row-hit"',
+    ROW_HIT,
     "<SessionActions",
   ]);
   assert.ok(text < hit, "the button comes after the text");
@@ -47,23 +54,23 @@ test("a session row's click target is drawn above its text and under its actions
 });
 
 test("the row buttons carry the tooltips of the labels they cover", () => {
-  const row = component("SessionRow.tsx", "SessionRow");
-  const hit = row.slice(row.indexOf('class="row-hit"'));
+  const row = component(SESSION_ROW, "SessionRow");
+  const hit = row.slice(row.indexOf(ROW_HIT));
   assert.match(
     hit.slice(0, hit.indexOf("/>")),
     /title=\{sessionTooltip\(s\)\}/,
   );
-  const header = component("ProjectGroup.tsx", "ProjectHeader");
-  const phit = header.slice(header.indexOf('class="row-hit"'));
+  const header = component(PROJECT_GROUP, "ProjectHeader");
+  const phit = header.slice(header.indexOf(ROW_HIT));
   assert.match(
     phit.slice(0, phit.indexOf("/>")),
     /title=\{projectTooltip\(p\)\}/,
   );
   // A label's own title would never show: the button is on top of it.
   for (const [file, name] of [
-    ["SessionRow.tsx", "SessionFacts"],
-    ["SessionRow.tsx", "SessionSummary"],
-    ["ProjectGroup.tsx", "ProjectFacts"],
+    [SESSION_ROW, "SessionFacts"],
+    [SESSION_ROW, "SessionSummary"],
+    [PROJECT_GROUP, "ProjectFacts"],
   ]) {
     assert.doesNotMatch(
       component(file, name),
@@ -74,10 +81,10 @@ test("the row buttons carry the tooltips of the labels they cover", () => {
 });
 
 test("a project header's click target is drawn above its title and under its actions", () => {
-  const header = component("ProjectGroup.tsx", "ProjectHeader");
+  const header = component(PROJECT_GROUP, "ProjectHeader");
   const [title, hit, actions] = order(header, [
     "<ProjectFacts",
-    'class="row-hit"',
+    ROW_HIT,
     "<ProjectActions",
   ]);
   assert.ok(title < hit, "the button comes after the title");
@@ -109,13 +116,16 @@ test("sessionTooltip says every fact the row shows, one per line", () => {
     provider: "p1",
     changes: 3,
   }).split("\n");
-  assert.equal(lines.length, 6);
-  assert.match(lines[0], /2026/);
-  assert.match(lines[1], /2/);
-  assert.match(lines[2], /feature\/x/);
-  assert.match(lines[3], /wt1/);
-  assert.match(lines[4], /p1 \/ m1/);
-  assert.match(lines[5], /3/);
+  // One line each: last used, agents, branch, worktree, provider / model, changes.
+  const SESSION_LINES = 6;
+  assert.equal(lines.length, SESSION_LINES);
+  const [used, agents, branch, worktree, model, changes] = lines;
+  assert.match(used, /2026/);
+  assert.match(agents, /2/);
+  assert.match(branch, /feature\/x/);
+  assert.match(worktree, /wt1/);
+  assert.match(model, /p1 \/ m1/);
+  assert.match(changes, /3/);
 });
 
 test("a row with nothing to say has no tooltip", () => {
@@ -132,7 +142,9 @@ test("projectTooltip says the checkout's branch, podman and changes", () => {
     podman: true,
     changes: 1,
   }).split("\n");
-  assert.equal(lines.length, 3);
+  // One line each: branch, podman, changes.
+  const PROJECT_LINES = 3;
+  assert.equal(lines.length, PROJECT_LINES);
   assert.match(lines[0], /main/);
   assert.match(lines[1], /podman/);
   assert.match(lines[2], /1/);

@@ -88,6 +88,8 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	case p.repoIndex(name) >= 0:
 		writeError(w, http.StatusConflict, fmt.Sprintf("the project already has a repository called %q", name))
 		return
+	default:
+		// A URL and a free folder name: the clone can start.
 	}
 	dest := filepath.Join(p.Dir, gitx.ReposDir, name)
 	if _, err := cloneGitRepo(gitURL, dest, s.gitCommandEnv()); err != nil {
@@ -128,21 +130,13 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 	}
 	repo := p.Repos[i]
 	ctx := r.Context()
-	var worktrees []string
-	for _, c := range s.sessionsOfProject(p.ID) {
-		path := sessionRepoPath(c.workspaceDir(), repo.Name)
-		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
-			worktrees = append(worktrees, path)
-		}
-	}
+	worktrees := s.sessionWorktreesOf(ctx, p, repo)
 	if !isForced(r) {
-		for _, dir := range append([]string{repo.Dir}, worktrees...) {
-			if n, err := gitx.WorkingTreeChanges(ctx, dir); err != nil || n > 0 {
-				writeError(w, http.StatusConflict, fmt.Sprintf(
-					"the repository %s has uncommitted changes in %s (or they could not be read): "+
-						"commit them, or confirm the discard", repo.Name, dir))
-				return
-			}
+		if dir, dirty := firstDirtyDir(ctx, append([]string{repo.Dir}, worktrees...)); dirty {
+			writeError(w, http.StatusConflict, fmt.Sprintf(
+				"the repository %s has uncommitted changes in %s (or they could not be read): "+
+					"commit them, or confirm the discard", repo.Name, dir))
+			return
 		}
 	}
 	for _, path := range worktrees {
@@ -161,6 +155,29 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		applyRuntimeTo(c.svc, p)
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// sessionWorktreesOf lists the live worktrees the project's sessions have of repo.
+func (s *Server) sessionWorktreesOf(ctx context.Context, p *Project, repo ProjectRepo) []string {
+	var worktrees []string
+	for _, c := range s.sessionsOfProject(p.ID) {
+		path := sessionRepoPath(c.workspaceDir(), repo.Name)
+		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
+			worktrees = append(worktrees, path)
+		}
+	}
+	return worktrees
+}
+
+// firstDirtyDir returns the first of dirs with uncommitted changes, or whose changes could not be
+// read, and whether there is one.
+func firstDirtyDir(ctx context.Context, dirs []string) (string, bool) {
+	for _, dir := range dirs {
+		if n, err := gitx.WorkingTreeChanges(ctx, dir); err != nil || n > 0 {
+			return dir, true
+		}
+	}
+	return "", false
 }
 
 // attachProjectRepos gives a session that has a worktree of its own a worktree of each of the

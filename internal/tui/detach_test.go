@@ -321,7 +321,10 @@ func TestThePollKeepsTheWorkingCountCurrent(t *testing.T) {
 	ui := newFakeTUI("", r)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { ui.watchPRs(ctx); close(done) }()
+	go func() {
+		ui.watchPRs(ctx)
+		close(done)
+	}()
 	waitUntil(t, func() bool {
 		ui.draw.Lock()
 		defer ui.draw.Unlock()

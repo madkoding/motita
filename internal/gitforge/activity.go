@@ -79,7 +79,8 @@ func (a API) pullsActivity(ctx context.Context, r Remote, n int) (Activity, erro
 		HTMLURL string `json:"html_url"`
 		User    ghUser `json:"user"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/issues/%d/comments?per_page=100", base, n), nil, &general); err != nil {
+	commentsPath := fmt.Sprintf("%s/issues/%d/comments?per_page=100", base, n)
+	if err := a.do(ctx, http.MethodGet, commentsPath, nil, &general); err != nil {
 		return Activity{}, err
 	}
 	var out Activity
@@ -93,7 +94,8 @@ func (a API) pullsActivity(ctx context.Context, r Remote, n int) (Activity, erro
 		HTMLURL string `json:"html_url"`
 		User    ghUser `json:"user"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/pulls/%d/reviews?per_page=100", base, n), nil, &reviews); err != nil {
+	reviewsPath := fmt.Sprintf("%s/pulls/%d/reviews?per_page=100", base, n)
+	if err := a.do(ctx, http.MethodGet, reviewsPath, nil, &reviews); err != nil {
 		return Activity{}, err
 	}
 	for _, rv := range reviews {
@@ -201,7 +203,8 @@ func (a API) bitbucketActivity(ctx context.Context, r Remote, n int) (Activity, 
 			} `json:"links"`
 		} `json:"values"`
 	}
-	if err := a.do(ctx, http.MethodGet, a.bitbucketPRPath(r, n)+"/comments?pagelen=100&sort=-created_on", nil, &page); err != nil {
+	commentsPath := a.bitbucketPRPath(r, n) + "/comments?pagelen=100&sort=-created_on"
+	if err := a.do(ctx, http.MethodGet, commentsPath, nil, &page); err != nil {
 		return Activity{}, err
 	}
 	var out Activity

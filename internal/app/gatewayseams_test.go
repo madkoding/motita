@@ -33,7 +33,7 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 	// `> marker` creates the file before printf fills it, and a poll landing in between read an
 	// empty file and failed the test.
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte(recorderScript(marker)), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -65,7 +65,7 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 func TestSpawnDetachedWithoutAnAddressOmitsTheFlag(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "args")
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte(recorderScript(marker)), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -527,7 +527,7 @@ func TestStartingReportsAnUnreadableFileAfterTheSpawn(t *testing.T) {
 func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte(recorderScript(marker)), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -557,7 +557,7 @@ func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte(recorderScript(marker)), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -577,4 +577,10 @@ func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
 	if strings.Contains(got, "-config") {
 		t.Fatalf("an empty configuration must not be passed as a path: %q", got)
 	}
+}
+
+// recorderScript is a shell script that writes the arguments it was run with to marker, aside
+// first and then renamed into place, so a poll never reads a half-written record.
+func recorderScript(marker string) string {
+	return "#!/bin/sh\nprintf '%s' \"$*\" > " + marker + ".tmp && mv " + marker + ".tmp " + marker + "\n"
 }

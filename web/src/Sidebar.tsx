@@ -1,6 +1,6 @@
 // The sidebar: the sessions grouped by project, the buttons that create them, and the way to the
 // skill library, the artifacts, the scheduled tasks and the settings.
-import { useCallback, useRef } from "preact/hooks";
+import { useCallback, useEffect, useRef } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -208,23 +208,44 @@ function SidebarFoot() {
   );
 }
 
+// useCloseOnPhonePick closes the sidebar on a phone once a session is picked in it, so the reader
+// lands on the conversation. The listener sits on the sidebar itself, not on a JSX handler: the
+// sidebar is a plain container, and the rows it listens for are buttons, so a click and the
+// keyboard (Enter or Space on the row) both reach it.
+function useCloseOnPhonePick(close: () => void) {
+  const ref = useRef<HTMLElement>(null);
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) {
+      return undefined;
+    }
+    const onClick = (e: MouseEvent) => {
+      if (isPhone() && closesOnPhone(e.target)) {
+        closeRef.current();
+      }
+    };
+    el.addEventListener("click", onClick);
+    return () => el.removeEventListener("click", onClick);
+  }, []);
+  return ref;
+}
+
 // Sidebar is the sessions list, toggleable on all sizes. On a phone it covers the page, over a
 // dimmed layer that closes it.
 export function Sidebar() {
   const { lists, updates } = useApp();
   const overlay = useRef<HTMLDivElement>(null);
   useBackdropClose(overlay, lists.closeSidebar);
+  const aside = useCloseOnPhonePick(lists.closeSidebar);
   return (
     <>
       {/* Mobile overlay: click to close the sidebar. */}
       <div ref={overlay} class="fixed inset-0 bg-black/50 z-20 md:hidden" />
       <aside
         class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 max-w-[85vw] z-30 flex flex-col border-r border-white/5"
-        onClick={(e) => {
-          if (isPhone() && closesOnPhone(e.target)) {
-            lists.closeSidebar();
-          }
-        }}
+        ref={aside}
       >
         <SidebarHeader />
         <NewButtons />

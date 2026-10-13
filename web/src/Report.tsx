@@ -235,15 +235,12 @@ export function ReportCard({
     },
     [loadImage],
   );
-  const status = choose(
-    STATUS_TEXT[report.status ?? ""],
-    report.status as string,
-    "done",
-  );
+  const status = reportStatus(report);
   const { changes, checks, evidence, risks, next } = useMemo(
     () => keyedReport(report),
     [report],
   );
+  const suggestions = report.suggestions ?? [];
   return (
     <div class={`rpt rpt-${status}`}>
       <ReportHead
@@ -261,18 +258,12 @@ export function ReportCard({
       {checks.length > 0 && <ChecksSection checks={checks} />}
 
       {evidence.length > 0 && (
-        <section class="rpt-sec">
-          <h4>{t("Before and after")}</h4>
-          {evidence.map(({ key, item }) => (
-            <EvidenceSet
-              key={key}
-              e={item}
-              load={load}
-              urls={urls}
-              onZoom={setZoom}
-            />
-          ))}
-        </section>
+        <EvidenceSection
+          evidence={evidence}
+          load={load}
+          urls={urls}
+          onZoom={setZoom}
+        />
       )}
 
       {risks.length > 0 && (
@@ -285,9 +276,9 @@ export function ReportCard({
       {next.length > 0 && (
         <BulletSection cls="rpt-next" title={t("Next")} items={next} />
       )}
-      {(report.suggestions?.length ?? 0) > 0 && (
+      {suggestions.length > 0 && (
         <SuggestionsSection
-          suggestions={report.suggestions ?? []}
+          suggestions={suggestions}
           answers={answers}
           expired={expired}
           onAnswer={onAnswer}
@@ -298,6 +289,43 @@ export function ReportCard({
         <Lightbox images={zoom.images} start={zoom.start} onClose={closeZoom} />
       )}
     </div>
+  );
+}
+
+// reportStatus is the report's status when it is a known one, and "done" otherwise.
+function reportStatus(report: TaskReport): string {
+  return choose(
+    STATUS_TEXT[report.status ?? ""],
+    report.status as string,
+    "done",
+  );
+}
+
+// EvidenceSection is the before and after screenshots, one set per piece of evidence.
+function EvidenceSection({
+  evidence,
+  load,
+  urls,
+  onZoom,
+}: {
+  evidence: { key: string; item: Evidence }[];
+  load: LoadImage;
+  urls: { current: Map<string, string> };
+  onZoom: (z: Zoom) => void;
+}) {
+  return (
+    <section class="rpt-sec">
+      <h4>{t("Before and after")}</h4>
+      {evidence.map(({ key, item }) => (
+        <EvidenceSet
+          key={key}
+          e={item}
+          load={load}
+          urls={urls}
+          onZoom={onZoom}
+        />
+      ))}
+    </section>
   );
 }
 
@@ -475,6 +503,19 @@ const ANSWERS: { pick: ProposalAnswer; label: () => string }[] = [
   { pick: "none", label: () => t("Apply none") },
 ];
 
+// suggestionClass is how a suggestion is drawn: by its verdict once it has one, else marked as the
+// one asked now while the list is still offered.
+function suggestionClass(
+  verdict: Verdict | undefined,
+  isCurrent: boolean,
+  stale: boolean,
+): string {
+  if (verdict) {
+    return verdict;
+  }
+  return choose(isCurrent && !stale, "current", "");
+}
+
 // SuggestionsSection asks about each suggestion in turn: apply this one, apply this one and the
 // following, or apply none. Nothing is applied until every one has an answer, and then only the
 // accepted ones are sent, as a new turn. The button pressed stays on screen, marked and no longer
@@ -502,7 +543,9 @@ function SuggestionsSection({
   // Expired only while nothing was answered here: a half-answered list keeps its marks.
   const stale = !!expired && picks.every((p) => !p);
   const done = stale || verdicts.every((v) => v !== undefined);
-  const current = verdicts.findIndex((v) => v === undefined);
+  const current = verdicts.indexOf(undefined);
+  // asking says the buttons of suggestion i are drawn: it was answered, or it is the one asked now.
+  const asking = (i: number) => !!picks[i] || (i === current && !done);
   const finish = (next: (Verdict | undefined)[], pressed: Pick[]) => {
     if (!onAnswer) {
       return;
@@ -527,7 +570,10 @@ function SuggestionsSection({
   // soon as it can be (no run in flight), once.
   const applied = useRef(false);
   useEffect(() => {
-    if (applied.current || answers || stale || !onAnswer || !auto) {
+    if (applied.current || answers || stale) {
+      return;
+    }
+    if (!onAnswer || !auto) {
       return;
     }
     if (verdicts.every((v) => v === "apply")) {
@@ -550,9 +596,7 @@ function SuggestionsSection({
         {items.map(({ key, item }, i) => (
           <li
             key={key}
-            class={
-              verdicts[i] ?? choose(i === current && !stale, "current", "")
-            }
+            class={suggestionClass(verdicts[i], i === current, stale)}
           >
             <span class="rpt-body">
               <span class="rpt-check">{item.title}</span>
@@ -573,7 +617,7 @@ function SuggestionsSection({
                 )}
               </span>
             )}
-            {(picks[i] || (i === current && !done)) && (
+            {asking(i) && (
               <div class="rpt-suggest-actions">
                 {ANSWERS.map(({ pick, label }) => (
                   <button

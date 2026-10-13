@@ -21,11 +21,23 @@ export function answersPath(session: string, turn: number): string {
   );
 }
 
+// withAnswers is message x with the answers kept on it when it is m, and as it was otherwise.
+function withAnswers(
+  x: Message,
+  m: Message,
+  answers: SuggestionAnswers,
+): Message {
+  if (x.id === m.id) {
+    return { ...x, answers };
+  }
+  return x;
+}
+
 export function useSuggestions(api: Api, rs: RunState, stream: Stream) {
   const answerSuggestions = useCallback(
     async (m: Message, answers: SuggestionAnswers) => {
       rs.setMessages((prev) =>
-        prev.map((x) => (x.id === m.id ? { ...x, answers } : x)),
+        prev.map((x) => withAnswers(x, m, answers)),
       );
       // Kept before the turn starts. A gateway that cannot keep them costs only the marks after
       // a reload, so the turn is sent anyway.

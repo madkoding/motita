@@ -134,7 +134,8 @@ func TestForgeWatchReviewsAndConflicts(t *testing.T) {
 	if code := f.watch(h, "--until-merged"); code != RunError {
 		t.Fatalf("review: code %d out %q", code, f.out.String())
 	}
-	for _, want := range []string{"3 new comment(s)", "- [line on a.go]\n  here", "- [comment by @b] c2", "  rename\n  this", "- [review changes_requested]\n  no"} {
+	for _, want := range []string{"3 new comment(s)", "- [line on a.go]\n  here", "- [comment by @b] c2",
+		"  rename\n  this", "- [review changes_requested]\n  no"} {
 		if !strings.Contains(f.out.String(), want) {
 			t.Errorf("missing %q in\n%s", want, f.out.String())
 		}
@@ -161,7 +162,8 @@ func TestForgeWatchNoCIAndTimeout(t *testing.T) {
 	}
 	// A timeout says so and what the CI was doing.
 	forgeSleep = func(time.Duration) <-chan time.Time { return time.After(5 * time.Millisecond) }
-	if code := f.watch(&watchHost{pulls: []string{prOpen}, checks: []string{runsGoing}}, "--timeout", "30ms"); code != forgeCIPending ||
+	going := &watchHost{pulls: []string{prOpen}, checks: []string{runsGoing}}
+	if code := f.watch(going, "--timeout", "30ms"); code != forgeCIPending ||
 		!strings.Contains(f.out.String(), "nothing new after 30ms (CI: pending)") {
 		t.Fatalf("timeout: code %d out %q", code, f.out.String())
 	}

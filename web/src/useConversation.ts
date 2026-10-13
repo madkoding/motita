@@ -71,23 +71,59 @@ function mergeSteps(
   return next;
 }
 
-interface Deps {
-  api: Api;
-  rs: RunState;
-  lists: SessionList;
-  setState: SetStatus;
-  setConfig: (c: ConfigView | null) => void;
-  requestModal: (open: boolean) => void;
+// runIsLive asks whether a run is in flight in a conversation. The gateway relaunches an
+// interrupted run on its own after a restart, and this tab knows nothing of it: it never started
+// the stream. Asking is what lets the reader see it and follow it.
+async function runIsLive(api: Api, id: string) {
+  try {
+    const rs2 = await api(SESSIONS_PATH + encodeURIComponent(id) + "/run");
+    if (rs2.ok) {
+      const st = await rs2.json();
+      return !st.outcome;
+    }
+  } catch {
+    /* no run to follow */
+  }
+  return false;
 }
 
-export function useConversation({
-  api,
-  rs,
-  lists,
-  setState,
-  setConfig,
-  requestModal,
-}: Deps) {
+// loadConfig reads the session's configuration so the header shows the current provider/model.
+async function loadConfig(
+  api: Api,
+  rs: RunState,
+  setConfig: (c: ConfigView | null) => void,
+  id: string,
+) {
+  try {
+    const cfgRes = await api(
+      SESSIONS_PATH + encodeURIComponent(id) + "/config",
+    );
+    const cfgData: ConfigView = await cfgRes.json();
+    if (rs.sessionRef.current === id) {
+      setConfig(cfgData);
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// adoptSession makes a conversation the one on screen, in the state and in the address bar.
+function adoptSession(rs: RunState, id: string, urlMode: UrlMode) {
+  rs.setSessionId(id);
+  rs.setNoSession(false);
+  rs.sessionRef.current = id;
+  try {
+    localStorage.setItem(STORAGE_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  if (urlMode !== "none") {
+    writeSessionUrl(id, urlMode);
+  }
+}
+
+// useCheckpoints reads and draws the steps the gateway kept for every input of a conversation.
+function useCheckpoints(api: Api, rs: RunState) {
   const {
     sessionRef,
     liveTurnRef,
@@ -96,15 +132,7 @@ export function useConversation({
     setCpInfo,
     setShellLog,
     setTermSeenId,
-    setMessages,
-    setAgents,
   } = rs;
-  const followRef = useRef<() => void | Promise<void>>(() => {});
-  // detachRef lets go of the run this tab is following; useStream fills it in. See detach there.
-  const detachRef = useRef<() => void>(() => {});
-  const switchSessionRef = useRef<
-    ((id: string, urlMode?: UrlMode, soft?: boolean) => Promise<void>) | null
-  >(null);
 
   // loadCheckpoints reads the steps the gateway kept for every input of a conversation.
   //
@@ -153,6 +181,13 @@ export function useConversation({
     [],
   );
 
+  return { fetchCheckpoints, applyCheckpoints, loadCheckpoints };
+}
+
+// useAgents answers loadAgents, which reads a session's agents into the run state.
+function useAgents(api: Api, rs: RunState) {
+  const { sessionRef, setAgents } = rs;
+
   // loadAgents asks the gateway for a session's agents. A gateway that predates the endpoint
   // answers 404, read as "no agents".
   const loadAgents = useCallback(async (id: string) => {
@@ -178,51 +213,37 @@ export function useConversation({
     }
   }, []);
 
-  // runIsLive asks whether a run is in flight in a conversation. The gateway relaunches an
-  // interrupted run on its own after a restart, and this tab knows nothing of it: it never started
-  // the stream. Asking is what lets the reader see it and follow it.
-  const runIsLive = async (id: string) => {
-    try {
-      const rs2 = await api(SESSIONS_PATH + encodeURIComponent(id) + "/run");
-      if (rs2.ok) {
-        const st = await rs2.json();
-        return !st.outcome;
-      }
-    } catch {
-      /* no run to follow */
-    }
-    return false;
-  };
+  return loadAgents;
+}
 
-  // loadConfig reads the session's configuration so the header shows the current provider/model.
-  const loadConfig = async (id: string) => {
-    try {
-      const cfgRes = await api(
-        SESSIONS_PATH + encodeURIComponent(id) + "/config",
-      );
-      const cfgData: ConfigView = await cfgRes.json();
-      if (sessionRef.current === id) {
-        setConfig(cfgData);
-      }
-    } catch {
-      /* non-fatal */
-    }
-  };
+interface Deps {
+  api: Api;
+  rs: RunState;
+  lists: SessionList;
+  setState: SetStatus;
+  setConfig: (c: ConfigView | null) => void;
+  requestModal: (open: boolean) => void;
+}
 
-  // adoptSession makes a conversation the one on screen, in the state and in the address bar.
-  const adoptSession = (id: string, urlMode: UrlMode) => {
-    rs.setSessionId(id);
-    rs.setNoSession(false);
-    sessionRef.current = id;
-    try {
-      localStorage.setItem(STORAGE_KEY, id);
-    } catch {
-      /* ignore */
-    }
-    if (urlMode !== "none") {
-      writeSessionUrl(id, urlMode);
-    }
-  };
+export function useConversation({
+  api,
+  rs,
+  lists,
+  setState,
+  setConfig,
+  requestModal,
+}: Deps) {
+  const { sessionRef, nextId, setMessages } = rs;
+  const followRef = useRef<() => void | Promise<void>>(() => {});
+  // detachRef lets go of the run this tab is following; useStream fills it in. See detach there.
+  const detachRef = useRef<() => void>(() => {});
+  const switchSessionRef = useRef<
+    ((id: string, urlMode?: UrlMode, soft?: boolean) => Promise<void>) | null
+  >(null);
+
+  const { fetchCheckpoints, applyCheckpoints, loadCheckpoints } =
+    useCheckpoints(api, rs);
+  const loadAgents = useAgents(api, rs);
 
   // showTranscript loads a conversation's transcript and its steps, and follows its run when one
   // is in flight. It says false when the reader moved on to another conversation meanwhile.
@@ -236,7 +257,7 @@ export function useConversation({
     }
     const msgs = data.messages || [];
     const [live, cps] = await Promise.all([
-      runIsLive(id),
+      runIsLive(api, id),
       fetchCheckpoints(id),
     ]);
     if (sessionRef.current !== id) {
@@ -275,7 +296,7 @@ export function useConversation({
       if (!soft) {
         detachRef.current();
       }
-      adoptSession(id, urlMode);
+      adoptSession(rs, id, urlMode);
       if (!soft) {
         rs.clearConversation();
       }
@@ -293,7 +314,7 @@ export function useConversation({
         if (!(await showTranscript(id))) {
           return;
         }
-        await loadConfig(id);
+        await loadConfig(api, rs, setConfig, id);
       } catch {
         setState("could not load the conversation", true);
         // Nothing will be rendered, so nothing will announce itself as hydrated either.

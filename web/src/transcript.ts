@@ -11,7 +11,7 @@ export interface TurnOutcome {
   result?: string;
   error?: string;
   report?: TaskReport;
-  files?: ChangeReport["files"];
+  files?: NonNullable<ChangeReport["files"]>;
   artifacts?: { name: string; type: string; size: number }[];
 }
 
@@ -107,8 +107,10 @@ export function transcriptMessages(
   // stopped are what the reader saw, so they are drawn after the turns.
   const last = cps.find((cp) => cp.turn === turns.length);
   if (last?.outcome?.error && last.task) {
-    out.push({ id: nextId(), role: "user", text: last.task, turn: last.turn });
-    out.push(...agentMessages(undefined, last.outcome, nextId));
+    out.push(
+      { id: nextId(), role: "user", text: last.task, turn: last.turn },
+      ...agentMessages(undefined, last.outcome, nextId),
+    );
   }
   return out;
 }

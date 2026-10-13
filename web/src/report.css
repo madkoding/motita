@@ -186,12 +186,14 @@
   font-size: 0.85em;
   opacity: 0.8;
 }
-/* A suggestion auto mode applies without asking: its answer is obvious from the context. */
+/* A suggestion auto mode applies without asking: its answer is obvious from the context. The
+ * background is the green tint already laid over the dark surface, opaque so the text keeps its
+ * contrast whatever shows behind the card. */
 .rpt-needed {
   font-size: 0.75em;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(80, 216, 120, 0.15);
+  background: #1d3128;
   color: #8fe0a8;
 }
 .rpt-suggest-actions {
@@ -368,7 +370,7 @@
 .msg-shown pre {
   margin: 6px 0 0;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
   font-size: 0.85em;
   opacity: 0.75;
 }

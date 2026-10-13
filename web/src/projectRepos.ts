@@ -60,7 +60,8 @@ export interface MainRepo {
 // mainRepoOf describes a project's main repository: its URL when it was cloned, its folder otherwise.
 export function mainRepoOf(p: Pick<ProjectInfo, "dir" | "git_url">): MainRepo {
   const source = p.git_url || p.dir;
-  const folder = p.dir.split(/[\\/]/).filter(Boolean).pop() || p.dir;
+  // The last part of the path that is not empty, so a trailing separator is skipped.
+  const folder = /([^\\/]+)[\\/]*$/.exec(p.dir)?.[1] || p.dir;
   return { name: repoFolderOf(p.git_url || "") || folder, source };
 }
 

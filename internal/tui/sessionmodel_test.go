@@ -58,7 +58,8 @@ func TestSwitchingTheModelOfAConversationThatTalkedWarns(t *testing.T) {
 		t.Errorf("keeping the model warned %q", got)
 	}
 	tu.messages = append(tu.messages, Message{Author: AuthorUser, Text: "hi"})
-	if got := tu.modelSwitchWarning("a", "b"); !strings.Contains(got, "written with a") || strings.Contains(got, "in progress") {
+	got := tu.modelSwitchWarning("a", "b")
+	if !strings.Contains(got, "written with a") || strings.Contains(got, "in progress") {
 		t.Errorf("a switch after the conversation started warned %q", got)
 	}
 	tu.busy = true

@@ -84,7 +84,8 @@ func TestSwitchingTheModelOfASessionThatAlreadyTalkedWarns(t *testing.T) {
 	conv.stateMu.Lock()
 	conv.running = true
 	conv.stateMu.Unlock()
-	if v := view(`{"provider":"anthropic","model":"claude"}`); !reflect.DeepEqual(v.Warnings, []string{"history", "running"}) {
+	v = view(`{"provider":"anthropic","model":"claude"}`)
+	if !reflect.DeepEqual(v.Warnings, []string{"history", "running"}) {
 		t.Errorf("switching mid-turn answered %v, want [history running]", v.Warnings)
 	}
 	conv.stateMu.Lock()

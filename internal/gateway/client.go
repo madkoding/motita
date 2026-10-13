@@ -489,9 +489,12 @@ func (c *Client) run(ctx context.Context, sid, rest string, body any, progress f
 	started := false
 	var lastErr error
 
+	follow := &runFollow{
+		sid: sid, path: scopedTo(sid, rest), body: request, from: &last, result: &result, progress: progress,
+	}
 	var waited time.Duration
 	for attempt := 0; attempt < runAttempts; attempt++ {
-		resumed, err := c.streamOnce(ctx, sid, scopedTo(sid, rest), request, started, &last, &result, progress)
+		resumed, err := c.streamOnce(ctx, follow, started)
 		if err == nil {
 			return result, nil
 		}
@@ -550,15 +553,24 @@ func slotTaken(err error) bool {
 // a client that is working.
 const runAttempts = 3
 
+// runFollow is what every attempt at following one run shares: the conversation, the request that
+// starts the run, and the caller's variables the attempts carry forward - the last event id seen
+// and the answer so far - along with where progress lines go.
+type runFollow struct {
+	sid, path string
+	body      []byte
+	from      *uint64
+	result    *string
+	progress  func(string, ...any)
+}
+
 // streamOnce makes one attempt, and reports whether the failure is one worth resuming from.
 //
 // The first attempt POSTs the task to start the run; every later one reattaches with
 // /events?from=<last>. That difference is why `path` is only used when nothing has started yet: a
 // retry that POSTed again would start a second turn.
-func (c *Client) streamOnce(
-	ctx context.Context, sid, path string, body []byte, started bool, from *uint64, result *string,
-	progress func(string, ...any),
-) (bool, error) {
+func (c *Client) streamOnce(ctx context.Context, f *runFollow, started bool) (bool, error) {
+	sid, path, body, from, result, progress := f.sid, f.path, f.body, f.from, f.result, f.progress
 	var req *http.Request
 	var err error
 	if !started {

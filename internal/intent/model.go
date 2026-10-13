@@ -16,10 +16,14 @@ const ModelTimeout = 15 * time.Second
 
 // ModelSystem is the instruction of the model call. It is short on purpose: the call decides
 // one word, and every token of it is spent before every ambiguous turn.
-const ModelSystem = `You route a user's message to a coding agent. Answer with JSON only: {"kind":"plan"} or {"kind":"task"}.
-"plan": the user wants an answer, an explanation, a review or a design, and nothing in the project should change.
-"task": the user wants something done or changed in the project; also greetings, thanks and small talk.
-When unsure, answer "plan": planning when work was wanted costs one message, working when a plan was wanted changes files.`
+const ModelSystem = "You route a user's message to a coding agent. " +
+	`Answer with JSON only: {"kind":"plan"} or {"kind":"task"}.` + "\n" +
+	`"plan": the user wants an answer, an explanation, a review or a design, ` +
+	"and nothing in the project should change.\n" +
+	`"task": the user wants something done or changed in the project; ` +
+	"also greetings, thanks and small talk.\n" +
+	`When unsure, answer "plan": planning when work was wanted costs one message, ` +
+	"working when a plan was wanted changes files."
 
 // Completer asks a model for one completion of a system and a user message.
 type Completer func(ctx context.Context, system, user string) (string, error)
@@ -70,6 +74,12 @@ func modelKind(text string) (string, bool) {
 // an explicit /plan or /task that names the other mode. It is how a wrong guess is counted, and
 // what the word lists are tuned from.
 func Corrects(prev, next Decision) bool {
-	return next.Source == SourceExplicit && prev.Source != SourceExplicit && prev.Source != "" &&
-		next.Kind != prev.Kind && strings.TrimSpace(next.Prompt) == strings.TrimSpace(prev.Prompt)
+	sameMessage := strings.TrimSpace(next.Prompt) == strings.TrimSpace(prev.Prompt)
+	return overridesGuess(prev, next) && next.Kind != prev.Kind && sameMessage
+}
+
+// overridesGuess reports whether next was explicit where prev was a guess (by the rules or the
+// model) rather than an explicit mode or nothing at all.
+func overridesGuess(prev, next Decision) bool {
+	return next.Source == SourceExplicit && prev.Source != SourceExplicit && prev.Source != ""
 }

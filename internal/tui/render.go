@@ -915,16 +915,20 @@ func (t *TUI) hintList() [][2]string {
 	case t.query != "":
 		return [][2]string{{"Esc", "show everything"}, {"^F", "search again"}}
 	default:
-		other := "Plan mode"
-		switch t.screen {
-		case ScreenPlan:
-			other = "Auto mode"
-		case ScreenAuto:
-			other = "Task mode"
-		default:
-			// Task, and the screens outside the cycle, go to Plan.
-		}
-		return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
+		return [][2]string{{"Enter", "send"}, {"Tab", t.nextModeHint()}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
+	}
+}
+
+// nextModeHint names the mode Tab switches to from the current screen.
+func (t *TUI) nextModeHint() string {
+	switch t.screen {
+	case ScreenPlan:
+		return "Auto mode"
+	case ScreenAuto:
+		return "Task mode"
+	default:
+		// Task, and the screens outside the cycle, go to Plan.
+		return "Plan mode"
 	}
 }
 

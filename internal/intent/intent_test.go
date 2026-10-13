@@ -15,16 +15,16 @@ func TestClassify(t *testing.T) {
 		// Orders, in both languages, polite or not, with pronouns fused on.
 		{"Add a dark theme to the settings", KindTask, SourceHeuristic, ""},
 		{"can you please fix the flaky test?", KindTask, SourceHeuristic, ""},
-		{"Arréglalo", KindTask, SourceHeuristic, ""},                             // spanish-fixture: the Spanish the classifier reads
-		{"¿Puedes agregar un botón de exportar?", KindTask, SourceHeuristic, ""}, // spanish-fixture: the Spanish the classifier reads
+		{"Arréglalo", KindTask, SourceHeuristic, ""},                             // spanish-fixture: input
+		{"¿Puedes agregar un botón de exportar?", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
 		{"por favor actualiza las dependencias", KindTask, SourceHeuristic, ""},
-		{"¿Por qué falla el build? Corrígelo.", KindTask, SourceHeuristic, ""}, // spanish-fixture: the Spanish the classifier reads
+		{"¿Por qué falla el build? Corrígelo.", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
 		// Questions and asks for a plan.
-		{"como puede motita tener un auto mode?", KindPlan, SourceHeuristic, ""},         // spanish-fixture: the Spanish the classifier reads
-		{"Por qué el gateway guarda la sesión dos veces", KindPlan, SourceHeuristic, ""}, // spanish-fixture: the Spanish the classifier reads
+		{"como puede motita tener un auto mode?", KindPlan, SourceHeuristic, ""},         // spanish-fixture: input
+		{"Por qué el gateway guarda la sesión dos veces", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
 		{"What does the scheduler do", KindPlan, SourceHeuristic, ""},
 		{"the build is red, any idea?", KindPlan, SourceHeuristic, ""},
-		{"Diseña una migración a SQLite", KindPlan, SourceHeuristic, ""}, // spanish-fixture: the Spanish the classifier reads
+		{"Diseña una migración a SQLite", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
 		{"explain the retry policy", KindPlan, SourceHeuristic, ""},
 		// Holding off beats an order: the safe mistake.
 		{"Add OAuth, but don't change anything yet", KindPlan, SourceHeuristic, ""},

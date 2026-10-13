@@ -361,7 +361,9 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 // merging cleanly. Either sends the agent, once per comment and once per conflict, out of the same
 // attempts as the CI. A host that will not answer these reads is not a failed poll: the CI is
 // what the watch stands on. It reports whether the watch is over.
-func (s *Server) pollTalk(ctx context.Context, c *conversation, w *prWatchState, t prTarget, pr gitforge.PullRequest) bool {
+func (s *Server) pollTalk(
+	ctx context.Context, c *conversation, w *prWatchState, t prTarget, pr gitforge.PullRequest,
+) bool {
 	if c.isRunning() {
 		return false
 	}

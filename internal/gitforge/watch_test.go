@@ -179,7 +179,10 @@ func TestWatcherGivesUpOnAFailingHost(t *testing.T) {
 
 func TestWatcherStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	never := func(time.Duration) <-chan time.Time { cancel(); return nil }
+	never := func(time.Duration) <-chan time.Time {
+		cancel()
+		return nil
+	}
 	w := &Watcher{Src: &fakeSource{reads: []fakeRead{{snap: open(StatePending, "a", MergeOK)}}}, Sleep: never}
 	if _, err := w.Next(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v", err)

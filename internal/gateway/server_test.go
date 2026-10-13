@@ -76,8 +76,11 @@ func (f *fakeService) RunModels(ctx context.Context) (string, error) {
 
 func (f *fakeService) ConversationReport() string            { return f.report }
 func (f *fakeService) ConversationSummary() session.Snapshot { return f.summary }
-func (f *fakeService) ResetConversation()                    { f.reset++; f.transcript = nil }
-func (f *fakeService) Config() config.Config                 { return f.cfg }
+func (f *fakeService) ResetConversation() {
+	f.reset++
+	f.transcript = nil
+}
+func (f *fakeService) Config() config.Config { return f.cfg }
 func (f *fakeService) SetReasoning(level string) {
 	// The fake keeps the two fields together and reports them through Config(), exactly like the
 	// production runner: a fake that only recorded the level would let a test pass over the state

@@ -84,11 +84,7 @@ func (op Options) reportEvents(
 			fmt.Fprintf(op.Out, "%s was closed without being merged.\n", label)
 			return true, Success
 		case gitforge.EventCIFailed:
-			fmt.Fprintf(op.Out, "%s: the CI failed.\n", label)
-			for _, c := range e.CI.Checks {
-				fmt.Fprintln(op.Out, ciCheckLine(c))
-			}
-			op.printFailureLogs(ctx, repo, api, *e.CI)
+			op.printCIFailure(ctx, repo, api, label, *e.CI)
 			code, done = RunError, true
 		case gitforge.EventConflict:
 			fmt.Fprintf(op.Out, "%s: the branch conflicts with its base. Merge the base in, resolve, and push.\n", label)
@@ -107,6 +103,18 @@ func (op Options) reportEvents(
 		}
 	}
 	return done, code
+}
+
+// printCIFailure says the CI of label failed, lists its checks and prints the logs of the ones
+// that failed.
+func (op Options) printCIFailure(
+	ctx context.Context, repo forgeRepo, api gitforge.API, label string, st gitforge.CIStatus,
+) {
+	fmt.Fprintf(op.Out, "%s: the CI failed.\n", label)
+	for _, c := range st.Checks {
+		fmt.Fprintln(op.Out, ciCheckLine(c))
+	}
+	op.printFailureLogs(ctx, repo, api, st)
 }
 
 // printComments lists the new comments and reviews, each with who said it and where.

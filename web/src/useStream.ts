@@ -50,76 +50,52 @@ async function refusalOf(
   return { msg, merged };
 }
 
-export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
-  const {
-    sessionRef,
-    runSessionRef,
-    runningRef,
-    lastIdRef,
-    reconnectTimer,
-    handoffRef,
-    liveTurnRef,
-    linkRef,
-  } = rs;
-  const { setRunningState, fetchSessions, setSessions } = lists;
-  const {
-    loadCheckpoints,
-    loadAgents,
-    switchSessionRef,
-    transcript,
-    followRef,
-    detachRef,
-  } = conv;
+// turnRefused tells the user why the gateway would not take the turn, and finishes the run.
+// The session on screen is read once the answer is in, as it always was.
+async function turnRefused(
+  res: Response,
+  sessions: SessionList["sessions"],
+  sessionRef: { current: string },
+  setToast: SetToast,
+  setState: SetStatus,
+  finish: () => void,
+) {
+  const { msg, merged } = await refusalOf(res);
+  // Read from the list this run was started with, as it always was.
+  const s = sessions.find((x) => x.id === sessionRef.current);
+  if (merged && s?.continuable) {
+    setToast({
+      message: t("This session is already integrated"),
+      type: "warning",
+      detail: t(
+        "Click Continue in the session menu to keep working from the latest project branch.",
+      ),
+    });
+  } else {
+    setToast({ message: msg, type: "error" });
+  }
+  setState(msg, true);
+  finish();
+}
 
+// closeOpenCommands closes as "no result" the commands that never reported a result.
+function closeOpenCommands<E extends { exit?: number | null }>(prev: E[]): E[] {
+  if (!prev.some((e) => e.exit == null)) {
+    return prev;
+  }
+  return prev.map((e) => {
+    if (e.exit == null) {
+      return { ...e, exit: NO_RESULT };
+    }
+    return e;
+  });
+}
+
+// useReadStream answers readStream, which consumes an SSE response body and draws each event.
+function useReadStream(rs: RunState, finish: () => void) {
+  const { lastIdRef, linkRef, sessionRef } = rs;
   // live says whether a stream may still draw: see runLink.ts.
   const live = (link: RunLink) => isLive(link, linkRef, sessionRef.current);
-
-  // finish marks the run as done.
-  const finish = useCallback(() => {
-    // Cleared against the session the run was STARTED in, not against whatever
-    // is on screen now: a user who switched away mid-turn must not have the
-    // finished run's flag land on the conversation they switched to.
-    setRunningState(false, runSessionRef.current || sessionRef.current);
-    runSessionRef.current = "";
-    rs.setActivity(null);
-    // The turn is over: its steps stay where they are, and the gateway is asked for its side
-    // (whether the files were checkpointed) now that the run has ended.
-    liveTurnRef.current = null;
-    void loadCheckpoints(sessionRef.current);
-    // A command that never reported a result (refused, declined, or cut off by a cancel)
-    // must not read "running" for ever: it is closed as "no result".
-    rs.setShellLog((prev) => {
-      if (!prev.some((e) => e.exit == null)) {
-        return prev;
-      }
-      return prev.map((e) => {
-        if (e.exit == null) {
-          return { ...e, exit: NO_RESULT };
-        }
-        return e;
-      });
-    });
-    rs.setLiveThought(null);
-    setState("ready");
-    // The agents' final states and costs, as the gateway has them now that the run is over.
-    void loadAgents(sessionRef.current);
-    // After a run finishes, refresh the session list so the auto-title shows up.
-    fetchSessions();
-    // A message sent mid-run starts the next run in the gateway, not through this tab: reload
-    // the conversation and follow it. Asked twice because the gateway starts it a beat later.
-    if (handoffRef.current) {
-      handoffRef.current = false;
-      const sid = sessionRef.current;
-      const reload = () => {
-        if (sessionRef.current === sid && !runningRef.current) {
-          void switchSessionRef.current?.(sid, "none", true);
-        }
-      };
-      for (const delay of HANDOFF_RELOAD_MS) {
-        setTimeout(reload, delay);
-      }
-    }
-  }, [fetchSessions, loadCheckpoints]);
 
   // dispatchEvent handles one parsed SSE event.
   // An event of a stream that is no longer the one on screen is dropped: it belongs to another
@@ -186,6 +162,168 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     [dispatchEvent],
   );
 
+  return readStream;
+}
+
+// useDetach answers detach, and hands it to the conversation through its detachRef.
+function useDetach(rs: RunState, lists: SessionList, conv: Conversation) {
+  const {
+    runSessionRef,
+    runningRef,
+    reconnectTimer,
+    handoffRef,
+    liveTurnRef,
+    linkRef,
+  } = rs;
+  const { setSessions } = lists;
+  const { detachRef } = conv;
+
+  // detach lets go of the run this tab is following, because the reader is leaving its session.
+  //
+  // The run is NOT stopped: it belongs to the gateway, and it keeps working while the reader looks
+  // at another conversation. What is dropped is this tab's view of it - the stream, the reconnect
+  // timer and the `running` flag - so the conversation the reader opens next starts idle and its
+  // composer can send. The row of the session that is still working keeps its spinner until the
+  // gateway's own list says the run is over, and opening that session again follows it from the
+  // start (showTranscript asks the gateway whether a run is in flight).
+  const detach = useCallback(() => {
+    const linked = cutLink(linkRef);
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
+    if (!runningRef.current) {
+      return;
+    }
+    const runSid = runSessionRef.current || linked;
+    runningRef.current = false;
+    rs.setRunning(false);
+    runSessionRef.current = "";
+    handoffRef.current = false;
+    liveTurnRef.current = null;
+    rs.setActivity(null);
+    rs.setLiveThought(null);
+    if (runSid) {
+      setSessions((prev) => withSession(prev, runSid, { running: true }));
+    }
+  }, []);
+
+  useEffect(() => {
+    detachRef.current = detach;
+  }, [detach]);
+
+  return detach;
+}
+
+// runMessages is what the reader sends to a run already in flight: a message, or a stop.
+function runMessages(api: Api, rs: RunState, setToast: SetToast) {
+  const { sessionRef, handoffRef } = rs;
+
+  // sendWhileRunning sends a message to the session on screen while a run is in flight.
+  // `interrupt` stops the run first and puts the message at the front, so the agent reads the
+  // new context right away; without it the message waits for the end of the turn.
+  const sendWhileRunning = (text: string, interrupt: boolean) => {
+    const sid = sessionRef.current;
+    handoffRef.current = true;
+    const failed = () => {
+      handoffRef.current = false;
+      setToast({ message: t(TURN_REFUSED), type: "error" });
+    };
+    void api(
+      SESSIONS_PATH +
+        encodeURIComponent(sid) +
+        choose(interrupt, "/interrupt", "/queue"),
+      {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ task: text }),
+      },
+    )
+      .then((res) => {
+        if (!res.ok) {
+          failed();
+        }
+      })
+      .catch(failed);
+  };
+
+  // stopRun stops the current turn of the session on screen, with nothing queued behind it.
+  const stopRun = () => {
+    void api(
+      SESSIONS_PATH + encodeURIComponent(sessionRef.current) + "/interrupt",
+      {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: "{}",
+      },
+    ).catch(() => {});
+  };
+
+  return { sendWhileRunning, stopRun };
+}
+
+export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
+  const {
+    sessionRef,
+    runSessionRef,
+    runningRef,
+    lastIdRef,
+    reconnectTimer,
+    handoffRef,
+    liveTurnRef,
+    linkRef,
+  } = rs;
+  const { setRunningState, fetchSessions } = lists;
+  const {
+    loadCheckpoints,
+    loadAgents,
+    switchSessionRef,
+    transcript,
+    followRef,
+  } = conv;
+
+  // live says whether a stream may still draw: see runLink.ts.
+  const live = (link: RunLink) => isLive(link, linkRef, sessionRef.current);
+
+  // finish marks the run as done.
+  const finish = useCallback(() => {
+    // Cleared against the session the run was STARTED in, not against whatever
+    // is on screen now: a user who switched away mid-turn must not have the
+    // finished run's flag land on the conversation they switched to.
+    setRunningState(false, runSessionRef.current || sessionRef.current);
+    runSessionRef.current = "";
+    rs.setActivity(null);
+    // The turn is over: its steps stay where they are, and the gateway is asked for its side
+    // (whether the files were checkpointed) now that the run has ended.
+    liveTurnRef.current = null;
+    void loadCheckpoints(sessionRef.current);
+    // A command that never reported a result (refused, declined, or cut off by a cancel)
+    // must not read "running" for ever: it is closed as "no result".
+    rs.setShellLog(closeOpenCommands);
+    rs.setLiveThought(null);
+    setState("ready");
+    // The agents' final states and costs, as the gateway has them now that the run is over.
+    void loadAgents(sessionRef.current);
+    // After a run finishes, refresh the session list so the auto-title shows up.
+    fetchSessions();
+    // A message sent mid-run starts the next run in the gateway, not through this tab: reload
+    // the conversation and follow it. Asked twice because the gateway starts it a beat later.
+    if (handoffRef.current) {
+      handoffRef.current = false;
+      const sid = sessionRef.current;
+      const reload = () => {
+        if (sessionRef.current === sid && !runningRef.current) {
+          void switchSessionRef.current?.(sid, "none", true);
+        }
+      };
+      for (const delay of HANDOFF_RELOAD_MS) {
+        setTimeout(reload, delay);
+      }
+    }
+  }, [fetchSessions, loadCheckpoints]);
+
+  const readStream = useReadStream(rs, finish);
+
   // followReconnect reattaches to a dropped stream.
   //
   // It follows the session ON SCREEN, so a timer left over from a session the reader has left must
@@ -238,59 +376,10 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     followRef.current = followReconnect;
   }, [followReconnect]);
 
-  // detach lets go of the run this tab is following, because the reader is leaving its session.
-  //
-  // The run is NOT stopped: it belongs to the gateway, and it keeps working while the reader looks
-  // at another conversation. What is dropped is this tab's view of it - the stream, the reconnect
-  // timer and the `running` flag - so the conversation the reader opens next starts idle and its
-  // composer can send. The row of the session that is still working keeps its spinner until the
-  // gateway's own list says the run is over, and opening that session again follows it from the
-  // start (showTranscript asks the gateway whether a run is in flight).
-  const detach = useCallback(() => {
-    const linked = cutLink(linkRef);
-    if (reconnectTimer.current) {
-      clearTimeout(reconnectTimer.current);
-      reconnectTimer.current = null;
-    }
-    if (!runningRef.current) {
-      return;
-    }
-    const runSid = runSessionRef.current || linked;
-    runningRef.current = false;
-    rs.setRunning(false);
-    runSessionRef.current = "";
-    handoffRef.current = false;
-    liveTurnRef.current = null;
-    rs.setActivity(null);
-    rs.setLiveThought(null);
-    if (runSid) {
-      setSessions((prev) => withSession(prev, runSid, { running: true }));
-    }
-  }, []);
+  const detach = useDetach(rs, lists, conv);
 
-  useEffect(() => {
-    detachRef.current = detach;
-  }, [detach]);
-
-  // refused tells the user why the gateway would not take the turn.
-  const refused = async (res: Response) => {
-    const { msg, merged } = await refusalOf(res);
-    // Read from the list this run was started with, as it always was.
-    const s = lists.sessions.find((x) => x.id === sessionRef.current);
-    if (merged && s?.continuable) {
-      setToast({
-        message: t("This session is already integrated"),
-        type: "warning",
-        detail: t(
-          "Click Continue in the session menu to keep working from the latest project branch.",
-        ),
-      });
-    } else {
-      setToast({ message: msg, type: "error" });
-    }
-    setState(msg, true);
-    finish();
-  };
+  const refused = (res: Response) =>
+    turnRefused(res, lists.sessions, sessionRef, setToast, setState, finish);
 
   // submit sends a message in auto mode and reads the SSE response: the gateway picks plan or task
   // from the wording (or a leading /plan or /task) and says which in the first progress line.
@@ -356,45 +445,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     [finish, readStream, followReconnect],
   );
 
-  // sendWhileRunning sends a message to the session on screen while a run is in flight.
-  // `interrupt` stops the run first and puts the message at the front, so the agent reads the
-  // new context right away; without it the message waits for the end of the turn.
-  const sendWhileRunning = (text: string, interrupt: boolean) => {
-    const sid = sessionRef.current;
-    handoffRef.current = true;
-    const failed = () => {
-      handoffRef.current = false;
-      setToast({ message: t(TURN_REFUSED), type: "error" });
-    };
-    void api(
-      SESSIONS_PATH +
-        encodeURIComponent(sid) +
-        choose(interrupt, "/interrupt", "/queue"),
-      {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ task: text }),
-      },
-    )
-      .then((res) => {
-        if (!res.ok) {
-          failed();
-        }
-      })
-      .catch(failed);
-  };
-
-  // stopRun stops the current turn of the session on screen, with nothing queued behind it.
-  const stopRun = () => {
-    void api(
-      SESSIONS_PATH + encodeURIComponent(sessionRef.current) + "/interrupt",
-      {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: "{}",
-      },
-    ).catch(() => {});
-  };
+  const { sendWhileRunning, stopRun } = runMessages(api, rs, setToast);
 
   return {
     finish,

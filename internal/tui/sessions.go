@@ -264,8 +264,9 @@ func (t *TUI) workingLabel() string {
 		return t.tr("1 other session working")
 	case n > 1:
 		return t.trf("%d other sessions working", n)
+	default:
+		return ""
 	}
-	return ""
 }
 
 // followRunIfAny watches the run in flight in the session just entered, when there is one.
@@ -563,11 +564,7 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf(t.tr("the gateway could not be asked which sessions it holds: %w"), err)
 	}
-	// The gateway leaves an empty default session out of its list - nobody created it - but this
-	// interface may be in it, and the list must still say where the user is.
-	if cur := sw.CurrentSession(); cur != "" && !slices.ContainsFunc(all, func(s SessionInfo) bool { return s.ID == cur }) {
-		all = append(all, SessionInfo{ID: cur, Current: true})
-	}
+	all = withCurrentSession(all, sw.CurrentSession())
 	if len(all) == 0 {
 		return "", errors.New(t.tr("the gateway reports no sessions, which should not be possible"))
 	}
@@ -597,28 +594,44 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 		if s.ID == sw.CurrentSession() {
 			marker = "* "
 		}
-		var detail string
-		switch {
-		case s.Running:
-			detail = "  " + t.tr("(a run is in flight)")
-		case !s.LastUsed.IsZero():
-			detail = "  " + t.trf("(last used %s)", t.humanSince(now.Sub(s.LastUsed)))
-		default:
-			// Never used and not running: there is nothing to say about when.
-		}
-		if s.Model != "" {
-			detail += "  " + s.Model
-		}
-		if s.Branch != "" {
-			detail += "  [" + s.Branch + "]"
-		}
-		if s.PR != "" {
-			detail += "  " + t.prState(s.PR, s.PRNumber)
-		}
-		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, detail)
+		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, t.sessionDetail(s, now))
 	}
 	b.WriteString("\n" + t.tr("/attach <id> to go back to one."))
 	return b.String(), nil
+}
+
+// withCurrentSession adds the session this interface is in to the gateway's list when the list
+// leaves it out. The gateway leaves an empty default session out of its list - nobody created it -
+// but this interface may be in it, and the list must still say where the user is.
+func withCurrentSession(all []SessionInfo, cur string) []SessionInfo {
+	if cur != "" && !slices.ContainsFunc(all, func(s SessionInfo) bool { return s.ID == cur }) {
+		all = append(all, SessionInfo{ID: cur, Current: true})
+	}
+	return all
+}
+
+// sessionDetail is what the list says after a session's id: whether it is running or when it was
+// last used, then its model, branch and pull request, each only when it has one.
+func (t *TUI) sessionDetail(s SessionInfo, now time.Time) string {
+	var detail string
+	switch {
+	case s.Running:
+		detail = "  " + t.tr("(a run is in flight)")
+	case !s.LastUsed.IsZero():
+		detail = "  " + t.trf("(last used %s)", t.humanSince(now.Sub(s.LastUsed)))
+	default:
+		// Never used and not running: there is nothing to say about when.
+	}
+	if s.Model != "" {
+		detail += "  " + s.Model
+	}
+	if s.Branch != "" {
+		detail += "  [" + s.Branch + "]"
+	}
+	if s.PR != "" {
+		detail += "  " + t.prState(s.PR, s.PRNumber)
+	}
+	return detail
 }
 
 // prState says in a few words what the gateway is doing about a session's pull request, the one
@@ -683,7 +696,8 @@ func (t *TUI) modelSwitchWarning(previous, next string) string {
 	var lines []string
 	for _, m := range t.messages {
 		if m.Author == AuthorUser {
-			lines = append(lines, t.trf("⚠ this conversation was written with %s; %s takes it over from the next turn and may answer differently. /new keeps each model in its own session.", previous, next))
+			lines = append(lines, t.trf("⚠ this conversation was written with %s; %s takes it over from the next "+
+				"turn and may answer differently. /new keeps each model in its own session.", previous, next))
 			break
 		}
 	}
