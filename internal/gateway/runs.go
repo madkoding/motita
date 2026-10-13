@@ -123,8 +123,12 @@ type intentModel interface {
 	CompleteIntent(ctx context.Context, system, user string) (string, error)
 }
 
-// completerOf is the service's model call for auto mode, or nil when it has none.
+// completerOf is the service's model call for auto mode, or nil when it has none or the
+// configuration keeps auto mode to its rules (agent.auto_mode_rules_only).
 func completerOf(svc Service) intent.Completer {
+	if svc.Config().Agent.AutoModeRulesOnly {
+		return nil
+	}
 	if m, ok := svc.(intentModel); ok {
 		return m.CompleteIntent
 	}
@@ -180,7 +184,7 @@ func (s *Server) startDetachedRun(
 
 // startNotedRun is startDetachedRun with a first progress line, written before the agent says
 // anything: auto mode uses it to tell the person which mode it picked. It is written from the
-// run's own goroutine, so it cannot land after a line of the agent's.
+// run's own goroutine (see executeTurn), so it cannot land after a line of the agent's.
 func (s *Server) startNotedRun(
 	c *conversation, task, kind, intent, note string, approverFor func(*run) agent.Approver,
 ) (*run, bool) {
@@ -200,6 +204,7 @@ func (s *Server) startNotedRun(
 	rn.turn = turnFor(turns, task)
 	resumed := rn.turn < len(turns)
 	rn.onLine = func(text string) { c.recordStep(rn.turn, text) }
+	rn.note = note
 	// The last run's agents are not this one's: the list starts over with the run.
 	c.setAgents(nil)
 	rn.onAgents = c.setAgents
@@ -231,9 +236,6 @@ func (s *Server) startNotedRun(
 		defer s.drainQueue(c)
 		defer c.releaseRunSlot()
 		defer c.clearCurrentRun()
-		if note != "" {
-			rn.progress()("%s", note)
-		}
 		result, err := s.executeTurn(runCtx, c, rn, task, kind, resumed)
 
 		// A merge run that succeeded may have moved the project's HEAD. We check this AFTER
@@ -284,6 +286,11 @@ func (s *Server) executeTurn(
 ) (string, error) {
 	if c.openCheckpoint(rn.turn, task, kind, resumed) {
 		s.takeSnapshot(c, rn.turn)
+	}
+	// The note goes out after the checkpoint is open, so it is recorded as the turn's first step
+	// and a client that reloads the conversation still sees which mode the turn ran in.
+	if rn.note != "" {
+		rn.progress()("%s", rn.note)
 	}
 	if kind == schedule.KindPlan {
 		return c.svc.RunPlan(ctx, task, rn.progress())

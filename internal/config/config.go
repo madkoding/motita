@@ -295,6 +295,10 @@ type Agent struct {
 	// ReadOnly is plan mode: the agent explores and plans, and every action that
 	// could change the system is refused before it runs.
 	ReadOnly bool `yaml:"read_only"`
+	// AutoModeRulesOnly makes auto mode decide plan or task with its rules alone. By default a
+	// message the rules cannot place costs one short model call; this turns that call off, and
+	// such a message runs as a task.
+	AutoModeRulesOnly bool `yaml:"auto_mode_rules_only"`
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
 	// the platform default (sh on Unix, the command processor on Windows).
 	Shell string `yaml:"shell"`
