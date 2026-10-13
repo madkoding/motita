@@ -228,6 +228,9 @@ export function RepoPicker({
             placeholder={t("Search repositories")}
             aria-label={t("Search repositories")}
             role="combobox"
+            // No <datalist>: the list is the custom one below. Preact's types only allow a
+            // combobox input that names its `list`, so it is given, empty.
+            list={undefined}
             aria-expanded="true"
             aria-controls="repo-list"
             aria-activedescendant={choose(

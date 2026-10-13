@@ -8,7 +8,7 @@ import { LONG_PRESS_MS } from "./appConst";
 // useListener attaches `handler` to the element for as long as the component is mounted. The
 // handler is read when the event fires, so it always sees the values of the latest render.
 export function useListener<K extends keyof HTMLElementEventMap>(
-  ref: RefObject<HTMLElement>,
+  ref: RefObject<HTMLElement | null>,
   type: K,
   handler: (e: HTMLElementEventMap[K]) => void,
 ) {
@@ -32,14 +32,14 @@ function stopClick(e: Event) {
 
 // useStopClicks keeps the clicks inside the element from reaching the elements around it and the
 // page's own click listeners.
-export function useStopClicks(ref: RefObject<HTMLElement>) {
+export function useStopClicks(ref: RefObject<HTMLElement | null>) {
   useListener(ref, "click", stopClick);
 }
 
 // useLongPress opens something at the touch position when a finger rests on the element: the
 // timer starts on touchstart and a move or a lift cancels it.
 export function useLongPress(
-  ref: RefObject<HTMLElement>,
+  ref: RefObject<HTMLElement | null>,
   onLongPress: (x: number, y: number) => void,
 ) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

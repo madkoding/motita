@@ -7,6 +7,7 @@ import type {
   AgentInfo,
   AgentTokens,
   ConfigView,
+  ProjectInfo,
   ProviderInfo,
   ScheduledTask,
   SessionInfo,
@@ -229,6 +230,48 @@ export function changesTitle(n: number): string {
     "1 uncommitted change in this working tree",
     "{n} uncommitted changes in this working tree",
   );
+}
+
+// tooltip joins the facts that are there, one per line; none gives no tooltip at all.
+function tooltip(lines: (string | false | undefined)[]): string | undefined {
+  const kept = lines.filter((l): l is string => !!l);
+  return choose(kept.length > 0, kept.join("\n"), undefined);
+}
+
+// sessionTooltip is the hover text of a session row. The row's button covers its labels, so they
+// cannot show their own: the button says all of it, in the order the row shows it.
+export function sessionTooltip(s: SessionInfo): string | undefined {
+  const when = fullUpdated(s.last_used);
+  const agents = s.agents_running ?? 0;
+  return tooltip([
+    !!when && tf("Last used {when}", { when }),
+    agents > 0 &&
+      plural(
+        agents,
+        "1 background agent running",
+        "{n} background agents running",
+      ),
+    !!s.branch && tf("Branch: {branch}", { branch: s.branch }),
+    !!sessionWorktreeChip(s) &&
+      tf("Worktree: {worktree}", { worktree: s.worktree || "" }),
+    !!s.model &&
+      tf("Model: {provider} / {model}", {
+        provider: s.provider || "",
+        model: s.model,
+      }),
+    !!s.changes && changesTitle(s.changes),
+  ]);
+}
+
+// projectTooltip is the same for a project's header.
+export function projectTooltip(p: ProjectInfo): string | undefined {
+  return tooltip([
+    !!p.branch &&
+      tf("Project checkout is on branch: {branch}", { branch: p.branch }),
+    !!p.podman && t("This project is run with podman"),
+    !!p.changes &&
+      tf("The project checkout has {what}", { what: changesTitle(p.changes) }),
+  ]);
 }
 
 // The open conversation lives in the URL (?session=<id>) so a link, a reload or the

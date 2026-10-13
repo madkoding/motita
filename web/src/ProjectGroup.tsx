@@ -1,11 +1,11 @@
 // A project in the sidebar: a collapsible container with its sessions nested inside. The header
 // toggles the session list; its action buttons are separate so they do not toggle on touch.
 import { useCallback, useRef } from "preact/hooks";
-import { t, tf } from "./i18n";
+import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { useLongPress } from "./domHooks";
-import { changesTitle, shortBranch } from "./appFormat";
+import { projectTooltip, shortBranch } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
 import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
 import { IconDots, IconFolder } from "./icons";
@@ -64,12 +64,7 @@ function ProjectFacts({ p }: { p: ProjectInfo }) {
   return (
     <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
       {p.branch && (
-        <span
-          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
-          title={tf("Project checkout is on branch: {branch}", {
-            branch: p.branch,
-          })}
-        >
+        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10">
           <span class="text-accent/50 uppercase tracking-wide text-[9px]">
             {t("project")}
           </span>
@@ -79,20 +74,12 @@ function ProjectFacts({ p }: { p: ProjectInfo }) {
         </span>
       )}
       {p.podman && (
-        <span
-          class="inline-flex items-center flex-none px-1 py-px rounded-sm bg-accent/10 text-accent text-[9px] uppercase tracking-wide"
-          title={t("This project is run with podman")}
-        >
+        <span class="inline-flex items-center flex-none px-1 py-px rounded-sm bg-accent/10 text-accent text-[9px] uppercase tracking-wide">
           podman
         </span>
       )}
       {!!p.changes && (
-        <span
-          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
-          title={tf("The project checkout has {what}", {
-            what: changesTitle(p.changes),
-          })}
-        >
+        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
           <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
             {choose(p.changes === 1, t("change"), t("changes"))}
           </span>
@@ -165,15 +152,6 @@ function ProjectHeader({
       ref={ref}
       class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/4 transition-colors"
     >
-      {/* The header folds its list from anywhere on it: this button covers the header, and its
-          own buttons are drawn above it. */}
-      <button
-        type="button"
-        class="row-hit"
-        aria-label={p.title}
-        aria-expanded={!collapsed}
-        onClick={() => lists.toggleProject(p.id)}
-      />
       {/* The arrow turns to follow the list: it points RIGHT
           when the sessions are hidden and DOWN when they are
           showing. One path that rotates, not two paths swapped,
@@ -203,6 +181,17 @@ function ProjectHeader({
         </div>
         <ProjectFacts p={p} />
       </div>
+      {/* The header folds its list from anywhere on it: this button covers the header. It comes
+          after the title and before the actions, so it is painted above the one and under the
+          other whatever their styles (see SessionRow). */}
+      <button
+        type="button"
+        class="row-hit"
+        aria-label={p.title}
+        aria-expanded={!collapsed}
+        title={projectTooltip(p)}
+        onClick={() => lists.toggleProject(p.id)}
+      />
       <ProjectActions p={p} />
     </div>
   );

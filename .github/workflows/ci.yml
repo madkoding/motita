@@ -38,6 +38,9 @@ jobs:
       - name: Web UI tests
         run: cd web && npm test
 
+      - name: Web UI type check
+        run: cd web && npm run typecheck
+
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
