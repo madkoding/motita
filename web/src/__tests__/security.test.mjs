@@ -20,9 +20,13 @@ test("every API request carries the X-Motita header the gateway requires with th
 });
 
 test("a message is sanitized without free-form styles or form controls", () => {
+  // The list is checked in two steps to keep each regex simple: find it, then read its tags
+  // with the quotes (single or double) taken off.
+  const formTags = /const FORM_TAGS = \[([^\]]*)\]/.exec(markdown);
+  assert.ok(formTags, "FORM_TAGS is declared");
   assert.match(
-    markdown,
-    /const FORM_TAGS = \[\s*['"]form['"],\s*['"]button['"],\s*['"]textarea['"],\s*['"]select['"],\s*['"]option['"],\s*['"]optgroup['"],\s*['"]input['"],?\s*\]/,
+    formTags[1].replaceAll(/['"](\w+)['"]/g, "$1"),
+    /^\s*form,\s*button,\s*textarea,\s*select,\s*option,\s*optgroup,\s*input,?\s*$/,
   );
   assert.match(
     markdown,

@@ -92,7 +92,7 @@ test("a turn that is moved stays observed", async () => {
   box.append(a, b);
   const ro = fakeObserver();
   const mo = observeChildren(box, ro);
-  box.insertBefore(b, a);
+  a.before(b);
   await flush();
   assert.ok(
     ro.held.has(a) && ro.held.has(b),

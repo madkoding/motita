@@ -76,6 +76,9 @@ function mount(props) {
   return root;
 }
 
+// The label the applying turn is drawn with.
+const APPLYING = "Applying suggestions";
+
 const rows = (root) => [...root.querySelectorAll(".rpt-suggest li")];
 const buttons = (li) => [...li.querySelectorAll("button")];
 const pressed = (li) =>
@@ -131,7 +134,10 @@ test("answers read back draw the same pressed buttons and offer nothing to press
 
 test("the turn that applies the suggestions is drawn by name, not by its prompt", () => {
   let id = 0;
-  const nextId = () => ++id;
+  const nextId = () => {
+    id += 1;
+    return id;
+  };
   const request = "Apply these suggestions you made, and nothing else:\n- test the empty header";
   const msgs = transcriptMessages(
     [
@@ -153,7 +159,7 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
   );
   const users = msgs.filter((m) => m.role === "user");
   assert.equal(users[0].shown, undefined);
-  assert.equal(users[1].shown, "Applying suggestions");
+  assert.equal(users[1].shown, APPLYING);
   assert.equal(users[1].text, request, "the text sent is kept, only the label changes");
   assert.equal(users[2].shown, undefined, "only the turn right after the answered report is labelled");
   const answer = msgs.find((m) => m.report);
@@ -182,11 +188,11 @@ test("an answered card keeps its marks even when the conversation moved on", () 
 test("the label folds the prompt it sent, to open on request", () => {
   const root = document.createElement("div");
   document.body.appendChild(root);
-  render(h(UserText, { m: { id: 1, role: "user", text: "the whole prompt", shown: "Applying suggestions" } }), root);
+  render(h(UserText, { m: { id: 1, role: "user", text: "the whole prompt", shown: APPLYING } }), root);
   const det = root.querySelector("details.msg-shown");
   assert.ok(det, "a label is drawn as a fold");
   assert.equal(det.open, false, "closed until asked");
-  assert.equal(det.querySelector("summary").textContent, "Applying suggestions");
+  assert.equal(det.querySelector("summary").textContent, APPLYING);
   assert.equal(det.querySelector("pre").textContent, "the whole prompt");
   render(h(UserText, { m: { id: 2, role: "user", text: "plain" } }), root);
   assert.equal(root.querySelector("details"), null);
@@ -199,8 +205,9 @@ test("the conversation draws the label, the stream keeps the turn of the answer,
   assert.match(src("ConversationParts.tsx"), /<UserText m=\{head\} \/>/);
   assert.match(src("App.tsx"), /expired=\{expired\}/);
   assert.match(src("streamEvents.ts"), /turn: rs\.liveTurnRef\.current/);
-  assert.match(src("useSuggestions.ts"), /t\("Applying suggestions"\)/);
-  assert.match(src("useSuggestions.ts"), /method: "PUT"/);
-  assert.match(src("useSuggestions.ts"), /"\/task"/, "applying is a task, never routed to the planner");
-  assert.match(src("useSuggestions.ts"), /\/checkpoints\//);
+  const hook = src("useSuggestions.ts");
+  assert.match(hook, /t\("Applying suggestions"\)/);
+  assert.match(hook, /method: "PUT"/);
+  assert.match(hook, /"\/task"/, "applying is a task, never routed to the planner");
+  assert.match(hook, /\/checkpoints\//);
 });

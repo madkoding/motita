@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { JSDOM } from "jsdom";
 import { build } from "esbuild";
@@ -139,6 +139,14 @@ function sse(signal) {
   };
 }
 
+const HTTP_NO_CONTENT = 204;
+const HTTP_NOT_FOUND = 404;
+// Longer than the stream's RECONNECT_MS, so a pending reconnection has fired.
+const PAST_RECONNECT_MS = 1200;
+
+const ANSWER_OF_A = "answer of A";
+const EXPLAIN_IT = "explain it";
+
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -152,61 +160,85 @@ function fakeGateway(history = {}) {
   const alive = new Set(["A", "B"]);
   const streams = { task: {}, events: {} };
   const runningIn = new Set();
+  // A run's stream, kept so the test can push frames into it.
+  const open = (kind, id, init) => {
+    const s = sse(init.signal);
+    streams[kind][id] = s;
+    return s.response;
+  };
+  // Each route is tried in order; the first whose pattern and method match answers. `id` is the
+  // session the path names, when it names one.
+  const routes = [
+    {
+      re: /^\/v1\/sessions\/(\w+)\/(?:task|run)$/,
+      method: "POST",
+      answer: (id, init) => {
+        runningIn.add(id);
+        return open("task", id, init);
+      },
+    },
+    {
+      re: /^\/v1\/sessions\/(\w+)\/events/,
+      answer: (id, init) => {
+        if (!runningIn.has(id)) {
+          return json({ error: "no run" }, HTTP_NOT_FOUND);
+        }
+        return open("events", id, init);
+      },
+    },
+    { re: /^\/v1\/sessions\/(\w+)\/queue$/, answer: () => json({}) },
+    {
+      re: /^\/v1\/sessions\/(\w+)\/run$/,
+      answer: (id) => {
+        if (runningIn.has(id)) {
+          return json({ outcome: "" });
+        }
+        return json({ error: "none" }, HTTP_NOT_FOUND);
+      },
+    },
+    {
+      re: /^\/v1\/sessions\/(\w+)$/,
+      method: "DELETE",
+      answer: (id) => {
+        alive.delete(id);
+        return new Response(null, { status: HTTP_NO_CONTENT });
+      },
+    },
+    {
+      re: /^\/v1\/sessions\/(\w+)\/messages$/,
+      answer: (id) => json({ messages: history[id]?.messages ?? [] }),
+    },
+    {
+      re: /^\/v1\/sessions\/(\w+)\/checkpoints$/,
+      answer: (id) => json({ checkpoints: history[id]?.checkpoints ?? [] }),
+    },
+    { re: /\/agents$/, answer: () => json({ agents: [] }) },
+    { re: /\/config$/, answer: () => json({}) },
+    {
+      re: /^\/v1\/sessions$/,
+      answer: () =>
+        json({
+          sessions: [...alive].map((id) => ({
+            id,
+            title: id,
+            running: runningIn.has(id),
+          })),
+        }),
+    },
+  ];
   const api = async (path, init = {}) => {
     const method = init.method || "GET";
     calls.push(method + " " + path);
-    let m;
-    if (
-      (m = path.match(/^\/v1\/sessions\/(\w+)\/(?:task|run)$/)) &&
-      method === "POST"
-    ) {
-      runningIn.add(m[1]);
-      const s = sse(init.signal);
-      streams.task[m[1]] = s;
-      return s.response;
-    }
-    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/events/))) {
-      if (!runningIn.has(m[1])) {
-        return json({ error: "no run" }, 404);
+    for (const route of routes) {
+      if (route.method && route.method !== method) {
+        continue;
       }
-      const s = sse(init.signal);
-      streams.events[m[1]] = s;
-      return s.response;
+      const m = route.re.exec(path);
+      if (m) {
+        return route.answer(m[1], init);
+      }
     }
-    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/queue$/))) {
-      return json({});
-    }
-    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/run$/))) {
-      return runningIn.has(m[1])
-        ? json({ outcome: "" })
-        : json({ error: "none" }, 404);
-    }
-    if ((m = path.match(/^\/v1\/sessions\/(\w+)$/)) && method === "DELETE") {
-      alive.delete(m[1]);
-      return new Response(null, { status: 204 });
-    }
-    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/messages$/))) {
-      return json({ messages: history[m[1]]?.messages ?? [] });
-    }
-    if ((m = path.match(/^\/v1\/sessions\/(\w+)\/checkpoints$/))) {
-      return json({ checkpoints: history[m[1]]?.checkpoints ?? [] });
-    }
-    if (path.endsWith("/agents")) {
-      return json({ agents: [] });
-    }
-    if (path.endsWith("/config")) {
-      return json({});
-    }
-    if (path === "/v1/sessions") {
-      return json({
-        sessions: [...alive].map((id) => ({
-          id,
-          title: id,
-          running: runningIn.has(id),
-        })),
-      });
-    }
-    return json({}, 404);
+    return json({}, HTTP_NOT_FOUND);
   };
   return { api, calls, streams, runningIn };
 }
@@ -279,11 +311,14 @@ test("opening another session while a run is in flight leaves it idle, unmixed a
   );
 
   // Whatever A does now must not reach B's view.
-  a.send("progress", { text: "still A" }, 3);
-  a.send("done", { result: "answer of A" }, 4);
+  // Frame ids carry on from the two A already sent.
+  const STILL_ID = 3;
+  const DONE_ID = STILL_ID + 1;
+  a.send("progress", { text: "still A" }, STILL_ID);
+  a.send("done", { result: ANSWER_OF_A }, DONE_ID);
   await tick();
   assert.ok(
-    !texts(store.rs).includes("answer of A"),
+    !texts(store.rs).includes(ANSWER_OF_A),
     "A's answer is not drawn in B",
   );
   assert.notEqual(store.rs.activity, "still A");
@@ -332,9 +367,9 @@ test("coming back to a session whose run is still in flight follows that run", a
   );
   assert.equal(store.rs.runningRef.current, true, "A shows its run");
   const ev = gw.streams.events.A;
-  ev.send("done", { result: "answer of A" }, 1);
+  ev.send("done", { result: ANSWER_OF_A }, 1);
   await tick();
-  assert.ok(texts(store.rs).includes("answer of A"), "A's answer lands in A");
+  assert.ok(texts(store.rs).includes(ANSWER_OF_A), "A's answer lands in A");
   assert.equal(store.rs.runningRef.current, false);
   unmount();
 });
@@ -354,7 +389,7 @@ test("a reconnect timer left by a session the reader left never follows the new 
   gw.streams.task.A.fail();
   await tick();
   await store.conv.switchSession("B", "none");
-  await tick(1200); // longer than RECONNECT_MS
+  await tick(PAST_RECONNECT_MS);
   assert.ok(
     !gw.calls.some((c) => c.startsWith("GET /v1/sessions/B/events")),
     "B was never followed",
@@ -369,13 +404,13 @@ test("a session opened again shows each answer as it was shown live", async () =
   const gw = fakeGateway({
     A: {
       messages: [
-        { User: "explain it", Agent: "short account" },
+        { User: EXPLAIN_IT, Agent: "short account" },
         { User: "and now?", Agent: "the task did not complete" },
       ],
       checkpoints: [
         {
           turn: 0,
-          task: "explain it",
+          task: EXPLAIN_IT,
           files: false,
           steps: [],
           outcome: {
@@ -411,7 +446,7 @@ test("a session opened again shows each answer as it was shown live", async () =
   await store.conv.switchSession("A", "none");
   await tick();
   assert.deepEqual(texts(store.rs), [
-    "explain it",
+    EXPLAIN_IT,
     "the whole answer, as it was read",
     "and now?",
     "the task did not complete",
@@ -445,7 +480,7 @@ test("deleting every session leaves the chat waiting and creates none", async ()
   assert.equal(store.rs.sessionRef.current, "");
   assert.equal(store.lists.sessions.length, 0);
   assert.ok(
-    !gw.calls.some((c) => c === "POST /v1/sessions"),
+    !gw.calls.includes("POST /v1/sessions"),
     "no session is created behind the user's back",
   );
   unmount();

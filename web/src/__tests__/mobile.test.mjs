@@ -13,6 +13,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
 const css = src("index.css");
 
+const SIDEBAR = "Sidebar.tsx";
+const HOVER = "(hover: hover)";
+const COARSE = "(pointer: coarse)";
+
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -36,8 +40,12 @@ function mediaBlocks(query) {
     let depth = 1;
     let i = open + 1;
     while (depth > 0) {
-      if (css[i] === "{") depth++;
-      if (css[i] === "}") depth--;
+      if (css[i] === "{") {
+        depth++;
+      }
+      if (css[i] === "}") {
+        depth--;
+      }
       i++;
     }
     out.push(css.slice(open + 1, i - 1));
@@ -57,8 +65,12 @@ function outsideMedia(query) {
     let depth = 1;
     let i = open + 1;
     while (depth > 0) {
-      if (rest[i] === "{") depth++;
-      if (rest[i] === "}") depth--;
+      if (rest[i] === "{") {
+        depth++;
+      }
+      if (rest[i] === "}") {
+        depth--;
+      }
       i++;
     }
     rest = rest.slice(0, at) + rest.slice(i);
@@ -74,8 +86,8 @@ function rule(text, selector) {
 
 test("the phone breakpoint is the one the sidebar markup switches at", () => {
   assert.equal(PHONE_QUERY, "(max-width: 767px)");
-  assert.match(src("Sidebar.tsx"), /fixed md:relative/);
-  assert.match(src("Sidebar.tsx"), /md:hidden/);
+  assert.match(src(SIDEBAR), /fixed md:relative/);
+  assert.match(src(SIDEBAR), /md:hidden/);
 });
 
 test("on a phone the sidebar starts closed, whatever the desktop remembered", () => {
@@ -117,13 +129,17 @@ test("picking a session on a phone closes the sidebar sheet", () => {
     "folding a project keeps the list open",
   );
   assert.equal(closesOnPhone(null), false);
-  assert.match(src("Sidebar.tsx"), /isPhone\(\) && closesOnPhone\(e\.target\)/);
+  assert.match(src(SIDEBAR), /isPhone\(\) && closesOnPhone\(e\.target\)/);
 });
 
 test("the keyboard is told apart from the URL bar sliding away", () => {
-  assert.equal(keyboardOpen(844, 844), false);
-  assert.equal(keyboardOpen(844, 780), false, "browser chrome is not a keyboard");
-  assert.equal(keyboardOpen(844, 500), true);
+  // Layout height of a phone, the visible height once the URL bar hides, and with a keyboard up.
+  const PHONE_H = 844;
+  const URL_BAR_H = 780;
+  const KEYBOARD_H = 500;
+  assert.equal(keyboardOpen(PHONE_H, PHONE_H), false);
+  assert.equal(keyboardOpen(PHONE_H, URL_BAR_H), false, "browser chrome is not a keyboard");
+  assert.equal(keyboardOpen(PHONE_H, KEYBOARD_H), true);
 });
 
 test("the shell is the visible height and keeps clear of the notch and home indicator", () => {
@@ -133,7 +149,7 @@ test("the shell is the visible height and keeps clear of the notch and home indi
   const shell = rule(css, ".app-shell");
   assert.match(shell, /height: var\(--app-h, 100dvh\)/);
   for (const side of ["top", "right", "bottom", "left"]) {
-    assert.match(shell, new RegExp(`env\\(safe-area-inset-${side}\\)`));
+    assert.match(shell, new RegExp(String.raw`env\(safe-area-inset-${side}\)`));
   }
   assert.match(
     css,
@@ -151,7 +167,7 @@ test("the shell is the visible height and keeps clear of the notch and home indi
 });
 
 test("copy buttons are hidden for hover only where something can hover", () => {
-  const touch = outsideMedia("(hover: hover)");
+  const touch = outsideMedia(HOVER);
   for (const sel of [".markdown-body .copy-btn", ".markdown-body .copy-msg-btn"]) {
     const outside = touch.split(sel + " {").slice(1);
     assert.ok(outside.length > 0, `${sel} is styled`);
@@ -164,24 +180,24 @@ test("copy buttons are hidden for hover only where something can hover", () => {
     }
   }
   assert.match(
-    mediaBlocks("(hover: hover)"),
+    mediaBlocks(HOVER),
     /\.markdown-body \.copy-btn,\s*\.markdown-body \.copy-msg-btn \{\s*opacity: 0;/,
   );
 });
 
 test("a tapped button does not stay lifted by a sticky hover", () => {
   assert.doesNotMatch(
-    outsideMedia("(hover: hover)"),
+    outsideMedia(HOVER),
     /button:not\(:disabled\):hover \{\s*transform/,
   );
   assert.match(
-    mediaBlocks("(hover: hover)"),
+    mediaBlocks(HOVER),
     /button:not\(:disabled\):hover \{\s*transform: translateY\(-1px\);/,
   );
 });
 
 test("touch targets are at least 44px, only for a finger", () => {
-  const coarse = mediaBlocks("(pointer: coarse)");
+  const coarse = mediaBlocks(COARSE);
   assert.match(
     coarse,
     /button:not\(\.row-hit\):not\(\.term-tab\),\s*select,\s*summary,\s*\[role="button"\] \{\s*min-height: 44px;/,
@@ -189,12 +205,12 @@ test("touch targets are at least 44px, only for a finger", () => {
   assert.match(coarse, /button:is\(\[aria-label\], \[title\]\)[^{]*\{\s*min-width: 44px;/);
   assert.match(coarse, /\.term-tab \{\s*left: -44px;\s*width: 44px;/);
   // The 44px floor must not leak to the desktop.
-  assert.doesNotMatch(outsideMedia("(pointer: coarse)"), /min-height: 44px;/);
+  assert.doesNotMatch(outsideMedia(COARSE), /min-height: 44px;/);
 });
 
 test("fields are 16px on a touch screen, so iOS does not zoom into them", () => {
   assert.match(
-    mediaBlocks("(pointer: coarse)"),
+    mediaBlocks(COARSE),
     /:root :is\(input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\), textarea, select\) \{\s*font-size: 16px;/,
   );
 });
@@ -204,12 +220,12 @@ test("a project's + is visible on a touch screen", () => {
   assert.doesNotMatch(button, /group-hover:|opacity-0/, "no hover-only utility");
   assert.match(button, /project-new-session/);
   assert.doesNotMatch(
-    outsideMedia("(hover: hover)"),
+    outsideMedia(HOVER),
     /\.project-new-session[^{]*\{\s*opacity: 0;/,
   );
   assert.match(
-    mediaBlocks("(hover: hover)"),
+    mediaBlocks(HOVER),
     /\.project-header \.project-new-session \{\s*opacity: 0;/,
   );
-  assert.match(mediaBlocks("(hover: hover)"), /\.project-header:hover \.project-new-session/);
+  assert.match(mediaBlocks(HOVER), /\.project-header:hover \.project-new-session/);
 });
