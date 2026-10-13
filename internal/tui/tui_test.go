@@ -527,7 +527,8 @@ func TestNewDefaults(t *testing.T) {
 	if first, second := tui.input(), tui.input(); first != second {
 		t.Error("input should reuse the same reader")
 	}
-	if tui.screen != ScreenTask {
-		t.Errorf("default screen = %v, want Task", tui.screen)
+	// Auto is where a new interface starts: each message picks Plan or Task by itself.
+	if tui.screen != ScreenAuto {
+		t.Errorf("default screen = %v, want Auto", tui.screen)
 	}
 }

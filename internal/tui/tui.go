@@ -281,7 +281,7 @@ func New(runner Runner) *TUI {
 		Out:    os.Stdout,
 		Err:    os.Stderr,
 		Runner: runner,
-		screen: ScreenTask,
+		screen: ScreenAuto,
 
 		gitNudge: true,
 	}
