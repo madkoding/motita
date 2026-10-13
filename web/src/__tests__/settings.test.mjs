@@ -61,8 +61,9 @@ test("the platform is read from the user agent, for the steps that unblock notif
       "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
   };
   assert.equal(m.notifyPlatform(ua.iphone), "ios");
+  const ipadTouchPoints = 5;
   assert.equal(
-    m.notifyPlatform(ua.ipadDesktop, 5),
+    m.notifyPlatform(ua.ipadDesktop, ipadTouchPoints),
     "ios",
     "an iPad asking for the desktop site",
   );

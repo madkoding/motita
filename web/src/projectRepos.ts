@@ -51,6 +51,19 @@ export function addRepoProblem(url: string, taken: string[]): string {
   return "";
 }
 
+// lastPathPart is the last part of a path that is not empty, so a trailing separator is skipped;
+// "" when the path has none.
+function lastPathPart(path: string): string {
+  let end = path.length;
+  while (end > 0 && (path[end - 1] === "/" || path[end - 1] === "\\")) {
+    end -= 1;
+  }
+  const rest = path.slice(0, end);
+  return rest.slice(
+    Math.max(rest.lastIndexOf("/"), rest.lastIndexOf("\\")) + 1,
+  );
+}
+
 // MainRepo is how the main repository is shown: its name and where it comes from.
 export interface MainRepo {
   name: string;
@@ -60,8 +73,7 @@ export interface MainRepo {
 // mainRepoOf describes a project's main repository: its URL when it was cloned, its folder otherwise.
 export function mainRepoOf(p: Pick<ProjectInfo, "dir" | "git_url">): MainRepo {
   const source = p.git_url || p.dir;
-  // The last part of the path that is not empty, so a trailing separator is skipped.
-  const folder = /([^\\/]+)[\\/]*$/.exec(p.dir)?.[1] || p.dir;
+  const folder = lastPathPart(p.dir) || p.dir;
   return { name: repoFolderOf(p.git_url || "") || folder, source };
 }
 
