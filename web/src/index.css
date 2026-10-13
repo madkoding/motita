@@ -995,7 +995,7 @@ body {
  *
  * The reveal is also staggered: `.chat-loading > *` holds the messages back for 120ms so the
  * container's fade and the content's own arrival are not the same motion. */
-main[role="log"] {
+div[role="log"] {
   transition: none;
 }
 
@@ -1004,7 +1004,7 @@ main[role="log"] {
  * that is what made the chat arrive at once, and what made the MESSAGES snap while the container
  * faded (they kept their own `transition` only under `.chat-loading`, so their opacity and their
  * 6px offset jumped). Reported as "it appears, but the height readjusts and it ends up wrong". */
-main[role="log"]:not(.chat-loading) {
+div[role="log"]:not(.chat-loading) {
   opacity: 1;
   transition: opacity 420ms ease-out;
 }
@@ -1019,7 +1019,7 @@ main[role="log"]:not(.chat-loading) {
   transform: translateY(6px);
 }
 
-main[role="log"]:not(.chat-loading) > * {
+div[role="log"]:not(.chat-loading) > * {
   opacity: 1;
   transform: none;
   /* The delay staggers the messages behind the container's own fade, so the reveal is one motion
@@ -1039,8 +1039,8 @@ main[role="log"]:not(.chat-loading) > * {
   }
   /* The reveal still happens, it just stops being a motion: the reader keeps the information
    * (the chat was not there, now it is) without the movement. */
-  main[role="log"],
-  main[role="log"] > *,
+  div[role="log"],
+  div[role="log"] > *,
   .chat-modal-scrim {
     transition: none;
   }
@@ -3271,7 +3271,9 @@ button.border-4 {
  * tint (and a small label); the agent's stays neutral. The conversation keeps a gutter on its
  * right for the drawers' tabs, which stick out 34px to the left of the drawer and would
  * otherwise sit on top of the text. */
-main.chat-bg.chat-bg {
+/* `:is(main, div)` keeps the old `main.chat-bg.chat-bg` weight now that the conversation is a
+ * div (a `main` cannot take role="log"); the waiting state is still a `main`. */
+:is(main, div).chat-bg.chat-bg {
   padding-right: 46px;
 }
 .msg.user,
