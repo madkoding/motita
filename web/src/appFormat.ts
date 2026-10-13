@@ -301,11 +301,16 @@ export function writeSessionUrl(id: string, mode: "push" | "replace") {
   }
 }
 
+// usedAt is when a session was used last, in milliseconds, or 0 when that is not known.
+function usedAt(s: SessionInfo): number {
+  return Date.parse(s.last_used || "") || 0;
+}
+
 // mostRecent is the session used last, or undefined when there is none.
 export function mostRecent(list: SessionInfo[]): SessionInfo | undefined {
   let best: SessionInfo | undefined;
   for (const s of list) {
-    if (!best || (s.last_used || "") > (best.last_used || "")) {
+    if (!best || usedAt(s) > usedAt(best)) {
       best = s;
     }
   }

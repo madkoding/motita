@@ -1,4 +1,5 @@
 // The edit project modal: title, description, the main branch and how its pull requests are merged.
+import { useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -166,13 +167,17 @@ function PullRequestFields({
 function EditRepos({ p }: { p: EditProjectDraft }) {
   const { repoBusy, repoConflict, addProjectRepo, removeProjectRepo } =
     useApp().projects;
+  const onRemove = useCallback(
+    (name: string, force: boolean) => void removeProjectRepo(name, force),
+    [removeProjectRepo],
+  );
   return (
     <ReposSection
       main={p.mainRepo}
       repos={p.repos}
       busy={repoBusy}
       conflict={repoConflict}
-      onRemove={(name, force) => void removeProjectRepo(name, force)}
+      onRemove={onRemove}
       onAdd={addProjectRepo}
       hint={t(
         "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.",

@@ -16,7 +16,10 @@ export function settle(
   answer: ProposalAnswer,
 ): (Verdict | undefined)[] {
   const next = [...verdicts];
-  const fill: Verdict = answer === "none" ? "skip" : "apply";
+  let fill: Verdict = "apply";
+  if (answer === "none") {
+    fill = "skip";
+  }
   next[i] = fill;
   if (answer !== "this") {
     for (let k = i + 1; k < next.length; k++) {
@@ -37,7 +40,12 @@ export function initialVerdicts(
   if (answered) {
     return answered;
   }
-  return suggestions.map((s) => (auto && s.needed ? "apply" : undefined));
+  return suggestions.map((s) => {
+    if (auto && s.needed) {
+      return "apply";
+    }
+    return undefined;
+  });
 }
 
 // proposalRequest is the message that applies the accepted suggestions and nothing else, behind
@@ -50,11 +58,20 @@ export function proposalRequest(
 ): string {
   const lines = suggestions
     .filter((_, i) => verdicts[i] === "apply")
-    .map((s) => `- ${s.title ?? ""}${s.detail ? `: ${s.detail}` : ""}`);
+    .map(proposalLine);
   if (lines.length === 0) {
     return "";
   }
   return [lead.trim(), ...lines].join("\n");
+}
+
+// proposalLine is one accepted suggestion as a line of the request: its title, then its detail.
+function proposalLine(s: { title?: string; detail?: string }): string {
+  let line = `- ${s.title ?? ""}`;
+  if (s.detail) {
+    line += `: ${s.detail}`;
+  }
+  return line;
 }
 
 // Pick is the button pressed on one suggestion, or "" on one settled by an earlier answer.

@@ -1,5 +1,6 @@
 // The new project modal: first the one question that decides everything else (empty, or from a
 // repository), then the form for that choice.
+import { useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -253,6 +254,11 @@ function newMainRepo(
 // NewProjectRepos lists the repositories the project will have: the main one, and any others.
 function NewProjectRepos() {
   const p = useApp().projects;
+  const { removeNewProjectRepo } = p;
+  const onRemove = useCallback(
+    (name: string) => removeNewProjectRepo(name),
+    [removeNewProjectRepo],
+  );
   return (
     <ReposSection
       main={newMainRepo(
@@ -263,7 +269,7 @@ function NewProjectRepos() {
       )}
       repos={p.newProjectRepos}
       busy=""
-      onRemove={(name) => p.removeNewProjectRepo(name)}
+      onRemove={onRemove}
       onAdd={p.addNewProjectRepo}
       hint={t(
         "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.",

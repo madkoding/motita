@@ -857,13 +857,21 @@ function stepsOf(
   return (stepsByTurn[turn] || []).filter((st) => st.kind !== "thought");
 }
 
+// turnMode is the mode auto mode picked for a turn, read from its first step, or null.
+function turnMode(shown: StepView[]): "plan" | "task" | null {
+  if (shown.length === 0) {
+    return null;
+  }
+  return modeOf(shown[0].text);
+}
+
 function Turn({ g, isLast }: { g: Group; isLast: boolean }) {
   const { running, activity, stepsByTurn } = useApp().rs;
   const head = choose(g.items[0].role === "user", g.items[0], null);
   const rest = choose(head, g.items.slice(1), g.items);
   const shown = stepsOf(stepsByTurn, g.turn);
   // The mode auto mode picked, when this turn went through it: its first step says so.
-  const mode = shown.length > 0 ? modeOf(shown[0].text) : null;
+  const mode = turnMode(shown);
   const liveHere = running && isLast;
   // The step in progress is the activity line below, so it is not drawn twice.
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
