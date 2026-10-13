@@ -9,6 +9,7 @@ import {
   writeSessionUrl,
 } from "./appFormat";
 import { commandOf } from "./appParse";
+import { sessionFromNotice } from "./pushApi";
 import { keyed } from "./useRunState";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
@@ -338,6 +339,21 @@ export function useConversation({
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, [switchSession]);
+
+  // A tap on a phone notification, with the page already open: the service worker names the
+  // session it is about, and the page opens it as a link would.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    const onMessage = (e: MessageEvent) => {
+      const id = sessionFromNotice(e.data);
+      if (id && id !== sessionRef.current) {
+        writeSessionUrl(id, "push");
+        switchSession(id, "none");
+      }
+    };
+    sw?.addEventListener("message", onMessage);
+    return () => sw?.removeEventListener("message", onMessage);
   }, [switchSession]);
 
   // transcript paints the conversation that already exists.

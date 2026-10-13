@@ -67,3 +67,17 @@ func TestTheArtifactDirectoryLivesUnderTheHome(t *testing.T) {
 		t.Fatalf("artifactDir() = %q with no HOME, want empty", got)
 	}
 }
+
+// TestThePushDirectoryLivesUnderTheHome: the phone notifications' key and subscriptions are state
+// the program owns too, and without a home there are none.
+func TestThePushDirectoryLivesUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := pushDir(), filepath.Join(home, ".motita", "push"); got != want {
+		t.Fatalf("pushDir() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := pushDir(); got != "" {
+		t.Fatalf("pushDir() = %q with no HOME, want empty", got)
+	}
+}

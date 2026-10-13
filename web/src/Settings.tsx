@@ -5,7 +5,7 @@ import { useDialog } from "./useDialog";
 import { IconClose } from "./icons";
 import { InsecureWarning } from "./InsecureWarning";
 import "./dialog.css";
-import { t, tf } from "./i18n";
+import { lang, t, tf } from "./i18n";
 import {
   type Api,
   type GitAccount,
@@ -47,6 +47,19 @@ import {
   restartGateway,
 } from "./networkApi";
 import { copyText } from "./clipboard";
+import {
+  type PushState,
+  type PushView,
+  getPush,
+  keyBytes,
+  loadPushOn,
+  pushState,
+  pushSupported,
+  removeSubscription,
+  savePushOn,
+  saveSubscription,
+  testPush,
+} from "./pushApi";
 
 initSettings();
 
@@ -75,6 +88,8 @@ interface Props {
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
   // the section stays hidden on a gateway without the network API.
   network?: { api: Api };
+  // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
+  push?: { api: Api };
 }
 
 export interface VoiceSettingsProps {
@@ -411,9 +426,10 @@ function GeneralSettings({
   onLang,
   voice,
   network,
+  push,
 }: Pick<
   Props,
-  "langSetting" | "langAvailable" | "onLang" | "voice" | "network"
+  "langSetting" | "langAvailable" | "onLang" | "voice" | "network" | "push"
 >) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const update = (next: UISettings) => {
@@ -477,7 +493,7 @@ function GeneralSettings({
           </Row>
         </div>
       </section>
-      <NotifySetting />
+      <NotifySetting push={push} />
       {voice && <VoiceSettings {...voice} />}
       {network && <NetworkSettings api={network.api} />}
     </>
@@ -638,7 +654,7 @@ function NotifyTestRow({
 
 // NotifySetting is the desktop notifications for a CI that ends: a button that asks the browser while it has not been asked,
 // the steps to allow them again once refused, and the user's own on/off switch once allowed.
-function NotifySetting() {
+function NotifySetting({ push }: Pick<Props, "push">) {
   const [notifyOn, setNotifyOn] = useState(() => loadNotify());
   // The browser's answer is read on every render (see usePermissionRedraw).
   const redraw = usePermissionRedraw();
@@ -720,7 +736,204 @@ function NotifySetting() {
           </ol>
         )}
       </div>
+      {push && <PushSetting api={push.api} />}
     </section>
+  );
+}
+
+// pushHint explains the phone-notification switch for the state the device and the gateway are in.
+function pushHint(ps: PushState | undefined): string {
+  switch (ps) {
+    case "install":
+      return t(
+        "On iPhone and iPad they only work in the installed app: tap Share, then Add to Home Screen, and open Motita from there.",
+      );
+    case "unsupported":
+      return t("This browser cannot receive push notifications.");
+    case "unavailable":
+      return t(
+        "This gateway cannot send them: it has no folder to keep them in, or it is older than this page.",
+      );
+    case "blocked":
+      return t(
+        "Notifications are blocked for this site: allow them first (see the steps above).",
+      );
+    default:
+      return t(
+        "Even with Motita closed: the gateway sends them to this device when a CI ends.",
+      );
+  }
+}
+
+// usePushState reads, and keeps current, what the device and the gateway say about push.
+function usePushState(api: Api) {
+  const [gateway, setGateway] = useState<PushView | null>(null);
+  const [sub, setSub] = useState<PushSubscription | null>(null);
+  const [read, setRead] = useState(false);
+  const supported = pushSupported();
+  const refresh = useCallback(async () => {
+    let current: PushSubscription | null = null;
+    if (supported) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        current = (await reg?.pushManager.getSubscription()) ?? null;
+      } catch {
+        current = null;
+      }
+    }
+    let view: PushView = { available: false, subscribed: false };
+    try {
+      view = await getPush(api, current?.endpoint ?? "");
+    } catch {
+      /* the gateway did not answer: shown as unavailable */
+    }
+    // The browser holds a subscription the gateway forgot (its folder was cleared): hand it over
+    // again, so the switch the person turned on stays on.
+    if (current && view.available && !view.subscribed && loadPushOn()) {
+      try {
+        await saveSubscription(api, current.toJSON(), lang());
+        view = { ...view, subscribed: true };
+      } catch {
+        /* shown as off */
+      }
+    }
+    setSub(current);
+    setGateway(view);
+    setRead(true);
+  }, [api, supported]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+  return { gateway, sub, read, supported, refresh };
+}
+
+// PushSetting is the phone notifications: the gateway pushes a CI that ended to this device, even
+// with the page closed. Turning it on asks the browser's permission, subscribes, and hands the
+// subscription to the gateway; off undoes both.
+function PushSetting({ api }: { api: Api }) {
+  const { gateway, sub, read, supported, refresh } = usePushState(api);
+  usePermissionRedraw();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [tested, setTested] = useState<string | undefined>();
+  const secure =
+    typeof window === "undefined" || window.isSecureContext !== false;
+  const platform = notifyPlatform(
+    navigator.userAgent,
+    navigator.maxTouchPoints || 0,
+  );
+  const ps = read
+    ? pushState({
+        secure,
+        supported,
+        ios: platform === "ios",
+        installed: isInstalled(),
+        gateway,
+        permission: readPermission(),
+        subscribed: !!sub,
+      })
+    : undefined;
+  const turnOn = async () => {
+    const permission = await requestNotify().catch(() => undefined);
+    if (permission !== "granted" && readPermission() !== "granted") {
+      setError(t("The browser did not allow notifications."));
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const next =
+      (await reg.pushManager.getSubscription()) ??
+      (await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: keyBytes(gateway?.public_key ?? ""),
+      }));
+    await saveSubscription(api, next.toJSON(), lang());
+    savePushOn(true);
+  };
+  const turnOff = async () => {
+    if (sub) {
+      await removeSubscription(api, sub.endpoint).catch(() => undefined);
+      await sub.unsubscribe().catch(() => false);
+    }
+    savePushOn(false);
+  };
+  const toggle = (on: boolean) => {
+    setBusy(true);
+    setError("");
+    setTested(undefined);
+    (on ? turnOn() : turnOff())
+      .catch((e) => setError(errorMessage(e)))
+      .finally(() => {
+        setBusy(false);
+        void refresh();
+      });
+  };
+  const sendTest = () => {
+    if (!sub) {
+      return;
+    }
+    setTested(t("Sending…"));
+    testPush(api, sub.endpoint)
+      .then(() =>
+        setTested(
+          t(
+            "Sent. If nothing showed up, check the system's do-not-disturb mode.",
+          ),
+        ),
+      )
+      .catch((e) => setTested(errorMessage(e)));
+  };
+  const usable = ps === "on" || ps === "off";
+  return (
+    <div class="settings-card" data-testid="push-setting">
+      <Row
+        id="settings-push"
+        label={t("Phone notifications")}
+        hint={ps === "insecure" ? undefined : pushHint(ps)}
+        warning={
+          (ps === "insecure" && (
+            <InsecureWarning
+              text={t(
+                "Your browser blocks notifications because Motita was opened without a secure connection.",
+              )}
+              guide={NOTIFY_GUIDE}
+            />
+          )) ||
+          (error && (
+            <p class="text-xs text-danger mt-1" role="alert">
+              {error}
+            </p>
+          ))
+        }
+      >
+        {usable && (
+          <label class="settings-switch-hit">
+            <input
+              type="checkbox"
+              role="switch"
+              class="settings-switch"
+              aria-labelledby="settings-push"
+              checked={ps === "on"}
+              disabled={busy}
+              onChange={(e) => toggle((e.target as HTMLInputElement).checked)}
+            />
+          </label>
+        )}
+      </Row>
+      {ps === "on" && (
+        <Row
+          id="settings-push-test"
+          label={t("Test on this device")}
+          hint={
+            tested ??
+            t("The gateway sends one now, the same way a CI that ends will.")
+          }
+        >
+          <button type="button" class={smallBtn} onClick={sendTest}>
+            {t("Send")}
+          </button>
+        </Row>
+      )}
+    </div>
   );
 }
 
@@ -1430,6 +1643,7 @@ export function SettingsModal({
   voice,
   llm,
   network,
+  push,
 }: Props) {
   const [tab, setTab] = useState<Tab>("general");
   const ref = useRef<HTMLDialogElement>(null);
@@ -1523,6 +1737,7 @@ export function SettingsModal({
               onLang={onLang}
               voice={voice}
               network={network}
+              push={push}
             />
           )}
           {tab === "providers" && llm && <ProviderSettings {...llm} />}

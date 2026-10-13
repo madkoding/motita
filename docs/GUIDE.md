@@ -489,6 +489,14 @@ Once allowed, **Send** under *Test notification* shows one on the spot. When the
 refused them, the same section lists where this browser, or the installed app, keeps the
 permission.
 
+**Phone notifications** (Settings → Notifications → *Phone notifications*) arrive even with the
+page closed: the gateway itself sends them through the browser's push service (standard Web
+Push, signed with a key the gateway creates in `~/.motita/push`), for the same steps of a pull
+request the toast tells. They need the same secure address (Tailscale's `tailscale serve` gives
+one), and on an iPhone or iPad the page added to the home screen (Share → *Add to Home Screen*,
+iOS 16.4 or later) and opened from there. A tap opens the session. **Send** under *Test on this
+device* sends one through the whole path: gateway, push service, phone.
+
 It is compiled into the binary: the shell every visit downloads is **596 KiB**, against a
 **1,120 KiB** budget, with the heavy parts (syntax highlighting, formulas, diagrams, the
 emoji set) loaded only when a message needs them. A test fails if the assets outgrow it.
@@ -968,7 +976,7 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 40 of 40 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage**    | **100% in every package that ships** — 41 of 41 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 4,420 across 416 files                                                                                                                                                                                    |
 | **Code vs tests**         | 67,801 lines of Go · 118,518 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |

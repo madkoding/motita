@@ -467,6 +467,7 @@ function SettingsHost() {
           setToast({ message, type: choose(error, "error", "success") }),
       }}
       network={{ api: request }}
+      push={{ api: request }}
       git={{
         api: request,
         rev: projects.gitRev,

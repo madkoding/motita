@@ -21,6 +21,7 @@ import (
 	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
+	"github.com/madkoding/motita/internal/webpush"
 	"github.com/madkoding/motita/internal/webui"
 )
 
@@ -201,6 +202,9 @@ type Options struct {
 	// Tailscale finds Tailscale on this machine and publishes the gateway inside the tailnet.
 	// Nil means it is never looked for, and the network settings report it as not installed.
 	Tailscale TailscaleService
+	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
+	// (see push.go). Empty means there are none.
+	PushDir string
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -280,6 +284,11 @@ type Server struct {
 	// address and localhost. See hostPolicy.
 	hosts   map[string]bool
 	hostsMu sync.RWMutex
+
+	// push sends the phone notifications, nil when there is no PushDir; pushWG tracks the sends in
+	// flight. See push.go.
+	push   *webpush.Sender
+	pushWG sync.WaitGroup
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -340,6 +349,7 @@ func Start(opts Options) (*Server, error) {
 	s.openSessionStore()
 	s.openProjectStore()
 	s.openScheduleStore()
+	s.openPush()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
@@ -692,6 +702,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))
 	mux.Handle("POST /v1/network/tailscale", plain(s.handleTailscale))
 	mux.Handle("POST /v1/network/restart", plain(s.handleRestartNetwork))
+	// Phone notifications: process-wide, the browsers subscribed to them. See push.go.
+	mux.Handle("GET /v1/push", plain(s.handleGetPush))
+	mux.Handle("POST /v1/push/subscriptions", plain(s.handleAddPush))
+	mux.Handle("DELETE /v1/push/subscriptions", plain(s.handleRemovePush))
+	mux.Handle("POST /v1/push/test", plain(s.handleTestPush))
 
 	// The procedure library and its maintenance pass. PROCESS-WIDE, like /v1/projects
 	// and /v1/commands: a skill is not a property of one conversation, and the ledger
