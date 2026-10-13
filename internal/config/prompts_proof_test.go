@@ -19,7 +19,8 @@ func TestThePromptsDemandProofOfNewBehaviour(t *testing.T) {
 		"execute points at the vulns":  {BaseExecuteTemplate.User, "finding-vulnerabilities"},
 		"execute commits are semantic": {BaseExecuteTemplate.User, "type(scope): description"},
 		"execute links the pr":         {BaseExecuteTemplate.User, "[owner/repo#12](url)"},
-		"execute watches the ci":       {BaseExecuteTemplate.User, "motita forge pr checks --wait --logs"},
+		"execute watches the ci":       {BaseExecuteTemplate.User, "motita forge pr watch"},
+		"execute never polls the pr":   {BaseExecuteTemplate.User, "Never poll the pull request"},
 		"analysis has a proof section": {BaseAnalyzeTemplate.User, "SUCCESS CRITERIA MUST BE PROVABLE"},
 	} {
 		if !strings.Contains(tc.text, tc.want) {

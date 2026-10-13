@@ -611,6 +611,12 @@ const es: Record<string, string> = {
   "Motita is fixing it — attempt {n} of {max}.":
     "Motita lo está arreglando — intento {n} de {max}.",
   "Motita could not fix the CI": "Motita no pudo arreglar el CI",
+  "New review comments": "Nuevos comentarios de revisión",
+  "Motita is answering the comments on pull request {pr} — attempt {n} of {max}.":
+    "Motita está atendiendo los comentarios del pull request {pr} — intento {n} de {max}.",
+  "Merge conflict": "Conflicto de merge",
+  "Pull request {pr} conflicts with its base branch: Motita is resolving it — attempt {n} of {max}.":
+    "El pull request {pr} tiene conflictos con su rama base: Motita lo está resolviendo — intento {n} de {max}.",
   "It tried {n} times. Look at pull request {pr} and try again when you are ready.":
     "Lo intentó {n} veces. Revisa el pull request {pr} y vuelve a intentarlo cuando quieras.",
   "Pull request merged": "Pull request mergeado",

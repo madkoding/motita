@@ -36,6 +36,7 @@ Commands:
   pr create --title T [--body B]      open a pull request for the current branch
   pr status [N]                       the pull request of this branch (or number N) and its CI
   pr checks [N] [--wait] [--logs]     the CI of the pull request; --wait blocks until it ends
+  pr watch [N] [--until-merged]       wait, without the model, until the pull request needs you
 
 pr create flags:
   --title T        required, in the form "type(scope): description" (Conventional Commits)
@@ -49,8 +50,15 @@ pr checks flags:
   --timeout D      how long --wait waits (default 30m)
   --logs           print the end of the log of each failed job (GitHub)
 
+pr watch flags:
+  --timeout D      how long it waits (default 55m)
+  --until-merged   keep waiting after the CI passes, for a review, a conflict or the merge
+
 Run it inside the repository. Exit status of "pr checks": 0 the CI passed, 1 it failed,
-3 it is still running or there is no CI.
+3 it is still running or there is no CI. Exit status of "pr watch": 0 nothing to do (the CI
+passed, or the pull request was merged or closed), 1 something needs you (the CI failed, a
+review or comment arrived, or the branch conflicts), 3 nothing happened before the timeout
+or there is no CI.
 `
 
 // Seams of the forge commands: git, the network and the clock are the three
@@ -118,6 +126,8 @@ func (op Options) runForgePR(ctx context.Context, args []string) int {
 		return op.forgePRChecks(ctx, args[2:], false)
 	case "checks":
 		return op.forgePRChecks(ctx, args[2:], true)
+	case "watch":
+		return op.forgePRWatch(ctx, args[2:])
 	default:
 		return op.unknownForgeCommand(args)
 	}

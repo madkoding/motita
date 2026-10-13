@@ -39,7 +39,8 @@ type SessionInfo struct {
 	// one is working.
 	Branch string
 	// PR is the state of the session's pull request while the gateway follows its CI
-	// ("following", "fixing", "passed", "gave_up", "no_ci", "base_red", "merged"), and PRNumber its
+	// ("following", "fixing", "reviewing", "resolving", "passed", "gave_up", "no_ci", "base_red", "merged"),
+	// and PRNumber its
 	// number. Empty when there is no pull request being followed.
 	PR         string
 	PRNumber   int
@@ -631,6 +632,10 @@ func (t *TUI) prState(state string, number int) string {
 		word = t.tr("CI failed, being fixed")
 	case "passed":
 		word = t.tr("CI passed, ready to merge")
+	case "reviewing":
+		word = t.tr("new review, being answered")
+	case "resolving":
+		word = t.tr("conflict, being resolved")
 	case "gave_up":
 		word = t.tr("CI failed, needs you")
 	case "no_ci":
