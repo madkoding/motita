@@ -88,14 +88,25 @@ export function saveNotify(on: boolean): void {
   }
 }
 
-export type NotifyState = "unsupported" | "blocked" | "ask" | "on" | "off";
+export type NotifyState =
+  | "unsupported"
+  | "insecure"
+  | "blocked"
+  | "ask"
+  | "on"
+  | "off";
 
 // notifyState is what the settings screen says about notifications: the browser's permission and
-// the user's switch together.
+// the user's switch together. A page served over plain http (not localhost) is never allowed to
+// notify, and Chrome reports that as "denied": it is told apart, because no browser setting fixes it.
 export function notifyState(
   permission: string | undefined,
   enabled: boolean,
+  secure = true,
 ): NotifyState {
+  if (!secure && permission !== "granted") {
+    return "insecure";
+  }
   if (permission === undefined) {
     return "unsupported";
   }
@@ -106,4 +117,42 @@ export function notifyState(
     return "ask";
   }
   return onOff(enabled);
+}
+
+// Where the page runs, for the steps that turn blocked notifications back on: each browser keeps
+// the permission in a different place, and an installed app keeps it in the system's settings.
+export type NotifyPlatform =
+  | "ios"
+  | "android"
+  | "edge"
+  | "chrome"
+  | "firefox"
+  | "safari"
+  | "other";
+
+// notifyPlatform reads the platform from the user agent. An iPad asking for the desktop site says
+// it is a Mac, so a Mac with a touch screen is taken for one.
+export function notifyPlatform(ua: string, touchPoints = 0): NotifyPlatform {
+  if (
+    /iPhone|iPad|iPod/.test(ua) ||
+    (/Macintosh/.test(ua) && touchPoints > 1)
+  ) {
+    return "ios";
+  }
+  if (/Android/.test(ua)) {
+    return "android";
+  }
+  if (/Edg\//.test(ua)) {
+    return "edge";
+  }
+  if (/Firefox\//.test(ua)) {
+    return "firefox";
+  }
+  if (/Chrome\/|Chromium\//.test(ua)) {
+    return "chrome";
+  }
+  if (/Safari\//.test(ua)) {
+    return "safari";
+  }
+  return "other";
 }
