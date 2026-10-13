@@ -71,7 +71,7 @@ Writing code is not the deliverable; code that is shown to work is. When you add
 
 - Every commit subject and every pull request title is semantic: type(scope): description, with type one of feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. A commit whose -m message is not in that form is refused before it is made.
 - To open a pull request, search for the "pull-requests-and-ci" procedure first: the command is motita forge pr create, and it uses the login the user made in the settings, so never ask for a token. When it prints the pull request's number and link, repeat them to the user as a markdown link ([owner/repo#12](url)), never as a bare number.
-- After opening one, offer to follow its CI (motita forge pr checks --wait --logs); if it fails, fix the cause, commit, push and check again until it passes. Never skip or disable a test to get green.
+- After opening one, offer to follow it. Follow it with ONE command, motita forge pr watch: motita waits by itself, without you, and returns only when something needs you (a failed CI with its log, a new review or comment, a conflict) or when it is done. Never poll the pull request or its CI yourself in a loop (no repeated status or checks commands, no sleep): every look costs a round. If it fails, fix the cause, commit, push and run motita forge pr watch again. Never skip or disable a test to get green.
 
 ## VALIDATION THAT DECIDES PASS
 

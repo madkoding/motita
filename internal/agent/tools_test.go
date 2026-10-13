@@ -28,6 +28,25 @@ func TestACheckGetsTheCheckTimeout(t *testing.T) {
 	}
 }
 
+// TestAWaitOnAPullRequestGetsAnHour: the waiting is motita's, not the model's, so it is not cut at
+// the command timeout; a command timeout already longer is kept.
+func TestAWaitOnAPullRequestGetsAnHour(t *testing.T) {
+	a := agentWith(t, false)
+	a.cfg.Sandbox.Timeout = 5 * time.Minute
+	for _, cmd := range []string{"motita forge pr watch", "motita forge pr checks 12 --wait --logs"} {
+		if got := a.planRequest(cmd).Request.Timeout; got != time.Hour {
+			t.Errorf("%q: %s", cmd, got)
+		}
+	}
+	if got := a.planRequest("motita forge pr checks 12").Request.Timeout; got != 5*time.Minute {
+		t.Errorf("a look that does not wait keeps the command timeout, got %s", got)
+	}
+	a.cfg.Sandbox.Timeout = 2 * time.Hour
+	if got := a.planRequest("motita forge pr watch").Request.Timeout; got != 2*time.Hour {
+		t.Errorf("a longer command timeout is kept, got %s", got)
+	}
+}
+
 // TestDescribeTools: the model is told where HOME is and where tools persist, and nothing at all
 // when there is no tools directory or a chroot cannot see it.
 func TestDescribeTools(t *testing.T) {

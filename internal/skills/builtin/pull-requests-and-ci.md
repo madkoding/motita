@@ -53,30 +53,45 @@ token, do not try `gh`, and do not edit git configuration to get around it.
 
 ## CI: offer to watch it, then watch it
 
-After the pull request exists, **offer to follow its CI** ("Want me to watch the CI and fix it if
+After the pull request exists, **offer to follow it** ("Want me to watch the CI and fix it if
 it fails?"). If the user agrees, or the task already says to get it merged:
 
 ```sh
-motita forge pr checks --wait --logs      # blocks until the CI ends; --timeout 45m to change the limit
+motita forge pr watch                     # waits until something needs you; --until-merged keeps going after a pass
 ```
 
-Exit status: `0` the CI passed, `1` it failed, `3` it is still running or there is no CI at all.
-The output lists every job with its state; `--logs` adds the end of the log of each failed job
-(GitHub), and the failed job's URL is printed for every host.
+The waiting is motita's, not yours: it reads the CI, the reviews and the merge state itself, slows
+down while nothing moves and backs off when the host limits it, and returns only on an event. So
+**never poll** the pull request yourself: no `pr status` or `pr checks` in a loop, no `sleep`.
+Each of those is a whole round spent on "still running".
 
-When it fails:
+Exit status: `0` nothing to do (the CI passed, or the pull request was merged or closed), `1`
+something needs you, `3` nothing happened before the timeout (run it again) or there is no CI.
+On `1` the output says what happened:
+
+- **the CI failed**: every job with its state, the failed job's URL, and the end of its log
+  (GitHub).
+- **new comment(s) or review(s)**: who said what, and on which file.
+- **the branch conflicts with its base**: merge the base branch in, resolve, push. Never rebase
+  or force-push a branch with a pull request unless the user asked.
+
+When the CI fails:
 
 1. Read the failing job's log. Reproduce the failure locally with the project's own check before
    changing anything — a fix you did not see fail first is a guess.
 2. Fix the cause in code the pull request touches. **Never** skip, disable or delete a test to get
    green, and never re-run a job hoping it passes: a failure that comes back is real.
 3. Commit with a semantic message (`fix(ci): ...` or the type that fits), push, and run
-   `motita forge pr checks --wait --logs` again. Repeat until it exits `0`.
+   `motita forge pr watch` again. Repeat until it exits `0`.
 4. If the failure is not caused by this change (the same job is red on the base branch), say so
    with the evidence and ask the user; do not widen the pull request.
 
+When a review asks for a change, make it if it is right for this pull request, push, and watch
+again; if it asks for something wrong, change nothing for it and say why. Do not post comments on
+the pull request yourself.
+
 Finish by saying the CI result in one line with the link: "[owner/repo#12](url): CI passed".
-`motita forge pr status` shows the same report without waiting.
+`motita forge pr status` (or `pr checks --logs`) shows the CI once, without waiting.
 
 ## What not to do
 

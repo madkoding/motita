@@ -599,11 +599,17 @@ configuration file. Disconnecting a host deletes its file.
   `type(scope): description` is refused before it is made, and so is a pull request title.
 - **Pull requests, with the link.** The agent opens one with `motita forge pr create` (you
   are asked first, as for a push) and tells you where it is — `[owner/repo#12](url)`, never a
-  bare number. It then offers to follow the CI (`motita forge pr checks --wait --logs`): if a
-  job fails it reads the log, fixes the cause, pushes, and checks again until it is green.
+  bare number. It then offers to follow the pull request with `motita forge pr watch`, which
+  waits **without the model**: motita reads the CI, the reviews and the merge state itself, with
+  a pace that slows while nothing moves, and wakes the agent only when something needs it (a
+  failed job with its log, a new comment or review, a conflict with the base). Waiting costs no
+  tokens; only acting on an event does.
 - **Create PR, and the CI followed for you.** A session with work shows **Create PR**. From
-  then on the _gateway_ follows the CI (not the browser tab): when it fails it sends the agent to
-  fix it, push after push, up to the project's limit (5 by default), and stops when the CI passes,
+  then on the _gateway_ follows the CI (not the browser tab), and it also starts following a
+  pull request the agent opened by itself when its run ends: when the CI fails it sends the agent
+  to fix it, push after push, up to the project's limit (5 by default). New comments or reviews,
+  and a branch that starts to conflict with its base, send the agent too, out of the same
+  attempts. It stops when the CI passes,
   when the same checks also fail on the base branch, or when there is no CI. A toast (and a
   browser or terminal notification) tells you; **Merge** appears once the host would accept it,
   and a project can merge by itself (`auto_merge`), open the next session by itself
