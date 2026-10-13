@@ -5,12 +5,24 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/readonly"
 )
+
+// forgeWaitTimeout is the timeout of a command that waits on a pull request. `motita forge pr
+// watch` ends by itself a little before it, with a report.
+const forgeWaitTimeout = time.Hour
+
+// waitsOnForge reports whether a command waits on a pull request: `motita forge pr watch`, or
+// `motita forge pr checks --wait`.
+func waitsOnForge(command string) bool {
+	return strings.Contains(command, "forge pr watch") ||
+		(strings.Contains(command, "forge pr checks") && strings.Contains(command, "--wait"))
+}
 
 // RequestPlan is what may be done with a line the model proposed.
 //
@@ -120,6 +132,12 @@ func (a *Agent) planRequest(command string) RequestPlan {
 	// launching command returned, killed the background `go test` halfway through.
 	if a.cfg.Sandbox.CheckTimeout > timeout && len(verificationKeys(command)) > 0 {
 		timeout = a.cfg.Sandbox.CheckTimeout
+	}
+	// A command that waits on a pull request does its waiting without the model. Cut at the
+	// command timeout, it would wake the model every few minutes only to be started again, and
+	// each of those rounds is a whole prompt spent on "still running".
+	if forgeWaitTimeout > timeout && waitsOnForge(command) {
+		timeout = forgeWaitTimeout
 	}
 
 	if a.readOnly() {
