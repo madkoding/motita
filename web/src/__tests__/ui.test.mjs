@@ -3,7 +3,7 @@
 // rely on. Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { JSDOM } from "jsdom";
@@ -100,6 +100,36 @@ test("font size and density are applied globally, not only to the chat", () => {
     css.includes('html[data-density="compact"] .term-screen'),
     "density reaches the drawers",
   );
+});
+
+// Compact only took 4px off a handful of boxes, so switching it changed nothing anyone could
+// see. It now lowers Tailwind's --spacing, which every padding, margin and gap utility is built
+// on; the fixed sizes built on that same variable must be pinned back or the layout would shrink.
+test("compact density tightens the Tailwind spacing and keeps the fixed sizes", () => {
+  assert.match(
+    css,
+    /html\[data-density="compact"\]\s*\{\s*--spacing:\s*0\.1875rem;/,
+    "compact lowers the spacing unit every utility multiplies",
+  );
+  const sizeUtil = /^(?:[a-z]+:)*(?:min-|max-)?(?:w|h|size)-(\d+(?:\.\d+)?)$/;
+  const used = new Set();
+  for (const f of readdirSync(join(here, ".."))) {
+    if (!/\.tsx?$/.test(f)) {
+      continue;
+    }
+    const text = readFileSync(join(here, "..", f), "utf8");
+    for (const token of text.split(/[\s"'`{}()]+/)) {
+      const m = sizeUtil.exec(token);
+      if (m && Number(m[1]) > 0) {
+        used.add(token);
+      }
+    }
+  }
+  assert.ok(used.has("w-72"), "the scan finds the sidebar width");
+  for (const cls of used) {
+    const sel = `html[data-density="compact"] .${cls.replace(/[.:]/g, "\\$&")} {`;
+    assert.ok(css.includes(sel), `${cls} is pinned in compact density`);
+  }
 });
 
 test("every button carries the design system diagonal corners", () => {
