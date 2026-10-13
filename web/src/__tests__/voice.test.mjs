@@ -10,13 +10,20 @@ const dom = new JSDOM("<!doctype html><html></html>", {
 globalThis.localStorage = dom.window.localStorage;
 const m = await import("../voice.ts");
 
+const HTTP_OK = 200;
+const HTTP_NOT_FOUND = 404;
+const HTTP_SERVER_ERROR = 500;
+const HTTP_BAD_GATEWAY = 502;
+
 test("the switches: the microphone on and hands-free off by default, and both are kept", () => {
   localStorage.clear();
   assert.deepEqual(m.loadVoicePrefs(), { mic: true, listen: false });
   let heard = 0;
   globalThis.window = dom.window;
   globalThis.CustomEvent = dom.window.CustomEvent;
-  dom.window.addEventListener(m.VOICE_PREFS_EVENT, () => heard++);
+  dom.window.addEventListener(m.VOICE_PREFS_EVENT, () => {
+    heard += 1;
+  });
   m.saveVoicePrefs({ mic: false, listen: true });
   assert.deepEqual(m.loadVoicePrefs(), { mic: false, listen: true });
   assert.equal(heard, 1, "the page is told the switches changed");
@@ -82,25 +89,46 @@ test("the level of a frame", () => {
 });
 
 test("the gate cuts speech into phrases and drops what is too short", () => {
+  const SILENCE_MS = 100;
+  const MIN_MS = 50;
+  const MAX_MS = 1000;
   const g = new m.SpeechGate({
     threshold: 0.1,
-    silenceMs: 100,
-    minMs: 50,
-    maxMs: 1000,
+    silenceMs: SILENCE_MS,
+    minMs: MIN_MS,
+    maxMs: MAX_MS,
   });
+  const loud = 0.5;
+  // The times, in ms, the gate is fed at: a phrase with a short pause inside it, a click too
+  // short to be words, and a phrase that runs past maxMs.
+  const PHRASE_START_MS = 10;
+  const LAST_LOUD_MS = SILENCE_MS;
+  const PAUSE_MS = LAST_LOUD_MS + MIN_MS;
+  const PHRASE_END_MS = LAST_LOUD_MS + SILENCE_MS + 1;
+  const CLICK_START_MS = 300;
+  const CLICK_END_MS = 420;
+  const LONG_START_MS = 500;
   assert.equal(g.feed(0, 0), null, "silence is nothing");
-  assert.equal(g.feed(0.5, 10), "start");
+  assert.equal(g.feed(loud, PHRASE_START_MS), "start");
   assert.equal(g.speaking, true);
-  assert.equal(g.feed(0.5, 100), null);
-  assert.equal(g.feed(0, 150), null, "a short pause is part of the phrase");
-  assert.equal(g.feed(0, 201), "end");
+  assert.equal(g.feed(loud, LAST_LOUD_MS), null);
+  assert.equal(
+    g.feed(0, PAUSE_MS),
+    null,
+    "a short pause is part of the phrase",
+  );
+  assert.equal(g.feed(0, PHRASE_END_MS), "end");
   assert.equal(g.speaking, false);
 
-  assert.equal(g.feed(0.5, 300), "start");
-  assert.equal(g.feed(0, 420), "discard", "a click is not words");
+  assert.equal(g.feed(loud, CLICK_START_MS), "start");
+  assert.equal(g.feed(0, CLICK_END_MS), "discard", "a click is not words");
 
-  assert.equal(g.feed(0.5, 500), "start");
-  assert.equal(g.feed(0.5, 1500), "end", "a phrase that runs on is cut");
+  assert.equal(g.feed(loud, LONG_START_MS), "start");
+  assert.equal(
+    g.feed(loud, LONG_START_MS + MAX_MS),
+    "end",
+    "a phrase that runs on is cut",
+  );
   assert.equal(new m.SpeechGate().feed(0, 0), null, "the default thresholds");
 });
 
@@ -114,18 +142,19 @@ test("the requests: the info, the recording as its own type, and the gateway's r
   const calls = [];
   const reply = (status, body) => async (path, init) => {
     calls.push({ path, init });
-    return new Response(
-      typeof body === "string" ? body : JSON.stringify(body),
-      { status },
-    );
+    let text = body;
+    if (typeof body !== "string") {
+      text = JSON.stringify(body);
+    }
+    return new Response(text, { status });
   };
   const info = { enabled: true, wake_phrases: [], max_audio_bytes: 5 };
-  assert.deepEqual(await m.fetchVoiceInfo(reply(200, info)), info);
-  assert.equal(await m.fetchVoiceInfo(reply(404, {})), null);
+  assert.deepEqual(await m.fetchVoiceInfo(reply(HTTP_OK, info)), info);
+  assert.equal(await m.fetchVoiceInfo(reply(HTTP_NOT_FOUND, {})), null);
 
   const audio = new Blob(["x"], { type: "audio/mp4" });
   const got = await m.transcribe(
-    reply(200, { text: "hi", wake: { phrase: "motita", rest: "hi" } }),
+    reply(HTTP_OK, { text: "hi", wake: { phrase: "motita", rest: "hi" } }),
     audio,
     true,
   );
@@ -133,17 +162,20 @@ test("the requests: the info, the recording as its own type, and the gateway's r
   const last = calls.at(-1);
   assert.equal(last.path, "/v1/voice/transcribe?wake=1");
   assert.equal(last.init.headers["Content-Type"], "audio/mp4");
-  await m.transcribe(reply(200, { text: "" }), new Blob(["x"]), false);
+  await m.transcribe(reply(HTTP_OK, { text: "" }), new Blob(["x"]), false);
   assert.equal(calls.at(-1).path, "/v1/voice/transcribe");
   assert.equal(calls.at(-1).init.headers["Content-Type"], "audio/webm");
 
   await assert.rejects(
-    m.transcribe(reply(502, { error: "bad key" }), audio, false),
+    m.transcribe(reply(HTTP_BAD_GATEWAY, { error: "bad key" }), audio, false),
     /bad key/,
   );
-  await assert.rejects(m.transcribe(reply(500, {}), audio, false), /HTTP 500/);
   await assert.rejects(
-    m.transcribe(reply(500, "<html>"), audio, false),
+    m.transcribe(reply(HTTP_SERVER_ERROR, {}), audio, false),
+    /HTTP 500/,
+  );
+  await assert.rejects(
+    m.transcribe(reply(HTTP_SERVER_ERROR, "<html>"), audio, false),
     /HTTP 500/,
   );
 });

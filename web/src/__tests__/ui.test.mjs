@@ -135,7 +135,8 @@ test("compact density tightens the Tailwind spacing and keeps the fixed sizes", 
   }
   assert.ok(used.has("w-72"), "the scan finds the sidebar width");
   for (const cls of used) {
-    const sel = `html[data-density="compact"] .${cls.replace(/[.:]/g, "\\$&")} {`;
+    const escaped = cls.replace(/[.:]/g, String.raw`\$&`);
+    const sel = `html[data-density="compact"] .${escaped} {`;
     assert.ok(css.includes(sel), `${cls} is pinned in compact density`);
   }
 });
