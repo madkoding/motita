@@ -41,10 +41,15 @@ func TestSuggestionAnswersAreKeptWithTheTurn(t *testing.T) {
 	again := newTestServer(t, &fakeService{}, func(o *Options) { o.SessionDir = dir })
 	cps := checkpointsOf(t, again)
 	a := cps[0].Answers
-	if a == nil || a.Picks[0] != "this" || a.Picks[1] != "none" || a.Verdicts[1] != "skip" ||
-		a.Request != "Apply:\n- test the empty header" {
+	if a == nil || !keptAnswers(a) {
 		t.Fatalf("after a restart the answers = %+v", a)
 	}
+}
+
+// keptAnswers reports whether a are the answers the restart test gave before closing the server.
+func keptAnswers(a *suggestionAnswers) bool {
+	picked := a.Picks[0] == "this" && a.Picks[1] == "none"
+	return picked && a.Verdicts[1] == "skip" && a.Request == "Apply:\n- test the empty header"
 }
 
 // An answer is taken once, for a turn that made suggestions, and only in the shape they offer.
@@ -63,7 +68,8 @@ func TestSuggestionAnswersRefuseWhatTheyCannotKeep(t *testing.T) {
 		{"unknown verdict", "0", `{"picks":["none",""],"verdicts":["skip","later"]}`, http.StatusBadRequest},
 		{"no button pressed", "0", `{"picks":["",""],"verdicts":["skip","skip"]}`, http.StatusBadRequest},
 		{"accepted with no request", "0", `{"picks":["rest",""],"verdicts":["apply","apply"]}`, http.StatusBadRequest},
-		{"a request for nothing", "0", `{"picks":["none",""],"verdicts":["skip","skip"],"request":"x"}`, http.StatusBadRequest},
+		{"a request for nothing", "0", `{"picks":["none",""],"verdicts":["skip","skip"],"request":"x"}`,
+			http.StatusBadRequest},
 		{"dismissed", "0", `{"picks":["none",""],"verdicts":["skip","skip"]}`, http.StatusOK},
 		{"answered twice", "0", `{"picks":["none",""],"verdicts":["skip","skip"]}`, http.StatusConflict},
 	} {

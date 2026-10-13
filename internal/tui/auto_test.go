@@ -46,7 +46,8 @@ func TestAutoModeIsNamedInTheBoxAndTheHints(t *testing.T) {
 	if ScreenAuto.String() != "Auto" {
 		t.Errorf("String() = %q", ScreenAuto.String())
 	}
-	for screen, next := range map[Screen]string{ScreenTask: "Plan mode", ScreenPlan: "Auto mode", ScreenAuto: "Task mode"} {
+	nextModes := map[Screen]string{ScreenTask: "Plan mode", ScreenPlan: "Auto mode", ScreenAuto: "Task mode"}
+	for screen, next := range nextModes {
 		tui.screen = screen
 		found := false
 		for _, h := range tui.hintList() {

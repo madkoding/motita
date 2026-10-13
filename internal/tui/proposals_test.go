@@ -93,12 +93,14 @@ func TestProposalAnswersSettleTheOnesAfter(t *testing.T) {
 	a := newAsk(proposalItems(), "")
 	a.pick(0) // the first: apply it, and move to the second
 	a.pick(2) // the second: none of the rest
-	if a.answers[0] != agent.ProposalApply || a.answers[1] != agent.ProposalSkipAll || a.answers[2] != agent.ProposalSkipAll {
+	if a.answers[0] != agent.ProposalApply || a.answers[1] != agent.ProposalSkipAll ||
+		a.answers[2] != agent.ProposalSkipAll {
 		t.Fatalf("answers = %q", a.answers)
 	}
 	a = newAsk(proposalItems(), "")
 	a.pick(1)
-	if a.answers[0] != agent.ProposalApplyRest || a.answers[1] != agent.ProposalApply || a.answers[2] != agent.ProposalApply {
+	if a.answers[0] != agent.ProposalApplyRest || a.answers[1] != agent.ProposalApply ||
+		a.answers[2] != agent.ProposalApply {
 		t.Fatalf("answers = %q", a.answers)
 	}
 	// An answer of the clarifying kind settles nothing else.

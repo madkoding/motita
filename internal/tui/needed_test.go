@@ -38,7 +38,8 @@ func TestAutoModeAppliesNeededSuggestionsWithoutAsking(t *testing.T) {
 	if tui.asking() {
 		t.Fatal("a needed suggestion must not be asked about in auto mode")
 	}
-	if len(rr.tasks) != 1 || rr.tasks[0] != "Apply these suggestions you made, and nothing else:\n- test the empty header" {
+	want := "Apply these suggestions you made, and nothing else:\n- test the empty header"
+	if len(rr.tasks) != 1 || rr.tasks[0] != want {
 		t.Fatalf("tasks = %q", rr.tasks)
 	}
 	if tui.autoTurn {
@@ -67,12 +68,14 @@ func TestAutoModeAsksOnlyTheOptionalSuggestions(t *testing.T) {
 	}
 	tui.ask.pick(2) // none of the optional ones
 	tui.confirmAsk()
-	want := "Apply these suggestions you made, and nothing else:\n- test the empty header\n- fix the panic the change exposed"
+	want := "Apply these suggestions you made, and nothing else:\n" +
+		"- test the empty header\n- fix the panic the change exposed"
 	if len(rr.tasks) != 1 || rr.tasks[0] != want {
 		t.Fatalf("tasks = %q, want %q", rr.tasks, want)
 	}
 	lines := userLines(tui)
-	if len(lines) != 1 || !strings.Contains(lines[0], "✗ share the retry helper") || !strings.Contains(lines[0], "✓ test the empty header") {
+	if len(lines) != 1 || !strings.Contains(lines[0], "✗ share the retry helper") ||
+		!strings.Contains(lines[0], "✓ test the empty header") {
 		t.Errorf("the conversation shows %q", lines)
 	}
 }
