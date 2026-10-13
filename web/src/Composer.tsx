@@ -6,6 +6,8 @@ import { tagGroupClass } from "./appFormat";
 import { IconClose } from "./icons";
 import type { SlashCommand } from "./appTypes";
 import { TASK_INPUT_ID } from "./appConst";
+import { useLayoutEffect, useRef } from "preact/hooks";
+import { fitToContent } from "./autosize";
 
 // The colour of a command's name in the popup, by its group.
 const GROUP_COLOR: Record<string, string> = {
@@ -94,7 +96,7 @@ function SendButton({ disabled }: { disabled: boolean }) {
       disabled={disabled}
       title={choose(shellMode, t("Run in the shell"), undefined)}
       aria-label={choose(shellMode, t("Run in the shell"), t("Send"))}
-      class={`min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${choose(shellMode, "send-shell", "bg-accent")}`}
+      class={`composer-send min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${choose(shellMode, "send-shell", "bg-accent")}`}
     >
       {shellMode && (
         <svg
@@ -143,6 +145,29 @@ function placeholderOf(isMerged: boolean, tagged: boolean): string {
 export function Composer() {
   const { composer, isMerged, rs } = useApp();
   const { slashPopup, input } = composer;
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    if (inputRef.current) {
+      fitToContent(inputRef.current);
+    }
+  }, [input]);
+  // The text rewraps when the width changes (rotation, the sidebar, a density switch), so the
+  // height is fitted again then too. Only a width change counts: the fit itself changes height.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== width) {
+        width = el.clientWidth;
+        fitToContent(el);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
     <form
       class="frosted flex gap-2 px-3 py-2.5 sm:px-5 sm:py-3 border-t border-white/5 flex-none z-10 relative"
@@ -170,9 +195,10 @@ export function Composer() {
       <label htmlFor={TASK_INPUT_ID} class="sr-only">
         {t("Task")}
       </label>
-      <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-xs overflow-y-auto">
+      <div class="composer-field flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-xs overflow-y-auto">
         <TagPills />
         <textarea
+          ref={inputRef}
           id={TASK_INPUT_ID}
           rows={1}
           value={input}
@@ -182,7 +208,7 @@ export function Composer() {
           }
           onKeyDown={composer.handleKeydown}
           placeholder={placeholderOf(isMerged, composer.activeTags.length > 0)}
-          class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 composer-input font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
       <SendButton disabled={rs.running || isMerged} />

@@ -3,7 +3,7 @@
 // rely on. Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { JSDOM } from "jsdom";
@@ -100,6 +100,58 @@ test("font size and density are applied globally, not only to the chat", () => {
     css.includes('html[data-density="compact"] .term-screen'),
     "density reaches the drawers",
   );
+});
+
+// Compact only took 4px off a handful of boxes, so switching it changed nothing anyone could
+// see. It now lowers Tailwind's --spacing, which every padding, margin and gap utility is built
+// on; the fixed sizes built on that same variable must be pinned back or the layout would shrink.
+test("compact density tightens the Tailwind spacing and keeps the fixed sizes", () => {
+  assert.match(
+    css,
+    /html\[data-density="compact"\]\s*\{\s*--spacing:\s*0\.125rem;/,
+    "compact halves the spacing unit every utility multiplies",
+  );
+  assert.match(
+    css,
+    /html\[data-density="compact"\] :is\(\.session-when, \.session-facts\)\s*\{\s*display:\s*inline-flex;/,
+    "a compact session row puts the timestamp and the facts on one line",
+  );
+  const row = readFileSync(join(here, "..", "SessionRow.tsx"), "utf8");
+  assert.ok(row.includes('class="session-when '), "the timestamp line carries its hook");
+  assert.ok(row.includes('class="session-facts '), "the facts line carries its hook");
+  const sizeUtil = /^(?:[a-z]+:)*(?:min-|max-)?(?:w|h|size)-(\d+(?:\.\d+)?)$/;
+  const used = new Set();
+  for (const f of readdirSync(join(here, ".."))) {
+    if (!/\.tsx?$/.test(f)) {
+      continue;
+    }
+    const text = readFileSync(join(here, "..", f), "utf8");
+    for (const token of text.split(/[\s"'`{}()]+/)) {
+      const m = sizeUtil.exec(token);
+      if (m && Number(m[1]) > 0) {
+        used.add(token);
+      }
+    }
+  }
+  assert.ok(used.has("w-72"), "the scan finds the sidebar width");
+  for (const cls of used) {
+    const sel = `html[data-density="compact"] .${cls.replace(/[.:]/g, "\\$&")} {`;
+    assert.ok(css.includes(sel), `${cls} is pinned in compact density`);
+  }
+});
+
+test("compact lowers the touch floor on phones and the composer grows with its draft", async () => {
+  assert.match(
+    css,
+    /@media \(pointer: coarse\) \{\s*html\[data-density="compact"\] :is\(button[^{]*\{\s*min-height: 36px;/,
+    "compact drops the 44px finger floor to 36px",
+  );
+  const { fitToContent } = await import("../autosize.ts");
+  const el = document.createElement("textarea");
+  Object.defineProperty(el, "scrollHeight", { value: 60 });
+  el.style.height = "34px";
+  fitToContent(el);
+  assert.equal(el.style.height, "60px", "a wrapped draft gets every line it needs");
 });
 
 test("every button carries the design system diagonal corners", () => {
