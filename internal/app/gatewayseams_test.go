@@ -29,8 +29,11 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
 	// A program that records that it ran, standing in for the re-executed motita. --serve is
 	// passed as an argument it ignores; what matters is that the arguments reach it.
+	// The record is written aside and renamed into place, here and in the spawn tests below:
+	// `> marker` creates the file before printf fills it, and a poll landing in between read an
+	// empty file and failed the test.
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -62,7 +65,7 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 func TestSpawnDetachedWithoutAnAddressOmitsTheFlag(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "args")
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -524,7 +527,7 @@ func TestStartingReportsAnUnreadableFileAfterTheSpawn(t *testing.T) {
 func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -554,7 +557,7 @@ func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
 	script := filepath.Join(t.TempDir(), "fake-motita")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+".tmp && mv "+marker+".tmp "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
