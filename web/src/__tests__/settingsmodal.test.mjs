@@ -222,7 +222,14 @@ test("on a plain http address the setting says https is needed, with nothing to 
   });
   const { root, done } = await open();
   const card = root.querySelector("[data-testid=notifications-setting]");
-  assert.match(card.textContent, /https/);
+  const pill = card.querySelector("[data-testid=insecure-warning]");
+  assert.ok(pill, "the reason is a warning pill");
+  assert.equal(pill.getAttribute("role"), "note");
+  assert.match(pill.textContent, /Connection not secure/);
+  assert.match(pill.textContent, /blocks notifications/);
+  assert.match(pill.querySelector("details summary").textContent, /Why\?/);
+  assert.match(pill.querySelector("details").textContent, /https:\/\//);
+  assert.equal(pill.querySelector("a").rel, "noopener noreferrer");
   assert.equal(card.querySelector("button"), null);
   assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
   delete window.isSecureContext;
@@ -379,7 +386,11 @@ test("the voice switches are greyed out until the page and the gateway allow the
   assert.equal(mic.disabled, true);
   assert.equal(listen.disabled, true);
   assert.equal(mic.checked, false, "an unusable switch never reads as on");
-  assert.match(section.textContent, /https or localhost/);
+  const pills = section.querySelectorAll("[data-testid=insecure-warning]");
+  assert.equal(pills.length, 2, "each blocked switch shows the warning pill");
+  assert.match(pills[0].textContent, /without a secure connection/);
+  assert.match(pills[0].querySelector("details").textContent, /https:\/\//);
+  assert.match(pills[0].querySelector("a").href, /REFERENCE\.md#voice-input$/);
   await v.done();
 
   v = await open({ voice: voice("ready", "no-phrases") });
@@ -412,4 +423,20 @@ test("the voice switches are greyed out until the page and the gateway allow the
     assert.match(v.root.textContent, text);
     await v.done();
   }
+});
+
+test("the insecure-connection pill is translated, amber, and tighter in compact density", () => {
+  const es = readFileSync(join(here, "..", "i18n.es.ts"), "utf8");
+  for (const k of [
+    "Connection not secure",
+    "Why?",
+    "How to set it up",
+    "Your browser blocks the microphone because Motita was opened without a secure connection.",
+    "Your browser blocks notifications because Motita was opened without a secure connection.",
+  ]) {
+    assert.ok(es.includes(JSON.stringify(k)) || es.includes(`${k}:`), k);
+  }
+  const css = src("index.css");
+  assert.match(css, /\.settings-warn \{[^}]*rgba\(237, 181, 88/);
+  assert.match(css, /html\[data-density="compact"\] \.settings-warn \{/);
 });
