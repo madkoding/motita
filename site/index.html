@@ -3196,11 +3196,10 @@ motita gateway stop
 motita -serve -gateway 127.0.0.1:7477</code></pre>
                 <p class="hint">
                   <code>gateway start</code> prints the token once and the
-                  addresses to open, such as
-                  <code>http://127.0.0.1:7477</code>. The same
-                  port serves the page and its <code>/v1/...</code> API, so
-                  there is no CORS and no second server.
-                  <code>gateway.allow</code> says who may reach it.
+                  addresses to open, such as <code>http://127.0.0.1:7477</code>.
+                  The same port serves the page and its
+                  <code>/v1/...</code> API, so there is no CORS and no second
+                  server. <code>gateway.allow</code> says who may reach it.
                 </p>
               </div>
               <div>
@@ -3842,6 +3841,43 @@ motita -isolation</code></pre>
             lb.close();
           }
         });
+
+        // The stamped version is the tag of the last deploy, and a deploy can lag a
+        // release (one stuck run blocks the queue). Ask the releases API for the
+        // latest tag and show it when it is newer; offline or rate-limited, the
+        // stamp stays.
+        var stamp = document.querySelector("[data-motita-version]");
+        var semver = function (v) {
+          var m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(v || "");
+          return m ? [+m[1], +m[2], +m[3]] : null;
+        };
+        var newer = function (a, b) {
+          for (var i = 0; i < 3; i++) {
+            if (a[i] !== b[i]) {
+              return a[i] > b[i];
+            }
+          }
+          return false;
+        };
+        if (stamp && window.fetch) {
+          fetch(
+            "https://api.github.com/repos/madkoding/motita/releases/latest",
+            {
+              headers: { Accept: "application/vnd.github+json" },
+            },
+          )
+            .then(function (r) {
+              return r.ok ? r.json() : null;
+            })
+            .then(function (rel) {
+              var latest = semver(rel && rel.tag_name);
+              var shown = semver(stamp.textContent.trim());
+              if (latest && (!shown || newer(latest, shown))) {
+                stamp.textContent = rel.tag_name;
+              }
+            })
+            .catch(function () {});
+        }
       })();
     </script>
   </body>
