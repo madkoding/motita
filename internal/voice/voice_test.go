@@ -113,7 +113,8 @@ func TestTranscribeFailures(t *testing.T) {
 }
 
 func TestTranscribeRequestErrors(t *testing.T) {
-	if _, err := (Transcriber{BaseURL: "http://bad\x7fhost"}).Transcribe(context.Background(), []byte("a"), "audio/wav"); err == nil ||
+	bad := Transcriber{BaseURL: "http://bad\x7fhost"}
+	if _, err := bad.Transcribe(context.Background(), []byte("a"), "audio/wav"); err == nil ||
 		!strings.Contains(err.Error(), "could not be built") {
 		t.Errorf("a malformed base URL must be reported: %v", err)
 	}
