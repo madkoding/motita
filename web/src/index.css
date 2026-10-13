@@ -3683,6 +3683,9 @@ html[data-keyboard="open"] .app-shell {
   border-radius: 0.75rem;
   background: rgba(0, 0, 0, 0.22);
 }
+.settings-card + .settings-card {
+  margin-top: 0.5rem;
+}
 /* A setting: on a narrow phone its control goes under its name, full width; with room they
  * share one line, the name on the left and the control on the right. */
 .settings-row {

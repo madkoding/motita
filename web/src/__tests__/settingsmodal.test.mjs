@@ -142,8 +142,10 @@ test("the general tab offers every choice as one tap and applies it", async () =
   await act(() => radio(root, "settings-lang", "es").click());
   assert.deepEqual(calls.lang, ["es"]);
 
-  const sw = root.querySelector("input[role=switch]");
-  assert.ok(sw, "the CI notifications are an on/off switch");
+  const sw = root.querySelector(
+    "[data-testid=notifications-setting] input[role=switch]",
+  );
+  assert.ok(sw, "the desktop notifications are an on/off switch");
   assert.equal(sw.checked, true);
   await act(() => sw.click());
   assert.equal(localStorage.getItem("motita.ui.notifications"), "off");
@@ -211,6 +213,27 @@ test("blocked notifications explain how to allow them again, and pick it up once
   await act(() => again.click());
   assert.ok(card.querySelector("input[role=switch]"));
   assert.equal(card.querySelector("[data-testid=notify-steps]"), null);
+  await done();
+});
+
+test("the CI toast has its own switch, on by default, and it works without https", async () => {
+  localStorage.removeItem("motita.ui.ciToast");
+  Object.defineProperty(window, "isSecureContext", {
+    value: false,
+    configurable: true,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=ci-toast-setting]");
+  assert.ok(card, "the toast switch is drawn");
+  const sw = card.querySelector("input[role=switch]");
+  assert.equal(sw.disabled, false, "an insecure page does not grey it out");
+  assert.equal(sw.checked, true);
+  assert.equal(card.querySelector("[data-testid=insecure-warning]"), null);
+  await act(() => sw.click());
+  assert.equal(localStorage.getItem("motita.ui.ciToast"), "off");
+  await act(() => sw.click());
+  assert.equal(localStorage.getItem("motita.ui.ciToast"), "on");
+  delete window.isSecureContext;
   await done();
 });
 

@@ -88,6 +88,26 @@ export function saveNotify(on: boolean): void {
   }
 }
 
+// Whether the page shows a toast when a pull request's CI ends. On by default: unlike a desktop
+// notification it needs no permission and no secure address, so it works everywhere.
+export const CI_TOAST_KEY = "motita.ui.ciToast";
+
+export function loadCiToast(): boolean {
+  try {
+    return localStorage.getItem(CI_TOAST_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveCiToast(on: boolean): void {
+  try {
+    localStorage.setItem(CI_TOAST_KEY, onOff(on));
+  } catch {
+    /* ignore */
+  }
+}
+
 export type NotifyState =
   | "unsupported"
   | "insecure"

@@ -18,6 +18,8 @@ import {
   saveSettings,
   loadNotify,
   saveNotify,
+  loadCiToast,
+  saveCiToast,
   notifyState,
   notifyPlatform,
   type NotifyState,
@@ -463,7 +465,37 @@ function GeneralSettings({
   );
 }
 
-// NotifySetting is the CI notifications: a button that asks the browser while it has not been asked,
+// CiToastSetting is the toast inside the page when a CI ends: on by default, and usable on any
+// address, since it needs no permission from the browser.
+function CiToastSetting() {
+  const [on, setOn] = useState(() => loadCiToast());
+  return (
+    <div class="settings-card" data-testid="ci-toast-setting">
+      <Row
+        id="settings-ci-toast"
+        label={t("Notice when a CI ends")}
+        hint={t("A message inside Motita. Works on any connection.")}
+      >
+        <label class="settings-switch-hit">
+          <input
+            type="checkbox"
+            role="switch"
+            class="settings-switch"
+            aria-labelledby="settings-ci-toast"
+            checked={on}
+            onChange={(e) => {
+              const v = (e.target as HTMLInputElement).checked;
+              setOn(v);
+              saveCiToast(v);
+            }}
+          />
+        </label>
+      </Row>
+    </div>
+  );
+}
+
+// NotifySetting is the desktop notifications for a CI that ends: a button that asks the browser while it has not been asked,
 // the steps to allow them again once refused, and the user's own on/off switch once allowed.
 function NotifySetting() {
   const [notifyOn, setNotifyOn] = useState(() => loadNotify());
@@ -530,10 +562,11 @@ function NotifySetting() {
       <h3 id="settings-notify-h" class="settings-group-title">
         {t("Notifications")}
       </h3>
+      <CiToastSetting />
       <div class="settings-card" data-testid="notifications-setting">
         <Row
           id="settings-notify"
-          label={t("Notify me when a CI ends")}
+          label={t("Desktop notification")}
           warning={
             ns === "insecure" && (
               <InsecureWarning

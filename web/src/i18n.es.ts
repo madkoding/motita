@@ -680,7 +680,10 @@ const es: Record<string, string> = {
     "El pull request {pr} se cerró sin mergearse.",
   "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.":
     "0 usa el valor por defecto (5). Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
-  "Notify me when a CI ends": "Avisarme cuando termine un CI",
+  "Notice when a CI ends": "Aviso cuando termine un CI",
+  "A message inside Motita. Works on any connection.":
+    "Un mensaje dentro de Motita. Funciona con cualquier conexión.",
+  "Desktop notification": "Notificación de escritorio",
   Voice: "Voz",
   "Microphone button": "Botón de micrófono",
   "Dictate into the message box. You read and edit the text before sending it.":

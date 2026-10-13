@@ -37,6 +37,20 @@ test("notifications: on by default, the switch is kept, and the state says what 
   assert.equal(m.notifyState("granted", false), "off");
 });
 
+test("the CI toast is on by default and its switch is kept apart from desktop notifications", () => {
+  localStorage.clear();
+  assert.equal(m.loadCiToast(), true);
+  m.saveCiToast(false);
+  assert.equal(m.loadCiToast(), false);
+  assert.equal(
+    m.loadNotify(),
+    true,
+    "desktop notifications are a separate switch",
+  );
+  m.saveCiToast(true);
+  assert.equal(m.loadCiToast(), true);
+});
+
 test("notifications over plain http say https is needed, whatever the browser reports", () => {
   // Chrome reports "denied" on an insecure page, where no browser setting can allow them.
   assert.equal(m.notifyState("denied", true, false), "insecure");
