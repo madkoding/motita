@@ -27,6 +27,7 @@ import {
   type Density,
 } from "./settings";
 import { choose } from "./choose";
+import { showNotification } from "./notify";
 import { errorMessage } from "./errors";
 
 initSettings();
@@ -295,6 +296,7 @@ function NotifySetting() {
   // while this is open, so a permission change and coming back to the tab both draw it again.
   const [, bump] = useState(0);
   const [asked, setAsked] = useState(false);
+  const [tested, setTested] = useState<string | undefined>();
   useEffect(() => {
     const again = () => bump((n) => n + 1);
     window.addEventListener("focus", again);
@@ -394,6 +396,32 @@ function NotifySetting() {
             </label>
           )}
         </Row>
+        {ns === "on" && (
+          <Row
+            id="settings-notify-test"
+            label={t("Test notification")}
+            hint={tested ?? t("Shows one now, to check that they arrive.")}
+          >
+            <button
+              type="button"
+              class={smallBtn}
+              onClick={() => {
+                void showNotification(t("Motita notifications work"), {
+                  body: t("This is how a CI that ends will look."),
+                  tag: "motita-test",
+                }).then((ok) =>
+                  setTested(
+                    ok
+                      ? t("Sent. If nothing showed up, check the system's do-not-disturb mode.")
+                      : t("The browser did not show it."),
+                  ),
+                );
+              }}
+            >
+              {t("Send")}
+            </button>
+          </Row>
+        )}
         {showSteps && (
           <ol class="settings-steps" data-testid="notify-steps">
             {unblockSteps(platform, isInstalled()).map((step) => (

@@ -230,6 +230,32 @@ test("on a plain http address the setting says https is needed, with nothing to 
   await done();
 });
 
+test("once allowed, a test notification goes up through the service worker", async () => {
+  Object.assign(fakeNotification, { permission: "granted" });
+  localStorage.removeItem("motita.ui.notifications");
+  const shown = [];
+  Object.defineProperty(navigator, "serviceWorker", {
+    value: {
+      getRegistration: async () => ({
+        showNotification: async (title, opts) => shown.push([title, opts.tag]),
+      }),
+    },
+    configurable: true,
+  });
+  const { root, done } = await open();
+  const card = root.querySelector("[data-testid=notifications-setting]");
+  const send = [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === "Send",
+  );
+  assert.ok(send, "there is a button to send a test notification");
+  await act(() => send.click());
+  await settle();
+  assert.deepEqual(shown, [["Motita notifications work", "motita-test"]]);
+  assert.match(card.textContent, /Sent\./);
+  delete navigator.serviceWorker;
+  await done();
+});
+
 test("the unblock steps fit the platform and whether Motita is installed", () => {
   const androidApp = unblockSteps("android", true).join(" ");
   assert.match(androidApp, /App info/);

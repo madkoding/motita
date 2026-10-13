@@ -714,6 +714,14 @@ const es: Record<string, string> = {
   "Open this site's settings in the browser (usually the icon to the left of the address).":
     "Abre los ajustes de este sitio en el navegador (suele ser el icono a la izquierda de la dirección).",
   "Allow notifications.": "Permite las notificaciones.",
+  "Test notification": "Notificación de prueba",
+  "Shows one now, to check that they arrive.":
+    "Muestra una ahora, para comprobar que llegan.",
+  "Motita notifications work": "Las notificaciones de Motita funcionan",
+  "This is how a CI that ends will look.": "Así se verá cuando termine un CI.",
+  "Sent. If nothing showed up, check the system's do-not-disturb mode.":
+    "Enviada. Si no apareció, revisa el modo no molestar del sistema.",
+  "The browser did not show it.": "El navegador no la mostró.",
   "Only while this tab is in the background. The browser has to allow it first.":
     "Solo mientras esta pestaña está en segundo plano. Primero el navegador tiene que permitirlo.",
   "Only while this tab is in the background.":
