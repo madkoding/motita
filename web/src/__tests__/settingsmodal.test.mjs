@@ -459,6 +459,56 @@ test("the voice switches are greyed out until the page and the gateway allow the
   }
 });
 
+test("read aloud: when, which voice, how fast and how much, and a button to try it", async () => {
+  const saved = [];
+  let tried = 0;
+  const prefs = { mode: "voice", voiceURI: "", rate: 1, maxChars: 600 };
+  const speech = (supported, voices) => ({
+    supported,
+    prefs,
+    setPrefs: (p) => saved.push(p),
+    voices,
+    test: () => tried++,
+  });
+  let v = await open({
+    speech: speech(true, [{ voiceURI: "ana", name: "Ana", lang: "es-CL" }]),
+  });
+  const card = v.root.querySelector("[data-testid=speech-setting]");
+  assert.ok(card, "the read-aloud section is drawn");
+  assert.equal(radio(card, "settings-speak", "voice").checked, true);
+  assert.match(card.textContent, /Alt\+L/, "the shortcut is named");
+  await act(() => radio(card, "settings-speak", "always").click());
+  assert.deepEqual(saved.pop(), { ...prefs, mode: "always" });
+  await act(() => radio(card, "settings-speech-rate", `"1.5"`).click());
+  assert.deepEqual(saved.pop(), { ...prefs, rate: 1.5 });
+  await act(() => radio(card, "settings-speech-length", `"0"`).click());
+  assert.deepEqual(saved.pop(), { ...prefs, maxChars: 0 });
+  const select = card.querySelector("select");
+  assert.deepEqual(
+    [...select.options].map((o) => o.value),
+    ["", "ana"],
+    "the device's choice first, then the voices of the language",
+  );
+  select.value = "ana";
+  await act(() => select.dispatchEvent(new window.Event("change", { bubbles: true })));
+  assert.deepEqual(saved.pop(), { ...prefs, voiceURI: "ana" });
+  await act(() => card.querySelector("[data-testid=speech-test]").click());
+  assert.equal(tried, 1);
+  await v.done();
+
+  v = await open({ speech: speech(true, []) });
+  assert.match(v.root.textContent, /no voice for the interface language/);
+  await v.done();
+
+  v = await open({ speech: speech(false, []) });
+  const off = v.root.querySelector("[data-testid=speech-setting]");
+  assert.match(off.textContent, /cannot read aloud/);
+  assert.equal(off.querySelector("select").disabled, true);
+  assert.equal(off.querySelector("[data-testid=speech-test]").disabled, true);
+  assert.equal(radio(off, "settings-speak", "off").disabled, true);
+  await v.done();
+});
+
 test("the insecure-connection pill is translated, amber, and tighter in compact density", () => {
   const es = readFileSync(join(here, "..", "i18n.es.ts"), "utf8");
   for (const k of [

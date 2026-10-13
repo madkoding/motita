@@ -1190,6 +1190,52 @@ div[role="log"]:not(.chat-loading) > * {
   transform: scale(0.95);
 }
 
+/* Read aloud: the speaker of an answer, in its bottom right corner. Revealed like the copy
+ * button where something can hover, always shown on a touch screen, and kept in sight while its
+ * answer is being read so the reader can stop it. */
+.msg.agent .speak-msg-btn {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 22px;
+  padding: 2px 6px;
+  color: #4cc2ff;
+  background: rgba(10, 10, 16, 0.7);
+  border: 1px solid rgba(76, 194, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease-out,
+    background-color 0.2s ease-out,
+    border-color 0.2s ease-out;
+}
+@media (hover: hover) {
+  .msg.agent .speak-msg-btn:not(.is-reading) {
+    opacity: 0;
+  }
+  .msg.agent:hover .speak-msg-btn,
+  .msg.agent .speak-msg-btn:focus-visible {
+    opacity: 1;
+  }
+  .msg.agent .speak-msg-btn:hover {
+    background: rgba(76, 194, 255, 0.15);
+    border-color: #4cc2ff;
+  }
+}
+.msg.agent .speak-msg-btn.is-reading {
+  background: rgba(76, 194, 255, 0.15);
+  border-color: #4cc2ff;
+}
+/* The sentence being read aloud (CSS Custom Highlight API: no element is added to the answer). */
+::highlight(motita-reading) {
+  background-color: rgba(76, 194, 255, 0.28);
+  color: inherit;
+}
+
 /* Blockquotes: enclosed in a bordered box. */
 .markdown-body blockquote {
   margin: 2px 0;

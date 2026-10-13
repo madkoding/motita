@@ -1210,6 +1210,26 @@ The variables are `MOTITA_VOICE_ENABLED`, `MOTITA_VOICE_BASE_URL`, `MOTITA_VOICE
 `MOTITA_VOICE_MODEL`, `MOTITA_VOICE_LANGUAGE` and `MOTITA_VOICE_MAX_AUDIO_KB`; the phrases are set
 in the file.
 
+### Reading answers aloud
+
+The browser interface reads the agent's answers with the **voices of the device** (the Web Speech
+API's `speechSynthesis`). Nothing is configured on the gateway and nothing is sent to it: the
+browser speaks the text itself. Some browsers offer remote voices of their own (Chrome's "Google"
+voices); the device's local ones are listed first.
+
+- The speaker button on an answer, or **Alt+L** for the last one, reads it or stops it.
+- **Settings → Read aloud** chooses when answers are read on their own: never, only after a
+  turn that was spoken (dictated, or heard after the wake phrase; the default), or always. It also
+  picks the voice, the speed, how long an answer is read before stopping at its first paragraph,
+  and has a button to try the voice. These settings are kept in the browser, per device.
+- Code blocks, tables and formulas are named instead of read, links read their text, file paths
+  read their last name, and Spanish voices say acronyms such as PR or CI the way they are spoken.
+- The sentence being read is highlighted and kept in view until you scroll by hand.
+- Dictating stops the voice, and hands-free listening drops what it records while Motita speaks.
+
+Unlike the microphone, reading aloud works on any address, https or not. Safari speaks only after
+a first tap on the page.
+
 ### The skill library
 
 The library described in the README is served whole: the documents, their

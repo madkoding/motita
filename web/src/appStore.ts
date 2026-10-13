@@ -26,6 +26,7 @@ import { useRowMenus } from "./useRowMenus";
 import { useFinishedElsewhere } from "./sessionWatch";
 import type { Api } from "./prApi";
 import { useVoice } from "./useVoice";
+import { useSpeech } from "./useSpeech";
 
 export function useAppStore(api: Api) {
   const rs = useRunState();
@@ -111,6 +112,13 @@ export function useAppStore(api: Api) {
     setInput: composer.setInput,
     setToast,
   });
+  const speech = useSpeech({
+    messages: rs.messages,
+    running: rs.running,
+    sessionId: rs.sessionId,
+    takeHeard: voice.takeHeard,
+    setToast,
+  });
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();
   const [showSettings, setShowSettings] = useState(false);
@@ -143,6 +151,7 @@ export function useAppStore(api: Api) {
     auth,
     updates,
     voice,
+    speech,
     language,
     menus,
     showSettings,

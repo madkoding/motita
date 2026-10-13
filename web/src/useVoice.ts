@@ -31,6 +31,7 @@ import {
   transcribe,
   voiceState,
 } from "./voice";
+import { stopSpeaking, voiceBusy } from "./speech";
 
 // The longest dictation, after which it stops on its own: a button left on by mistake must not
 // record a meeting.
@@ -93,6 +94,14 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const hands = listenState(state, info);
   const phaseRef = useRef<VoicePhase>("idle");
   phaseRef.current = phase;
+  // heard says text spoken by the person reached the composer since the last turn started: the
+  // answer to that turn is read aloud in the "when I spoke" mode.
+  const heard = useRef(false);
+  const takeHeard = useCallback(() => {
+    const h = heard.current;
+    heard.current = false;
+    return h;
+  }, []);
 
   useEffect(() => {
     if (!authed) {
@@ -139,6 +148,8 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     if (phaseRef.current !== "idle") {
       return;
     }
+    // The person is about to speak: Motita stops talking over them.
+    stopSpeaking();
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -161,6 +172,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     try {
       const r = await transcribe(api, audio, false);
       setInput((cur) => appendText(cur, r.text));
+      heard.current = heard.current || r.text.trim() !== "";
       focusComposer();
     } catch (e) {
       fail(e);
@@ -199,6 +211,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       try {
         const r = await transcribe(api, await audio, true);
         if (!stopped && r.wake) {
+          heard.current = true;
           setInput((cur) => appendText(cur, r.wake?.rest || ""));
           setToast({
             message: tf("Heard “{phrase}”", { phrase: r.wake.phrase }),
@@ -227,10 +240,22 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       analyser.fftSize = 1024;
       ctx.createMediaStreamSource(stream).connect(analyser);
       const frame = new Uint8Array(analyser.fftSize);
-      const gate = new SpeechGate();
+      let gate = new SpeechGate();
+      // overheard says the recording holds Motita's own voice: it is thrown away, never sent.
+      let overheard = false;
       restart();
       setListening(true);
       timer = window.setInterval(() => {
+        if (voiceBusy()) {
+          overheard = true;
+          return;
+        }
+        if (overheard) {
+          overheard = false;
+          gate = new SpeechGate();
+          restart();
+          return;
+        }
         analyser.getByteTimeDomainData(frame);
         const now = performance.now();
         const ev = gate.feed(level(frame), now);
@@ -272,6 +297,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     phase,
     listening,
     toggleDictation,
+    takeHeard,
     // The dictation button is shown when it can be used and the person has not turned it off.
     showMic: state === "ready" && prefs.mic,
   };

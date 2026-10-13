@@ -5,7 +5,7 @@ import { useDialog } from "./useDialog";
 import { IconClose } from "./icons";
 import { InsecureWarning } from "./InsecureWarning";
 import "./dialog.css";
-import { t, tf } from "./i18n";
+import { lang, t, tf } from "./i18n";
 import {
   type Api,
   type GitAccount,
@@ -33,6 +33,13 @@ import { choose } from "./choose";
 import { showNotification } from "./notify";
 import { errorMessage } from "./errors";
 import type { VoicePrefs, VoiceState } from "./voice";
+import {
+  LENGTHS,
+  RATES,
+  type SpeakMode,
+  type SpeechPrefs,
+  type VoiceLike,
+} from "./speech";
 import {
   ProviderSettings,
   type ProviderSettingsProps,
@@ -70,6 +77,8 @@ interface Props {
   };
   // Speech input. Absent where the page has no voice store (the tests of other sections).
   voice?: VoiceSettingsProps;
+  // Reading answers aloud. Absent where the page has no speech store.
+  speech?: SpeechSettingsProps;
   // The LLM providers and the default model. Absent where the page has no API to reach them.
   llm?: ProviderSettingsProps;
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
@@ -83,6 +92,145 @@ export interface VoiceSettingsProps {
   phrases: string[];
   prefs: VoicePrefs;
   setPrefs: (p: VoicePrefs) => void;
+}
+
+export interface SpeechSettingsProps {
+  supported: boolean;
+  prefs: SpeechPrefs;
+  setPrefs: (p: SpeechPrefs) => void;
+  voices: VoiceLike[];
+  test: () => void;
+}
+
+// rateLabel writes a speed as people say it: 1×, 1.25×.
+function rateLabel(r: number): string {
+  return r.toLocaleString(lang()) + "×";
+}
+
+// lengthLabel names the longest answer read whole.
+function lengthLabel(n: number): string {
+  if (n === 0) {
+    return t("Whole");
+  }
+  if (n <= 300) {
+    return t("Short");
+  }
+  if (n <= 600) {
+    return t("Medium");
+  }
+  return t("Long");
+}
+
+// SpeechSettings is reading answers aloud with the voices of this device: when, which voice, how
+// fast and how much. It needs neither the microphone nor the gateway, so it works on any address.
+function SpeechSettings({
+  supported,
+  prefs,
+  setPrefs,
+  voices,
+  test,
+}: SpeechSettingsProps) {
+  const set = (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch });
+  const off = !supported;
+  return (
+    <section class="settings-group" aria-labelledby="settings-speech-h">
+      <h3 id="settings-speech-h" class="settings-group-title">
+        {t("Read aloud")}
+      </h3>
+      <div class="settings-card" data-testid="speech-setting">
+        <Row
+          id="settings-speak"
+          label={t("Read answers aloud")}
+          stack
+          hint={choose(
+            off,
+            t("This browser cannot read aloud."),
+            t(
+              "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.",
+            ),
+          )}
+        >
+          <Segmented<SpeakMode>
+            name="settings-speak"
+            labelledBy="settings-speak"
+            value={prefs.mode}
+            disabled={off}
+            onChange={(mode) => set({ mode })}
+            options={[
+              { value: "off", label: t("Off") },
+              { value: "voice", label: t("When I spoke") },
+              { value: "always", label: t("Always") },
+            ]}
+          />
+        </Row>
+        <Row
+          id="settings-speech-voice"
+          label={t("Voice")}
+          hint={choose(
+            !off && voices.length === 0,
+            t("This device has no voice for the interface language."),
+            undefined,
+          )}
+        >
+          <select
+            class={inputCls + " max-w-[220px]"}
+            aria-labelledby="settings-speech-voice"
+            disabled={off}
+            value={prefs.voiceURI}
+            onChange={(e) =>
+              set({ voiceURI: (e.target as HTMLSelectElement).value })
+            }
+          >
+            <option value="">{t("Device default")}</option>
+            {voices.map((v) => (
+              <option key={v.voiceURI} value={v.voiceURI}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row id="settings-speech-rate" label={t("Speed")} stack>
+          <Segmented<string>
+            name="settings-speech-rate"
+            labelledBy="settings-speech-rate"
+            value={String(prefs.rate)}
+            disabled={off}
+            onChange={(r) => set({ rate: Number(r) })}
+            options={RATES.map((r) => ({ value: String(r), label: rateLabel(r) }))}
+          />
+        </Row>
+        <Row
+          id="settings-speech-length"
+          label={t("Length")}
+          stack
+          hint={t("A longer answer is read up to its first paragraph.")}
+        >
+          <Segmented<string>
+            name="settings-speech-length"
+            labelledBy="settings-speech-length"
+            value={String(prefs.maxChars)}
+            disabled={off}
+            onChange={(n) => set({ maxChars: Number(n) })}
+            options={LENGTHS.map((n) => ({
+              value: String(n),
+              label: lengthLabel(n),
+            }))}
+          />
+        </Row>
+        <Row id="settings-speech-test" label={t("Try the voice")}>
+          <button
+            type="button"
+            class={smallBtn}
+            disabled={off}
+            onClick={test}
+            data-testid="speech-test"
+          >
+            {t("Try")}
+          </button>
+        </Row>
+      </div>
+    </section>
+  );
 }
 
 // voiceBlocker explains why speech input cannot be used, or "" when it can. An insecure page is
@@ -410,10 +558,11 @@ function GeneralSettings({
   langAvailable,
   onLang,
   voice,
+  speech,
   network,
 }: Pick<
   Props,
-  "langSetting" | "langAvailable" | "onLang" | "voice" | "network"
+  "langSetting" | "langAvailable" | "onLang" | "voice" | "speech" | "network"
 >) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const update = (next: UISettings) => {
@@ -479,6 +628,7 @@ function GeneralSettings({
       </section>
       <NotifySetting />
       {voice && <VoiceSettings {...voice} />}
+      {speech && <SpeechSettings {...speech} />}
       {network && <NetworkSettings api={network.api} />}
     </>
   );
@@ -1428,6 +1578,7 @@ export function SettingsModal({
   onClose,
   git,
   voice,
+  speech,
   llm,
   network,
 }: Props) {
@@ -1522,6 +1673,7 @@ export function SettingsModal({
               langAvailable={langAvailable}
               onLang={onLang}
               voice={voice}
+              speech={speech}
               network={network}
             />
           )}

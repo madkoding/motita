@@ -932,6 +932,40 @@ const es: Record<string, string> = {
   "The gateway did not come back here. If you changed who can reach it, open it from an address that the new setting allows.":
     "El gateway no volvió aquí. Si cambiaste quién puede acceder, ábrelo desde una dirección que la nueva configuración permita.",
   "Then turn the switch on again.": "Luego vuelve a activar el interruptor.",
+  link: "enlace",
+  "Code block.": "Bloque de código.",
+  "Formula.": "Fórmula.",
+  "Table.": "Tabla.",
+  "The rest is on screen.": "El resto está en pantalla.",
+  "Reading aloud failed": "No se pudo leer en voz alta",
+  "Hi, I am Motita. I opened the PR and the CI passed.":
+    "Hola, soy Motita. Abrí el PR y el CI pasó.",
+  "The browser wants a tap first: press 🔊 on an answer once.":
+    "El navegador pide un toque primero: presiona 🔊 en una respuesta una vez.",
+  "This device has no voice for this language.":
+    "Este dispositivo no tiene una voz para este idioma.",
+  "Stop reading": "Dejar de leer",
+  "Read aloud": "Leer en voz alta",
+  "Read answers aloud": "Leer las respuestas en voz alta",
+  "This browser cannot read aloud.": "Este navegador no puede leer en voz alta.",
+  "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.":
+    "Con las voces de este dispositivo. Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  Off: "Apagado",
+  "When I spoke": "Cuando hablé",
+  Always: "Siempre",
+  "This device has no voice for the interface language.":
+    "Este dispositivo no tiene voz para el idioma de la interfaz.",
+  "Device default": "La del dispositivo",
+  Speed: "Velocidad",
+  Length: "Largo",
+  "A longer answer is read up to its first paragraph.":
+    "Una respuesta más larga se lee hasta su primer párrafo.",
+  Short: "Corta",
+  Medium: "Media",
+  Long: "Larga",
+  Whole: "Completa",
+  "Try the voice": "Probar la voz",
+  Try: "Probar",
 };
 
 export default es;
