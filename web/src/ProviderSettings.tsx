@@ -3,7 +3,7 @@ import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import { InsecureWarning } from "./InsecureWarning";
-import { PROVIDER_LOGOS } from "./providerLogos";
+import { ProviderLogo } from "./ProviderPicker";
 import {
   type Api,
   type LLMProvider,
@@ -89,24 +89,7 @@ function keyState(p: LLMProvider): string {
 
 // ProviderIcon is the provider's logo, or its initial, on the same tile the git hosts use.
 function ProviderIcon({ p }: { p: LLMProvider }) {
-  return (
-    <span class="git-account-icon llm-icon" aria-hidden="true" data-logo={p.id}>
-      <ProviderMark p={p} />
-    </span>
-  );
-}
-
-// ProviderMark is what the tile holds: the logo when there is one, else the name's initial.
-function ProviderMark({ p }: { p: LLMProvider }) {
-  const logo = PROVIDER_LOGOS[p.id];
-  if (!logo) {
-    return <>{p.name.charAt(0)}</>;
-  }
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
-      <path d={logo.d} />
-    </svg>
-  );
+  return <ProviderLogo id={p.id} name={p.name} />;
 }
 
 // ProviderSettings is the providers tab: every provider with its connection. The models each kind

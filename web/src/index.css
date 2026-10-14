@@ -2232,6 +2232,73 @@ button:disabled {
   outline-offset: 1px;
 }
 
+/* The provider picker of the model switcher: one tile per provider, logo and name. The tiles wrap
+ * so every provider stays in view, on the phone too. */
+.provider-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.provider-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 9rem;
+  min-width: 0;
+  min-height: 42px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  color: #b4b4c2;
+  font-size: 13px;
+  text-align: left;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.provider-choice:hover {
+  background: rgba(104, 104, 107, 0.13);
+  color: #e8e8ea;
+}
+.provider-choice.is-active {
+  border-color: #007cbd;
+  background: rgba(0, 124, 189, 0.22);
+  color: #fff;
+  font-weight: 600;
+}
+.provider-choice:focus-visible {
+  outline: 2px solid var(--accent, #4cc2ff);
+  outline-offset: 1px;
+}
+.provider-choice-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-choice-current {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: #4cc2ff;
+}
+html[data-density="compact"] .provider-picker {
+  gap: 4px;
+}
+html[data-density="compact"] .provider-choice {
+  min-height: 36px;
+  padding: 2px 8px 2px 2px;
+  gap: 6px;
+  border-radius: 10px;
+}
+html[data-density="compact"] .provider-choice .git-account-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
 /* The reasoning level beside the model in the header pill. Dimmer when off, so a session that
  * is NOT thinking is visible at a glance. */
 .header-reasoning {
