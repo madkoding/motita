@@ -79,3 +79,16 @@ func TestQwenOtherErrorsAreNotBlamedOnTheRetiredLogin(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// TestJSONOfTheWrongShapeIsADecodeError: valid JSON that does not fit dest is
+// still a decoding error on a 2xx, not a "not JSON" one.
+func TestJSONOfTheWrongShapeIsADecodeError(t *testing.T) {
+	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
+		"list": func(*http.Request) (*http.Response, error) { return errResp(200, `[1,2]`), nil },
+	})
+	var dest map[string]any
+	err := getJSON(context.Background(), client, "https://example.test/list", nil, &dest)
+	if err == nil || errors.Is(err, ErrNotJSON) || !strings.Contains(err.Error(), "could not decode response") {
+		t.Fatalf("err = %v", err)
+	}
+}
