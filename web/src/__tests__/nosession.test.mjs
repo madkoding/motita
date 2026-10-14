@@ -32,7 +32,8 @@ const BLUE_WEIGHT = 0.0722;
 const FLARE = 0.05;
 const PERCENT = 100;
 // Where each channel's two hex digits start in "#rrggbb", and their base.
-const CHANNEL_OFFSETS = [1, 3, 5];
+const HEX_DIGITS = 2;
+const CHANNEL_OFFSETS = [0, 1, 2].map((c) => 1 + c * HEX_DIGITS);
 const HEX = 16;
 const RESTING_TINT = 0.1;
 const HOVER_TINT = 0.2;

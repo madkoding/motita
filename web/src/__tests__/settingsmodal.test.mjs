@@ -93,6 +93,8 @@ const NOTIFY_CARD = "[data-testid=notifications-setting]";
 const NOTIFY_STEPS = "[data-testid=notify-steps]";
 const CI_TOAST_KEY = "motita.ui.ciToast";
 const INSECURE_WARNING = "[data-testid=insecure-warning]";
+const ARIA_SELECTED = "aria-selected";
+const SPEAK_GROUP = "settings-speak";
 
 const fakeApi = async () =>
   new Response(JSON.stringify({ accounts: ACCOUNTS }), { status: 200 });
@@ -132,10 +134,10 @@ const radio = (root, group, value) =>
   root.querySelector(`input[type=radio][name=${group}][value=${value}]`);
 
 test("the appearance tab offers every choice as one tap and applies it", async () => {
-  let { root, calls, done } = await open();
+  const { root, calls, done } = await open();
   const tabs = [...root.querySelectorAll("[role=tab]")];
   assert.deepEqual(
-    tabs.map((t) => [t.id, t.getAttribute("aria-selected")]),
+    tabs.map((t) => [t.id, t.getAttribute(ARIA_SELECTED)]),
     [
       ["settings-tab-appearance", "true"],
       ["settings-tab-notifications", "false"],
@@ -331,7 +333,7 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
   assert.equal(
     root
       .querySelector("#settings-tab-notifications")
-      .getAttribute("aria-selected"),
+      .getAttribute(ARIA_SELECTED),
     "true",
     "the right arrow goes to the next tab",
   );
@@ -346,7 +348,7 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
     ),
   );
   const git = root.querySelector("#settings-tab-git");
-  assert.equal(git.getAttribute("aria-selected"), "true");
+  assert.equal(git.getAttribute(ARIA_SELECTED), "true");
   assert.equal(document.activeElement, git, "focus follows the chosen tab");
   await act(() => new Promise((r) => setTimeout(r, 0)));
   const rows = [...root.querySelectorAll(".git-account")];
@@ -500,7 +502,9 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     prefs,
     setPrefs: (p) => saved.push(p),
     voices,
-    test: () => tried++,
+    test: () => {
+      tried += 1;
+    },
   });
   let v = await open({
     tab: "voice",
@@ -508,9 +512,9 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
   });
   const card = v.root.querySelector("[data-testid=speech-setting]");
   assert.ok(card, "the read-aloud section is drawn");
-  assert.equal(radio(card, "settings-speak", "voice").checked, true);
+  assert.equal(radio(card, SPEAK_GROUP, "voice").checked, true);
   assert.match(card.textContent, /Alt\+L/, "the shortcut is named");
-  await act(() => radio(card, "settings-speak", "always").click());
+  await act(() => radio(card, SPEAK_GROUP, "always").click());
   assert.deepEqual(saved.pop(), { ...prefs, mode: "always" });
   await act(() => radio(card, "settings-speech-rate", `"1.5"`).click());
   assert.deepEqual(saved.pop(), { ...prefs, rate: 1.5 });
@@ -540,7 +544,7 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
   assert.match(off.textContent, /cannot read aloud/);
   assert.equal(off.querySelector("select").disabled, true);
   assert.equal(off.querySelector("[data-testid=speech-test]").disabled, true);
-  assert.equal(radio(off, "settings-speak", "off").disabled, true);
+  assert.equal(radio(off, SPEAK_GROUP, "off").disabled, true);
   await v.done();
 });
 

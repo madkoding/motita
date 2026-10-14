@@ -11,27 +11,57 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
 globalThis.localStorage = dom.window.localStorage;
 const m = await import("../speech.ts");
 
+// The sizes the tests cut at, and how often a long text repeats.
+const SHORT_LIMIT = 20;
+const WORD_LIMIT = 12;
+const WORDS_PER_CLAUSE = 30;
+const CLAUSES = 3;
+const MAX_PIECE = 220; // speech.ts: the longest piece a voice is given
+const ONE_WORD = 500;
+const QUICK = 1.25;
+const NEW_NOTES = 3;
+const SAID_NOTES = 2;
+
 test("the settings: read when I spoke, the device's voice, normal speed, and they are kept", () => {
   localStorage.clear();
   assert.deepEqual(m.loadSpeechPrefs(), m.DEFAULT_SPEECH_PREFS);
   assert.equal(m.DEFAULT_SPEECH_PREFS.mode, "voice");
-  assert.equal(m.DEFAULT_SPEECH_PREFS.style, "literal", "word for word unless asked");
+  assert.equal(
+    m.DEFAULT_SPEECH_PREFS.style,
+    "literal",
+    "word for word unless asked",
+  );
   let heard = 0;
   globalThis.window = dom.window;
   globalThis.CustomEvent = dom.window.CustomEvent;
   dom.window.addEventListener(m.SPEECH_PREFS_EVENT, () => {
     heard += 1;
   });
-  const p = { mode: "always", style: "natural", voiceURI: "v1", rate: 1.5, maxChars: 0 };
+  const p = {
+    mode: "always",
+    style: "natural",
+    voiceURI: "v1",
+    rate: 1.5,
+    maxChars: 0,
+  };
   m.saveSpeechPrefs(p);
   assert.deepEqual(m.loadSpeechPrefs(), p);
   assert.equal(heard, 1, "the page is told the settings changed");
   // A value this version does not know falls back to the default, one field at a time.
   localStorage.setItem(
     m.SPEECH_KEY,
-    JSON.stringify({ mode: "loud", style: "poem", voiceURI: 3, rate: 9, maxChars: 600 }),
+    JSON.stringify({
+      mode: "loud",
+      style: "poem",
+      voiceURI: 3,
+      rate: 9,
+      maxChars: 600,
+    }),
   );
-  assert.deepEqual(m.loadSpeechPrefs(), { ...m.DEFAULT_SPEECH_PREFS, maxChars: 600 });
+  assert.deepEqual(m.loadSpeechPrefs(), {
+    ...m.DEFAULT_SPEECH_PREFS,
+    maxChars: 600,
+  });
   localStorage.setItem(m.SPEECH_KEY, "{not json");
   assert.deepEqual(m.loadSpeechPrefs(), m.DEFAULT_SPEECH_PREFS);
 });
@@ -90,14 +120,17 @@ test("a long answer is read up to its first paragraph, and says the rest is on s
   assert.equal(m.limitLength("short", 0), "short");
   assert.equal(m.limitLength("short", 100), "short");
   assert.equal(
-    m.limitLength("First part.\n\nSecond part that is long.", 20),
+    m.limitLength("First part.\n\nSecond part that is long.", SHORT_LIMIT),
     "First part.\n\n" + rest,
   );
   assert.equal(
-    m.limitLength("One sentence. Another sentence here.", 20),
+    m.limitLength("One sentence. Another sentence here.", SHORT_LIMIT),
     "One sentence.\n\n" + rest,
   );
-  assert.equal(m.limitLength("words without a stop", 12), "words…\n\n" + rest);
+  assert.equal(
+    m.limitLength("words without a stop", WORD_LIMIT),
+    "words…\n\n" + rest,
+  );
   assert.equal(m.limitLength("abcdefghij", 4), "abcd…\n\n" + rest);
 });
 
@@ -108,17 +141,17 @@ test("the text is cut in sentences, and a sentence too long at a comma or a spac
     "Three!",
     "Four",
   ]);
-  const long = ("word ".repeat(30) + ", ").repeat(3).trim();
+  const long = ("word ".repeat(WORDS_PER_CLAUSE) + ", ").repeat(CLAUSES).trim();
   const parts = m.sentences(long);
   assert.ok(parts.length > 1);
   for (const p of parts) {
-    assert.ok(p.length <= 220, "each piece is short enough: " + p.length);
+    assert.ok(p.length <= MAX_PIECE, "each piece is short enough: " + p.length);
   }
   assert.equal(parts.join(" ").replace(/\s+/g, " "), long.replace(/\s+/g, " "));
-  const word = "x".repeat(500);
+  const word = "x".repeat(ONE_WORD);
   assert.deepEqual(
     m.sentences(word).map((p) => p.length),
-    [220, 220, 60],
+    [MAX_PIECE, MAX_PIECE, ONE_WORD - 2 * MAX_PIECE],
   );
 });
 
@@ -130,14 +163,22 @@ test("terms are said the way the language says them, as whole words", () => {
   assert.equal(m.pronounce("PRINT CIA pr", "es"), "PRINT CIA pr");
   assert.equal(m.pronounce("the PR", "en"), "the PR");
   const s = m.script("Opened the **PR**.", 0, "es");
-  assert.deepEqual(s, [{ shown: "Opened the PR.", said: "Opened the pe erre." }]);
+  assert.deepEqual(s, [
+    { shown: "Opened the PR.", said: "Opened the pe erre." },
+  ]);
 });
 
 test("the voices of the language, the device's first; the chosen one when it speaks it", () => {
   const all = [
     { voiceURI: "b", name: "Bea", lang: "es-MX", localService: false },
     { voiceURI: "a", name: "Ana", lang: "es_ES", localService: true },
-    { voiceURI: "z", name: "Zoe", lang: "es-ES", localService: true, default: true },
+    {
+      voiceURI: "z",
+      name: "Zoe",
+      lang: "es-ES",
+      localService: true,
+      default: true,
+    },
     { voiceURI: "e", name: "Eve", lang: "en-US", localService: true },
   ];
   assert.deepEqual(
@@ -145,7 +186,11 @@ test("the voices of the language, the device's first; the chosen one when it spe
     ["a", "z", "b"],
   );
   assert.equal(m.pickVoice(all, "b", "es").voiceURI, "b");
-  assert.equal(m.pickVoice(all, "e", "es").voiceURI, "z", "a voice of another language is not used");
+  assert.equal(
+    m.pickVoice(all, "e", "es").voiceURI,
+    "z",
+    "a voice of another language is not used",
+  );
   assert.equal(m.pickVoice(all, "", "en").voiceURI, "e");
   assert.equal(m.pickVoice(all.slice(0, 2), "", "es").voiceURI, "a");
   assert.equal(m.pickVoice([], "", "es"), null);
@@ -200,7 +245,7 @@ test("the reader says the sentences one after another, and tells when it starts 
   reader.read(two, {
     voice,
     lang: "es",
-    rate: 1.25,
+    rate: QUICK,
     onSentence: (i) => started.push(i),
     onEnd: (e) => {
       ended++;
@@ -211,7 +256,7 @@ test("the reader says the sentences one after another, and tells when it starts 
   assert.equal(synth.said.length, 1, "one utterance at a time");
   assert.equal(synth.said[0].lang, "es-CL");
   assert.equal(synth.said[0].voice, voice);
-  assert.equal(synth.said[0].rate, 1.25);
+  assert.equal(synth.said[0].rate, QUICK);
   synth.start();
   synth.end();
   assert.equal(synth.said[1].text, "pe erre.", "the said form is spoken");
@@ -235,6 +280,7 @@ test("stopping ends the reading once and ignores the voice's late events", () =>
   });
   assert.equal(synth.said[0].lang, "en-US", "no voice: the language's locale");
   const first = synth.current;
+  assert.ok(first, "the first sentence is being said");
   reader.stop();
   assert.deepEqual(ends, [undefined]);
   first.onstart({});
@@ -245,23 +291,55 @@ test("stopping ends the reading once and ignores the voice's late events", () =>
   assert.deepEqual(ends, [undefined]);
   // A new reading replaces the one in progress.
   ends = [];
-  reader.read(two, { voice: null, lang: "en", rate: 1, onEnd: (e) => ends.push(e) });
-  reader.read(two, { voice: null, lang: "en", rate: 1, onEnd: (e) => ends.push("second:" + e) });
+  reader.read(two, {
+    voice: null,
+    lang: "en",
+    rate: 1,
+    onEnd: (e) => ends.push(e),
+  });
+  reader.read(two, {
+    voice: null,
+    lang: "en",
+    rate: 1,
+    onEnd: (e) => ends.push("second:" + e),
+  });
   assert.deepEqual(ends, [undefined]);
   // Nothing to read ends at once.
   let empty = 0;
-  reader.read([], { voice: null, lang: "en", rate: 1, onEnd: () => empty++ });
+  reader.read([], {
+    voice: null,
+    lang: "en",
+    rate: 1,
+    onEnd: () => {
+      empty += 1;
+    },
+  });
   assert.equal(empty, 1);
 });
 
 test("a cancel reported as an error is a stop; any other error is reported", () => {
   const { synth, reader } = fakeSynth();
   const ends = [];
-  reader.read(two, { voice: null, lang: "en", rate: 1, onEnd: (e) => ends.push(e) });
+  reader.read(two, {
+    voice: null,
+    lang: "en",
+    rate: 1,
+    onEnd: (e) => ends.push(e),
+  });
   synth.fail("interrupted");
-  reader.read(two, { voice: null, lang: "en", rate: 1, onEnd: (e) => ends.push(e) });
+  reader.read(two, {
+    voice: null,
+    lang: "en",
+    rate: 1,
+    onEnd: (e) => ends.push(e),
+  });
   synth.fail("not-allowed");
-  reader.read(two, { voice: null, lang: "en", rate: 1, onEnd: (e) => ends.push(e) });
+  reader.read(two, {
+    voice: null,
+    lang: "en",
+    rate: 1,
+    onEnd: (e) => ends.push(e),
+  });
   synth.fail(undefined);
   assert.deepEqual(ends, [undefined, "not-allowed", "error"]);
   assert.equal(reader.reading, false);
@@ -276,15 +354,24 @@ test("the sentence is found on screen across tags and spacing, skipping the page
   const r = m.textRange(root, "I changed two files.");
   assert.ok(r);
   assert.equal(r.toString().replace(/\s+/g, " "), "I changed two files.");
-  assert.equal(m.textRange(root, "files. Next one.").toString().replace(/\s+/g, " "), "files.Next one.");
-  assert.equal(m.textRange(root, "copy"), null, "the button's text is not the answer's");
+  assert.equal(
+    m.textRange(root, "files. Next one.").toString().replace(/\s+/g, " "),
+    "files.Next one.",
+  );
+  assert.equal(
+    m.textRange(root, "copy"),
+    null,
+    "the button's text is not the answer's",
+  );
   assert.equal(m.textRange(root, "Code block."), null);
   assert.equal(m.textRange(root, "   "), null);
 });
 
 test("the microphone asks for silence, and the device says whether it is speaking", () => {
   let asked = 0;
-  dom.window.addEventListener(m.SPEECH_STOP_EVENT, () => asked++);
+  dom.window.addEventListener(m.SPEECH_STOP_EVENT, () => {
+    asked += 1;
+  });
   m.stopSpeaking();
   assert.equal(asked, 1);
   assert.equal(m.voiceBusy(), false);
@@ -307,8 +394,12 @@ test("natural style: the notes are what the steps did, without the mode line", (
 
 test("natural style: a progress line waits for something new and for the gap", () => {
   const gap = m.PROGRESS_GAP_MS;
-  assert.equal(m.progressDue(gap, 0, 3, 2), true);
-  assert.equal(m.progressDue(gap - 1, 0, 3, 2), false, "too soon");
+  assert.equal(m.progressDue(gap, 0, NEW_NOTES, SAID_NOTES), true);
+  assert.equal(
+    m.progressDue(gap - 1, 0, NEW_NOTES, SAID_NOTES),
+    false,
+    "too soon",
+  );
   assert.equal(m.progressDue(gap, 0, 2, 2), false, "nothing new");
 });
 
@@ -319,7 +410,9 @@ test("natural style: the line is asked of the session, and a refusal throws", as
     if (path.includes("bad")) {
       return new Response("{}", { status: 502 });
     }
-    return new Response(JSON.stringify({ text: "  Listo.  " }), { status: 200 });
+    return new Response(JSON.stringify({ text: "  Listo.  " }), {
+      status: 200,
+    });
   };
   const body = { stage: "start", lang: "es", request: "revisa" };
   assert.equal(await m.narrate(api, "s 1", body), "Listo.");

@@ -115,7 +115,9 @@ const VIEW = () => ({
 
 // parsedBody reads a request's JSON body, or undefined when it sent none.
 function parsedBody(body) {
-  if (!body) return undefined;
+  if (!body) {
+    return undefined;
+  }
   return JSON.parse(body);
 }
 
@@ -347,7 +349,9 @@ test("each provider shows its logo, and a saved key its last four characters", a
 function fastPolls(t) {
   const real = globalThis.setTimeout;
   const shorten = (ms) => {
-    if (ms === SIGN_IN_POLL_MS) return FAST_POLL_MS;
+    if (ms === SIGN_IN_POLL_MS) {
+      return FAST_POLL_MS;
+    }
     return ms;
   };
   globalThis.setTimeout = (fn, ms, ...a) => real(fn, shorten(ms), ...a);

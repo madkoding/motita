@@ -108,7 +108,9 @@ const json = (body, status = HTTP_OK) =>
 
 // parsedBody reads a request's JSON body, or undefined when it sent none.
 function parsedBody(body) {
-  if (!body) return undefined;
+  if (!body) {
+    return undefined;
+  }
   return JSON.parse(body);
 }
 
