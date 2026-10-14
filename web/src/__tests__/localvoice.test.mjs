@@ -148,6 +148,9 @@ test("the synthesis loads the runtime, the phonemizer and each voice once, and f
   assert.deepEqual([...f.input_lengths.data], [5n]);
   assert.deepEqual([...f.scales.data].map((x) => Math.round(x * 1000)), [667, 1000, 800]);
   assert.equal(f.sid, undefined, "one speaker: no speaker id");
+  // The sliders scale the intonation and the rhythm; the speed is left to the page.
+  await synth.say("v1", "Tono.", { noise: 0.5, noiseW: 2 });
+  assert.deepEqual([...log.feeds[2].scales.data].map((x) => Math.round(x * 1000)), [333, 1000, 1600]);
   // Warming a voice loaded already loads nothing more.
   await synth.warm("v1");
   assert.deepEqual([log.ort, log.phon, log.sessions], [1, 1, 1]);
@@ -322,7 +325,7 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
   assert.deepEqual(lv.loadStateOf("v1"), { pct: 100, ready: true });
   assert.equal(changes, 5);
   off();
-  const say = lv.localClip("v1");
+  const say = lv.localClip("v1", { noise: 0.5, noiseW: 1.5 });
   const blob = await say("Hola.", new AbortController().signal);
   assert.equal(blob.type, "audio/wav");
   assert.equal(await blob.text(), "RIFF");
@@ -338,7 +341,13 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
   // The next clip makes a new worker.
   await say("Otra vez.", new AbortController().signal);
   assert.equal(made, 2);
-  assert.deepEqual(posted[0], { kind: "say", seq: posted[0].seq, id: "v1", text: "Hola." });
+  assert.deepEqual(posted[0], {
+    kind: "say",
+    seq: posted[0].seq,
+    id: "v1",
+    text: "Hola.",
+    tune: { noise: 0.5, noiseW: 1.5 },
+  });
   delete globalThis.Worker;
 });
 
@@ -447,6 +456,9 @@ test("who speaks offers the local voice when the gateway has them, and shows the
     voiceURI: "",
     rate: 1,
     maxChars: 600,
+    pitch: 1,
+    expressiveness: 1,
+    variation: 1,
     conversation: false,
     notices: false,
     byLanguage: false,
@@ -471,6 +483,21 @@ test("who speaks offers the local voice when the gateway has them, and shows the
   assert.ok(v.root.querySelector("[data-testid=local-voices]"));
   assert.equal(v.root.querySelector("[aria-labelledby=settings-speech-voice]"), null, "no device voice list");
   assert.equal(v.root.querySelector("input[name=settings-speech-engine][value=local]").checked, true);
+  // Each choice says where its voice comes from; the chosen one stands out.
+  const about = [...v.root.querySelectorAll("[data-testid=settings-speech-engine-about] li")];
+  assert.deepEqual(about.map((li) => li.textContent.split(":")[0]), ["System voices", "Downloaded voice"]);
+  assert.match(about[1].className, /text-/);
+  assert.equal(about[0].className, "");
+  // A downloaded voice has its intonation and rhythm on sliders, each back to normal with a button.
+  assert.equal(v.root.querySelector("[data-testid=settings-speech-pitch]"), null, "the pitch is the device's");
+  const tune = v.root.querySelector("[data-testid=settings-speech-expressiveness]");
+  tune.value = "0.4";
+  await act(async () => tune.dispatchEvent(new window.Event("input", { bubbles: true })));
+  assert.equal(saved.pop().expressiveness, 0.4);
+  v.done();
+  v = await mount(h(lv.SpeechSettings, props({ ...prefs, engine: "local", variation: 1.6 }, { local: true, api })));
+  await act(async () => v.root.querySelector("[data-testid=settings-speech-variation-reset]").click());
+  assert.equal(saved.pop().variation, 1);
   v.done();
 });
 

@@ -24,8 +24,10 @@ import { LocalVoices } from "./LocalVoiceSettings";
 import {
   LENGTHS,
   MEDIUM_CHARS,
+  PITCH_RANGE,
   RATES,
   SHORT_CHARS,
+  TUNE_RANGE,
   type SpeakMode,
   type SpeakStyle,
   type SpeechEngine,
@@ -73,6 +75,58 @@ export interface SpeechSettingsProps {
   // local says the gateway offers local voices this browser can run; api reaches them.
   local?: boolean;
   api?: Api;
+}
+
+// SLIDER_STEP is how far one step of a voice slider moves.
+const SLIDER_STEP = 0.1;
+
+// VoiceSlider is one attribute of the voice on a slider, with its value beside it and a way
+// back to the voice's own (1).
+function VoiceSlider({
+  id,
+  label,
+  hint,
+  range,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  range: [number, number];
+  value: number;
+  disabled?: boolean;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <Row id={id} label={label} hint={hint} stack>
+      <div class="flex items-center gap-3 w-full">
+        <input
+          type="range"
+          class="flex-1 accent-[var(--color-accent,#4cc2ff)]"
+          aria-labelledby={id}
+          data-testid={id}
+          min={range[0]}
+          max={range[1]}
+          step={SLIDER_STEP}
+          value={value}
+          disabled={disabled}
+          onInput={(e) => onChange(Number((e.target as HTMLInputElement).value))}
+        />
+        <span class="text-xs text-[#a0a0b0] w-10 text-right tabular-nums">{rateLabel(value)}</span>
+        <button
+          type="button"
+          class={smallBtn}
+          disabled={disabled || value === 1}
+          data-testid={id + "-reset"}
+          onClick={() => onChange(1)}
+        >
+          {t("Reset")}
+        </button>
+      </div>
+    </Row>
+  );
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -128,29 +182,48 @@ export function SpeechSettings({
   const localChosen = hasLocal && prefs.engine === "local";
   const gateway = !localChosen && hasGateway && (prefs.engine === "gateway" || !device);
   const setLocalVoice = useCallback((localVoice: string) => set({ localVoice }), [set]);
-  const engines: { value: SpeechEngine; label: string }[] = [];
+  // Each engine is named by where its voice comes from, and said what that means for the text.
+  const engines: { value: SpeechEngine; label: string; about: string }[] = [];
   if (device) {
-    engines.push({ value: "device", label: t("This device") });
+    engines.push({
+      value: "device",
+      label: t("System voices"),
+      about: t("The voices this device or browser already has. Nothing leaves the browser."),
+    });
   }
   if (hasGateway) {
-    engines.push({ value: "gateway", label: t("The gateway") });
+    engines.push({
+      value: "gateway",
+      label: t("Voice service"),
+      about: t(
+        "The speech service set up on the gateway: the same voice on every device. The text of each answer read goes to that service.",
+      ),
+    });
   }
   if (hasLocal) {
-    engines.push({ value: "local", label: t("Local voice") });
+    engines.push({
+      value: "local",
+      label: t("Downloaded voice"),
+      about: t(
+        "A natural voice the gateway downloads once; it then runs inside this browser, and nothing leaves the device.",
+      ),
+    });
   }
-  let engineHint = t("The voices of this device: nothing leaves the browser.");
   let engineShown: SpeechEngine = "device";
   if (localChosen) {
     engineShown = "local";
-    engineHint = t(
-      "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.",
-    );
   } else if (gateway) {
     engineShown = "gateway";
-    engineHint = t(
-      "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.",
-    );
   }
+  const engineHint = (
+    <ul class="flex flex-col gap-0.5" data-testid="settings-speech-engine-about">
+      {engines.map((e) => (
+        <li key={e.value} class={choose(e.value === engineShown, "text-[#c8c8d0]", "")}>
+          <span class="font-medium">{e.label}:</span> {e.about}
+        </li>
+      ))}
+    </ul>
+  );
   const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
   const setLength = useCallback(
     (n: string) => set({ maxChars: Number(n) }),
@@ -227,7 +300,7 @@ export function SpeechSettings({
           </Row>
         )}
         {localChosen && api && (
-          <Row id="settings-speech-local" label={t("Local voices")} stack>
+          <Row id="settings-speech-local" label={t("Voices to download")} stack>
             <LocalVoices api={api} chosen={prefs.localVoice} choose={setLocalVoice} />
           </Row>
         )}
@@ -291,6 +364,36 @@ export function SpeechSettings({
             }))}
           />
         </Row>
+        {localChosen && (
+          <>
+            <VoiceSlider
+              id="settings-speech-expressiveness"
+              label={t("Expressiveness")}
+              hint={t("How much the intonation varies: lower is flatter and steadier, higher livelier.")}
+              range={TUNE_RANGE}
+              value={prefs.expressiveness}
+              onChange={(expressiveness) => set({ expressiveness })}
+            />
+            <VoiceSlider
+              id="settings-speech-variation"
+              label={t("Rhythm variation")}
+              hint={t("How much the length of each sound varies: lower is more even, higher more natural.")}
+              range={TUNE_RANGE}
+              value={prefs.variation}
+              onChange={(variation) => set({ variation })}
+            />
+          </>
+        )}
+        {!localChosen && !gateway && (
+          <VoiceSlider
+            id="settings-speech-pitch"
+            label={t("Pitch")}
+            range={PITCH_RANGE}
+            value={prefs.pitch}
+            disabled={off}
+            onChange={(pitch) => set({ pitch })}
+          />
+        )}
         <Row
           id="settings-speech-length"
           label={t("Length")}

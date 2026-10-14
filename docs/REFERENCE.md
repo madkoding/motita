@@ -1368,7 +1368,8 @@ voice:
     max_chars: 4000 # cap on the text of one request
 ```
 
-When it is on, **Settings → Read aloud → Who speaks** chooses between this device and the gateway,
+When it is on, **Settings → Read aloud → Who speaks** chooses between **System voices** (this
+device's) and **Voice service** (the gateway's), each said under the choice,
 and the voice among the ones listed. The page sends one sentence at a time and asks for the next
 while one plays; the text and the audio are never stored. A device with no voices of its own uses
 the gateway's. The speed, the highlight, the natural style and the pause of hands-free listening
@@ -1385,11 +1386,17 @@ The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
 
 #### Local voices
 
-A third choice in **Who speaks** runs a [Piper](https://github.com/rhasspy/piper) voice in the
-browser itself: once it is downloaded, the text of the answers never leaves the device and no
-speech service is needed. **Settings → Voice → Local voices** lists a few Spanish and English
-voices (about 63 MB each, plus 33 MB of engine the first time); **Download** asks the gateway to
-fetch one, **Use** chooses it and **Delete** removes it.
+A third choice in **Who speaks**, **Downloaded voice**, runs a [Piper](https://github.com/rhasspy/piper)
+voice in the browser itself: once it is downloaded, the text of the answers never leaves the
+device and no speech service is needed. **Settings → Voice → Voices to download** lists 24 Spanish
+(Mexico, Argentina, Spain) and English (US, UK) voices, from 14 to 114 MB each, plus 33 MB of engine
+the first time, with the interface language first; **Download** asks the gateway to fetch one,
+**Use** chooses it and **Delete** removes it.
+
+The voice is tuned with sliders, each with a **Reset**: **Expressiveness** (how much the intonation
+varies) and **Rhythm variation** (how much the length of each sound varies) for a downloaded voice,
+from 0 to 2× the voice's own; **Pitch** for a system voice, from 0.5 to 2. The speed applies to
+all three.
 
 The page cannot download anything itself. The gateway fetches each file once, from an address in
 a catalog compiled into the binary (the voices from `rhasspy/piper-voices` at `v1.0.0` on
