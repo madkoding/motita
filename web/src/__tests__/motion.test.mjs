@@ -111,3 +111,64 @@ test("a leaving copy is inert, has no ids and does not count as a dialog", async
   assert.equal(document.querySelectorAll(".motion-ghost").length, 0, "removed by the fallback");
   el.remove();
 });
+
+// The stream reveal, against a stand-in for the CSS Custom Highlight API (jsdom has none).
+const revealOut = join(mkdtempSync(join(tmpdir(), "motita-reveal-test-")), "reveal.mjs");
+await build({
+  entryPoints: [join(here, "..", "streamReveal.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  outfile: revealOut,
+  logLevel: "silent",
+});
+const { streamReveal } = await import(revealOut);
+
+function fakeHighlights() {
+  const reg = new Map();
+  globalThis.CSS = { highlights: reg };
+  globalThis.Highlight = class extends Set {};
+  globalThis.StaticRange = dom.window.StaticRange;
+  globalThis.NodeFilter = dom.window.NodeFilter;
+  globalThis.MutationObserver = dom.window.MutationObserver;
+  globalThis.requestAnimationFrame = () => 1;
+  globalThis.cancelAnimationFrame = () => {};
+  return reg;
+}
+const hiddenText = (reg) =>
+  [...(reg.get("stream-hidden") ?? [])]
+    .map((r) => {
+      const range = document.createRange();
+      range.setStart(r.startContainer, r.startOffset);
+      range.setEnd(r.endContainer, r.endOffset);
+      return range.toString();
+    })
+    .join("");
+
+test("an answer read from the history shows at once", () => {
+  const reg = fakeHighlights();
+  const el = document.createElement("div");
+  el.innerHTML = '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola mundo</p></div>';
+  const r = streamReveal(el, "Hola mundo");
+  assert.equal(hiddenText(reg), "");
+  r.dispose();
+});
+
+test("the text a stream adds is hidden until revealed, and nothing else is", () => {
+  const reg = fakeHighlights();
+  const el = document.createElement("div");
+  el.innerHTML = '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola</p></div>';
+  const r = streamReveal(el, "Hola");
+  el.innerHTML =
+    '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola mundo</p></div>';
+  r.update("Hola mundo");
+  assert.equal(hiddenText(reg), " mundo");
+  // An edit (not more of the same answer) shows at once.
+  el.innerHTML = '<div class="markdown-body"><p>Adiós</p></div>';
+  r.update("Adiós");
+  assert.equal(hiddenText(reg), "");
+  r.dispose();
+  assert.equal(reg.get("stream-hidden").size, 0);
+  delete globalThis.CSS;
+  delete globalThis.Highlight;
+});

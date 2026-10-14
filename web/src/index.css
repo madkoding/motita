@@ -4172,3 +4172,32 @@ html[data-density="compact"] .settings-warn {
 .settings-mic-permission + .settings-voice-lock > :first-child {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+/* ─── Text that arrives ─────────────────────────────────────────────
+ * The activity line is typed in by the terminal's typewriter (Typed in Term.tsx); its cursor
+ * takes the line's own colour instead of the terminal green. */
+.activity-typed.is-typing::after {
+  width: 0.5em;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  opacity: 0.85;
+}
+
+/* A streamed answer is revealed letter by letter (streamReveal.ts): the letters not yet shown
+ * are painted transparent, and the last few shown fade in, the newest the faintest. A highlight
+ * changes only paint, never layout, so the bubble keeps its final height. */
+::highlight(stream-hidden) {
+  color: transparent;
+}
+/* A fixed tone of the body text: inside a highlight `currentColor` does not resolve to the
+ * element's colour (measured: it drew the edge near black), so a heading's edge fades in pale
+ * for a few letters before taking its own colour. */
+::highlight(stream-fade-1) {
+  color: rgb(232 232 234 / 0.2);
+}
+::highlight(stream-fade-2) {
+  color: rgb(232 232 234 / 0.5);
+}
+::highlight(stream-fade-3) {
+  color: rgb(232 232 234 / 0.8);
+}
