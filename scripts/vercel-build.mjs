@@ -9,10 +9,51 @@
 // fallback and the page's own fetch of releases/latest replaces it in the browser.
 // The marker itself is still required, because a page without it would never show
 // a version at all.
+//
+// It also adds Vercel Web Analytics to every page. Only here, so GitHub Pages and a
+// local checkout never load it: /_vercel/insights/script.js exists only on Vercel.
+// The loader is cookieless and skips visitors with Do Not Track or Global Privacy
+// Control on. The webui that runs on the user's machine never gets analytics.
 import { readFileSync, writeFileSync } from "node:fs";
 
 const page = new URL("../site/index.html", import.meta.url);
 const marker = /(<span data-motita-version>)[^<]*(<\/span>)/g;
+
+const analytics = `<script data-vercel-analytics>
+      (function () {
+        if (
+          navigator.doNotTrack === "1" ||
+          window.doNotTrack === "1" ||
+          navigator.globalPrivacyControl
+        ) {
+          return;
+        }
+        window.va =
+          window.va ||
+          function () {
+            (window.vaq = window.vaq || []).push(arguments);
+          };
+        var script = document.createElement("script");
+        script.defer = true;
+        script.src = "/_vercel/insights/script.js";
+        document.head.appendChild(script);
+      })();
+    </script>
+`;
+
+for (const name of ["index.html", "architecture.html"]) {
+  const file = new URL(`../site/${name}`, import.meta.url);
+  const html = readFileSync(file, "utf8");
+  if (html.includes("data-vercel-analytics")) {
+    continue;
+  }
+  if (html.split("</head>").length !== 2) {
+    console.error(`site/${name} needs exactly one </head> for analytics`);
+    process.exit(1);
+  }
+  writeFileSync(file, html.replace("</head>", `${analytics}  </head>`));
+  console.log(`added Vercel Web Analytics to site/${name}`);
+}
 
 const src = readFileSync(page, "utf8");
 const found = src.match(marker)?.length ?? 0;
