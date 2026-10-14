@@ -59,6 +59,12 @@ func textBindings(c *Config) []binding[string] {
 
 		{"MOTITA_UI_LANGUAGE", &c.UI.Language},
 
+		{"MOTITA_MODELS_PLAN", &c.Models.Plan},
+		{"MOTITA_MODELS_CODE", &c.Models.Code},
+		{"MOTITA_MODELS_REVIEW", &c.Models.Review},
+		{"MOTITA_MODELS_RESEARCH", &c.Models.Research},
+		{"MOTITA_MODELS_SUMMARY", &c.Models.Summary},
+
 		{"MOTITA_GATEWAY_LISTEN", &c.Gateway.Listen},
 		{"MOTITA_GATEWAY_TOKEN_FILE", &c.Gateway.TokenFile},
 		{"MOTITA_GATEWAY_TLS_LISTEN", &c.Gateway.TLS.Listen},

@@ -17,9 +17,7 @@ import {
   isConnected,
   loadLLM,
   loginStatus,
-  modelChoices,
   pasteLogin,
-  saveDefault,
   saveProvider,
   startLogin,
   testProvider,
@@ -31,18 +29,18 @@ export interface ProviderSettingsProps {
   onNotice: (message: string, error?: boolean) => void;
 }
 
-const inputCls =
+export const inputCls =
   "w-full min-w-0 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent";
 const smallBtn =
   "btn-outline px-3 min-h-[32px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed";
-const primaryBtn = smallBtn + " bg-accent text-white border-transparent";
+export const primaryBtn = smallBtn + " bg-accent text-white border-transparent";
 
 const PROVIDERS_GUIDE =
   "https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#llm-providers-from-the-browser";
 
 // failureText is what a refused request is shown as: the codes the gateway names get a sentence
 // in the reader's language, anything else its own message.
-function failureText(e: unknown): string {
+export function failureText(e: unknown): string {
   if (e instanceof LLMError) {
     if (e.code === "env_key") {
       return t(
@@ -94,13 +92,12 @@ function ProviderIcon({ p }: { p: LLMProvider }) {
   return <ProviderLogo id={p.id} name={p.name} />;
 }
 
-// ProviderSettings is the providers tab: the default model new sessions start with, and every
-// provider with its connection.
+// ProviderSettings is the providers tab: every provider with its connection. The models each kind
+// of work runs on are the models tab (ModelSettings).
 export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
   const [view, setView] = useState<LLMView | null>(null);
   const [err, setErr] = useState("");
   const [open, setOpen] = useState("");
-  const [listed, setListed] = useState<Record<string, string[]>>({});
   const reload = useCallback(() => {
     loadLLM(api)
       .then((v) => {
@@ -114,11 +111,6 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
     (id: string) => setOpen((o) => choose(o === id, "", id)),
     [],
   );
-  const onListed = useCallback(
-    (id: string, models: string[]) =>
-      setListed((l) => ({ ...l, [id]: models })),
-    [],
-  );
   const insecure =
     typeof window !== "undefined" && window.isSecureContext === false;
   return (
@@ -126,7 +118,7 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
       <h3 class="sr-only">{t("Providers")}</h3>
       <p class="text-xs text-[#7a7a8c] mb-3">
         {t(
-          "Connect the AI providers Motita can use, and pick the model new sessions start with.",
+          "Connect the AI providers Motita can use. The models each kind of work runs on are chosen in Models.",
         )}
       </p>
       {insecure && (
@@ -159,13 +151,6 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
       )}
       {view && (
         <>
-          <DefaultModel
-            api={api}
-            view={view}
-            listed={listed}
-            onSaved={setView}
-            onNotice={onNotice}
-          />
           <section class="settings-group" aria-labelledby="llm-providers-h">
             <h4 id="llm-providers-h" class="settings-group-title">
               {t("Providers")}
@@ -180,7 +165,6 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
                   open={open === p.id}
                   onToggle={onToggle}
                   onChanged={reload}
-                  onListed={onListed}
                   onNotice={onNotice}
                 />
               ))}
@@ -192,134 +176,6 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
   );
 }
 
-// DefaultModel picks the provider and model new sessions start with, among the connected ones.
-function DefaultModel({
-  api,
-  view,
-  listed,
-  onSaved,
-  onNotice,
-}: {
-  api: Api;
-  view: LLMView;
-  listed: Record<string, string[]>;
-  onSaved: (v: LLMView) => void;
-  onNotice: ProviderSettingsProps["onNotice"];
-}) {
-  const [provider, setProvider] = useState(view.provider);
-  const [model, setModel] = useState(view.model);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  useEffect(() => {
-    setProvider(view.provider);
-    setModel(view.model);
-  }, [view.provider, view.model]);
-  const connected = view.providers.filter(isConnected);
-  const p = view.providers.find((x) => x.id === provider);
-  const choices = modelChoices(
-    p,
-    listed[provider],
-    choose(provider === view.provider, view.model, ""),
-  );
-  const changed = provider !== view.provider || model.trim() !== view.model;
-  const pick = (id: string) => {
-    setProvider(id);
-    setErr("");
-    const next = view.providers.find((x) => x.id === id);
-    setModel(
-      choose(id === view.provider, view.model, next?.models[0]?.id || ""),
-    );
-  };
-  const save = async (e: Event) => {
-    e.preventDefault();
-    setBusy(true);
-    setErr("");
-    try {
-      const v = await saveDefault(api, provider, model.trim());
-      onSaved(v);
-      onNotice(tf("New sessions will start with {model}", { model: v.model }));
-    } catch (error_) {
-      setErr(failureText(error_));
-    }
-    setBusy(false);
-  };
-  return (
-    <section class="settings-group" aria-labelledby="llm-default-h">
-      <h4 id="llm-default-h" class="settings-group-title">
-        {t("Default model")}
-      </h4>
-      <form class="settings-card" onSubmit={save} data-testid="llm-default">
-        <div class="settings-row">
-          <label for="llm-default-provider" class="text-sm text-[#e8e8ea]">
-            {t("Provider")}
-          </label>
-          <div class="settings-row-control llm-field">
-            <select
-              id="llm-default-provider"
-              class={inputCls}
-              value={provider}
-              disabled={!view.writable}
-              onChange={(e) => pick((e.target as HTMLSelectElement).value)}
-            >
-              {/* The one in force is listed even when its key has gone, so it is not mistaken for another. */}
-              {view.providers
-                .filter((x) => isConnected(x) || x.id === view.provider)
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-        </div>
-        <div class="settings-row">
-          <label for="llm-default-model" class="text-sm text-[#e8e8ea]">
-            {t("Model")}
-          </label>
-          <div class="settings-row-control llm-field">
-            <input
-              id="llm-default-model"
-              class={inputCls + " font-mono"}
-              value={model}
-              list="llm-default-models"
-              disabled={!view.writable}
-              autocapitalize="off"
-              spellcheck={false}
-              onInput={(e) => setModel((e.target as HTMLInputElement).value)}
-            />
-            <datalist id="llm-default-models">
-              {choices.map((id) => (
-                <option key={id} value={id} />
-              ))}
-            </datalist>
-          </div>
-        </div>
-        <div class="settings-add llm-actions">
-          <p class="text-xs text-[#7a7a8c] flex-1 min-w-0">
-            {choose(
-              connected.length > 0,
-              t("Sessions already open keep their own model."),
-              t("Connect a provider below first."),
-            )}
-          </p>
-          <button
-            type="submit"
-            class={primaryBtn}
-            disabled={!view.writable || !changed || !model.trim() || busy}
-          >
-            {choose(busy, t("Saving…"), t("Save"))}
-          </button>
-        </div>
-        {err && (
-          <p class="settings-add text-xs text-danger" role="alert">
-            {err}
-          </p>
-        )}
-      </form>
-    </section>
-  );
-}
-
 interface RowProps {
   api: Api;
   p: LLMProvider;
@@ -327,7 +183,6 @@ interface RowProps {
   open: boolean;
   onToggle: () => void;
   onChanged: () => void;
-  onListed: (id: string, models: string[]) => void;
   onNotice: ProviderSettingsProps["onNotice"];
 }
 
@@ -428,7 +283,6 @@ function ProviderForm({
   writable,
   onToggle,
   onChanged,
-  onListed,
   onNotice,
 }: RowProps) {
   const [key, setKey] = useState("");
@@ -455,11 +309,8 @@ function ProviderForm({
         setResult(null);
         const r = await testProvider(api, p.id, trial);
         setResult(r);
-        if (r.ok && r.models?.length) {
-          onListed(p.id, r.models);
-        }
       }),
-    [run, api, p.id, trial, onListed],
+    [run, api, p.id, trial],
   );
   const save = (e: Event) => {
     e.preventDefault();
