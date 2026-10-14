@@ -84,3 +84,32 @@ func TestALayerReportsAFailedSave(t *testing.T) {
 		t.Error("the layer's own failure is reported")
 	}
 }
+
+// What the shared ledger recorded about a project's document before projects had ledgers moves to
+// the project, and stays shared too only while the shared shelf has a document of that name.
+func TestAdoptMovesTheProjectsOldTelemetry(t *testing.T) {
+	scope, shared := layered(t)
+	if scope.Adopt(nil) {
+		t.Fatal("nothing to adopt")
+	}
+	shared.SetPinned("mine", true)
+	shared.SetPinned("common", true)
+	if !scope.Adopt(nil) || !scope.entries["mine"].Pinned || shared.Get("mine").Pinned {
+		t.Error("the project's entry moves to the project")
+	}
+	if !shared.Get("common").Pinned {
+		t.Error("a shared document's entry stays")
+	}
+	shared.SetDisabled("mine", true)
+	scope2, _ := Open("")
+	scope2.Over(shared, func(n string) bool { return n == "mine" })
+	if !scope2.Adopt(func(string) bool { return true }) || !shared.Disabled("mine") {
+		t.Error("kept shared while the shared shelf has the document")
+	}
+	if scope.Adopt(nil) {
+		t.Error("an entry the layer has is not adopted again")
+	}
+	if (&Ledger{}).Adopt(nil) {
+		t.Error("a ledger that is no layer adopts nothing")
+	}
+}

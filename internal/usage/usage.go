@@ -392,3 +392,29 @@ func (l *Ledger) save() error {
 	}
 	return os.Rename(tmp.Name(), l.Path)
 }
+
+// Adopt moves to a layer what the shared ledger it is layered over recorded, before projects had
+// ledgers of their own, about the scope's documents: an entry for a name owns claims and this
+// layer has none yet is copied here, and left on the shared ledger only when keep says the shared
+// shelf still has a document of that name. It reports whether anything moved; both ledgers are
+// then saved by the next Save.
+func (l *Ledger) Adopt(keep func(name string) bool) bool {
+	if l.parent == nil || l.owns == nil {
+		return false
+	}
+	moved := false
+	for name, e := range l.parent.All() {
+		l.mu.Lock()
+		_, mine := l.entries[name]
+		take := !mine && l.owns(name)
+		if take {
+			l.entries[name] = e
+			l.dirty, moved = true, true
+		}
+		l.mu.Unlock()
+		if take && (keep == nil || !keep(name)) {
+			l.parent.Forget(name)
+		}
+	}
+	return moved
+}

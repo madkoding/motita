@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/projectskills"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // A project's store layers its documents and its own ledgers over the shared ones: a verdict and
@@ -77,5 +78,37 @@ func TestScopedDegradesLikeOpen(t *testing.T) {
 	}
 	if st := Scoped(shared, project); st.Ledger != shared.Ledger || st.Usage != shared.Usage {
 		t.Error("an unreadable project ledger leaves the project on the shared one")
+	}
+}
+
+// Opening a project's ledgers moves what the shared ones recorded about its documents, and keeps
+// what the shared shelf still has, live or archived.
+func TestAProjectAdoptsItsOldTelemetry(t *testing.T) {
+	shared := Open(cfgAt(t.TempDir()), quiet(t))
+	project := t.TempDir()
+	front := filepath.Join(project, projectskills.SharedDirName)
+	for _, dir := range []string{front, filepath.Join(shared.Library.Root(), skills.ArchiveDir)} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{filepath.Join(front, "build.md"), filepath.Join(front, "both.md"),
+		filepath.Join(shared.Library.Root(), skills.ArchiveDir, "both.md")} {
+		if err := os.WriteFile(p, []byte("# Doc\n\nx\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shared.Usage.SetPinned("build", true)
+	shared.Usage.SetPinned("both", true)
+	_ = shared.Ledger.Attribute([]string{"build"}, nil, true, "")
+	st := Scoped(shared, project)
+	if !st.Usage.Get("build").Pinned || shared.Usage.Get("build").Pinned {
+		t.Error("the project's pin moved to the project")
+	}
+	if _, ok := shared.Ledger.Scores["build"]; ok {
+		t.Error("the project's score moved to the project")
+	}
+	if !shared.Usage.Get("both").Pinned || !st.Usage.Get("both").Pinned {
+		t.Error("a name the shared shelf still has stays shared and is copied")
 	}
 }

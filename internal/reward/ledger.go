@@ -569,3 +569,35 @@ func (l *Ledger) sortedLocked() []struct {
 	})
 	return out
 }
+
+// Adopt moves to a layer what the shared ledger it is layered over recorded, before projects had
+// ledgers of their own, about the scope's documents: see usage.Ledger.Adopt, which follows the
+// same rule. It reports whether anything moved.
+func (l *Ledger) Adopt(keep func(name string) bool) bool {
+	if l.parent == nil || l.owns == nil {
+		return false
+	}
+	moved := false
+	for _, e := range l.parent.Sorted() {
+		l.mu.Lock()
+		_, mine := l.Scores[e.Name]
+		take := !mine && l.owns(e.Name)
+		if take {
+			l.Scores[e.Name] = e.Score
+			l.dirty, moved = true, true
+		}
+		l.mu.Unlock()
+		if take && (keep == nil || !keep(e.Name)) {
+			l.parent.forget(e.Name)
+		}
+	}
+	return moved
+}
+
+// forget drops a skill's score.
+func (l *Ledger) forget(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.Scores, name)
+	l.dirty = true
+}

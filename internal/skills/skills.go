@@ -421,6 +421,9 @@ const builtinDir = "builtin"
 // dot-names) never offers one as if it were current.
 const archiveDir = ".archive"
 
+// ArchiveDir is where archived documents are kept inside a shelf, for the packages that look there.
+const ArchiveDir = archiveDir
+
 // builtinGOOS is the platform whose variants of the embedded procedures are served. A procedure
 // is mostly commands, and a command written for sh does not run under PowerShell: the documents
 // that are all commands ship a variant per platform where the commands differ. It is a variable

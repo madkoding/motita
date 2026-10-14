@@ -84,3 +84,32 @@ func TestMergedOfAPlainLedger(t *testing.T) {
 		t.Error("merged")
 	}
 }
+
+// See usage's TestAdoptMovesTheProjectsOldTelemetry: the same rule for scores.
+func TestAdoptMovesTheProjectsOldScores(t *testing.T) {
+	scope, shared := layered(t)
+	_ = shared.Attribute([]string{"mine", "common"}, nil, false, "old")
+	if !scope.Adopt(nil) {
+		t.Fatal("the project's score moves")
+	}
+	if _, ok := shared.Scores["mine"]; ok {
+		t.Error("the moved score left the shared ledger")
+	}
+	if _, ok := scope.Scores["mine"]; !ok || scope.Adopt(nil) {
+		t.Error("adopted once")
+	}
+	if _, ok := shared.Scores["common"]; !ok {
+		t.Error("a shared document's score stays")
+	}
+	other, _ := Open("")
+	other.Over(shared, func(n string) bool { return n == "common" })
+	if !other.Adopt(func(string) bool { return true }) {
+		t.Error("copied")
+	}
+	if _, ok := shared.Scores["common"]; !ok {
+		t.Error("kept shared while the shared shelf has it")
+	}
+	if (&Ledger{}).Adopt(nil) {
+		t.Error("a ledger that is no layer adopts nothing")
+	}
+}

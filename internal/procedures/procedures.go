@@ -16,6 +16,7 @@
 package procedures
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -142,7 +143,8 @@ func Scoped(shared *Store, projectDir string) *Store {
 		return &out
 	}
 	dir := filepath.Join(shared.Library.Root(), ProjectsDir, projectskills.Key(projectDir))
-	led := projectLedgersFor(projectKey{dir: dir, reward: shared.Ledger, usage: shared.Usage}, lib.InScope)
+	led := projectLedgersFor(projectKey{dir: dir, reward: shared.Ledger, usage: shared.Usage}, lib.InScope,
+		sharedHas(shared.Library))
 	if led.reward != nil {
 		out.Ledger = led.reward
 		lib.Scorer = led.reward
@@ -162,7 +164,11 @@ const ProjectsDir = ".projects"
 // ones. A ledger the shared store does not have is not opened for the project either, and one
 // that cannot be read leaves the project on the shared one: a missing record is a working
 // library, as Open says.
-func projectLedgersFor(key projectKey, owns func(string) bool) projectLedgers {
+//
+// When they are first opened, what the shared ledgers recorded about the project's documents
+// before projects had ledgers of their own moves to the project (Adopt): it stays shared too only
+// while the shared shelf still has a document of that name.
+func projectLedgersFor(key projectKey, owns, keep func(string) bool) projectLedgers {
 	projectMu.Lock()
 	defer projectMu.Unlock()
 	if led, ok := projectLed[key]; ok {
@@ -172,13 +178,32 @@ func projectLedgersFor(key projectKey, owns func(string) bool) projectLedgers {
 	if key.reward != nil {
 		if r, err := reward.Open(filepath.Join(key.dir, ".scores.json")); err == nil {
 			led.reward = r.Over(key.reward, owns)
+			if led.reward.Adopt(keep) {
+				_ = led.reward.Save()
+			}
 		}
 	}
 	if key.usage != nil {
 		if u, err := usage.Open(filepath.Join(key.dir, ".usage.json")); err == nil {
 			led.usage = u.Over(key.usage, owns)
+			if led.usage.Adopt(keep) {
+				_ = led.usage.Save()
+			}
 		}
 	}
 	projectLed[key] = led
 	return led
+}
+
+// sharedHas reports whether the shared shelf itself, not a project, has a document of a name, live
+// or archived.
+func sharedHas(lib *skills.Library) func(string) bool {
+	return func(name string) bool {
+		for _, p := range []string{name + ".md", filepath.Join(skills.ArchiveDir, name+".md")} {
+			if _, err := os.Lstat(filepath.Join(lib.Root(), p)); err == nil {
+				return true
+			}
+		}
+		return false
+	}
 }
