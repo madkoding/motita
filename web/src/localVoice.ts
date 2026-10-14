@@ -1,6 +1,15 @@
 // LOCAL VOICES on the page's side: the catalog the gateway offers, its downloads, and a FetchClip
 // that asks the worker (speechModel.worker.ts) to say a sentence.
-import { MODELS_PATH, VOICE_CACHE, fileURL, type FromWorker, type ToWorker } from "./localVoiceCore";
+import {
+  KOKORO_ID,
+  MODELS_PATH,
+  VOICE_CACHE,
+  fileURL,
+  isKokoro,
+  type FromWorker,
+  type ToWorker,
+  type Tune,
+} from "./localVoiceCore";
 import type { Api } from "./prApi";
 import type { FetchClip } from "./speech";
 
@@ -10,8 +19,13 @@ export interface LocalModel {
   name: string;
   lang: string;
   quality: string;
+  // engine runs it: "piper" or "kokoro".
+  engine: string;
+  // size is what downloading it takes now (with its engine's model, while that is missing).
   size: number;
   installed: boolean;
+  // sample says it can be heard before it is downloaded (sampleURL).
+  sample: boolean;
 }
 
 // LocalCatalog is GET /v1/voice/models.
@@ -56,10 +70,27 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
     throw await failure(res);
   }
   post({ kind: "forget", id });
-  if (typeof caches !== "undefined") {
-    const cache = await caches.open(VOICE_CACHE);
-    await Promise.all(["model.onnx", "model.json"].map((n) => cache.delete(fileURL(id, n))));
+  setLoad(id, undefined);
+  if (typeof caches === "undefined") {
+    return;
   }
+  const cache = await caches.open(VOICE_CACHE);
+  const gone = ["model.onnx", "model.json", "voice.bin"].map((n) => fileURL(id, n));
+  // Kokoro's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
+  if (isKokoro(id) && !(await fetchCatalog(api)).models.some((m) => isKokoro(m.id) && m.installed)) {
+    gone.push(fileURL(KOKORO_ID, "model.onnx"), fileURL(KOKORO_ID, "tokenizer.json"));
+  }
+  await Promise.all(gone.map((u) => cache.delete(u)));
+}
+
+// sampleOf is a voice's sample, to hear it before downloading it: the gateway fetches it from the
+// catalog's address the first time.
+export async function sampleOf(api: Api, id: string): Promise<Blob> {
+  const res = await api(fileURL(id, "sample"));
+  if (!res.ok) {
+    throw await failure(res);
+  }
+  return res.blob();
 }
 
 // The worker, made the first time a sentence is said.
@@ -76,6 +107,10 @@ function getWorker(): Worker {
     worker = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module" });
     worker.onmessage = (e: MessageEvent<FromWorker>) => {
       const m = e.data;
+      if ("kind" in m) {
+        loaded(m);
+        return;
+      }
       const p = pending.get(m.seq);
       pending.delete(m.seq);
       if (!p) {
@@ -93,6 +128,10 @@ function getWorker(): Worker {
       }
       pending.clear();
       worker = null;
+      // The voices it had loaded went with it: a new worker loads them again.
+      for (const id of [...loads.keys()]) {
+        setLoad(id, undefined);
+      }
     };
   }
   return worker;
@@ -100,7 +139,7 @@ function getWorker(): Worker {
 
 // localClip is the FetchClip of a local voice. A sentence asked for and then aborted is still
 // said by the worker (it cannot be cut mid-way), and its audio is dropped.
-export function localClip(id: string): FetchClip {
+export function localClip(id: string, tune?: Tune): FetchClip {
   return (text, signal) =>
     new Promise<Blob>((ok, fail) => {
       seq++;
@@ -110,12 +149,64 @@ export function localClip(id: string): FetchClip {
         pending.delete(n);
         fail(new DOMException("aborted", "AbortError"));
       });
-      getWorker().postMessage({ kind: "say", seq: n, id, text } satisfies ToWorker);
+      getWorker().postMessage({ kind: "say", seq: n, id, text, tune } satisfies ToWorker);
     });
 }
 
-// warmLocal loads a voice in the worker ahead of the first sentence.
+// LOADING a voice into the worker's memory: how far it is, for the settings to show.
+export interface LoadState {
+  // pct is 0 to 100; ready says the voice can speak; error says why it could not be loaded.
+  pct: number;
+  ready: boolean;
+  error?: string;
+}
+
+const loads = new Map<string, LoadState>();
+const loadListeners = new Set<() => void>();
+
+function setLoad(id: string, state: LoadState | undefined): void {
+  if (state) {
+    loads.set(id, state);
+  } else {
+    loads.delete(id);
+  }
+  for (const f of loadListeners) {
+    f();
+  }
+}
+
+// loaded records what the worker said about a voice it is loading.
+function loaded(m: Extract<FromWorker, { kind: string }>): void {
+  if (m.kind === "progress") {
+    setLoad(m.id, { pct: m.pct, ready: false });
+    return;
+  }
+  if (m.kind === "ready") {
+    setLoad(m.id, { pct: 100, ready: true });
+    return;
+  }
+  setLoad(m.id, { pct: 0, ready: false, error: m.error });
+}
+
+// loadStateOf is how far a voice is from being ready here; undefined before it was asked for.
+export function loadStateOf(id: string): LoadState | undefined {
+  return loads.get(id);
+}
+
+// onLoadState calls f whenever a voice's loading changes, until the returned function is called.
+export function onLoadState(f: () => void): () => void {
+  loadListeners.add(f);
+  return () => loadListeners.delete(f);
+}
+
+// warmLocal loads a voice in the worker ahead of the first sentence. A voice loading or loaded
+// is not asked for again; one that failed is.
 export function warmLocal(id: string): void {
+  const now = loads.get(id);
+  if (now && !now.error) {
+    return;
+  }
+  setLoad(id, { pct: 0, ready: false });
   getWorker().postMessage({ kind: "warm", id } satisfies ToWorker);
 }
 

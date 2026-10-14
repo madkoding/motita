@@ -210,25 +210,107 @@ func TestVerifyNoticesChanges(t *testing.T) {
 	}
 }
 
-// The compiled-in catalog is well formed: unique ids, https addresses, real hashes.
-func TestThePiperCatalog(t *testing.T) {
+// The compiled-in catalog is well formed: unique ids, https addresses, real hashes, a sample for
+// every Piper voice, and Kokoro's voices on its shared model, their ids starting as the page reads.
+func TestTheCatalog(t *testing.T) {
 	hexSum := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	seen := map[string]bool{}
+	seen := map[string]bool{RuntimeID: true, KokoroID: true, samplesDir: true}
 	check := func(f ModelFile) {
 		if !strings.HasPrefix(f.URL, "https://") || !hexSum.MatchString(f.SHA256) || f.Size <= 0 || f.Name == "" {
 			t.Errorf("bad file %+v", f)
 		}
 	}
-	for _, f := range PiperRuntime {
+	for _, f := range append(append([]ModelFile{}, PiperRuntime...), KokoroModel...) {
 		check(f)
 	}
 	for _, m := range PiperVoices {
-		if seen[m.ID] || m.ID == RuntimeID || len(m.Files) != 2 || m.Name == "" {
+		if seen[m.ID] || m.Engine != EnginePiper || m.Shared != "" || len(m.Files) != 2 || m.Name == "" || m.Sample == nil {
 			t.Errorf("bad voice %+v", m)
 		}
 		seen[m.ID] = true
-		for _, f := range m.Files {
+		for _, f := range append(m.Files, *m.Sample) {
 			check(f)
 		}
+	}
+	for _, m := range KokoroVoices {
+		lang := map[byte]string{'a': "en-US", 'b': "en-GB", 'e': "es"}[m.ID[len(KokoroID)+1]]
+		if seen[m.ID] || m.Engine != EngineKokoro || m.Shared != KokoroID || !strings.HasPrefix(m.ID, KokoroID+"-") ||
+			m.Lang != lang || len(m.Files) != 1 || m.Sample != nil {
+			t.Errorf("bad voice %+v", m)
+		}
+		seen[m.ID] = true
+		check(m.Files[0])
+	}
+}
+
+// A Kokoro voice brings its engine's model with the first of them, counts it in what it takes
+// while it is missing, and the model goes with the last of them.
+func TestSharedFiles(t *testing.T) {
+	lib, hits := testLibrary(t)
+	lib.Shared = map[string][]ModelFile{"k": {lib.Models[0].Files[0]}}
+	for _, id := range []string{"k-1", "k-2"} {
+		lib.Models = append(lib.Models, Model{ID: id, Shared: "k", Files: []ModelFile{lib.Models[0].Files[1]}})
+	}
+	k1, _ := lib.Find("k-1")
+	if lib.DownloadSize(k1) != 6 || lib.DownloadSize(lib.Models[0]) != 6 {
+		t.Fatalf("sizes %d %d", lib.DownloadSize(k1), lib.DownloadSize(lib.Models[0]))
+	}
+	if err := lib.Install(context.Background(), "k-1", nil); err != nil || !lib.Installed("k-1") || lib.Installed("k-2") {
+		t.Fatalf("Install: %v", err)
+	}
+	if lib.DownloadSize(k1) != 2 || *hits != 3 {
+		t.Fatalf("once the model is here: %d, %d requests", lib.DownloadSize(k1), *hits)
+	}
+	if p, ok := lib.File("k", "model.onnx"); !ok || filepath.Base(filepath.Dir(p)) != "k" {
+		t.Fatalf("shared File = %q %v", p, ok)
+	}
+	if err := lib.Verify("k-1"); err != nil {
+		t.Fatal(err)
+	}
+	_ = lib.Install(context.Background(), "k-2", nil)
+	if err := lib.Remove("k-1"); err != nil || !lib.Installed("k-2") {
+		t.Fatalf("another voice still uses the model: %v", err)
+	}
+	if err := lib.Remove("k-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(lib.Dir, "k")); !os.IsNotExist(err) {
+		t.Fatalf("the model should go with the last voice: %v", err)
+	}
+	// A directory that cannot be removed says so.
+	lib.Dir = "no\x00dir"
+	if err := lib.Remove("k-1"); err == nil {
+		t.Fatal("Remove should fail")
+	}
+}
+
+// A sample is downloaded the first time it is asked for, checked, and kept apart from the voice.
+func TestSample(t *testing.T) {
+	lib, hits := testLibrary(t)
+	s := lib.Models[0].Files[0]
+	s.Name = "sample.mp3"
+	lib.Models[0].Sample = &s
+	lib.Models = append(lib.Models, Model{ID: "quiet"})
+	for i := 0; i < 2; i++ {
+		p, err := lib.Sample(context.Background(), "v1")
+		if b, _ := os.ReadFile(p); err != nil || string(b) != "ONNX" || filepath.Base(p) != "v1.mp3" {
+			t.Fatalf("Sample = %q %v", p, err)
+		}
+	}
+	if *hits != 1 || lib.Installed("v1") {
+		t.Fatalf("%d requests, installed %v", *hits, lib.Installed("v1"))
+	}
+	if _, err := lib.Sample(context.Background(), "nope"); !errors.Is(err, ErrUnknownModel) {
+		t.Fatalf("unknown: %v", err)
+	}
+	if _, err := lib.Sample(context.Background(), "quiet"); !errors.Is(err, ErrNoSample) {
+		t.Fatalf("no sample: %v", err)
+	}
+	s.SHA256 = strings.Repeat("0", 64)
+	s.Name = "other.mp3"
+	lib.Models[0].Sample = &s
+	_ = os.Remove(filepath.Join(lib.Dir, samplesDir, "v1.mp3"))
+	if _, err := lib.Sample(context.Background(), "v1"); err == nil || !strings.Contains(err.Error(), "not the file") {
+		t.Fatalf("a sample that does not match: %v", err)
 	}
 }

@@ -658,6 +658,7 @@ func (s *Server) voiceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) ht
 	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
 	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))
 	mux.Handle("DELETE /v1/voice/models/{id}", plain(s.handleDeleteVoiceModel))
+	mux.Handle("GET /v1/voice/models/{id}/sample", plain(s.handleVoiceModelSample))
 	mux.Handle("GET /v1/voice/models/{id}/{name}", plain(s.handleVoiceModelFile))
 }
 

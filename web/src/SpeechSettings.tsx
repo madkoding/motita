@@ -6,11 +6,14 @@ import type { Lang } from "./i18n";
 import { choose } from "./choose";
 import type { Api } from "./gitApi";
 import { LocalVoices } from "./LocalVoiceSettings";
+import { isKokoro } from "./localVoiceCore";
 import {
   LENGTHS,
   MEDIUM_CHARS,
+  PITCH_RANGE,
   RATES,
   SHORT_CHARS,
+  TUNE_RANGE,
   type SpeakMode,
   type SpeakStyle,
   type SpeechEngine,
@@ -47,6 +50,131 @@ export interface SpeechSettingsProps {
   api?: Api;
 }
 
+// SLIDER_STEP is how far one step of a voice slider moves.
+const SLIDER_STEP = 0.1;
+
+// VoiceSlider is one attribute of the voice on a slider, with its value beside it and a way
+// back to the voice's own (1).
+function VoiceSlider({
+  id,
+  label,
+  hint,
+  range,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  range: [number, number];
+  value: number;
+  disabled?: boolean;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <Row id={id} label={label} hint={hint} stack>
+      <div class="flex items-center gap-3 w-full">
+        <input
+          type="range"
+          class="flex-1 accent-[var(--color-accent,#4cc2ff)]"
+          aria-labelledby={id}
+          data-testid={id}
+          min={range[0]}
+          max={range[1]}
+          step={SLIDER_STEP}
+          value={value}
+          disabled={disabled}
+          onInput={(e) =>
+            onChange(Number((e.target as HTMLInputElement).value))
+          }
+        />
+        <span class="text-xs text-[#a0a0b0] w-10 text-right tabular-nums">
+          {rateLabel(value)}
+        </span>
+        <button
+          type="button"
+          class={smallBtn}
+          disabled={disabled || value === 1}
+          data-testid={id + "-reset"}
+          onClick={() => onChange(1)}
+        >
+          {t("Reset")}
+        </button>
+      </div>
+    </Row>
+  );
+}
+
+// VoiceTuning are the sliders of the voice that speaks: expressiveness and rhythm for a downloaded
+// voice (Kokoro has neither), the pitch for the device's voices. The gateway's voice has none.
+function VoiceTuning({
+  localChosen,
+  gateway,
+  off,
+  prefs,
+  set,
+}: {
+  localChosen: boolean;
+  gateway: boolean;
+  off: boolean;
+  prefs: SpeechPrefs;
+  set: (patch: Partial<SpeechPrefs>) => void;
+}) {
+  // Handed to VoiceSlider, so they keep their identity between renders.
+  const setExpressiveness = useCallback(
+    (expressiveness: number) => set({ expressiveness }),
+    [set],
+  );
+  const setVariation = useCallback(
+    (variation: number) => set({ variation }),
+    [set],
+  );
+  const setPitch = useCallback((pitch: number) => set({ pitch }), [set]);
+  if (localChosen) {
+    if (isKokoro(prefs.localVoice)) {
+      return null;
+    }
+    return (
+      <>
+        <VoiceSlider
+          id="settings-speech-expressiveness"
+          label={t("Expressiveness")}
+          hint={t(
+            "How much the intonation varies: lower is flatter and steadier, higher livelier.",
+          )}
+          range={TUNE_RANGE}
+          value={prefs.expressiveness}
+          onChange={setExpressiveness}
+        />
+        <VoiceSlider
+          id="settings-speech-variation"
+          label={t("Rhythm variation")}
+          hint={t(
+            "How much the length of each sound varies: lower is more even, higher more natural.",
+          )}
+          range={TUNE_RANGE}
+          value={prefs.variation}
+          onChange={setVariation}
+        />
+      </>
+    );
+  }
+  if (gateway) {
+    return null;
+  }
+  return (
+    <VoiceSlider
+      id="settings-speech-pitch"
+      label={t("Pitch")}
+      range={PITCH_RANGE}
+      value={prefs.pitch}
+      disabled={off}
+      onChange={setPitch}
+    />
+  );
+}
+
 // rateLabel writes a speed as people say it: 1×, 1.25×.
 function rateLabel(r: number): string {
   return r.toLocaleString(lang()) + "×";
@@ -71,18 +199,68 @@ function engineOptions(
   device: boolean,
   hasGateway: boolean,
   hasLocal: boolean,
-): { value: SpeechEngine; label: string }[] {
-  const engines: { value: SpeechEngine; label: string }[] = [];
+): EngineOption[] {
+  // Each engine is named by where its voice comes from, and said what that means for the text.
+  const engines: EngineOption[] = [];
   if (device) {
-    engines.push({ value: "device", label: t("This device") });
+    engines.push({
+      value: "device",
+      label: t("System voices"),
+      about: t(
+        "The voices this device or browser already has. Nothing leaves the browser.",
+      ),
+    });
   }
   if (hasGateway) {
-    engines.push({ value: "gateway", label: t("The gateway") });
+    engines.push({
+      value: "gateway",
+      label: t("Voice service"),
+      about: t(
+        "The speech service set up on the gateway: the same voice on every device. The text of each answer read goes to that service.",
+      ),
+    });
   }
   if (hasLocal) {
-    engines.push({ value: "local", label: t("Local voice") });
+    engines.push({
+      value: "local",
+      label: t("Downloaded voice"),
+      about: t(
+        "A natural voice the gateway downloads once; it then runs inside this browser, and nothing leaves the device.",
+      ),
+    });
   }
   return engines;
+}
+
+interface EngineOption {
+  value: SpeechEngine;
+  label: string;
+  about: string;
+}
+
+// EngineAbout says what each engine means for the text, the one that speaks highlighted.
+function EngineAbout({
+  engines,
+  shown,
+}: {
+  engines: EngineOption[];
+  shown: SpeechEngine;
+}) {
+  return (
+    <ul
+      class="flex flex-col gap-0.5"
+      data-testid="settings-speech-engine-about"
+    >
+      {engines.map((e) => (
+        <li
+          key={e.value}
+          class={choose(e.value === shown, "text-[#c8c8d0]", "")}
+        >
+          <span class="font-medium">{e.label}:</span> {e.about}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 // whoSpeaks says which voice reads. A local voice speaks when it is chosen; the gateway when it is
@@ -99,31 +277,15 @@ function whoSpeaks(
   return { localChosen, gateway };
 }
 
-// engineShownOf is the voice that speaks, and what the switch says about it.
-function engineShownOf(
-  localChosen: boolean,
-  gateway: boolean,
-): { engineShown: SpeechEngine; engineHint: string } {
+// engineShownOf is the voice that speaks.
+function engineShownOf(localChosen: boolean, gateway: boolean): SpeechEngine {
   if (localChosen) {
-    return {
-      engineShown: "local",
-      engineHint: t(
-        "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.",
-      ),
-    };
+    return "local";
   }
   if (gateway) {
-    return {
-      engineShown: "gateway",
-      engineHint: t(
-        "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.",
-      ),
-    };
+    return "gateway";
   }
-  return {
-    engineShown: "device",
-    engineHint: t("The voices of this device: nothing leaves the browser."),
-  };
+  return "device";
 }
 
 // SpeechSettings is reading answers aloud: when, who speaks (the device, or the gateway's voice
@@ -162,7 +324,7 @@ export function SpeechSettings({
     hasLocal,
   );
   const engines = engineOptions(device, hasGateway, hasLocal);
-  const { engineShown, engineHint } = engineShownOf(localChosen, gateway);
+  const engineShown = engineShownOf(localChosen, gateway);
   const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
   const setLength = useCallback(
     (n: string) => set({ maxChars: Number(n) }),
@@ -232,7 +394,7 @@ export function SpeechSettings({
             id="settings-speech-engine"
             label={t("Who speaks")}
             stack
-            hint={engineHint}
+            hint={<EngineAbout engines={engines} shown={engineShown} />}
           >
             <Segmented<SpeechEngine>
               name="settings-speech-engine"
@@ -265,6 +427,13 @@ export function SpeechSettings({
             }))}
           />
         </Row>
+        <VoiceTuning
+          localChosen={localChosen}
+          gateway={gateway}
+          off={off}
+          prefs={prefs}
+          set={set}
+        />
         <Row
           id="settings-speech-length"
           label={t("Length")}
@@ -368,7 +537,7 @@ function SpeechVoice({
       return null;
     }
     return (
-      <Row id="settings-speech-local" label={t("Local voices")} stack>
+      <Row id="settings-speech-local" label={t("Voices to download")} stack>
         <LocalVoices
           api={api}
           chosen={prefs.localVoice}

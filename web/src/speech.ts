@@ -51,6 +51,12 @@ export interface SpeechPrefs {
   // voiceURI is the chosen voice; empty picks the device's own for the interface language.
   voiceURI: string;
   rate: number;
+  // pitch is how high the device's voices speak (0.5 to 2, 1 is theirs). expressiveness and
+  // variation shape a local voice: how much its intonation varies, and its rhythm (0 to 2, times
+  // the voice's own; 1 is the voice as it was trained).
+  pitch: number;
+  expressiveness: number;
+  variation: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
   // Zero reads everything.
   maxChars: number;
@@ -92,6 +98,9 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   localVoice: "",
   voiceURI: "",
   rate: 1,
+  pitch: 1,
+  expressiveness: 1,
+  variation: 1,
   maxChars: MEDIUM_CHARS,
   conversation: false,
   notices: false,
@@ -111,6 +120,19 @@ const ENGINES: SpeechEngine[] = ["device", "gateway", "local"];
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
     return v as T;
+  }
+  return fallback;
+}
+
+// The ranges of the voice's sliders: the device's pitch, and a local voice's expressiveness and
+// variation.
+export const PITCH_RANGE: [number, number] = [0.5, 2];
+export const TUNE_RANGE: [number, number] = [0, 2];
+
+// numberIn is v when it is a number within range, fallback otherwise.
+function numberIn(v: unknown, range: [number, number], fallback: number): number {
+  if (typeof v === "number" && v >= range[0] && v <= range[1]) {
+    return v;
   }
   return fallback;
 }
@@ -198,6 +220,9 @@ export function loadSpeechPrefs(): SpeechPrefs {
       localVoice: stringOr(raw.localVoice, d.localVoice),
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
+      pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
+      expressiveness: numberIn(raw.expressiveness, TUNE_RANGE, d.expressiveness),
+      variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,
@@ -707,6 +732,7 @@ export interface UtteranceLike {
   text: string;
   lang: string;
   rate: number;
+  pitch?: number;
   voice: unknown;
   onstart: ((e: unknown) => void) | null;
   onend: ((e: unknown) => void) | null;
@@ -720,6 +746,8 @@ export interface ReadOptions {
   voiceFor?: (lang: Lang) => VoiceLike | null;
   lang: Lang;
   rate: number;
+  // pitch is the device's voice's (1 when absent); the clip readers have none.
+  pitch?: number;
   // onSentence is told which sentence the voice starts.
   onSentence?: (i: number) => void;
   // onEnd is told once when the reading ends: finished, stopped (stopped is true), or failed
@@ -769,6 +797,7 @@ export class Reader {
       u.lang = voice?.lang || LOCALE[l];
       u.voice = voice;
       u.rate = opts.rate;
+      u.pitch = opts.pitch ?? 1;
       u.onstart = () => {
         if (run === this.run) {
           opts.onSentence?.(i);

@@ -1368,7 +1368,8 @@ voice:
     max_chars: 4000 # cap on the text of one request
 ```
 
-When it is on, **Settings → Read aloud → Who speaks** chooses between this device and the gateway,
+When it is on, **Settings → Read aloud → Who speaks** chooses between **System voices** (this
+device's) and **Voice service** (the gateway's), each said under the choice,
 and the voice among the ones listed. The page sends one sentence at a time and asks for the next
 while one plays; the text and the audio are never stored. A device with no voices of its own uses
 the gateway's. The speed, the highlight, the natural style and the pause of hands-free listening
@@ -1385,15 +1386,31 @@ The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
 
 #### Local voices
 
-A third choice in **Who speaks** runs a [Piper](https://github.com/rhasspy/piper) voice in the
-browser itself: once it is downloaded, the text of the answers never leaves the device and no
-speech service is needed. **Settings → Voice → Local voices** lists a few Spanish and English
-voices (about 63 MB each, plus 33 MB of engine the first time); **Download** asks the gateway to
-fetch one, **Use** chooses it and **Delete** removes it.
+A third choice in **Who speaks**, **Downloaded voice**, runs a voice in the browser itself: once
+it is downloaded, the text of the answers never leaves the device and no speech service is needed.
+**Settings → Voice → Voices to download** lists two engines:
+
+- [Piper](https://github.com/rhasspy/piper): 24 Spanish (Mexico, Argentina, Spain) and English
+  (US, UK) voices, from 14 to 114 MB each, plus 33 MB of engine the first time. **▶** plays a
+  short sample before downloading one.
+- [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M): 9 more natural voices (2 Spanish, 7
+  English) that share one 92 MB model, downloaded with the first of them; each voice is 0.5 MB
+  more. Kokoro takes longer than Piper to say each sentence (a few seconds on a laptop), so the
+  first words wait for it.
+
+The list opens on the interface language and can be narrowed by language and quality; the voice in
+use always stays in it. **Download** asks the gateway to fetch one, **Use** chooses it and
+**Delete** removes it (Kokoro's model goes with its last voice).
+
+The voice is tuned with sliders, each with a **Reset**: **Expressiveness** (how much the intonation
+varies) and **Rhythm variation** (how much the length of each sound varies) for a Piper voice,
+from 0 to 2× the voice's own; **Pitch** for a system voice, from 0.5 to 2. The speed applies to
+all of them.
 
 The page cannot download anything itself. The gateway fetches each file once, from an address in
-a catalog compiled into the binary (the voices from `rhasspy/piper-voices` at `v1.0.0` on
-Hugging Face, the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm` packages on
+a catalog compiled into the binary (the voices and their samples from `rhasspy/piper-voices` at
+`v1.0.0` on Hugging Face, Kokoro from `onnx-community/Kokoro-82M-v1.0-ONNX` at a fixed commit,
+the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm` packages on
 npm), checks its size and SHA-256 before keeping it in `~/.motita/voices`, and serves it from its
 own origin. The page keeps a copy in Cache Storage and runs the voice in a Worker, on WebAssembly;
 the page policy allows `'wasm-unsafe-eval'` for that and nothing more (JavaScript `eval` stays
@@ -1404,10 +1421,13 @@ refused). `motita doctor` hashes the downloaded voices again.
 | `GET /v1/voice/models`                   | The catalog, what is downloaded, and the download in progress (`done`, `total`, `error` when it failed).             |
 | `POST /v1/voice/models/{id}`             | Starts downloading a voice (and the engine, when missing): `202`; `200` when it is there already; `409` while another downloads. |
 | `DELETE /v1/voice/models/{id}`           | Removes a voice; the engine stays. `409` while it downloads.                                                         |
-| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`), or of the engine with `{id}` = `runtime`.               |
+| `GET /v1/voice/models/{id}/sample`       | A voice's sample (MP3), downloaded and checked the first time it is asked for; `404` for a voice with none. |
+| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`, `voice.bin`), of the engine with `{id}` = `runtime`, or of Kokoro's model with `{id}` = `kokoro`.             |
 
-`GET /v1/voice` also answers `"local":true`. The first sentence of a session waits for the voice
-to load (a few seconds); the page loads the chosen voice when it opens to hide most of that wait.
+`GET /v1/voice` also answers `"local":true`. Loading a voice into the browser's memory takes a few
+seconds; the page starts it when it opens, and the voice in use shows **Loading into memory… N%**
+(reading its files, then starting the engine and the model) until it can speak, and only then
+**In use**.
 
 ### The skill library
 

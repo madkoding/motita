@@ -353,25 +353,43 @@ const more: Record<string, string> = {
   "Alt+L or 🔊 on an answer reads it or stops.":
     "Alt+L o 🔊 en una respuesta la lee o la detiene.",
   "Who speaks": "Quién habla",
-  "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.":
-    "La voz del gateway: la misma en todos los dispositivos. El texto de cada respuesta leída va al servicio de voz.",
-  "The voices of this device: nothing leaves the browser.":
-    "Las voces de este dispositivo: nada sale del navegador.",
-  "This device": "Este dispositivo",
-  "The gateway": "El gateway",
+  "System voices": "Voces del sistema",
+  "Voice service": "Servicio de voz",
+  "Downloaded voice": "Voz descargada",
+  "The voices this device or browser already has. Nothing leaves the browser.":
+    "Las voces que ya trae este dispositivo o navegador. Nada sale del navegador.",
+  "The speech service set up on the gateway: the same voice on every device. The text of each answer read goes to that service.":
+    "El servicio de voz configurado en el gateway: la misma voz en todos los dispositivos. El texto de cada respuesta leída va a ese servicio.",
+  "A natural voice the gateway downloads once; it then runs inside this browser, and nothing leaves the device.":
+    "Una voz natural que el gateway descarga una vez; después corre dentro de este navegador y nada sale del dispositivo.",
   "Gateway default": "La del gateway",
-  "Local voice": "Voz local",
-  "Local voices": "Voces locales",
-  "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.":
-    "Una voz que corre en este navegador: el gateway la descarga una vez y después nada sale del dispositivo.",
+  "Voices to download": "Voces para descargar",
   "The first download adds {size} for the voice engine.":
     "La primera descarga suma {size} del motor de voz.",
   "Downloading… {pct}%": "Descargando… {pct} %",
   "The download failed: {error}": "La descarga falló: {error}",
   "In use": "En uso",
+  Expressiveness: "Expresividad",
+  "How much the intonation varies: lower is flatter and steadier, higher livelier.":
+    "Cuánto varía la entonación: menos es más plana y estable, más es más viva.",
+  "Rhythm variation": "Variación del ritmo",
+  "How much the length of each sound varies: lower is more even, higher more natural.":
+    "Cuánto varía la duración de cada sonido: menos es más parejo, más es más natural.",
+  Pitch: "Tono",
+  Reset: "Restablecer",
+  "Loading into memory… {pct}%": "Cargando en memoria… {pct} %",
+  "The voice could not be loaded: {error}": "No se pudo cargar la voz: {error}",
   "High quality": "Calidad alta",
   "Medium quality": "Calidad media",
   "Low quality": "Calidad baja",
+  "Very low quality": "Calidad muy baja",
+  Quality: "Calidad",
+  "Every language": "Todos los idiomas",
+  "Every quality": "Todas las calidades",
+  "No voice matches these filters.": "Ninguna voz coincide con estos filtros.",
+  "Stop the sample": "Detener la muestra",
+  "Hear {name}": "Escuchar a {name}",
+  "The sample could not be played: {error}": "No se pudo reproducir la muestra: {error}",
   Use: "Usar",
   Download: "Descargar",
   "Motita needs your answer.": "Motita necesita tu respuesta.",

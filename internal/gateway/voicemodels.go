@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -9,7 +10,7 @@ import (
 	"github.com/madkoding/motita/internal/voice"
 )
 
-// LOCAL VOICES: Piper models the page runs itself (see voice.Library).
+// LOCAL VOICES: Piper and Kokoro models the page runs itself (see voice.Library).
 //
 // The page lists the catalog, asks for one voice by id, and fetches the files from here. The
 // gateway downloads from the catalog's own addresses only, checks every file's hash, and serves
@@ -18,12 +19,17 @@ import (
 
 // localModelView is one voice of the catalog as GET /v1/voice/models answers it.
 type localModelView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Lang      string `json:"lang"`
-	Quality   string `json:"quality"`
-	Size      int64  `json:"size"`
-	Installed bool   `json:"installed"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Lang    string `json:"lang"`
+	Quality string `json:"quality"`
+	Engine  string `json:"engine"`
+	// Size is what downloading it takes now: its files, and its engine's model while that is
+	// not on disk.
+	Size      int64 `json:"size"`
+	Installed bool  `json:"installed"`
+	// Sample says GET /v1/voice/models/{id}/sample plays it before it is downloaded.
+	Sample bool `json:"sample"`
 }
 
 // downloadView is the download in progress, or the last one when it failed.
@@ -65,7 +71,7 @@ func (s *Server) handleVoiceModels(w http.ResponseWriter, r *http.Request) {
 	models := make([]localModelView, 0, len(lib.Models))
 	for _, m := range lib.Models {
 		models = append(models, localModelView{ID: m.ID, Name: m.Name, Lang: m.Lang, Quality: m.Quality,
-			Size: m.Size(), Installed: lib.Installed(m.ID)})
+			Engine: m.Engine, Size: lib.DownloadSize(m), Installed: lib.Installed(m.ID), Sample: m.Sample != nil})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"runtime":  map[string]any{"size": lib.RuntimeSize(), "installed": lib.RuntimeInstalled()},
@@ -160,6 +166,7 @@ func (s *Server) voiceModelOf(w http.ResponseWriter, r *http.Request) (*voice.Li
 var modelFileTypes = map[string]string{
 	".wasm": "application/wasm",
 	".json": "application/json",
+	".mp3":  "audio/mpeg",
 }
 
 // handleVoiceModelFile serves one downloaded file: a voice's (by its id) or the runtime's.
@@ -181,5 +188,26 @@ func (s *Server) handleVoiceModelFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	// The page keeps its own copy (Cache Storage); the browser may revalidate this one.
 	w.Header().Set("Cache-Control", "private, no-cache")
+	http.ServeFile(w, r, path)
+}
+
+// handleVoiceModelSample plays a voice before it is downloaded: the gateway fetches its sample
+// from the catalog's address the first time, checks it like any other file, and keeps it.
+func (s *Server) handleVoiceModelSample(w http.ResponseWriter, r *http.Request) {
+	lib, id, ok := s.voiceModelOf(w, r)
+	if !ok {
+		return
+	}
+	path, err := lib.Sample(r.Context(), id)
+	if errors.Is(err, voice.ErrNoSample) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "the sample could not be downloaded: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", modelFileTypes[filepath.Ext(path)])
+	w.Header().Set("Cache-Control", "private, max-age=86400")
 	http.ServeFile(w, r, path)
 }
