@@ -127,11 +127,12 @@ func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
 
 // handleSkill answers ONE document, body included.
 func (s *Server) handleSkill(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Skills == nil {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
-	sk, err := s.opts.Skills.Skill(r.PathValue("name"))
+	sk, err := svc.Skill(r.PathValue("name"))
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, skills.ErrNotFound) {
@@ -147,7 +148,8 @@ func (s *Server) handleSkill(w http.ResponseWriter, r *http.Request) {
 
 // handleSaveSkill writes a document, creating or replacing it.
 func (s *Server) handleSaveSkill(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Skills == nil {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
@@ -166,7 +168,7 @@ func (s *Server) handleSaveSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the body cannot be empty")
 		return
 	}
-	saved, err := s.opts.Skills.SaveSkill(body.Name, body.Body)
+	saved, err := svc.SaveSkill(body.Name, body.Body)
 	if err != nil {
 		// 400 and not 500: the library refuses a name it cannot use and a body past the
 		// cap, and both are things the CLIENT sent.
@@ -180,7 +182,8 @@ func (s *Server) handleSaveSkill(w http.ResponseWriter, r *http.Request) {
 
 // handlePinSkill exempts a skill from every automatic transition, or stops.
 func (s *Server) handlePinSkill(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Skills == nil {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
@@ -190,7 +193,7 @@ func (s *Server) handlePinSkill(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if err := s.opts.Skills.SetSkillPinned(r.PathValue("name"), body.Pinned); err != nil {
+	if err := svc.SetSkillPinned(r.PathValue("name"), body.Pinned); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -199,7 +202,8 @@ func (s *Server) handlePinSkill(w http.ResponseWriter, r *http.Request) {
 
 // handleDisableSkill turns a skill off or back on.
 func (s *Server) handleDisableSkill(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Skills == nil {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
@@ -212,7 +216,7 @@ func (s *Server) handleDisableSkill(w http.ResponseWriter, r *http.Request) {
 	// 400 and not 500: the documented failure is a gateway without a usage ledger, which
 	// is the environment the client is talking to rather than a broken server, and the
 	// message says which of the two it was.
-	if err := s.opts.Skills.SetSkillDisabled(r.PathValue("name"), body.Disabled); err != nil {
+	if err := svc.SetSkillDisabled(r.PathValue("name"), body.Disabled); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -224,11 +228,12 @@ func (s *Server) handleDisableSkill(w http.ResponseWriter, r *http.Request) {
 // The confirmation is the FRONT END's job: this answers 204 for a request that was made,
 // and asking a question the server cannot see the answer to would be theatre.
 func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Skills == nil {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
-	err := s.opts.Skills.DeleteSkill(r.PathValue("name"))
+	err := svc.DeleteSkill(r.PathValue("name"))
 	if err == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -245,13 +250,14 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 
 // handleRestoreSkill brings an archived document back.
 func (s *Server) handleRestoreSkill(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Skills == nil {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
 	// 404 and not 500: the failing case is a name that is not in the archive, which is
 	// the client's to fix.
-	if err := s.opts.Skills.RestoreSkill(r.PathValue("name")); err != nil {
+	if err := svc.RestoreSkill(r.PathValue("name")); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -263,12 +269,13 @@ func (s *Server) handleRestoreSkill(w http.ResponseWriter, r *http.Request) {
 // An EMPTY list and never null, the same rule handleMessages follows: a client that has
 // to tell "nothing was archived" from "the field is missing" is a client with a bug
 // waiting to happen.
-func (s *Server) handleArchivedSkills(w http.ResponseWriter, _ *http.Request) {
-	if s.opts.Skills == nil {
+func (s *Server) handleArchivedSkills(w http.ResponseWriter, r *http.Request) {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
-	names, err := s.opts.Skills.ArchivedSkills()
+	names, err := svc.ArchivedSkills()
 	if err != nil {
 		// The same distinction as the index: an unreadable archive is not an empty one.
 		writeError(w, http.StatusInternalServerError, err.Error())

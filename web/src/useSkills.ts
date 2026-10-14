@@ -5,7 +5,7 @@ import { choose } from "./choose";
 import { filterSkills, patchNamed } from "./appFormat";
 import type { Api } from "./prApi";
 import type { SetStatus, SkillInfo } from "./appTypes";
-import { JSON_HEADERS, PROPOSED_SKILLS_PATH, SKILLS_PATH } from "./appConst";
+import { JSON_HEADERS, SKILLS_PATH } from "./appConst";
 
 // errorOf reads the gateway's own words for a refusal, or nothing.
 async function errorOf(res: Response): Promise<string | undefined> {
@@ -15,9 +15,24 @@ async function errorOf(res: Response): Promise<string | undefined> {
 
 type Setter<T> = (f: (prev: T) => T) => void;
 
+// skillsPathFor is where every call about the library goes, with a trailing slash.
+//
+// It is the session's own door when there is a session, and that is not a detail: a library is
+// scoped to a project, so a window opened inside a project must list, open, pin, turn off, delete
+// and accept proposals in THAT project's library, never in a shared document of the same name.
+// The process-wide path is the shared shelf, used only before any session has been opened.
+export function skillsPathFor(sessionId: string): string {
+  return choose(
+    sessionId,
+    `/v1/sessions/${encodeURIComponent(sessionId)}/skills/`,
+    SKILLS_PATH,
+  );
+}
+
 // useSkillToggles flips a skill's pin and its disabled flag.
 function useSkillToggles(
   api: Api,
+  base: string,
   setState: SetStatus,
   setSkills: Setter<SkillInfo[]>,
   setSkillOpen: Setter<SkillInfo | null>,
@@ -26,7 +41,7 @@ function useSkillToggles(
   // answer is one boolean and the list is already on screen.
   const pinSkill = useCallback(async (name: string, pinned: boolean) => {
     try {
-      const res = await api(SKILLS_PATH + encodeURIComponent(name) + "/pin", {
+      const res = await api(base + encodeURIComponent(name) + "/pin", {
         method: "POST",
         headers: JSON_HEADERS,
         body: JSON.stringify({ pinned }),
@@ -42,14 +57,14 @@ function useSkillToggles(
     } catch {
       setState("could not change the pin", true);
     }
-  }, []);
+  }, [base]);
 
   // disableSkill turns a skill off or back on. The list is patched locally: the answer is
   // one boolean and the row is already on screen, exactly like the pin.
   const disableSkill = useCallback(async (name: string, disabled: boolean) => {
     try {
       const res = await api(
-        SKILLS_PATH + encodeURIComponent(name) + "/disable",
+        base + encodeURIComponent(name) + "/disable",
         {
           method: "POST",
           headers: JSON_HEADERS,
@@ -65,7 +80,7 @@ function useSkillToggles(
     } catch {
       setState("could not change the skill", true);
     }
-  }, []);
+  }, [base]);
 
   return { pinSkill, disableSkill };
 }
@@ -74,6 +89,7 @@ function useSkillToggles(
 // accepts it.
 function useProposals(
   api: Api,
+  base: string,
   setState: SetStatus,
   fetchSkills: () => Promise<void>,
 ) {
@@ -81,6 +97,7 @@ function useProposals(
     name: string;
     body: string;
   } | null>(null);
+  const proposed = base + "proposed/";
 
   // openProposal shows a proposed skill, or hides it when it is the one already shown: the user
   // reads what the review wrote before deciding.
@@ -91,7 +108,7 @@ function useProposals(
         return;
       }
       try {
-        const res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name));
+        const res = await api(proposed + encodeURIComponent(name));
         if (!res.ok) {
           setState(
             (await errorOf(res)) || "could not open the proposed skill",
@@ -105,7 +122,7 @@ function useProposals(
         setState("could not open the proposed skill", true);
       }
     },
-    [proposalOpen],
+    [proposalOpen, proposed],
   );
 
   // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
@@ -121,11 +138,11 @@ function useProposals(
         let res: Response;
         if (accept) {
           res = await api(
-            PROPOSED_SKILLS_PATH + encodeURIComponent(name) + "/accept",
+            proposed + encodeURIComponent(name) + "/accept",
             { method: "POST" },
           );
         } else {
-          res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name), {
+          res = await api(proposed + encodeURIComponent(name), {
             method: "DELETE",
           });
         }
@@ -139,7 +156,7 @@ function useProposals(
         setState(what, true);
       }
     },
-    [fetchSkills],
+    [fetchSkills, proposed],
   );
 
   return { proposalOpen, openProposal, decideProposal };
@@ -158,28 +175,21 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
   const [skillOpen, setSkillOpen] = useState<SkillInfo | null>(null);
   const [skillBody, setSkillBody] = useState("");
   const [skillsBusy, setSkillsBusy] = useState(false);
+  const base = skillsPathFor(sessionId);
 
   // fetchSkills loads the index and the archive together: they are two halves of one answer
   // to "what is in the library", and a browser that showed one without the other would hide
   // the very skills a user opens it to recover.
   //
-  // The index is asked FOR THIS SESSION when there is one, and that is not a detail: a library
-  // is scoped to a project, so a window opened inside a project must draw that project's shelf.
-  // The process-wide list would show the shared documents and hide the project's own — the one
-  // thing the window exists to display. Falls back to the process-wide list when no session has
-  // been opened yet, which is the state the window starts in.
+  // All three are asked FOR THIS SESSION when there is one (see skillsPathFor): the archive and
+  // the proposals are the project's too, and the shared ones would answer about another shelf.
   const fetchSkills = useCallback(async () => {
     setSkillsBusy(true);
-    const indexUrl = choose(
-      sessionId,
-      `/v1/sessions/${encodeURIComponent(sessionId)}/skills`,
-      "/v1/skills",
-    );
     try {
       const [res, arch, prop] = await Promise.all([
-        api(indexUrl),
-        api("/v1/skills/archived"),
-        api("/v1/skills/proposed"),
+        api(base.slice(0, -1)),
+        api(base + "archived"),
+        api(base + "proposed"),
       ]);
       if (!res.ok) {
         setState("could not load the skill library", true);
@@ -200,12 +210,12 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
       setState("could not load the skill library", true);
     }
     setSkillsBusy(false);
-  }, [sessionId]);
+  }, [base]);
 
   // openSkill fetches one document's body. The index deliberately does not carry it.
   const openSkill = useCallback(async (skill: SkillInfo) => {
     try {
-      const res = await api(SKILLS_PATH + encodeURIComponent(skill.name));
+      const res = await api(base + encodeURIComponent(skill.name));
       if (!res.ok) {
         setState((await errorOf(res)) || "could not open the skill", true);
         return;
@@ -216,16 +226,18 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
     } catch {
       setState("could not open the skill", true);
     }
-  }, []);
+  }, [base]);
 
   const { pinSkill, disableSkill } = useSkillToggles(
     api,
+    base,
     setState,
     setSkills,
     setSkillOpen,
   );
   const { proposalOpen, openProposal, decideProposal } = useProposals(
     api,
+    base,
     setState,
     fetchSkills,
   );
@@ -236,7 +248,7 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
     async (name: string) => {
       try {
         const res = await api(
-          SKILLS_PATH + encodeURIComponent(name) + "/restore",
+          base + encodeURIComponent(name) + "/restore",
           { method: "POST" },
         );
         if (!res.ok) {
@@ -248,7 +260,7 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
         setState("could not restore the skill", true);
       }
     },
-    [fetchSkills],
+    [fetchSkills, base],
   );
 
   // deleteSkill removes the document for good, then RELOADS the list: a file left the
@@ -257,7 +269,7 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
   const deleteSkill = useCallback(
     async (name: string) => {
       try {
-        const res = await api(SKILLS_PATH + encodeURIComponent(name), {
+        const res = await api(base + encodeURIComponent(name), {
           method: "DELETE",
         });
         if (!res.ok) {
@@ -270,7 +282,7 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
         setState("could not delete the skill", true);
       }
     },
-    [fetchSkills],
+    [fetchSkills, base],
   );
 
   // The library is fetched when the modal OPENS, and the draft state is reset with it so a
