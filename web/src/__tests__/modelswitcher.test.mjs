@@ -62,11 +62,14 @@ const { useState } = await import("preact/hooks");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
 
+const GPT_MINI = "gpt-5-mini";
+const GEMINI_PRO = "gemini-2.5-pro";
+
 const PROVIDERS = [
   {
     id: "openai",
     name: "OpenAI",
-    models: ["gpt-5", "gpt-5-mini"],
+    models: ["gpt-5", GPT_MINI],
     fetch_models: true,
     key_present: true,
     is_current: true,
@@ -74,7 +77,7 @@ const PROVIDERS = [
   {
     id: "gemini",
     name: "Gemini",
-    models: ["gemini-2.5-pro"],
+    models: [GEMINI_PRO],
     fetch_models: false,
     key_present: true,
     is_current: false,
@@ -92,12 +95,12 @@ const PROVIDERS = [
 // Harness holds the draft the way useModelSwitcher does, so a pick re-renders the modal.
 function Harness() {
   const [draftProvider, setDraftProvider] = useState("openai");
-  const [draftModel, setDraftModel] = useState("gpt-5-mini");
+  const [draftModel, setDraftModel] = useState(GPT_MINI);
   const [draftReasoning, setDraftReasoning] = useState("medium");
   const model = {
     config: {
       provider: "openai",
-      model: "gpt-5-mini",
+      model: GPT_MINI,
       reasoning: "medium",
       api_key_present: true,
     },
@@ -166,17 +169,17 @@ test("picking a provider lists its models in the select below", async () => {
   const root = await mount();
   assert.deepEqual(
     [...modelSelect().options].map((o) => o.value),
-    ["gpt-5", "gpt-5-mini"],
+    ["gpt-5", GPT_MINI],
   );
   await act(async () => choices()[1].click());
   assert.equal(choices()[1].getAttribute("aria-checked"), "true");
   assert.deepEqual(
     [...modelSelect().options].map((o) => o.value),
-    ["gemini-2.5-pro"],
+    [GEMINI_PRO],
   );
-  assert.equal(modelSelect().value, "gemini-2.5-pro");
+  assert.equal(modelSelect().value, GEMINI_PRO);
   // Back to the saved provider: the saved model comes back too.
   await act(async () => choices()[0].click());
-  assert.equal(modelSelect().value, "gpt-5-mini");
+  assert.equal(modelSelect().value, GPT_MINI);
   render(null, root);
 });

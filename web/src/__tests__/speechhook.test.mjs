@@ -18,6 +18,10 @@ const LATER_ID = 3;
 // Longer than the gap the natural style waits between progress lines.
 const PAST_THE_GAP_MS = 20000;
 const OPENING = "Dale, lo reviso.";
+const ALL_DONE = "All done.";
+const TESTS_PASS = "Tests pass.";
+const LOCAL_VOICE = "es_MX-claude-high";
+const CI_PASSED = "CI passed.";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -166,14 +170,14 @@ test("when I spoke: the answer of a spoken turn is read, a typed one is not", as
   await turn(s, answer(2));
   assert.deepEqual(
     synth.said.map((u) => u.text),
-    ["All done."],
+    [ALL_DONE],
     "one sentence at a time",
   );
   assert.equal(s.state.current.speakingId, 2);
   await act(() => synth.finish());
   assert.deepEqual(
     synth.said.map((u) => u.text),
-    ["All done.", "Tests pass."],
+    [ALL_DONE, TESTS_PASS],
   );
   assert.equal(s.state.current.speakingId, null);
   await s.done();
@@ -405,7 +409,7 @@ test("natural: when the model cannot be asked, the answer is read word for word"
   await flush();
   assert.deepEqual(
     synth.said.map((u) => u.text),
-    ["All done."],
+    [ALL_DONE],
   );
   await s.done();
 });
@@ -491,8 +495,8 @@ test("gateway: chosen and on, the gateway says each sentence with the voice chos
   assert.deepEqual(
     g.asked.map((a) => [a.path, a.text, a.voice]),
     [
-      ["/v1/voice/speak", "All done.", "nova"],
-      ["/v1/voice/speak", "Tests pass.", "nova"],
+      ["/v1/voice/speak", ALL_DONE, "nova"],
+      ["/v1/voice/speak", TESTS_PASS, "nova"],
     ],
   );
   assert.equal(synth.said.length, 0, "the device says nothing");
@@ -523,7 +527,7 @@ test("gateway: chosen but off on this gateway, the device speaks", async () => {
   assert.equal(g.asked.length, 0);
   assert.deepEqual(
     synth.said.map((u) => u.text),
-    ["All done."],
+    [ALL_DONE],
   );
   await s.done();
 });
@@ -546,18 +550,18 @@ test("local voice: chosen, on and downloaded, the worker says each sentence; wit
   const g = gatewayApi();
   let s = await mount("off", false, {
     engine: "local",
-    prefs: { localVoice: "es_MX-claude-high" },
+    prefs: { localVoice: LOCAL_VOICE },
     api: g.api,
     local: true,
   });
   assert.equal(s.state.current.local, true);
-  assert.deepEqual(warmed, ["es_MX-claude-high"], "the voice is loaded with the page");
+  assert.deepEqual(warmed, [LOCAL_VOICE], "the voice is loaded with the page");
   await s.set({ messages: [user(1), answer(2)] });
   await act(() => s.state.current.speak(answer(2)));
   await flush();
   assert.deepEqual(asked, [
-    ["es_MX-claude-high", "All done."],
-    ["es_MX-claude-high", "Tests pass."],
+    [LOCAL_VOICE, ALL_DONE],
+    [LOCAL_VOICE, TESTS_PASS],
   ]);
   assert.equal(g.asked.length, 0, "nothing goes to the gateway's voice");
   assert.equal(synth.said.length, 0, "the device says nothing");
@@ -568,7 +572,7 @@ test("local voice: chosen, on and downloaded, the worker says each sentence; wit
   await act(() => s.state.current.speak(answer(2)));
   await flush();
   assert.equal(asked.length, 2);
-  assert.deepEqual(synth.said.map((u) => u.text), ["All done."]);
+  assert.deepEqual(synth.said.map((u) => u.text), [ALL_DONE]);
   await s.done();
   delete globalThis.Worker;
   delete globalThis.caches;
@@ -583,7 +587,7 @@ test("notices: said when turned on and the tab is visible, after what is being s
   await act(() => sayNotice("CI passed. Pull request #3 is green."));
   assert.deepEqual(
     synth.said.map((u) => u.text),
-    ["CI passed."],
+    [CI_PASSED],
     "one sentence at a time",
   );
   // One that comes while another is said waits its turn.
@@ -601,13 +605,13 @@ test("notices: said when turned on and the tab is visible, after what is being s
   await s.done();
 
   s = await mount("off", false);
-  await act(() => sayNotice("CI passed."));
+  await act(() => sayNotice(CI_PASSED));
   assert.equal(synth.said.length, 0, "off by default");
   await s.done();
 
   s = await mount("off", false, { prefs: { notices: true } });
   hidden(true);
-  await act(() => sayNotice("CI passed."));
+  await act(() => sayNotice(CI_PASSED));
   delete document.hidden;
   assert.equal(synth.said.length, 0, "not for a tab nobody looks at");
   await s.done();

@@ -87,7 +87,10 @@ function fakeGateway(initial, overrides = {}) {
   const calls = [];
   const api = async (path, init = {}) => {
     const method = init.method || "GET";
-    const body = init.body ? JSON.parse(init.body) : undefined;
+    let body;
+    if (init.body) {
+      body = JSON.parse(init.body);
+    }
     calls.push({ path, method, body });
     const key = method + " " + path;
     if (overrides[key]) {

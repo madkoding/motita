@@ -65,6 +65,9 @@ const OPENAI_BASE_URL = "https://api.openai.com/v1";
 const LLM_FORM = "[data-testid=llm-form]";
 const KEY_INPUT = "input[type=password]";
 const DEFAULT_MODEL_INPUT = "#llm-default-model";
+const DEFAULT_PROVIDER_SELECT = "#llm-default-provider";
+const DEFAULT_FORM = "[data-testid=llm-default]";
+const PLAN_MODEL_OTHER = "#llm-task-plan-model-other";
 const CLAUDE_CODE = "claude-code";
 const GPT_5_MINI = "gpt-5-mini";
 const SIGN_IN = "Sign in with your account";
@@ -73,6 +76,8 @@ const CLAUDE_CODE_INDEX = 3;
 const MIN_PROVIDER_STRINGS = 30;
 const SIGN_IN_POLL_MS = 2000;
 const FAST_POLL_MS = 20;
+// Rows the model-per-task form draws.
+const TASK_ROWS = 6;
 
 const provider = (id, name, extra = {}) => ({
   id,
@@ -290,7 +295,7 @@ test("every provider shows where its key comes from, and no key is ever drawn", 
   assert.match(row(root, "gemini").textContent, /GEMINI_API_KEY/);
   assert.match(row(root, CLAUDE_CODE).textContent, /no key needed/);
   // The models are a tab of their own.
-  assert.equal(root.querySelector("#llm-default-provider"), null);
+  assert.equal(root.querySelector(DEFAULT_PROVIDER_SELECT), null);
   assert.equal(root.querySelector("[data-testid=insecure-warning]"), null);
   await done();
 });
@@ -558,7 +563,7 @@ test("a key from the environment or a login command is explained, not asked for"
 test("the default model is picked among the connected providers and saved", async () => {
   const gw = fakeGateway();
   const { root, notices, done } = await open(gw, "models");
-  const form = root.querySelector("[data-testid=llm-default]");
+  const form = root.querySelector(DEFAULT_FORM);
   const save = button(form, "Save");
   assert.equal(save.disabled, true, "nothing changed yet");
   const select = form.querySelector("select");
@@ -586,7 +591,7 @@ test("a refused default and a gateway with no file say so", async () => {
   const gw = fakeGateway(view);
   const { root, done } = await open(gw, "models");
   assert.ok(root.querySelector("[data-testid=llm-readonly]"));
-  assert.equal(root.querySelector("#llm-default-provider").disabled, true);
+  assert.equal(root.querySelector(DEFAULT_PROVIDER_SELECT).disabled, true);
   assert.equal(root.querySelector("#llm-task-plan-provider").disabled, true);
   await done();
 
@@ -601,7 +606,7 @@ test("a refused default and a gateway with no file say so", async () => {
   await choose(model, "gpt-5");
   await act(() =>
     button(
-      second.root.querySelector("[data-testid=llm-default]"),
+      second.root.querySelector(DEFAULT_FORM),
       "Save",
     ).click(),
   );
@@ -695,7 +700,7 @@ test("each kind of work can get its own model, and the rest follow the default",
   const gw = fakeGateway(view);
   const { root, notices, done } = await open(gw, "models");
   const form = root.querySelector("[data-testid=llm-tasks]");
-  assert.equal(form.querySelectorAll(".settings-row").length, 6);
+  assert.equal(form.querySelectorAll(".settings-row").length, TASK_ROWS);
   assert.match(form.textContent, /later/, "a kind the page does not know is shown by its name");
   assert.equal(form.querySelector("#llm-task-review-model").value, "gemini-1");
   assert.equal(form.querySelector("#llm-task-plan-model"), null, "plan follows the default");
@@ -711,13 +716,13 @@ test("each kind of work can get its own model, and the rest follow the default",
   assert.equal(model.value, "gpt-x", "the models the provider listed come first");
   const listed = [...model.querySelectorAll("option")].map((o) => o.textContent);
   assert.deepEqual(listed, ["gpt-x", "gpt-y", "Other…"]);
-  assert.equal(form.querySelector("#llm-task-plan-model-other"), null, "no field until Other…");
+  assert.equal(form.querySelector(PLAN_MODEL_OTHER), null, "no field until Other…");
   await choose(model, model.querySelector("option:last-child").value);
-  const other = form.querySelector("#llm-task-plan-model-other");
+  const other = form.querySelector(PLAN_MODEL_OTHER);
   assert.equal(other.value, "", "Other… starts empty");
   assert.equal(button(form, "Save").disabled, true, "a provider without a model cannot be saved");
   await type(other, "gpt-5");
-  assert.equal(form.querySelector("#llm-task-plan-model-other").value, "gpt-5", "the field stays while typing");
+  assert.equal(form.querySelector(PLAN_MODEL_OTHER).value, "gpt-5", "the field stays while typing");
 
   const review = form.querySelector("#llm-task-review-provider");
   review.value = "";
@@ -740,7 +745,7 @@ test("a model the list leaves out is typed under Other…, and a provider with n
   view.model = "my-tune";
   view.providers.push(provider("ollama", "Ollama", { key: "not_needed", models: [] }));
   const { root, done } = await open(fakeGateway(view), "models");
-  const form = root.querySelector("[data-testid=llm-default]");
+  const form = root.querySelector(DEFAULT_FORM);
   const select = form.querySelector(DEFAULT_MODEL_INPUT);
   assert.equal(select.selectedOptions[0].textContent, "Other…");
   assert.equal(form.querySelector("#llm-default-model-other").value, "my-tune");
@@ -748,7 +753,7 @@ test("a model the list leaves out is typed under Other…, and a provider with n
   assert.equal(form.querySelector("#llm-default-model-other"), null, "a listed model hides the field");
   assert.equal(button(form, "Save").disabled, false);
 
-  await choose(form.querySelector("#llm-default-provider"), "ollama");
+  await choose(form.querySelector(DEFAULT_PROVIDER_SELECT), "ollama");
   const field = form.querySelector(DEFAULT_MODEL_INPUT);
   assert.equal(field.tagName, "INPUT", "nothing to list: the field alone");
   await type(field, "qwen3:8b");
@@ -760,7 +765,7 @@ test("a refused set of models says why", async () => {
   const view = VIEW();
   view.tasks = {};
   const gw = fakeGateway(view, {
-    "PUT /v1/llm/tasks": [409, { error: "connect Gemini first", code: "no_key" }],
+    "PUT /v1/llm/tasks": [HTTP_CONFLICT, { error: "connect Gemini first", code: "no_key" }],
   });
   const { root, done } = await open(gw, "models");
   const form = root.querySelector("[data-testid=llm-tasks]");
