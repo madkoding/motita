@@ -13,10 +13,9 @@ import {
   localVoicesSupported,
   onLoadState,
   sampleOf,
-  setKokoroGPU,
   warmLocal,
 } from "./localVoice";
-import { isChatterbox, isKokoro } from "./localVoiceCore";
+import { isChatterbox, isSupertonic } from "./localVoiceCore";
 import type { Api } from "./prApi";
 import { inputCls, primaryBtn, smallBtn } from "./SettingsControls";
 
@@ -32,7 +31,7 @@ function megabytes(n: number): string {
 const MANY_LANGS = "mul";
 
 // ENGINES name the engines besides Piper, as a voice's details start.
-const ENGINES: Record<string, string> = { kokoro: "Kokoro · ", supertonic: "Supertonic · ", chatterbox: "Chatterbox · " };
+const ENGINES: Record<string, string> = { supertonic: "Supertonic · ", chatterbox: "Chatterbox · " };
 
 // LANGUAGES_OF is how many languages a voice that speaks many speaks here, by its engine.
 const LANGUAGES_OF: Record<string, number> = { supertonic: 31, chatterbox: 21 };
@@ -106,8 +105,8 @@ export function saveFilters(f: Filters): void {
   }
 }
 
-// useWebGPU says whether this browser has WebGPU and a graphics card it can use, which the
-// Kokoro accelerator needs: false until the browser answers.
+// useWebGPU says whether this browser has WebGPU and a graphics card it can use, which Chatterbox
+// needs: false until the browser answers.
 function useWebGPU(): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
@@ -177,31 +176,18 @@ function useLoadState(id: string): LoadState | undefined {
   return choose(id !== "", loadStateOf(id), undefined);
 }
 
-// Mix is another Kokoro voice blended into the chosen one: id "" is none, amount 0 to 1.
-export interface Mix {
-  id: string;
-  amount: number;
-}
-
-// MIX_STEP is how far one step of the mix slider moves.
-const MIX_STEP = 0.05;
-
 // LocalVoices lists the voices the gateway can download to run in this browser: download one,
-// follow its progress, choose it, or delete it. A Kokoro voice in use can be mixed with another.
+// follow its progress, choose it, or delete it. A Chatterbox voice in use has its emotion setting.
 export function LocalVoices({
   api,
   chosen,
   choose: pick,
-  mix = { id: "", amount: 0.5 },
-  setMix = () => undefined,
   emotion = 0.5,
   setEmotion = () => undefined,
 }: {
   api: Api;
   chosen: string;
   choose: (id: string) => void;
-  mix?: Mix;
-  setMix?: (m: Mix) => void;
   // emotion is how much emotion a Chatterbox voice puts in.
   emotion?: number;
   setEmotion?: (n: number) => void;
@@ -251,7 +237,7 @@ export function LocalVoices({
     if (chosen) {
       return;
     }
-    const ready = catalog?.models.find((m) => m.installed && m.engine !== "accelerator");
+    const ready = catalog?.models.find((m) => m.installed);
     if (ready) {
       pick(ready.id);
     }
@@ -263,19 +249,12 @@ export function LocalVoices({
   // Before the first word from the worker, a voice that will load counts as loading.
   const pending: LoadState | undefined = choose(localVoicesSupported(), { pct: 0, ready: false }, undefined);
   const loading = useLoadState(chosen) ?? pending;
-  // Kokoro runs on the graphics card once the accelerator is downloaded, on a browser with
-  // WebGPU; the voice in use loads again when that changes.
   const webGPU = useWebGPU();
-  const accel = catalog?.models.find((m) => m.engine === "accelerator");
-  const gpu = !!accel?.installed && webGPU;
-  useEffect(() => {
-    setKokoroGPU(gpu);
-  }, [gpu]);
   useEffect(() => {
     if (chosenReady && localVoicesSupported()) {
       warmLocal(chosen);
     }
-  }, [chosen, chosenReady, gpu]);
+  }, [chosen, chosenReady]);
 
   // act runs one request, then reads the catalog again; its failure is the one shown.
   const act = async (id: string, run: () => Promise<void>) => {
@@ -299,7 +278,7 @@ export function LocalVoices({
     );
   }
   // Chatterbox runs only on the graphics card: it is offered where the browser has one.
-  const voices = catalog.models.filter((m) => m.engine !== "accelerator" && (m.engine !== "chatterbox" || webGPU));
+  const voices = catalog.models.filter((m) => m.engine !== "chatterbox" || webGPU);
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   // The voice in use, and the one downloading, stay in the list whatever the filters say.
   const visible = byLanguage(voices).filter(
@@ -313,17 +292,6 @@ export function LocalVoices({
             size: megabytes(catalog.runtime.size),
           })}
         </div>
-      )}
-      {accel && webGPU && voices.some((m) => m.engine === "kokoro") && (
-        <Accelerator
-          model={accel}
-          download={catalog.download}
-          busy={busy !== ""}
-          running={choose(isKokoro(chosen) && !!loading?.ready, choose(!!loading?.gpu, "gpu", "cpu"), "")}
-          why={loading?.gpuError ?? ""}
-          get={() => void act(accel.id, () => installVoice(api, accel.id))}
-          remove={() => void act(accel.id, () => deleteVoice(api, accel.id))}
-        />
       )}
       <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
         <select
@@ -412,9 +380,6 @@ export function LocalVoices({
                     if (chosen === m.id) {
                       pick("");
                     }
-                    if (mix.id === m.id) {
-                      setMix({ ...mix, id: "" });
-                    }
                   })
                 }
               >
@@ -468,12 +433,10 @@ export function LocalVoices({
           </div>
         );
       })}
-      {isKokoro(chosen) && (
-        <KokoroMix
-          voices={voices.filter((m) => isKokoro(m.id) && m.installed && m.id !== chosen)}
-          mix={mix}
-          setMix={setMix}
-        />
+      {isSupertonic(chosen) && loading?.gpuError && (
+        <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
+          {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: loading.gpuError })}
+        </div>
       )}
       {isChatterbox(chosen) && <Emotion value={emotion} set={setEmotion} />}
       {sample.error && (
@@ -495,134 +458,6 @@ export function LocalVoices({
         <div class="text-xs text-[#f87171]" role="alert">
           {error}
         </div>
-      )}
-    </div>
-  );
-}
-
-// Accelerator offers the files that run Kokoro on the graphics card: much faster to start
-// speaking than on the processor, for a larger download.
-function Accelerator({
-  model,
-  download,
-  busy,
-  running,
-  why,
-  get,
-  remove,
-}: {
-  model: LocalModel;
-  download: LocalCatalog["download"];
-  busy: boolean;
-  // running is where the Kokoro voice in use runs, once loaded: "gpu", "cpu", or "" before.
-  running: string;
-  // why is the reason WebGPU could not start, when it was asked to and failed.
-  why: string;
-  get: () => void;
-  remove: () => void;
-}) {
-  const downloading = !!download && !download.error;
-  let state;
-  if (download?.id === model.id && downloading) {
-    const pct = Math.floor((100 * download.done) / Math.max(download.total, 1));
-    state = (
-      <output class="text-xs text-[#a0a0b0]" data-testid="local-voice-gpu-progress">
-        {tf("Downloading… {pct}%", { pct: String(pct) })}
-      </output>
-    );
-  } else if (model.installed) {
-    state = (
-      <button type="button" class={smallBtn} disabled={busy} data-testid="local-voice-gpu-delete" onClick={remove}>
-        {t("Delete")}
-      </button>
-    );
-  } else {
-    state = (
-      <button
-        type="button"
-        class={smallBtn}
-        disabled={downloading || busy}
-        data-testid="local-voice-gpu-get"
-        onClick={get}
-      >
-        {t("Download")}
-      </button>
-    );
-  }
-  let note = tf("Kokoro starts speaking sooner on the graphics card. Adds {size}.", {
-    size: megabytes(model.size),
-  });
-  if (model.installed) {
-    const notes: Record<string, string> = {
-      gpu: t("Kokoro runs on the graphics card."),
-      cpu: choose(
-        why === "",
-        t("WebGPU could not start here: Kokoro runs on the processor."),
-        tf("WebGPU could not start here ({reason}): Kokoro runs on the processor.", { reason: why }),
-      ),
-    };
-    note = notes[running] ?? t("Kokoro will use the graphics card.");
-  }
-  return (
-    <div
-      class="flex items-center justify-between gap-3 rounded border border-[#2a2a35] p-2"
-      data-testid="local-voice-gpu"
-    >
-      <div class="min-w-0">
-        <div class="text-sm text-[#e8e8ea]">{t("Graphics card (WebGPU)")}</div>
-        <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
-          {note}
-        </div>
-      </div>
-      {state}
-    </div>
-  );
-}
-
-// KokoroMix blends the Kokoro voice in use with another downloaded one: a timbre of its own,
-// between the two.
-function KokoroMix({ voices, mix, setMix }: { voices: LocalModel[]; mix: Mix; setMix: (m: Mix) => void }) {
-  if (voices.length === 0) {
-    return (
-      <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-mix-none">
-        {t("Download another Kokoro voice to mix it with this one.")}
-      </div>
-    );
-  }
-  const other = voices.some((m) => m.id === mix.id);
-  return (
-    <div class="flex flex-col gap-2" data-testid="local-voice-mix">
-      <label class="flex items-center justify-between gap-3 text-sm text-[#e8e8ea]">
-        {t("Mix with")}
-        <select
-          class={inputCls}
-          data-testid="local-voice-mix-voice"
-          value={choose(other, mix.id, "")}
-          onChange={(e) => setMix({ ...mix, id: (e.target as HTMLSelectElement).value })}
-        >
-          <option value="">{t("No other voice")}</option>
-          {voices.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} · {m.lang}
-            </option>
-          ))}
-        </select>
-      </label>
-      {other && (
-        <label class="flex items-center gap-3 text-xs text-[#a0a0b0]">
-          {t("How much")}
-          <input
-            type="range"
-            class="flex-1 accent-[var(--color-accent,#4cc2ff)]"
-            data-testid="local-voice-mix-amount"
-            min={0}
-            max={1}
-            step={MIX_STEP}
-            value={mix.amount}
-            onInput={(e) => setMix({ ...mix, amount: Number((e.target as HTMLInputElement).value) })}
-          />
-          <span class="w-10 text-right tabular-nums">{Math.round(mix.amount * 100)}%</span>
-        </label>
       )}
     </div>
   );

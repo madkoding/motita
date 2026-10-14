@@ -387,24 +387,19 @@ const more: Record<string, string> = {
   "Every language": "Todos los idiomas",
   "Every quality": "Todas las calidades",
   "No voice matches these filters.": "Ninguna voz coincide con estos filtros.",
-  "Graphics card (WebGPU)": "Tarjeta gráfica (WebGPU)",
-  "Kokoro starts speaking sooner on the graphics card. Adds {size}.":
-    "Kokoro empieza a hablar antes con la tarjeta gráfica. Suma {size}.",
-  "Kokoro runs on the graphics card.": "Kokoro usa la tarjeta gráfica.",
-  "Kokoro will use the graphics card.": "Kokoro usará la tarjeta gráfica.",
-  "WebGPU could not start here: Kokoro runs on the processor.":
-    "WebGPU no pudo iniciar aquí: Kokoro usa el procesador.",
-  "WebGPU could not start here ({reason}): Kokoro runs on the processor.":
-    "WebGPU no pudo iniciar aquí ({reason}): Kokoro usa el procesador.",
-  "Download another Kokoro voice to mix it with this one.":
-    "Descarga otra voz Kokoro para mezclarla con esta.",
-  "Mix with": "Mezclar con",
+  "WebGPU could not start here ({reason}): Supertonic runs on the processor.":
+    "WebGPU no pudo iniciar aquí ({reason}): Supertonic usa el procesador.",
   "{n} languages": "{n} idiomas",
   Emotion: "Emoción",
   "How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.":
     "Cuánta emoción pone la voz: 0,5 es la suya; más es más viva y un poco más rápida.",
-  "No other voice": "Ninguna otra voz",
-  "How much": "Cuánto",
+  Pace: "Ritmo",
+  Auto: "Automático",
+  "How fast the voice speaks, each sound longer or shorter, without changing its pitch.":
+    "Qué tan rápido habla la voz, cada sonido más largo o más corto, sin cambiar su tono.",
+  "Refinement steps": "Pasos de refinado",
+  "How many times the sound is refined: more is clearer and slower to start. Auto is 8 on the graphics card and 5 on the processor.":
+    "Cuántas veces se refina el sonido: más es más claro y tarda más en empezar. Automático es 8 en la tarjeta gráfica y 5 en el procesador.",
   "Stop the sample": "Detener la muestra",
   "Hear {name}": "Escuchar a {name}",
   "The sample could not be played: {error}": "No se pudo reproducir la muestra: {error}",

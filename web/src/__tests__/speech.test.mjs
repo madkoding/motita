@@ -54,8 +54,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     pitch: 1.5,
     expressiveness: 0.4,
     variation: 2,
-    kokoroMix: "kokoro-af_bella",
-    kokoroMixAmount: 0.3,
+    supertonicSpeed: 1.3,
+    supertonicSteps: 12,
     chatterboxEmotion: 1.2,
     conversation: true,
     notices: true,
@@ -83,8 +83,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       pitch: 9,
       expressiveness: -1,
       variation: "x",
-      kokoroMix: 4,
-      kokoroMixAmount: 1.5,
+      supertonicSpeed: 3,
+      supertonicSteps: "many",
       chatterboxEmotion: 0.1,
       subtitles: "yes",
       subtitleSize: "huge",
@@ -94,6 +94,17 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     ...m.DEFAULT_SPEECH_PREFS,
     maxChars: 600,
   });
+  // A voice taken out of the catalog (Kokoro's) is none, so the device's voice reads until
+  // another is chosen; steps are whole.
+  for (const [saved, kept] of [
+    ["kokoro-ef_dora", ""],
+    ["accel-kokoro", ""],
+    ["supertonic-F1", "supertonic-F1"],
+  ]) {
+    localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ engine: "local", localVoice: saved, supertonicSteps: 7.6 }));
+    assert.equal(m.loadSpeechPrefs().localVoice, kept);
+    assert.equal(m.loadSpeechPrefs().supertonicSteps, 8);
+  }
   localStorage.setItem(m.SPEECH_KEY, "{not json");
   assert.deepEqual(m.loadSpeechPrefs(), m.DEFAULT_SPEECH_PREFS);
 });

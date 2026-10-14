@@ -8,11 +8,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -229,17 +231,17 @@ func TestVerifyNoticesChanges(t *testing.T) {
 }
 
 // The compiled-in catalog is well formed: unique ids, https addresses, real hashes, a sample for
-// every Piper voice, and Kokoro's and Supertonic's voices on their shared models, their ids
+// every Piper voice, and Supertonic's and Chatterbox's voices on their shared models, their ids
 // starting as the page reads.
 func TestTheCatalog(t *testing.T) {
 	hexSum := regexp.MustCompile(`^[0-9a-f]{64}$`)
-	seen := map[string]bool{RuntimeID: true, KokoroID: true, samplesDir: true}
+	seen := map[string]bool{RuntimeID: true, samplesDir: true}
 	check := func(f ModelFile) {
 		if !strings.HasPrefix(f.URL, "https://") || !hexSum.MatchString(f.SHA256) || f.Size <= 0 || f.Name == "" {
 			t.Errorf("bad file %+v", f)
 		}
 	}
-	for _, f := range append(append([]ModelFile{}, PiperRuntime...), KokoroModel...) {
+	for _, f := range PiperRuntime {
 		check(f)
 	}
 	for _, m := range PiperVoices {
@@ -250,15 +252,6 @@ func TestTheCatalog(t *testing.T) {
 		for _, f := range append(m.Files, *m.Sample) {
 			check(f)
 		}
-	}
-	for _, m := range KokoroVoices {
-		lang := map[byte]string{'a': "en-US", 'b': "en-GB", 'e': "es"}[m.ID[len(KokoroID)+1]]
-		if seen[m.ID] || m.Engine != EngineKokoro || m.Shared != KokoroID || !strings.HasPrefix(m.ID, KokoroID+"-") ||
-			m.Lang != lang || len(m.Files) != 1 || m.Sample == nil || int64(len(m.Sample.Data)) != m.Sample.Size {
-			t.Errorf("bad voice %+v", m)
-		}
-		seen[m.ID] = true
-		check(m.Files[0])
 	}
 	seen[SupertonicID] = true
 	for _, f := range SupertonicModel {
@@ -284,13 +277,6 @@ func TestTheCatalog(t *testing.T) {
 		}
 		seen[m.ID] = true
 	}
-	// The WebGPU files are no voice, and not taken for a Kokoro voice by the page.
-	if KokoroGPU.Engine != EngineAccelerator || strings.HasPrefix(KokoroGPU.ID, KokoroID+"-") || seen[KokoroGPU.ID] {
-		t.Errorf("bad accelerator %+v", KokoroGPU)
-	}
-	for _, f := range KokoroGPU.Files {
-		check(f)
-	}
 	if embeddedSample("nope") != nil {
 		t.Error("a voice with no sample compiled in has none")
 	}
@@ -300,7 +286,7 @@ func TestTheCatalog(t *testing.T) {
 // downloaded.
 func TestEmbeddedSample(t *testing.T) {
 	lib, hits := testLibrary(t)
-	m := KokoroVoices[0]
+	m := SupertonicVoices[0]
 	lib.Models = append(lib.Models, m)
 	p, err := lib.Sample(context.Background(), m.ID)
 	if b, _ := os.ReadFile(p); err != nil || len(b) != int(m.Sample.Size) || *hits != 0 {
@@ -308,7 +294,7 @@ func TestEmbeddedSample(t *testing.T) {
 	}
 }
 
-// A Kokoro voice brings its engine's model with the first of them, counts it in what it takes
+// A voice of a shared model brings that model with the first of them, counts it in what it takes
 // while it is missing, and the model goes with the last of them.
 func TestSharedFiles(t *testing.T) {
 	lib, hits := testLibrary(t)
@@ -377,5 +363,41 @@ func TestSample(t *testing.T) {
 	_ = os.Remove(filepath.Join(lib.Dir, samplesDir, "v1.mp3"))
 	if _, err := lib.Sample(context.Background(), "v1"); err == nil || !strings.Contains(err.Error(), "not the file") {
 		t.Fatalf("a sample that does not match: %v", err)
+	}
+}
+
+// Prune removes the directories and samples of voices the catalog dropped, and keeps the rest.
+func TestPrune(t *testing.T) {
+	lib, _ := testLibrary(t)
+	lib.Shared = map[string][]ModelFile{"k": nil}
+	s := ModelFile{Name: "sample.mp3"}
+	lib.Models[0].Sample = &s
+	for _, d := range []string{RuntimeID, "k", "v1", "kokoro", "kokoro-ef_dora", "accel-kokoro", samplesDir} {
+		_ = os.MkdirAll(filepath.Join(lib.Dir, d), 0o700)
+	}
+	for _, f := range []string{"v1.mp3", "kokoro-ef_dora.mp3"} {
+		_ = os.WriteFile(filepath.Join(lib.Dir, samplesDir, f), []byte("x"), 0o600)
+	}
+	if err := lib.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	_ = filepath.WalkDir(lib.Dir, func(p string, _ fs.DirEntry, _ error) error {
+		rel, _ := filepath.Rel(lib.Dir, p)
+		left = append(left, filepath.ToSlash(rel))
+		return nil
+	})
+	if want := []string{".", "k", RuntimeID, samplesDir, samplesDir + "/v1.mp3", "v1"}; !slices.Equal(left, want) {
+		t.Fatalf("left %v, want %v", left, want)
+	}
+	// Nothing downloaded yet is nothing to prune; a directory that cannot be read says so.
+	lib.Dir = filepath.Join(t.TempDir(), "none")
+	if err := lib.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	lib.Dir = filepath.Join(lib.Dir, "..", "file")
+	_ = os.WriteFile(lib.Dir, nil, 0o600)
+	if err := lib.Prune(); err == nil {
+		t.Fatal("Prune should fail on a file")
 	}
 }

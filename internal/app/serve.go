@@ -345,18 +345,21 @@ func projectDir() string {
 
 // pushDir returns the directory where the phone notifications' key and subscriptions are kept:
 // ~/.motita/push. Empty when there is no home directory, and then there are none.
-// voiceLibrary is the catalog of local voices and where they are kept, ~/.motita/voices. Nil
-// without a home directory.
+// voiceLibrary is the catalog of local voices and where they are kept, ~/.motita/voices, rid of
+// what the catalog no longer has. Nil without a home directory.
 func voiceLibrary() *voice.Library {
 	d := config.Dir()
 	if d == "" {
 		return nil
 	}
-	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime,
-		Shared: map[string][]voice.ModelFile{voice.KokoroID: voice.KokoroModel, voice.SupertonicID: voice.SupertonicModel,
+	lib := &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime,
+		Shared: map[string][]voice.ModelFile{voice.SupertonicID: voice.SupertonicModel,
 			voice.ChatterboxID: voice.ChatterboxModel},
-		Models: slices.Concat(voice.PiperVoices, voice.KokoroVoices, []voice.Model{voice.KokoroGPU}, voice.SupertonicVoices,
-			voice.ChatterboxVoices)}
+		Models: slices.Concat(voice.PiperVoices, voice.SupertonicVoices, voice.ChatterboxVoices)}
+	// What earlier catalogs downloaded and this one dropped (Kokoro's voices) is removed; a file
+	// that cannot be is only left on disk, and the catalog is served all the same.
+	_ = lib.Prune()
+	return lib
 }
 
 func pushDir() string {
