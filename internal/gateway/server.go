@@ -372,6 +372,10 @@ func Start(opts Options) (*Server, error) {
 	}
 
 	s.openSessionStore()
+	// The default session belongs to no project, so it works in a folder of its own like any free
+	// session. Left in the workspace root, it - and every scheduled task that names no session -
+	// would run in the parent of every project, worktree and session folder, and reach them all.
+	s.placeFreeStanding(first, false)
 	s.openProjectStore()
 	s.openScheduleStore()
 	s.openPush()
