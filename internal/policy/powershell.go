@@ -38,33 +38,61 @@ func powerShellSyntax(line string) (rune, bool) {
 		if uncPath(runes, i) {
 			return r, true
 		}
-		switch quote {
-		case '\'':
-			if r == '\'' {
-				quote = 0
-			}
-			continue
-		case '"':
-			switch {
-			case r == '"':
-				quote = 0
-			case r == '$' || r == '`':
-				return r, true
-			case r == '\\' && i+1 < len(runes) && runes[i+1] == '"':
-				return r, true
-			}
-			continue
-		}
-		switch {
-		case r == '\'' || r == '"':
-			quote = r
-		case strings.ContainsRune("{}()$@[`#", r):
-			return r, true
-		case r == '\\' && i+1 < len(runes) && !pathRune(runes[i+1]):
+		var code bool
+		quote, code = powerShellRune(runes, i, quote)
+		if code {
 			return r, true
 		}
 	}
 	return 0, false
+}
+
+// powerShellRune reads runes[i] inside the quote that is open (0 for none) and returns the quote
+// open after it, and whether PowerShell reads the character as code.
+func powerShellRune(runes []rune, i int, quote rune) (rune, bool) {
+	switch quote {
+	case '\'':
+		if runes[i] == '\'' {
+			return 0, false
+		}
+		return quote, false
+	case '"':
+		return doubleQuotedRune(runes, i)
+	default:
+		return unquotedRune(runes, i)
+	}
+}
+
+// doubleQuotedRune reads runes[i] inside double quotes: `$` and the backtick are code there, and
+// so is the backslash that ends the PowerShell string before the POSIX one.
+func doubleQuotedRune(runes []rune, i int) (rune, bool) {
+	r := runes[i]
+	switch {
+	case r == '"':
+		return 0, false
+	case r == '$' || r == '`':
+		return '"', true
+	case r == '\\' && i+1 < len(runes) && runes[i+1] == '"':
+		return '"', true
+	default:
+		return '"', false
+	}
+}
+
+// unquotedRune reads runes[i] outside quotes: a quote opens, and the characters PowerShell takes
+// for code, or a backslash it takes for something other than a path separator, are reported.
+func unquotedRune(runes []rune, i int) (rune, bool) {
+	r := runes[i]
+	switch {
+	case r == '\'' || r == '"':
+		return r, false
+	case strings.ContainsRune("{}()$@[`#", r):
+		return 0, true
+	case r == '\\' && i+1 < len(runes) && !pathRune(runes[i+1]):
+		return 0, true
+	default:
+		return 0, false
+	}
 }
 
 // uncPath reports whether a network path starts at runes[i]: `\\` anywhere, or `//` that is not
@@ -78,8 +106,9 @@ func uncPath(runes []rune, i int) bool {
 		return true
 	case '/':
 		return !urlScheme(runes[:i])
+	default:
+		return false
 	}
-	return false
 }
 
 // urlScheme reports whether before ends in `scheme:`, the scheme starting a word with a letter.
@@ -93,7 +122,7 @@ func urlScheme(before []rune) bool {
 		k--
 	}
 	first := before[k]
-	if k == n-1 || !(('a' <= first && first <= 'z') || ('A' <= first && first <= 'Z')) {
+	if k == n-1 || !isLetter(first) {
 		return false
 	}
 	return k == 0 || strings.ContainsRune(" \t'\"=,", before[k-1])
@@ -101,15 +130,13 @@ func urlScheme(before []rune) bool {
 
 // schemeRune reports whether r may appear in a URL scheme.
 func schemeRune(r rune) bool {
-	return r == '+' || r == '.' || r == '-' ||
-		('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')
+	return strings.ContainsRune("+.-", r) || isLetter(r) || isDigit(r)
 }
 
 // pathRune reports whether r may follow a backslash in a Windows path without POSIX and
 // PowerShell disagreeing about the word it belongs to.
 func pathRune(r rune) bool {
-	return r == '.' || r == '_' || r == '-' || r == '\\' || r == '/' ||
-		('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')
+	return strings.ContainsRune("._-\\/", r) || isLetter(r) || isDigit(r)
 }
 
 // powerShellVerdict confirms a silent verdict that rests on a path the POSIX rules misread.
@@ -164,3 +191,6 @@ func windowsPath(word string) bool {
 
 // isLetter reports whether r is an ASCII letter.
 func isLetter(r rune) bool { return ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') }
+
+// isDigit reports whether r is an ASCII digit.
+func isDigit(r rune) bool { return '0' <= r && r <= '9' }
