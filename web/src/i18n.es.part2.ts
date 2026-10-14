@@ -399,6 +399,10 @@ const more: Record<string, string> = {
   "Download another Kokoro voice to mix it with this one.":
     "Descarga otra voz Kokoro para mezclarla con esta.",
   "Mix with": "Mezclar con",
+  "{n} languages": "{n} idiomas",
+  Emotion: "Emoción",
+  "How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.":
+    "Cuánta emoción pone la voz: 0,5 es la suya; más es más viva y un poco más rápida.",
   "No other voice": "Ninguna otra voz",
   "How much": "Cuánto",
   "Stop the sample": "Detener la muestra",

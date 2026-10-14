@@ -8,6 +8,12 @@ import {
   VOICE_CACHE,
   fileURL,
   isKokoro,
+  isSupertonic,
+  isChatterbox,
+  CHATTERBOX_ID,
+  CHATTERBOX_PARTS,
+  SUPERTONIC_ID,
+  SUPERTONIC_PARTS,
   type FromWorker,
   type ToWorker,
   type Tune,
@@ -79,11 +85,26 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
   }
   const cache = await caches.open(VOICE_CACHE);
   // The accelerator's copy goes too: its model, and the build of the runtime that drives WebGPU.
-  const names = ["model.onnx", "model.json", "voice.bin", ...choose(id === KOKORO_GPU_ID, [ORT_GPU_WASM], [])];
+  const names = ["model.onnx", "model.json", "voice.bin", "voice.json", ...choose(id === KOKORO_GPU_ID, [ORT_GPU_WASM], [])];
   const gone = names.map((n) => fileURL(id, n));
   // Kokoro's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
-  if (isKokoro(id) && !(await fetchCatalog(api)).models.some((m) => isKokoro(m.id) && m.installed)) {
-    gone.push(fileURL(KOKORO_ID, "model.onnx"), fileURL(KOKORO_ID, "tokenizer.json"));
+  // So do Supertonic's and Chatterbox's.
+  const engines = [
+    { of: isKokoro, files: [fileURL(KOKORO_ID, "model.onnx"), fileURL(KOKORO_ID, "tokenizer.json")] },
+    {
+      of: isSupertonic,
+      files: [...SUPERTONIC_PARTS, "unicode_indexer.json", ORT_GPU_WASM].map((n) => fileURL(SUPERTONIC_ID, n)),
+    },
+    {
+      of: isChatterbox,
+      files: ["tokenizer.json", ORT_GPU_WASM, ...CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"])].map((n) =>
+        fileURL(CHATTERBOX_ID, n),
+      ),
+    },
+  ];
+  const engine = engines.find((e) => e.of(id));
+  if (engine && !(await fetchCatalog(api)).models.some((m) => engine.of(m.id) && m.installed)) {
+    gone.push(...engine.files);
   }
   await Promise.all(gone.map((u) => cache.delete(u)));
 }
@@ -163,13 +184,20 @@ function getWorker(n = 0): Worker {
   return w;
 }
 
-// lanes is how many workers say a voice's sentences at once: one, but for Kokoro on the CPU.
+// SUPERTONIC_LANES is Supertonic's most workers: each holds its 400 MB model in memory.
+export const SUPERTONIC_LANES = 2;
+
+// lanes is how many workers say a voice's sentences at once: one, but for Kokoro and Supertonic
+// on the CPU (Supertonic runs on the graphics card wherever the browser lets it).
 export function lanes(id: string): number {
-  if (!isKokoro(id) || kokoroGPU) {
-    return 1;
+  let most = 1;
+  if (isKokoro(id) && !kokoroGPU) {
+    most = MAX_LANES;
+  } else if (isSupertonic(id) && !loads.get(id)?.gpu) {
+    most = SUPERTONIC_LANES;
   }
   const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 1;
-  return Math.max(1, Math.min(MAX_LANES, cores - 1));
+  return Math.max(1, Math.min(most, cores - 1));
 }
 
 // setKokoroGPU says whether Kokoro runs on WebGPU. A change loads the voices again.
@@ -195,7 +223,7 @@ export function kokoroOnGPU(): boolean {
 // the worker with the fewest waiting, and the reader asks for as many ahead as there are.
 export function localClip(id: string, tune?: Tune): FetchClip {
   const n = lanes(id);
-  const say: FetchClip = (text, signal) =>
+  const say: FetchClip = (text, signal, lang) =>
     new Promise<Blob>((ok, fail) => {
       let w = 0;
       for (let k = 0; k < n; k++) {
@@ -212,7 +240,9 @@ export function localClip(id: string, tune?: Tune): FetchClip {
         fail(new DOMException("aborted", "AbortError"));
       });
       busy[w]++;
-      getWorker(w).postMessage({ kind: "say", seq: s, id, text, tune, gpu: kokoroGPU } satisfies ToWorker);
+      // The sentence's language goes with it, for a voice that speaks several.
+      const told = choose(lang === undefined, tune, { noise: 1, noiseW: 1, ...tune, lang });
+      getWorker(w).postMessage({ kind: "say", seq: s, id, text, tune: told, gpu: kokoroGPU } satisfies ToWorker);
     });
   say.ahead = n;
   return say;

@@ -7,7 +7,7 @@
 // without the network after the first time. The logic is in localVoiceCore.ts.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
-import { Synth, VOICE_CACHE, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
+import { Synth, VOICE_CACHE, isKokoro, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -28,6 +28,14 @@ async function bytes(url: string, progress?: (loaded: number, total: number) => 
   return body;
 }
 
+// external hands onnxruntime a model's weights kept apart from it, under the name the model gives.
+function external(weights?: { path: string; data: ArrayBuffer }) {
+  if (!weights) {
+    return {};
+  }
+  return { externalData: [{ path: weights.path, data: new Uint8Array(weights.data) }] };
+}
+
 const synth = new Synth({
   bytes,
   ort: async (wasm) => {
@@ -37,7 +45,7 @@ const synth = new Synth({
     env.wasm.wasmBinary = wasm;
     return {
       Tensor: Tensor as unknown as OrtLike["Tensor"],
-      createSession: (model) => InferenceSession.create(model, { executionProviders: ["wasm"] }),
+      createSession: (model, weights) => InferenceSession.create(model, { executionProviders: ["wasm"], ...external(weights) }),
     } as OrtLike;
   },
   // WebGPU's build is loaded only for Kokoro, on a browser that has WebGPU. Each way it can fail
@@ -64,7 +72,8 @@ const synth = new Synth({
     ortGPU.env.logLevel = "error";
     return {
       Tensor: ortGPU.Tensor as unknown as OrtLike["Tensor"],
-      createSession: (model) => ortGPU.InferenceSession.create(model, { executionProviders: ["webgpu"] }),
+      createSession: (model, weights) =>
+        ortGPU.InferenceSession.create(model, { executionProviders: ["webgpu"], ...external(weights) }),
     } as OrtLike;
   },
   phonemizer: (wasm, data, print) =>
@@ -104,8 +113,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
           self.postMessage({
             kind: "ready",
             id: m.id,
-            gpu: await synth.onGPU(),
-            gpuError: synth.gpuError() || undefined,
+            gpu: await synth.onGPU(m.id),
+            gpuError: (isKokoro(m.id) && synth.gpuError()) || undefined,
           } satisfies FromWorker),
         (err: unknown) => self.postMessage({ kind: "failed", id: m.id, error: messageOf(err) } satisfies FromWorker),
       );

@@ -16,17 +16,26 @@ import {
   setKokoroGPU,
   warmLocal,
 } from "./localVoice";
-import { isKokoro } from "./localVoiceCore";
+import { isChatterbox, isKokoro } from "./localVoiceCore";
 import type { Api } from "./prApi";
 import { inputCls, primaryBtn, smallBtn } from "./SettingsControls";
 
 // How often the catalog is read again while a voice downloads.
 export const DOWNLOAD_POLL_MS = 1000;
 
-// megabytes writes a size as people read it: 63 MB.
+// megabytes writes a size as people read it: 63 MB, and 1 MB for anything smaller.
 function megabytes(n: number): string {
-  return Math.round(n / 1e6).toLocaleString(lang()) + " MB";
+  return Math.max(1, Math.round(n / 1e6)).toLocaleString(lang()) + " MB";
 }
+
+// MANY_LANGS is the language of a voice that speaks many (Supertonic's).
+const MANY_LANGS = "mul";
+
+// ENGINES name the engines besides Piper, as a voice's details start.
+const ENGINES: Record<string, string> = { kokoro: "Kokoro · ", supertonic: "Supertonic · ", chatterbox: "Chatterbox · " };
+
+// LANGUAGES_OF is how many languages a voice that speaks many speaks here, by its engine.
+const LANGUAGES_OF: Record<string, number> = { supertonic: 31, chatterbox: 21 };
 
 // qualityLabel names a voice's quality.
 function qualityLabel(q: string): string {
@@ -114,7 +123,9 @@ function useWebGPU(): boolean {
 // shown says whether a voice passes the filters ("" lets every one through).
 function shown(m: LocalModel, language: string, quality: string): boolean {
   const q = choose(m.quality === "x-low", "low", m.quality);
-  return (language === "" || baseLang(m) === language) && (quality === "" || q === quality);
+  // A voice that speaks many languages speaks the one chosen too.
+  const speaks = language === "" || baseLang(m) === language || m.lang === MANY_LANGS;
+  return speaks && (quality === "" || q === quality);
 }
 
 // useSample plays one voice's sample at a time: play starts one (stopping any other), or stops
@@ -183,12 +194,17 @@ export function LocalVoices({
   choose: pick,
   mix = { id: "", amount: 0.5 },
   setMix = () => undefined,
+  emotion = 0.5,
+  setEmotion = () => undefined,
 }: {
   api: Api;
   chosen: string;
   choose: (id: string) => void;
   mix?: Mix;
   setMix?: (m: Mix) => void;
+  // emotion is how much emotion a Chatterbox voice puts in.
+  emotion?: number;
+  setEmotion?: (n: number) => void;
 }) {
   const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
   const [error, setError] = useState("");
@@ -282,7 +298,8 @@ export function LocalVoices({
       </div>
     );
   }
-  const voices = catalog.models.filter((m) => m.engine !== "accelerator");
+  // Chatterbox runs only on the graphics card: it is offered where the browser has one.
+  const voices = catalog.models.filter((m) => m.engine !== "accelerator" && (m.engine !== "chatterbox" || webGPU));
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   // The voice in use, and the one downloading, stay in the list whatever the filters say.
   const visible = byLanguage(voices).filter(
@@ -437,11 +454,13 @@ export function LocalVoices({
               )}
               <div class="min-w-0">
                 <div class="text-sm text-[#e8e8ea] truncate">
-                  {m.name} · {m.lang}
+                  {m.name} ·{" "}
+                  {choose(m.lang === MANY_LANGS, tf("{n} languages", { n: String(LANGUAGES_OF[m.engine] ?? "") }), m.lang)}
                 </div>
                 <div class="text-xs text-[#7a7a8c]">
-                  {choose(m.engine === "kokoro", "Kokoro · ", "")}
+                  {ENGINES[m.engine] ?? ""}
                   {qualityLabel(m.quality)} · {megabytes(m.size)}
+                  {choose(m.id === chosen && !!loading?.gpu, " · WebGPU", "")}
                 </div>
               </div>
             </div>
@@ -456,6 +475,7 @@ export function LocalVoices({
           setMix={setMix}
         />
       )}
+      {isChatterbox(chosen) && <Emotion value={emotion} set={setEmotion} />}
       {sample.error && (
         <div class="text-xs text-[#f87171]" role="alert">
           {sample.error}
@@ -604,6 +624,35 @@ function KokoroMix({ voices, mix, setMix }: { voices: LocalModel[]; mix: Mix; se
           <span class="w-10 text-right tabular-nums">{Math.round(mix.amount * 100)}%</span>
         </label>
       )}
+    </div>
+  );
+}
+
+// EMOTION_STEP is how far one step of the emotion slider moves.
+const EMOTION_STEP = 0.05;
+
+// Emotion sets how much emotion a Chatterbox voice puts in: its own default is 0.5; more is more
+// expressive (and a little faster).
+function Emotion({ value, set }: { value: number; set: (n: number) => void }) {
+  return (
+    <div class="flex flex-col gap-1" data-testid="local-voice-emotion">
+      <label class="flex items-center gap-3 text-sm text-[#e8e8ea]">
+        {t("Emotion")}
+        <input
+          type="range"
+          class="flex-1 accent-[var(--color-accent,#4cc2ff)]"
+          data-testid="local-voice-emotion-amount"
+          min={0.25}
+          max={2}
+          step={EMOTION_STEP}
+          value={value}
+          onInput={(e) => set(Number((e.target as HTMLInputElement).value))}
+        />
+        <span class="w-10 text-right text-xs text-[#a0a0b0] tabular-nums">{value.toLocaleString(lang())}</span>
+      </label>
+      <div class="text-xs text-[#7a7a8c]">
+        {t("How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.")}
+      </div>
     </div>
   );
 }

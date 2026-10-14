@@ -54,6 +54,7 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     variation: 2,
     kokoroMix: "kokoro-af_bella",
     kokoroMixAmount: 0.3,
+    chatterboxEmotion: 1.2,
     conversation: true,
     notices: true,
     byLanguage: true,
@@ -80,6 +81,7 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       variation: "x",
       kokoroMix: 4,
       kokoroMixAmount: 1.5,
+      chatterboxEmotion: 0.1,
     }),
   );
   assert.deepEqual(m.loadSpeechPrefs(), {

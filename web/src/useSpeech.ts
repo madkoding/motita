@@ -341,6 +341,7 @@ function useClipReader(
             noise: p.expressiveness,
             noiseW: p.variation,
             mix: choose(p.kokoroMix !== "", { id: p.kokoroMix, amount: p.kokoroMixAmount }, undefined),
+            exaggeration: p.chatterboxEmotion,
           });
         }
         return speakClip(apiRef.current as Api, p.gatewayVoice);

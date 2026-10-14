@@ -208,14 +208,14 @@ test("Kokoro runs on WebGPU when asked and its files are there, and on the CPU o
   const kokoro = log.bytes.filter((u) => u.includes("kokoro"));
   assert.ok(kokoro.includes("/v1/voice/models/accel-kokoro/model.onnx"), "WebGPU's full model");
   assert.ok(!kokoro.includes("/v1/voice/models/kokoro/model.onnx"), "not the CPU's");
-  assert.equal(await synth.onGPU(), true);
+  assert.equal(await synth.onGPU("kokoro-ef_dora"), true);
   await synth.say("kokoro-ef_dora", "Hola");
   assert.equal(log.gpu, 1);
   synth.setGPU(true);
-  assert.equal(await synth.onGPU(), true, "the same choice keeps the model");
+  assert.equal(await synth.onGPU("kokoro-ef_dora"), true, "the same choice keeps the model");
   // Turned off, the CPU's model is loaded for the next sentence.
   synth.setGPU(false);
-  assert.equal(await synth.onGPU(), false);
+  assert.equal(await synth.onGPU("kokoro-ef_dora"), false);
   await synth.say("kokoro-ef_dora", "Hola");
   assert.ok(log.bytes.includes("/v1/voice/models/kokoro/model.onnx"));
   assert.equal(log.gpu, 1);
@@ -224,7 +224,7 @@ test("Kokoro runs on WebGPU when asked and its files are there, and on the CPU o
   const cpu = new core.Synth(plain.deps);
   cpu.setGPU(true);
   await cpu.say("kokoro-ef_dora", "Hola");
-  assert.equal(await cpu.onGPU(), false);
+  assert.equal(await cpu.onGPU("kokoro-ef_dora"), false);
   assert.ok(!plain.log.bytes.some((u) => u.includes("accel-kokoro")));
 });
 
@@ -234,7 +234,7 @@ test("Kokoro falls back to the CPU when WebGPU fails, and tries it again only wh
   synth.setGPU(true);
   const wav = await synth.say("kokoro-ef_dora", "Hola");
   assert.equal(new DataView(wav).getUint32(24, true), core.KOKORO_RATE, "it still speaks");
-  assert.equal(await synth.onGPU(), false);
+  assert.equal(await synth.onGPU("kokoro-ef_dora"), false);
   assert.equal(synth.gpuError(), "no WebGPU here", "it keeps why");
   assert.equal(log.gpu, 1);
   // The next load skips WebGPU: warming lists the CPU's files.
@@ -295,8 +295,21 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
         }
         return enc(JSON.stringify({ ...VOICE, num_speakers: speakers }));
       }
+      if (url.endsWith("chatterbox/tokenizer.json")) {
+        return enc(JSON.stringify(CB_TOKENIZER));
+      }
+      if (url.endsWith("voice.bin") && url.includes("chatterbox-")) {
+        return cbVoice();
+      }
       if (url.endsWith("tokenizer.json")) {
         return enc(JSON.stringify({ model: { vocab: KOKORO_VOCAB } }));
+      }
+      if (url.endsWith("unicode_indexer.json")) {
+        // Each character's id is its code point plus one; there is none past "z".
+        return enc(JSON.stringify(Array.from({ length: 123 }, (_, i) => i + 1)));
+      }
+      if (url.endsWith("voice.json")) {
+        return enc(JSON.stringify({ style_ttl: { data: [[[1, 2]]], dims: [1, 1, 2] }, style_dp: { data: [[[3]]], dims: [1, 1, 1] } }));
       }
       if (url.endsWith("voice.bin")) {
         // Each style vector holds its own row number.
@@ -317,7 +330,32 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
             run: async (feeds) => {
               log.feeds.push(feeds);
               const data = Float32Array.from(MODEL_OUTPUT);
-              return { output: { data }, waveform: { data } };
+              if (feeds.exaggeration) {
+                const n = feeds.input_ids.dims[1];
+                return { inputs_embeds: { data: new Float32Array(n * 1024).fill(n), dims: [1, n, 1024] } };
+              }
+              if (feeds.inputs_embeds) {
+                // The language model says sound token 7 twice, then that it is done.
+                log.lm = (log.lm ?? 0) + 1;
+                const logits = new Float32Array(2 * CB_VOCAB);
+                logits[CB_VOCAB + choose3(log.lm)] = 1;
+                const present = {};
+                for (let l = 0; l < 30; l++) {
+                  for (const kv of ["key", "value"]) {
+                    present["present." + l + "." + kv] = { data: "kv" + log.lm };
+                  }
+                }
+                return { logits: { data: logits, dims: [1, 2, CB_VOCAB] }, ...present };
+              }
+              // Every engine's outputs: Piper's, Kokoro's and Supertonic's four parts'.
+              return {
+                output: { data },
+                waveform: { data },
+                wav_tts: { data },
+                duration: { data: Float32Array.from([0.1]) },
+                text_emb: { data: "emb" },
+                denoised_latent: { data: feeds.noisy_latent?.data.map((x) => x / 2) },
+              };
             },
           };
         },
@@ -479,7 +517,7 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
     },
   };
   await lv.deleteVoice(api, "a");
-  assert.deepEqual(deleted, ["/v1/voice/models/a/model.onnx", "/v1/voice/models/a/model.json", "/v1/voice/models/a/voice.bin"]);
+  assert.deepEqual(deleted, ["/v1/voice/models/a/model.onnx", "/v1/voice/models/a/model.json", "/v1/voice/models/a/voice.bin", "/v1/voice/models/a/voice.json"]);
   // Kokoro's model goes from the page's copy with its last voice, and stays while one is left.
   const k = (id, installed) => ({ id, engine: "kokoro", installed });
   const kokoro = apiOf({
@@ -489,11 +527,26 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
   let left = [k("kokoro-a", false), k("kokoro-b", true)];
   deleted.length = 0;
   await lv.deleteVoice(kokoro.api, "kokoro-a");
-  assert.equal(deleted.length, 3);
+  assert.equal(deleted.length, 4);
   left = [k("kokoro-a", false), k("kokoro-b", false)];
   deleted.length = 0;
   await lv.deleteVoice(kokoro.api, "kokoro-a");
-  assert.deepEqual(deleted.slice(3), ["/v1/voice/models/kokoro/model.onnx", "/v1/voice/models/kokoro/tokenizer.json"]);
+  assert.deepEqual(deleted.slice(4), ["/v1/voice/models/kokoro/model.onnx", "/v1/voice/models/kokoro/tokenizer.json"]);
+  // Supertonic's, the same.
+  const st = apiOf({
+    "DELETE /v1/voice/models/supertonic-F1": () => new Response(null, { status: 204 }),
+    "GET /v1/voice/models": () => new Response(JSON.stringify({ ...cat, models: [] }), { status: 200 }),
+  });
+  deleted.length = 0;
+  await lv.deleteVoice(st.api, "supertonic-F1");
+  assert.deepEqual(deleted.slice(4), [
+    "/v1/voice/models/supertonic/duration_predictor.onnx",
+    "/v1/voice/models/supertonic/text_encoder.onnx",
+    "/v1/voice/models/supertonic/vector_estimator.onnx",
+    "/v1/voice/models/supertonic/vocoder.onnx",
+    "/v1/voice/models/supertonic/unicode_indexer.json",
+    "/v1/voice/models/supertonic/ort-wasm-simd-threaded.asyncify.wasm",
+  ]);
   await assert.rejects(lv.deleteVoice(api, "b"), /HTTP 500/);
   await assert.rejects(lv.fetchCatalog(apiOf({}).api), /not found/);
   const first = ["GET /v1/voice/models", "POST /v1/voice/models/a", "POST /v1/voice/models/b"];
@@ -594,6 +647,8 @@ test("Kokoro on the CPU says the next sentences at once, in workers of their own
   cores(8);
   assert.equal(lv.lanes("kokoro-ef_dora"), lv.MAX_LANES);
   assert.equal(lv.lanes("v1"), 1, "a Piper voice is quick enough alone");
+  assert.equal(lv.lanes("supertonic-F1"), lv.SUPERTONIC_LANES, "Supertonic's model is large: fewer copies");
+  assert.equal(lv.lanes("chatterbox-default"), 1, "Chatterbox runs on the graphics card");
   cores(2);
   assert.equal(lv.lanes("kokoro-ef_dora"), 1, "one core is left to the page");
   cores(8);
@@ -1062,6 +1117,223 @@ test("the graphics card is offered for Kokoro where WebGPU is, and a Kokoro voic
   assert.equal(lv.kokoroOnGPU(), false);
   v.done();
   delete globalThis.navigator.gpu;
+  globalThis.lastWorker.onerror();
+  delete globalThis.Worker;
+  delete globalThis.caches;
+});
+
+test("a sentence is written as Supertonic reads it, and its voice and length are read", () => {
+  assert.equal(core.isSupertonic("supertonic-F1"), true);
+  assert.equal(core.isSupertonic("kokoro-ef_dora"), false);
+  assert.equal(core.supertonicText("Hola — “qué” tal 😀   mundo", "es-CL"), '<es>Hola - "qué" tal mundo.</es>'.normalize("NFKD"));
+  assert.equal(core.supertonicText("Hi , you [there]!", "en"), "<en>Hi, you there!</en>");
+  assert.equal(core.supertonicText("Salut", "xx"), "<na>Salut.</na>", "a language it lacks is its own neutral one");
+  assert.deepEqual(core.supertonicIds("ab€", Array(97).fill(0).concat([7, 8])), [7, 8, -1]);
+  const st = core.supertonicStyle(JSON.stringify({ style_ttl: { data: [[[1, 2]]], dims: [1, 1, 2] }, style_dp: { data: [[[3]]], dims: [1, 1, 1] } }));
+  assert.deepEqual([...st.ttl], [1, 2]);
+  assert.deepEqual(st.dpDims, [1, 1, 1]);
+  assert.throws(() => core.supertonicStyle("{}"), /not a Supertonic voice/);
+  assert.equal(core.supertonicLatent(0), 1, "never empty");
+  assert.equal(core.supertonicLatent(1), Math.ceil(44100 / 3072));
+  let r = 0;
+  const half = core.noise(2, () => [0.5, 0, 0.5, 0.5][r++]);
+  assert.ok(Math.abs(half[0] - Math.sqrt(-2 * Math.log(0.5))) < 1e-6);
+  assert.ok(half[1] < 0, "cos of half a turn");
+  assert.equal(core.noise(3).length, 3);
+});
+
+test("a Supertonic voice speaks on its shared model, refined step by step, in the sentence's language", async () => {
+  const { deps, log } = fakes();
+  const synth = new core.Synth(deps);
+  const seen = [];
+  await synth.warm("supertonic-F1", (p) => seen.push(p));
+  assert.equal(seen.at(-1), 100);
+  assert.equal(log.phon, 0, "no phonemizer");
+  assert.deepEqual(
+    log.bytes.filter((u) => !u.includes("/runtime/")),
+    [
+      "/v1/voice/models/supertonic-F1/voice.json",
+      ...core.SUPERTONIC_PARTS.map((n) => "/v1/voice/models/supertonic/" + n),
+      "/v1/voice/models/supertonic/unicode_indexer.json",
+    ],
+  );
+  assert.equal(log.sessions, 4);
+  const wav = await synth.say("supertonic-F1", "ab", { noise: 1, noiseW: 1, lang: "es" });
+  assert.equal(new DataView(wav).getUint32(24, true), core.SUPERTONIC_RATE);
+  const [dp, te, ...rest] = log.feeds;
+  const text = [..."<es>ab.</es>"].map((c) => BigInt(c.codePointAt(0) + 1));
+  assert.deepEqual([...dp.text_ids.data], text);
+  assert.deepEqual([...te.style_ttl.data], [1, 2]);
+  assert.equal(rest.length, core.SUPERTONIC_STEPS.cpu + 1, "the steps, then the waveform");
+  assert.deepEqual(rest[0].noisy_latent.dims, [1, 144, 2], "0.1 s at its pace is two chunks");
+  assert.deepEqual([...rest[2].current_step.data], [2]);
+  assert.equal(rest[1].noisy_latent.data[0], rest[0].noisy_latent.data[0] / 2, "each step starts from the last");
+  assert.equal(await synth.onGPU("supertonic-F1"), false);
+  // Without a language it is told English.
+  await synth.say("supertonic-F1", "ab");
+  assert.equal(log.feeds.at(-core.SUPERTONIC_STEPS.cpu - 3).text_ids.data[1], BigInt("e".codePointAt(0) + 1));
+});
+
+test("Supertonic runs on WebGPU where the browser has it, and on the CPU when that fails", async () => {
+  const { deps, log } = gpuFakes();
+  deps.gpu = ((gpu) => async (wasm) => {
+    assert.equal(new TextDecoder().decode(wasm), "/v1/voice/models/supertonic/ort-wasm-simd-threaded.asyncify.wasm");
+    return gpu(enc("/v1/voice/models/accel-kokoro/ort-wasm-simd-threaded.asyncify.wasm"));
+  })(deps.gpu);
+  const synth = new core.Synth(deps);
+  await synth.warm("supertonic-M1");
+  assert.ok(!log.bytes.some((u) => u.includes("/runtime/")), "nothing of the CPU's");
+  assert.equal(await synth.onGPU("supertonic-M1"), true);
+  await synth.say("supertonic-M1", "a", { noise: 1, noiseW: 1, lang: "en" });
+  assert.equal(log.feeds.length, 2 + core.SUPERTONIC_STEPS.gpu + 1);
+  const failing = gpuFakes({ fail: true });
+  const cpu = new core.Synth(failing.deps);
+  await cpu.say("supertonic-M1", "a");
+  assert.equal(await cpu.onGPU("supertonic-M1"), false);
+  assert.equal(failing.log.ort, 1, "the CPU's runtime said it");
+});
+
+// Chatterbox's stand-ins: a vocabulary of a few letters, and a voice of two feature frames.
+const CB_VOCAB = 6564;
+const CB_STOP = 6562;
+function choose3(n) {
+  if (n <= 2) {
+    return 7;
+  }
+  return CB_STOP;
+}
+const CB_TOKENIZER = {
+  model: { vocab: { "[UNK]": 1, "[SPACE]": 2, h: 3, o: 4, l: 5, a: 6, ".": 7, ho: 8 }, merges: ["h o"] },
+  added_tokens: [
+    { id: 2, content: "[SPACE]" },
+    { id: 9, content: "[es]" },
+    { id: 10, content: "[en]" },
+    { id: 11, content: "[laughter]" },
+  ],
+  post_processor: {
+    special_tokens: {
+      EXAGGERATION: { ids: [6563] },
+      BOS: { ids: [255] },
+      EOS: { ids: [0] },
+      START_SPEECH: { ids: [6561] },
+    },
+  },
+};
+function cbVoice() {
+  const floats = new Float32Array(2 * 1024 + 3 + 192 + 80).fill(0.5);
+  floats.set([11, 12, 13], 2 * 1024);
+  const out = new Uint8Array(12 + floats.byteLength);
+  out.set(new Uint8Array(Int32Array.from([2, 3, 1]).buffer));
+  out.set(new Uint8Array(floats.buffer), 12);
+  return out.buffer;
+}
+
+test("a sentence is written as Chatterbox reads it, and split into its tokens", () => {
+  assert.equal(core.isChatterbox("chatterbox-default"), true);
+  assert.equal(core.isChatterbox("supertonic-F1"), false);
+  assert.equal(core.chatterboxText("  Hola…  qué  tal: “bien”; ¿Sí?", "es-CL"), '[es]hola,  qué tal, "bien",  ¿sí?'.normalize("NFKD"));
+  assert.equal(core.chatterboxText("Done — mostly", "en"), "[en]done - mostly.");
+  assert.equal(core.chatterboxText("Ni hao", "zh"), "[en]ni hao.", "a language it cannot read alone is read as English");
+  const tk = core.chatterboxTokenizer(JSON.stringify(CB_TOKENIZER));
+  assert.deepEqual(core.chatterboxTokens(tk, "[es]hola [laughter]hal?"), [6563, 255, 9, 8, 5, 6, 2, 11, 3, 6, 5, 1, 0, 6561, 6561]);
+  assert.throws(() => core.chatterboxTokenizer("{}"), /not Chatterbox's tokenizer/);
+  assert.throws(() => core.chatterboxTokenizer(JSON.stringify({ ...CB_TOKENIZER, post_processor: {} })), /not Chatterbox's/);
+  const v = core.chatterboxVoice(cbVoice());
+  assert.equal(v.featureLen, 2);
+  assert.deepEqual(v.tokens, [11, 12, 13]);
+  assert.equal(v.embedding.length, 192);
+  assert.equal(v.speaker.length, 80);
+  assert.throws(() => core.chatterboxVoice(new ArrayBuffer(16)), /not a Chatterbox voice/);
+  assert.throws(() => core.chatterboxVoice(new ArrayBuffer(4)), /not a Chatterbox voice/);
+  // A token already said is less likely: a positive score divided, a negative one multiplied.
+  assert.equal(core.nextToken(Float32Array.from([0, 1.1, 1]), [1]), 2);
+  assert.equal(core.nextToken(Float32Array.from([-1, -1.1, -2]), [0]), 1);
+});
+
+test("a Chatterbox voice speaks on WebGPU: the voice, then the text, then one sound token at a time", async () => {
+  const { deps, log } = gpuFakes();
+  deps.gpu = ((gpu) => async () => gpu(enc("/v1/voice/models/accel-kokoro/ort-wasm-simd-threaded.asyncify.wasm")))(deps.gpu);
+  const weights = [];
+  const ort = deps.gpu;
+  deps.gpu = async (w) => {
+    const o = await ort(w);
+    return { ...o, createSession: (m, x) => (weights.push(x?.path), o.createSession(m)) };
+  };
+  const synth = new core.Synth(deps);
+  await synth.warm("chatterbox-default");
+  assert.equal(log.phon, 0, "no phonemizer");
+  assert.ok(!log.bytes.some((u) => u.includes("/runtime/")), "nothing of the CPU's");
+  assert.deepEqual(weights, core.CHATTERBOX_PARTS.map((p) => p + "_data"), "each part with its weights");
+  assert.equal(await synth.onGPU("chatterbox-default"), true);
+  const wav = await synth.say("chatterbox-default", "Hola", { noise: 1, noiseW: 1, lang: "es", exaggeration: 1.5 });
+  assert.equal(new DataView(wav).getUint32(24, true), core.CHATTERBOX_RATE);
+  const embeds = log.feeds.filter((f) => f.exaggeration);
+  assert.deepEqual([...embeds[0].input_ids.data].map(Number), [6563, 255, 9, 8, 5, 6, 7, 0, 6561, 6561]);
+  assert.deepEqual([...embeds[0].position_ids.data].map(Number), [0, 0, 1, 2, 3, 4, 5, 6, 0, 0]);
+  assert.deepEqual([...embeds[0].exaggeration.data], [1.5]);
+  assert.deepEqual([...embeds[1].position_ids.data].map(Number), [1]);
+  const lm = log.feeds.filter((f) => f.inputs_embeds);
+  assert.deepEqual(lm[0].inputs_embeds.dims, [1, 12, 1024], "the voice's two frames before the text");
+  assert.equal(lm[0].inputs_embeds.data[0], 0.5);
+  assert.deepEqual(lm[0]["past_key_values.0.key"].dims, [1, 16, 0, 64]);
+  assert.equal(lm[1]["past_key_values.29.value"].data, "kv1", "each step remembers the last");
+  assert.equal(lm[2].attention_mask.dims[1], 14);
+  const dec = log.feeds.at(-1);
+  assert.deepEqual([...dec.speech_tokens.data].map(Number), [11, 12, 13, 7, 7], "the voice's own, then the new");
+  assert.deepEqual(dec.speaker_features.dims, [1, 1, 80]);
+  // Without a language or an emotion, English at its default.
+  await synth.say("chatterbox-default", "a");
+  assert.deepEqual([...log.feeds.filter((f) => f.exaggeration).at(-1).exaggeration.data], [core.CHATTERBOX_EMOTION]);
+});
+
+test("Chatterbox does not run without WebGPU, and its sentences stop at the most tokens", async () => {
+  const plain = fakes();
+  const cpu = new core.Synth(plain.deps);
+  await assert.rejects(cpu.say("chatterbox-default", "a"), /needs WebGPU/);
+  const { deps, log } = gpuFakes();
+  deps.gpu = ((gpu) => async () => gpu(enc("/v1/voice/models/accel-kokoro/ort-wasm-simd-threaded.asyncify.wasm")))(deps.gpu);
+  const synth = new core.Synth(deps);
+  log.lm = -1e9;
+  await synth.say("chatterbox-default", "a");
+  assert.equal(log.feeds.filter((f) => f.inputs_embeds).length, core.CHATTERBOX_MAX_TOKENS);
+});
+
+test("Supertonic speaks any language of the filter, and Chatterbox is offered on WebGPU with its emotion", async () => {
+  globalThis.lastWorker?.onerror();
+  globalThis.Worker = class {
+    constructor() {
+      globalThis.lastWorker = this;
+    }
+    postMessage() {}
+  };
+  globalThis.caches = {};
+  localStorage.setItem(lv.FILTERS_KEY, JSON.stringify({ language: "en", quality: "" }));
+  const many = (id, engine, installed) => ({ id, name: id, lang: "mul", quality: "high", engine, size: 200, installed });
+  const cat = {
+    runtime: { size: 1, installed: true },
+    models: [many("supertonic-F1", "supertonic", false), many("chatterbox-default", "chatterbox", true)],
+    download: null,
+  };
+  const { api } = apiOf({ "GET /v1/voice/models": [HTTP_OK, cat] });
+  const emotions = [];
+  const draw = (chosen) =>
+    h(lv.LocalVoices, { api, chosen, choose: () => {}, emotion: 0.5, setEmotion: (n) => emotions.push(n) });
+  let v = await mount(draw("supertonic-F1"));
+  let q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.match(q("local-voice-supertonic-F1").textContent, /31 languages.*Supertonic · .*1 MB/);
+  assert.equal(q("local-voice-chatterbox-default"), null, "no WebGPU, no Chatterbox");
+  assert.equal(q("local-voice-emotion"), null);
+  v.done();
+  Object.defineProperty(globalThis.navigator, "gpu", { value: { requestAdapter: async () => ({}) }, configurable: true });
+  v = await mount(draw("chatterbox-default"));
+  q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.match(q("local-voice-chatterbox-default").textContent, /21 languages.*Chatterbox · /);
+  q("local-voice-emotion-amount").value = "1.25";
+  await act(async () => q("local-voice-emotion-amount").dispatchEvent(new window.Event("input", { bubbles: true })));
+  assert.deepEqual(emotions, [1.25]);
+  v.done();
+  delete globalThis.navigator.gpu;
+  localStorage.removeItem(lv.FILTERS_KEY);
   globalThis.lastWorker.onerror();
   delete globalThis.Worker;
   delete globalThis.caches;
