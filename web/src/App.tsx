@@ -542,6 +542,7 @@ function SettingsHost() {
         onNotice: (message, error) =>
           setToast({ message, type: choose(error, "error", "success") }),
       }}
+      security={{ api: request }}
       network={{ api: request }}
       push={{ api: request }}
       git={{

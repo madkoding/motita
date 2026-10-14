@@ -114,7 +114,8 @@ func firstLineOf(s string) string {
 
 // workspacePath resolves a path the model gave against the workspace and refuses one that leaves
 // it: these actions write without a shell, so they also write without the shell's policy, and the
-// workspace is the boundary that keeps that safe.
+// workspace is the boundary that keeps that safe. With the whole disk allowed (sandbox.disk_access:
+// full, chosen in the settings) the path is only resolved: the person lifted that boundary.
 func (a *Agent) workspacePath(rel string) (string, error) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" {
@@ -129,7 +130,8 @@ func (a *Agent) workspacePath(rel string) (string, error) {
 		path = filepath.Join(root, path)
 	}
 	path = filepath.Clean(path)
-	if !within(root, path) {
+	full := a.fullDisk()
+	if !full && !within(root, path) {
 		return "", fmt.Errorf("%s is outside the working directory %s", rel, root)
 	}
 	// The lexical check is not the boundary on its own: a symlink inside the workspace (a cloned
@@ -140,10 +142,20 @@ func (a *Agent) workspacePath(rel string) (string, error) {
 		return "", err
 	}
 	realPath, err := resolveExisting(path)
-	if err != nil || !within(realRoot, realPath) {
+	if err != nil || (!full && !within(realRoot, realPath)) {
 		return "", fmt.Errorf("%s resolves outside the working directory %s", rel, root)
 	}
 	return realPath, nil
+}
+
+// fullDisk reports whether the person let the agent reach the whole disk. The sandbox's answer
+// comes first: it is the one the settings change while a turn runs, so a file action and a command
+// of the same turn always follow the same rule.
+func (a *Agent) fullDisk() bool {
+	if a.sandbox != nil {
+		return a.sandbox.FullDisk()
+	}
+	return a.cfg.Sandbox.FullDisk()
 }
 
 // within reports whether path is root or below it.

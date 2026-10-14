@@ -7,7 +7,7 @@ import "fmt"
 // Write confinement is only implemented on Linux (Landlock).
 func landlockABI() int { return 0 }
 
-func confineWrites(roots, hidden []string) error {
+func confine(Spec) error {
 	return fmt.Errorf("write confinement is only implemented on Linux")
 }
 

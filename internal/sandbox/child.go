@@ -42,6 +42,12 @@ type Spec struct {
 	WriteRoots []string `json:"write_roots,omitempty"`
 	// HiddenPaths, with WriteRoots, are files and directories the command may not even read.
 	HiddenPaths []string `json:"hidden_paths,omitempty"`
+	// PrivatePaths, with WriteRoots, are trees the command may not read nor list, apart from what
+	// WriteRoots and ReadRoots grant inside them: the user's files when it is confined to the
+	// workspace.
+	PrivatePaths []string `json:"private_paths,omitempty"`
+	// ReadRoots, with PrivatePaths, are files and directories the command may read wherever they are.
+	ReadRoots []string `json:"read_roots,omitempty"`
 }
 
 // jsonMarshal is the serialiser used for the sandbox spec and for the isolation
@@ -80,8 +86,8 @@ var childHooks = struct {
 	exit: os.Exit,
 }
 
-// confineWritesHook is the platform's write confinement, replaceable so a test can make it fail.
-var confineWritesHook = confineWrites
+// confineWritesHook is the platform's confinement, replaceable so a test can make it fail.
+var confineWritesHook = confine
 
 // enterWorkDir moves the child where the command runs: into the chroot, or to the directory.
 // The chroot comes before the final chdir: after the chroot the path is interpreted inside the
@@ -139,7 +145,7 @@ func RunAsChild(args []string) error {
 	// parent only asks for it when the kernel offers it, so a failure here is a real one and the
 	// command must not run unconfined by accident.
 	if len(spec.WriteRoots) > 0 {
-		if err := confineWritesHook(spec.WriteRoots, spec.HiddenPaths); err != nil {
+		if err := confineWritesHook(spec); err != nil {
 			return fmt.Errorf("could not confine writes: %w", err)
 		}
 	}

@@ -709,6 +709,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
+	// How much of the disk the agent reaches: process-wide, every conversation follows it. See
+	// security.go.
+	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))
+	mux.Handle("PUT /v1/security", plain(s.handlePutSecurity))
 	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
 	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))

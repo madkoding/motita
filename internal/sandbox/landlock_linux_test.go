@@ -254,7 +254,7 @@ func TestConfineWritesReportsEachFailingStep(t *testing.T) {
 			}
 			return 0, 0, 0
 		}
-		err := confineWrites([]string{t.TempDir(), "/dev", "/does/not/exist"}, nil)
+		err := confine(Spec{WriteRoots: []string{t.TempDir(), "/dev", "/does/not/exist"}})
 		if (err == nil) != (name == "none") {
 			t.Errorf("%s: a failing step must fail the confinement, and only a failing step: %v", name, err)
 		}
@@ -262,7 +262,7 @@ func TestConfineWritesReportsEachFailingStep(t *testing.T) {
 	landlockSyscall = func(uintptr, uintptr, uintptr, uintptr) (uintptr, uintptr, syscall.Errno) {
 		return 0, 0, syscall.ENOSYS
 	}
-	if landlockABI() != 0 || confineWrites(nil, nil) == nil {
+	if landlockABI() != 0 || confine(Spec{}) == nil {
 		t.Error("with no Landlock the ABI is 0 and confining fails")
 	}
 }
@@ -297,7 +297,7 @@ func TestWithoutLandlockTheSandboxSaysSoAndDoesNotConfine(t *testing.T) {
 func TestAConfinementThatFailsInTheChildStopsTheCommand(t *testing.T) {
 	real := confineWritesHook
 	t.Cleanup(func() { confineWritesHook = real })
-	confineWritesHook = func([]string, []string) error { return syscall.EPERM }
+	confineWritesHook = func(Spec) error { return syscall.EPERM }
 	err := RunAsChild([]string{ChildMarker, `{"command":"/bin/true","write_roots":["/tmp"]}`})
 	if err == nil || !strings.Contains(err.Error(), "could not confine writes") {
 		t.Fatalf("got %v", err)
@@ -414,7 +414,7 @@ func TestConfinementFailsWhenTheKernelBufferCannotBeMapped(t *testing.T) {
 	real := mmapAnon
 	t.Cleanup(func() { mmapAnon = real })
 	mmapAnon = func(int, int64, int, int, int) ([]byte, error) { return nil, syscall.ENOMEM }
-	if err := confineWrites([]string{t.TempDir()}, nil); err == nil || !strings.Contains(err.Error(), "create_ruleset") {
+	if err := confine(Spec{WriteRoots: []string{t.TempDir()}}); err == nil || !strings.Contains(err.Error(), "create_ruleset") {
 		t.Errorf("the ruleset buffer: %v", err)
 	}
 	if err := allowWrites(3, t.TempDir(), accessReadFile); err == nil || !strings.Contains(err.Error(), "add_rule") {
