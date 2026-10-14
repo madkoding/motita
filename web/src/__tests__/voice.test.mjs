@@ -17,15 +17,23 @@ const HTTP_BAD_GATEWAY = 502;
 
 test("the switches: the microphone on and hands-free off by default, and both are kept", () => {
   localStorage.clear();
-  assert.deepEqual(m.loadVoicePrefs(), { mic: true, listen: false });
+  assert.deepEqual(m.loadVoicePrefs(), {
+    mic: true,
+    listen: false,
+    deviceId: "",
+  });
   let heard = 0;
   globalThis.window = dom.window;
   globalThis.CustomEvent = dom.window.CustomEvent;
   dom.window.addEventListener(m.VOICE_PREFS_EVENT, () => {
     heard += 1;
   });
-  m.saveVoicePrefs({ mic: false, listen: true });
-  assert.deepEqual(m.loadVoicePrefs(), { mic: false, listen: true });
+  m.saveVoicePrefs({ mic: false, listen: true, deviceId: "usb-1" });
+  assert.deepEqual(m.loadVoicePrefs(), {
+    mic: false,
+    listen: true,
+    deviceId: "usb-1",
+  });
   assert.equal(heard, 1, "the page is told the switches changed");
   localStorage.setItem(m.VOICE_KEY, "{not json");
   assert.deepEqual(m.loadVoicePrefs(), m.DEFAULT_VOICE_PREFS);
@@ -178,4 +186,66 @@ test("the requests: the info, the recording as its own type, and the gateway's r
     m.transcribe(reply(HTTP_SERVER_ERROR, "<html>"), audio, false),
     /HTTP 500/,
   );
+});
+
+test("the microphone of this device: asked for by id, listed by name, numbered while hidden", () => {
+  assert.deepEqual(m.audioConstraints(""), { audio: true });
+  assert.deepEqual(m.audioConstraints("usb-1"), {
+    audio: { deviceId: { exact: "usb-1" } },
+  });
+  assert.equal(m.isMissingDevice({ name: "OverconstrainedError" }), true);
+  assert.equal(m.isMissingDevice({ name: "NotFoundError" }), true);
+  assert.equal(m.isMissingDevice({ name: "NotAllowedError" }), false);
+  assert.equal(m.isMissingDevice(null), false);
+  const devices = [
+    { kind: "audioinput", deviceId: "default", label: "Default - USB" },
+    { kind: "audioinput", deviceId: "usb-1", label: "USB" },
+    { kind: "audioinput", deviceId: "usb-1", label: "USB" },
+    { kind: "videoinput", deviceId: "cam", label: "Camera" },
+    { kind: "audioinput", deviceId: "int", label: "" },
+    { kind: "audioinput", deviceId: "", label: "" },
+  ];
+  assert.deepEqual(
+    m.micOptions(devices, (n) => `Mic ${n}`),
+    [
+      { deviceId: "usb-1", label: "USB" },
+      { deviceId: "int", label: "Mic 2" },
+    ],
+  );
+  assert.equal(m.micNamesHidden(devices), false);
+  assert.equal(
+    m.micNamesHidden([{ kind: "audioinput", deviceId: "", label: "" }]),
+    true,
+  );
+  assert.equal(m.micNamesHidden([]), true);
+});
+
+test("wake phrases are typed with commas or lines, without blanks or repeats", () => {
+  assert.deepEqual(m.parsePhrases(" oye motita, Motita\n, motita ,,"), [
+    "oye motita",
+    "Motita",
+  ]);
+  assert.deepEqual(m.parsePhrases(""), []);
+});
+
+test("putVoice sends the change and answers the new state, or the gateway's refusal", async () => {
+  let sent;
+  const info = { enabled: true, wake_phrases: [], max_audio_bytes: 1 };
+  const ok = async (path, init) => {
+    sent = { path, init };
+    return new Response(JSON.stringify(info), { status: HTTP_OK });
+  };
+  assert.deepEqual(
+    await m.putVoice(ok, { enabled: true, confirm: true }),
+    info,
+  );
+  assert.equal(sent.path, "/v1/voice");
+  assert.equal(sent.init.method, "PUT");
+  assert.deepEqual(JSON.parse(sent.init.body), {
+    enabled: true,
+    confirm: true,
+  });
+  const refused = async () =>
+    new Response(JSON.stringify({ error: "needs confirm" }), { status: 400 });
+  await assert.rejects(m.putVoice(refused, { enabled: true }), /needs confirm/);
 });

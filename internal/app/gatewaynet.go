@@ -94,7 +94,19 @@ func (op Options) gatewaySetup(ctx context.Context, fl flags) int {
 		fmt.Fprintln(op.Out, "\nthe running gateway keeps its address until it restarts:")
 		fmt.Fprintln(op.Out, "  motita gateway stop && motita gateway start")
 	}
+	op.announceVoice(path)
 	return Success
+}
+
+// announceVoice says how to turn speech input on, when it is off: the microphone of the browser
+// interface is the other thing a person setting up the gateway for their phone usually wants.
+func (op Options) announceVoice(path string) {
+	cfg, err := config.LoadWithoutKey(path)
+	if err != nil || cfg.Voice.Enabled {
+		return
+	}
+	fmt.Fprintln(op.Out, "\nVOICE: speech input is off. Turn it on in the web interface (Settings, Voice),")
+	fmt.Fprintf(op.Out, "  or set voice.enabled: true in %s. The browser needs https or localhost for the microphone.\n", path)
 }
 
 // errNoAnswer is the input ending before an answer was given.
