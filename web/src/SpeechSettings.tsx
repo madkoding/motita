@@ -20,6 +20,7 @@ import {
   type SpeakStyle,
   type SpeechEngine,
   type SpeechPrefs,
+  type SubtitleSize,
   type VoiceLike,
   formatPronunciations,
   parsePronunciations,
@@ -391,6 +392,14 @@ export function SpeechSettings({
     [set],
   );
   const setNotices = useCallback((notices: boolean) => set({ notices }), [set]);
+  const setSubtitles = useCallback(
+    (subtitles: boolean) => set({ subtitles }),
+    [set],
+  );
+  const setSubtitleSize = useCallback(
+    (subtitleSize: SubtitleSize) => set({ subtitleSize }),
+    [set],
+  );
   const off = !supported;
   return (
     <section class="settings-group" aria-labelledby="settings-speech-h">
@@ -548,6 +557,35 @@ export function SpeechSettings({
             onChange={setNotices}
           />
         </Row>
+        <Row
+          id="settings-speech-subtitles"
+          label={t("Subtitles")}
+          hint={t(
+            "Shows on screen what Motita says aloud, sentence by sentence, like a film's subtitles.",
+          )}
+        >
+          <SpeechSwitch
+            id="settings-speech-subtitles"
+            usable={!off}
+            checked={prefs.subtitles}
+            onChange={setSubtitles}
+          />
+        </Row>
+        {!off && prefs.subtitles && (
+          <Row id="settings-speech-subtitle-size" label={t("Subtitle size")} stack>
+            <Segmented<SubtitleSize>
+              name="settings-speech-subtitle-size"
+              labelledBy="settings-speech-subtitle-size"
+              value={prefs.subtitleSize}
+              onChange={setSubtitleSize}
+              options={[
+                { value: "small", label: t("Small") },
+                { value: "medium", label: t("Normal") },
+                { value: "large", label: t("Large") },
+              ]}
+            />
+          </Row>
+        )}
         <Pronunciations off={off} prefs={prefs} set={set} />
         <Row id="settings-speech-test" label={t("Try the voice")}>
           <button

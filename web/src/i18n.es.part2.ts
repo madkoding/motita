@@ -448,6 +448,10 @@ const more: Record<string, string> = {
     "Tal cual: la respuesta como está escrita.",
   "Word for word": "Tal cual",
   Natural: "Natural",
+  Subtitles: "Subtítulos",
+  "Shows on screen what Motita says aloud, sentence by sentence, like a film's subtitles.":
+    "Muestra en pantalla lo que Motita dice en voz alta, frase por frase, como los subtítulos de una película.",
+  "Subtitle size": "Tamaño de los subtítulos",
 };
 
 export default more;

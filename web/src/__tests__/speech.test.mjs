@@ -34,6 +34,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     "literal",
     "word for word unless asked",
   );
+  assert.equal(m.DEFAULT_SPEECH_PREFS.subtitles, false, "no subtitles unless asked");
+  assert.equal(m.DEFAULT_SPEECH_PREFS.subtitleSize, "medium");
   let heard = 0;
   globalThis.window = dom.window;
   globalThis.CustomEvent = dom.window.CustomEvent;
@@ -60,6 +62,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     byLanguage: true,
     langVoices: { en: "eve" },
     pronunciations: [{ term: "kubectl", say: "cube control" }],
+    subtitles: true,
+    subtitleSize: "large",
   };
   m.saveSpeechPrefs(p);
   assert.deepEqual(m.loadSpeechPrefs(), p);
@@ -82,6 +86,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       supertonicSpeed: 3,
       supertonicSteps: "many",
       chatterboxEmotion: 0.1,
+      subtitles: "yes",
+      subtitleSize: "huge",
     }),
   );
   assert.deepEqual(m.loadSpeechPrefs(), {
@@ -851,4 +857,15 @@ test("notices are handed to the page to be said, and an empty one is not", () =>
   m.sayNotice("   ");
   dom.window.removeEventListener(m.SPEECH_NOTICE_EVENT, on);
   assert.deepEqual(heard, ["CI passed"]);
+});
+
+test("the sentence being said is handed to the subtitles, and an empty one hides them", () => {
+  const heard = [];
+  const on = (e) => heard.push(e.detail);
+  dom.window.addEventListener(m.SUBTITLE_EVENT, on);
+  m.showSubtitle("All done.");
+  m.showSubtitle("");
+  dom.window.removeEventListener(m.SUBTITLE_EVENT, on);
+  assert.deepEqual(heard, ["All done.", ""]);
+  assert.deepEqual(m.SUBTITLE_SIZES, ["small", "medium", "large"]);
 });
