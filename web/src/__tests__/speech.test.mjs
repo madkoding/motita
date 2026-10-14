@@ -40,8 +40,9 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
   const p = {
     mode: "always",
     style: "natural",
-    engine: "gateway",
+    engine: "local",
     gatewayVoice: "nova",
+    localVoice: "es_MX-claude-high",
     voiceURI: "v1",
     rate: 1.5,
     maxChars: 0,
@@ -62,6 +63,7 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       style: "poem",
       engine: "robot",
       gatewayVoice: 7,
+      localVoice: 8,
       voiceURI: 3,
       rate: 9,
       maxChars: 600,

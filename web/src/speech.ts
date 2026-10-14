@@ -35,8 +35,9 @@ export type SpeakMode = "off" | "voice" | "always";
 // of the answer when it ends).
 export type SpeakStyle = "literal" | "natural";
 
-// Who speaks: the device's own voices, or the gateway's voice (voice.tts), the same on every device.
-export type SpeechEngine = "device" | "gateway";
+// Who speaks: the device's own voices, the gateway's voice (voice.tts), the same on every device,
+// or a local voice: a Piper model the gateway downloaded, run in this browser.
+export type SpeechEngine = "device" | "gateway" | "local";
 
 // The read-aloud settings, kept in this browser only: voices are a property of the device.
 export interface SpeechPrefs {
@@ -45,6 +46,8 @@ export interface SpeechPrefs {
   engine: SpeechEngine;
   // gatewayVoice is the gateway voice chosen; empty is the gateway's default.
   gatewayVoice: string;
+  // localVoice is the local voice chosen, by its catalog id; empty is none.
+  localVoice: string;
   // voiceURI is the chosen voice; empty picks the device's own for the interface language.
   voiceURI: string;
   rate: number;
@@ -86,6 +89,7 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   style: "literal",
   engine: "device",
   gatewayVoice: "",
+  localVoice: "",
   voiceURI: "",
   rate: 1,
   maxChars: MEDIUM_CHARS,
@@ -102,7 +106,7 @@ export const RATES = [SLOW_RATE, 1, QUICK_RATE, FAST_RATE, 2];
 export const LENGTHS = [SHORT_CHARS, MEDIUM_CHARS, LONG_CHARS, 0];
 const MODES: SpeakMode[] = ["off", "voice", "always"];
 const STYLES: SpeakStyle[] = ["literal", "natural"];
-const ENGINES: SpeechEngine[] = ["device", "gateway"];
+const ENGINES: SpeechEngine[] = ["device", "gateway", "local"];
 
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
@@ -191,6 +195,7 @@ export function loadSpeechPrefs(): SpeechPrefs {
       style: oneOf(raw.style, STYLES, d.style),
       engine: oneOf(raw.engine, ENGINES, d.engine),
       gatewayVoice: stringOr(raw.gatewayVoice, d.gatewayVoice),
+      localVoice: stringOr(raw.localVoice, d.localVoice),
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
@@ -818,7 +823,7 @@ export interface AudioLike {
   pause(): void;
 }
 
-// fetchClip says one text with the gateway's voice: the audio, or a thrown error.
+// fetchClip says one text with the gateway's voice or a local one: the audio, or a thrown error.
 export type FetchClip = (text: string, signal: AbortSignal) => Promise<Blob>;
 
 // reasonOf is why a clip could not be had: the gateway's message, or "error".
@@ -863,7 +868,8 @@ export function speakClip(api: Api, voice: string): FetchClip {
   };
 }
 
-// ClipReader reads sentences with the gateway's voice, with the same contract as Reader.
+// ClipReader reads sentences with the gateway's voice or a local one, with the same contract as
+// Reader.
 export class ClipReader {
   private run = 0;
   private active: ReadOptions | null = null;

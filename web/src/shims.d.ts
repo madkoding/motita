@@ -30,3 +30,16 @@ declare module "markdown-it-task-lists" {
 
 // Stylesheets are imported for their side effect; Vite bundles them.
 declare module "*.css";
+
+// The phonemizer of @diffusionstudio/piper-wasm is an Emscripten module with no types.
+declare module "@diffusionstudio/piper-wasm/build/piper_phonemize.js" {
+  interface PiperModuleOptions {
+    print?: (line: string) => void;
+    printErr?: (line: string) => void;
+    wasmBinary?: ArrayBuffer;
+    getPreloadedPackage?: (name: string, size: number) => ArrayBuffer;
+    locateFile?: (name: string) => string;
+  }
+  const createPiperPhonemize: (opts: PiperModuleOptions) => Promise<{ callMain(args: string[]): number }>;
+  export default createPiperPhonemize;
+}

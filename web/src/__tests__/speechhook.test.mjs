@@ -528,6 +528,52 @@ test("gateway: chosen but off on this gateway, the device speaks", async () => {
   await s.done();
 });
 
+test("local voice: chosen, on and downloaded, the worker says each sentence; without one the device speaks", async () => {
+  played.length = 0;
+  const asked = [];
+  const warmed = [];
+  globalThis.Worker = class {
+    postMessage(m) {
+      if (m.kind === "warm") {
+        warmed.push(m.id);
+        return;
+      }
+      asked.push([m.id, m.text]);
+      queueMicrotask(() => this.onmessage({ data: { seq: m.seq, wav: new ArrayBuffer(4) } }));
+    }
+  };
+  globalThis.caches = {};
+  const g = gatewayApi();
+  let s = await mount("off", false, {
+    engine: "local",
+    prefs: { localVoice: "es_MX-claude-high" },
+    api: g.api,
+    local: true,
+  });
+  assert.equal(s.state.current.local, true);
+  assert.deepEqual(warmed, ["es_MX-claude-high"], "the voice is loaded with the page");
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.deepEqual(asked, [
+    ["es_MX-claude-high", "All done."],
+    ["es_MX-claude-high", "Tests pass."],
+  ]);
+  assert.equal(g.asked.length, 0, "nothing goes to the gateway's voice");
+  assert.equal(synth.said.length, 0, "the device says nothing");
+  await s.done();
+  // No voice downloaded yet: the device reads.
+  s = await mount("off", false, { engine: "local", api: g.api, local: true });
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.equal(asked.length, 2);
+  assert.deepEqual(synth.said.map((u) => u.text), ["All done."]);
+  await s.done();
+  delete globalThis.Worker;
+  delete globalThis.caches;
+});
+
 test("notices: said when turned on and the tab is visible, after what is being said", async () => {
   // jsdom is a hidden page unless told otherwise.
   const hidden = (value) =>

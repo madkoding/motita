@@ -43,6 +43,8 @@ type voiceView struct {
 	RestartNeeded bool `json:"restart_needed"`
 	// TTS is the gateway's voice, for reading answers aloud. See speak.go.
 	TTS ttsView `json:"tts"`
+	// Local says the page can download voices to run itself. See voicemodels.go.
+	Local bool `json:"local"`
 }
 
 // voiceSaved is the voice block as the configuration file has it. The key is never answered:
@@ -117,7 +119,8 @@ func (s *Server) voiceViewOf() voiceView {
 	if phrases == nil {
 		phrases = []string{}
 	}
-	v := voiceView{Enabled: now.svc != nil, WakePhrases: phrases, MaxAudioBytes: now.limit, TTS: s.ttsViewOf()}
+	v := voiceView{Enabled: now.svc != nil, WakePhrases: phrases, MaxAudioBytes: now.limit, TTS: s.ttsViewOf(),
+		Local: s.opts.VoiceModels != nil}
 	if s.opts.ConfigPath == "" {
 		return v
 	}

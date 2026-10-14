@@ -20,6 +20,7 @@ import {
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
+import { LocalVoices } from "./LocalVoiceSettings";
 import {
   LENGTHS,
   MEDIUM_CHARS,
@@ -69,6 +70,9 @@ export interface SpeechSettingsProps {
   // canListen says speech input works here, which conversation mode needs.
   allVoices?: VoiceLike[];
   canListen?: boolean;
+  // local says the gateway offers local voices this browser can run; api reaches them.
+  local?: boolean;
+  api?: Api;
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -103,6 +107,8 @@ export function SpeechSettings({
   gatewayVoices = [],
   allVoices = [],
   canListen = false,
+  local = false,
+  api,
 }: SpeechSettingsProps) {
   const set = useCallback(
     (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch }),
@@ -116,8 +122,35 @@ export function SpeechSettings({
     [set],
   );
   const hasGateway = gatewayVoices.length > 0;
-  // The gateway speaks when it is chosen, or when the device has no voices of its own.
-  const gateway = hasGateway && (prefs.engine === "gateway" || !device);
+  const hasLocal = local && !!api;
+  // A local voice speaks when it is chosen; the gateway when it is chosen, or when the device has
+  // no voices of its own.
+  const localChosen = hasLocal && prefs.engine === "local";
+  const gateway = !localChosen && hasGateway && (prefs.engine === "gateway" || !device);
+  const setLocalVoice = useCallback((localVoice: string) => set({ localVoice }), [set]);
+  const engines: { value: SpeechEngine; label: string }[] = [];
+  if (device) {
+    engines.push({ value: "device", label: t("This device") });
+  }
+  if (hasGateway) {
+    engines.push({ value: "gateway", label: t("The gateway") });
+  }
+  if (hasLocal) {
+    engines.push({ value: "local", label: t("Local voice") });
+  }
+  let engineHint = t("The voices of this device: nothing leaves the browser.");
+  let engineShown: SpeechEngine = "device";
+  if (localChosen) {
+    engineShown = "local";
+    engineHint = t(
+      "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.",
+    );
+  } else if (gateway) {
+    engineShown = "gateway";
+    engineHint = t(
+      "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.",
+    );
+  }
   const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
   const setLength = useCallback(
     (n: string) => set({ maxChars: Number(n) }),
@@ -177,32 +210,28 @@ export function SpeechSettings({
             ]}
           />
         </Row>
-        {hasGateway && device && (
+        {engines.length > 1 && (
           <Row
             id="settings-speech-engine"
             label={t("Who speaks")}
             stack
-            hint={choose(
-              gateway,
-              t(
-                "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.",
-              ),
-              t("The voices of this device: nothing leaves the browser."),
-            )}
+            hint={engineHint}
           >
             <Segmented<SpeechEngine>
               name="settings-speech-engine"
               labelledBy="settings-speech-engine"
-              value={prefs.engine}
+              value={engineShown}
               onChange={setEngine}
-              options={[
-                { value: "device", label: t("This device") },
-                { value: "gateway", label: t("The gateway") },
-              ]}
+              options={engines}
             />
           </Row>
         )}
-        {gateway ? (
+        {localChosen && api && (
+          <Row id="settings-speech-local" label={t("Local voices")} stack>
+            <LocalVoices api={api} chosen={prefs.localVoice} choose={setLocalVoice} />
+          </Row>
+        )}
+        {!localChosen && gateway && (
           <Row id="settings-speech-voice" label={t("Voice")}>
             <select
               class={inputCls + " max-w-[220px]"}
@@ -220,7 +249,8 @@ export function SpeechSettings({
               ))}
             </select>
           </Row>
-        ) : (
+        )}
+        {!localChosen && !gateway && (
           <Row
             id="settings-speech-voice"
             label={t("Voice")}

@@ -1337,6 +1337,32 @@ The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
 `MOTITA_VOICE_TTS_API_KEY`, `MOTITA_VOICE_TTS_MODEL`, `MOTITA_VOICE_TTS_VOICE`,
 `MOTITA_VOICE_TTS_FORMAT` and `MOTITA_VOICE_TTS_MAX_CHARS`; the list of voices is set in the file.
 
+#### Local voices
+
+A third choice in **Who speaks** runs a [Piper](https://github.com/rhasspy/piper) voice in the
+browser itself: once it is downloaded, the text of the answers never leaves the device and no
+speech service is needed. **Settings → Voice → Local voices** lists a few Spanish and English
+voices (about 63 MB each, plus 33 MB of engine the first time); **Download** asks the gateway to
+fetch one, **Use** chooses it and **Delete** removes it.
+
+The page cannot download anything itself. The gateway fetches each file once, from an address in
+a catalog compiled into the binary (the voices from `rhasspy/piper-voices` at `v1.0.0` on
+Hugging Face, the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm` packages on
+npm), checks its size and SHA-256 before keeping it in `~/.motita/voices`, and serves it from its
+own origin. The page keeps a copy in Cache Storage and runs the voice in a Worker, on WebAssembly;
+the page policy allows `'wasm-unsafe-eval'` for that and nothing more (JavaScript `eval` stays
+refused). `motita doctor` hashes the downloaded voices again.
+
+| Endpoint                                 | What it does                                                                                                         |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/voice/models`                   | The catalog, what is downloaded, and the download in progress (`done`, `total`, `error` when it failed).             |
+| `POST /v1/voice/models/{id}`             | Starts downloading a voice (and the engine, when missing): `202`; `200` when it is there already; `409` while another downloads. |
+| `DELETE /v1/voice/models/{id}`           | Removes a voice; the engine stays. `409` while it downloads.                                                         |
+| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`), or of the engine with `{id}` = `runtime`.               |
+
+`GET /v1/voice` also answers `"local":true`. The first sentence of a session waits for the voice
+to load (a few seconds); the page loads the chosen voice when it opens to hide most of that wait.
+
 ### The skill library
 
 The library described in the README is served whole: the documents, their

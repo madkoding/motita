@@ -540,6 +540,8 @@ function SettingsHost() {
         gatewayVoices: speech.gatewayVoices,
         allVoices: speech.allVoices,
         canListen: voice.state === "ready",
+        local: speech.local,
+        api: request,
       }}
       llm={{
         api: request,

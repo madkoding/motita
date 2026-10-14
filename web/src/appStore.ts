@@ -122,6 +122,7 @@ export function useAppStore(api: Api) {
     api,
     stepsByTurn: rs.stepsByTurn,
     tts: voice.info?.tts,
+    local: voice.info?.local,
     approval: rs.approval,
   });
   // Conversation mode sends what it heard as a new turn, the way the composer would.

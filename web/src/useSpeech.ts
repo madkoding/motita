@@ -11,6 +11,7 @@ import {
   useState,
 } from "preact/hooks";
 import { choose } from "./choose";
+import { localClip, localVoicesSupported, warmLocal } from "./localVoice";
 import { lang, t } from "./i18n";
 import type { Message, SetToast, StepView } from "./appTypes";
 import type { Api } from "./prApi";
@@ -54,6 +55,8 @@ interface Deps {
   stepsByTurn?: Record<number, StepView[]>;
   // tts is the gateway's voice, as GET /v1/voice describes it; absent or off, the device speaks.
   tts?: TTSInfo;
+  // local says the gateway offers local voices (GET /v1/voice); the page runs them itself.
+  local?: boolean;
   // approval is the question the agent waits on, said aloud as a notice when it arrives.
   approval?: { id: string; question?: string } | null;
 }
@@ -331,7 +334,13 @@ function useClipReader(
       return null;
     }
     return new ClipReader(
-      () => speakClip(apiRef.current as Api, prefsRef.current.gatewayVoice),
+      () => {
+        const p = prefsRef.current;
+        if (p.engine === "local") {
+          return localClip(p.localVoice);
+        }
+        return speakClip(apiRef.current as Api, p.gatewayVoice);
+      },
       () => new Audio() as unknown as AudioLike,
       {
         create: (b) => URL.createObjectURL(b),
@@ -341,12 +350,24 @@ function useClipReader(
   }, [on, prefsRef]);
 }
 
-// useReader is whichever speaks: the gateway when it is chosen and on, the device otherwise.
+// clipSpeaks says the clip reader is the one to speak: the gateway or a local voice is chosen,
+// and on.
+function clipSpeaks(p: SpeechPrefs, gatewayOn: boolean, localOn: boolean): boolean {
+  if (p.engine === "gateway") {
+    return gatewayOn;
+  }
+  return p.engine === "local" && localOn && p.localVoice !== "";
+}
+
+// useReader is whichever speaks: the gateway or a local voice when it is chosen and on, the
+// device otherwise.
 // Stopping stops both, so a change of engine mid-sentence leaves nothing talking.
 function useReader(
   device: Reader | null,
   clip: ClipReader | null,
   prefsRef: { current: SpeechPrefs },
+  gatewayOn: boolean,
+  localOn: boolean,
 ): AnyReader | null {
   return useMemo(() => {
     const first = device || clip;
@@ -354,7 +375,7 @@ function useReader(
       return null;
     }
     const pick = (): AnyReader => {
-      if (clip && prefsRef.current.engine === "gateway") {
+      if (clip && clipSpeaks(prefsRef.current, gatewayOn, localOn)) {
         return clip;
       }
       return first;
@@ -377,7 +398,7 @@ function useReader(
         clip?.stop();
       },
     };
-  }, [device, clip, prefsRef]);
+  }, [device, clip, prefsRef, gatewayOn, localOn]);
 }
 
 // useFollow says the view follows the sentence being read: scrolling by hand while reading turns
@@ -727,18 +748,29 @@ export function useSpeech({
   api,
   stepsByTurn,
   tts,
+  local,
   approval,
 }: Deps) {
   const device = useMemo(speechSupported, []);
   const gatewayOn = !!(tts?.enabled && api && typeof Audio !== "undefined");
-  const supported = device || gatewayOn;
+  const localOn = !!(local && api && typeof Audio !== "undefined" && localVoicesSupported());
+  const supported = device || gatewayOn || localOn;
   const { prefs, prefsRef, setPrefs } = useSpeechPrefs();
   const { voices, voicesRef } = useDeviceVoices(device);
   const [speakingId, setSpeakingId] = useState<number | null>(null);
+  // A local voice in use is loaded with the page, so the first answer does not wait for it.
+  const warmId = choose(localOn && prefs.engine === "local", prefs.localVoice, "");
+  useEffect(() => {
+    if (warmId) {
+      warmLocal(warmId);
+    }
+  }, [warmId]);
   const reader = useReader(
     useDeviceReader(device),
-    useClipReader(gatewayOn, api, prefsRef),
+    useClipReader(gatewayOn || localOn, api, prefsRef),
     prefsRef,
+    gatewayOn,
+    localOn,
   );
 
   // NATURAL STYLE state: the lines waiting for the voice, the lines said this turn, and a counter
@@ -887,6 +919,8 @@ export function useSpeech({
     // device says the device has voices of its own; gatewayVoices are the gateway's, when it has one.
     device,
     gatewayVoices: choose(gatewayOn, tts?.voices ?? [], []),
+    // local says the gateway offers local voices and this browser can run them.
+    local: localOn,
     prefs,
     setPrefs,
     voices: voicesFor(voices, lang()),

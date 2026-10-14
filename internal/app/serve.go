@@ -264,6 +264,8 @@ func (op Options) startGateway(
 		Speech:         speechFor(cfg),
 		SpeechVoices:   cfg.TTSVoices(),
 		SpeechMaxChars: cfg.TTSMaxChars(),
+		// Local voices, downloaded on request to ~/.motita/voices from a fixed catalog.
+		VoiceModels: voiceLibrary(),
 		// The optional https listener, beside the plain one the local clients use.
 		TLSListen: cfg.Gateway.TLS.Listen,
 		TLSCert:   cfg.Gateway.TLS.Cert,
@@ -342,6 +344,16 @@ func projectDir() string {
 
 // pushDir returns the directory where the phone notifications' key and subscriptions are kept:
 // ~/.motita/push. Empty when there is no home directory, and then there are none.
+// voiceLibrary is the catalog of local voices and where they are kept, ~/.motita/voices. Nil
+// without a home directory.
+func voiceLibrary() *voice.Library {
+	d := config.Dir()
+	if d == "" {
+		return nil
+	}
+	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime, Models: voice.PiperVoices}
+}
+
 func pushDir() string {
 	d := config.Dir()
 	if d == "" {
