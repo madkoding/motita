@@ -119,7 +119,8 @@ func TestGatewaySetupAsksAgainAndSaysTheRunningOneNeedsARestart(t *testing.T) {
 	if cfg.Gateway.Listen != "127.0.0.1:9000" {
 		t.Fatalf("listen = %q", cfg.Gateway.Listen)
 	}
-	for _, want := range []string{"set by hand (0.0.0.0:9000)", "motita gateway stop && motita gateway start"} {
+	for _, want := range []string{"set by hand (0.0.0.0:9000)", "motita gateway stop && motita gateway start",
+		"VOICE: speech input is off"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

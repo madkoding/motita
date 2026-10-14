@@ -720,6 +720,49 @@ const es: Record<string, string> = {
     "Desactivado en el gateway: activa voice.enabled en la configuración.",
   "Add voice.wake_phrases to the configuration first.":
     "Primero agrega voice.wake_phrases a la configuración.",
+  "Turn on speech input above first.":
+    "Primero activa la entrada de voz, más arriba.",
+  "Add a wake phrase above first.":
+    "Primero agrega una frase de activación, más arriba.",
+  "The recording is not stored, by the gateway or by this page.":
+    "La grabación no se guarda, ni en el gateway ni en esta página.",
+  "A key typed here is kept beside the configuration and never shown again.":
+    "La clave que escribas aquí se guarda junto a la configuración y no se vuelve a mostrar.",
+  "This provider has no transcription service of its own: name one.":
+    "Este proveedor no tiene un servicio de transcripción propio: indica uno.",
+  "What the microphone hears is sent to {endpoint} to be turned into text.":
+    "Lo que escucha el micrófono se envía a {endpoint} para pasarlo a texto.",
+  "Off. Turn it on to dictate and to use the wake phrase.":
+    "Desactivada. Actívala para dictar y usar la frase de activación.",
+  "Recordings go to {endpoint} ({model}).":
+    "Las grabaciones van a {endpoint} ({model}).",
+  "With the language model's own key.":
+    "Con la misma clave del modelo de lenguaje.",
+  "Speech input": "Entrada de voz",
+  "Transcription service": "Servicio de transcripción",
+  Change: "Cambiar",
+  "Change the transcription service?": "¿Cambiar el servicio de transcripción?",
+  "Turn on speech input?": "¿Activar la entrada de voz?",
+  "Saved. Paste a new one to replace it":
+    "Guardada. Pega una nueva para reemplazarla",
+  "Not needed for a local server": "No hace falta para un servidor local",
+  "Wake phrases": "Frases de activación",
+  "Separated by commas. Listening hands-free starts a message when it hears one.":
+    "Separadas por comas. La escucha manos libres empieza un mensaje cuando oye una.",
+  "hey motita": "oye motita",
+  "Saved. Applies when the gateway restarts: run motita gateway stop, then motita gateway start.":
+    "Guardado. Se aplica al reiniciar el gateway: ejecuta motita gateway stop y luego motita gateway start.",
+  "The browser was not allowed to use the microphone: allow it in this site's settings, then try again.":
+    "El navegador no tiene permiso para usar el micrófono: permítelo en los ajustes de este sitio y vuelve a intentarlo.",
+  "The chosen microphone is not connected: the default one is used.":
+    "El micrófono elegido no está conectado: se usa el predeterminado.",
+  "Allow the microphone to see the names of the ones connected.":
+    "Permite el micrófono para ver los nombres de los que están conectados.",
+  "Used for dictation and the wake phrase, on this device only.":
+    "Se usa para dictar y para la frase de activación, solo en este dispositivo.",
+  "Microphone {n}": "Micrófono {n}",
+  Microphone: "Micrófono",
+  "System default": "Predeterminado del sistema",
   Dictate: "Dictar",
   "Stop and transcribe": "Detener y transcribir",
   "Transcribing…": "Transcribiendo…",
@@ -987,7 +1030,8 @@ const es: Record<string, string> = {
   "Stop reading": "Dejar de leer",
   "Read aloud": "Leer en voz alta",
   "Read answers aloud": "Leer las respuestas en voz alta",
-  "This browser cannot read aloud.": "Este navegador no puede leer en voz alta.",
+  "This browser cannot read aloud.":
+    "Este navegador no puede leer en voz alta.",
   "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.":
     "Con las voces de este dispositivo. Alt+L o 🔊 en una respuesta la lee o la detiene.",
   Off: "Apagado",

@@ -1233,11 +1233,22 @@ listens goes to the transcription endpoint**, which is why it is off by default 
 The microphone only exists for a page served over **https or from localhost**: opened by a LAN
 address over plain http, the settings show both switches greyed out with that reason. See
 `gateway.tls`. Both switches (the microphone button, and listening for the wake phrase) are kept
-in the browser, per device.
+in the browser, per device, and so is the **microphone** chosen in Settings → Voice (the system's
+default unless one is picked; an unplugged one falls back to the default).
+
+**Turning it on from the browser.** Settings → Voice has a **Speech input** switch, the
+transcription service (OpenAI and Groq fill the form in one tap; a local server is typed) and the
+wake phrases. Turning it on, or pointing it at another endpoint, first says where recordings go
+and needs a yes. The change is written into the configuration file in place (comments kept); a
+change that would leave the file invalid (a provider with no transcription API and no
+`base_url`) is undone. A key typed there goes to the credentials file beside the configuration as
+`MOTITA_VOICE_API_KEY`, never into the YAML, and is never sent back. The gateway applies it at
+once, without a restart. `motita doctor` and `motita gateway setup` say when it is off.
 
 | Endpoint                    | What it does                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/voice`             | `{"enabled":true,"wake_phrases":["hey motita"],"max_audio_bytes":10485760}`                                                                                                                                                                                                                                       |
+| `PUT /v1/voice`             | `{"enabled":true,"confirm":true,"base_url":"...","model":"...","api_key":"...","wake_phrases":[...]}`; every field but `enabled` is optional. `confirm` is required to turn it on or change `base_url`. Answers `GET` plus `can_save`, `saved` (the file's block, `has_key` instead of the key) and `restart_needed`.                                    |
 | `POST /v1/voice/transcribe` | The raw recording as the body, typed by `Content-Type` (`audio/webm`, `audio/mp4`, `audio/wav`, ...). `{"text":"..."}`; with `?wake=1` also `"wake":{"phrase","rest"}` when one opened it. `415` for another type, `413` over the cap, `501` when voice is off, `502` with the endpoint's answer when it refused. |
 
 The variables are `MOTITA_VOICE_ENABLED`, `MOTITA_VOICE_BASE_URL`, `MOTITA_VOICE_API_KEY`,

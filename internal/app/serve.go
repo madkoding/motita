@@ -258,6 +258,8 @@ func (op Options) startGateway(
 		Voice:         voiceFor(cfg),
 		WakePhrases:   cfg.Voice.WakePhrases,
 		MaxAudioBytes: cfg.VoiceMaxAudioBytes(),
+		// A change saved from the settings builds its transcriber the same way, without a restart.
+		VoiceFrom: voiceFor,
 		// The optional https listener, beside the plain one the local clients use.
 		TLSListen: cfg.Gateway.TLS.Listen,
 		TLSCert:   cfg.Gateway.TLS.Cert,

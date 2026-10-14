@@ -526,6 +526,9 @@ function SettingsHost() {
         phrases: voice.info?.wake_phrases || [],
         prefs: voice.prefs,
         setPrefs: voice.setPrefs,
+        info: voice.info,
+        api: request,
+        onInfo: voice.setInfo,
       }}
       speech={{
         supported: speech.supported,
