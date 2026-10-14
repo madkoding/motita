@@ -1236,6 +1236,81 @@ div[role="log"]:not(.chat-loading) > * {
   color: inherit;
 }
 
+/* Subtitles (Subtitles.tsx): the sentence being said, like a film's subtitle. The anchor is a
+ * line of no height just above the approval panel and the composer, so the subtitle grows upward
+ * over the end of the conversation and never covers what the person types or answers. White on
+ * a dark translucent box with a shadow reads on any background; it takes no click. */
+.subtitles-anchor {
+  position: relative;
+  height: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.subtitles {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  width: max-content;
+  max-width: min(42rem, calc(100% - 2rem));
+  margin: 0;
+  padding: 0.35em 0.8em;
+  border-radius: 0.5rem;
+  background: rgba(8, 8, 12, 0.78);
+  color: #fff;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 0.4rem);
+  /* Hidden: visibility waits for the fade, so the box leaves the screen reader's tree after it. */
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms ease-out,
+    visibility 0s linear 180ms;
+}
+.subtitles[data-shown] {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition-delay: 0s;
+}
+.subtitles-small {
+  font-size: 0.875rem;
+}
+.subtitles-medium {
+  font-size: 1.0625rem;
+}
+.subtitles-large {
+  font-size: 1.375rem;
+}
+@media (max-width: 767px) {
+  .subtitles {
+    max-width: calc(100% - 1.5rem);
+  }
+  .subtitles-medium {
+    font-size: 1rem;
+  }
+  .subtitles-large {
+    font-size: 1.25rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No slide and no fade: the subtitle appears and leaves at once. */
+  .subtitles,
+  .subtitles[data-shown] {
+    transform: translate(-50%, 0);
+    transition: none;
+  }
+}
+
 /* Blockquotes: enclosed in a bordered box. */
 .markdown-body blockquote {
   margin: 2px 0;

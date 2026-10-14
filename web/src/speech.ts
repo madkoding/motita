@@ -78,7 +78,14 @@ export interface SpeechPrefs {
   langVoices: Partial<Record<Lang, string>>;
   // pronunciations are the person's own: a term and how to say it, before the built-in ones.
   pronunciations: Pronunciation[];
+  // subtitles shows on screen, like a film's subtitles, the sentence the voice is saying;
+  // subtitleSize is how big it is drawn.
+  subtitles: boolean;
+  subtitleSize: SubtitleSize;
 }
+
+// How big the subtitles are drawn.
+export type SubtitleSize = "small" | "medium" | "large";
 
 export interface Pronunciation {
   term: string;
@@ -116,6 +123,8 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   byLanguage: false,
   langVoices: {},
   pronunciations: [],
+  subtitles: false,
+  subtitleSize: "medium",
 };
 // SPEECH_PREFS_EVENT tells the page the settings changed in the settings screen.
 export const SPEECH_PREFS_EVENT = "motita-speech-prefs";
@@ -125,6 +134,7 @@ export const LENGTHS = [SHORT_CHARS, MEDIUM_CHARS, LONG_CHARS, 0];
 const MODES: SpeakMode[] = ["off", "voice", "always"];
 const STYLES: SpeakStyle[] = ["literal", "natural"];
 const ENGINES: SpeechEngine[] = ["device", "gateway", "local"];
+export const SUBTITLE_SIZES: SubtitleSize[] = ["small", "medium", "large"];
 
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
@@ -245,6 +255,8 @@ export function loadSpeechPrefs(): SpeechPrefs {
       byLanguage: raw.byLanguage === true,
       langVoices: langVoicesOf(raw.langVoices),
       pronunciations: pronunciationsOf(raw.pronunciations),
+      subtitles: raw.subtitles === true,
+      subtitleSize: oneOf(raw.subtitleSize, SUBTITLE_SIZES, d.subtitleSize),
     };
   } catch {
     return { ...DEFAULT_SPEECH_PREFS };
@@ -1143,6 +1155,14 @@ export function sayNotice(text: string): void {
       new CustomEvent(SPEECH_NOTICE_EVENT, { detail: text.trim() }),
     );
   }
+}
+
+// SUBTITLE_EVENT carries the sentence the voice starts saying, or "" when it stops: the
+// subtitles on screen follow it, whichever voice speaks.
+export const SUBTITLE_EVENT = "motita-subtitle";
+
+export function showSubtitle(text: string): void {
+  window.dispatchEvent(new CustomEvent(SUBTITLE_EVENT, { detail: text }));
 }
 
 // SPEECH_TURN_READ_EVENT tells the page the answer to a spoken turn was read to its end: in
