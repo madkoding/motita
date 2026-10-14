@@ -1107,6 +1107,29 @@ such work deliberately, which is the documented escape hatch for an unattended j
 not a new guardrail and it is not configurable per task: a switch a task could flip is how
 a guardrail gets switched off during the incident it was meant for.
 
+### Colour and glyphs in the terminal
+
+The terminal interface and the setup wizard work out what the console can show before they
+draw anything, so a console that cannot do colour gets plain text instead of escape codes:
+
+- On **Windows**, motita switches the console into virtual terminal mode. The classic console
+  window that `powershell.exe` and `cmd.exe` open needs it, and without it every colour came out
+  as a code printed as text. Windows Terminal (`WT_SESSION`) already has it.
+- Colour is used only when the output is a terminal: a pipe or a log file gets none.
+- The depth comes from `COLORTERM`, `TERM` and `WT_SESSION` (truecolor, 256 or 16 colours).
+  `TERM=dumb` means no escapes at all.
+- A console that refuses virtual terminal mode (Windows older than 10) gets no escapes and
+  draws its frame in plain ASCII (`+-|*>`) instead of box drawing and arrows.
+
+What you set wins over what is detected, in this order:
+
+| Variable       | Values                                       | Effect                                                         |
+| -------------- | -------------------------------------------- | -------------------------------------------------------------- |
+| `MOTITA_COLOR` | `never`, `auto`, `always`, `16`, `256`, `truecolor` | motita's own switch; beats the two below                  |
+| `NO_COLOR`     | any non-empty value                          | no colour ([no-color.org](https://no-color.org))               |
+| `FORCE_COLOR`  | `0`, `1`, `2`, `3`                           | `0` turns colour off; `1`-`3` force it, even into a pipe       |
+| `MOTITA_ASCII` | `1` / `0`                                    | force the ASCII frame, or keep the glyphs on a legacy console  |
+
 ### The interface language
 
 The terminal, the browser and the setup wizard speak English or Spanish, chosen by one
@@ -1752,6 +1775,7 @@ internal/task/        task sources: stdin, file, queue, API
 internal/template/    the {{...}} variables of the prompts
 internal/app/         program logic (options, layers, shutdown, TUI wiring)
 internal/tui/         interactive text user interface (stdlib only)
+internal/termcap/     what the console can show: colour depth, escapes, ASCII glyphs
 internal/plan/        read-only plan/chat mode with native tool calling
 internal/skills/        the procedure library: the documents, and their archive
 internal/curator/       the maintenance pass: stale, archive, and consolidation

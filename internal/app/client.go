@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -201,7 +200,7 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	ui.In = op.Stdin
 	ui.Out = op.Out
 	ui.Err = op.Err
-	ui.NoColor = noColour(os.Getenv, op.Out)
+	applyProfile(ui, op.Out)
 	ui.ShowActions = cfg.Gateway.ShowActions
 	ui.Lang = clientLanguage(client, cfg)
 	// The version of the GATEWAY, not of this binary. This process is a client: it builds no

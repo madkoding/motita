@@ -13,6 +13,7 @@ import (
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/termcap"
 	"github.com/madkoding/motita/internal/tui"
 )
 
@@ -68,7 +69,7 @@ func (op Options) runTUI(
 	ui.In = op.Stdin
 	ui.Out = op.Out
 	ui.Err = op.Err
-	ui.NoColor = noColour(os.Getenv, op.Out)
+	applyProfile(ui, op.Out)
 	ui.Notice = fl.notice
 	ui.ShowActions = cfg.Gateway.ShowActions
 	ui.Lang = i18n.Resolve(cfg.UI.Language, os.Getenv)
@@ -203,29 +204,22 @@ func (op Options) startOwnGateway(
 	return srv.BaseURL(), srv.Token(), srv, nil
 }
 
-// noColour reports whether the interface must render without colour.
+// outputProfile is what the interface may draw on out: whether it may use colour, and whether it
+// has to draw its frame in plain ASCII.
 //
-// Two rules, both from the design guide, and both were missing: the NO_COLOR
-// variable is the cross-tool convention a user sets once and expects every
-// program to honour, and TERM=dumb means the terminal cannot do escapes at all —
-// sending them there prints the sequences as text.
-//
-// The writer is checked for being a terminal only as a last resort, and the check
-// is deliberately conservative: when the output is not a file or a terminal at all
-// (a buffer in a test, a pipe into a log) colour is left off, because nothing is
-// watching that can interpret it.
-func noColour(getenv func(string) string, out io.Writer) bool {
-	if _, set := os.LookupEnv("NO_COLOR"); set {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(getenv("TERM"))) {
-	case "dumb", "":
-		return true
-	default:
-		// The question "is anything watching that can interpret escapes" is answered in one
-		// place, tui.IsTerminal, and asked from both the colour decision and the mouse
-		// feature. Two implementations of it drifted apart once already: the mouse code had
-		// its own copy under a different name.
-		return !tui.IsTerminal(out)
+// The decision lives in termcap, shared with the setup wizard: NO_COLOR, FORCE_COLOR, MOTITA_COLOR
+// and MOTITA_ASCII, TERM=dumb, a writer that is not a terminal (a buffer in a test, a pipe into a
+// log), and on Windows the console's virtual terminal mode, which Detect switches on. Before it,
+// TERM was required, and Windows does not set TERM: the interface came up without colour in every
+// Windows console.
+func outputProfile(out io.Writer) termcap.Profile { return termcap.Detect(os.LookupEnv, out) }
+
+// applyProfile hands the interface what out can show: colour or none, and the ASCII filter in front
+// of the output when the console's font cannot be trusted with box drawing.
+func applyProfile(ui *tui.TUI, out io.Writer) {
+	p := outputProfile(out)
+	ui.NoColor = !p.Color()
+	if p.ASCII {
+		ui.Out = p.Writer(out)
 	}
 }
