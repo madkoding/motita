@@ -7,17 +7,23 @@ import type { ProviderInfo } from "./appTypes";
 
 // ProviderLogo is the provider's logo, or its initial when there is none, on the settings tile.
 export function ProviderLogo({ id, name }: { id: string; name: string }) {
-  const logo = PROVIDER_LOGOS[id];
   return (
     <span class="git-account-icon llm-icon" aria-hidden="true" data-logo={id}>
-      {logo ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
-          <path d={logo.d} />
-        </svg>
-      ) : (
-        name.charAt(0)
-      )}
+      <ProviderMark id={id} name={name} />
     </span>
+  );
+}
+
+// ProviderMark is what the tile holds: the logo when there is one, else the name's initial.
+function ProviderMark({ id, name }: { id: string; name: string }) {
+  const logo = PROVIDER_LOGOS[id];
+  if (!logo) {
+    return <>{name.charAt(0)}</>;
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
+      <path d={logo.d} />
+    </svg>
   );
 }
 

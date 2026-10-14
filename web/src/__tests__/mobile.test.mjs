@@ -16,6 +16,7 @@ const css = src("index.css");
 const SIDEBAR = "Sidebar.tsx";
 const HOVER = "(hover: hover)";
 const COARSE = "(pointer: coarse)";
+const PHONE_MEDIA = "(max-width: 767px)";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -85,7 +86,7 @@ function rule(text, selector) {
 }
 
 test("the phone breakpoint is the one the sidebar markup switches at", () => {
-  assert.equal(PHONE_QUERY, "(max-width: 767px)");
+  assert.equal(PHONE_QUERY, PHONE_MEDIA);
   assert.match(src(SIDEBAR), /fixed md:relative/);
   assert.match(src(SIDEBAR), /md:hidden/);
 });
@@ -117,7 +118,8 @@ test("picking a session on a phone closes the sidebar sheet", () => {
   // Tapping the session that is already open changes no id, so the sidebar closes on the tap.
   const row = document.createElement("div");
   row.className = "session-row";
-  row.innerHTML = '<span class="label">x</span><button class="row-hit"></button>';
+  row.innerHTML =
+    '<span class="label">x</span><button class="row-hit"></button>';
   const project = document.createElement("div");
   project.className = "project-header";
   project.innerHTML = '<button class="row-hit"></button>';
@@ -138,7 +140,11 @@ test("the keyboard is told apart from the URL bar sliding away", () => {
   const URL_BAR_H = 780;
   const KEYBOARD_H = 500;
   assert.equal(keyboardOpen(PHONE_H, PHONE_H), false);
-  assert.equal(keyboardOpen(PHONE_H, URL_BAR_H), false, "browser chrome is not a keyboard");
+  assert.equal(
+    keyboardOpen(PHONE_H, URL_BAR_H),
+    false,
+    "browser chrome is not a keyboard",
+  );
   assert.equal(keyboardOpen(PHONE_H, KEYBOARD_H), true);
 });
 
@@ -156,7 +162,7 @@ test("the shell is the visible height and keeps clear of the notch and home indi
     /html\[data-keyboard="open"\] \.app-shell \{\s*padding-bottom: 0;/,
   );
   assert.match(
-    mediaBlocks("(max-width: 767px)"),
+    mediaBlocks(PHONE_MEDIA),
     /\.sidebar \{[^}]*env\(safe-area-inset-top\)[^}]*env\(safe-area-inset-bottom\)/,
   );
   const app = src("App.tsx");
@@ -164,12 +170,18 @@ test("the shell is the visible height and keeps clear of the notch and home indi
   assert.match(app, /useVisualViewport\(\);/);
   assert.doesNotMatch(app, /h-dvh/, "nothing sizes itself past the keyboard");
   // The toast sits under the header bar, so it keeps clear of the notch rather than the home bar.
-  assert.match(src("ToastCard.tsx"), /top-\[calc\([^\]]*env\(safe-area-inset-top\)/);
+  assert.match(
+    src("ToastCard.tsx"),
+    /top-\[calc\([^\]]*env\(safe-area-inset-top\)/,
+  );
 });
 
 test("copy buttons are hidden for hover only where something can hover", () => {
   const touch = outsideMedia(HOVER);
-  for (const sel of [".markdown-body .copy-btn", ".markdown-body .copy-msg-btn"]) {
+  for (const sel of [
+    ".markdown-body .copy-btn",
+    ".markdown-body .copy-msg-btn",
+  ]) {
     const outside = touch.split(sel + " {").slice(1);
     assert.ok(outside.length > 0, `${sel} is styled`);
     for (const body of outside) {
@@ -203,7 +215,10 @@ test("touch targets are at least 44px, only for a finger", () => {
     coarse,
     /button:not\(\.row-hit\):not\(\.term-tab\),\s*select,\s*summary,\s*\[role="button"\] \{\s*min-height: 44px;/,
   );
-  assert.match(coarse, /button:is\(\[aria-label\], \[title\]\)[^{]*\{\s*min-width: 44px;/);
+  assert.match(
+    coarse,
+    /button:is\(\[aria-label\], \[title\]\)[^{]*\{\s*min-width: 44px;/,
+  );
   assert.match(coarse, /\.term-tab \{\s*left: -44px;\s*width: 44px;/);
   // The 44px floor must not leak to the desktop.
   assert.doesNotMatch(outsideMedia(COARSE), /min-height: 44px;/);
@@ -218,7 +233,11 @@ test("fields are 16px on a touch screen, so iOS does not zoom into them", () => 
 
 test("a project's + is visible on a touch screen", () => {
   const button = src("NewSessionButton.ts");
-  assert.doesNotMatch(button, /group-hover:|opacity-0/, "no hover-only utility");
+  assert.doesNotMatch(
+    button,
+    /group-hover:|opacity-0/,
+    "no hover-only utility",
+  );
   assert.match(button, /project-new-session/);
   assert.doesNotMatch(
     outsideMedia(HOVER),
@@ -228,17 +247,23 @@ test("a project's + is visible on a touch screen", () => {
     mediaBlocks(HOVER),
     /\.project-header \.project-new-session \{\s*opacity: 0;/,
   );
-  assert.match(mediaBlocks(HOVER), /\.project-header:hover \.project-new-session/);
+  assert.match(
+    mediaBlocks(HOVER),
+    /\.project-header:hover \.project-new-session/,
+  );
 });
 
 test("the settings tabs fit a phone's width instead of running off the panel", () => {
-  const phone = mediaBlocks("(max-width: 767px)");
+  const phone = mediaBlocks(PHONE_MEDIA);
   assert.match(phone, /\.settings-tab\s*\{[^}]*white-space:\s*normal/);
   assert.match(phone, /\.settings-tab\s*\{[^}]*min-width:\s*0/);
 });
 
 test("an open dialog moves the toast off its title", () => {
-  assert.match(css, /body:has\(\[data-modal\]\) \.toast-layer\s*\{[^}]*bottom:/);
+  assert.match(
+    css,
+    /body:has\(\[data-modal\]\) \.toast-layer\s*\{[^}]*bottom:/,
+  );
   assert.match(src("ToastCard.tsx"), /class="toast-layer /);
   assert.match(src("ModalBackdrop.tsx"), /data-modal=/);
   for (const f of ["AuthModal.tsx", "GitConnect.tsx", "RepoPicker.tsx"]) {

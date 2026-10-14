@@ -392,6 +392,7 @@ func TestSendWritesEachInItsLanguageAndForgetsTheGone(t *testing.T) {
 			return answer(http.StatusNotFound), nil
 		case "/fcm/send/abc/broken":
 			return answer(http.StatusInternalServerError), nil
+		default: // a live endpoint: decrypted below
 		}
 		for _, b := range []*browser{en, es} {
 			if b.sub.Endpoint == r.URL.String() {

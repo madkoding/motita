@@ -60,7 +60,8 @@ func failingRand(t *testing.T) {
 	t.Cleanup(func() { oauth.RandReader = old })
 }
 
-const copilotDevice = `{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device","interval":1}`
+const copilotDevice = `{"device_code":"dc","user_code":"AB-12",` +
+	`"verification_uri":"https://github.com/login/device","interval":1}`
 
 func TestCopilotLogin(t *testing.T) {
 	useOAuth(t, loginRT{})
@@ -101,8 +102,9 @@ func TestCopilotLogin(t *testing.T) {
 
 func TestQwenLogin(t *testing.T) {
 	useOAuth(t, loginRT{
-		"/api/v1/oauth2/device/code": ok200(`{"device_code":"dc","user_code":"QW","verification_uri_complete":"https://q/a"}`),
-		"/api/v1/oauth2/token":       ok200(`{"access_token":"qa","refresh_token":"qr","expires_in":3600}`),
+		"/api/v1/oauth2/device/code": ok200(
+			`{"device_code":"dc","user_code":"QW","verification_uri_complete":"https://q/a"}`),
+		"/api/v1/oauth2/token": ok200(`{"access_token":"qa","refresh_token":"qr","expires_in":3600}`),
 	})
 	f, err := qwenLogin(context.Background())
 	if err != nil || f.URL != "https://q/a" {
@@ -212,7 +214,17 @@ func waitStatus(t *testing.T, srv *Server, id string) loginView {
 func TestLLMLoginOverHTTP(t *testing.T) {
 	path := llmEnv(t, openAIConfig)
 	srv, svc := llmServer(t, path)
-	fakeStarters(t, map[string]func(context.Context) (loginFlow, error){
+	fakeStarters(t, fakeLoginFlows())
+	id := checkCodeLogin(t, srv, svc)
+	checkDeviceLogin(t, srv)
+	checkOtherLogins(t, srv, id)
+	checkLoginForget(t, srv)
+}
+
+// fakeLoginFlows is one flow of each kind: a pasted code, a device code, a failing start and an
+// instant login.
+func fakeLoginFlows() map[string]func(context.Context) (loginFlow, error) {
+	return map[string]func(context.Context) (loginFlow, error){
 		"codex": func(context.Context) (loginFlow, error) {
 			return loginFlow{Method: "code", URL: "https://auth.example/authorize",
 				Wait: func(ctx context.Context, pasted <-chan string) (oauth.Credential, error) {
@@ -237,8 +249,12 @@ func TestLLMLoginOverHTTP(t *testing.T) {
 				return oauth.Credential{RefreshToken: "g", ProjectID: "p"}, nil
 			}}, nil
 		},
-	})
+	}
+}
 
+// checkCodeLogin runs the code flow to its end and returns its id.
+func checkCodeLogin(t *testing.T, srv *Server, svc *refreshingService) string {
+	t.Helper()
 	// A code flow: the page shows the link, the pasted address finishes it.
 	v := decodeLogin(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/codex/login", ""))
 	if v.Status != "pending" || v.Method != "code" || v.URL == "" {
@@ -249,7 +265,8 @@ func TestLLMLoginOverHTTP(t *testing.T) {
 			t.Errorf("paste %s: %d", body, w.Code)
 		}
 	}
-	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/logins/"+v.ID+"/paste", `{"code":"c1"}`); w.Code != http.StatusAccepted {
+	paste := "/v1/llm/logins/" + v.ID + "/paste"
+	if w := llmCall(t, srv, http.MethodPost, paste, `{"code":"c1"}`); w.Code != http.StatusAccepted {
 		t.Fatalf("paste: %d", w.Code)
 	}
 	if got := waitStatus(t, srv, v.ID); got.Status != "connected" {
@@ -268,7 +285,12 @@ func TestLLMLoginOverHTTP(t *testing.T) {
 	if p := providerOf(decodeLLM(t, get(t, srv, "/v1/llm", testToken)), "codex"); p.Key != config.KeyLogin {
 		t.Errorf("codex = %+v", p)
 	}
+	return v.ID
+}
 
+// checkDeviceLogin starts the device flow and cancels it.
+func checkDeviceLogin(t *testing.T, srv *Server) {
+	t.Helper()
 	// A device flow is cancelled; a device flow takes no pasted code.
 	d := decodeLogin(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/copilot/login", ""))
 	if d.Code != "AB-12" {
@@ -288,13 +310,18 @@ func TestLLMLoginOverHTTP(t *testing.T) {
 	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/logins/nope/paste", `{"code":"x"}`); w.Code != 404 {
 		t.Errorf("paste to nothing: %d", w.Code)
 	}
+}
 
+// checkOtherLogins runs the instant login and the ones that cannot start; codexID is the finished
+// code login the next one prunes.
+func checkOtherLogins(t *testing.T, srv *Server, codexID string) {
+	t.Helper()
 	// An instant login answers its end; the finished codex login is let go.
 	g := decodeLogin(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/gemini/login", ""))
 	if g.Status != "connected" {
 		t.Errorf("instant: %+v", g)
 	}
-	if w := get(t, srv, "/v1/llm/logins/"+v.ID, testToken); w.Code != http.StatusNotFound {
+	if w := get(t, srv, "/v1/llm/logins/"+codexID, testToken); w.Code != http.StatusNotFound {
 		t.Errorf("a finished login is pruned by the next one: %d", w.Code)
 	}
 
@@ -307,14 +334,19 @@ func TestLLMLoginOverHTTP(t *testing.T) {
 	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/providers/nope/login", ""); w.Code != http.StatusNotFound {
 		t.Errorf("unknown: %d", w.Code)
 	}
+}
 
+// checkLoginForget disconnects the providers signed in with a login.
+func checkLoginForget(t *testing.T, srv *Server) {
+	t.Helper()
 	// Disconnecting forgets the login.
-	if w := llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/codex", ""); w.Code != http.StatusOK || config.HasLogin("codex") {
+	w := llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/codex", "")
+	if w.Code != http.StatusOK || config.HasLogin("codex") {
 		t.Errorf("forget: %d %v", w.Code, config.HasLogin("codex"))
 	}
 	old := deleteLogin
 	deleteLogin = func(string, string) error { return errors.New("read-only") }
-	w := llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/gemini", "")
+	w = llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/gemini", "")
 	deleteLogin = old
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("a login that cannot be removed: %d", w.Code)
@@ -354,7 +386,8 @@ func TestLLMLoginPasteWhileOneIsWaiting(t *testing.T) {
 	})
 	v := decodeLogin(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/codex/login", ""))
 	for i := 0; i < 2; i++ {
-		if w := llmCall(t, srv, http.MethodPost, "/v1/llm/logins/"+v.ID+"/paste", `{"code":"x"}`); w.Code != http.StatusAccepted {
+		paste := "/v1/llm/logins/" + v.ID + "/paste"
+		if w := llmCall(t, srv, http.MethodPost, paste, `{"code":"x"}`); w.Code != http.StatusAccepted {
 			t.Errorf("paste %d: %d", i, w.Code)
 		}
 	}

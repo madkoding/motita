@@ -34,7 +34,8 @@ func (p *pushTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
-	return &http.Response{StatusCode: p.status, Status: http.StatusText(p.status), Body: io.NopCloser(strings.NewReader(""))}, nil
+	body := io.NopCloser(strings.NewReader(""))
+	return &http.Response{StatusCode: p.status, Status: http.StatusText(p.status), Body: body}, nil
 }
 
 func (p *pushTransport) count() int {
@@ -136,7 +137,8 @@ func TestABrowserSubscribesTestsAndUnsubscribes(t *testing.T) {
 			t.Errorf("%s = %d, want 400", body, w.Code)
 		}
 	}
-	if w := pushCall(t, srv, http.MethodPost, "/v1/push/subscriptions", subscriptionJSON(t, testEndpoint, "es")); w.Code != http.StatusNoContent {
+	w := pushCall(t, srv, http.MethodPost, "/v1/push/subscriptions", subscriptionJSON(t, testEndpoint, "es"))
+	if w.Code != http.StatusNoContent {
 		t.Fatalf("subscribe = %d %s", w.Code, w.Body.String())
 	}
 	if !pushState(t, srv, testEndpoint).Subscribed {
@@ -144,21 +146,7 @@ func TestABrowserSubscribesTestsAndUnsubscribes(t *testing.T) {
 	}
 
 	body := `{"endpoint":"` + testEndpoint + `"}`
-	if w := pushCall(t, srv, http.MethodPost, "/v1/push/test", body); w.Code != http.StatusNoContent || tr.count() != 1 {
-		t.Fatalf("test = %d %s, %d requests", w.Code, w.Body.String(), tr.count())
-	}
-	for _, b := range []string{`nope`, `{"endpoint":"https://fcm.googleapis.com/other"}`} {
-		if w := pushCall(t, srv, http.MethodPost, "/v1/push/test", b); w.Code != http.StatusBadRequest && w.Code != http.StatusNotFound {
-			t.Errorf("test %s = %d", b, w.Code)
-		}
-	}
-	tr.status = http.StatusInternalServerError
-	if w := pushCall(t, srv, http.MethodPost, "/v1/push/test", body); w.Code != http.StatusBadGateway {
-		t.Errorf("refused test = %d, want 502", w.Code)
-	}
-	if !pushState(t, srv, testEndpoint).Subscribed {
-		t.Fatal("a refused message dropped the subscription")
-	}
+	checkPushTest(t, srv, tr, body)
 
 	if w := pushCall(t, srv, http.MethodDelete, "/v1/push/subscriptions", `nope`); w.Code != http.StatusBadRequest {
 		t.Errorf("bad unsubscribe = %d", w.Code)
@@ -171,11 +159,34 @@ func TestABrowserSubscribesTestsAndUnsubscribes(t *testing.T) {
 	}
 }
 
+// checkPushTest sends the test message to the subscribed browser at body, then to ones that are not
+// subscribed, and checks that a push service's refusal keeps the subscription.
+func checkPushTest(t *testing.T, srv *Server, tr *pushTransport, body string) {
+	t.Helper()
+	if w := pushCall(t, srv, http.MethodPost, "/v1/push/test", body); w.Code != http.StatusNoContent || tr.count() != 1 {
+		t.Fatalf("test = %d %s, %d requests", w.Code, w.Body.String(), tr.count())
+	}
+	for _, b := range []string{`nope`, `{"endpoint":"https://fcm.googleapis.com/other"}`} {
+		w := pushCall(t, srv, http.MethodPost, "/v1/push/test", b)
+		if w.Code != http.StatusBadRequest && w.Code != http.StatusNotFound {
+			t.Errorf("test %s = %d", b, w.Code)
+		}
+	}
+	tr.status = http.StatusInternalServerError
+	if w := pushCall(t, srv, http.MethodPost, "/v1/push/test", body); w.Code != http.StatusBadGateway {
+		t.Errorf("refused test = %d, want 502", w.Code)
+	}
+	if !pushState(t, srv, testEndpoint).Subscribed {
+		t.Fatal("a refused message dropped the subscription")
+	}
+}
+
 func TestATestToAGoneBrowserForgetsIt(t *testing.T) {
 	srv, tr, _ := newPushServer(t)
 	_ = pushCall(t, srv, http.MethodPost, "/v1/push/subscriptions", subscriptionJSON(t, testEndpoint, "en"))
 	tr.status = http.StatusGone
-	if w := pushCall(t, srv, http.MethodPost, "/v1/push/test", `{"endpoint":"`+testEndpoint+`"}`); w.Code != http.StatusBadGateway {
+	if w := pushCall(t, srv, http.MethodPost, "/v1/push/test",
+		`{"endpoint":"`+testEndpoint+`"}`); w.Code != http.StatusBadGateway {
 		t.Fatalf("gone test = %d", w.Code)
 	}
 	if pushState(t, srv, testEndpoint).Subscribed {
@@ -228,7 +239,9 @@ func TestPrPushNoticeMatchesTheToast(t *testing.T) {
 
 func TestPrMessageSaysWhatTheToastSays(t *testing.T) {
 	v := &PRWatchView{Number: 7, Attempts: 2, Max: 5}
-	for _, n := range []string{prPassed, prFixing, prReviewing, prResolving, prGaveUp, prNoCI, prBaseRed, prClosed, prMerged} {
+	for _, n := range []string{
+		prPassed, prFixing, prReviewing, prResolving, prGaveUp, prNoCI, prBaseRed, prClosed, prMerged,
+	} {
 		for _, lang := range []i18n.Lang{i18n.EN, i18n.ES} {
 			m := prMessage(lang, n, v, "Login page", "s 1")
 			if !strings.HasSuffix(m.Title, " — Login page") || m.Body == "" || m.Tag != "motita-pr-s 1" ||
@@ -240,11 +253,12 @@ func TestPrMessageSaysWhatTheToastSays(t *testing.T) {
 			}
 		}
 	}
-	if m := prMessage(i18n.ES, prPassed, v, "", "s"); m.Title != "CI aprobado" ||
-		m.Body != "El pull request #7 está en verde: ya puedes ir a mergearlo." { // spanish-fixture: the catalog's translation
+	wantES := "El pull request #7 está en verde: ya puedes ir a mergearlo." // spanish-fixture: the catalog's translation
+	if m := prMessage(i18n.ES, prPassed, v, "", "s"); m.Title != "CI aprobado" || m.Body != wantES {
 		t.Errorf("es = %+v", m)
 	}
-	if m := prMessage(i18n.EN, prFixing, &PRWatchView{Attempts: 1, Max: 3}, "", "s"); m.Body != "Motita is fixing it — attempt 1 of 3." {
+	m := prMessage(i18n.EN, prFixing, &PRWatchView{Attempts: 1, Max: 3}, "", "s")
+	if m.Body != "Motita is fixing it — attempt 1 of 3." {
 		t.Errorf("en = %+v", m)
 	}
 }

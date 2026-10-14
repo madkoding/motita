@@ -590,7 +590,8 @@ func TestASwitchTakesTheEndpointSavedInTheSettings(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OLLAMA_API_KEY", "")
 	cfgPath := filepath.Join(t.TempDir(), "motita.yaml")
-	if err := config.SetCredential(cfgPath, config.ProviderBaseURLVariable("ollama"), "http://box.lan:11434/v1"); err != nil {
+	variable := config.ProviderBaseURLVariable("ollama")
+	if err := config.SetCredential(cfgPath, variable, "http://box.lan:11434/v1"); err != nil {
 		t.Fatal(err)
 	}
 	config.UseCredentialsBeside(cfgPath)
