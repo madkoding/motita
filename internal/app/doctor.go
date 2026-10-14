@@ -34,7 +34,7 @@ func (op Options) doctorConfig(fl flags) []doctor.Check {
 	if err != nil {
 		return []doctor.Check{{Name: "config", Status: doctor.Fail, Detail: fmt.Sprintf("%s: %v", path, err)}}
 	}
-	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)}}
+	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)}, voiceCheck(cfg)}
 
 	cfg.Agent.LogFile = ""
 	cfg.Agent.LogConsole = false
@@ -57,4 +57,17 @@ func (op Options) doctorConfig(fl flags) []doctor.Check {
 		checks = append(checks, doctor.Check{Name: "sandbox", Status: doctor.Warn, Detail: "not applied: " + s})
 	}
 	return checks
+}
+
+// voiceCheck says whether speech input is on and where recordings go, or how to turn it on.
+func voiceCheck(cfg config.Config) doctor.Check {
+	if !cfg.Voice.Enabled {
+		return doctor.Check{Name: "voice", Status: doctor.Warn,
+			Detail: "speech input is off: turn it on in the web interface (Settings, Voice) or set voice.enabled: true"}
+	}
+	detail := fmt.Sprintf("speech input on: %s, model %s", cfg.VoiceBaseURL(), cfg.Voice.Model)
+	if len(cfg.Voice.WakePhrases) == 0 {
+		detail += "; no wake phrases, so hands-free listening is unavailable"
+	}
+	return doctor.Check{Name: "voice", Detail: detail}
 }

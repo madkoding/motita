@@ -772,6 +772,10 @@ func load(path string, requireKey bool) (Config, error) {
 		if cfg.LLM.APIKey == "" {
 			cfg.LLM.APIKey = credentialKey(path, cfg.LLM.Provider)
 		}
+		// The transcription key the settings page stored there, the same way.
+		if cfg.Voice.APIKey == "" {
+			cfg.Voice.APIKey = readCredentials(CredentialsPath(path))[VoiceKeyVariable]
+		}
 	}
 
 	// Environment variables (they win over the YAML), including the standard

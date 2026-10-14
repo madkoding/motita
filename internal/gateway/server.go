@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
@@ -188,6 +189,9 @@ type Options struct {
 	WakePhrases []string
 	// MaxAudioBytes caps one recording. Zero means defaultMaxAudioBytes.
 	MaxAudioBytes int64
+	// VoiceFrom builds the transcriber of a configuration, so a change saved from the settings
+	// applies without a restart. Nil means a saved change waits for the next start.
+	VoiceFrom func(config.Config) VoiceService
 	// TLSListen is a SECOND listener that speaks https, with the PEM pair in TLSCert and
 	// TLSKey. Empty means there is none. It is a second socket, not a mode of the first, so the
 	// local clients keep speaking plain HTTP to loopback and never have to trust a certificate;
@@ -226,6 +230,11 @@ type Server struct {
 	// process started with (opts.UILanguage) is the answer. See ui.go.
 	uiMu       sync.Mutex
 	uiLanguage string
+
+	// voiceLive is speech input as PUT /v1/voice last applied it; nil until then, when the
+	// options the process started with are the answer. See voice.go.
+	voiceMu   sync.RWMutex
+	voiceLive *voiceSettings
 
 	// llmLogins are the provider sign-ins started from the browser (see llmlogin.go), and
 	// llmListed the models each provider listed when its connection was last tested (llm.go).
@@ -696,6 +705,7 @@ func (s *Server) routes() *http.ServeMux {
 	s.llmLoginRoutes(mux, plain)
 	// Speech input: process-wide too, and the recording is never stored. See voice.go.
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
+	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
 	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
