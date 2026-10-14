@@ -461,14 +461,16 @@ func (l Library) Install(ctx context.Context, id string, progress func(done, tot
 		}
 	}
 	report(0)
-	// One request per address: the two phonemizer files come out of the same archive.
+	// One request per address and directory: the two phonemizer files come out of the same
+	// archive, and so does the WebGPU runtime another set keeps in its own directory. A file
+	// compiled in is kept on its own.
 	for len(needs) > 0 {
 		url := needs[0].f.URL
 		dir := needs[0].dir
 		var batch []ModelFile
 		var rest []need
-		for _, n := range needs {
-			if n.f.URL == url {
+		for i, n := range needs {
+			if i == 0 || (n.f.URL == url && n.dir == dir && n.f.Data == nil && needs[0].f.Data == nil) {
 				batch = append(batch, n.f)
 				continue
 			}

@@ -79,6 +79,24 @@ func testLibrary(t *testing.T) (Library, *int) {
 	return lib, hits
 }
 
+// A file a shared set takes from the runtime's archive is kept in the set's own directory, and
+// two files compiled into one voice are both kept.
+func TestInstallKeepsEachSetInItsDirectory(t *testing.T) {
+	lib, _ := testLibrary(t)
+	lib.Shared = map[string][]ModelFile{"eng": {fileOf("b.data", lib.Runtime[0].URL, "package/b.data", "BBBBBB")}}
+	one := fileOf("one.bin", "", "", "1")
+	one.Data = []byte("1")
+	two := fileOf("two.bin", "", "", "2")
+	two.Data = []byte("2")
+	lib.Models = append(lib.Models, Model{ID: "e1", Shared: "eng", Files: []ModelFile{one, two}})
+	if err := lib.Install(context.Background(), "e1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !lib.Installed("e1") || !lib.RuntimeInstalled() {
+		t.Fatal("every set should be in its place")
+	}
+}
+
 // Installing a voice brings the runtime too, from one request per address, and reports progress
 // up to the bytes it needed. A second install needs nothing.
 func TestInstallKeepsTheCatalogFiles(t *testing.T) {
