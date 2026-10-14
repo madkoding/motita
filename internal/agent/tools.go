@@ -47,7 +47,8 @@ func describeShell(shell string) string {
 - Commands run under PowerShell on Windows, not sh. Write PowerShell: Get-ChildItem, Get-Content,
   Select-String, Invoke-RestMethod; $null instead of /dev/null; paths in single quotes.
 - Script blocks ({ }), $variables, $(...) and backticks make a line unreadable to the guardrails, so it
-  is confirmed as a whole: prefer plain cmdlets with literal arguments. Anything but a read is confirmed.
+  is confirmed as a whole: prefer plain cmdlets with literal arguments. Write with relative paths inside the
+  workspace; a drive (C:\), a rooted path or ~ is confirmed.
 - Read the "files-and-directories" and "calling-an-http-api" procedures: they are written for this shell.
 `
 	case execx.IsCmd(shell):

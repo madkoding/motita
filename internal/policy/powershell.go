@@ -1,6 +1,9 @@
 package policy
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // What changes when the line runs under PowerShell, which is the shell on Windows.
 //
@@ -109,17 +112,55 @@ func pathRune(r rune) bool {
 		('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')
 }
 
-// powerShellVerdict keeps a silent verdict silent only for a reader.
+// powerShellVerdict confirms a silent verdict that rests on a path the POSIX rules misread.
 //
-// Every other Allow rests on a judgement about a PATH — a write inside the workspace, a script
-// the workspace holds — made with POSIX rules: `C:\Users` reads as the relative word `C:Users`
-// and `\Windows` as a name in the workspace, while PowerShell takes both from the root of a
-// drive. Until the policy reads Windows paths, a write on Windows is confirmed. A reader needs
-// no such judgement: reading is allowed wherever the file is.
-func powerShellVerdict(d Decision) Decision {
+// Every Allow but a reader's rests on a judgement about a PATH — a write inside the workspace, a
+// script the workspace holds. With its backslashes turned into slashes a relative Windows path is
+// judged right, but three forms are not: a path rooted without a drive (`/Windows`, which
+// Windows takes from the root of the current drive and the POSIX join places in the workspace),
+// a drive or provider prefix (`C:/Users`, the drive-relative `C:x`, `HKLM:/Software`), and `~`.
+// A line that names one of them is confirmed; a reader needs no such judgement, since reading is
+// allowed wherever the file is.
+func powerShellVerdict(d Decision, words []string) Decision {
 	if d.Verdict != Allow || d.Rule == "reader" {
 		return d
 	}
-	return Decision{Ask, d.Reason + "; under PowerShell the paths of a line are not checked, so " +
-		"anything but a read is confirmed", d.Rule, false}
+	for _, w := range words {
+		if windowsPath(w) {
+			return Decision{Ask, fmt.Sprintf("%s; %q is a Windows path whose place the guardrails "+
+				"cannot check, so it is confirmed", d.Reason, unquote(w)), d.Rule, false}
+		}
+	}
+	return d
 }
+
+// windowsPath reports whether word names a path rooted outside the working directory in a way
+// only Windows reads: rooted without a drive, behind a drive or provider prefix, or in a home
+// directory. A `-Parameter:value` word is judged by its value.
+func windowsPath(word string) bool {
+	w := unquote(word)
+	if strings.HasPrefix(w, "-") {
+		_, value, ok := strings.Cut(w, ":")
+		if !ok {
+			return false
+		}
+		w = value
+	}
+	if strings.HasPrefix(w, "/") || strings.HasPrefix(w, "~") {
+		return true
+	}
+	end := strings.IndexByte(w, ':')
+	if end < 1 || !isLetter(rune(w[0])) {
+		return false
+	}
+	for _, r := range w[1:end] {
+		if !isLetter(r) && !('0' <= r && r <= '9') && !strings.ContainsRune("_.-", r) {
+			return false
+		}
+	}
+	// `fix: x`, a word with a colon and then a space, is prose (a commit message), not a path.
+	return end == len(w)-1 || w[end+1] != ' '
+}
+
+// isLetter reports whether r is an ASCII letter.
+func isLetter(r rune) bool { return ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') }

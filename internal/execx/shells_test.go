@@ -1,9 +1,13 @@
 package execx
 
 import (
+	"context"
 	"errors"
+	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 // Each shell is handed a line its own way. `-c` to cmd.exe was the bug: it starts an empty
@@ -89,5 +93,33 @@ func TestIsCmdKnowsTheCommandProcessor(t *testing.T) {
 		if got := IsCmd(shell); got != want {
 			t.Errorf("IsCmd(%q) = %v, want %v", shell, got, want)
 		}
+	}
+}
+
+// TestPowerShellRunsTheLineItIsHanded runs a real PowerShell, where there is one: the Windows CI
+// job, and the Linux runners, which ship PowerShell 7. The line is handed over with ShellArgs and
+// its words quoted with Quote, so a quote, a `$`, a backtick and the typographic quotes in them
+// must arrive as the literal text, and the exit code must come back.
+func TestPowerShellRunsTheLineItIsHanded(t *testing.T) {
+	shell := WindowsShell(func(name string) (string, error) {
+		return exec.LookPath(strings.TrimSuffix(name, ".exe"))
+	}, func(string) string { return "" })
+	if !IsPowerShell(shell) {
+		t.Skip("no PowerShell on this machine")
+	}
+	text := `it's "quoted" $HOME ` + "`n" + ` ; done`
+	unicode := "it’s ‘a’ “b”"
+	line := "Write-Output " + Quote(shell, text) + "; exit (" + Quote(shell, unicode) + ").Length"
+
+	out, _, exit, err := Run(context.Background(), Request{Command: shell, Args: ShellArgs(shell, line),
+		Timeout: 2 * time.Minute})
+	if err != nil {
+		t.Fatalf("%s: %v (%s)", shell, err, out)
+	}
+	if got := strings.TrimSpace(out); got != text {
+		t.Errorf("output = %q, want %q", got, text)
+	}
+	if want := len([]rune(unicode)); exit != want {
+		t.Errorf("exit = %d, want %d (the length of the quoted word)", exit, want)
 	}
 }

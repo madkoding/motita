@@ -735,6 +735,13 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		if r, hit := powerShellSyntax(line); hit {
 			return m.Relaxing(m.ShellLine(fmt.Sprintf("PowerShell reads %q as code", string(r))))
 		}
+		// What is left uses a backslash only as a path separator, which the POSIX reading
+		// below would take for an escape: `srcpp` would be judged as `srcapp`. Windows takes
+		// `/` for the same separator, so the line is judged with it, floor included.
+		line = strings.ReplaceAll(line, `\`, "/")
+		if d, hit := MandatoryInLine(line, dir); hit {
+			return d
+		}
 	}
 
 	// The line is judged by its WORST segment, and the seed is the first segment's own
@@ -764,7 +771,7 @@ func (m Mode) DecideLine(line, dir string) Decision {
 			continue
 		}
 		if m.PowerShell {
-			d = powerShellVerdict(d)
+			d = powerShellVerdict(d, seg.words)
 		}
 		if !found {
 			worst, found = d, true

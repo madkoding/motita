@@ -72,26 +72,49 @@ func TestPowerShellReadsStaySilent(t *testing.T) {
 	}
 }
 
-// A write is judged on its path, and the policy reads paths with POSIX rules, so under
-// PowerShell a write the POSIX reading would allow is confirmed.
-func TestPowerShellConfirmsWhatOnlyAPathCheckWouldAllow(t *testing.T) {
+// A write is judged on its path. With its backslashes read as separators a relative Windows path
+// is judged like any other, so a write inside the workspace stays silent; a path the POSIX rules
+// would misplace is confirmed.
+func TestPowerShellJudgesWindowsPaths(t *testing.T) {
 	dir := t.TempDir()
-	for _, line := range []string{"mkdir build", "ls > out.txt", "rm -r C:Users", "cat a && touch b"} {
-		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Allow {
-			t.Fatalf("%q without PowerShell: got %s (%s), the premise is gone", line, d.Verdict, d.Reason)
+	m := Mode{Enforce: true, PowerShell: true}
+	for _, line := range []string{
+		"mkdir build", `mkdir src\new\deep`, "ls > out.txt", "cat a && touch b",
+		`cp a -Destination:b`, `git commit -m "fix: thing"`, "git add -A",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict != Allow {
+			t.Errorf("%q: got %s (%s), want allow", line, d.Verdict, d.Reason)
 		}
-		d := Mode{Enforce: true, PowerShell: true}.DecideLine(line, dir)
-		if d.Verdict != Ask || !strings.Contains(d.Reason, "under PowerShell") {
+	}
+	for _, line := range []string{
+		`rm -r C:Users`, `rm -r C:`, `rm -r C:\Users`, `mkdir \Windows\x`, "mkdir /Windows/x",
+		"mkdir ~/x", "cp a HKLM:/Software", "cp a -Destination:C:/x", "ls > /tmp/x",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict != Ask {
 			t.Errorf("%q: got %s (%s), want ask", line, d.Verdict, d.Reason)
 		}
 	}
-	// What is asked already keeps its own reason, and the floor is still the floor.
-	if d := (Mode{Enforce: true, PowerShell: true}).DecideLine("curl -s https://x", dir); d.Verdict != Ask ||
-		strings.Contains(d.Reason, "under PowerShell") {
+	// The floor reads the line with the separators Windows uses.
+	if d := m.DecideLine(`rm -rf \`, dir); !d.Mandatory {
+		t.Errorf("rm -rf \\: %+v", d)
+	}
+	if d := m.DecideLine("curl -s https://x", dir); d.Verdict != Ask || strings.Contains(d.Reason, "Windows path") {
 		t.Errorf("curl: %+v", d)
 	}
-	if d := (Mode{Enforce: true, PowerShell: true}).DecideLine("rm -rf /", dir); !d.Mandatory {
+	if d := m.DecideLine("rm -rf /", dir); !d.Mandatory {
 		t.Errorf("the floor: %+v", d)
+	}
+}
+
+func TestWindowsPathKnowsItsForms(t *testing.T) {
+	for w, want := range map[string]bool{
+		"C:": true, "C:x": true, "c:/x": true, "Env:PATH": true, "/x": true, "~": true, `'C:/x'`: true,
+		"-Path:C:/x": true, "-Path:x": false, "-Recurse": false, "x": false, "a/b": false,
+		"fix: x": false, "1:x": false, "a(b):c": false, ":x": false,
+	} {
+		if got := windowsPath(w); got != want {
+			t.Errorf("windowsPath(%q) = %v, want %v", w, got, want)
+		}
 	}
 }
 

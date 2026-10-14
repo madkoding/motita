@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
 )
 
 // declaredGateFile is where a project names its own gate, one command per line.
@@ -93,7 +94,7 @@ func (a *Anchor) detectChecks() []config.Check {
 
 // declaredChecks runs what the project wrote in .motita/anchor.
 //
-// Each command goes through `sh -c`, because a gate is often two commands joined by
+// Each command goes through `sh -c` (PowerShell on Windows), because a gate is often two commands joined by
 // `&&` and a checker that cannot express that pushes the user back into writing a
 // wrapper script for every project.
 func (a *Anchor) declaredChecks(timeout time.Duration) []config.Check {
@@ -115,8 +116,8 @@ func (a *Anchor) declaredChecks(timeout time.Duration) []config.Check {
 		}
 		out = append(out, config.Check{
 			Name:       name,
-			Command:    "sh",
-			Args:       []string{"-c", line},
+			Command:    declaredShell,
+			Args:       execx.ShellArgs(declaredShell, line),
 			Timeout:    timeout,
 			ExpectExit: 0,
 		})
