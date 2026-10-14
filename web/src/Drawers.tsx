@@ -24,6 +24,7 @@ import {
 } from "./appFormat";
 import type { AgentInfo, ShellEntry } from "./appTypes";
 import { NO_RESULT, TERM_BOOST_MAX } from "./appConst";
+import { useDrawerContent, windowStart } from "./drawerWindow";
 
 // CrtFx are the CRT effects: layers ABOVE the text and never inside it. They carry no pointer
 // events, so selecting and scrolling the history work as usual.
@@ -84,14 +85,30 @@ function TermRow({
   );
 }
 
+// EarlierButton reveals the entries above the window, when there are any.
+function EarlierButton({ hidden, onClick }: { hidden: number; onClick: () => void }) {
+  if (hidden <= 0) {
+    return null;
+  }
+  return (
+    <button type="button" class="term-earlier" onClick={onClick}>
+      {plural(hidden, "Show 1 earlier", "Show {n} earlier")}
+    </button>
+  );
+}
+
 // TermHistory is what the terminal drawer plays: one entry at a time, faster when it is behind.
-function TermHistory() {
+// Only the newest `shown` entries are on screen.
+function TermHistory({ shown, showEarlier }: { shown: number; showEarlier: () => void }) {
   const { rs, drawers } = useApp();
   const { shellLog, termSeenId } = rs;
   const firstPending = shellLog.find((e) => e.id > termSeenId);
   const behind = shellLog.filter((e) => e.id > termSeenId).length - 1;
   // 1x when caught up, 3x with one waiting, 5x with two, and so on up to 9x.
   const termBoost = Math.min(TERM_BOOST_MAX, 1 + 2 * Math.max(0, behind));
+  // The window never starts after the entry being typed: the queue must stay on screen.
+  const pendingAt = choose(firstPending, shellLog.indexOf(firstPending!), shellLog.length);
+  const from = Math.min(windowStart(shellLog.length, shown), pendingAt);
   const phaseOf = (e: ShellEntry): EntryPhase => {
     if (e.id <= termSeenId) {
       return "done";
@@ -101,7 +118,8 @@ function TermHistory() {
   return (
     <>
       {shellLog.length === 0 && <TermEmpty onTick={drawers.stickTerm} />}
-      {shellLog.map((e) => (
+      <EarlierButton hidden={from} onClick={showEarlier} />
+      {shellLog.slice(from).map((e) => (
         <TermRow key={e.id} e={e} phase={phaseOf(e)} boost={termBoost} />
       ))}
     </>
@@ -113,6 +131,7 @@ export function TermDrawer() {
   const { rs, drawers } = useApp();
   const { termOpen, term } = drawers;
   const count = rs.shellLog.length;
+  const content = useDrawerContent(termOpen);
   return (
     <div class={`term-drawer${choose(termOpen, " is-open", "")}`}>
       <button
@@ -152,7 +171,9 @@ export function TermDrawer() {
         </div>
         <div class="term-viewport">
           <div class="term-screen" ref={term.ref} {...term.handlers}>
-            <TermHistory />
+            {content.mounted && (
+              <TermHistory shown={content.shown} showEarlier={content.showEarlier} />
+            )}
           </div>
           <CrtFx full />
         </div>
@@ -194,6 +215,8 @@ export function ThinkDrawer() {
   const { thinkOpen, think } = drawers;
   const live = choose(rs.running, rs.liveThought, null);
   const thoughts = thoughtsOf(rs.stepsByTurn, live);
+  const content = useDrawerContent(thinkOpen);
+  const from = windowStart(thoughts.length, content.shown);
   return (
     <div class={`term-drawer is-think${choose(thinkOpen, " is-open", "")}`}>
       <button
@@ -235,20 +258,24 @@ export function ThinkDrawer() {
         </div>
         <div class="term-viewport">
           <div class="term-screen" ref={think.ref} {...think.handlers}>
-            {thoughts.length === 0 && (
+            {content.mounted && thoughts.length === 0 && (
               <div class="term-empty">
                 {t("no thoughts yet")}
                 <span class="term-caret" />
               </div>
             )}
-            {thoughts.map((th) => (
-              <div
-                key={th.key}
-                class={`think-entry${choose(th.live, " is-live", "")}`}
-              >
-                <pre class="think-text">{th.text}</pre>
-              </div>
-            ))}
+            {content.mounted && (
+              <EarlierButton hidden={from} onClick={content.showEarlier} />
+            )}
+            {content.mounted &&
+              thoughts.slice(from).map((th) => (
+                <div
+                  key={th.key}
+                  class={`think-entry${choose(th.live, " is-live", "")}`}
+                >
+                  <pre class="think-text">{th.text}</pre>
+                </div>
+              ))}
           </div>
           <CrtFx full />
         </div>

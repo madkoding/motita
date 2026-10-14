@@ -497,6 +497,8 @@ const first: Record<string, string> = {
   "{n} files changed": "{n} archivos cambiados",
   "{n} sessions finished": "{n} sesiones terminaron",
   "{n} thoughts": "{n} pensamientos",
+  "Show 1 earlier": "Ver 1 anterior",
+  "Show {n} earlier": "Ver {n} anteriores",
   "{n} uncommitted changes in this working tree":
     "{n} cambios sin commitear en este árbol de trabajo",
   "{n} uncommitted changes will be discarded":
