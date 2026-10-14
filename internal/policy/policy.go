@@ -321,8 +321,10 @@ func unjudgeableTool(name string) bool {
 }
 
 // leavesWorkspace asks about a command that points itself at a directory outside dir: `cd` and
-// `pushd`, and the `-C` flag of `git` and `make`. The task's workspace is where the work lives,
-// and a line that walks out of it is how a session ends up committing in the wrong checkout.
+// `pushd`, and the flags with which a program runs somewhere else (`git -C`, `git --work-tree`,
+// `make --directory`, `go -C`, `npm --prefix`, ...; see dirFlags). The task's
+// workspace is where the work lives - the session's project - and a line that walks out of it is
+// how a session ends up building, committing or installing in another project's checkout.
 //
 // A bare `cd` (home) and `cd -` (the previous directory) are outside by construction. It answers
 // false for a command that stays inside, and for one with no workspace to compare against.
@@ -330,33 +332,58 @@ func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
 	if dir == "" {
 		return Decision{}, false
 	}
-	var target string
+	var targets []string
 	switch name {
 	case "cd", "pushd":
-		target = "~"
+		target := "~"
 		if operands := rmTargets(args); len(operands) > 0 {
 			target = operands[0]
 		}
-	case "git", "make":
-		target = dashCTarget(args)
+		targets = []string{target}
 	default:
-		// Any other program does not move its own directory.
+		targets = dirFlagTargets(dirFlags[name], args)
 	}
-	if target == "" || (target != "-" && firstOutside([]string{target}, dir) == "") {
-		return Decision{}, false
-	}
-	return Decision{Ask, fmt.Sprintf("%q moves to %q, which is outside the directory this task "+
-		worksInFormat, name, target, dir), "leaves-workspace", false}, true
-}
-
-// dashCTarget is the directory a `-C dir` option names, or "" when there is none.
-func dashCTarget(args []string) string {
-	for i, a := range args {
-		if a == "-C" && i+1 < len(args) {
-			return args[i+1]
+	for _, target := range targets {
+		if target == "-" || firstOutside([]string{target}, dir) != "" {
+			return Decision{Ask, fmt.Sprintf("%q moves to %q, which is outside the directory this task "+
+				worksInFormat, name, target, dir), "leaves-workspace", false}, true
 		}
 	}
-	return ""
+	return Decision{}, false
+}
+
+// dirFlags are, per program, the options that make it work in (or on) another directory than the
+// one it is started in. Each takes a value as the next argument (`-C dir`, `--directory dir`) or
+// after "=" (`--directory=dir`); a short one also attached (`-Cdir`).
+var dirFlags = map[string][]string{
+	"git":   {"-C", "--git-dir", "--work-tree"},
+	"make":  {"-C", "--directory", "-f", "--file", "--makefile"},
+	"gmake": {"-C", "--directory", "-f", "--file", "--makefile"},
+	"go":    {"-C"},
+	"npm":   {"--prefix"},
+	"pnpm":  {"-C", "--dir"},
+	"yarn":  {"--cwd"},
+	"cargo": {"--manifest-path"},
+	"tar":   {"-C", "--directory"},
+}
+
+// dirFlagTargets are the directories (or files) the given flags name in args, every occurrence:
+// `git -C a -C b` ends up in b, and checking only the first would let the second walk out.
+func dirFlagTargets(flags []string, args []string) []string {
+	var out []string
+	for i, a := range args {
+		for _, f := range flags {
+			switch {
+			case a == f && i+1 < len(args):
+				out = append(out, args[i+1])
+			case strings.HasPrefix(a, f+"=") && len(a) > len(f)+1:
+				out = append(out, a[len(f)+1:])
+			case len(f) == 2 && strings.HasPrefix(a, f) && len(a) > 2 && a[2] != '=':
+				out = append(out, a[2:])
+			}
+		}
+	}
+	return out
 }
 
 // projectLocalDecision allows a program that lives inside the workspace and is passed explicit

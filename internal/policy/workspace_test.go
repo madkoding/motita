@@ -13,6 +13,19 @@ func TestLeavingTheWorkspaceIsAsked(t *testing.T) {
 		"pushd /tmp",
 		"git -C /somewhere/else status",
 		"make -C /somewhere/else check",
+		// Every other way a program is pointed at another tree.
+		"git -C . -C /other/project status",
+		"git --git-dir=/other/project/.git log",
+		"git --work-tree /other/project status",
+		"make -C/other/project check",
+		"make --directory=/other/project",
+		"make -f /other/project/Makefile",
+		"go -C /other/project build ./...",
+		"npm --prefix /other/project install",
+		"pnpm --dir=/other/project install",
+		"yarn --cwd /other/project build",
+		"cargo build --manifest-path /other/project/Cargo.toml",
+		"tar -C /other/project -xf a.tar",
 	} {
 		d := Mode{Enforce: true}.DecideLine(line, dir)
 		if d.Verdict != Ask || d.Rule != "leaves-workspace" {
@@ -23,7 +36,9 @@ func TestLeavingTheWorkspaceIsAsked(t *testing.T) {
 
 func TestStayingInTheWorkspaceIsNotAQuestion(t *testing.T) {
 	dir := t.TempDir()
-	for _, line := range []string{"cd sub && ls", "cd .", "git -C . status", "make -C sub check", "git status"} {
+	for _, line := range []string{"cd sub && ls", "cd .", "git -C . status", "make -C sub check", "git status",
+		"git --work-tree=. status", "make -Csub", "npm --prefix . test", "go -C sub build", "tar -cf a.tar src",
+		"git -C", "make --directory="} {
 		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Rule == "leaves-workspace" {
 			t.Errorf("%q: %+v", line, d)
 		}
