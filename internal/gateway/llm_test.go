@@ -162,8 +162,14 @@ func TestLLMSavesAKeyWithoutEverSendingItBack(t *testing.T) {
 		t.Errorf("the open session runs with the new key: %q", svc.cfg.LLM.APIKey)
 	}
 
+	checkLLMForget(t, srv)
+}
+
+// checkLLMForget removes the saved Anthropic key, then forgets a keyless and an unknown provider.
+func checkLLMForget(t *testing.T, srv *Server) {
+	t.Helper()
 	// Removing it takes the key and the endpoint away.
-	w = llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/anthropic", "")
+	w := llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/anthropic", "")
 	var p llmProviderView
 	_ = json.Unmarshal(w.Body.Bytes(), &p)
 	if w.Code != http.StatusOK || p.Key != config.KeyMissing {
@@ -230,7 +236,8 @@ func TestLLMSaveRefusals(t *testing.T) {
 	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "env_key") {
 		t.Errorf("an exported key wins: %d %s", w.Code, w.Body.String())
 	}
-	if p := providerOf(decodeLLM(t, get(t, srv, "/v1/llm", testToken)), "anthropic"); p.KeyVariable != "ANTHROPIC_API_KEY" {
+	p := providerOf(decodeLLM(t, get(t, srv, "/v1/llm", testToken)), "anthropic")
+	if p.KeyVariable != "ANTHROPIC_API_KEY" {
 		t.Errorf("the variable is named: %+v", p)
 	}
 }
@@ -309,14 +316,7 @@ func TestLLMTestAsksTheProvider(t *testing.T) {
 		return []string{"b", "a"}, nil
 	}
 	defer func() { listProviderModels = old }()
-	result := func(w *httptest.ResponseRecorder) testResult {
-		t.Helper()
-		var r testResult
-		if err := json.Unmarshal(w.Body.Bytes(), &r); err != nil || w.Code != http.StatusOK {
-			t.Fatalf("%d %s", w.Code, w.Body.String())
-		}
-		return r
-	}
+	result := func(w *httptest.ResponseRecorder) testResult { t.Helper(); return testResultOf(t, w) }
 	r := result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/openai/test", `{}`))
 	if !r.OK || strings.Join(r.Models, ",") != "a,b" || seen.APIKey != "sk-saved" || seen.Model != "gpt-5-mini" {
 		t.Errorf("saved key: %+v %+v", r, seen)
@@ -325,7 +325,8 @@ func TestLLMTestAsksTheProvider(t *testing.T) {
 	if r.OK || !strings.Contains(r.Error, "401") || seen.BaseURL != "https://api.anthropic.com" {
 		t.Errorf("refused key: %+v %+v", r, seen)
 	}
-	r = result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/ollama/test", `{"base_url":"http://box.lan:11434/v1"}`))
+	r = result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/ollama/test",
+		`{"base_url":"http://box.lan:11434/v1"}`))
 	if !r.OK || seen.BaseURL != "http://box.lan:11434/v1" || seen.APIKey != "" {
 		t.Errorf("self-hosted: %+v %+v", r, seen)
 	}
@@ -333,6 +334,22 @@ func TestLLMTestAsksTheProvider(t *testing.T) {
 	if !r.OK || len(r.Models) == 0 {
 		t.Errorf("claude-code: %+v", r)
 	}
+	checkLLMTestRefusals(t, srv)
+}
+
+// testResultOf decodes the answer of a provider test, which is 200 whatever the provider said.
+func testResultOf(t *testing.T, w *httptest.ResponseRecorder) testResult {
+	t.Helper()
+	var r testResult
+	if err := json.Unmarshal(w.Body.Bytes(), &r); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	return r
+}
+
+// checkLLMTestRefusals checks the tests the gateway refuses before asking any provider.
+func checkLLMTestRefusals(t *testing.T, srv *Server) {
+	t.Helper()
 	for body, code := range map[string]string{
 		`{"base_url":"https://elsewhere.example/v1"}`:        "key_for_new_address",
 		`{"base_url":"nope"}`:                                "",
@@ -395,12 +412,14 @@ func TestLLMDefaultIsWhatNewSessionsStartWith(t *testing.T) {
 	if conv == nil {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
-	if got := conv.svc.Config().LLM; got.Provider != "anthropic" || got.Model != "claude-opus-5-5" || got.APIKey != "sk-ant" {
+	got := conv.svc.Config().LLM
+	if got.Provider != "anthropic" || got.Model != "claude-opus-5-5" || got.APIKey != "sk-ant" {
 		t.Errorf("a new session starts on the default: %+v", got)
 	}
 
 	// Back to the same provider with another model: nothing to move.
-	if w := llmCall(t, srv, http.MethodPut, "/v1/llm/default", `{"provider":"anthropic","model":"claude-haiku-4-5"}`); w.Code != http.StatusOK {
+	if w := llmCall(t, srv, http.MethodPut, "/v1/llm/default",
+		`{"provider":"anthropic","model":"claude-haiku-4-5"}`); w.Code != http.StatusOK {
 		t.Errorf("same provider: %d", w.Code)
 	}
 }
@@ -474,5 +493,28 @@ func TestLLMFallsBackWhenTheFileNoLongerLoads(t *testing.T) {
 	}
 	if w := llmCall(t, srv, http.MethodPost, "/v1/sessions", `{}`); w.Code != http.StatusCreated {
 		t.Errorf("create: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCheckBaseURL(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://api.openai.com/v1/":      true,
+		"http://box.lan:11434/v1":         true,
+		"http://127.0.0.1:11434":          true,
+		"http://[::1]:11434/v1":           true,
+		"http://192.168.1.20:11434/v1":    true,
+		"ftp://x":                         false,
+		"nope":                            false,
+		"https://user:pw@api.example/v1":  false,
+		"https://api.example/v1?x=1":      false,
+		"https://api.example/v1#frag":     false,
+		"http://169.254.169.254/latest":   false,
+		"http://[fe80::1]/v1":             false,
+		"http://0.0.0.0:11434":            false,
+		"https://api.example/v1 evil.com": false,
+	} {
+		if _, why := checkBaseURL(raw); (why == "") != ok {
+			t.Errorf("%q: refusal %q, want accepted %v", raw, why, ok)
+		}
 	}
 }
