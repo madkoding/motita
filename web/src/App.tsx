@@ -205,6 +205,58 @@ function EmptyNote() {
   );
 }
 
+// SpeakButton reads an answer aloud, or stops it while it is the one being read.
+function SpeakButton({ m }: { m: Message }) {
+  const { speech, rs } = useApp();
+  const reading = speech.speakingId === m.id;
+  // An answer still streaming has no end yet: it is read once it is complete.
+  if (!speech.supported || (rs.running && m === rs.messages[rs.messages.length - 1])) {
+    return null;
+  }
+  const label = choose(reading, t("Stop reading"), t("Read aloud"));
+  return (
+    <button
+      type="button"
+      class={"speak-msg-btn" + choose(reading, " is-reading", "")}
+      aria-label={label}
+      aria-pressed={reading}
+      aria-keyshortcuts="Alt+L"
+      title={label + " (Alt+L)"}
+      onClick={() => speech.speak(m)}
+    >
+      {reading ? <IconStop /> : <IconSpeaker />}
+    </button>
+  );
+}
+
+function IconSpeaker() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11 5 6 9H2v6h4l5 4V5z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M19 5a10 10 0 0 1 0 14" />
+    </svg>
+  );
+}
+
+function IconStop() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
   const answer = m.role === "agent" && !m.kind;
   const empty = choose(isEmptyNote(m), " empty-note", "");
@@ -212,10 +264,12 @@ function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
     <div
       class={`msg ${m.role}${choose(m.kind, " " + m.kind, "")}${empty}`}
       data-who={choose(answer, t("Agent"), undefined)}
+      data-msg-id={m.id}
     >
       <MessageBody m={m} auto={auto} />
       {m.changes && <ChangesCard changes={m.changes} />}
       {m.artifacts && <RunArtifacts artifacts={m.artifacts} />}
+      {answer && <SpeakButton m={m} />}
     </div>
   );
 }
@@ -440,6 +494,7 @@ function SettingsHost() {
     api: request,
     status,
     voice,
+    speech,
   } = useApp();
   const { changeLanguage } = language;
   const { setGitConnect } = projects;
@@ -460,6 +515,13 @@ function SettingsHost() {
         phrases: voice.info?.wake_phrases || [],
         prefs: voice.prefs,
         setPrefs: voice.setPrefs,
+      }}
+      speech={{
+        supported: speech.supported,
+        prefs: speech.prefs,
+        setPrefs: speech.setPrefs,
+        voices: speech.voices,
+        test: speech.test,
       }}
       llm={{
         api: request,

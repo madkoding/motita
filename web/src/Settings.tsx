@@ -34,6 +34,14 @@ import { showNotification } from "./notify";
 import { errorMessage } from "./errors";
 import type { VoicePrefs, VoiceState } from "./voice";
 import {
+  LENGTHS,
+  RATES,
+  type SpeakMode,
+  type SpeakStyle,
+  type SpeechPrefs,
+  type VoiceLike,
+} from "./speech";
+import {
   ProviderSettings,
   type ProviderSettingsProps,
 } from "./ProviderSettings";
@@ -83,6 +91,8 @@ interface Props {
   };
   // Speech input. Absent where the page has no voice store (the tests of other sections).
   voice?: VoiceSettingsProps;
+  // Reading answers aloud. Absent where the page has no speech store.
+  speech?: SpeechSettingsProps;
   // The LLM providers and the default model. Absent where the page has no API to reach them.
   llm?: ProviderSettingsProps;
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
@@ -90,6 +100,8 @@ interface Props {
   network?: { api: Api };
   // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
   push?: { api: Api };
+  // tab is the tab the dialog opens on; the first one when absent.
+  tab?: Tab;
 }
 
 export interface VoiceSettingsProps {
@@ -98,6 +110,169 @@ export interface VoiceSettingsProps {
   phrases: string[];
   prefs: VoicePrefs;
   setPrefs: (p: VoicePrefs) => void;
+}
+
+export interface SpeechSettingsProps {
+  supported: boolean;
+  prefs: SpeechPrefs;
+  setPrefs: (p: SpeechPrefs) => void;
+  voices: VoiceLike[];
+  test: () => void;
+}
+
+// rateLabel writes a speed as people say it: 1×, 1.25×.
+function rateLabel(r: number): string {
+  return r.toLocaleString(lang()) + "×";
+}
+
+// lengthLabel names the longest answer read whole.
+function lengthLabel(n: number): string {
+  if (n === 0) {
+    return t("Whole");
+  }
+  if (n <= 300) {
+    return t("Short");
+  }
+  if (n <= 600) {
+    return t("Medium");
+  }
+  return t("Long");
+}
+
+// SpeechSettings is reading answers aloud with the voices of this device: when, which voice, how
+// fast and how much. It needs neither the microphone nor the gateway, so it works on any address.
+function SpeechSettings({
+  supported,
+  prefs,
+  setPrefs,
+  voices,
+  test,
+}: SpeechSettingsProps) {
+  const set = (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch });
+  const off = !supported;
+  return (
+    <section class="settings-group" aria-labelledby="settings-speech-h">
+      <h3 id="settings-speech-h" class="settings-group-title">
+        {t("Read aloud")}
+      </h3>
+      <div class="settings-card" data-testid="speech-setting">
+        <Row
+          id="settings-speak"
+          label={t("Read answers aloud")}
+          stack
+          hint={choose(
+            off,
+            t("This browser cannot read aloud."),
+            t(
+              "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.",
+            ),
+          )}
+        >
+          <Segmented<SpeakMode>
+            name="settings-speak"
+            labelledBy="settings-speak"
+            value={prefs.mode}
+            disabled={off}
+            onChange={(mode) => set({ mode })}
+            options={[
+              { value: "off", label: t("Off") },
+              { value: "voice", label: t("When I spoke") },
+              { value: "always", label: t("Always") },
+            ]}
+          />
+        </Row>
+        <Row
+          id="settings-speak-style"
+          label={t("What it says")}
+          stack
+          hint={choose(
+            prefs.style === "natural",
+            t(
+              "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
+            ),
+            t("Word for word: the answer as it is written."),
+          )}
+        >
+          <Segmented<SpeakStyle>
+            name="settings-speak-style"
+            labelledBy="settings-speak-style"
+            value={prefs.style}
+            disabled={off}
+            onChange={(style) => set({ style })}
+            options={[
+              { value: "literal", label: t("Word for word") },
+              { value: "natural", label: t("Natural") },
+            ]}
+          />
+        </Row>
+        <Row
+          id="settings-speech-voice"
+          label={t("Voice")}
+          hint={choose(
+            !off && voices.length === 0,
+            t("This device has no voice for the interface language."),
+            undefined,
+          )}
+        >
+          <select
+            class={inputCls + " max-w-[220px]"}
+            aria-labelledby="settings-speech-voice"
+            disabled={off}
+            value={prefs.voiceURI}
+            onChange={(e) =>
+              set({ voiceURI: (e.target as HTMLSelectElement).value })
+            }
+          >
+            <option value="">{t("Device default")}</option>
+            {voices.map((v) => (
+              <option key={v.voiceURI} value={v.voiceURI}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row id="settings-speech-rate" label={t("Speed")} stack>
+          <Segmented<string>
+            name="settings-speech-rate"
+            labelledBy="settings-speech-rate"
+            value={String(prefs.rate)}
+            disabled={off}
+            onChange={(r) => set({ rate: Number(r) })}
+            options={RATES.map((r) => ({ value: String(r), label: rateLabel(r) }))}
+          />
+        </Row>
+        <Row
+          id="settings-speech-length"
+          label={t("Length")}
+          stack
+          hint={t("A longer answer is read up to its first paragraph.")}
+        >
+          <Segmented<string>
+            name="settings-speech-length"
+            labelledBy="settings-speech-length"
+            value={String(prefs.maxChars)}
+            disabled={off}
+            onChange={(n) => set({ maxChars: Number(n) })}
+            options={LENGTHS.map((n) => ({
+              value: String(n),
+              label: lengthLabel(n),
+            }))}
+          />
+        </Row>
+        <Row id="settings-speech-test" label={t("Try the voice")}>
+          <button
+            type="button"
+            class={smallBtn}
+            disabled={off}
+            onClick={test}
+            data-testid="speech-test"
+          >
+            {t("Try")}
+          </button>
+        </Row>
+      </div>
+    </section>
+  );
 }
 
 // voiceBlocker explains why speech input cannot be used, or "" when it can. An insecure page is
@@ -342,7 +517,14 @@ function readPermission(): NotificationPermission | undefined {
   return Notification.permission;
 }
 
-type Tab = "general" | "providers" | "git";
+// The tabs: one per kind of setting, so each is found where its name says.
+export type Tab =
+  | "appearance"
+  | "notifications"
+  | "voice"
+  | "network"
+  | "providers"
+  | "git";
 
 interface Choice<T extends string> {
   value: T;
@@ -419,18 +601,12 @@ function Row({
   );
 }
 
-// GeneralSettings is how the page looks (language, font size, density) and the CI notifications.
-function GeneralSettings({
+// AppearanceSettings is how the page looks: language, font size and density.
+function AppearanceSettings({
   langSetting,
   langAvailable,
   onLang,
-  voice,
-  network,
-  push,
-}: Pick<
-  Props,
-  "langSetting" | "langAvailable" | "onLang" | "voice" | "network" | "push"
->) {
+}: Pick<Props, "langSetting" | "langAvailable" | "onLang">) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const update = (next: UISettings) => {
     setS(next);
@@ -493,9 +669,6 @@ function GeneralSettings({
           </Row>
         </div>
       </section>
-      <NotifySetting push={push} />
-      {voice && <VoiceSettings {...voice} />}
-      {network && <NetworkSettings api={network.api} />}
     </>
   );
 }
@@ -1575,6 +1748,60 @@ function NetworkSettings({ api }: { api: Api }) {
 }
 
 // The icons of the tabs.
+function IconBell() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  );
+}
+function IconMic() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" />
+    </svg>
+  );
+}
+function IconGlobe() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  );
+}
 function IconSliders() {
   return (
     <svg
@@ -1641,16 +1868,29 @@ export function SettingsModal({
   onClose,
   git,
   voice,
+  speech,
   llm,
   network,
   push,
+  tab: firstTab = "appearance",
 }: Props) {
-  const [tab, setTab] = useState<Tab>("general");
+  const [tab, setTab] = useState<Tab>(firstTab);
   const ref = useRef<HTMLDialogElement>(null);
   useDialog(ref, onClose);
   const tabs: { id: Tab; label: string; icon: ComponentChildren }[] = [
-    { id: "general", label: t("General"), icon: <IconSliders /> },
+    { id: "appearance", label: t("Appearance"), icon: <IconSliders /> },
+    {
+      id: "notifications",
+      label: t("Notifications"),
+      icon: <IconBell />,
+    },
   ];
+  if (voice || speech) {
+    tabs.push({ id: "voice", label: t("Voice"), icon: <IconMic /> });
+  }
+  if (network) {
+    tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
+  }
   if (llm) {
     tabs.push({ id: "providers", label: t("Providers"), icon: <IconChip /> });
   }
@@ -1730,15 +1970,22 @@ export function SettingsModal({
           class="settings-pane"
           aria-labelledby={`settings-tab-${tab}`}
         >
-          {tab === "general" && (
-            <GeneralSettings
+          {tab === "appearance" && (
+            <AppearanceSettings
               langSetting={langSetting}
               langAvailable={langAvailable}
               onLang={onLang}
-              voice={voice}
-              network={network}
-              push={push}
             />
+          )}
+          {tab === "notifications" && <NotifySetting push={push} />}
+          {tab === "voice" && (
+            <>
+              {voice && <VoiceSettings {...voice} />}
+              {speech && <SpeechSettings {...speech} />}
+            </>
+          )}
+          {tab === "network" && network && (
+            <NetworkSettings api={network.api} />
           )}
           {tab === "providers" && llm && <ProviderSettings {...llm} />}
           {tab === "git" && git && <GitConnections {...git} />}
