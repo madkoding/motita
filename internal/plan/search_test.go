@@ -39,7 +39,10 @@ func TestSearchFilesAnswersLikeGrep(t *testing.T) {
 	if err != nil || exit != 0 {
 		t.Fatalf("exit=%d err=%v", exit, err)
 	}
-	want := []string{filepath.Join(dir, "a.txt") + ":2:func main() {}", filepath.Join(dir, "sub", "b.go") + ":2:func helper() {}"}
+	want := []string{
+		filepath.Join(dir, "a.txt") + ":2:func main() {}",
+		filepath.Join(dir, "sub", "b.go") + ":2:func helper() {}",
+	}
 	for _, w := range want {
 		if !strings.Contains(out, w+"\n") {
 			t.Errorf("missing %q in %q", w, out)

@@ -29,11 +29,14 @@ func TestVoiceIsTurnedOnFromTheSettingsWithAConfirmation(t *testing.T) {
 	built := 0
 	srv := newTestServer(t, &fakeService{}, func(o *Options) {
 		o.ConfigPath = path
-		o.VoiceFrom = func(config.Config) VoiceService { built++; return &fakeVoice{text: "hola"} }
+		o.VoiceFrom = func(config.Config) VoiceService {
+			built++
+			return &fakeVoice{text: "hola"}
+		}
 	})
 
 	v := decodeVoice(t, get(t, srv, "/v1/voice", testToken))
-	if v.Enabled || !v.CanSave || v.Saved == nil || v.Saved.Enabled || v.Saved.Endpoint != "" || v.RestartNeeded {
+	if !voiceNeverTurnedOn(v) {
 		t.Fatalf("GET = %+v %+v", v, v.Saved)
 	}
 
@@ -54,30 +57,24 @@ func TestVoiceIsTurnedOnFromTheSettingsWithAConfirmation(t *testing.T) {
 		`"base_url":"https://api.groq.com/openai/v1","model":"whisper-large-v3-turbo","api_key":"gsk-secret",`+
 		`"wake_phrases":["oye motita"," "]}`)
 	v = decodeVoice(t, w)
-	if !v.Enabled || v.RestartNeeded || built != 1 || len(v.WakePhrases) != 1 || v.WakePhrases[0] != "oye motita" ||
-		v.Saved.Endpoint != "https://api.groq.com/openai/v1" || !v.Saved.HasKey || v.Saved.Inherits {
+	if !voiceOnWithItsOwnEndpoint(v, built) {
 		t.Fatalf("PUT = %+v %+v", v, v.Saved)
 	}
 	if strings.Contains(w.Body.String(), "gsk-secret") {
 		t.Fatal("the key must never be answered")
 	}
-	body, _ := os.ReadFile(path)
-	if !strings.HasPrefix(string(body), "# mine\n") || strings.Contains(string(body), "gsk-secret") {
-		t.Fatalf("the file keeps its comments and never the key:\n%s", body)
-	}
-	creds, _ := os.ReadFile(config.CredentialsPath(path))
-	if !strings.Contains(string(creds), "gsk-secret") {
-		t.Fatalf("the key is kept beside the file: %q", creds)
-	}
+	assertVoiceKeyKeptBesideTheFile(t, path)
 	if w := postAudio(t, srv, "/v1/voice/transcribe", "audio/webm", strings.NewReader("a")); w.Code != http.StatusOK {
 		t.Fatalf("applied without a restart: %d %s", w.Code, w.Body.String())
 	}
 
 	// Changing the phrases of a voice that is on needs no question; pointing it elsewhere does.
-	if w := sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{"enabled":true,"wake_phrases":["motita"]}`); w.Code != http.StatusOK {
+	w = sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{"enabled":true,"wake_phrases":["motita"]}`)
+	if w.Code != http.StatusOK {
 		t.Fatalf("phrases = %d %s", w.Code, w.Body.String())
 	}
-	if w := sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{"enabled":true,"base_url":"http://127.0.0.1:8080/v1"}`); w.Code != http.StatusBadRequest {
+	w = sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{"enabled":true,"base_url":"http://127.0.0.1:8080/v1"}`)
+	if w.Code != http.StatusBadRequest {
 		t.Fatalf("a new endpoint needs confirm: %d", w.Code)
 	}
 
@@ -86,8 +83,38 @@ func TestVoiceIsTurnedOnFromTheSettingsWithAConfirmation(t *testing.T) {
 	if v.Enabled || v.Saved.Enabled {
 		t.Fatalf("off = %+v", v)
 	}
-	if w := postAudio(t, srv, "/v1/voice/transcribe", "audio/webm", strings.NewReader("a")); w.Code != http.StatusNotImplemented {
+	w = postAudio(t, srv, "/v1/voice/transcribe", "audio/webm", strings.NewReader("a"))
+	if w.Code != http.StatusNotImplemented {
 		t.Fatalf("off = %d", w.Code)
+	}
+}
+
+// voiceNeverTurnedOn reports the view of a voice the file has never turned on.
+func voiceNeverTurnedOn(v voiceView) bool {
+	saved := v.Saved != nil && !v.Saved.Enabled && v.Saved.Endpoint == ""
+	return !v.Enabled && v.CanSave && saved && !v.RestartNeeded
+}
+
+// voiceOnWithItsOwnEndpoint reports the view of the voice the test turns on, at once, with its own
+// endpoint, its key and one wake phrase.
+func voiceOnWithItsOwnEndpoint(v voiceView, built int) bool {
+	applied := v.Enabled && !v.RestartNeeded && built == 1
+	phrases := len(v.WakePhrases) == 1 && v.WakePhrases[0] == "oye motita"
+	saved := v.Saved.Endpoint == "https://api.groq.com/openai/v1" && v.Saved.HasKey && !v.Saved.Inherits
+	return applied && phrases && saved
+}
+
+// assertVoiceKeyKeptBesideTheFile checks that the configuration file keeps its comments and never
+// the key, which is saved in the credentials beside it.
+func assertVoiceKeyKeptBesideTheFile(t *testing.T, path string) {
+	t.Helper()
+	body, _ := os.ReadFile(path)
+	if !strings.HasPrefix(string(body), "# mine\n") || strings.Contains(string(body), "gsk-secret") {
+		t.Fatalf("the file keeps its comments and never the key:\n%s", body)
+	}
+	creds, _ := os.ReadFile(config.CredentialsPath(path))
+	if !strings.Contains(string(creds), "gsk-secret") {
+		t.Fatalf("the key is kept beside the file: %q", creds)
 	}
 }
 
@@ -98,8 +125,8 @@ func TestVoiceChangeWithoutABuilderWaitsForARestart(t *testing.T) {
 	path := networkConfig(t, "llm:\n  provider: openai\n")
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 	v := decodeVoice(t, sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{"enabled":true,"confirm":true}`))
-	if v.Enabled || !v.Saved.Enabled || !v.RestartNeeded || !v.Saved.Inherits ||
-		v.Saved.Endpoint != "https://api.openai.com/v1" {
+	saved := v.Saved.Enabled && v.Saved.Inherits && v.Saved.Endpoint == "https://api.openai.com/v1"
+	if v.Enabled || !v.RestartNeeded || !saved {
 		t.Fatalf("PUT = %+v %+v", v, v.Saved)
 	}
 }

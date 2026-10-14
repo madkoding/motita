@@ -335,12 +335,14 @@ func bareAgent(t *testing.T, cfg func(*config.Config)) *Agent {
 func TestSpawnRefusals(t *testing.T) {
 	ctx := context.Background()
 	a := bareAgent(t, nil)
-	if out, err := a.spawnAgent(ctx, Command{Command: "x"}); err == nil || !strings.Contains(out, "not available in this mode") {
+	out, err := a.spawnAgent(ctx, Command{Command: "x"})
+	if err == nil || !strings.Contains(out, "not available in this mode") {
 		t.Errorf("outside a run: %q %v", out, err)
 	}
 	a.startFleet(taskOf("t"))
 	defer a.endFleet(TaskResult{})
-	if out, err := a.spawnAgent(ctx, Command{Command: "  \n brief"}); err == nil || !strings.Contains(out, "purpose on the first line") {
+	out, err = a.spawnAgent(ctx, Command{Command: "  \n brief"})
+	if err == nil || !strings.Contains(out, "purpose on the first line") {
 		t.Errorf("no purpose: %q %v", out, err)
 	}
 	a.cfg.Agent.MaxParallel = 0
@@ -348,7 +350,8 @@ func TestSpawnRefusals(t *testing.T) {
 		t.Errorf("turned off: %q %v", out, err)
 	}
 	a.isChild = true
-	if out, err := a.spawnAgent(ctx, Command{Command: "p\nb"}); err == nil || !strings.Contains(out, "cannot start agents") {
+	out, err = a.spawnAgent(ctx, Command{Command: "p\nb"})
+	if err == nil || !strings.Contains(out, "cannot start agents") {
 		t.Errorf("a child: %q %v", out, err)
 	}
 	if handled, _, _ := a.runAgentAction(ctx, "write_file", Command{}); handled {
@@ -438,7 +441,8 @@ func TestANewChildInheritsTheParentsRules(t *testing.T) {
 		t.Errorf("child anchor = %+v, want the project's gate", child.cfg.Anchor)
 	}
 	a.cfg.Anchor = config.Anchor{Kind: "auto", Timeout: time.Minute}
-	if got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode).cfg.Anchor; got.Timeout != time.Minute {
+	got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode).cfg.Anchor
+	if got.Timeout != time.Minute {
 		t.Errorf("a project gate must be kept as configured: %+v", got)
 	}
 }
@@ -614,30 +618,7 @@ func roleActs(actions ...[3]string) string {
 // tree. Each is told who else is working, the readers cannot write, and their reports say their
 // role. Nothing of a reader is left behind: no branch, no worktree.
 func TestATeamOfRolesWorksInsideItsRun(t *testing.T) {
-	mainRound := 0
-	reviewWrote := false
-	s := &scriptServer{execute: func(_ int, prompt string) string {
-		if isChildPrompt(prompt) {
-			if strings.Contains(prompt, "Your role is REVIEW") && !reviewWrote {
-				reviewWrote = true
-				return step(false, "echo x > review.txt")
-			}
-			return step(true)
-		}
-		mainRound++
-		switch mainRound {
-		case 1:
-			return roleActs(
-				[3]string{"write the code\nWrite it.", ""},
-				[3]string{"review the code\nReview it.", "review"},
-				[3]string{"look around\nHow is it laid out?", "Research"},
-			)
-		case 2:
-			return acts(false, kindAct{"wait_agents", ""})
-		default:
-			return step(true, "true")
-		}
-	}}
+	s := teamOfRolesScript()
 	var tools string
 	e, result, sink := fleetRun(t, s, func(c *config.Config) {
 		inRepo(t)(c)
@@ -677,6 +658,35 @@ func TestATeamOfRolesWorksInsideItsRun(t *testing.T) {
 	}
 }
 
+// teamOfRolesScript is the model of TestATeamOfRolesWorksInsideItsRun: the main agent starts a
+// coder, a reviewer and a researcher and waits for them, and the reviewer tries to write once.
+func teamOfRolesScript() *scriptServer {
+	mainRound := 0
+	reviewWrote := false
+	return &scriptServer{execute: func(_ int, prompt string) string {
+		if isChildPrompt(prompt) {
+			if strings.Contains(prompt, "Your role is REVIEW") && !reviewWrote {
+				reviewWrote = true
+				return step(false, "echo x > review.txt")
+			}
+			return step(true)
+		}
+		mainRound++
+		switch mainRound {
+		case 1:
+			return roleActs(
+				[3]string{"write the code\nWrite it.", ""},
+				[3]string{"review the code\nReview it.", "review"},
+				[3]string{"look around\nHow is it laid out?", "Research"},
+			)
+		case 2:
+			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			return step(true, "true")
+		}
+	}}
+}
+
 // An unknown role is refused; a reader that cannot get its copy says why; the engine of a role
 // comes from the session, and the agent's own when the session has none for it.
 func TestRolesRefusalsAndEngines(t *testing.T) {
@@ -684,12 +694,13 @@ func TestRolesRefusalsAndEngines(t *testing.T) {
 	a := bareAgent(t, func(c *config.Config) { inRepo(t)(c) })
 	a.startFleet(taskOf("t"))
 	defer a.endFleet(TaskResult{})
-	if out, err := a.spawnAgent(ctx, Command{Command: "p\nb", Role: "narrate"}); err == nil || !strings.Contains(out, "not one of") {
+	out, err := a.spawnAgent(ctx, Command{Command: "p\nb", Role: "narrate"})
+	if err == nil || !strings.Contains(out, "not one of") {
 		t.Errorf("unknown role: %q %v", out, err)
 	}
 	old := subagentDetached
 	subagentDetached = func(context.Context, string, string, string) error { return errors.New("simulated") }
-	out, err := a.spawnAgent(ctx, Command{Command: "p\nb", Role: "review"})
+	out, err = a.spawnAgent(ctx, Command{Command: "p\nb", Role: "review"})
 	subagentDetached = old
 	if err == nil || !strings.Contains(out, "could not be given a place to work") {
 		t.Errorf("detached worktree: %q %v", out, err)
@@ -714,7 +725,8 @@ func TestRolesRefusalsAndEngines(t *testing.T) {
 	}
 	a.subs.children = append(a.subs.children,
 		&subagent{id: "a1", role: config.TaskCode, purpose: "write it", cancel: func() {}, done: make(chan struct{})})
-	if b := childBrief("p", "b", config.TaskCode, childPlace{branch: "x"}, a.teamRoster()); !strings.Contains(b, "a1 (code): write it") {
+	b := childBrief("p", "b", config.TaskCode, childPlace{branch: "x"}, a.teamRoster())
+	if !strings.Contains(b, "a1 (code): write it") {
 		t.Errorf("the team is named in the brief: %s", b)
 	}
 	if b := childBrief("p", "b", config.TaskResearch, childPlace{branch: "x"}, nil); !strings.Contains(b, "READ-ONLY") ||

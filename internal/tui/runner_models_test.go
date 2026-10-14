@@ -40,8 +40,9 @@ func TestEngineForUsesTheModelAssignedToTheKind(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
 
 	cfg, e, err := r.engineFor(config.TaskPlan)
-	if err != nil || e == own || cfg.LLM.Provider != "anthropic" || cfg.LLM.Model != "claude-opus-5-5" ||
-		cfg.LLM.APIKey != "sk-ant" || cfg.LLM.BaseURL != "https://api.anthropic.com" {
+	planLLM := cfg.LLM.Provider == "anthropic" && cfg.LLM.Model == "claude-opus-5-5" &&
+		cfg.LLM.APIKey == "sk-ant" && cfg.LLM.BaseURL == "https://api.anthropic.com"
+	if err != nil || e == own || !planLLM {
 		t.Fatalf("plan: %v %+v", err, cfg.LLM)
 	}
 	if _, again, _ := r.engineFor(config.TaskPlan); again != e {

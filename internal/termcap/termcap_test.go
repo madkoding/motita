@@ -37,13 +37,17 @@ func onPlatform(t *testing.T, name string, vt bool) *int {
 	oldGoos, oldVT := goos, enableVTFn
 	calls := new(int)
 	goos = name
-	enableVTFn = func(*os.File) bool { *calls++; return vt }
+	enableVTFn = func(*os.File) bool {
+		*calls++
+		return vt
+	}
 	t.Cleanup(func() { goos, enableVTFn = oldGoos, oldVT })
 	return calls
 }
 
 func TestLevelNames(t *testing.T) {
-	for l, want := range map[Level]string{None: "none", ANSI16: "16", ANSI256: "256", TrueColor: "truecolor", Level(9): "none"} {
+	names := map[Level]string{None: "none", ANSI16: "16", ANSI256: "256", TrueColor: "truecolor", Level(9): "none"}
+	for l, want := range names {
 		if got := l.String(); got != want {
 			t.Errorf("Level(%d) = %q, want %q", int(l), got, want)
 		}
@@ -133,7 +137,8 @@ func TestOverrides(t *testing.T) {
 	}{
 		{"MOTITA_COLOR=never", tty, map[string]string{"TERM": "xterm", "MOTITA_COLOR": "never", "FORCE_COLOR": "3"}, None},
 		{"MOTITA_COLOR=always into a pipe", &pipe, map[string]string{"MOTITA_COLOR": "Always", "NO_COLOR": "1"}, ANSI16},
-		{"MOTITA_COLOR=always keeps a deeper level", tty, map[string]string{"TERM": "xterm-256color", "MOTITA_COLOR": "1"}, ANSI256},
+		{"MOTITA_COLOR=always keeps a deeper level", tty,
+			map[string]string{"TERM": "xterm-256color", "MOTITA_COLOR": "1"}, ANSI256},
 		{"MOTITA_COLOR=16", tty, map[string]string{"TERM": "xterm-256color", "MOTITA_COLOR": "16"}, ANSI16},
 		{"MOTITA_COLOR=256", &pipe, map[string]string{"MOTITA_COLOR": "256"}, ANSI256},
 		{"MOTITA_COLOR=truecolor", &pipe, map[string]string{"MOTITA_COLOR": "24bit"}, TrueColor},

@@ -11,7 +11,8 @@ import (
 func TestTTSIsOffByDefaultAndNotChecked(t *testing.T) {
 	c := Default()
 	tts := c.Voice.TTS
-	if tts.Enabled || tts.Model != "gpt-4o-mini-tts" || tts.Voice != "alloy" || tts.Format != "mp3" || c.TTSMaxChars() != 4000 {
+	defaults := tts.Model == "gpt-4o-mini-tts" && tts.Voice == "alloy" && tts.Format == "mp3"
+	if tts.Enabled || !defaults || c.TTSMaxChars() != 4000 {
 		t.Fatalf("default tts = %+v", tts)
 	}
 	c.Voice.TTS.MaxChars = -1
@@ -101,7 +102,9 @@ func TestTTSComesFromTheFileAndTheEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tts := c.Voice.TTS; !tts.Enabled || tts.Voice != "nova" || tts.Format != "opus" || len(tts.Voices) != 2 || tts.Model != "gpt-4o-mini-tts" {
+	tts := c.Voice.TTS
+	fromFile := tts.Voice == "nova" && tts.Format == "opus" && len(tts.Voices) == 2
+	if !tts.Enabled || !fromFile || tts.Model != "gpt-4o-mini-tts" {
 		t.Errorf("from the file: %+v", tts)
 	}
 
@@ -124,6 +127,7 @@ func TestTTSComesFromTheFileAndTheEnvironment(t *testing.T) {
 }
 
 func ttsEqual(a, b TTS) bool {
-	return a.Enabled == b.Enabled && a.BaseURL == b.BaseURL && a.APIKey == b.APIKey && a.Model == b.Model &&
-		a.Voice == b.Voice && a.Format == b.Format && a.MaxChars == b.MaxChars && slices.Equal(a.Voices, b.Voices)
+	sameEndpoint := a.Enabled == b.Enabled && a.BaseURL == b.BaseURL && a.APIKey == b.APIKey
+	sameSpeech := a.Model == b.Model && a.Voice == b.Voice && a.Format == b.Format
+	return sameEndpoint && sameSpeech && a.MaxChars == b.MaxChars && slices.Equal(a.Voices, b.Voices)
 }

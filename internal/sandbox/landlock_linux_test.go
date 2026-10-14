@@ -414,7 +414,8 @@ func TestConfinementFailsWhenTheKernelBufferCannotBeMapped(t *testing.T) {
 	real := mmapAnon
 	t.Cleanup(func() { mmapAnon = real })
 	mmapAnon = func(int, int64, int, int, int) ([]byte, error) { return nil, syscall.ENOMEM }
-	if err := confine(Spec{WriteRoots: []string{t.TempDir()}}); err == nil || !strings.Contains(err.Error(), "create_ruleset") {
+	err := confine(Spec{WriteRoots: []string{t.TempDir()}})
+	if err == nil || !strings.Contains(err.Error(), "create_ruleset") {
 		t.Errorf("the ruleset buffer: %v", err)
 	}
 	if err := allowWrites(3, t.TempDir(), accessReadFile); err == nil || !strings.Contains(err.Error(), "add_rule") {

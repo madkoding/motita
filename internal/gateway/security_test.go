@@ -52,20 +52,7 @@ func TestTheDiskAccessIsWorkspaceUntilAConfirmedChangeAndReachesEverySession(t *
 		t.Fatalf("GET = %+v", v)
 	}
 
-	for _, body := range []string{`{"disk_access":"full"}`, `{"disk_access":"full","confirm":false}`} {
-		if w := sendNetwork(t, srv, http.MethodPut, "/v1/security", body); w.Code != http.StatusBadRequest ||
-			!strings.Contains(w.Body.String(), "confirm") {
-			t.Errorf("%s = %d %s, want 400", body, w.Code, w.Body.String())
-		}
-	}
-	for _, body := range []string{`{"disk_access":"everything","confirm":true}`, `{"disk_access":""}`, `nope`} {
-		if w := sendNetwork(t, srv, http.MethodPut, "/v1/security", body); w.Code != http.StatusBadRequest {
-			t.Errorf("%s = %d, want 400", body, w.Code)
-		}
-	}
-	if mustLoad(t, path).Sandbox.FullDisk() || len(svc.modes) != 0 {
-		t.Fatal("a refused change reached the file or a session")
-	}
+	assertDiskAccessRefusals(t, srv, path, svc)
 
 	v = decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"disk_access":" Full ","confirm":true}`))
 	if v.DiskAccess != config.DiskFull || !mustLoad(t, path).Sandbox.FullDisk() {
@@ -91,6 +78,26 @@ func TestTheDiskAccessIsWorkspaceUntilAConfirmedChangeAndReachesEverySession(t *
 	v = decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"disk_access":"workspace"}`))
 	if v.DiskAccess != config.DiskWorkspace || mustLoad(t, path).Sandbox.FullDisk() {
 		t.Fatalf("going back to the workspace needs no confirmation: %+v", v)
+	}
+}
+
+// assertDiskAccessRefusals checks that the whole disk is refused without confirm, that a value
+// that is not an access is refused, and that neither reaches the file or a session.
+func assertDiskAccessRefusals(t *testing.T, srv *Server, path string, svc *diskService) {
+	t.Helper()
+	for _, body := range []string{`{"disk_access":"full"}`, `{"disk_access":"full","confirm":false}`} {
+		if w := sendNetwork(t, srv, http.MethodPut, "/v1/security", body); w.Code != http.StatusBadRequest ||
+			!strings.Contains(w.Body.String(), "confirm") {
+			t.Errorf("%s = %d %s, want 400", body, w.Code, w.Body.String())
+		}
+	}
+	for _, body := range []string{`{"disk_access":"everything","confirm":true}`, `{"disk_access":""}`, `nope`} {
+		if w := sendNetwork(t, srv, http.MethodPut, "/v1/security", body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", body, w.Code)
+		}
+	}
+	if mustLoad(t, path).Sandbox.FullDisk() || len(svc.modes) != 0 {
+		t.Fatal("a refused change reached the file or a session")
 	}
 }
 
@@ -122,7 +129,8 @@ func TestTheDiskAccessNeedsAFileAndReportsWhatFailed(t *testing.T) {
 	if v.CanSave || v.DiskAccess != config.DiskFull {
 		t.Fatalf("without a file the view is the running configuration: %+v", v)
 	}
-	if w := sendNetwork(t, bare, http.MethodPut, "/v1/security", `{"disk_access":"workspace"}`); w.Code != http.StatusConflict {
+	w := sendNetwork(t, bare, http.MethodPut, "/v1/security", `{"disk_access":"workspace"}`)
+	if w.Code != http.StatusConflict {
 		t.Errorf("no file = %d, want 409", w.Code)
 	}
 
@@ -130,7 +138,7 @@ func TestTheDiskAccessNeedsAFileAndReportsWhatFailed(t *testing.T) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 	oldSet := setDiskAccess
 	setDiskAccess = func(string, string) error { return errors.New("read-only filesystem") }
-	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"disk_access":"workspace"}`)
+	w = sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"disk_access":"workspace"}`)
 	setDiskAccess = oldSet
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "read-only") {
 		t.Errorf("a failed save = %d %s", w.Code, w.Body.String())

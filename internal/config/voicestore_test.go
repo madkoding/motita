@@ -13,7 +13,8 @@ func strp(s string) *string { return &s }
 // TestSetVoiceTextEditsOnlyTheVoiceBlock: the lines of the block move, a sequence of phrases is
 // replaced whole, and the rest of the file is untouched.
 func TestSetVoiceTextEditsOnlyTheVoiceBlock(t *testing.T) {
-	in := "# top\nllm:\n  provider: openai\nvoice:\n  enabled: false # off\n  api_key: old\n  wake_phrases:\n    - a\n    - b\nui:\n  language: es\n"
+	in := "# top\nllm:\n  provider: openai\nvoice:\n  enabled: false # off\n  api_key: old\n" +
+		"  wake_phrases:\n    - a\n    - b\nui:\n  language: es\n"
 	got, err := setVoiceText(in, VoiceChange{
 		Enabled: true, Model: strp(" whisper-1 "), APIKey: strp("k"), WakePhrases: []string{"oye", " "},
 	})
@@ -50,7 +51,8 @@ func TestSetVoiceUndoesAnInvalidChange(t *testing.T) {
 	t.Setenv("MOTITA_VOICE_API_KEY", "")
 	const body = "llm:\n  provider: gemini\n"
 	path := voiceFile(t, body)
-	if _, err := SetVoice(path, VoiceChange{Enabled: true}); err == nil || !strings.Contains(err.Error(), "voice.base_url") {
+	_, err := SetVoice(path, VoiceChange{Enabled: true})
+	if err == nil || !strings.Contains(err.Error(), "voice.base_url") {
 		t.Fatalf("err = %v", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != body {
@@ -68,7 +70,8 @@ func TestSetVoiceUndoesAnInvalidChange(t *testing.T) {
 func TestSetVoiceReportsAnEnvironmentOverride(t *testing.T) {
 	t.Setenv("MOTITA_VOICE_ENABLED", "false")
 	path := voiceFile(t, "llm:\n  provider: openai\n")
-	if _, err := SetVoice(path, VoiceChange{Enabled: true}); err == nil || !strings.Contains(err.Error(), "MOTITA_VOICE_ENABLED") {
+	_, err := SetVoice(path, VoiceChange{Enabled: true})
+	if err == nil || !strings.Contains(err.Error(), "MOTITA_VOICE_ENABLED") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -123,7 +126,8 @@ func TestSetVoiceTextWritesANewBlockInReadingOrder(t *testing.T) {
 	got, err := setVoiceText("llm:\n  provider: openai\n", VoiceChange{
 		Enabled: true, BaseURL: strp("https://x/v1"), Model: strp("m"), APIKey: strp("k"), WakePhrases: []string{"a"},
 	})
-	want := "voice:\n  enabled: true\n  base_url: \"https://x/v1\"\n  model: \"m\"\n  api_key: \"\"\n  wake_phrases: [\"a\"]\n"
+	want := "voice:\n  enabled: true\n  base_url: \"https://x/v1\"\n  model: \"m\"\n  api_key: \"\"\n" +
+		"  wake_phrases: [\"a\"]\n"
 	if err != nil || !strings.HasSuffix(got, want) {
 		t.Fatalf("got %q, %v", got, err)
 	}

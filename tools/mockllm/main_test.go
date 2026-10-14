@@ -151,8 +151,8 @@ func TestSpeechAnswersAPlayableSilence(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"input":"hi"}`)))
 	body := rec.Body.Bytes()
-	if rec.Header().Get("Content-Type") != "audio/wav" || len(body) != 44+2400 ||
-		string(body[:4]) != "RIFF" || string(body[8:12]) != "WAVE" || body[44] != 128 {
+	playable := len(body) == 44+2400 && string(body[:4]) == "RIFF" && string(body[8:12]) == "WAVE" && body[44] == 128
+	if rec.Header().Get("Content-Type") != "audio/wav" || !playable {
 		t.Errorf("speech = %s %d %q", rec.Header().Get("Content-Type"), len(body), body[:12])
 	}
 }

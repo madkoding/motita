@@ -220,7 +220,8 @@ func TestConfineGrantsTheWorkspaceReadsWhenTheUsersFilesArePrivate(t *testing.T)
 		return 0, 0, 0
 	}
 	gitconfig := filepath.Join(home, ".gitconfig")
-	if err := confine(Spec{WriteRoots: []string{work}, ReadRoots: []string{gitconfig}, PrivatePaths: []string{home}}); err != nil {
+	spec := Spec{WriteRoots: []string{work}, ReadRoots: []string{gitconfig}, PrivatePaths: []string{home}}
+	if err := confine(spec); err != nil {
 		t.Fatal(err)
 	}
 	around := len(readableAround([]string{home}))

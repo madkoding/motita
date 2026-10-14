@@ -368,7 +368,8 @@ func TestProviderKeyPresentReadsLoginsAndEachProvidersVariable(t *testing.T) {
 	if providerKeyPresent(path, cfg, "qwen") {
 		t.Error("nothing is configured for qwen yet")
 	}
-	if err := oauth.SaveCredential(os.Getenv("MOTITA_AUTH_DIR"), oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
+	cred := oauth.Credential{Provider: "qwen", RefreshToken: "r"}
+	if err := oauth.SaveCredential(os.Getenv("MOTITA_AUTH_DIR"), cred); err != nil {
 		t.Fatal(err)
 	}
 	if !providerKeyPresent(path, cfg, "qwen") {
