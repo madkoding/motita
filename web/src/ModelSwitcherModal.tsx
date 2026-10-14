@@ -8,6 +8,7 @@ import { IconClose, IconMonitor, IconSpinner } from "./icons";
 import type { ConfigView } from "./appTypes";
 import { REASONING_LEVELS } from "./appConst";
 import { switchWarning } from "./sessionWatch";
+import { ProviderPicker } from "./ProviderPicker";
 
 const FIELD =
   "w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent";
@@ -26,7 +27,7 @@ function modelUnchanged(
   return model === (config?.model || "") && reasoning === reasoningOf(config);
 }
 
-// ProviderField is the provider select. The model is re-chosen rather than carried over: it
+// ProviderField is the provider picker. The model is re-chosen rather than carried over: it
 // belonged to the provider being left, and the new one may not serve it. Going back to the saved
 // provider restores the saved model, so a provider round-trip leaves the draft exactly as it was.
 function ProviderField() {
@@ -34,12 +35,14 @@ function ProviderField() {
     useApp().model;
   return (
     <div>
-      <label class={LABEL}>{t("Provider")}</label>
-      <select
-        class={FIELD}
+      <span class={LABEL}>{t("Provider")}</span>
+      <ProviderPicker
+        providers={providers}
         value={draftProvider}
-        onChange={(e) => {
-          const newProvider = (e.target as HTMLSelectElement).value;
+        onPick={(newProvider) => {
+          if (newProvider === draftProvider) {
+            return;
+          }
           setDraftProvider(newProvider);
           setDraftModel(
             choose(
@@ -49,15 +52,7 @@ function ProviderField() {
             ),
           );
         }}
-      >
-        {providers.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-            {choose(p.is_current, " " + t("(active)"), "")}
-            {choose(p.key_present, "", " — " + t("no key needed"))}
-          </option>
-        ))}
-      </select>
+      />
     </div>
   );
 }
@@ -77,7 +72,9 @@ function ModelField() {
   const loading = fetchingModels && draftProvider === savedProvider;
   return (
     <div>
-      <label class={LABEL}>{t("Model")}</label>
+      <label class={LABEL} for="model-switcher-model">
+        {t("Model")}
+      </label>
       {loading && (
         <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
           <IconSpinner size={16} class="animate-spin text-accent" />
@@ -86,6 +83,7 @@ function ModelField() {
       )}
       {!loading && (
         <select
+          id="model-switcher-model"
           class={FIELD + " font-mono text-sm"}
           value={draftModel}
           onChange={(e) => setDraftModel((e.target as HTMLSelectElement).value)}

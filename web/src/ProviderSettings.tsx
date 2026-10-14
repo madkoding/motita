@@ -3,7 +3,7 @@ import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import { InsecureWarning } from "./InsecureWarning";
-import { PROVIDER_LOGOS } from "./providerLogos";
+import { ProviderLogo } from "./ProviderPicker";
 import {
   type Api,
   type LLMProvider,
@@ -91,18 +91,7 @@ function keyState(p: LLMProvider): string {
 
 // ProviderIcon is the provider's logo, or its initial, on the same tile the git hosts use.
 function ProviderIcon({ p }: { p: LLMProvider }) {
-  const logo = PROVIDER_LOGOS[p.id];
-  return (
-    <span class="git-account-icon llm-icon" aria-hidden="true" data-logo={p.id}>
-      {logo ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill={logo.color}>
-          <path d={logo.d} />
-        </svg>
-      ) : (
-        p.name.charAt(0)
-      )}
-    </span>
-  );
+  return <ProviderLogo id={p.id} name={p.name} />;
 }
 
 // ProviderSettings is the providers tab: the default model new sessions start with, and every
