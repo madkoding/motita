@@ -39,6 +39,11 @@ type Entry = {
   finished: boolean;
   /** The work itself, run on first sight and never again. May be async. */
   task: () => void | Promise<void>;
+  /**
+   * Undoes the work, putting back the cheap placeholders. Returns whether there was anything
+   * heavy to drop; absent for a caller whose work cannot be undone.
+   */
+  release?: () => boolean;
 };
 
 const entries = new Map<Element, Entry>();
@@ -46,6 +51,58 @@ const entries = new Map<Element, Entry>();
 /** One observer for the whole page, created on first use and kept for the session. */
 let observer: IntersectionObserver | null = null;
 let unsupported = false;
+
+/**
+ * How far from the viewport a built message may be before its work is dropped again.
+ *
+ * Building on approach bounds what a conversation pays for, but not what it HOLDS: a reader who
+ * scrolls through a long conversation once ends up with every diagram and formula built, and they
+ * stay built for the session. A message this far away (several screens) goes back to its cheap
+ * placeholders, at the height it had, and is built again on the way back — the near observer
+ * above does that on its own, since the message is unstarted again.
+ */
+const FAR_MARGIN = "4000px 0px";
+let farObserver: IntersectionObserver | null = null;
+
+function ensureFarObserver(): IntersectionObserver | null {
+  if (farObserver || typeof IntersectionObserver === "undefined") {
+    return farObserver;
+  }
+  farObserver = new IntersectionObserver(
+    (records) => {
+      for (const rec of records) {
+        if (!rec.isIntersecting) {
+          releaseFar(rec.target as HTMLElement);
+        }
+      }
+    },
+    { root: null, rootMargin: FAR_MARGIN, threshold: 0 },
+  );
+  return farObserver;
+}
+
+/**
+ * releaseFar drops the work of a built message that went far out of view.
+ *
+ * The height is locked first: the message is above or below the reader, and a message shrinking
+ * there would move the page under them. Only a FINISHED message is released — one still building
+ * would have its work land on the placeholders that replaced it.
+ */
+export function releaseFar(el: HTMLElement): void {
+  const entry = entries.get(el);
+  if (!entry?.release || !entry.finished || entry.inView) {
+    return;
+  }
+  const height = el.getBoundingClientRect().height;
+  if (!entry.release()) {
+    return;
+  }
+  el.style.minHeight = height + "px";
+  el.dataset.released = "1";
+  el.dataset.hydrating = "1";
+  entry.started = false;
+  entry.finished = false;
+}
 
 /**
  * Every transition of the "is the conversation ready" question, with the reason.
@@ -214,8 +271,11 @@ function ensureObserver(): IntersectionObserver | null {
 export function watchForHydration(
   el: HTMLElement,
   task: () => void,
+  release?: () => boolean,
 ): () => void {
   const obs = ensureObserver();
+  // A message registered again (its content changed) starts from its own height.
+  unlockHeight(el);
   // No optimistic default. The element starts OUT of view and the observer promotes it: assuming
   // visible until the first callback would make a message that is never reported look built, and
   // — worse — would make the spinner's "is anything visible still pending" question answer itself
@@ -235,9 +295,15 @@ export function watchForHydration(
         () => finish(el),
         () => finish(el),
       ),
+    release,
   });
+  let far: IntersectionObserver | null = null;
+  if (obs && release) {
+    far = ensureFarObserver();
+  }
   if (obs) {
     obs.observe(el);
+    far?.observe(el);
   } else {
     // No IntersectionObserver: nothing will ever promote it, so build now. A slow page is a
     // worse failure than an expensive one.
@@ -251,6 +317,7 @@ export function watchForHydration(
   return () => {
     entries.delete(el);
     obs?.unobserve(el);
+    far?.unobserve(el);
     // Deliberately NO announce() here, and this is the flicker that was reported: a cleanup runs
     // when the effect re-runs (the message's content changed) and when the message is unmounted
     // (a session switch clears the transcript before fetching the next one). Announcing from here
@@ -262,6 +329,14 @@ export function watchForHydration(
   };
 }
 
+/** unlockHeight lets a released message take its own height again. */
+function unlockHeight(el: HTMLElement): void {
+  if (el.dataset.released) {
+    delete el.dataset.released;
+    el.style.minHeight = "";
+  }
+}
+
 /** Mark a message's deferred work as over, on either outcome. */
 function finish(el: HTMLElement): void {
   const entry = entries.get(el);
@@ -269,6 +344,8 @@ function finish(el: HTMLElement): void {
     entry.finished = true;
   }
   delete el.dataset.hydrating;
+  // A released message built again has its real height back.
+  unlockHeight(el);
   record(!visiblePending(), "finish");
   // A message finishing is activity too, and this is the one that matters: it is what keeps the
   // window open while the conversation is still being built, and what lets it close when the

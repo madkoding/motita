@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "preact/hooks";
 import { t, tf, plural } from "./i18n";
 import { choose } from "./choose";
-import { useApp } from "./appStore";
+import { useTurn } from "./turnView";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
 import { ActionTrail } from "./ActionTrail";
@@ -144,8 +144,7 @@ function MenuDots() {
 
 // RunMenu is the menu of the input being worked on: it stops the agent.
 function RunMenu() {
-  const { checkpoints, stream } = useApp();
-  const { cpMenu, setCpMenu, toggleCpMenu } = checkpoints;
+  const { cpMenu, setCpMenu, toggleCpMenu, stopRun } = useTurn();
   return (
     <div class="cp-wrap">
       <button
@@ -167,7 +166,7 @@ function RunMenu() {
             class="is-armed"
             onClick={() => {
               setCpMenu(null);
-              stream.stopRun();
+              stopRun();
             }}
           >
             {t("Stop the agent")}
@@ -184,10 +183,9 @@ function RunMenu() {
 // CheckpointMenu is the menu of an input that made a checkpoint: going back to it, with or without
 // the files. Putting the files back asks twice.
 function CheckpointMenu({ turn }: { turn: number }) {
-  const { checkpoints, rs } = useApp();
-  const { cpMenu, cpArmed, setCpArmed, toggleCpMenu, restoreCheckpoint } =
-    checkpoints;
-  const files = rs.cpInfo[turn]?.files;
+  const { cpMenu, cpArmed, setCpArmed, toggleCpMenu, restoreCheckpoint, cpInfo } =
+    useTurn();
+  const files = cpInfo[turn]?.files;
   return (
     <div class="cp-wrap">
       <button
@@ -269,9 +267,8 @@ export function TurnHead({
   liveHere: boolean;
   mode?: "plan" | "task" | null;
 }) {
-  const { rs } = useApp();
-  const canGoBack =
-    turn != null && rs.cpInfo[turn] !== undefined && !rs.running;
+  const { cpInfo, running } = useTurn();
+  const canGoBack = turn != null && cpInfo[turn] !== undefined && !running;
   return (
     <div class="turn-head">
       <div class="msg user" data-who={t("You")}>
@@ -293,7 +290,7 @@ export function ModeChip({
   mode: "plan" | "task";
   text: string;
 }) {
-  const { rs, stream } = useApp();
+  const { running, submit } = useTurn();
   const label = choose(mode === "plan", t("Plan"), t("Task"));
   const other = choose(mode === "plan", t("Run as task"), t("Run as plan"));
   return (
@@ -302,8 +299,8 @@ export function ModeChip({
       <button
         type="button"
         class="mode-chip-switch"
-        disabled={rs.running}
-        onClick={() => void stream.submit(switchedText(text, mode))}
+        disabled={running}
+        onClick={() => submit(switchedText(text, mode))}
       >
         {other}
       </button>
@@ -357,7 +354,7 @@ export function ActivityLine({
   activity: string;
   shown: StepView[];
 }) {
-  const { activityKind } = useApp().rs;
+  const { activityKind } = useTurn();
   const command = activityKind === "command";
   return (
     <div
@@ -384,7 +381,7 @@ export function RunArtifacts({
 }: {
   artifacts: NonNullable<Message["artifacts"]>;
 }) {
-  const { showRunArtifact } = useApp().artifacts;
+  const { showRunArtifact } = useTurn();
   return (
     <div class="mt-2 flex flex-wrap gap-1.5" data-testid="run-artifacts">
       {artifacts.map((a) => (

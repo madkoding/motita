@@ -594,8 +594,36 @@ export function renderMessage(source: string): string {
   );
 }
 
+/**
+ * releaseMessage puts a built message back to its placeholders: the parsed, sanitized `html`
+ * it was mounted with. Only a message that built something heavy (a formula, a diagram, coloured
+ * code) is released; the rest have nothing worth dropping, and are left alone. Returns whether
+ * the message was released.
+ */
+export function releaseMessage(
+  el: HTMLElement,
+  html: string,
+  content: string,
+): boolean {
+  if (!el.querySelector("[data-done]")) {
+    return false;
+  }
+  el.innerHTML = html;
+  delete el.dataset.emoji;
+  const body = el.querySelector<HTMLElement>(".markdown-body");
+  if (body) {
+    body.dataset.raw = content;
+  }
+  return true;
+}
+
 export function Markdown({ content }: { content: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Parsed and sanitized once per content, not once per render. The conversation re-renders on
+  // every streamed event, and every message used to be re-parsed by markdown-it and re-sanitized
+  // by DOMPurify each time — a long transcript turned each token into a full re-parse of the whole
+  // conversation, and the strings and fragments it left behind are what the collector had to chase.
+  const html = useMemo(() => renderMessage(content), [content]);
 
   useEffect(() => {
     const el = ref.current;
@@ -621,24 +649,23 @@ export function Markdown({ content }: { content: string }) {
     // was and the page ends up short of the bottom. Announcing the end of the work is what lets
     // the container follow it — fired on the element so the listener stays scoped to this
     // message's subtree, and bubbling so it reaches the conversation container.
-    return watchForHydration(el, () => {
-      return hydrate(el).then(
-        () =>
-          el.dispatchEvent(
-            new CustomEvent("motita:hydrated", { bubbles: true }),
-          ),
-        () =>
-          el.dispatchEvent(
-            new CustomEvent("motita:hydrated", { bubbles: true }),
-          ),
-      );
-    });
+    return watchForHydration(
+      el,
+      () => {
+        return hydrate(el).then(
+          () =>
+            el.dispatchEvent(
+              new CustomEvent("motita:hydrated", { bubbles: true }),
+            ),
+          () =>
+            el.dispatchEvent(
+              new CustomEvent("motita:hydrated", { bubbles: true }),
+            ),
+        );
+      },
+      () => releaseMessage(el, html, content),
+    );
   }, [content]);
 
-  // Parsed and sanitized once per content, not once per render. The conversation re-renders on
-  // every streamed event, and every message used to be re-parsed by markdown-it and re-sanitized
-  // by DOMPurify each time — a long transcript turned each token into a full re-parse of the whole
-  // conversation, and the strings and fragments it left behind are what the collector had to chase.
-  const html = useMemo(() => renderMessage(content), [content]);
   return <div ref={ref} dangerouslySetInnerHTML={{ __html: html }} />;
 }

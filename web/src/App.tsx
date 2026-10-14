@@ -1,4 +1,5 @@
 import { createContext } from "preact";
+import { memo } from "preact/compat";
 import {
   useState,
   useEffect,
@@ -22,6 +23,7 @@ import { choose } from "./choose";
 import { modeOf } from "./appParse";
 import { clearCredential } from "./appAuth";
 import { AppCtx, useApp, useAppStore, type Store } from "./appStore";
+import { sameTurn, TurnCtx, useTurn, useTurnView } from "./turnView";
 import {
   AUTH_NEEDED_EVENT,
   COPIED_MS,
@@ -140,7 +142,7 @@ function groupsOf(messages: Message[]): Group[] {
 // `auto` says the turn went through auto mode, which applies the needed suggestions on its own.
 function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
-  const { rs, answerSuggestions } = useApp();
+  const { running, lastUserId, answerSuggestions } = useTurn();
   if (m.role !== "agent" || m.kind) {
     if (m.role === "user") {
       return <UserText m={m} />;
@@ -153,14 +155,13 @@ function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   if (m.report) {
     // The suggestions of a report are answered only while nothing runs: applying them is a turn.
     const onAnswer = choose(
-      rs.running,
+      running,
       undefined,
       (a: SuggestionAnswers) => void answerSuggestions(m, a),
     );
     // Suggestions left unanswered once the conversation moved on are stale: the work they were
     // about has changed since, so they are no longer offered.
-    const expired =
-      !m.answers && rs.messages.some((x) => x.role === "user" && x.id > m.id);
+    const expired = !m.answers && lastUserId > m.id;
     return (
       <ReportCard
         report={m.report}
@@ -207,13 +208,10 @@ function EmptyNote() {
 
 // SpeakButton reads an answer aloud, or stops it while it is the one being read.
 function SpeakButton({ m }: { m: Message }) {
-  const { speech, rs } = useApp();
-  const reading = speech.speakingId === m.id;
+  const { speakingId, speechSupported, running, lastMsgId, speak } = useTurn();
+  const reading = speakingId === m.id;
   // An answer still streaming has no end yet: it is read once it is complete.
-  if (
-    !speech.supported ||
-    (rs.running && m === rs.messages[rs.messages.length - 1])
-  ) {
+  if (!speechSupported || (running && m.id === lastMsgId)) {
     return null;
   }
   const label = choose(reading, t("Stop reading"), t("Read aloud"));
@@ -225,7 +223,7 @@ function SpeakButton({ m }: { m: Message }) {
       aria-pressed={reading}
       aria-keyshortcuts="Alt+L"
       title={label + " (Alt+L)"}
-      onClick={() => speech.speak(m)}
+      onClick={() => speak(m)}
     >
       <SpeakIcon reading={reading} />
     </button>
@@ -287,14 +285,8 @@ function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
 
 // stepsOf are the steps a turn shows: thoughts live in the thinking drawer, the chat keeps steps
 // and actions.
-function stepsOf(
-  stepsByTurn: Record<number, StepView[]>,
-  turn?: number,
-): StepView[] {
-  if (turn == null) {
-    return [];
-  }
-  return (stepsByTurn[turn] || []).filter((st) => st.kind !== "thought");
+function stepsOf(steps: StepView[] | undefined): StepView[] {
+  return (steps || []).filter((st) => st.kind !== "thought");
 }
 
 // turnMode is the mode auto mode picked for a turn, read from its first step, or null.
@@ -305,14 +297,22 @@ function turnMode(shown: StepView[]): "plan" | "task" | null {
   return modeOf(shown[0].text);
 }
 
-function Turn({ g, isLast }: { g: Group; isLast: boolean }) {
-  const { running, activity, stepsByTurn } = useApp().rs;
+interface TurnProps {
+  g: Group;
+  /** The turn's steps as the run state keeps them: the same array until that turn changes. */
+  steps: StepView[] | undefined;
+  /** Whether this is the turn the run in flight is writing. */
+  liveHere: boolean;
+  /** What the agent is doing right now; null for every turn but the live one. */
+  activity: string | null;
+}
+
+function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
   const head = choose(g.items[0].role === "user", g.items[0], null);
   const rest = choose(head, g.items.slice(1), g.items);
-  const shown = stepsOf(stepsByTurn, g.turn);
+  const shown = stepsOf(steps);
   // The mode auto mode picked, when this turn went through it: its first step says so.
   const mode = turnMode(shown);
-  const liveHere = running && isLast;
   // The step in progress is the activity line below, so it is not drawn twice.
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
   return (
@@ -331,9 +331,15 @@ function Turn({ g, isLast }: { g: Group; isLast: boolean }) {
   );
 }
 
+// Turn is one input with its steps and answer. Memoized: while the last turn streams, the others
+// are skipped instead of diffed again on every token.
+const Turn = memo(TurnBody, sameTurn);
+
 // Conversation — the decorative gradient lives here only.
 function Conversation() {
-  const { rs, scroll } = useApp();
+  const store = useApp();
+  const { rs, scroll } = store;
+  const turnView = useTurnView(store);
   const groups = groupsOf(rs.messages);
   return (
     // A div, not a main: a `main` cannot take role="log" (its role is fixed), and the log role is
@@ -350,9 +356,20 @@ function Conversation() {
       )}`}
       data-chat-loading={choose(scroll.chatLoading, "1", "0")}
     >
-      {groups.map((g, gi) => (
-        <Turn key={g.key} g={g} isLast={gi === groups.length - 1} />
-      ))}
+      <TurnCtx.Provider value={turnView}>
+        {groups.map((g, gi) => {
+          const liveHere = rs.running && gi === groups.length - 1;
+          return (
+            <Turn
+              key={g.key}
+              g={g}
+              steps={choose(g.turn != null, rs.stepsByTurn[g.turn!], undefined)}
+              liveHere={liveHere}
+              activity={choose(liveHere, rs.activity, null)}
+            />
+          );
+        })}
+      </TurnCtx.Provider>
     </div>
   );
 }
