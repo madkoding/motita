@@ -494,7 +494,7 @@ func TestFinishChildRecordsHowItEnded(t *testing.T) {
 	t.Cleanup(func() { subagentCommit = old })
 
 	finish := func(id string, place childPlace, r TaskResult, cancelled bool) string {
-		c := &subagent{id: id, purpose: "p", cancel: func() {}, done: make(chan struct{})}
+		c := &subagent{id: id, purpose: "p", role: config.TaskCode, cancel: func() {}, done: make(chan struct{})}
 		a.subs.children = append(a.subs.children, c)
 		child := &Agent{member: a.fleet.add("main", id, "p", place.branch)}
 		a.finishChild(c, child, place, r, cancelled)
@@ -502,7 +502,7 @@ func TestFinishChildRecordsHowItEnded(t *testing.T) {
 	}
 	gone := filepath.Join(t.TempDir(), "gone")
 	if got := finish(
-		"a1", childPlace{dir: gone, branch: "motita/sub/a1"}, TaskResult{Reason: "it broke"}, false,
+		"a1", childPlace{dir: gone, branch: "motita/sub/a1", tmp: t.TempDir()}, TaskResult{Reason: "it broke"}, false,
 	); !strings.Contains(got, "finished: failed") ||
 		!strings.Contains(got, "could not be committed: disk full") ||
 		!strings.Contains(got, "0 files changed") ||
