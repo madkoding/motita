@@ -335,3 +335,20 @@ voice:
   wake_phrases: []
   # Cap on one recording, in KB.
   max_audio_kb: 10240
+  # The gateway's voice, for reading answers aloud in the browser interface (the device's own
+  # voices need nothing here). Off by default, because it sends the text of each answer read
+  # to a speech endpoint that speaks the OpenAI API (/audio/speech). Empty base_url means the
+  # transcription endpoint above, with its key; a local Kokoro-FastAPI keeps the text on this
+  # machine: base_url: "http://127.0.0.1:8880/v1", model: kokoro.
+  tts:
+    enabled: false
+    base_url: ""
+    api_key: ""
+    model: gpt-4o-mini-tts
+    # The default voice, and more the settings offer.
+    voice: alloy
+    voices: []
+    # mp3, opus, aac, flac or wav.
+    format: mp3
+    # Cap on the text of one request, in characters.
+    max_chars: 4000

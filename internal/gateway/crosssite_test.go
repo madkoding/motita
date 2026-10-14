@@ -152,19 +152,18 @@ func TestAProxyThatTerminatesTLSKeepsTheOriginCheck(t *testing.T) {
 }
 
 // The page and the API both carry the security headers: no framing by another site, no type
-// sniffing, no Referer, and a script policy with neither inline code nor eval.
+// sniffing, no Referer, and a script policy with neither inline code nor eval: WebAssembly may be
+// compiled ('wasm-unsafe-eval', for the local voices), JavaScript may not.
 func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.WebUI = true })
+	// The whole policy, so a widening is a change to this line and not a quiet edit elsewhere.
+	const want = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
+		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 	for _, path := range []string{"/", "/v1/health", "/v1/sessions"} {
 		w := serve(srv, httptest.NewRequest(http.MethodGet, path, nil))
-		csp := w.Header().Get("Content-Security-Policy")
-		for _, want := range []string{"frame-ancestors 'none'", "script-src 'self';", "object-src 'none'"} {
-			if !strings.Contains(csp, want) {
-				t.Errorf("%s: the CSP %q lacks %q", path, csp, want)
-			}
-		}
-		if strings.Contains(csp, "unsafe-eval") {
-			t.Errorf("%s: the CSP allows eval: %q", path, csp)
+		if csp := w.Header().Get("Content-Security-Policy"); csp != want {
+			t.Errorf("%s: the CSP is %q, want %q", path, csp, want)
 		}
 		if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 			t.Errorf("%s: X-Content-Type-Options = %q", path, got)

@@ -20,6 +20,7 @@ import {
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
+import { LocalVoices } from "./LocalVoiceSettings";
 import {
   LENGTHS,
   MEDIUM_CHARS,
@@ -27,9 +28,14 @@ import {
   SHORT_CHARS,
   type SpeakMode,
   type SpeakStyle,
+  type SpeechEngine,
   type SpeechPrefs,
   type VoiceLike,
+  formatPronunciations,
+  parsePronunciations,
+  voicesFor,
 } from "./speech";
+import type { Lang } from "./i18n";
 import {
   Row,
   Segmented,
@@ -56,6 +62,17 @@ export interface SpeechSettingsProps {
   setPrefs: (p: SpeechPrefs) => void;
   voices: VoiceLike[];
   test: () => void;
+  // device says this device has voices of its own; gatewayVoices are the gateway's (voice.tts),
+  // empty when it has none.
+  device?: boolean;
+  gatewayVoices?: string[];
+  // allVoices are the device's voices in every language, for the voice of each language;
+  // canListen says speech input works here, which conversation mode needs.
+  allVoices?: VoiceLike[];
+  canListen?: boolean;
+  // local says the gateway offers local voices this browser can run; api reaches them.
+  local?: boolean;
+  api?: Api;
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -77,14 +94,21 @@ function lengthLabel(n: number): string {
   return t("Long");
 }
 
-// SpeechSettings is reading answers aloud with the voices of this device: when, which voice, how
-// fast and how much. It needs neither the microphone nor the gateway, so it works on any address.
+// SpeechSettings is reading answers aloud: when, who speaks (the device, or the gateway's voice
+// when it has one), which voice, how fast and how much. With the device's voices it needs neither
+// the microphone nor the gateway, so it works on any address.
 export function SpeechSettings({
   supported,
   prefs,
   setPrefs,
   voices,
   test,
+  device = true,
+  gatewayVoices = [],
+  allVoices = [],
+  canListen = false,
+  local = false,
+  api,
 }: SpeechSettingsProps) {
   const set = useCallback(
     (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch }),
@@ -93,6 +117,40 @@ export function SpeechSettings({
   // Handed to Segmented, so they keep their identity between renders.
   const setMode = useCallback((mode: SpeakMode) => set({ mode }), [set]);
   const setStyle = useCallback((style: SpeakStyle) => set({ style }), [set]);
+  const setEngine = useCallback(
+    (engine: SpeechEngine) => set({ engine }),
+    [set],
+  );
+  const hasGateway = gatewayVoices.length > 0;
+  const hasLocal = local && !!api;
+  // A local voice speaks when it is chosen; the gateway when it is chosen, or when the device has
+  // no voices of its own.
+  const localChosen = hasLocal && prefs.engine === "local";
+  const gateway = !localChosen && hasGateway && (prefs.engine === "gateway" || !device);
+  const setLocalVoice = useCallback((localVoice: string) => set({ localVoice }), [set]);
+  const engines: { value: SpeechEngine; label: string }[] = [];
+  if (device) {
+    engines.push({ value: "device", label: t("This device") });
+  }
+  if (hasGateway) {
+    engines.push({ value: "gateway", label: t("The gateway") });
+  }
+  if (hasLocal) {
+    engines.push({ value: "local", label: t("Local voice") });
+  }
+  let engineHint = t("The voices of this device: nothing leaves the browser.");
+  let engineShown: SpeechEngine = "device";
+  if (localChosen) {
+    engineShown = "local";
+    engineHint = t(
+      "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.",
+    );
+  } else if (gateway) {
+    engineShown = "gateway";
+    engineHint = t(
+      "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.",
+    );
+  }
   const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
   const setLength = useCallback(
     (n: string) => set({ maxChars: Number(n) }),
@@ -112,9 +170,7 @@ export function SpeechSettings({
           hint={choose(
             off,
             t("This browser cannot read aloud."),
-            t(
-              "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.",
-            ),
+            t("Alt+L or 🔊 on an answer reads it or stops."),
           )}
         >
           <Segmented<SpeakMode>
@@ -154,32 +210,74 @@ export function SpeechSettings({
             ]}
           />
         </Row>
-        <Row
-          id="settings-speech-voice"
-          label={t("Voice")}
-          hint={choose(
-            !off && voices.length === 0,
-            t("This device has no voice for the interface language."),
-            undefined,
-          )}
-        >
-          <select
-            class={inputCls + " max-w-[220px]"}
-            aria-labelledby="settings-speech-voice"
-            disabled={off}
-            value={prefs.voiceURI}
-            onChange={(e) =>
-              set({ voiceURI: (e.target as HTMLSelectElement).value })
-            }
+        {engines.length > 1 && (
+          <Row
+            id="settings-speech-engine"
+            label={t("Who speaks")}
+            stack
+            hint={engineHint}
           >
-            <option value="">{t("Device default")}</option>
-            {voices.map((v) => (
-              <option key={v.voiceURI} value={v.voiceURI}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </Row>
+            <Segmented<SpeechEngine>
+              name="settings-speech-engine"
+              labelledBy="settings-speech-engine"
+              value={engineShown}
+              onChange={setEngine}
+              options={engines}
+            />
+          </Row>
+        )}
+        {localChosen && api && (
+          <Row id="settings-speech-local" label={t("Local voices")} stack>
+            <LocalVoices api={api} chosen={prefs.localVoice} choose={setLocalVoice} />
+          </Row>
+        )}
+        {!localChosen && gateway && (
+          <Row id="settings-speech-voice" label={t("Voice")}>
+            <select
+              class={inputCls + " max-w-[220px]"}
+              aria-labelledby="settings-speech-voice"
+              value={prefs.gatewayVoice}
+              onChange={(e) =>
+                set({ gatewayVoice: (e.target as HTMLSelectElement).value })
+              }
+            >
+              <option value="">{t("Gateway default")}</option>
+              {gatewayVoices.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
+        {!localChosen && !gateway && (
+          <Row
+            id="settings-speech-voice"
+            label={t("Voice")}
+            hint={choose(
+              !off && voices.length === 0,
+              t("This device has no voice for the interface language."),
+              undefined,
+            )}
+          >
+            <select
+              class={inputCls + " max-w-[220px]"}
+              aria-labelledby="settings-speech-voice"
+              disabled={off}
+              value={prefs.voiceURI}
+              onChange={(e) =>
+                set({ voiceURI: (e.target as HTMLSelectElement).value })
+              }
+            >
+              <option value="">{t("Device default")}</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
         <Row id="settings-speech-rate" label={t("Speed")} stack>
           <Segmented<string>
             name="settings-speech-rate"
@@ -211,6 +309,47 @@ export function SpeechSettings({
             }))}
           />
         </Row>
+        {!gateway && (
+          <LanguageVoice
+            off={off}
+            prefs={prefs}
+            set={set}
+            allVoices={allVoices}
+          />
+        )}
+        <Row
+          id="settings-speech-conversation"
+          label={t("Conversation")}
+          hint={choose(
+            canListen,
+            t(
+              "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.",
+            ),
+            t("Needs speech input: turn it on above."),
+          )}
+        >
+          <SpeechSwitch
+            id="settings-speech-conversation"
+            usable={!off && canListen}
+            checked={prefs.conversation}
+            onChange={(conversation) => set({ conversation })}
+          />
+        </Row>
+        <Row
+          id="settings-speech-notices"
+          label={t("Voice notices")}
+          hint={t(
+            "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.",
+          )}
+        >
+          <SpeechSwitch
+            id="settings-speech-notices"
+            usable={!off}
+            checked={prefs.notices}
+            onChange={(notices) => set({ notices })}
+          />
+        </Row>
+        <Pronunciations off={off} prefs={prefs} set={set} />
         <Row id="settings-speech-test" label={t("Try the voice")}>
           <button
             type="button"
@@ -224,6 +363,154 @@ export function SpeechSettings({
         </Row>
       </div>
     </section>
+  );
+}
+
+// SpeechSwitch is one switch of the read-aloud section.
+function SpeechSwitch({
+  id,
+  usable,
+  checked,
+  onChange,
+}: {
+  id: string;
+  usable: boolean;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label class="settings-switch-hit">
+      <input
+        type="checkbox"
+        role="switch"
+        class="settings-switch"
+        aria-labelledby={id}
+        name={id}
+        disabled={!usable}
+        checked={usable && checked}
+        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
+      />
+    </label>
+  );
+}
+
+// otherLang is the language an answer mixes in besides the interface's.
+function otherLang(l: Lang): Lang {
+  return choose(l === "es", "en", "es");
+}
+
+// LanguageVoice reads each sentence with a voice of its own language, and picks the voice of the
+// other one: an answer in Spanish that quotes English is said by two voices, each in its own.
+function LanguageVoice({
+  off,
+  prefs,
+  set,
+  allVoices,
+}: {
+  off: boolean;
+  prefs: SpeechPrefs;
+  set: (patch: Partial<SpeechPrefs>) => void;
+  allVoices: VoiceLike[];
+}) {
+  const other = otherLang(lang());
+  const voices = voicesFor(allVoices, other);
+  return (
+    <>
+      <Row
+        id="settings-speech-bylang"
+        label={t("A voice per language")}
+        hint={t(
+          "Each sentence is read with a voice of its own language: English with an English voice.",
+        )}
+      >
+        <SpeechSwitch
+          id="settings-speech-bylang"
+          usable={!off}
+          checked={prefs.byLanguage}
+          onChange={(byLanguage) => set({ byLanguage })}
+        />
+      </Row>
+      {prefs.byLanguage && !off && (
+        <Row
+          id="settings-speech-other-voice"
+          label={choose(
+            other === "en",
+            t("Voice for English"),
+            t("Voice for Spanish"),
+          )}
+          hint={choose(
+            voices.length === 0,
+            t("This device has no voice for that language."),
+            undefined,
+          )}
+        >
+          <select
+            class={inputCls + " max-w-[220px]"}
+            aria-labelledby="settings-speech-other-voice"
+            value={prefs.langVoices[other] || ""}
+            onChange={(e) =>
+              set({
+                langVoices: {
+                  ...prefs.langVoices,
+                  [other]: (e.target as HTMLSelectElement).value,
+                },
+              })
+            }
+          >
+            <option value="">{t("Device default")}</option>
+            {voices.map((v) => (
+              <option key={v.voiceURI} value={v.voiceURI}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+      )}
+    </>
+  );
+}
+
+// Pronunciations is the person's own list: a term and how to say it, one a line. It is saved when
+// the field is left, so a half-typed line is never applied.
+function Pronunciations({
+  off,
+  prefs,
+  set,
+}: {
+  off: boolean;
+  prefs: SpeechPrefs;
+  set: (patch: Partial<SpeechPrefs>) => void;
+}) {
+  const saved = formatPronunciations(prefs.pronunciations);
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+  return (
+    <Row
+      id="settings-speech-words"
+      label={t("Pronunciations")}
+      stack
+      hint={t(
+        "One a line: the term, “=”, and how to say it. For example: kubectl = cube control",
+      )}
+    >
+      <textarea
+        class={inputCls + " w-full font-mono text-[12px]"}
+        aria-labelledby="settings-speech-words"
+        data-testid="speech-words"
+        rows={3}
+        disabled={off}
+        spellcheck={false}
+        value={text}
+        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+        onBlur={() => {
+          const list = parsePronunciations(text);
+          setText(formatPronunciations(list));
+          if (formatPronunciations(list) !== saved) {
+            set({ pronunciations: list });
+          }
+        }}
+      />
+    </Row>
   );
 }
 

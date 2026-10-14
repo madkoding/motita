@@ -22,6 +22,7 @@ import (
 	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
+	"github.com/madkoding/motita/internal/voice"
 	"github.com/madkoding/motita/internal/webpush"
 	"github.com/madkoding/motita/internal/webui"
 )
@@ -192,6 +193,16 @@ type Options struct {
 	// VoiceFrom builds the transcriber of a configuration, so a change saved from the settings
 	// applies without a restart. Nil means a saved change waits for the next start.
 	VoiceFrom func(config.Config) VoiceService
+	// Speech is the gateway's voice, for reading answers aloud. Nil means it is off, and the
+	// speech endpoint answers 501. See speak.go.
+	Speech SpeechService
+	// SpeechVoices are the voices offered, the default first; SpeechMaxChars caps one text.
+	SpeechVoices   []string
+	SpeechMaxChars int
+	// VoiceModels are the local voices the page can run itself: the catalog and where the
+	// downloaded files are kept. Nil means there are none, and their endpoints answer 501. See
+	// voicemodels.go.
+	VoiceModels *voice.Library
 	// TLSListen is a SECOND listener that speaks https, with the PEM pair in TLSCert and
 	// TLSKey. Empty means there is none. It is a second socket, not a mode of the first, so the
 	// local clients keep speaking plain HTTP to loopback and never have to trust a certificate;
@@ -251,6 +262,9 @@ type Server struct {
 	// request's.
 	baseCtx    context.Context
 	baseCancel context.CancelFunc
+
+	// voiceDownload is the local voice being downloaded, one at a time. See voicemodels.go.
+	voiceDownload modelDownload
 
 	// sessionsMu guards the registry. The conversations themselves are safe to use without it:
 	// each is guarded by its own locks, and this is only read to find one.
@@ -709,6 +723,13 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
+	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
+	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
+	// Local voices: the catalog, its downloads, and the files the page runs. See voicemodels.go.
+	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
+	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))
+	mux.Handle("DELETE /v1/voice/models/{id}", plain(s.handleDeleteVoiceModel))
+	mux.Handle("GET /v1/voice/models/{id}/{name}", plain(s.handleVoiceModelFile))
 	// How much of the disk the agent reaches: process-wide, every conversation follows it. See
 	// security.go.
 	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))
@@ -948,9 +969,13 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 // loads are served from here and nothing is inline, so scripts need no 'unsafe-inline' and no
 // 'unsafe-eval'. Styles do need 'unsafe-inline': mermaid and KaTeX lay their output out with style
 // attributes and <style> elements. Images are this server's, or data:/blob: (the previews arrive
-// inline), so an answer cannot make the browser fetch an address of the model's choosing.
-const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
+// inline), so an answer cannot make the browser fetch an address of the model's choosing. Media is
+// the same: the gateway's voice arrives as a blob the page plays. 'wasm-unsafe-eval' lets the page
+// compile WebAssembly (the local voices run as WebAssembly), and nothing else: JavaScript eval stays
+// refused, and the only WebAssembly there is to fetch is this server's, checked against the
+// catalog's hashes.
+const pageCSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
 	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 // securityHeaders sets the headers every response carries: the page must not be framed by another

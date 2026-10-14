@@ -40,9 +40,17 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
   const p = {
     mode: "always",
     style: "natural",
+    engine: "local",
+    gatewayVoice: "nova",
+    localVoice: "es_MX-claude-high",
     voiceURI: "v1",
     rate: 1.5,
     maxChars: 0,
+    conversation: true,
+    notices: true,
+    byLanguage: true,
+    langVoices: { en: "eve" },
+    pronunciations: [{ term: "kubectl", say: "cube control" }],
   };
   m.saveSpeechPrefs(p);
   assert.deepEqual(m.loadSpeechPrefs(), p);
@@ -53,6 +61,9 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     JSON.stringify({
       mode: "loud",
       style: "poem",
+      engine: "robot",
+      gatewayVoice: 7,
+      localVoice: 8,
       voiceURI: 3,
       rate: 9,
       maxChars: 600,
@@ -164,7 +175,7 @@ test("terms are said the way the language says them, as whole words", () => {
   assert.equal(m.pronounce("the PR", "en"), "the PR");
   const s = m.script("Opened the **PR**.", 0, "es");
   assert.deepEqual(s, [
-    { shown: "Opened the PR.", said: "Opened the pe erre." },
+    { shown: "Opened the PR.", said: "Opened the pe erre.", lang: "es" },
   ]);
 });
 
@@ -425,4 +436,361 @@ test("natural style: the line is asked of the session, and a refusal throws", as
   await assert.rejects(m.narrate(api, "bad", body), /HTTP 502/);
   const empty = async () => new Response("{}", { status: 200 });
   assert.equal(await m.narrate(empty, "s", body), "");
+});
+
+// FakeAudio stands in for <audio>: the test plays, ends or fails it.
+function audioFactory(made, { refuse = false } = {}) {
+  return () => {
+    const a = {
+      src: "",
+      playbackRate: 1,
+      onplaying: null,
+      onended: null,
+      onerror: null,
+      paused: false,
+      play() {
+        if (refuse) {
+          return Promise.reject(
+            Object.assign(new Error("no"), { name: "NotAllowedError" }),
+          );
+        }
+        queueMicrotask(() => a.onplaying?.());
+        return Promise.resolve();
+      },
+      pause() {
+        a.paused = true;
+      },
+    };
+    made.push(a);
+    return a;
+  };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+function urls() {
+  const live = new Set();
+  let n = 0;
+  return {
+    live,
+    create: () => {
+      n += 1;
+      const u = "blob:" + n;
+      live.add(u);
+      return u;
+    },
+    revoke: (u) => live.delete(u),
+  };
+}
+
+const LIST = [
+  { said: "Uno.", shown: "Uno." },
+  { said: "Dos.", shown: "Dos." },
+];
+
+test("gateway voice: each sentence is asked for, the next one while one plays, and played in order", async () => {
+  const asked = [];
+  const made = [];
+  const u = urls();
+  const r = new m.ClipReader(
+    () => async (text) => {
+      asked.push(text);
+      return new Blob([text]);
+    },
+    audioFactory(made),
+    u,
+  );
+  const seen = [];
+  let ended = "never";
+  r.read(LIST, {
+    voice: null,
+    lang: "es",
+    rate: 1.5,
+    onSentence: (i) => seen.push(i),
+    onEnd: (e) => {
+      ended = e;
+    },
+  });
+  assert.equal(r.reading, true);
+  await settle();
+  assert.deepEqual(
+    asked,
+    ["Uno.", "Dos."],
+    "the second is asked for while the first plays",
+  );
+  assert.equal(made.length, 1);
+  assert.equal(made[0].src, "blob:1");
+  assert.equal(made[0].playbackRate, 1.5);
+  assert.deepEqual(seen, [0]);
+  assert.equal(
+    m.voiceBusy(),
+    true,
+    "hands-free listening waits while the gateway speaks",
+  );
+  made[0].onended();
+  await settle();
+  assert.deepEqual(seen, [0, 1]);
+  assert.equal(made[1].src, "blob:2");
+  made[1].onended();
+  await settle();
+  assert.equal(ended, undefined, "finished without an error");
+  assert.equal(m.voiceBusy(), false, "listening resumes when it ends");
+  assert.equal(r.reading, false);
+  assert.equal(u.live.size, 0, "the audio is let go");
+  assert.deepEqual(asked, ["Uno.", "Dos."], "nothing is asked twice");
+});
+
+test("gateway voice: a stop silences it and drops what comes back late", async () => {
+  const made = [];
+  let release;
+  const r = new m.ClipReader(
+    () => (text, signal) =>
+      new Promise((resolve, reject) => {
+        release = () => resolve(new Blob([text]));
+        signal.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+    audioFactory(made),
+    urls(),
+  );
+  let ends = 0;
+  r.read(LIST, { voice: null, lang: "es", rate: 1, onEnd: () => (ends += 1) });
+  r.stop();
+  assert.equal(ends, 1);
+  assert.equal(r.reading, false);
+  release();
+  await settle();
+  assert.equal(made.length, 0, "nothing is played after the stop");
+
+  // Stopping while a clip plays pauses it.
+  const r2 = new m.ClipReader(
+    () => async (t) => new Blob([t]),
+    audioFactory(made),
+    urls(),
+  );
+  r2.read(LIST, { voice: null, lang: "es", rate: 1 });
+  await settle();
+  r2.stop();
+  assert.equal(made[0].paused, true);
+  assert.equal(m.voiceBusy(), false);
+  r2.read([], { voice: null, lang: "es", rate: 1, onEnd: () => (ends += 1) });
+  assert.equal(ends, 2, "an empty reading ends at once");
+});
+
+test("gateway voice: a refusal, a broken clip or a blocked play end the reading with the reason", async () => {
+  const run = async (fetchClip, opts = {}) => {
+    const made = [];
+    let ended = "never";
+    const r = new m.ClipReader(
+      () => fetchClip,
+      audioFactory(made, opts),
+      urls(),
+    );
+    r.read(LIST, {
+      voice: null,
+      lang: "es",
+      rate: 1,
+      onEnd: (e) => (ended = e),
+    });
+    await settle();
+    return { made, ended: () => ended };
+  };
+  const refused = await run(async () => {
+    throw new Error("the gateway has no voice");
+  });
+  assert.equal(refused.ended(), "the gateway has no voice");
+  const odd = await run(async () => {
+    throw "?";
+  });
+  assert.equal(odd.ended(), "error");
+  const blocked = await run(async (t) => new Blob([t]), { refuse: true });
+  assert.equal(blocked.ended(), "not-allowed", "the browser wants a tap first");
+  const broken = await run(async (t) => new Blob([t]));
+  broken.made[0].onerror();
+  assert.equal(broken.ended(), "audio");
+});
+
+test("gateway voice: the clip is asked of the gateway with the voice chosen", async () => {
+  const calls = [];
+  const api = async (path, init) => {
+    calls.push({ path, init });
+    if (init.body.includes("bad")) {
+      return new Response(JSON.stringify({ error: "quota" }), { status: 502 });
+    }
+    if (init.body.includes("html")) {
+      return new Response("<p>", { status: 500 });
+    }
+    return new Response("MP3", { status: 200 });
+  };
+  const ctl = new AbortController();
+  const blob = await m.speakClip(api, "nova")("Hola.", ctl.signal);
+  assert.equal(await blob.text(), "MP3");
+  assert.equal(calls[0].path, "/v1/voice/speak");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.signal, ctl.signal);
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    text: "Hola.",
+    voice: "nova",
+  });
+  await assert.rejects(m.speakClip(api, "")("bad", ctl.signal), /quota/);
+  await assert.rejects(m.speakClip(api, "")("html", ctl.signal), /HTTP 500/);
+});
+
+test("pronunciations: the person's own list is typed one a line, kept clean, and said first", () => {
+  const list = m.parsePronunciations(
+    "kubectl = cube control\nno equals sign\n = nothing\nnginx =\nKubectl = kube control\n motita=mo ti ta ",
+  );
+  assert.deepEqual(list, [
+    { term: "Kubectl", say: "kube control" },
+    { term: "motita", say: "mo ti ta" },
+  ]);
+  assert.equal(
+    m.formatPronunciations(list),
+    "Kubectl = kube control\nmotita = mo ti ta",
+  );
+  assert.equal(
+    m.pronounce("Run KUBECTL get pods, not kubectl2.", "en", list),
+    "Run kube control get pods, not kubectl2.",
+    "any case, whole words only",
+  );
+  assert.equal(
+    m.pronounce("El PR de motita", "es", list),
+    "El pe erre de mo ti ta",
+    "the built-in ones still apply",
+  );
+  // A saved list that is not one, or has broken entries, keeps only what is whole.
+  localStorage.setItem(
+    m.SPEECH_KEY,
+    JSON.stringify({
+      pronunciations: [
+        { term: "a", say: "b" },
+        { term: 3 },
+        null,
+        { term: "x".repeat(81), say: "y" },
+      ],
+      langVoices: { es: "ana", en: 7, fr: "x" },
+    }),
+  );
+  const p = m.loadSpeechPrefs();
+  assert.deepEqual(p.pronunciations, [{ term: "a", say: "b" }]);
+  assert.deepEqual(p.langVoices, { es: "ana" });
+  localStorage.setItem(
+    m.SPEECH_KEY,
+    JSON.stringify({ pronunciations: "a=b", langVoices: null }),
+  );
+  assert.deepEqual(m.loadSpeechPrefs().pronunciations, []);
+  assert.deepEqual(m.loadSpeechPrefs().langVoices, {});
+});
+
+test("a voice per language: each sentence is told apart by its common words", () => {
+  assert.equal(
+    m.detectLang("The tests pass and the build is green.", "es"),
+    "en",
+  );
+  assert.equal(
+    m.detectLang("Los tests pasan y el build está verde.", "en"),
+    "es",
+  );
+  assert.equal(
+    m.detectLang("Kubernetes.", "es"),
+    "es",
+    "a lone word changes nothing",
+  );
+  assert.equal(
+    m.detectLang("the el", "es"),
+    "es",
+    "a tie keeps the interface's",
+  );
+  const list = m.script(
+    "Abrí el PR y el CI pasó. The tests pass and the build is green.",
+    0,
+    "es",
+    m.ENGLISH_WORDS,
+    { byLanguage: true },
+  );
+  assert.deepEqual(
+    list.map((s) => [s.lang, s.said]),
+    [
+      ["es", "Abrí el pe erre y el ce i pasó."],
+      ["en", "The tests pass and the build is green."],
+    ],
+    "Spanish acronyms are said the Spanish way only in Spanish",
+  );
+  // The reader gives each sentence the voice of its language.
+  const { synth, reader } = fakeSynth();
+  const ana = { voiceURI: "a", name: "Ana", lang: "es-CL" };
+  const eve = { voiceURI: "e", name: "Eve", lang: "en-US" };
+  reader.read(list, {
+    voice: ana,
+    voiceFor: (l) => (l === "en" ? eve : null),
+    lang: "es",
+    rate: 1,
+  });
+  synth.start();
+  synth.end();
+  assert.equal(synth.said[1].voice, eve);
+  assert.equal(synth.said[1].lang, "en-US");
+  reader.stop();
+  // Without a voice for the language, the browser is asked for its locale.
+  reader.read(list, { voice: ana, voiceFor: () => null, lang: "es", rate: 1 });
+  synth.start();
+  synth.end();
+  assert.equal(synth.said.at(-1).lang, "en-US");
+  assert.equal(synth.said.at(-1).voice, null);
+});
+
+test("a stop is told apart from an end, for whoever must go on after a reading", () => {
+  const { synth, reader } = fakeSynth();
+  const ends = [];
+  reader.read(two, {
+    voice: null,
+    lang: "es",
+    rate: 1,
+    onEnd: (e, stopped) => ends.push([e, stopped]),
+  });
+  reader.stop();
+  reader.read(two, {
+    voice: null,
+    lang: "es",
+    rate: 1,
+    onEnd: (e, stopped) => ends.push([e, stopped]),
+  });
+  synth.start();
+  synth.end();
+  synth.start();
+  synth.end();
+  assert.deepEqual(ends, [
+    [undefined, true],
+    [undefined, undefined],
+  ]);
+});
+
+test("conversation: the exit phrases end it, with or without Motita's name and punctuation", () => {
+  for (const s of [
+    "Basta.",
+    "Motita, basta",
+    "¡Eso es todo!",
+    "That's all.",
+    "stop",
+    "gracias, eso es todo",
+  ]) {
+    assert.equal(m.isExitPhrase(s), true, s);
+  }
+  for (const s of [
+    "basta de errores en el CI",
+    "stop the build",
+    "",
+    "para qué sirve esto",
+  ]) {
+    assert.equal(m.isExitPhrase(s), false, s);
+  }
+});
+
+test("notices are handed to the page to be said, and an empty one is not", () => {
+  const heard = [];
+  const on = (e) => heard.push(e.detail);
+  dom.window.addEventListener(m.SPEECH_NOTICE_EVENT, on);
+  m.sayNotice("  CI passed  ");
+  m.sayNotice("   ");
+  dom.window.removeEventListener(m.SPEECH_NOTICE_EVENT, on);
+  assert.deepEqual(heard, ["CI passed"]);
 });

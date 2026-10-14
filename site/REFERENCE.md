@@ -1281,8 +1281,10 @@ that only motita's own file edits are limited.
 ### Reading answers aloud
 
 The browser interface reads the agent's answers with the **voices of the device** (the Web Speech
-API's `speechSynthesis`). Nothing is configured on the gateway: the browser speaks the text itself. Some browsers offer remote voices of their own (Chrome's "Google"
-voices); the device's local ones are listed first.
+API's `speechSynthesis`), or with the **gateway's voice** when `voice.tts` is on. With the device's
+voices nothing is configured on the gateway: the browser speaks the text itself. Some browsers
+offer remote voices of their own (Chrome's "Google" voices); the device's local ones are listed
+first.
 
 - The speaker button on an answer, or **Alt+L** for the last one, reads it or stops it.
 - **Settings → Read aloud** chooses when answers are read on their own: never, only after a
@@ -1306,8 +1308,83 @@ The natural style asks the gateway for each line:
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/sessions/{id}/narrate` | One spoken line about the turn: `stage` (`start`, `progress` or `answer`), `lang`, `request`, and `notes` and `said` (progress) or `answer`. Answers `{"text": …}`, empty when there is nothing new; `501` when the session's model cannot be asked. |
 
+- **Conversation** (needs speech input): after the answer to a turn you spoke has been read to its
+  end, the microphone listens again and sends what you say as the next turn, so a conversation goes
+  on without touching the page. Saying an exit phrase alone ("basta", "eso es todo", "that's all",
+  "stop", with or without "Motita"), tapping the microphone, or eight seconds of silence ends it;
+  the exit phrase is never sent.
+- **Voice notices** say aloud what the page shows as a notice: the CI of a pull request, and a
+  question the agent waits on. Only while the tab is visible, after what is being said.
+- **A voice per language** reads each sentence with a voice of its own language, told apart by its
+  most common words, so an answer in Spanish that quotes English is said by two voices. The voice
+  of the other language is chosen below the switch.
+- **Pronunciations** are your own list, one `term = how to say it` a line (`kubectl = cube
+  control`): whole words, any case, applied before the built-in ones. Kept per device with the
+  rest of these settings.
+
 Unlike the microphone, reading aloud works on any address, https or not. Safari speaks only after
 a first tap on the page.
+
+#### The gateway's voice
+
+For a better voice than the device has, or the same one on every device, the gateway can speak
+through an endpoint of the OpenAI speech API (`POST {base_url}/audio/speech`): OpenAI itself, or a
+local server such as Kokoro-FastAPI or openedai-speech, which keeps the text on this machine. It is
+off by default, because turning it on sends the text of every answer read to that service.
+
+```yaml
+voice:
+  tts:
+    enabled: false
+    base_url: "" # empty = the transcription endpoint (voice.base_url, resolved), with its key
+    api_key: ""
+    model: gpt-4o-mini-tts # tts-1 on OpenAI, kokoro on Kokoro-FastAPI
+    voice: alloy # the default voice
+    voices: [] # more voices the settings offer, besides the default
+    format: mp3 # mp3, opus, aac, flac or wav
+    max_chars: 4000 # cap on the text of one request
+```
+
+When it is on, **Settings → Read aloud → Who speaks** chooses between this device and the gateway,
+and the voice among the ones listed. The page sends one sentence at a time and asks for the next
+while one plays; the text and the audio are never stored. A device with no voices of its own uses
+the gateway's. The speed, the highlight, the natural style and the pause of hands-free listening
+work the same with either.
+
+| Endpoint                | What it does                                                                                                                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/voice/speak`  | `{"text":"...","voice":"nova"}`; `voice` is optional and must be one `voice.tts` offers. Answers the audio, typed by its `Content-Type`, never cached. `413` over `max_chars`, `501` when the gateway has no voice, `502` with the endpoint's answer when it refused. |
+
+`GET /v1/voice` also answers `"tts":{"enabled":true,"voices":["alloy","nova"],"max_chars":4000}`.
+The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
+`MOTITA_VOICE_TTS_API_KEY`, `MOTITA_VOICE_TTS_MODEL`, `MOTITA_VOICE_TTS_VOICE`,
+`MOTITA_VOICE_TTS_FORMAT` and `MOTITA_VOICE_TTS_MAX_CHARS`; the list of voices is set in the file.
+
+#### Local voices
+
+A third choice in **Who speaks** runs a [Piper](https://github.com/rhasspy/piper) voice in the
+browser itself: once it is downloaded, the text of the answers never leaves the device and no
+speech service is needed. **Settings → Voice → Local voices** lists a few Spanish and English
+voices (about 63 MB each, plus 33 MB of engine the first time); **Download** asks the gateway to
+fetch one, **Use** chooses it and **Delete** removes it.
+
+The page cannot download anything itself. The gateway fetches each file once, from an address in
+a catalog compiled into the binary (the voices from `rhasspy/piper-voices` at `v1.0.0` on
+Hugging Face, the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm` packages on
+npm), checks its size and SHA-256 before keeping it in `~/.motita/voices`, and serves it from its
+own origin. The page keeps a copy in Cache Storage and runs the voice in a Worker, on WebAssembly;
+the page policy allows `'wasm-unsafe-eval'` for that and nothing more (JavaScript `eval` stays
+refused). `motita doctor` hashes the downloaded voices again.
+
+| Endpoint                                 | What it does                                                                                                         |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/voice/models`                   | The catalog, what is downloaded, and the download in progress (`done`, `total`, `error` when it failed).             |
+| `POST /v1/voice/models/{id}`             | Starts downloading a voice (and the engine, when missing): `202`; `200` when it is there already; `409` while another downloads. |
+| `DELETE /v1/voice/models/{id}`           | Removes a voice; the engine stays. `409` while it downloads.                                                         |
+| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`), or of the engine with `{id}` = `runtime`.               |
+
+`GET /v1/voice` also answers `"local":true`. The first sentence of a session waits for the voice
+to load (a few seconds); the page loads the chosen voice when it opens to hide most of that wait.
 
 ### The skill library
 

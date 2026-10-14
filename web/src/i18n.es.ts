@@ -1064,8 +1064,50 @@ const es: Record<string, string> = {
   "Read answers aloud": "Leer las respuestas en voz alta",
   "This browser cannot read aloud.":
     "Este navegador no puede leer en voz alta.",
-  "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.":
-    "Con las voces de este dispositivo. Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  "Alt+L or 🔊 on an answer reads it or stops.":
+    "Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  "Who speaks": "Quién habla",
+  "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.":
+    "La voz del gateway: la misma en todos los dispositivos. El texto de cada respuesta leída va al servicio de voz.",
+  "The voices of this device: nothing leaves the browser.":
+    "Las voces de este dispositivo: nada sale del navegador.",
+  "This device": "Este dispositivo",
+  "The gateway": "El gateway",
+  "Gateway default": "La del gateway",
+  "Local voice": "Voz local",
+  "Local voices": "Voces locales",
+  "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.":
+    "Una voz que corre en este navegador: el gateway la descarga una vez y después nada sale del dispositivo.",
+  "The first download adds {size} for the voice engine.":
+    "La primera descarga suma {size} del motor de voz.",
+  "Downloading… {pct}%": "Descargando… {pct} %",
+  "The download failed: {error}": "La descarga falló: {error}",
+  "In use": "En uso",
+  "High quality": "Calidad alta",
+  "Medium quality": "Calidad media",
+  "Low quality": "Calidad baja",
+  Use: "Usar",
+  Download: "Descargar",
+  "Motita needs your answer.": "Motita necesita tu respuesta.",
+  "Conversation ended": "Conversación terminada",
+  Conversation: "Conversación",
+  "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.":
+    "Después de leer la respuesta a algo que dijiste, Motita vuelve a escuchar y envía lo que digas. Di “basta” o toca el micrófono para terminar.",
+  "Needs speech input: turn it on above.":
+    "Necesita la entrada de voz: actívala más arriba.",
+  "Voice notices": "Avisos por voz",
+  "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.":
+    "Dice el CI de un pull request y las preguntas que espera el agente, mientras esta pestaña está visible.",
+  "A voice per language": "Una voz por idioma",
+  "Each sentence is read with a voice of its own language: English with an English voice.":
+    "Cada oración se lee con una voz de su idioma: el inglés con una voz en inglés.",
+  "Voice for English": "Voz para inglés",
+  "Voice for Spanish": "Voz para español",
+  "This device has no voice for that language.":
+    "Este dispositivo no tiene voces en ese idioma.",
+  Pronunciations: "Pronunciaciones",
+  "One a line: the term, “=”, and how to say it. For example: kubectl = cube control":
+    "Una por línea: el término, “=” y cómo decirlo. Por ejemplo: kubectl = cube control",
   Off: "Apagado",
   "When I spoke": "Cuando hablé",
   Always: "Siempre",

@@ -85,7 +85,8 @@ await build({
   logLevel: "silent",
 });
 const { useSpeech } = await import(pathToFileURL(join(out, "sp.mjs")).href);
-const { SPEECH_KEY, stopSpeaking } = await import("../speech.ts");
+const { SPEECH_KEY, SPEECH_TURN_READ_EVENT, stopSpeaking, sayNotice } =
+  await import("../speech.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
@@ -99,10 +100,25 @@ const answer = (id, text = "All done. Tests pass.") => ({
 
 // mount renders the hook with props the test changes, and hands back what it returned.
 async function mount(mode, heard = false, extra = {}) {
-  const { style = "literal", ...props0 } = extra;
+  const {
+    style = "literal",
+    engine = "device",
+    gatewayVoice = "",
+    prefs = {},
+    ...props0
+  } = extra;
   localStorage.setItem(
     SPEECH_KEY,
-    JSON.stringify({ mode, style, voiceURI: "", rate: 1, maxChars: 600 }),
+    JSON.stringify({
+      mode,
+      style,
+      engine,
+      gatewayVoice,
+      voiceURI: "",
+      rate: 1,
+      maxChars: 600,
+      ...prefs,
+    }),
   );
   synth.said = [];
   synth.cancels = 0;
@@ -425,4 +441,201 @@ test("natural: the button tells the gist; pressing it again stops, and a late li
     ["Todo bien."],
   );
   await s.done();
+});
+
+// The gateway's voice: <audio> and blob URLs stand in, and the test ends each clip.
+const played = [];
+globalThis.Audio = function Audio() {
+  const a = {
+    src: "",
+    playbackRate: 1,
+    onplaying: null,
+    onended: null,
+    onerror: null,
+    play() {
+      played.push(a);
+      queueMicrotask(() => a.onplaying?.());
+      return Promise.resolve();
+    },
+    pause() {},
+  };
+  return a;
+};
+globalThis.URL.createObjectURL = () => "blob:x";
+globalThis.URL.revokeObjectURL = () => {};
+const TTS = { enabled: true, voices: ["alloy", "nova"], max_chars: 4000 };
+
+function gatewayApi() {
+  const asked = [];
+  const api = async (path, init) => {
+    asked.push({ path, ...JSON.parse(init.body) });
+    return new Response("MP3", { status: 200 });
+  };
+  return { api, asked };
+}
+
+test("gateway: chosen and on, the gateway says each sentence with the voice chosen", async () => {
+  played.length = 0;
+  const g = gatewayApi();
+  const s = await mount("off", false, {
+    engine: "gateway",
+    gatewayVoice: "nova",
+    api: g.api,
+    tts: TTS,
+  });
+  assert.equal(s.state.current.supported, true);
+  assert.deepEqual(s.state.current.gatewayVoices, ["alloy", "nova"]);
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.deepEqual(
+    g.asked.map((a) => [a.path, a.text, a.voice]),
+    [
+      ["/v1/voice/speak", "All done.", "nova"],
+      ["/v1/voice/speak", "Tests pass.", "nova"],
+    ],
+  );
+  assert.equal(synth.said.length, 0, "the device says nothing");
+  assert.equal(s.state.current.speakingId, 2);
+  await act(async () => {
+    played[0].onended();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await act(async () => {
+    played[1].onended();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(
+    s.state.current.speakingId,
+    null,
+    "done when the last clip ends",
+  );
+  await s.done();
+});
+
+test("gateway: chosen but off on this gateway, the device speaks", async () => {
+  const g = gatewayApi();
+  const s = await mount("off", false, { engine: "gateway", api: g.api });
+  assert.deepEqual(s.state.current.gatewayVoices, []);
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.equal(g.asked.length, 0);
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    ["All done."],
+  );
+  await s.done();
+});
+
+test("local voice: chosen, on and downloaded, the worker says each sentence; without one the device speaks", async () => {
+  played.length = 0;
+  const asked = [];
+  const warmed = [];
+  globalThis.Worker = class {
+    postMessage(m) {
+      if (m.kind === "warm") {
+        warmed.push(m.id);
+        return;
+      }
+      asked.push([m.id, m.text]);
+      queueMicrotask(() => this.onmessage({ data: { seq: m.seq, wav: new ArrayBuffer(4) } }));
+    }
+  };
+  globalThis.caches = {};
+  const g = gatewayApi();
+  let s = await mount("off", false, {
+    engine: "local",
+    prefs: { localVoice: "es_MX-claude-high" },
+    api: g.api,
+    local: true,
+  });
+  assert.equal(s.state.current.local, true);
+  assert.deepEqual(warmed, ["es_MX-claude-high"], "the voice is loaded with the page");
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.deepEqual(asked, [
+    ["es_MX-claude-high", "All done."],
+    ["es_MX-claude-high", "Tests pass."],
+  ]);
+  assert.equal(g.asked.length, 0, "nothing goes to the gateway's voice");
+  assert.equal(synth.said.length, 0, "the device says nothing");
+  await s.done();
+  // No voice downloaded yet: the device reads.
+  s = await mount("off", false, { engine: "local", api: g.api, local: true });
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.equal(asked.length, 2);
+  assert.deepEqual(synth.said.map((u) => u.text), ["All done."]);
+  await s.done();
+  delete globalThis.Worker;
+  delete globalThis.caches;
+});
+
+test("notices: said when turned on and the tab is visible, after what is being said", async () => {
+  // jsdom is a hidden page unless told otherwise.
+  const hidden = (value) =>
+    Object.defineProperty(document, "hidden", { value, configurable: true });
+  hidden(false);
+  let s = await mount("off", false, { prefs: { notices: true } });
+  await act(() => sayNotice("CI passed. Pull request #3 is green."));
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    ["CI passed."],
+    "one sentence at a time",
+  );
+  // One that comes while another is said waits its turn.
+  await act(() => sayNotice("CI failed."));
+  await act(() => synth.finish());
+  assert.ok(synth.said.some((u) => u.text === "CI failed."));
+  // A new question of the agent is a notice too.
+  synth.said = [];
+  await s.set({ approval: { id: "a1", question: "Run rm -rf build?" } });
+  await act(() => synth.finish());
+  assert.match(
+    synth.said.map((u) => u.text).join(" "),
+    /Motita needs your answer\. Run rm -rf build\?/,
+  );
+  await s.done();
+
+  s = await mount("off", false);
+  await act(() => sayNotice("CI passed."));
+  assert.equal(synth.said.length, 0, "off by default");
+  await s.done();
+
+  s = await mount("off", false, { prefs: { notices: true } });
+  hidden(true);
+  await act(() => sayNotice("CI passed."));
+  delete document.hidden;
+  assert.equal(synth.said.length, 0, "not for a tab nobody looks at");
+  await s.done();
+});
+
+test("conversation: the page is told when the answer to a spoken turn was read to its end", async () => {
+  let told = 0;
+  const on = () => (told += 1);
+  window.addEventListener(SPEECH_TURN_READ_EVENT, on);
+  let s = await mount("voice", true);
+  await turn(s, answer(2));
+  await act(() => synth.finish());
+  assert.equal(told, 1);
+  await s.done();
+
+  // A stopped reading is not an end: nothing listens again.
+  s = await mount("voice", true);
+  await turn(s, answer(2));
+  await act(() => s.state.current.stop());
+  await act(() => synth.finish());
+  assert.equal(told, 1);
+  await s.done();
+
+  // A typed turn read in "always" mode is not a spoken one.
+  s = await mount("always", false);
+  await turn(s, answer(2));
+  await act(() => synth.finish());
+  assert.equal(told, 1);
+  await s.done();
+  window.removeEventListener(SPEECH_TURN_READ_EVENT, on);
 });
