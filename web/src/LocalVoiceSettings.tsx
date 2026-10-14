@@ -5,9 +5,14 @@ import { errorMessage } from "./errors";
 import {
   type LocalCatalog,
   type LocalModel,
+  type LoadState,
   deleteVoice,
   fetchCatalog,
   installVoice,
+  loadStateOf,
+  localVoicesSupported,
+  onLoadState,
+  warmLocal,
 } from "./localVoice";
 import type { Api } from "./prApi";
 import { primaryBtn, smallBtn } from "./SettingsControls";
@@ -30,6 +35,13 @@ function qualityLabel(q: string): string {
 function byLanguage(models: LocalModel[]): LocalModel[] {
   const mine = (m: LocalModel) => m.lang.toLowerCase().startsWith(lang());
   return [...models.filter(mine), ...models.filter((m) => !mine(m))];
+}
+
+// useLoadState is how far a voice is from being ready in this browser, kept current.
+function useLoadState(id: string): LoadState | undefined {
+  const [, redraw] = useState(0);
+  useEffect(() => onLoadState(() => redraw((n) => n + 1)), []);
+  return choose(id !== "", loadStateOf(id), undefined);
 }
 
 // LocalVoices lists the voices the gateway can download to run in this browser: download one,
@@ -85,6 +97,18 @@ export function LocalVoices({
     }
   }, [catalog, chosen, pick]);
 
+  // The voice in use is loaded into memory as soon as it is downloaded, and how far that is shows
+  // in place of "In use" until it is ready.
+  const chosenReady = !!catalog?.models.some((m) => m.id === chosen && m.installed);
+  // Before the first word from the worker, a voice that will load counts as loading.
+  const pending: LoadState | undefined = choose(localVoicesSupported(), { pct: 0, ready: false }, undefined);
+  const loading = useLoadState(chosen) ?? pending;
+  useEffect(() => {
+    if (chosenReady && localVoicesSupported()) {
+      warmLocal(chosen);
+    }
+  }, [chosen, chosenReady]);
+
   // act runs one request, then reads the catalog again; its failure is the one shown.
   const act = async (id: string, run: () => Promise<void>) => {
     setBusy(id);
@@ -136,17 +160,40 @@ export function LocalVoices({
             </span>
           );
         } else if (m.installed) {
-          state = (
-            <span class="flex items-center gap-2">
+          const inUse = chosen === m.id;
+          let use = (
+            <button
+              type="button"
+              class={choose(inUse, primaryBtn, smallBtn)}
+              aria-pressed={inUse}
+              data-testid={"local-voice-use-" + m.id}
+              onClick={() => pick(m.id)}
+            >
+              {choose(inUse, t("In use"), t("Use"))}
+            </button>
+          );
+          if (inUse && loading?.error) {
+            use = (
               <button
                 type="button"
-                class={choose(chosen === m.id, primaryBtn, smallBtn)}
-                aria-pressed={chosen === m.id}
-                data-testid={"local-voice-use-" + m.id}
-                onClick={() => pick(m.id)}
+                class={smallBtn}
+                title={loading.error}
+                data-testid={"local-voice-retry-" + m.id}
+                onClick={() => warmLocal(m.id)}
               >
-                {choose(chosen === m.id, t("In use"), t("Use"))}
+                {t("Try again")}
               </button>
+            );
+          } else if (inUse && loading && !loading.ready) {
+            use = (
+              <span class="text-xs text-[#a0a0b0]" role="status" data-testid={"local-voice-loading-" + m.id}>
+                {tf("Loading into memory… {pct}%", { pct: String(loading.pct) })}
+              </span>
+            );
+          }
+          state = (
+            <span class="flex items-center gap-2">
+              {use}
               <button
                 type="button"
                 class={smallBtn}
@@ -183,6 +230,11 @@ export function LocalVoices({
       {dl?.error && (
         <div class="text-xs text-[#f87171]" role="alert">
           {tf("The download failed: {error}", { error: dl.error })}
+        </div>
+      )}
+      {loading?.error && (
+        <div class="text-xs text-[#f87171]" role="alert">
+          {tf("The voice could not be loaded: {error}", { error: loading.error })}
         </div>
       )}
       {error && (

@@ -84,8 +84,10 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
   const log = { bytes: [], ort: 0, phon: 0, sessions: 0, feeds: [], args: [] };
   let failed = !failFirstVoice;
   const deps = {
-    bytes: async (url) => {
+    bytes: async (url, progress) => {
       log.bytes.push(url);
+      progress?.(0, 10);
+      progress?.(10, 10);
       if (url.endsWith("model.json")) {
         if (!failed) {
           failed = true;
@@ -153,6 +155,42 @@ test("the synthesis loads the runtime, the phonemizer and each voice once, and f
   synth.forget("v1");
   await synth.say("v1", "Otra.");
   assert.equal(log.sessions, 2);
+});
+
+test("warming reports how far the files are read, never backwards, and 100 when the voice is ready", async () => {
+  const { deps, log } = fakes();
+  const synth = new core.Synth(deps);
+  const seen = [];
+  await synth.warm("v1", (p) => seen.push(p));
+  assert.equal(seen.at(-1), 100);
+  const before = core.LOAD_SHARE + core.RUNTIME_SHARE + core.PHONEMIZER_SHARE;
+  assert.equal(seen.at(-2), before, "the files, the runtime and the phonemizer, before the model");
+  assert.deepEqual([...seen].sort((a, b) => a - b), seen, "never backwards");
+  assert.equal(log.bytes.length, 5, "the runtime, the phonemizer and the voice");
+  // Everything loaded already: straight to 100, and a warm without a listener is fine too.
+  const again = [];
+  await synth.warm("v1", (p) => again.push(p));
+  assert.deepEqual(again, [100]);
+  await synth.warm("v1");
+  // A failed warm says so, and the next one loads again.
+  const flaky = fakes({ failFirstVoice: true });
+  const s2 = new core.Synth(flaky.deps);
+  await assert.rejects(s2.warm("v1", () => {}), /HTTP 404/);
+  await s2.warm("v1");
+});
+
+test("a response is read whole, its progress told as it arrives", async () => {
+  const seen = [];
+  const body = new Response(new Blob(["abc", "def"]).stream(), { headers: { "Content-Length": "6" } });
+  const got = await core.readAll(body, (l, t) => seen.push([l, t]));
+  assert.equal(new TextDecoder().decode(got), "abcdef");
+  assert.deepEqual(seen[0], [0, 6]);
+  assert.deepEqual(seen.at(-1), [6, 6]);
+  const none = [];
+  const empty = await core.readAll(new Response(null), (l, t) => none.push([l, t]));
+  assert.equal(empty.byteLength, 0);
+  assert.deepEqual(none, [[0, 0], [0, 0]]);
+  assert.equal(new TextDecoder().decode(await core.readAll(new Response("x"))), "x");
 });
 
 test("a voice with several speakers gets a speaker id; a failure is reported and tried again", async () => {
@@ -265,9 +303,25 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
       });
     }
   };
+  let changes = 0;
+  const off = lv.onLoadState(() => changes++);
   lv.warmLocal("v1");
   assert.deepEqual(posted[0], { kind: "warm", id: "v1" });
   posted.shift();
+  assert.deepEqual(lv.loadStateOf("v1"), { pct: 0, ready: false });
+  lv.warmLocal("v1");
+  assert.equal(posted.length, 0, "a voice loading is not asked for again");
+  const tell = (data) => globalThis.lastWorker.onmessage({ data });
+  tell({ kind: "progress", id: "v1", pct: 40 });
+  assert.deepEqual(lv.loadStateOf("v1"), { pct: 40, ready: false });
+  tell({ kind: "failed", id: "v1", error: "no memory" });
+  assert.deepEqual(lv.loadStateOf("v1"), { pct: 0, ready: false, error: "no memory" });
+  lv.warmLocal("v1");
+  assert.deepEqual(posted.shift(), { kind: "warm", id: "v1" }, "a voice that failed is asked for again");
+  tell({ kind: "ready", id: "v1" });
+  assert.deepEqual(lv.loadStateOf("v1"), { pct: 100, ready: true });
+  assert.equal(changes, 5);
+  off();
   const say = lv.localClip("v1");
   const blob = await say("Hola.", new AbortController().signal);
   assert.equal(blob.type, "audio/wav");
@@ -280,6 +334,7 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
   const waiting = say("hang", new AbortController().signal);
   globalThis.lastWorker.onerror();
   await assert.rejects(waiting, /the local voice stopped/);
+  assert.equal(lv.loadStateOf("v1"), undefined, "a dead worker's voices are loaded again");
   // The next clip makes a new worker.
   await say("Otra vez.", new AbortController().signal);
   assert.equal(made, 2);
@@ -430,4 +485,46 @@ test("the runtime the gateway downloads is the one the page is built with", () =
     assert.match(version, /^\d+\.\d+\.\d+$/, name + " is pinned to one version");
     assert.ok(catalog.includes(file + version + ".tgz"), name + " " + version + " is the catalog's");
   }
+});
+
+test("the voice in use shows its loading into memory, and says In use only when it is ready", async () => {
+  // The worker of an earlier test goes, so this one is made with the stand-in below.
+  globalThis.lastWorker?.onerror();
+  const posted = [];
+  globalThis.Worker = class {
+    constructor() {
+      globalThis.lastWorker = this;
+    }
+    postMessage(m) {
+      posted.push(m);
+    }
+  };
+  globalThis.caches = {};
+  const cat = {
+    runtime: { size: 1, installed: true },
+    models: [{ id: "mx", name: "MX", lang: "es-MX", quality: "high", size: 1, installed: true }],
+    download: null,
+  };
+  const { api } = apiOf({ "GET /v1/voice/models": [200, cat] });
+  const v = await mount(h(lv.LocalVoices, { api, chosen: "mx", choose: () => {} }));
+  const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.deepEqual(posted, [{ kind: "warm", id: "mx" }], "loaded as soon as it is shown");
+  assert.match(q("local-voice-loading-mx").textContent, /0/);
+  assert.equal(q("local-voice-use-mx"), null, "not In use while it loads");
+  const tell = async (data) => {
+    await act(async () => globalThis.lastWorker.onmessage({ data }));
+  };
+  await tell({ kind: "progress", id: "mx", pct: 45 });
+  assert.match(q("local-voice-loading-mx").textContent, /45/);
+  await tell({ kind: "failed", id: "mx", error: "out of memory" });
+  assert.match(v.root.textContent, /out of memory/);
+  await act(async () => q("local-voice-retry-mx").click());
+  assert.deepEqual(posted.at(-1), { kind: "warm", id: "mx" });
+  await tell({ kind: "ready", id: "mx" });
+  assert.equal(q("local-voice-loading-mx"), null);
+  assert.equal(q("local-voice-use-mx").getAttribute("aria-pressed"), "true");
+  v.done();
+  globalThis.lastWorker.onerror();
+  delete globalThis.Worker;
+  delete globalThis.caches;
 });

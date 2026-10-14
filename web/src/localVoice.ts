@@ -56,6 +56,7 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
     throw await failure(res);
   }
   post({ kind: "forget", id });
+  setLoad(id, undefined);
   if (typeof caches !== "undefined") {
     const cache = await caches.open(VOICE_CACHE);
     await Promise.all(["model.onnx", "model.json"].map((n) => cache.delete(fileURL(id, n))));
@@ -76,6 +77,10 @@ function getWorker(): Worker {
     worker = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module" });
     worker.onmessage = (e: MessageEvent<FromWorker>) => {
       const m = e.data;
+      if ("kind" in m) {
+        loaded(m);
+        return;
+      }
       const p = pending.get(m.seq);
       pending.delete(m.seq);
       if (!p) {
@@ -93,6 +98,10 @@ function getWorker(): Worker {
       }
       pending.clear();
       worker = null;
+      // The voices it had loaded went with it: a new worker loads them again.
+      for (const id of [...loads.keys()]) {
+        setLoad(id, undefined);
+      }
     };
   }
   return worker;
@@ -114,8 +123,60 @@ export function localClip(id: string): FetchClip {
     });
 }
 
-// warmLocal loads a voice in the worker ahead of the first sentence.
+// LOADING a voice into the worker's memory: how far it is, for the settings to show.
+export interface LoadState {
+  // pct is 0 to 100; ready says the voice can speak; error says why it could not be loaded.
+  pct: number;
+  ready: boolean;
+  error?: string;
+}
+
+const loads = new Map<string, LoadState>();
+const loadListeners = new Set<() => void>();
+
+function setLoad(id: string, state: LoadState | undefined): void {
+  if (state) {
+    loads.set(id, state);
+  } else {
+    loads.delete(id);
+  }
+  for (const f of loadListeners) {
+    f();
+  }
+}
+
+// loaded records what the worker said about a voice it is loading.
+function loaded(m: Extract<FromWorker, { kind: string }>): void {
+  if (m.kind === "progress") {
+    setLoad(m.id, { pct: m.pct, ready: false });
+    return;
+  }
+  if (m.kind === "ready") {
+    setLoad(m.id, { pct: 100, ready: true });
+    return;
+  }
+  setLoad(m.id, { pct: 0, ready: false, error: m.error });
+}
+
+// loadStateOf is how far a voice is from being ready here; undefined before it was asked for.
+export function loadStateOf(id: string): LoadState | undefined {
+  return loads.get(id);
+}
+
+// onLoadState calls f whenever a voice's loading changes, until the returned function is called.
+export function onLoadState(f: () => void): () => void {
+  loadListeners.add(f);
+  return () => loadListeners.delete(f);
+}
+
+// warmLocal loads a voice in the worker ahead of the first sentence. A voice loading or loaded
+// is not asked for again; one that failed is.
 export function warmLocal(id: string): void {
+  const now = loads.get(id);
+  if (now && !now.error) {
+    return;
+  }
+  setLoad(id, { pct: 0, ready: false });
   getWorker().postMessage({ kind: "warm", id } satisfies ToWorker);
 }
 

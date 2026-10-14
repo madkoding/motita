@@ -1406,8 +1406,10 @@ refused). `motita doctor` hashes the downloaded voices again.
 | `DELETE /v1/voice/models/{id}`           | Removes a voice; the engine stays. `409` while it downloads.                                                         |
 | `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`), or of the engine with `{id}` = `runtime`.               |
 
-`GET /v1/voice` also answers `"local":true`. The first sentence of a session waits for the voice
-to load (a few seconds); the page loads the chosen voice when it opens to hide most of that wait.
+`GET /v1/voice` also answers `"local":true`. Loading a voice into the browser's memory takes a few
+seconds; the page starts it when it opens, and the voice in use shows **Loading into memory… N%**
+(reading its files, then starting the engine and the model) until it can speak, and only then
+**In use**.
 
 ### The skill library
 

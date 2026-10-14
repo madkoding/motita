@@ -1083,6 +1083,8 @@ const es: Record<string, string> = {
   "Downloading… {pct}%": "Descargando… {pct} %",
   "The download failed: {error}": "La descarga falló: {error}",
   "In use": "En uso",
+  "Loading into memory… {pct}%": "Cargando en memoria… {pct} %",
+  "The voice could not be loaded: {error}": "No se pudo cargar la voz: {error}",
   "High quality": "Calidad alta",
   "Medium quality": "Calidad media",
   "Low quality": "Calidad baja",

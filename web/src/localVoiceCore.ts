@@ -10,8 +10,22 @@ export const RUNTIME_ID = "runtime";
 export const ORT_WASM = "ort-wasm-simd-threaded.wasm";
 export const PHONEMIZE_WASM = "piper_phonemize.wasm";
 export const PHONEMIZE_DATA = "piper_phonemize.data";
+// A warm's progress, out of 100: reading the files makes LOAD_SHARE, starting the runtime
+// RUNTIME_SHARE and the phonemizer PHONEMIZER_SHARE; preparing the model (onnxruntime's session,
+// the longest step once the files are on this device) is the rest.
+export const LOAD_SHARE = 50;
+export const RUNTIME_SHARE = 15;
+export const PHONEMIZER_SHARE = 5;
 // VOICE_CACHE is the Cache Storage this page keeps the files in.
 export const VOICE_CACHE = "motita-voices-v1";
+
+// choose is a when b, c otherwise (this file imports nothing, so it has its own).
+function choose<T>(a: boolean, b: T, c: T): T {
+  if (a) {
+    return b;
+  }
+  return c;
+}
 
 // fileURL is the address of one downloaded file.
 export function fileURL(id: string, name: string): string {
@@ -78,6 +92,40 @@ export function wavOf(samples: Float32Array, rate: number): ArrayBuffer {
   return view.buffer;
 }
 
+// readAll reads a response's body, telling progress the bytes read and the size it announced
+// (0 when it named none): first when the reading starts, then after every chunk.
+export async function readAll(
+  res: Response,
+  progress?: (loaded: number, total: number) => void,
+): Promise<ArrayBuffer> {
+  const total = Number(res.headers.get("Content-Length")) || 0;
+  progress?.(0, total);
+  if (!res.body) {
+    const whole = await res.arrayBuffer();
+    progress?.(whole.byteLength, total);
+    return whole;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    chunks.push(value);
+    loaded += value.byteLength;
+    progress?.(loaded, total);
+  }
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out.buffer;
+}
+
 // What the synthesis needs from onnxruntime, so a test can stand in.
 export interface TensorLike {
   data: unknown;
@@ -97,8 +145,9 @@ export interface PhonemizerLike {
 
 // SynthDeps are what a Synth reads files with and runs them on.
 export interface SynthDeps {
-  // bytes is a downloaded file, from the page's own copy when there is one.
-  bytes(url: string): Promise<ArrayBuffer>;
+  // bytes is a downloaded file, from the page's own copy when there is one. progress, when
+  // given, is told the bytes read so far and the file's size (0 when it is not known).
+  bytes(url: string, progress?: (loaded: number, total: number) => void): Promise<ArrayBuffer>;
   // ort loads the runtime the first time it is asked, given its WebAssembly.
   ort(wasm: ArrayBuffer): Promise<OrtLike>;
   // phonemizer builds one instance from its WebAssembly and data; print receives its output.
@@ -119,6 +168,14 @@ export class Synth {
   private printed: string[] = [];
   private readonly voices = new Map<string, Promise<LoadedVoice>>();
   private queue: Promise<unknown> = Promise.resolve();
+  // watch follows the files a warm is reading, for its progress.
+  private watch: {
+    files: Map<string, [number, number]>;
+    // steps is the share of the steps done besides reading.
+    steps: number;
+    shown: number;
+    report: (pct: number) => void;
+  } | null = null;
 
   constructor(deps: SynthDeps) {
     this.deps = deps;
@@ -132,11 +189,33 @@ export class Synth {
   }
 
   // warm loads a voice, the runtime and the phonemizer ahead of the first sentence, which then
-  // starts as soon as it is synthesised.
-  warm(id: string): Promise<void> {
+  // starts as soon as it is synthesised. progress is told how far it is, 0 to 100: the files
+  // read make up to LOAD_SHARE, and preparing the model the rest.
+  warm(id: string, progress?: (pct: number) => void): Promise<void> {
     const job = this.queue.then(async () => {
-      await this.voice(id);
-      await this.phonemizer();
+      const files: string[] = [];
+      if (!this.ort) {
+        files.push(fileURL(RUNTIME_ID, ORT_WASM));
+      }
+      if (!this.phon) {
+        files.push(fileURL(RUNTIME_ID, PHONEMIZE_WASM), fileURL(RUNTIME_ID, PHONEMIZE_DATA));
+      }
+      if (!this.voices.has(id)) {
+        files.push(fileURL(id, "model.json"), fileURL(id, "model.onnx"));
+      }
+      this.watch = {
+        files: new Map(files.map((f) => [f, [-1, 0]])),
+        // A step already done counts from the start.
+        steps: choose(!!this.ort, RUNTIME_SHARE, 0) + choose(!!this.phon, PHONEMIZER_SHARE, 0),
+        shown: 0,
+        report: progress ?? (() => undefined),
+      };
+      try {
+        await Promise.all([this.voice(id), this.phonemizer()]);
+      } finally {
+        this.watch = null;
+      }
+      progress?.(100);
     });
     this.queue = job.catch(() => undefined);
     return job;
@@ -164,8 +243,56 @@ export class Synth {
     return wavOf(out.output.data as Float32Array, v.config.audio.sample_rate);
   }
 
+  // read is a file, its progress counted toward the warm in course.
+  private read(url: string): Promise<ArrayBuffer> {
+    return this.deps.bytes(url, (loaded, total) => this.counted(url, loaded, total));
+  }
+
+  // counted records one file's progress, and reports the whole once every file has started:
+  // before that the total is not known, and the share would go backwards.
+  private counted(url: string, loaded: number, total: number): void {
+    const w = this.watch;
+    if (!w?.files.has(url)) {
+      return;
+    }
+    w.files.set(url, [loaded, Math.max(total, loaded)]);
+    this.show();
+  }
+
+  // stepDone counts a step besides reading toward the warm in course.
+  private stepDone(share: number): void {
+    if (this.watch) {
+      this.watch.steps += share;
+      this.show();
+    }
+  }
+
+  // show reports the warm's progress when it moved forward.
+  private show(): void {
+    const w = this.watch as NonNullable<Synth["watch"]>;
+    let done = 0;
+    let all = 0;
+    for (const [l, t] of w.files.values()) {
+      if (l < 0) {
+        return;
+      }
+      done += l;
+      all += t;
+    }
+    const pct = Math.floor((LOAD_SHARE * done) / Math.max(all, 1)) + w.steps;
+    if (pct > w.shown) {
+      w.shown = pct;
+      w.report(pct);
+    }
+  }
+
   private runtime(): Promise<OrtLike> {
-    this.ort ??= this.deps.bytes(fileURL(RUNTIME_ID, ORT_WASM)).then((w) => this.deps.ort(w));
+    this.ort ??= this.read(fileURL(RUNTIME_ID, ORT_WASM))
+      .then((w) => this.deps.ort(w))
+      .then((o) => {
+        this.stepDone(RUNTIME_SHARE);
+        return o;
+      });
     this.ort.catch(() => {
       this.ort = null;
     });
@@ -176,9 +303,14 @@ export class Synth {
     let v = this.voices.get(id);
     if (!v) {
       v = (async () => {
-        const config = parseVoiceConfig(new TextDecoder().decode(await this.deps.bytes(fileURL(id, "model.json"))));
-        const ort = await this.runtime();
-        const session = await ort.createSession(await this.deps.bytes(fileURL(id, "model.onnx")));
+        // The three are read at once, so a warm knows every size early.
+        const [json, ort, model] = await Promise.all([
+          this.read(fileURL(id, "model.json")),
+          this.runtime(),
+          this.read(fileURL(id, "model.onnx")),
+        ]);
+        const config = parseVoiceConfig(new TextDecoder().decode(json));
+        const session = await ort.createSession(model);
         return { config, session };
       })();
       this.voices.set(id, v);
@@ -190,9 +322,14 @@ export class Synth {
 
   private phonemizer(): Promise<PhonemizerLike> {
     this.phon ??= Promise.all([
-      this.deps.bytes(fileURL(RUNTIME_ID, PHONEMIZE_WASM)),
-      this.deps.bytes(fileURL(RUNTIME_ID, PHONEMIZE_DATA)),
-    ]).then(([wasm, data]) => this.deps.phonemizer(wasm, data, (line) => this.printed.push(line)));
+      this.read(fileURL(RUNTIME_ID, PHONEMIZE_WASM)),
+      this.read(fileURL(RUNTIME_ID, PHONEMIZE_DATA)),
+    ])
+      .then(([wasm, data]) => this.deps.phonemizer(wasm, data, (line) => this.printed.push(line)))
+      .then((p) => {
+        this.stepDone(PHONEMIZER_SHARE);
+        return p;
+      });
     this.phon.catch(() => {
       this.phon = null;
     });
@@ -216,4 +353,9 @@ export type ToWorker =
   | { kind: "say"; seq: number; id: string; text: string }
   | { kind: "warm"; id: string }
   | { kind: "forget"; id: string };
-export type FromWorker = { seq: number; wav: ArrayBuffer } | { seq: number; error: string };
+export type FromWorker =
+  | { seq: number; wav: ArrayBuffer }
+  | { seq: number; error: string }
+  | { kind: "progress"; id: string; pct: number }
+  | { kind: "ready"; id: string }
+  | { kind: "failed"; id: string; error: string };
