@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"net/url"
-	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -110,15 +110,15 @@ type providerInfo struct {
 	IsCurrent   bool     `json:"is_current"`
 }
 
-// configuredProviders returns the providers a front end may switch to: those
-// whose key is available (env var or YAML), plus the current one even when its
-// key is missing (so the user can see what is active).
-func configuredProviders(cfg config.Config) []providerInfo {
+// configuredProviders returns the providers a front end may switch to: those connected the way
+// the settings' providers tab says so (a key, a login, or nothing needed), plus the current one
+// even when its key is missing (so the user can see what is active).
+func configuredProviders(configPath string, cfg config.Config) []providerInfo {
 	providers := onboard.Providers()
 	out := make([]providerInfo, 0, len(providers))
 	for _, p := range providers {
-		keyPresent := providerKeyPresent(cfg, p.ID)
 		isCurrent := strings.EqualFold(cfg.LLM.Provider, p.ID)
+		keyPresent := providerKeyPresent(configPath, cfg, p.ID) || (isCurrent && cfg.LLM.APIKey != "")
 		if !keyPresent && !isCurrent {
 			continue
 		}
@@ -138,20 +138,25 @@ func configuredProviders(cfg config.Config) []providerInfo {
 	return out
 }
 
-// providerKeyPresent reports whether a credential is available for the given
-// provider: its provider-specific env var is set, a login is stored for it, or
-// the YAML api_key is set and the provider uses the generic MOTITA_LLM_API_KEY
-// variable.
-func providerKeyPresent(cfg config.Config, providerID string) bool {
-	if cfg.LLM.APIKey != "" && config.ProviderKeyVariable(providerID) == "MOTITA_LLM_API_KEY" {
+// lookPath finds a command on PATH; a variable so tests can say whether the claude CLI is there.
+var lookPath = exec.LookPath
+
+// providerKeyPresent reports whether a provider is connected, by the same rule as the settings'
+// providers tab (config.KeySource): its own key in the environment or the credentials file, a
+// stored login, or a self-hosted Ollama. The generic MOTITA_LLM_API_KEY belongs to the configured
+// provider only, so it no longer lists every provider that would read it. Claude Code needs no
+// key but does need its CLI, so it counts only when claude is on PATH.
+func providerKeyPresent(configPath string, cfg config.Config, providerID string) bool {
+	switch config.KeySource(configPath, cfg.LLM, providerID) {
+	case config.KeyMissing:
+		return false
+	case config.KeyNotNeeded:
+		if config.ProviderNeedsKey(providerID) {
+			return true
+		}
+		_, err := lookPath("claude")
+		return err == nil
+	default:
 		return true
 	}
-	// A stored login is as good as a key, and the variable may be one of the OpenAI names.
-	if config.HasLogin(providerID) || config.ProviderKeyFromEnv(providerID) != "" {
-		return true
-	}
-	// The generic variable counts for the providers that read it (openai and codex,
-	// which share the OpenAI account).
-	_, ok := os.LookupEnv(config.ProviderKeyVariable(providerID))
-	return ok
 }

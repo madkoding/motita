@@ -325,21 +325,6 @@ func TestWsWriteCloseViaPipe(t *testing.T) {
 	}
 }
 
-// --- providerKeyPresent ---
-
-func TestProviderKeyPresentForKnownProviders(t *testing.T) {
-	got := providerKeyPresent(config.Default(), "openai")
-	_ = got
-}
-
-func TestProviderKeyPresentWithAPIKey(t *testing.T) {
-	cfg := config.Default()
-	cfg.LLM.APIKey = "test-key"
-	if !providerKeyPresent(cfg, "openai") {
-		t.Error("expected true when APIKey is set and provider uses MOTITA_LLM_API_KEY")
-	}
-}
-
 // --- wsWriteFrame with large payload (>65535) ---
 
 func TestWsWriteFrameLargePayload(t *testing.T) {
@@ -372,24 +357,20 @@ func TestWsWriteFrameLargePayload(t *testing.T) {
 // TestProviderKeyPresentReadsLoginsAndEachProvidersVariable: a stored login counts
 // as a credential, and a key exported for one vendor does not count for another.
 func TestProviderKeyPresentReadsLoginsAndEachProvidersVariable(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MOTITA_AUTH_DIR", dir)
-	t.Setenv("OPENAI_API_KEY", "")
+	path := llmEnv(t, openAIConfig)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
-	t.Setenv("DASHSCOPE_API_KEY", "")
-	os.Unsetenv("DASHSCOPE_API_KEY") // set-but-empty still counts as named; t.Setenv restores it
 	cfg := config.Default()
 	cfg.LLM.APIKey = ""
-	if !providerKeyPresent(cfg, "anthropic") {
+	if !providerKeyPresent(path, cfg, "anthropic") {
 		t.Error("ANTHROPIC_API_KEY must count for anthropic")
 	}
-	if providerKeyPresent(cfg, "qwen") {
+	if providerKeyPresent(path, cfg, "qwen") {
 		t.Error("nothing is configured for qwen yet")
 	}
-	if err := oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
+	if err := oauth.SaveCredential(os.Getenv("MOTITA_AUTH_DIR"), oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
 		t.Fatal(err)
 	}
-	if !providerKeyPresent(cfg, "qwen") {
+	if !providerKeyPresent(path, cfg, "qwen") {
 		t.Error("a stored login must count")
 	}
 }
