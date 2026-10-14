@@ -21,6 +21,7 @@ import {
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
 import { LocalVoices } from "./LocalVoiceSettings";
+import { isKokoro } from "./localVoiceCore";
 import {
   LENGTHS,
   MEDIUM_CHARS,
@@ -364,7 +365,7 @@ export function SpeechSettings({
             }))}
           />
         </Row>
-        {localChosen && (
+        {localChosen && !isKokoro(prefs.localVoice) && (
           <>
             <VoiceSlider
               id="settings-speech-expressiveness"

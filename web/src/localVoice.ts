@@ -1,6 +1,15 @@
 // LOCAL VOICES on the page's side: the catalog the gateway offers, its downloads, and a FetchClip
 // that asks the worker (speechModel.worker.ts) to say a sentence.
-import { MODELS_PATH, VOICE_CACHE, fileURL, type FromWorker, type ToWorker, type Tune } from "./localVoiceCore";
+import {
+  KOKORO_ID,
+  MODELS_PATH,
+  VOICE_CACHE,
+  fileURL,
+  isKokoro,
+  type FromWorker,
+  type ToWorker,
+  type Tune,
+} from "./localVoiceCore";
 import type { Api } from "./prApi";
 import type { FetchClip } from "./speech";
 
@@ -10,8 +19,13 @@ export interface LocalModel {
   name: string;
   lang: string;
   quality: string;
+  // engine runs it: "piper" or "kokoro".
+  engine: string;
+  // size is what downloading it takes now (with its engine's model, while that is missing).
   size: number;
   installed: boolean;
+  // sample says it can be heard before it is downloaded (sampleURL).
+  sample: boolean;
 }
 
 // LocalCatalog is GET /v1/voice/models.
@@ -57,10 +71,26 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
   }
   post({ kind: "forget", id });
   setLoad(id, undefined);
-  if (typeof caches !== "undefined") {
-    const cache = await caches.open(VOICE_CACHE);
-    await Promise.all(["model.onnx", "model.json"].map((n) => cache.delete(fileURL(id, n))));
+  if (typeof caches === "undefined") {
+    return;
   }
+  const cache = await caches.open(VOICE_CACHE);
+  const gone = ["model.onnx", "model.json", "voice.bin"].map((n) => fileURL(id, n));
+  // Kokoro's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
+  if (isKokoro(id) && !(await fetchCatalog(api)).models.some((m) => isKokoro(m.id) && m.installed)) {
+    gone.push(fileURL(KOKORO_ID, "model.onnx"), fileURL(KOKORO_ID, "tokenizer.json"));
+  }
+  await Promise.all(gone.map((u) => cache.delete(u)));
+}
+
+// sampleOf is a voice's sample, to hear it before downloading it: the gateway fetches it from the
+// catalog's address the first time.
+export async function sampleOf(api: Api, id: string): Promise<Blob> {
+  const res = await api(fileURL(id, "sample"));
+  if (!res.ok) {
+    throw await failure(res);
+  }
+  return res.blob();
 }
 
 // The worker, made the first time a sentence is said.

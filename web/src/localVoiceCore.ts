@@ -1,4 +1,4 @@
-// LOCAL VOICES: a Piper model run in this browser, the parts that need no browser.
+// LOCAL VOICES: a Piper or Kokoro model run in this browser, the parts that need no browser.
 //
 // The worker (speechModel.worker.ts) wires these to onnxruntime and the phonemizer; keeping the
 // logic here, with every dependency passed in, lets the node tests drive it with fakes. Like
@@ -10,6 +10,14 @@ export const RUNTIME_ID = "runtime";
 export const ORT_WASM = "ort-wasm-simd-threaded.wasm";
 export const PHONEMIZE_WASM = "piper_phonemize.wasm";
 export const PHONEMIZE_DATA = "piper_phonemize.data";
+// KOKORO_ID is where Kokoro's model is served; a Kokoro voice's id is it, a dash, and the voice's
+// name there, whose first letter is its language.
+export const KOKORO_ID = "kokoro";
+export const KOKORO_RATE = 24000;
+// KOKORO_STYLE is the length of one style vector; a voice holds one for each length of input,
+// up to KOKORO_MAX_TOKENS.
+const KOKORO_STYLE = 256;
+const KOKORO_MAX_TOKENS = 510;
 // A warm's progress, out of 100: reading the files makes LOAD_SHARE, starting the runtime
 // RUNTIME_SHARE and the phonemizer PHONEMIZER_SHARE; preparing the model (onnxruntime's session,
 // the longest step once the files are on this device) is the rest.
@@ -54,13 +62,69 @@ export function phonemizeArgs(espeakVoice: string, text: string): string[] {
   return ["-l", espeakVoice, "--input", JSON.stringify([{ text }]), "--espeak_data", "/espeak-ng-data"];
 }
 
-// phonemeIds reads the phonemizer's output line: the ids the model takes.
-export function phonemeIds(line: string): number[] {
-  const out = JSON.parse(line) as { phoneme_ids?: number[] };
+// Phonemized is the phonemizer's output for one text: the ids a Piper model takes, and the
+// phonemes themselves (espeak-ng's IPA), which Kokoro reads.
+export interface Phonemized {
+  ids: number[];
+  phonemes: string;
+}
+
+// phonemized reads the phonemizer's output line.
+export function phonemized(line: string): Phonemized {
+  const out = JSON.parse(line) as { phoneme_ids?: number[]; phonemes?: string[] };
   if (!Array.isArray(out.phoneme_ids) || out.phoneme_ids.length === 0) {
     throw new Error("the phonemizer answered nothing");
   }
-  return out.phoneme_ids;
+  return { ids: out.phoneme_ids, phonemes: (out.phonemes ?? []).join("") };
+}
+
+// isKokoro says whether a voice runs on Kokoro.
+export function isKokoro(id: string): boolean {
+  return id.startsWith(KOKORO_ID + "-");
+}
+
+// kokoroEspeak is the phonemizer's language for a Kokoro voice, from its name's first letter.
+export function kokoroEspeak(id: string): string {
+  const langs: Record<string, string> = { a: "en-us", b: "en-gb", e: "es" };
+  return langs[id.charAt(KOKORO_ID.length + 1)] ?? "en-us";
+}
+
+// kokoroVocab reads the table from phonemes to ids out of Kokoro's tokenizer.json.
+export function kokoroVocab(text: string): Map<string, number> {
+  const raw = JSON.parse(text) as { model?: { vocab?: Record<string, number> } };
+  if (!raw.model?.vocab) {
+    throw new Error("not Kokoro's tokenizer");
+  }
+  return new Map(Object.entries(raw.model.vocab));
+}
+
+// kokoroTokens are the ids Kokoro takes for espeak-ng's phonemes. The phonemes are adjusted as
+// Kokoro's own pipeline does (sounds it was not trained on become their nearest), a sentence
+// that ends is followed by a space, anything the table lacks is dropped, and the whole is
+// wrapped in the pad id, 0.
+export function kokoroTokens(phonemes: string, vocab: Map<string, number>): number[] {
+  const fixed = phonemes
+    .replace(/kəkˈoːɹoʊ/g, "kˈoʊkəɹoʊ")
+    .replace(/ʲ/g, "j")
+    .replace(/r/g, "ɹ")
+    .replace(/x/g, "k")
+    .replace(/ɬ/g, "l")
+    .replace(/([.!?…])(?=\S)/g, "$1 ")
+    .trim();
+  const ids: number[] = [];
+  for (const c of fixed) {
+    const id = vocab.get(c);
+    if (id !== undefined) {
+      ids.push(id);
+    }
+  }
+  return [0, ...ids.slice(0, KOKORO_MAX_TOKENS - 2), 0];
+}
+
+// kokoroStyle is the style vector a Kokoro voice uses for an input of this many tokens.
+export function kokoroStyle(voice: Float32Array, tokens: number): Float32Array {
+  const n = Math.min(Math.max(tokens - 2, 0), KOKORO_MAX_TOKENS - 1);
+  return voice.slice(n * KOKORO_STYLE, (n + 1) * KOKORO_STYLE);
 }
 
 // wavOf is mono 16-bit PCM audio, as a WAV file the <audio> element plays.
@@ -154,9 +218,15 @@ export interface SynthDeps {
   phonemizer(wasm: ArrayBuffer, data: ArrayBuffer, print: (line: string) => void): Promise<PhonemizerLike>;
 }
 
-interface LoadedVoice {
-  config: VoiceConfig;
+// A voice ready to speak: a Piper model, or a Kokoro voice's styles on the shared model.
+type LoadedVoice =
+  | { kind: "piper"; config: VoiceConfig; session: SessionLike }
+  | { kind: "kokoro"; styles: Float32Array };
+
+// Kokoro's model, loaded once for all its voices.
+interface KokoroModel {
   session: SessionLike;
+  vocab: Map<string, number>;
 }
 
 // Synth says texts with the local voices: the runtime and the phonemizer are loaded once, and
@@ -165,6 +235,7 @@ export class Synth {
   private readonly deps: SynthDeps;
   private ort: Promise<OrtLike> | null = null;
   private phon: Promise<PhonemizerLike> | null = null;
+  private kokoro: Promise<KokoroModel> | null = null;
   private printed: string[] = [];
   private readonly voices = new Map<string, Promise<LoadedVoice>>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -200,8 +271,12 @@ export class Synth {
       if (!this.phon) {
         files.push(fileURL(RUNTIME_ID, PHONEMIZE_WASM), fileURL(RUNTIME_ID, PHONEMIZE_DATA));
       }
+      const kokoro = isKokoro(id);
+      if (kokoro && !this.kokoro) {
+        files.push(fileURL(KOKORO_ID, "tokenizer.json"), fileURL(KOKORO_ID, "model.onnx"));
+      }
       if (!this.voices.has(id)) {
-        files.push(fileURL(id, "model.json"), fileURL(id, "model.onnx"));
+        files.push(...choose(kokoro, [fileURL(id, "voice.bin")], [fileURL(id, "model.json"), fileURL(id, "model.onnx")]));
       }
       this.watch = {
         files: new Map(files.map((f) => [f, [-1, 0]])),
@@ -228,8 +303,20 @@ export class Synth {
 
   private async sayNow(id: string, text: string, tune: Tune = { noise: 1, noiseW: 1 }): Promise<ArrayBuffer> {
     const v = await this.voice(id);
-    const ids = await this.phonemize(v.config.espeak.voice, text);
     const ort = await this.runtime();
+    if (v.kind === "kokoro") {
+      const model = await this.kokoroModel();
+      const p = await this.phonemize(kokoroEspeak(id), text);
+      const ids = kokoroTokens(p.phonemes, model.vocab);
+      // The speed is the page's (the audio's playback rate), so the model speaks at its own.
+      const out = await model.session.run({
+        input_ids: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
+        style: new ort.Tensor("float32", kokoroStyle(v.styles, ids.length), [1, 256]),
+        speed: new ort.Tensor("float32", Float32Array.from([1]), [1]),
+      });
+      return wavOf(out.waveform.data as Float32Array, KOKORO_RATE);
+    }
+    const { ids } = await this.phonemize(v.config.espeak.voice, text);
     const inf = v.config.inference;
     const feeds: Record<string, TensorLike> = {
       input: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
@@ -302,22 +389,45 @@ export class Synth {
   private voice(id: string): Promise<LoadedVoice> {
     let v = this.voices.get(id);
     if (!v) {
-      v = (async () => {
-        // The three are read at once, so a warm knows every size early.
-        const [json, ort, model] = await Promise.all([
-          this.read(fileURL(id, "model.json")),
-          this.runtime(),
-          this.read(fileURL(id, "model.onnx")),
-        ]);
-        const config = parseVoiceConfig(new TextDecoder().decode(json));
-        const session = await ort.createSession(model);
-        return { config, session };
-      })();
+      v = choose(isKokoro(id), () => this.loadKokoro(id), () => this.loadPiper(id))();
       this.voices.set(id, v);
       // A voice that failed to load is tried again next time.
       v.catch(() => this.voices.delete(id));
     }
     return v;
+  }
+
+  private async loadPiper(id: string): Promise<LoadedVoice> {
+    // The three are read at once, so a warm knows every size early.
+    const [json, ort, model] = await Promise.all([
+      this.read(fileURL(id, "model.json")),
+      this.runtime(),
+      this.read(fileURL(id, "model.onnx")),
+    ]);
+    const config = parseVoiceConfig(new TextDecoder().decode(json));
+    const session = await ort.createSession(model);
+    return { kind: "piper", config, session };
+  }
+
+  private async loadKokoro(id: string): Promise<LoadedVoice> {
+    const [styles] = await Promise.all([this.read(fileURL(id, "voice.bin")), this.kokoroModel()]);
+    return { kind: "kokoro", styles: new Float32Array(styles) };
+  }
+
+  // kokoroModel is Kokoro's model and its table, loaded with the first Kokoro voice.
+  private kokoroModel(): Promise<KokoroModel> {
+    this.kokoro ??= (async () => {
+      const [vocab, ort, model] = await Promise.all([
+        this.read(fileURL(KOKORO_ID, "tokenizer.json")),
+        this.runtime(),
+        this.read(fileURL(KOKORO_ID, "model.onnx")),
+      ]);
+      return { vocab: kokoroVocab(new TextDecoder().decode(vocab)), session: await ort.createSession(model) };
+    })();
+    this.kokoro.catch(() => {
+      this.kokoro = null;
+    });
+    return this.kokoro;
   }
 
   private phonemizer(): Promise<PhonemizerLike> {
@@ -336,7 +446,7 @@ export class Synth {
     return this.phon;
   }
 
-  private async phonemize(espeakVoice: string, text: string): Promise<number[]> {
+  private async phonemize(espeakVoice: string, text: string): Promise<Phonemized> {
     const p = await this.phonemizer();
     this.printed = [];
     p.callMain(phonemizeArgs(espeakVoice, text));
@@ -344,12 +454,12 @@ export class Synth {
     if (!line) {
       throw new Error("the phonemizer answered nothing");
     }
-    return phonemeIds(line);
+    return phonemized(line);
   }
 }
 
-// Tune scales a voice's noise settings: noise its intonation (noise_scale), noiseW its rhythm
-// (noise_w). 1 and 1 are the voice as it was trained.
+// Tune scales a Piper voice's noise settings: noise its intonation (noise_scale), noiseW its
+// rhythm (noise_w). 1 and 1 are the voice as it was trained. Kokoro has neither.
 export interface Tune {
   noise: number;
   noiseW: number;
