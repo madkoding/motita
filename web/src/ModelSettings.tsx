@@ -7,7 +7,6 @@ import {
   type ModelChoice,
   isConnected,
   loadLLM,
-  modelChoices,
   saveDefault,
   saveTasks,
   sameTasks,
@@ -19,6 +18,7 @@ import {
   inputCls,
   primaryBtn,
 } from "./ProviderSettings";
+import { ModelPicker } from "./ModelPicker";
 
 // The kinds of work a model can be assigned to, with what each one covers. The gateway names the
 // kinds; one it names that is not here is still shown, under its own name.
@@ -125,18 +125,17 @@ function DefaultModel({
   }, [view.provider, view.model]);
   const connected = view.providers.filter(isConnected);
   const p = view.providers.find((x) => x.id === provider);
-  const choices = modelChoices(
-    p,
-    p?.listed_models,
-    choose(provider === view.provider, view.model, ""),
-  );
   const changed = provider !== view.provider || model.trim() !== view.model;
   const pick = (id: string) => {
     setProvider(id);
     setErr("");
     const next = view.providers.find((x) => x.id === id);
     setModel(
-      choose(id === view.provider, view.model, next?.models[0]?.id || ""),
+      choose(
+        id === view.provider,
+        view.model,
+        next?.listed_models?.[0] || next?.models[0]?.id || "",
+      ),
     );
   };
   const save = async (e: Event) => {
@@ -185,22 +184,15 @@ function DefaultModel({
           <label for="llm-default-model" class="text-sm text-[#e8e8ea]">
             {t("Model")}
           </label>
-          <div class="settings-row-control llm-field">
-            <input
+          <div class="settings-row-control llm-field llm-task-field">
+            <ModelPicker
+              key={provider}
               id="llm-default-model"
-              class={inputCls + " font-mono"}
+              provider={p}
               value={model}
-              list="llm-default-models"
               disabled={!view.writable}
-              autocapitalize="off"
-              spellcheck={false}
-              onInput={(e) => setModel((e.target as HTMLInputElement).value)}
+              onChange={setModel}
             />
-            <datalist id="llm-default-models">
-              {choices.map((id) => (
-                <option key={id} value={id} />
-              ))}
-            </datalist>
           </div>
         </div>
         <div class="settings-add llm-actions">
@@ -331,28 +323,17 @@ function TaskModels({
                     ))}
                 </select>
                 {c?.provider && (
-                  <>
-                    <input
-                      id={`llm-task-${kind}-model`}
-                      class={inputCls + " font-mono"}
-                      value={c.model}
-                      list={`llm-task-${kind}-models`}
-                      aria-label={tf("Model for {kind}", {
-                        kind: info ? t(info.label) : kind,
-                      })}
-                      disabled={!view.writable}
-                      autocapitalize="off"
-                      spellcheck={false}
-                      onInput={(e) =>
-                        setModel(kind, (e.target as HTMLInputElement).value)
-                      }
-                    />
-                    <datalist id={`llm-task-${kind}-models`}>
-                      {modelChoices(p, p?.listed_models, c.model).map((id) => (
-                        <option key={id} value={id} />
-                      ))}
-                    </datalist>
-                  </>
+                  <ModelPicker
+                    key={c.provider}
+                    id={`llm-task-${kind}-model`}
+                    provider={p}
+                    value={c.model}
+                    ariaLabel={tf("Model for {kind}", {
+                      kind: info ? t(info.label) : kind,
+                    })}
+                    disabled={!view.writable}
+                    onChange={(m) => setModel(kind, m)}
+                  />
                 )}
               </div>
             </div>

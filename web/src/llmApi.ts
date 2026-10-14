@@ -256,23 +256,17 @@ export function trialOf(
   return out;
 }
 
-// modelChoices are the models a provider offers: the ones a test listed, else its catalogue,
-// with the one in force kept in the list so the picker can show it.
-export function modelChoices(
+// modelOptions are the models a provider offers, by name where its catalogue gives one: the ones
+// its last test listed, else its catalogue.
+export function modelOptions(
   p: LLMProvider | undefined,
-  listed: string[] | undefined,
-  current: string,
-): string[] {
-  let ids: string[];
-  if (listed?.length) {
-    ids = [...listed];
-  } else if (p) {
-    ids = p.models.map((m) => m.id);
-  } else {
-    ids = [];
+): { id: string; label: string }[] {
+  if (!p) {
+    return [];
   }
-  if (current && !ids.includes(current)) {
-    ids.unshift(current);
-  }
-  return ids;
+  const label = (id: string) => p.models.find((m) => m.id === id)?.label || id;
+  const ids = p.listed_models?.length
+    ? p.listed_models
+    : p.models.map((m) => m.id);
+  return ids.map((id) => ({ id, label: label(id) }));
 }

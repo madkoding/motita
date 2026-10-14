@@ -874,6 +874,9 @@ const es: Record<string, string> = {
   "Model per kind of work": "Modelo por tipo de trabajo",
   "Same as default": "Igual que el por defecto",
   "Model for {kind}": "Modelo para {kind}",
+  "Other…": "Otro…",
+  "Model name, as the provider writes it":
+    "Nombre del modelo, tal como lo escribe el proveedor",
   "Models per kind of work saved": "Modelos por tipo de trabajo guardados",
   "Each session's agent and its background agents use these models, and work as a team only inside their own session.":
     "El agente de cada sesión y sus agentes en segundo plano usan estos modelos, y trabajan en equipo solo dentro de su propia sesión.",

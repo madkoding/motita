@@ -194,6 +194,12 @@ async function open(gw, tabId = "providers") {
 const row = (root, id) => root.querySelector(`li[data-provider="${id}"]`);
 const button = (el, text) =>
   [...el.querySelectorAll("button")].find((b) => b.textContent === text);
+const choose = async (select, value) => {
+  select.value = value;
+  await act(() =>
+    select.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
+};
 const type = async (input, value) => {
   input.value = value;
   await act(() =>
@@ -201,7 +207,7 @@ const type = async (input, value) => {
   );
 };
 
-test("trialOf sends only what was typed, and modelChoices keeps the model in force", () => {
+test("trialOf sends only what was typed, and modelOptions names the models offered", () => {
   const p = VIEW().providers[0];
   assert.deepEqual(llm.trialOf(p, "  ", p.base_url), {});
   assert.deepEqual(llm.trialOf(p, " sk ", "https://proxy/v1"), {
@@ -214,12 +220,19 @@ test("trialOf sends only what was typed, and modelChoices keeps the model in for
     {},
     "no endpoint for a fixed host",
   );
-  assert.deepEqual(llm.modelChoices(p, undefined, "gpt-5"), [
-    GPT_5_MINI,
-    "gpt-5",
+  assert.deepEqual(llm.modelOptions(p), [
+    { id: GPT_5_MINI, label: "GPT-5 mini" },
+    { id: "gpt-5", label: "GPT-5" },
   ]);
-  assert.deepEqual(llm.modelChoices(p, ["a"], "custom"), ["custom", "a"]);
-  assert.deepEqual(llm.modelChoices(undefined, undefined, ""), []);
+  assert.deepEqual(
+    llm.modelOptions({ ...p, listed_models: ["gpt-5", "a"] }),
+    [
+      { id: "gpt-5", label: "GPT-5" },
+      { id: "a", label: "a" },
+    ],
+    "the listed models come first, by name where the catalogue has one",
+  );
+  assert.deepEqual(llm.modelOptions(undefined), []);
   assert.equal(llm.isConnected(fixed), false);
   assert.equal(
     llm.canTypeKey(VIEW().providers[2]),
@@ -585,7 +598,7 @@ test("a refused default and a gateway with no file say so", async () => {
   });
   const second = await open(gw2, "models");
   const model = second.root.querySelector(DEFAULT_MODEL_INPUT);
-  await type(model, "gpt-5");
+  await choose(model, "gpt-5");
   await act(() =>
     button(
       second.root.querySelector("[data-testid=llm-default]"),
@@ -629,6 +642,7 @@ test("every string of the providers tab has a Spanish translation", () => {
   for (const f of [
     "ProviderSettings.tsx",
     "ModelSettings.tsx",
+    "ModelPicker.tsx",
     "InsecureWarning.tsx",
   ]) {
     for (const m of src(f).matchAll(
@@ -695,11 +709,15 @@ test("each kind of work can get its own model, and the rest follow the default",
   );
   const model = form.querySelector("#llm-task-plan-model");
   assert.equal(model.value, "gpt-x", "the models the provider listed come first");
-  const listed = [...form.querySelectorAll("#llm-task-plan-models option")].map((o) => o.value);
-  assert.deepEqual(listed, ["gpt-x", "gpt-y"]);
-  await type(model, " ");
+  const listed = [...model.querySelectorAll("option")].map((o) => o.textContent);
+  assert.deepEqual(listed, ["gpt-x", "gpt-y", "Other…"]);
+  assert.equal(form.querySelector("#llm-task-plan-model-other"), null, "no field until Other…");
+  await choose(model, model.querySelector("option:last-child").value);
+  const other = form.querySelector("#llm-task-plan-model-other");
+  assert.equal(other.value, "", "Other… starts empty");
   assert.equal(button(form, "Save").disabled, true, "a provider without a model cannot be saved");
-  await type(model, "gpt-5");
+  await type(other, "gpt-5");
+  assert.equal(form.querySelector("#llm-task-plan-model-other").value, "gpt-5", "the field stays while typing");
 
   const review = form.querySelector("#llm-task-review-provider");
   review.value = "";
@@ -714,6 +732,27 @@ test("each kind of work can get its own model, and the rest follow the default",
     body: { tasks: { plan: { provider: "openai", model: "gpt-5" } } },
   });
   assert.deepEqual(notices.at(-1), ["Models per kind of work saved", false]);
+  await done();
+});
+
+test("a model the list leaves out is typed under Other…, and a provider with no list gets the field", async () => {
+  const view = VIEW();
+  view.model = "my-tune";
+  view.providers.push(provider("ollama", "Ollama", { key: "not_needed", models: [] }));
+  const { root, done } = await open(fakeGateway(view), "models");
+  const form = root.querySelector("[data-testid=llm-default]");
+  const select = form.querySelector(DEFAULT_MODEL_INPUT);
+  assert.equal(select.selectedOptions[0].textContent, "Other…");
+  assert.equal(form.querySelector("#llm-default-model-other").value, "my-tune");
+  await choose(select, "gpt-5");
+  assert.equal(form.querySelector("#llm-default-model-other"), null, "a listed model hides the field");
+  assert.equal(button(form, "Save").disabled, false);
+
+  await choose(form.querySelector("#llm-default-provider"), "ollama");
+  const field = form.querySelector(DEFAULT_MODEL_INPUT);
+  assert.equal(field.tagName, "INPUT", "nothing to list: the field alone");
+  await type(field, "qwen3:8b");
+  assert.equal(form.querySelector(DEFAULT_MODEL_INPUT).value, "qwen3:8b");
   await done();
 });
 
