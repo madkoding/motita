@@ -123,6 +123,10 @@ type AppRunner struct {
 	// endpoints remembers the base URL and key of each provider the session has used, so a
 	// switch back restores what the configuration said (see switchEndpoint).
 	endpoints map[string]llmEndpoint
+	// taskEngines are the engines built for the kinds of work the models block assigns a model
+	// of its own, keyed by kind. They belong to this runner - one session - and are dropped with
+	// Engine whenever the settings they were built from change. Guarded by cfgMu.
+	taskEngines map[string]*llm.Client
 
 	// session is the conversation Plan mode continues across turns. It lives on the runner,
 	// not on the planner, precisely because each turn builds a new planner: a session created
@@ -311,7 +315,7 @@ func (r *AppRunner) SetReasoning(level string) {
 	defer r.cfgMu.Unlock()
 	r.Cfg.LLM.Reasoning.Level = level
 	r.Cfg.LLM.Reasoning.Enabled = level != "off"
-	r.Engine = nil
+	r.dropEngines()
 }
 
 // SetLLM changes the in-memory provider and/or model. An empty argument means "leave
@@ -325,11 +329,11 @@ func (r *AppRunner) SetLLM(provider, model string) {
 	if provider != "" && !strings.EqualFold(provider, r.Cfg.LLM.Provider) {
 		r.switchEndpoint(provider)
 		r.Cfg.LLM.Provider = provider
-		r.Engine = nil
+		r.dropEngines()
 	}
 	if model != "" {
 		r.Cfg.LLM.Model = model
-		r.Engine = nil
+		r.dropEngines()
 	}
 }
 
@@ -347,21 +351,8 @@ func (r *AppRunner) switchEndpoint(provider string) {
 	cur := strings.ToLower(r.Cfg.LLM.Provider)
 	// The outgoing provider's settings are remembered as they are now.
 	r.endpoints[cur] = llmEndpoint{baseURL: r.Cfg.LLM.BaseURL, apiKey: r.Cfg.LLM.APIKey}
-	next := strings.ToLower(provider)
-	if ep, ok := r.endpoints[next]; ok {
-		r.Cfg.LLM.BaseURL, r.Cfg.LLM.APIKey = ep.baseURL, ep.apiKey
-	} else {
-		// An endpoint saved from the browser's settings wins over the provider's default.
-		r.Cfg.LLM.BaseURL = config.StoredBaseURL(next)
-		if r.Cfg.LLM.BaseURL == "" {
-			r.Cfg.LLM.BaseURL = onboard.DefaultBaseURL(next)
-		}
-		r.Cfg.LLM.APIKey = config.ProviderKeyFromEnv(next)
-	}
-	// openai and codex are the same account: the key carries over between them.
-	if r.Cfg.LLM.APIKey == "" && sameOpenAIAccount(cur, next) {
-		r.Cfg.LLM.APIKey = r.endpoints[cur].apiKey
-	}
+	ep := r.endpointOf(provider)
+	r.Cfg.LLM.BaseURL, r.Cfg.LLM.APIKey = ep.baseURL, ep.apiKey
 }
 
 // RefreshProvider replaces the key and the endpoint one provider runs with, after they were
@@ -373,7 +364,7 @@ func (r *AppRunner) RefreshProvider(provider, apiKey, baseURL string) {
 	delete(r.endpoints, strings.ToLower(provider))
 	if strings.EqualFold(r.Cfg.LLM.Provider, provider) {
 		r.Cfg.LLM.APIKey, r.Cfg.LLM.BaseURL = apiKey, baseURL
-		r.Engine = nil
+		r.dropEngines()
 	}
 }
 
@@ -571,10 +562,10 @@ func (r *AppRunner) countReviewIters(turn int) int {
 }
 
 // CompleteIntent is auto mode's model call: one completion, no tools, for the message the rules
-// could not route. It uses the same engine as the turn it decides, so it needs no setting of
-// its own.
+// could not route. It runs on the model the models block gives small calls (summary), the
+// session's own when it gives none.
 func (r *AppRunner) CompleteIntent(ctx context.Context, system, user string) (string, error) {
-	_, engine, err := r.engine()
+	_, engine, err := r.engineFor(config.TaskSummary)
 	if err != nil {
 		return "", err
 	}
@@ -583,7 +574,7 @@ func (r *AppRunner) CompleteIntent(ctx context.Context, system, user string) (st
 
 // RunPlan executes the read-only planner and writes the final answer to Out.
 func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
-	cfg, engine, err := r.engine()
+	cfg, engine, err := r.engineFor(config.TaskPlan)
 	if err != nil {
 		return "", err
 	}
@@ -615,7 +606,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 			cfg.LLM.Session.CompactAt,
 			cfg.LLM.Session.KeepRecent,
 		).
-		WithSession(r.conversation(cfg, engine)).
+		WithSession(r.conversation(cfg, r.summaryEngine(engine))).
 		WithLibrary(r.library()).
 		// The ledger is installed so the search can break ties by what has worked, and so the
 		// planner can report which skills this turn read. Both are needed: a verdict has to
@@ -864,7 +855,7 @@ func questionText(tr agent.TaskResult) string {
 
 // RunTask runs the agent with a single text task and returns a human-readable summary.
 func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error) {
-	cfg, engine, err := r.engine()
+	cfg, engine, err := r.engineFor(config.TaskCode)
 	if err != nil {
 		return "", err
 	}
@@ -879,6 +870,13 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// arrive after the question had already been answered with a refusal.
 	installApproverOn(ag, r.approverOrNil())
 	r.equipAgent(ag)
+	// The background agents this turn starts run on the model their role is assigned, built by
+	// THIS runner: they are part of this session's team and of no other.
+	if setter, ok := ag.(interface {
+		SetRoleEngines(func(role string) *llm.Client)
+	}); ok {
+		setter.SetRoleEngines(r.roleEngine)
+	}
 	// The conversation goes in before the run and comes back out after it. That round trip is
 	// what makes the agent conversational: the turn that asked a question recorded it, and the
 	// next turn reads it together with the user's answer, so "yes" means something.
@@ -1117,7 +1115,8 @@ func (r *AppRunner) ReloadConfig(context.Context) error {
 	defer r.cfgMu.Unlock()
 	r.Cfg.LLM = cfg.LLM
 	r.Cfg.Anchor = cfg.Anchor
-	r.Engine = nil
+	r.Cfg.Models = cfg.Models
+	r.dropEngines()
 	// The endpoints remembered for a provider switch belong to the setup that was just replaced.
 	r.endpoints = nil
 	return nil

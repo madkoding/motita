@@ -28,6 +28,7 @@ type Config struct {
 	Anchor      Anchor      `yaml:"anchor"`
 	Sandbox     Sandbox     `yaml:"sandbox"`
 	LLM         LLM         `yaml:"llm"`
+	Models      Models      `yaml:"models"`
 	Prompts     Prompts     `yaml:"prompts"`
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
@@ -818,6 +819,9 @@ func (c *Config) validate(requireKey bool) error {
 		return err
 	}
 	if err := c.validateLLM(requireKey); err != nil {
+		return err
+	}
+	if err := c.validateModels(); err != nil {
 		return err
 	}
 	if err := c.validateFinalAction(); err != nil {

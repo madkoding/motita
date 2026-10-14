@@ -811,8 +811,8 @@ const es: Record<string, string> = {
   'Project "{title}" created, but some repositories could not be added: {names}':
     'Proyecto "{title}" creado, pero no se pudieron agregar algunos repositorios: {names}',
   Providers: "Proveedores",
-  "Connect the AI providers Motita can use, and pick the model new sessions start with.":
-    "Conecta los proveedores de IA que Motita puede usar y elige el modelo con el que empiezan las sesiones nuevas.",
+  "Connect the AI providers Motita can use. The models each kind of work runs on are chosen in Models.":
+    "Conecta los proveedores de IA que Motita puede usar. Los modelos de cada tipo de trabajo se eligen en Modelos.",
   "A key you type here travels to Motita unencrypted, because it was opened without a secure connection.":
     "Una clave que escribas aquí viaja a Motita sin cifrar, porque se abrió sin una conexión segura.",
   "Only an address that starts with https:// (or localhost on this same computer) encrypts what you send. Open Motita through https before pasting a key.":
@@ -823,7 +823,32 @@ const es: Record<string, string> = {
   Default: "Por defecto",
   "Sessions already open keep their own model.":
     "Las sesiones ya abiertas mantienen su propio modelo.",
-  "Connect a provider below first.": "Primero conecta un proveedor más abajo.",
+  "Connect a provider in Providers first.":
+    "Primero conecta un proveedor en Proveedores.",
+  Models: "Modelos",
+  "Pick the model new sessions start with, and a model for each kind of work if you want one.":
+    "Elige el modelo con el que empiezan las sesiones nuevas y, si quieres, un modelo para cada tipo de trabajo.",
+  "Model per kind of work": "Modelo por tipo de trabajo",
+  "Same as default": "Igual que el por defecto",
+  "Model for {kind}": "Modelo para {kind}",
+  "Models per kind of work saved": "Modelos por tipo de trabajo guardados",
+  "Each session's agent and its background agents use these models, and work as a team only inside their own session.":
+    "El agente de cada sesión y sus agentes en segundo plano usan estos modelos, y trabajan en equipo solo dentro de su propia sesión.",
+  Planning: "Planificación",
+  "Plan mode: explores and proposes, changes nothing.":
+    "Modo plan: explora y propone, no cambia nada.",
+  Coding: "Programación",
+  "Task mode, and the background agents that write.":
+    "Modo tarea, y los agentes en segundo plano que escriben.",
+  Review: "Revisión",
+  "Background agents that review the work and change nothing.":
+    "Agentes en segundo plano que revisan el trabajo y no cambian nada.",
+  Research: "Investigación",
+  "Background agents that investigate and change nothing.":
+    "Agentes en segundo plano que investigan y no cambian nada.",
+  Summaries: "Resúmenes",
+  "Titles, conversation summaries and auto mode's guess.":
+    "Títulos, resúmenes de la conversación y la elección del modo auto.",
   "New sessions will start with {model}":
     "Las sesiones nuevas empezarán con {model}",
   "Connected · key saved": "Conectado · clave guardada",

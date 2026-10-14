@@ -17,6 +17,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // kindAct is one action of any kind, for an execute-phase reply.
@@ -334,20 +335,20 @@ func bareAgent(t *testing.T, cfg func(*config.Config)) *Agent {
 func TestSpawnRefusals(t *testing.T) {
 	ctx := context.Background()
 	a := bareAgent(t, nil)
-	if out, err := a.spawnAgent(ctx, "x"); err == nil || !strings.Contains(out, "not available in this mode") {
+	if out, err := a.spawnAgent(ctx, Command{Command: "x"}); err == nil || !strings.Contains(out, "not available in this mode") {
 		t.Errorf("outside a run: %q %v", out, err)
 	}
 	a.startFleet(taskOf("t"))
 	defer a.endFleet(TaskResult{})
-	if out, err := a.spawnAgent(ctx, "  \n brief"); err == nil || !strings.Contains(out, "purpose on the first line") {
+	if out, err := a.spawnAgent(ctx, Command{Command: "  \n brief"}); err == nil || !strings.Contains(out, "purpose on the first line") {
 		t.Errorf("no purpose: %q %v", out, err)
 	}
 	a.cfg.Agent.MaxParallel = 0
-	if out, err := a.spawnAgent(ctx, "p\nb"); err == nil || !strings.Contains(out, "turned off") {
+	if out, err := a.spawnAgent(ctx, Command{Command: "p\nb"}); err == nil || !strings.Contains(out, "turned off") {
 		t.Errorf("turned off: %q %v", out, err)
 	}
 	a.isChild = true
-	if out, err := a.spawnAgent(ctx, "p\nb"); err == nil || !strings.Contains(out, "cannot start agents") {
+	if out, err := a.spawnAgent(ctx, Command{Command: "p\nb"}); err == nil || !strings.Contains(out, "cannot start agents") {
 		t.Errorf("a child: %q %v", out, err)
 	}
 	if handled, _, _ := a.runAgentAction(ctx, "write_file", Command{}); handled {
@@ -387,7 +388,7 @@ func TestSpawnReportsAPlaceThatCannotBePrepared(t *testing.T) {
 			a.startFleet(taskOf("t"))
 			defer a.endFleet(TaskResult{})
 			breakIt(t, a)
-			out, err := a.spawnAgent(ctx, "p\nb")
+			out, err := a.spawnAgent(ctx, Command{Command: "p\nb"})
 			if err == nil || !strings.Contains(out, "could not be given a place to work") {
 				t.Errorf("%s: %q %v", name, out, err)
 			}
@@ -401,7 +402,7 @@ func TestAWorktreeWithoutAToolsDirGoesToTheTempDir(t *testing.T) {
 		inRepo(t)(c)
 		c.Sandbox.ToolsDir = ""
 	})
-	place, err := a.childPlace(context.Background(), "a1")
+	place, err := a.childPlace(context.Background(), "a1", true)
 	if err != nil || place.branch == "" || !strings.HasPrefix(place.dir, os.TempDir()) {
 		t.Fatalf("place = %+v, %v", place, err)
 	}
@@ -418,7 +419,7 @@ func TestANewChildInheritsTheParentsRules(t *testing.T) {
 		ran = true
 		return "", false, 0, nil
 	}
-	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"})
+	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode)
 	if !child.cfg.Agent.ReadOnly || child.research || !child.isChild || child.cfg.FinalAction.Kind != "none" {
 		t.Fatalf(
 			"child = readonly %v research %v child %v final %q",
@@ -437,7 +438,7 @@ func TestANewChildInheritsTheParentsRules(t *testing.T) {
 		t.Errorf("child anchor = %+v, want the project's gate", child.cfg.Anchor)
 	}
 	a.cfg.Anchor = config.Anchor{Kind: "auto", Timeout: time.Minute}
-	if got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}).cfg.Anchor; got.Timeout != time.Minute {
+	if got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode).cfg.Anchor; got.Timeout != time.Minute {
 		t.Errorf("a project gate must be kept as configured: %+v", got)
 	}
 }
@@ -594,5 +595,130 @@ func TestABackgroundAgentAsksThroughTheMainApproverMarked(t *testing.T) {
 	if len(background) == 0 || background[0].Agent != "a1" ||
 		!strings.Contains(background[0].Command, "outside-of-the-tree") {
 		t.Fatalf("the child's question must reach the main approver, marked: %+v", got)
+	}
+}
+
+// roleActs is an execute-phase reply of spawn_agent actions with roles.
+func roleActs(actions ...[3]string) string {
+	list := []map[string]string{}
+	for _, a := range actions {
+		list = append(list, map[string]string{"kind": "spawn_agent", "description": "step", "command": a[0], "role": a[1]})
+	}
+	return mustJSON(map[string]any{
+		"reasoning": "scripted", "actions": list,
+		"final_action": map[string]string{"command": ""}, "done": false,
+	})
+}
+
+// A team of one run: a code agent on its branch, a reviewer and a researcher reading a copy of the
+// tree. Each is told who else is working, the readers cannot write, and their reports say their
+// role. Nothing of a reader is left behind: no branch, no worktree.
+func TestATeamOfRolesWorksInsideItsRun(t *testing.T) {
+	mainRound := 0
+	reviewWrote := false
+	s := &scriptServer{execute: func(_ int, prompt string) string {
+		if isChildPrompt(prompt) {
+			if strings.Contains(prompt, "Your role is REVIEW") && !reviewWrote {
+				reviewWrote = true
+				return step(false, "echo x > review.txt")
+			}
+			return step(true)
+		}
+		mainRound++
+		switch mainRound {
+		case 1:
+			return roleActs(
+				[3]string{"write the code\nWrite it.", ""},
+				[3]string{"review the code\nReview it.", "review"},
+				[3]string{"look around\nHow is it laid out?", "Research"},
+			)
+		case 2:
+			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			return step(true, "true")
+		}
+	}}
+	var tools string
+	e, result, sink := fleetRun(t, s, func(c *config.Config) {
+		inRepo(t)(c)
+		c.Agent.MaxParallel = 3
+		tools = c.Sandbox.ToolsDir
+	}, nil)
+	if !result.Pass {
+		t.Fatalf("the run must pass: %s", result.Reason)
+	}
+	main, child := s.split()
+	all := strings.Join(main, "\n")
+	for _, want := range []string{"[started background agent a2 (review): review the code]",
+		"[agent a2 (review) finished: passed]", "[agent a3 (research) finished: passed]", "READ-ONLY (role review)"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the main agent's prompts must show %q", want)
+		}
+	}
+	if briefs := strings.Join(child, "\n"); !strings.Contains(briefs, "Your role is REVIEW") {
+		t.Errorf("the reviewer is told its role:\n%s", briefs)
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "review.txt")); err == nil {
+		t.Error("a reviewer must not write")
+	}
+	var labels []string
+	for _, a := range sink.lastAgents(t) {
+		labels = append(labels, a.Purpose)
+	}
+	if got := strings.Join(labels, "|"); !strings.Contains(got, "review: review the code") {
+		t.Errorf("the fleet names the role: %s", got)
+	}
+	out, _ := exec.Command("git", "-C", e.dir, "branch", "--list", "motita/sub/*").Output()
+	if n := len(strings.Fields(string(out))); n != 1 {
+		t.Errorf("only the code agent keeps a branch: %s", out)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(tools, "worktrees")); len(entries) != 0 {
+		t.Errorf("every worktree is removed: %v", entries)
+	}
+}
+
+// An unknown role is refused; a reader that cannot get its copy says why; the engine of a role
+// comes from the session, and the agent's own when the session has none for it.
+func TestRolesRefusalsAndEngines(t *testing.T) {
+	ctx := context.Background()
+	a := bareAgent(t, func(c *config.Config) { inRepo(t)(c) })
+	a.startFleet(taskOf("t"))
+	defer a.endFleet(TaskResult{})
+	if out, err := a.spawnAgent(ctx, Command{Command: "p\nb", Role: "narrate"}); err == nil || !strings.Contains(out, "not one of") {
+		t.Errorf("unknown role: %q %v", out, err)
+	}
+	old := subagentDetached
+	subagentDetached = func(context.Context, string, string, string) error { return errors.New("simulated") }
+	out, err := a.spawnAgent(ctx, Command{Command: "p\nb", Role: "review"})
+	subagentDetached = old
+	if err == nil || !strings.Contains(out, "could not be given a place to work") {
+		t.Errorf("detached worktree: %q %v", out, err)
+	}
+
+	place := childPlace{dir: a.cfg.Agent.WorkspaceDir}
+	if child := a.newChild(place, config.TaskReview); !child.cfg.Agent.ReadOnly || !child.research || child.engine != nil {
+		t.Errorf("a reviewer reads only, on the agent's engine without a session's")
+	}
+	session := &llm.Client{}
+	a.SetRoleEngines(func(role string) *llm.Client {
+		if role == config.TaskReview {
+			return session
+		}
+		return nil
+	})
+	if a.newChild(place, config.TaskReview).engine != session || a.newChild(place, config.TaskCode).engine != nil {
+		t.Error("the session's engine for the role, the agent's own otherwise")
+	}
+	if roleTag(config.TaskCode) != "" || !writes(config.TaskCode) || writes(config.TaskResearch) {
+		t.Error("roleTag / writes")
+	}
+	a.subs.children = append(a.subs.children,
+		&subagent{id: "a1", role: config.TaskCode, purpose: "write it", cancel: func() {}, done: make(chan struct{})})
+	if b := childBrief("p", "b", config.TaskCode, childPlace{branch: "x"}, a.teamRoster()); !strings.Contains(b, "a1 (code): write it") {
+		t.Errorf("the team is named in the brief: %s", b)
+	}
+	if b := childBrief("p", "b", config.TaskResearch, childPlace{branch: "x"}, nil); !strings.Contains(b, "READ-ONLY") ||
+		strings.Contains(b, "Other agents") {
+		t.Errorf("research brief: %s", b)
 	}
 }

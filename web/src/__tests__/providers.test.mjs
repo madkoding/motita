@@ -119,6 +119,10 @@ function fakeGateway(view = VIEW(), answers = {}) {
       view.model = b.model;
       return new Response(JSON.stringify(view), { status: 200 });
     }
+    if (key === "PUT /v1/llm/tasks") {
+      view.tasks = JSON.parse(init.body).tasks;
+      return new Response(JSON.stringify(view), { status: 200 });
+    }
     if (path.endsWith("/test")) {
       return new Response(
         JSON.stringify({ ok: true, models: ["m-a", "m-b"] }),
@@ -134,7 +138,7 @@ function fakeGateway(view = VIEW(), answers = {}) {
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-async function open(gw) {
+async function open(gw, tabId = "providers") {
   const root = document.createElement("div");
   document.body.appendChild(root);
   const notices = [];
@@ -150,8 +154,8 @@ async function open(gw) {
       root,
     );
   });
-  const tab = root.querySelector("#settings-tab-providers");
-  assert.ok(tab, "the providers have a tab of their own");
+  const tab = root.querySelector("#settings-tab-" + tabId);
+  assert.ok(tab, tabId + " have a tab of their own");
   await act(() => tab.click());
   await settle();
   const done = async () => {
@@ -243,12 +247,8 @@ test("every provider shows where its key comes from, and no key is ever drawn", 
   assert.match(row(root, "anthropic").textContent, /Not connected/);
   assert.match(row(root, "gemini").textContent, /GEMINI_API_KEY/);
   assert.match(row(root, "claude-code").textContent, /no key needed/);
-  // The provider picker lists only those that can run.
-  const options = [
-    ...root.querySelectorAll("#llm-default-provider option"),
-  ].map((o) => o.value);
-  assert.deepEqual(options, ["openai", "gemini", "claude-code"]);
-  assert.equal(root.querySelector("#llm-default-model").value, "gpt-5-mini");
+  // The models are a tab of their own.
+  assert.equal(root.querySelector("#llm-default-provider"), null);
   assert.equal(root.querySelector("[data-testid=insecure-warning]"), null);
   await done();
 });
@@ -510,7 +510,7 @@ test("a key from the environment or a login command is explained, not asked for"
 
 test("the default model is picked among the connected providers and saved", async () => {
   const gw = fakeGateway();
-  const { root, notices, done } = await open(gw);
+  const { root, notices, done } = await open(gw, "models");
   const form = root.querySelector("[data-testid=llm-default]");
   const save = button(form, "Save");
   assert.equal(save.disabled, true, "nothing changed yet");
@@ -530,7 +530,6 @@ test("the default model is picked among the connected providers and saved", asyn
     "New sessions will start with gemini-1",
     false,
   ]);
-  assert.match(row(root, "gemini").textContent, /Default|GEMINI/);
   await done();
 });
 
@@ -538,9 +537,10 @@ test("a refused default and a gateway with no file say so", async () => {
   const view = VIEW();
   view.writable = false;
   const gw = fakeGateway(view);
-  const { root, done } = await open(gw);
+  const { root, done } = await open(gw, "models");
   assert.ok(root.querySelector("[data-testid=llm-readonly]"));
   assert.equal(root.querySelector("#llm-default-provider").disabled, true);
+  assert.equal(root.querySelector("#llm-task-plan-provider").disabled, true);
   await done();
 
   const gw2 = fakeGateway(VIEW(), {
@@ -549,7 +549,7 @@ test("a refused default and a gateway with no file say so", async () => {
       { error: "connect Gemini first", code: "no_key" },
     ],
   });
-  const second = await open(gw2);
+  const second = await open(gw2, "models");
   const model = second.root.querySelector("#llm-default-model");
   await type(model, "gpt-5");
   await act(() =>
@@ -590,7 +590,11 @@ test("a gateway that cannot be read is reported", async () => {
 
 test("every string of the providers tab has a Spanish translation", () => {
   const keys = new Set();
-  for (const f of ["ProviderSettings.tsx", "InsecureWarning.tsx"]) {
+  for (const f of [
+    "ProviderSettings.tsx",
+    "ModelSettings.tsx",
+    "InsecureWarning.tsx",
+  ]) {
     for (const m of src(f).matchAll(
       /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,
     )) {
@@ -620,4 +624,94 @@ test("the form opens the full width of its row, and compact density tightens it"
   const css = src("index.css");
   assert.match(css, /\.llm-form \{[^}]*flex: 1 1 100%/);
   assert.match(css, /html\[data-density="compact"\] \.llm-form \{/);
+});
+
+test("the models tab lists only the providers that can run", async () => {
+  const { root, done } = await open(fakeGateway(), "models");
+  const options = [
+    ...root.querySelectorAll("#llm-default-provider option"),
+  ].map((o) => o.value);
+  assert.deepEqual(options, ["openai", "gemini", "claude-code"]);
+  assert.equal(root.querySelector("#llm-default-model").value, "gpt-5-mini");
+  assert.equal(root.querySelector("[data-testid=llm-providers]"), null);
+  await done();
+});
+
+test("each kind of work can get its own model, and the rest follow the default", async () => {
+  const view = VIEW();
+  view.task_kinds = ["plan", "code", "review", "research", "summary", "later"];
+  view.tasks = { review: { provider: "gemini", model: "gemini-1" } };
+  view.providers[0].listed_models = ["gpt-x", "gpt-y"];
+  const gw = fakeGateway(view);
+  const { root, notices, done } = await open(gw, "models");
+  const form = root.querySelector("[data-testid=llm-tasks]");
+  assert.equal(form.querySelectorAll(".settings-row").length, 6);
+  assert.match(form.textContent, /later/, "a kind the page does not know is shown by its name");
+  assert.equal(form.querySelector("#llm-task-review-model").value, "gemini-1");
+  assert.equal(form.querySelector("#llm-task-plan-model"), null, "plan follows the default");
+  const save = button(form, "Save");
+  assert.equal(save.disabled, true, "nothing changed yet");
+
+  const plan = form.querySelector("#llm-task-plan-provider");
+  plan.value = "openai";
+  await act(() =>
+    plan.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
+  const model = form.querySelector("#llm-task-plan-model");
+  assert.equal(model.value, "gpt-x", "the models the provider listed come first");
+  const listed = [...form.querySelectorAll("#llm-task-plan-models option")].map((o) => o.value);
+  assert.deepEqual(listed, ["gpt-x", "gpt-y"]);
+  await type(model, " ");
+  assert.equal(button(form, "Save").disabled, true, "a provider without a model cannot be saved");
+  await type(model, "gpt-5");
+
+  const review = form.querySelector("#llm-task-review-provider");
+  review.value = "";
+  await act(() =>
+    review.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
+  await act(() => button(form, "Save").click());
+  await settle();
+  assert.deepEqual(gw.calls.at(-1), {
+    method: "PUT",
+    path: "/v1/llm/tasks",
+    body: { tasks: { plan: { provider: "openai", model: "gpt-5" } } },
+  });
+  assert.deepEqual(notices.at(-1), ["Models per kind of work saved", false]);
+  await done();
+});
+
+test("a refused set of models says why", async () => {
+  const view = VIEW();
+  view.tasks = {};
+  const gw = fakeGateway(view, {
+    "PUT /v1/llm/tasks": [409, { error: "connect Gemini first", code: "no_key" }],
+  });
+  const { root, done } = await open(gw, "models");
+  const form = root.querySelector("[data-testid=llm-tasks]");
+  const sel = form.querySelector("#llm-task-summary-provider");
+  sel.value = "gemini";
+  await act(() =>
+    sel.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
+  assert.equal(form.querySelector("#llm-task-summary-model").value, "gemini-1");
+  await act(() => button(form, "Save").click());
+  await settle();
+  assert.match(form.textContent, /connect Gemini first/);
+  await done();
+});
+
+test("taskChoices keeps the complete assignments and sameTasks compares them", () => {
+  assert.deepEqual(
+    llm.taskChoices({
+      plan: { provider: "openai", model: " gpt-5 " },
+      code: { provider: "openai", model: " " },
+      review: { provider: "", model: "x" },
+    }),
+    { plan: { provider: "openai", model: "gpt-5" } },
+  );
+  const a = { plan: { provider: "openai", model: "gpt-5" } };
+  assert.equal(llm.sameTasks(a, { ...a, code: { provider: "", model: "" } }), true);
+  assert.equal(llm.sameTasks(a, { plan: { provider: "openai", model: "gpt-4" } }), false);
+  assert.equal(llm.sameTasks(a, {}), false);
 });

@@ -52,8 +52,10 @@ type llmProviderView struct {
 	BaseURL        string         `json:"base_url,omitempty"`
 	DefaultBaseURL string         `json:"default_base_url,omitempty"`
 	Models         []llmModelView `json:"models"`
-	FetchModels    bool           `json:"fetch_models,omitempty"`
-	Default        bool           `json:"default"`
+	// Listed is what the provider's last test listed: the models it really serves this account.
+	Listed      []string `json:"listed_models,omitempty"`
+	FetchModels bool     `json:"fetch_models,omitempty"`
+	Default     bool     `json:"default"`
 }
 
 // llmView is what GET /v1/llm answers.
@@ -63,6 +65,15 @@ type llmView struct {
 	// Writable is false when the gateway runs on the built-in defaults, with no file to save in.
 	Writable  bool              `json:"writable"`
 	Providers []llmProviderView `json:"providers"`
+	// Tasks is the model of each kind of work (config.TaskKinds, in that order in Kinds); an
+	// absent or empty one follows the default.
+	Kinds []string                      `json:"task_kinds"`
+	Tasks map[string]config.ModelChoice `json:"tasks"`
+}
+
+// taskModelSetter is a service that can take a new models block on its next turn.
+type taskModelSetter interface {
+	SetTaskModels(config.Models)
 }
 
 // providerRefresher is a service that can take a provider's new key and endpoint on its next turn.
@@ -83,6 +94,7 @@ var listProviderModels = func(ctx context.Context, l config.LLM) ([]string, erro
 var (
 	setCredential = config.SetCredential
 	setLLMDefault = config.SetLLMDefault
+	setTaskModels = config.SetTaskModels
 	deleteLogin   = oauth.DeleteCredential
 )
 
@@ -96,6 +108,7 @@ const testTimeout = 20 * time.Second
 func (s *Server) llmRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/llm", plain(s.handleLLM))
 	mux.Handle("PUT /v1/llm/default", plain(s.handleLLMDefault))
+	mux.Handle("PUT /v1/llm/tasks", plain(s.handleLLMTasks))
 	mux.Handle("PUT /v1/llm/providers/{id}", plain(s.handleLLMSave))
 	mux.Handle("DELETE /v1/llm/providers/{id}", plain(s.handleLLMForget))
 	mux.Handle("POST /v1/llm/providers/{id}/test", plain(s.handleLLMTest))
@@ -110,6 +123,16 @@ func (s *Server) configuredLLM() config.LLM {
 		}
 	}
 	return s.opts.Service.Config().LLM
+}
+
+// configuredModels is the models block the next turn of every conversation runs with.
+func (s *Server) configuredModels() config.Models {
+	if s.opts.ConfigPath != "" {
+		if cfg, err := config.LoadWithoutKey(s.opts.ConfigPath); err == nil {
+			return cfg.Models
+		}
+	}
+	return s.opts.Service.Config().Models
 }
 
 // effectiveBase is the endpoint a provider runs with.
@@ -137,9 +160,20 @@ func canChangeBase(p onboard.Provider) bool { return p.AskBaseURL || p.ID == "ol
 // llmViewOf builds the list.
 func (s *Server) llmViewOf() llmView {
 	cfg := s.configuredLLM()
-	v := llmView{Provider: cfg.Provider, Model: cfg.Model, Writable: s.opts.ConfigPath != ""}
+	v := llmView{Provider: cfg.Provider, Model: cfg.Model, Writable: s.opts.ConfigPath != "",
+		Kinds: config.TaskKinds, Tasks: map[string]config.ModelChoice{}}
+	s.llmListedMu.Lock()
 	for _, p := range onboard.Providers() {
-		v.Providers = append(v.Providers, s.providerView(cfg, p))
+		pv := s.providerView(cfg, p)
+		pv.Listed = append([]string(nil), s.llmListed[p.ID]...)
+		v.Providers = append(v.Providers, pv)
+	}
+	s.llmListedMu.Unlock()
+	models := s.configuredModels()
+	for _, kind := range config.TaskKinds {
+		if c := models.For(kind); !c.Empty() {
+			v.Tasks[kind] = c
+		}
 	}
 	return v
 }
@@ -533,7 +567,63 @@ func (s *Server) startingLLM(svc Service) {
 	}
 	cfg := s.configuredLLM()
 	svc.SetLLM(cfg.Provider, cfg.Model)
+	if ts, ok := svc.(taskModelSetter); ok {
+		ts.SetTaskModels(s.configuredModels())
+	}
 	if rf, ok := svc.(providerRefresher); ok {
 		rf.RefreshProvider(cfg.Provider, cfg.APIKey, effectiveBase(cfg, cfg.Provider))
 	}
+}
+
+// handleLLMTasks saves the model of each kind of work: the whole set at once, a kind left out or
+// empty following the default. Every conversation takes the set on its next turn; the engines it
+// builds from it stay its own.
+func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Tasks map[string]config.ModelChoice `json:"tasks"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	known := map[string]bool{}
+	for _, kind := range config.TaskKinds {
+		known[kind] = true
+	}
+	cfg := s.configuredLLM()
+	choices := map[string]config.ModelChoice{}
+	for kind, c := range body.Tasks {
+		if !known[kind] {
+			writeError(w, http.StatusBadRequest, "no such kind of work: "+kind)
+			return
+		}
+		c = config.ModelChoice{Provider: strings.TrimSpace(c.Provider), Model: strings.TrimSpace(c.Model)}
+		if c.Empty() {
+			continue
+		}
+		checked, err := config.ParseModelChoice(c.String())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, kind+": name a provider and a model")
+			return
+		}
+		if config.KeySource(s.opts.ConfigPath, cfg, checked.Provider) == config.KeyMissing {
+			p, _ := onboard.Lookup(checked.Provider)
+			writeRefusal(w, http.StatusConflict, "no_key", "connect "+p.Name+" first: it has no key")
+			return
+		}
+		choices[kind] = checked
+	}
+	if !s.needFile(w) {
+		return
+	}
+	if err := setTaskModels(s.opts.ConfigPath, choices); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	models := s.configuredModels()
+	for _, c := range s.snapshot() {
+		if ts, ok := c.svc.(taskModelSetter); ok {
+			ts.SetTaskModels(models)
+		}
+	}
+	writeJSON(w, http.StatusOK, s.llmViewOf())
 }

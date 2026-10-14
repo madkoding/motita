@@ -529,6 +529,7 @@ honoured. The documented one wins when both are set.
 | `anchor`       | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]`                                                                                                                                                                                                                                                                        |
 | `sandbox`      | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt) |
 | `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
+| `models`       | `plan`, `code`, `review`, `research`, `summary`: one `provider/model` per kind of work (see [Models per kind of work](#models-per-kind-of-work)); empty follows `llm.provider`/`llm.model`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
@@ -1135,7 +1136,8 @@ with (in place: comments and every other line are kept).
 The browser's settings have a **Providers** tab: every provider the client speaks, where its
 key comes from, a field to paste a key (and the endpoint, for the OpenAI-compatible hosts and a
 self-hosted Ollama), a button that tests the connection by listing the provider's models, and
-the provider and model new conversations start with. Conversations already open keep their own.
+the provider and model new conversations start with is chosen in the **Models** tab (below).
+Conversations already open keep their own.
 
 A key is written to the credentials file beside the configuration (`motita.env`, owner-only),
 under the provider's own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` for OpenAI and Codex,
@@ -1164,6 +1166,38 @@ each conversation's model picker.
 | `GET /v1/llm/logins/{flow}`         | the sign-in's `status`: `pending`, `connected` or `failed` (with `error`)                                                                                                                 |
 | `POST /v1/llm/logins/{flow}/paste`  | `{"code":"…"}` hands a `code` sign-in the address the browser ended on                                                                                                                    |
 | `DELETE /v1/llm/logins/{flow}`      | stops a pending sign-in                                                                                                                                                                   |
+
+### Models per kind of work
+
+The **Models** tab holds the default model and, under it, a model for each kind of work. A kind
+left on "Same as default" runs on the session's model. The choice is written into the `models`
+block of the configuration (`MOTITA_MODELS_<KIND>` overrides one):
+
+```yaml
+models:
+  plan: anthropic/claude-opus-5-5   # plan mode turns
+  code: ""                           # task mode, and background agents that write
+  review: openai/gpt-5               # background agents with "role": "review"
+  research: ollama/qwen3:8b          # background agents with "role": "research"
+  summary: openai/gpt-5-nano         # titles, compaction summaries, auto mode's guess
+```
+
+The provider comes before the first slash; the model after it may hold its own. Each provider
+runs with its own key and endpoint. A model whose provider cannot run (no key) falls back to the
+session's model, and the log says so.
+
+A run's background agents (`spawn_agent`) take a `role`: `code` (the default) writes on a
+branch of its own; `review` and `research` read a copy of the run's current tree and change
+nothing. Each one runs on its role's model and is told which other agents of the run are working
+and on what. The team belongs to one session: its engines are built by that session, its agents
+are started by that session's run, and another session never sees them.
+
+| Endpoint             | What it does                                                                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUT /v1/llm/tasks`  | `{"tasks":{"plan":{"provider":"anthropic","model":"…"}}}` replaces the whole set (a kind left out follows the default); `409` when a provider has no key |
+
+`GET /v1/llm` also answers `task_kinds`, `tasks` and, per provider, `listed_models` (what its
+last connection test listed).
 
 ### Voice input
 

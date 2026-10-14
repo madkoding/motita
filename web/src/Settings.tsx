@@ -45,6 +45,7 @@ import {
   ProviderSettings,
   type ProviderSettingsProps,
 } from "./ProviderSettings";
+import { ModelSettings } from "./ModelSettings";
 import {
   type ChosenMode,
   type NetworkMode,
@@ -93,7 +94,8 @@ interface Props {
   voice?: VoiceSettingsProps;
   // Reading answers aloud. Absent where the page has no speech store.
   speech?: SpeechSettingsProps;
-  // The LLM providers and the default model. Absent where the page has no API to reach them.
+  // The LLM providers (their tab) and the models each kind of work runs on (theirs). Absent where
+  // the page has no API to reach them.
   llm?: ProviderSettingsProps;
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
   // the section stays hidden on a gateway without the network API.
@@ -524,6 +526,7 @@ export type Tab =
   | "voice"
   | "network"
   | "providers"
+  | "models"
   | "git";
 
 interface Choice<T extends string> {
@@ -1837,6 +1840,23 @@ function IconChip() {
     </svg>
   );
 }
+function IconPlug() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0V8zM12 18v4" />
+    </svg>
+  );
+}
 function IconBranch() {
   return (
     <svg
@@ -1892,7 +1912,8 @@ export function SettingsModal({
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
   }
   if (llm) {
-    tabs.push({ id: "providers", label: t("Providers"), icon: <IconChip /> });
+    tabs.push({ id: "providers", label: t("Providers"), icon: <IconPlug /> });
+    tabs.push({ id: "models", label: t("Models"), icon: <IconChip /> });
   }
   if (git) {
     tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });
@@ -1988,6 +2009,7 @@ export function SettingsModal({
             <NetworkSettings api={network.api} />
           )}
           {tab === "providers" && llm && <ProviderSettings {...llm} />}
+          {tab === "models" && llm && <ModelSettings {...llm} />}
           {tab === "git" && git && <GitConnections {...git} />}
         </div>
       </dialog>

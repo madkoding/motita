@@ -4023,6 +4023,10 @@ html[data-keyboard="open"] .app-shell {
     flex: 0 1 18rem;
   }
 }
+/* A kind of work's model: the provider, then the model under it. */
+.llm-task-field {
+  flex-direction: column;
+}
 html[data-density="compact"] .llm-form {
   gap: 0.25rem;
   padding-top: 0.25rem;
