@@ -4300,3 +4300,19 @@ html[data-density="compact"] .settings-warn {
   margin-top: 0.25rem;
   padding: 0.25rem 0.5rem;
 }
+/* The voice settings wait for the browser to allow the microphone: greyed out until then. */
+.settings-voice-lock {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.settings-voice-lock:disabled {
+  opacity: 0.55;
+}
+.settings-voice-lock:disabled :is(input, select, button) {
+  cursor: not-allowed;
+}
+.settings-mic-permission + .settings-voice-lock > :first-child {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}

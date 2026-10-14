@@ -758,6 +758,12 @@ const es: Record<string, string> = {
     "El micrófono elegido no está conectado: se usa el predeterminado.",
   "Allow the microphone to see the names of the ones connected.":
     "Permite el micrófono para ver los nombres de los que están conectados.",
+  "Microphone permission": "Permiso de micrófono",
+  "Allow microphone": "Permitir micrófono",
+  "Allow the microphone to use voice. The browser asks once, and you can take it back in this site's settings.":
+    "Permite el micrófono para usar la voz. El navegador lo pide una vez y puedes quitarlo en los ajustes de este sitio.",
+  "No microphone was found on this device.":
+    "No se encontró ningún micrófono en este dispositivo.",
   "Used for dictation and the wake phrase, on this device only.":
     "Se usa para dictar y para la frase de activación, solo en este dispositivo.",
   "Microphone {n}": "Micrófono {n}",
@@ -821,7 +827,6 @@ const es: Record<string, string> = {
     "Solo mientras esta pestaña está en segundo plano. Primero el navegador tiene que permitirlo.",
   "Only while this tab is in the background.":
     "Solo mientras esta pestaña está en segundo plano.",
-  Allow: "Permitir",
   "Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.":
     "El pull request {pr} fue mergeado. Usa Continuar en la barra para seguir desde la rama actualizada.",
   "{n} pull requests moved": "{n} pull requests cambiaron",

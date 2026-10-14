@@ -249,3 +249,34 @@ test("putVoice sends the change and answers the new state, or the gateway's refu
     new Response(JSON.stringify({ error: "needs confirm" }), { status: 400 });
   await assert.rejects(m.putVoice(refused, { enabled: true }), /needs confirm/);
 });
+
+test("the microphone permission comes from the Permissions API, or from the microphone names", async () => {
+  const status = { state: "denied" };
+  assert.deepEqual(
+    await m.queryMicPermission({
+      permissions: { query: async () => status },
+    }),
+    { state: "denied", status },
+  );
+  assert.equal(m.micPermissionOf("granted"), "granted");
+  assert.equal(m.micPermissionOf("weird"), "prompt");
+  const devices = (label) => ({
+    permissions: {
+      query: async () => {
+        throw new TypeError("microphone is not a permission name");
+      },
+    },
+    mediaDevices: {
+      enumerateDevices: async () => [{ kind: "audioinput", label }],
+    },
+  });
+  assert.deepEqual(await m.queryMicPermission(devices("USB")), {
+    state: "granted",
+  });
+  assert.deepEqual(await m.queryMicPermission(devices("")), {
+    state: "prompt",
+  });
+  assert.deepEqual(await m.queryMicPermission(undefined), { state: "prompt" });
+  assert.equal(m.isPermissionRefused({ name: "NotAllowedError" }), true);
+  assert.equal(m.isPermissionRefused({ name: "NotFoundError" }), false);
+});

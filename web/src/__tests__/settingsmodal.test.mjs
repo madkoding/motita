@@ -44,6 +44,36 @@ const fakeNotification = {
   },
 };
 globalThis.Notification = fakeNotification;
+// The browser already allowed the microphone, so the voice settings can be used. A test that
+// needs another answer sets state, and fires change to say the browser changed its mind.
+const fakeMicPermission = {
+  state: "granted",
+  listeners: new Set(),
+  addEventListener(t, f) {
+    this.listeners.add(f);
+  },
+  removeEventListener(t, f) {
+    this.listeners.delete(f);
+  },
+  change(state) {
+    this.state = state;
+    for (const f of this.listeners) {
+      f();
+    }
+  },
+};
+Object.defineProperty(dom.window.navigator, "permissions", {
+  value: {
+    query: async ({ name }) => {
+      if (name !== "microphone") {
+        throw new TypeError(name);
+      }
+      return fakeMicPermission;
+    },
+  },
+  configurable: true,
+  enumerable: true,
+});
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
@@ -123,6 +153,8 @@ async function open(extra = {}) {
       root,
     );
   });
+  // The browser answers about the microphone after the first paint.
+  await act(() => new Promise((r) => setTimeout(r, 0)));
   const done = async () => {
     await act(() => render(null, root));
     root.remove();
@@ -763,5 +795,80 @@ test("the microphone picker lists this device's microphones and keeps the choice
   assert.equal(saved.pop().deviceId, "usb");
   assert.equal(asked, 0, "the names were already visible: nothing was asked");
   await v.done();
+  Object.defineProperty(globalThis, "navigator", before);
+});
+
+test("the voice settings are greyed out until the browser allows the microphone", async () => {
+  const before = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let answer = "deny";
+  let asked = 0;
+  Object.defineProperty(globalThis, "navigator", {
+    value: {
+      ...dom.window.navigator,
+      mediaDevices: {
+        enumerateDevices: async () => [
+          { kind: "audioinput", deviceId: "usb", label: "USB Mic" },
+        ],
+        getUserMedia: async () => {
+          asked += 1;
+          if (answer === "deny") {
+            throw Object.assign(new Error("no"), { name: "NotAllowedError" });
+          }
+          fakeMicPermission.change("granted");
+          return { getTracks: () => [] };
+        },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    },
+    configurable: true,
+  });
+  fakeMicPermission.state = "prompt";
+  const v = await open({
+    tab: "voice",
+    voice: {
+      state: "ready",
+      hands: "ready",
+      phrases: ["motita"],
+      prefs: { mic: true, listen: true, deviceId: "" },
+      setPrefs: () => {},
+    },
+  });
+  const card = v.root.querySelector("[data-testid=voice-setting]");
+  const lock = card.querySelector("[data-testid=voice-locked]");
+  const gate = card.querySelector("[data-testid=mic-permission]");
+  assert.ok(gate, "it asks for the microphone first");
+  assert.match(gate.textContent, /Allow the microphone to use voice/);
+  assert.equal(lock.disabled, true, "everything else is greyed out");
+  const switches = card.querySelectorAll(SWITCH);
+  assert.ok([...switches].every((s) => s.disabled && !s.checked));
+  assert.equal(card.querySelector("[data-testid=mic-device]").disabled, true);
+
+  await act(() => gate.querySelector("[data-testid=mic-allow]").click());
+  await act(() => new Promise((r) => setTimeout(r, 0)));
+  assert.equal(asked, 1);
+  assert.match(
+    card.querySelector("[data-testid=mic-permission]").textContent,
+    /allow it in this site's settings/,
+    "a refusal says where to allow it again",
+  );
+  assert.equal(lock.disabled, true);
+
+  answer = "allow";
+  await act(() => card.querySelector("[data-testid=mic-allow]").click());
+  await act(() => new Promise((r) => setTimeout(r, 0)));
+  assert.equal(card.querySelector("[data-testid=mic-permission]"), null);
+  assert.equal(lock.disabled, false, "allowed: the settings can be used");
+  assert.ok([...card.querySelectorAll(SWITCH)].every((s) => !s.disabled));
+
+  await act(() => fakeMicPermission.change("denied"));
+  assert.equal(
+    lock.disabled,
+    true,
+    "taking it back in the browser greys it out again",
+  );
+  assert.ok(card.querySelector("[data-testid=mic-permission]"));
+  await v.done();
+  fakeMicPermission.state = "granted";
   Object.defineProperty(globalThis, "navigator", before);
 });

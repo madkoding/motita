@@ -2,7 +2,9 @@ package oauth
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -55,9 +57,11 @@ func QwenRequestDeviceCode(ctx context.Context, client HTTPClient, p PKCE) (Devi
 		"code_challenge":        {p.Challenge},
 		"code_challenge_method": {"S256"},
 	}
+	// Qwen Code tags the request with an id; qwen.ai's gateway expects it.
+	headers := map[string]string{"x-request-id": newRequestID()}
 	var resp qwenDeviceResponse
-	if err := postForm(ctx, client, qwenOAuthURL+"/device/code", form, &resp); err != nil {
-		return DeviceCode{}, err
+	if err := postFormHeaders(ctx, client, qwenOAuthURL+"/device/code", form, headers, &resp); err != nil {
+		return DeviceCode{}, qwenLoginError(err)
 	}
 	if resp.DeviceCode == "" {
 		return DeviceCode{}, errors.New("qwen.ai returned no device code")
@@ -90,7 +94,7 @@ func QwenPollToken(ctx context.Context, client HTTPClient, dc DeviceCode, p PKCE
 		return Credential{}, perr
 	}
 	if err != nil {
-		return Credential{}, err
+		return Credential{}, qwenLoginError(err)
 	}
 	return qwenCredential(resp, Credential{})
 }
@@ -107,9 +111,34 @@ func QwenRefresh(ctx context.Context, client HTTPClient, old Credential) (Creden
 	}
 	var resp qwenTokenResponse
 	if err := postForm(ctx, client, qwenOAuthURL+"/token", form, &resp); err != nil {
-		return Credential{}, err
+		return Credential{}, qwenLoginError(err)
 	}
 	return qwenCredential(resp, old)
+}
+
+// ErrQwenLoginUnavailable is a qwen.ai login answered with a web page instead of
+// the OAuth JSON. Qwen ended the free Qwen OAuth tier on 2026-04-15, and since
+// then its OAuth endpoints answer with a page; a DashScope key is the way in.
+var ErrQwenLoginUnavailable = errors.New(
+	"the qwen.ai login is not available (Qwen ended its free OAuth login on 2026-04-15): " +
+		"use a DashScope (Alibaba Cloud Model Studio) API key instead")
+
+// qwenLoginError explains a non-JSON answer from qwen.ai, keeping the status and
+// excerpt of the page so the real cause stays visible.
+func qwenLoginError(err error) error {
+	if errors.Is(err, ErrNotJSON) {
+		return fmt.Errorf("%w; %w", ErrQwenLoginUnavailable, err)
+	}
+	return err
+}
+
+// newRequestID returns a random UUID v4 for the x-request-id header.
+func newRequestID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 func qwenCredential(resp qwenTokenResponse, old Credential) (Credential, error) {

@@ -227,6 +227,65 @@ export function micNamesHidden(
   return mics.length === 0 || mics.every((d) => !d.label);
 }
 
+// What the browser answers about the microphone for this site.
+//   granted  the page may record: the voice settings can be used
+//   prompt   it has not been asked yet (or the browser does not say): the page offers to ask
+//   denied   it was refused: only the site's settings in the browser can allow it again
+export type MicPermission = "granted" | "prompt" | "denied";
+
+// The parts of a PermissionStatus the settings listen to.
+export interface PermissionStatusLike {
+  state: string;
+  addEventListener?: (t: string, f: () => void) => void;
+  removeEventListener?: (t: string, f: () => void) => void;
+}
+
+export interface MicNavigatorLike {
+  permissions?: {
+    query?: (d: { name: string }) => Promise<PermissionStatusLike>;
+  };
+  mediaDevices?: {
+    enumerateDevices?: () => Promise<{ kind: string; label: string }[]>;
+  };
+}
+
+// micPermissionOf reads a PermissionStatus state; anything unknown counts as not asked yet.
+export function micPermissionOf(state: string): MicPermission {
+  if (state === "granted" || state === "denied") {
+    return state;
+  }
+  return "prompt";
+}
+
+// queryMicPermission asks the Permissions API, and returns its status to listen for changes.
+// Where the browser cannot say (older Firefox and Safari throw on "microphone"), the microphone
+// names stand in: the browser shows them only once the page was allowed to record.
+export async function queryMicPermission(
+  nav: MicNavigatorLike | undefined,
+): Promise<{ state: MicPermission; status?: PermissionStatusLike }> {
+  try {
+    const status = await nav?.permissions?.query?.({ name: "microphone" });
+    if (status) {
+      return { state: micPermissionOf(status.state), status };
+    }
+  } catch {
+    // Not a permission this browser names: fall back to the device list.
+  }
+  try {
+    const devices = (await nav?.mediaDevices?.enumerateDevices?.()) ?? [];
+    return { state: micNamesHidden(devices) ? "prompt" : "granted" };
+  } catch {
+    return { state: "prompt" };
+  }
+}
+
+// isPermissionRefused says getUserMedia failed because the person or the browser said no, not
+// because there is no microphone.
+export function isPermissionRefused(e: unknown): boolean {
+  const name = (e as { name?: string } | null)?.name;
+  return name === "NotAllowedError" || name === "SecurityError";
+}
+
 // The recording types, best first. Chrome and Firefox record webm/opus, Safari only mp4; every
 // one of them is a format the transcription endpoints read.
 const MIME_TYPES = [
