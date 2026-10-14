@@ -229,7 +229,8 @@ func TestVerifyNoticesChanges(t *testing.T) {
 }
 
 // The compiled-in catalog is well formed: unique ids, https addresses, real hashes, a sample for
-// every Piper voice, and Kokoro's voices on its shared model, their ids starting as the page reads.
+// every Piper voice, and Kokoro's and Supertonic's voices on their shared models, their ids
+// starting as the page reads.
 func TestTheCatalog(t *testing.T) {
 	hexSum := regexp.MustCompile(`^[0-9a-f]{64}$`)
 	seen := map[string]bool{RuntimeID: true, KokoroID: true, samplesDir: true}
@@ -258,6 +259,30 @@ func TestTheCatalog(t *testing.T) {
 		}
 		seen[m.ID] = true
 		check(m.Files[0])
+	}
+	seen[SupertonicID] = true
+	for _, f := range SupertonicModel {
+		check(f)
+	}
+	for _, m := range SupertonicVoices {
+		if seen[m.ID] || m.Engine != EngineSupertonic || m.Shared != SupertonicID || !strings.HasPrefix(m.ID, SupertonicID+"-") ||
+			m.Lang != "mul" || len(m.Files) != 1 || m.Sample == nil || int64(len(m.Sample.Data)) != m.Sample.Size {
+			t.Errorf("bad voice %+v", m)
+		}
+		seen[m.ID] = true
+		check(m.Files[0])
+	}
+	seen[ChatterboxID] = true
+	for _, f := range ChatterboxModel {
+		check(f)
+	}
+	for _, m := range ChatterboxVoices {
+		f := m.Files[0]
+		if seen[m.ID] || m.Engine != EngineChatterbox || m.Shared != ChatterboxID || !strings.HasPrefix(m.ID, ChatterboxID+"-") ||
+			m.Lang != "mul" || len(m.Files) != 1 || m.Sample == nil || f.Size == 0 || int64(len(f.Data)) != f.Size || !hexSum.MatchString(f.SHA256) {
+			t.Errorf("bad voice %+v", m)
+		}
+		seen[m.ID] = true
 	}
 	// The WebGPU files are no voice, and not taken for a Kokoro voice by the page.
 	if KokoroGPU.Engine != EngineAccelerator || strings.HasPrefix(KokoroGPU.ID, KokoroID+"-") || seen[KokoroGPU.ID] {

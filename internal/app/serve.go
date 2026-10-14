@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -352,8 +353,10 @@ func voiceLibrary() *voice.Library {
 		return nil
 	}
 	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime,
-		Shared: map[string][]voice.ModelFile{voice.KokoroID: voice.KokoroModel},
-		Models: append(append(append([]voice.Model{}, voice.PiperVoices...), voice.KokoroVoices...), voice.KokoroGPU)}
+		Shared: map[string][]voice.ModelFile{voice.KokoroID: voice.KokoroModel, voice.SupertonicID: voice.SupertonicModel,
+			voice.ChatterboxID: voice.ChatterboxModel},
+		Models: slices.Concat(voice.PiperVoices, voice.KokoroVoices, []voice.Model{voice.KokoroGPU}, voice.SupertonicVoices,
+			voice.ChatterboxVoices)}
 }
 
 func pushDir() string {
