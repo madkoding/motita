@@ -242,11 +242,11 @@ func (s *Server) handleQuestions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "origin": origin})
 }
 
-// handleProviders answers the providers a front end may switch to: those whose
-// key is available, plus the current one even when its key is missing.
+// handleProviders answers the providers a front end may switch to: those that are
+// connected, plus the current one even when its key is missing.
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	cfg := convOf(r).svc.Config()
-	writeJSON(w, http.StatusOK, map[string]any{"providers": s.withListedModels(configuredProviders(cfg))})
+	writeJSON(w, http.StatusOK, map[string]any{"providers": s.withListedModels(configuredProviders(s.opts.ConfigPath, cfg))})
 }
 
 // handleModelList queries the provider's own API for the list of available

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/madkoding/motita/internal/config"
@@ -65,15 +66,9 @@ func TestHandleProvidersReturnsCurrentWithoutKey(t *testing.T) {
 	}
 }
 
-// A provider whose env var is set appears in the list with key_present = true.
-func TestHandleProvidersReturnsProvidersWithKeys(t *testing.T) {
-	cfg := config.Default()
-	cfg.LLM.Provider = "openai"
-	cfg.LLM.APIKey = ""
-	// Set the env var for a non-current, generic-key provider (openrouter).
-	t.Setenv("MOTITA_LLM_API_KEY", "sk-test")
-
-	srv := newTestServer(t, &fakeService{cfg: cfg})
+// providerIDs is the list GET /providers answers, by id.
+func providerIDs(t *testing.T, srv *Server) []string {
+	t.Helper()
 	w := get(t, srv, sessionPath(srv, DefaultSession, "/providers"), testToken)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %q)", w.Code, w.Body.String())
@@ -84,25 +79,71 @@ func TestHandleProvidersReturnsProvidersWithKeys(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("body = %q: %v", w.Body.String(), err)
 	}
-
-	// The current provider (openai) must appear.
-	var foundOpenAI bool
-	// At least one provider with a key present (any generic-key provider that
-	// is NOT the current one) must appear, because MOTITA_LLM_API_KEY is set.
-	var foundWithKey bool
+	ids := make([]string, 0, len(out.Providers))
 	for _, p := range out.Providers {
-		if p.ID == "openai" {
-			foundOpenAI = true
-		}
-		if p.KeyPresent && !p.IsCurrent {
-			foundWithKey = true
+		ids = append(ids, p.ID)
+	}
+	return ids
+}
+
+// Only connected providers are listed: a key of their own (in the environment or saved from the
+// settings) or a login. The generic MOTITA_LLM_API_KEY and the session's own key belong to the
+// current provider alone, so they no longer list every provider that reads that variable.
+func TestHandleProvidersListsOnlyConnectedProviders(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	t.Setenv("MOTITA_LLM_API_KEY", "sk-generic")
+	t.Setenv("GEMINI_API_KEY", "g-key")
+	if err := config.SetCredential(path, config.ProviderStoreVariable("anthropic"), "sk-ant-stored"); err != nil {
+		t.Fatal(err)
+	}
+	// A self-hosted Ollama needs no key: its saved endpoint is what connects it.
+	if err := config.SetCredential(path, config.ProviderBaseURLVariable("ollama"), "http://localhost:11434"); err != nil {
+		t.Fatal(err)
+	}
+	old := lookPath
+	lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	t.Cleanup(func() { lookPath = old })
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "sk-session"
+
+	srv := newTestServer(t, &fakeService{cfg: cfg}, func(o *Options) { o.ConfigPath = path })
+	got := strings.Join(providerIDs(t, srv), ",")
+	if !onlyThese(got, "openai", "anthropic", "gemini", "ollama") {
+		t.Errorf("providers = %s, want only openai, anthropic, gemini and ollama", got)
+	}
+}
+
+// onlyThese reports whether the comma-separated list holds exactly the ids given, in any order.
+func onlyThese(list string, ids ...string) bool {
+	parts := strings.Split(list, ",")
+	if len(parts) != len(ids) {
+		return false
+	}
+	for _, id := range ids {
+		if !strings.Contains(","+list+",", ","+id+",") {
+			return false
 		}
 	}
-	if !foundOpenAI {
-		t.Errorf("the current provider (openai) was not in the list: %+v", out.Providers)
+	return true
+}
+
+// Claude Code needs no key, but it is only connected when its CLI is installed.
+func TestHandleProvidersListsClaudeCodeOnlyWithItsCLI(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	old := lookPath
+	t.Cleanup(func() { lookPath = old })
+
+	lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	srv := newTestServer(t, &fakeService{cfg: cfg}, func(o *Options) { o.ConfigPath = path })
+	if strings.Contains(strings.Join(providerIDs(t, srv), ","), "claude-code") {
+		t.Error("claude-code is listed without the claude CLI")
 	}
-	if !foundWithKey {
-		t.Errorf("no provider with a key (other than the current one) appeared: %+v", out.Providers)
+	lookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
+	if !strings.Contains(strings.Join(providerIDs(t, srv), ","), "claude-code") {
+		t.Error("claude-code is missing although the claude CLI is installed")
 	}
 }
 
