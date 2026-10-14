@@ -280,7 +280,9 @@ test("stopping ends the reading once and ignores the voice's late events", () =>
   });
   assert.equal(synth.said[0].lang, "en-US", "no voice: the language's locale");
   const first = synth.current;
-  assert.ok(first, "the first sentence is being said");
+  if (!first) {
+    throw new Error("the first sentence is not being said");
+  }
   reader.stop();
   assert.deepEqual(ends, [undefined]);
   first.onstart({});

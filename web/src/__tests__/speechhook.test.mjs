@@ -57,7 +57,7 @@ const synth = {
     // Ends every utterance in turn, as the voice would.
     for (let i = 0; i < MAX_UTTERANCES && this.said.length; i++) {
       const u = this.said.at(-1);
-      if (u.done) {
+      if (!u || u.done) {
         break;
       }
       u.done = true;

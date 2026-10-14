@@ -291,7 +291,16 @@ function headingText(line: string): string | null {
   if (!mark) {
     return null;
   }
-  return line.slice(mark[0].length).trimEnd().replace(/#+$/, "").trimEnd();
+  return withoutClosingHashes(line.slice(mark[0].length).trimEnd()).trimEnd();
+}
+
+// withoutClosingHashes drops the #s an ATX heading may close with ("## Title ##").
+function withoutClosingHashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "#") {
+    end--;
+  }
+  return s.slice(0, end);
 }
 
 // itemText is the text of a list item, without its bullet or task box; null for a line that is
@@ -360,12 +369,12 @@ export function toSpeakable(
       continue;
     }
     const prose = proseLine(lines[i], words.link);
-    if (prose === null || prose.own) {
+    if (prose === null) {
       flush();
-    }
-    if (prose?.own) {
+    } else if (prose.own) {
+      flush();
       paragraphs.push(prose.text);
-    } else if (prose) {
+    } else {
       current.push(prose.text);
     }
     i++;
@@ -410,7 +419,8 @@ export function limitLength(
 // fifteen seconds, and a short piece also starts sooner.
 const MAX_PIECE = 220;
 // A comma closer to the start than this is no place to cut: the space nearest the end is used.
-const MIN_COMMA_CUT = MAX_PIECE / 3;
+const MIN_COMMA_SHARE = 3;
+const MIN_COMMA_CUT = MAX_PIECE / MIN_COMMA_SHARE;
 
 // splitLong cuts a sentence that is too long at a comma, or at a space.
 function splitLong(s: string): string[] {

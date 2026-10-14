@@ -420,6 +420,8 @@ function useAutoRead(o: {
       begin();
     } else if (!running) {
       end();
+    } else {
+      // Still running: no turn starts or ends here.
     }
   }, [
     running,
