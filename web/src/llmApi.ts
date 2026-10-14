@@ -35,8 +35,16 @@ export interface LLMProvider {
   base_url?: string;
   default_base_url?: string;
   models: LLMModel[];
+  // The models the provider's last test listed: the ones it really serves this account.
+  listed_models?: string[];
   fetch_models?: boolean;
   default: boolean;
+}
+
+// A model assigned to a kind of work. A kind with none follows the default.
+export interface ModelChoice {
+  provider: string;
+  model: string;
 }
 
 export interface LLMView {
@@ -44,6 +52,9 @@ export interface LLMView {
   model: string;
   writable: boolean;
   providers: LLMProvider[];
+  // The kinds of work a model can be assigned to, in the order to show them, and the assignments.
+  task_kinds?: string[];
+  tasks?: Record<string, ModelChoice>;
 }
 
 export interface TestResult {
@@ -131,6 +142,48 @@ export function saveDefault(
   });
 }
 
+// saveTasks replaces the model of every kind of work; a kind left out follows the default.
+export function saveTasks(
+  api: Api,
+  tasks: Record<string, ModelChoice>,
+): Promise<LLMView> {
+  return send<LLMView>(api, "/v1/llm/tasks", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ tasks }),
+  });
+}
+
+// taskChoices is what a save of the kinds sends: the kinds with a provider and a model, trimmed.
+export function taskChoices(
+  draft: Record<string, ModelChoice>,
+): Record<string, ModelChoice> {
+  const out: Record<string, ModelChoice> = {};
+  for (const [kind, c] of Object.entries(draft)) {
+    const model = c.model.trim();
+    if (c.provider && model) {
+      out[kind] = { provider: c.provider, model };
+    }
+  }
+  return out;
+}
+
+// sameTasks says whether two sets of assignments are the same, the empty ones aside.
+export function sameTasks(
+  a: Record<string, ModelChoice>,
+  b: Record<string, ModelChoice>,
+): boolean {
+  const x = taskChoices(a);
+  const y = taskChoices(b);
+  const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
+  for (const k of keys) {
+    if (x[k]?.provider !== y[k]?.provider || x[k]?.model !== y[k]?.model) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // A sign-in with the provider's account, run by the gateway. The page only learns its state.
 export interface LoginView {
   id: string;
@@ -203,23 +256,17 @@ export function trialOf(
   return out;
 }
 
-// modelChoices are the models a provider offers: the ones a test listed, else its catalogue,
-// with the one in force kept in the list so the picker can show it.
-export function modelChoices(
+// modelOptions are the models a provider offers, by name where its catalogue gives one: the ones
+// its last test listed, else its catalogue.
+export function modelOptions(
   p: LLMProvider | undefined,
-  listed: string[] | undefined,
-  current: string,
-): string[] {
-  let ids: string[];
-  if (listed?.length) {
-    ids = [...listed];
-  } else if (p) {
-    ids = p.models.map((m) => m.id);
-  } else {
-    ids = [];
+): { id: string; label: string }[] {
+  if (!p) {
+    return [];
   }
-  if (current && !ids.includes(current)) {
-    ids.unshift(current);
-  }
-  return ids;
+  const label = (id: string) => p.models.find((m) => m.id === id)?.label || id;
+  const ids = p.listed_models?.length
+    ? p.listed_models
+    : p.models.map((m) => m.id);
+  return ids.map((id) => ({ id, label: label(id) }));
 }

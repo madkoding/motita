@@ -114,6 +114,9 @@ Writing files - two more kinds, used INSTEAD of a shell command; the path is the
   your current tree, works in a worktree on a branch of its own, and commits there; its report
   arrives in the round after it finishes, with the branch to merge (git merge --no-edit <branch>,
   after committing your own changes). Outside a git repository it is read-only: research only.
+  Add "role": "review" for an agent that reviews your work so far, or "role": "research" for one
+  that investigates: both read a copy of your current tree, change nothing, and answer in their
+  report. Without a role it is "code" and writes. Each role may run on a model of its own.
 - {"kind": "wait_agents", "description": "why", "command": "a1 a2"} waits for those agents (all
   running ones when "command" is "") and shows their reports.
   Use them for INDEPENDENT pieces that do not wait on each other - a test suite, the docs, a

@@ -300,6 +300,15 @@ schedule:
   # minute from growing its file without bound.
   max_runs_kept: 50
 
+models:
+  # A model for each kind of work, as provider/model. Empty follows llm.provider and
+  # llm.model. The browser's Models tab writes this block.
+  plan: ""       # plan mode turns
+  code: ""       # task mode, and the background agents that write
+  review: ""     # background agents with "role": "review" (read-only)
+  research: ""   # background agents with "role": "research" (read-only)
+  summary: ""    # titles, compaction summaries, auto mode's guess
+
 ui:
   # The language of the terminal, the browser and the setup wizard: auto | en | es.
   # auto follows the terminal's locale (LC_ALL, LC_MESSAGES, LANG) and the browser's

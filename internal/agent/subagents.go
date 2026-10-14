@@ -43,6 +43,7 @@ const subagentWaitDefault = 15 * time.Minute
 var (
 	subagentSnapshot = gitx.Snapshot
 	subagentWorktree = gitx.AddWorktreeAt
+	subagentDetached = gitx.AddDetachedWorktree
 	subagentTempDir  = os.MkdirTemp
 	subagentCommit   = gitx.CommitAll
 )
@@ -59,6 +60,7 @@ type subagents struct {
 // subagent is one background agent.
 type subagent struct {
 	id, purpose string
+	role        string // config.TaskCode, TaskReview or TaskResearch
 	branch      string // "" for a read-only agent
 	cancel      context.CancelFunc
 	done        chan struct{}
@@ -141,7 +143,7 @@ func (a *Agent) noteActivity(line string) {
 func (a *Agent) runAgentAction(ctx context.Context, kind string, action Command) (bool, string, error) {
 	switch kind {
 	case "spawn_agent":
-		out, err := a.spawnAgent(ctx, action.Command)
+		out, err := a.spawnAgent(ctx, action)
 		return true, out, err
 	case "wait_agents":
 		return true, a.waitAgents(ctx, action.Command), nil
@@ -156,9 +158,34 @@ func refused(format string, args ...any) (string, error) {
 	return "[refused: " + err.Error() + "]", err
 }
 
+// The roles a background agent can be given. Only code writes; review and research read a copy of
+// the tree as it is now and answer.
+var agentRoles = map[string]bool{config.TaskCode: true, config.TaskReview: true, config.TaskResearch: true}
+
+// roleOf is the role an action asks for, code when it names none.
+func roleOf(action Command) (string, bool) {
+	role := strings.ToLower(strings.TrimSpace(action.Role))
+	if role == "" {
+		return config.TaskCode, true
+	}
+	return role, agentRoles[role]
+}
+
+// roleTag is how a role is named beside an agent's id: nothing for code, the default.
+func roleTag(role string) string {
+	if role == config.TaskCode {
+		return ""
+	}
+	return " (" + role + ")"
+}
+
+// writes reports whether an agent of the role may change files.
+func writes(role string) bool { return role == config.TaskCode }
+
 // spawnAgent starts one background agent. The command is the purpose on its first line and the
-// brief after it.
-func (a *Agent) spawnAgent(ctx context.Context, command string) (string, error) {
+// brief after it; the role picks its model and whether it may write.
+func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) {
+	command := action.Command
 	if a.isChild {
 		return refused("a background agent cannot start agents of its own; do this piece yourself")
 	}
@@ -168,6 +195,10 @@ func (a *Agent) spawnAgent(ctx context.Context, command string) (string, error) 
 	limit := a.cfg.Agent.MaxParallel
 	if limit <= 0 {
 		return refused("background agents are turned off (agent.max_parallel is 0)")
+	}
+	role, ok := roleOf(action)
+	if !ok {
+		return refused("spawn_agent role %q is not one of code, review, research", action.Role)
 	}
 	purpose, brief, _ := strings.Cut(command, "\n")
 	purpose, brief = strings.TrimSpace(purpose), strings.TrimSpace(brief)
@@ -187,12 +218,17 @@ func (a *Agent) spawnAgent(ctx context.Context, command string) (string, error) 
 	id := fmt.Sprintf("a%d", a.subs.seq)
 	a.subs.mu.Unlock()
 
-	place, err := a.childPlace(ctx, id)
+	place, err := a.childPlace(ctx, id, writes(role))
 	if err != nil {
 		return refused("the background agent could not be given a place to work: %v", err)
 	}
-	child := a.newChild(place)
-	child.member = a.fleet.add(a.member.id, id, truncate(collapse(purpose), 120), place.branch)
+	team := a.teamRoster()
+	child := a.newChild(place, role)
+	label := truncate(collapse(purpose), 120)
+	if role != config.TaskCode {
+		label = role + ": " + label
+	}
+	child.member = a.fleet.add(a.member.id, id, label, place.branch)
 	// The main agent's approver, marked: a session where the user allowed every command lets a
 	// background agent run what the main agent could, and any other question is refused instead of
 	// being asked about a run nobody is watching. With no approver at all, a child has none either.
@@ -204,7 +240,7 @@ func (a *Agent) spawnAgent(ctx context.Context, command string) (string, error) 
 	}
 
 	cctx, cancel := context.WithCancel(ctx)
-	c := &subagent{id: id, purpose: purpose, branch: place.branch, cancel: cancel, done: make(chan struct{})}
+	c := &subagent{id: id, purpose: purpose, role: role, branch: place.branch, cancel: cancel, done: make(chan struct{})}
 	a.subs.mu.Lock()
 	a.subs.children = append(a.subs.children, c)
 	a.subs.mu.Unlock()
@@ -213,34 +249,40 @@ func (a *Agent) spawnAgent(ctx context.Context, command string) (string, error) 
 		defer a.subs.wg.Done()
 		defer cancel()
 		r := child.processTask(cctx, task.Task{
-			Description: childBrief(purpose, brief, place),
+			Description: childBrief(purpose, brief, role, place, team),
 			Origin:      "spawn_agent " + id,
 		}, 1)
 		a.finishChild(c, child, place, r, cctx.Err() != nil)
 	}()
-	a.log.Info("background agent started", "id", id, "purpose", truncate(purpose, 120),
+	a.log.Info("background agent started", "id", id, "role", role, "purpose", truncate(purpose, 120),
 		"workspace", place.dir, "branch", place.branch)
 
 	where := "It is READ-ONLY (this directory is not a git repository): it investigates and answers, it changes no file."
-	if place.branch != "" {
+	switch {
+	case !writes(role):
+		where = "It is READ-ONLY (role " + role + "): it reads a copy of your current tree and answers, it changes no file."
+	case place.branch != "":
 		where = fmt.Sprintf("It works in a worktree of its own on branch %s, started from your current tree; "+
 			"nothing lands in your checkout until you merge that branch.", place.branch)
+	default:
+		// Not a repository: the read-only sentence above stands.
 	}
-	return fmt.Sprintf("[started background agent %s: %s]\n%s\nIts report arrives in the round after it "+
-		"finishes; use wait_agents to wait for it.", id, purpose, where), nil
+	return fmt.Sprintf("[started background agent %s%s: %s]\n%s\nIts report arrives in the round after it "+
+		"finishes; use wait_agents to wait for it.", id, roleTag(role), purpose, where), nil
 }
 
 // childPlace is where a background agent works and what it may do there.
 type childPlace struct {
 	dir    string // its working directory
-	branch string // its branch, or "" for a read-only agent in the run's own directory
+	branch string // its branch, or "" for a read-only agent
 	start  string // the commit its branch started from
-	tmp    string // the directory to remove when it is done
+	tmp    string // the directory to remove when it is done, "" when it works in the run's own
 }
 
-// childPlace prepares a background agent's working directory: a worktree on a new branch when the
-// workspace is the root of a repository with a commit, the workspace itself (read-only) otherwise.
-func (a *Agent) childPlace(ctx context.Context, id string) (childPlace, error) {
+// childPlace prepares a background agent's working directory: when the workspace is the root of a
+// repository with a commit, a worktree of the run's current tree - on a new branch for an agent that
+// writes, detached for one that only reads - and the workspace itself (read-only) otherwise.
+func (a *Agent) childPlace(ctx context.Context, id string, write bool) (childPlace, error) {
 	dir := a.cfg.Agent.WorkspaceDir
 	root, err := gitx.Root(ctx, dir)
 	if err != nil || !gitx.SamePath(root, dir) || !gitx.HasCommits(ctx, dir) {
@@ -265,8 +307,14 @@ func (a *Agent) childPlace(ctx context.Context, id string) (childPlace, error) {
 	if err != nil {
 		return childPlace{}, err
 	}
-	place := childPlace{dir: filepath.Join(tmp, "tree"), branch: "motita/sub/" + unique + "-" + id, start: snap, tmp: tmp}
-	if err := subagentWorktree(ctx, dir, place.dir, place.branch, snap); err != nil {
+	place := childPlace{dir: filepath.Join(tmp, "tree"), start: snap, tmp: tmp}
+	if write {
+		place.branch = "motita/sub/" + unique + "-" + id
+		err = subagentWorktree(ctx, dir, place.dir, place.branch, snap)
+	} else {
+		err = subagentDetached(ctx, dir, place.dir, snap)
+	}
+	if err != nil {
 		os.RemoveAll(tmp)
 		return childPlace{}, err
 	}
@@ -276,10 +324,10 @@ func (a *Agent) childPlace(ctx context.Context, id string) (childPlace, error) {
 
 // newChild builds the background agent: the main agent's configuration, engine, sandbox rules and
 // library, in its own directory, with nobody to ask and no final action of its own.
-func (a *Agent) newChild(place childPlace) *Agent {
+func (a *Agent) newChild(place childPlace, role string) *Agent {
 	cfg := a.cfg
 	cfg.Agent.WorkspaceDir = place.dir
-	cfg.Agent.ReadOnly = a.cfg.Agent.ReadOnly || place.branch == ""
+	cfg.Agent.ReadOnly = a.cfg.Agent.ReadOnly || place.branch == "" || !writes(role)
 	cfg.FinalAction = config.FinalAction{Kind: "none"}
 	cfg.Agent.OnFailure = config.OnFailure{}
 	// A background agent is judged by the PROJECT'S gate, never by a check the configuration
@@ -294,13 +342,20 @@ func (a *Agent) newChild(place childPlace) *Agent {
 	if box != nil {
 		box = box.WithDir(place.dir)
 	}
-	child := New(cfg, a.log, a.engine, box, nil)
+	// The engine of its role, from the session that runs this agent; this agent's own otherwise.
+	engine := a.engine
+	if a.roleEngines != nil {
+		if e := a.roleEngines(role); e != nil {
+			engine = e
+		}
+	}
+	child := New(cfg, a.log, engine, box, nil)
 	if box == nil {
 		child.ExecCommand = a.ExecCommand
 	}
 	child.library = a.library
 	child.isChild = true
-	child.research = place.branch == ""
+	child.research = place.branch == "" || !writes(role)
 	// The gate the main agent's task started with: a background agent cannot pass a gate it or
 	// the main agent rewrote any more than the main agent can.
 	child.gate = a.gate
@@ -309,20 +364,44 @@ func (a *Agent) newChild(place childPlace) *Agent {
 	return child
 }
 
-// childBrief is the task a background agent is given: the brief, and what it is.
-func childBrief(purpose, brief string, place childPlace) string {
+// teamRoster is the run's other background agents still at work, one line each: the team a new
+// agent joins. It holds this run's agents only - a session's team never sees another session's.
+func (a *Agent) teamRoster() []string {
+	a.subs.mu.Lock()
+	defer a.subs.mu.Unlock()
+	var out []string
+	for _, c := range a.subs.children {
+		if !c.finished() {
+			out = append(out, fmt.Sprintf("%s (%s): %s", c.id, c.role, truncate(collapse(c.purpose), 100)))
+		}
+	}
+	return out
+}
+
+// childBrief is the task a background agent is given: the brief, what it is, and who else is
+// working beside it.
+func childBrief(purpose, brief, role string, place childPlace, team []string) string {
 	var b strings.Builder
 	b.WriteString(brief)
 	b.WriteString("\n\nYou are a background agent, started by another agent for ONE piece of a larger task: ")
 	b.WriteString(purpose)
 	b.WriteString(". Do that piece and only that piece; the other agent does the rest. Nobody can answer " +
 		"questions: decide on the most reasonable reading and say what you assumed.")
-	if place.branch != "" {
+	if len(team) > 0 {
+		b.WriteString(" Other agents of the same team are working at the same time, each on its own piece: " +
+			strings.Join(team, "; ") + ". Leave their pieces to them; if yours depends on one, say so in your report.")
+	}
+	switch {
+	case role == config.TaskReview:
+		b.WriteString(" Your role is REVIEW: you are READ-ONLY. Read the work in your directory (a copy of the " +
+			"other agent's current tree), run its checks if that helps, and report what is wrong or missing, " +
+			"most serious first, with the file and line; you cannot change files.")
+	case role == config.TaskResearch || place.branch == "":
+		b.WriteString(" You are READ-ONLY: investigate and answer in your final report; you cannot change files.")
+	default:
 		fmt.Fprintf(&b, " Your working directory is a git worktree of your own on branch %s, started from "+
 			"the other agent's current tree. When your piece is written and checked, commit it on this branch "+
 			"(git add -A && git commit -m \"...\"); the other agent merges the branch.", place.branch)
-	} else {
-		b.WriteString(" You are READ-ONLY: investigate and answer in your final report; you cannot change files.")
 	}
 	return b.String()
 }
@@ -348,7 +427,7 @@ func (a *Agent) finishChild(c *subagent, child *Agent, place childPlace, r TaskR
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "[agent %s finished: %s] %s\n", c.id, state, c.purpose)
+	fmt.Fprintf(&b, "[agent %s%s finished: %s] %s\n", c.id, roleTag(c.role), state, c.purpose)
 	if place.branch != "" {
 		// What it did not commit itself would go with the worktree.
 		if _, err := subagentCommit(ctx, place.dir, "motita: work of background agent "+c.id+": "+
@@ -361,6 +440,8 @@ func (a *Agent) finishChild(c *subagent, child *Agent, place childPlace, r TaskR
 		if len(changes) > 0 {
 			b.WriteString("To bring it in: commit your own changes first, then git merge --no-edit " + place.branch + "\n")
 		}
+	}
+	if place.tmp != "" {
 		if err := gitx.RemoveWorktree(ctx, a.cfg.Agent.WorkspaceDir, place.dir, true); err != nil {
 			a.log.Warn("a background agent's worktree could not be removed", "id", c.id, "error", err)
 		}

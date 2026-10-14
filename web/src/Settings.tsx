@@ -12,6 +12,7 @@ import {
   ProviderSettings,
   type ProviderSettingsProps,
 } from "./ProviderSettings";
+import { ModelSettings } from "./ModelSettings";
 import {
   AppearanceSettings,
   type AppearanceSettingsProps,
@@ -31,6 +32,7 @@ import {
   IconChip,
   IconGlobe,
   IconMic,
+  IconPlug,
   IconSliders,
 } from "./SettingsIcons";
 
@@ -49,7 +51,8 @@ interface Props extends AppearanceSettingsProps {
   voice?: VoiceSettingsProps;
   // Reading answers aloud. Absent where the page has no speech store.
   speech?: SpeechSettingsProps;
-  // The LLM providers and the default model. Absent where the page has no API to reach them.
+  // The LLM providers (their tab) and the models each kind of work runs on (theirs). Absent where
+  // the page has no API to reach them.
   llm?: ProviderSettingsProps;
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
   // the section stays hidden on a gateway without the network API.
@@ -67,6 +70,7 @@ export type Tab =
   | "voice"
   | "network"
   | "providers"
+  | "models"
   | "git";
 
 interface TabInfo {
@@ -93,7 +97,8 @@ function settingsTabs(p: Props): TabInfo[] {
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
   }
   if (p.llm) {
-    tabs.push({ id: "providers", label: t("Providers"), icon: <IconChip /> });
+    tabs.push({ id: "providers", label: t("Providers"), icon: <IconPlug /> });
+    tabs.push({ id: "models", label: t("Models"), icon: <IconChip /> });
   }
   if (p.git) {
     tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });
@@ -124,6 +129,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
   voice: (p) => <VoiceTab voice={p.voice} speech={p.speech} />,
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
+  models: (p) => p.llm && <ModelSettings {...p.llm} />,
   git: (p) => p.git && <GitConnections {...p.git} />,
 };
 

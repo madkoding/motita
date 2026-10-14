@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 )
 
@@ -16,7 +17,7 @@ import (
 // timeout. On any error or timeout it falls back to a truncated version of the
 // first user message, so the caller always gets something usable.
 func (r *AppRunner) GenerateTitle(ctx context.Context, firstUserMessage string) string {
-	_, engine, err := r.engine()
+	_, engine, err := r.engineFor(config.TaskSummary)
 	if err != nil {
 		return fallbackTitle(firstUserMessage)
 	}
