@@ -25,9 +25,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -97,6 +99,13 @@ func SetDefaultClient(fn func() *http.Client) (restore func()) {
 
 // postForm sends a form-encoded POST and decodes the JSON response into dest.
 func postForm(ctx context.Context, client HTTPClient, url string, form url.Values, dest any) error {
+	return postFormHeaders(ctx, client, url, form, nil, dest)
+}
+
+// postFormHeaders is postForm with extra request headers.
+func postFormHeaders(
+	ctx context.Context, client HTTPClient, url string, form url.Values, headers map[string]string, dest any,
+) error {
 	if client == nil {
 		client = defaultClient()
 	}
@@ -106,6 +115,9 @@ func postForm(ctx context.Context, client HTTPClient, url string, form url.Value
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", mimeJSON)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	return doJSON(client, req, dest)
 }
 
@@ -151,6 +163,9 @@ func getJSON(ctx context.Context, client HTTPClient, url string, headers map[str
 // JSON body that the caller must inspect ({"error":"authorization_pending"}).
 // When the status is not 2xx AND dest did not capture a meaningful error field,
 // a generic error is returned so non-OAuth callers still see the failure.
+// A body that is not JSON at all (an HTML error page, a redirect target, a
+// firewall challenge) is reported as ErrNotJSON with the status and a short
+// readable excerpt, never as a bare decoding error.
 func doJSON(client HTTPClient, req *http.Request, dest any) error {
 	resp, err := client.Do(req)
 	if err != nil {
@@ -161,15 +176,78 @@ func doJSON(client HTTPClient, req *http.Request, dest any) error {
 	if err != nil {
 		return err
 	}
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
 	if dest != nil {
-		if jerr := json.Unmarshal(body, dest); jerr != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return fmt.Errorf("could not decode response: %w", jerr)
+		if jerr := json.Unmarshal(body, dest); jerr != nil {
+			if !json.Valid(body) {
+				return &NotJSONError{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Excerpt: excerpt(body)}
+			}
+			if ok {
+				return fmt.Errorf("could not decode response: %w", jerr)
+			}
 		}
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	if !ok {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, excerpt(body))
 	}
 	return nil
+}
+
+// ErrNotJSON matches (errors.Is) a response whose body is not JSON.
+var ErrNotJSON = errors.New("the server did not answer with JSON")
+
+// NotJSONError is a response that should have been JSON and was not: it keeps
+// what a person needs to tell why (the status and the start of the page).
+type NotJSONError struct {
+	Status      int
+	ContentType string
+	Excerpt     string
+}
+
+func (e *NotJSONError) Error() string {
+	msg := fmt.Sprintf("%s (HTTP %d", ErrNotJSON, e.Status)
+	if e.ContentType != "" {
+		msg += ", " + e.ContentType
+	}
+	msg += ")"
+	if e.Excerpt != "" {
+		msg += ": " + e.Excerpt
+	}
+	return msg
+}
+
+// Is makes errors.Is(err, ErrNotJSON) true.
+func (e *NotJSONError) Is(target error) bool { return target == ErrNotJSON }
+
+// excerptLen caps how much of a response body an error quotes.
+const excerptLen = 200
+
+var (
+	htmlTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	htmlDrop  = regexp.MustCompile(`(?is)<(script|style|head)[^>]*>.*?</(script|style|head)>`)
+	htmlTag   = regexp.MustCompile(`(?s)<[^>]*>`)
+)
+
+// excerpt turns a response body into one short line for an error message: an
+// HTML page gives its title and visible text, without markup, scripts or styles.
+func excerpt(body []byte) string {
+	s := string(body)
+	if strings.HasPrefix(strings.TrimSpace(s), "<") {
+		title := ""
+		if m := htmlTitle.FindStringSubmatch(s); m != nil {
+			title = strings.TrimSpace(html.UnescapeString(m[1]))
+		}
+		s = htmlTag.ReplaceAllString(htmlDrop.ReplaceAllString(s, " "), " ")
+		s = html.UnescapeString(s)
+		if title != "" && !strings.Contains(strings.Join(strings.Fields(s), " "), title) {
+			s = title + " " + s
+		}
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > excerptLen {
+		s = string(r[:excerptLen]) + "…"
+	}
+	return s
 }
 
 // ErrAuthorizationPending is returned by a device-flow poll when the user has
