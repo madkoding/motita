@@ -3667,12 +3667,16 @@ motita -p "how many files are there?"</code></pre>
         // latest tag and show it when it is newer; offline or rate-limited, the
         // stamp stays.
         var stamp = document.querySelector("[data-motita-version]");
+        var SEMVER_PARTS = 3;
         var semver = function (v) {
           var m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(v || "");
-          return m ? [+m[1], +m[2], +m[3]] : null;
+          if (!m) {
+            return null;
+          }
+          return m.slice(1).map(Number);
         };
         var newer = function (a, b) {
-          for (var i = 0; i < 3; i++) {
+          for (var i = 0; i < SEMVER_PARTS; i++) {
             if (a[i] !== b[i]) {
               return a[i] > b[i];
             }
@@ -3687,17 +3691,25 @@ motita -p "how many files are there?"</code></pre>
             },
           )
             .then(function (r) {
-              return r.ok ? r.json() : null;
+              if (!r.ok) {
+                return null;
+              }
+              return r.json();
             })
             .then(function (rel) {
               // The release exists before ci.yml uploads its binaries, so a version
               // is shown only once SHA256SUMS is among its assets.
-              var ready = (rel && rel.assets ? rel.assets : []).some(
-                function (a) {
-                  return a.name === "SHA256SUMS";
-                },
-              );
-              var latest = ready ? semver(rel.tag_name) : null;
+              var assets = [];
+              if (rel && rel.assets) {
+                assets = rel.assets;
+              }
+              var ready = assets.some(function (a) {
+                return a.name === "SHA256SUMS";
+              });
+              var latest = null;
+              if (ready) {
+                latest = semver(rel.tag_name);
+              }
               var shown = semver(stamp.textContent.trim());
               if (latest && (!shown || newer(latest, shown))) {
                 stamp.textContent = rel.tag_name;
