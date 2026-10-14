@@ -9,7 +9,7 @@
 [![Go](https://img.shields.io/badge/go-stdlib%20only-00f0ff?style=flat-square&labelColor=0a0a0f&logo=go&logoColor=00f0ff)](go.mod)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-ff2bd6?style=flat-square&labelColor=0a0a0f)](LICENSE)
 
-**[Website](https://madkoding.github.io/motita/)** ·
+**[Website](https://motita.kodingvibes.com/)** ·
 **[Full guide](docs/GUIDE.md)** ·
 **[Reference](docs/REFERENCE.md)** ·
 **[Releases](https://github.com/madkoding/motita/releases)**
@@ -21,15 +21,16 @@
 ## ⚡ Install
 
 ```sh
-curl -fsSL https://madkoding.github.io/motita/install.sh | sh
+curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 ```
 
 ```powershell
-irm https://madkoding.github.io/motita/install.ps1 | iex   # Windows
+irm https://motita.kodingvibes.com/install.ps1 | iex   # Windows
 ```
 
 Then just run **`motita`**. A 5-step setup picks your provider, model and the check that
 proves a task is done. The installer verifies the binary against `SHA256SUMS` and needs no root.
+The same scripts are mirrored at `https://madkoding.github.io/motita/install.sh` (and `.ps1`).
 
 ## 🧭 How it works
 
@@ -105,7 +106,7 @@ without `allow` any origin that reaches the port gets in. Add an https port with
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | 📖 **[Full guide](docs/GUIDE.md)**                                      | Providers and logins, the gateway, sessions, git hosts, background agents, guardrails, testing |
 | 🔧 **[Reference](docs/REFERENCE.md)**                                   | Every config key, sandbox layers, logging format, extending the agent                          |
-| 🌐 **[Website](https://madkoding.github.io/motita/)**                   | Live demo and interactive architecture diagram                                                 |
+| 🌐 **[Website](https://motita.kodingvibes.com/)**                       | Live demo and interactive architecture diagram                                                 |
 | 🤝 **[Contributing](CONTRIBUTING.md)** · 🔒 **[Security](SECURITY.md)** | How to help and how to report a vulnerability                                                  |
 
 <div align="center">

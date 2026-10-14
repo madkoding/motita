@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # motita installer for Windows - one line, no Go, no Docker, no runtime on the target.
 #
-#   irm https://madkoding.github.io/motita/install.ps1 | iex
+#   irm https://motita.kodingvibes.com/install.ps1 | iex
 #
 # It detects the architecture, downloads the matching static binary from the GitHub
 # release, checks it against the release's SHA256SUMS, and puts it on the PATH.

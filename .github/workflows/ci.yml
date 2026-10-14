@@ -710,3 +710,26 @@ jobs:
       pages: write
       id-token: write
     uses: ./.github/workflows/pages.yml
+
+  # The Vercel mirror (motita.kodingvibes.com) builds on every push to main, but
+  # a merge deploys before its tag exists, so it would stamp the previous release.
+  # Its deploy hook rebuilds main once this release is published, the same moment
+  # Pages publishes. Without the secret this is a notice, not a failure: the page
+  # still fetches releases/latest in the browser.
+  vercel:
+    name: refresh vercel mirror
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Trigger the Vercel deploy hook
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
+            echo "::notice::VERCEL_DEPLOY_HOOK is not set; the Vercel mirror keeps the version of its last build"
+            exit 0
+          fi
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK" >/dev/null
+          echo "Vercel redeploy requested"
