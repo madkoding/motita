@@ -11,6 +11,7 @@ import {
   useState,
 } from "preact/hooks";
 import { choose } from "./choose";
+import { scrollKey } from "./scrollIntent";
 import { localClip, localVoicesSupported, warmLocal } from "./localVoice";
 import { lang, t } from "./i18n";
 import type { Message, SetToast, StepView } from "./appTypes";
@@ -84,7 +85,7 @@ const PROGRESS_TICK_MS = 4000;
 
 // isAnswer says the message is an answer of the agent: what can be read aloud.
 export function isAnswer(m: Message): boolean {
-  return m.role === "agent" && !m.kind;
+  return m.role === "agent" && !m.kind && !m.draft;
 }
 
 // spokenText is the part of an answer that is read: a report's summary, or the answer itself.
@@ -359,7 +360,11 @@ function useClipReader(
 
 // clipSpeaks says the clip reader is the one to speak: the gateway or a local voice is chosen,
 // and on.
-function clipSpeaks(p: SpeechPrefs, gatewayOn: boolean, localOn: boolean): boolean {
+function clipSpeaks(
+  p: SpeechPrefs,
+  gatewayOn: boolean,
+  localOn: boolean,
+): boolean {
   if (p.engine === "gateway") {
     return gatewayOn;
   }
@@ -408,8 +413,9 @@ function useReader(
   }, [device, clip, prefsRef, gatewayOn, localOn]);
 }
 
-// useFollow says the view follows the sentence being read: scrolling by hand while reading turns
-// it off, and leaves the view where the person put it.
+// useFollow says the view follows the sentence being read: scrolling by hand while reading (the
+// wheel, a finger, the scroll keys, a drag of the conversation's bar) turns it off, and leaves the
+// view where the person put it.
 function useFollow(speakingId: number | null) {
   const follow = useRef(true);
   useEffect(() => {
@@ -419,14 +425,41 @@ function useFollow(speakingId: number | null) {
     const off = () => {
       follow.current = false;
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (scrollKey(e.key, editable(e.target))) {
+        off();
+      }
+    };
+    // A press on the conversation itself, not on a message in it, is a press on its scroll bar.
+    const onPointerDown = (e: PointerEvent) => {
+      if ((e.target as Element | null)?.getAttribute?.("role") === "log") {
+        off();
+      }
+    };
     window.addEventListener("wheel", off, { passive: true });
     window.addEventListener("touchmove", off, { passive: true });
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointerDown);
     return () => {
       window.removeEventListener("wheel", off);
       window.removeEventListener("touchmove", off);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointerDown);
     };
   }, [speakingId]);
   return follow;
+}
+
+// editable says a key lands in a field, where it types instead of scrolling.
+function editable(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el?.tagName) {
+    return false;
+  }
+  return (
+    /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ||
+    el.isContentEditable === true
+  );
 }
 
 // useStopOnLeave ends the reading when the microphone asks for silence, and on leaving the
@@ -751,7 +784,12 @@ function useReadText(o: {
 
 // speechEngines says which voices can read aloud: the gateway's, the local ones the page runs,
 // and whether any voice at all (the device's included) can.
-function speechEngines(device: boolean, tts: TTSInfo | undefined, local: boolean | undefined, api: Api | undefined) {
+function speechEngines(
+  device: boolean,
+  tts: TTSInfo | undefined,
+  local: boolean | undefined,
+  api: Api | undefined,
+) {
   const audio = typeof Audio !== "undefined";
   const gatewayOn = !!(tts?.enabled && api && audio);
   const localOn = !!(local && api && audio && localVoicesSupported());
@@ -759,7 +797,10 @@ function speechEngines(device: boolean, tts: TTSInfo | undefined, local: boolean
 }
 
 // gatewayVoicesOf are the gateway's voices, when it reads aloud.
-function gatewayVoicesOf(gatewayOn: boolean, tts: TTSInfo | undefined): string[] {
+function gatewayVoicesOf(
+  gatewayOn: boolean,
+  tts: TTSInfo | undefined,
+): string[] {
   return choose(gatewayOn, tts?.voices ?? [], []);
 }
 
@@ -776,12 +817,21 @@ export function useSpeech({
   approval,
 }: Deps) {
   const device = useMemo(speechSupported, []);
-  const { gatewayOn, localOn, supported } = speechEngines(device, tts, local, api);
+  const { gatewayOn, localOn, supported } = speechEngines(
+    device,
+    tts,
+    local,
+    api,
+  );
   const { prefs, prefsRef, setPrefs } = useSpeechPrefs();
   const { voices, voicesRef } = useDeviceVoices(device);
   const [speakingId, setSpeakingId] = useState<number | null>(null);
   // A local voice in use is loaded with the page, so the first answer does not wait for it.
-  const warmId = choose(localOn && prefs.engine === "local", prefs.localVoice, "");
+  const warmId = choose(
+    localOn && prefs.engine === "local",
+    prefs.localVoice,
+    "",
+  );
   useEffect(() => {
     if (warmId) {
       warmLocal(warmId);

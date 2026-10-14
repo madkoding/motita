@@ -71,3 +71,22 @@ export function scrolled(
     s.pinned = true;
   }
 }
+
+// The keys that scroll a page. Space scrolls too, but only outside a field, where it types.
+const SCROLL_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+]);
+
+// scrollKey says a key press is the reader scrolling: never while they type in a field, where the
+// arrows and Home/End move the caret instead.
+export function scrollKey(key: string, editable: boolean): boolean {
+  if (editable) {
+    return false;
+  }
+  return key === " " || SCROLL_KEYS.has(key);
+}

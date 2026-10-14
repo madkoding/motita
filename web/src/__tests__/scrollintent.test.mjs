@@ -3,9 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { newIntent, readerActs, scrolled, USER_SCROLL_MS } = await import(
-  "../scrollIntent.ts"
-);
+const { newIntent, readerActs, scrolled, scrollKey, USER_SCROLL_MS } =
+  await import("../scrollIntent.ts");
 
 const SLACK = 120;
 
@@ -64,4 +63,21 @@ test("a wheel up on a conversation that does not scroll keeps following", () => 
   const s = newIntent(0);
   readerActs(s, 1000, true, 0);
   assert.equal(s.pinned, true);
+});
+
+test("the scroll keys count as scrolling, but not while typing in a field", () => {
+  for (const key of [
+    "ArrowUp",
+    "ArrowDown",
+    "PageUp",
+    "PageDown",
+    "Home",
+    "End",
+    " ",
+  ]) {
+    assert.equal(scrollKey(key, false), true, key);
+    assert.equal(scrollKey(key, true), false, key + " in a field");
+  }
+  assert.equal(scrollKey("a", false), false);
+  assert.equal(scrollKey("Enter", false), false);
 });

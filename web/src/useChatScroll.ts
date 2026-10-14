@@ -194,7 +194,13 @@ function useReaderIntent(
     };
     const onScroll = () => {
       intent.pinned = pinnedRef.current;
-      scrolled(intent, el.scrollTop, gapToEnd(el), performance.now(), BOTTOM_SLACK);
+      scrolled(
+        intent,
+        el.scrollTop,
+        gapToEnd(el),
+        performance.now(),
+        BOTTOM_SLACK,
+      );
       sync();
     };
     onScroll();
