@@ -223,7 +223,8 @@ func TestKeySourceNamesWhereTheKeyComesFrom(t *testing.T) {
 	}
 	check("openai", KeyConfig)
 
-	if err := oauth.SaveCredential(os.Getenv("MOTITA_AUTH_DIR"), oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
+	cred := oauth.Credential{Provider: "qwen", RefreshToken: "r"}
+	if err := oauth.SaveCredential(os.Getenv("MOTITA_AUTH_DIR"), cred); err != nil {
 		t.Fatal(err)
 	}
 	check("qwen", KeyLogin)
@@ -298,7 +299,8 @@ func TestSetLLMDefaultEditsTheLLMBlockInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
-	want := "# top\nllm:\n  provider: anthropic   # who\n  model: claude-sonnet-5-5\n  base_url: https://api.anthropic.com\n" +
+	want := "# top\nllm:\n  provider: anthropic   # who\n  model: claude-sonnet-5-5\n" +
+		"  base_url: https://api.anthropic.com\n" +
 		"  reasoning:\n    level: low\n  max_tokens: 100\n\nagent:\n  max_retries: 3\n"
 	if string(got) != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)

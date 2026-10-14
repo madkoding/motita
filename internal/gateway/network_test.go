@@ -90,9 +90,11 @@ func TestTheExposureIsSavedOnlyWithAConfirmationAndAppliesAtRestart(t *testing.T
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 
 	v := decodeNetwork(t, get(t, srv, "/v1/network", testToken))
-	if v.Mode != config.ExposureLocal || v.ActiveMode != config.ExposureLocal || v.RestartNeeded || !v.CanSave ||
-		v.Listen != "127.0.0.1:0" || v.ActiveListen != srv.Addr() || v.Tailscale.Installed {
-		t.Fatalf("GET = %+v", v)
+	if v.Mode != config.ExposureLocal || v.ActiveMode != config.ExposureLocal || v.RestartNeeded || !v.CanSave {
+		t.Fatalf("GET modes = %+v", v)
+	}
+	if v.Listen != "127.0.0.1:0" || v.ActiveListen != srv.Addr() || v.Tailscale.Installed {
+		t.Fatalf("GET addresses = %+v", v)
 	}
 
 	for _, body := range []string{`{"mode":"lan"}`, `{"mode":"lan","confirm":false}`} {
@@ -111,7 +113,8 @@ func TestTheExposureIsSavedOnlyWithAConfirmationAndAppliesAtRestart(t *testing.T
 	}
 
 	v = decodeNetwork(t, sendNetwork(t, srv, http.MethodPut, "/v1/network", `{"mode":" LAN ","confirm":true}`))
-	if v.Mode != config.ExposureLAN || v.ActiveMode != config.ExposureLocal || !v.RestartNeeded || v.Listen != "0.0.0.0:0" {
+	if v.Mode != config.ExposureLAN || v.ActiveMode != config.ExposureLocal || !v.RestartNeeded ||
+		v.Listen != "0.0.0.0:0" {
 		t.Fatalf("PUT = %+v", v)
 	}
 	if got := mustLoad(t, path).Gateway; got.Exposure() != config.ExposureLAN {
@@ -136,7 +139,8 @@ func TestTheExposureNeedsAFileAndReportsWhatFailed(t *testing.T) {
 	if v.CanSave || v.RestartNeeded || v.Mode != v.ActiveMode {
 		t.Fatalf("without a file the saved view is the running one: %+v", v)
 	}
-	if w := sendNetwork(t, bare, http.MethodPut, "/v1/network", `{"mode":"all","confirm":true}`); w.Code != http.StatusConflict {
+	w := sendNetwork(t, bare, http.MethodPut, "/v1/network", `{"mode":"all","confirm":true}`)
+	if w.Code != http.StatusConflict {
 		t.Errorf("no file = %d, want 409", w.Code)
 	}
 
@@ -144,7 +148,7 @@ func TestTheExposureNeedsAFileAndReportsWhatFailed(t *testing.T) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 	oldSet := setGatewayExposure
 	setGatewayExposure = func(string, string) error { return errors.New("read-only filesystem") }
-	w := sendNetwork(t, srv, http.MethodPut, "/v1/network", `{"mode":"all","confirm":true}`)
+	w = sendNetwork(t, srv, http.MethodPut, "/v1/network", `{"mode":"all","confirm":true}`)
 	setGatewayExposure = oldSet
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "read-only") {
 		t.Errorf("a failed save = %d %s", w.Code, w.Body.String())
@@ -204,7 +208,8 @@ func TestTailscaleMustBeRunningToPublish(t *testing.T) {
 		},
 	} {
 		srv := newTestServer(t, &fakeService{}, opt)
-		if w := sendNetwork(t, srv, http.MethodPost, "/v1/network/tailscale", `{"enable":true}`); w.Code != http.StatusConflict {
+		w := sendNetwork(t, srv, http.MethodPost, "/v1/network/tailscale", `{"enable":true}`)
+		if w.Code != http.StatusConflict {
 			t.Errorf("%s: %d, want 409", name, w.Code)
 		}
 	}
@@ -229,7 +234,8 @@ func TestTheGatewayRestartsToApplyASavedExposure(t *testing.T) {
 	if v := decodeNetwork(t, get(t, bare, "/v1/network", testToken)); v.CanRestart {
 		t.Fatal("a gateway without Restart says it can restart")
 	}
-	if w := sendNetwork(t, bare, http.MethodPost, "/v1/network/restart", `{"confirm":true}`); w.Code != http.StatusConflict {
+	w := sendNetwork(t, bare, http.MethodPost, "/v1/network/restart", `{"confirm":true}`)
+	if w.Code != http.StatusConflict {
 		t.Errorf("no Restart = %d, want 409", w.Code)
 	}
 
@@ -247,7 +253,7 @@ func TestTheGatewayRestartsToApplyASavedExposure(t *testing.T) {
 
 	oldLoad := loadConfig
 	loadConfig = func(string) (config.Config, error) { return config.Config{}, errors.New("broken yaml") }
-	w := sendNetwork(t, srv, http.MethodPost, "/v1/network/restart", `{"confirm":true}`)
+	w = sendNetwork(t, srv, http.MethodPost, "/v1/network/restart", `{"confirm":true}`)
 	loadConfig = oldLoad
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("an unreadable file = %d, want 500", w.Code)
@@ -260,9 +266,11 @@ func TestTheGatewayRestartsToApplyASavedExposure(t *testing.T) {
 
 	w = sendNetwork(t, srv, http.MethodPost, "/v1/network/restart", `{"confirm":true}`)
 	var v networkView
-	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusAccepted ||
-		!v.CanRestart || v.Mode != config.ExposureAll || !v.RestartNeeded {
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusAccepted {
 		t.Fatalf("restart = %d %s", w.Code, w.Body.String())
+	}
+	if !v.CanRestart || v.Mode != config.ExposureAll || !v.RestartNeeded {
+		t.Fatalf("restart view = %+v", v)
 	}
 	select {
 	case <-restarted:

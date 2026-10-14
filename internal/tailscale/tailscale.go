@@ -195,11 +195,20 @@ func Target(listen string) string {
 	if err != nil {
 		return ""
 	}
-	ip := net.ParseIP(host)
-	if host == "" || strings.EqualFold(host, "localhost") || (ip != nil && (ip.IsUnspecified() || ip.IsLoopback())) {
+	if reachedOnLoopback(host) {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port)
+}
+
+// reachedOnLoopback reports whether a gateway bound to host answers on 127.0.0.1: no host,
+// localhost, a wildcard or a loopback address.
+func reachedOnLoopback(host string) bool {
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsUnspecified() || ip.IsLoopback())
 }
 
 // sameTarget reports whether a serve handler's proxy forwards to target. Tailscale writes the
