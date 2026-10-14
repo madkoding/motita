@@ -1193,11 +1193,6 @@ func proposedCommands(action Action) string {
 	return truncate(strings.Join(parts, " | "), 500)
 }
 
-// shellQuote quotes text for passing to sh -c.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 func modesToStrings(modes []sandbox.Mode) []string {
 	out := make([]string, 0, len(modes))
 	for _, m := range modes {

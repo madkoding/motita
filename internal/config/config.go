@@ -307,7 +307,8 @@ type Agent struct {
 	// auto mode: none is marked needed, so none is applied without asking.
 	AutoModeAskAllSuggestions bool `yaml:"auto_mode_ask_all_suggestions"`
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
-	// the platform default (sh on Unix, the command processor on Windows).
+	// the platform default (sh on Unix; on Windows PowerShell 7, then Windows PowerShell,
+	// then the command processor).
 	Shell string `yaml:"shell"`
 	// Policy is what the agent may do without asking. See Policy below: it has two
 	// layers, and only one of them is configurable.

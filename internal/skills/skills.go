@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode"
@@ -387,6 +388,12 @@ const builtinDir = "builtin"
 // dot-names) never offers one as if it were current.
 const archiveDir = ".archive"
 
+// builtinGOOS is the platform whose variants of the embedded procedures are served. A procedure
+// is mostly commands, and a command written for sh does not run under PowerShell: the documents
+// that are all commands ship a variant per platform where the commands differ. It is a variable
+// so the tests can serve another platform's set.
+var builtinGOOS = runtime.GOOS
+
 // builtinSkills returns the embedded procedures, parsed and keyed by name.
 //
 // It reads on every call rather than caching: an embed.FS serves from memory, the set is small,
@@ -397,17 +404,31 @@ func builtinSkills() (map[string]Skill, error) {
 		return nil, fmt.Errorf("could not read the built-in skills: %w", err)
 	}
 	out := make(map[string]Skill, len(entries))
+	variants := map[string]Skill{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".md")
+		// `name.windows.md` is the same procedure written for one platform: it replaces
+		// `name.md` there and is not served anywhere else.
+		base, goos, variant := strings.Cut(name, ".")
+		if variant && goos != builtinGOOS {
 			continue
 		}
 		data, err := builtinReadFile(builtinDir + "/" + e.Name())
 		if err != nil {
 			return nil, fmt.Errorf("could not read the built-in skill %s: %w", e.Name(), err)
 		}
-		name := strings.TrimSuffix(e.Name(), ".md")
-		s := parse(name, "builtin:"+e.Name(), string(data))
+		s := parse(base, "builtin:"+e.Name(), string(data))
 		s.Body = string(data)
+		if variant {
+			variants[base] = s
+		} else {
+			out[base] = s
+		}
+	}
+	for name, s := range variants {
 		out[name] = s
 	}
 	return out, nil
