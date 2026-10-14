@@ -42,6 +42,8 @@ const MAX_DICTATION_MS = 120_000;
 // starts a fresh recording (so a phrase is never sent with minutes of quiet in front of it).
 const FRAME_MS = 50;
 const IDLE_RESTART_MS = 4000;
+// How long conversation mode waits for the person to start speaking before it stops listening.
+const NOTHING_HEARD_MS = 8000;
 
 export type VoicePhase = "idle" | "recording" | "transcribing";
 
@@ -155,7 +157,14 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     null,
   );
   const deviceId = prefs.deviceId;
+  // listening ends the one phrase conversation mode is listening for, when there is one.
+  const listening1 = useRef<(() => void) | null>(null);
   const toggleDictation = useCallback(async () => {
+    // A tap while the conversation listens ends the conversation, not a dictation.
+    if (listening1.current) {
+      listening1.current();
+      return;
+    }
     const live = dictation.current;
     if (live) {
       clearTimeout(live.timer);
@@ -198,6 +207,73 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       setPhase("idle");
     }
   }, [api, deviceId, fail, setInput]);
+
+  // CONVERSATION: one phrase, ended by the silence after it, transcribed and handed back (null
+  // when nobody spoke, the listening was cancelled, or it failed). What it hears counts as spoken.
+  const listenOnce = useCallback(async (): Promise<string | null> => {
+    if (
+      phaseRef.current !== "idle" ||
+      dictation.current ||
+      listening1.current
+    ) {
+      return null;
+    }
+    let stream: MediaStream;
+    try {
+      stream = await openMic(deviceId);
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const frame = new Uint8Array(analyser.fftSize);
+    const { recorder, done } = recorderFor(stream);
+    setPhase("recording");
+    const spoke = await new Promise<boolean>((resolve) => {
+      const gate = new SpeechGate();
+      const from = Date.now();
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const finish = (ok: boolean) => {
+        clearInterval(timer);
+        listening1.current = null;
+        resolve(ok);
+      };
+      listening1.current = () => finish(false);
+      timer = setInterval(() => {
+        analyser.getByteTimeDomainData(frame);
+        const now = Date.now();
+        const ev = gate.feed(level(frame), now);
+        if (ev === "end") {
+          finish(true);
+        } else if (!gate.speaking && now - from > NOTHING_HEARD_MS) {
+          finish(false);
+        }
+      }, FRAME_MS);
+    });
+    recorder.stop();
+    const audio = await done;
+    stopTracks(stream);
+    void ctx.close();
+    if (!spoke) {
+      setPhase("idle");
+      return null;
+    }
+    setPhase("transcribing");
+    try {
+      const text = (await transcribe(api, audio, false)).text.trim();
+      heard.current = heard.current || text !== "";
+      return text || null;
+    } catch (e) {
+      fail(e);
+      return null;
+    } finally {
+      setPhase("idle");
+    }
+  }, [api, deviceId, fail]);
+  const cancelListen = useCallback(() => listening1.current?.(), []);
 
   // HANDS-FREE: while the switch is on and this tab is open, every spoken phrase is transcribed,
   // and only one that opens with a wake phrase reaches the composer.
@@ -318,6 +394,8 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     listening,
     toggleDictation,
     takeHeard,
+    listenOnce,
+    cancelListen,
     // The dictation button is shown when it can be used and the person has not turned it off.
     showMic: state === "ready" && prefs.mic,
   };

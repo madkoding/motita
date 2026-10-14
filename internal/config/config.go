@@ -173,6 +173,10 @@ type Sandbox struct {
 	// and its own temporary directory, whatever it does itself (Linux, Landlock). A command the
 	// user approves is exempt. Reads are not restricted.
 	ConfineWrites bool `yaml:"confine_writes"`
+	// DiskAccess is how much of the disk the agent reaches: "workspace" (the default) keeps its
+	// file actions and its commands inside the working directory, "full" lets them read and write
+	// anywhere the user's account can. See diskaccess.go.
+	DiskAccess string `yaml:"disk_access"`
 }
 
 // Providers are the values llm.provider accepts. The LLM client, the wizard and
@@ -388,6 +392,7 @@ func Default() Config {
 			MaxOutputKB:   256,
 			ToolsDir:      defaultToolsDir(),
 			ConfineWrites: true,
+			DiskAccess:    DiskWorkspace,
 		},
 		LLM: LLM{
 			Provider:       "openai",
@@ -925,6 +930,10 @@ func (c *Config) normalize() {
 	c.Anchor.Kind = normalize(c.Anchor.Kind)
 	c.Sandbox.Kind = normalize(c.Sandbox.Kind)
 	c.Sandbox.ToolsDir = expandHome(strings.TrimSpace(c.Sandbox.ToolsDir))
+	c.Sandbox.DiskAccess = normalize(c.Sandbox.DiskAccess)
+	if c.Sandbox.DiskAccess == "" {
+		c.Sandbox.DiskAccess = DiskWorkspace
+	}
 	c.LLM.Provider = normalize(c.LLM.Provider)
 	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
 	c.Agent.LogLevel = normalize(c.Agent.LogLevel)
@@ -985,6 +994,9 @@ func (c *Config) validateSandbox() error {
 		}
 	}
 	if err := oneOf("sandbox.cgroups", c.Sandbox.Cgroups, "", "auto", "on", "off"); err != nil {
+		return err
+	}
+	if err := oneOf("sandbox.disk_access", c.Sandbox.DiskAccess, DiskWorkspace, DiskFull); err != nil {
 		return err
 	}
 	if c.Sandbox.User != "" {

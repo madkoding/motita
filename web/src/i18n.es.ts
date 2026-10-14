@@ -959,6 +959,30 @@ const es: Record<string, string> = {
   "Waiting for the provider…": "Esperando al proveedor…",
   "The sign-in did not finish: {err}": "El inicio de sesión no terminó: {err}",
   Network: "Red",
+  Security: "Seguridad",
+  "Disk access": "Acceso al disco",
+  "What Motita can reach": "A qué puede acceder Motita",
+  "Workspace only": "Solo su workspace",
+  "Whole disk": "Disco completo",
+  "Safest: Motita reads and writes only inside the folder of the session it works in. Your other files are out of its reach.":
+    "Lo más seguro: Motita lee y escribe solo dentro de la carpeta de la sesión en la que trabaja. Tus demás archivos quedan fuera de su alcance.",
+  "Motita can read and write any file your user account can: documents, other projects, settings.":
+    "Motita puede leer y escribir cualquier archivo al que llegue tu usuario: documentos, otros proyectos, configuraciones.",
+  "Motita will be able to read, change and delete any file your user account can, outside its workspace too.":
+    "Motita podrá leer, cambiar y borrar cualquier archivo al que llegue tu usuario, también fuera de su workspace.",
+  "A mistake, or instructions hidden in a web page or a repository it reads, could damage or leak your files.":
+    "Un error, o instrucciones escondidas en una página web o en un repositorio que lea, podría dañar o filtrar tus archivos.",
+  "It applies at once to every open session, from its next command.":
+    "Se aplica de inmediato a todas las sesiones abiertas, desde su próximo comando.",
+  "Give Motita access to the whole disk?":
+    "¿Darle a Motita acceso al disco completo?",
+  "Allow the whole disk": "Permitir el disco completo",
+  "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.":
+    "En este sistema solo se limitan las ediciones de archivos que hace Motita: sus comandos no, porque eso requiere Linux con Landlock y el confinamiento de escritura activado.",
+  "A command you approve one by one still runs as you approved it.":
+    "Un comando que apruebes uno por uno igual se ejecuta como lo aprobaste.",
+  "Motita's own logins and keys stay hidden from its commands either way.":
+    "Las sesiones y claves de Motita siguen ocultas para sus comandos en ambos casos.",
   "Who can connect": "Quién puede conectarse",
   "This machine only": "Solo este equipo",
   "Local network": "Red local",
@@ -1040,8 +1064,50 @@ const es: Record<string, string> = {
   "Read answers aloud": "Leer las respuestas en voz alta",
   "This browser cannot read aloud.":
     "Este navegador no puede leer en voz alta.",
-  "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.":
-    "Con las voces de este dispositivo. Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  "Alt+L or 🔊 on an answer reads it or stops.":
+    "Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  "Who speaks": "Quién habla",
+  "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.":
+    "La voz del gateway: la misma en todos los dispositivos. El texto de cada respuesta leída va al servicio de voz.",
+  "The voices of this device: nothing leaves the browser.":
+    "Las voces de este dispositivo: nada sale del navegador.",
+  "This device": "Este dispositivo",
+  "The gateway": "El gateway",
+  "Gateway default": "La del gateway",
+  "Local voice": "Voz local",
+  "Local voices": "Voces locales",
+  "A voice that runs in this browser: the gateway downloads it once, and after that nothing leaves the device.":
+    "Una voz que corre en este navegador: el gateway la descarga una vez y después nada sale del dispositivo.",
+  "The first download adds {size} for the voice engine.":
+    "La primera descarga suma {size} del motor de voz.",
+  "Downloading… {pct}%": "Descargando… {pct} %",
+  "The download failed: {error}": "La descarga falló: {error}",
+  "In use": "En uso",
+  "High quality": "Calidad alta",
+  "Medium quality": "Calidad media",
+  "Low quality": "Calidad baja",
+  Use: "Usar",
+  Download: "Descargar",
+  "Motita needs your answer.": "Motita necesita tu respuesta.",
+  "Conversation ended": "Conversación terminada",
+  Conversation: "Conversación",
+  "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.":
+    "Después de leer la respuesta a algo que dijiste, Motita vuelve a escuchar y envía lo que digas. Di “basta” o toca el micrófono para terminar.",
+  "Needs speech input: turn it on above.":
+    "Necesita la entrada de voz: actívala más arriba.",
+  "Voice notices": "Avisos por voz",
+  "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.":
+    "Dice el CI de un pull request y las preguntas que espera el agente, mientras esta pestaña está visible.",
+  "A voice per language": "Una voz por idioma",
+  "Each sentence is read with a voice of its own language: English with an English voice.":
+    "Cada oración se lee con una voz de su idioma: el inglés con una voz en inglés.",
+  "Voice for English": "Voz para inglés",
+  "Voice for Spanish": "Voz para español",
+  "This device has no voice for that language.":
+    "Este dispositivo no tiene voces en ese idioma.",
+  Pronunciations: "Pronunciaciones",
+  "One a line: the term, “=”, and how to say it. For example: kubectl = cube control":
+    "Una por línea: el término, “=” y cómo decirlo. Por ejemplo: kubectl = cube control",
   Off: "Apagado",
   "When I spoke": "Cuando hablé",
   Always: "Siempre",

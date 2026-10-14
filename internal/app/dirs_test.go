@@ -81,3 +81,18 @@ func TestThePushDirectoryLivesUnderTheHome(t *testing.T) {
 		t.Fatalf("pushDir() = %q with no HOME, want empty", got)
 	}
 }
+
+// TestTheLocalVoicesLiveUnderTheHome: the downloaded voices are ~/.motita/voices, with the
+// compiled-in catalog, and without a home there are none.
+func TestTheLocalVoicesLiveUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := voiceLibrary()
+	if lib == nil || lib.Dir != filepath.Join(home, ".motita", "voices") || len(lib.Models) == 0 || len(lib.Runtime) == 0 {
+		t.Fatalf("voiceLibrary() = %+v", lib)
+	}
+	t.Setenv("HOME", "")
+	if lib := voiceLibrary(); lib != nil {
+		t.Fatalf("voiceLibrary() = %+v with no HOME, want nil", lib)
+	}
+}

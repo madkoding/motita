@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import preact from "@preact/preset-vite";
 import tailwindcss from "@tailwindcss/postcss";
 import { VitePWA } from "vite-plugin-pwa";
@@ -7,10 +7,32 @@ import { VitePWA } from "vite-plugin-pwa";
 const MB = 1024 * 1024;
 const PRECACHE_MAX_MB = 3;
 
+// onnxruntime's bundle names its WebAssembly with new URL(..., import.meta.url), so Vite copies the
+// 14 MB file into the build, and from there into every binary. The local voices' worker never
+// fetches that copy: it hands the runtime the WebAssembly the gateway downloaded and checked
+// (env.wasm.wasmBinary). This drops it from the output.
+const dropOrtWasm = (): Plugin => ({
+  name: "motita-drop-ort-wasm",
+  apply: "build",
+  generateBundle(_, bundle) {
+    for (const name of Object.keys(bundle)) {
+      if (/ort-wasm[^/]*\.wasm$/.test(name)) {
+        delete bundle[name];
+      }
+    }
+  },
+});
+
 // The build output goes directly into the Go embed directory.
 // go:embed in internal/webui picks up everything under assets/.
 export default defineConfig({
+  // The local voices' worker is a module (it imports onnxruntime and the phonemizer).
+  worker: {
+    format: "es",
+    plugins: () => [dropOrtWasm()],
+  },
   plugins: [
+    dropOrtWasm(),
     preact(),
     // PWA with injectManifest: a hand-written ~2 KB SW instead of
     // Workbox's ~50 KB generated one.

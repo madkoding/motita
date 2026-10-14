@@ -146,6 +146,17 @@ func TestHealthzAnswersOK(t *testing.T) {
 	}
 }
 
+// TestSpeechAnswersAPlayableSilence: the gateway's voice has something to play in the e2e.
+func TestSpeechAnswersAPlayableSilence(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"input":"hi"}`)))
+	body := rec.Body.Bytes()
+	if rec.Header().Get("Content-Type") != "audio/wav" || len(body) != 44+2400 ||
+		string(body[:4]) != "RIFF" || string(body[8:12]) != "WAVE" || body[44] != 128 {
+		t.Errorf("speech = %s %d %q", rec.Header().Get("Content-Type"), len(body), body[:12])
+	}
+}
+
 // TestHandleAnswersWithJSONPerRequest: the handler must recognise the phase from
 // the request body and count the execution attempts, which is what drives the
 // "wrong then right" script.

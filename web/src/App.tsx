@@ -536,12 +536,19 @@ function SettingsHost() {
         setPrefs: speech.setPrefs,
         voices: speech.voices,
         test: speech.test,
+        device: speech.device,
+        gatewayVoices: speech.gatewayVoices,
+        allVoices: speech.allVoices,
+        canListen: voice.state === "ready",
+        local: speech.local,
+        api: request,
       }}
       llm={{
         api: request,
         onNotice: (message, error) =>
           setToast({ message, type: choose(error, "error", "success") }),
       }}
+      security={{ api: request }}
       network={{ api: request }}
       push={{ api: request }}
       git={{

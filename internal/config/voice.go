@@ -35,6 +35,8 @@ type Voice struct {
 	WakePhrases []string `yaml:"wake_phrases"`
 	// MaxAudioKB caps one recording. Zero means the built-in default.
 	MaxAudioKB int `yaml:"max_audio_kb"`
+	// TTS is speech OUTPUT: the gateway's own voice for reading answers aloud. See tts.go.
+	TTS TTS `yaml:"tts"`
 }
 
 // Defaults of the voice block.
@@ -48,7 +50,7 @@ const (
 
 // defaultVoice is the voice block of the default configuration.
 func defaultVoice() Voice {
-	return Voice{Model: defaultVoiceModel, MaxAudioKB: defaultVoiceMaxAudioKB}
+	return Voice{Model: defaultVoiceModel, MaxAudioKB: defaultVoiceMaxAudioKB, TTS: defaultTTS()}
 }
 
 // voiceInherits reports whether the voice endpoint is the language model's own.
@@ -93,9 +95,13 @@ func (c Config) VoiceMaxAudioBytes() int64 {
 	return int64(kb) * 1024
 }
 
-// validateVoice checks the voice block. A disabled block is not checked, like the gateway.
+// validateVoice checks the voice block. A disabled block is not checked, like the gateway; its
+// tts block has a switch of its own.
 func (c *Config) validateVoice() error {
 	c.Voice.Model = strings.TrimSpace(c.Voice.Model)
+	if err := c.validateTTS(); err != nil {
+		return err
+	}
 	if !c.Voice.Enabled {
 		return nil
 	}
@@ -111,7 +117,7 @@ func (c *Config) validateVoice() error {
 		return fmt.Errorf("voice.base_url is empty and the %s provider has no transcription endpoint: "+
 			"name one (an OpenAI-compatible /audio/transcriptions)", c.LLM.Provider)
 	}
-	if u, err := url.Parse(base); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if !httpURL(base) {
 		return fmt.Errorf("voice.base_url %q is not an http(s) URL", base)
 	}
 	for i, p := range c.Voice.WakePhrases {
@@ -120,6 +126,12 @@ func (c *Config) validateVoice() error {
 		}
 	}
 	return nil
+}
+
+// httpURL reports whether an address is an http(s) URL with a host.
+func httpURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // GatewayTLS is a second, encrypted listener of the gateway.

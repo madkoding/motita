@@ -27,6 +27,7 @@ import { useFinishedElsewhere } from "./sessionWatch";
 import type { Api } from "./prApi";
 import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
+import { useVoiceConversation } from "./useVoiceConversation";
 
 export function useAppStore(api: Api) {
   const rs = useRunState();
@@ -120,6 +121,28 @@ export function useAppStore(api: Api) {
     setToast,
     api,
     stepsByTurn: rs.stepsByTurn,
+    tts: voice.info?.tts,
+    local: voice.info?.local,
+    approval: rs.approval,
+  });
+  // Conversation mode sends what it heard as a new turn, the way the composer would.
+  const sendHeard = useCallback(
+    (text: string) => {
+      if (rs.runningRef.current) {
+        return;
+      }
+      rs.setMessages((prev) => prev.filter((m) => m.kind !== "kind"));
+      void stream.submit(text);
+    },
+    [rs, stream],
+  );
+  useVoiceConversation({
+    on: speech.prefs.conversation,
+    ready: voice.state === "ready",
+    listenOnce: voice.listenOnce,
+    cancelListen: voice.cancelListen,
+    send: sendHeard,
+    setToast,
   });
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();

@@ -961,6 +961,7 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 		Keep:          cfg.Sandbox.KeepEphemeral,
 		ToolsDir:      cfg.Sandbox.ToolsDir,
 		ConfineWrites: cfg.Sandbox.ConfineWrites,
+		FullDisk:      cfg.Sandbox.FullDisk(),
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
 		HiddenPaths:   config.SecretFiles(""),

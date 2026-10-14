@@ -25,6 +25,7 @@ import {
   type VoiceSettingsProps,
 } from "./VoiceSettings";
 import { NetworkSettings } from "./NetworkSettings";
+import { SecuritySettings } from "./SecuritySettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
 import {
   IconBell,
@@ -33,6 +34,7 @@ import {
   IconGlobe,
   IconMic,
   IconPlug,
+  IconShield,
   IconSliders,
 } from "./SettingsIcons";
 
@@ -57,6 +59,9 @@ interface Props extends AppearanceSettingsProps {
   // How the gateway is exposed on the network. Absent where the page has no API to hand it, and
   // the section stays hidden on a gateway without the network API.
   network?: { api: Api };
+  // How much of the disk the agent reaches. Absent where the page has no API to hand it, and the
+  // section stays hidden on a gateway without the security API.
+  security?: { api: Api };
   // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
   push?: { api: Api };
   // tab is the tab the dialog opens on; the first one when absent.
@@ -68,6 +73,7 @@ export type Tab =
   | "appearance"
   | "notifications"
   | "voice"
+  | "security"
   | "network"
   | "providers"
   | "models"
@@ -92,6 +98,9 @@ function settingsTabs(p: Props): TabInfo[] {
   ];
   if (p.voice || p.speech) {
     tabs.push({ id: "voice", label: t("Voice"), icon: <IconMic /> });
+  }
+  if (p.security) {
+    tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
   }
   if (p.network) {
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
@@ -127,6 +136,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
   ),
   notifications: (p) => <NotifySetting push={p.push} />,
   voice: (p) => <VoiceTab voice={p.voice} speech={p.speech} />,
+  security: (p) => p.security && <SecuritySettings api={p.security.api} />,
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,

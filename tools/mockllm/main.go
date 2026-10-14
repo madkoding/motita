@@ -14,6 +14,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -165,6 +166,12 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "ok")
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/audio/speech") {
+		// The speech API: a short silence, enough for the browser to play something.
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write(silence(300))
+		return
+	}
 
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	text := string(body)
@@ -204,6 +211,29 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, dialect, content)
+}
+
+// silence is a WAV of ms milliseconds of silence: 8 kHz, 8-bit mono, the smallest a browser plays.
+func silence(ms int) []byte {
+	const rate = 8000
+	n := rate * ms / 1000
+	out := make([]byte, 44+n)
+	copy(out, "RIFF")
+	binary.LittleEndian.PutUint32(out[4:], uint32(36+n))
+	copy(out[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(out[16:], 16)
+	binary.LittleEndian.PutUint16(out[20:], 1) // PCM
+	binary.LittleEndian.PutUint16(out[22:], 1) // mono
+	binary.LittleEndian.PutUint32(out[24:], rate)
+	binary.LittleEndian.PutUint32(out[28:], rate) // bytes per second
+	binary.LittleEndian.PutUint16(out[32:], 1)    // block align
+	binary.LittleEndian.PutUint16(out[34:], 8)    // bits per sample
+	copy(out[36:], "data")
+	binary.LittleEndian.PutUint32(out[40:], uint32(n))
+	for i := 44; i < len(out); i++ {
+		out[i] = 128 // the zero of 8-bit PCM
+	}
+	return out
 }
 
 // wantsStream reports whether the request asked for a streamed reply.

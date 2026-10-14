@@ -260,6 +260,12 @@ func (op Options) startGateway(
 		MaxAudioBytes: cfg.VoiceMaxAudioBytes(),
 		// A change saved from the settings builds its transcriber the same way, without a restart.
 		VoiceFrom: voiceFor,
+		// The gateway's voice, off unless voice.tts.enabled; the text is forwarded, never stored.
+		Speech:         speechFor(cfg),
+		SpeechVoices:   cfg.TTSVoices(),
+		SpeechMaxChars: cfg.TTSMaxChars(),
+		// Local voices, downloaded on request to ~/.motita/voices from a fixed catalog.
+		VoiceModels: voiceLibrary(),
 		// The optional https listener, beside the plain one the local clients use.
 		TLSListen: cfg.Gateway.TLS.Listen,
 		TLSCert:   cfg.Gateway.TLS.Cert,
@@ -338,6 +344,16 @@ func projectDir() string {
 
 // pushDir returns the directory where the phone notifications' key and subscriptions are kept:
 // ~/.motita/push. Empty when there is no home directory, and then there are none.
+// voiceLibrary is the catalog of local voices and where they are kept, ~/.motita/voices. Nil
+// without a home directory.
+func voiceLibrary() *voice.Library {
+	d := config.Dir()
+	if d == "" {
+		return nil
+	}
+	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime, Models: voice.PiperVoices}
+}
+
 func pushDir() string {
 	d := config.Dir()
 	if d == "" {
@@ -375,6 +391,17 @@ func (op Options) newGateway(opts gateway.Options, cfg config.Config) (*gateway.
 // voiceFor is the transcription service the configuration asks for, or nil when speech input is
 // off. Nil is returned as an untyped nil on purpose: a nil pointer inside the interface would read
 // as "on" to the gateway.
+// speechFor is the gateway's voice of a configuration: nil when voice.tts is off.
+func speechFor(cfg config.Config) gateway.SpeechService {
+	if !cfg.Voice.TTS.Enabled {
+		return nil
+	}
+	return voice.Speaker{
+		BaseURL: cfg.TTSBaseURL(), APIKey: cfg.TTSAPIKey(),
+		Model: cfg.Voice.TTS.Model, Format: cfg.Voice.TTS.Format,
+	}
+}
+
 func voiceFor(cfg config.Config) gateway.VoiceService {
 	if !cfg.Voice.Enabled {
 		return nil

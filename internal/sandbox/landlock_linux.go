@@ -24,9 +24,12 @@ import (
 // directories it was granted, whatever the program does. It needs no privileges and no extra
 // dependency, only three system calls that are the same on every architecture.
 //
-// Reads are not restricted: a build has to read the toolchain, the system and the home directory.
-// Only what changes the filesystem is - and motita's own logins and keys, which no command needs
-// and a prompt-injected script would send away.
+// Reads are restricted only where the setting asks for it. On the whole disk a command reads
+// everything but motita's own logins and keys, which no command needs and a prompt-injected script
+// would send away. Confined to the workspace it also cannot read (nor list) the user's files outside
+// the directories it works in: the system, the toolchains and those directories are what a build
+// reads, and the home directory is not among them since the sandbox gives every command a HOME of
+// its own in the tools directory.
 const (
 	sysLandlockCreateRuleset = 444
 	sysLandlockAddRule       = 445
@@ -42,6 +45,7 @@ const (
 const (
 	accessWriteFile  = 1 << 1
 	accessReadFile   = 1 << 2 // handled only when something is hidden from reads
+	accessReadDir    = 1 << 3 // handled only when the user's files are private
 	accessRemoveDir  = 1 << 4
 	accessRemoveFile = 1 << 5
 	accessMakeChar   = 1 << 6
@@ -103,14 +107,23 @@ func writeAccess(abi int) uint64 {
 	return access
 }
 
-// confineWrites restricts the calling thread, and so everything it starts, to writing under roots.
-// A root that does not exist is skipped: there is nothing there to grant. It must run on the
-// thread that will exec the command, which is why it pins the goroutine to it.
+// fileAccess are the rights Landlock accepts on a file, as opposed to a directory: a rule that
+// names a file with a directory's right is refused.
+const fileAccess = accessWriteFile | accessReadFile | accessTruncate
+
+// confine restricts the calling thread, and so everything it starts, to writing under
+// spec.WriteRoots. A root that does not exist is skipped: there is nothing there to grant. It must
+// run on the thread that will exec the command, which is why it pins the goroutine to it.
 //
-// The paths in hidden, motita's own logins and keys, are also made unreadable. Landlock only
-// grants, so that is done by granting reads on everything around them (see readableAround); when
-// that cannot be worked out, reads are left as they were rather than breaking every command.
-func confineWrites(roots, hidden []string) error {
+// The paths in spec.HiddenPaths, motita's own logins and keys, are also made unreadable. Landlock
+// only grants, so that is done by granting reads on everything around them (see readableAround);
+// when that cannot be worked out, reads are left as they were rather than breaking every command.
+//
+// spec.PrivatePaths, the user's files when the command is confined to the workspace, are made
+// unreadable and unlistable the same way, except what WriteRoots and ReadRoots name inside them.
+// That one is not given up on: when what stays readable cannot be worked out the command does not
+// run, because running it would read what the person chose to keep from it.
+func confine(spec Spec) error {
 	abi := landlockABI()
 	if abi == 0 {
 		return fmt.Errorf("landlock is not available on this kernel")
@@ -118,9 +131,22 @@ func confineWrites(roots, hidden []string) error {
 	runtime.LockOSThread()
 
 	handled := writeAccess(abi)
-	readable := readableAround(hidden)
+	var readAccess uint64 = accessReadFile
+	private := len(spec.PrivatePaths) > 0
+	if private {
+		readAccess |= accessReadDir
+	}
+	readable := readableAround(append(append([]string(nil), spec.HiddenPaths...), spec.PrivatePaths...))
+	if readable == nil && private {
+		return fmt.Errorf("could not work out what stays readable around %s", strings.Join(spec.PrivatePaths, ", "))
+	}
+	readGrants := readable
 	if readable != nil {
-		handled |= accessReadFile
+		handled |= readAccess
+	}
+	if private {
+		// What the command works in is read as well as written, wherever it is.
+		readGrants = append(append(readGrants, spec.WriteRoots...), spec.ReadRoots...)
 	}
 	attr := make([]byte, 8)
 	binary.NativeEndian.PutUint64(attr, handled)
@@ -136,13 +162,13 @@ func confineWrites(roots, hidden []string) error {
 	ruleset := int(fd)
 	defer syscall.Close(ruleset)
 
-	for _, root := range roots {
-		if err := allowWrites(ruleset, root, handled&^accessReadFile); err != nil {
+	for _, root := range spec.WriteRoots {
+		if err := allowWrites(ruleset, root, handled&^readAccess); err != nil {
 			return err
 		}
 	}
-	for _, path := range readable {
-		if err := allowWrites(ruleset, path, accessReadFile); err != nil {
+	for _, path := range readGrants {
+		if err := allowWrites(ruleset, path, readAccess); err != nil {
 			return err
 		}
 	}
@@ -170,8 +196,8 @@ func allowWrites(ruleset int, root string, handled uint64) error {
 	defer syscall.Close(fd)
 
 	allowed := handled
-	if resolved == "/dev" {
-		allowed &= accessReadFile | accessWriteFile | accessTruncate
+	if resolved == "/dev" || !isDir(resolved) {
+		allowed &= fileAccess
 	}
 	// struct landlock_path_beneath_attr is packed: u64 allowed_access, s32 parent_fd.
 	rule := make([]byte, 12)

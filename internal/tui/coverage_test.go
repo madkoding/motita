@@ -519,3 +519,30 @@ func TestSetWorkspaceKeepsTheHiddenFiles(t *testing.T) {
 		t.Errorf("the rebuilt sandbox does not hide %s: %v", custom, r.Box.HiddenPaths())
 	}
 }
+
+// TestSetDiskAccessReachesTheConfigurationAndTheSandbox: the next turn's file actions read the
+// configuration, the next command reads the sandbox; both follow the change. A runner without a
+// sandbox only keeps the setting.
+func TestSetDiskAccessReachesTheConfigurationAndTheSandbox(t *testing.T) {
+	cfg := config.Default()
+	box := &sandbox.Sandbox{}
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, box, logx.Global())
+	r.SetDiskAccess(config.DiskFull)
+	if !r.Config().Sandbox.FullDisk() || !box.FullDisk() {
+		t.Fatal("the whole disk must reach both")
+	}
+	r.SetDiskAccess(config.DiskWorkspace)
+	if r.Config().Sandbox.FullDisk() || box.FullDisk() {
+		t.Fatal("the workspace must reach both")
+	}
+	r.Box = nil
+	r.SetDiskAccess(config.DiskFull)
+	if !r.Config().Sandbox.FullDisk() {
+		t.Error("without a sandbox the configuration still changes")
+	}
+	// The rebuilt sandbox of a new workspace starts from the setting.
+	r.SetWorkspace(t.TempDir())
+	if r.Box == nil || !r.Box.FullDisk() {
+		t.Error("a rebuilt sandbox must keep the whole disk")
+	}
+}

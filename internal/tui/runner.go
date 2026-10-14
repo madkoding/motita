@@ -408,6 +408,7 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		Keep:          cfg.Sandbox.KeepEphemeral,
 		ToolsDir:      cfg.Sandbox.ToolsDir,
 		ConfineWrites: cfg.Sandbox.ConfineWrites,
+		FullDisk:      cfg.Sandbox.FullDisk(),
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
 		HiddenPaths:   config.SecretFiles(""),
@@ -436,6 +437,19 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	op.Limits.NoNetwork = cfg.Sandbox.IsolateNetwork
 	if box, err := sandbox.New(op); err == nil {
 		r.Box = box
+	}
+}
+
+// SetDiskAccess changes how much of the disk the agent reaches: "full" for the whole disk, anything
+// else for the workspace alone. The next command and the next turn's file actions follow it; a
+// command already running keeps the rules it started with.
+func (r *AppRunner) SetDiskAccess(mode string) {
+	r.cfgMu.Lock()
+	r.Cfg.Sandbox.DiskAccess = mode
+	box := r.Box
+	r.cfgMu.Unlock()
+	if box != nil {
+		box.SetFullDisk(mode == config.DiskFull)
 	}
 }
 
