@@ -1,6 +1,6 @@
 # Motita — the full guide
 
-<sub>[← Back to the README](../README.md) · [Reference](REFERENCE.md) · [Website](https://madkoding.github.io/motita/)</sub>
+<sub>[← Back to the README](../README.md) · [Reference](REFERENCE.md) · [Website](https://motita.kodingvibes.com/)</sub>
 
 Everything the README leaves out: how the loop works, every provider, the terminal and
 browser interfaces, the gateway, guardrails and how it is tested.
@@ -151,14 +151,17 @@ what gets verified is the artifact you download, not a rebuild of it.
 ## Install
 
 ```sh
-curl -fsSL https://madkoding.github.io/motita/install.sh | sh
+curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://madkoding.github.io/motita/install.ps1 | iex
+irm https://motita.kodingvibes.com/install.ps1 | iex
 ```
+
+Both scripts are also served from the GitHub Pages mirror,
+`https://madkoding.github.io/motita/install.sh` and `.../install.ps1`.
 
 That is the same installer for Windows: it detects the architecture, downloads
 the matching `.exe`, verifies it against the release's `SHA256SUMS`, and puts it
@@ -1018,7 +1021,8 @@ for containers and secrets.
 
 ## Going deeper
 
-**[madkoding.github.io/motita](https://madkoding.github.io/motita/)** — the same
+**[motita.kodingvibes.com](https://motita.kodingvibes.com/)** (mirrored at
+[madkoding.github.io/motita](https://madkoding.github.io/motita/)) — the same
 pitch as a landing page, with the architecture as an interactive diagram you can
 explore: switch themes, trace a relationship, export it as SVG or PNG.
 
@@ -1061,11 +1065,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ```
 
 ```sh
-curl -fsSL https://madkoding.github.io/motita/install.sh | sh
+curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 ```
 
 ```powershell
-irm https://madkoding.github.io/motita/install.ps1 | iex
+irm https://motita.kodingvibes.com/install.ps1 | iex
 ```
 
 ## Automatic releases

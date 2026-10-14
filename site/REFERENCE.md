@@ -227,7 +227,7 @@ the latest release, verifies it against the release's `SHA256SUMS`, and puts it
 on your `PATH`. No Go, no Docker, no runtime on the target:
 
 ```sh
-curl -fsSL https://madkoding.github.io/motita/install.sh | sh
+curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 ```
 
 Override the version or the destination:
@@ -255,7 +255,7 @@ a corrupted transfer, not a compromised release.
 **On Windows**, in PowerShell:
 
 ```powershell
-irm https://madkoding.github.io/motita/install.ps1 | iex
+irm https://motita.kodingvibes.com/install.ps1 | iex
 ```
 
 It does the same four things as the shell installer — detect the architecture,
@@ -270,7 +270,7 @@ with `$env:MOTITA_INSTALL_DIR`, and pin a release with `$env:MOTITA_VERSION`:
 
 ```powershell
 $env:MOTITA_VERSION = 'v0.7.0'
-irm https://madkoding.github.io/motita/install.ps1 | iex
+irm https://motita.kodingvibes.com/install.ps1 | iex
 ```
 
 On failure it **throws** instead of exiting, and that is deliberate: the script

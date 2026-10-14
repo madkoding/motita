@@ -1,7 +1,7 @@
 #!/bin/sh
 # motita installer — one line, no Go, no Docker, no runtime on the target.
 #
-#   curl -fsSL https://madkoding.github.io/motita/install.sh | sh
+#   curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 #
 # It detects the system, downloads the matching static binary from the GitHub
 # release, checks it against the release's SHA256SUMS, and puts it on the PATH.
