@@ -184,6 +184,11 @@ type Ledger struct {
 	// nothing does not rewrite the file.
 	dirty bool
 
+	// parent and owns make this a LAYER over the shared ledger, the way a project's procedures
+	// are layered over the shared shelf: see Over.
+	parent *Ledger
+	owns   func(name string) bool
+
 	// mu serialises every read and write of Scores.
 	//
 	// It is here because a library search READS a skill's value on every turn while a verdict
@@ -231,11 +236,40 @@ func Open(path string) (*Ledger, error) {
 	return l, nil
 }
 
+// Over makes l the ledger of a scope layered over shared: verdicts on the scope's own documents
+// (owns) are kept here, and those on the shared documents a scoped session read stay on the shared
+// ledger. It returns l.
+//
+// It is what keeps one project's complaints out of another's: two projects with a document of the
+// same name used to share one score, and the complaint written in one - with that project's paths
+// and code in it - was handed to the other with its procedure.
+func (l *Ledger) Over(shared *Ledger, owns func(name string) bool) *Ledger {
+	l.parent, l.owns = shared, owns
+	return l
+}
+
+// route is the ledger that answers for name: l itself, or the shared one it is layered over.
+func (l *Ledger) route(name string) *Ledger {
+	if l.parent == nil {
+		return l
+	}
+	l.mu.Lock()
+	_, mine := l.Scores[name]
+	l.mu.Unlock()
+	if mine || (l.owns != nil && l.owns(name)) {
+		return l
+	}
+	return l.parent
+}
+
 // Get returns the score for a skill, and whether it has any history at all.
 //
 // A skill with no history is reported as absent rather than as a zero: the two mean different
 // things, and showing "0.0" for "never used" would read as "this failed".
 func (l *Ledger) Get(name string) (Score, bool) {
+	if t := l.route(name); t != l {
+		return t.Get(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	s, ok := l.Scores[name]
@@ -248,6 +282,9 @@ func (l *Ledger) Get(name string) (Score, bool) {
 // scored zero", and those need different treatment — the first should not be ranked as if it
 // had failed.
 func (l *Ledger) Value(name string) (float64, bool) {
+	if t := l.route(name); t != l {
+		return t.Value(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.valueLocked(name)
@@ -265,6 +302,9 @@ func (l *Ledger) valueLocked(name string) (float64, bool) {
 
 // ValueOf is Value for callers that only want the number, with 0 for "no history".
 func (l *Ledger) ValueOf(name string) float64 {
+	if t := l.route(name); t != l {
+		return t.ValueOf(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	v, _ := l.valueLocked(name)
@@ -292,15 +332,9 @@ func consulted(counts map[string]int, name string) int {
 // a turn consulted nothing, and pretending a verdict landed would make the feature look like
 // it works when it cannot.
 func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, note string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if len(names) == 0 {
 		return ErrNoSkill
 	}
-	if l.Now == nil {
-		l.Now = time.Now
-	}
-
 	total := 0
 	for _, n := range names {
 		total += consulted(counts, n)
@@ -308,6 +342,35 @@ func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, not
 	// No zero-total guard is needed: every count is floored at 1, so a non-empty list always
 	// has total >= len(names) >= 1. A branch for it would be unreachable, and the floor above
 	// is the rule that makes it so.
+	//
+	// The shares are taken over the WHOLE turn and then each skill is recorded on the ledger
+	// that answers for it, so a turn that read a project's document and a shared one splits its
+	// credit the same way whether or not the two live in different files.
+	var own, shared []string
+	for _, n := range names {
+		if l.route(n) == l {
+			own = append(own, n)
+		} else {
+			shared = append(shared, n)
+		}
+	}
+	l.attribute(own, total, counts, good, note)
+	if len(shared) > 0 {
+		l.parent.attribute(shared, total, counts, good, note)
+	}
+	return nil
+}
+
+// attribute records the verdict on names, each with its share of total.
+func (l *Ledger) attribute(names []string, total int, counts map[string]int, good bool, note string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(names) == 0 {
+		return
+	}
+	if l.Now == nil {
+		l.Now = time.Now
+	}
 
 	signal := -1.0
 	if good {
@@ -339,7 +402,6 @@ func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, not
 		l.Scores[n] = s
 	}
 	l.dirty = true
-	return nil
 }
 
 // Addressed records that a skill was rewritten after the notes it carries.
@@ -352,6 +414,9 @@ func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, not
 // It reports whether anything changed, so a caller can tell "marked" from "there was nothing
 // to mark" without a second query.
 func (l *Ledger) Addressed(name string) bool {
+	if t := l.route(name); t != l {
+		return t.Addressed(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	s, ok := l.Scores[name]
@@ -382,6 +447,9 @@ func (l *Ledger) Outstanding() []struct {
 	Name  string
 	Score Score
 } {
+	if l.parent != nil {
+		return l.merged().Outstanding()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out []struct {
@@ -401,6 +469,17 @@ func (l *Ledger) Outstanding() []struct {
 // Atomic because a half-written ledger is a corrupt one, and this file is the only record of
 // what the user thought of the library — losing it silently would reset months of verdicts.
 func (l *Ledger) Save() error {
+	err := l.save()
+	if l.parent != nil {
+		if perr := l.parent.Save(); err == nil {
+			err = perr
+		}
+	}
+	return err
+}
+
+// save writes this ledger alone.
+func (l *Ledger) save() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.Path == "" || !l.dirty {
@@ -439,9 +518,30 @@ func (l *Ledger) Sorted() []struct {
 	Name  string
 	Score Score
 } {
+	if l.parent != nil {
+		return l.merged().Sorted()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.sortedLocked()
+}
+
+// merged is every score a layered ledger answers for: the shared ones the scope does not shadow,
+// and the scope's own. It holds no lock while it asks the shared ledger.
+func (l *Ledger) merged() *Ledger {
+	if l.parent == nil {
+		return l
+	}
+	out := &Ledger{Scores: map[string]Score{}}
+	for _, e := range l.parent.Sorted() {
+		out.Scores[e.Name] = e.Score
+	}
+	l.mu.Lock()
+	for n, sc := range l.Scores {
+		out.Scores[n] = sc
+	}
+	l.mu.Unlock()
+	return out
 }
 
 // sortedLocked is Sorted for a caller that already holds the lock. Outstanding goes through it
@@ -468,4 +568,36 @@ func (l *Ledger) sortedLocked() []struct {
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+// Adopt moves to a layer what the shared ledger it is layered over recorded, before projects had
+// ledgers of their own, about the scope's documents: see usage.Ledger.Adopt, which follows the
+// same rule. It reports whether anything moved.
+func (l *Ledger) Adopt(keep func(name string) bool) bool {
+	if l.parent == nil || l.owns == nil {
+		return false
+	}
+	moved := false
+	for _, e := range l.parent.Sorted() {
+		l.mu.Lock()
+		_, mine := l.Scores[e.Name]
+		take := !mine && l.owns(e.Name)
+		if take {
+			l.Scores[e.Name] = e.Score
+			l.dirty, moved = true, true
+		}
+		l.mu.Unlock()
+		if take && (keep == nil || !keep(e.Name)) {
+			l.parent.forget(e.Name)
+		}
+	}
+	return moved
+}
+
+// forget drops a skill's score.
+func (l *Ledger) forget(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.Scores, name)
+	l.dirty = true
 }

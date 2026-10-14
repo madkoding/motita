@@ -184,6 +184,17 @@ func (a *Agent) planRequest(command string) RequestPlan {
 	}
 }
 
+// approveRequest marks a request as one a person allowed by name. It writes anywhere and gets git's
+// logins, but still runs confined away from motita's own keys (see execx.Request.Approved). A line
+// that gains privileges - sudo and the other set-user-ID programs - runs unconfined as before:
+// the confinement would take from it exactly what the person approved it for.
+func approveRequest(req *execx.Request, command string) {
+	req.Approved = true
+	if policy.Elevates(command) {
+		req.Unconfined = true
+	}
+}
+
 // approve asks the user about a consequential command.
 //
 // It returns an error when there is nobody to ask, and the error is not a failure to

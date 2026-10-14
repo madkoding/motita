@@ -227,7 +227,7 @@ func (rr *roundRun) approved(i int, action Command, plan *RequestPlan) bool {
 		return false
 	}
 	a.log.Info(rr.prefix+"action approved by the user", "command", action.Command)
-	plan.Request.Unconfined = true
+	approveRequest(&plan.Request, action.Command)
 	return true
 }
 

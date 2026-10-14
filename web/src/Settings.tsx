@@ -58,7 +58,7 @@ interface Props extends AppearanceSettingsProps {
   network?: { api: Api };
   // How much of the disk the agent reaches. Absent where the page has no API to hand it, and the
   // section stays hidden on a gateway without the security API.
-  security?: { api: Api };
+  security?: { api: Api; sessionId?: string };
   // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
   push?: { api: Api };
   // tab is the tab the dialog opens on; the first one when absent.
@@ -135,7 +135,10 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
   ),
   notifications: (p) => <NotifySetting push={p.push} />,
   voice: (p) => <VoiceTab voice={p.voice} speech={p.speech} />,
-  security: (p) => p.security && <SecuritySettings api={p.security.api} />,
+  security: (p) =>
+    p.security && (
+      <SecuritySettings api={p.security.api} sessionId={p.security.sessionId} />
+    ),
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,

@@ -66,6 +66,25 @@ func (s *Server) writePRError(w http.ResponseWriter, e *prError) {
 	writeJSON(w, e.status, body)
 }
 
+// projectRemote is the repository a session's pull request goes to: the one its project was cloned
+// from, as the project records it. Only a project with no recorded URL (a folder that was already a
+// repository) asks the checkout for its origin. The checkout's configuration is something the agent
+// can rewrite (`git remote set-url`), and the pull request is opened, watched and merged with the
+// person's own login: the repository it lands on is the project's, never one the session pointed at.
+func (s *Server) projectRemote(ctx context.Context, c *conversation) string {
+	if p := s.projectOf(c.projectID); p != nil && strings.TrimSpace(p.GitURL) != "" {
+		return strings.TrimSpace(p.GitURL)
+	}
+	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", c.workspace}, gitx.Hardening()...),
+		"remote", "get-url", "origin")...)
+	cmd.Env = s.gitCommandEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // prTargetOf resolves the host, the repository and the branch of a session.
 func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *prError) {
 	if c.workspace == "" || c.projectID == "" {
@@ -77,11 +96,8 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *pr
 		return prTarget{}, &prError{status: http.StatusNotImplemented,
 			msg: "this gateway has no directory to keep git logins in"}
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", c.workspace, "remote", "get-url", "origin")
-	cmd.Env = s.gitCommandEnv()
-	out, err := cmd.Output()
-	url := strings.TrimSpace(string(out))
-	if err != nil || url == "" {
+	url := s.projectRemote(ctx, c)
+	if url == "" {
 		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
 			msg: "this repository has no remote named origin, so there is nowhere to open a pull request"}
 	}

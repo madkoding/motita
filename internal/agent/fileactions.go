@@ -181,3 +181,40 @@ func resolveExisting(p string) (string, error) {
 		p = filepath.Dir(p)
 	}
 }
+
+// ReadPath resolves a path a read tool was given (Plan mode's read_file, list_directory and
+// search) the way the file actions resolve theirs: a relative path is taken against the workspace,
+// never against the process's own directory, and the symlinks are followed before the answer is
+// given. Inside the workspace it is always readable. Outside it, the answer is the sandbox's: the
+// same rule a command's `cat` would meet, so a read tool is not a way around the confinement. Without
+// a sandbox only the workspace is readable, unless the person allowed the whole disk.
+func (a *Agent) ReadPath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		p = "."
+	}
+	root, err := filepath.Abs(a.cfg.Agent.WorkspaceDir)
+	if err != nil {
+		return "", err
+	}
+	path := p
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	realRoot, err := resolveExisting(root)
+	if err != nil {
+		return "", err
+	}
+	realPath, err := resolveExisting(filepath.Clean(path))
+	if err != nil {
+		return "", fmt.Errorf("%s cannot be resolved: %w", p, err)
+	}
+	inside := within(realRoot, realPath)
+	switch {
+	case a.sandbox != nil && !a.sandbox.Readable(realPath):
+		return "", fmt.Errorf("%s is outside what this session may read (its working directory is %s)", p, root)
+	case a.sandbox == nil && !inside && !a.fullDisk():
+		return "", fmt.Errorf("%s is outside the working directory %s", p, root)
+	}
+	return realPath, nil
+}

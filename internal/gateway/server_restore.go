@@ -1,9 +1,10 @@
 package gateway
 
 import (
+	"os"
 	"strings"
 
-	"github.com/madkoding/motita/internal/projectskills"
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // loadPersistedSessions reads every conversation the store has on disk and
@@ -111,6 +112,14 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	// worktree, so re-attaching it restores the session's own work rather
 	// than starting over; a failure falls back to the project's directory,
 	// exactly as creation does.
+	// A record from before the project's directory was saved with it still names its project:
+	// the directory is read from the project, so the session goes back to it rather than to
+	// wherever it happened to be.
+	if rec.ProjectDir == "" && rec.ProjectID != "" {
+		if p := s.projectOf(rec.ProjectID); p != nil {
+			rec.ProjectDir = p.Dir
+		}
+	}
 	workspace := s.restoredWorkspace(rec)
 	projectDir := rec.ProjectDir
 	conv.setProjectID(rec.ProjectID, workspace, projectDir)
@@ -148,10 +157,16 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	// The scope comes back with the project. A restored session must serve the
 	// SAME shelf it had before the restart, or the procedures it learned while
 	// working on this project would silently disappear from its answers.
-	scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
+	//
+	// The scope is the PROJECT's checkout and nothing else: a free session is created unscoped (see
+	// placeFreeStanding), and scoping it to its own folder after a restart would put what it
+	// learns in a folder that is removed with it.
+	if projectDir != "" {
+		scopeProceduresTo(svc, projectDir)
+	}
 	project := s.projectOf(rec.ProjectID)
 	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
-	applyRuntimeTo(svc, project)
+	applyRuntimeTo(svc, project, workspace)
 	s.sessionsMu.Lock()
 	s.sessions[rec.ID] = conv
 	s.sessionsMu.Unlock()
@@ -162,15 +177,35 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 // session's branch, or the project's directory when it cannot be re-created.
 func (s *Server) restoredWorkspace(rec sessionRecord) string {
 	if rec.ProjectDir == "" {
-		return rec.Workspace
+		return s.restoredFreeWorkspace(rec)
 	}
 	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID)
 	if err != nil {
 		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
 			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())
-		return rec.Workspace
+		// The project's directory, as the warning says and as creation does: the old worktree
+		// path may be gone, and a session running in a folder that does not exist runs nowhere.
+		return rec.ProjectDir
 	}
 	return wt
+}
+
+// restoredFreeWorkspace is the directory a restored session of no project runs in. A record from
+// before free sessions had a folder of their own names the workspace ROOT - the parent of every
+// project, worktree and session folder - and restoring it there would hand it all of them; it gets
+// its own folder instead, the one a new free session gets. Any other record keeps its directory.
+func (s *Server) restoredFreeWorkspace(rec sessionRecord) string {
+	root := strings.TrimSpace(s.opts.WorkspaceDir)
+	if root == "" || rec.Workspace == "" || !gitx.SamePath(rec.Workspace, root) {
+		return rec.Workspace
+	}
+	dir := s.freeSessionDir(rec.ID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		s.warn("the restored session will run in the workspace root: its own directory could not be created",
+			"id", rec.ID, "dir", dir, "error", err.Error())
+		return rec.Workspace
+	}
+	return dir
 }
 
 // resumeInterruptedSessions re-submits the task or plan for every session

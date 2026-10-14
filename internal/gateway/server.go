@@ -372,6 +372,10 @@ func Start(opts Options) (*Server, error) {
 	}
 
 	s.openSessionStore()
+	// The default session belongs to no project, so it works in a folder of its own like any free
+	// session. Left in the workspace root, it - and every scheduled task that names no session -
+	// would run in the parent of every project, worktree and session folder, and reach them all.
+	s.placeFreeStanding(first, false)
 	s.openProjectStore()
 	s.openScheduleStore()
 	s.openPush()
@@ -662,20 +666,20 @@ func (s *Server) voiceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) ht
 	mux.Handle("GET /v1/voice/models/{id}/{name}", plain(s.handleVoiceModelFile))
 }
 
-// skillRoutes registers the process-wide endpoints of the procedure library.
-func (s *Server) skillRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
-	mux.Handle("GET /v1/skills", plain(s.handleSkills))
-	mux.Handle("POST /v1/skills", plain(s.handleSaveSkill))
-	mux.Handle("GET /v1/skills/archived", plain(s.handleArchivedSkills))
-	mux.Handle("GET /v1/skills/proposed", plain(s.handleProposedSkills))
-	mux.Handle("GET /v1/skills/proposed/{name}", plain(s.handleProposedSkill))
-	mux.Handle("POST /v1/skills/proposed/{name}/accept", plain(s.handleAcceptProposedSkill))
-	mux.Handle("DELETE /v1/skills/proposed/{name}", plain(s.handleRejectProposedSkill))
-	mux.Handle("GET /v1/skills/{name}", plain(s.handleSkill))
-	mux.Handle("POST /v1/skills/{name}/pin", plain(s.handlePinSkill))
-	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
-	mux.Handle("DELETE /v1/skills/{name}", plain(s.handleDeleteSkill))
-	mux.Handle("POST /v1/skills/{name}/restore", plain(s.handleRestoreSkill))
+// skillRoutes registers the endpoints of the procedure library under prefix.
+func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET "+prefix+"/skills", wrap(s.handleSkills))
+	mux.Handle("POST "+prefix+"/skills", wrap(s.handleSaveSkill))
+	mux.Handle("GET "+prefix+"/skills/archived", wrap(s.handleArchivedSkills))
+	mux.Handle("GET "+prefix+"/skills/proposed", wrap(s.handleProposedSkills))
+	mux.Handle("GET "+prefix+"/skills/proposed/{name}", wrap(s.handleProposedSkill))
+	mux.Handle("POST "+prefix+"/skills/proposed/{name}/accept", wrap(s.handleAcceptProposedSkill))
+	mux.Handle("DELETE "+prefix+"/skills/proposed/{name}", wrap(s.handleRejectProposedSkill))
+	mux.Handle("GET "+prefix+"/skills/{name}", wrap(s.handleSkill))
+	mux.Handle("POST "+prefix+"/skills/{name}/pin", wrap(s.handlePinSkill))
+	mux.Handle("POST "+prefix+"/skills/{name}/disable", wrap(s.handleDisableSkill))
+	mux.Handle("DELETE "+prefix+"/skills/{name}", wrap(s.handleDeleteSkill))
+	mux.Handle("POST "+prefix+"/skills/{name}/restore", wrap(s.handleRestoreSkill))
 }
 
 // routes builds the endpoint table.
@@ -757,6 +761,7 @@ func (s *Server) routes() *http.ServeMux {
 	// security.go.
 	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))
 	mux.Handle("PUT /v1/security", plain(s.handlePutSecurity))
+	mux.Handle("GET /v1/sessions/{id}/scope", scoped(s.handleSessionScope))
 	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
 	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))
@@ -776,18 +781,20 @@ func (s *Server) routes() *http.ServeMux {
 	// "GET /v1/skills/{name}", so it wins: a skill that happens to be called "archived"
 	// is still reachable by opening it from the index. That precedence is asserted by a
 	// test rather than trusted to the mux.
-	s.skillRoutes(mux, plain)
-	// The SAME index, addressed by the conversation it is for.
+	s.skillRoutes(mux, "/v1", plain)
+	// The SAME library, addressed by the conversation it is for: every door of it, not only
+	// the index.
 	//
 	// A library is not process-wide any more: a session that belongs to a project gets its
-	// own documents layered over the shared shelf, so "what does this session see" is a
-	// question only the session can answer. The process-wide list above stays exactly as it
-	// was — it is the shelf, which is a real and useful thing to look at — while this one
-	// answers for a conversation, which is what a window opened INSIDE a project must draw.
+	// own documents layered over the shared shelf, and its own telemetry and proposals, so
+	// "what does this session see" is a question only the session can answer - and opening,
+	// saving, pinning, turning off or deleting a project's document from a window inside the
+	// project must act on THAT document, never on a shared one of the same name. The
+	// process-wide routes above stay exactly as they were: they are the shared shelf.
 	//
-	// It is scoped, so a session that does not exist is refused here rather than answered
+	// They are scoped, so a session that does not exist is refused here rather than answered
 	// about the wrong library.
-	mux.Handle("GET /v1/sessions/{id}/skills", scoped(s.handleSkills))
+	s.skillRoutes(mux, "/v1/sessions/{id}", scoped)
 	mux.Handle("GET /v1/curator", plain(s.handleCurator))
 	mux.Handle("POST /v1/curator/run", plain(s.handleCuratorRun))
 

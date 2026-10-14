@@ -194,6 +194,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 	vars := map[string]string{
 		"task":         t.Description,
 		"workspace":    a.cfg.Agent.WorkspaceDir,
+		"project":      a.projectNote,
 		"origin":       t.Origin,
 		"attempt":      "1",
 		"max_attempts": fmt.Sprint(a.cfg.Agent.MaxRetries + 1),
@@ -203,7 +204,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"history":      a.dialogue(),
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
-		"tools":        describeTools(a.cfg.Sandbox) + describeShell(shellFor(a.cfg)),
+		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)),
 	}
 	for k, v := range t.Context {
 		vars["context_"+k] = v

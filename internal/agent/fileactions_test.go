@@ -295,3 +295,70 @@ func TestFileActionsReachTheWholeDiskWhenThePersonAllowsIt(t *testing.T) {
 		t.Errorf("the configuration's full disk must allow: %v", err)
 	}
 }
+
+// TestReadPathResolvesAgainstTheWorkspace: the read tools that run in-process (Plan mode's
+// read_file, list_directory, the Go search) take a relative path against the session's working
+// directory, never the process's, and refuse what a confined command could not read.
+func TestReadPathResolvesAgainstTheWorkspace(t *testing.T) {
+	e := fileAgent(t)
+	root, _ := filepath.EvalSymlinks(e.dir)
+	for in, want := range map[string]string{
+		"":                   root,
+		"  ":                 root,
+		"src/a.go":           filepath.Join(root, "src", "a.go"),
+		e.dir + "/x/../b.go": filepath.Join(root, "b.go"),
+	} {
+		got, err := e.agent.ReadPath(in)
+		if err != nil || got != want {
+			t.Errorf("ReadPath(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	// Another person's files are out of reach, as they are for `cat`; the system is not.
+	if _, err := e.agent.ReadPath("/home/nobody-here/project/main.go"); err == nil ||
+		!strings.Contains(err.Error(), "outside what this session may read") {
+		t.Errorf("a private tree must be refused: %v", err)
+	}
+	if _, err := e.agent.ReadPath("/etc"); err != nil {
+		t.Errorf("the system is readable, as for a command: %v", err)
+	}
+
+	// A link that leads nowhere cannot be judged.
+	if err := os.Symlink(filepath.Join(e.dir, "missing"), filepath.Join(e.dir, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.agent.ReadPath("dangling/x"); err == nil || !strings.Contains(err.Error(), "cannot be resolved") {
+		t.Errorf("a dangling link must be an error: %v", err)
+	}
+
+	// Without a sandbox only the workspace, unless the configuration allows the whole disk.
+	e.agent.sandbox = nil
+	e.agent.cfg.Sandbox.DiskAccess = config.DiskWorkspace
+	if _, err := e.agent.ReadPath("/etc"); err == nil || !strings.Contains(err.Error(), "outside the working directory") {
+		t.Errorf("without a sandbox the workspace confines: %v", err)
+	}
+	if _, err := e.agent.ReadPath("in.txt"); err != nil {
+		t.Errorf("inside the workspace is readable: %v", err)
+	}
+	e.agent.cfg.Sandbox.DiskAccess = config.DiskFull
+	if _, err := e.agent.ReadPath("/etc"); err != nil {
+		t.Errorf("the whole disk allowed: %v", err)
+	}
+
+	// A workspace that is itself a dangling link has nothing to resolve against.
+	e.agent.cfg.Agent.WorkspaceDir = filepath.Join(e.dir, "dangling")
+	if _, err := e.agent.ReadPath("x"); err == nil {
+		t.Error("an unresolvable workspace must be an error")
+	}
+	// A relative workspace with no current directory has no absolute form.
+	e.agent.cfg.Agent.WorkspaceDir = "rel"
+	gone := t.TempDir()
+	wd, _ := os.Getwd()
+	if err := os.Chdir(gone); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+	os.Remove(gone)
+	if _, err := e.agent.ReadPath("x"); err == nil {
+		t.Error("a workspace with no absolute path must be an error")
+	}
+}

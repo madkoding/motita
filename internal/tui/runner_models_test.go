@@ -152,3 +152,29 @@ func TestDropEnginesForgetsEveryEngine(t *testing.T) {
 		t.Error("dropEngines forgets every engine")
 	}
 }
+
+// noteAgent records the project note a turn hands it.
+type noteAgent struct {
+	askingAgent
+	note string
+}
+
+func (a *noteAgent) SetProjectNote(note string) { a.note = note }
+
+// A task turn is told about the project it works in, with the same sentences Plan mode's system
+// prompt ends with: how it is run and which project it is.
+func TestRunTaskHandsTheAgentTheProject(t *testing.T) {
+	r, _ := modelsRunner(t, config.Models{})
+	ag := &noteAgent{askingAgent: askingAgent{res: agent.TaskResult{Pass: true, Summary: "done"}}}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
+		return ag
+	}
+	r.SetProjectNote("\n\nThis session belongs to the project \"Shop\".")
+	r.SetContainerRuntime("podman")
+	if _, err := r.RunTask(context.Background(), "do it", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ag.note, "run with podman") || !strings.HasSuffix(ag.note, `the project "Shop".`) {
+		t.Errorf("the agent was not told about its project: %q", ag.note)
+	}
+}

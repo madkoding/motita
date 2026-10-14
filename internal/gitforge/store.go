@@ -173,3 +173,9 @@ func (s Store) Accounts() []Account {
 
 // IsNotConnected reports whether err means "no login stored".
 func IsNotConnected(err error) bool { return errors.Is(err, oauth.ErrNoCredential) }
+
+// IsLoginFile reports whether name, a file in the logins directory, is a git login: what the
+// credential helper reads, as opposed to a model provider's login stored beside it.
+func IsLoginFile(name string) bool {
+	return strings.HasPrefix(name, credentialPrefix) && strings.HasSuffix(name, ".json")
+}

@@ -38,6 +38,7 @@ import (
 
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/logx"
 )
 
@@ -106,7 +107,15 @@ type Options struct {
 	// user's files outside the directories it works in (see privatePaths). SetFullDisk changes it
 	// while the sandbox lives.
 	FullDisk bool
-	Log      *logx.Logger
+	// Home is the agent's HOME inside the tools directory, relative to it; empty is "home". A
+	// session that belongs to a project gets one of its own (see ProjectHome), so what one
+	// project's tools leave in HOME - logins, caches, shell history - is not another project's.
+	Home string
+	// PrivateRoots are more trees a command confined to the workspace may not read, apart from the
+	// directories it works in: the gateway's workspace root, which holds every other project and
+	// session, wherever it is on the disk.
+	PrivateRoots []string
+	Log          *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -117,9 +126,11 @@ type Sandbox struct {
 	base       string
 	executable string
 	notApplied []string
-	// gitRoots are the git directories the base worktree writes outside it, read once here,
-	// before any command could rewrite its `.git` file.
-	gitRoots []string
+	// gitRoots are the git directories the base worktree, and the worktrees of the project's other
+	// repositories inside it, write outside it; repoRoots are the repositories they belong to. Both
+	// are read once here, before any command could rewrite a `.git` file.
+	gitRoots  []string
+	repoRoots []string
 	// fullDisk is Options.FullDisk as it is now. It is a pointer so the copies WithDir makes for
 	// background agents follow a change made to the sandbox they came from.
 	fullDisk *atomic.Bool
@@ -152,9 +163,10 @@ func New(op Options) (*Sandbox, error) {
 		return nil, fmt.Errorf("could not locate this very executable (needed for the isolation): %w", err)
 	}
 
-	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable, gitRoots: gitDirs(abs),
+	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable,
 		fullDisk: new(atomic.Bool)}
 	s.fullDisk.Store(op.FullDisk)
+	s.gitRoots, s.repoRoots = worktreeGit(abs)
 
 	if err := hideFromChildren(); err != nil {
 		s.notApplied = append(s.notApplied, "process hiding: a command can read motita's environment in /proc: "+err.Error())
@@ -412,10 +424,13 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.op.Limits,
-		Environment: s.environmentWithTmp(tempDir, !confine),
+		Environment: s.environmentWithTmp(tempDir, !confine || p.Approved),
 	}
 
-	if confine {
+	switch {
+	case confine && p.Approved:
+		s.confineApproved(&spec)
+	case confine:
 		s.confine(&spec, workDir, tempDir)
 	}
 
@@ -463,12 +478,13 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 // approves, and an approved command is not confined.
 func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	roots := []string{s.base, workDir, tempDir, "/dev"}
-	if tools := s.toolsDir(); tools != "" {
-		roots = append(roots, filepath.Join(tools, "home"))
+	if home := s.Home(); home != "" {
+		roots = append(roots, home)
 	}
 	roots = append(roots, s.gitRoots...)
 	if workDir != s.base {
-		roots = append(roots, gitDirs(workDir)...)
+		writes, _ := worktreeGit(workDir)
+		roots = append(roots, writes...)
 	}
 	return roots
 }
@@ -492,25 +508,62 @@ func (s *Sandbox) confine(spec *Spec, workDir, tempDir string) {
 // privateTrees are where a machine keeps people's files: none of it is the workspace's business.
 var privateTrees = []string{"/home", "/root", "/mnt", "/media", "/srv", "/run/media"}
 
-// privatePaths are the trees a command confined to the workspace may not read: privateTrees and
-// the user's own home, wherever it is. The directories the command works in stay readable even when
-// they are inside one of them: they are granted by name (writeRoots, readRoots).
+// confineApproved fills in what a command the user approved by name may reach: it writes anywhere,
+// as the user said it may, and reads everything but motita's configuration, its stored keys and the
+// model logins. The git logins stay readable: an approved `git push` is what they are for, and the
+// credential helper git starts runs inside the same confinement.
+func (s *Sandbox) confineApproved(spec *Spec) {
+	spec.WriteRoots = []string{"/"}
+	spec.HiddenPaths = s.approvedHidden()
+}
+
+// approvedHidden are the paths an approved command still may not read: the hidden paths it was
+// given, with the logins directory replaced by the logins in it that are not git's.
+func (s *Sandbox) approvedHidden() []string {
+	auth := ""
+	if strings.TrimSpace(s.op.GitAuthDir) != "" {
+		auth = filepath.Clean(s.op.GitAuthDir)
+	}
+	var hidden []string
+	for _, h := range s.op.HiddenPaths {
+		if auth == "" || filepath.Clean(h) != auth {
+			hidden = append(hidden, h)
+			continue
+		}
+		entries, _ := os.ReadDir(auth)
+		for _, e := range entries {
+			if !gitforge.IsLoginFile(e.Name()) {
+				hidden = append(hidden, filepath.Join(auth, e.Name()))
+			}
+		}
+	}
+	return hidden
+}
+
+// privatePaths are the trees a command confined to the workspace may not read: privateTrees, the
+// user's own home wherever it is, the PrivateRoots it was given and the tools directory, which
+// holds the HOME and the worktrees of every other project. The directories the command works in
+// stay readable even when they are inside one of them: they are granted by name (writeRoots,
+// readRoots), and so are the toolchains.
 func (s *Sandbox) privatePaths() []string {
 	private := append([]string(nil), privateTrees...)
-	if s.op.GitHome != "" && filepath.IsAbs(s.op.GitHome) && filepath.Clean(s.op.GitHome) != "/" {
-		private = append(private, filepath.Clean(s.op.GitHome))
+	for _, p := range append([]string{s.op.GitHome, s.toolsDir()}, s.op.PrivateRoots...) {
+		if p != "" && filepath.IsAbs(p) && filepath.Clean(p) != "/" {
+			private = append(private, filepath.Clean(p))
+		}
 	}
 	return private
 }
 
 // readRoots are what a command confined to the workspace may read besides the system and the
-// directories it writes: the toolchains in the tools directory, the user's git configuration (its
-// files, not the credential store beside them), and the whole of the repository a worktree belongs
-// to, which git reads (its config, HEAD, packed refs) on every command.
+// directories it writes: the toolchains in the tools directory (not the rest of it, see
+// privatePaths), the user's git configuration (its files, not the credential store beside them),
+// and the repository each worktree belongs to: git reads its config, HEAD and packed refs on every
+// command, and its checkout holds the dependency directories linked into the worktree.
 func (s *Sandbox) readRoots(workDir string) []string {
 	var roots []string
 	if tools := s.toolsDir(); tools != "" {
-		roots = append(roots, tools)
+		roots = append(roots, filepath.Join(tools, "bin"), filepath.Join(tools, "tools"))
 	}
 	var gitConfigDirs []string
 	if s.op.GitHome != "" {
@@ -525,13 +578,39 @@ func (s *Sandbox) readRoots(workDir string) []string {
 			roots = append(roots, filepath.Join(dir, name))
 		}
 	}
-	for _, dirs := range [][]string{s.gitRoots, gitDirs(workDir)} {
-		if len(dirs) > 0 {
-			// The first is the worktree's own directory, <repository>/worktrees/<id>.
-			roots = append(roots, filepath.Dir(filepath.Dir(dirs[0])))
-		}
+	roots = append(roots, s.repoRoots...)
+	if workDir != s.base {
+		_, repos := worktreeGit(workDir)
+		roots = append(roots, repos...)
 	}
 	return roots
+}
+
+// worktreeGit are the git directories a command in dir writes outside it (see gitDirs) and the
+// repositories they belong to, for dir and for the worktrees of the project's other repositories
+// inside it. A repository is its checkout when its git directory is the checkout's `.git`.
+func worktreeGit(dir string) (writes, repos []string) {
+	trees := []string{dir}
+	entries, _ := os.ReadDir(filepath.Join(dir, gitx.ReposDir))
+	for _, e := range entries {
+		if e.IsDir() {
+			trees = append(trees, filepath.Join(dir, gitx.ReposDir, e.Name()))
+		}
+	}
+	for _, tree := range trees {
+		dirs := gitDirs(tree)
+		if len(dirs) == 0 {
+			continue
+		}
+		writes = append(writes, dirs...)
+		// The first is the worktree's own directory, <repository>/worktrees/<id>.
+		repo := filepath.Dir(filepath.Dir(dirs[0]))
+		if filepath.Base(repo) == ".git" {
+			repo = filepath.Dir(repo)
+		}
+		repos = append(repos, repo)
+	}
+	return writes, repos
 }
 
 // HiddenPaths is a copy of the paths this sandbox was given to hide, so a sandbox rebuilt for
@@ -679,7 +758,7 @@ func (s *Sandbox) newRunGroup() *runGroup {
 func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 	path, home := systemPath, s.base
 	if tools := s.toolsDir(); tools != "" {
-		path, home = ToolPath(tools, systemPath), filepath.Join(tools, "home")
+		path, home = ToolPath(tools, systemPath), s.Home()
 	}
 	base := []string{
 		"PATH=" + path,
@@ -749,4 +828,37 @@ func (s *Sandbox) IsolationJSON() string {
 		return `{"modes":[],"not_applied":["not serialisable"]}`
 	}
 	return string(data)
+}
+
+// Readable reports whether a command of this sandbox may read path, by the same rule confine gives
+// Landlock: on the whole disk everything but the hidden paths; confined to the workspace, the
+// directories it works in and readRoots, and the system outside privatePaths. It is what motita's
+// own read tools (the ones that do not run as a command) answer by, so a file the agent cannot
+// `cat` is not one it can read some other way. path is absolute and already resolved.
+func (s *Sandbox) Readable(path string) bool {
+	path = filepath.Clean(path)
+	// No run is in progress, so there is no temporary directory of its own to count: the system's
+	// would grant everything under /tmp, a workspace root kept private among it.
+	writes := s.writeRoots(s.base, s.base)
+	if s.FullDisk() {
+		writes = []string{"/"}
+	}
+	if pathUnder(path, s.hiddenPaths(writes)) {
+		return false
+	}
+	if s.FullDisk() || pathUnder(path, writes) || pathUnder(path, s.readRoots(s.base)) {
+		return true
+	}
+	return !pathUnder(path, s.privatePaths())
+}
+
+// pathUnder reports whether p is one of targets or inside one.
+func pathUnder(p string, targets []string) bool {
+	for _, t := range targets {
+		t = filepath.Clean(t)
+		if p == t || strings.HasPrefix(p, strings.TrimSuffix(t, string(filepath.Separator))+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }

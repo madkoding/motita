@@ -734,3 +734,20 @@ func TestRolesRefusalsAndEngines(t *testing.T) {
 		t.Errorf("research brief: %s", b)
 	}
 }
+
+// TestTheProjectReachesThePromptsAndTheTeam: the session's project note is in every prompt as
+// {{project}}, trimmed, and a background agent works under the same project as its main agent.
+func TestTheProjectReachesThePromptsAndTheTeam(t *testing.T) {
+	a := bareAgent(t, nil)
+	if got := a.baseVariables(taskOf("x"))["project"]; got != "" {
+		t.Errorf("a session of no project has no project note: %q", got)
+	}
+	a.SetProjectNote("\n\nThis session belongs to the project \"Shop\".  ")
+	if got := a.baseVariables(taskOf("x"))["project"]; got != `This session belongs to the project "Shop".` {
+		t.Errorf("project = %q", got)
+	}
+	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode)
+	if child.projectNote != a.projectNote {
+		t.Errorf("the background agent must inherit the project: %q", child.projectNote)
+	}
+}

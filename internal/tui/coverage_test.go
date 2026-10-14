@@ -546,3 +546,32 @@ func TestSetDiskAccessReachesTheConfigurationAndTheSandbox(t *testing.T) {
 		t.Error("a rebuilt sandbox must keep the whole disk")
 	}
 }
+
+// TestSetWorkspaceThatCannotBuildASandboxMovesTheOldOne: when the new sandbox cannot be built, the
+// old one is not left running commands in the old directory (for a gateway, the root of every
+// project) while the file actions follow the new one: it moves to the new directory.
+func TestSetWorkspaceThatCannotBuildASandboxMovesTheOldOne(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "plain")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(file, "sub") // under a file: the chroot sandbox cannot create it
+	cfg := config.Default()
+	cfg.Sandbox.Kind = "chroot"
+	cfg.Sandbox.Root = t.TempDir()
+	old, err := sandbox.New(sandbox.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, old, logx.Global())
+	r.SetWorkspace(dir)
+	if r.Box == old || r.Box.Base() != dir {
+		t.Errorf("the sandbox must move to the new directory: %q", r.Box.Base())
+	}
+
+	none := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, nil, nil)
+	none.SetWorkspace(dir)
+	if none.Box != nil || none.Cfg.Agent.WorkspaceDir != dir {
+		t.Errorf("with no sandbox to move there is none: %v", none.Box)
+	}
+}

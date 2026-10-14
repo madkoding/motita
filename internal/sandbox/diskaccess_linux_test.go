@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -155,12 +156,19 @@ func TestReadRootsNameTheToolsTheGitConfigurationAndTheRepository(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(s.readRoots(other), " ")
-	for _, want := range []string{tools, "/home/u/.gitconfig", "/home/u/.config/git/config", "/home/u/.config/git/ignore",
-		"/xdg/git/attributes", filepath.Dir(filepath.Dir(own)), filepath.Dir(filepath.Dir(otherOwn))} {
-		if !strings.Contains(got, want) {
+	roots := s.readRoots(other)
+	got := strings.Join(roots, " ")
+	// The repository is its checkout: <checkout>/.git/worktrees/<id>.
+	checkout := func(own string) string { return filepath.Dir(filepath.Dir(filepath.Dir(own))) }
+	for _, want := range []string{filepath.Join(tools, "bin"), filepath.Join(tools, "tools"), "/home/u/.gitconfig",
+		"/home/u/.config/git/config", "/home/u/.config/git/ignore", "/xdg/git/attributes", checkout(own),
+		checkout(otherOwn)} {
+		if !slices.Contains(roots, want) {
 			t.Errorf("%s is missing from %s", want, got)
 		}
+	}
+	if slices.Contains(roots, tools) {
+		t.Errorf("the tools directory as a whole holds every project's HOME: %s", got)
 	}
 	if strings.Contains(got, "credentials") {
 		t.Errorf("the credential store must never be granted: %s", got)
@@ -169,6 +177,17 @@ func TestReadRootsNameTheToolsTheGitConfigurationAndTheRepository(t *testing.T) 
 	bare := &Sandbox{op: Options{}}
 	if roots := bare.readRoots(t.TempDir()); len(roots) != 0 {
 		t.Errorf("nothing to grant without tools, home or repository: %v", roots)
+	}
+}
+
+// The tools directory and the roots the sandbox was given are private too, never "/" or a
+// relative path.
+func TestPrivatePathsAddTheToolsAndTheGivenRoots(t *testing.T) {
+	tools := t.TempDir()
+	s := &Sandbox{op: Options{ToolsDir: tools, PrivateRoots: []string{"/srv/motita", "/", "rel", ""}}}
+	got := s.privatePaths()[len(privateTrees):]
+	if !slices.Equal(got, []string{tools, "/srv/motita"}) {
+		t.Errorf("private paths: %v", got)
 	}
 }
 

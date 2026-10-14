@@ -27,9 +27,14 @@ type Request struct {
 	Timeout     time.Duration
 	MaxOutput   int64 // bytes of combined output (0 = 256 KiB)
 	Stdin       []byte
-	// Unconfined exempts the command from the sandbox's write confinement. It is set for what the
-	// user approved by name: a command the policy asked about and a person allowed.
+	// Unconfined exempts the command from the sandbox's confinement altogether. It is set when the
+	// policy is off, and for an approved command that needs privileges the confinement would take
+	// from it (sudo and the other set-user-ID programs).
 	Unconfined bool
+	// Approved marks a command the policy asked about and a person allowed by name. It may write
+	// anywhere and is given git's logins, but still cannot read motita's configuration, stored
+	// keys and model logins: the user approved the command, not handing those to it.
+	Approved bool
 }
 
 // limitedBuffer accumulates up to max bytes and marks whether anything was cut,

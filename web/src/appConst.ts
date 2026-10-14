@@ -17,7 +17,6 @@ export const WEBUI_SESSION_URL = "/v1/webui/session";
 // The gateway's resources, as the paths the requests are built from.
 export const SESSIONS_PATH = "/v1/sessions/";
 export const SKILLS_PATH = "/v1/skills/";
-export const PROPOSED_SKILLS_PATH = "/v1/skills/proposed/";
 export const PROJECTS_PATH = "/v1/projects/";
 export const SCHEDULES_PATH = "/v1/schedules/";
 

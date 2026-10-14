@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
@@ -220,6 +221,12 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 		b.WriteString(p.feedbackSuffix(s.Name))
 	}
 	return b.String()
+}
+
+// reviewStore is the store the background review of this planner's turn works on: the planner's
+// own library and ledgers, which are the project's when the session belongs to one.
+func (p *Planner) reviewStore() *procedures.Store {
+	return &procedures.Store{Library: p.library, Ledger: p.reward, Usage: p.usage}
 }
 
 // toolReadSkill returns one procedure in full, which is the whole point of the library: the

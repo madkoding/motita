@@ -32,8 +32,40 @@ func (s *Sandbox) toolsDir() string {
 	// HOME must exist for the programs that write to it. A failure to create it is not a
 	// failure of the run (the command may not need a HOME), and it shows in the command's
 	// own output when it does.
-	_ = os.MkdirAll(filepath.Join(tools, "home"), 0o755)
+	_ = os.MkdirAll(s.homeIn(tools), 0o755)
 	return tools
+}
+
+// Home is the HOME the sandbox gives its commands inside the tools directory, or "" for the old
+// layout, where HOME is the working directory, and for no sandbox at all.
+func (s *Sandbox) Home() string {
+	if s == nil {
+		return ""
+	}
+	tools := s.toolsDir()
+	if tools == "" {
+		return ""
+	}
+	return s.homeIn(tools)
+}
+
+// homeIn is Options.Home inside tools. A name that would leave the tools directory, or none, is
+// the shared "home".
+func (s *Sandbox) homeIn(tools string) string {
+	name := filepath.Clean(strings.TrimSpace(s.op.Home))
+	if name == "." || !filepath.IsLocal(name) {
+		name = "home"
+	}
+	return filepath.Join(tools, name)
+}
+
+// ProjectHome is the HOME, relative to the tools directory, of the sessions of the project whose
+// key is given: one per project, beside the shared "home" the sessions of no project use.
+func ProjectHome(key string) string {
+	if strings.TrimSpace(key) == "" {
+		return ""
+	}
+	return filepath.Join("homes", key)
 }
 
 // tempRoot is where the per-run temporary directories are created: under the tools directory
@@ -131,4 +163,12 @@ func (s *Sandbox) HasTool(name string) bool {
 		}
 	}
 	return false
+}
+
+// PrivateRoots is a copy of the roots this sandbox was told to keep private (Options.PrivateRoots).
+func (s *Sandbox) PrivateRoots() []string {
+	if s == nil {
+		return nil
+	}
+	return append([]string(nil), s.op.PrivateRoots...)
 }

@@ -20,13 +20,16 @@ type ProposalService interface {
 // noProposals is the answer when the library cannot hold proposals.
 const noProposals = "this gateway's library does not keep proposed skills"
 
-// proposals is the service behind the proposal endpoints, or nil after a 501 was written.
-func (s *Server) proposals(w http.ResponseWriter) ProposalService {
-	if s.opts.Skills == nil {
+// proposals is the service behind the proposal endpoints, or nil after a 501 was written: the
+// session's own library when the request is about a session (a project's proposals wait in the
+// project), the process-wide one otherwise.
+func (s *Server) proposals(w http.ResponseWriter, r *http.Request) ProposalService {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return nil
 	}
-	p, ok := s.opts.Skills.(ProposalService)
+	p, ok := svc.(ProposalService)
 	if !ok {
 		writeError(w, http.StatusNotImplemented, noProposals)
 		return nil
@@ -45,8 +48,8 @@ func writeProposalError(w http.ResponseWriter, err error) {
 }
 
 // handleProposedSkills lists the proposals waiting for the user. An empty list, never null.
-func (s *Server) handleProposedSkills(w http.ResponseWriter, _ *http.Request) {
-	p := s.proposals(w)
+func (s *Server) handleProposedSkills(w http.ResponseWriter, r *http.Request) {
+	p := s.proposals(w, r)
 	if p == nil {
 		return
 	}
@@ -63,7 +66,7 @@ func (s *Server) handleProposedSkills(w http.ResponseWriter, _ *http.Request) {
 
 // handleProposedSkill answers one proposal, body included, for the user to read before deciding.
 func (s *Server) handleProposedSkill(w http.ResponseWriter, r *http.Request) {
-	p := s.proposals(w)
+	p := s.proposals(w, r)
 	if p == nil {
 		return
 	}
@@ -77,7 +80,7 @@ func (s *Server) handleProposedSkill(w http.ResponseWriter, r *http.Request) {
 
 // handleAcceptProposedSkill puts a proposal in the library, where sessions use it.
 func (s *Server) handleAcceptProposedSkill(w http.ResponseWriter, r *http.Request) {
-	p := s.proposals(w)
+	p := s.proposals(w, r)
 	if p == nil {
 		return
 	}
@@ -90,7 +93,7 @@ func (s *Server) handleAcceptProposedSkill(w http.ResponseWriter, r *http.Reques
 
 // handleRejectProposedSkill deletes a proposal.
 func (s *Server) handleRejectProposedSkill(w http.ResponseWriter, r *http.Request) {
-	p := s.proposals(w)
+	p := s.proposals(w, r)
 	if p == nil {
 		return
 	}

@@ -265,10 +265,14 @@ const more: Record<string, string> = {
   "Allow the whole disk": "Permitir el disco completo",
   "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.":
     "En este sistema solo se limitan las ediciones de archivos que hace Motita: sus comandos no, porque eso requiere Linux con Landlock y el confinamiento de escritura activado.",
-  "A command you approve one by one still runs as you approved it.":
-    "Un comando que apruebes uno por uno igual se ejecuta como lo aprobaste.",
-  "Motita's own logins and keys stay hidden from its commands either way.":
-    "Las sesiones y claves de Motita siguen ocultas para sus comandos en ambos casos.",
+  "A command you approve one by one can write where you approved it, and sudo runs unconfined.":
+    "Un comando que apruebes uno por uno puede escribir donde lo aprobaste, y sudo corre sin confinamiento.",
+  "Motita's own logins and keys stay hidden from its commands either way, approved ones included.":
+    "Las sesiones y claves de Motita siguen ocultas para sus comandos en ambos casos, también para los aprobados.",
+  "This session works in": "Esta sesión trabaja en",
+  "Its project is": "Su proyecto es",
+  "Its commands' HOME is": "El HOME de sus comandos es",
+  "Kept from its commands:": "Fuera del alcance de sus comandos:",
   "Who can connect": "Quién puede conectarse",
   "This machine only": "Solo este equipo",
   "Local network": "Red local",
@@ -402,7 +406,8 @@ const more: Record<string, string> = {
     "Cuántas veces se refina el sonido: más es más claro y tarda más en empezar. Automático es 8 en la tarjeta gráfica y 5 en el procesador.",
   "Stop the sample": "Detener la muestra",
   "Hear {name}": "Escuchar a {name}",
-  "The sample could not be played: {error}": "No se pudo reproducir la muestra: {error}",
+  "The sample could not be played: {error}":
+    "No se pudo reproducir la muestra: {error}",
   Use: "Usar",
   Download: "Descargar",
   "Motita needs your answer.": "Motita necesita tu respuesta.",

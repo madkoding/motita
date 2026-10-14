@@ -626,15 +626,16 @@ func runtimeOf(p *Project) string {
 	return ""
 }
 
-// applyRuntimeTo tells a session how its project is run, when the service can take it.
-func applyRuntimeTo(svc Service, p *Project) {
+// applyRuntimeTo tells a session how its project is run and where it works, when the service can
+// take it. workspace is the directory the session runs in (its worktree of the project).
+func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	if setter, ok := svc.(interface{ SetContainerRuntime(string) }); ok {
 		setter.SetContainerRuntime(runtimeOf(p))
 	}
-	// The project's other repositories, so the agent knows where they are and that each one is
-	// committed on its own.
+	// The project itself, and its other repositories, so the agent knows what it works on, where
+	// that is, and that each repository is committed on its own.
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
-		setter.SetProjectNote(projectReposNote(p))
+		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p))
 	}
 }
 
@@ -956,7 +957,7 @@ func (s *Server) placeInProject(conv *conversation, projectID string, project *P
 	// is anchored to: a worktree is removed when the session ends, and a
 	// procedure written into one would be lost with it.
 	scopeProceduresTo(conv.svc, project.Dir)
-	applyRuntimeTo(conv.svc, project)
+	applyRuntimeTo(conv.svc, project, dir)
 }
 
 // freeSessionDir is where a session that belongs to no project works: a directory of its own under

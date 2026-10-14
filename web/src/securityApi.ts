@@ -50,3 +50,32 @@ export async function setDiskAccess(
   });
   return view(res);
 }
+
+// SessionScope is where a session's commands work and what the sandbox keeps from them.
+export interface SessionScope {
+  workspace: string;
+  // The project's checkout, "" for a session of no project.
+  project_dir: string;
+  // The HOME its commands get, "" when the sandbox has no tools directory.
+  home: string;
+  // The folders its commands may not read beyond the ones they work in.
+  private_roots: string[];
+}
+
+// getSessionScope reads a session's scope, or null when there is no session or the gateway has
+// no such route.
+export async function getSessionScope(
+  api: Api,
+  sessionId: string,
+): Promise<SessionScope | null> {
+  if (!sessionId) {
+    return null;
+  }
+  const res = await api(
+    "/v1/sessions/" + encodeURIComponent(sessionId) + "/scope",
+  );
+  if (!res.ok) {
+    return null;
+  }
+  return (await res.json()) as SessionScope;
+}

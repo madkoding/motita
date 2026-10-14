@@ -86,6 +86,9 @@ esac
 echo "    ELF class confirmed ($elf_class)"
 
 rm -rf .e2e && mkdir -p .e2e/work
+# The default session belongs to no project, so it works in a folder of its own under the
+# workspace root, never in the root itself.
+DEFAULT_WORK=.e2e/work/sessions/default
 cp configs/e2e-agent.yaml .e2e/config.yaml
 cp configs/e2e-task.txt .e2e/task.txt
 
@@ -185,10 +188,10 @@ esac
 [ "$session_code" = "200" ] && ok "the slot was free for the next request" \
   || bad "the session read answered $session_code after the run, want 200"
 
-[ -f .e2e/work/report.txt ] && ok "the run left report.txt behind" \
+[ -f $DEFAULT_WORK/report.txt ] && ok "the run left report.txt behind" \
   || bad "the run left no report.txt"
-if [ -f .e2e/work/report.txt ]; then
-  content="$(cat .e2e/work/report.txt)"
+if [ -f $DEFAULT_WORK/report.txt ]; then
+  content="$(cat $DEFAULT_WORK/report.txt)"
   [ "$content" = "content-valid" ] && ok "the report holds the requested contents" \
     || bad "the report holds '$content'"
 fi
@@ -450,11 +453,11 @@ code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/sessions/def
 
 # The turn finished and left its work on disk even though the client that started it went away. This
 # is the consequence that matters: the turn was not thrown away with the connection.
-[ -f .e2e/work/report.txt ] \
+[ -f $DEFAULT_WORK/report.txt ] \
   && ok "the turn outlived the client that started it and left its file behind" \
   || bad "the turn was thrown away when its client disconnected"
-if [ -f .e2e/work/report.txt ]; then
-  resumed_content="$(cat .e2e/work/report.txt)"
+if [ -f $DEFAULT_WORK/report.txt ]; then
+  resumed_content="$(cat $DEFAULT_WORK/report.txt)"
   [ "$resumed_content" = "content-valid" ] \
     && ok "the resumed turn wrote the requested contents" \
     || bad "the resumed turn wrote '$resumed_content'"

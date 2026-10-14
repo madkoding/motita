@@ -354,6 +354,9 @@ func (a *Agent) newChild(place childPlace, role string) *Agent {
 		child.ExecCommand = a.ExecCommand
 	}
 	child.library = a.library
+	// The project the session works in: a background agent works in its own directory, but on
+	// the same project and under the same scope as the agent that started it.
+	child.projectNote = a.projectNote
 	child.isChild = true
 	child.research = place.branch == "" || !writes(role)
 	// The gate the main agent's task started with: a background agent cannot pass a gate it or

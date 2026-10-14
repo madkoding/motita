@@ -696,3 +696,14 @@ func TestConfinementFollowsThePolicy(t *testing.T) {
 		}
 	}
 }
+
+// An approved line runs confined away from motita's keys, unless it gains privileges, which the
+// confinement would take from it.
+func TestApproveRequestConfinesAllButPrivilegedLines(t *testing.T) {
+	var plain, privileged execx.Request
+	approveRequest(&plain, "npm install -g pnpm")
+	approveRequest(&privileged, "sudo apt-get install jq")
+	if !plain.Approved || plain.Unconfined || !privileged.Approved || !privileged.Unconfined {
+		t.Errorf("plain %+v privileged %+v", plain, privileged)
+	}
+}

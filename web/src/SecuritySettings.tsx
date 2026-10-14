@@ -6,7 +6,9 @@ import { errorMessage } from "./errors";
 import {
   type DiskAccess,
   type SecurityView,
+  type SessionScope,
   getSecurity,
+  getSessionScope,
   setDiskAccess,
 } from "./securityApi";
 import { Row, Segmented } from "./SettingsControls";
@@ -173,22 +175,84 @@ function DiskAccessControls({
         />
       )}
       <p class="settings-card-note text-xs text-[#7a7a8c]">
-        {t("A command you approve one by one still runs as you approved it.")}
+        {t(
+          "A command you approve one by one can write where you approved it, and sudo runs unconfined.",
+        )}
         {view.enforced &&
           " " +
             t(
-              "Motita's own logins and keys stay hidden from its commands either way.",
+              "Motita's own logins and keys stay hidden from its commands either way, approved ones included.",
             )}
       </p>
     </>
   );
 }
 
+// useSessionScope reads where the open session works, refreshed when the session changes.
+function useSessionScope(api: Api, sessionId: string) {
+  const [scope, setScope] = useState<SessionScope | null>(null);
+  useEffect(() => {
+    let live = true;
+    getSessionScope(api, sessionId)
+      .then((v) => {
+        if (live) {
+          setScope(v);
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setScope(null);
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, sessionId]);
+  return scope;
+}
+
+// SessionScopeNote says, for the open session, where its commands work, which HOME they get and
+// which folders are kept from them: the limits above, made concrete.
+function SessionScopeNote({ scope }: { scope: SessionScope }) {
+  return (
+    <ul
+      class="settings-card-note text-xs text-[#7a7a8c]"
+      data-testid="security-session-scope"
+    >
+      <li>
+        {t("This session works in")} <code>{scope.workspace}</code>
+      </li>
+      {scope.project_dir && (
+        <li>
+          {t("Its project is")} <code>{scope.project_dir}</code>
+        </li>
+      )}
+      {scope.home && (
+        <li>
+          {t("Its commands' HOME is")} <code>{scope.home}</code>
+        </li>
+      )}
+      {scope.private_roots.map((p) => (
+        <li key={p}>
+          {t("Kept from its commands:")} <code>{p}</code>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // SecuritySettings is how much of the disk Motita reaches: its workspace only (the default) or
 // the whole disk, which is never given without a confirmation that says what it implies. The
 // section stays hidden on a gateway without the security API.
-export function SecuritySettings({ api }: { api: Api }) {
+export function SecuritySettings({
+  api,
+  sessionId = "",
+}: {
+  api: Api;
+  sessionId?: string;
+}) {
   const sec = useSecurity(api);
+  const scope = useSessionScope(api, sessionId);
   const { view, loadErr, err, busy, asking } = sec;
   if (view === null || (view === undefined && !loadErr)) {
     return null;
@@ -218,6 +282,7 @@ export function SecuritySettings({ api }: { api: Api }) {
             sec={sec}
           />
         )}
+        {scope && <SessionScopeNote scope={scope} />}
         {err && (
           <p
             class="settings-card-note text-xs text-danger"

@@ -1291,7 +1291,11 @@ Settings → **Security** in the browser interface chooses how much of the disk 
 - **Whole disk**: both reach anywhere your user account can. motita's logins and keys stay hidden
   from its commands. The page asks first and spells out the risk.
 
-A command you approve one by one runs unconfined in both modes. The change is written into the
+A command you approve one by one may write anywhere in both modes, but still cannot read motita's
+configuration, stored keys or model logins (git's logins stay readable for `git push`); a line that
+runs `sudo` or another set-user-ID program runs unconfined, since confining it would break it. Each
+project's sessions get a HOME of their own in the tools directory (`homes/<project>`), and a session
+cannot read the rest of the gateway's workspace root: the other projects and sessions. The change is written into the
 configuration file in place and handed to every open session at once, from its next command; a
 command already running keeps its rules. Where the kernel cannot confine commands the page says
 that only motita's own file edits are limited.
@@ -1300,6 +1304,7 @@ that only motita's own file edits are limited.
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`) |
 | `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`; `confirm` is required for `full`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS` overrides it |
+| `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud
 
@@ -1488,6 +1493,13 @@ curator:
 | `DELETE /v1/skills/proposed/{name}`      | reject a proposal: it is deleted                                                            |
 | `GET /v1/curator`                        | the thresholds, the last pass, and the lifecycle counts                                     |
 | `POST /v1/curator/run`                   | run one pass now: `consolidate`, `dry_run`                                                  |
+
+Every `/v1/skills…` route is also served as `/v1/sessions/{id}/skills…`, answered by that session's
+library: in a project, its own documents over the shared shelf, its own telemetry (scores, pins,
+switch-offs) and its own proposals, kept in `<project>/.motita/skills/.proposed`. The web UI uses
+these while a session is open. A project's telemetry lives in motita's state under
+`<skills>/.projects/<project>`; what the shared ledgers held about a project's documents before moves
+there the first time the project is opened.
 
 ```bash
 TOKEN="$(cat ~/.motita/gateway.token)"

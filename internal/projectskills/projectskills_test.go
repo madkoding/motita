@@ -223,3 +223,15 @@ func TestSavingInsideAProjectLandsInTheProject(t *testing.T) {
 		t.Error("a procedure saved inside a project leaked into the shared shelf")
 	}
 }
+
+// A project's key is stable, safe as a file name, names the folder, and tells two folders of the
+// same name apart.
+func TestKeyNamesTheProject(t *testing.T) {
+	a, b := Key("/srv/work/my shop"), Key("/home/me/my shop/")
+	if Key(" ") != "" || a == b || a != Key("/srv/work/my shop/") {
+		t.Fatalf("keys: %q %q", a, b)
+	}
+	if !strings.HasPrefix(a, "my-shop-") || len(a) != len("my-shop-")+12 || strings.ContainsAny(a, "/ ") {
+		t.Errorf("key: %q", a)
+	}
+}

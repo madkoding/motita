@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -173,6 +174,10 @@ type AppRunner struct {
 	// interface ended up with one while the other two promised the model a library and then
 	// answered that none was configured.
 	store *procedures.Store
+	// shared is the store before any project scope: the one UseStore installed or procedures()
+	// built. A scope is always made from it, never from a store that is already scoped, so a
+	// second SetProjectScope replaces the first instead of layering a project over another.
+	shared *procedures.Store
 	// projectScope is the project this runner's library belongs to, remembered even before a
 	// store exists: the gateway tells a session which project it is in when the session is
 	// created or restored, which can happen before anything has run a turn.
@@ -187,6 +192,14 @@ type AppRunner struct {
 	// projectNote is what the gateway tells the agent about the project's other repositories,
 	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
 	projectNote string
+
+	// toolsHome is the HOME, inside the tools directory, the sandbox gives this session's
+	// commands: one per project (see SetProjectScope), the shared one otherwise. rootDir is the
+	// workspace the runner was born in - for a gateway, the root that holds every project and
+	// session - which a command confined to a session's own folder may not read. Both are guarded
+	// by cfgMu, like the sandbox they shape.
+	toolsHome string
+	rootDir   string
 
 	// rewardMu guards the last attribution.
 	//
@@ -206,10 +219,15 @@ type AppRunner struct {
 // NewAppRunner creates the production runner.
 func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox,
 	log *logx.Logger) *AppRunner {
+	root := ""
+	if dir := strings.TrimSpace(cfg.Agent.WorkspaceDir); dir != "" {
+		root, _ = filepath.Abs(dir)
+	}
 	return &AppRunner{
 		Out: out, Err: errs, Cfg: cfg, Engine: engine, Box: box, Log: log,
 		newAgent:     defaultAgentFactory,
 		claudeModels: llm.ClaudeCodeModels,
+		rootDir:      root,
 	}
 }
 
@@ -389,7 +407,7 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	}
 	r.cfgMu.Lock()
 	r.Cfg.Agent.WorkspaceDir = dir
-	cfg := r.Cfg
+	cfg, home, root := r.Cfg, r.toolsHome, r.rootDir
 	r.cfgMu.Unlock()
 	// Rebuild the sandbox with the new workspace directory so commands
 	// actually execute there, not in the directory the runner was born with.
@@ -412,6 +430,8 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
 		HiddenPaths:   config.SecretFiles(""),
+		Home:          home,
+		PrivateRoots:  privateRoots(root, dir),
 		Log:           r.Log,
 	}
 	if r.Box != nil {
@@ -435,9 +455,44 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		}
 	}
 	op.Limits.NoNetwork = cfg.Sandbox.IsolateNetwork
-	if box, err := sandbox.New(op); err == nil {
-		r.Box = box
+	box, err := sandbox.New(op)
+	if err != nil {
+		// The old sandbox is NOT kept as it is: its commands would run in the directory the runner
+		// was born with - for a gateway, the root that holds every project - while the file
+		// actions follow the new one. The same isolation moved to the new directory keeps the
+		// two together.
+		if r.Log != nil {
+			r.Log.Warn("the sandbox could not be rebuilt for the new workspace; the current one moves there",
+				"dir", dir, "error", err.Error())
+		}
+		if r.Box == nil {
+			return
+		}
+		box = r.Box.WithDir(dir)
 	}
+	r.cfgMu.Lock()
+	r.Box = box
+	r.cfgMu.Unlock()
+}
+
+// SandboxScope is the HOME this session's commands get and the folders kept private from them,
+// for the settings page to show.
+func (r *AppRunner) SandboxScope() (home string, private []string) {
+	r.cfgMu.Lock()
+	box := r.Box
+	r.cfgMu.Unlock()
+	return box.Home(), box.PrivateRoots()
+}
+
+// privateRoots is the root the runner was born in, when the session now works somewhere else
+// inside it or beside it: the other projects and sessions there are none of this one's business.
+func privateRoots(root, dir string) []string {
+	// Abs fails only when the working directory is gone, and then dir is compared as it is.
+	abs, _ := filepath.Abs(dir)
+	if root == "" || filepath.Clean(abs) == root {
+		return nil
+	}
+	return []string{root}
 }
 
 // SetDiskAccess changes how much of the disk the agent reaches: "full" for the whole disk, anything
@@ -479,14 +534,20 @@ func (r *AppRunner) SetProjectNote(note string) {
 // applyRuntimeNote rewrites the runtime and project sentences at the end of the system prompt.
 // The caller holds sessionMu and has a session.
 func (r *AppRunner) applyRuntimeNote() {
+	note := r.projectContext()
+	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
+	r.runtimeNote = note
+}
+
+// projectContext is the runtime and project sentences, as they go at the end of the system
+// prompt. The caller holds sessionMu.
+func (r *AppRunner) projectContext() string {
 	note := ""
 	if r.containerRuntime == "podman" {
 		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project " +
 			"has a compose file) to build and start it, and do not use docker."
 	}
-	note += r.projectNote
-	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
-	r.runtimeNote = note
+	return note + r.projectNote
 }
 
 // SetProjectScope makes this runner's procedure library belong to ONE project.
@@ -502,28 +563,32 @@ func (r *AppRunner) applyRuntimeNote() {
 //
 // An empty projectDir is the "no project" case and clears the scope, leaving the shared shelf.
 func (r *AppRunner) SetProjectScope(projectDir string) {
+	// The HOME follows the project too: what one project's tools leave there (logins, caches,
+	// history) must not be what another project's commands find.
+	home := ""
+	if projectDir != "" {
+		home = sandbox.ProjectHome(projectskills.Key(projectDir))
+	}
+	r.cfgMu.Lock()
+	r.toolsHome = home
+	if r.Box != nil {
+		r.Box = r.Box.WithHome(home)
+	}
+	r.cfgMu.Unlock()
+
 	r.sessionMu.Lock()
-	shared := r.store
-	if shared == nil {
-		// Nothing has built the library yet. Remember the scope and apply it when one is
+	defer r.sessionMu.Unlock()
+	r.projectScope = projectDir
+	if r.shared == nil {
+		r.shared = r.store
+	}
+	if r.shared == nil {
+		// Nothing has built the library yet. The scope is remembered and applied when one is
 		// built, rather than building one here: a runner that has never run a turn has no
 		// business creating a directory.
-		r.projectScope = projectDir
-		r.sessionMu.Unlock()
 		return
 	}
-	r.sessionMu.Unlock()
-
-	scoped := *shared
-	if shared.Library != nil {
-		lib := *shared.Library
-		projectskills.Scope(&lib, projectDir)
-		scoped.Library = &lib
-	}
-	r.sessionMu.Lock()
-	r.store = &scoped
-	r.projectScope = projectDir
-	r.sessionMu.Unlock()
+	r.store = procedures.Scoped(r.shared, projectDir)
 }
 
 // engine returns the injected engine if it exists, otherwise it builds one from
@@ -884,6 +949,15 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// arrive after the question had already been answered with a refusal.
 	installApproverOn(ag, r.approverOrNil())
 	r.equipAgent(ag)
+	// The project this session works in, the same sentences Plan mode's system prompt ends with:
+	// a turn in Task mode is as bound to the project as a question in Plan mode, and it is the one
+	// that writes.
+	if setter, ok := ag.(interface{ SetProjectNote(string) }); ok {
+		r.sessionMu.Lock()
+		note := r.projectContext()
+		r.sessionMu.Unlock()
+		setter.SetProjectNote(note)
+	}
 	// The background agents this turn starts run on the model their role is assigned, built by
 	// THIS runner: they are part of this session's team and of no other.
 	if setter, ok := ag.(interface {

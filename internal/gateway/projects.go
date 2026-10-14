@@ -189,7 +189,8 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if gitURL != "" {
 		absDir, mainBranch, cloneLog, ok = s.cloneProject(w, r, gitURL, absDir, mainBranch)
 	} else {
-		ok = s.prepareProjectFolder(w, r, absDir, mainBranch, body.GitUserName, body.GitUserEmail)
+		ok = s.refuseSharedDir(w, absDir) &&
+			s.prepareProjectFolder(w, r, absDir, mainBranch, body.GitUserName, body.GitUserEmail)
 	}
 	if !ok {
 		return
@@ -241,7 +242,56 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return "", false
 	}
+	if reservedFolders[strings.ToLower(dirName)] {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("%q is where motita keeps its sessions: "+
+			"choose another folder name", dirName))
+		return "", false
+	}
 	return dirName, true
+}
+
+// reservedFolders are the workspace's own folders, which hold the worktrees and folders of every
+// session of every project. A project there would run its sessions among all the others' work, and
+// deleting it would delete that work.
+var reservedFolders = map[string]bool{"worktrees": true, "sessions": true}
+
+// projectInDir is the project whose folder is dir, inside it or around it, nil when there is
+// none. Two projects on one checkout would share its branches, its files and its skills, and
+// deleting one would take the other's folder with it: every project is its own folder.
+func (s *Server) projectInDir(dir, except string) *Project {
+	if s.projects == nil || dir == "" {
+		return nil
+	}
+	all, err := s.projects.loadAll()
+	if err != nil {
+		return nil
+	}
+	for i := range all {
+		p := &all[i]
+		if p.ID == except || p.Dir == "" {
+			continue
+		}
+		if gitx.SamePath(p.Dir, dir) || pathWithin(p.Dir, dir) || pathWithin(dir, p.Dir) {
+			return p
+		}
+	}
+	return nil
+}
+
+// pathWithin reports whether path is strictly inside root.
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	return err == nil && !relLeavesRoot(rel) && !filepath.IsAbs(rel)
+}
+
+// refuseSharedDir answers 409, and returns false, when dir is another project's folder.
+func (s *Server) refuseSharedDir(w http.ResponseWriter, dir string) bool {
+	if other := s.projectInDir(dir, ""); other != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("that folder is already used by the project %q: "+
+			"each project works in a folder of its own", other.Title))
+		return false
+	}
+	return true
 }
 
 // requestedMainBranch reads the main branch a new project asks for. The default needs no check,
@@ -268,6 +318,11 @@ func (s *Server) cloneProject(
 	// A folder that holds something else is not overwritten or refused: the clone goes to
 	// the next free "<name>-2", "<name>-3"... and the project records that path.
 	absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv())
+	// freeCloneDir reuses a folder that already holds a clone of the same repository, and that
+	// folder may be another project's.
+	if !s.refuseSharedDir(w, absDir) {
+		return "", "", "", false
+	}
 	cloneLog, err := cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
 	if err != nil {
 		s.writeCloneError(w, gitURL, err)
@@ -363,7 +418,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, c := range s.sessionsOfProject(p.ID) {
-		applyRuntimeTo(c.svc, p)
+		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	// With no sessions the checkout belongs on the main branch, including a main branch just chosen.
 	s.returnToMain(p)
@@ -628,7 +683,9 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// The project's own folder goes with it, so a later project of the same name does not find
 	// the old files in the way. The deletion dialog is the confirmation.
 	var projectDir string
-	if p := s.projectOf(id); p != nil && s.ownsProjectDir(p.Dir) {
+	// A folder another project also stands on (a record from before folders were refused twice)
+	// stays: it is that project's too.
+	if p := s.projectOf(id); p != nil && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
 		projectDir = p.Dir
 	}
 	// Only now that every checkout has been proven safe to give back are the
@@ -815,7 +872,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		newConv.setTitle("continue: " + c.title)
 	}
 	scopeProceduresTo(newConv.svc, projectskills.ProjectDirFor(p.Dir, dir))
-	applyRuntimeTo(newConv.svc, p)
+	applyRuntimeTo(newConv.svc, p, dir)
 	s.saveSession(newConv)
 	return newConv, http.StatusCreated, nil
 }

@@ -134,6 +134,12 @@ type Agent struct {
 	// runs this agent; nil (or a nil answer) means this agent's own engine. See SetRoleEngines.
 	roleEngines func(role string) *llm.Client
 
+	// projectNote is what the session tells the agent about where it works: the project it
+	// belongs to, its root, how it is run and its other repositories. "" for a session that
+	// belongs to none. It reaches the prompts as {{project}} and is inherited by background
+	// agents, so the whole team works inside the same project. See SetProjectNote.
+	projectNote string
+
 	// gate is the fingerprint of the project's gate (anchor kind auto) as the task found it; a
 	// background agent inherits its main agent's. See guardGate.
 	gate string
@@ -195,6 +201,9 @@ func (a *Agent) consult(name string) {
 	}
 	a.consulted[name]++
 }
+
+// SetProjectNote sets what the agent is told about the project it works in (see projectNote).
+func (a *Agent) SetProjectNote(note string) { a.projectNote = strings.TrimSpace(note) }
 
 // SetLiveThinking turns on the live view of the model's reasoning: while a phase is being
 // generated, snapshots of what the model has written so far are reported as progress lines
@@ -274,7 +283,7 @@ func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, er
 				fmt.Errorf("the user declined to run: %s", command)
 		}
 		// A person said yes to this line by name, including to where it writes.
-		p.Request.Unconfined = true
+		approveRequest(&p.Request, command)
 	}
 	output, _, exit, err := a.exec(ctx, p.Request)
 	return output, exit, err

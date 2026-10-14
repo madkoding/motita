@@ -15,6 +15,8 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/projectskills"
+	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/skills"
 )
 
@@ -156,5 +158,55 @@ func TestScopingOneRunnerDoesNotScopeAnother(t *testing.T) {
 	}
 	if !hasName(namesOf(t, a.library()), "alpha-only") {
 		t.Error("the scoped runner lost its own scope")
+	}
+}
+
+// A store installed on a runner that already knows its project comes up scoped, with the
+// project's own ledgers; nil leaves the runner to build its own.
+func TestAStoreInstalledAfterTheScopeIsScoped(t *testing.T) {
+	r, shared := scopedRunner(t)
+	project := t.TempDir()
+	writeProc(t, project, "late-only", "# Late only\n\nbody\n")
+	r.SetProjectScope(project)
+	store := procedures.Open(r.Config(), nil)
+	r.UseStore(store)
+	if !hasName(namesOf(t, r.library()), "late-only") || r.procedures().Usage == store.Usage {
+		t.Error("the installed store must be scoped to the runner's project")
+	}
+	r.UseStore(nil)
+	if r.procedures() == nil {
+		t.Error("a runner given no store builds one")
+	}
+	_ = shared
+}
+
+// A project's commands get a HOME of their own in the tools directory, and the root the runner
+// was born in is kept from a session working elsewhere inside it.
+func TestTheSandboxFollowsTheProject(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Agent.WorkspaceDir = root
+	cfg.Sandbox.ToolsDir = t.TempDir()
+	cfg.Sandbox.Kind = "none"
+	r := NewAppRunner(os.Stdout, os.Stderr, cfg, nil, nil, nil)
+	project := filepath.Join(root, "shop")
+	r.SetProjectScope(project) // no sandbox yet: only remembered
+	r.SetWorkspace(filepath.Join(root, "worktrees", "s1"))
+	home := filepath.Join(cfg.Sandbox.ToolsDir, sandbox.ProjectHome(projectskills.Key(project)))
+	if r.Box == nil || r.Box.Home() != home {
+		t.Fatalf("the project's HOME: %v", r.Box)
+	}
+	r.SetProjectScope("")
+	if r.Box.Home() != filepath.Join(cfg.Sandbox.ToolsDir, "home") {
+		t.Errorf("no project is the shared HOME: %s", r.Box.Home())
+	}
+	if home, private := r.SandboxScope(); home != r.Box.Home() || len(private) != 1 || private[0] != root {
+		t.Errorf("SandboxScope: %s %v", home, private)
+	}
+	if got := privateRoots(root, filepath.Join(root, "sessions", "a")); len(got) != 1 || got[0] != root {
+		t.Errorf("privateRoots: %v", got)
+	}
+	if privateRoots(root, root) != nil || privateRoots("", "/x") != nil {
+		t.Error("nothing is private from the root itself, or without one")
 	}
 }

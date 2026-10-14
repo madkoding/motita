@@ -129,7 +129,7 @@ func TestMaybeRunDisabledDoesNothing(t *testing.T) {
 			built++
 			return &fakeRunner{}
 		})
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "hi"}}, 100)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "hi"}}, 100)
 	time.Sleep(50 * time.Millisecond)
 	if built != 0 {
 		t.Fatalf("a disabled review built a runner %d times", built)
@@ -146,7 +146,7 @@ func TestMaybeRunBelowIntervalDoesNothing(t *testing.T) {
 			built++
 			return &fakeRunner{}
 		})
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "hi"}}, 4)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "hi"}}, 4)
 	time.Sleep(50 * time.Millisecond)
 	if built != 0 {
 		t.Fatalf("a review below the interval built a runner %d times", built)
@@ -160,7 +160,7 @@ func TestMaybeRunRunsTheFork(t *testing.T) {
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: 2 * time.Second, MaxIterations: 7},
 		nil, &procedures.Store{}, nil, builder(fr, &soul, &loops))
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "please fix the tone"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "please fix the tone"}}, 1)
 	r.Wait(2 * time.Second)
 
 	if fr.callCount() != 1 {
@@ -185,7 +185,7 @@ func TestRunLogsAFailure(t *testing.T) {
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: time.Second},
 		nil, &procedures.Store{}, newTestLogger(t), builder(fr, nil, nil))
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "x"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "x"}}, 1)
 	r.Wait(2 * time.Second)
 
 	if fr.callCount() != 1 {
@@ -201,7 +201,7 @@ func TestRunSkipsTheLogWhenNothingToSave(t *testing.T) {
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: time.Second},
 		nil, &procedures.Store{}, newTestLogger(t), builder(fr, nil, nil))
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "x"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "x"}}, 1)
 	r.Wait(2 * time.Second)
 
 	if fr.callCount() != 1 {
@@ -214,7 +214,7 @@ func TestRunTruncatesALongResult(t *testing.T) {
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: time.Second},
 		nil, &procedures.Store{}, newTestLogger(t), builder(fr, nil, nil))
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "x"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "x"}}, 1)
 	r.Wait(2 * time.Second)
 
 	if fr.callCount() != 1 {
@@ -235,7 +235,7 @@ func TestRunSavesTheUsageLedger(t *testing.T) {
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: time.Second},
 		nil, procs, nil, builder(fr, nil, nil))
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "x"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "x"}}, 1)
 	r.Wait(2 * time.Second)
 
 	if fr.callCount() != 1 {
@@ -262,7 +262,7 @@ func TestRunLogsAUsageSaveFailure(t *testing.T) {
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: time.Second},
 		nil, procs, newTestLogger(t), builder(fr, nil, nil))
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "x"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "x"}}, 1)
 	r.Wait(2 * time.Second)
 
 	if fr.callCount() != 1 {
@@ -290,14 +290,14 @@ func TestMaybeRunCancelsTheInFlightReview(t *testing.T) {
 			return fr
 		})
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "one"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "one"}}, 1)
 	waitFor(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(built) == 1
 	})
 
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "two"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "two"}}, 1)
 	waitFor(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()

@@ -191,6 +191,12 @@ func (s *Server) startNotedRun(
 	if c == nil || c.svc == nil {
 		return nil, false
 	}
+	// An integrated session is read-only on every path, not only the ones a person types into: a
+	// schedule or a resumed run would otherwise keep writing on a branch whose work is already in
+	// the project.
+	if c.isMerged() {
+		return nil, false
+	}
 	if !c.takeRunSlot() {
 		return nil, false
 	}

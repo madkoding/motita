@@ -271,11 +271,11 @@ func (n *noteService) SetProjectNote(note string) { n.note = note }
 
 func TestTheAgentIsToldAboutTheOtherRepositories(t *testing.T) {
 	svc := &noteService{}
-	applyRuntimeTo(svc, &Project{})
-	if svc.note != "" {
-		t.Errorf("a one-repository project says nothing: %q", svc.note)
+	applyRuntimeTo(svc, &Project{}, "")
+	if strings.Contains(svc.note, gitx.ReposDir) {
+		t.Errorf("a one-repository project names no other repository: %q", svc.note)
 	}
-	applyRuntimeTo(svc, &Project{Repos: []ProjectRepo{{Name: "api", GitURL: "https://x/api.git"}}})
+	applyRuntimeTo(svc, &Project{Repos: []ProjectRepo{{Name: "api", GitURL: "https://x/api.git"}}}, "")
 	if !strings.Contains(svc.note, gitx.ReposDir+"/api (https://x/api.git)") {
 		t.Errorf("the note must name each repository: %q", svc.note)
 	}
@@ -304,4 +304,29 @@ func convNamed(t *testing.T, srv *Server, id string) *conversation {
 		t.Fatalf("no session %s", id)
 	}
 	return c
+}
+
+func TestTheAgentIsToldWhichProjectItWorksIn(t *testing.T) {
+	svc := &noteService{}
+	applyRuntimeTo(svc, &Project{Title: "Shop", Dir: "/w/shop"}, "/w/worktrees/s1")
+	for _, want := range []string{`project "Shop"`, "/w/worktrees/s1", "/w/shop", "it means this project"} {
+		if !strings.Contains(svc.note, want) {
+			t.Errorf("the note must say %q: %q", want, svc.note)
+		}
+	}
+	// In the project's own checkout (no worktree) the root is that checkout; without a title the
+	// folder names the project.
+	applyRuntimeTo(svc, &Project{Dir: "/w/shop"}, "/w/shop")
+	if !strings.Contains(svc.note, `project "shop"`) || !strings.Contains(svc.note, "working directory, /w/shop.") {
+		t.Errorf("a session in the checkout: %q", svc.note)
+	}
+	if strings.Contains(svc.note, "worktree") {
+		t.Errorf("no worktree to name: %q", svc.note)
+	}
+	if projectScopeNote(nil, "/x") != "" {
+		t.Error("a session of no project gets no project note")
+	}
+	if n := projectScopeNote(&Project{Title: "T"}, ""); !strings.Contains(n, `"T"`) || strings.Contains(n, "Its root") {
+		t.Errorf("without a directory the note names only the project: %q", n)
+	}
 }
