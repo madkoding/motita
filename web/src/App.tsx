@@ -53,6 +53,7 @@ import { NewProjectModal } from "./NewProjectModal";
 import { GitIdentityModal } from "./GitIdentityModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
+import { Subtitles } from "./Subtitles";
 import { ToastCard } from "./ToastCard";
 import { UpgradeModal } from "./UpgradeModal";
 import { SkillLibraryModal } from "./SkillLibraryModal";
@@ -483,11 +484,12 @@ function NoSession() {
   );
 }
 
-// MainColumn is the header, the conversation, the drawers and panels over it, and the composer.
+// MainColumn is the header, the conversation, the drawers and panels over it, the subtitles of
+// the voice, and the composer.
 // `relative` is what anchors the chat spinner to THIS column: without it the spinner would be
 // positioned against the nearest positioned ancestor, or the window, and would cover the sidebar.
 function MainColumn({ pr }: { pr: PullRequest }) {
-  const { rs, scroll } = useApp();
+  const { rs, scroll, speech } = useApp();
   if (rs.noSession) {
     return (
       <div class="flex flex-col flex-1 min-w-0 h-full relative">
@@ -504,6 +506,10 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <ThinkDrawer />
       <AgentsDrawer />
       {scroll.chatLoading && <ChatLoadingModal />}
+      <Subtitles
+        on={speech.prefs.subtitles}
+        size={speech.prefs.subtitleSize}
+      />
       {rs.approval && <ApprovalPanel approval={rs.approval} />}
       <PRBar pr={pr} />
       <Composer />

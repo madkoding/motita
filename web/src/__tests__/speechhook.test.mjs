@@ -89,8 +89,13 @@ await build({
   logLevel: "silent",
 });
 const { useSpeech } = await import(pathToFileURL(join(out, "sp.mjs")).href);
-const { SPEECH_KEY, SPEECH_TURN_READ_EVENT, stopSpeaking, sayNotice } =
-  await import("../speech.ts");
+const {
+  SPEECH_KEY,
+  SPEECH_TURN_READ_EVENT,
+  SUBTITLE_EVENT,
+  stopSpeaking,
+  sayNotice,
+} = await import("../speech.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
@@ -306,6 +311,42 @@ test("a failure of the voice is reported, and says what to do when the browser w
   await s.done();
 });
 
+// subtitles records what the subtitles are told: each sentence the voice starts, "" when it ends.
+function subtitles() {
+  const seen = [];
+  const on = (e) => seen.push(e.detail);
+  window.addEventListener(SUBTITLE_EVENT, on);
+  return { seen, off: () => window.removeEventListener(SUBTITLE_EVENT, on) };
+}
+
+test("subtitles: each sentence as the voice starts it, gone when it ends, is stopped or fails", async () => {
+  const sub = subtitles();
+  const s = await mount("off");
+  await act(() => s.state.current.speak(answer(2)));
+  assert.deepEqual(sub.seen, [], "nothing before the voice starts");
+  await act(() => synth.said.at(-1).onstart({}));
+  assert.deepEqual(sub.seen, [ALL_DONE]);
+  await act(() => synth.said.at(-1).onend({}));
+  await act(() => synth.said.at(-1).onstart({}));
+  assert.deepEqual(sub.seen, [ALL_DONE, TESTS_PASS], "no gap between sentences");
+  await act(() => synth.said.at(-1).onend({}));
+  assert.deepEqual(sub.seen, [ALL_DONE, TESTS_PASS, ""], "gone at the end");
+
+  sub.seen.length = 0;
+  await act(() => s.state.current.speak(answer(LATER_ID)));
+  await act(() => synth.said.at(-1).onstart({}));
+  await act(() => s.state.current.stop());
+  assert.deepEqual(sub.seen, [ALL_DONE, ""], "gone when stopped");
+
+  sub.seen.length = 0;
+  await act(() => s.state.current.speak(answer(4)));
+  await act(() => synth.said.at(-1).onstart({}));
+  await act(() => synth.said.at(-1).onerror({ error: "synthesis-failed" }));
+  assert.deepEqual(sub.seen, [ALL_DONE, ""], "gone when the voice fails");
+  sub.off();
+  await s.done();
+});
+
 // fakeNarrator answers the narrate endpoint with one line per stage, and records what it was asked.
 function fakeNarrator(lines, fail = false) {
   const asked = [];
@@ -332,6 +373,7 @@ test("natural: a line when the turn starts, one while it works, and the gist at 
     progress: "Estoy corriendo los tests.",
     answer: "Listo: todo pasa.",
   });
+  const sub = subtitles();
   const s = await mount("always", false, { style: "natural", api: n.api });
   await s.set({ running: true, messages: [user(1)] });
   await flush();
@@ -346,6 +388,12 @@ test("natural: a line when the turn starts, one while it works, and the gist at 
     [OPENING],
   );
   await act(() => synth.finish());
+  assert.deepEqual(
+    sub.seen,
+    ["", OPENING, ""],
+    "a new turn clears the subtitle; the line the model wrote is the next one",
+  );
+  sub.off();
 
   // Nothing new: no progress line, however long it waits.
   t.mock.timers.tick(PAST_THE_GAP_MS);
@@ -481,6 +529,7 @@ function gatewayApi() {
 test("gateway: chosen and on, the gateway says each sentence with the voice chosen", async () => {
   played.length = 0;
   const g = gatewayApi();
+  const sub = subtitles();
   const s = await mount("off", false, {
     engine: "gateway",
     gatewayVoice: "nova",
@@ -500,6 +549,8 @@ test("gateway: chosen and on, the gateway says each sentence with the voice chos
     ],
   );
   assert.equal(synth.said.length, 0, "the device says nothing");
+  assert.deepEqual(sub.seen, [ALL_DONE], "the subtitle waits for the clip to play");
+  sub.off();
   assert.equal(s.state.current.speakingId, 2);
   await act(async () => {
     played[0].onended();
