@@ -1125,7 +1125,7 @@ export function sayNotice(text: string): void {
 export const SPEECH_TURN_READ_EVENT = "motita-speech-turn-read";
 
 // EXIT_PHRASES end a conversation: said alone, or with "Motita" and the punctuation around them.
-const EXIT_PHRASES = [
+const EXIT_PHRASES = new Set([
   "basta",
   "para",
   "detente",
@@ -1139,7 +1139,7 @@ const EXIT_PHRASES = [
   "that is all",
   "we're done",
   "were done",
-];
+]);
 
 // isExitPhrase says whether what was heard ends the conversation.
 export function isExitPhrase(text: string): boolean {
@@ -1151,7 +1151,7 @@ export function isExitPhrase(text: string): boolean {
     .replace(/\bmotita\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return EXIT_PHRASES.includes(plain);
+  return EXIT_PHRASES.has(plain);
 }
 
 export function stopSpeaking(): void {

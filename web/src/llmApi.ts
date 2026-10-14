@@ -265,8 +265,9 @@ export function modelOptions(
     return [];
   }
   const label = (id: string) => p.models.find((m) => m.id === id)?.label || id;
-  const ids = p.listed_models?.length
-    ? p.listed_models
-    : p.models.map((m) => m.id);
+  let ids = p.models.map((m) => m.id);
+  if (p.listed_models?.length) {
+    ids = p.listed_models;
+  }
   return ids.map((id) => ({ id, label: label(id) }));
 }

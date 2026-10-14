@@ -108,6 +108,8 @@ func autoLevel(lookup func(string) (string, bool), termName string, escapes bool
 	switch strings.ToLower(env(lookup, "COLORTERM")) {
 	case "truecolor", "24bit":
 		return TrueColor
+	default:
+		// Any other value says nothing about the depth: the conventions below decide.
 	}
 	if env(lookup, "WT_SESSION") != "" {
 		// Windows Terminal sets this, and renders 24-bit colour.
@@ -116,6 +118,8 @@ func autoLevel(lookup func(string) (string, bool), termName string, escapes bool
 	switch env(lookup, "TERM_PROGRAM") {
 	case "iTerm.app", "WezTerm", "vscode", "ghostty":
 		return TrueColor
+	default:
+		// Other terminals are judged by TERM below.
 	}
 	switch {
 	case strings.Contains(termName, "truecolor"), strings.Contains(termName, "24bit"),
@@ -149,8 +153,9 @@ func override(lookup func(string) (string, bool), auto Level) Level {
 			return ANSI256
 		case "truecolor", "24bit":
 			return TrueColor
+		default:
+			// "auto", empty or unknown: fall through to the conventions.
 		}
-		// "auto", empty or unknown: fall through to the conventions.
 	}
 	if env(lookup, "NO_COLOR") != "" {
 		return None
@@ -185,8 +190,9 @@ func parseBool(v string) (on, known bool) {
 		return true, true
 	case "0", "false", "no", "off":
 		return false, true
+	default:
+		return false, false
 	}
-	return false, false
 }
 
 func env(lookup func(string) (string, bool), key string) string {

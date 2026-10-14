@@ -48,59 +48,71 @@ func searchFiles(ctx context.Context, pattern, path string, literal bool) (strin
 		return "", 2, err
 	}
 
-	var out strings.Builder
-	matched, failed := false, false
-	searchOne := func(file, prefix string) {
-		data, ok, err := readSearchable(file)
-		if err != nil {
-			fmt.Fprintf(&out, "search_in_files: %s: %v\n", file, err)
-			failed = true
-			return
-		}
-		if !ok {
-			return
-		}
-		for i, line := range strings.Split(string(data), "\n") {
-			if re.MatchString(line) {
-				fmt.Fprintf(&out, "%s%d:%s\n", prefix, i+1, strings.TrimSuffix(line, "\r"))
-				matched = true
-			}
-		}
-	}
-
+	s := &search{re: re}
 	if !info.IsDir() {
-		searchOne(path, "")
-	} else {
-		err = searchWalkDir(path, func(file string, d fs.DirEntry, err error) error {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			if out.Len() > maxToolOutputBytes {
-				return fs.SkipAll
-			}
-			if err != nil {
-				fmt.Fprintf(&out, "search_in_files: %s: %v\n", file, err)
-				failed = true
-				return nil
-			}
-			if d.Type().IsRegular() {
-				searchOne(file, file+":")
-			}
-			return nil
-		})
-		if err != nil {
-			return out.String(), 2, err
-		}
+		s.file(path, "")
+	} else if err := s.tree(ctx, path); err != nil {
+		return s.out.String(), 2, err
 	}
 
 	switch {
-	case matched:
-		return out.String(), 0, nil
-	case failed:
-		return out.String(), 2, nil
+	case s.matched:
+		return s.out.String(), 0, nil
+	case s.failed:
+		return s.out.String(), 2, nil
 	default:
-		return out.String(), 1, nil
+		return s.out.String(), 1, nil
 	}
+}
+
+// search is one run of searchFiles: the pattern, the output so far, and whether a line matched
+// or something could not be read.
+type search struct {
+	re      *regexp.Regexp
+	out     strings.Builder
+	matched bool
+	failed  bool
+}
+
+// file searches one file, each matching line written after prefix.
+func (s *search) file(file, prefix string) {
+	data, ok, err := readSearchable(file)
+	if err != nil {
+		fmt.Fprintf(&s.out, "search_in_files: %s: %v\n", file, err)
+		s.failed = true
+		return
+	}
+	if !ok {
+		return
+	}
+	for i, line := range strings.Split(string(data), "\n") {
+		if s.re.MatchString(line) {
+			fmt.Fprintf(&s.out, "%s%d:%s\n", prefix, i+1, strings.TrimSuffix(line, "\r"))
+			s.matched = true
+		}
+	}
+}
+
+// tree searches every regular file under path, until ctx ends or the output is past what the
+// tool returns.
+func (s *search) tree(ctx context.Context, path string) error {
+	return searchWalkDir(path, func(file string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if s.out.Len() > maxToolOutputBytes {
+			return fs.SkipAll
+		}
+		if err != nil {
+			fmt.Fprintf(&s.out, "search_in_files: %s: %v\n", file, err)
+			s.failed = true
+			return nil
+		}
+		if d.Type().IsRegular() {
+			s.file(file, file+":")
+		}
+		return nil
+	})
 }
 
 // readSearchable reads a file, and reports ok=false for one the search should not look into:

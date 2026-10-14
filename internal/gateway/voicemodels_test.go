@@ -103,8 +103,9 @@ func TestLocalVoiceLifecycle(t *testing.T) {
 	lib, _ := voiceLibrary(t)
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.VoiceModels = lib })
 	got := modelsOf(t, srv)
-	if len(got.Models) != 2 || got.Models[0].ID != "a" || got.Models[0].Size != 11 || got.Models[0].Installed ||
-		got.Runtime.Size != 4 || got.Runtime.Installed || got.Download != nil {
+	models := len(got.Models) == 2 && got.Models[0].ID == "a" && got.Models[0].Size == 11 && !got.Models[0].Installed
+	runtime := got.Runtime.Size == 4 && !got.Runtime.Installed
+	if !models || !runtime || got.Download != nil {
 		t.Fatalf("catalog = %+v", got)
 	}
 	if w := post(t, srv, "/v1/voice/models/a", "", testToken); w.Code != http.StatusAccepted {

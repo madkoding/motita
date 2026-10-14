@@ -18,12 +18,8 @@ import {
   type AppearanceSettingsProps,
 } from "./AppearanceSettings";
 import { NotifySetting } from "./NotifySettings";
-import {
-  SpeechSettings,
-  VoiceSettings,
-  type SpeechSettingsProps,
-  type VoiceSettingsProps,
-} from "./VoiceSettings";
+import { VoiceSettings, type VoiceSettingsProps } from "./VoiceSettings";
+import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
@@ -43,7 +39,8 @@ initSettings();
 export { InsecureWarning } from "./InsecureWarning";
 export { unblockSteps } from "./NotifySettings";
 export { restartTiming } from "./NetworkSettings";
-export type { SpeechSettingsProps, VoiceSettingsProps } from "./VoiceSettings";
+export type { VoiceSettingsProps } from "./VoiceSettings";
+export type { SpeechSettingsProps } from "./SpeechSettings";
 
 interface Props extends AppearanceSettingsProps {
   onClose: () => void;
@@ -106,8 +103,10 @@ function settingsTabs(p: Props): TabInfo[] {
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
   }
   if (p.llm) {
-    tabs.push({ id: "providers", label: t("Providers"), icon: <IconPlug /> });
-    tabs.push({ id: "models", label: t("Models"), icon: <IconChip /> });
+    tabs.push(
+      { id: "providers", label: t("Providers"), icon: <IconPlug /> },
+      { id: "models", label: t("Models"), icon: <IconChip /> },
+    );
   }
   if (p.git) {
     tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });

@@ -83,6 +83,8 @@ func (s *Server) handleSpeak(w http.ResponseWriter, r *http.Request) {
 	case name != "" && !slices.Contains(voices, name):
 		writeError(w, http.StatusBadRequest, "the voice "+strconv.Quote(name)+" is not one voice.tts offers")
 		return
+	default:
+		// A voice voice.tts offers, or none when it lists none: said as asked.
 	}
 	audio, ctype, err := s.opts.Speech.Speak(r.Context(), text, name)
 	if err != nil {

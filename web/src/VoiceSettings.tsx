@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
+import type { Dispatch, StateUpdater } from "preact/hooks";
 import { InsecureWarning } from "./InsecureWarning";
-import { lang, t, tf } from "./i18n";
+import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
   type MicPermission,
@@ -20,30 +21,11 @@ import {
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
-import { LocalVoices } from "./LocalVoiceSettings";
-import { isKokoro } from "./localVoiceCore";
-import {
-  LENGTHS,
-  MEDIUM_CHARS,
-  PITCH_RANGE,
-  RATES,
-  SHORT_CHARS,
-  TUNE_RANGE,
-  type SpeakMode,
-  type SpeakStyle,
-  type SpeechEngine,
-  type SpeechPrefs,
-  type VoiceLike,
-  formatPronunciations,
-  parsePronunciations,
-  voicesFor,
-} from "./speech";
-import type { Lang } from "./i18n";
 import {
   Row,
-  Segmented,
   inputCls,
   primaryBtn,
+  selectCls,
   smallBtn,
 } from "./SettingsControls";
 
@@ -57,565 +39,6 @@ export interface VoiceSettingsProps {
   info?: VoiceInfo | null;
   api?: Api;
   onInfo?: (i: VoiceInfo) => void;
-}
-
-export interface SpeechSettingsProps {
-  supported: boolean;
-  prefs: SpeechPrefs;
-  setPrefs: (p: SpeechPrefs) => void;
-  voices: VoiceLike[];
-  test: () => void;
-  // device says this device has voices of its own; gatewayVoices are the gateway's (voice.tts),
-  // empty when it has none.
-  device?: boolean;
-  gatewayVoices?: string[];
-  // allVoices are the device's voices in every language, for the voice of each language;
-  // canListen says speech input works here, which conversation mode needs.
-  allVoices?: VoiceLike[];
-  canListen?: boolean;
-  // local says the gateway offers local voices this browser can run; api reaches them.
-  local?: boolean;
-  api?: Api;
-}
-
-// SLIDER_STEP is how far one step of a voice slider moves.
-const SLIDER_STEP = 0.1;
-
-// VoiceSlider is one attribute of the voice on a slider, with its value beside it and a way
-// back to the voice's own (1).
-function VoiceSlider({
-  id,
-  label,
-  hint,
-  range,
-  value,
-  disabled,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  range: [number, number];
-  value: number;
-  disabled?: boolean;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <Row id={id} label={label} hint={hint} stack>
-      <div class="flex items-center gap-3 w-full">
-        <input
-          type="range"
-          class="flex-1 accent-[var(--color-accent,#4cc2ff)]"
-          aria-labelledby={id}
-          data-testid={id}
-          min={range[0]}
-          max={range[1]}
-          step={SLIDER_STEP}
-          value={value}
-          disabled={disabled}
-          onInput={(e) => onChange(Number((e.target as HTMLInputElement).value))}
-        />
-        <span class="text-xs text-[#a0a0b0] w-10 text-right tabular-nums">{rateLabel(value)}</span>
-        <button
-          type="button"
-          class={smallBtn}
-          disabled={disabled || value === 1}
-          data-testid={id + "-reset"}
-          onClick={() => onChange(1)}
-        >
-          {t("Reset")}
-        </button>
-      </div>
-    </Row>
-  );
-}
-
-// rateLabel writes a speed as people say it: 1×, 1.25×.
-function rateLabel(r: number): string {
-  return r.toLocaleString(lang()) + "×";
-}
-
-// lengthLabel names the longest answer read whole.
-function lengthLabel(n: number): string {
-  if (n === 0) {
-    return t("Whole");
-  }
-  if (n <= SHORT_CHARS) {
-    return t("Short");
-  }
-  if (n <= MEDIUM_CHARS) {
-    return t("Medium");
-  }
-  return t("Long");
-}
-
-// SpeechSettings is reading answers aloud: when, who speaks (the device, or the gateway's voice
-// when it has one), which voice, how fast and how much. With the device's voices it needs neither
-// the microphone nor the gateway, so it works on any address.
-export function SpeechSettings({
-  supported,
-  prefs,
-  setPrefs,
-  voices,
-  test,
-  device = true,
-  gatewayVoices = [],
-  allVoices = [],
-  canListen = false,
-  local = false,
-  api,
-}: SpeechSettingsProps) {
-  const set = useCallback(
-    (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch }),
-    [prefs, setPrefs],
-  );
-  // Handed to Segmented, so they keep their identity between renders.
-  const setMode = useCallback((mode: SpeakMode) => set({ mode }), [set]);
-  const setStyle = useCallback((style: SpeakStyle) => set({ style }), [set]);
-  const setEngine = useCallback(
-    (engine: SpeechEngine) => set({ engine }),
-    [set],
-  );
-  const hasGateway = gatewayVoices.length > 0;
-  const hasLocal = local && !!api;
-  // A local voice speaks when it is chosen; the gateway when it is chosen, or when the device has
-  // no voices of its own.
-  const localChosen = hasLocal && prefs.engine === "local";
-  const gateway = !localChosen && hasGateway && (prefs.engine === "gateway" || !device);
-  const setLocalVoice = useCallback((localVoice: string) => set({ localVoice }), [set]);
-  // Each engine is named by where its voice comes from, and said what that means for the text.
-  const engines: { value: SpeechEngine; label: string; about: string }[] = [];
-  if (device) {
-    engines.push({
-      value: "device",
-      label: t("System voices"),
-      about: t("The voices this device or browser already has. Nothing leaves the browser."),
-    });
-  }
-  if (hasGateway) {
-    engines.push({
-      value: "gateway",
-      label: t("Voice service"),
-      about: t(
-        "The speech service set up on the gateway: the same voice on every device. The text of each answer read goes to that service.",
-      ),
-    });
-  }
-  if (hasLocal) {
-    engines.push({
-      value: "local",
-      label: t("Downloaded voice"),
-      about: t(
-        "A natural voice the gateway downloads once; it then runs inside this browser, and nothing leaves the device.",
-      ),
-    });
-  }
-  let engineShown: SpeechEngine = "device";
-  if (localChosen) {
-    engineShown = "local";
-  } else if (gateway) {
-    engineShown = "gateway";
-  }
-  const engineHint = (
-    <ul class="flex flex-col gap-0.5" data-testid="settings-speech-engine-about">
-      {engines.map((e) => (
-        <li key={e.value} class={choose(e.value === engineShown, "text-[#c8c8d0]", "")}>
-          <span class="font-medium">{e.label}:</span> {e.about}
-        </li>
-      ))}
-    </ul>
-  );
-  const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
-  const setLength = useCallback(
-    (n: string) => set({ maxChars: Number(n) }),
-    [set],
-  );
-  const off = !supported;
-  return (
-    <section class="settings-group" aria-labelledby="settings-speech-h">
-      <h3 id="settings-speech-h" class="settings-group-title">
-        {t("Read aloud")}
-      </h3>
-      <div class="settings-card" data-testid="speech-setting">
-        <Row
-          id="settings-speak"
-          label={t("Read answers aloud")}
-          stack
-          hint={choose(
-            off,
-            t("This browser cannot read aloud."),
-            t("Alt+L or 🔊 on an answer reads it or stops."),
-          )}
-        >
-          <Segmented<SpeakMode>
-            name="settings-speak"
-            labelledBy="settings-speak"
-            value={prefs.mode}
-            disabled={off}
-            onChange={setMode}
-            options={[
-              { value: "off", label: t("Off") },
-              { value: "voice", label: t("When I spoke") },
-              { value: "always", label: t("Always") },
-            ]}
-          />
-        </Row>
-        <Row
-          id="settings-speak-style"
-          label={t("What it says")}
-          stack
-          hint={choose(
-            prefs.style === "natural",
-            t(
-              "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
-            ),
-            t("Word for word: the answer as it is written."),
-          )}
-        >
-          <Segmented<SpeakStyle>
-            name="settings-speak-style"
-            labelledBy="settings-speak-style"
-            value={prefs.style}
-            disabled={off}
-            onChange={setStyle}
-            options={[
-              { value: "literal", label: t("Word for word") },
-              { value: "natural", label: t("Natural") },
-            ]}
-          />
-        </Row>
-        {engines.length > 1 && (
-          <Row
-            id="settings-speech-engine"
-            label={t("Who speaks")}
-            stack
-            hint={engineHint}
-          >
-            <Segmented<SpeechEngine>
-              name="settings-speech-engine"
-              labelledBy="settings-speech-engine"
-              value={engineShown}
-              onChange={setEngine}
-              options={engines}
-            />
-          </Row>
-        )}
-        {localChosen && api && (
-          <Row id="settings-speech-local" label={t("Voices to download")} stack>
-            <LocalVoices api={api} chosen={prefs.localVoice} choose={setLocalVoice} />
-          </Row>
-        )}
-        {!localChosen && gateway && (
-          <Row id="settings-speech-voice" label={t("Voice")}>
-            <select
-              class={inputCls + " max-w-[220px]"}
-              aria-labelledby="settings-speech-voice"
-              value={prefs.gatewayVoice}
-              onChange={(e) =>
-                set({ gatewayVoice: (e.target as HTMLSelectElement).value })
-              }
-            >
-              <option value="">{t("Gateway default")}</option>
-              {gatewayVoices.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </Row>
-        )}
-        {!localChosen && !gateway && (
-          <Row
-            id="settings-speech-voice"
-            label={t("Voice")}
-            hint={choose(
-              !off && voices.length === 0,
-              t("This device has no voice for the interface language."),
-              undefined,
-            )}
-          >
-            <select
-              class={inputCls + " max-w-[220px]"}
-              aria-labelledby="settings-speech-voice"
-              disabled={off}
-              value={prefs.voiceURI}
-              onChange={(e) =>
-                set({ voiceURI: (e.target as HTMLSelectElement).value })
-              }
-            >
-              <option value="">{t("Device default")}</option>
-              {voices.map((v) => (
-                <option key={v.voiceURI} value={v.voiceURI}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
-          </Row>
-        )}
-        <Row id="settings-speech-rate" label={t("Speed")} stack>
-          <Segmented<string>
-            name="settings-speech-rate"
-            labelledBy="settings-speech-rate"
-            value={String(prefs.rate)}
-            disabled={off}
-            onChange={setRate}
-            options={RATES.map((r) => ({
-              value: String(r),
-              label: rateLabel(r),
-            }))}
-          />
-        </Row>
-        {localChosen && !isKokoro(prefs.localVoice) && (
-          <>
-            <VoiceSlider
-              id="settings-speech-expressiveness"
-              label={t("Expressiveness")}
-              hint={t("How much the intonation varies: lower is flatter and steadier, higher livelier.")}
-              range={TUNE_RANGE}
-              value={prefs.expressiveness}
-              onChange={(expressiveness) => set({ expressiveness })}
-            />
-            <VoiceSlider
-              id="settings-speech-variation"
-              label={t("Rhythm variation")}
-              hint={t("How much the length of each sound varies: lower is more even, higher more natural.")}
-              range={TUNE_RANGE}
-              value={prefs.variation}
-              onChange={(variation) => set({ variation })}
-            />
-          </>
-        )}
-        {!localChosen && !gateway && (
-          <VoiceSlider
-            id="settings-speech-pitch"
-            label={t("Pitch")}
-            range={PITCH_RANGE}
-            value={prefs.pitch}
-            disabled={off}
-            onChange={(pitch) => set({ pitch })}
-          />
-        )}
-        <Row
-          id="settings-speech-length"
-          label={t("Length")}
-          stack
-          hint={t("A longer answer is read up to its first paragraph.")}
-        >
-          <Segmented<string>
-            name="settings-speech-length"
-            labelledBy="settings-speech-length"
-            value={String(prefs.maxChars)}
-            disabled={off}
-            onChange={setLength}
-            options={LENGTHS.map((n) => ({
-              value: String(n),
-              label: lengthLabel(n),
-            }))}
-          />
-        </Row>
-        {!gateway && (
-          <LanguageVoice
-            off={off}
-            prefs={prefs}
-            set={set}
-            allVoices={allVoices}
-          />
-        )}
-        <Row
-          id="settings-speech-conversation"
-          label={t("Conversation")}
-          hint={choose(
-            canListen,
-            t(
-              "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.",
-            ),
-            t("Needs speech input: turn it on above."),
-          )}
-        >
-          <SpeechSwitch
-            id="settings-speech-conversation"
-            usable={!off && canListen}
-            checked={prefs.conversation}
-            onChange={(conversation) => set({ conversation })}
-          />
-        </Row>
-        <Row
-          id="settings-speech-notices"
-          label={t("Voice notices")}
-          hint={t(
-            "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.",
-          )}
-        >
-          <SpeechSwitch
-            id="settings-speech-notices"
-            usable={!off}
-            checked={prefs.notices}
-            onChange={(notices) => set({ notices })}
-          />
-        </Row>
-        <Pronunciations off={off} prefs={prefs} set={set} />
-        <Row id="settings-speech-test" label={t("Try the voice")}>
-          <button
-            type="button"
-            class={smallBtn}
-            disabled={off}
-            onClick={test}
-            data-testid="speech-test"
-          >
-            {t("Try")}
-          </button>
-        </Row>
-      </div>
-    </section>
-  );
-}
-
-// SpeechSwitch is one switch of the read-aloud section.
-function SpeechSwitch({
-  id,
-  usable,
-  checked,
-  onChange,
-}: {
-  id: string;
-  usable: boolean;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <label class="settings-switch-hit">
-      <input
-        type="checkbox"
-        role="switch"
-        class="settings-switch"
-        aria-labelledby={id}
-        name={id}
-        disabled={!usable}
-        checked={usable && checked}
-        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
-      />
-    </label>
-  );
-}
-
-// otherLang is the language an answer mixes in besides the interface's.
-function otherLang(l: Lang): Lang {
-  return choose(l === "es", "en", "es");
-}
-
-// LanguageVoice reads each sentence with a voice of its own language, and picks the voice of the
-// other one: an answer in Spanish that quotes English is said by two voices, each in its own.
-function LanguageVoice({
-  off,
-  prefs,
-  set,
-  allVoices,
-}: {
-  off: boolean;
-  prefs: SpeechPrefs;
-  set: (patch: Partial<SpeechPrefs>) => void;
-  allVoices: VoiceLike[];
-}) {
-  const other = otherLang(lang());
-  const voices = voicesFor(allVoices, other);
-  return (
-    <>
-      <Row
-        id="settings-speech-bylang"
-        label={t("A voice per language")}
-        hint={t(
-          "Each sentence is read with a voice of its own language: English with an English voice.",
-        )}
-      >
-        <SpeechSwitch
-          id="settings-speech-bylang"
-          usable={!off}
-          checked={prefs.byLanguage}
-          onChange={(byLanguage) => set({ byLanguage })}
-        />
-      </Row>
-      {prefs.byLanguage && !off && (
-        <Row
-          id="settings-speech-other-voice"
-          label={choose(
-            other === "en",
-            t("Voice for English"),
-            t("Voice for Spanish"),
-          )}
-          hint={choose(
-            voices.length === 0,
-            t("This device has no voice for that language."),
-            undefined,
-          )}
-        >
-          <select
-            class={inputCls + " max-w-[220px]"}
-            aria-labelledby="settings-speech-other-voice"
-            value={prefs.langVoices[other] || ""}
-            onChange={(e) =>
-              set({
-                langVoices: {
-                  ...prefs.langVoices,
-                  [other]: (e.target as HTMLSelectElement).value,
-                },
-              })
-            }
-          >
-            <option value="">{t("Device default")}</option>
-            {voices.map((v) => (
-              <option key={v.voiceURI} value={v.voiceURI}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </Row>
-      )}
-    </>
-  );
-}
-
-// Pronunciations is the person's own list: a term and how to say it, one a line. It is saved when
-// the field is left, so a half-typed line is never applied.
-function Pronunciations({
-  off,
-  prefs,
-  set,
-}: {
-  off: boolean;
-  prefs: SpeechPrefs;
-  set: (patch: Partial<SpeechPrefs>) => void;
-}) {
-  const saved = formatPronunciations(prefs.pronunciations);
-  const [text, setText] = useState(saved);
-  useEffect(() => setText(saved), [saved]);
-  return (
-    <Row
-      id="settings-speech-words"
-      label={t("Pronunciations")}
-      stack
-      hint={t(
-        "One a line: the term, “=”, and how to say it. For example: kubectl = cube control",
-      )}
-    >
-      <textarea
-        class={inputCls + " w-full font-mono text-[12px]"}
-        aria-labelledby="settings-speech-words"
-        data-testid="speech-words"
-        rows={3}
-        disabled={off}
-        spellcheck={false}
-        value={text}
-        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
-        onBlur={() => {
-          const list = parsePronunciations(text);
-          setText(formatPronunciations(list));
-          if (formatPronunciations(list) !== saved) {
-            set({ pronunciations: list });
-          }
-        }}
-      />
-    </Row>
-  );
 }
 
 // voiceBlocker explains why speech input cannot be used, or "" when it can. An insecure page is
@@ -753,6 +176,23 @@ function serviceChange(
   return change;
 }
 
+type SavedVoice = NonNullable<VoiceInfo["saved"]>;
+
+// gatewayHint says where speech input sends the recordings, or that it is off.
+function gatewayHint(saved: SavedVoice): string {
+  if (!saved.enabled) {
+    return t("Off. Turn it on to dictate and to use the wake phrase.");
+  }
+  let hint = tf("Recordings go to {endpoint} ({model}).", {
+    endpoint: saved.endpoint,
+    model: saved.model,
+  });
+  if (saved.inherits) {
+    hint += " " + t("With the language model's own key.");
+  }
+  return hint;
+}
+
 // VoiceGateway turns speech input on or off on the gateway, picks the transcription service and
 // edits the wake phrases, all saved in its configuration. Turning it on, or moving it, first says
 // where the recordings go and waits for a yes.
@@ -777,41 +217,102 @@ function VoiceGateway({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   useEffect(() => setPhrases(savedPhrases), [savedPhrases]);
+  const save = useCallback(
+    async (change: VoiceChange) => {
+      setBusy(true);
+      setErr("");
+      try {
+        onInfo(await putVoice(api, change));
+        setEditing(false);
+      } catch (e) {
+        setErr(errorMessage(e));
+      }
+      setBusy(false);
+    },
+    [api, onInfo],
+  );
   if (!saved) {
     return null;
   }
-  const save = async (change: VoiceChange) => {
-    setBusy(true);
-    setErr("");
-    try {
-      onInfo(await putVoice(api, change));
-      setEditing(false);
-    } catch (e) {
-      setErr(errorMessage(e));
-    }
-    setBusy(false);
-  };
+  return (
+    <>
+      <VoiceGatewaySwitch
+        saved={saved}
+        editing={editing}
+        busy={busy}
+        setEditing={setEditing}
+        setErr={setErr}
+        setForm={setForm}
+        save={save}
+      />
+      {editing && (
+        <VoiceServiceForm
+          saved={saved}
+          form={form}
+          setForm={setForm}
+          busy={busy}
+          setEditing={setEditing}
+          save={save}
+        />
+      )}
+      <WakePhrases
+        enabled={saved.enabled}
+        phrases={phrases}
+        setPhrases={setPhrases}
+        savedPhrases={savedPhrases}
+        busy={busy}
+        save={save}
+      />
+      {info.restart_needed && (
+        <output
+          class="settings-card-note block text-xs text-warning"
+          data-testid="voice-restart"
+        >
+          {t(
+            "Saved. Applies when the gateway restarts: run motita gateway stop, then motita gateway start.",
+          )}
+        </output>
+      )}
+      {err && (
+        <p class="settings-card-note text-xs text-danger" role="alert">
+          {err}
+        </p>
+      )}
+    </>
+  );
+}
+
+// VoiceGatewaySwitch is the switch that turns speech input on the gateway on or off, and the
+// transcription service it uses while it is on. Turning it on opens the service form first.
+function VoiceGatewaySwitch({
+  saved,
+  editing,
+  busy,
+  setEditing,
+  setErr,
+  setForm,
+  save,
+}: {
+  saved: SavedVoice;
+  editing: boolean;
+  busy: boolean;
+  setEditing: Dispatch<StateUpdater<boolean>>;
+  setErr: Dispatch<StateUpdater<string>>;
+  setForm: Dispatch<StateUpdater<ServiceForm>>;
+  save: (change: VoiceChange) => Promise<void>;
+}) {
   const openForm = () => {
     setErr("");
     setForm({ base_url: saved.base_url, model: saved.model, api_key: "" });
     setEditing(true);
   };
-  const target = form.base_url.trim() || saved.endpoint;
-  const field = (k: keyof ServiceForm) => (e: Event) =>
-    setForm({ ...form, [k]: (e.target as HTMLInputElement).value });
-  let hint = t("Off. Turn it on to dictate and to use the wake phrase.");
-  if (saved.enabled) {
-    hint = tf("Recordings go to {endpoint} ({model}).", {
-      endpoint: saved.endpoint,
-      model: saved.model,
-    });
-    if (saved.inherits) {
-      hint += " " + t("With the language model's own key.");
-    }
-  }
   return (
     <>
-      <Row id="settings-voice-on" label={t("Speech input")} hint={hint}>
+      <Row
+        id="settings-voice-on"
+        label={t("Speech input")}
+        hint={gatewayHint(saved)}
+      >
         <label class="settings-switch-hit">
           <input
             type="checkbox"
@@ -849,160 +350,185 @@ function VoiceGateway({
           </button>
         </Row>
       )}
-      {editing && (
-        <div
-          role="group"
-          aria-labelledby="settings-voice-confirm"
-          class="settings-confirm"
-          data-testid="voice-confirm"
-        >
-          <div
-            id="settings-voice-confirm"
-            class="text-sm font-semibold text-[#e8e8ea]"
-          >
-            {choose(
-              saved.enabled,
-              t("Change the transcription service?"),
-              t("Turn on speech input?"),
-            )}
-          </div>
-          <div class="flex flex-wrap gap-2">
-            {VOICE_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                class={smallBtn}
-                onClick={() =>
-                  setForm({ ...form, base_url: p.base_url, model: p.model })
-                }
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <label class="llm-label">
-            <span>{t("Endpoint")}</span>
-            <input
-              class={inputCls + " font-mono"}
-              value={form.base_url}
-              placeholder={choose(
-                saved.endpoint,
-                saved.endpoint,
-                "https://api.openai.com/v1",
-              )}
-              autocapitalize="off"
-              spellcheck={false}
-              data-testid="voice-base-url"
-              onInput={field("base_url")}
-            />
-          </label>
-          <label class="llm-label">
-            <span>{t("Model")}</span>
-            <input
-              class={inputCls + " font-mono"}
-              value={form.model}
-              placeholder="whisper-1"
-              autocapitalize="off"
-              spellcheck={false}
-              data-testid="voice-model"
-              onInput={field("model")}
-            />
-          </label>
-          <label class="llm-label">
-            <span>{t("API key")}</span>
-            <input
-              class={inputCls + " font-mono"}
-              type="password"
-              value={form.api_key}
-              placeholder={choose(
-                saved.has_key,
-                t("Saved. Paste a new one to replace it"),
-                t("Not needed for a local server"),
-              )}
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck={false}
-              data-testid="voice-api-key"
-              onInput={field("api_key")}
-            />
-          </label>
-          <ul class="settings-confirm-lines">
-            {serviceLines(target).map((l) => (
-              <li key={l}>{l}</li>
-            ))}
-          </ul>
-          <div class="flex justify-end gap-2">
-            <button
-              type="button"
-              class={smallBtn}
-              disabled={busy}
-              onClick={() => setEditing(false)}
-            >
-              {t("Cancel")}
-            </button>
-            <button
-              type="button"
-              class={primaryBtn}
-              disabled={busy || !target}
-              data-testid="voice-confirm-yes"
-              onClick={() => void save(serviceChange(saved, form))}
-            >
-              {choose(saved.enabled, t("Save"), t("Turn on"))}
-            </button>
-          </div>
-        </div>
-      )}
-      <Row
-        id="settings-voice-phrases"
-        label={t("Wake phrases")}
-        stack
-        hint={t(
-          "Separated by commas. Listening hands-free starts a message when it hears one.",
-        )}
+    </>
+  );
+}
+
+// VoiceServiceForm is the transcription service to turn speech input on with, or to move it to,
+// and where the recordings will go, waiting for a yes.
+function VoiceServiceForm({
+  saved,
+  form,
+  setForm,
+  busy,
+  setEditing,
+  save,
+}: {
+  saved: SavedVoice;
+  form: ServiceForm;
+  setForm: Dispatch<StateUpdater<ServiceForm>>;
+  busy: boolean;
+  setEditing: Dispatch<StateUpdater<boolean>>;
+  save: (change: VoiceChange) => Promise<void>;
+}) {
+  const target = form.base_url.trim() || saved.endpoint;
+  const field = (k: keyof ServiceForm) => (e: Event) =>
+    setForm({ ...form, [k]: (e.target as HTMLInputElement).value });
+  return (
+    <fieldset
+      aria-labelledby="settings-voice-confirm"
+      class="settings-confirm min-w-0"
+      data-testid="voice-confirm"
+    >
+      <div
+        id="settings-voice-confirm"
+        class="text-sm font-semibold text-[#e8e8ea]"
       >
-        <div class="flex gap-2 w-full">
-          <input
-            class={inputCls + " flex-1"}
-            value={phrases}
-            placeholder={t("hey motita")}
-            aria-labelledby="settings-voice-phrases"
-            data-testid="voice-phrases"
-            onInput={(e) => setPhrases((e.target as HTMLInputElement).value)}
-          />
+        {choose(
+          saved.enabled,
+          t("Change the transcription service?"),
+          t("Turn on speech input?"),
+        )}
+      </div>
+      <div class="flex flex-wrap gap-2">
+        {VOICE_PRESETS.map((p) => (
           <button
+            key={p.id}
             type="button"
             class={smallBtn}
-            disabled={busy || phrases === savedPhrases}
-            data-testid="voice-phrases-save"
             onClick={() =>
-              void save({
-                enabled: saved.enabled,
-                confirm: saved.enabled,
-                wake_phrases: parsePhrases(phrases),
-              })
+              setForm({ ...form, base_url: p.base_url, model: p.model })
             }
           >
-            {t("Save")}
+            {p.label}
           </button>
-        </div>
-      </Row>
-      {info.restart_needed && (
-        <p
-          class="settings-card-note text-xs text-warning"
-          role="status"
-          data-testid="voice-restart"
-        >
-          {t(
-            "Saved. Applies when the gateway restarts: run motita gateway stop, then motita gateway start.",
+        ))}
+      </div>
+      <label class="llm-label">
+        <span>{t("Endpoint")}</span>
+        <input
+          class={inputCls + " font-mono"}
+          value={form.base_url}
+          placeholder={choose(
+            saved.endpoint,
+            saved.endpoint,
+            "https://api.openai.com/v1",
           )}
-        </p>
+          autocapitalize="off"
+          spellcheck={false}
+          data-testid="voice-base-url"
+          onInput={field("base_url")}
+        />
+      </label>
+      <label class="llm-label">
+        <span>{t("Model")}</span>
+        <input
+          class={inputCls + " font-mono"}
+          value={form.model}
+          placeholder="whisper-1"
+          autocapitalize="off"
+          spellcheck={false}
+          data-testid="voice-model"
+          onInput={field("model")}
+        />
+      </label>
+      <label class="llm-label">
+        <span>{t("API key")}</span>
+        <input
+          class={inputCls + " font-mono"}
+          type="password"
+          value={form.api_key}
+          placeholder={choose(
+            saved.has_key,
+            t("Saved. Paste a new one to replace it"),
+            t("Not needed for a local server"),
+          )}
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck={false}
+          data-testid="voice-api-key"
+          onInput={field("api_key")}
+        />
+      </label>
+      <ul class="settings-confirm-lines">
+        {serviceLines(target).map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+      <div class="flex justify-end gap-2">
+        <button
+          type="button"
+          class={smallBtn}
+          disabled={busy}
+          onClick={() => setEditing(false)}
+        >
+          {t("Cancel")}
+        </button>
+        <button
+          type="button"
+          class={primaryBtn}
+          disabled={busy || !target}
+          data-testid="voice-confirm-yes"
+          onClick={() => void save(serviceChange(saved, form))}
+        >
+          {choose(saved.enabled, t("Save"), t("Turn on"))}
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
+// WakePhrases edits the phrases hands-free listening starts a message with.
+function WakePhrases({
+  enabled,
+  phrases,
+  setPhrases,
+  savedPhrases,
+  busy,
+  save,
+}: {
+  enabled: boolean;
+  phrases: string;
+  setPhrases: Dispatch<StateUpdater<string>>;
+  savedPhrases: string;
+  busy: boolean;
+  save: (change: VoiceChange) => Promise<void>;
+}) {
+  return (
+    <Row
+      id="settings-voice-phrases"
+      label={t("Wake phrases")}
+      stack
+      hint={t(
+        "Separated by commas. Listening hands-free starts a message when it hears one.",
       )}
-      {err && (
-        <p class="settings-card-note text-xs text-danger" role="alert">
-          {err}
-        </p>
-      )}
-    </>
+    >
+      <div class="flex gap-2 w-full">
+        <input
+          class={inputCls + " flex-1"}
+          value={phrases}
+          placeholder={t("hey motita")}
+          aria-labelledby="settings-voice-phrases"
+          data-testid="voice-phrases"
+          onInput={(e) => setPhrases((e.target as HTMLInputElement).value)}
+        />
+        <button
+          type="button"
+          class={smallBtn}
+          disabled={busy || phrases === savedPhrases}
+          data-testid="voice-phrases-save"
+          onClick={() =>
+            void save({
+              enabled,
+              confirm: enabled,
+              wake_phrases: parsePhrases(phrases),
+            })
+          }
+        >
+          {t("Save")}
+        </button>
+      </div>
+    </Row>
   );
 }
 
@@ -1080,7 +606,7 @@ function MicPicker({
       hint={choose(usable, micHint(gone, hidden), undefined)}
     >
       <select
-        class={inputCls + " max-w-[220px]"}
+        class={selectCls}
         aria-labelledby="settings-mic-device"
         data-testid="mic-device"
         disabled={!usable}
@@ -1166,6 +692,67 @@ function permissionHint(permission: MicPermission, missing: boolean): string {
   );
 }
 
+// gatewayEditor is what editing speech input on the gateway needs, or null where this page
+// cannot save it.
+function gatewayEditor(
+  info: VoiceInfo | null | undefined,
+  api: Api | undefined,
+  onInfo: ((i: VoiceInfo) => void) | undefined,
+): { info: VoiceInfo; api: Api; onInfo: (i: VoiceInfo) => void } | null {
+  if (info?.can_save && info.saved && api && onInfo) {
+    return { info, api, onInfo };
+  }
+  return null;
+}
+
+// MicPermissionRow is the row that asks the browser for the microphone, and says why the voice
+// settings wait for it.
+function MicPermissionRow({
+  permission,
+  missing,
+  ask,
+}: {
+  permission: MicPermission;
+  missing: boolean;
+  ask: () => Promise<void>;
+}) {
+  return (
+    <div
+      class="settings-row settings-mic-permission"
+      data-testid="mic-permission"
+    >
+      <div class="settings-row-text">
+        <div id="settings-mic-permission" class="text-sm text-[#e8e8ea]">
+          {t("Microphone permission")}
+        </div>
+        <output
+          class={
+            "block text-xs mt-0.5 " +
+            choose(permission === "denied", "text-warning", "text-[#7a7a8c]")
+          }
+        >
+          {permissionHint(permission, missing)}
+        </output>
+      </div>
+      <div class="settings-row-control">
+        <button
+          type="button"
+          class={primaryBtn}
+          data-testid="mic-allow"
+          aria-describedby="settings-mic-permission"
+          onClick={() => void ask()}
+        >
+          {choose(
+            permission === "denied",
+            t("Try again"),
+            t("Allow microphone"),
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // VoiceSettings are speech input on the gateway, the microphone of this device and the two
 // switches, which only work where the browser grants the microphone (https or localhost) and
 // the gateway has speech input on. Until the browser allowed the microphone, all of it is greyed
@@ -1180,13 +767,14 @@ export function VoiceSettings({
   api,
   onInfo,
 }: VoiceSettingsProps) {
-  const canSave = Boolean(info?.can_save && info.saved && api && onInfo);
+  const editor = gatewayEditor(info, api, onInfo);
+  const canSave = editor !== null;
   const setDevice = useCallback(
     (deviceId: string) => setPrefs({ ...prefs, deviceId }),
     [prefs, setPrefs],
   );
   const setMic = useCallback(
-    (mic: boolean) => setPrefs({ ...prefs, mic }),
+    (on: boolean) => setPrefs({ ...prefs, mic: on }),
     [prefs, setPrefs],
   );
   const setListen = useCallback(
@@ -1203,53 +791,18 @@ export function VoiceSettings({
       </h3>
       <div class="settings-card" data-testid="voice-setting">
         {askable && mic.permission && !allowed && (
-          <div
-            class="settings-row settings-mic-permission"
-            data-testid="mic-permission"
-          >
-            <div class="settings-row-text">
-              <div id="settings-mic-permission" class="text-sm text-[#e8e8ea]">
-                {t("Microphone permission")}
-              </div>
-              <div
-                class={
-                  "text-xs mt-0.5 " +
-                  choose(
-                    mic.permission === "denied",
-                    "text-warning",
-                    "text-[#7a7a8c]",
-                  )
-                }
-                role="status"
-              >
-                {permissionHint(mic.permission, mic.missing)}
-              </div>
-            </div>
-            <div class="settings-row-control">
-              <button
-                type="button"
-                class={primaryBtn}
-                data-testid="mic-allow"
-                aria-describedby="settings-mic-permission"
-                onClick={() => void mic.ask()}
-              >
-                {choose(
-                  mic.permission === "denied",
-                  t("Try again"),
-                  t("Allow microphone"),
-                )}
-              </button>
-            </div>
-          </div>
+          <MicPermissionRow
+            permission={mic.permission}
+            missing={mic.missing}
+            ask={mic.ask}
+          />
         )}
         <fieldset
           class="settings-voice-lock"
           disabled={!allowed}
           data-testid="voice-locked"
         >
-          {canSave && info && api && onInfo && (
-            <VoiceGateway api={api} info={info} onInfo={onInfo} />
-          )}
+          {editor && <VoiceGateway {...editor} />}
           <MicPicker
             usable={allowed}
             deviceId={prefs.deviceId}

@@ -102,6 +102,88 @@ function useSecurity(api: Api) {
   return { view, loadErr, err, busy, asking, pick, confirm, cancel };
 }
 
+// DiskAccessControls is the disk access choice once the gateway reported it: the switch, the
+// confirmation the whole disk asks for, and what holds either way.
+function DiskAccessControls({
+  view,
+  shown,
+  busy,
+  asking,
+  sec,
+}: {
+  view: SecurityView;
+  shown: DiskAccess;
+  busy: boolean;
+  asking: boolean;
+  sec: ReturnType<typeof useSecurity>;
+}) {
+  return (
+    <>
+      <Row
+        id="settings-disk"
+        label={t("What Motita can reach")}
+        stack
+        hint={
+          accessHint(shown) +
+          choose(
+            view.can_save,
+            "",
+            " " +
+              t(
+                "The gateway runs on its built-in defaults, without a configuration file, so this cannot be changed here.",
+              ),
+          )
+        }
+        warning={
+          !view.enforced && (
+            <div
+              class="text-xs text-warning mt-1"
+              data-testid="security-not-enforced"
+            >
+              {t(
+                "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.",
+              )}
+            </div>
+          )
+        }
+      >
+        <Segmented<DiskAccess>
+          name="settings-disk"
+          labelledBy="settings-disk"
+          value={shown}
+          onChange={sec.pick}
+          disabled={!view.can_save || busy}
+          options={[
+            { value: "workspace", label: t("Workspace only") },
+            { value: "full", label: t("Whole disk") },
+          ]}
+        />
+      </Row>
+      {asking && (
+        <InlineConfirm
+          id="settings-disk-confirm"
+          testid="security-confirm"
+          title={t("Give Motita access to the whole disk?")}
+          lines={fullDiskRisks()}
+          confirmLabel={t("Allow the whole disk")}
+          danger
+          busy={busy}
+          onConfirm={sec.confirm}
+          onCancel={sec.cancel}
+        />
+      )}
+      <p class="settings-card-note text-xs text-[#7a7a8c]">
+        {t("A command you approve one by one still runs as you approved it.")}
+        {view.enforced &&
+          " " +
+            t(
+              "Motita's own logins and keys stay hidden from its commands either way.",
+            )}
+      </p>
+    </>
+  );
+}
+
 // SecuritySettings is how much of the disk Motita reaches: its workspace only (the default) or
 // the whole disk, which is never given without a confirmation that says what it implies. The
 // section stays hidden on a gateway without the security API.
@@ -128,71 +210,13 @@ export function SecuritySettings({ api }: { api: Api }) {
           </p>
         )}
         {view && (
-          <>
-            <Row
-              id="settings-disk"
-              label={t("What Motita can reach")}
-              stack
-              hint={
-                accessHint(shown) +
-                choose(
-                  view.can_save,
-                  "",
-                  " " +
-                    t(
-                      "The gateway runs on its built-in defaults, without a configuration file, so this cannot be changed here.",
-                    ),
-                )
-              }
-              warning={
-                !view.enforced && (
-                  <div
-                    class="text-xs text-warning mt-1"
-                    data-testid="security-not-enforced"
-                  >
-                    {t(
-                      "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.",
-                    )}
-                  </div>
-                )
-              }
-            >
-              <Segmented<DiskAccess>
-                name="settings-disk"
-                labelledBy="settings-disk"
-                value={shown}
-                onChange={sec.pick}
-                disabled={!view.can_save || busy}
-                options={[
-                  { value: "workspace", label: t("Workspace only") },
-                  { value: "full", label: t("Whole disk") },
-                ]}
-              />
-            </Row>
-            {asking && (
-              <InlineConfirm
-                id="settings-disk-confirm"
-                testid="security-confirm"
-                title={t("Give Motita access to the whole disk?")}
-                lines={fullDiskRisks()}
-                confirmLabel={t("Allow the whole disk")}
-                danger
-                busy={busy}
-                onConfirm={sec.confirm}
-                onCancel={sec.cancel}
-              />
-            )}
-            <p class="settings-card-note text-xs text-[#7a7a8c]">
-              {t(
-                "A command you approve one by one still runs as you approved it.",
-              )}
-              {view.enforced &&
-                " " +
-                  t(
-                    "Motita's own logins and keys stay hidden from its commands either way.",
-                  )}
-            </p>
-          </>
+          <DiskAccessControls
+            view={view}
+            shown={shown}
+            busy={busy}
+            asking={asking}
+            sec={sec}
+          />
         )}
         {err && (
           <p

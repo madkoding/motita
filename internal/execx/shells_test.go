@@ -89,7 +89,8 @@ func TestWindowsShellPrefersPowerShell(t *testing.T) {
 }
 
 func TestIsCmdKnowsTheCommandProcessor(t *testing.T) {
-	for shell, want := range map[string]bool{`C:\Windows\system32\CMD.EXE`: true, "cmd": true, "pwsh": false, "/bin/sh": false} {
+	shells := map[string]bool{`C:\Windows\system32\CMD.EXE`: true, "cmd": true, "pwsh": false, "/bin/sh": false}
+	for shell, want := range shells {
 		if got := IsCmd(shell); got != want {
 			t.Errorf("IsCmd(%q) = %v, want %v", shell, got, want)
 		}

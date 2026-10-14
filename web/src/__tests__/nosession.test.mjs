@@ -107,7 +107,7 @@ test("the hint clears WCAG AA on the card", () => {
 });
 
 test("the New session button text clears WCAG AA on its tint, resting and hovered", () => {
-  const accent = rgb(css.match(/--color-accent:\s*(#[0-9a-fA-F]{6})/)[1]);
+  const accent = rgb(/--color-accent:\s*(#[0-9a-fA-F]{6})/.exec(css)[1]);
   const button = src("NewSessionButton.ts");
   assert.match(
     button,

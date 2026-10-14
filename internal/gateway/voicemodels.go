@@ -58,11 +58,14 @@ func (d *modelDownload) snapshot() *downloadView {
 	return &v
 }
 
+// errNoLocalVoices is the answer of every local-voice endpoint on a gateway without a library.
+const errNoLocalVoices = "this gateway keeps no local voices"
+
 // handleVoiceModels answers the catalog, what is on disk and the download in progress.
 func (s *Server) handleVoiceModels(w http.ResponseWriter, r *http.Request) {
 	lib := s.opts.VoiceModels
 	if lib == nil {
-		writeError(w, http.StatusNotImplemented, "this gateway keeps no local voices")
+		writeError(w, http.StatusNotImplemented, errNoLocalVoices)
 		return
 	}
 	models := make([]localModelView, 0, len(lib.Models))
@@ -147,7 +150,7 @@ func (s *Server) handleDeleteVoiceModel(w http.ResponseWriter, r *http.Request) 
 func (s *Server) voiceModelOf(w http.ResponseWriter, r *http.Request) (*voice.Library, string, bool) {
 	lib := s.opts.VoiceModels
 	if lib == nil {
-		writeError(w, http.StatusNotImplemented, "this gateway keeps no local voices")
+		writeError(w, http.StatusNotImplemented, errNoLocalVoices)
 		return nil, "", false
 	}
 	id := r.PathValue("id")
@@ -170,7 +173,7 @@ var modelFileTypes = map[string]string{
 func (s *Server) handleVoiceModelFile(w http.ResponseWriter, r *http.Request) {
 	lib := s.opts.VoiceModels
 	if lib == nil {
-		writeError(w, http.StatusNotImplemented, "this gateway keeps no local voices")
+		writeError(w, http.StatusNotImplemented, errNoLocalVoices)
 		return
 	}
 	path, ok := lib.File(r.PathValue("id"), r.PathValue("name"))

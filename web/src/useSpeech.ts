@@ -740,6 +740,20 @@ function useReadText(o: {
   return read;
 }
 
+// speechEngines says which voices can read aloud: the gateway's, the local ones the page runs,
+// and whether any voice at all (the device's included) can.
+function speechEngines(device: boolean, tts: TTSInfo | undefined, local: boolean | undefined, api: Api | undefined) {
+  const audio = typeof Audio !== "undefined";
+  const gatewayOn = !!(tts?.enabled && api && audio);
+  const localOn = !!(local && api && audio && localVoicesSupported());
+  return { gatewayOn, localOn, supported: device || gatewayOn || localOn };
+}
+
+// gatewayVoicesOf are the gateway's voices, when it reads aloud.
+function gatewayVoicesOf(gatewayOn: boolean, tts: TTSInfo | undefined): string[] {
+  return choose(gatewayOn, tts?.voices ?? [], []);
+}
+
 export function useSpeech({
   messages,
   running,
@@ -753,9 +767,7 @@ export function useSpeech({
   approval,
 }: Deps) {
   const device = useMemo(speechSupported, []);
-  const gatewayOn = !!(tts?.enabled && api && typeof Audio !== "undefined");
-  const localOn = !!(local && api && typeof Audio !== "undefined" && localVoicesSupported());
-  const supported = device || gatewayOn || localOn;
+  const { gatewayOn, localOn, supported } = speechEngines(device, tts, local, api);
   const { prefs, prefsRef, setPrefs } = useSpeechPrefs();
   const { voices, voicesRef } = useDeviceVoices(device);
   const [speakingId, setSpeakingId] = useState<number | null>(null);
@@ -919,7 +931,7 @@ export function useSpeech({
     supported,
     // device says the device has voices of its own; gatewayVoices are the gateway's, when it has one.
     device,
-    gatewayVoices: choose(gatewayOn, tts?.voices ?? [], []),
+    gatewayVoices: gatewayVoicesOf(gatewayOn, tts),
     // local says the gateway offers local voices and this browser can run them.
     local: localOn,
     prefs,

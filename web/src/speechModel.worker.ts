@@ -5,7 +5,7 @@
 // Every file comes from the gateway (GET /v1/voice/models/...), which downloaded it from a fixed
 // catalog and checked its hash; the page keeps its own copy in Cache Storage so a voice loads
 // without the network after the first time. The logic is in localVoiceCore.ts.
-import * as ort from "onnxruntime-web/wasm";
+import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
 import { Synth, VOICE_CACHE, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
 
@@ -30,12 +30,12 @@ const synth = new Synth({
   bytes,
   ort: async (wasm) => {
     // One thread: several need a cross-origin isolated page, which this one is not.
-    ort.env.wasm.numThreads = 1;
-    ort.env.wasm.proxy = false;
-    ort.env.wasm.wasmBinary = wasm;
+    env.wasm.numThreads = 1;
+    env.wasm.proxy = false;
+    env.wasm.wasmBinary = wasm;
     return {
-      Tensor: ort.Tensor as unknown as OrtLike["Tensor"],
-      createSession: (model) => ort.InferenceSession.create(model, { executionProviders: ["wasm"] }),
+      Tensor: Tensor as unknown as OrtLike["Tensor"],
+      createSession: (model) => InferenceSession.create(model, { executionProviders: ["wasm"] }),
     } as OrtLike;
   },
   phonemizer: (wasm, data, print) =>

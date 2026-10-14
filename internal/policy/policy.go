@@ -731,17 +731,9 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	if d, hit := MandatoryInLine(line, dir); hit {
 		return d
 	}
-	if m.PowerShell {
-		if r, hit := powerShellSyntax(line); hit {
-			return m.Relaxing(m.ShellLine(fmt.Sprintf("PowerShell reads %q as code", string(r))))
-		}
-		// What is left uses a backslash only as a path separator, which the POSIX reading
-		// below would take for an escape: `srcpp` would be judged as `srcapp`. Windows takes
-		// `/` for the same separator, so the line is judged with it, floor included.
-		line = strings.ReplaceAll(line, `\`, "/")
-		if d, hit := MandatoryInLine(line, dir); hit {
-			return d
-		}
+	line, d, hit := m.powerShellLine(line, dir)
+	if hit {
+		return d
 	}
 
 	// The line is judged by its WORST segment, and the seed is the first segment's own
@@ -783,6 +775,25 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		return Decision{Deny, "there is no command to run", "missing", false}
 	}
 	return m.Relaxing(worst)
+}
+
+// powerShellLine prepares a line for the POSIX reading when PowerShell will run it: a line
+// PowerShell reads as code is decided here (hit), and what is left comes back with its
+// backslashes turned into slashes, the floor checked again on it. Any other shell's line comes
+// back as it is.
+func (m Mode) powerShellLine(line, dir string) (string, Decision, bool) {
+	if !m.PowerShell {
+		return line, Decision{}, false
+	}
+	if r, hit := powerShellSyntax(line); hit {
+		return line, m.Relaxing(m.ShellLine(fmt.Sprintf("PowerShell reads %q as code", string(r)))), true
+	}
+	// What is left uses a backslash only as a path separator, which the POSIX reading
+	// below would take for an escape: `srcpp` would be judged as `srcapp`. Windows takes
+	// `/` for the same separator, so the line is judged with it, floor included.
+	line = strings.ReplaceAll(line, `\`, "/")
+	d, hit := MandatoryInLine(line, dir)
+	return line, d, hit
 }
 
 // segmentDecision decides one segment of a line. skip reports a segment that runs nothing, and

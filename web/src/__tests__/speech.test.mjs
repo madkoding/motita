@@ -21,6 +21,9 @@ const ONE_WORD = 500;
 const QUICK = 1.25;
 const NEW_NOTES = 3;
 const SAID_NOTES = 2;
+const FAST = 1.5;
+const MAX_TERM = 80; // speech.ts: the longest term or saying a pronunciation keeps
+const NOT_ALLOWED = "not-allowed";
 
 test("the settings: read when I spoke, the device's voice, normal speed, and they are kept", () => {
   localStorage.clear();
@@ -354,7 +357,7 @@ test("a cancel reported as an error is a stop; any other error is reported", () 
     rate: 1,
     onEnd: (e) => ends.push(e),
   });
-  synth.fail("not-allowed");
+  synth.fail(NOT_ALLOWED);
   reader.read(two, {
     voice: null,
     lang: "en",
@@ -362,7 +365,7 @@ test("a cancel reported as an error is a stop; any other error is reported", () 
     onEnd: (e) => ends.push(e),
   });
   synth.fail(undefined);
-  assert.deepEqual(ends, [undefined, "not-allowed", "error"]);
+  assert.deepEqual(ends, [undefined, NOT_ALLOWED, "error"]);
   assert.equal(reader.reading, false);
 });
 
@@ -513,7 +516,7 @@ test("gateway voice: each sentence is asked for, the next one while one plays, a
   r.read(LIST, {
     voice: null,
     lang: "es",
-    rate: 1.5,
+    rate: FAST,
     onSentence: (i) => seen.push(i),
     onEnd: (e) => {
       ended = e;
@@ -528,7 +531,7 @@ test("gateway voice: each sentence is asked for, the next one while one plays, a
   );
   assert.equal(made.length, 1);
   assert.equal(made[0].src, "blob:1");
-  assert.equal(made[0].playbackRate, 1.5);
+  assert.equal(made[0].playbackRate, FAST);
   assert.deepEqual(seen, [0]);
   assert.equal(
     m.voiceBusy(),
@@ -606,12 +609,14 @@ test("gateway voice: a refusal, a broken clip or a blocked play end the reading 
     throw new Error("the gateway has no voice");
   });
   assert.equal(refused.ended(), "the gateway has no voice");
+  // Something that is not an Error, as some code throws, is reported as a plain "error".
+  const notAnError = "?";
   const odd = await run(async () => {
-    throw "?";
+    throw notAnError;
   });
   assert.equal(odd.ended(), "error");
   const blocked = await run(async (t) => new Blob([t]), { refuse: true });
-  assert.equal(blocked.ended(), "not-allowed", "the browser wants a tap first");
+  assert.equal(blocked.ended(), NOT_ALLOWED, "the browser wants a tap first");
   const broken = await run(async (t) => new Blob([t]));
   broken.made[0].onerror();
   assert.equal(broken.ended(), "audio");
@@ -673,7 +678,7 @@ test("pronunciations: the person's own list is typed one a line, kept clean, and
         { term: "a", say: "b" },
         { term: 3 },
         null,
-        { term: "x".repeat(81), say: "y" },
+        { term: "x".repeat(MAX_TERM + 1), say: "y" },
       ],
       langVoices: { es: "ana", en: 7, fr: "x" },
     }),
@@ -729,7 +734,12 @@ test("a voice per language: each sentence is told apart by its common words", ()
   const eve = { voiceURI: "e", name: "Eve", lang: "en-US" };
   reader.read(list, {
     voice: ana,
-    voiceFor: (l) => (l === "en" ? eve : null),
+    voiceFor: (l) => {
+      if (l === "en") {
+        return eve;
+      }
+      return null;
+    },
     lang: "es",
     rate: 1,
   });

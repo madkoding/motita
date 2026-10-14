@@ -4,6 +4,8 @@ import { choose } from "./choose";
 // The classes the settings sections share: a field, a small button, and its two emphasised kinds.
 export const inputCls =
   "min-w-0 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent";
+// selectCls is a select narrower than its row: a voice, a microphone.
+export const selectCls = inputCls + " max-w-[220px]";
 export const smallBtn =
   "btn-outline px-3 min-h-[32px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform";
 export const primaryBtn = smallBtn + " bg-accent text-white border-transparent";

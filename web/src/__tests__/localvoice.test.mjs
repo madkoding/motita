@@ -23,7 +23,7 @@ const out = mkdtempSync(join(here, ".lv-"));
 await build({
   stdin: {
     contents:
-      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./VoiceSettings";\n',
+      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./SpeechSettings";\n',
     resolveDir: join(here, ".."),
     loader: "ts",
   },
@@ -42,26 +42,63 @@ const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
 
+const HTTP_OK = 200;
+const HTTP_ACCEPTED = 202;
+const HTTP_NO_CONTENT = 204;
+const HTTP_NOT_FOUND = 404;
+const HTTP_CONFLICT = 409;
+const HTTP_SERVER_ERROR = 500;
+
+const SAMPLE_RATE = 22050;
+// A WAV file: a 44-byte header, then 16-bit samples.
+const WAV_HEADER_BYTES = 44;
+const BYTES_PER_SAMPLE = 2;
+const WAVE_AT = 8;
+const DATA_TAG_AT = 36;
+const CHANNELS_AT = 22;
+const SAMPLE_RATE_AT = 24;
+const BITS_PER_SAMPLE_AT = 34;
+const DATA_SIZE_AT = 40;
+const INT16_MAX = 32767;
+// A sample beyond full scale, which the WAV clips.
+const OVER_FULL_SCALE = -2;
+// What the stand-in model says, and the phoneme ids the stand-in phonemizer answers.
+const HALF = 0.5;
+const MODEL_OUTPUT = [HALF, -HALF];
+const PHONEME_IDS = [1, 0, 5, 0, 2];
+const PHONEMES = ["h", "ˈ", "o", "l", "a", ".", "r", "x"];
+// The text to phonemize is the fourth argument of the phonemizer's command line.
+const INPUT_ARG = 3;
+// The voice's noise_scale, length_scale and noise_w, in thousandths.
+const SCALES_MILLI = [667, 1000, 800];
+// settle waits this many rounds for the requests in flight.
+const SETTLE_ROUNDS = 3;
+
 const VOICE = {
   espeak: { voice: "es-419" },
-  audio: { sample_rate: 22050 },
+  audio: { sample_rate: SAMPLE_RATE },
   inference: { noise_scale: 0.667, length_scale: 1, noise_w: 0.8 },
 };
 const enc = (s) => new TextEncoder().encode(s).buffer;
 const KOKORO_VOCAB = { " ": 16, ".": 4, h: 50, l: 54, o: 57, a: 43, k: 53, j: 52, "ɹ": 123, "ˈ": 156 };
 
 test("the WAV header says mono 16-bit at the voice's rate, and the samples are clipped", () => {
-  const wav = new DataView(core.wavOf(Float32Array.from([0, 1, -2]), 22050));
-  const text = (at) => String.fromCharCode(...new Uint8Array(wav.buffer, at, 4));
+  const samples = [0, 1, OVER_FULL_SCALE];
+  const dataBytes = samples.length * BYTES_PER_SAMPLE;
+  const wav = new DataView(core.wavOf(Float32Array.from(samples), SAMPLE_RATE));
+  const text = (at) => String.fromCodePoint(...new Uint8Array(wav.buffer, at, 4));
   assert.equal(text(0), "RIFF");
-  assert.equal(text(8), "WAVE");
-  assert.equal(text(36), "data");
-  assert.equal(wav.byteLength, 44 + 6);
-  assert.equal(wav.getUint16(22, true), 1, "mono");
-  assert.equal(wav.getUint32(24, true), 22050);
-  assert.equal(wav.getUint16(34, true), 16);
-  assert.equal(wav.getUint32(40, true), 6);
-  assert.deepEqual([0, 1, 2].map((i) => wav.getInt16(44 + i * 2, true)), [0, 32767, -32767]);
+  assert.equal(text(WAVE_AT), "WAVE");
+  assert.equal(text(DATA_TAG_AT), "data");
+  assert.equal(wav.byteLength, WAV_HEADER_BYTES + dataBytes);
+  assert.equal(wav.getUint16(CHANNELS_AT, true), 1, "mono");
+  assert.equal(wav.getUint32(SAMPLE_RATE_AT, true), SAMPLE_RATE);
+  assert.equal(wav.getUint16(BITS_PER_SAMPLE_AT, true), 16);
+  assert.equal(wav.getUint32(DATA_SIZE_AT, true), dataBytes);
+  assert.deepEqual(
+    [0, 1, 2].map((i) => wav.getInt16(WAV_HEADER_BYTES + i * BYTES_PER_SAMPLE, true)),
+    [0, INT16_MAX, -INT16_MAX],
+  );
 });
 
 test("a voice's settings, the phonemizer's command line and its answer are read", () => {
@@ -175,24 +212,22 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
       log.ort++;
       assert.equal(new TextDecoder().decode(wasm), "/v1/voice/models/runtime/ort-wasm-simd-threaded.wasm");
       return {
-        Tensor: class {
-          constructor(type, data, dims) {
-            Object.assign(this, { type, data, dims });
-          }
+        Tensor: function Tensor(type, data, dims) {
+          Object.assign(this, { type, data, dims });
         },
         createSession: async () => {
           log.sessions++;
           return {
             run: async (feeds) => {
               log.feeds.push(feeds);
-              const data = Float32Array.from([0.5, -0.5]);
+              const data = Float32Array.from(MODEL_OUTPUT);
               return { output: { data }, waveform: { data } };
             },
           };
         },
       };
     },
-    phonemizer: async (wasm, data, print) => {
+    phonemizer: async (_wasm, data, print) => {
       log.phon++;
       assert.match(new TextDecoder().decode(data), /piper_phonemize\.data$/);
       return {
@@ -200,7 +235,7 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
           log.args.push(args);
           if (!silent) {
             print("[espeak] ready");
-            print('{"phoneme_ids":[1,0,5,0,2],"phonemes":["h","ˈ","o","l","a",".","r","x"]}');
+            print(JSON.stringify({ phoneme_ids: PHONEME_IDS, phonemes: PHONEMES }));
           }
         },
       };
@@ -213,15 +248,15 @@ test("the synthesis loads the runtime, the phonemizer and each voice once, and f
   const { deps, log } = fakes();
   const synth = new core.Synth(deps);
   const [a, b] = await Promise.all([synth.say("v1", "Hola."), synth.say("v1", "Chao.")]);
-  assert.equal(new DataView(a).getUint32(24, true), 22050);
-  assert.equal(b.byteLength, 44 + 4);
+  assert.equal(new DataView(a).getUint32(SAMPLE_RATE_AT, true), SAMPLE_RATE);
+  assert.equal(b.byteLength, WAV_HEADER_BYTES + MODEL_OUTPUT.length * BYTES_PER_SAMPLE);
   assert.deepEqual([log.ort, log.phon, log.sessions], [1, 1, 1]);
-  assert.deepEqual(log.args.map((x) => JSON.parse(x[3])[0].text), ["Hola.", "Chao."], "in order");
+  assert.deepEqual(log.args.map((x) => JSON.parse(x[INPUT_ARG])[0].text), ["Hola.", "Chao."], "in order");
   const f = log.feeds[0];
   assert.deepEqual([...f.input.data], [1n, 0n, 5n, 0n, 2n]);
-  assert.deepEqual(f.input.dims, [1, 5]);
+  assert.deepEqual(f.input.dims, [1, PHONEME_IDS.length]);
   assert.deepEqual([...f.input_lengths.data], [5n]);
-  assert.deepEqual([...f.scales.data].map((x) => Math.round(x * 1000)), [667, 1000, 800]);
+  assert.deepEqual([...f.scales.data].map((x) => Math.round(x * 1000)), SCALES_MILLI);
   assert.equal(f.sid, undefined, "one speaker: no speaker id");
   // The sliders scale the intonation and the rhythm; the speed is left to the page.
   await synth.say("v1", "Tono.", { noise: 0.5, noiseW: 2 });
@@ -294,13 +329,15 @@ test("a voice with several speakers gets a speaker id; a failure is reported and
   const retry = new core.Synth({
     ...broken.deps,
     ort: async (w) => {
-      if (ortFails-- > 0) {
+      ortFails -= 1;
+      if (ortFails >= 0) {
         throw new Error("no runtime");
       }
       return ort(w);
     },
     phonemizer: async (...a) => {
-      if (phonFails-- > 0) {
+      phonFails -= 1;
+      if (phonFails >= 0) {
         throw new Error("no phonemizer");
       }
       return phonemizer(...a);
@@ -320,7 +357,7 @@ function apiOf(table) {
     if (typeof r === "function") {
       return r();
     }
-    const [status, body] = r ?? [404, { error: "not found" }];
+    const [status, body] = r ?? [HTTP_NOT_FOUND, { error: "not found" }];
     return new Response(JSON.stringify(body), { status });
   };
   return { api, calls };
@@ -329,11 +366,11 @@ function apiOf(table) {
 test("the page asks the gateway for the catalog, a download and a removal, and says why one failed", async () => {
   const cat = { runtime: { size: 1, installed: true }, models: [], download: null };
   const { api, calls } = apiOf({
-    "GET /v1/voice/models": [200, cat],
-    "POST /v1/voice/models/a": [202, {}],
-    "POST /v1/voice/models/b": [409, { error: "another voice is downloading" }],
-    "DELETE /v1/voice/models/a": () => new Response(null, { status: 204 }),
-    "DELETE /v1/voice/models/b": () => new Response("<html>", { status: 500 }),
+    "GET /v1/voice/models": [HTTP_OK, cat],
+    "POST /v1/voice/models/a": [HTTP_ACCEPTED, {}],
+    "POST /v1/voice/models/b": [HTTP_CONFLICT, { error: "another voice is downloading" }],
+    "DELETE /v1/voice/models/a": () => new Response(null, { status: HTTP_NO_CONTENT }),
+    "DELETE /v1/voice/models/b": () => new Response("<html>", { status: HTTP_SERVER_ERROR }),
   });
   assert.deepEqual(await lv.fetchCatalog(api), cat);
   await lv.installVoice(api, "a");
@@ -363,7 +400,8 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
   assert.deepEqual(deleted.slice(3), ["/v1/voice/models/kokoro/model.onnx", "/v1/voice/models/kokoro/tokenizer.json"]);
   await assert.rejects(lv.deleteVoice(api, "b"), /HTTP 500/);
   await assert.rejects(lv.fetchCatalog(apiOf({}).api), /not found/);
-  assert.deepEqual(calls.slice(0, 3), ["GET /v1/voice/models", "POST /v1/voice/models/a", "POST /v1/voice/models/b"]);
+  const first = ["GET /v1/voice/models", "POST /v1/voice/models/a", "POST /v1/voice/models/b"];
+  assert.deepEqual(calls.slice(0, first.length), first);
   delete globalThis.caches;
   assert.equal(lv.localVoicesSupported(), false, "no worker, no Cache Storage");
 });
@@ -442,7 +480,7 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
 
 // settle lets the requests in flight answer and the page draw what they said.
 async function settle() {
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < SETTLE_ROUNDS; i++) {
     await act(() => new Promise((r) => setTimeout(r, 0)));
   }
 }
@@ -471,14 +509,14 @@ test("the settings download a voice, follow its progress, choose it and delete i
     download: null,
   };
   const { api, calls } = apiOf({
-    "GET /v1/voice/models": () => new Response(JSON.stringify(state), { status: 200 }),
+    "GET /v1/voice/models": () => new Response(JSON.stringify(state), { status: HTTP_OK }),
     "POST /v1/voice/models/es": () => {
       state = { ...state, download: { id: "es", done: 48e6, total: 96e6 } };
-      return new Response("{}", { status: 202 });
+      return new Response("{}", { status: HTTP_ACCEPTED });
     },
     "DELETE /v1/voice/models/es": () => {
       state = { ...state, models: [state.models[0], model("es", "es-MX", false)] };
-      return new Response(null, { status: 204 });
+      return new Response(null, { status: HTTP_NO_CONTENT });
     },
   });
   const chosen = [];
@@ -591,7 +629,7 @@ test("a failed download and an unreachable catalog are shown", async () => {
     models: [{ id: "es", name: "ES", lang: "es-MX", quality: "high", size: 1, installed: true }],
     download: { id: "es", done: 0, total: 1, error: "model.onnx is not the file the catalog names" },
   };
-  const ok = apiOf({ "GET /v1/voice/models": [200, failed], "POST /v1/voice/models/es": [409, { error: "busy" }] });
+  const ok = apiOf({ "GET /v1/voice/models": [HTTP_OK, failed], "POST /v1/voice/models/es": [HTTP_CONFLICT, { error: "busy" }] });
   let v = await mount(h(lv.LocalVoices, { api: ok.api, chosen: "es", choose: () => {} }));
   assert.match(v.root.textContent, /model\.onnx is not the file/);
   // Use on the chosen voice says it is in use.
@@ -603,8 +641,8 @@ test("a failed download and an unreachable catalog are shown", async () => {
   v.done();
   // A refused download names why.
   const refusing = apiOf({
-    "GET /v1/voice/models": [200, { ...failed, models: [{ ...failed.models[0], installed: false }], download: null }],
-    "POST /v1/voice/models/es": [409, { error: "another voice is downloading" }],
+    "GET /v1/voice/models": [HTTP_OK, { ...failed, models: [{ ...failed.models[0], installed: false }], download: null }],
+    "POST /v1/voice/models/es": [HTTP_CONFLICT, { error: "another voice is downloading" }],
   });
   v = await mount(h(lv.LocalVoices, { api: refusing.api, chosen: "", choose: () => {} }));
   await act(async () => v.root.querySelector("[data-testid=local-voice-get-es]").click());
@@ -634,7 +672,7 @@ test("who speaks offers the local voice when the gateway has them, and shows the
   };
   const saved = [];
   const { api } = apiOf({
-    "GET /v1/voice/models": [200, { runtime: { size: 1, installed: true }, models: [], download: null }],
+    "GET /v1/voice/models": [HTTP_OK, { runtime: { size: 1, installed: true }, models: [], download: null }],
   });
   const props = (p, extra = {}) => ({ supported: true, prefs: p, setPrefs: (x) => saved.push(x), voices: [], test: () => {}, ...extra });
   let v = await mount(h(lv.SpeechSettings, props(prefs)));

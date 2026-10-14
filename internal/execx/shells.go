@@ -24,8 +24,9 @@ func IsPowerShell(shell string) bool {
 	switch shellName(shell) {
 	case "powershell", "pwsh":
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // IsCmd reports whether shell is the Windows command processor.

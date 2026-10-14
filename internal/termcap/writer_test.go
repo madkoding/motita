@@ -35,7 +35,8 @@ func TestColourIsDroppedAndTheRestKept(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	// The colour stays when the profile has it and only the glyphs are swapped.
-	if got := filtered(Profile{Level: ANSI16, ASCII: true}, "\x1b[36m\u250c\u2500\u2022\x1b[0m"); got != "\x1b[36m+-*\x1b[0m" {
+	got := filtered(Profile{Level: ANSI16, ASCII: true}, "\x1b[36m\u250c\u2500\u2022\x1b[0m")
+	if got != "\x1b[36m+-*\x1b[0m" {
 		t.Errorf("ASCII with colour: %q", got)
 	}
 }
@@ -67,8 +68,10 @@ func TestGlyphStandIns(t *testing.T) {
 		"\u250c\u2500\u2510\u2502\u2514\u2518": "+-+|++",
 		"\u2550\u2551\u2554\u256c":             "-|++",
 		"\u258e\u2588":                         "##",
-		"\u2022 \u00b0 \u00bb \u00ab \u00b7 \u2026 \u2014 \u2013 \u2018\u2019\u201c\u201d \u2039 \u203a": `* o > < . . - - ''"" < >`,
-		"\u2190 \u2191 \u2192 \u2193 \u221a \u2261 \u25b6 \u25b8 \u25cf \u25cb \u26a0":                   "< ^ > v v = > > * o !",
+		"\u2022 \u00b0 \u00bb \u00ab \u00b7 \u2026 " +
+			"\u2014 \u2013 \u2018\u2019\u201c\u201d \u2039 \u203a": `* o > < . . - - ''"" < >`,
+		"\u2190 \u2191 \u2192 \u2193 \u221a \u2261 " +
+			"\u25b6 \u25b8 \u25cf \u25cb \u26a0": "< ^ > v v = > > * o !",
 		"\u2713\u2714\u2717\u2718": "vvxx",
 		"\U0001f642":               "??",
 		"\u2605":                   "?",

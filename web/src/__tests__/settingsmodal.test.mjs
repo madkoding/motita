@@ -49,10 +49,10 @@ globalThis.Notification = fakeNotification;
 const fakeMicPermission = {
   state: "granted",
   listeners: new Set(),
-  addEventListener(t, f) {
+  addEventListener(_t, f) {
     this.listeners.add(f);
   },
-  removeEventListener(t, f) {
+  removeEventListener(_t, f) {
     this.listeners.delete(f);
   },
   change(state) {
@@ -125,6 +125,11 @@ const CI_TOAST_KEY = "motita.ui.ciToast";
 const INSECURE_WARNING = "[data-testid=insecure-warning]";
 const ARIA_SELECTED = "aria-selected";
 const SPEAK_GROUP = "settings-speak";
+const VOICE_CARD = "[data-testid=voice-setting]";
+const SPEECH_CARD = "[data-testid=speech-setting]";
+const MIC_GATE = "[data-testid=mic-permission]";
+const CONVERSATION_SWITCH = "settings-speech-conversation";
+const GROQ_URL = "https://api.groq.com/openai/v1";
 
 const fakeApi = async () =>
   new Response(JSON.stringify({ accounts: ACCOUNTS }), { status: 200 });
@@ -480,7 +485,7 @@ test("the voice switches are greyed out until the page and the gateway allow the
     setPrefs: (p) => saved.push(p),
   });
   let v = await open({ tab: "voice", voice: voice("insecure", "insecure") });
-  const section = v.root.querySelector("[data-testid=voice-setting]");
+  const section = v.root.querySelector(VOICE_CARD);
   assert.ok(section, "the voice section is drawn");
   const [mic, listen] = section.querySelectorAll(SWITCH);
   assert.equal(mic.disabled, true);
@@ -552,7 +557,7 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     tab: "voice",
     speech: speech(true, [{ voiceURI: "ana", name: "Ana", lang: "es-CL" }]),
   });
-  const card = v.root.querySelector("[data-testid=speech-setting]");
+  const card = v.root.querySelector(SPEECH_CARD);
   assert.ok(card, "the read-aloud section is drawn");
   assert.equal(radio(card, SPEAK_GROUP, "voice").checked, true);
   assert.match(card.textContent, /Alt\+L/, "the shortcut is named");
@@ -582,7 +587,7 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
   await v.done();
 
   v = await open({ tab: "voice", speech: speech(false, []) });
-  const off = v.root.querySelector("[data-testid=speech-setting]");
+  const off = v.root.querySelector(SPEECH_CARD);
   assert.match(off.textContent, /cannot read aloud/);
   assert.equal(off.querySelector("select").disabled, true);
   assert.equal(off.querySelector("[data-testid=speech-test]").disabled, true);
@@ -616,7 +621,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     pronunciations: [],
   };
   let v = await open({ tab: "voice", speech: speech(base) });
-  let card = v.root.querySelector("[data-testid=speech-setting]");
+  let card = v.root.querySelector(SPEECH_CARD);
   assert.equal(radio(card, "settings-speech-engine", "device").checked, true);
   assert.match(card.textContent, /System voices: The voices this device or browser already has. Nothing leaves the browser./);
   // The device's voice has a pitch, back to normal with one button.
@@ -635,7 +640,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     tab: "voice",
     speech: speech({ ...base, engine: "gateway" }),
   });
-  card = v.root.querySelector("[data-testid=speech-setting]");
+  card = v.root.querySelector(SPEECH_CARD);
   assert.match(
     card.textContent,
     /goes to that service/,
@@ -659,7 +664,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
 
   // A device without voices of its own uses the gateway, with nothing to choose.
   v = await open({ tab: "voice", speech: speech(base, false) });
-  card = v.root.querySelector("[data-testid=speech-setting]");
+  card = v.root.querySelector(SPEECH_CARD);
   assert.equal(card.querySelector("[name=settings-speech-engine]"), null);
   assert.deepEqual(
     [...card.querySelector("select").options].map((o) => o.value),
@@ -700,9 +705,9 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
     canListen,
   });
   let v = await open({ tab: "voice", speech: speech(base, false) });
-  let card = v.root.querySelector("[data-testid=speech-setting]");
+  let card = v.root.querySelector(SPEECH_CARD);
   const sw = (name) => card.querySelector(`input[name=${name}]`);
-  assert.equal(sw("settings-speech-conversation").disabled, true);
+  assert.equal(sw(CONVERSATION_SWITCH).disabled, true);
   assert.match(card.textContent, /Needs speech input/);
   await act(() => sw("settings-speech-notices").click());
   assert.deepEqual(saved.pop(), { ...base, notices: true });
@@ -725,16 +730,21 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
     tab: "voice",
     speech: speech({ ...base, byLanguage: true }, true),
   });
-  card = v.root.querySelector("[data-testid=speech-setting]");
-  assert.equal(sw("settings-speech-conversation").disabled, false);
-  await act(() => sw("settings-speech-conversation").click());
+  card = v.root.querySelector(SPEECH_CARD);
+  assert.equal(sw(CONVERSATION_SWITCH).disabled, false);
+  await act(() => sw(CONVERSATION_SWITCH).click());
   assert.equal(saved.pop().conversation, true);
   const other = card.querySelector(
     "[aria-labelledby=settings-speech-other-voice]",
   );
   // The other language than the interface's: English in a Spanish page, Spanish in an English one.
   const english = card.textContent.includes("Voice for English");
-  const want = english ? "eve" : "ana";
+  let want = "ana";
+  let langVoices = { es: "ana" };
+  if (english) {
+    want = "eve";
+    langVoices = { en: "eve" };
+  }
   assert.deepEqual(
     [...other.options].map((o) => o.value),
     ["", want],
@@ -744,10 +754,7 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
   await act(() =>
     other.dispatchEvent(new window.Event("change", { bubbles: true })),
   );
-  assert.deepEqual(
-    saved.pop().langVoices,
-    english ? { en: "eve" } : { es: "ana" },
-  );
+  assert.deepEqual(saved.pop().langVoices, langVoices);
   await v.done();
 });
 
@@ -792,8 +799,8 @@ test("speech input is turned on from the settings, after saying where recordings
     saved: {
       ...off.saved,
       enabled: true,
-      base_url: "https://api.groq.com/openai/v1",
-      endpoint: "https://api.groq.com/openai/v1",
+      base_url: GROQ_URL,
+      endpoint: GROQ_URL,
       model: "whisper-large-v3-turbo",
       has_key: true,
       wake_phrases: ["oye motita"],
@@ -817,7 +824,7 @@ test("speech input is turned on from the settings, after saying where recordings
       onInfo: (i) => infos.push(i),
     },
   });
-  const card = v.root.querySelector("[data-testid=voice-setting]");
+  const card = v.root.querySelector(VOICE_CARD);
   assert.match(card.textContent, /Turn on speech input above first/);
   await act(() =>
     card.querySelector("[data-testid=voice-gateway-switch]").click(),
@@ -844,7 +851,7 @@ test("speech input is turned on from the settings, after saying where recordings
     body: {
       enabled: true,
       confirm: true,
-      base_url: "https://api.groq.com/openai/v1",
+      base_url: GROQ_URL,
       model: "whisper-large-v3-turbo",
       api_key: "gsk-1",
     },
@@ -940,9 +947,9 @@ test("the voice settings are greyed out until the browser allows the microphone"
       setPrefs: () => {},
     },
   });
-  const card = v.root.querySelector("[data-testid=voice-setting]");
+  const card = v.root.querySelector(VOICE_CARD);
   const lock = card.querySelector("[data-testid=voice-locked]");
-  const gate = card.querySelector("[data-testid=mic-permission]");
+  const gate = card.querySelector(MIC_GATE);
   assert.ok(gate, "it asks for the microphone first");
   assert.match(gate.textContent, /Allow the microphone to use voice/);
   assert.equal(lock.disabled, true, "everything else is greyed out");
@@ -954,7 +961,7 @@ test("the voice settings are greyed out until the browser allows the microphone"
   await act(() => new Promise((r) => setTimeout(r, 0)));
   assert.equal(asked, 1);
   assert.match(
-    card.querySelector("[data-testid=mic-permission]").textContent,
+    card.querySelector(MIC_GATE).textContent,
     /allow it in this site's settings/,
     "a refusal says where to allow it again",
   );
@@ -963,7 +970,7 @@ test("the voice settings are greyed out until the browser allows the microphone"
   answer = "allow";
   await act(() => card.querySelector("[data-testid=mic-allow]").click());
   await act(() => new Promise((r) => setTimeout(r, 0)));
-  assert.equal(card.querySelector("[data-testid=mic-permission]"), null);
+  assert.equal(card.querySelector(MIC_GATE), null);
   assert.equal(lock.disabled, false, "allowed: the settings can be used");
   assert.ok([...card.querySelectorAll(SWITCH)].every((s) => !s.disabled));
 
@@ -973,7 +980,7 @@ test("the voice settings are greyed out until the browser allows the microphone"
     true,
     "taking it back in the browser greys it out again",
   );
-  assert.ok(card.querySelector("[data-testid=mic-permission]"));
+  assert.ok(card.querySelector(MIC_GATE));
   await v.done();
   fakeMicPermission.state = "granted";
   Object.defineProperty(globalThis, "navigator", before);

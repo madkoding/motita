@@ -146,19 +146,29 @@ func TestInstallRefusesWhatDoesNotMatch(t *testing.T) {
 		edit func(*Library)
 		want string
 	}{
-		"hash":           {func(l *Library) { l.Models[0].Files[0].SHA256 = strings.Repeat("0", 64) }, "not the file"},
-		"size":           {func(l *Library) { l.Models[0].Files[0].Size = 2 }, "not the file"},
-		"status":         {func(l *Library) { l.Models[0].Files[0].URL += "x" }, "answered 404"},
-		"not tgz":        {func(l *Library) { l.Runtime[0].URL = l.Models[0].Files[1].URL; l.Runtime[1].URL = l.Runtime[0].URL }, "not a .tgz"},
-		"member":         {func(l *Library) { l.Runtime[1].Member = "package/c" }, "ended before 1"},
-		"url":            {func(l *Library) { l.Models[0].Files[0].URL = "http://\x7f" }, "could not be built"},
-		"member hash":    {func(l *Library) { l.Runtime[0].SHA256 = strings.Repeat("0", 64) }, "a.wasm is not the file"},
-		"default client": {func(l *Library) { l.Client = nil; l.Models[0].Files[0].URL = "http://127.0.0.1:1/x" }, "could not be reached"},
-		"reach":          {func(l *Library) { l.Models[0].Files[0].URL = "http://127.0.0.1:1/x" }, "could not be reached"},
-		"name":           {func(l *Library) { l.Models[0].Files[0].Name = "a/b" }, "could not be written"},
-		"mkdir":          {func(l *Library) { _ = os.WriteFile(filepath.Join(l.Dir, "v1"), nil, 0o600) }, "could not be created"},
-		"rename":         {func(l *Library) { _ = os.MkdirAll(filepath.Join(l.Dir, "v1", "model.onnx", "x"), 0o700) }, "could not be kept"},
-		"short":          {func(l *Library) { l.Models[0].Files[0].Size = 9 }, "not the file"},
+		"hash":   {func(l *Library) { l.Models[0].Files[0].SHA256 = strings.Repeat("0", 64) }, "not the file"},
+		"size":   {func(l *Library) { l.Models[0].Files[0].Size = 2 }, "not the file"},
+		"status": {func(l *Library) { l.Models[0].Files[0].URL += "x" }, "answered 404"},
+		"not tgz": {func(l *Library) {
+			l.Runtime[0].URL = l.Models[0].Files[1].URL
+			l.Runtime[1].URL = l.Runtime[0].URL
+		}, "not a .tgz"},
+		"member":      {func(l *Library) { l.Runtime[1].Member = "package/c" }, "ended before 1"},
+		"url":         {func(l *Library) { l.Models[0].Files[0].URL = "http://\x7f" }, "could not be built"},
+		"member hash": {func(l *Library) { l.Runtime[0].SHA256 = strings.Repeat("0", 64) }, "a.wasm is not the file"},
+		"default client": {func(l *Library) {
+			l.Client = nil
+			l.Models[0].Files[0].URL = "http://127.0.0.1:1/x"
+		}, "could not be reached"},
+		"reach": {func(l *Library) { l.Models[0].Files[0].URL = "http://127.0.0.1:1/x" }, "could not be reached"},
+		"name":  {func(l *Library) { l.Models[0].Files[0].Name = "a/b" }, "could not be written"},
+		"mkdir": {func(l *Library) {
+			_ = os.WriteFile(filepath.Join(l.Dir, "v1"), nil, 0o600)
+		}, "could not be created"},
+		"rename": {func(l *Library) {
+			_ = os.MkdirAll(filepath.Join(l.Dir, "v1", "model.onnx", "x"), 0o700)
+		}, "could not be kept"},
+		"short": {func(l *Library) { l.Models[0].Files[0].Size = 9 }, "not the file"},
 		"truncate": {func(l *Library) {
 			l.Models[0].Files[0].URL = strings.Replace(l.Models[0].Files[0].URL, "v.onnx", "broken", 1)
 		}, "could not be downloaded"},

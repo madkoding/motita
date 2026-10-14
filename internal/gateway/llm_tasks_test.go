@@ -48,7 +48,8 @@ func TestLLMTasksAreSavedAndReachEverySession(t *testing.T) {
 	}
 
 	w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks",
-		`{"tasks":{"plan":{"provider":"anthropic","model":"claude-opus-5-5"},"summary":{"provider":"openai","model":"gpt-5-nano"},"code":{"provider":"","model":""}}}`)
+		`{"tasks":{"plan":{"provider":"anthropic","model":"claude-opus-5-5"},`+
+			`"summary":{"provider":"openai","model":"gpt-5-nano"},"code":{"provider":"","model":""}}}`)
 	v = decodeLLM(t, w)
 	if w.Code != http.StatusOK || v.Tasks["plan"].Model != "claude-opus-5-5" || v.Tasks["summary"].Provider != "openai" {
 		t.Fatalf("save: %d %+v", w.Code, v.Tasks)

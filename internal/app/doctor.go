@@ -38,8 +38,8 @@ func (op Options) doctorConfig(fl flags) []doctor.Check {
 	if err != nil {
 		return []doctor.Check{{Name: "config", Status: doctor.Fail, Detail: fmt.Sprintf("%s: %v", path, err)}}
 	}
-	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)}, voiceCheck(cfg), speechCheck(cfg),
-		localVoicesCheck(voiceLibrary())}
+	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)},
+		voiceCheck(cfg), speechCheck(cfg), localVoicesCheck(voiceLibrary())}
 
 	cfg.Agent.LogFile = ""
 	cfg.Agent.LogConsole = false
@@ -116,9 +116,11 @@ func localVoicesCheck(lib *voice.Library) doctor.Check {
 			Detail: strings.Join(bad, "; ") + "; delete the voice in Settings, Voice and download it again"}
 	}
 	if len(names) == 0 {
-		return doctor.Check{Name: "voices", Detail: "no local voice downloaded; Settings, Voice downloads one to run in the browser"}
+		return doctor.Check{Name: "voices",
+			Detail: "no local voice downloaded; Settings, Voice downloads one to run in the browser"}
 	}
-	return doctor.Check{Name: "voices", Detail: "local voices downloaded and matching their hashes: " + strings.Join(names, ", ")}
+	return doctor.Check{Name: "voices",
+		Detail: "local voices downloaded and matching their hashes: " + strings.Join(names, ", ")}
 }
 
 // localAddress reports whether an endpoint is on this machine, where a server needs no key.
