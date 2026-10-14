@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "preact/hooks";
 import { t } from "./i18n";
 import { useApp } from "./appStore";
 import { useBackdropClose } from "./useBackdropClose";
+import { useLeave } from "./motion";
 import { NewSessionButton } from "./NewSessionButton";
 import { SessionRow } from "./SessionRow";
 import { ProjectGroup } from "./ProjectGroup";
@@ -245,6 +246,9 @@ export function Sidebar() {
   const overlay = useRef<HTMLDivElement>(null);
   useBackdropClose(overlay, lists.closeSidebar);
   const aside = useCloseOnPhonePick(lists.closeSidebar);
+  // Closing slides it back out to the left, over a fading overlay on a phone.
+  useLeave(aside, "slide-left");
+  useLeave(overlay, "fade");
   return (
     <>
       {/* Mobile overlay: click to close the sidebar. */}

@@ -985,3 +985,59 @@ test("the voice settings are greyed out until the browser allows the microphone"
   fakeMicPermission.state = "granted";
   Object.defineProperty(globalThis, "navigator", before);
 });
+
+test("read aloud: subtitles turn on with a switch, and then their size can be chosen", async () => {
+  const saved = [];
+  const base = {
+    mode: "voice",
+    style: "natural",
+    engine: "device",
+    gatewayVoice: "",
+    voiceURI: "",
+    rate: 1,
+    maxChars: 600,
+    pitch: 1,
+    langVoices: {},
+    pronunciations: [],
+    subtitles: false,
+    subtitleSize: "medium",
+  };
+  const speech = (prefs, supported = true) => ({
+    supported,
+    prefs,
+    setPrefs: (p) => saved.push(p),
+    voices: [],
+    test: () => {},
+  });
+  let v = await open({ tab: "voice", speech: speech(base) });
+  let card = v.root.querySelector(SPEECH_CARD);
+  const sw = card.querySelector("input[name=settings-speech-subtitles]");
+  assert.equal(sw.checked, false, "off unless asked");
+  assert.match(card.textContent, /like a film's subtitles/);
+  assert.equal(
+    card.querySelector("[name=settings-speech-subtitle-size]"),
+    null,
+    "no size while they are off",
+  );
+  await act(() => sw.click());
+  assert.deepEqual(saved.pop(), { ...base, subtitles: true });
+  await v.done();
+
+  v = await open({ tab: "voice", speech: speech({ ...base, subtitles: true }) });
+  card = v.root.querySelector(SPEECH_CARD);
+  assert.equal(
+    card.querySelector("input[name=settings-speech-subtitles]").checked,
+    true,
+  );
+  assert.equal(radio(card, "settings-speech-subtitle-size", `"medium"`).checked, true);
+  await act(() => radio(card, "settings-speech-subtitle-size", `"large"`).click());
+  assert.deepEqual(saved.pop(), { ...base, subtitles: true, subtitleSize: "large" });
+  await v.done();
+
+  // A browser that cannot speak has nothing to subtitle.
+  v = await open({ tab: "voice", speech: speech({ ...base, subtitles: true }, false) });
+  card = v.root.querySelector(SPEECH_CARD);
+  assert.equal(card.querySelector("input[name=settings-speech-subtitles]").disabled, true);
+  assert.equal(card.querySelector("[name=settings-speech-subtitle-size]"), null);
+  await v.done();
+});

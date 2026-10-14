@@ -218,7 +218,9 @@ export function SettingsModal(props: Props) {
             ))}
           </div>
         )}
+        {/* Keyed by the tab, so a switch mounts the pane again and it rises in (index.css). */}
         <div
+          key={tab}
           id="settings-pane"
           role="tabpanel"
           class="settings-pane"

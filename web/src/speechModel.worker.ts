@@ -7,7 +7,7 @@
 // without the network after the first time. The logic is in localVoiceCore.ts.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
-import { Synth, VOICE_CACHE, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
+import { Synth, VOICE_CACHE, isSupertonic, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -28,6 +28,14 @@ async function bytes(url: string, progress?: (loaded: number, total: number) => 
   return body;
 }
 
+// external hands onnxruntime a model's weights kept apart from it, under the name the model gives.
+function external(weights?: { path: string; data: ArrayBuffer }) {
+  if (!weights) {
+    return {};
+  }
+  return { externalData: [{ path: weights.path, data: new Uint8Array(weights.data) }] };
+}
+
 const synth = new Synth({
   bytes,
   ort: async (wasm) => {
@@ -37,24 +45,35 @@ const synth = new Synth({
     env.wasm.wasmBinary = wasm;
     return {
       Tensor: Tensor as unknown as OrtLike["Tensor"],
-      createSession: (model) => InferenceSession.create(model, { executionProviders: ["wasm"] }),
+      createSession: (model, weights) => InferenceSession.create(model, { executionProviders: ["wasm"], ...external(weights) }),
     } as OrtLike;
   },
-  // WebGPU's build is loaded only for Kokoro, on a browser that has WebGPU.
+  // WebGPU's build runs Supertonic and Chatterbox on a browser that has WebGPU. Each way it can
+  // fail says so, and the page shows it.
   gpu: async (wasm) => {
-    const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    if (!gpu || !(await gpu.requestAdapter())) {
-      throw new Error("no WebGPU here");
+    type Adapter = { features: unknown };
+    type GPU = { requestAdapter(o?: { powerPreference?: string }): Promise<Adapter | null> };
+    const gpu = (self.navigator as Navigator & { gpu?: GPU }).gpu;
+    if (!gpu) {
+      throw new Error("this browser has no WebGPU in its workers");
+    }
+    // The fast card first, as a laptop with two would otherwise give the slow one; then any.
+    const adapter = (await gpu.requestAdapter({ powerPreference: "high-performance" })) ?? (await gpu.requestAdapter());
+    if (!adapter) {
+      throw new Error("the browser gave no graphics card to use");
     }
     const ortGPU = await import("onnxruntime-web/webgpu");
     ortGPU.env.wasm.numThreads = 1;
     ortGPU.env.wasm.proxy = false;
     ortGPU.env.wasm.wasmBinary = wasm;
+    // onnxruntime uses the card found here, not one it would ask for again.
+    ortGPU.env.webgpu.adapter = adapter as typeof ortGPU.env.webgpu.adapter;
     // Its notes on which nodes stay on the CPU are expected, not errors.
     ortGPU.env.logLevel = "error";
     return {
       Tensor: ortGPU.Tensor as unknown as OrtLike["Tensor"],
-      createSession: (model) => ortGPU.InferenceSession.create(model, { executionProviders: ["webgpu"] }),
+      createSession: (model, weights) =>
+        ortGPU.InferenceSession.create(model, { executionProviders: ["webgpu"], ...external(weights) }),
     } as OrtLike;
   },
   phonemizer: (wasm, data, print) =>
@@ -82,15 +101,18 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     synth.forget(m.id);
     return;
   }
-  if (m.gpu !== undefined) {
-    synth.setGPU(m.gpu);
-  }
   if (m.kind === "warm") {
     // The page shows how far the voice is from being ready, and why it could not be.
     synth
       .warm(m.id, (pct) => self.postMessage({ kind: "progress", id: m.id, pct } satisfies FromWorker))
       .then(
-        async () => self.postMessage({ kind: "ready", id: m.id, gpu: await synth.onGPU() } satisfies FromWorker),
+        async () =>
+          self.postMessage({
+            kind: "ready",
+            id: m.id,
+            gpu: await synth.onGPU(m.id),
+            gpuError: (isSupertonic(m.id) && synth.gpuError()) || undefined,
+          } satisfies FromWorker),
         (err: unknown) => self.postMessage({ kind: "failed", id: m.id, error: messageOf(err) } satisfies FromWorker),
       );
     return;

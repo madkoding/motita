@@ -57,10 +57,12 @@ export interface SpeechPrefs {
   pitch: number;
   expressiveness: number;
   variation: number;
-  // kokoroMix is the Kokoro voice the chosen one is mixed with ("" is none), and kokoroMixAmount
-  // how much of it (0 to 1: 0 is the chosen voice alone, 1 the other one).
-  kokoroMix: string;
-  kokoroMixAmount: number;
+  // supertonicSpeed is the pace a Supertonic voice speaks at (1.05 is its own), and
+  // supertonicSteps how many times its sound is refined (0 leaves it to where it runs).
+  supertonicSpeed: number;
+  supertonicSteps: number;
+  // chatterboxEmotion is how much emotion a Chatterbox voice puts in (its exaggeration).
+  chatterboxEmotion: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
   // Zero reads everything.
   maxChars: number;
@@ -76,7 +78,14 @@ export interface SpeechPrefs {
   langVoices: Partial<Record<Lang, string>>;
   // pronunciations are the person's own: a term and how to say it, before the built-in ones.
   pronunciations: Pronunciation[];
+  // subtitles shows on screen, like a film's subtitles, the sentence the voice is saying;
+  // subtitleSize is how big it is drawn.
+  subtitles: boolean;
+  subtitleSize: SubtitleSize;
 }
+
+// How big the subtitles are drawn.
+export type SubtitleSize = "small" | "medium" | "large";
 
 export interface Pronunciation {
   term: string;
@@ -105,14 +114,17 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   pitch: 1,
   expressiveness: 1,
   variation: 1,
-  kokoroMix: "",
-  kokoroMixAmount: 0.5,
+  supertonicSpeed: 1.05,
+  supertonicSteps: 0,
+  chatterboxEmotion: 0.5,
   maxChars: MEDIUM_CHARS,
   conversation: false,
   notices: false,
   byLanguage: false,
   langVoices: {},
   pronunciations: [],
+  subtitles: false,
+  subtitleSize: "medium",
 };
 // SPEECH_PREFS_EVENT tells the page the settings changed in the settings screen.
 export const SPEECH_PREFS_EVENT = "motita-speech-prefs";
@@ -122,6 +134,7 @@ export const LENGTHS = [SHORT_CHARS, MEDIUM_CHARS, LONG_CHARS, 0];
 const MODES: SpeakMode[] = ["off", "voice", "always"];
 const STYLES: SpeakStyle[] = ["literal", "natural"];
 const ENGINES: SpeechEngine[] = ["device", "gateway", "local"];
+export const SUBTITLE_SIZES: SubtitleSize[] = ["small", "medium", "large"];
 
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
@@ -134,8 +147,12 @@ function oneOf<T>(v: unknown, list: T[], fallback: T): T {
 // variation.
 export const PITCH_RANGE: [number, number] = [0.5, 2];
 export const TUNE_RANGE: [number, number] = [0, 2];
-// MIX_RANGE is how much of another Kokoro voice is mixed in.
-export const MIX_RANGE: [number, number] = [0, 1];
+// SUPERTONIC_SPEED_RANGE is the pace a Supertonic voice can be asked for, and
+// SUPERTONIC_STEPS_RANGE how many times its sound is refined (0 is its own for where it runs).
+export const SUPERTONIC_SPEED_RANGE: [number, number] = [0.7, 1.6];
+export const SUPERTONIC_STEPS_RANGE: [number, number] = [0, 16];
+// EMOTION_RANGE is how much emotion a Chatterbox voice can be asked for.
+export const EMOTION_RANGE: [number, number] = [0.25, 2];
 
 // numberIn is v when it is a number within range, fallback otherwise.
 function numberIn(v: unknown, range: [number, number], fallback: number): number {
@@ -157,6 +174,19 @@ const MAX_PRONUNCIATIONS = 200;
 const MAX_TERM = 80;
 
 // langVoicesOf keeps the voices of the languages this page knows.
+// RETIRED_VOICES start the ids of local voices taken out of the catalog (Kokoro's, and the files
+// that ran it on WebGPU).
+const RETIRED_VOICES = ["kokoro-", "accel-kokoro"];
+
+// currentVoice is a saved local voice, or none when it was taken out of the catalog: the page
+// then reads with the device's voice until another is chosen.
+function currentVoice(id: string): string {
+  if (RETIRED_VOICES.some((p) => id.startsWith(p))) {
+    return "";
+  }
+  return id;
+}
+
 function langVoicesOf(v: unknown): Partial<Record<Lang, string>> {
   const out: Partial<Record<Lang, string>> = {};
   if (typeof v !== "object" || v === null) {
@@ -225,20 +255,23 @@ export function loadSpeechPrefs(): SpeechPrefs {
       style: oneOf(raw.style, STYLES, d.style),
       engine: oneOf(raw.engine, ENGINES, d.engine),
       gatewayVoice: stringOr(raw.gatewayVoice, d.gatewayVoice),
-      localVoice: stringOr(raw.localVoice, d.localVoice),
+      localVoice: currentVoice(stringOr(raw.localVoice, d.localVoice)),
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
       expressiveness: numberIn(raw.expressiveness, TUNE_RANGE, d.expressiveness),
       variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
-      kokoroMix: stringOr(raw.kokoroMix, d.kokoroMix),
-      kokoroMixAmount: numberIn(raw.kokoroMixAmount, MIX_RANGE, d.kokoroMixAmount),
+      supertonicSpeed: numberIn(raw.supertonicSpeed, SUPERTONIC_SPEED_RANGE, d.supertonicSpeed),
+      supertonicSteps: Math.round(numberIn(raw.supertonicSteps, SUPERTONIC_STEPS_RANGE, d.supertonicSteps)),
+      chatterboxEmotion: numberIn(raw.chatterboxEmotion, EMOTION_RANGE, d.chatterboxEmotion),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,
       byLanguage: raw.byLanguage === true,
       langVoices: langVoicesOf(raw.langVoices),
       pronunciations: pronunciationsOf(raw.pronunciations),
+      subtitles: raw.subtitles === true,
+      subtitleSize: oneOf(raw.subtitleSize, SUBTITLE_SIZES, d.subtitleSize),
     };
   } catch {
     return { ...DEFAULT_SPEECH_PREFS };
@@ -865,7 +898,8 @@ export interface AudioLike {
 // fetchClip says one text with the gateway's voice or a local one: the audio, or a thrown error.
 // ahead, when more than 1, is how many sentences it can say at once, and so how many the reader
 // asks for beyond the one playing (1 when absent).
-export type FetchClip = ((text: string, signal: AbortSignal) => Promise<Blob>) & { ahead?: number };
+// lang is the sentence's language, for a voice that speaks several.
+export type FetchClip = ((text: string, signal: AbortSignal, lang?: string) => Promise<Blob>) & { ahead?: number };
 
 // reasonOf is why a clip could not be had: the gateway's message, or "error".
 function reasonOf(e: unknown): string {
@@ -952,7 +986,7 @@ export class ClipReader {
     const clips: Promise<string>[] = [];
     // clip asks for sentence i once; the answer is kept until it is played.
     const clip = (i: number): Promise<string> => {
-      clips[i] ??= fetchClip(list[i].said, abort.signal).then((b) => {
+      clips[i] ??= fetchClip(list[i].said, abort.signal, list[i].lang ?? opts.lang).then((b) => {
         const u = this.url.create(b);
         this.urls.push(u);
         return u;
@@ -1136,6 +1170,14 @@ export function sayNotice(text: string): void {
       new CustomEvent(SPEECH_NOTICE_EVENT, { detail: text.trim() }),
     );
   }
+}
+
+// SUBTITLE_EVENT carries the sentence the voice starts saying, or "" when it stops: the
+// subtitles on screen follow it, whichever voice speaks.
+export const SUBTITLE_EVENT = "motita-subtitle";
+
+export function showSubtitle(text: string): void {
+  window.dispatchEvent(new CustomEvent(SUBTITLE_EVENT, { detail: text }));
 }
 
 // SPEECH_TURN_READ_EVENT tells the page the answer to a spoken turn was read to its end: in

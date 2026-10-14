@@ -147,7 +147,7 @@ export function TermDrawer() {
         onClick={drawers.toggleTerm}
       >
         <span class="term-tab-label">TTY</span>
-        {count > 0 && <span class="term-tab-count">{count}</span>}
+        {count > 0 && <span key={count} class="term-tab-count">{count}</span>}
       </button>
       <section
         class="term-panel"
@@ -233,7 +233,9 @@ export function ThinkDrawer() {
       >
         <span class="term-tab-label">THINK</span>
         {thoughts.length > 0 && (
-          <span class="term-tab-count">{thoughts.length}</span>
+          <span key={thoughts.length} class="term-tab-count">
+            {thoughts.length}
+          </span>
         )}
       </button>
       <section
@@ -392,7 +394,11 @@ export function AgentsDrawer() {
         onClick={drawers.toggleAgents}
       >
         <span class="term-tab-label">AGENTS</span>
-        {runningSubs > 0 && <span class="term-tab-count">{runningSubs}</span>}
+        {runningSubs > 0 && (
+          <span key={runningSubs} class="term-tab-count">
+            {runningSubs}
+          </span>
+        )}
       </button>
       <section
         class="term-panel"

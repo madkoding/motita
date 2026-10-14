@@ -9,10 +9,35 @@
 // fallback and the page's own fetch of releases/latest replaces it in the browser.
 // The marker itself is still required, because a page without it would never show
 // a version at all.
+//
+// It also adds Vercel Web Analytics to every page. Only here, so GitHub Pages and a
+// local checkout never load it: /_vercel/insights/script.js exists only on Vercel.
+// The loader is cookieless and skips visitors with Do Not Track or Global Privacy
+// Control on. The webui that runs on the user's machine never gets analytics.
 import { readFileSync, writeFileSync } from "node:fs";
 
 const page = new URL("../site/index.html", import.meta.url);
 const marker = /(<span data-motita-version>)[^<]*(<\/span>)/g;
+
+// The loader lives in its own file so it stays plain HTML, reviewed as such.
+const analytics = readFileSync(
+  new URL("vercel-analytics.html", import.meta.url),
+  "utf8",
+);
+
+for (const name of ["index.html", "architecture.html"]) {
+  const file = new URL(`../site/${name}`, import.meta.url);
+  const html = readFileSync(file, "utf8");
+  if (html.includes("data-vercel-analytics")) {
+    continue;
+  }
+  if (html.split("</head>").length !== 2) {
+    console.error("site/" + name + " needs exactly one closing head tag");
+    process.exit(1);
+  }
+  writeFileSync(file, html.replace("</head>", analytics + "  </head>"));
+  console.log(`added Vercel Web Analytics to site/${name}`);
+}
 
 const src = readFileSync(page, "utf8");
 const found = src.match(marker)?.length ?? 0;

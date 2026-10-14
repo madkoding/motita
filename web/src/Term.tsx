@@ -24,7 +24,7 @@ import DOMPurify from "dompurify";
 import { t } from "./i18n";
 import { choose } from "./choose";
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

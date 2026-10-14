@@ -1,4 +1,5 @@
-// LOCAL VOICES: a Piper or Kokoro model run in this browser, the parts that need no browser.
+// LOCAL VOICES: a Piper, Supertonic or Chatterbox model run in this browser, the parts
+// that need no browser.
 //
 // The worker (speechModel.worker.ts) wires these to onnxruntime and the phonemizer; keeping the
 // logic here, with every dependency passed in, lets the node tests drive it with fakes. Like
@@ -10,18 +11,50 @@ export const RUNTIME_ID = "runtime";
 export const ORT_WASM = "ort-wasm-simd-threaded.wasm";
 export const PHONEMIZE_WASM = "piper_phonemize.wasm";
 export const PHONEMIZE_DATA = "piper_phonemize.data";
-// KOKORO_ID is where Kokoro's model is served; a Kokoro voice's id is it, a dash, and the voice's
-// name there, whose first letter is its language.
-export const KOKORO_ID = "kokoro";
-// KOKORO_GPU_ID is where the files that run Kokoro on WebGPU are served (see voice.KokoroGPU):
-// the full model, and onnxruntime's build that drives WebGPU.
-export const KOKORO_GPU_ID = "accel-kokoro";
+// ORT_GPU_WASM is onnxruntime's build that drives WebGPU, served with the model that uses it.
 export const ORT_GPU_WASM = "ort-wasm-simd-threaded.asyncify.wasm";
-export const KOKORO_RATE = 24000;
-// KOKORO_STYLE is the length of one style vector; a voice holds one for each length of input,
-// up to KOKORO_MAX_TOKENS.
-const KOKORO_STYLE = 256;
-const KOKORO_MAX_TOKENS = 510;
+// SUPERTONIC_ID is where Supertonic's model is served; a Supertonic voice's id is it, a dash, and
+// the voice's name there.
+export const SUPERTONIC_ID = "supertonic";
+export const SUPERTONIC_RATE = 44100;
+// The parts of Supertonic's model, in the order they run.
+export const SUPERTONIC_PARTS = ["duration_predictor.onnx", "text_encoder.onnx", "vector_estimator.onnx", "vocoder.onnx"];
+// SUPERTONIC_LANGS are the languages Supertonic speaks; "na" is its own for any other.
+export const SUPERTONIC_LANGS = new Set(
+  "en ko ja ar bg cs da de el es et fi fr hi hr hu id it lt lv nl pl pt ro ru sk sl sv tr uk vi".split(" "),
+);
+// Supertonic's sound is made of chunks of SUPERTONIC_CHUNK samples, each SUPERTONIC_LATENT
+// numbers wide (its tts.json: base_chunk_size 512 and latent_dim 24, both times
+// chunk_compress_factor 6).
+const SUPERTONIC_CHUNK = 512 * 6;
+const SUPERTONIC_LATENT = 24 * 6;
+// SUPERTONIC_SPEED is the pace the model speaks at when none is asked for (its own default):
+// it changes how long each sound lasts, not the pitch, unlike the page's playback rate.
+export const SUPERTONIC_SPEED = 1.05;
+// SUPERTONIC_STEPS are the steps the sound is refined in when none are asked for: its default
+// on the graphics card, and fewer on the processor, where each step takes about a second of a
+// sentence's.
+export const SUPERTONIC_STEPS = { gpu: 8, cpu: 5 };
+// CHATTERBOX_ID is where Chatterbox's model is served; a Chatterbox voice's id is it, a dash, and
+// the voice's name.
+export const CHATTERBOX_ID = "chatterbox";
+export const CHATTERBOX_RATE = 24000;
+// The parts of Chatterbox's model; each keeps its weights in a file of the same name plus "_data".
+export const CHATTERBOX_PARTS = ["embed_tokens.onnx", "language_model_q4.onnx", "conditional_decoder.onnx"];
+// CHATTERBOX_LANGS are the languages Chatterbox speaks without help (Chinese and Japanese need
+// converters the page does not have, and are read as English).
+export const CHATTERBOX_LANGS = new Set("ar da de el en es fi fr he hi it ko ms nl no pl pt ru sv sw tr".split(" "));
+// The shape of Chatterbox's language model: its layers, and each one's keys and values.
+const CHATTERBOX_LAYERS = 30;
+const CHATTERBOX_HEADS = 16;
+const CHATTERBOX_HEAD = 64;
+const CHATTERBOX_WIDTH = 1024;
+// CHATTERBOX_MAX_TOKENS is the most sound tokens a sentence gets: 25 a second, so 32 seconds.
+export const CHATTERBOX_MAX_TOKENS = 800;
+// CHATTERBOX_PENALTY makes a sound token already said less likely, as the model's own settings.
+const CHATTERBOX_PENALTY = 1.2;
+// CHATTERBOX_EMOTION is the emotion setting a sentence gets when none is given (its default).
+export const CHATTERBOX_EMOTION = 0.5;
 // A warm's progress, out of 100: reading the files makes LOAD_SHARE, starting the runtime
 // RUNTIME_SHARE and the phonemizer PHONEMIZER_SHARE; preparing the model (onnxruntime's session,
 // the longest step once the files are on this device) is the rest.
@@ -66,74 +99,296 @@ export function phonemizeArgs(espeakVoice: string, text: string): string[] {
   return ["-l", espeakVoice, "--input", JSON.stringify([{ text }]), "--espeak_data", "/espeak-ng-data"];
 }
 
-// Phonemized is the phonemizer's output for one text: the ids a Piper model takes, and the
-// phonemes themselves (espeak-ng's IPA), which Kokoro reads.
+// Phonemized is the phonemizer's output for one text: the ids a Piper model takes.
 export interface Phonemized {
   ids: number[];
-  phonemes: string;
 }
 
 // phonemized reads the phonemizer's output line.
 export function phonemized(line: string): Phonemized {
-  const out = JSON.parse(line) as { phoneme_ids?: number[]; phonemes?: string[] };
+  const out = JSON.parse(line) as { phoneme_ids?: number[] };
   if (!Array.isArray(out.phoneme_ids) || out.phoneme_ids.length === 0) {
     throw new Error("the phonemizer answered nothing");
   }
-  return { ids: out.phoneme_ids, phonemes: (out.phonemes ?? []).join("") };
+  return { ids: out.phoneme_ids };
 }
 
-// isKokoro says whether a voice runs on Kokoro.
-export function isKokoro(id: string): boolean {
-  return id.startsWith(KOKORO_ID + "-");
+// MAX_REASON is the longest reason for a failure the page shows.
+const MAX_REASON = 200;
+
+// reasonOf is why something failed, short enough to show.
+export function reasonOf(e: unknown): string {
+  const text = (choose(e instanceof Error, (e as Error)?.message, String(e)) || String(e)).trim();
+  return choose(text.length > MAX_REASON, text.slice(0, MAX_REASON - 1) + "…", text);
 }
 
-// kokoroEspeak is the phonemizer's language for a Kokoro voice, from its name's first letter.
-export function kokoroEspeak(id: string): string {
-  const langs: Record<string, string> = { a: "en-us", b: "en-gb-x-rp", e: "es" };
-  return langs[id.charAt(KOKORO_ID.length + 1)] ?? "en-us";
+// isSupertonic says whether a voice runs on Supertonic.
+export function isSupertonic(id: string): boolean {
+  return id.startsWith(SUPERTONIC_ID + "-");
 }
 
-// kokoroVocab reads the table from phonemes to ids out of Kokoro's tokenizer.json.
-export function kokoroVocab(text: string): Map<string, number> {
-  const raw = JSON.parse(text) as { model?: { vocab?: Record<string, number> } };
-  if (!raw.model?.vocab) {
-    throw new Error("not Kokoro's tokenizer");
+// SUPERTONIC_SWAPS are the characters Supertonic's own pipeline writes otherwise before reading.
+const SUPERTONIC_SWAPS: [RegExp, string][] = [
+  [/[–‑—]/g, "-"],
+  [/[_[\]|/#→←]/g, " "],
+  [/[“”]/g, '"'],
+  [/[‘’´`]/g, "'"],
+  [/[♥☆♡©\\]/g, ""],
+  [/@/g, " at "],
+  [/ ([,.!?;:'])/g, "$1"],
+  [/""+/g, '"'],
+  [/''+/g, "'"],
+  [/\s+/g, " "],
+];
+
+// supertonicText is a sentence as Supertonic reads it, tagged with its language: decomposed,
+// without emoji, its punctuation written as the model knows it, ending in a mark.
+export function supertonicText(text: string, lang: string): string {
+  let t = text.normalize("NFKD").replace(/\p{Extended_Pictographic}/gu, "");
+  for (const [from, to] of SUPERTONIC_SWAPS) {
+    t = t.replace(from, to);
   }
-  return new Map(Object.entries(raw.model.vocab));
+  t = t.trim();
+  if (!/[.!?;:,'"')\]}…。」』】〉》›»]$/.test(t)) {
+    t += ".";
+  }
+  const base = lang.toLowerCase().split("-")[0];
+  const l = choose(SUPERTONIC_LANGS.has(base), base, "na");
+  return "<" + l + ">" + t + "</" + l + ">";
 }
 
-// kokoroTokens are the ids Kokoro takes for espeak-ng's phonemes. The phonemes are adjusted as
-// Kokoro's own pipeline does (sounds it was not trained on become their nearest), a sentence
-// that ends is followed by a space, anything the table lacks is dropped, and the whole is
-// wrapped in the pad id, 0.
-export function kokoroTokens(phonemes: string, vocab: Map<string, number>): number[] {
-  const fixed = phonemes
-    .replace(/kəkˈoːɹoʊ/g, "kˈoʊkəɹoʊ")
-    .replace(/ʲ/g, "j")
-    .replace(/r/g, "ɹ")
-    .replace(/x/g, "k")
-    .replace(/ɬ/g, "l")
-    .replace(/([.!?…])(?=\S)/g, "$1 ")
-    .trim();
+// supertonicIds are the ids Supertonic takes for a tagged text, from its table by code point
+// (-1 for one it lacks).
+export function supertonicIds(text: string, indexer: number[]): number[] {
+  return [...text].map((c) => indexer[c.codePointAt(0) as number] ?? -1);
+}
+
+// SupertonicStyle is a Supertonic voice: its two style tensors, flat, and their shapes.
+export interface SupertonicStyle {
+  ttl: Float32Array;
+  ttlDims: number[];
+  dp: Float32Array;
+  dpDims: number[];
+}
+
+// supertonicStyle reads a Supertonic voice's JSON file.
+export function supertonicStyle(text: string): SupertonicStyle {
+  type Part = { data?: unknown; dims?: number[] };
+  const raw = JSON.parse(text) as { style_ttl?: Part; style_dp?: Part };
+  const flat = (p?: Part) => {
+    if (!Array.isArray(p?.data) || !Array.isArray(p?.dims)) {
+      throw new Error("not a Supertonic voice");
+    }
+    return Float32Array.from((p.data as unknown[]).flat(Infinity) as number[]);
+  };
+  return {
+    ttl: flat(raw.style_ttl),
+    ttlDims: raw.style_ttl?.dims as number[],
+    dp: flat(raw.style_dp),
+    dpDims: raw.style_dp?.dims as number[],
+  };
+}
+
+// supertonicLatent is how many chunks a sentence of this many seconds takes.
+export function supertonicLatent(seconds: number): number {
+  return Math.max(1, Math.ceil(Math.floor(seconds * SUPERTONIC_RATE) / SUPERTONIC_CHUNK));
+}
+
+// noise is n numbers drawn from the normal distribution, for the steps to start from.
+export function noise(n: number, random: () => number = Math.random): Float32Array {
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const u = Math.max(1e-4, random());
+    out[i] = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * random());
+  }
+  return out;
+}
+
+// readsText says a voice's engine reads the text itself, with no phonemizer.
+function readsText(id: string): boolean {
+  return isSupertonic(id) || isChatterbox(id);
+}
+
+// chatterboxFiles are the files Chatterbox's model is loaded from.
+function chatterboxFiles(): string[] {
+  const parts = CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"]);
+  return ["tokenizer.json", ORT_GPU_WASM, ...parts].map((n) => fileURL(CHATTERBOX_ID, n));
+}
+
+// isChatterbox says whether a voice runs on Chatterbox.
+export function isChatterbox(id: string): boolean {
+  return id.startsWith(CHATTERBOX_ID + "-");
+}
+
+// CHATTERBOX_SWAPS are the marks Chatterbox's own pipeline writes otherwise before reading.
+const CHATTERBOX_SWAPS: [RegExp, string][] = [
+  [/\.\.\.|…/g, ", "],
+  [/:/g, ","],
+  [/ - /g, ", "],
+  [/;/g, ", "],
+  [/[—–]/g, "-"],
+  [/ ,/g, ","],
+  [/[“”]/g, '"'],
+  [/[‘’]/g, "'"],
+];
+
+// chatterboxText is a sentence as Chatterbox reads it: its marks normalised and an end added the
+// way its own pipeline does, then lowercased and decomposed as its tokenizer was trained, after
+// its language's tag.
+export function chatterboxText(text: string, lang: string): string {
+  let t = text.split(/\s+/).filter(Boolean).join(" ");
+  for (const [from, to] of CHATTERBOX_SWAPS) {
+    t = t.replace(from, to);
+  }
+  t = t.trimEnd();
+  if (!/[.!?,-]$/.test(t)) {
+    t += ".";
+  }
+  const base = lang.toLowerCase().split("-")[0];
+  const l = choose(CHATTERBOX_LANGS.has(base), base, "en");
+  return "[" + l + "]" + t.toLowerCase().normalize("NFKD");
+}
+
+// ChatterboxTokenizer is Chatterbox's table from text to ids: a BPE vocabulary, its merges by
+// rank, the tokens taken whole (language tags, sounds such as [laughter]), and the ids that
+// frame a text.
+export interface ChatterboxTokenizer {
+  vocab: Map<string, number>;
+  ranks: Map<string, number>;
+  // whole splits a text around the tokens taken whole, which wholes lists.
+  whole: RegExp;
+  wholes: Set<string>;
+  frame: { exaggeration: number; bos: number; eos: number; start: number };
+}
+
+// chatterboxTokenizer reads Chatterbox's tokenizer.json.
+export function chatterboxTokenizer(text: string): ChatterboxTokenizer {
+  type Special = Record<string, { ids?: number[] }>;
+  const raw = JSON.parse(text) as {
+    model?: { vocab?: Record<string, number>; merges?: (string | string[])[] };
+    added_tokens?: { id: number; content: string }[];
+    post_processor?: { special_tokens?: Special };
+  };
+  const special = raw.post_processor?.special_tokens;
+  const id = (name: string) => special?.[name]?.ids?.[0];
+  const frame = { exaggeration: id("EXAGGERATION"), bos: id("BOS"), eos: id("EOS"), start: id("START_SPEECH") };
+  if (!raw.model?.vocab || !raw.model.merges || !raw.added_tokens || Object.values(frame).includes(undefined)) {
+    throw new Error("not Chatterbox's tokenizer");
+  }
+  const vocab = new Map(Object.entries(raw.model.vocab));
+  for (const a of raw.added_tokens) {
+    vocab.set(a.content, a.id);
+  }
+  const ranks = new Map(raw.model.merges.map((m, i) => [choose(typeof m === "string", m as string, ([] as string[]).concat(m).join(" ")), i]));
+  // The longest first, so a tag is never cut by a shorter one inside it; a space is its own.
+  const wholes = raw.added_tokens.map((a) => a.content).sort((a, b) => b.length - a.length);
+  const escaped = wholes.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return {
+    vocab,
+    ranks,
+    whole: new RegExp("(" + [...escaped, " "].join("|") + ")"),
+    wholes: new Set(wholes),
+    frame: frame as ChatterboxTokenizer["frame"],
+  };
+}
+
+// bpe splits a word into its vocabulary's pieces: the pair with the lowest rank is joined until
+// none is left.
+function bpe(word: string, ranks: Map<string, number>): string[] {
+  let parts = [...word];
+  for (;;) {
+    let best = -1;
+    let at = -1;
+    for (let i = 0; i + 1 < parts.length; i++) {
+      const r = ranks.get(parts[i] + " " + parts[i + 1]);
+      if (r !== undefined && (best < 0 || r < best)) {
+        best = r;
+        at = i;
+      }
+    }
+    if (at < 0) {
+      return parts;
+    }
+    parts = [...parts.slice(0, at), parts[at] + parts[at + 1], ...parts.slice(at + 2)];
+  }
+}
+
+// chatterboxTokens are the ids Chatterbox takes for a text, framed as its tokenizer does: the
+// emotion's slot, the start, the text, the end, and the start of the sound twice. Its spaces are
+// [SPACE], its tags whole, and the rest split into words and marks and then by BPE.
+export function chatterboxTokens(tk: ChatterboxTokenizer, text: string): number[] {
+  const unknown = tk.vocab.get("[UNK]") ?? 1;
   const ids: number[] = [];
-  for (const c of fixed) {
-    const id = vocab.get(c);
-    if (id !== undefined) {
-      ids.push(id);
+  for (const piece of text.split(tk.whole)) {
+    if (piece === " ") {
+      ids.push(tk.vocab.get("[SPACE]") ?? unknown);
+    } else if (tk.wholes.has(piece)) {
+      ids.push(tk.vocab.get(piece) as number);
+    } else {
+      for (const w of piece.match(/[\p{L}\p{N}\p{M}_]+|[^\p{L}\p{N}\p{M}_\s]+/gu) ?? []) {
+        ids.push(...bpe(w, tk.ranks).map((p) => tk.vocab.get(p) ?? unknown));
+      }
     }
   }
-  return [0, ...ids.slice(0, KOKORO_MAX_TOKENS - 2), 0];
+  const f = tk.frame;
+  return [f.exaggeration, f.bos, ...ids, f.eos, f.start, f.start];
 }
 
-// kokoroStyle is the style vector a Kokoro voice uses for an input of this many tokens.
-export function kokoroStyle(voice: Float32Array, tokens: number): Float32Array {
-  const n = Math.min(Math.max(tokens - 2, 0), KOKORO_MAX_TOKENS - 1);
-  return voice.slice(n * KOKORO_STYLE, (n + 1) * KOKORO_STYLE);
+// ChatterboxVoice is what Chatterbox's speech encoder made of a voice's recording, as voice.bin
+// keeps it (three little-endian int32 lengths, then float32s): what the language model reads
+// before the text, the recording's own sound tokens, and the speaker as the waveform part takes it.
+export interface ChatterboxVoice {
+  features: Float32Array;
+  featureLen: number;
+  tokens: number[];
+  embedding: Float32Array;
+  speaker: Float32Array;
+  speakerLen: number;
 }
 
-// blendStyles mixes two voices' style vectors: amount 0 is the first, 1 the second.
-export function blendStyles(a: Float32Array, b: Float32Array, amount: number): Float32Array {
-  return a.map((x, i) => x * (1 - amount) + b[i] * amount);
+// The widths in voice.bin: the speaker's embedding, and each frame of its features.
+const CHATTERBOX_EMBEDDING = 192;
+const CHATTERBOX_MELS = 80;
+
+// chatterboxVoice reads a Chatterbox voice.bin.
+export function chatterboxVoice(buf: ArrayBuffer): ChatterboxVoice {
+  const head = new Int32Array(buf.slice(0, 12));
+  const [featureLen, tokenLen, speakerLen] = [head[0] ?? 0, head[1] ?? 0, head[2] ?? 0];
+  const all = new Float32Array(buf.slice(12));
+  const sizes = [featureLen * CHATTERBOX_WIDTH, tokenLen, CHATTERBOX_EMBEDDING, speakerLen * CHATTERBOX_MELS];
+  if (buf.byteLength < 12 || all.length !== sizes.reduce((a, b) => a + b, 0) || !featureLen || !tokenLen) {
+    throw new Error("not a Chatterbox voice");
+  }
+  const parts: Float32Array[] = [];
+  let at = 0;
+  for (const n of sizes) {
+    parts.push(all.subarray(at, at + n));
+    at += n;
+  }
+  return {
+    features: parts[0],
+    featureLen,
+    tokens: Array.from(parts[1]),
+    embedding: parts[2],
+    speaker: parts[3],
+    speakerLen,
+  };
+}
+
+// nextToken is the most likely sound token after the penalty on those already said (the
+// model's own repetition penalty: a positive score is divided by it, a negative multiplied).
+export function nextToken(logits: Float32Array, said: Iterable<number>): number {
+  const scores = Float32Array.from(logits);
+  for (const t of new Set(said)) {
+    scores[t] = choose(scores[t] < 0, scores[t] * CHATTERBOX_PENALTY, scores[t] / CHATTERBOX_PENALTY);
+  }
+  let best = 0;
+  for (let k = 1; k < scores.length; k++) {
+    if (scores[k] > scores[best]) {
+      best = k;
+    }
+  }
+  return best;
 }
 
 // The layout of a canonical 44-byte WAV header: byte offsets of its fields, in order.
@@ -228,13 +483,15 @@ export async function readAll(
 // What the synthesis needs from onnxruntime, so a test can stand in.
 export interface TensorLike {
   data: unknown;
+  dims?: readonly number[];
 }
 export interface SessionLike {
   run(feeds: Record<string, TensorLike>): Promise<Record<string, TensorLike>>;
 }
 export interface OrtLike {
   Tensor: new (type: "int64" | "float32", data: BigInt64Array | Float32Array, dims: number[]) => TensorLike;
-  createSession(model: ArrayBuffer): Promise<SessionLike>;
+  // weights, when given, is the file the model keeps its weights in, by the name it gives it.
+  createSession(model: ArrayBuffer, weights?: { path: string; data: ArrayBuffer }): Promise<SessionLike>;
 }
 
 // A phonemizer instance: callMain runs it once, and what it prints arrives through print.
@@ -256,17 +513,28 @@ export interface SynthDeps {
   gpu?(wasm: ArrayBuffer): Promise<OrtLike>;
 }
 
-// A voice ready to speak: a Piper model, or a Kokoro voice's styles on the shared model.
+// A voice ready to speak: a Piper model, or a Supertonic or Chatterbox voice on its engine's
+// shared model.
 type LoadedVoice =
   | { kind: "piper"; config: VoiceConfig; session: SessionLike }
-  | { kind: "kokoro"; styles: Float32Array };
+  | { kind: "supertonic"; style: SupertonicStyle }
+  | { kind: "chatterbox"; voice: ChatterboxVoice };
 
-// Kokoro's model, loaded once for all its voices.
-interface KokoroModel {
-  // ort is the build the session runs on: its tensors are the ones the session takes.
+// Chatterbox's model, loaded once for its voices, on WebGPU.
+interface ChatterboxModel {
   ort: OrtLike;
-  session: SessionLike;
-  vocab: Map<string, number>;
+  embed: SessionLike;
+  lm: SessionLike;
+  decoder: SessionLike;
+  tokenizer: ChatterboxTokenizer;
+  gpu: true;
+}
+
+// Supertonic's model, loaded once for all its voices: its four parts in order, and its table.
+interface SupertonicModel {
+  ort: OrtLike;
+  parts: SessionLike[];
+  indexer: number[];
   gpu: boolean;
 }
 
@@ -276,11 +544,11 @@ export class Synth {
   private readonly deps: SynthDeps;
   private ort: Promise<OrtLike> | null = null;
   private phon: Promise<PhonemizerLike> | null = null;
-  private kokoro: Promise<KokoroModel> | null = null;
-  // gpu says Kokoro should run on WebGPU (its files are downloaded); gpuFailed that it could not,
-  // here, so the CPU model is used instead.
-  private gpu = false;
-  private gpuFailed = false;
+  private supertonic: Promise<SupertonicModel> | null = null;
+  private chatterbox: Promise<ChatterboxModel> | null = null;
+  // failed is why Supertonic could not run on WebGPU here ("" when it did not fail), so the
+  // processor runs it instead.
+  private failed = "";
   private printed: string[] = [];
   private readonly voices = new Map<string, Promise<LoadedVoice>>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -310,25 +578,23 @@ export class Synth {
   warm(id: string, progress?: (pct: number) => void): Promise<void> {
     const job = this.queue.then(async () => {
       const files: string[] = [];
-      if (!this.ort) {
+      // Supertonic and Chatterbox read the text itself: they need no phonemizer, nor the
+      // processor's runtime where the graphics card runs them (Chatterbox runs nowhere else).
+      if (!this.ort && !isChatterbox(id) && !(isSupertonic(id) && this.deps.gpu)) {
         files.push(fileURL(RUNTIME_ID, ORT_WASM));
       }
-      if (!this.phon) {
+      if (!this.phon && !readsText(id)) {
         files.push(fileURL(RUNTIME_ID, PHONEMIZE_WASM), fileURL(RUNTIME_ID, PHONEMIZE_DATA));
       }
-      const kokoro = isKokoro(id);
-      if (kokoro && !this.kokoro) {
-        files.push(
-          fileURL(KOKORO_ID, "tokenizer.json"),
-          ...choose(
-            this.useGPU(),
-            [fileURL(KOKORO_GPU_ID, ORT_GPU_WASM), fileURL(KOKORO_GPU_ID, "model.onnx")],
-            [fileURL(KOKORO_ID, "model.onnx")],
-          ),
-        );
+      const supertonic = isSupertonic(id);
+      if (supertonic && !this.supertonic) {
+        files.push(...this.supertonicFiles());
+      }
+      if (isChatterbox(id) && !this.chatterbox) {
+        files.push(...chatterboxFiles());
       }
       if (!this.voices.has(id)) {
-        files.push(...choose(kokoro, [fileURL(id, "voice.bin")], [fileURL(id, "model.json"), fileURL(id, "model.onnx")]));
+        files.push(...this.voiceFiles(id));
       }
       this.watch = {
         files: new Map(files.map((f) => [f, [-1, 0]])),
@@ -338,7 +604,11 @@ export class Synth {
         report: progress ?? (() => undefined),
       };
       try {
-        await Promise.all([this.voice(id), this.phonemizer()]);
+        const loads: Promise<unknown>[] = [this.voice(id)];
+        if (!readsText(id)) {
+          loads.push(this.phonemizer());
+        }
+        await Promise.all(loads);
       } finally {
         this.watch = null;
       }
@@ -353,47 +623,50 @@ export class Synth {
     this.voices.delete(id);
   }
 
-  // setGPU says whether Kokoro should run on WebGPU; a change loads its model again.
-  setGPU(on: boolean): void {
-    if (on !== this.gpu) {
-      this.gpu = on;
-      this.gpuFailed = false;
-      this.kokoro = null;
-    }
+  // gpuError is why Supertonic could not run on WebGPU here, "" when it did not fail.
+  gpuError(): string {
+    return this.failed;
   }
 
-  // onGPU says whether Kokoro runs on WebGPU now: asked for, and it worked.
-  async onGPU(): Promise<boolean> {
-    return (await this.kokoro)?.gpu ?? false;
+  // onGPU says whether a voice's engine runs on WebGPU now: Supertonic wherever it worked, and
+  // Chatterbox, which runs nowhere else. Piper runs on the processor.
+  async onGPU(id: string): Promise<boolean> {
+    let model: Promise<{ gpu: boolean }> | null = null;
+    if (isSupertonic(id)) {
+      model = this.supertonic;
+    } else if (isChatterbox(id)) {
+      model = this.chatterbox;
+    }
+    return (await model?.catch(() => null))?.gpu ?? false;
+  }
+
+  // voiceFiles are a voice's own files.
+  private voiceFiles(id: string): string[] {
+    if (isSupertonic(id)) {
+      return [fileURL(id, "voice.json")];
+    }
+    if (isChatterbox(id)) {
+      return [fileURL(id, "voice.bin")];
+    }
+    return [fileURL(id, "model.json"), fileURL(id, "model.onnx")];
+  }
+
+  // supertonicFiles are the files Supertonic's model is loaded from, here.
+  private supertonicFiles(): string[] {
+    const files = [...SUPERTONIC_PARTS, "unicode_indexer.json"].map((n) => fileURL(SUPERTONIC_ID, n));
+    if (this.deps.gpu) {
+      files.push(fileURL(SUPERTONIC_ID, ORT_GPU_WASM));
+    }
+    return files;
   }
 
   private async sayNow(id: string, text: string, tune: Tune = { noise: 1, noiseW: 1 }): Promise<ArrayBuffer> {
     const v = await this.voice(id);
-    if (v.kind === "kokoro") {
-      const model = await this.kokoroModel();
-      const p = await this.phonemize(kokoroEspeak(id), text);
-      const ids = kokoroTokens(p.phonemes, model.vocab);
-      let style = kokoroStyle(v.styles, ids.length);
-      // Mixed with another Kokoro voice, the style is a blend of both.
-      const mix = tune.mix;
-      // A voice to mix with that cannot be loaded (deleted since) leaves this one alone.
-      if (mix && mix.amount > 0 && mix.id !== id && isKokoro(mix.id)) {
-        const other = (await this.voice(mix.id).catch(() => null)) as Extract<
-          LoadedVoice,
-          { kind: "kokoro" }
-        > | null;
-        if (other) {
-          style = blendStyles(style, kokoroStyle(other.styles, ids.length), mix.amount);
-        }
-      }
-      const T = model.ort.Tensor;
-      // The speed is the page's (the audio's playback rate), so the model speaks at its own.
-      const out = await model.session.run({
-        input_ids: new T("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
-        style: new T("float32", style, [1, 256]),
-        speed: new T("float32", Float32Array.from([1]), [1]),
-      });
-      return wavOf(out.waveform.data as Float32Array, KOKORO_RATE);
+    if (v.kind === "supertonic") {
+      return this.saySupertonic(v.style, text, tune);
+    }
+    if (v.kind === "chatterbox") {
+      return this.sayChatterbox(v.voice, text, tune);
     }
     const ort = await this.runtime();
     const { ids } = await this.phonemize(v.config.espeak.voice, text);
@@ -409,6 +682,109 @@ export class Synth {
     }
     const out = await v.session.run(feeds);
     return wavOf(out.output.data as Float32Array, v.config.audio.sample_rate);
+  }
+
+  // saySupertonic says a sentence the way Supertonic's own pipeline does: the length of each
+  // sound, the text, then the sound refined from noise step by step, and the waveform.
+  // Its pace and its steps are the ones asked for, or its own.
+  private async saySupertonic(style: SupertonicStyle, text: string, tune: Tune): Promise<ArrayBuffer> {
+    const m = await this.supertonicModel();
+    const [dp, te, ve, voc] = m.parts;
+    const T = m.ort.Tensor;
+    const ids = supertonicIds(supertonicText(text, tune.lang ?? "en"), m.indexer);
+    const textIds = new T("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]);
+    const textMask = new T("float32", new Float32Array(ids.length).fill(1), [1, 1, ids.length]);
+    const ttl = new T("float32", style.ttl, style.ttlDims);
+    const dpStyle = new T("float32", style.dp, style.dpDims);
+    const seconds = ((await dp.run({ text_ids: textIds, style_dp: dpStyle, text_mask: textMask })).duration
+      .data as Float32Array)[0];
+    const textEmb = (await te.run({ text_ids: textIds, style_ttl: ttl, text_mask: textMask })).text_emb;
+    const len = supertonicLatent(seconds / (tune.speed ?? SUPERTONIC_SPEED));
+    const latentMask = new T("float32", new Float32Array(len).fill(1), [1, 1, len]);
+    const steps = tune.steps || choose(m.gpu, SUPERTONIC_STEPS.gpu, SUPERTONIC_STEPS.cpu);
+    const total = new T("float32", Float32Array.from([steps]), [1]);
+    let x = noise(SUPERTONIC_LATENT * len);
+    for (let step = 0; step < steps; step++) {
+      const out = await ve.run({
+        noisy_latent: new T("float32", x, [1, SUPERTONIC_LATENT, len]),
+        text_emb: textEmb,
+        style_ttl: ttl,
+        latent_mask: latentMask,
+        text_mask: textMask,
+        current_step: new T("float32", Float32Array.from([step]), [1]),
+        total_step: total,
+      });
+      x = out.denoised_latent.data as Float32Array;
+    }
+    const wav = (await voc.run({ latent: new T("float32", x, [1, SUPERTONIC_LATENT, len]) })).wav_tts;
+    return wavOf(wav.data as Float32Array, SUPERTONIC_RATE);
+  }
+
+  // sayChatterbox says a sentence the way Chatterbox's own pipeline does: the language model,
+  // after the voice's features and the text, writes sound tokens one at a time (each one
+  // remembering the rest through its keys and values) until it says it is done, and the waveform
+  // part turns them, after the voice's own, into sound.
+  private async sayChatterbox(voice: ChatterboxVoice, text: string, tune: Tune): Promise<ArrayBuffer> {
+    const m = await this.chatterboxModel();
+    const T = m.ort.Tensor;
+    const longs = (a: number[]) => BigInt64Array.from(a.map(BigInt));
+    const ids = chatterboxTokens(m.tokenizer, chatterboxText(text, tune.lang ?? "en"));
+    const start = m.tokenizer.frame.start;
+    const emotion = new T("float32", Float32Array.from([tune.exaggeration ?? CHATTERBOX_EMOTION]), [1]);
+    // The text's positions count from its start; the frame's speech tokens are at 0.
+    let feed: Record<string, TensorLike> = {
+      input_ids: new T("int64", longs(ids), [1, ids.length]),
+      position_ids: new T("int64", longs(ids.map((id, i) => choose(id >= start, 0, i - 1))), [1, ids.length]),
+      exaggeration: emotion,
+    };
+    const past: Record<string, TensorLike> = {};
+    for (let l = 0; l < CHATTERBOX_LAYERS; l++) {
+      for (const kv of ["key", "value"]) {
+        past["past_key_values." + l + "." + kv] = new T("float32", new Float32Array(0), [1, CHATTERBOX_HEADS, 0, CHATTERBOX_HEAD]);
+      }
+    }
+    const said = [start];
+    let seen = 0;
+    for (let i = 0; i < CHATTERBOX_MAX_TOKENS; i++) {
+      let embeds = (await m.embed.run(feed)).inputs_embeds;
+      if (i === 0) {
+        // The voice comes before the text.
+        const text = embeds.data as Float32Array;
+        const both = new Float32Array(voice.features.length + text.length);
+        both.set(voice.features);
+        both.set(text, voice.features.length);
+        embeds = new T("float32", both, [1, voice.featureLen + ids.length, CHATTERBOX_WIDTH]);
+      }
+      seen += (embeds.dims as number[])[1];
+      const out = await m.lm.run({
+        inputs_embeds: embeds,
+        attention_mask: new T("int64", new BigInt64Array(seen).fill(1n), [1, seen]),
+        ...past,
+      });
+      const [, steps, width] = out.logits.dims as number[];
+      const token = nextToken((out.logits.data as Float32Array).subarray((steps - 1) * width), said);
+      if (token === start + 1) {
+        break;
+      }
+      said.push(token);
+      feed = {
+        input_ids: new T("int64", longs([token]), [1, 1]),
+        position_ids: new T("int64", longs([i + 1]), [1, 1]),
+        exaggeration: emotion,
+      };
+      for (let l = 0; l < CHATTERBOX_LAYERS; l++) {
+        for (const kv of ["key", "value"]) {
+          past["past_key_values." + l + "." + kv] = out["present." + l + "." + kv];
+        }
+      }
+    }
+    const tokens = [...voice.tokens, ...said.slice(1)];
+    const wav = await m.decoder.run({
+      speech_tokens: new T("int64", longs(tokens), [1, tokens.length]),
+      speaker_embeddings: new T("float32", voice.embedding, [1, voice.embedding.length]),
+      speaker_features: new T("float32", voice.speaker, [1, voice.speakerLen, CHATTERBOX_MELS]),
+    });
+    return wavOf(wav.waveform.data as Float32Array, CHATTERBOX_RATE);
   }
 
   // read is a file, its progress counted toward the warm in course.
@@ -470,7 +846,13 @@ export class Synth {
   private voice(id: string): Promise<LoadedVoice> {
     let v = this.voices.get(id);
     if (!v) {
-      v = choose(isKokoro(id), () => this.loadKokoro(id), () => this.loadPiper(id))();
+      let load = () => this.loadPiper(id);
+      if (isSupertonic(id)) {
+        load = () => this.loadSupertonic(id);
+      } else if (isChatterbox(id)) {
+        load = () => this.loadChatterbox(id);
+      }
+      v = load();
       this.voices.set(id, v);
       // A voice that failed to load is tried again next time.
       v.catch(() => this.voices.delete(id));
@@ -490,40 +872,72 @@ export class Synth {
     return { kind: "piper", config, session };
   }
 
-  private async loadKokoro(id: string): Promise<LoadedVoice> {
-    const [styles] = await Promise.all([this.read(fileURL(id, "voice.bin")), this.kokoroModel()]);
-    return { kind: "kokoro", styles: new Float32Array(styles) };
+  private async loadSupertonic(id: string): Promise<LoadedVoice> {
+    const [style] = await Promise.all([this.read(fileURL(id, "voice.json")), this.supertonicModel()]);
+    return { kind: "supertonic", style: supertonicStyle(new TextDecoder().decode(style)) };
   }
 
-  // useGPU says the next Kokoro model to load is WebGPU's.
-  private useGPU(): boolean {
-    return this.gpu && !this.gpuFailed && !!this.deps.gpu;
-  }
-
-  // kokoroModel is Kokoro's model and its table, loaded with the first Kokoro voice: on WebGPU
-  // when asked for, and on the CPU when that is not, or when WebGPU failed here.
-  private kokoroModel(): Promise<KokoroModel> {
-    this.kokoro ??= (async () => {
-      const vocab = this.read(fileURL(KOKORO_ID, "tokenizer.json")).then((b) => kokoroVocab(new TextDecoder().decode(b)));
-      if (this.useGPU()) {
+  // supertonicModel is Supertonic's model, loaded with the first of its voices: on WebGPU where
+  // the browser has it, on the CPU otherwise or when WebGPU failed.
+  private supertonicModel(): Promise<SupertonicModel> {
+    this.supertonic ??= (async () => {
+      const read = (n: string) => this.read(fileURL(SUPERTONIC_ID, n));
+      const files = Promise.all(SUPERTONIC_PARTS.map(read));
+      const indexer = read("unicode_indexer.json").then((b) => JSON.parse(new TextDecoder().decode(b)) as number[]);
+      const start = async (ort: OrtLike, gpu: boolean): Promise<SupertonicModel> => {
+        const parts: SessionLike[] = [];
+        // One at a time: four sessions at once would hold every model twice in memory.
+        for (const f of await files) {
+          parts.push(await ort.createSession(f));
+        }
+        return { ort, parts, indexer: await indexer, gpu };
+      };
+      if (this.deps.gpu) {
         try {
-          const [table, ort, model] = await Promise.all([
-            vocab,
-            this.read(fileURL(KOKORO_GPU_ID, ORT_GPU_WASM)).then((w) => (this.deps.gpu as NonNullable<SynthDeps["gpu"]>)(w)),
-            this.read(fileURL(KOKORO_GPU_ID, "model.onnx")),
-          ]);
-          return { ort, vocab: table, session: await ort.createSession(model), gpu: true };
-        } catch {
-          this.gpuFailed = true;
+          const ort = await read(ORT_GPU_WASM).then((w) => (this.deps.gpu as NonNullable<SynthDeps["gpu"]>)(w));
+          return await start(ort, true);
+        } catch (e) {
+          // The processor's runtime says it instead, and the page is told why.
+          this.failed = reasonOf(e);
         }
       }
-      const [table, ort, model] = await Promise.all([vocab, this.runtime(), this.read(fileURL(KOKORO_ID, "model.onnx"))]);
-      return { ort, vocab: table, session: await ort.createSession(model), gpu: false };
+      return start(await this.runtime(), false);
     })();
-    this.kokoro.catch(() => {
-      this.kokoro = null;
+    this.supertonic.catch(() => {
+      this.supertonic = null;
     });
-    return this.kokoro;
+    return this.supertonic;
+  }
+
+  private async loadChatterbox(id: string): Promise<LoadedVoice> {
+    const [voice] = await Promise.all([this.read(fileURL(id, "voice.bin")), this.chatterboxModel()]);
+    return { kind: "chatterbox", voice: chatterboxVoice(voice) };
+  }
+
+  // chatterboxModel is Chatterbox's model, loaded with its first voice. It runs only on WebGPU:
+  // on the processor a sentence would take minutes.
+  private chatterboxModel(): Promise<ChatterboxModel> {
+    this.chatterbox ??= (async () => {
+      const gpu = this.deps.gpu;
+      if (!gpu) {
+        throw new Error("Chatterbox needs WebGPU");
+      }
+      const read = (n: string) => this.read(fileURL(CHATTERBOX_ID, n));
+      const tokenizer = read("tokenizer.json").then((b) => chatterboxTokenizer(new TextDecoder().decode(b)));
+      const ort = await read(ORT_GPU_WASM).then((w) => gpu(w));
+      const sessions: SessionLike[] = [];
+      // One at a time, each with its weights, so only one is ever held twice in memory.
+      for (const part of CHATTERBOX_PARTS) {
+        const [model, data] = await Promise.all([read(part), read(part + "_data")]);
+        sessions.push(await ort.createSession(model, { path: part + "_data", data }));
+      }
+      const [embed, lm, decoder] = sessions;
+      return { ort, embed, lm, decoder, tokenizer: await tokenizer, gpu: true as const };
+    })();
+    this.chatterbox.catch(() => {
+      this.chatterbox = null;
+    });
+    return this.chatterbox;
   }
 
   private phonemizer(): Promise<PhonemizerLike> {
@@ -555,22 +969,28 @@ export class Synth {
 }
 
 // Tune scales a Piper voice's noise settings: noise its intonation (noise_scale), noiseW its
-// rhythm (noise_w). 1 and 1 are the voice as it was trained. Kokoro has neither.
+// rhythm (noise_w). 1 and 1 are the voice as it was trained. The other engines have neither.
 export interface Tune {
   noise: number;
   noiseW: number;
-  // mix blends a Kokoro voice with another one: amount 0 is the voice alone, 1 the other.
-  mix?: { id: string; amount: number };
+  // lang is the sentence's language, which a Supertonic or Chatterbox voice is told.
+  lang?: string;
+  // exaggeration is how much emotion a Chatterbox voice puts in (0.25 to 2; 0.5 its default).
+  exaggeration?: number;
+  // speed is the pace a Supertonic voice speaks at (SUPERTONIC_SPEED its own), and steps how
+  // many times its sound is refined (0 or none: SUPERTONIC_STEPS, by where it runs).
+  speed?: number;
+  steps?: number;
 }
 
 // The messages between the page and the worker.
 export type ToWorker =
-  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune; gpu?: boolean }
-  | { kind: "warm"; id: string; gpu?: boolean }
+  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune }
+  | { kind: "warm"; id: string }
   | { kind: "forget"; id: string };
 export type FromWorker =
   | { seq: number; wav: ArrayBuffer }
   | { seq: number; error: string }
   | { kind: "progress"; id: string; pct: number }
-  | { kind: "ready"; id: string; gpu?: boolean }
+  | { kind: "ready"; id: string; gpu?: boolean; gpuError?: string }
   | { kind: "failed"; id: string; error: string };

@@ -34,6 +34,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     "literal",
     "word for word unless asked",
   );
+  assert.equal(m.DEFAULT_SPEECH_PREFS.subtitles, false, "no subtitles unless asked");
+  assert.equal(m.DEFAULT_SPEECH_PREFS.subtitleSize, "medium");
   let heard = 0;
   globalThis.window = dom.window;
   globalThis.CustomEvent = dom.window.CustomEvent;
@@ -52,13 +54,16 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     pitch: 1.5,
     expressiveness: 0.4,
     variation: 2,
-    kokoroMix: "kokoro-af_bella",
-    kokoroMixAmount: 0.3,
+    supertonicSpeed: 1.3,
+    supertonicSteps: 12,
+    chatterboxEmotion: 1.2,
     conversation: true,
     notices: true,
     byLanguage: true,
     langVoices: { en: "eve" },
     pronunciations: [{ term: "kubectl", say: "cube control" }],
+    subtitles: true,
+    subtitleSize: "large",
   };
   m.saveSpeechPrefs(p);
   assert.deepEqual(m.loadSpeechPrefs(), p);
@@ -78,14 +83,28 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       pitch: 9,
       expressiveness: -1,
       variation: "x",
-      kokoroMix: 4,
-      kokoroMixAmount: 1.5,
+      supertonicSpeed: 3,
+      supertonicSteps: "many",
+      chatterboxEmotion: 0.1,
+      subtitles: "yes",
+      subtitleSize: "huge",
     }),
   );
   assert.deepEqual(m.loadSpeechPrefs(), {
     ...m.DEFAULT_SPEECH_PREFS,
     maxChars: 600,
   });
+  // A voice taken out of the catalog (Kokoro's) is none, so the device's voice reads until
+  // another is chosen; steps are whole.
+  for (const [saved, kept] of [
+    ["kokoro-ef_dora", ""],
+    ["accel-kokoro", ""],
+    ["supertonic-F1", "supertonic-F1"],
+  ]) {
+    localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ engine: "local", localVoice: saved, supertonicSteps: 7.6 }));
+    assert.equal(m.loadSpeechPrefs().localVoice, kept);
+    assert.equal(m.loadSpeechPrefs().supertonicSteps, 8);
+  }
   localStorage.setItem(m.SPEECH_KEY, "{not json");
   assert.deepEqual(m.loadSpeechPrefs(), m.DEFAULT_SPEECH_PREFS);
 });
@@ -838,4 +857,15 @@ test("notices are handed to the page to be said, and an empty one is not", () =>
   m.sayNotice("   ");
   dom.window.removeEventListener(m.SPEECH_NOTICE_EVENT, on);
   assert.deepEqual(heard, ["CI passed"]);
+});
+
+test("the sentence being said is handed to the subtitles, and an empty one hides them", () => {
+  const heard = [];
+  const on = (e) => heard.push(e.detail);
+  dom.window.addEventListener(m.SUBTITLE_EVENT, on);
+  m.showSubtitle("All done.");
+  m.showSubtitle("");
+  dom.window.removeEventListener(m.SUBTITLE_EVENT, on);
+  assert.deepEqual(heard, ["All done.", ""]);
+  assert.deepEqual(m.SUBTITLE_SIZES, ["small", "medium", "large"]);
 });

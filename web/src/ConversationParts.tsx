@@ -7,6 +7,7 @@ import { useTurn } from "./turnView";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
 import { ActionTrail } from "./ActionTrail";
+import { Typed, esc } from "./Term";
 import { BodyPortal } from "./BodyPortal";
 import {
   classifyProgress,
@@ -346,6 +347,18 @@ export function Trail({
   );
 }
 
+// ActivityTyped is the activity line's text, typed in with the terminal's typewriter and cursor.
+function ActivityTyped({ text, class: cls }: { text: string; class?: string }) {
+  return (
+    <Typed
+      key={text}
+      as="span"
+      class={`activity-typed${cls ? " " + cls : ""}`}
+      html={esc(text)}
+    />
+  );
+}
+
 // ActivityLine is what the agent is doing right now, below the turn it belongs to.
 export function ActivityLine({
   activity,
@@ -362,15 +375,17 @@ export function ActivityLine({
       style={{ whiteSpace: "pre-wrap" }}
     >
       <span class={`spin-${activityKind || "default"}`}></span>
+      {/* Typed in like the terminal, each new step from the start (it is keyed by its text). */}
       {command && (
         <>
-          <span class="term-cmd-text">
-            {oneLine(activity.replace(/^running:\s*/, ""))}
-          </span>
+          <ActivityTyped
+            class="term-cmd-text"
+            text={oneLine(activity.replace(/^running:\s*/, ""))}
+          />
           <ShellStatus exit={lastExit(shown)} />
         </>
       )}
-      {!command && progressText(activity)}
+      {!command && <ActivityTyped text={progressText(activity)} />}
     </div>
   );
 }
