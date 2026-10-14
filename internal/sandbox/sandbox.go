@@ -750,3 +750,34 @@ func (s *Sandbox) IsolationJSON() string {
 	}
 	return string(data)
 }
+
+// Readable reports whether a command of this sandbox may read path, by the same rule confine gives
+// Landlock: on the whole disk everything but the hidden paths; confined to the workspace, the
+// directories it works in and readRoots, and the system outside privatePaths. It is what motita's
+// own read tools (the ones that do not run as a command) answer by, so a file the agent cannot
+// `cat` is not one it can read some other way. path is absolute and already resolved.
+func (s *Sandbox) Readable(path string) bool {
+	path = filepath.Clean(path)
+	writes := s.writeRoots(s.base, os.TempDir())
+	if s.FullDisk() {
+		writes = []string{"/"}
+	}
+	if pathUnder(path, s.hiddenPaths(writes)) {
+		return false
+	}
+	if s.FullDisk() || pathUnder(path, writes) || pathUnder(path, s.readRoots(s.base)) {
+		return true
+	}
+	return !pathUnder(path, s.privatePaths())
+}
+
+// pathUnder reports whether p is one of targets or inside one.
+func pathUnder(p string, targets []string) bool {
+	for _, t := range targets {
+		t = filepath.Clean(t)
+		if p == t || strings.HasPrefix(p, strings.TrimSuffix(t, string(filepath.Separator))+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}

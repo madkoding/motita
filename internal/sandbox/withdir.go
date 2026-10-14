@@ -19,5 +19,9 @@ func (s *Sandbox) WithDir(dir string) *Sandbox {
 	c := *s
 	c.op.Dir = dir
 	c.base = filepath.Clean(dir)
+	// The git directories are read again for the new base: the copy's commands write into ITS
+	// worktree's admin directory (HEAD, index), and keeping the parent's would let them write into
+	// the parent's while refusing their own.
+	c.gitRoots = gitDirs(c.base)
 	return &c
 }

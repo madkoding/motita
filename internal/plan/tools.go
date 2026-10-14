@@ -27,9 +27,9 @@ func (p *Planner) toolListDirectory(raw []byte) string {
 	if err := decodeArgs(raw, &args); err != nil {
 		return errParsingArguments + err.Error()
 	}
-	path := strings.TrimSpace(args.Path)
-	if path == "" {
-		path = "."
+	path, err := p.readPath(args.Path)
+	if err != nil {
+		return "Error: " + err.Error()
 	}
 
 	entries, err := os.ReadDir(path)
@@ -56,9 +56,12 @@ func (p *Planner) toolReadFile(raw []byte) string {
 	if err := decodeArgs(raw, &args); err != nil {
 		return errParsingArguments + err.Error()
 	}
-	path := strings.TrimSpace(args.Path)
-	if path == "" {
+	if strings.TrimSpace(args.Path) == "" {
 		return "Error: the 'path' parameter is missing."
+	}
+	path, err := p.readPath(args.Path)
+	if err != nil {
+		return "Error: " + err.Error()
 	}
 
 	fi, err := os.Stat(path)
@@ -86,6 +89,28 @@ func (p *Planner) toolReadFile(raw []byte) string {
 		return "(the file is empty)"
 	}
 	return string(data)
+}
+
+// PathResolver is the optional half of a CommandRunner that knows the session's working directory:
+// it resolves a path a read tool was given against it and refuses one the session may not read.
+// The real *agent.Agent implements it. read_file, list_directory and the Go search run in THIS
+// process, not as a sandboxed command, so without it they would resolve a relative path against
+// the gateway's own directory and read anywhere the gateway can.
+type PathResolver interface {
+	ReadPath(path string) (string, error)
+}
+
+// readPath resolves a read tool's path through the runner when it can, and keeps it as given
+// otherwise (a planner built without a runner that knows a workspace, as in the tests).
+func (p *Planner) readPath(path string) (string, error) {
+	if r, ok := p.runner.(PathResolver); ok {
+		return r.ReadPath(path)
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "."
+	}
+	return path, nil
 }
 
 // executeCommandArgs are the arguments for execute_command.
@@ -152,6 +177,13 @@ func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
 	if path == "" {
 		path = "."
 	}
+	// The path is checked here for both searches. grep keeps the path as given, since it runs in
+	// the working directory and its output reads better relative; the Go search takes the resolved
+	// one, because it runs in this process, whose directory is not the session's.
+	resolved, err := p.readPath(path)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
 
 	toolCtx, cancel := context.WithTimeout(ctx, p.commandTimeout)
 	defer cancel()
@@ -159,10 +191,9 @@ func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
 	literal := strings.EqualFold(args.Literal, "true")
 	var command, output string
 	var exit int
-	var err error
 	if searchNatively {
 		command = fmt.Sprintf("search_in_files %s %s", shellQuote(pattern), shellQuote(path))
-		output, exit, err = searchFiles(toolCtx, pattern, path, literal)
+		output, exit, err = searchFiles(toolCtx, pattern, resolved, literal)
 	} else {
 		if literal {
 			command = fmt.Sprintf("grep -R -n -F %s %s", shellQuote(pattern), shellQuote(path))

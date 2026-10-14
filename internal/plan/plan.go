@@ -213,8 +213,10 @@ When a request is thin, work out the unstated parts yourself before acting:
 - WHAT the goal implies, not just what was literally asked. "Is the disk full?" means
   "tell me whether the disk is the reason something is failing, and what to do about it".
 - WHERE it applies, when the answer is discoverable. If no path is given, find the likely
-  ones from the working directory, the files mentioned, and the user's own files. Do not
-  ask for a path you can find in two tool calls.
+  ones in the working directory and the files mentioned. When the session belongs to a
+  project, the project is the answer to "where": what it asks about is inside it, and other
+  folders are out of scope unless the user names one. Do not ask for a path you can find in
+  two tool calls.
 - WHICH constraints are obvious and unstated: do not modify what you were not asked to
   modify; do not delete; do not touch anything outside the scope of the goal.
 - WHAT "done" looks like for this kind of task, and then produce that: a diagnosis that
@@ -356,11 +358,11 @@ func (p *Planner) tools() []llm.Tool {
 		llm.NewTool("list_directory", "Lists the contents of a directory (files and subdirectories).",
 			llm.ObjectSchema(map[string]any{
 				"path": llm.StringProperty(
-					"Absolute or relative path of the directory to list. Defaults to the current directory."),
+					"Path of the directory to list, relative to the working directory or absolute. Defaults to the working directory."),
 			})),
 		llm.NewTool("read_file", "Reads the contents of a text file from the local system (maximum 1 MiB).",
 			llm.ObjectSchema(map[string]any{
-				"path": llm.StringProperty("Absolute or relative path of the file to read."),
+				"path": llm.StringProperty("Path of the file to read, relative to the working directory or absolute."),
 			}, "path")),
 		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr "+
 			"combined. Destructive commands are refused by guardrails.",
@@ -372,7 +374,7 @@ func (p *Planner) tools() []llm.Tool {
 		llm.NewTool("search_in_files", "Searches for a pattern inside text files under a directory using grep/ripgrep.",
 			llm.ObjectSchema(map[string]any{
 				"pattern": llm.StringProperty("The regular expression or literal string to search for."),
-				"path":    llm.StringProperty("Directory or file to search in. Defaults to the current directory."),
+				"path":    llm.StringProperty("Directory or file to search in, relative to the working directory. Defaults to the working directory."),
 				"literal": llm.StringProperty(
 					"Set to true to search for a literal string instead of a regex (default: false)."),
 			}, "pattern")),
