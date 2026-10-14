@@ -20,16 +20,20 @@ func TestReadableFollowsTheSameRuleAsTheConfinement(t *testing.T) {
 		base: base, fullDisk: new(atomic.Bool)}
 
 	for path, want := range map[string]bool{
-		filepath.Join(base, "src", "main.go"):          true,
-		filepath.Join(tools, "go", "bin", "go"):        true,
-		"/etc/os-release":                              true,
-		"/home/other/project/main.go":                  false,
-		filepath.Join(home, ".bashrc"):                 false,
-		filepath.Join(home, ".gitconfig"):              true,
-		secret:                                         false,
-		"/root/.ssh/id_ed25519":                        false,
-		"/mnt/backups/" + filepath.Base(base) + "/x":   false,
-		filepath.Join(base, "..", filepath.Base(base)): true,
+		filepath.Join(base, "src", "main.go"):            true,
+		filepath.Join(tools, "tools", "go", "bin", "go"): true,
+		filepath.Join(tools, "bin", "gh"):                true,
+		filepath.Join(tools, "home", ".npmrc"):           true,
+		filepath.Join(tools, "homes", "other", ".npmrc"): false,
+		filepath.Join(tools, "worktrees", "x", "a.go"):   false,
+		"/etc/os-release":                                true,
+		"/home/other/project/main.go":                    false,
+		filepath.Join(home, ".bashrc"):                   false,
+		filepath.Join(home, ".gitconfig"):                true,
+		secret:                                           false,
+		"/root/.ssh/id_ed25519":                          false,
+		"/mnt/backups/" + filepath.Base(base) + "/x":     false,
+		filepath.Join(base, "..", filepath.Base(base)):   true,
 	} {
 		if got := s.Readable(path); got != want {
 			t.Errorf("workspace mode, %s: got %v, want %v", path, got, want)

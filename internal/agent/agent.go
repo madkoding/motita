@@ -283,7 +283,7 @@ func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, er
 				fmt.Errorf("the user declined to run: %s", command)
 		}
 		// A person said yes to this line by name, including to where it writes.
-		p.Request.Unconfined = true
+		approveRequest(&p.Request, command)
 	}
 	output, _, exit, err := a.exec(ctx, p.Request)
 	return output, exit, err

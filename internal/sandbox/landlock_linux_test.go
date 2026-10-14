@@ -90,9 +90,16 @@ func TestAnApprovedCommandIsNotConfined(t *testing.T) {
 func fakeWorktree(t *testing.T) (common, own, work string) {
 	t.Helper()
 	root := t.TempDir()
+	work = filepath.Join(root, "work")
+	common, own = fakeWorktreeAt(t, root, work)
+	return common, own, work
+}
+
+// fakeWorktreeAt is fakeWorktree with the repository in root/main and the worktree at work.
+func fakeWorktreeAt(t *testing.T, root, work string) (common, own string) {
+	t.Helper()
 	common = filepath.Join(root, "main", ".git")
 	own = filepath.Join(common, "worktrees", "w")
-	work = filepath.Join(root, "work")
 	for _, d := range []string{own, work, filepath.Join(common, "objects"), filepath.Join(common, "refs"),
 		filepath.Join(common, "logs"), filepath.Join(common, "hooks")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -112,7 +119,7 @@ func fakeWorktree(t *testing.T) (common, own, work string) {
 			t.Fatal(err)
 		}
 	}
-	return common, own, work
+	return common, own
 }
 
 func TestAWorktreeCanWriteItsGitDirectories(t *testing.T) {

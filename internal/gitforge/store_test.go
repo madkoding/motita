@@ -215,3 +215,10 @@ func TestAccountsDeletesTheLoginOfARetiredService(t *testing.T) {
 		t.Errorf("the retired login must be removed, stat err = %v", err)
 	}
 }
+
+// A git login is told apart from a model's login stored in the same directory.
+func TestIsLoginFile(t *testing.T) {
+	if !IsLoginFile("git-github.json") || IsLoginFile("anthropic.json") || IsLoginFile("git-github.json.tmp") {
+		t.Error("IsLoginFile")
+	}
+}

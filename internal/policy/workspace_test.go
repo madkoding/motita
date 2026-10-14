@@ -64,3 +64,20 @@ func TestAMissingToolIsAskedAboutWithTheWayForward(t *testing.T) {
 		t.Errorf("without a lookup nothing can be called missing: %+v", d)
 	}
 }
+
+// A line that runs a program which gains privileges when it starts is told apart, wherever in
+// the line it is; one that does not is not.
+func TestElevates(t *testing.T) {
+	for line, want := range map[string]bool{
+		"sudo apt install jq":          true,
+		"make && /usr/bin/doas reboot": true,
+		"echo hi;pkexec ls":            true,
+		"ping -c1 example.com":         true,
+		"go test ./...":                false,
+		"npm install":                  false,
+	} {
+		if Elevates(line) != want {
+			t.Errorf("%q: want %v", line, want)
+		}
+	}
+}

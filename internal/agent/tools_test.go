@@ -50,7 +50,7 @@ func TestAWaitOnAPullRequestGetsAnHour(t *testing.T) {
 // TestDescribeTools: the model is told where HOME is and where tools persist, and nothing at all
 // when there is no tools directory or a chroot cannot see it.
 func TestDescribeTools(t *testing.T) {
-	got := describeTools(config.Sandbox{Kind: "none", ToolsDir: "/opt/mt"})
+	got := describeTools(config.Sandbox{Kind: "none", ToolsDir: "/opt/mt"}, "")
 	for _, want := range []string{
 		"HOME is /opt/mt/home", "/opt/mt/tools/<name>/", "/opt/mt/bin", "never use sudo", "installing-a-toolchain",
 	} {
@@ -58,8 +58,8 @@ func TestDescribeTools(t *testing.T) {
 			t.Errorf("the description must say %q:\n%s", want, got)
 		}
 	}
-	if describeTools(config.Sandbox{ToolsDir: " "}) != "" ||
-		describeTools(config.Sandbox{Kind: "chroot", ToolsDir: "/opt/mt"}) != "" {
+	if describeTools(config.Sandbox{ToolsDir: " "}, "") != "" ||
+		describeTools(config.Sandbox{Kind: "chroot", ToolsDir: "/opt/mt"}, "") != "" {
 		t.Error("with no usable tools directory nothing is said")
 	}
 	a := agentWith(t, false)

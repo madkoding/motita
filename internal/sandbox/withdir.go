@@ -22,6 +22,14 @@ func (s *Sandbox) WithDir(dir string) *Sandbox {
 	// The git directories are read again for the new base: the copy's commands write into ITS
 	// worktree's admin directory (HEAD, index), and keeping the parent's would let them write into
 	// the parent's while refusing their own.
-	c.gitRoots = gitDirs(c.base)
+	c.gitRoots, c.repoRoots = worktreeGit(c.base)
+	return &c
+}
+
+// WithHome returns a copy of s whose commands get the HOME named home inside the tools directory
+// (see Options.Home). Like WithDir's, the copy shares s's cgroup and is never closed.
+func (s *Sandbox) WithHome(home string) *Sandbox {
+	c := *s
+	c.op.Home = home
 	return &c
 }

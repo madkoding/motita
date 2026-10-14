@@ -11,14 +11,19 @@ import (
 
 // describeTools tells the model where its HOME is and where installed tools persist, or nothing
 // when the sandbox keeps the old layout (no tools directory, or a chroot that cannot see it).
+// home is the sandbox's own HOME, a project's when the session belongs to one; empty is the
+// shared one.
 //
 // Reported from a real session: the run did not know any of this, installed Go, Node and gh into
 // the repository through HOME, then spent rounds moving them out and re-exporting PATH in every
 // command. Knowing the layout is what lets the first install be the last one.
-func describeTools(sb config.Sandbox) string {
+func describeTools(sb config.Sandbox, home string) string {
 	tools := strings.TrimSpace(sb.ToolsDir)
 	if tools == "" || strings.EqualFold(sb.Kind, "chroot") {
 		return ""
+	}
+	if home == "" {
+		home = filepath.Join(tools, "home")
 	}
 	return fmt.Sprintf(`
 ## TOOLS AND HOME
@@ -29,7 +34,7 @@ func describeTools(sb config.Sandbox) string {
 		`Never install into the repository or system directories, never use sudo, and do not re-export PATH: `+
 		`it is already set.
 - Read the "installing-a-toolchain" procedure before installing one.
-`, filepath.Join(tools, "home"), tools, filepath.Join(tools, "tools"), filepath.Join(tools, "tools"),
+`, home, tools, filepath.Join(tools, "tools"), filepath.Join(tools, "tools"),
 		filepath.Join(tools, "bin"))
 }
 
