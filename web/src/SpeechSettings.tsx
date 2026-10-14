@@ -532,6 +532,11 @@ function SpeechVoice({
     (localVoice: string) => set({ localVoice }),
     [set],
   );
+  const setMix = useCallback(
+    (m: { id: string; amount: number }) =>
+      set({ kokoroMix: m.id, kokoroMixAmount: m.amount }),
+    [set],
+  );
   if (engine === "local") {
     if (!api) {
       return null;
@@ -542,6 +547,8 @@ function SpeechVoice({
           api={api}
           chosen={prefs.localVoice}
           choose={setLocalVoice}
+          mix={{ id: prefs.kokoroMix, amount: prefs.kokoroMixAmount }}
+          setMix={setMix}
         />
       </Row>
     );

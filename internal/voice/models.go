@@ -2,9 +2,11 @@ package voice
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -33,6 +35,9 @@ type ModelFile struct {
 	// Size and SHA256 are what the file must be, checked before it is kept.
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+	// Data, when set, is the file itself, compiled into the binary: it is written, not
+	// downloaded.
+	Data []byte `json:"-"`
 }
 
 // Model is one voice of the catalog.
@@ -59,6 +64,9 @@ type Model struct {
 const (
 	EnginePiper  = "piper"
 	EngineKokoro = "kokoro"
+	// EngineAccelerator is not a voice: files that make an engine faster where the browser can
+	// use them (KokoroGPU).
+	EngineAccelerator = "accelerator"
 )
 
 // RuntimeID is the directory, and the id in a file's URL, of the files every voice shares.
@@ -122,13 +130,45 @@ var KokoroModel = []ModelFile{
 		Size: 3497, SHA256: "77a02c8e164413299b4b4c403b14f8e0e1c1b727db4d46a09d6327b861060a34"},
 }
 
+// KokoroGPUID is the id of KokoroGPU. It does not start as a Kokoro voice's id does.
+const KokoroGPUID = "accel-kokoro"
+
+// KokoroGPU makes Kokoro fast on a browser with WebGPU: the full model (the 8-bit one does not
+// run on the graphics card) and onnxruntime's WebAssembly build that drives WebGPU. The page uses
+// it, when it is downloaded, for every Kokoro voice.
+var KokoroGPU = Model{ID: KokoroGPUID, Name: "Kokoro WebGPU", Quality: "high", Engine: EngineAccelerator,
+	Files: []ModelFile{
+		{Name: "model.onnx", URL: kokoroRepo + "onnx/model.onnx",
+			Size: 325532232, SHA256: "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb"},
+		{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
+			Member: "package/dist/ort-wasm-simd-threaded.asyncify.wasm",
+			Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"},
+	}}
+
+// kokoroSamples are the samples of the Kokoro voices: its repository has none, so they were
+// made with the voices themselves and are compiled in.
+//
+//go:embed samples/kokoro-*.mp3
+var kokoroSamples embed.FS
+
 // kokoroVoice is one voice of Kokoro, by its name there. The name's first letter is its language
 // (a American English, b British English, e Spanish), and the page reads it from the id.
 func kokoroVoice(voice, name, lang, sum string) Model {
-	return Model{ID: KokoroID + "-" + voice, Name: name, Lang: lang, Quality: "high", Engine: EngineKokoro,
+	id := KokoroID + "-" + voice
+	return Model{ID: id, Name: name, Lang: lang, Quality: "high", Engine: EngineKokoro,
 		Shared: KokoroID, Files: []ModelFile{
 			{Name: "voice.bin", URL: kokoroRepo + "voices/" + voice + ".bin", Size: 522240, SHA256: sum},
-		}}
+		}, Sample: embeddedSample(id)}
+}
+
+// embeddedSample is a voice's compiled-in sample, nil when there is none.
+func embeddedSample(id string) *ModelFile {
+	data, err := kokoroSamples.ReadFile("samples/" + id + ".mp3")
+	if err != nil {
+		return nil
+	}
+	sum := sha256.Sum256(data)
+	return &ModelFile{Name: "sample.mp3", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), Data: data}
 }
 
 // KokoroVoices are the Kokoro voices offered: the best graded of each language and gender.
@@ -383,8 +423,9 @@ func (l Library) Sample(ctx context.Context, id string) (string, error) {
 	}
 	f := *m.Sample
 	f.Name = m.ID + filepath.Ext(f.Name)
+	dir := filepath.Join(l.Dir, samplesDir)
 	if !l.present(samplesDir, []ModelFile{f}) {
-		if err := l.fetch(ctx, f.URL, filepath.Join(l.Dir, samplesDir), []ModelFile{f}, func(int64) {}); err != nil {
+		if err := l.fetch(ctx, f.URL, dir, []ModelFile{f}, func(int64) {}); err != nil {
 			return "", err
 		}
 	}
@@ -490,6 +531,10 @@ func (l Library) Verify(id string) error {
 func (l Library) fetch(ctx context.Context, url, dir string, batch []ModelFile, report func(int64)) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("the voices directory could not be created: %w", err)
+	}
+	// A file compiled in is written as it is, checked like any other.
+	if batch[0].Data != nil {
+		return keep(bytes.NewReader(batch[0].Data), dir, batch[0], report)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

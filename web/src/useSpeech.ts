@@ -337,7 +337,11 @@ function useClipReader(
       () => {
         const p = prefsRef.current;
         if (p.engine === "local") {
-          return localClip(p.localVoice, { noise: p.expressiveness, noiseW: p.variation });
+          return localClip(p.localVoice, {
+            noise: p.expressiveness,
+            noiseW: p.variation,
+            mix: choose(p.kokoroMix !== "", { id: p.kokoroMix, amount: p.kokoroMixAmount }, undefined),
+          });
         }
         return speakClip(apiRef.current as Api, p.gatewayVoice);
       },

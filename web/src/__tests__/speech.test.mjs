@@ -52,6 +52,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     pitch: 1.5,
     expressiveness: 0.4,
     variation: 2,
+    kokoroMix: "kokoro-af_bella",
+    kokoroMixAmount: 0.3,
     conversation: true,
     notices: true,
     byLanguage: true,
@@ -76,6 +78,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       pitch: 9,
       expressiveness: -1,
       variation: "x",
+      kokoroMix: 4,
+      kokoroMixAmount: 1.5,
     }),
   );
   assert.deepEqual(m.loadSpeechPrefs(), {
@@ -549,6 +553,29 @@ test("gateway voice: each sentence is asked for, the next one while one plays, a
   assert.equal(r.reading, false);
   assert.equal(u.live.size, 0, "the audio is let go");
   assert.deepEqual(asked, ["Uno.", "Dos."], "nothing is asked twice");
+});
+
+test("a voice that says several sentences at once is asked for as many ahead", async () => {
+  const asked = [];
+  const made = [];
+  const said = async (text) => {
+    asked.push(text);
+    return new Blob([text]);
+  };
+  said.ahead = 3;
+  const r = new m.ClipReader(() => said, audioFactory(made), urls());
+  const list = ["1.", "2.", "3.", "4.", "5."].map((t) => ({ said: t, shown: t }));
+  r.read(list, { voice: null, lang: "es", rate: 1 });
+  await settle();
+  assert.deepEqual(asked, ["1.", "2.", "3.", "4."], "three ahead of the one playing");
+  made[0].onended();
+  await settle();
+  assert.deepEqual(asked, ["1.", "2.", "3.", "4.", "5."], "nothing past the end, nothing twice");
+  for (let i = 1; i < list.length; i++) {
+    made[i].onended();
+    await settle();
+  }
+  assert.equal(r.reading, false);
 });
 
 test("gateway voice: a stop silences it and drops what comes back late", async () => {

@@ -22,7 +22,9 @@ async function bytes(url: string, progress?: (loaded: number, total: number) => 
   if (!res.ok) {
     throw new Error("HTTP " + res.status + " " + url);
   }
-  const [, body] = await Promise.all([cache.put(url, res.clone()), readAll(res, progress)]);
+  // A copy the browser cannot keep (out of room for a large model) is read from the gateway
+  // again next time; the voice still loads.
+  const [, body] = await Promise.all([cache.put(url, res.clone()).catch(() => undefined), readAll(res, progress)]);
   return body;
 }
 
@@ -36,6 +38,23 @@ const synth = new Synth({
     return {
       Tensor: Tensor as unknown as OrtLike["Tensor"],
       createSession: (model) => InferenceSession.create(model, { executionProviders: ["wasm"] }),
+    } as OrtLike;
+  },
+  // WebGPU's build is loaded only for Kokoro, on a browser that has WebGPU.
+  gpu: async (wasm) => {
+    const gpu = (self.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    if (!gpu || !(await gpu.requestAdapter())) {
+      throw new Error("no WebGPU here");
+    }
+    const ortGPU = await import("onnxruntime-web/webgpu");
+    ortGPU.env.wasm.numThreads = 1;
+    ortGPU.env.wasm.proxy = false;
+    ortGPU.env.wasm.wasmBinary = wasm;
+    // Its notes on which nodes stay on the CPU are expected, not errors.
+    ortGPU.env.logLevel = "error";
+    return {
+      Tensor: ortGPU.Tensor as unknown as OrtLike["Tensor"],
+      createSession: (model) => ortGPU.InferenceSession.create(model, { executionProviders: ["webgpu"] }),
     } as OrtLike;
   },
   phonemizer: (wasm, data, print) =>
@@ -63,12 +82,15 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     synth.forget(m.id);
     return;
   }
+  if (m.gpu !== undefined) {
+    synth.setGPU(m.gpu);
+  }
   if (m.kind === "warm") {
     // The page shows how far the voice is from being ready, and why it could not be.
     synth
       .warm(m.id, (pct) => self.postMessage({ kind: "progress", id: m.id, pct } satisfies FromWorker))
       .then(
-        () => self.postMessage({ kind: "ready", id: m.id } satisfies FromWorker),
+        async () => self.postMessage({ kind: "ready", id: m.id, gpu: await synth.onGPU() } satisfies FromWorker),
         (err: unknown) => self.postMessage({ kind: "failed", id: m.id, error: messageOf(err) } satisfies FromWorker),
       );
     return;

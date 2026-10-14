@@ -13,6 +13,10 @@ export const PHONEMIZE_DATA = "piper_phonemize.data";
 // KOKORO_ID is where Kokoro's model is served; a Kokoro voice's id is it, a dash, and the voice's
 // name there, whose first letter is its language.
 export const KOKORO_ID = "kokoro";
+// KOKORO_GPU_ID is where the files that run Kokoro on WebGPU are served (see voice.KokoroGPU):
+// the full model, and onnxruntime's build that drives WebGPU.
+export const KOKORO_GPU_ID = "accel-kokoro";
+export const ORT_GPU_WASM = "ort-wasm-simd-threaded.asyncify.wasm";
 export const KOKORO_RATE = 24000;
 // KOKORO_STYLE is the length of one style vector; a voice holds one for each length of input,
 // up to KOKORO_MAX_TOKENS.
@@ -85,7 +89,7 @@ export function isKokoro(id: string): boolean {
 
 // kokoroEspeak is the phonemizer's language for a Kokoro voice, from its name's first letter.
 export function kokoroEspeak(id: string): string {
-  const langs: Record<string, string> = { a: "en-us", b: "en-gb", e: "es" };
+  const langs: Record<string, string> = { a: "en-us", b: "en-gb-x-rp", e: "es" };
   return langs[id.charAt(KOKORO_ID.length + 1)] ?? "en-us";
 }
 
@@ -125,6 +129,11 @@ export function kokoroTokens(phonemes: string, vocab: Map<string, number>): numb
 export function kokoroStyle(voice: Float32Array, tokens: number): Float32Array {
   const n = Math.min(Math.max(tokens - 2, 0), KOKORO_MAX_TOKENS - 1);
   return voice.slice(n * KOKORO_STYLE, (n + 1) * KOKORO_STYLE);
+}
+
+// blendStyles mixes two voices' style vectors: amount 0 is the first, 1 the second.
+export function blendStyles(a: Float32Array, b: Float32Array, amount: number): Float32Array {
+  return a.map((x, i) => x * (1 - amount) + b[i] * amount);
 }
 
 // The layout of a canonical 44-byte WAV header: byte offsets of its fields, in order.
@@ -242,6 +251,9 @@ export interface SynthDeps {
   ort(wasm: ArrayBuffer): Promise<OrtLike>;
   // phonemizer builds one instance from its WebAssembly and data; print receives its output.
   phonemizer(wasm: ArrayBuffer, data: ArrayBuffer, print: (line: string) => void): Promise<PhonemizerLike>;
+  // gpu loads onnxruntime's WebGPU build, given its WebAssembly; its sessions run on WebGPU,
+  // and it throws where the browser has none.
+  gpu?(wasm: ArrayBuffer): Promise<OrtLike>;
 }
 
 // A voice ready to speak: a Piper model, or a Kokoro voice's styles on the shared model.
@@ -251,8 +263,11 @@ type LoadedVoice =
 
 // Kokoro's model, loaded once for all its voices.
 interface KokoroModel {
+  // ort is the build the session runs on: its tensors are the ones the session takes.
+  ort: OrtLike;
   session: SessionLike;
   vocab: Map<string, number>;
+  gpu: boolean;
 }
 
 // Synth says texts with the local voices: the runtime and the phonemizer are loaded once, and
@@ -262,6 +277,10 @@ export class Synth {
   private ort: Promise<OrtLike> | null = null;
   private phon: Promise<PhonemizerLike> | null = null;
   private kokoro: Promise<KokoroModel> | null = null;
+  // gpu says Kokoro should run on WebGPU (its files are downloaded); gpuFailed that it could not,
+  // here, so the CPU model is used instead.
+  private gpu = false;
+  private gpuFailed = false;
   private printed: string[] = [];
   private readonly voices = new Map<string, Promise<LoadedVoice>>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -299,7 +318,14 @@ export class Synth {
       }
       const kokoro = isKokoro(id);
       if (kokoro && !this.kokoro) {
-        files.push(fileURL(KOKORO_ID, "tokenizer.json"), fileURL(KOKORO_ID, "model.onnx"));
+        files.push(
+          fileURL(KOKORO_ID, "tokenizer.json"),
+          ...choose(
+            this.useGPU(),
+            [fileURL(KOKORO_GPU_ID, ORT_GPU_WASM), fileURL(KOKORO_GPU_ID, "model.onnx")],
+            [fileURL(KOKORO_ID, "model.onnx")],
+          ),
+        );
       }
       if (!this.voices.has(id)) {
         files.push(...choose(kokoro, [fileURL(id, "voice.bin")], [fileURL(id, "model.json"), fileURL(id, "model.onnx")]));
@@ -327,21 +353,49 @@ export class Synth {
     this.voices.delete(id);
   }
 
+  // setGPU says whether Kokoro should run on WebGPU; a change loads its model again.
+  setGPU(on: boolean): void {
+    if (on !== this.gpu) {
+      this.gpu = on;
+      this.gpuFailed = false;
+      this.kokoro = null;
+    }
+  }
+
+  // onGPU says whether Kokoro runs on WebGPU now: asked for, and it worked.
+  async onGPU(): Promise<boolean> {
+    return (await this.kokoro)?.gpu ?? false;
+  }
+
   private async sayNow(id: string, text: string, tune: Tune = { noise: 1, noiseW: 1 }): Promise<ArrayBuffer> {
     const v = await this.voice(id);
-    const ort = await this.runtime();
     if (v.kind === "kokoro") {
       const model = await this.kokoroModel();
       const p = await this.phonemize(kokoroEspeak(id), text);
       const ids = kokoroTokens(p.phonemes, model.vocab);
+      let style = kokoroStyle(v.styles, ids.length);
+      // Mixed with another Kokoro voice, the style is a blend of both.
+      const mix = tune.mix;
+      // A voice to mix with that cannot be loaded (deleted since) leaves this one alone.
+      if (mix && mix.amount > 0 && mix.id !== id && isKokoro(mix.id)) {
+        const other = (await this.voice(mix.id).catch(() => null)) as Extract<
+          LoadedVoice,
+          { kind: "kokoro" }
+        > | null;
+        if (other) {
+          style = blendStyles(style, kokoroStyle(other.styles, ids.length), mix.amount);
+        }
+      }
+      const T = model.ort.Tensor;
       // The speed is the page's (the audio's playback rate), so the model speaks at its own.
       const out = await model.session.run({
-        input_ids: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
-        style: new ort.Tensor("float32", kokoroStyle(v.styles, ids.length), [1, 256]),
-        speed: new ort.Tensor("float32", Float32Array.from([1]), [1]),
+        input_ids: new T("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
+        style: new T("float32", style, [1, 256]),
+        speed: new T("float32", Float32Array.from([1]), [1]),
       });
       return wavOf(out.waveform.data as Float32Array, KOKORO_RATE);
     }
+    const ort = await this.runtime();
     const { ids } = await this.phonemize(v.config.espeak.voice, text);
     const inf = v.config.inference;
     const scales = [inf.noise_scale * tune.noise, inf.length_scale, inf.noise_w * tune.noiseW];
@@ -441,15 +495,30 @@ export class Synth {
     return { kind: "kokoro", styles: new Float32Array(styles) };
   }
 
-  // kokoroModel is Kokoro's model and its table, loaded with the first Kokoro voice.
+  // useGPU says the next Kokoro model to load is WebGPU's.
+  private useGPU(): boolean {
+    return this.gpu && !this.gpuFailed && !!this.deps.gpu;
+  }
+
+  // kokoroModel is Kokoro's model and its table, loaded with the first Kokoro voice: on WebGPU
+  // when asked for, and on the CPU when that is not, or when WebGPU failed here.
   private kokoroModel(): Promise<KokoroModel> {
     this.kokoro ??= (async () => {
-      const [vocab, ort, model] = await Promise.all([
-        this.read(fileURL(KOKORO_ID, "tokenizer.json")),
-        this.runtime(),
-        this.read(fileURL(KOKORO_ID, "model.onnx")),
-      ]);
-      return { vocab: kokoroVocab(new TextDecoder().decode(vocab)), session: await ort.createSession(model) };
+      const vocab = this.read(fileURL(KOKORO_ID, "tokenizer.json")).then((b) => kokoroVocab(new TextDecoder().decode(b)));
+      if (this.useGPU()) {
+        try {
+          const [table, ort, model] = await Promise.all([
+            vocab,
+            this.read(fileURL(KOKORO_GPU_ID, ORT_GPU_WASM)).then((w) => (this.deps.gpu as NonNullable<SynthDeps["gpu"]>)(w)),
+            this.read(fileURL(KOKORO_GPU_ID, "model.onnx")),
+          ]);
+          return { ort, vocab: table, session: await ort.createSession(model), gpu: true };
+        } catch {
+          this.gpuFailed = true;
+        }
+      }
+      const [table, ort, model] = await Promise.all([vocab, this.runtime(), this.read(fileURL(KOKORO_ID, "model.onnx"))]);
+      return { ort, vocab: table, session: await ort.createSession(model), gpu: false };
     })();
     this.kokoro.catch(() => {
       this.kokoro = null;
@@ -490,16 +559,18 @@ export class Synth {
 export interface Tune {
   noise: number;
   noiseW: number;
+  // mix blends a Kokoro voice with another one: amount 0 is the voice alone, 1 the other.
+  mix?: { id: string; amount: number };
 }
 
 // The messages between the page and the worker.
 export type ToWorker =
-  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune }
-  | { kind: "warm"; id: string }
+  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune; gpu?: boolean }
+  | { kind: "warm"; id: string; gpu?: boolean }
   | { kind: "forget"; id: string };
 export type FromWorker =
   | { seq: number; wav: ArrayBuffer }
   | { seq: number; error: string }
   | { kind: "progress"; id: string; pct: number }
-  | { kind: "ready"; id: string }
+  | { kind: "ready"; id: string; gpu?: boolean }
   | { kind: "failed"; id: string; error: string };
