@@ -729,6 +729,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
 	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))
 	mux.Handle("DELETE /v1/voice/models/{id}", plain(s.handleDeleteVoiceModel))
+	mux.Handle("GET /v1/voice/models/{id}/sample", plain(s.handleVoiceModelSample))
 	mux.Handle("GET /v1/voice/models/{id}/{name}", plain(s.handleVoiceModelFile))
 	// How much of the disk the agent reaches: process-wide, every conversation follows it. See
 	// security.go.

@@ -351,7 +351,9 @@ func voiceLibrary() *voice.Library {
 	if d == "" {
 		return nil
 	}
-	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime, Models: voice.PiperVoices}
+	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime,
+		Shared: map[string][]voice.ModelFile{voice.KokoroID: voice.KokoroModel},
+		Models: append(append([]voice.Model{}, voice.PiperVoices...), voice.KokoroVoices...)}
 }
 
 func pushDir() string {
