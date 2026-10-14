@@ -246,7 +246,8 @@ func (s *Server) handleQuestions(w http.ResponseWriter, r *http.Request) {
 // connected, plus the current one even when its key is missing.
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	cfg := convOf(r).svc.Config()
-	writeJSON(w, http.StatusOK, map[string]any{"providers": s.withListedModels(configuredProviders(s.opts.ConfigPath, cfg))})
+	providers := s.withListedModels(configuredProviders(s.opts.ConfigPath, cfg))
+	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
 // handleModelList queries the provider's own API for the list of available

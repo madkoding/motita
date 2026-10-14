@@ -646,6 +646,37 @@ func (s *Server) Close(ctx context.Context) error {
 	return s.closeErr
 }
 
+// voiceRoutes registers the speech endpoints, every one process-wide.
+func (s *Server) voiceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	// Speech input: process-wide, and the recording is never stored. See voice.go.
+	mux.Handle("GET /v1/voice", plain(s.handleVoice))
+	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
+	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
+	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
+	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
+	// Local voices: the catalog, its downloads, and the files the page runs. See voicemodels.go.
+	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
+	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))
+	mux.Handle("DELETE /v1/voice/models/{id}", plain(s.handleDeleteVoiceModel))
+	mux.Handle("GET /v1/voice/models/{id}/{name}", plain(s.handleVoiceModelFile))
+}
+
+// skillRoutes registers the process-wide endpoints of the procedure library.
+func (s *Server) skillRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/skills", plain(s.handleSkills))
+	mux.Handle("POST /v1/skills", plain(s.handleSaveSkill))
+	mux.Handle("GET /v1/skills/archived", plain(s.handleArchivedSkills))
+	mux.Handle("GET /v1/skills/proposed", plain(s.handleProposedSkills))
+	mux.Handle("GET /v1/skills/proposed/{name}", plain(s.handleProposedSkill))
+	mux.Handle("POST /v1/skills/proposed/{name}/accept", plain(s.handleAcceptProposedSkill))
+	mux.Handle("DELETE /v1/skills/proposed/{name}", plain(s.handleRejectProposedSkill))
+	mux.Handle("GET /v1/skills/{name}", plain(s.handleSkill))
+	mux.Handle("POST /v1/skills/{name}/pin", plain(s.handlePinSkill))
+	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
+	mux.Handle("DELETE /v1/skills/{name}", plain(s.handleDeleteSkill))
+	mux.Handle("POST /v1/skills/{name}/restore", plain(s.handleRestoreSkill))
+}
+
 // routes builds the endpoint table.
 //
 // Every conversation endpoint is addressed by the session it is about, and only /v1/health is
@@ -719,17 +750,8 @@ func (s *Server) routes() *http.ServeMux {
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)
 	s.llmLoginRoutes(mux, plain)
-	// Speech input: process-wide too, and the recording is never stored. See voice.go.
-	mux.Handle("GET /v1/voice", plain(s.handleVoice))
-	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
-	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
-	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
-	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
-	// Local voices: the catalog, its downloads, and the files the page runs. See voicemodels.go.
-	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
-	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))
-	mux.Handle("DELETE /v1/voice/models/{id}", plain(s.handleDeleteVoiceModel))
-	mux.Handle("GET /v1/voice/models/{id}/{name}", plain(s.handleVoiceModelFile))
+	// Speech input and output, and the local voices: process-wide too. See voiceRoutes.
+	s.voiceRoutes(mux, plain)
 	// How much of the disk the agent reaches: process-wide, every conversation follows it. See
 	// security.go.
 	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))
@@ -753,18 +775,7 @@ func (s *Server) routes() *http.ServeMux {
 	// "GET /v1/skills/{name}", so it wins: a skill that happens to be called "archived"
 	// is still reachable by opening it from the index. That precedence is asserted by a
 	// test rather than trusted to the mux.
-	mux.Handle("GET /v1/skills", plain(s.handleSkills))
-	mux.Handle("POST /v1/skills", plain(s.handleSaveSkill))
-	mux.Handle("GET /v1/skills/archived", plain(s.handleArchivedSkills))
-	mux.Handle("GET /v1/skills/proposed", plain(s.handleProposedSkills))
-	mux.Handle("GET /v1/skills/proposed/{name}", plain(s.handleProposedSkill))
-	mux.Handle("POST /v1/skills/proposed/{name}/accept", plain(s.handleAcceptProposedSkill))
-	mux.Handle("DELETE /v1/skills/proposed/{name}", plain(s.handleRejectProposedSkill))
-	mux.Handle("GET /v1/skills/{name}", plain(s.handleSkill))
-	mux.Handle("POST /v1/skills/{name}/pin", plain(s.handlePinSkill))
-	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
-	mux.Handle("DELETE /v1/skills/{name}", plain(s.handleDeleteSkill))
-	mux.Handle("POST /v1/skills/{name}/restore", plain(s.handleRestoreSkill))
+	s.skillRoutes(mux, plain)
 	// The SAME index, addressed by the conversation it is for.
 	//
 	// A library is not process-wide any more: a session that belongs to a project gets its

@@ -92,6 +92,9 @@ func contentJSON(phaseName string, n int) string {
 	}
 }
 
+// headerContentType is the header that names the type of a body.
+const headerContentType = "Content-Type"
+
 // The fixed replies of the synthesize, analyze and plan phases.
 const (
 	synthesizeJSON = `{"status":"done","summary":"I wrote **report.txt** and checked its content.",` +
@@ -125,7 +128,7 @@ func executeJSON(n int) string {
 }
 
 func respond(w http.ResponseWriter, dialect, content string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, "application/json")
 	json.NewEncoder(w).Encode(replyBody(dialect, content))
 }
 
@@ -168,7 +171,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/audio/speech") {
 		// The speech API: a short silence, enough for the browser to play something.
-		w.Header().Set("Content-Type", "audio/wav")
+		w.Header().Set(headerContentType, "audio/wav")
 		_, _ = w.Write(silence(300))
 		return
 	}
@@ -255,7 +258,7 @@ func streamChunk() time.Duration {
 // (reasoning_content), then the reply in small fragments, then [DONE]. The agent shows both
 // while they arrive.
 func stream(w http.ResponseWriter, phaseName, content string) {
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	flusher, _ := w.(http.Flusher)
 	frame := func(delta map[string]string) {
 		data, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta}}})

@@ -69,12 +69,19 @@ var PiperRuntime = []ModelFile{
 		Size: 18077249, SHA256: "29f1025eb23a5b5c192cd14a6efbce4509402ff265405072ee6f7d1a09b78f8c"},
 }
 
-// piperVoice is one voice of rhasspy/piper-voices, by its path there.
-func piperVoice(path, name, lang, quality string, size int64, sum string, jsonSize int64, jsonSum string) Model {
+// fileSum is the size and SHA-256 a downloaded file must have.
+type fileSum struct {
+	size int64
+	sum  string
+}
+
+// piperVoice is one voice of rhasspy/piper-voices, by its path there: model is the sum of its
+// model, config the sum of the JSON file that describes it.
+func piperVoice(path, name, lang, quality string, model, config fileSum) Model {
 	id := path[strings.LastIndex(path, "/")+1:]
 	return Model{ID: id, Name: name, Lang: lang, Quality: quality, Files: []ModelFile{
-		{Name: "model.onnx", URL: piperVoices + path + ".onnx", Size: size, SHA256: sum},
-		{Name: "model.json", URL: piperVoices + path + ".onnx.json", Size: jsonSize, SHA256: jsonSum},
+		{Name: "model.onnx", URL: piperVoices + path + ".onnx", Size: model.size, SHA256: model.sum},
+		{Name: "model.json", URL: piperVoices + path + ".onnx.json", Size: config.size, SHA256: config.sum},
 	}}
 }
 
@@ -82,23 +89,23 @@ func piperVoice(path, name, lang, quality string, size int64, sum string, jsonSi
 // v1.0.0 tag of rhasspy/piper-voices.
 var PiperVoices = []Model{
 	piperVoice("es/es_MX/claude/high/es_MX-claude-high", "Claude", "es-MX", "high",
-		63122309, "3ef40a71ea63852cd8ab7e6fa7d2ecdcfa67a0b47c9c48e3f10e02ee02083ea0",
-		4963, "1afc81f703c0e4cb3b4d7c0dca096b8b54a98806807f0170cf5eb5557723c12d"),
+		fileSum{63122309, "3ef40a71ea63852cd8ab7e6fa7d2ecdcfa67a0b47c9c48e3f10e02ee02083ea0"},
+		fileSum{4963, "1afc81f703c0e4cb3b4d7c0dca096b8b54a98806807f0170cf5eb5557723c12d"}),
 	piperVoice("es/es_MX/ald/medium/es_MX-ald-medium", "Ald", "es-MX", "medium",
-		63201294, "019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63",
-		4889, "efab736e62e5321dd5d063d1b46e63c59ce655419816355b81d025c1a8d6b03c"),
+		fileSum{63201294, "019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63"},
+		fileSum{4889, "efab736e62e5321dd5d063d1b46e63c59ce655419816355b81d025c1a8d6b03c"}),
 	piperVoice("es/es_ES/davefx/medium/es_ES-davefx-medium", "Davefx", "es-ES", "medium",
-		63201294, "6658b03b1a6c316ee4c265a9896abc1393353c2d9e1bca7d66c2c442e222a917",
-		4817, "0e0dda87c732f6f38771ff274a6380d9252f327dca77aa2963d5fbdf9ec54842"),
+		fileSum{63201294, "6658b03b1a6c316ee4c265a9896abc1393353c2d9e1bca7d66c2c442e222a917"},
+		fileSum{4817, "0e0dda87c732f6f38771ff274a6380d9252f327dca77aa2963d5fbdf9ec54842"}),
 	piperVoice("en/en_US/lessac/medium/en_US-lessac-medium", "Lessac", "en-US", "medium",
-		63201294, "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
-		4885, "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"),
+		fileSum{63201294, "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f"},
+		fileSum{4885, "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0"}),
 	piperVoice("en/en_US/amy/medium/en_US-amy-medium", "Amy", "en-US", "medium",
-		63201294, "b3a6e47b57b8c7fbe6a0ce2518161a50f59a9cdd8a50835c02cb02bdd6206c18",
-		4882, "95a23eb4d42909d38df73bb9ac7f45f597dbfcde2d1bf9526fdeaf5466977d77"),
+		fileSum{63201294, "b3a6e47b57b8c7fbe6a0ce2518161a50f59a9cdd8a50835c02cb02bdd6206c18"},
+		fileSum{4882, "95a23eb4d42909d38df73bb9ac7f45f597dbfcde2d1bf9526fdeaf5466977d77"}),
 	piperVoice("en/en_GB/alba/medium/en_GB-alba-medium", "Alba", "en-GB", "medium",
-		63201294, "401369c4a81d09fdd86c32c5c864440811dbdcc66466cde2d64f7133a66ad03b",
-		4888, "aa965a2f02ecced632c2694e1fc72bbff6d65f265fab567ca945918c73dd89f4"),
+		fileSum{63201294, "401369c4a81d09fdd86c32c5c864440811dbdcc66466cde2d64f7133a66ad03b"},
+		fileSum{4888, "aa965a2f02ecced632c2694e1fc72bbff6d65f265fab567ca945918c73dd89f4"}),
 }
 
 // Library is the local voices on this machine: the catalog, and the directory the downloaded

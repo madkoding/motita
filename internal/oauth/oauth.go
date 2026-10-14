@@ -36,7 +36,8 @@ import (
 
 // Literals used more than once in this file.
 const (
-	mimeJSON = "application/json"
+	mimeJSON          = "application/json"
+	headerContentType = "Content-Type"
 )
 
 // Token is what every flow returns: the credential the LLM client sends, when
@@ -113,7 +114,7 @@ func postFormHeaders(
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(headerContentType, "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", mimeJSON)
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -134,7 +135,7 @@ func postJSON(ctx context.Context, client HTTPClient, url string, body any, head
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", mimeJSON)
+	req.Header.Set(headerContentType, mimeJSON)
 	req.Header.Set("Accept", mimeJSON)
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -180,7 +181,8 @@ func doJSON(client HTTPClient, req *http.Request, dest any) error {
 	if dest != nil {
 		if jerr := json.Unmarshal(body, dest); jerr != nil {
 			if !json.Valid(body) {
-				return &NotJSONError{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Excerpt: excerpt(body)}
+				return &NotJSONError{Status: resp.StatusCode, ContentType: resp.Header.Get(headerContentType),
+					Excerpt: excerpt(body)}
 			}
 			if ok {
 				return fmt.Errorf("could not decode response: %w", jerr)

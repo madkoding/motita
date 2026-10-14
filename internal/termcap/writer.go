@@ -48,19 +48,7 @@ func (f *filter) Write(p []byte) (int, error) {
 		c := data[i]
 		switch {
 		case c == 0x1b:
-			end, complete := sequenceEnd(data, i)
-			if !complete {
-				if len(data)-i <= maxPending {
-					f.pending = append([]byte(nil), data[i:]...)
-					i = len(data)
-					continue
-				}
-				end = i + 1 // not a sequence that ever ends: pass the ESC on as a byte
-			}
-			if !(f.stripSGR && end-i > 2 && data[i+1] == '[' && data[end-1] == 'm') {
-				out = append(out, data[i:end]...)
-			}
-			i = end
+			out, i = f.escape(data, i, out)
 		case c < utf8.RuneSelf || !f.ascii:
 			out = append(out, c)
 			i++
@@ -79,6 +67,24 @@ func (f *filter) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// escape passes on the escape sequence that starts at data[i], or drops it when it is a colour
+// the filter strips, and returns out and the index after it. A sequence the data ends inside is
+// held back for the next Write.
+func (f *filter) escape(data []byte, i int, out []byte) ([]byte, int) {
+	end, complete := sequenceEnd(data, i)
+	if !complete {
+		if len(data)-i <= maxPending {
+			f.pending = append([]byte(nil), data[i:]...)
+			return out, len(data)
+		}
+		end = i + 1 // not a sequence that ever ends: pass the ESC on as a byte
+	}
+	if !f.stripSGR || end-i <= 2 || data[i+1] != '[' || data[end-1] != 'm' {
+		out = append(out, data[i:end]...)
+	}
+	return out, end
 }
 
 // sequenceEnd finds the end of the escape sequence that starts at data[i]. A CSI sequence
@@ -115,8 +121,9 @@ func asciiFor(r rune) string {
 		return "??" // emoji and pictographs are two columns wide
 	case r >= 0x2000:
 		return "?"
+	default:
+		return string(r)
 	}
-	return string(r)
 }
 
 var glyphs = map[rune]string{
@@ -161,6 +168,7 @@ func boxDrawing(r rune) string {
 	case 0x2502, 0x2503, 0x2506, 0x2507, 0x250a, 0x250b, 0x254e, 0x254f, 0x2551,
 		0x2575, 0x2577, 0x2579, 0x257b, 0x257d, 0x257f:
 		return "|"
+	default:
+		return "+"
 	}
-	return "+"
 }

@@ -106,7 +106,8 @@ func (op Options) announceVoice(path string) {
 		return
 	}
 	fmt.Fprintln(op.Out, "\nVOICE: speech input is off. Turn it on in the web interface (Settings, Voice),")
-	fmt.Fprintf(op.Out, "  or set voice.enabled: true in %s. The browser needs https or localhost for the microphone.\n", path)
+	fmt.Fprintf(op.Out, "  or set voice.enabled: true in %s. The browser needs https or localhost for the "+
+		"microphone.\n", path)
 }
 
 // errNoAnswer is the input ending before an answer was given.

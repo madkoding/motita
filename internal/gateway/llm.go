@@ -660,11 +660,16 @@ func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.pushTaskModels()
+	writeJSON(w, http.StatusOK, s.llmViewOf())
+}
+
+// pushTaskModels hands the saved model of each kind of work to every conversation that takes it.
+func (s *Server) pushTaskModels() {
 	models := s.configuredModels()
 	for _, c := range s.snapshot() {
 		if ts, ok := c.svc.(taskModelSetter); ok {
 			ts.SetTaskModels(models)
 		}
 	}
-	writeJSON(w, http.StatusOK, s.llmViewOf())
 }
