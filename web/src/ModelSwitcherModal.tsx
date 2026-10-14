@@ -1,4 +1,5 @@
 // The model switcher: the provider, the model and the reasoning level the session runs with.
+import { useCallback } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -33,25 +34,29 @@ function modelUnchanged(
 function ProviderField() {
   const { config, draftProvider, setDraftProvider, setDraftModel, providers } =
     useApp().model;
+  const onPick = useCallback(
+    (newProvider: string) => {
+      if (newProvider === draftProvider) {
+        return;
+      }
+      setDraftProvider(newProvider);
+      setDraftModel(
+        choose(
+          newProvider === (config?.provider || ""),
+          config?.model || "",
+          firstModelOf(newProvider, providers),
+        ),
+      );
+    },
+    [config, draftProvider, setDraftProvider, setDraftModel, providers],
+  );
   return (
     <div>
       <span class={LABEL}>{t("Provider")}</span>
       <ProviderPicker
         providers={providers}
         value={draftProvider}
-        onPick={(newProvider) => {
-          if (newProvider === draftProvider) {
-            return;
-          }
-          setDraftProvider(newProvider);
-          setDraftModel(
-            choose(
-              newProvider === (config?.provider || ""),
-              config?.model || "",
-              firstModelOf(newProvider, providers),
-            ),
-          );
-        }}
+        onPick={onPick}
       />
     </div>
   );

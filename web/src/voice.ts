@@ -226,7 +226,7 @@ export function micNamesHidden(
   devices: { kind: string; label: string }[],
 ): boolean {
   const mics = devices.filter((d) => d.kind === "audioinput");
-  return mics.length === 0 || mics.every((d) => !d.label);
+  return mics.every((d) => !d.label);
 }
 
 // What the browser answers about the microphone for this site.
@@ -275,7 +275,10 @@ export async function queryMicPermission(
   }
   try {
     const devices = (await nav?.mediaDevices?.enumerateDevices?.()) ?? [];
-    return { state: micNamesHidden(devices) ? "prompt" : "granted" };
+    if (micNamesHidden(devices)) {
+      return { state: "prompt" };
+    }
+    return { state: "granted" };
   } catch {
     return { state: "prompt" };
   }

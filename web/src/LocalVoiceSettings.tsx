@@ -68,7 +68,7 @@ export function LocalVoices({
   // While a voice downloads, the catalog is read again until it is done.
   useEffect(() => {
     if (!downloading) {
-      return;
+      return undefined;
     }
     const timer = setInterval(() => void load(), DOWNLOAD_POLL_MS);
     return () => clearInterval(timer);
@@ -117,23 +117,13 @@ export function LocalVoices({
       )}
       {byLanguage(catalog.models).map((m) => {
         const here = dl?.id === m.id;
-        let state = (
-          <button
-            type="button"
-            class={smallBtn}
-            disabled={downloading || busy !== ""}
-            data-testid={"local-voice-get-" + m.id}
-            onClick={() => void act(m.id, () => installVoice(api, m.id))}
-          >
-            {t("Download")}
-          </button>
-        );
+        let state;
         if (here && downloading) {
           const pct = Math.floor((100 * dl.done) / Math.max(dl.total, 1));
           state = (
-            <span class="text-xs text-[#a0a0b0]" role="status" data-testid={"local-voice-progress-" + m.id}>
+            <output class="text-xs text-[#a0a0b0]" data-testid={"local-voice-progress-" + m.id}>
               {tf("Downloading… {pct}%", { pct: String(pct) })}
-            </span>
+            </output>
           );
         } else if (m.installed) {
           state = (
@@ -164,6 +154,18 @@ export function LocalVoices({
                 {t("Delete")}
               </button>
             </span>
+          );
+        } else {
+          state = (
+            <button
+              type="button"
+              class={smallBtn}
+              disabled={downloading || busy !== ""}
+              data-testid={"local-voice-get-" + m.id}
+              onClick={() => void act(m.id, () => installVoice(api, m.id))}
+            >
+              {t("Download")}
+            </button>
           );
         }
         return (

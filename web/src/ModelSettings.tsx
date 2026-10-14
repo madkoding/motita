@@ -221,6 +221,77 @@ function DefaultModel({
   );
 }
 
+// kindLabel is a kind of work's name: its label where it is a known kind, else the gateway's name.
+function kindLabel(kind: string): string {
+  const info = KINDS[kind];
+  if (info) {
+    return t(info.label);
+  }
+  return kind;
+}
+
+// TaskRow is one kind of work: its provider select and, once one is picked, its model.
+function TaskRow({
+  kind,
+  choice: c,
+  view,
+  pick,
+  setModel,
+}: {
+  kind: string;
+  choice: ModelChoice | undefined;
+  view: LLMView;
+  pick: (kind: string, provider: string) => void;
+  setModel: (kind: string, model: string) => void;
+}) {
+  const p = view.providers.find((x) => x.id === c?.provider);
+  const info = KINDS[kind];
+  const label = kindLabel(kind);
+  const onModel = useCallback(
+    (m: string) => setModel(kind, m),
+    [setModel, kind],
+  );
+  return (
+    <div class="settings-row" data-kind={kind}>
+      <div class="settings-row-text">
+        <label for={`llm-task-${kind}-provider`} class="text-sm text-[#e8e8ea]">
+          {label}
+        </label>
+        {info && <p class="text-xs text-[#7a7a8c]">{t(info.hint)}</p>}
+      </div>
+      <div class="settings-row-control llm-field llm-task-field">
+        <select
+          id={`llm-task-${kind}-provider`}
+          class={inputCls}
+          value={c?.provider || ""}
+          disabled={!view.writable}
+          onChange={(e) => pick(kind, (e.target as HTMLSelectElement).value)}
+        >
+          <option value="">{t("Same as default")}</option>
+          {view.providers
+            .filter((x) => isConnected(x) || x.id === c?.provider)
+            .map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+        </select>
+        {c?.provider && (
+          <ModelPicker
+            key={c.provider}
+            id={`llm-task-${kind}-model`}
+            provider={p}
+            value={c.model}
+            ariaLabel={tf("Model for {kind}", { kind: label })}
+            disabled={!view.writable}
+            onChange={onModel}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // TaskModels assigns a model to each kind of work. "Same as default" leaves the kind on the
 // session's model.
 function TaskModels({
@@ -241,28 +312,34 @@ function TaskModels({
   useEffect(() => setDraft(view.tasks || {}), [view.tasks]);
   const kinds = view.task_kinds || Object.keys(KINDS);
   const usable = view.providers.filter(isConnected);
-  const pick = (kind: string, provider: string) => {
-    setErr("");
-    const p = view.providers.find((x) => x.id === provider);
-    setDraft((d) => {
-      const next = { ...d };
-      if (provider) {
-        next[kind] = {
-          provider,
-          model: choose(
-            saved[kind]?.provider === provider,
-            saved[kind]?.model || "",
-            p?.listed_models?.[0] || p?.models[0]?.id || "",
-          ),
-        };
-      } else {
-        delete next[kind];
-      }
-      return next;
-    });
-  };
-  const setModel = (kind: string, model: string) =>
-    setDraft((d) => ({ ...d, [kind]: { ...d[kind], model } }));
+  const pick = useCallback(
+    (kind: string, provider: string) => {
+      setErr("");
+      const p = view.providers.find((x) => x.id === provider);
+      setDraft((d) => {
+        const next = { ...d };
+        if (provider) {
+          next[kind] = {
+            provider,
+            model: choose(
+              saved[kind]?.provider === provider,
+              saved[kind]?.model || "",
+              p?.listed_models?.[0] || p?.models[0]?.id || "",
+            ),
+          };
+        } else {
+          delete next[kind];
+        }
+        return next;
+      });
+    },
+    [view.providers, saved],
+  );
+  const setModel = useCallback(
+    (kind: string, model: string) =>
+      setDraft((d) => ({ ...d, [kind]: { ...d[kind], model } })),
+    [],
+  );
   const incomplete = Object.values(draft).some(
     (c) => c.provider && !c.model.trim(),
   );
@@ -286,59 +363,16 @@ function TaskModels({
         {t("Model per kind of work")}
       </h4>
       <form class="settings-card" onSubmit={save} data-testid="llm-tasks">
-        {kinds.map((kind) => {
-          const c = draft[kind];
-          const p = view.providers.find((x) => x.id === c?.provider);
-          const info = KINDS[kind];
-          return (
-            <div class="settings-row" key={kind} data-kind={kind}>
-              <div class="settings-row-text">
-                <label
-                  for={`llm-task-${kind}-provider`}
-                  class="text-sm text-[#e8e8ea]"
-                >
-                  {info ? t(info.label) : kind}
-                </label>
-                {info && (
-                  <p class="text-xs text-[#7a7a8c]">{t(info.hint)}</p>
-                )}
-              </div>
-              <div class="settings-row-control llm-field llm-task-field">
-                <select
-                  id={`llm-task-${kind}-provider`}
-                  class={inputCls}
-                  value={c?.provider || ""}
-                  disabled={!view.writable}
-                  onChange={(e) =>
-                    pick(kind, (e.target as HTMLSelectElement).value)
-                  }
-                >
-                  <option value="">{t("Same as default")}</option>
-                  {view.providers
-                    .filter((x) => isConnected(x) || x.id === c?.provider)
-                    .map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.name}
-                      </option>
-                    ))}
-                </select>
-                {c?.provider && (
-                  <ModelPicker
-                    key={c.provider}
-                    id={`llm-task-${kind}-model`}
-                    provider={p}
-                    value={c.model}
-                    ariaLabel={tf("Model for {kind}", {
-                      kind: info ? t(info.label) : kind,
-                    })}
-                    disabled={!view.writable}
-                    onChange={(m) => setModel(kind, m)}
-                  />
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {kinds.map((kind) => (
+          <TaskRow
+            key={kind}
+            kind={kind}
+            choice={draft[kind]}
+            view={view}
+            pick={pick}
+            setModel={setModel}
+          />
+        ))}
         <div class="settings-add llm-actions">
           <p class="text-xs text-[#7a7a8c] flex-1 min-w-0">
             {choose(

@@ -49,31 +49,57 @@ export function phonemeIds(line: string): number[] {
   return out.phoneme_ids;
 }
 
+// The layout of a canonical 44-byte WAV header: byte offsets of its fields, in order.
+const WAV_RIFF = 0;
+const WAV_RIFF_SIZE = 4;
+const WAV_WAVE = 8;
+const WAV_FMT = 12;
+const WAV_FMT_SIZE = 16;
+const WAV_FORMAT = 20;
+const WAV_CHANNELS = 22;
+const WAV_RATE = 24;
+const WAV_BYTE_RATE = 28;
+const WAV_BLOCK_ALIGN = 32;
+const WAV_BITS = 34;
+const WAV_DATA = 36;
+const WAV_DATA_SIZE = 40;
+const WAV_HEADER = 44;
+// The bytes of the header the RIFF size leaves out: the "RIFF" tag and the size itself.
+const WAV_RIFF_PREFIX = 8;
+// The size of the PCM fmt chunk's body.
+const WAV_FMT_BODY = 16;
+const WAV_PCM = 1;
+const WAV_MONO = 1;
+// Every sample is 16 bits, two bytes.
+const SAMPLE_BYTES = 2;
+const SAMPLE_BITS = 16;
+// The largest 16-bit sample, which a full-scale float sample becomes.
+const SAMPLE_MAX = 32767;
+
 // wavOf is mono 16-bit PCM audio, as a WAV file the <audio> element plays.
 export function wavOf(samples: Float32Array, rate: number): ArrayBuffer {
-  const header = 44;
-  const view = new DataView(new ArrayBuffer(header + samples.length * 2));
+  const view = new DataView(new ArrayBuffer(WAV_HEADER + samples.length * SAMPLE_BYTES));
   const text = (at: number, s: string) => {
     for (let i = 0; i < s.length; i++) {
-      view.setUint8(at + i, s.charCodeAt(i));
+      view.setUint8(at + i, s.codePointAt(i) ?? 0);
     }
   };
-  text(0, "RIFF");
-  view.setUint32(4, view.byteLength - 8, true);
-  text(8, "WAVE");
-  text(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // mono
-  view.setUint32(24, rate, true);
-  view.setUint32(28, rate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  text(36, "data");
-  view.setUint32(40, samples.length * 2, true);
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(header + i * 2, Math.round(s * 32767), true);
+  text(WAV_RIFF, "RIFF");
+  view.setUint32(WAV_RIFF_SIZE, view.byteLength - WAV_RIFF_PREFIX, true);
+  text(WAV_WAVE, "WAVE");
+  text(WAV_FMT, "fmt ");
+  view.setUint32(WAV_FMT_SIZE, WAV_FMT_BODY, true);
+  view.setUint16(WAV_FORMAT, WAV_PCM, true);
+  view.setUint16(WAV_CHANNELS, WAV_MONO, true);
+  view.setUint32(WAV_RATE, rate, true);
+  view.setUint32(WAV_BYTE_RATE, rate * SAMPLE_BYTES, true);
+  view.setUint16(WAV_BLOCK_ALIGN, SAMPLE_BYTES, true);
+  view.setUint16(WAV_BITS, SAMPLE_BITS, true);
+  text(WAV_DATA, "data");
+  view.setUint32(WAV_DATA_SIZE, samples.length * SAMPLE_BYTES, true);
+  for (const [i, sample] of samples.entries()) {
+    const s = Math.max(-1, Math.min(1, sample));
+    view.setInt16(WAV_HEADER + i * SAMPLE_BYTES, Math.round(s * SAMPLE_MAX), true);
   }
   return view.buffer;
 }
@@ -152,10 +178,11 @@ export class Synth {
     const ids = await this.phonemize(v.config.espeak.voice, text);
     const ort = await this.runtime();
     const inf = v.config.inference;
+    const scales = [inf.noise_scale, inf.length_scale, inf.noise_w];
     const feeds: Record<string, TensorLike> = {
       input: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
       input_lengths: new ort.Tensor("int64", BigInt64Array.from([BigInt(ids.length)]), [1]),
-      scales: new ort.Tensor("float32", Float32Array.from([inf.noise_scale, inf.length_scale, inf.noise_w]), [3]),
+      scales: new ort.Tensor("float32", Float32Array.from(scales), [scales.length]),
     };
     if ((v.config.num_speakers ?? 1) > 1) {
       feeds.sid = new ort.Tensor("int64", BigInt64Array.from([0n]), [1]);

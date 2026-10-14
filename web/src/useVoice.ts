@@ -1,6 +1,7 @@
 // useVoice is speech input for the composer: a dictation button, and the hands-free mode that
 // listens for a wake phrase while this tab is open. See voice.ts for the parts that are decided
 // without a microphone.
+import type { RefObject } from "preact";
 import type { Dispatch, StateUpdater } from "preact/hooks";
 import {
   useCallback,
@@ -103,63 +104,34 @@ function focusComposer() {
   document.getElementById(TASK_INPUT_ID)?.focus();
 }
 
-export function useVoice({ api, authed, setInput, setToast }: Deps) {
-  const [info, setInfo] = useState<VoiceInfo | null>(null);
-  const [prefs, setPrefsState] = useState<VoicePrefs>(loadVoicePrefs);
-  const [phase, setPhase] = useState<VoicePhase>("idle");
-  const [listening, setListening] = useState(false);
-  const support = useMemo(browserSupport, []);
-  const state = voiceState(support.secure, support.supported, info);
-  const hands = listenState(state, info);
-  const phaseRef = useRef<VoicePhase>("idle");
-  phaseRef.current = phase;
-  // heard says text spoken by the person reached the composer since the last turn started: the
-  // answer to that turn is read aloud in the "when I spoke" mode.
-  const heard = useRef(false);
-  const takeHeard = useCallback(() => {
-    const h = heard.current;
-    heard.current = false;
-    return h;
-  }, []);
+// What the microphone hooks share: the state of the composer's voice, whether the person spoke,
+// the dictation running and the phrase conversation mode listens for.
+interface MicRefs {
+  api: Api;
+  deviceId: string;
+  fail: (e: unknown) => void;
+  setPhase: Dispatch<StateUpdater<VoicePhase>>;
+  phaseRef: RefObject<VoicePhase>;
+  heard: RefObject<boolean>;
+  dictation: RefObject<{ recorder: MediaRecorder; timer: number } | null>;
+  // listening1 ends the one phrase conversation mode is listening for, when there is one.
+  listening1: RefObject<(() => void) | null>;
+}
 
-  useEffect(() => {
-    if (!authed) {
-      return;
-    }
-    fetchVoiceInfo(api)
-      .then(setInfo)
-      .catch(() => setInfo(null));
-  }, [api, authed]);
-
-  useEffect(() => {
-    const reload = () => setPrefsState(loadVoicePrefs());
-    window.addEventListener(VOICE_PREFS_EVENT, reload);
-    return () => window.removeEventListener(VOICE_PREFS_EVENT, reload);
-  }, []);
-
-  const setPrefs = useCallback((p: VoicePrefs) => {
-    setPrefsState(p);
-    saveVoicePrefs(p);
-  }, []);
-
-  const fail = useCallback(
-    (e: unknown) =>
-      setToast({
-        message: t("Speech input failed"),
-        detail: errorMessage(e),
-        type: "error",
-      }),
-    [setToast],
-  );
-
-  // DICTATION: one tap starts, the next one stops and transcribes into the composer.
-  const dictation = useRef<{ recorder: MediaRecorder; timer: number } | null>(
-    null,
-  );
-  const deviceId = prefs.deviceId;
-  // listening ends the one phrase conversation mode is listening for, when there is one.
-  const listening1 = useRef<(() => void) | null>(null);
-  const toggleDictation = useCallback(async () => {
+// useDictation is the dictation button: one tap starts, the next one stops and transcribes into
+// the composer.
+function useDictation({
+  api,
+  deviceId,
+  fail,
+  setInput,
+  setPhase,
+  phaseRef,
+  heard,
+  dictation,
+  listening1,
+}: MicRefs & { setInput: Deps["setInput"] }) {
+  return useCallback(async () => {
     // A tap while the conversation listens ends the conversation, not a dictation.
     if (listening1.current) {
       listening1.current();
@@ -207,9 +179,21 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       setPhase("idle");
     }
   }, [api, deviceId, fail, setInput]);
+}
 
-  // CONVERSATION: one phrase, ended by the silence after it, transcribed and handed back (null
-  // when nobody spoke, the listening was cancelled, or it failed). What it hears counts as spoken.
+// useListenOnce is conversation mode's listening: one phrase, ended by the silence after it,
+// transcribed and handed back (null when nobody spoke, the listening was cancelled, or it
+// failed). What it hears counts as spoken.
+function useListenOnce({
+  api,
+  deviceId,
+  fail,
+  setPhase,
+  phaseRef,
+  heard,
+  dictation,
+  listening1,
+}: MicRefs) {
   const listenOnce = useCallback(async (): Promise<string | null> => {
     if (
       phaseRef.current !== "idle" ||
@@ -248,7 +232,9 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
         const ev = gate.feed(level(frame), now);
         if (ev === "end") {
           finish(true);
-        } else if (!gate.speaking && now - from > NOTHING_HEARD_MS) {
+          return;
+        }
+        if (!gate.speaking && now - from > NOTHING_HEARD_MS) {
           finish(false);
         }
       }, FRAME_MS);
@@ -274,10 +260,27 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     }
   }, [api, deviceId, fail]);
   const cancelListen = useCallback(() => listening1.current?.(), []);
+  return { listenOnce, cancelListen };
+}
 
-  // HANDS-FREE: while the switch is on and this tab is open, every spoken phrase is transcribed,
-  // and only one that opens with a wake phrase reaches the composer.
-  const active = prefs.listen && hands === "ready" && authed;
+// useHandsFree listens while the hands-free mode is active: every spoken phrase is transcribed,
+// and only one that opens with a wake phrase reaches the composer.
+function useHandsFree({
+  active,
+  api,
+  deviceId,
+  fail,
+  setInput,
+  setToast,
+  setListening,
+  phaseRef,
+  heard,
+}: Pick<MicRefs, "api" | "deviceId" | "fail" | "phaseRef" | "heard"> & {
+  active: boolean;
+  setInput: Deps["setInput"];
+  setToast: SetToast;
+  setListening: Dispatch<StateUpdater<boolean>>;
+}) {
   useEffect(() => {
     if (!active) {
       return undefined;
@@ -381,6 +384,102 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       setListening(false);
     };
   }, [active, api, deviceId, fail, setInput, setToast]);
+}
+
+export function useVoice({ api, authed, setInput, setToast }: Deps) {
+  const [info, setInfo] = useState<VoiceInfo | null>(null);
+  const [prefs, setPrefsState] = useState<VoicePrefs>(loadVoicePrefs);
+  const [phase, setPhase] = useState<VoicePhase>("idle");
+  const [listening, setListening] = useState(false);
+  const support = useMemo(browserSupport, []);
+  const state = voiceState(support.secure, support.supported, info);
+  const hands = listenState(state, info);
+  const phaseRef = useRef<VoicePhase>("idle");
+  phaseRef.current = phase;
+  // heard says text spoken by the person reached the composer since the last turn started: the
+  // answer to that turn is read aloud in the "when I spoke" mode.
+  const heard = useRef(false);
+  const takeHeard = useCallback(() => {
+    const h = heard.current;
+    heard.current = false;
+    return h;
+  }, []);
+
+  useEffect(() => {
+    if (!authed) {
+      return;
+    }
+    fetchVoiceInfo(api)
+      .then(setInfo)
+      .catch(() => setInfo(null));
+  }, [api, authed]);
+
+  useEffect(() => {
+    const reload = () => setPrefsState(loadVoicePrefs());
+    window.addEventListener(VOICE_PREFS_EVENT, reload);
+    return () => window.removeEventListener(VOICE_PREFS_EVENT, reload);
+  }, []);
+
+  const setPrefs = useCallback((p: VoicePrefs) => {
+    setPrefsState(p);
+    saveVoicePrefs(p);
+  }, []);
+
+  const fail = useCallback(
+    (e: unknown) =>
+      setToast({
+        message: t("Speech input failed"),
+        detail: errorMessage(e),
+        type: "error",
+      }),
+    [setToast],
+  );
+
+  // DICTATION: one tap starts, the next one stops and transcribes into the composer.
+  const dictation = useRef<{ recorder: MediaRecorder; timer: number } | null>(
+    null,
+  );
+  const deviceId = prefs.deviceId;
+  // listening ends the one phrase conversation mode is listening for, when there is one.
+  const listening1 = useRef<(() => void) | null>(null);
+  const toggleDictation = useDictation({
+    api,
+    deviceId,
+    fail,
+    setInput,
+    setPhase,
+    phaseRef,
+    heard,
+    dictation,
+    listening1,
+  });
+
+  // CONVERSATION: one phrase, ended by the silence after it, transcribed and handed back.
+  const { listenOnce, cancelListen } = useListenOnce({
+    api,
+    deviceId,
+    fail,
+    setPhase,
+    phaseRef,
+    heard,
+    dictation,
+    listening1,
+  });
+
+  // HANDS-FREE: while the switch is on and this tab is open, every spoken phrase is transcribed,
+  // and only one that opens with a wake phrase reaches the composer.
+  const active = prefs.listen && hands === "ready" && authed;
+  useHandsFree({
+    active,
+    api,
+    deviceId,
+    fail,
+    setInput,
+    setToast,
+    setListening,
+    phaseRef,
+    heard,
+  });
 
   return {
     info,

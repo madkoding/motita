@@ -150,27 +150,25 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
         </p>
       )}
       {view && (
-        <>
-          <section class="settings-group" aria-labelledby="llm-providers-h">
-            <h4 id="llm-providers-h" class="settings-group-title">
-              {t("Providers")}
-            </h4>
-            <ul class="settings-card" data-testid="llm-providers">
-              {view.providers.map((p) => (
-                <ProviderRow
-                  key={p.id}
-                  api={api}
-                  p={p}
-                  writable={view.writable}
-                  open={open === p.id}
-                  onToggle={onToggle}
-                  onChanged={reload}
-                  onNotice={onNotice}
-                />
-              ))}
-            </ul>
-          </section>
-        </>
+        <section class="settings-group" aria-labelledby="llm-providers-h">
+          <h4 id="llm-providers-h" class="settings-group-title">
+            {t("Providers")}
+          </h4>
+          <ul class="settings-card" data-testid="llm-providers">
+            {view.providers.map((p) => (
+              <ProviderRow
+                key={p.id}
+                api={api}
+                p={p}
+                writable={view.writable}
+                open={open === p.id}
+                onToggle={onToggle}
+                onChanged={reload}
+                onNotice={onNotice}
+              />
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );
