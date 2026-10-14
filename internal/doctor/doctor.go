@@ -98,7 +98,7 @@ func platform(e Env) Check {
 	if e.Goos == "linux" && onAndroid(e) {
 		c.Status = Fail
 		c.Detail += ": a linux build on Android dies with SIGSYS. " +
-			"Reinstall: curl -fsSL https://madkoding.github.io/motita/install.sh | sh"
+			"Reinstall: curl -fsSL https://motita.kodingvibes.com/install.sh | sh"
 	}
 	return c
 }

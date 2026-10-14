@@ -39,7 +39,7 @@ fi
 # hardcoding site/.
 if [ "$root" = site ]; then
   if [ ! -f site/install.sh ]; then
-    printf 'error: site/install.sh is missing, but the site advertises https://madkoding.github.io/motita/install.sh\n' >&2
+    printf 'error: site/install.sh is missing, but the site advertises https://motita.kodingvibes.com/install.sh\n' >&2
     exit 1
   fi
   # Byte-identical: the published copy is what `curl | sh` runs, and a drifted
@@ -66,7 +66,7 @@ if [ "$root" = site ]; then
   # measured on 7.6.6), so failing on a CR would be a check that cannot catch a
   # real defect.
   if [ ! -f site/install.ps1 ]; then
-    printf 'error: site/install.ps1 is missing, but the site advertises https://madkoding.github.io/motita/install.ps1\n' >&2
+    printf 'error: site/install.ps1 is missing, but the site advertises https://motita.kodingvibes.com/install.ps1\n' >&2
     exit 1
   fi
   if ! cmp -s scripts/install.ps1 site/install.ps1; then
