@@ -103,6 +103,7 @@ func TestTheUpdateCheckAnswersFromTheCache(t *testing.T) {
 	srv.updater = updaterFor(t, srv, releaseJSON("v9.9.9")) // what a fresh check would say
 	srv.lastCheckMu.Lock()
 	srv.lastCheck = updater.CheckResult{CurrentVersion: "v1.0.0", LatestVersion: "v2.0.0", UpdateAvailable: true}
+	srv.lastCheckAt = time.Now()
 	srv.lastCheckMu.Unlock()
 
 	w := get(t, srv, "/v1/update/check", testToken)
@@ -115,6 +116,71 @@ func TestTheUpdateCheckAnswersFromTheCache(t *testing.T) {
 	}
 	if got.LatestVersion != "v2.0.0" {
 		t.Errorf("LatestVersion = %q, want the CACHED one: a poll must not hit GitHub", got.LatestVersion)
+	}
+}
+
+// A cached answer older than updateCacheTTL is checked again: releases land several times an
+// hour, and serving an hour-old answer is what left the app naming a version already behind
+// the one GitHub (and the site) showed.
+func TestTheUpdateCheckRefreshesAStaleCache(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	srv.opts.Version = "v1.0.0"
+	srv.updater = updaterFor(t, srv, releaseJSON("v9.9.9"))
+	srv.lastCheckMu.Lock()
+	srv.lastCheck = updater.CheckResult{CurrentVersion: "v1.0.0", LatestVersion: "v2.0.0", UpdateAvailable: true}
+	srv.lastCheckAt = time.Now().Add(-updateCacheTTL - time.Second)
+	srv.lastCheckMu.Unlock()
+
+	var got updater.CheckResult
+	if err := json.Unmarshal(get(t, srv, "/v1/update/check", testToken).Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.LatestVersion != "v9.9.9" {
+		t.Errorf("LatestVersion = %q, want the FRESH v9.9.9 over a stale cache", got.LatestVersion)
+	}
+	srv.lastCheckMu.RLock()
+	cached := srv.lastCheck.LatestVersion
+	srv.lastCheckMu.RUnlock()
+	if cached != "v9.9.9" {
+		t.Errorf("cache = %q, want the fresh answer remembered", cached)
+	}
+}
+
+// A stale cache whose refresh fails is still served: the last good answer beats an error toast.
+func TestTheUpdateCheckKeepsAStaleCacheWhenGitHubFails(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	srv.opts.Version = "v1.0.0"
+	srv.updater = updaterFor(t, srv, "") // an empty body is not a release
+	srv.lastCheckMu.Lock()
+	srv.lastCheck = updater.CheckResult{CurrentVersion: "v1.0.0", LatestVersion: "v2.0.0", UpdateAvailable: true}
+	srv.lastCheckAt = time.Now().Add(-updateCacheTTL - time.Second)
+	srv.lastCheckMu.Unlock()
+
+	var got updater.CheckResult
+	if err := json.Unmarshal(get(t, srv, "/v1/update/check", testToken).Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.LatestVersion != "v2.0.0" || got.Error != "" {
+		t.Errorf("got %+v, want the cached v2.0.0 with no error", got)
+	}
+}
+
+// The upgrade stream's own check refreshes the cache, so the sidebar agrees with what it found.
+func TestTheUpgradeStreamRefreshesTheCache(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	srv.opts.Version = "v1.0.0"
+	srv.updater = updaterFor(t, srv, releaseJSON("v1.0.0"))
+	srv.lastCheckMu.Lock()
+	srv.lastCheck = updater.CheckResult{CurrentVersion: "v1.0.0", LatestVersion: "v0.9.0"}
+	srv.lastCheckMu.Unlock()
+
+	srv.handleUpdateRun(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/update/run", nil))
+
+	srv.lastCheckMu.RLock()
+	cached := srv.lastCheck.LatestVersion
+	srv.lastCheckMu.RUnlock()
+	if cached != "v1.0.0" {
+		t.Errorf("cache = %q, want the upgrade's check remembered", cached)
 	}
 }
 
