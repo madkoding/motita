@@ -97,6 +97,22 @@ func TestTheExposureIsSavedOnlyWithAConfirmationAndAppliesAtRestart(t *testing.T
 		t.Fatalf("GET addresses = %+v", v)
 	}
 
+	checkExposureRefusals(t, srv, path)
+
+	v = decodeNetwork(t, sendNetwork(t, srv, http.MethodPut, "/v1/network", `{"mode":" LAN ","confirm":true}`))
+	if v.Mode != config.ExposureLAN || v.ActiveMode != config.ExposureLocal || !v.RestartNeeded ||
+		v.Listen != "0.0.0.0:0" {
+		t.Fatalf("PUT = %+v", v)
+	}
+	if got := mustLoad(t, path).Gateway; got.Exposure() != config.ExposureLAN {
+		t.Fatalf("the file says %+v", got)
+	}
+}
+
+// checkExposureRefusals checks that a change without a confirmation, or to a mode that is not one,
+// is refused and never reaches the file.
+func checkExposureRefusals(t *testing.T, srv *Server, path string) {
+	t.Helper()
 	for _, body := range []string{`{"mode":"lan"}`, `{"mode":"lan","confirm":false}`} {
 		if w := sendNetwork(t, srv, http.MethodPut, "/v1/network", body); w.Code != http.StatusBadRequest ||
 			!strings.Contains(w.Body.String(), "confirm") {
@@ -110,15 +126,6 @@ func TestTheExposureIsSavedOnlyWithAConfirmationAndAppliesAtRestart(t *testing.T
 		if w := sendNetwork(t, srv, http.MethodPut, "/v1/network", body); w.Code != http.StatusBadRequest {
 			t.Errorf("%s = %d, want 400", body, w.Code)
 		}
-	}
-
-	v = decodeNetwork(t, sendNetwork(t, srv, http.MethodPut, "/v1/network", `{"mode":" LAN ","confirm":true}`))
-	if v.Mode != config.ExposureLAN || v.ActiveMode != config.ExposureLocal || !v.RestartNeeded ||
-		v.Listen != "0.0.0.0:0" {
-		t.Fatalf("PUT = %+v", v)
-	}
-	if got := mustLoad(t, path).Gateway; got.Exposure() != config.ExposureLAN {
-		t.Fatalf("the file says %+v", got)
 	}
 }
 

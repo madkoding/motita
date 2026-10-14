@@ -280,6 +280,21 @@ func requestedBase(p onboard.Provider, raw string) (string, string) {
 	return checkBaseURL(raw)
 }
 
+// requestedKey is the key a save asks for, or false once it has written why it cannot be saved.
+func (s *Server) requestedKey(w http.ResponseWriter, cfg config.LLM, p onboard.Provider, raw string) (string, bool) {
+	key := strings.TrimSpace(raw)
+	if why := checkKey(p, key); why != "" {
+		writeError(w, http.StatusBadRequest, why)
+		return "", false
+	}
+	if config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyEnv {
+		writeRefusal(w, http.StatusConflict, "env_key", "the key comes from an environment variable, which wins over "+
+			"one saved here: unset it on the gateway's machine to manage the key from the settings")
+		return "", false
+	}
+	return key, true
+}
+
 // handleLLMSave stores a provider's key and/or endpoint. A field left out is left as it is; an
 // empty base_url goes back to the provider's default.
 func (s *Server) handleLLMSave(w http.ResponseWriter, r *http.Request) {
@@ -310,14 +325,7 @@ func (s *Server) handleLLMSave(w http.ResponseWriter, r *http.Request) {
 	}
 	key := ""
 	if body.APIKey != nil {
-		key = strings.TrimSpace(*body.APIKey)
-		if why := checkKey(p, key); why != "" {
-			writeError(w, http.StatusBadRequest, why)
-			return
-		}
-		if config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyEnv {
-			writeRefusal(w, http.StatusConflict, "env_key", "the key comes from an environment variable, which wins over "+
-				"one saved here: unset it on the gateway's machine to manage the key from the settings")
+		if key, ok = s.requestedKey(w, cfg, p, *body.APIKey); !ok {
 			return
 		}
 	}

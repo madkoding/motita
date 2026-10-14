@@ -316,21 +316,20 @@ func TestLLMTestAsksTheProvider(t *testing.T) {
 		return []string{"b", "a"}, nil
 	}
 	defer func() { listProviderModels = old }()
-	result := func(w *httptest.ResponseRecorder) testResult { t.Helper(); return testResultOf(t, w) }
-	r := result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/openai/test", `{}`))
+	r := testResultOf(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/openai/test", `{}`))
 	if !r.OK || strings.Join(r.Models, ",") != "a,b" || seen.APIKey != "sk-saved" || seen.Model != "gpt-5-mini" {
 		t.Errorf("saved key: %+v %+v", r, seen)
 	}
-	r = result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/anthropic/test", `{"api_key":"bad"}`))
+	r = testResultOf(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/anthropic/test", `{"api_key":"bad"}`))
 	if r.OK || !strings.Contains(r.Error, "401") || seen.BaseURL != "https://api.anthropic.com" {
 		t.Errorf("refused key: %+v %+v", r, seen)
 	}
-	r = result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/ollama/test",
+	r = testResultOf(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/ollama/test",
 		`{"base_url":"http://box.lan:11434/v1"}`))
 	if !r.OK || seen.BaseURL != "http://box.lan:11434/v1" || seen.APIKey != "" {
 		t.Errorf("self-hosted: %+v %+v", r, seen)
 	}
-	r = result(llmCall(t, srv, http.MethodPost, "/v1/llm/providers/claude-code/test", `{}`))
+	r = testResultOf(t, llmCall(t, srv, http.MethodPost, "/v1/llm/providers/claude-code/test", `{}`))
 	if !r.OK || len(r.Models) == 0 {
 		t.Errorf("claude-code: %+v", r)
 	}
