@@ -235,12 +235,23 @@ test("Kokoro falls back to the CPU when WebGPU fails, and tries it again only wh
   const wav = await synth.say("kokoro-ef_dora", "Hola");
   assert.equal(new DataView(wav).getUint32(24, true), core.KOKORO_RATE, "it still speaks");
   assert.equal(await synth.onGPU(), false);
+  assert.equal(synth.gpuError(), "no WebGPU here", "it keeps why");
   assert.equal(log.gpu, 1);
   // The next load skips WebGPU: warming lists the CPU's files.
   synth.setGPU(false);
+  assert.equal(synth.gpuError(), "", "a new choice forgets the reason");
   synth.setGPU(true);
   await synth.warm("kokoro-af_heart");
   assert.equal(log.gpu, 2, "asked anew, it is tried again");
+});
+
+test("a failure's reason is its message, cut short when long", () => {
+  assert.equal(core.reasonOf(new Error(" no adapter ")), "no adapter");
+  assert.equal(core.reasonOf("plain"), "plain");
+  assert.equal(core.reasonOf(new Error("")), "Error");
+  const long = core.reasonOf(new Error("x".repeat(500)));
+  assert.equal(long.length, 200);
+  assert.ok(long.endsWith("…"));
 });
 
 test("a Kokoro voice mixed with another speaks with a blend of both styles", async () => {
@@ -624,6 +635,8 @@ test("Kokoro on the CPU says the next sentences at once, in workers of their own
   assert.deepEqual(made.at(-1).posted, [{ kind: "warm", id: "kokoro-ef_dora", gpu: true }]);
   made.at(-1).onmessage({ data: { kind: "ready", id: "kokoro-ef_dora", gpu: true } });
   assert.deepEqual(lv.loadStateOf("kokoro-ef_dora"), { pct: 100, ready: true, gpu: true });
+  made.at(-1).onmessage({ data: { kind: "ready", id: "kokoro-ef_dora", gpuError: "no adapter" } });
+  assert.deepEqual(lv.loadStateOf("kokoro-ef_dora"), { pct: 100, ready: true, gpuError: "no adapter" }, "why WebGPU failed");
   lv.setKokoroGPU(false);
   assert.equal(lv.loadStateOf("kokoro-ef_dora"), undefined, "loaded again on the CPU");
   made.at(-1).onerror();
@@ -1022,6 +1035,10 @@ test("the graphics card is offered for Kokoro where WebGPU is, and a Kokoro voic
   assert.match(q("local-voice-gpu-note").textContent, /runs on the graphics/);
   await act(async () => globalThis.lastWorker.onmessage({ data: { kind: "ready", id: "kokoro-ef_dora" } }));
   assert.match(q("local-voice-gpu-note").textContent, /could not start/, "it fell back to the processor");
+  await act(async () =>
+    globalThis.lastWorker.onmessage({ data: { kind: "ready", id: "kokoro-ef_dora", gpuError: "the browser gave no graphics card to use" } }),
+  );
+  assert.match(q("local-voice-gpu-note").textContent, /could not start here \(the browser gave no graphics card to use\)/, "and says why");
   // The voice in use mixes with the other downloaded Kokoro voices.
   assert.deepEqual([...q("local-voice-mix-voice").options].map((o) => o.value), ["", "kokoro-em_alex"]);
   assert.equal(q("local-voice-mix-amount"), null, "no amount without a voice to mix");

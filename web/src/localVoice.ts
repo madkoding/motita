@@ -224,8 +224,9 @@ export interface LoadState {
   pct: number;
   ready: boolean;
   error?: string;
-  // gpu says a Kokoro voice runs on WebGPU.
+  // gpu says a Kokoro voice runs on WebGPU; gpuError why it could not, when it was asked to.
   gpu?: boolean;
+  gpuError?: string;
 }
 
 const loads = new Map<string, LoadState>();
@@ -249,7 +250,12 @@ function loaded(m: Extract<FromWorker, { kind: string }>): void {
     return;
   }
   if (m.kind === "ready") {
-    setLoad(m.id, { pct: 100, ready: true, ...(m.gpu ? { gpu: true } : {}) });
+    setLoad(m.id, {
+      pct: 100,
+      ready: true,
+      ...(m.gpu ? { gpu: true } : {}),
+      ...(m.gpuError ? { gpuError: m.gpuError } : {}),
+    });
     // The helpers load the voice too, once the first worker has it in its copy of the files.
     for (let k = 1; k < lanes(m.id); k++) {
       getWorker(k).postMessage({ kind: "warm", id: m.id, gpu: kokoroGPU } satisfies ToWorker);

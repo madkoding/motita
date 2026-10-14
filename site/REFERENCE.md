@@ -1404,7 +1404,9 @@ it is downloaded, the text of the answers never leaves the device and no speech 
 On a browser with WebGPU, **Graphics card (WebGPU)** downloads 352 MB more (Kokoro's full model,
 which the 8-bit one cannot replace on the graphics card, and the build of onnxruntime that drives
 WebGPU). Every Kokoro voice then runs on the graphics card, one Worker for all; where WebGPU fails
-to start, it falls back to the processor. **Delete** goes back to the processor.
+to start, it falls back to the processor and the note says why (the browser has no WebGPU in its
+Workers, it gave no graphics card, or onnxruntime's own error). The graphics card asked for is the
+high-performance one, else any the browser offers. **Delete** goes back to the processor.
 
 A Kokoro voice in use can be mixed with another downloaded one: **Mix with** picks it and
 **How much** (0 to 100%) how far toward it the timbre goes. Kokoro has no setting for emotion; the

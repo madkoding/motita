@@ -87,6 +87,15 @@ export function isKokoro(id: string): boolean {
   return id.startsWith(KOKORO_ID + "-");
 }
 
+// MAX_REASON is the longest reason for a failure the page shows.
+const MAX_REASON = 200;
+
+// reasonOf is why something failed, short enough to show.
+export function reasonOf(e: unknown): string {
+  const text = (choose(e instanceof Error, (e as Error)?.message, String(e)) || String(e)).trim();
+  return choose(text.length > MAX_REASON, text.slice(0, MAX_REASON - 1) + "…", text);
+}
+
 // kokoroEspeak is the phonemizer's language for a Kokoro voice, from its name's first letter.
 export function kokoroEspeak(id: string): string {
   const langs: Record<string, string> = { a: "en-us", b: "en-gb-x-rp", e: "es" };
@@ -277,10 +286,10 @@ export class Synth {
   private ort: Promise<OrtLike> | null = null;
   private phon: Promise<PhonemizerLike> | null = null;
   private kokoro: Promise<KokoroModel> | null = null;
-  // gpu says Kokoro should run on WebGPU (its files are downloaded); gpuFailed that it could not,
-  // here, so the CPU model is used instead.
+  // gpu says Kokoro should run on WebGPU (its files are downloaded); failed is why it could not,
+  // here ("" when it did not fail), so the CPU model is used instead.
   private gpu = false;
-  private gpuFailed = false;
+  private failed = "";
   private printed: string[] = [];
   private readonly voices = new Map<string, Promise<LoadedVoice>>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -357,9 +366,14 @@ export class Synth {
   setGPU(on: boolean): void {
     if (on !== this.gpu) {
       this.gpu = on;
-      this.gpuFailed = false;
+      this.failed = "";
       this.kokoro = null;
     }
+  }
+
+  // gpuError is why Kokoro could not run on WebGPU here, "" when it did not fail.
+  gpuError(): string {
+    return this.failed;
   }
 
   // onGPU says whether Kokoro runs on WebGPU now: asked for, and it worked.
@@ -497,7 +511,7 @@ export class Synth {
 
   // useGPU says the next Kokoro model to load is WebGPU's.
   private useGPU(): boolean {
-    return this.gpu && !this.gpuFailed && !!this.deps.gpu;
+    return this.gpu && !this.failed && !!this.deps.gpu;
   }
 
   // kokoroModel is Kokoro's model and its table, loaded with the first Kokoro voice: on WebGPU
@@ -513,8 +527,8 @@ export class Synth {
             this.read(fileURL(KOKORO_GPU_ID, "model.onnx")),
           ]);
           return { ort, vocab: table, session: await ort.createSession(model), gpu: true };
-        } catch {
-          this.gpuFailed = true;
+        } catch (e) {
+          this.failed = reasonOf(e);
         }
       }
       const [table, ort, model] = await Promise.all([vocab, this.runtime(), this.read(fileURL(KOKORO_ID, "model.onnx"))]);
@@ -572,5 +586,5 @@ export type FromWorker =
   | { seq: number; wav: ArrayBuffer }
   | { seq: number; error: string }
   | { kind: "progress"; id: string; pct: number }
-  | { kind: "ready"; id: string; gpu?: boolean }
+  | { kind: "ready"; id: string; gpu?: boolean; gpuError?: string }
   | { kind: "failed"; id: string; error: string };

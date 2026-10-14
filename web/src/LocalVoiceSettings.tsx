@@ -303,6 +303,7 @@ export function LocalVoices({
           download={catalog.download}
           busy={busy !== ""}
           running={choose(isKokoro(chosen) && !!loading?.ready, choose(!!loading?.gpu, "gpu", "cpu"), "")}
+          why={loading?.gpuError ?? ""}
           get={() => void act(accel.id, () => installVoice(api, accel.id))}
           remove={() => void act(accel.id, () => deleteVoice(api, accel.id))}
         />
@@ -486,6 +487,7 @@ function Accelerator({
   download,
   busy,
   running,
+  why,
   get,
   remove,
 }: {
@@ -494,6 +496,8 @@ function Accelerator({
   busy: boolean;
   // running is where the Kokoro voice in use runs, once loaded: "gpu", "cpu", or "" before.
   running: string;
+  // why is the reason WebGPU could not start, when it was asked to and failed.
+  why: string;
   get: () => void;
   remove: () => void;
 }) {
@@ -531,7 +535,11 @@ function Accelerator({
   if (model.installed) {
     const notes: Record<string, string> = {
       gpu: t("Kokoro runs on the graphics card."),
-      cpu: t("WebGPU could not start here: Kokoro runs on the processor."),
+      cpu: choose(
+        why === "",
+        t("WebGPU could not start here: Kokoro runs on the processor."),
+        tf("WebGPU could not start here ({reason}): Kokoro runs on the processor.", { reason: why }),
+      ),
     };
     note = notes[running] ?? t("Kokoro will use the graphics card.");
   }

@@ -394,6 +394,8 @@ const more: Record<string, string> = {
   "Kokoro will use the graphics card.": "Kokoro usará la tarjeta gráfica.",
   "WebGPU could not start here: Kokoro runs on the processor.":
     "WebGPU no pudo iniciar aquí: Kokoro usa el procesador.",
+  "WebGPU could not start here ({reason}): Kokoro runs on the processor.":
+    "WebGPU no pudo iniciar aquí ({reason}): Kokoro usa el procesador.",
   "Download another Kokoro voice to mix it with this one.":
     "Descarga otra voz Kokoro para mezclarla con esta.",
   "Mix with": "Mezclar con",
