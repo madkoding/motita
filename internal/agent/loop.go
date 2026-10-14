@@ -177,7 +177,8 @@ func (r *taskRun) chatReply() TaskResult {
 	r.res.Pass = true
 	r.res.Reason = "conversational reply"
 	r.res.DurationMS = time.Since(r.start).Milliseconds()
-	r.a.report("%s", reply)
+	// The reply is the answer, delivered with the result: reported as progress too, an interface
+	// filed it as a step of the turn as well, and showed the answer twice.
 	r.a.converse(r.t, reply)
 	r.a.log.Info(r.prefix+"answered as chat", "reply", truncate(reply, 200))
 	return r.res
@@ -754,8 +755,9 @@ func (r *taskRun) synthesize(validation anchor.Result) {
 		output += "## Notes the agent kept while working\n" + r.mem.notes + "\n"
 	}
 	if rep := r.a.synthesizePhase(r.ctx, r.t, output, validation); rep != nil {
+		// The summary is the answer, delivered with the result. It is not reported as progress:
+		// an interface filed it as a step of the turn, the answer drawn twice.
 		r.res.Summary, r.res.Report = rep.Summary, rep
-		r.a.report("%s", rep.Summary)
 	}
 }
 
