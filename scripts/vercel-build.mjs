@@ -19,27 +19,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 const page = new URL("../site/index.html", import.meta.url);
 const marker = /(<span data-motita-version>)[^<]*(<\/span>)/g;
 
-const analytics = `<script data-vercel-analytics>
-      (function () {
-        if (
-          navigator.doNotTrack === "1" ||
-          window.doNotTrack === "1" ||
-          navigator.globalPrivacyControl
-        ) {
-          return;
-        }
-        window.va =
-          window.va ||
-          function () {
-            (window.vaq = window.vaq || []).push(arguments);
-          };
-        var script = document.createElement("script");
-        script.defer = true;
-        script.src = "/_vercel/insights/script.js";
-        document.head.appendChild(script);
-      })();
-    </script>
-`;
+// The loader lives in its own file so it stays plain HTML, reviewed as such.
+const analytics = readFileSync(
+  new URL("vercel-analytics.html", import.meta.url),
+  "utf8",
+);
 
 for (const name of ["index.html", "architecture.html"]) {
   const file = new URL(`../site/${name}`, import.meta.url);
@@ -48,10 +32,10 @@ for (const name of ["index.html", "architecture.html"]) {
     continue;
   }
   if (html.split("</head>").length !== 2) {
-    console.error(`site/${name} needs exactly one </head> for analytics`);
+    console.error("site/" + name + " needs exactly one closing head tag");
     process.exit(1);
   }
-  writeFileSync(file, html.replace("</head>", `${analytics}  </head>`));
+  writeFileSync(file, html.replace("</head>", analytics + "  </head>"));
   console.log(`added Vercel Web Analytics to site/${name}`);
 }
 
