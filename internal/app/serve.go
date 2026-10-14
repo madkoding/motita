@@ -353,7 +353,7 @@ func voiceLibrary() *voice.Library {
 	}
 	return &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime,
 		Shared: map[string][]voice.ModelFile{voice.KokoroID: voice.KokoroModel},
-		Models: append(append([]voice.Model{}, voice.PiperVoices...), voice.KokoroVoices...)}
+		Models: append(append(append([]voice.Model{}, voice.PiperVoices...), voice.KokoroVoices...), voice.KokoroGPU)}
 }
 
 func pushDir() string {

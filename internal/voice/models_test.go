@@ -235,11 +235,33 @@ func TestTheCatalog(t *testing.T) {
 	for _, m := range KokoroVoices {
 		lang := map[byte]string{'a': "en-US", 'b': "en-GB", 'e': "es"}[m.ID[len(KokoroID)+1]]
 		if seen[m.ID] || m.Engine != EngineKokoro || m.Shared != KokoroID || !strings.HasPrefix(m.ID, KokoroID+"-") ||
-			m.Lang != lang || len(m.Files) != 1 || m.Sample != nil {
+			m.Lang != lang || len(m.Files) != 1 || m.Sample == nil || int64(len(m.Sample.Data)) != m.Sample.Size {
 			t.Errorf("bad voice %+v", m)
 		}
 		seen[m.ID] = true
 		check(m.Files[0])
+	}
+	// The WebGPU files are no voice, and not taken for a Kokoro voice by the page.
+	if KokoroGPU.Engine != EngineAccelerator || strings.HasPrefix(KokoroGPU.ID, KokoroID+"-") || seen[KokoroGPU.ID] {
+		t.Errorf("bad accelerator %+v", KokoroGPU)
+	}
+	for _, f := range KokoroGPU.Files {
+		check(f)
+	}
+	if embeddedSample("nope") != nil {
+		t.Error("a voice with no sample compiled in has none")
+	}
+}
+
+// A sample compiled in is written where the others are kept, checked like them, and not
+// downloaded.
+func TestEmbeddedSample(t *testing.T) {
+	lib, hits := testLibrary(t)
+	m := KokoroVoices[0]
+	lib.Models = append(lib.Models, m)
+	p, err := lib.Sample(context.Background(), m.ID)
+	if b, _ := os.ReadFile(p); err != nil || len(b) != int(m.Sample.Size) || *hits != 0 {
+		t.Fatalf("Sample = %q %v, %d requests", p, err, *hits)
 	}
 }
 
