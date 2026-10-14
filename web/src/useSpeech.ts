@@ -1,6 +1,6 @@
 // useSpeech reads the agent's answers aloud: on request (the 🔊 button of an answer, or Alt+L for
 // the last one), and on its own when a turn ends, as the settings say. The sentence being read is
-// highlighted on screen. In the natural style it says short lines the session's model writes
+// highlighted on screen, and shown as a subtitle when the settings ask. In the natural style it says short lines the session's model writes
 // instead: when the turn starts, now and then while the agent works, and the gist of the answer.
 // See speech.ts for the parts that are decided without a voice.
 import {
@@ -34,6 +34,7 @@ import {
   progressDue,
   saveSpeechPrefs,
   script,
+  showSubtitle,
   speakClip,
   speechSupported,
   textRange,
@@ -705,6 +706,7 @@ function useReadText(o: {
         rate: p.rate,
         pitch: p.pitch,
         onSentence: (i) => {
+          showSubtitle(list[i].shown);
           const root = rootOf?.();
           const range = root && textRange(root, list[i].shown);
           if (range) {
@@ -719,6 +721,7 @@ function useReadText(o: {
           if (stopped) {
             return;
           }
+          showSubtitle("");
           clearHighlight();
           setSpeakingId(null);
           if (!error) {
@@ -802,6 +805,7 @@ export function useSpeech({
     generation.current++;
     reader?.stop();
     clearHighlight();
+    showSubtitle("");
     setSpeakingId(null);
   }, [reader]);
 
