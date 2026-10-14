@@ -267,3 +267,31 @@ func TestAFileActionCountsAsAWriteInTheLoop(t *testing.T) {
 		t.Error("the edit must be on disk")
 	}
 }
+
+// TestFileActionsReachTheWholeDiskWhenThePersonAllowsIt: with sandbox.disk_access full a path
+// outside the workspace is written, and the rule follows the sandbox as the settings change it.
+func TestFileActionsReachTheWholeDiskWhenThePersonAllowsIt(t *testing.T) {
+	e := fileAgent(t)
+	outside := filepath.Join(t.TempDir(), "notes.txt")
+	write := func() error {
+		_, err := e.agent.runActions(context.Background(), []Command{{Kind: "write_file", Command: outside + "\nhello"}}, "")
+		return err
+	}
+	if err := write(); err == nil {
+		t.Fatal("confined to the workspace, a path outside must be refused")
+	}
+	e.agent.sandbox.SetFullDisk(true)
+	if err := write(); err != nil || readBack(t, outside) != "hello" {
+		t.Fatalf("on the whole disk the write must land: %v", err)
+	}
+	// Without a sandbox the configuration decides.
+	e.agent.sandbox = nil
+	e.agent.cfg.Sandbox.DiskAccess = config.DiskWorkspace
+	if err := write(); err == nil {
+		t.Error("the configuration's workspace must confine")
+	}
+	e.agent.cfg.Sandbox.DiskAccess = config.DiskFull
+	if err := write(); err != nil {
+		t.Errorf("the configuration's full disk must allow: %v", err)
+	}
+}

@@ -54,6 +54,7 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_SANDBOX_CGROUPS", &c.Sandbox.Cgroups},
 		{"MOTITA_SANDBOX_CGROUP_ROOT", &c.Sandbox.CgroupRoot},
 		{"MOTITA_SANDBOX_TOOLS_DIR", &c.Sandbox.ToolsDir},
+		{"MOTITA_SANDBOX_DISK_ACCESS", &c.Sandbox.DiskAccess},
 
 		{"MOTITA_SKILLS_DIR", &c.Skills.Dir},
 

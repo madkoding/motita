@@ -206,9 +206,10 @@ function safeHttps(url: string | undefined): string {
   return "";
 }
 
-// InlineConfirm asks before a network change, inside the card: what it implies, then Cancel and
-// Confirm. Cancel takes the focus, so Enter right away never applies the change.
-function InlineConfirm({
+// InlineConfirm asks before a sensitive change, inside the card: what it implies, then Cancel and
+// Confirm. Cancel takes the focus, so Enter right away never applies the change. The Security tab
+// asks with it too, under its own testid.
+export function InlineConfirm({
   id,
   title,
   lines,
@@ -217,6 +218,7 @@ function InlineConfirm({
   busy,
   onConfirm,
   onCancel,
+  testid = "network-confirm",
 }: {
   id: string;
   title: string;
@@ -226,6 +228,7 @@ function InlineConfirm({
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  testid?: string;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -235,7 +238,7 @@ function InlineConfirm({
     <fieldset
       aria-labelledby={id}
       class="settings-confirm min-w-0"
-      data-testid="network-confirm"
+      data-testid={testid}
     >
       <div id={id} class="text-sm font-semibold text-[#e8e8ea]">
         {title}
