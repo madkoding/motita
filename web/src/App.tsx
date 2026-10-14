@@ -536,6 +536,8 @@ function SettingsHost() {
         setPrefs: speech.setPrefs,
         voices: speech.voices,
         test: speech.test,
+        device: speech.device,
+        gatewayVoices: speech.gatewayVoices,
       }}
       llm={{
         api: request,

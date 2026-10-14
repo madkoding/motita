@@ -40,6 +40,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
   const p = {
     mode: "always",
     style: "natural",
+    engine: "gateway",
+    gatewayVoice: "nova",
     voiceURI: "v1",
     rate: 1.5,
     maxChars: 0,
@@ -53,6 +55,8 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     JSON.stringify({
       mode: "loud",
       style: "poem",
+      engine: "robot",
+      gatewayVoice: 7,
       voiceURI: 3,
       rate: 9,
       maxChars: 600,
@@ -425,4 +429,201 @@ test("natural style: the line is asked of the session, and a refusal throws", as
   await assert.rejects(m.narrate(api, "bad", body), /HTTP 502/);
   const empty = async () => new Response("{}", { status: 200 });
   assert.equal(await m.narrate(empty, "s", body), "");
+});
+
+// FakeAudio stands in for <audio>: the test plays, ends or fails it.
+function audioFactory(made, { refuse = false } = {}) {
+  return () => {
+    const a = {
+      src: "",
+      playbackRate: 1,
+      onplaying: null,
+      onended: null,
+      onerror: null,
+      paused: false,
+      play() {
+        if (refuse) {
+          return Promise.reject(
+            Object.assign(new Error("no"), { name: "NotAllowedError" }),
+          );
+        }
+        queueMicrotask(() => a.onplaying?.());
+        return Promise.resolve();
+      },
+      pause() {
+        a.paused = true;
+      },
+    };
+    made.push(a);
+    return a;
+  };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+function urls() {
+  const live = new Set();
+  let n = 0;
+  return {
+    live,
+    create: () => {
+      n += 1;
+      const u = "blob:" + n;
+      live.add(u);
+      return u;
+    },
+    revoke: (u) => live.delete(u),
+  };
+}
+
+const LIST = [
+  { said: "Uno.", shown: "Uno." },
+  { said: "Dos.", shown: "Dos." },
+];
+
+test("gateway voice: each sentence is asked for, the next one while one plays, and played in order", async () => {
+  const asked = [];
+  const made = [];
+  const u = urls();
+  const r = new m.ClipReader(
+    () => async (text) => {
+      asked.push(text);
+      return new Blob([text]);
+    },
+    audioFactory(made),
+    u,
+  );
+  const seen = [];
+  let ended = "never";
+  r.read(LIST, {
+    voice: null,
+    lang: "es",
+    rate: 1.5,
+    onSentence: (i) => seen.push(i),
+    onEnd: (e) => {
+      ended = e;
+    },
+  });
+  assert.equal(r.reading, true);
+  await settle();
+  assert.deepEqual(
+    asked,
+    ["Uno.", "Dos."],
+    "the second is asked for while the first plays",
+  );
+  assert.equal(made.length, 1);
+  assert.equal(made[0].src, "blob:1");
+  assert.equal(made[0].playbackRate, 1.5);
+  assert.deepEqual(seen, [0]);
+  assert.equal(
+    m.voiceBusy(),
+    true,
+    "hands-free listening waits while the gateway speaks",
+  );
+  made[0].onended();
+  await settle();
+  assert.deepEqual(seen, [0, 1]);
+  assert.equal(made[1].src, "blob:2");
+  made[1].onended();
+  await settle();
+  assert.equal(ended, undefined, "finished without an error");
+  assert.equal(m.voiceBusy(), false, "listening resumes when it ends");
+  assert.equal(r.reading, false);
+  assert.equal(u.live.size, 0, "the audio is let go");
+  assert.deepEqual(asked, ["Uno.", "Dos."], "nothing is asked twice");
+});
+
+test("gateway voice: a stop silences it and drops what comes back late", async () => {
+  const made = [];
+  let release;
+  const r = new m.ClipReader(
+    () => (text, signal) =>
+      new Promise((resolve, reject) => {
+        release = () => resolve(new Blob([text]));
+        signal.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+    audioFactory(made),
+    urls(),
+  );
+  let ends = 0;
+  r.read(LIST, { voice: null, lang: "es", rate: 1, onEnd: () => (ends += 1) });
+  r.stop();
+  assert.equal(ends, 1);
+  assert.equal(r.reading, false);
+  release();
+  await settle();
+  assert.equal(made.length, 0, "nothing is played after the stop");
+
+  // Stopping while a clip plays pauses it.
+  const r2 = new m.ClipReader(
+    () => async (t) => new Blob([t]),
+    audioFactory(made),
+    urls(),
+  );
+  r2.read(LIST, { voice: null, lang: "es", rate: 1 });
+  await settle();
+  r2.stop();
+  assert.equal(made[0].paused, true);
+  assert.equal(m.voiceBusy(), false);
+  r2.read([], { voice: null, lang: "es", rate: 1, onEnd: () => (ends += 1) });
+  assert.equal(ends, 2, "an empty reading ends at once");
+});
+
+test("gateway voice: a refusal, a broken clip or a blocked play end the reading with the reason", async () => {
+  const run = async (fetchClip, opts = {}) => {
+    const made = [];
+    let ended = "never";
+    const r = new m.ClipReader(
+      () => fetchClip,
+      audioFactory(made, opts),
+      urls(),
+    );
+    r.read(LIST, {
+      voice: null,
+      lang: "es",
+      rate: 1,
+      onEnd: (e) => (ended = e),
+    });
+    await settle();
+    return { made, ended: () => ended };
+  };
+  const refused = await run(async () => {
+    throw new Error("the gateway has no voice");
+  });
+  assert.equal(refused.ended(), "the gateway has no voice");
+  const odd = await run(async () => {
+    throw "?";
+  });
+  assert.equal(odd.ended(), "error");
+  const blocked = await run(async (t) => new Blob([t]), { refuse: true });
+  assert.equal(blocked.ended(), "not-allowed", "the browser wants a tap first");
+  const broken = await run(async (t) => new Blob([t]));
+  broken.made[0].onerror();
+  assert.equal(broken.ended(), "audio");
+});
+
+test("gateway voice: the clip is asked of the gateway with the voice chosen", async () => {
+  const calls = [];
+  const api = async (path, init) => {
+    calls.push({ path, init });
+    if (init.body.includes("bad")) {
+      return new Response(JSON.stringify({ error: "quota" }), { status: 502 });
+    }
+    if (init.body.includes("html")) {
+      return new Response("<p>", { status: 500 });
+    }
+    return new Response("MP3", { status: 200 });
+  };
+  const ctl = new AbortController();
+  const blob = await m.speakClip(api, "nova")("Hola.", ctl.signal);
+  assert.equal(await blob.text(), "MP3");
+  assert.equal(calls[0].path, "/v1/voice/speak");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.signal, ctl.signal);
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    text: "Hola.",
+    voice: "nova",
+  });
+  await assert.rejects(m.speakClip(api, "")("bad", ctl.signal), /quota/);
+  await assert.rejects(m.speakClip(api, "")("html", ctl.signal), /HTTP 500/);
 });

@@ -22,6 +22,7 @@ import {
   SHORT_CHARS,
   type SpeakMode,
   type SpeakStyle,
+  type SpeechEngine,
   type SpeechPrefs,
   type VoiceLike,
 } from "./speech";
@@ -51,6 +52,10 @@ export interface SpeechSettingsProps {
   setPrefs: (p: SpeechPrefs) => void;
   voices: VoiceLike[];
   test: () => void;
+  // device says this device has voices of its own; gatewayVoices are the gateway's (voice.tts),
+  // empty when it has none.
+  device?: boolean;
+  gatewayVoices?: string[];
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -72,14 +77,17 @@ function lengthLabel(n: number): string {
   return t("Long");
 }
 
-// SpeechSettings is reading answers aloud with the voices of this device: when, which voice, how
-// fast and how much. It needs neither the microphone nor the gateway, so it works on any address.
+// SpeechSettings is reading answers aloud: when, who speaks (the device, or the gateway's voice
+// when it has one), which voice, how fast and how much. With the device's voices it needs neither
+// the microphone nor the gateway, so it works on any address.
 export function SpeechSettings({
   supported,
   prefs,
   setPrefs,
   voices,
   test,
+  device = true,
+  gatewayVoices = [],
 }: SpeechSettingsProps) {
   const set = useCallback(
     (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch }),
@@ -88,6 +96,13 @@ export function SpeechSettings({
   // Handed to Segmented, so they keep their identity between renders.
   const setMode = useCallback((mode: SpeakMode) => set({ mode }), [set]);
   const setStyle = useCallback((style: SpeakStyle) => set({ style }), [set]);
+  const setEngine = useCallback(
+    (engine: SpeechEngine) => set({ engine }),
+    [set],
+  );
+  const hasGateway = gatewayVoices.length > 0;
+  // The gateway speaks when it is chosen, or when the device has no voices of its own.
+  const gateway = hasGateway && (prefs.engine === "gateway" || !device);
   const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
   const setLength = useCallback(
     (n: string) => set({ maxChars: Number(n) }),
@@ -107,9 +122,7 @@ export function SpeechSettings({
           hint={choose(
             off,
             t("This browser cannot read aloud."),
-            t(
-              "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.",
-            ),
+            t("Alt+L or 🔊 on an answer reads it or stops."),
           )}
         >
           <Segmented<SpeakMode>
@@ -149,32 +162,77 @@ export function SpeechSettings({
             ]}
           />
         </Row>
-        <Row
-          id="settings-speech-voice"
-          label={t("Voice")}
-          hint={choose(
-            !off && voices.length === 0,
-            t("This device has no voice for the interface language."),
-            undefined,
-          )}
-        >
-          <select
-            class={inputCls + " max-w-[220px]"}
-            aria-labelledby="settings-speech-voice"
-            disabled={off}
-            value={prefs.voiceURI}
-            onChange={(e) =>
-              set({ voiceURI: (e.target as HTMLSelectElement).value })
-            }
+        {hasGateway && device && (
+          <Row
+            id="settings-speech-engine"
+            label={t("Who speaks")}
+            stack
+            hint={choose(
+              gateway,
+              t(
+                "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.",
+              ),
+              t("The voices of this device: nothing leaves the browser."),
+            )}
           >
-            <option value="">{t("Device default")}</option>
-            {voices.map((v) => (
-              <option key={v.voiceURI} value={v.voiceURI}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </Row>
+            <Segmented<SpeechEngine>
+              name="settings-speech-engine"
+              labelledBy="settings-speech-engine"
+              value={prefs.engine}
+              onChange={setEngine}
+              options={[
+                { value: "device", label: t("This device") },
+                { value: "gateway", label: t("The gateway") },
+              ]}
+            />
+          </Row>
+        )}
+        {gateway ? (
+          <Row id="settings-speech-voice" label={t("Voice")}>
+            <select
+              class={inputCls + " max-w-[220px]"}
+              aria-labelledby="settings-speech-voice"
+              value={prefs.gatewayVoice}
+              onChange={(e) =>
+                set({ gatewayVoice: (e.target as HTMLSelectElement).value })
+              }
+            >
+              <option value="">{t("Gateway default")}</option>
+              {gatewayVoices.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </Row>
+        ) : (
+          <Row
+            id="settings-speech-voice"
+            label={t("Voice")}
+            hint={choose(
+              !off && voices.length === 0,
+              t("This device has no voice for the interface language."),
+              undefined,
+            )}
+          >
+            <select
+              class={inputCls + " max-w-[220px]"}
+              aria-labelledby="settings-speech-voice"
+              disabled={off}
+              value={prefs.voiceURI}
+              onChange={(e) =>
+                set({ voiceURI: (e.target as HTMLSelectElement).value })
+              }
+            >
+              <option value="">{t("Device default")}</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
         <Row id="settings-speech-rate" label={t("Speed")} stack>
           <Segmented<string>
             name="settings-speech-rate"

@@ -99,10 +99,23 @@ const answer = (id, text = "All done. Tests pass.") => ({
 
 // mount renders the hook with props the test changes, and hands back what it returned.
 async function mount(mode, heard = false, extra = {}) {
-  const { style = "literal", ...props0 } = extra;
+  const {
+    style = "literal",
+    engine = "device",
+    gatewayVoice = "",
+    ...props0
+  } = extra;
   localStorage.setItem(
     SPEECH_KEY,
-    JSON.stringify({ mode, style, voiceURI: "", rate: 1, maxChars: 600 }),
+    JSON.stringify({
+      mode,
+      style,
+      engine,
+      gatewayVoice,
+      voiceURI: "",
+      rate: 1,
+      maxChars: 600,
+    }),
   );
   synth.said = [];
   synth.cancels = 0;
@@ -423,6 +436,91 @@ test("natural: the button tells the gist; pressing it again stops, and a late li
   assert.deepEqual(
     synth.said.map((u) => u.text),
     ["Todo bien."],
+  );
+  await s.done();
+});
+
+// The gateway's voice: <audio> and blob URLs stand in, and the test ends each clip.
+const played = [];
+globalThis.Audio = function Audio() {
+  const a = {
+    src: "",
+    playbackRate: 1,
+    onplaying: null,
+    onended: null,
+    onerror: null,
+    play() {
+      played.push(a);
+      queueMicrotask(() => a.onplaying?.());
+      return Promise.resolve();
+    },
+    pause() {},
+  };
+  return a;
+};
+globalThis.URL.createObjectURL = () => "blob:x";
+globalThis.URL.revokeObjectURL = () => {};
+const TTS = { enabled: true, voices: ["alloy", "nova"], max_chars: 4000 };
+
+function gatewayApi() {
+  const asked = [];
+  const api = async (path, init) => {
+    asked.push({ path, ...JSON.parse(init.body) });
+    return new Response("MP3", { status: 200 });
+  };
+  return { api, asked };
+}
+
+test("gateway: chosen and on, the gateway says each sentence with the voice chosen", async () => {
+  played.length = 0;
+  const g = gatewayApi();
+  const s = await mount("off", false, {
+    engine: "gateway",
+    gatewayVoice: "nova",
+    api: g.api,
+    tts: TTS,
+  });
+  assert.equal(s.state.current.supported, true);
+  assert.deepEqual(s.state.current.gatewayVoices, ["alloy", "nova"]);
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.deepEqual(
+    g.asked.map((a) => [a.path, a.text, a.voice]),
+    [
+      ["/v1/voice/speak", "All done.", "nova"],
+      ["/v1/voice/speak", "Tests pass.", "nova"],
+    ],
+  );
+  assert.equal(synth.said.length, 0, "the device says nothing");
+  assert.equal(s.state.current.speakingId, 2);
+  await act(async () => {
+    played[0].onended();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await act(async () => {
+    played[1].onended();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(
+    s.state.current.speakingId,
+    null,
+    "done when the last clip ends",
+  );
+  await s.done();
+});
+
+test("gateway: chosen but off on this gateway, the device speaks", async () => {
+  const g = gatewayApi();
+  const s = await mount("off", false, { engine: "gateway", api: g.api });
+  assert.deepEqual(s.state.current.gatewayVoices, []);
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.equal(g.asked.length, 0);
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    ["All done."],
   );
   await s.done();
 });

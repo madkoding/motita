@@ -41,6 +41,8 @@ type voiceView struct {
 	// RestartNeeded says the saved block differs from the one in force: this gateway cannot
 	// apply a change without starting again.
 	RestartNeeded bool `json:"restart_needed"`
+	// TTS is the gateway's voice, for reading answers aloud. See speak.go.
+	TTS ttsView `json:"tts"`
 }
 
 // voiceSaved is the voice block as the configuration file has it. The key is never answered:
@@ -115,7 +117,7 @@ func (s *Server) voiceViewOf() voiceView {
 	if phrases == nil {
 		phrases = []string{}
 	}
-	v := voiceView{Enabled: now.svc != nil, WakePhrases: phrases, MaxAudioBytes: now.limit}
+	v := voiceView{Enabled: now.svc != nil, WakePhrases: phrases, MaxAudioBytes: now.limit, TTS: s.ttsViewOf()}
 	if s.opts.ConfigPath == "" {
 		return v
 	}

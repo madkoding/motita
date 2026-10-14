@@ -548,6 +548,71 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
   await v.done();
 });
 
+test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's voices are offered", async () => {
+  const saved = [];
+  const speech = (prefs, device = true) => ({
+    supported: true,
+    prefs,
+    setPrefs: (p) => saved.push(p),
+    voices: [{ voiceURI: "ana", name: "Ana", lang: "es-CL" }],
+    test: () => {},
+    device,
+    gatewayVoices: ["alloy", "nova"],
+  });
+  const base = {
+    mode: "voice",
+    style: "literal",
+    engine: "device",
+    gatewayVoice: "",
+    voiceURI: "",
+    rate: 1,
+    maxChars: 600,
+  };
+  let v = await open({ tab: "voice", speech: speech(base) });
+  let card = v.root.querySelector("[data-testid=speech-setting]");
+  assert.equal(radio(card, "settings-speech-engine", "device").checked, true);
+  assert.match(card.textContent, /nothing leaves the browser/);
+  await act(() => radio(card, "settings-speech-engine", "gateway").click());
+  assert.deepEqual(saved.pop(), { ...base, engine: "gateway" });
+  await v.done();
+
+  v = await open({
+    tab: "voice",
+    speech: speech({ ...base, engine: "gateway" }),
+  });
+  card = v.root.querySelector("[data-testid=speech-setting]");
+  assert.match(
+    card.textContent,
+    /goes to the speech service/,
+    "where the text goes is said",
+  );
+  const select = card.querySelector("select");
+  assert.deepEqual(
+    [...select.options].map((o) => o.value),
+    ["", "alloy", "nova"],
+  );
+  select.value = "nova";
+  await act(() =>
+    select.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
+  assert.deepEqual(saved.pop(), {
+    ...base,
+    engine: "gateway",
+    gatewayVoice: "nova",
+  });
+  await v.done();
+
+  // A device without voices of its own uses the gateway, with nothing to choose.
+  v = await open({ tab: "voice", speech: speech(base, false) });
+  card = v.root.querySelector("[data-testid=speech-setting]");
+  assert.equal(card.querySelector("[name=settings-speech-engine]"), null);
+  assert.deepEqual(
+    [...card.querySelector("select").options].map((o) => o.value),
+    ["", "alloy", "nova"],
+  );
+  await v.done();
+});
+
 test("the insecure-connection pill is translated, amber, and tighter in compact density", () => {
   const es = readFileSync(join(here, "..", "i18n.es.ts"), "utf8");
   for (const k of [

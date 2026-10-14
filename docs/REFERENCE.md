@@ -1258,8 +1258,10 @@ in the file.
 ### Reading answers aloud
 
 The browser interface reads the agent's answers with the **voices of the device** (the Web Speech
-API's `speechSynthesis`). Nothing is configured on the gateway: the browser speaks the text itself. Some browsers offer remote voices of their own (Chrome's "Google"
-voices); the device's local ones are listed first.
+API's `speechSynthesis`), or with the **gateway's voice** when `voice.tts` is on. With the device's
+voices nothing is configured on the gateway: the browser speaks the text itself. Some browsers
+offer remote voices of their own (Chrome's "Google" voices); the device's local ones are listed
+first.
 
 - The speaker button on an answer, or **Alt+L** for the last one, reads it or stops it.
 - **Settings → Read aloud** chooses when answers are read on their own: never, only after a
@@ -1285,6 +1287,41 @@ The natural style asks the gateway for each line:
 
 Unlike the microphone, reading aloud works on any address, https or not. Safari speaks only after
 a first tap on the page.
+
+#### The gateway's voice
+
+For a better voice than the device has, or the same one on every device, the gateway can speak
+through an endpoint of the OpenAI speech API (`POST {base_url}/audio/speech`): OpenAI itself, or a
+local server such as Kokoro-FastAPI or openedai-speech, which keeps the text on this machine. It is
+off by default, because turning it on sends the text of every answer read to that service.
+
+```yaml
+voice:
+  tts:
+    enabled: false
+    base_url: "" # empty = the transcription endpoint (voice.base_url, resolved), with its key
+    api_key: ""
+    model: gpt-4o-mini-tts # tts-1 on OpenAI, kokoro on Kokoro-FastAPI
+    voice: alloy # the default voice
+    voices: [] # more voices the settings offer, besides the default
+    format: mp3 # mp3, opus, aac, flac or wav
+    max_chars: 4000 # cap on the text of one request
+```
+
+When it is on, **Settings → Read aloud → Who speaks** chooses between this device and the gateway,
+and the voice among the ones listed. The page sends one sentence at a time and asks for the next
+while one plays; the text and the audio are never stored. A device with no voices of its own uses
+the gateway's. The speed, the highlight, the natural style and the pause of hands-free listening
+work the same with either.
+
+| Endpoint                | What it does                                                                                                                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/voice/speak`  | `{"text":"...","voice":"nova"}`; `voice` is optional and must be one `voice.tts` offers. Answers the audio, typed by its `Content-Type`, never cached. `413` over `max_chars`, `501` when the gateway has no voice, `502` with the endpoint's answer when it refused. |
+
+`GET /v1/voice` also answers `"tts":{"enabled":true,"voices":["alloy","nova"],"max_chars":4000}`.
+The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
+`MOTITA_VOICE_TTS_API_KEY`, `MOTITA_VOICE_TTS_MODEL`, `MOTITA_VOICE_TTS_VOICE`,
+`MOTITA_VOICE_TTS_FORMAT` and `MOTITA_VOICE_TTS_MAX_CHARS`; the list of voices is set in the file.
 
 ### The skill library
 

@@ -35,10 +35,16 @@ export type SpeakMode = "off" | "voice" | "always";
 // of the answer when it ends).
 export type SpeakStyle = "literal" | "natural";
 
+// Who speaks: the device's own voices, or the gateway's voice (voice.tts), the same on every device.
+export type SpeechEngine = "device" | "gateway";
+
 // The read-aloud settings, kept in this browser only: voices are a property of the device.
 export interface SpeechPrefs {
   mode: SpeakMode;
   style: SpeakStyle;
+  engine: SpeechEngine;
+  // gatewayVoice is the gateway voice chosen; empty is the gateway's default.
+  gatewayVoice: string;
   // voiceURI is the chosen voice; empty picks the device's own for the interface language.
   voiceURI: string;
   rate: number;
@@ -61,6 +67,8 @@ export const SPEECH_KEY = "motita.ui.speech";
 export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   mode: "voice",
   style: "literal",
+  engine: "device",
+  gatewayVoice: "",
   voiceURI: "",
   rate: 1,
   maxChars: MEDIUM_CHARS,
@@ -72,6 +80,7 @@ export const RATES = [SLOW_RATE, 1, QUICK_RATE, FAST_RATE, 2];
 export const LENGTHS = [SHORT_CHARS, MEDIUM_CHARS, LONG_CHARS, 0];
 const MODES: SpeakMode[] = ["off", "voice", "always"];
 const STYLES: SpeakStyle[] = ["literal", "natural"];
+const ENGINES: SpeechEngine[] = ["device", "gateway"];
 
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
@@ -94,6 +103,8 @@ export function loadSpeechPrefs(): SpeechPrefs {
     return {
       mode: oneOf(raw.mode, MODES, d.mode),
       style: oneOf(raw.style, STYLES, d.style),
+      engine: oneOf(raw.engine, ENGINES, d.engine),
+      gatewayVoice: stringOr(raw.gatewayVoice, d.gatewayVoice),
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
@@ -623,6 +634,190 @@ export class Reader {
   }
 }
 
+// THE GATEWAY'S VOICE: each sentence is sent to POST /v1/voice/speak and the audio that comes
+// back is played. The next sentence is asked for while one plays, so the voice does not pause
+// between them for longer than the endpoint takes.
+
+// The parts of an <audio> element the clip reader uses, so a test can stand in.
+export interface AudioLike {
+  src: string;
+  playbackRate: number;
+  onplaying: (() => void) | null;
+  onended: (() => void) | null;
+  onerror: (() => void) | null;
+  play(): Promise<void>;
+  pause(): void;
+}
+
+// fetchClip says one text with the gateway's voice: the audio, or a thrown error.
+export type FetchClip = (text: string, signal: AbortSignal) => Promise<Blob>;
+
+// clipsPlaying counts the clips playing now, for voiceBusy.
+let clipsPlaying = 0;
+
+// speakClip is the FetchClip of a gateway: POST /v1/voice/speak with the voice chosen.
+export function speakClip(api: Api, voice: string): FetchClip {
+  return async (text, signal) => {
+    const res = await api("/v1/voice/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice }),
+      signal,
+    });
+    if (!res.ok) {
+      let msg = "HTTP " + res.status;
+      try {
+        const body = (await res.json()) as { error?: string };
+        msg = body.error || msg;
+      } catch {
+        /* not JSON */
+      }
+      throw new Error(msg);
+    }
+    return res.blob();
+  };
+}
+
+// ClipReader reads sentences with the gateway's voice, with the same contract as Reader.
+export class ClipReader {
+  private run = 0;
+  private active: ReadOptions | null = null;
+  private abort: AbortController | null = null;
+  private audio: AudioLike | null = null;
+  private urls: string[] = [];
+  private playing = false;
+  private readonly fetchClip: () => FetchClip;
+  private readonly makeAudio: () => AudioLike;
+  private readonly url: { create(b: Blob): string; revoke(u: string): void };
+  // fetchClip is read at each reading, so a change of voice applies to the next one.
+  constructor(
+    fetchClip: () => FetchClip,
+    makeAudio: () => AudioLike,
+    url: { create(b: Blob): string; revoke(u: string): void },
+  ) {
+    this.fetchClip = fetchClip;
+    this.makeAudio = makeAudio;
+    this.url = url;
+  }
+
+  get reading(): boolean {
+    return this.active !== null;
+  }
+
+  read(list: Sentence[], opts: ReadOptions): void {
+    this.stop();
+    if (list.length === 0) {
+      opts.onEnd?.();
+      return;
+    }
+    this.run++;
+    const run = this.run;
+    this.active = opts;
+    const abort = new AbortController();
+    this.abort = abort;
+    const fetchClip = this.fetchClip();
+    const clips: Promise<string>[] = [];
+    // clip asks for sentence i once; the answer is kept until it is played.
+    const clip = (i: number): Promise<string> => {
+      clips[i] ??= fetchClip(list[i].said, abort.signal).then((b) => {
+        const u = this.url.create(b);
+        this.urls.push(u);
+        return u;
+      });
+      // A failure is reported when the sentence is reached, not while another one plays.
+      clips[i].catch(() => undefined);
+      return clips[i];
+    };
+    const next = async (i: number) => {
+      if (run !== this.run) {
+        return;
+      }
+      if (i >= list.length) {
+        this.finish();
+        return;
+      }
+      let src: string;
+      try {
+        src = await clip(i);
+      } catch (e) {
+        if (run === this.run) {
+          this.finish(e instanceof Error ? e.message : "error");
+        }
+        return;
+      }
+      if (run !== this.run) {
+        return;
+      }
+      if (i + 1 < list.length) {
+        void clip(i + 1);
+      }
+      const a = this.makeAudio();
+      this.audio = a;
+      a.playbackRate = opts.rate;
+      a.onplaying = () => {
+        if (run === this.run) {
+          this.setPlaying(true);
+          opts.onSentence?.(i);
+        }
+      };
+      a.onended = () => {
+        this.setPlaying(false);
+        void next(i + 1);
+      };
+      a.onerror = () => {
+        if (run === this.run) {
+          this.finish("audio");
+        }
+      };
+      a.src = src;
+      a.play().catch((e: { name?: string }) => {
+        if (run === this.run) {
+          this.finish(e?.name === "NotAllowedError" ? "not-allowed" : "audio");
+        }
+      });
+    };
+    void next(0);
+  }
+
+  // stop silences the voice; the reading in progress ends without an error.
+  stop(): void {
+    const was = this.active;
+    this.end();
+    was?.onEnd?.();
+  }
+
+  private finish(error?: string): void {
+    const was = this.active;
+    this.end();
+    was?.onEnd?.(error);
+  }
+
+  private end(): void {
+    this.run++;
+    this.active = null;
+    this.abort?.abort();
+    this.abort = null;
+    if (this.audio) {
+      this.audio.onended = null;
+      this.audio.onerror = null;
+      this.audio.pause();
+      this.audio = null;
+    }
+    this.setPlaying(false);
+    for (const u of this.urls) {
+      this.url.revoke(u);
+    }
+    this.urls = [];
+  }
+
+  private setPlaying(on: boolean): void {
+    if (on !== this.playing) {
+      this.playing = on;
+      clipsPlaying += on ? 1 : -1;
+    }
+  }
+}
+
 // FlatText is the text an element shows with its spacing collapsed, and where each of its
 // characters comes from: [node, offset].
 interface FlatText {
@@ -704,7 +899,7 @@ export function stopSpeaking(): void {
 export function voiceBusy(): boolean {
   const synth = (globalThis as { speechSynthesis?: { speaking?: boolean } })
     .speechSynthesis;
-  return synth?.speaking === true;
+  return synth?.speaking === true || clipsPlaying > 0;
 }
 
 // NATURAL STYLE: the lines the session's model writes about a turn.

@@ -14,6 +14,8 @@ import { lang, t } from "./i18n";
 import type { Message, SetToast, StepView } from "./appTypes";
 import type { Api } from "./prApi";
 import {
+  type AudioLike,
+  ClipReader,
   type SpeechPrefs,
   type UtteranceLike,
   Reader,
@@ -27,6 +29,7 @@ import {
   progressDue,
   saveSpeechPrefs,
   script,
+  speakClip,
   speechSupported,
   textRange,
   voicesFor,
@@ -45,6 +48,25 @@ interface Deps {
   // api and stepsByTurn serve the natural style; without api it reads word for word.
   api?: Api;
   stepsByTurn?: Record<number, StepView[]>;
+  // tts is the gateway's voice, as GET /v1/voice describes it; absent or off, the device speaks.
+  tts?: TTSInfo;
+}
+
+export interface TTSInfo {
+  enabled: boolean;
+  voices: string[];
+  max_chars: number;
+}
+
+// AnyReader is the part of a reader the hook uses: the device's (Reader) and the gateway's
+// (ClipReader) alike.
+interface AnyReader {
+  readonly reading: boolean;
+  read(
+    list: Parameters<Reader["read"]>[0],
+    opts: Parameters<Reader["read"]>[1],
+  ): void;
+  stop(): void;
 }
 
 // How often the natural style looks whether the agent did something worth a line.
@@ -265,10 +287,10 @@ function useDeviceVoices(supported: boolean) {
   return { voices, voicesRef };
 }
 
-// useReader is the reader of this page, where the browser can speak.
-function useReader(supported: boolean): Reader | null {
+// useDeviceReader is the device's reader, where the browser can speak.
+function useDeviceReader(device: boolean): Reader | null {
   return useMemo(() => {
-    if (!supported) {
+    if (!device) {
       return null;
     }
     return new Reader(
@@ -277,7 +299,70 @@ function useReader(supported: boolean): Reader | null {
       >[0],
       (text) => new SpeechSynthesisUtterance(text) as unknown as UtteranceLike,
     );
-  }, [supported]);
+  }, [device]);
+}
+
+// useClipReader is the gateway's reader, where the gateway has a voice: each sentence is said with
+// the voice chosen in the settings at the time it is read.
+function useClipReader(
+  on: boolean,
+  api: Api | undefined,
+  prefsRef: { current: SpeechPrefs },
+): ClipReader | null {
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  return useMemo(() => {
+    if (!on) {
+      return null;
+    }
+    return new ClipReader(
+      () => speakClip(apiRef.current as Api, prefsRef.current.gatewayVoice),
+      () => new Audio() as unknown as AudioLike,
+      {
+        create: (b) => URL.createObjectURL(b),
+        revoke: (u) => URL.revokeObjectURL(u),
+      },
+    );
+  }, [on, prefsRef]);
+}
+
+// useReader is whichever speaks: the gateway when it is chosen and on, the device otherwise.
+// Stopping stops both, so a change of engine mid-sentence leaves nothing talking.
+function useReader(
+  device: Reader | null,
+  clip: ClipReader | null,
+  prefsRef: { current: SpeechPrefs },
+): AnyReader | null {
+  return useMemo(() => {
+    const first = device || clip;
+    if (!first) {
+      return null;
+    }
+    const pick = (): AnyReader => {
+      if (clip && prefsRef.current.engine === "gateway") {
+        return clip;
+      }
+      return first;
+    };
+    return {
+      get reading() {
+        return !!(device?.reading || clip?.reading);
+      },
+      read: (list, opts) => {
+        const r = pick();
+        for (const other of [device, clip]) {
+          if (other && other !== r) {
+            other.stop();
+          }
+        }
+        r.read(list, opts);
+      },
+      stop: () => {
+        device?.stop();
+        clip?.stop();
+      },
+    };
+  }, [device, clip, prefsRef]);
 }
 
 // useFollow says the view follows the sentence being read: scrolling by hand while reading turns
@@ -338,7 +423,7 @@ function useVoiceUnlock(supported: boolean, mode: SpeechPrefs["mode"]) {
 
 // useReadShortcut: Alt+L reads the last answer, or stops the reading.
 function useReadShortcut(
-  reader: Reader | null,
+  reader: AnyReader | null,
   speakingId: number | null,
   messagesRef: { current: Message[] },
   tellAnswer: (m: Message) => void,
@@ -449,7 +534,7 @@ function useProgressLines(o: {
   stepsByTurn: Record<number, StepView[]> | undefined;
   pending: { current: PendingTurn | null };
   said: { current: string[] };
-  reader: Reader | null;
+  reader: AnyReader | null;
   ask: Ask;
   say: Say;
 }) {
@@ -503,7 +588,7 @@ type ReadText = (
 // useReadText is the function that says a text, highlighting each sentence inside `rootOf()`
 // when there is one; when it ends, the next line waiting in the queue is said.
 function useReadText(o: {
-  reader: Reader | null;
+  reader: AnyReader | null;
   prefsRef: { current: SpeechPrefs };
   voicesRef: { current: SpeechSynthesisVoice[] };
   follow: { current: boolean };
@@ -587,12 +672,19 @@ export function useSpeech({
   setToast,
   api,
   stepsByTurn,
+  tts,
 }: Deps) {
-  const supported = useMemo(speechSupported, []);
+  const device = useMemo(speechSupported, []);
+  const gatewayOn = !!(tts?.enabled && api && typeof Audio !== "undefined");
+  const supported = device || gatewayOn;
   const { prefs, prefsRef, setPrefs } = useSpeechPrefs();
-  const { voices, voicesRef } = useDeviceVoices(supported);
+  const { voices, voicesRef } = useDeviceVoices(device);
   const [speakingId, setSpeakingId] = useState<number | null>(null);
-  const reader = useReader(supported);
+  const reader = useReader(
+    useDeviceReader(device),
+    useClipReader(gatewayOn, api, prefsRef),
+    prefsRef,
+  );
 
   // NATURAL STYLE state: the lines waiting for the voice, the lines said this turn, and a counter
   // that a stop or a new turn bumps, so an answer from the model that comes back late is dropped.
@@ -709,7 +801,7 @@ export function useSpeech({
 
   useReadShortcut(reader, speakingId, messagesRef, tellAnswer, stop);
   useStopOnLeave(stop, sessionId);
-  useVoiceUnlock(supported, prefs.mode);
+  useVoiceUnlock(device, prefs.mode);
   const pending = useAutoRead({
     running,
     messages,
@@ -735,6 +827,9 @@ export function useSpeech({
 
   return {
     supported,
+    // device says the device has voices of its own; gatewayVoices are the gateway's, when it has one.
+    device,
+    gatewayVoices: gatewayOn ? tts!.voices : [],
     prefs,
     setPrefs,
     voices: voicesFor(voices, lang()),

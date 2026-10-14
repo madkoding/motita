@@ -1035,8 +1035,16 @@ const es: Record<string, string> = {
   "Read answers aloud": "Leer las respuestas en voz alta",
   "This browser cannot read aloud.":
     "Este navegador no puede leer en voz alta.",
-  "With the voices of this device. Alt+L or 🔊 on an answer reads it or stops.":
-    "Con las voces de este dispositivo. Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  "Alt+L or 🔊 on an answer reads it or stops.":
+    "Alt+L o 🔊 en una respuesta la lee o la detiene.",
+  "Who speaks": "Quién habla",
+  "The gateway's voice: the same on every device. The text of each answer read goes to the speech service.":
+    "La voz del gateway: la misma en todos los dispositivos. El texto de cada respuesta leída va al servicio de voz.",
+  "The voices of this device: nothing leaves the browser.":
+    "Las voces de este dispositivo: nada sale del navegador.",
+  "This device": "Este dispositivo",
+  "The gateway": "El gateway",
+  "Gateway default": "La del gateway",
   Off: "Apagado",
   "When I spoke": "Cuando hablé",
   Always: "Siempre",

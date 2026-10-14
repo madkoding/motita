@@ -30,6 +30,8 @@ export interface VoiceInfo {
   can_save?: boolean;
   saved?: VoiceSaved;
   restart_needed?: boolean;
+  // tts is the gateway's voice, for reading answers aloud. An older gateway sends none.
+  tts?: { enabled: boolean; voices: string[]; max_chars: number };
 }
 
 // What PUT /v1/voice takes. Turning it on, or a new base_url, needs confirm.

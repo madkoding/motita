@@ -120,6 +120,7 @@ export function useAppStore(api: Api) {
     setToast,
     api,
     stepsByTurn: rs.stepsByTurn,
+    tts: voice.info?.tts,
   });
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();

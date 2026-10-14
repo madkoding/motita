@@ -75,6 +75,11 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_VOICE_API_KEY", &c.Voice.APIKey},
 		{"MOTITA_VOICE_MODEL", &c.Voice.Model},
 		{"MOTITA_VOICE_LANGUAGE", &c.Voice.Language},
+		{"MOTITA_VOICE_TTS_BASE_URL", &c.Voice.TTS.BaseURL},
+		{"MOTITA_VOICE_TTS_API_KEY", &c.Voice.TTS.APIKey},
+		{"MOTITA_VOICE_TTS_MODEL", &c.Voice.TTS.Model},
+		{"MOTITA_VOICE_TTS_VOICE", &c.Voice.TTS.Voice},
+		{"MOTITA_VOICE_TTS_FORMAT", &c.Voice.TTS.Format},
 
 		{"MOTITA_FINAL_ACTION_KIND", &c.FinalAction.Kind},
 		{"MOTITA_FINAL_ACTION_COMMAND", &c.FinalAction.Command},
@@ -154,6 +159,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_CURATOR_ARCHIVE_AFTER_DAYS", &c.Curator.ArchiveAfterDays},
 		{"MOTITA_SCHEDULE_MAX_RUNS_KEPT", &c.Schedule.MaxRunsKept},
 		{"MOTITA_VOICE_MAX_AUDIO_KB", &c.Voice.MaxAudioKB},
+		{"MOTITA_VOICE_TTS_MAX_CHARS", &c.Voice.TTS.MaxChars},
 	}
 }
 
@@ -178,6 +184,7 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_CURATOR_CONSOLIDATE", &c.Curator.Consolidate},
 		{"MOTITA_SCHEDULE_ENABLED", &c.Schedule.Enabled},
 		{"MOTITA_VOICE_ENABLED", &c.Voice.Enabled},
+		{"MOTITA_VOICE_TTS_ENABLED", &c.Voice.TTS.Enabled},
 	}
 }
 

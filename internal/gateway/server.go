@@ -192,6 +192,12 @@ type Options struct {
 	// VoiceFrom builds the transcriber of a configuration, so a change saved from the settings
 	// applies without a restart. Nil means a saved change waits for the next start.
 	VoiceFrom func(config.Config) VoiceService
+	// Speech is the gateway's voice, for reading answers aloud. Nil means it is off, and the
+	// speech endpoint answers 501. See speak.go.
+	Speech SpeechService
+	// SpeechVoices are the voices offered, the default first; SpeechMaxChars caps one text.
+	SpeechVoices   []string
+	SpeechMaxChars int
 	// TLSListen is a SECOND listener that speaks https, with the PEM pair in TLSCert and
 	// TLSKey. Empty means there is none. It is a second socket, not a mode of the first, so the
 	// local clients keep speaking plain HTTP to loopback and never have to trust a certificate;
@@ -709,6 +715,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
+	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
+	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
 	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
 	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))
@@ -944,9 +952,10 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 // loads are served from here and nothing is inline, so scripts need no 'unsafe-inline' and no
 // 'unsafe-eval'. Styles do need 'unsafe-inline': mermaid and KaTeX lay their output out with style
 // attributes and <style> elements. Images are this server's, or data:/blob: (the previews arrive
-// inline), so an answer cannot make the browser fetch an address of the model's choosing.
+// inline), so an answer cannot make the browser fetch an address of the model's choosing. Media is
+// the same: the gateway's voice arrives as a blob the page plays.
 const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
+	"img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
 	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
 // securityHeaders sets the headers every response carries: the page must not be framed by another
