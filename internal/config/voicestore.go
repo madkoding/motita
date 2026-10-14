@@ -72,20 +72,12 @@ func SetVoice(path string, ch VoiceChange) (Config, error) {
 }
 
 // setVoiceText is SetVoice on the text alone.
+//
+// A missing key is added as the block's FIRST entry, so the keys are written last to first: a new
+// block then reads enabled, base_url, model, api_key, wake_phrases, the order the reference uses.
 func setVoiceText(body string, ch VoiceChange) (string, error) {
-	text, err := setBlockKeyText(body, "voice", "enabled", strconv.FormatBool(ch.Enabled))
-	if err == nil && ch.BaseURL != nil {
-		text, err = setBlockKeyText(text, "voice", "base_url", strconv.Quote(strings.TrimSpace(*ch.BaseURL)))
-	}
-	if err == nil && ch.Model != nil {
-		text, err = setBlockKeyText(text, "voice", "model", strconv.Quote(strings.TrimSpace(*ch.Model)))
-	}
-	// A key written in the YAML would win over the one stored beside it, so the new key would be
-	// ignored without a word: the YAML's is cleared when the page sends one.
-	if err == nil && ch.APIKey != nil {
-		text, err = setBlockKeyText(text, "voice", "api_key", `""`)
-	}
-	if err == nil && ch.WakePhrases != nil {
+	text, err := body, error(nil)
+	if ch.WakePhrases != nil {
 		phrases := make([]string, 0, len(ch.WakePhrases))
 		for _, p := range ch.WakePhrases {
 			if p = strings.TrimSpace(p); p != "" {
@@ -93,6 +85,20 @@ func setVoiceText(body string, ch VoiceChange) (string, error) {
 			}
 		}
 		text, err = setBlockKeyText(text, "voice", "wake_phrases", flowList(phrases))
+	}
+	// A key written in the YAML would win over the one stored beside it, so the new key would be
+	// ignored without a word: the YAML's is cleared when the page sends one.
+	if err == nil && ch.APIKey != nil {
+		text, err = setBlockKeyText(text, "voice", "api_key", `""`)
+	}
+	if err == nil && ch.Model != nil {
+		text, err = setBlockKeyText(text, "voice", "model", strconv.Quote(strings.TrimSpace(*ch.Model)))
+	}
+	if err == nil && ch.BaseURL != nil {
+		text, err = setBlockKeyText(text, "voice", "base_url", strconv.Quote(strings.TrimSpace(*ch.BaseURL)))
+	}
+	if err == nil {
+		text, err = setBlockKeyText(text, "voice", "enabled", strconv.FormatBool(ch.Enabled))
 	}
 	return text, err
 }

@@ -118,3 +118,13 @@ func TestSetVoiceFileFailures(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestSetVoiceTextWritesANewBlockInReadingOrder(t *testing.T) {
+	got, err := setVoiceText("llm:\n  provider: openai\n", VoiceChange{
+		Enabled: true, BaseURL: strp("https://x/v1"), Model: strp("m"), APIKey: strp("k"), WakePhrases: []string{"a"},
+	})
+	want := "voice:\n  enabled: true\n  base_url: \"https://x/v1\"\n  model: \"m\"\n  api_key: \"\"\n  wake_phrases: [\"a\"]\n"
+	if err != nil || !strings.HasSuffix(got, want) {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
