@@ -35,54 +35,52 @@ export function AppearanceSettings({
     [s],
   );
   return (
-    <>
-      <section class="settings-group" aria-labelledby="settings-look-h">
-        <h3 id="settings-look-h" class="settings-group-title">
-          {t("Appearance")}
-        </h3>
-        <div class="settings-card">
-          {langAvailable && (
-            <Row id="settings-lang" label={t("Language")}>
-              <Segmented<LangSetting>
-                name="settings-lang"
-                labelledBy="settings-lang"
-                value={langSetting}
-                onChange={onLang}
-                options={[
-                  { value: "auto", label: t("Automatic") },
-                  { value: "en", label: "English" },
-                  { value: "es", label: "Español" },
-                ]}
-              />
-            </Row>
-          )}
-          <Row id="settings-font" label={t("Font size")}>
-            <Segmented<FontSize>
-              name="settings-font"
-              labelledBy="settings-font"
-              value={s.fontSize}
-              onChange={setFontSize}
+    <section class="settings-group" aria-labelledby="settings-look-h">
+      <h3 id="settings-look-h" class="settings-group-title">
+        {t("Appearance")}
+      </h3>
+      <div class="settings-card">
+        {langAvailable && (
+          <Row id="settings-lang" label={t("Language")}>
+            <Segmented<LangSetting>
+              name="settings-lang"
+              labelledBy="settings-lang"
+              value={langSetting}
+              onChange={onLang}
               options={[
-                { value: "small", label: t("Small") },
-                { value: "normal", label: t("Normal") },
-                { value: "large", label: t("Large") },
+                { value: "auto", label: t("Automatic") },
+                { value: "en", label: "English" },
+                { value: "es", label: "Español" },
               ]}
             />
           </Row>
-          <Row id="settings-density" label={t("Density")}>
-            <Segmented<Density>
-              name="settings-density"
-              labelledBy="settings-density"
-              value={s.density}
-              onChange={setDensity}
-              options={[
-                { value: "comfortable", label: t("Comfortable") },
-                { value: "compact", label: t("Compact") },
-              ]}
-            />
-          </Row>
-        </div>
-      </section>
-    </>
+        )}
+        <Row id="settings-font" label={t("Font size")}>
+          <Segmented<FontSize>
+            name="settings-font"
+            labelledBy="settings-font"
+            value={s.fontSize}
+            onChange={setFontSize}
+            options={[
+              { value: "small", label: t("Small") },
+              { value: "normal", label: t("Normal") },
+              { value: "large", label: t("Large") },
+            ]}
+          />
+        </Row>
+        <Row id="settings-density" label={t("Density")}>
+          <Segmented<Density>
+            name="settings-density"
+            labelledBy="settings-density"
+            value={s.density}
+            onChange={setDensity}
+            options={[
+              { value: "comfortable", label: t("Comfortable") },
+              { value: "compact", label: t("Compact") },
+            ]}
+          />
+        </Row>
+      </div>
+    </section>
   );
 }

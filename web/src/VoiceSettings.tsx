@@ -5,7 +5,9 @@ import { choose } from "./choose";
 import type { VoicePrefs, VoiceState } from "./voice";
 import {
   LENGTHS,
+  MEDIUM_CHARS,
   RATES,
+  SHORT_CHARS,
   type SpeakMode,
   type SpeakStyle,
   type SpeechPrefs,
@@ -39,10 +41,10 @@ function lengthLabel(n: number): string {
   if (n === 0) {
     return t("Whole");
   }
-  if (n <= 300) {
+  if (n <= SHORT_CHARS) {
     return t("Short");
   }
-  if (n <= 600) {
+  if (n <= MEDIUM_CHARS) {
     return t("Medium");
   }
   return t("Long");

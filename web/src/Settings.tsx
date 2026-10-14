@@ -3,7 +3,6 @@ import type { ComponentChildren } from "preact";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { useDialog } from "./useDialog";
 import { IconClose } from "./icons";
-import { InsecureWarning } from "./InsecureWarning";
 import "./dialog.css";
 import { t } from "./i18n";
 import { initSettings } from "./settings";
@@ -37,7 +36,7 @@ import {
 
 initSettings();
 
-export { InsecureWarning };
+export { InsecureWarning } from "./InsecureWarning";
 export { unblockSteps } from "./NotifySettings";
 export { restartTiming } from "./NetworkSettings";
 export type { SpeechSettingsProps, VoiceSettingsProps } from "./VoiceSettings";
@@ -70,26 +69,16 @@ export type Tab =
   | "providers"
   | "git";
 
-// SettingsModal is the settings dialog. On a screen with room it is a centred window with the
-// sections listed on the left; on a phone it takes the whole screen and the sections become tabs
-// across the top. The layout lives in index.css (.settings-panel), keyed to the md breakpoint.
-export function SettingsModal({
-  langSetting,
-  langAvailable,
-  onLang,
-  onClose,
-  git,
-  voice,
-  speech,
-  llm,
-  network,
-  push,
-  tab: firstTab = "appearance",
-}: Props) {
-  const [tab, setTab] = useState<Tab>(firstTab);
-  const ref = useRef<HTMLDialogElement>(null);
-  useDialog(ref, onClose);
-  const tabs: { id: Tab; label: string; icon: ComponentChildren }[] = [
+interface TabInfo {
+  id: Tab;
+  label: string;
+  icon: ComponentChildren;
+}
+
+// settingsTabs are the tabs the dialog shows: the two every page has, then one per section the
+// page was handed.
+function settingsTabs(p: Props): TabInfo[] {
+  const tabs: TabInfo[] = [
     { id: "appearance", label: t("Appearance"), icon: <IconSliders /> },
     {
       id: "notifications",
@@ -97,18 +86,56 @@ export function SettingsModal({
       icon: <IconBell />,
     },
   ];
-  if (voice || speech) {
+  if (p.voice || p.speech) {
     tabs.push({ id: "voice", label: t("Voice"), icon: <IconMic /> });
   }
-  if (network) {
+  if (p.network) {
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
   }
-  if (llm) {
+  if (p.llm) {
     tabs.push({ id: "providers", label: t("Providers"), icon: <IconChip /> });
   }
-  if (git) {
+  if (p.git) {
     tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });
   }
+  return tabs;
+}
+
+// VoiceTab is speech input and reading aloud, each where the page has it.
+function VoiceTab({ voice, speech }: Pick<Props, "voice" | "speech">) {
+  return (
+    <>
+      {voice && <VoiceSettings {...voice} />}
+      {speech && <SpeechSettings {...speech} />}
+    </>
+  );
+}
+
+// PANES draw the content of each tab.
+const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
+  appearance: (p) => (
+    <AppearanceSettings
+      langSetting={p.langSetting}
+      langAvailable={p.langAvailable}
+      onLang={p.onLang}
+    />
+  ),
+  notifications: (p) => <NotifySetting push={p.push} />,
+  voice: (p) => <VoiceTab voice={p.voice} speech={p.speech} />,
+  network: (p) => p.network && <NetworkSettings api={p.network.api} />,
+  providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
+  git: (p) => p.git && <GitConnections {...p.git} />,
+};
+
+// SettingsModal is the settings dialog. On a screen with room it is a centred window with the
+// sections listed on the left; on a phone it takes the whole screen and the sections become tabs
+// across the top. The layout lives in index.css (.settings-panel), keyed to the md breakpoint.
+export function SettingsModal(props: Props) {
+  const { onClose } = props;
+  const [tab, setTab] = useState<Tab>(props.tab ?? "appearance");
+  const ref = useRef<HTMLDialogElement>(null);
+  useDialog(ref, onClose);
+  const tabs = settingsTabs(props);
   // Arrow keys move between the tabs, as in any tab list.
   const onTabKey = (e: KeyboardEvent) => {
     const keys = ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"];
@@ -182,25 +209,7 @@ export function SettingsModal({
           class="settings-pane"
           aria-labelledby={`settings-tab-${tab}`}
         >
-          {tab === "appearance" && (
-            <AppearanceSettings
-              langSetting={langSetting}
-              langAvailable={langAvailable}
-              onLang={onLang}
-            />
-          )}
-          {tab === "notifications" && <NotifySetting push={push} />}
-          {tab === "voice" && (
-            <>
-              {voice && <VoiceSettings {...voice} />}
-              {speech && <SpeechSettings {...speech} />}
-            </>
-          )}
-          {tab === "network" && network && (
-            <NetworkSettings api={network.api} />
-          )}
-          {tab === "providers" && llm && <ProviderSettings {...llm} />}
-          {tab === "git" && git && <GitConnections {...git} />}
+          {PANES[tab](props)}
         </div>
       </dialog>
     </ModalBackdrop>
