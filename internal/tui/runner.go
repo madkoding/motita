@@ -435,9 +435,24 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		}
 	}
 	op.Limits.NoNetwork = cfg.Sandbox.IsolateNetwork
-	if box, err := sandbox.New(op); err == nil {
-		r.Box = box
+	box, err := sandbox.New(op)
+	if err != nil {
+		// The old sandbox is NOT kept as it is: its commands would run in the directory the runner
+		// was born with - for a gateway, the root that holds every project - while the file
+		// actions follow the new one. The same isolation moved to the new directory keeps the
+		// two together.
+		if r.Log != nil {
+			r.Log.Warn("the sandbox could not be rebuilt for the new workspace; the current one moves there",
+				"dir", dir, "error", err.Error())
+		}
+		if r.Box == nil {
+			return
+		}
+		box = r.Box.WithDir(dir)
 	}
+	r.cfgMu.Lock()
+	r.Box = box
+	r.cfgMu.Unlock()
 }
 
 // SetDiskAccess changes how much of the disk the agent reaches: "full" for the whole disk, anything
@@ -479,14 +494,20 @@ func (r *AppRunner) SetProjectNote(note string) {
 // applyRuntimeNote rewrites the runtime and project sentences at the end of the system prompt.
 // The caller holds sessionMu and has a session.
 func (r *AppRunner) applyRuntimeNote() {
+	note := r.projectContext()
+	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
+	r.runtimeNote = note
+}
+
+// projectContext is the runtime and project sentences, as they go at the end of the system
+// prompt. The caller holds sessionMu.
+func (r *AppRunner) projectContext() string {
 	note := ""
 	if r.containerRuntime == "podman" {
 		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project " +
 			"has a compose file) to build and start it, and do not use docker."
 	}
-	note += r.projectNote
-	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
-	r.runtimeNote = note
+	return note + r.projectNote
 }
 
 // SetProjectScope makes this runner's procedure library belong to ONE project.
@@ -884,6 +905,15 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// arrive after the question had already been answered with a refusal.
 	installApproverOn(ag, r.approverOrNil())
 	r.equipAgent(ag)
+	// The project this session works in, the same sentences Plan mode's system prompt ends with:
+	// a turn in Task mode is as bound to the project as a question in Plan mode, and it is the one
+	// that writes.
+	if setter, ok := ag.(interface{ SetProjectNote(string) }); ok {
+		r.sessionMu.Lock()
+		note := r.projectContext()
+		r.sessionMu.Unlock()
+		setter.SetProjectNote(note)
+	}
 	// The background agents this turn starts run on the model their role is assigned, built by
 	// THIS runner: they are part of this session's team and of no other.
 	if setter, ok := ag.(interface {

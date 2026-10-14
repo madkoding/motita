@@ -109,7 +109,7 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range s.sessionsOfProject(p.ID) {
 		s.attachProjectRepos(ctx, p, c.workspaceDir(), c.id)
-		applyRuntimeTo(c.svc, p)
+		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	writeJSON(w, http.StatusCreated, p)
 }
@@ -152,7 +152,7 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		_ = os.RemoveAll(repo.Dir)
 	}
 	for _, c := range s.sessionsOfProject(p.ID) {
-		applyRuntimeTo(c.svc, p)
+		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	writeJSON(w, http.StatusOK, p)
 }
@@ -228,6 +228,37 @@ func liveRepos(ctx context.Context, p *Project) {
 		p.Repos[i].Branch = gitx.Display(ctx, p.Repos[i].Dir)
 		p.Repos[i].Changes, _ = gitx.WorkingTreeChanges(ctx, p.Repos[i].Dir)
 	}
+}
+
+// projectScopeNote is what a session's agent is told about the project it belongs to: its name,
+// the folder it works in, and that the project is the scope of everything it is asked. "" for a
+// session that belongs to none.
+//
+// The sentence is a scope, not a wall: what the agent can REACH is the sandbox's business and the
+// person's choice in the security settings (workspace or the whole disk). This says what it should
+// WANT to reach, which matters in both modes - with the whole disk allowed it is the only thing
+// that keeps "fix the tests" on this project's tests.
+func projectScopeNote(p *Project, workspace string) string {
+	if p == nil {
+		return ""
+	}
+	name := strings.TrimSpace(p.Title)
+	if name == "" {
+		name = filepath.Base(p.Dir)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n\nThis session belongs to the project %q. ", name)
+	if workspace != "" && !gitx.SamePath(workspace, p.Dir) {
+		fmt.Fprintf(&b, "Its root is your working directory, %s: this session's own worktree of the project's "+
+			"checkout at %s. ", workspace, p.Dir)
+	} else if p.Dir != "" {
+		fmt.Fprintf(&b, "Its root is your working directory, %s. ", p.Dir)
+	}
+	b.WriteString("Everything you are asked here is about this project and is resolved inside it: take " +
+		"relative paths against that root, run commands there, and do not read, change or run anything in " +
+		"another folder (other projects, other sessions, the user's home) unless the user names that path. " +
+		"When a request could mean somewhere else, it means this project.")
+	return b.String()
 }
 
 // projectReposNote is what a session's agent is told about the project's other repositories, ""

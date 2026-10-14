@@ -7,6 +7,7 @@
 ## CONTEXT
 
 - Working directory: {{workspace}}
+{{project}}
 - Attempt: {{attempt}} of {{max_attempts}}
 
 ## VALIDATION RULES THAT WILL BE APPLIED

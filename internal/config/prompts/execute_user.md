@@ -10,6 +10,7 @@
 ## CONTEXT
 
 - Working directory: {{workspace}}
+{{project}}
 - Round: {{attempt}}
 {{tools}}
 ## SHOW WHAT CHANGED

@@ -96,11 +96,11 @@ func TestRuntimeOfAndApplyRuntimeTo(t *testing.T) {
 		t.Fatal("runtimeOf must say podman only for a project that asked for it")
 	}
 	svc := &runtimeService{fakeService: &fakeService{}}
-	applyRuntimeTo(svc, &Project{Podman: true})
+	applyRuntimeTo(svc, &Project{Podman: true}, "")
 	if len(svc.runtimes) != 1 || svc.runtimes[0] != "podman" {
 		t.Fatalf("runtime not passed: %v", svc.runtimes)
 	}
-	applyRuntimeTo(&fakeService{}, &Project{Podman: true}) // cannot take it: left alone
+	applyRuntimeTo(&fakeService{}, &Project{Podman: true}, "") // cannot take it: left alone
 }
 
 func patchProject(t *testing.T, srv *Server, id, body string) *httptest.ResponseRecorder {
