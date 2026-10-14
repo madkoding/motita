@@ -116,6 +116,7 @@ func TestHandleUpdateCheckWithCache(t *testing.T) {
 	srv.updater = updater.New("test", "/tmp/fake-exe")
 	srv.lastCheckMu.Lock()
 	srv.lastCheck = updater.CheckResult{LatestVersion: "v9.9.9", CurrentVersion: "test"}
+	srv.lastCheckAt = time.Now()
 	srv.lastCheckMu.Unlock()
 	w := get(t, srv, "/v1/update/check", testToken)
 	if w.Code != http.StatusOK {

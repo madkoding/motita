@@ -276,8 +276,10 @@ type Server struct {
 	updater *updater.Updater
 	// lastCheck is the cached result of the most recent update check.
 	// Populated by the periodic checker goroutine and read by
-	// handleUpdateCheck when the frontend polls.
+	// handleUpdateCheck when the frontend polls. lastCheckAt is when it was taken, so a result
+	// older than updateCacheTTL is checked again instead of served.
 	lastCheck   updater.CheckResult
+	lastCheckAt time.Time
 	lastCheckMu sync.RWMutex
 
 	// gitFlows are the logins to a git host that are waiting for the user's browser. See git.go.
@@ -1034,9 +1036,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleUpdateCheck asks GitHub whether a newer release exists and returns
-// the comparison to the frontend. When a cached result from the periodic
-// checker is available, it is returned immediately; otherwise a fresh check
-// is performed.
+// the comparison to the frontend. A cached result younger than updateCacheTTL
+// is returned immediately; an older one is checked again, because releases can
+// land several times an hour and an hour-old answer names a version that is
+// already behind. If that fresh check fails, the last good answer is kept.
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	if s.updater == nil {
 		writeJSON(w, http.StatusOK, updater.CheckResult{
@@ -1045,20 +1048,28 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// Return the cached result from the periodic checker when available.
 	s.lastCheckMu.RLock()
-	cached := s.lastCheck
+	cached, at := s.lastCheck, s.lastCheckAt
 	s.lastCheckMu.RUnlock()
-	if cached.LatestVersion != "" {
+	if cached.LatestVersion != "" && time.Since(at) < updateCacheTTL {
 		writeJSON(w, http.StatusOK, cached)
 		return
 	}
-	// No cache yet — do a fresh check.
 	result := s.updater.Check(r.Context())
+	if result.Error != "" && cached.LatestVersion != "" {
+		writeJSON(w, http.StatusOK, cached)
+		return
+	}
+	s.storeCheck(result)
+	writeJSON(w, http.StatusOK, result)
+}
+
+// storeCheck caches an update check result together with the time it was taken.
+func (s *Server) storeCheck(result updater.CheckResult) {
 	s.lastCheckMu.Lock()
 	s.lastCheck = result
+	s.lastCheckAt = time.Now()
 	s.lastCheckMu.Unlock()
-	writeJSON(w, http.StatusOK, result)
 }
 
 // handleUpdateRun streams the upgrade as SSE events so the frontend can show
@@ -1094,6 +1105,7 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		sse(updater.ProgressEvent{Stage: "error", Message: result.Error})
 		return
 	}
+	s.storeCheck(result)
 	if !result.UpdateAvailable {
 		sse(updater.ProgressEvent{Stage: "done", Message: "Already up to date", Version: s.opts.Version})
 		return
@@ -1200,9 +1212,14 @@ func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) boo
 // concern (the unauthenticated limit is 60 requests/hour).
 const updateCheckInterval = time.Hour
 
+// updateCacheTTL is how long a cached update check is served as is. Shorter than the
+// frontend's poll (ten minutes), so each poll sees the release GitHub lists now, and
+// still far from the unauthenticated limit of 60 requests/hour.
+const updateCacheTTL = 5 * time.Minute
+
 // startUpdateChecker runs a goroutine that periodically checks for a newer
 // release and caches the result. The cache is what handleUpdateCheck returns
-// to the frontend, so the frontend's polling never hits GitHub directly.
+// to the frontend while it is younger than updateCacheTTL.
 func (s *Server) startUpdateChecker() {
 	if s.updater == nil {
 		return
@@ -1245,8 +1262,5 @@ func (s *Server) startUpdateChecker() {
 func (s *Server) runOneCheck() {
 	ctx, cancel := context.WithTimeout(s.baseCtx, 15*time.Second)
 	defer cancel()
-	result := s.updater.Check(ctx)
-	s.lastCheckMu.Lock()
-	s.lastCheck = result
-	s.lastCheckMu.Unlock()
+	s.storeCheck(s.updater.Check(ctx))
 }
