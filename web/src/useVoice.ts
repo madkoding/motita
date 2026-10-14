@@ -21,8 +21,10 @@ import {
   VOICE_PREFS_EVENT,
   SpeechGate,
   appendText,
+  audioConstraints,
   browserSupport,
   fetchVoiceInfo,
+  isMissingDevice,
   listenState,
   level,
   loadVoicePrefs,
@@ -77,6 +79,21 @@ function recorderFor(stream: MediaStream): {
 function stopTracks(stream: MediaStream) {
   for (const track of stream.getTracks()) {
     track.stop();
+  }
+}
+
+// openMic opens the microphone chosen in the settings. One that is not there any more (unplugged,
+// or its id changed) falls back to the default one rather than leaving the person without voice.
+export async function openMic(deviceId: string): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia(
+      audioConstraints(deviceId),
+    );
+  } catch (e) {
+    if (!deviceId || !isMissingDevice(e)) {
+      throw e;
+    }
+    return navigator.mediaDevices.getUserMedia(audioConstraints(""));
   }
 }
 
@@ -137,6 +154,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const dictation = useRef<{ recorder: MediaRecorder; timer: number } | null>(
     null,
   );
+  const deviceId = prefs.deviceId;
   const toggleDictation = useCallback(async () => {
     const live = dictation.current;
     if (live) {
@@ -152,7 +170,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     stopSpeaking();
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await openMic(deviceId);
     } catch (e) {
       fail(e);
       return;
@@ -179,7 +197,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     } finally {
       setPhase("idle");
     }
-  }, [api, fail, setInput]);
+  }, [api, deviceId, fail, setInput]);
 
   // HANDS-FREE: while the switch is on and this tab is open, every spoken phrase is transcribed,
   // and only one that opens with a wake phrase reaches the composer.
@@ -226,7 +244,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
 
     void (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await openMic(deviceId);
       } catch (e) {
         fail(e);
         return;
@@ -286,10 +304,12 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
       void ctx?.close();
       setListening(false);
     };
-  }, [active, api, fail, setInput, setToast]);
+  }, [active, api, deviceId, fail, setInput, setToast]);
 
   return {
     info,
+    // setInfo takes what the settings saved, so the composer follows a change at once.
+    setInfo,
     state,
     hands,
     prefs,

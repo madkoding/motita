@@ -156,7 +156,11 @@ test("the appearance tab offers every choice as one tap and applies it", async (
   assert.equal(document.documentElement.dataset.fontSize, "large");
   await act(() => radio(root, "settings-lang", "es").click());
   assert.deepEqual(calls.lang, ["es"]);
-  assert.equal(root.querySelector(NOTIFY_CARD), null, "notifications have their own tab");
+  assert.equal(
+    root.querySelector(NOTIFY_CARD),
+    null,
+    "notifications have their own tab",
+  );
 
   await act(() => root.querySelector("#settings-tab-notifications").click());
   const sw = root.querySelector(`${NOTIFY_CARD} ${SWITCH}`);
@@ -323,7 +327,9 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
     ),
   );
   assert.equal(
-    root.querySelector("#settings-tab-notifications").getAttribute("aria-selected"),
+    root
+      .querySelector("#settings-tab-notifications")
+      .getAttribute("aria-selected"),
     "true",
     "the right arrow goes to the next tab",
   );
@@ -515,7 +521,9 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     "the device's choice first, then the voices of the language",
   );
   select.value = "ana";
-  await act(() => select.dispatchEvent(new window.Event("change", { bubbles: true })));
+  await act(() =>
+    select.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
   assert.deepEqual(saved.pop(), { ...prefs, voiceURI: "ana" });
   await act(() => card.querySelector("[data-testid=speech-test]").click());
   assert.equal(tried, 1);
@@ -548,4 +556,141 @@ test("the insecure-connection pill is translated, amber, and tighter in compact 
   const css = src("index.css");
   assert.match(css, /\.settings-warn \{[^}]*rgba\(237, 181, 88/);
   assert.match(css, /html\[data-density="compact"\] \.settings-warn \{/);
+});
+
+test("speech input is turned on from the settings, after saying where recordings go", async () => {
+  const sent = [];
+  const off = {
+    enabled: false,
+    wake_phrases: [],
+    max_audio_bytes: 1,
+    can_save: true,
+    saved: {
+      enabled: false,
+      base_url: "",
+      endpoint: "",
+      inherits: false,
+      provider: "gemini",
+      model: "whisper-1",
+      has_key: false,
+      wake_phrases: [],
+    },
+  };
+  const on = {
+    ...off,
+    enabled: true,
+    wake_phrases: ["oye motita"],
+    saved: {
+      ...off.saved,
+      enabled: true,
+      base_url: "https://api.groq.com/openai/v1",
+      endpoint: "https://api.groq.com/openai/v1",
+      model: "whisper-large-v3-turbo",
+      has_key: true,
+      wake_phrases: ["oye motita"],
+    },
+  };
+  const api = async (path, init) => {
+    sent.push({ path, body: JSON.parse(init.body) });
+    return new Response(JSON.stringify(on), { status: 200 });
+  };
+  const infos = [];
+  const v = await open({
+    tab: "voice",
+    voice: {
+      state: "off",
+      hands: "off",
+      phrases: [],
+      prefs: { mic: true, listen: false, deviceId: "" },
+      setPrefs: () => {},
+      info: off,
+      api,
+      onInfo: (i) => infos.push(i),
+    },
+  });
+  const card = v.root.querySelector("[data-testid=voice-setting]");
+  assert.match(card.textContent, /Turn on speech input above first/);
+  await act(() =>
+    card.querySelector("[data-testid=voice-gateway-switch]").click(),
+  );
+  const confirm = card.querySelector("[data-testid=voice-confirm]");
+  assert.ok(confirm, "turning it on asks first");
+  assert.match(confirm.textContent, /no transcription service of its own/);
+  const yes = confirm.querySelector("[data-testid=voice-confirm-yes]");
+  assert.equal(yes.disabled, true, "nowhere to send recordings yet");
+  const groq = [...confirm.querySelectorAll("button")].find(
+    (b) => b.textContent === "Groq",
+  );
+  await act(() => groq.click());
+  const key = confirm.querySelector("[data-testid=voice-api-key]");
+  key.value = "gsk-1";
+  await act(() => key.dispatchEvent(new Event("input", { bubbles: true })));
+  assert.match(confirm.textContent, /sent to https:\/\/api\.groq\.com/);
+  await act(() =>
+    confirm.querySelector("[data-testid=voice-confirm-yes]").click(),
+  );
+  await act(() => new Promise((r) => setTimeout(r, 0)));
+  assert.deepEqual(sent.pop(), {
+    path: "/v1/voice",
+    body: {
+      enabled: true,
+      confirm: true,
+      base_url: "https://api.groq.com/openai/v1",
+      model: "whisper-large-v3-turbo",
+      api_key: "gsk-1",
+    },
+  });
+  assert.deepEqual(
+    infos.pop(),
+    on,
+    "the composer learns the new state at once",
+  );
+  await v.done();
+});
+
+test("the microphone picker lists this device's microphones and keeps the choice", async () => {
+  const before = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let asked = 0;
+  Object.defineProperty(globalThis, "navigator", {
+    value: {
+      ...dom.window.navigator,
+      mediaDevices: {
+        enumerateDevices: async () => [
+          { kind: "audioinput", deviceId: "default", label: "Default" },
+          { kind: "audioinput", deviceId: "usb", label: "USB Mic" },
+        ],
+        getUserMedia: async () => {
+          asked += 1;
+          return { getTracks: () => [] };
+        },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    },
+    configurable: true,
+  });
+  const saved = [];
+  const v = await open({
+    tab: "voice",
+    voice: {
+      state: "ready",
+      hands: "no-phrases",
+      phrases: [],
+      prefs: { mic: true, listen: false, deviceId: "gone" },
+      setPrefs: (p) => saved.push(p),
+    },
+  });
+  await act(() => new Promise((r) => setTimeout(r, 0)));
+  const select = v.root.querySelector("[data-testid=mic-device]");
+  assert.deepEqual(
+    [...select.options].map((o) => o.textContent),
+    ["System default", "Not connected", "USB Mic"],
+  );
+  assert.match(v.root.textContent, /chosen microphone is not connected/);
+  select.value = "usb";
+  await act(() => select.dispatchEvent(new Event("change", { bubbles: true })));
+  assert.equal(saved.pop().deviceId, "usb");
+  assert.equal(asked, 0, "the names were already visible: nothing was asked");
+  await v.done();
+  Object.defineProperty(globalThis, "navigator", before);
 });
