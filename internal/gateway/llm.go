@@ -3,8 +3,10 @@ package gateway
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -235,14 +237,62 @@ func writeRefusal(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg, "code": code})
 }
 
+// baseURLShape is all an endpoint may hold: http or https, a host with an optional port, and a
+// plain path. No user:password@, query or fragment, which is where a request URL hides a second
+// destination or extra parameters.
+var baseURLShape = regexp.MustCompile(`^https?://[A-Za-z0-9.\-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%\-/]*)?$|` +
+	`^https?://\[[0-9A-Fa-f:.]+\](:[0-9]{1,5})?(/[A-Za-z0-9._~%\-/]*)?$`)
+
+// errBaseURL is the refusal of an address that is not an endpoint.
+const errBaseURL = "the address must start with http:// or https:// and name a host, with no user, query or fragment"
+
 // checkBaseURL is a usable endpoint, or the reason it is not.
+//
+// The gateway sends requests to this address on the owner's behalf, so it refuses the ones no LLM
+// listens on but a server-side request could abuse: link-local addresses (169.254.0.0/16 and
+// fe80::/10, where cloud metadata services answer) and the unspecified address. Loopback and
+// private networks stay allowed: a self-hosted Ollama lives there.
 func checkBaseURL(raw string) (string, string) {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if !baseURLShape.MatchString(raw) {
+		return "", errBaseURL
+	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", "the address must start with http:// or https:// and name a host"
+	if err != nil || u.Hostname() == "" {
+		return "", errBaseURL
+	}
+	if ip, err := netip.ParseAddr(u.Hostname()); err == nil &&
+		(ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+		return "", "link-local and unspecified addresses are not LLM endpoints"
 	}
 	return raw, ""
+}
+
+// requestedBase is the endpoint a save asks for ("" for the provider's default), or the reason it
+// cannot have it.
+func requestedBase(p onboard.Provider, raw string) (string, string) {
+	if !canChangeBase(p) {
+		return "", p.Name + " has one endpoint: its address cannot be changed"
+	}
+	if strings.TrimSpace(raw) == "" {
+		return "", ""
+	}
+	return checkBaseURL(raw)
+}
+
+// requestedKey is the key a save asks for, or false once it has written why it cannot be saved.
+func (s *Server) requestedKey(w http.ResponseWriter, cfg config.LLM, p onboard.Provider, raw string) (string, bool) {
+	key := strings.TrimSpace(raw)
+	if why := checkKey(p, key); why != "" {
+		writeError(w, http.StatusBadRequest, why)
+		return "", false
+	}
+	if config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyEnv {
+		writeRefusal(w, http.StatusConflict, "env_key", "the key comes from an environment variable, which wins over "+
+			"one saved here: unset it on the gateway's machine to manage the key from the settings")
+		return "", false
+	}
+	return key, true
 }
 
 // handleLLMSave stores a provider's key and/or endpoint. A field left out is left as it is; an
@@ -263,30 +313,19 @@ func (s *Server) handleLLMSave(w http.ResponseWriter, r *http.Request) {
 	base := effectiveBase(cfg, p.ID)
 	newBase := ""
 	if body.BaseURL != nil {
-		if !canChangeBase(p) {
-			writeError(w, http.StatusBadRequest, p.Name+" has one endpoint: its address cannot be changed")
+		var why string
+		if newBase, why = requestedBase(p, *body.BaseURL); why != "" {
+			writeError(w, http.StatusBadRequest, why)
 			return
 		}
 		base = p.DefaultBaseURL
-		if strings.TrimSpace(*body.BaseURL) != "" {
-			var why string
-			if newBase, why = checkBaseURL(*body.BaseURL); why != "" {
-				writeError(w, http.StatusBadRequest, why)
-				return
-			}
+		if newBase != "" {
 			base = newBase
 		}
 	}
 	key := ""
 	if body.APIKey != nil {
-		key = strings.TrimSpace(*body.APIKey)
-		if why := checkKey(p, key); why != "" {
-			writeError(w, http.StatusBadRequest, why)
-			return
-		}
-		if config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyEnv {
-			writeRefusal(w, http.StatusConflict, "env_key", "the key comes from an environment variable, which wins over "+
-				"one saved here: unset it on the gateway's machine to manage the key from the settings")
+		if key, ok = s.requestedKey(w, cfg, p, *body.APIKey); !ok {
 			return
 		}
 	}
@@ -320,7 +359,9 @@ func checkKey(p onboard.Provider, key string) string {
 
 // saveProvider writes what changed: the key, the endpoint, and the configuration's own endpoint
 // when the provider is the default one.
-func (s *Server) saveProvider(cfg config.LLM, p onboard.Provider, setKey bool, key string, setBase bool, base string) error {
+func (s *Server) saveProvider(
+	cfg config.LLM, p onboard.Provider, setKey bool, key string, setBase bool, base string,
+) error {
 	path := s.opts.ConfigPath
 	if setKey {
 		if err := setCredential(path, config.ProviderStoreVariable(p.ID), key); err != nil {

@@ -75,7 +75,10 @@ export function pushState(o: {
     return "insecure";
   }
   if (!o.supported) {
-    return o.ios && !o.installed ? "install" : "unsupported";
+    if (o.ios && !o.installed) {
+      return "install";
+    }
+    return "unsupported";
   }
   if (!o.gateway?.available) {
     return "unavailable";
@@ -83,7 +86,10 @@ export function pushState(o: {
   if (o.permission === "denied") {
     return "blocked";
   }
-  return o.subscribed && o.gateway.subscribed ? "on" : "off";
+  if (o.subscribed && o.gateway.subscribed) {
+    return "on";
+  }
+  return "off";
 }
 
 // pushSupported says whether this browser can receive push at all.
@@ -102,7 +108,7 @@ export function keyBytes(b64url: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
   const out = new Uint8Array(new ArrayBuffer(bin.length));
   for (let i = 0; i < bin.length; i++) {
-    out[i] = bin.charCodeAt(i);
+    out[i] = bin.codePointAt(i) ?? 0;
   }
   return out;
 }
@@ -115,9 +121,11 @@ async function failure(res: Response): Promise<Error> {
 // getPush asks the gateway whether it can push and whether it knows this endpoint. An older
 // gateway answers 404, which reads as "unavailable".
 export async function getPush(api: Api, endpoint = ""): Promise<PushView> {
-  const res = await api(
-    PUSH_PATH + (endpoint ? "?endpoint=" + encodeURIComponent(endpoint) : ""),
-  );
+  let path = PUSH_PATH;
+  if (endpoint) {
+    path += "?endpoint=" + encodeURIComponent(endpoint);
+  }
+  const res = await api(path);
   if (!res.ok) {
     return { available: false, subscribed: false };
   }

@@ -38,8 +38,9 @@ func ValidExposure(mode string) bool {
 	switch mode {
 	case ExposureLocal, ExposureLAN, ExposureAll:
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // Exposure names the mode this gateway configuration amounts to.
@@ -95,8 +96,9 @@ func ExposureSettings(mode, port string) (listen string, allow []string, err err
 		return net.JoinHostPort("0.0.0.0", port), append([]string{}, lanRules...), nil
 	case ExposureAll:
 		return net.JoinHostPort("0.0.0.0", port), []string{}, nil
+	default:
+		return "", nil, fmt.Errorf("the exposure %q is not one of local, lan, all", mode)
 	}
-	return "", nil, fmt.Errorf("the exposure %q is not one of local, lan, all", mode)
 }
 
 // ListenChosen reports whether the configuration file at path names a gateway.listen: whether the
@@ -163,18 +165,10 @@ var (
 // touched, because only lines at the block's own indent are read as its keys.
 func setBlockKeyText(body, block, key, value string) (string, error) {
 	lines := strings.Split(body, "\n")
-	header := regexp.MustCompile(`^` + regexp.QuoteMeta(block) + `:\s*(#.*)?$`)
-	inline := regexp.MustCompile(`^` + regexp.QuoteMeta(block) + `:`)
-	start := -1
-	for i, l := range lines {
-		if header.MatchString(l) {
-			start = i
-			break
-		}
-		if inline.MatchString(l) {
-			return "", fmt.Errorf("the configuration writes %s as an inline value (%q): change %s.%s by hand",
-				block, strings.TrimSpace(l), block, key)
-		}
+	start, inline := findBlockStart(lines, block)
+	if inline != "" {
+		return "", fmt.Errorf("the configuration writes %s as an inline value (%q): change %s.%s by hand",
+			block, inline, block, key)
 	}
 	if start < 0 {
 		trimmed := strings.TrimRight(body, "\n")
@@ -184,6 +178,44 @@ func setBlockKeyText(body, block, key, value string) (string, error) {
 		}
 		return trimmed + "\n\n" + added, nil
 	}
+	i, indent, comment := findBlockKey(lines, start, key)
+	if i >= 0 {
+		end := i + 1
+		for end < len(lines) && belongsToValue(lines[end], indent) {
+			end++
+		}
+		out := append([]string{}, lines[:i]...)
+		out = append(out, indent+key+": "+value+comment)
+		out = append(out, lines[end:]...)
+		return strings.Join(out, "\n"), nil
+	}
+	if indent == "" {
+		indent = "  "
+	}
+	out := append([]string{}, lines[:start+1]...)
+	out = append(out, indent+key+": "+value)
+	out = append(out, lines[start+1:]...)
+	return strings.Join(out, "\n"), nil
+}
+
+// findBlockStart is the index of the line that opens the top-level block (-1 when there is none),
+// or the line that writes the block as an inline value instead, which cannot be edited line by line.
+func findBlockStart(lines []string, block string) (int, string) {
+	header := regexp.MustCompile(`^` + regexp.QuoteMeta(block) + `:\s*(#.*)?$`)
+	for i, l := range lines {
+		if header.MatchString(l) {
+			return i, ""
+		}
+		if strings.HasPrefix(l, block+":") {
+			return -1, strings.TrimSpace(l)
+		}
+	}
+	return -1, ""
+}
+
+// findBlockKey is the line of key at the own indent of the block that opens at start (-1 when it is
+// missing), that indent ("" for an empty block) and the comment the line ends with.
+func findBlockKey(lines []string, start int, key string) (int, string, string) {
 	indent := ""
 	for i := start + 1; i < len(lines); i++ {
 		l := lines[i]
@@ -200,26 +232,11 @@ func setBlockKeyText(body, block, key, value string) (string, error) {
 		if ind != indent {
 			continue // inside a nested block
 		}
-		m := keyOfLine.FindStringSubmatch(l)
-		if m == nil || m[2] != key {
-			continue
+		if m := keyOfLine.FindStringSubmatch(l); m != nil && m[2] == key {
+			return i, indent, m[4]
 		}
-		end := i + 1
-		for end < len(lines) && belongsToValue(lines[end], indent) {
-			end++
-		}
-		out := append([]string{}, lines[:i]...)
-		out = append(out, indent+key+": "+value+m[4])
-		out = append(out, lines[end:]...)
-		return strings.Join(out, "\n"), nil
 	}
-	if indent == "" {
-		indent = "  "
-	}
-	out := append([]string{}, lines[:start+1]...)
-	out = append(out, indent+key+": "+value)
-	out = append(out, lines[start+1:]...)
-	return strings.Join(out, "\n"), nil
+	return -1, indent, ""
 }
 
 // belongsToValue reports whether a line after `key:` is part of that key's value: more indented

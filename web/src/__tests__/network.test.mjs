@@ -63,6 +63,19 @@ const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
 const HTTP_CONFLICT = 409;
 const HTTP_BAD_GATEWAY = 502;
+const LOCAL_LISTEN = "127.0.0.1:7477";
+const ANY_LISTEN = "0.0.0.0:7477";
+const CANNOT_RESTART = "cannot restart here";
+const ARIA_LABELLEDBY = "aria-labelledby";
+const NETWORK_PATH = "/v1/network";
+const RESTART_NOTICE = "[data-testid=network-restart]";
+const NETWORK_ERROR = "[data-testid=network-error]";
+const TAILSCALE_URL = "[data-testid=tailscale-url]";
+const RESTARTING = "[data-testid=network-restarting]";
+const UNTIL_TRIES = 200;
+const UNTIL_STEP_MS = 5;
+const HEALTHY_AFTER = 3;
+const REFUSED_WAIT_MS = 20;
 
 const TS_RUNNING = {
   installed: true,
@@ -77,9 +90,9 @@ const TS_RUNNING = {
 function netView(over = {}) {
   return {
     mode: "local",
-    listen: "127.0.0.1:7477",
+    listen: LOCAL_LISTEN,
     active_mode: "local",
-    active_listen: "127.0.0.1:7477",
+    active_listen: LOCAL_LISTEN,
     restart_needed: false,
     can_save: true,
     tailscale: TS_RUNNING,
@@ -93,55 +106,73 @@ const json = (body, status = HTTP_OK) =>
     headers: { "Content-Type": "application/json" },
   });
 
+// parsedBody reads a request's JSON body, or undefined when it sent none.
+function parsedBody(body) {
+  if (!body) {
+    return undefined;
+  }
+  return JSON.parse(body);
+}
+
+const LISTEN_OF = {
+  local: LOCAL_LISTEN,
+  lan: ANY_LISTEN,
+  all: ANY_LISTEN,
+};
+
+// Each handler takes the gateway's state and the request body, and returns the next state and
+// the response, the way the Go side answers.
+const ROUTES = {
+  "GET /v1/network": (state) => [state, json(state)],
+  "PUT /v1/network": (state, body) => {
+    if (body?.confirm !== true) {
+      return [state, json({ error: "confirm is required" }, HTTP_BAD_REQUEST)];
+    }
+    const next = {
+      ...state,
+      mode: body.mode,
+      listen: LISTEN_OF[body.mode],
+      restart_needed: body.mode !== state.active_mode,
+    };
+    return [next, json(next)];
+  },
+  "POST /v1/network/restart": (state, body) => {
+    if (body?.confirm !== true) {
+      return [state, json({ error: "confirm is required" }, HTTP_BAD_REQUEST)];
+    }
+    if (!state.can_restart) {
+      return [state, json({ error: CANNOT_RESTART }, HTTP_CONFLICT)];
+    }
+    return [state, json(state, HTTP_ACCEPTED)];
+  },
+  "POST /v1/network/tailscale": (state, body) => {
+    const next = {
+      ...state,
+      tailscale: { ...state.tailscale, serving: body.enable },
+    };
+    return [next, json(next)];
+  },
+};
+
 // fakeGateway answers the network API the way the Go side does, and records every request.
 function fakeGateway(initial, overrides = {}) {
   let state = initial;
   const calls = [];
   const api = async (path, init = {}) => {
     const method = init.method || "GET";
-    const body = init.body ? JSON.parse(init.body) : undefined;
+    const body = parsedBody(init.body);
     calls.push({ path, method, body, headers: init.headers });
     const key = method + " " + path;
     if (overrides[key]) {
       return overrides[key](body);
     }
-    if (key === "GET /v1/network") {
-      return json(state);
+    const route = ROUTES[key];
+    if (!route) {
+      return json({ error: "not found" }, HTTP_NOT_FOUND);
     }
-    if (key === "PUT /v1/network") {
-      if (body?.confirm !== true) {
-        return json({ error: "confirm is required" }, 400);
-      }
-      const listen = {
-        local: "127.0.0.1:7477",
-        lan: "0.0.0.0:7477",
-        all: "0.0.0.0:7477",
-      }[body.mode];
-      state = {
-        ...state,
-        mode: body.mode,
-        listen,
-        restart_needed: body.mode !== state.active_mode,
-      };
-      return json(state);
-    }
-    if (key === "POST /v1/network/restart") {
-      if (body?.confirm !== true) {
-        return json({ error: "confirm is required" }, HTTP_BAD_REQUEST);
-      }
-      if (!state.can_restart) {
-        return json({ error: "cannot restart here" }, HTTP_CONFLICT);
-      }
-      return json(state, HTTP_ACCEPTED);
-    }
-    if (key === "POST /v1/network/tailscale") {
-      state = {
-        ...state,
-        tailscale: { ...state.tailscale, serving: body.enable },
-      };
-      return json(state);
-    }
-    return json({ error: "not found" }, HTTP_NOT_FOUND);
+    const [next, response] = route(state, body);
+    state = next;
+    return response;
   };
   return { api, calls };
 }
@@ -200,7 +231,7 @@ test("the section offers the three modes, local (the safest) selected", async ()
   const card = root.querySelector(CARD);
   assert.ok(card, "the network section is drawn");
   const group = card.querySelector("[role=radiogroup]");
-  assert.equal(group.getAttribute("aria-labelledby"), "settings-network");
+  assert.equal(group.getAttribute(ARIA_LABELLEDBY), "settings-network");
   assert.ok(root.querySelector("#settings-network"), "the label it names");
   const radios = [...card.querySelectorAll("input[type=radio]")];
   assert.deepEqual(
@@ -227,8 +258,8 @@ test("a mode is never saved without a confirmation that says what it implies", a
   await pick(root, "all");
   const confirm = root.querySelector(CONFIRM);
   assert.ok(confirm, "picking another mode asks first");
-  assert.equal(confirm.getAttribute("role"), "group");
-  assert.ok(confirm.getAttribute("aria-labelledby"));
+  assert.equal(confirm.tagName, "FIELDSET");
+  assert.ok(confirm.getAttribute(ARIA_LABELLEDBY));
   const text = confirm.textContent;
   assert.match(text, /plain HTTP/);
   assert.match(text, /unencrypted/);
@@ -265,7 +296,7 @@ test("Confirm sends PUT with confirm:true and the restart notice names the runni
   await click(buttonNamed(root, "Confirm"));
   const put = gw.calls.find((c) => c.method === "PUT");
   assert.ok(put, "the change is sent once confirmed");
-  assert.equal(put.path, "/v1/network");
+  assert.equal(put.path, NETWORK_PATH);
   assert.deepEqual(put.body, { mode: "lan", confirm: true });
   assert.equal(
     new Headers(put.headers).get("Content-Type"),
@@ -273,9 +304,9 @@ test("Confirm sends PUT with confirm:true and the restart notice names the runni
   );
   assert.equal(root.querySelector(CONFIRM), null);
   assert.equal(radio(root, "lan").checked, true, "the saved mode is shown");
-  const notice = root.querySelector("[data-testid=network-restart]");
+  const notice = root.querySelector(RESTART_NOTICE);
   assert.ok(notice, "the restart notice shows");
-  assert.equal(notice.getAttribute("role"), "status");
+  assert.equal(notice.tagName, "OUTPUT");
   assert.match(notice.textContent, /Saved\. Applies when the gateway restarts/);
   assert.match(notice.textContent, /This machine only \(127\.0\.0\.1:7477\)/);
   await done();
@@ -285,9 +316,9 @@ test("going back to this machine only warns that other devices lose access", asy
   const gw = fakeGateway(
     netView({
       mode: "all",
-      listen: "0.0.0.0:7477",
+      listen: ANY_LISTEN,
       active_mode: "all",
-      active_listen: "0.0.0.0:7477",
+      active_listen: ANY_LISTEN,
     }),
   );
   const { root, done } = await open(gw.api);
@@ -302,7 +333,7 @@ test("going back to this machine only warns that other devices lose access", asy
     mode: "local",
     confirm: true,
   });
-  assert.ok(root.querySelector("[data-testid=network-restart]"));
+  assert.ok(root.querySelector(RESTART_NOTICE));
   await done();
 });
 
@@ -341,12 +372,12 @@ test("a save the gateway refuses shows its error inline", async () => {
   const { root, done } = await open(gw.api);
   await pick(root, "lan");
   await click(buttonNamed(root, "Confirm"));
-  const err = root.querySelector("[data-testid=network-error]");
+  const err = root.querySelector(NETWORK_ERROR);
   assert.ok(err);
   assert.equal(err.getAttribute("role"), "alert");
   assert.equal(err.textContent, "no configuration file");
   assert.equal(radio(root, "local").checked, true, "the saved mode is back");
-  assert.equal(root.querySelector("[data-testid=network-restart]"), null);
+  assert.equal(root.querySelector(RESTART_NOTICE), null);
   await done();
 });
 
@@ -409,7 +440,7 @@ test("Tailscale running: publishing asks first, then shows the URL; off applies 
   const { root, done } = await open(gw.api);
   const sw = () => root.querySelector(`${CARD} input[role=switch]`);
   assert.ok(sw(), "the publish switch");
-  assert.equal(sw().getAttribute("aria-labelledby"), "settings-tailscale");
+  assert.equal(sw().getAttribute(ARIA_LABELLEDBY), "settings-tailscale");
   assert.equal(
     root.querySelector("#settings-tailscale").textContent,
     "Publish in my tailnet (https)",
@@ -430,7 +461,7 @@ test("Tailscale running: publishing asks first, then shows the URL; off applies 
   assert.equal(post.path, "/v1/network/tailscale");
   assert.deepEqual(post.body, { enable: true });
   assert.equal(sw().checked, true);
-  const link = root.querySelector("[data-testid=tailscale-url]");
+  const link = root.querySelector(TAILSCALE_URL);
   assert.equal(link.getAttribute("href"), "https://box.tail1234.ts.net");
   assert.match(link.getAttribute("rel"), /noopener/);
 
@@ -440,7 +471,7 @@ test("Tailscale running: publishing asks first, then shows the URL; off applies 
   const posts = gw.calls.filter((c) => c.method === "POST");
   assert.equal(posts.length, 2, "turning it off needs no confirmation");
   assert.deepEqual(posts[1].body, { enable: false });
-  assert.equal(root.querySelector("[data-testid=tailscale-url]"), null);
+  assert.equal(root.querySelector(TAILSCALE_URL), null);
   await done();
 });
 
@@ -454,10 +485,7 @@ test("a failed tailscale command shows the gateway's message", async () => {
   sw.checked = true;
   await act(() => sw.dispatchEvent(new Event("change", { bubbles: true })));
   await click(buttonNamed(root, "Publish"));
-  assert.equal(
-    root.querySelector("[data-testid=network-error]").textContent,
-    msg,
-  );
+  assert.equal(root.querySelector(NETWORK_ERROR).textContent, msg);
   assert.equal(root.querySelector("[data-testid=operator-command]"), null);
   assert.equal(root.querySelector(`${CARD} input[role=switch]`).checked, false);
   await done();
@@ -474,7 +502,7 @@ test("a denied tailscale serve sets the operator command apart, with Copy", asyn
   sw.checked = true;
   await act(() => sw.dispatchEvent(new Event("change", { bubbles: true })));
   await click(buttonNamed(root, "Publish"));
-  const err = root.querySelector("[data-testid=network-error]");
+  const err = root.querySelector(NETWORK_ERROR);
   assert.equal(err.getAttribute("role"), "alert");
   assert.ok(
     err.textContent.startsWith(
@@ -491,7 +519,11 @@ test("a denied tailscale serve sets the operator command apart, with Copy", asyn
   assert.ok(copy, "a Copy button next to the command");
   let copied = "";
   Object.defineProperty(globalThis.navigator, "clipboard", {
-    value: { writeText: async (t) => void (copied = t) },
+    value: {
+      writeText: async (t) => {
+        copied = t;
+      },
+    },
     configurable: true,
   });
   try {
@@ -511,7 +543,7 @@ test("a URL that is not https is never linked", async () => {
     }),
   );
   const { root, done } = await open(gw.api);
-  assert.equal(root.querySelector("[data-testid=tailscale-url]"), null);
+  assert.equal(root.querySelector(TAILSCALE_URL), null);
   assert.equal(root.querySelector(`${CARD} a[href^=javascript]`), null);
   await done();
 });
@@ -524,8 +556,8 @@ test("the client hits the documented endpoints", async () => {
   assert.deepEqual(
     gw.calls.map((c) => [c.method, c.path, c.body]),
     [
-      ["GET", "/v1/network", undefined],
-      ["PUT", "/v1/network", { mode: "all", confirm: true }],
+      ["GET", NETWORK_PATH, undefined],
+      ["PUT", NETWORK_PATH, { mode: "all", confirm: true }],
       ["POST", "/v1/network/tailscale", { enable: true }],
     ],
   );
@@ -567,11 +599,11 @@ function fastRestart({ healthy = () => true, waitMs = 1000 } = {}) {
 }
 
 async function until(cond, what) {
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < UNTIL_TRIES; i++) {
     if (cond()) {
       return;
     }
-    await act(() => new Promise((r) => setTimeout(r, 5)));
+    await act(() => new Promise((r) => setTimeout(r, UNTIL_STEP_MS)));
   }
   assert.fail("timed out waiting for " + what);
 }
@@ -579,7 +611,7 @@ async function until(cond, what) {
 const RESTART_NOW = "[data-testid=network-restart-now]";
 const PENDING = {
   mode: "lan",
-  listen: "0.0.0.0:7477",
+  listen: ANY_LISTEN,
   restart_needed: true,
 };
 
@@ -593,7 +625,7 @@ test("Restart now shows only when a restart is needed and the gateway can restar
     const gw = fakeGateway(netView(over));
     const { root, done } = await open(gw.api);
     assert.equal(!!root.querySelector(RESTART_NOW), want, JSON.stringify(over));
-    const notice = root.querySelector("[data-testid=network-restart]");
+    const notice = root.querySelector(RESTART_NOTICE);
     if (over.restart_needed && !over.can_restart) {
       assert.match(
         notice.textContent,
@@ -606,7 +638,7 @@ test("Restart now shows only when a restart is needed and the gateway can restar
 });
 
 test("Restart now asks first, sends confirm:true, waits for the gateway and reloads", async () => {
-  const fast = fastRestart({ healthy: (n) => n >= 3 });
+  const fast = fastRestart({ healthy: (n) => n >= HEALTHY_AFTER });
   try {
     const gw = fakeGateway(netView({ ...PENDING, can_restart: true }));
     const { root, done } = await open(gw.api);
@@ -636,12 +668,16 @@ test("Restart now asks first, sends confirm:true, waits for the gateway and relo
       new Headers(post.headers).get("Content-Type"),
       "application/json",
     );
-    const status = root.querySelector("[data-testid=network-restarting]");
+    const status = root.querySelector(RESTARTING);
     assert.ok(status);
-    assert.equal(status.getAttribute("role"), "status");
+    assert.equal(status.tagName, "OUTPUT");
     assert.equal(status.textContent, "Restarting the gateway…");
     await until(() => fast.seen.reloads > 0, "the reload");
-    assert.equal(fast.seen.health, 3, "it polled until the gateway answered");
+    assert.equal(
+      fast.seen.health,
+      HEALTHY_AFTER,
+      "it polled until the gateway answered",
+    );
     assert.equal(fast.seen.reloads, 1);
     await done();
   } finally {
@@ -656,7 +692,7 @@ test("a gateway that does not come back says where to open it", async () => {
     const { root, done } = await open(gw.api);
     await click(root.querySelector(RESTART_NOW));
     await click(buttonNamed(root, "Restart"));
-    const status = () => root.querySelector("[data-testid=network-restarting]");
+    const status = () => root.querySelector(RESTARTING);
     await until(
       () => /did not come back/.test(status().textContent),
       "giving up",
@@ -678,17 +714,17 @@ test("a restart the gateway refuses shows its error and does not wait", async ()
   try {
     const gw = fakeGateway(netView({ ...PENDING, can_restart: true }), {
       "POST /v1/network/restart": () =>
-        json({ error: "cannot restart here" }, HTTP_CONFLICT),
+        json({ error: CANNOT_RESTART }, HTTP_CONFLICT),
     });
     const { root, done } = await open(gw.api);
     await click(root.querySelector(RESTART_NOW));
     await click(buttonNamed(root, "Restart"));
-    const err = root.querySelector("[data-testid=network-error]");
+    const err = root.querySelector(NETWORK_ERROR);
     assert.ok(err);
-    assert.equal(err.textContent, "cannot restart here");
+    assert.equal(err.textContent, CANNOT_RESTART);
     assert.equal(root.querySelector(CONFIRM), null);
-    assert.equal(root.querySelector("[data-testid=network-restarting]"), null);
-    await act(() => new Promise((r) => setTimeout(r, 20)));
+    assert.equal(root.querySelector(RESTARTING), null);
+    await act(() => new Promise((r) => setTimeout(r, REFUSED_WAIT_MS)));
     assert.equal(fast.seen.health, 0);
     assert.equal(root.querySelector(RESTART_NOW).disabled, false);
     await done();
@@ -709,20 +745,17 @@ test("restartGateway posts confirm:true and surfaces a refusal", async () => {
   const refused = fakeGateway(netView({ can_restart: false }));
   await assert.rejects(net.restartGateway(refused.api), (e) => {
     assert.equal(e.status, HTTP_CONFLICT);
-    assert.equal(e.message, "cannot restart here");
+    assert.equal(e.message, CANNOT_RESTART);
     return true;
   });
 });
 
 test("every string of the network section has a Spanish translation", () => {
-  const settings = readFileSync(join(here, "..", "Settings.tsx"), "utf8");
-  const start = settings.indexOf("const TAILSCALE_DOWNLOAD");
-  const end = settings.indexOf("// The icons of the tabs.");
-  assert.ok(start > 0 && end > start);
+  const network = readFileSync(join(here, "..", "NetworkSettings.tsx"), "utf8");
   const keys = new Set();
-  for (const m of settings
-    .slice(start, end)
-    .matchAll(/\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g)) {
+  for (const m of network.matchAll(
+    /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,
+  )) {
     keys.add(m[2]);
   }
   const MIN_NETWORK_STRINGS = 25;

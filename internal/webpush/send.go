@@ -109,8 +109,9 @@ func (s *Sender) SendTo(ctx context.Context, sub Subscription, m Message) error 
 		return ErrGone
 	case res.StatusCode >= 300:
 		return fmt.Errorf("the push service refused the message: %s %s", res.Status, bytes.TrimSpace(detail))
+	default:
+		return nil
 	}
-	return nil
 }
 
 // vapid is the Authorization header that proves the message comes from the holder of the key the

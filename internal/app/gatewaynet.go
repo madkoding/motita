@@ -35,13 +35,41 @@ func (op Options) interactive() bool {
 	return op.Interactive != nil && op.Interactive()
 }
 
+// tailscaleNotOffered says in one line why there is nothing to publish (Tailscale missing, not
+// connected, or already serving the gateway) and reports whether it said so.
+func (op Options) tailscaleNotOffered(st tailscale.Status) bool {
+	switch {
+	case !st.Installed:
+		fmt.Fprintln(op.Out, "\ntip: Tailscale gives your own devices private https access to the gateway without")
+		fmt.Fprintln(op.Out, "  opening it to a network: https://tailscale.com/download")
+		return true
+	case !st.Running:
+		fmt.Fprintf(op.Out, "\nTailscale is installed but not connected (%s): run `tailscale up` to publish\n", stateOf(st))
+		fmt.Fprintln(op.Out, "  the gateway privately in your tailnet with https.")
+		return true
+	case st.Serving:
+		fmt.Fprintf(op.Out, "\nTailscale already publishes the gateway in your tailnet: %s\n", st.URL)
+		return true
+	default:
+		return false
+	}
+}
+
+// exposureDecided reports whether something already chose where the gateway answers: a flag, the
+// environment or the configuration file. A script asking for -json or -token-only counts too.
+func exposureDecided(fl flags, path string) bool {
+	if fl.tokenOnly || fl.jsonOut || strings.TrimSpace(fl.gateway) != "" {
+		return true
+	}
+	return path == "" || strings.TrimSpace(os.Getenv("MOTITA_GATEWAY_LISTEN")) != "" || config.ListenChosen(path)
+}
+
 // askExposureOnFirstStart asks where the gateway should answer when nothing has decided it yet:
 // no -gateway address, no MOTITA_GATEWAY_LISTEN, no gateway.listen in the file, no script asking
 // for -json or -token-only, and a person at the terminal.
 func (op Options) askExposureOnFirstStart(ctx context.Context, fl flags) {
 	path := resolvedConfigPath(fl)
-	if fl.tokenOnly || fl.jsonOut || strings.TrimSpace(fl.gateway) != "" || path == "" ||
-		strings.TrimSpace(os.Getenv("MOTITA_GATEWAY_LISTEN")) != "" || config.ListenChosen(path) || !op.interactive() {
+	if exposureDecided(fl, path) || !op.interactive() {
 		return
 	}
 	if err := op.askExposure(ctx, bufio.NewReader(op.Stdin), path); err != nil {
@@ -132,8 +160,9 @@ func readExposure(out io.Writer, in *bufio.Reader) (string, error) {
 			return config.ExposureLAN, nil
 		case "3", config.ExposureAll:
 			return config.ExposureAll, nil
+		default:
+			fmt.Fprintf(out, "%q is not one of 1, 2 or 3\n", answer)
 		}
-		fmt.Fprintf(out, "%q is not one of 1, 2 or 3\n", answer)
 	}
 }
 
@@ -145,17 +174,7 @@ func (op Options) offerTailscale(ctx context.Context, in *bufio.Reader, listen s
 	}
 	target := tailscale.Target(listen)
 	st := op.Tailscale.Detect(ctx, target)
-	switch {
-	case !st.Installed:
-		fmt.Fprintln(op.Out, "\ntip: Tailscale gives your own devices private https access to the gateway without")
-		fmt.Fprintln(op.Out, "  opening it to a network: https://tailscale.com/download")
-		return nil
-	case !st.Running:
-		fmt.Fprintf(op.Out, "\nTailscale is installed but not connected (%s): run `tailscale up` to publish\n", stateOf(st))
-		fmt.Fprintln(op.Out, "  the gateway privately in your tailnet with https.")
-		return nil
-	case st.Serving:
-		fmt.Fprintf(op.Out, "\nTailscale already publishes the gateway in your tailnet: %s\n", st.URL)
+	if op.tailscaleNotOffered(st) {
 		return nil
 	}
 	fmt.Fprintf(op.Out, "\nTailscale is running here (%s). Publish the gateway in your tailnet with https?\n", st.DNSName)

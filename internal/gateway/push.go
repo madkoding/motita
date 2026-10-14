@@ -174,11 +174,12 @@ func prPushNotice(prev, cur *PRWatchView) string {
 			return cur.Status
 		}
 		return ""
+	default:
+		if was.Status == cur.Status {
+			return ""
+		}
+		return cur.Status
 	}
-	if was.Status == cur.Status {
-		return ""
-	}
-	return cur.Status
 }
 
 // pushPR tells every subscribed browser that the watch of c moved from prev to cur, when that is
@@ -221,7 +222,8 @@ func prMessage(lang i18n.Lang, notice string, v *PRWatchView, title, session str
 		head, body = "CI failed", i18n.Tf(lang, "Motita is fixing it — attempt %d of %d.", v.Attempts, v.Max)
 	case prReviewing:
 		head = "New review comments"
-		body = i18n.Tf(lang, "Motita is answering the comments on pull request %s — attempt %d of %d.", pr, v.Attempts, v.Max)
+		body = i18n.Tf(lang, "Motita is answering the comments on pull request %s — attempt %d of %d.",
+			pr, v.Attempts, v.Max)
 	case prResolving:
 		head = "Merge conflict"
 		body = i18n.Tf(lang, "Pull request %s conflicts with its base branch: Motita is resolving it — attempt %d of %d.",
