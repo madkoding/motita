@@ -268,7 +268,7 @@ function IconStop() {
 }
 
 function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
-  const answer = m.role === "agent" && !m.kind;
+  const answer = m.role === "agent" && !m.kind && !m.draft;
   const empty = choose(isEmptyNote(m), " empty-note", "");
   return (
     <div

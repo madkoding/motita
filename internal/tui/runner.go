@@ -651,6 +651,38 @@ func (r *AppRunner) CompleteIntent(ctx context.Context, system, user string) (st
 	return engine.Complete(ctx, []llm.Message{{Role: "system", Content: system}, {Role: "user", Content: user}})
 }
 
+// liveAnswerEvery is the least time between two snapshots of the answer being written: often enough
+// for the page to show it growing, rarely enough that a long answer is not sent whole a thousand
+// times. A variable so a test can send every one.
+var liveAnswerEvery = 100 * time.Millisecond
+
+// livePlanText is where the planner's streamed text goes: as a SNAPSHOT of the answer being written
+// (agent.AnswerPrefix), never as progress lines of its own.
+//
+// Reported from real use: "instead of showing the text appearing in the answer, it piled up as
+// actions". Each fragment of the streamed answer was forwarded as a progress line, so the web filed
+// every one as a step of the turn's trail - the answer, the same text the voice reads aloud, cut
+// into dozens of "actions". A snapshot is shown growing where the answer will be instead (the
+// terminal drops it), and the answer still arrives whole when the plan ends. A tool announcement
+// starts a new snapshot: the text before it was the model talking while it worked, and the tool
+// itself is already reported through the trace.
+func livePlanText(progress func(string, ...any)) func(string) {
+	var live strings.Builder
+	var last time.Time
+	return func(s string) {
+		if strings.HasPrefix(s, "[using tool: ") {
+			live.Reset()
+			progress("%s", agent.AnswerPrefix)
+			return
+		}
+		live.WriteString(s)
+		if now := time.Now(); now.Sub(last) >= liveAnswerEvery {
+			last = now
+			progress("%s%s", agent.AnswerPrefix, live.String())
+		}
+	}
+}
+
 // RunPlan executes the read-only planner and writes the final answer to Out.
 func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
 	cfg, engine, err := r.engineFor(config.TaskPlan)
@@ -668,9 +700,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		WithTimeout(planDefaultTimeout(cfg)).
 		WithLoops(planDefaultLoops(cfg)).
 		WithTrace(progress).
-		WithStream(func(s string) {
-			progress("%s", s)
-		}).
+		WithStream(livePlanText(progress)).
 		WithAnswer(func(s string) {
 			// The answer is already streamed through progress; nothing else to print.
 		}).

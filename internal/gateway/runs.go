@@ -547,6 +547,11 @@ func (r *run) progress() func(string, ...any) {
 			r.flash(EventThinking, progressEvent{Text: live})
 			return
 		}
+		// So is the answer being written: the page shows it growing where the answer will be.
+		if answer, ok := strings.CutPrefix(text, agent.AnswerPrefix); ok {
+			r.flash(EventAnswer, progressEvent{Text: answer})
+			return
+		}
 		// So is the list of the run's agents. It is not a step: written into the checkpoint it
 		// would come back as a line of JSON in the transcript, once per change of every agent.
 		if agents, ok := agent.ParseAgentsLine(text); ok {

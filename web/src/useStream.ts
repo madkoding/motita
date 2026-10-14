@@ -4,7 +4,11 @@ import { useCallback, useEffect } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { parseFrame } from "./appParse";
-import { handleStreamEvent, type StreamPayload } from "./streamEvents";
+import {
+  handleStreamEvent,
+  withoutDraft,
+  type StreamPayload,
+} from "./streamEvents";
 import { cutLink, isLive, openLink, type RunLink } from "./runLink";
 import type { RunState } from "./useRunState";
 import { withSession, type SessionList } from "./useSessionList";
@@ -301,6 +305,9 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     // must not read "running" for ever: it is closed as "no result".
     rs.setShellLog(closeOpenCommands);
     rs.setLiveThought(null);
+    // An answer still being written when the run ended without one (stopped, cut off) is not an
+    // answer: it goes.
+    rs.setMessages(withoutDraft);
     setState("ready");
     // The agents' final states and costs, as the gateway has them now that the run is over.
     void loadAgents(sessionRef.current);

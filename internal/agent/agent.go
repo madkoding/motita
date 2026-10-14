@@ -219,6 +219,11 @@ func (a *Agent) SetLiveThinking(on bool) { a.streamThoughts = on }
 // none: the phase's final reasoning is reported again, whole, as a ThinkingPrefix line.
 const LivePrefix = "live: "
 
+// AnswerPrefix marks a SNAPSHOT of the answer being written right now, whole so far. Like a
+// LivePrefix line each one replaces the one before, so an interface shows it growing where the
+// answer will be and a log keeps none: the answer itself arrives whole when the run ends.
+const AnswerPrefix = "live answer: "
+
 // ThinkingPrefix marks the finished reasoning of a phase: what the model understood, planned
 // or decided, in its own words.
 const ThinkingPrefix = "thinking: "
