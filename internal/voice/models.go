@@ -11,13 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// LOCAL VOICES: Piper and Kokoro models the browser runs itself.
+// LOCAL VOICES: Piper, Supertonic and Chatterbox models the browser runs itself.
 //
 // The page cannot download a model from anywhere it likes: the gateway fetches each file once,
 // from an address in this fixed catalog, checks its size and SHA-256, and serves it from its own
@@ -47,15 +48,15 @@ type Model struct {
 	Name    string `json:"name"`
 	Lang    string `json:"lang"`
 	Quality string `json:"quality"`
-	// Engine is what runs the voice in the page: EnginePiper, EngineKokoro or EngineSupertonic
-	// (EngineAccelerator for files that are not a voice). A voice that speaks many languages has
-	// Lang "mul".
+	// Engine is what runs the voice in the page: EnginePiper, EngineSupertonic or
+	// EngineChatterbox. A voice that speaks many languages has Lang "mul".
 	Engine string `json:"engine"`
-	// Shared is the id of the files this voice uses with the others of its engine (Kokoro's or
-	// Supertonic's model), downloaded with the first of them; "" when it has none.
+	// Shared is the id of the files this voice uses with the others of its engine (Supertonic's
+	// or Chatterbox's model), downloaded with the first of them; "" when it has none.
 	Shared string `json:"-"`
 	// Files are the voice's own: a Piper model and its settings (the .onnx.json the page reads
-	// the phonemizer voice and the sample rate from), or a Kokoro voice's style vectors.
+	// the phonemizer voice and the sample rate from), a Supertonic voice's style or a
+	// Chatterbox voice's conditionals.
 	Files []ModelFile `json:"files"`
 	// Sample is a short recording of the voice, heard before it is downloaded. Nil when the
 	// catalog has none.
@@ -64,24 +65,16 @@ type Model struct {
 
 // The engines a local voice runs on.
 const (
-	EnginePiper  = "piper"
-	EngineKokoro = "kokoro"
+	EnginePiper = "piper"
 	// EngineSupertonic is Supertone's Supertonic 3: one model for 31 languages, run step by step.
 	EngineSupertonic = "supertonic"
 	// EngineChatterbox is Resemble AI's Chatterbox Multilingual: a language model that writes the
 	// sound, with a setting for how much emotion it carries. It runs only on WebGPU.
 	EngineChatterbox = "chatterbox"
-	// EngineAccelerator is not a voice: files that make an engine faster where the browser can
-	// use them (KokoroGPU).
-	EngineAccelerator = "accelerator"
 )
 
 // RuntimeID is the directory, and the id in a file's URL, of the files every voice shares.
 const RuntimeID = "runtime"
-
-// KokoroID is the directory, and the id in a file's URL, of the model every Kokoro voice shares.
-// The page knows a Kokoro voice by its id, which starts with KokoroID and a dash.
-const KokoroID = "kokoro"
 
 // samplesDir is the directory the samples are kept in, apart from the voices.
 const samplesDir = "samples"
@@ -99,9 +92,6 @@ const (
 	// fixed commit.
 	chatterboxRepo = "https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX/resolve/" +
 		"452d3f434aa592098f1eedac9099f33642ab2da5/"
-	// kokoroRepo is onnx-community's ONNX export of Kokoro-82M v1.0, at a fixed commit.
-	kokoroRepo = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/" +
-		"1939ad2a8e416c0acfeecc08a694d14ef25f2231/"
 )
 
 // PiperRuntime are the files every local voice needs: onnxruntime's WebAssembly build, which
@@ -135,48 +125,16 @@ func piperVoice(path, name, lang, quality string, model, config, sample fileSum)
 			Size: sample.size, SHA256: sample.sum}}
 }
 
-// KokoroModel is the model every Kokoro voice runs on (8-bit: onnxruntime's WebAssembly runs it
-// as fast as the full one, at a third of the size), and its table from phonemes to ids.
-var KokoroModel = []ModelFile{
-	{Name: "model.onnx", URL: kokoroRepo + "onnx/model_quantized.onnx",
-		Size: 92361116, SHA256: "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478"},
-	{Name: "tokenizer.json", URL: kokoroRepo + "tokenizer.json",
-		Size: 3497, SHA256: "77a02c8e164413299b4b4c403b14f8e0e1c1b727db4d46a09d6327b861060a34"},
-}
-
-// KokoroGPUID is the id of KokoroGPU. It does not start as a Kokoro voice's id does.
-const KokoroGPUID = "accel-kokoro"
-
-// KokoroGPU makes Kokoro fast on a browser with WebGPU: the full model (the 8-bit one does not
-// run on the graphics card) and onnxruntime's WebAssembly build that drives WebGPU. The page uses
-// it, when it is downloaded, for every Kokoro voice.
-var KokoroGPU = Model{ID: KokoroGPUID, Name: "Kokoro WebGPU", Quality: "high", Engine: EngineAccelerator,
-	Files: []ModelFile{
-		{Name: "model.onnx", URL: kokoroRepo + "onnx/model.onnx",
-			Size: 325532232, SHA256: "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb"},
-		ortGPUWasm,
-	}}
-
 // ortGPUWasm is onnxruntime's WebAssembly build that drives WebGPU.
 var ortGPUWasm = ModelFile{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
 	Member: "package/dist/ort-wasm-simd-threaded.asyncify.wasm",
 	Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"}
 
-// embeddedSamples are the samples of the Kokoro and Supertonic voices: their repositories have
+// embeddedSamples are the samples of the Supertonic and Chatterbox voices: their repositories have
 // none in a language of the page, so they were made with the voices themselves and are compiled in.
 //
 //go:embed samples/*.mp3
 var embeddedSamples embed.FS
-
-// kokoroVoice is one voice of Kokoro, by its name there. The name's first letter is its language
-// (a American English, b British English, e Spanish), and the page reads it from the id.
-func kokoroVoice(voice, name, lang, sum string) Model {
-	id := KokoroID + "-" + voice
-	return Model{ID: id, Name: name, Lang: lang, Quality: "high", Engine: EngineKokoro,
-		Shared: KokoroID, Files: []ModelFile{
-			{Name: "voice.bin", URL: kokoroRepo + "voices/" + voice + ".bin", Size: 522240, SHA256: sum},
-		}, Sample: embeddedSample(id)}
-}
 
 // embeddedSample is a voice's compiled-in sample, nil when there is none.
 func embeddedSample(id string) *ModelFile {
@@ -186,19 +144,6 @@ func embeddedSample(id string) *ModelFile {
 	}
 	sum := sha256.Sum256(data)
 	return &ModelFile{Name: "sample.mp3", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), Data: data}
-}
-
-// KokoroVoices are the Kokoro voices offered: the best graded of each language and gender.
-var KokoroVoices = []Model{
-	kokoroVoice("ef_dora", "Dora", "es", "f66ec66bd295acb18372e37008533a9a3228483ccd294e7538d5d9294ac9a532"),
-	kokoroVoice("em_alex", "Alex", "es", "27809e9eafdcbcfff90a3016c697568676531de2a2c39cee29c96c7bd6b83e95"),
-	kokoroVoice("af_heart", "Heart", "en-US", "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b"),
-	kokoroVoice("af_bella", "Bella", "en-US", "f69d836209b78eb8c66e75e3cda491e26ea838a3674257e9d4e5703cbaf55c8b"),
-	kokoroVoice("af_nicole", "Nicole", "en-US", "cd2191ab31b914ed7b318416b0e4440fdf392ddad9106a060819aa600a64f59a"),
-	kokoroVoice("am_michael", "Michael", "en-US", "1d1f21dd8da39c30705cd4c75d039d265e9bc4a2a93ed09bc9e1b1225eb95ba1"),
-	kokoroVoice("am_fenrir", "Fenrir", "en-US", "c27989f741f7ee34d273a39d8a595cc0837d35f5ced9a29b7cc162614616df43"),
-	kokoroVoice("bf_emma", "Emma", "en-GB", "669fe0647f9dd04fcab92f1439a40eeb4c8b4ab1f82e4996fe3d918ce4a63b73"),
-	kokoroVoice("bm_george", "George", "en-GB", "c4b235a4c1f2cd3b939fed08b899ce9385638b763f7b73a59616c4fc9bd6c9bc"),
 }
 
 // SupertonicID is the directory, and the id in a file's URL, of the model every Supertonic voice
@@ -613,6 +558,43 @@ func (l Library) Remove(id string) error {
 		}
 	}
 	return os.RemoveAll(filepath.Join(l.Dir, m.Shared))
+}
+
+// Prune deletes what the catalog no longer has: the directories of voices and shared sets it
+// dropped, and their samples. A voice taken out of the catalog leaves nothing behind.
+func (l Library) Prune() error {
+	keep := map[string]bool{RuntimeID: true, samplesDir: true}
+	for id := range l.Shared {
+		keep[id] = true
+	}
+	samples := map[string]bool{}
+	for _, m := range l.Models {
+		keep[m.ID] = true
+		if m.Sample != nil {
+			samples[m.ID+filepath.Ext(m.Sample.Name)] = true
+		}
+	}
+	entries, err := os.ReadDir(l.Dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, e := range entries {
+		if !keep[e.Name()] {
+			errs = append(errs, os.RemoveAll(filepath.Join(l.Dir, e.Name())))
+		}
+	}
+	// No samples directory yet is nothing to prune.
+	kept, _ := os.ReadDir(filepath.Join(l.Dir, samplesDir))
+	for _, e := range kept {
+		if !samples[e.Name()] {
+			errs = append(errs, os.RemoveAll(filepath.Join(l.Dir, samplesDir, e.Name())))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Verify hashes a voice's files on disk again, the runtime's and its shared set's included, and
