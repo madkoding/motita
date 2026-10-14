@@ -7,6 +7,7 @@ import {
   useState,
 } from "preact/hooks";
 import { useBackdropClose } from "./useBackdropClose";
+import { useLeave } from "./motion";
 import "./dialog.css";
 import { t, tf } from "./i18n";
 import { useDialog } from "./useDialog";
@@ -103,6 +104,7 @@ export function GitConnectModal({
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
+  useLeave(backdrop, "fade", "pop");
   useDialog(ref, onClose);
   useBackdropClose(backdrop, onClose);
   const [accounts, setAccounts] = useState<GitAccount[] | null>(null);

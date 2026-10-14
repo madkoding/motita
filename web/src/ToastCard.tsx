@@ -12,6 +12,8 @@ import { useApp } from "./appStore";
 import { toastIcon, toastTone } from "./appFormat";
 import { IconAlert, IconCheck, IconClose, IconDownload } from "./icons";
 import type { Toast } from "./appTypes";
+import { useRef } from "preact/hooks";
+import { useLeave } from "./motion";
 
 // ToastIcon is the icon of the toast's kind. A warning has a triangle, not the error's circle: the
 // two are different answers ("something is wrong but recovering" vs "this failed"), and a shared
@@ -77,14 +79,17 @@ export function ToastCard({ toast }: { toast: Toast }) {
   const { status, updates } = useApp();
   const { updateInfo, openUpgrade, dismissUpgradeToast } = updates;
   const offersUpgrade = !!updateInfo?.update_available && !!toast.update;
+  const layer = useRef<HTMLDivElement>(null);
+  useLeave(layer, "fade", "pop");
   return (
     <div
+      ref={layer}
       class="toast-layer fixed top-[calc(4.75rem+env(safe-area-inset-top))] inset-x-0 z-60 flex justify-center sm:justify-end px-4 sm:px-6 pointer-events-none"
       data-testid="toast-layer"
     >
       <div
-        class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
-        style={`animation: toastIn 0.25s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, "rgba(239,68,68,0.35)", "rgba(237,181,88,0.35)", "rgba(76,194,255,0.35)")}`}
+        class="toast-card frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
+        style={`box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, "rgba(239,68,68,0.35)", "rgba(237,181,88,0.35)", "rgba(76,194,255,0.35)")}`}
       >
         <ToastIcon kind={toastIcon(toast.type, toast.update, updateInfo)} />
         <div class="flex-1 min-w-0">

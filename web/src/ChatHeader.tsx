@@ -81,10 +81,13 @@ export function ChatHeader() {
         </button>
       )}
       <span
-        class={`flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 ${status.stateClass}`}
+        class={`state-pill flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 ${status.stateClass}`}
         aria-live="polite"
       >
-        {t(status.stateText)}
+        {/* Keyed by the state, so each change rises in; the live region itself stays mounted. */}
+        <span key={status.stateText} class="state-pill-text">
+          {t(status.stateText)}
+        </span>
       </span>
       {model.config && !rs.noSession && <ModelPill config={model.config} />}
     </header>

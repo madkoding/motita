@@ -631,7 +631,10 @@ function DialogModals() {
         <ConfirmDeleteModal target={deletion.confirmDelete} />
       )}
       <ContextMenu />
-      {status.toast && <ToastCard toast={status.toast} />}
+      {status.toast && (
+        // Keyed by its text: a different toast is a new card, which enters again.
+        <ToastCard key={status.toast.type + ":" + status.toast.message} toast={status.toast} />
+      )}
       {updates.showUpgrade && <UpgradeModal />}
     </>
   );

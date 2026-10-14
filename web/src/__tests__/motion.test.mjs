@@ -1,0 +1,113 @@
+// Regression tests for the motion system: the shared tokens, the reduced-motion fallback, the
+// composited-only rule, and the exit copy (motion.ts). Run with: node --test web/src/__tests__/
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { build } from "esbuild";
+import { JSDOM } from "jsdom";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const motionCss = readFileSync(join(here, "..", "motion.css"), "utf8");
+const indexCss = readFileSync(join(here, "..", "index.css"), "utf8");
+
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+});
+globalThis.document = dom.window.document;
+globalThis.window = dom.window;
+
+const dir = mkdtempSync(join(tmpdir(), "motita-motion-test-"));
+const out = join(dir, "motion.mjs");
+await build({
+  entryPoints: [join(here, "..", "motion.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  outfile: out,
+  logLevel: "silent",
+});
+const { leaveGhost } = await import(out);
+rmSync(dir, { recursive: true, force: true });
+
+test("motion.css is imported by index.css", () => {
+  assert.match(indexCss, /@import "\.\/motion\.css";/);
+});
+
+test("the motion tokens are defined once, on :root", () => {
+  for (const token of [
+    "--motion-fast",
+    "--motion-base",
+    "--motion-slow",
+    "--motion-slower",
+    "--ease-out",
+    "--ease-in",
+    "--ease-standard",
+    "--ease-spring",
+    "--motion-shift",
+    "--motion-shift-lg",
+    "--motion-scale",
+  ]) {
+    assert.match(motionCss, new RegExp(`:root \\{[^}]*${token}:`), token);
+  }
+});
+
+test("reduced motion turns every movement into a fade", () => {
+  const reduced = motionCss.match(
+    /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/,
+  );
+  assert.ok(reduced, "a reduced-motion block redefines the tokens");
+  assert.match(reduced[1], /--motion-shift: 0px;/);
+  assert.match(reduced[1], /--motion-shift-lg: 0px;/);
+  assert.match(reduced[1], /--motion-scale: 1;/);
+  assert.match(reduced[1], /--motion-travel: 0;/);
+});
+
+test("the shared keyframes move only transform, scale and opacity", () => {
+  const bodies = [...motionCss.matchAll(/@keyframes motion-[\w-]+ \{([\s\S]*?)\n\}/g)];
+  assert.ok(bodies.length >= 10);
+  for (const [, body] of bodies) {
+    for (const [, prop] of body.matchAll(/^\s*([a-z-]+):/gm)) {
+      assert.ok(["opacity", "transform", "scale"].includes(prop), prop);
+    }
+  }
+});
+
+test("chat text no longer animates a blur filter", () => {
+  assert.doesNotMatch(indexCss, /textFadeIn/);
+});
+
+test("a leaving copy is not made outside a real browser", () => {
+  const el = document.createElement("div");
+  document.body.appendChild(el);
+  leaveGhost(el, "fade", "pop");
+  assert.equal(document.querySelectorAll(".motion-ghost").length, 0);
+  leaveGhost(null, "fade");
+});
+
+test("a leaving copy is inert, has no ids and does not count as a dialog", async () => {
+  const el = document.createElement("div");
+  el.id = "settings";
+  el.setAttribute("data-modal", "");
+  el.innerHTML =
+    '<dialog open data-dialog-root data-testid="x"><input id="f" value="a"></dialog>';
+  document.body.appendChild(el);
+  el.querySelector("input").value = "typed";
+  // jsdom has no Web Animations API and no layout: stand them in for this one element.
+  el.animate = () => {};
+  el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 100, height: 50 });
+  leaveGhost(el, "fade", "pop");
+  const ghost = document.querySelector(".motion-ghost");
+  assert.ok(ghost);
+  assert.equal(ghost.getAttribute("aria-hidden"), "true");
+  assert.equal(ghost.querySelectorAll("[id]").length + (ghost.id ? 1 : 0), 0);
+  assert.equal(ghost.querySelectorAll("[data-modal], [data-dialog-root], [data-testid]").length, 0);
+  assert.equal(ghost.hasAttribute("data-modal"), false);
+  assert.equal(ghost.querySelector("input").value, "typed");
+  assert.ok(ghost.firstElementChild.classList.contains("motion-pop-out"));
+  await new Promise((r) => setTimeout(r, 650));
+  assert.equal(document.querySelectorAll(".motion-ghost").length, 0, "removed by the fallback");
+  el.remove();
+});

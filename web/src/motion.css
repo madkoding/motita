@@ -34,6 +34,8 @@
   --motion-scale: 0.96;
   /* Delay between siblings that enter together. */
   --motion-stagger: 40ms;
+  /* 1 lets a panel travel its whole width (the sidebar sliding in); 0 keeps it in place. */
+  --motion-travel: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -47,6 +49,7 @@
     --motion-shift-lg: 0px;
     --motion-scale: 1;
     --motion-stagger: 0ms;
+    --motion-travel: 0;
   }
 }
 
@@ -100,10 +103,31 @@
     transform: translateY(calc(var(--motion-shift) / 2)) scale(var(--motion-scale));
   }
 }
-/* A one-off nudge for something whose value changed (a count, a state pill). */
+/* A short sideways entrance, for list rows. */
+@keyframes motion-enter-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--motion-shift)));
+  }
+}
+/* A whole panel coming in from (and going back to) the left edge: the sidebar. */
+@keyframes motion-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-100% * var(--motion-travel)));
+  }
+}
+@keyframes motion-slide-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(calc(-100% * var(--motion-travel)));
+  }
+}
+/* A one-off nudge for something whose value changed (a count, a state pill). It animates the
+ * `scale` property, not `transform`, so it composes with a rotation the element already has. */
 @keyframes motion-bump {
   40% {
-    transform: scale(calc(2 - var(--motion-scale)));
+    scale: calc(2 - var(--motion-scale));
   }
 }
 
@@ -123,7 +147,8 @@
 .motion-fade-out,
 .motion-sink-out,
 .motion-lift-out,
-.motion-pop-out {
+.motion-pop-out,
+.motion-slide-out-left {
   pointer-events: none;
 }
 .motion-fade-out {
@@ -136,5 +161,37 @@
   animation: motion-lift-out var(--motion-base) var(--ease-in) forwards;
 }
 .motion-pop-out {
+  animation: motion-pop-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-slide-out-left {
+  animation: motion-slide-out-left var(--motion-base) var(--ease-in) forwards;
+}
+
+/* The copy an unmounted element leaves behind while it animates out (motion.ts). It sits above
+ * everything, takes no input, and its leave animation must win over the entrance rules the copied
+ * classes still match (a backdrop copy still carries `bg-black/60`), hence the doubled class. */
+.motion-ghost {
+  z-index: 70;
+  pointer-events: none;
+}
+/* A copied node starts its CSS animations over, so every entrance inside the copy (a settings
+ * pane rising in, a spinner) would replay while it leaves. Only the leave animations run. */
+.motion-ghost *:not(.motion-pop-out) {
+  animation: none !important;
+}
+.motion-ghost.motion-fade-out {
+  animation: motion-fade-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost.motion-sink-out {
+  animation: motion-sink-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost.motion-lift-out {
+  animation: motion-lift-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost.motion-slide-out-left {
+  animation: motion-slide-out-left var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost > .motion-pop-out,
+.motion-ghost.motion-pop-out {
   animation: motion-pop-out var(--motion-base) var(--ease-in) forwards;
 }
