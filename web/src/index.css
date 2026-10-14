@@ -4027,6 +4027,12 @@ html[data-keyboard="open"] .app-shell {
 .llm-task-field {
   flex-direction: column;
 }
+/* Every kind's fields share one column width, whatever the length of its description. */
+@media (min-width: 480px) {
+  .llm-task-field {
+    flex: 0 0 18rem;
+  }
+}
 html[data-density="compact"] .llm-form {
   gap: 0.25rem;
   padding-top: 0.25rem;
