@@ -263,11 +263,13 @@ export function modelChoices(
   listed: string[] | undefined,
   current: string,
 ): string[] {
-  let ids: string[] = [];
+  let ids: string[];
   if (listed?.length) {
     ids = [...listed];
   } else if (p) {
     ids = p.models.map((m) => m.id);
+  } else {
+    ids = [];
   }
   if (current && !ids.includes(current)) {
     ids.unshift(current);

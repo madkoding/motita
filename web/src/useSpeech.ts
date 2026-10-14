@@ -3,7 +3,13 @@
 // highlighted on screen. In the natural style it says short lines the session's model writes
 // instead: when the turn starts, now and then while the agent works, and the gist of the answer.
 // See speech.ts for the parts that are decided without a voice.
-import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 import { lang, t } from "./i18n";
 import type { Message, SetToast, StepView } from "./appTypes";
 import type { Api } from "./prApi";
@@ -69,7 +75,9 @@ function requestOf(messages: Message[], id: number): string {
 }
 
 // currentSteps are the steps of the newest turn: the one a running agent is adding to.
-function currentSteps(stepsByTurn: Record<number, StepView[]> | undefined): StepView[] {
+function currentSteps(
+  stepsByTurn: Record<number, StepView[]> | undefined,
+): StepView[] {
   const turns = Object.keys(stepsByTurn || {}).map(Number);
   if (!stepsByTurn || turns.length === 0) {
     return [];
@@ -121,6 +129,28 @@ function reducedMotion(): boolean {
   }
 }
 
+// How far past the edge of the conversation a sentence brought into view stays.
+const SCROLL_MARGIN = 16;
+
+// scrollDelta is how far the conversation scrolls to show a sentence: none while it is in view.
+function scrollDelta(box: DOMRect, view: DOMRect): number {
+  if (box.top < view.top) {
+    return box.top - view.top - SCROLL_MARGIN;
+  }
+  if (box.bottom > view.bottom) {
+    return box.bottom - view.bottom + SCROLL_MARGIN;
+  }
+  return 0;
+}
+
+// scrollBehavior moves the view at once for a reader who asked for less motion.
+function scrollBehavior(): ScrollBehavior {
+  if (reducedMotion()) {
+    return "auto";
+  }
+  return "smooth";
+}
+
 // showRange highlights the sentence and, while the reader has not scrolled on their own, brings it
 // into the conversation's view.
 function showRange(range: Range, follow: boolean) {
@@ -130,21 +160,15 @@ function showRange(range: Range, follow: boolean) {
     return;
   }
   const box = range.getBoundingClientRect();
-  const log = (range.startContainer.parentElement || null)?.closest<HTMLElement>(
-    "[role=log]",
-  );
+  const log = (
+    range.startContainer.parentElement || null
+  )?.closest<HTMLElement>("[role=log]");
   if (!log || box.height === 0) {
     return;
   }
-  const view = log.getBoundingClientRect();
-  let delta = 0;
-  if (box.top < view.top) {
-    delta = box.top - view.top - 16;
-  } else if (box.bottom > view.bottom) {
-    delta = box.bottom - view.bottom + 16;
-  }
+  const delta = scrollDelta(box, log.getBoundingClientRect());
   if (delta !== 0) {
-    log.scrollBy({ top: delta, behavior: reducedMotion() ? "auto" : "smooth" });
+    log.scrollBy({ top: delta, behavior: scrollBehavior() });
   }
 }
 
@@ -154,35 +178,80 @@ function messageRoot(id: number): HTMLElement | null {
   return el?.querySelector<HTMLElement>(".markdown-body") || el;
 }
 
-export function useSpeech({
-  messages,
-  running,
-  sessionId,
-  takeHeard,
-  setToast,
-  api,
-  stepsByTurn,
-}: Deps) {
-  const supported = useMemo(speechSupported, []);
+// readLimit is how much of a text is read: all of a sample or a line of the natural style, an
+// answer up to the length the settings say.
+function readLimit(
+  id: number | null,
+  whole: boolean,
+  maxChars: number,
+): number {
+  if (id === null || whole) {
+    return 0;
+  }
+  return maxChars;
+}
+
+// The words said in place of what is not read, in the interface language.
+function speechWords() {
+  return {
+    link: t("link"),
+    code: t("Code block."),
+    formula: t("Formula."),
+    table: t("Table."),
+    rest: t("The rest is on screen."),
+  };
+}
+
+// A turn being watched: whether its answer is read on its own, the last message before it, and
+// what the person asked.
+interface PendingTurn {
+  auto: boolean;
+  after: number;
+  request: string;
+}
+
+// turnStart is what is noted when a turn starts.
+function turnStart(
+  messages: Message[],
+  mode: SpeechPrefs["mode"],
+  spoken: boolean,
+): PendingTurn {
+  const last = messages.at(-1);
+  const request = [...messages].reverse().find((m) => m.role === "user");
+  let asked = "";
+  if (request) {
+    asked = request.shown || request.text;
+  }
+  return {
+    auto: mode === "always" || (mode === "voice" && spoken),
+    after: last?.id ?? -1,
+    request: asked,
+  };
+}
+
+// useSpeechPrefs are the read-aloud settings, read again when the settings screen changes them.
+function useSpeechPrefs() {
   const [prefs, setPrefsState] = useState<SpeechPrefs>(loadSpeechPrefs);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [speakingId, setSpeakingId] = useState<number | null>(null);
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  useEffect(() => {
+    const reload = () => setPrefsState(loadSpeechPrefs());
+    window.addEventListener(SPEECH_PREFS_EVENT, reload);
+    return () => window.removeEventListener(SPEECH_PREFS_EVENT, reload);
+  }, []);
+  const setPrefs = useCallback((p: SpeechPrefs) => {
+    setPrefsState(p);
+    saveSpeechPrefs(p);
+  }, []);
+  return { prefs, prefsRef, setPrefs };
+}
+
+// useDeviceVoices are the voices of the device. They arrive late in Chrome (voiceschanged) and at
+// once in Safari.
+function useDeviceVoices(supported: boolean) {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const voicesRef = useRef(voices);
   voicesRef.current = voices;
-
-  const reader = useMemo(() => {
-    if (!supported) {
-      return null;
-    }
-    return new Reader(
-      window.speechSynthesis as unknown as ConstructorParameters<typeof Reader>[0],
-      (text) => new SpeechSynthesisUtterance(text) as unknown as UtteranceLike,
-    );
-  }, [supported]);
-
-  // The voices arrive late in Chrome (voiceschanged) and at once in Safari.
   useEffect(() => {
     if (!supported) {
       return undefined;
@@ -193,178 +262,88 @@ export function useSpeech({
     synth.addEventListener?.("voiceschanged", load);
     return () => synth.removeEventListener?.("voiceschanged", load);
   }, [supported]);
+  return { voices, voicesRef };
+}
 
-  useEffect(() => {
-    const reload = () => setPrefsState(loadSpeechPrefs());
-    window.addEventListener(SPEECH_PREFS_EVENT, reload);
-    return () => window.removeEventListener(SPEECH_PREFS_EVENT, reload);
-  }, []);
+// useReader is the reader of this page, where the browser can speak.
+function useReader(supported: boolean): Reader | null {
+  return useMemo(() => {
+    if (!supported) {
+      return null;
+    }
+    return new Reader(
+      window.speechSynthesis as unknown as ConstructorParameters<
+        typeof Reader
+      >[0],
+      (text) => new SpeechSynthesisUtterance(text) as unknown as UtteranceLike,
+    );
+  }, [supported]);
+}
 
-  const setPrefs = useCallback((p: SpeechPrefs) => {
-    setPrefsState(p);
-    saveSpeechPrefs(p);
-  }, []);
-
-  // NATURAL STYLE state: the lines waiting for the voice, the lines said this turn, and a counter
-  // that a stop or a new turn bumps, so an answer from the model that comes back late is dropped.
-  const queue = useRef<{ text: string; id: number | null }[]>([]);
-  const said = useRef<string[]>([]);
-  const generation = useRef(0);
-
-  const stop = useCallback(() => {
-    queue.current = [];
-    generation.current++;
-    reader?.stop();
-    setSpeakingId(null);
-  }, [reader]);
-
-  // follow says the view follows the sentence being read; scrolling by hand turns it off.
+// useFollow says the view follows the sentence being read: scrolling by hand while reading turns
+// it off, and leaves the view where the person put it.
+function useFollow(speakingId: number | null) {
   const follow = useRef(true);
+  useEffect(() => {
+    if (speakingId === null) {
+      return undefined;
+    }
+    const off = () => {
+      follow.current = false;
+    };
+    window.addEventListener("wheel", off, { passive: true });
+    window.addEventListener("touchmove", off, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", off);
+      window.removeEventListener("touchmove", off);
+    };
+  }, [speakingId]);
+  return follow;
+}
 
-  // read says a text, highlighting each sentence inside `rootOf()` when there is one.
-  const readRef = useRef<typeof read | null>(null);
-  const read = useCallback(
-    (
-      text: string,
-      id: number | null,
-      rootOf?: () => HTMLElement | null,
-      whole = false,
-    ) => {
-      if (!reader) {
-        return;
-      }
-      const p = prefsRef.current;
-      const l = lang();
-      const list = script(text, id === null || whole ? 0 : p.maxChars, l, {
-        link: t("link"),
-        code: t("Code block."),
-        formula: t("Formula."),
-        table: t("Table."),
-        rest: t("The rest is on screen."),
-      });
-      follow.current = true;
-      setSpeakingId(id);
-      reader.read(list, {
-        voice: pickVoice(voicesRef.current, p.voiceURI, l),
-        lang: l,
-        rate: p.rate,
-        onSentence: (i) => {
-          const root = rootOf?.();
-          const range = root && textRange(root, list[i].shown);
-          if (range) {
-            showRange(range, follow.current);
-          } else {
-            clearHighlight();
-          }
-        },
-        onEnd: (error) => {
-          clearHighlight();
-          setSpeakingId(null);
-          if (!error) {
-            const next = queue.current.shift();
-            if (next) {
-              readRef.current?.(next.text, next.id, undefined, true);
-            }
-            return;
-          }
-          queue.current = [];
-          setToast({
-            message: t("Reading aloud failed"),
-            detail: errorHint(error),
-            type: "error",
-          });
-        },
-      });
-    },
-    [reader, setToast],
-  );
-  readRef.current = read;
+// useStopOnLeave ends the reading when the microphone asks for silence, and on leaving the
+// conversation or the page.
+function useStopOnLeave(stop: () => void, sessionId: string) {
+  useEffect(() => {
+    window.addEventListener(SPEECH_STOP_EVENT, stop);
+    window.addEventListener("pagehide", stop);
+    return () => {
+      window.removeEventListener(SPEECH_STOP_EVENT, stop);
+      window.removeEventListener("pagehide", stop);
+    };
+  }, [stop]);
+  useEffect(() => stop, [sessionId, stop]);
+}
 
-  // say speaks one line of the natural style, after the line being said if there is one.
-  const say = useCallback(
-    (text: string, id: number | null) => {
-      if (!text) {
-        return;
-      }
-      said.current.push(text);
-      if (reader?.reading) {
-        queue.current.push({ text, id });
-        return;
-      }
-      read(text, id, undefined, true);
-    },
-    [read, reader],
-  );
+// useVoiceUnlock: Safari speaks only after a tap or a key, so the first one unlocks the voice with
+// an empty utterance, and an answer can later be read on its own.
+function useVoiceUnlock(supported: boolean, mode: SpeechPrefs["mode"]) {
+  useEffect(() => {
+    if (!supported || mode === "off") {
+      return undefined;
+    }
+    const unlock = () => {
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+      remove();
+    };
+    const remove = () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return remove;
+  }, [supported, mode]);
+}
 
-  // ask asks the model for a line of this turn; null when it failed or the turn moved on.
-  const ask = useCallback(
-    async (body: Omit<NarrateBody, "lang">): Promise<string | null> => {
-      if (!api) {
-        return null;
-      }
-      const mine = generation.current;
-      try {
-        const text = await narrate(api, sessionId, { ...body, lang: lang() });
-        return mine === generation.current ? text : null;
-      } catch {
-        return null;
-      }
-    },
-    [api, sessionId],
-  );
-
-  // tellAnswer says an answer: its gist in the natural style, falling back to the answer itself
-  // when the model cannot be asked; word for word otherwise.
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
-  const tellAnswer = useCallback(
-    (m: Message) => {
-      const root = () => messageRoot(m.id);
-      if (prefsRef.current.style !== "natural" || !api) {
-        read(spokenText(m), m.id, root);
-        return;
-      }
-      queue.current = [];
-      const mine = ++generation.current;
-      setSpeakingId(m.id);
-      void ask({
-        stage: "answer",
-        request: requestOf(messagesRef.current, m.id),
-        answer: spokenText(m),
-      }).then((text) => {
-        if (mine !== generation.current) {
-          return;
-        }
-        if (text) {
-          reader?.stop();
-          said.current.push(text);
-          read(text, m.id, undefined, true);
-          return;
-        }
-        read(spokenText(m), m.id, root);
-      });
-    },
-    [api, ask, read, reader],
-  );
-
-  // speak reads one answer, or stops it when it is the one being read.
-  const speak = useCallback(
-    (m: Message) => {
-      if (speakingId === m.id) {
-        stop();
-        return;
-      }
-      tellAnswer(m);
-    },
-    [tellAnswer, speakingId, stop],
-  );
-
-  // test reads a sample sentence with the settings as they are.
-  const test = useCallback(() => {
-    read(t("Hi, I am Motita. I opened the PR and the CI passed."), null);
-  }, [read]);
-
-  // Alt+L reads the last answer, or stops the reading.
+// useReadShortcut: Alt+L reads the last answer, or stops the reading.
+function useReadShortcut(
+  reader: Reader | null,
+  speakingId: number | null,
+  messagesRef: { current: Message[] },
+  tellAnswer: (m: Message) => void,
+  stop: () => void,
+) {
   const speakingRef = useRef(speakingId);
   speakingRef.current = speakingId;
   useEffect(() => {
@@ -387,107 +366,96 @@ export function useSpeech({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [reader, tellAnswer, stop]);
+  }, [reader, messagesRef, tellAnswer, stop]);
+}
 
-  // Scrolling by hand while reading leaves the view where the person put it.
-  useEffect(() => {
-    if (speakingId === null) {
-      return undefined;
-    }
-    const off = () => {
-      follow.current = false;
-    };
-    window.addEventListener("wheel", off, { passive: true });
-    window.addEventListener("touchmove", off, { passive: true });
-    return () => {
-      window.removeEventListener("wheel", off);
-      window.removeEventListener("touchmove", off);
-    };
-  }, [speakingId]);
+type Ask = (body: Omit<NarrateBody, "lang">) => Promise<string | null>;
+type Say = (text: string, id: number | null) => void;
 
-  // The microphone asks for silence; leaving the conversation or the page ends the reading.
-  useEffect(() => {
-    window.addEventListener(SPEECH_STOP_EVENT, stop);
-    window.addEventListener("pagehide", stop);
-    return () => {
-      window.removeEventListener(SPEECH_STOP_EVENT, stop);
-      window.removeEventListener("pagehide", stop);
-    };
-  }, [stop]);
-  useEffect(() => stop, [sessionId, stop]);
-
-  // Safari speaks only after a tap or a key: the first one unlocks the voice with an empty
-  // utterance, so an answer can later be read on its own.
-  useEffect(() => {
-    if (!supported || prefs.mode === "off") {
-      return undefined;
-    }
-    const unlock = () => {
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
-      remove();
-    };
-    const remove = () => {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-    };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
-    return remove;
-  }, [supported, prefs.mode]);
-
-  // AUTOMATIC READING: when a turn starts, note whether it was spoken and which messages were
-  // there; when it ends, read the answer it produced if the mode asks for it.
-  // In the natural style the turn is also talked about while it runs: a line when it starts,
-  // and a line now and then about what the agent is doing.
-  const pending = useRef<{
-    auto: boolean;
-    after: number;
-    request: string;
-  } | null>(null);
+// useAutoRead is the AUTOMATIC READING: when a turn starts, note whether it was spoken and which
+// messages were there; when it ends, read the answer it produced if the mode asks for it. In the
+// natural style a line is also said when the turn starts. It returns the turn being watched.
+function useAutoRead(o: {
+  running: boolean;
+  messages: Message[];
+  sessionId: string;
+  takeHeard: () => boolean;
+  prefsRef: { current: SpeechPrefs };
+  said: { current: string[] };
+  tellAnswer: (m: Message) => void;
+  ask: Ask;
+  say: Say;
+  stop: () => void;
+}) {
+  const { running, messages, takeHeard, tellAnswer, ask, say, stop } = o;
+  const { prefsRef, said } = o;
+  const pending = useRef<PendingTurn | null>(null);
   const wasRunning = useRef(running);
   useEffect(() => {
-    if (running && !wasRunning.current) {
-      const last = messages[messages.length - 1];
-      const mode = prefsRef.current.mode;
-      const spoken = takeHeard();
-      const auto = mode === "always" || (mode === "voice" && spoken);
-      const request = [...messages].reverse().find((m) => m.role === "user");
-      pending.current = {
-        auto,
-        after: last ? last.id : -1,
-        request: request ? request.shown || request.text : "",
-      };
+    const begin = () => {
+      const p = turnStart(messages, prefsRef.current.mode, takeHeard());
+      pending.current = p;
       said.current = [];
-      if (auto && prefsRef.current.style === "natural" && pending.current.request) {
+      if (p.auto && prefsRef.current.style === "natural" && p.request) {
         stop();
-        void ask({ stage: "start", request: pending.current.request }).then(
+        void ask({ stage: "start", request: p.request }).then(
           (text) => text && say(text, null),
         );
       }
-    }
+    };
+    const end = () => {
+      const p = pending.current;
+      const answer = lastAnswer(messages);
+      if (!p || !answer || answer.id <= p.after) {
+        return;
+      }
+      pending.current = null;
+      if (p.auto) {
+        tellAnswer(answer);
+      }
+    };
+    const started = running && !wasRunning.current;
     wasRunning.current = running;
-    const p = pending.current;
-    if (running || !p) {
-      return;
+    if (started) {
+      begin();
+    } else if (!running) {
+      end();
+    } else {
+      // Still running: no turn starts or ends here.
     }
-    const answer = lastAnswer(messages);
-    if (!answer || answer.id <= p.after) {
-      return;
-    }
-    pending.current = null;
-    if (p.auto) {
-      tellAnswer(answer);
-    }
-  }, [running, messages, takeHeard, tellAnswer, ask, say, stop]);
+  }, [
+    running,
+    messages,
+    takeHeard,
+    tellAnswer,
+    ask,
+    say,
+    stop,
+    prefsRef,
+    said,
+  ]);
   useEffect(() => {
     pending.current = null;
-  }, [sessionId]);
+  }, [o.sessionId]);
+  return pending;
+}
 
-  // PROGRESS LINES: while a natural turn runs, every few seconds, when the agent did something new
-  // since the last line and nothing is being said or asked, the model is asked for one more.
-  const stepsRef = useRef(stepsByTurn);
-  stepsRef.current = stepsByTurn;
-  const natural = prefs.style === "natural" && !!api;
+// useProgressLines are the PROGRESS LINES: while a natural turn runs, every few seconds, when the
+// agent did something new since the last line and nothing is being said or asked, the model is
+// asked for one more.
+function useProgressLines(o: {
+  running: boolean;
+  natural: boolean;
+  stepsByTurn: Record<number, StepView[]> | undefined;
+  pending: { current: PendingTurn | null };
+  said: { current: string[] };
+  reader: Reader | null;
+  ask: Ask;
+  say: Say;
+}) {
+  const { running, natural, pending, said, reader, ask, say } = o;
+  const stepsRef = useRef(o.stepsByTurn);
+  stepsRef.current = o.stepsByTurn;
   useEffect(() => {
     if (!running || !natural) {
       return undefined;
@@ -522,7 +490,248 @@ export function useSpeech({
       });
     }, PROGRESS_TICK_MS);
     return () => clearInterval(timer);
-  }, [running, natural, ask, say, reader]);
+  }, [running, natural, ask, say, reader, pending, said]);
+}
+
+type ReadText = (
+  text: string,
+  id: number | null,
+  rootOf?: () => HTMLElement | null,
+  whole?: boolean,
+) => void;
+
+// useReadText is the function that says a text, highlighting each sentence inside `rootOf()`
+// when there is one; when it ends, the next line waiting in the queue is said.
+function useReadText(o: {
+  reader: Reader | null;
+  prefsRef: { current: SpeechPrefs };
+  voicesRef: { current: SpeechSynthesisVoice[] };
+  follow: { current: boolean };
+  queue: { current: { text: string; id: number | null }[] };
+  setSpeakingId: (id: number | null) => void;
+  setToast: SetToast;
+}): ReadText {
+  const {
+    reader,
+    prefsRef,
+    voicesRef,
+    follow,
+    queue,
+    setSpeakingId,
+    setToast,
+  } = o;
+  const readRef = useRef<typeof read | null>(null);
+  const read = useCallback(
+    (
+      text: string,
+      id: number | null,
+      rootOf?: () => HTMLElement | null,
+      whole = false,
+    ) => {
+      if (!reader) {
+        return;
+      }
+      const p = prefsRef.current;
+      const l = lang();
+      const list = script(
+        text,
+        readLimit(id, whole, p.maxChars),
+        l,
+        speechWords(),
+      );
+      follow.current = true;
+      setSpeakingId(id);
+      reader.read(list, {
+        voice: pickVoice(voicesRef.current, p.voiceURI, l),
+        lang: l,
+        rate: p.rate,
+        onSentence: (i) => {
+          const root = rootOf?.();
+          const range = root && textRange(root, list[i].shown);
+          if (range) {
+            showRange(range, follow.current);
+          } else {
+            clearHighlight();
+          }
+        },
+        onEnd: (error) => {
+          clearHighlight();
+          setSpeakingId(null);
+          if (!error) {
+            const next = queue.current.shift();
+            if (next) {
+              readRef.current?.(next.text, next.id, undefined, true);
+            }
+            return;
+          }
+          queue.current = [];
+          setToast({
+            message: t("Reading aloud failed"),
+            detail: errorHint(error),
+            type: "error",
+          });
+        },
+      });
+    },
+    [reader, setToast, prefsRef, voicesRef, follow, queue, setSpeakingId],
+  );
+  readRef.current = read;
+  return read;
+}
+
+export function useSpeech({
+  messages,
+  running,
+  sessionId,
+  takeHeard,
+  setToast,
+  api,
+  stepsByTurn,
+}: Deps) {
+  const supported = useMemo(speechSupported, []);
+  const { prefs, prefsRef, setPrefs } = useSpeechPrefs();
+  const { voices, voicesRef } = useDeviceVoices(supported);
+  const [speakingId, setSpeakingId] = useState<number | null>(null);
+  const reader = useReader(supported);
+
+  // NATURAL STYLE state: the lines waiting for the voice, the lines said this turn, and a counter
+  // that a stop or a new turn bumps, so an answer from the model that comes back late is dropped.
+  const queue = useRef<{ text: string; id: number | null }[]>([]);
+  const said = useRef<string[]>([]);
+  const generation = useRef(0);
+
+  const stop = useCallback(() => {
+    queue.current = [];
+    generation.current++;
+    reader?.stop();
+    setSpeakingId(null);
+  }, [reader]);
+
+  const follow = useFollow(speakingId);
+
+  const read = useReadText({
+    reader,
+    prefsRef,
+    voicesRef,
+    follow,
+    queue,
+    setSpeakingId,
+    setToast,
+  });
+
+  // say speaks one line of the natural style, after the line being said if there is one.
+  const say = useCallback(
+    (text: string, id: number | null) => {
+      if (!text) {
+        return;
+      }
+      said.current.push(text);
+      if (reader?.reading) {
+        queue.current.push({ text, id });
+        return;
+      }
+      read(text, id, undefined, true);
+    },
+    [read, reader],
+  );
+
+  // ask asks the model for a line of this turn; null when it failed or the turn moved on.
+  const ask = useCallback(
+    async (body: Omit<NarrateBody, "lang">): Promise<string | null> => {
+      if (!api) {
+        return null;
+      }
+      const mine = generation.current;
+      try {
+        const text = await narrate(api, sessionId, { ...body, lang: lang() });
+        if (mine !== generation.current) {
+          return null;
+        }
+        return text;
+      } catch {
+        return null;
+      }
+    },
+    [api, sessionId],
+  );
+
+  // tellAnswer says an answer: its gist in the natural style, falling back to the answer itself
+  // when the model cannot be asked; word for word otherwise.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const tellAnswer = useCallback(
+    (m: Message) => {
+      const root = () => messageRoot(m.id);
+      if (prefsRef.current.style !== "natural" || !api) {
+        read(spokenText(m), m.id, root);
+        return;
+      }
+      queue.current = [];
+      generation.current++;
+      const mine = generation.current;
+      setSpeakingId(m.id);
+      void ask({
+        stage: "answer",
+        request: requestOf(messagesRef.current, m.id),
+        answer: spokenText(m),
+      }).then((text) => {
+        if (mine !== generation.current) {
+          return;
+        }
+        if (text) {
+          reader?.stop();
+          said.current.push(text);
+          read(text, m.id, undefined, true);
+          return;
+        }
+        read(spokenText(m), m.id, root);
+      });
+    },
+    [api, ask, read, reader, prefsRef],
+  );
+
+  // speak reads one answer, or stops it when it is the one being read.
+  const speak = useCallback(
+    (m: Message) => {
+      if (speakingId === m.id) {
+        stop();
+        return;
+      }
+      tellAnswer(m);
+    },
+    [tellAnswer, speakingId, stop],
+  );
+
+  // test reads a sample sentence with the settings as they are.
+  const test = useCallback(() => {
+    read(t("Hi, I am Motita. I opened the PR and the CI passed."), null);
+  }, [read]);
+
+  useReadShortcut(reader, speakingId, messagesRef, tellAnswer, stop);
+  useStopOnLeave(stop, sessionId);
+  useVoiceUnlock(supported, prefs.mode);
+  const pending = useAutoRead({
+    running,
+    messages,
+    sessionId,
+    takeHeard,
+    prefsRef,
+    said,
+    tellAnswer,
+    ask,
+    say,
+    stop,
+  });
+  useProgressLines({
+    running,
+    natural: prefs.style === "natural" && !!api,
+    stepsByTurn,
+    pending,
+    said,
+    reader,
+    ask,
+    say,
+  });
 
   return {
     supported,

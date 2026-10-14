@@ -47,25 +47,42 @@ export interface SpeechPrefs {
   maxChars: number;
 }
 
+// The lengths an answer can be read whole up to, in characters: short, medium and long.
+export const SHORT_CHARS = 300;
+export const MEDIUM_CHARS = 600;
+export const LONG_CHARS = 1500;
+
+// The speeds besides the normal one (1) and twice as fast (2).
+const SLOW_RATE = 0.75;
+const QUICK_RATE = 1.25;
+const FAST_RATE = 1.5;
+
 export const SPEECH_KEY = "motita.ui.speech";
 export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   mode: "voice",
   style: "literal",
   voiceURI: "",
   rate: 1,
-  maxChars: 600,
+  maxChars: MEDIUM_CHARS,
 };
 // SPEECH_PREFS_EVENT tells the page the settings changed in the settings screen.
 export const SPEECH_PREFS_EVENT = "motita-speech-prefs";
 
-export const RATES = [0.75, 1, 1.25, 1.5, 2];
-export const LENGTHS = [300, 600, 1500, 0];
+export const RATES = [SLOW_RATE, 1, QUICK_RATE, FAST_RATE, 2];
+export const LENGTHS = [SHORT_CHARS, MEDIUM_CHARS, LONG_CHARS, 0];
 const MODES: SpeakMode[] = ["off", "voice", "always"];
 const STYLES: SpeakStyle[] = ["literal", "natural"];
 
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
     return v as T;
+  }
+  return fallback;
+}
+
+function stringOr(v: unknown, fallback: string): string {
+  if (typeof v === "string") {
+    return v;
   }
   return fallback;
 }
@@ -77,7 +94,7 @@ export function loadSpeechPrefs(): SpeechPrefs {
     return {
       mode: oneOf(raw.mode, MODES, d.mode),
       style: oneOf(raw.style, STYLES, d.style),
-      voiceURI: typeof raw.voiceURI === "string" ? raw.voiceURI : d.voiceURI,
+      voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
     };
@@ -127,7 +144,7 @@ const PRONUNCIATIONS: Record<Lang, Record<string, string>> = {
 };
 
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 // pronounce rewrites the terms of the language's pronunciation list.
@@ -136,7 +153,9 @@ export function pronounce(text: string, lang: Lang): string {
   let out = text;
   for (const term of Object.keys(list)) {
     const re = new RegExp(
-      "(^|[^\\p{L}\\p{N}])" + escapeRegExp(term) + "(?![\\p{L}\\p{N}])",
+      String.raw`(^|[^\p{L}\p{N}])` +
+        escapeRegExp(term) +
+        String.raw`(?![\p{L}\p{N}])`,
       "gu",
     );
     out = out.replace(re, (_m, pre: string) => pre + list[term]);
@@ -159,24 +178,62 @@ function shortenPath(code: string): string {
   return parts[parts.length - 1] || code;
 }
 
+// linkTexts replaces each Markdown link, [text](address), with its text. It scans rather than
+// matching a pattern, so a line full of brackets costs no backtracking: the first "]" after a "["
+// and the first ")" after a "(" are found once and kept while the scan has not passed them.
+function linkTexts(line: string): string {
+  let out = "";
+  let copied = 0;
+  let close = -1;
+  let end = -1;
+  let at = line.indexOf("[");
+  while (at >= 0) {
+    if (close <= at) {
+      close = line.indexOf("]", at + 1);
+    }
+    if (close < 0) {
+      break;
+    }
+    if (end <= close + 1) {
+      end = line.indexOf(")", close + 2);
+    }
+    if (end < 0) {
+      // No ")" from here on: kept past the end, so it is not looked for again.
+      end = line.length;
+    }
+    const linked =
+      close > at + 1 && line[close + 1] === "(" && end < line.length;
+    if (linked) {
+      out += line.slice(copied, at) + line.slice(at + 1, close);
+      copied = end + 1;
+      at = line.indexOf("[", copied);
+    } else {
+      at = line.indexOf("[", at + 1);
+    }
+  }
+  return out + line.slice(copied);
+}
+
 // inline turns one line of Markdown into the words it shows.
 function inline(line: string, link: string): string {
-  return (
+  return linkTexts(
     line
       // Images read their description, links their text.
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replace(/\[\^[^\]]+\]/g, "")
-      .replace(/<(https?:\/\/[^>]+)>/g, () => link)
-      .replace(URL_RE, () => link)
-      .replace(/`([^`]+)`/g, (_m, code: string) => shortenPath(code))
-      .replace(/<\/?[a-zA-Z][^>]*>/g, "")
-      .replace(/(\*\*|__)(.+?)\1/g, "$2")
-      .replace(/(^|[^\p{L}\p{N}*_])[*_]([^*_\s][^*_]*?)[*_](?![\p{L}\p{N}])/gu, "$1$2")
-      .replace(/~~(.+?)~~/g, "$1")
-      .replace(/\s+/g, " ")
-      .trim()
-  );
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1"),
+  )
+    .replace(/\[\^[^\]]+\]/g, "")
+    .replace(/<(https?:\/\/[^>]+)>/g, () => link)
+    .replace(URL_RE, () => link)
+    .replace(/`([^`]+)`/g, (_m, code: string) => shortenPath(code))
+    .replace(/<\/?[a-zA-Z][^>]*>/g, "")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(
+      /(^|[^\p{L}\p{N}*_])[*_]([^*_\s][^*_]*?)[*_](?![\p{L}\p{N}])/gu,
+      "$1$2",
+    )
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // withStop ends a heading or a list item with a full stop, so it is read as a sentence of its own
@@ -188,6 +245,103 @@ function withStop(s: string): string {
   return s + ".";
 }
 
+// The characters that open a code fence: ``` or ~~~.
+const FENCE_LEN = 3;
+const HEADING_MARK = /^\s*#{1,6}\s+/;
+const ITEM_MARK = /^\s*(?:[-*+]|\d+[.)])\s+/;
+const TASK_BOX = /^\[[ xX]\]\s+/;
+
+// endOf is the first line from `from` on that closes a block, or the end of the text.
+function endOf(lines: string[], from: number, closes: (l: string) => boolean) {
+  let i = from;
+  while (i < lines.length && !closes(lines[i])) {
+    i++;
+  }
+  return i;
+}
+
+// blockAt names the block that starts at line i (a code block, a formula or a table) and says on
+// which line it ends; null when no block starts there.
+function blockAt(
+  lines: string[],
+  i: number,
+  words: SpeechWords,
+): { end: number; word: string } | null {
+  const line = lines[i];
+  if (FENCE.test(line)) {
+    const fence = line.trim().slice(0, FENCE_LEN);
+    const end = endOf(lines, i + 1, (l) => l.trim().startsWith(fence));
+    return { end, word: words.code };
+  }
+  if (line.trim() === "$$") {
+    const end = endOf(lines, i + 1, (l) => l.trim() === "$$");
+    return { end, word: words.formula };
+  }
+  if (TABLE_ROW.test(line)) {
+    const end = endOf(lines, i + 1, (l) => !TABLE_ROW.test(l)) - 1;
+    return { end, word: words.table };
+  }
+  return null;
+}
+
+// headingText is the title of a Markdown heading, without its closing hashes; null for a line
+// that is not a heading.
+function headingText(line: string): string | null {
+  const mark = HEADING_MARK.exec(line);
+  if (!mark) {
+    return null;
+  }
+  return withoutClosingHashes(line.slice(mark[0].length).trimEnd()).trimEnd();
+}
+
+// withoutClosingHashes drops the #s an ATX heading may close with ("## Title ##").
+function withoutClosingHashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "#") {
+    end--;
+  }
+  return s.slice(0, end);
+}
+
+// itemText is the text of a list item, without its bullet or task box; null for a line that is
+// not an item.
+function itemText(line: string): string | null {
+  const mark = ITEM_MARK.exec(line);
+  if (!mark) {
+    return null;
+  }
+  const rest = line.slice(mark[0].length);
+  const box = TASK_BOX.exec(rest);
+  if (box) {
+    return rest.slice(box[0].length);
+  }
+  return rest;
+}
+
+// A line of prose as it is read: a heading is a paragraph of its own, anything else joins the
+// paragraph it is in.
+interface Prose {
+  text: string;
+  own: boolean;
+}
+
+// proseLine reads one line outside a block; null for a line that ends the paragraph (blank, or a
+// horizontal rule).
+function proseLine(line: string, link: string): Prose | null {
+  if (!line.trim() || RULE.test(line)) {
+    return null;
+  }
+  const heading = headingText(line);
+  if (heading !== null) {
+    return { text: withStop(inline(heading, link)), own: true };
+  }
+  const item = itemText(line);
+  if (item !== null) {
+    return { text: withStop(inline(item, link)), own: false };
+  }
+  return { text: inline(line.replace(/^\s*(>\s*)+/, ""), link), own: false };
+}
+
 // toSpeakable is the text of an answer worth reading, as paragraphs separated by a blank line:
 // code blocks, tables and formulas are named rather than read, links read their text, addresses
 // are said to be links, and Markdown marks are dropped.
@@ -195,7 +349,6 @@ export function toSpeakable(
   markdown: string,
   words: SpeechWords = ENGLISH_WORDS,
 ): string {
-  const inline1 = (line: string) => inline(line, words.link);
   const paragraphs: string[] = [];
   let current: string[] = [];
   const flush = () => {
@@ -206,51 +359,25 @@ export function toSpeakable(
     current = [];
   };
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (FENCE.test(line)) {
-      const fence = line.trim().slice(0, 3);
-      i++;
-      while (i < lines.length && !lines[i].trim().startsWith(fence)) {
-        i++;
-      }
+  let i = 0;
+  while (i < lines.length) {
+    const block = blockAt(lines, i, words);
+    if (block) {
       flush();
-      paragraphs.push(words.code);
+      paragraphs.push(block.word);
+      i = block.end + 1;
       continue;
     }
-    if (line.trim() === "$$") {
-      i++;
-      while (i < lines.length && lines[i].trim() !== "$$") {
-        i++;
-      }
+    const prose = proseLine(lines[i], words.link);
+    if (prose === null) {
       flush();
-      paragraphs.push(words.formula);
-      continue;
-    }
-    if (TABLE_ROW.test(line)) {
-      while (i + 1 < lines.length && TABLE_ROW.test(lines[i + 1])) {
-        i++;
-      }
+    } else if (prose.own) {
       flush();
-      paragraphs.push(words.table);
-      continue;
+      paragraphs.push(prose.text);
+    } else {
+      current.push(prose.text);
     }
-    if (!line.trim() || RULE.test(line)) {
-      flush();
-      continue;
-    }
-    const heading = /^\s*#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
-    if (heading) {
-      flush();
-      paragraphs.push(withStop(inline1(heading[1])));
-      continue;
-    }
-    const item = /^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/.exec(line);
-    if (item) {
-      current.push(withStop(inline1(item[1])));
-      continue;
-    }
-    current.push(inline1(line.replace(/^\s*(>\s*)+/, "")));
+    i++;
   }
   flush();
   return paragraphs.join("\n\n");
@@ -281,12 +408,19 @@ export function limitLength(
     return head.slice(0, stop + 1) + "\n\n" + rest;
   }
   const space = head.lastIndexOf(" ");
-  return (space > 0 ? head.slice(0, space) : head) + "…\n\n" + rest;
+  let cut = head;
+  if (space > 0) {
+    cut = head.slice(0, space);
+  }
+  return cut + "…\n\n" + rest;
 }
 
 // The longest piece handed to the voice at once. Chrome stops an utterance that runs for about
 // fifteen seconds, and a short piece also starts sooner.
 const MAX_PIECE = 220;
+// A comma closer to the start than this is no place to cut: the space nearest the end is used.
+const MIN_COMMA_SHARE = 3;
+const MIN_COMMA_CUT = MAX_PIECE / MIN_COMMA_SHARE;
 
 // splitLong cuts a sentence that is too long at a comma, or at a space.
 function splitLong(s: string): string[] {
@@ -295,7 +429,7 @@ function splitLong(s: string): string[] {
   while (rest.length > MAX_PIECE) {
     const head = rest.slice(0, MAX_PIECE);
     let cut = head.lastIndexOf(", ");
-    if (cut < MAX_PIECE / 3) {
+    if (cut < MIN_COMMA_CUT) {
       cut = head.lastIndexOf(" ");
     }
     if (cut <= 0) {
@@ -362,7 +496,8 @@ export function voicesFor<V extends VoiceLike>(all: V[], lang: Lang): V[] {
   return all
     .filter((v) => speaks(v, lang))
     .sort((a, b) => {
-      const local = Number(b.localService === true) - Number(a.localService === true);
+      const local =
+        Number(b.localService === true) - Number(a.localService === true);
       return local || a.name.localeCompare(b.name);
     });
 }
@@ -376,9 +511,9 @@ export function pickVoice<V extends VoiceLike>(
 ): V | null {
   const mine = voicesFor(all, lang);
   return (
-    mine.find((v) => uri && v.voiceURI === uri) ||
-    mine.find((v) => v.default) ||
-    mine[0] ||
+    mine.find((v) => uri && v.voiceURI === uri) ??
+    mine.find((v) => v.default) ??
+    mine[0] ??
     null
   );
 }
@@ -434,7 +569,8 @@ export class Reader {
       opts.onEnd?.();
       return;
     }
-    const run = ++this.run;
+    this.run++;
+    const run = this.run;
     this.active = opts;
     const next = (i: number) => {
       if (run !== this.run) {
@@ -487,38 +623,57 @@ export class Reader {
   }
 }
 
+// FlatText is the text an element shows with its spacing collapsed, and where each of its
+// characters comes from: [node, offset].
+interface FlatText {
+  flat: string;
+  map: { node: Text; offset: number }[];
+}
+
+// flatten collapses the text of root, leaving out the interface's own buttons.
+function flatten(root: Node, doc: Document): FlatText {
+  const out: FlatText = { flat: "", map: [] };
+  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n as Text;
+    if (!text.parentElement?.closest("button")) {
+      flattenNode(text, out);
+    }
+  }
+  return out;
+}
+
+// flattenNode adds one text node to out. Every node starts as if after a space: the one before it
+// ended on one, or was given one.
+function flattenNode(text: Text, out: FlatText): void {
+  const s = text.data;
+  let last = true;
+  for (const [i, ch] of s.split("").entries()) {
+    const space = /\s/.test(ch);
+    if (space && last) {
+      continue;
+    }
+    if (space) {
+      out.flat += " ";
+    } else {
+      out.flat += ch;
+    }
+    out.map.push({ node: text, offset: i });
+    last = space;
+  }
+  if (!last) {
+    // Blocks next to each other are separate words.
+    out.flat += " ";
+    out.map.push({ node: text, offset: s.length });
+  }
+}
+
 // textRange finds a sentence in the text an element shows, ignoring spacing and the interface's
 // own buttons, and returns its range; null when it cannot be found (a code block named instead of
 // read, a pronunciation, a cut).
 export function textRange(root: Node, needle: string): Range | null {
   const doc = root.ownerDocument || (root as Document);
-  let flat = "";
-  // Each kept character of `flat` maps back to [node, offset].
-  const map: { node: Text; offset: number }[] = [];
-  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
-  let lastSpace = true;
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    const text = n as Text;
-    if (text.parentElement?.closest("button")) {
-      continue;
-    }
-    const s = text.data;
-    for (let i = 0; i < s.length; i++) {
-      const space = /\s/.test(s[i]);
-      if (space && lastSpace) {
-        continue;
-      }
-      flat += space ? " " : s[i];
-      map.push({ node: text, offset: i });
-      lastSpace = space;
-    }
-    if (!lastSpace) {
-      // Blocks next to each other are separate words.
-      flat += " ";
-      map.push({ node: text, offset: s.length });
-      lastSpace = true;
-    }
-  }
+  const { flat, map } = flatten(root, doc);
   const want = needle.replace(/\s+/g, " ").trim();
   if (!want) {
     return null;
@@ -590,8 +745,16 @@ export async function narrate(
 // leaving out the line that names the mode auto mode picked.
 export function notesOf(steps: { kind: string; text: string }[]): string[] {
   return steps
-    .filter((st) => st.text.trim() && !/^mode: /.test(st.text))
-    .map((st) => (st.kind ? st.kind + ": " : "") + st.text.trim());
+    .filter((st) => st.text.trim() && !st.text.startsWith("mode: "))
+    .map(noteOf);
+}
+
+// noteOf is one step as a note: its kind, then what it did.
+function noteOf(st: { kind: string; text: string }): string {
+  if (st.kind) {
+    return st.kind + ": " + st.text.trim();
+  }
+  return st.text.trim();
 }
 
 // When the natural style says something while the agent works: no sooner than PROGRESS_GAP_MS

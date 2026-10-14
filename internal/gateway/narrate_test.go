@@ -83,7 +83,8 @@ func TestNarrateSkipIsSilence(t *testing.T) {
 	srv := newTestServer(t, svc)
 	for _, out := range []string{"SKIP", "skip.", `"SKIP"`} {
 		svc.out = out
-		if code, text := narrate(t, srv, `{"stage":"progress","request":"x","notes":["y"]}`); code != http.StatusOK || text != "" {
+		code, text := narrate(t, srv, `{"stage":"progress","request":"x","notes":["y"]}`)
+		if code != http.StatusOK || text != "" {
 			t.Errorf("%q: %d %q", out, code, text)
 		}
 	}
