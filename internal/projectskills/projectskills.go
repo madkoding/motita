@@ -39,6 +39,8 @@
 package projectskills
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,4 +121,23 @@ func ProjectDirFor(projectDir, workspace string) string {
 		return d
 	}
 	return strings.TrimSpace(workspace)
+}
+
+// Key names a project in motita's own state (its telemetry, its tools' home): a stable, short,
+// filesystem-safe name derived from the checkout's path (the gateway's are absolute), with the folder's own name in
+// front so a person reading the directory can tell which project it is. "" for no project.
+func Key(projectDir string) string {
+	dir := strings.TrimSpace(projectDir)
+	if dir == "" {
+		return ""
+	}
+	dir = filepath.Clean(dir)
+	sum := sha256.Sum256([]byte(dir))
+	base := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, filepath.Base(dir))
+	return base + "-" + hex.EncodeToString(sum[:])[:12]
 }

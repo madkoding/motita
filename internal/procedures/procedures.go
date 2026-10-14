@@ -17,9 +17,12 @@ package procedures
 
 import (
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
@@ -96,4 +99,86 @@ func Open(cfg config.Config, log *logx.Logger) *Store {
 	// must not import internal/usage.
 	st.Library.Hidden = ul.Disabled
 	return st
+}
+
+// projectLedgers are a project's own telemetry, opened once per process: two sessions of one
+// project must share ONE in-memory ledger over the file, or each would save its view over the
+// other's (see UseStore in internal/tui).
+type projectLedgers struct {
+	reward *reward.Ledger
+	usage  *usage.Ledger
+}
+
+// projectKey is what a project's ledgers are cached under: the file and the shared ledgers they
+// are layered over (a test may open several shared stores over one directory).
+type projectKey struct {
+	dir    string
+	reward *reward.Ledger
+	usage  *usage.Ledger
+}
+
+var (
+	projectMu  sync.Mutex
+	projectLed = map[projectKey]projectLedgers{}
+)
+
+// Scoped is the store a session of a project works with: the shared library with the project's
+// documents layered over it (projectskills.Scope), and ledgers of the project's own layered over
+// the shared ones, so a verdict, a count, a pin or a switch-off of a project's document stays in
+// that project while the shared documents keep their one record. An empty projectDir is the
+// shared store itself, unscoped.
+//
+// The project's ledgers live in motita's own state, beside the shared ones, under
+// .projects/<key>: never in the project's checkout, where they would be a change to commit.
+func Scoped(shared *Store, projectDir string) *Store {
+	out := *shared
+	if shared.Library == nil {
+		return &out
+	}
+	lib := *shared.Library
+	projectskills.Scope(&lib, projectDir)
+	out.Library = &lib
+	if strings.TrimSpace(projectDir) == "" {
+		return &out
+	}
+	dir := filepath.Join(shared.Library.Root(), ProjectsDir, projectskills.Key(projectDir))
+	led := projectLedgersFor(projectKey{dir: dir, reward: shared.Ledger, usage: shared.Usage}, lib.InScope)
+	if led.reward != nil {
+		out.Ledger = led.reward
+		lib.Scorer = led.reward
+	}
+	if led.usage != nil {
+		out.Usage = led.usage
+		lib.Hidden = led.usage.Disabled
+	}
+	return &out
+}
+
+// ProjectsDir is where the projects' own ledgers are kept, inside the shared library directory.
+// It is a dot-name, so the library's index never reads it.
+const ProjectsDir = ".projects"
+
+// projectLedgersFor opens (once) the ledgers of the project at key.dir, layered over the shared
+// ones. A ledger the shared store does not have is not opened for the project either, and one
+// that cannot be read leaves the project on the shared one: a missing record is a working
+// library, as Open says.
+func projectLedgersFor(key projectKey, owns func(string) bool) projectLedgers {
+	projectMu.Lock()
+	defer projectMu.Unlock()
+	if led, ok := projectLed[key]; ok {
+		return led
+	}
+	var led projectLedgers
+	if key.reward != nil {
+		if r, err := reward.Open(filepath.Join(key.dir, ".scores.json")); err == nil {
+			led.reward = r.Over(key.reward, owns)
+		}
+	}
+	if key.usage != nil {
+		if u, err := usage.Open(filepath.Join(key.dir, ".usage.json")); err == nil {
+			led.usage = u.Over(key.usage, owns)
+		}
+	}
+	projectLed[key] = led
+	return led
 }

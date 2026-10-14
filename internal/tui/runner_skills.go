@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/procedures"
-	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
@@ -30,16 +29,11 @@ func (r *AppRunner) procedures() *procedures.Store {
 		// and plan runs use. Both fields below used to be built here directly, which is how
 		// this interface ended up with a library while two other paths promised the model one
 		// and then answered that none was configured.
-		st := procedures.Open(r.Config(), r.Log)
+		r.shared = procedures.Open(r.Config(), r.Log)
 		// A scope remembered before the store existed is applied HERE, on the way in: the
 		// gateway may name a session's project before any turn has run, and a library built
 		// afterwards must not come up unscoped just because of the order the two happened in.
-		if r.projectScope != "" && st.Library != nil {
-			lib := *st.Library
-			projectskills.Scope(&lib, r.projectScope)
-			st.Library = &lib
-		}
-		r.store = st
+		r.store = procedures.Scoped(r.shared, r.projectScope)
 	}
 	return r.store
 }
@@ -57,7 +51,11 @@ func (r *AppRunner) procedures() *procedures.Store {
 func (r *AppRunner) UseStore(st *procedures.Store) {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
+	r.shared = st
 	r.store = st
+	if st != nil && r.projectScope != "" {
+		r.store = procedures.Scoped(st, r.projectScope)
+	}
 }
 
 // rewardOrNil returns the ledger, or nil when it could not be opened.

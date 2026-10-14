@@ -96,6 +96,10 @@ type Overlay struct {
 	// read at ~/.ssh or a write anywhere), a document in it must be a regular file, it cannot
 	// shadow a shipped procedure, and what it serves is marked Untrusted.
 	Base string
+	// Fallback, when set, is a third directory read after Secondary and never written: the shared
+	// shelf behind a project's documents, for a reader layered over the project (the background
+	// review of a project session, whose front layer is the project's proposals).
+	Fallback string
 }
 
 // UntrustedNote is what the model is told before the text of an Untrusted document.
@@ -252,6 +256,9 @@ func (l *Library) layers() []string {
 	if l.Overlay == nil {
 		return []string{l.Dir}
 	}
+	if l.Overlay.Fallback != "" {
+		return []string{l.Overlay.Primary, l.Overlay.Secondary, l.Overlay.Fallback}
+	}
 	return []string{l.Overlay.Primary, l.Overlay.Secondary}
 }
 
@@ -350,9 +357,14 @@ func (l *Library) lookup(name string) (string, bool) {
 		return p, true
 	}
 	if layered {
-		p = filepath.Join(secondary, name+".md")
-		if _, err := os.Stat(p); err == nil {
-			return p, true
+		for _, dir := range []string{secondary, l.Overlay.Fallback} {
+			if dir == "" {
+				continue
+			}
+			p = filepath.Join(dir, name+".md")
+			if _, err := os.Stat(p); err == nil {
+				return p, true
+			}
 		}
 	}
 	return "", false
@@ -368,10 +380,31 @@ func (l *Library) originOf(path string) string {
 	if filepath.Dir(path) == filepath.Clean(primary) {
 		return "project"
 	}
-	if filepath.Dir(path) == filepath.Clean(secondary) {
+	if filepath.Dir(path) == filepath.Clean(secondary) || (l.Overlay.Fallback != "" &&
+		filepath.Dir(path) == filepath.Clean(l.Overlay.Fallback)) {
 		return "shared"
 	}
 	return ""
+}
+
+// InScope reports whether the named document belongs to the scope's own layer: it is in the
+// overlay's front directory, or in that directory's archive. Without an overlay nothing is in a
+// scope. It is what a project's own telemetry asks to tell its documents from the shared ones it
+// layers over, so a verdict, a pin or a switch-off of a project's document stays in that project.
+func (l *Library) InScope(name string) bool {
+	n := Name(name)
+	if l.Overlay == nil || n == "" {
+		return false
+	}
+	for _, p := range []string{
+		filepath.Join(l.Overlay.Primary, n+".md"),
+		filepath.Join(l.Overlay.Primary, archiveDir, n+".md"),
+	} {
+		if _, err := os.Lstat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // hidden reports whether a document was turned off. A library with no seam hides nothing.

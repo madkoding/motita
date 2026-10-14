@@ -74,6 +74,37 @@ type Ledger struct {
 	mu      sync.Mutex
 	entries map[string]Entry
 	dirty   bool
+
+	// parent and owns make this a LAYER: a project's own ledger over the shared one. A name this
+	// ledger has an entry for, or one owns claims (a document in the project's own directory), is
+	// answered here; every other name is the shared ledger's. See Over.
+	parent *Ledger
+	owns   func(name string) bool
+}
+
+// Over makes l the ledger of a scope layered over shared: the scope's own documents (owns) are
+// counted, pinned and switched off here, and the shared documents a scoped session reads stay
+// on the shared ledger, so the curator still sees them used. It returns l.
+//
+// It is what keeps one project's telemetry out of another's: two projects with a document of the
+// same name used to share one entry, so turning it off in one hid it in the other.
+func (l *Ledger) Over(shared *Ledger, owns func(name string) bool) *Ledger {
+	l.parent, l.owns = shared, owns
+	return l
+}
+
+// route is the ledger that answers for name: l itself, or the shared one it is layered over.
+func (l *Ledger) route(name string) *Ledger {
+	if l.parent == nil {
+		return l
+	}
+	l.mu.Lock()
+	_, mine := l.entries[name]
+	l.mu.Unlock()
+	if mine || (l.owns != nil && l.owns(name)) {
+		return l
+	}
+	return l.parent
 }
 
 // Open loads the ledger at path, or returns an empty one if there is nothing
@@ -113,6 +144,10 @@ func Open(path string) (*Ledger, error) {
 
 // BumpView records a read_skill call.
 func (l *Ledger) BumpView(name string) {
+	if t := l.route(name); t != l {
+		t.BumpView(name)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.entries[name]
@@ -128,6 +163,10 @@ func (l *Ledger) BumpView(name string) {
 // BumpUse records a skill being loaded into context: a read_skill completed. A search
 // only returns summaries nobody acted on, so it does not count.
 func (l *Ledger) BumpUse(name string) {
+	if t := l.route(name); t != l {
+		t.BumpUse(name)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.entries[name]
@@ -142,6 +181,10 @@ func (l *Ledger) BumpUse(name string) {
 
 // BumpPatch records a save_skill call. Sets CreatedBy if the entry is new.
 func (l *Ledger) BumpPatch(name string, by CreatedBy) {
+	if t := l.route(name); t != l {
+		t.BumpPatch(name, by)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.entries[name]
@@ -160,6 +203,9 @@ func (l *Ledger) BumpPatch(name string, by CreatedBy) {
 
 // Get returns the entry for a skill, or a zero Entry if none exists.
 func (l *Ledger) Get(name string) Entry {
+	if t := l.route(name); t != l {
+		return t.Get(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.entries[name]
@@ -167,9 +213,14 @@ func (l *Ledger) Get(name string) Entry {
 
 // All returns a snapshot of all entries (for the curator).
 func (l *Ledger) All() map[string]Entry {
+	out := map[string]Entry{}
+	if l.parent != nil {
+		// The shared entries first, the scope's over them: a document of the scope shadows the
+		// shared one of the same name, as it does in the library.
+		out = l.parent.All()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make(map[string]Entry, len(l.entries))
 	for k, v := range l.entries {
 		out[k] = v
 	}
@@ -178,6 +229,10 @@ func (l *Ledger) All() map[string]Entry {
 
 // SetState updates a skill's lifecycle state.
 func (l *Ledger) SetState(name string, s State) {
+	if t := l.route(name); t != l {
+		t.SetState(name, s)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.entries[name]
@@ -194,6 +249,10 @@ func (l *Ledger) SetState(name string, s State) {
 
 // SetPinned marks a skill as exempt from all auto-transitions.
 func (l *Ledger) SetPinned(name string, pinned bool) {
+	if t := l.route(name); t != l {
+		t.SetPinned(name, pinned)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.entries[name]
@@ -209,6 +268,10 @@ func (l *Ledger) SetPinned(name string, pinned bool) {
 // a state would make the curator's transitions and the user's decision the same field,
 // and the first automatic pass would move a skill the user had only switched off.
 func (l *Ledger) SetDisabled(name string, disabled bool) {
+	if t := l.route(name); t != l {
+		t.SetDisabled(name, disabled)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := l.entries[name]
@@ -220,6 +283,9 @@ func (l *Ledger) SetDisabled(name string, disabled bool) {
 // Disabled reports whether a skill was turned off. A name with no entry is not
 // disabled: asking the question must not create telemetry for a skill nobody has.
 func (l *Ledger) Disabled(name string) bool {
+	if t := l.route(name); t != l {
+		return t.Disabled(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.entries[name].Disabled
@@ -235,6 +301,10 @@ func (l *Ledger) Disabled(name string) bool {
 // Forgetting a name that has no entry is not an error: the caller asked for an absence and an
 // absence is what it has. It must not create one either.
 func (l *Ledger) Forget(name string) {
+	if t := l.route(name); t != l {
+		t.Forget(name)
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if _, ok := l.entries[name]; !ok {
@@ -247,6 +317,9 @@ func (l *Ledger) Forget(name string) {
 // IsCuratorManaged returns true if the skill may be touched by autonomous
 // curation. Mirrors Hermes' rule: only created_by="agent" qualifies.
 func (l *Ledger) IsCuratorManaged(name string) bool {
+	if t := l.route(name); t != l {
+		return t.IsCuratorManaged(name)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e, ok := l.entries[name]
@@ -271,8 +344,20 @@ var osCreateTemp = os.CreateTemp
 // never fails, so the error path is unreachable without the seam.
 var closeFile = func(f *os.File) error { return f.Close() }
 
-// Save writes the ledger atomically if it has changed since the last save.
+// Save writes the ledger atomically if it has changed since the last save, and the shared one a
+// scope is layered over, where the shared documents' counts went.
 func (l *Ledger) Save() error {
+	err := l.save()
+	if l.parent != nil {
+		if perr := l.parent.Save(); err == nil {
+			err = perr
+		}
+	}
+	return err
+}
+
+// save writes this ledger alone.
+func (l *Ledger) save() error {
 	l.mu.Lock()
 	if !l.dirty || l.Path == "" {
 		l.mu.Unlock()

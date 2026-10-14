@@ -50,8 +50,11 @@ type Review struct {
 	log         *logx.Logger
 	buildRunner RunnerBuilder
 	mu          sync.Mutex
-	running     bool
-	cancel      context.CancelFunc
+	running     int
+	// cancel is the in-flight review of each scope (a project's library, or the shared one): a
+	// new turn of a project cancels that project's review and no other, so one project's busy
+	// session cannot keep another's from ever being reviewed.
+	cancel map[string]context.CancelFunc
 }
 
 // New creates a background review fork. The engine may be a separate, cheaper
@@ -65,40 +68,59 @@ func New(
 
 // MaybeRun triggers a review if enough tool-iterations have elapsed since the
 // last save_skill. Non-blocking: the review runs in a goroutine and the caller
-// returns immediately. A new turn cancels any in-flight review.
-func (r *Review) MaybeRun(transcript []llm.Message, itersSinceSkill int) {
+// returns immediately. A new turn of the same scope cancels its in-flight review.
+//
+// procs is the store of the session whose turn this was: a project's library and ledgers when
+// the session belongs to one, so what the review reads is that project's shelf and what it
+// proposes waits in that project. Nil is the store the review was built with.
+func (r *Review) MaybeRun(procs *procedures.Store, transcript []llm.Message, itersSinceSkill int) {
 	if !r.cfg.Enabled {
 		return
 	}
 	if itersSinceSkill < r.cfg.Interval {
 		return
 	}
+	if procs == nil {
+		procs = r.procs
+	}
+	scope := scopeOf(procs)
 
-	// Cancel any in-flight review: a new turn takes priority.
+	// Cancel the scope's in-flight review: a new turn takes priority.
 	r.mu.Lock()
-	if r.cancel != nil {
-		r.cancel()
+	if r.cancel == nil {
+		r.cancel = map[string]context.CancelFunc{}
+	}
+	if cancel := r.cancel[scope]; cancel != nil {
+		cancel()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.Timeout)
-	r.cancel = cancel
-	r.running = true
+	r.cancel[scope] = cancel
+	r.running++
 	r.mu.Unlock()
 
 	// Copy the transcript so the goroutine owns its own snapshot.
 	msgs := make([]llm.Message, len(transcript))
 	copy(msgs, transcript)
 
-	go r.run(ctx, msgs)
+	go r.run(ctx, procs, msgs)
 }
 
-func (r *Review) run(ctx context.Context, transcript []llm.Message) {
+// scopeOf names the library a store serves: the project's own directory, or "" for the shared one.
+func scopeOf(procs *procedures.Store) string {
+	if procs.Library != nil && procs.Library.Overlay != nil {
+		return procs.Library.Overlay.Primary
+	}
+	return ""
+}
+
+func (r *Review) run(ctx context.Context, procs *procedures.Store, transcript []llm.Message) {
 	defer func() {
 		r.mu.Lock()
-		r.running = false
+		r.running--
 		r.mu.Unlock()
 	}()
 
-	runner := r.buildRunner(r.engine, proposalStore(r.procs), reviewSystemPrompt, r.cfg.MaxIterations)
+	runner := r.buildRunner(r.engine, proposalStore(procs), reviewSystemPrompt, r.cfg.MaxIterations)
 
 	userMsg := buildReviewInput(transcript)
 	result, err := runner.Run(ctx, userMsg)
@@ -117,8 +139,8 @@ func (r *Review) run(ctx context.Context, transcript []llm.Message) {
 	}
 
 	// Persist usage telemetry.
-	if r.procs.Usage != nil {
-		if err := r.procs.Usage.Save(); err != nil {
+	if procs.Usage != nil {
+		if err := procs.Usage.Save(); err != nil {
 			r.log.Warn("usage ledger save failed after review", "error", err)
 		}
 	}
@@ -142,7 +164,15 @@ func proposalStore(procs *procedures.Store) *procedures.Store {
 		return &procedures.Store{Ledger: procs.Ledger}
 	}
 	lib := *procs.Library
-	lib.Overlay = &skills.Overlay{Primary: filepath.Join(lib.Root(), ProposedDir), Secondary: lib.Root()}
+	if front := procs.Library.Overlay; front != nil {
+		// A project's session: it proposes into the PROJECT, beside the project's documents, and
+		// reads the project's documents before the shared shelf - the same shelf its session
+		// read. Accepting the proposal from that session puts it in the project.
+		lib.Overlay = &skills.Overlay{Primary: filepath.Join(front.Primary, ProposedDir), Secondary: front.Primary,
+			Fallback: front.Secondary, Base: front.Base}
+	} else {
+		lib.Overlay = &skills.Overlay{Primary: filepath.Join(lib.Root(), ProposedDir), Secondary: lib.Root()}
+	}
 	return &procedures.Store{Library: &lib, Ledger: procs.Ledger}
 }
 
@@ -175,7 +205,7 @@ func buildReviewInput(transcript []llm.Message) string {
 func (r *Review) IsRunning() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.running
+	return r.running > 0
 }
 
 // Wait blocks until any in-flight review completes or the timeout elapses.

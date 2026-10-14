@@ -69,7 +69,7 @@ func fork(t *testing.T, procs *procedures.Store, log *logx.Logger, mk func(*proc
 	r := New(cfg(), nil, procs, log, func(_ *llm.Client, store *procedures.Store, _ string, _ int) SkillRunner {
 		return mk(store)
 	})
-	r.MaybeRun([]llm.Message{{Role: "user", Content: "hi"}}, 1)
+	r.MaybeRun(nil, []llm.Message{{Role: "user", Content: "hi"}}, 1)
 	r.Wait(5 * time.Second)
 	if r.IsRunning() {
 		t.Fatal("the review did not finish")
@@ -122,5 +122,38 @@ func TestReviewInputMarksToolOutputAsUntrusted(t *testing.T) {
 	}
 	if !strings.Contains(reviewSystemPrompt, "PROPOSAL") {
 		t.Error("the prompt must say saves are proposals")
+	}
+}
+
+// A project session's review reads the project's shelf and the shared one, and proposes into the
+// project: never onto the shared shelf, and never into another project.
+func TestAProjectsReviewProposesIntoTheProject(t *testing.T) {
+	shared := newStore(t)
+	project := filepath.Join(t.TempDir(), "shop")
+	front := filepath.Join(project, ".motita", "skills")
+	lib := *shared.Library
+	lib.Overlay = &skills.Overlay{Primary: front, Secondary: shared.Library.Dir, Base: project}
+	scoped := &procedures.Store{Library: &lib, Usage: shared.Usage}
+	if scopeOf(scoped) != front || scopeOf(shared) != "" {
+		t.Fatal("scopeOf")
+	}
+	if err := os.WriteFile(filepath.Join(shared.Library.Dir, "common.md"), []byte("# Common\n\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var seen *procedures.Store
+	r := New(cfg(), nil, shared, quietLog(t), func(_ *llm.Client, store *procedures.Store, _ string, _ int) SkillRunner {
+		seen = store
+		return &savingRunner{store: store, save: "deploy"}
+	})
+	r.MaybeRun(scoped, []llm.Message{{Role: "user", Content: "hi"}}, 1)
+	r.Wait(5 * time.Second)
+	if _, err := os.Stat(filepath.Join(front, ProposedDir, "deploy.md")); err != nil {
+		t.Errorf("the proposal waits in the project: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(shared.Library.Dir, ProposedDir, "deploy.md")); err == nil {
+		t.Error("a project's proposal reached the shared shelf")
+	}
+	if _, err := seen.Library.Get("common"); err != nil {
+		t.Errorf("the review still reads the shared shelf: %v", err)
 	}
 }

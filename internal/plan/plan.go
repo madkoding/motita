@@ -463,7 +463,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			// The fork runs only when enough tool-iterations elapsed without a
 			// save_skill, so a turn that already saved a skill is not re-reviewed.
 			if p.review != nil {
-				p.review.MaybeRun(sess.Messages(), p.itersSinceSkill)
+				p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
 			}
 			return answer, nil
 		}
@@ -507,7 +507,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	answer := p.finalize(reply)
 	sess.Append(llm.Message{Role: "assistant", Content: answer})
 	if p.review != nil {
-		p.review.MaybeRun(sess.Messages(), p.itersSinceSkill)
+		p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
 	}
 	return answer, nil
 }

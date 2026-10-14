@@ -10,19 +10,26 @@ import (
 )
 
 // ProposedDir is where a document waits for the user before any session can read it: inside
-// the shared directory, under a dot-name the index never reads. The background review saves
+// the directory the library writes to (the shared one, or a project's own when the library is
+// scoped to it), under a dot-name the index never reads. The background review saves
 // there, because what it read (tool output, files, web pages) may have been written to steer it.
 const ProposedDir = ".proposed"
 
 // proposalPath is where the proposal called n is kept.
 func (l *Library) proposalPath(n string) string {
-	return filepath.Join(l.Root(), ProposedDir, n+".md")
+	return filepath.Join(l.writeDir(), ProposedDir, n+".md")
 }
 
 // Proposed lists the documents waiting for the user, sorted. A directory that is not there
 // holds none.
 func (l *Library) Proposed() ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(l.Root(), ProposedDir))
+	dir := filepath.Join(l.writeDir(), ProposedDir)
+	// A project's proposals are inside its checkout, and a repository can ship the folder as a
+	// link: what it points at is not a proposal.
+	if l.inFront(dir) && !l.realDirs(dir) {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -60,8 +67,9 @@ func (l *Library) Proposal(name string) (Skill, error) {
 	return s, nil
 }
 
-// AcceptProposal moves a proposed document onto the shared shelf, replacing a document of the
-// same name there: a proposal that patches a skill is a new version of it.
+// AcceptProposal moves a proposed document onto the shelf it was proposed for - the shared one,
+// or the project's own when the library is scoped - replacing a document of the same name there:
+// a proposal that patches a skill is a new version of it.
 func (l *Library) AcceptProposal(name string) error {
 	n := Name(name)
 	if n == "" {
@@ -71,7 +79,9 @@ func (l *Library) AcceptProposal(name string) error {
 	if err != nil {
 		return err
 	}
-	if err := renameFile(p, filepath.Join(l.Root(), n+".md")); err != nil {
+	// No link check of its own: regularProposal refused a proposal whose folder - the shelf's
+	// own, one level up - is reached through a link, so the shelf is a real directory here.
+	if err := renameFile(p, filepath.Join(l.writeDir(), n+".md")); err != nil {
 		return fmt.Errorf("could not accept the skill %q: %w", n, err)
 	}
 	return nil
@@ -98,7 +108,7 @@ func (l *Library) RejectProposal(name string) error {
 func (l *Library) regularProposal(n string) (string, error) {
 	p := l.proposalPath(n)
 	info, err := os.Lstat(p)
-	if err != nil || !info.Mode().IsRegular() {
+	if err != nil || !info.Mode().IsRegular() || (l.inFront(p) && !l.realDirs(filepath.Dir(p))) {
 		return "", fmt.Errorf("%w: no proposed skill %q", ErrNotFound, n)
 	}
 	return p, nil
