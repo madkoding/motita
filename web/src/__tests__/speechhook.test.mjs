@@ -87,17 +87,18 @@ const user = (id) => ({ id, role: "user", text: "do it" });
 const answer = (id, text = "All done. Tests pass.") => ({ id, role: "agent", text });
 
 // mount renders the hook with props the test changes, and hands back what it returned.
-async function mount(mode, heard = false) {
+async function mount(mode, heard = false, extra = {}) {
+  const { style = "literal", ...props0 } = extra;
   localStorage.setItem(
     SPEECH_KEY,
-    JSON.stringify({ mode, voiceURI: "", rate: 1, maxChars: 600 }),
+    JSON.stringify({ mode, style, voiceURI: "", rate: 1, maxChars: 600 }),
   );
   synth.said = [];
   synth.cancels = 0;
   const root = document.createElement("div");
   document.body.appendChild(root);
   const state = { toasts: [], current: null, heard };
-  let props = { messages: [user(1)], running: false, sessionId: "s1" };
+  let props = { messages: [user(1)], running: false, sessionId: "s1", ...props0 };
   function Host(p) {
     state.current = useSpeech({
       ...p,
@@ -243,5 +244,109 @@ test("a failure of the voice is reported, and says what to do when the browser w
     ["ana"],
     "the voices of the interface language",
   );
+  await s.done();
+});
+
+// fakeNarrator answers the narrate endpoint with one line per stage, and records what it was asked.
+function fakeNarrator(lines, fail = false) {
+  const asked = [];
+  const api = async (path, init) => {
+    const body = JSON.parse(init.body);
+    asked.push({ path, ...body });
+    if (fail) {
+      return new Response("{}", { status: 502 });
+    }
+    return new Response(JSON.stringify({ text: lines[body.stage] ?? "" }), {
+      status: 200,
+    });
+  };
+  return { api, asked };
+}
+
+// flush lets the requests and their answers settle.
+const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+test("natural: a line when the turn starts, one while it works, and the gist at the end", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  const n = fakeNarrator({
+    start: "Dale, lo reviso.",
+    progress: "Estoy corriendo los tests.",
+    answer: "Listo: todo pasa.",
+  });
+  const s = await mount("always", false, { style: "natural", api: n.api });
+  await s.set({ running: true, messages: [user(1)] });
+  await flush();
+  assert.deepEqual(n.asked.map((a) => a.stage), ["start"]);
+  assert.equal(n.asked[0].request, "do it");
+  assert.equal(n.asked[0].path, "/v1/sessions/s1/narrate");
+  assert.deepEqual(synth.said.map((u) => u.text), ["Dale, lo reviso."]);
+  await act(() => synth.finish());
+
+  // Nothing new: no progress line, however long it waits.
+  t.mock.timers.tick(20000);
+  await flush();
+  assert.deepEqual(n.asked.map((a) => a.stage), ["start"]);
+
+  await s.set({
+    stepsByTurn: { 1: [{ kind: "command", text: "go test ./..." }] },
+  });
+  t.mock.timers.tick(20000);
+  await flush();
+  assert.deepEqual(n.asked.map((a) => a.stage), ["start", "progress"]);
+  assert.deepEqual(n.asked[1].notes, ["command: go test ./..."]);
+  assert.deepEqual(n.asked[1].said, ["Dale, lo reviso."], "what was said is not repeated");
+  assert.equal(synth.said.at(-1).text, "Estoy corriendo los tests.");
+  await act(() => synth.finish());
+
+  await s.set({ running: false, messages: [user(1), answer(2, "## Long\nAll done.")] });
+  await flush();
+  assert.equal(n.asked.at(-1).stage, "answer");
+  assert.equal(n.asked.at(-1).answer, "## Long\nAll done.");
+  assert.equal(synth.said.at(-1).text, "Listo: todo pasa.");
+  assert.equal(s.state.current.speakingId, 2, "the answer's button shows it is being told");
+  await s.done();
+});
+
+test("natural: a line that comes while another is said waits its turn", async () => {
+  const n = fakeNarrator({ answer: "Gist." });
+  const s = await mount("off", false, { style: "natural", api: n.api });
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.equal(synth.said.at(-1).text, "Gist.");
+  // A second line arriving during it is queued, then said when it ends.
+  await act(() => s.state.current.speak(answer(3, "x")));
+  await flush();
+  assert.equal(synth.said.at(-1).text, "Gist.");
+  await s.done();
+});
+
+test("natural: when the model cannot be asked, the answer is read word for word", async () => {
+  const n = fakeNarrator({}, true);
+  const s = await mount("always", false, { style: "natural", api: n.api });
+  await s.set({ running: true, messages: [user(1)] });
+  await flush();
+  assert.equal(synth.said.length, 0, "no start line");
+  await s.set({ running: false, messages: [user(1), answer(2)] });
+  await flush();
+  assert.deepEqual(synth.said.map((u) => u.text), ["All done."]);
+  await s.done();
+});
+
+test("natural: the button tells the gist; pressing it again stops, and a late line is dropped", async () => {
+  const n = fakeNarrator({ answer: "Todo bien." });
+  const s = await mount("off", false, { style: "natural", api: n.api });
+  await s.set({ messages: [user(1), answer(2)] });
+  await act(() => s.state.current.speak(answer(2)));
+  assert.equal(s.state.current.speakingId, 2, "busy while the line is asked for");
+  await act(() => s.state.current.speak(answer(2)));
+  assert.equal(s.state.current.speakingId, null);
+  await flush();
+  assert.equal(synth.said.length, 0, "the line that came after the stop is not said");
+  assert.equal(n.asked[0].request, "do it", "the question the answer belongs to");
+
+  await act(() => s.state.current.speak(answer(2)));
+  await flush();
+  assert.deepEqual(synth.said.map((u) => u.text), ["Todo bien."]);
   await s.done();
 });

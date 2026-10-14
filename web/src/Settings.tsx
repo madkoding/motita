@@ -37,6 +37,7 @@ import {
   LENGTHS,
   RATES,
   type SpeakMode,
+  type SpeakStyle,
   type SpeechPrefs,
   type VoiceLike,
 } from "./speech";
@@ -177,6 +178,30 @@ function SpeechSettings({
               { value: "off", label: t("Off") },
               { value: "voice", label: t("When I spoke") },
               { value: "always", label: t("Always") },
+            ]}
+          />
+        </Row>
+        <Row
+          id="settings-speak-style"
+          label={t("What it says")}
+          stack
+          hint={choose(
+            prefs.style === "natural",
+            t(
+              "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
+            ),
+            t("Word for word: the answer as it is written."),
+          )}
+        >
+          <Segmented<SpeakStyle>
+            name="settings-speak-style"
+            labelledBy="settings-speak-style"
+            value={prefs.style}
+            disabled={off}
+            onChange={(style) => set({ style })}
+            options={[
+              { value: "literal", label: t("Word for word") },
+              { value: "natural", label: t("Natural") },
             ]}
           />
         </Row>

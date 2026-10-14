@@ -1213,8 +1213,7 @@ in the file.
 ### Reading answers aloud
 
 The browser interface reads the agent's answers with the **voices of the device** (the Web Speech
-API's `speechSynthesis`). Nothing is configured on the gateway and nothing is sent to it: the
-browser speaks the text itself. Some browsers offer remote voices of their own (Chrome's "Google"
+API's `speechSynthesis`). Nothing is configured on the gateway: the browser speaks the text itself. Some browsers offer remote voices of their own (Chrome's "Google"
 voices); the device's local ones are listed first.
 
 - The speaker button on an answer, or **Alt+L** for the last one, reads it or stops it.
@@ -1226,6 +1225,18 @@ voices); the device's local ones are listed first.
   read their last name, and Spanish voices say acronyms such as PR or CI the way they are spoken.
 - The sentence being read is highlighted and kept in view until you scroll by hand.
 - Dictating stops the voice, and hands-free listening drops what it records while Motita speaks.
+- **What it says** picks the style. *Word for word* reads the answer as written. *Natural*
+  talks about the turn instead, like a colleague: a short line when the agent starts, a line now
+  and then about what it is doing while it works (only when it did something new), and the gist
+  of the answer when it ends, leaving the details on screen. Each line is one short call to the
+  session's own model, made in parallel with the run and never part of the conversation. When the
+  model cannot be asked, the answer is read word for word.
+
+The natural style asks the gateway for each line:
+
+| Endpoint                         | What it does                                                                                                                                                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/sessions/{id}/narrate` | One spoken line about the turn: `stage` (`start`, `progress` or `answer`), `lang`, `request`, and `notes` and `said` (progress) or `answer`. Answers `{"text": …}`, empty when there is nothing new; `501` when the session's model cannot be asked. |
 
 Unlike the microphone, reading aloud works on any address, https or not. Safari speaks only after
 a first tap on the page.

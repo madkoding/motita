@@ -981,6 +981,13 @@ const es: Record<string, string> = {
   Whole: "Completa",
   "Try the voice": "Probar la voz",
   Try: "Probar",
+  "What it says": "Qué dice",
+  "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.":
+    "Natural: el modelo de la sesión te cuenta qué hace el agente mientras trabaja y, al final, lo esencial de la respuesta. Cada frase es una llamada corta extra al modelo.",
+  "Word for word: the answer as it is written.":
+    "Tal cual: la respuesta como está escrita.",
+  "Word for word": "Tal cual",
+  Natural: "Natural",
 };
 
 export default es;

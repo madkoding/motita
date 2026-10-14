@@ -7,6 +7,7 @@
 // reading out of an answer, how it is cut into sentences, how words are pronounced, which voice is
 // used, and the reader that speaks the sentences one after another.
 import type { Lang } from "./i18n";
+import type { Api } from "./prApi";
 
 // The words said in place of what is not read. The page passes them translated; this module does
 // not import the translations, so it runs in a test as it is.
@@ -29,9 +30,15 @@ export const ENGLISH_WORDS: SpeechWords = {
 // heard after the wake phrase), or always.
 export type SpeakMode = "off" | "voice" | "always";
 
+// What is said: the answer word for word, or, in the natural style, short lines the session's
+// model writes about the turn (when it starts, now and then while the agent works, and the gist
+// of the answer when it ends).
+export type SpeakStyle = "literal" | "natural";
+
 // The read-aloud settings, kept in this browser only: voices are a property of the device.
 export interface SpeechPrefs {
   mode: SpeakMode;
+  style: SpeakStyle;
   // voiceURI is the chosen voice; empty picks the device's own for the interface language.
   voiceURI: string;
   rate: number;
@@ -43,6 +50,7 @@ export interface SpeechPrefs {
 export const SPEECH_KEY = "motita.ui.speech";
 export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   mode: "voice",
+  style: "literal",
   voiceURI: "",
   rate: 1,
   maxChars: 600,
@@ -53,6 +61,7 @@ export const SPEECH_PREFS_EVENT = "motita-speech-prefs";
 export const RATES = [0.75, 1, 1.25, 1.5, 2];
 export const LENGTHS = [300, 600, 1500, 0];
 const MODES: SpeakMode[] = ["off", "voice", "always"];
+const STYLES: SpeakStyle[] = ["literal", "natural"];
 
 function oneOf<T>(v: unknown, list: T[], fallback: T): T {
   if (list.includes(v as T)) {
@@ -67,6 +76,7 @@ export function loadSpeechPrefs(): SpeechPrefs {
     const d = DEFAULT_SPEECH_PREFS;
     return {
       mode: oneOf(raw.mode, MODES, d.mode),
+      style: oneOf(raw.style, STYLES, d.style),
       voiceURI: typeof raw.voiceURI === "string" ? raw.voiceURI : d.voiceURI,
       rate: oneOf(raw.rate, RATES, d.rate),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
@@ -540,4 +550,59 @@ export function voiceBusy(): boolean {
   const synth = (globalThis as { speechSynthesis?: { speaking?: boolean } })
     .speechSynthesis;
   return synth?.speaking === true;
+}
+
+// NATURAL STYLE: the lines the session's model writes about a turn.
+
+export type NarrateStage = "start" | "progress" | "answer";
+
+export interface NarrateBody {
+  stage: NarrateStage;
+  lang: Lang;
+  request: string;
+  notes?: string[];
+  said?: string[];
+  answer?: string;
+}
+
+// narrate asks the gateway what to say; "" means nothing is worth saying. A refusal throws.
+export async function narrate(
+  api: Api,
+  sessionId: string,
+  body: NarrateBody,
+): Promise<string> {
+  const res = await api(
+    "/v1/sessions/" + encodeURIComponent(sessionId) + "/narrate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error("HTTP " + res.status);
+  }
+  const out = (await res.json()) as { text?: string };
+  return (out.text || "").trim();
+}
+
+// notesOf turns the steps of a run into the notes the model is told about: what each step did,
+// leaving out the line that names the mode auto mode picked.
+export function notesOf(steps: { kind: string; text: string }[]): string[] {
+  return steps
+    .filter((st) => st.text.trim() && !/^mode: /.test(st.text))
+    .map((st) => (st.kind ? st.kind + ": " : "") + st.text.trim());
+}
+
+// When the natural style says something while the agent works: no sooner than PROGRESS_GAP_MS
+// after the last line, and only when the run has done something new since.
+export const PROGRESS_GAP_MS = 15000;
+
+export function progressDue(
+  now: number,
+  lastAt: number,
+  notes: number,
+  lastNotes: number,
+): boolean {
+  return notes > lastNotes && now - lastAt >= PROGRESS_GAP_MS;
 }

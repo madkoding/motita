@@ -118,6 +118,8 @@ export function useAppStore(api: Api) {
     sessionId: rs.sessionId,
     takeHeard: voice.takeHeard,
     setToast,
+    api,
+    stepsByTurn: rs.stepsByTurn,
   });
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();

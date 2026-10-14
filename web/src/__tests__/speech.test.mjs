@@ -15,20 +15,21 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
   localStorage.clear();
   assert.deepEqual(m.loadSpeechPrefs(), m.DEFAULT_SPEECH_PREFS);
   assert.equal(m.DEFAULT_SPEECH_PREFS.mode, "voice");
+  assert.equal(m.DEFAULT_SPEECH_PREFS.style, "literal", "word for word unless asked");
   let heard = 0;
   globalThis.window = dom.window;
   globalThis.CustomEvent = dom.window.CustomEvent;
   dom.window.addEventListener(m.SPEECH_PREFS_EVENT, () => {
     heard += 1;
   });
-  const p = { mode: "always", voiceURI: "v1", rate: 1.5, maxChars: 0 };
+  const p = { mode: "always", style: "natural", voiceURI: "v1", rate: 1.5, maxChars: 0 };
   m.saveSpeechPrefs(p);
   assert.deepEqual(m.loadSpeechPrefs(), p);
   assert.equal(heard, 1, "the page is told the settings changed");
   // A value this version does not know falls back to the default, one field at a time.
   localStorage.setItem(
     m.SPEECH_KEY,
-    JSON.stringify({ mode: "loud", voiceURI: 3, rate: 9, maxChars: 600 }),
+    JSON.stringify({ mode: "loud", style: "poem", voiceURI: 3, rate: 9, maxChars: 600 }),
   );
   assert.deepEqual(m.loadSpeechPrefs(), { ...m.DEFAULT_SPEECH_PREFS, maxChars: 600 });
   localStorage.setItem(m.SPEECH_KEY, "{not json");
@@ -290,4 +291,43 @@ test("the microphone asks for silence, and the device says whether it is speakin
   globalThis.speechSynthesis = { speaking: true };
   assert.equal(m.voiceBusy(), true);
   delete globalThis.speechSynthesis;
+});
+
+test("natural style: the notes are what the steps did, without the mode line", () => {
+  assert.deepEqual(
+    m.notesOf([
+      { kind: "step", text: "mode: plan (question)" },
+      { kind: "command", text: " go test ./... " },
+      { kind: "", text: "read the CI log" },
+      { kind: "thought", text: "  " },
+    ]),
+    ["command: go test ./...", "read the CI log"],
+  );
+});
+
+test("natural style: a progress line waits for something new and for the gap", () => {
+  const gap = m.PROGRESS_GAP_MS;
+  assert.equal(m.progressDue(gap, 0, 3, 2), true);
+  assert.equal(m.progressDue(gap - 1, 0, 3, 2), false, "too soon");
+  assert.equal(m.progressDue(gap, 0, 2, 2), false, "nothing new");
+});
+
+test("natural style: the line is asked of the session, and a refusal throws", async () => {
+  const calls = [];
+  const api = async (path, init) => {
+    calls.push({ path, init });
+    if (path.includes("bad")) {
+      return new Response("{}", { status: 502 });
+    }
+    return new Response(JSON.stringify({ text: "  Listo.  " }), { status: 200 });
+  };
+  const body = { stage: "start", lang: "es", request: "revisa" };
+  assert.equal(await m.narrate(api, "s 1", body), "Listo.");
+  assert.equal(calls[0].path, "/v1/sessions/s%201/narrate");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(calls[0].init.body), body);
+  await assert.rejects(m.narrate(api, "bad", body), /HTTP 502/);
+  const empty = async () => new Response("{}", { status: 200 });
+  assert.equal(await m.narrate(empty, "s", body), "");
 });
