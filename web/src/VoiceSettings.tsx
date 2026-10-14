@@ -3,15 +3,20 @@ import { InsecureWarning } from "./InsecureWarning";
 import { lang, t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
+  type MicPermission,
+  type PermissionStatusLike,
   type VoiceChange,
   type VoiceInfo,
   type VoicePrefs,
   type VoiceState,
   VOICE_PRESETS,
+  isPermissionRefused,
   micNamesHidden,
   micOptions,
+  micPermissionOf,
   parsePhrases,
   putVoice,
+  queryMicPermission,
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
@@ -626,12 +631,7 @@ function mediaDevices(): MediaDevicesLike | undefined {
 }
 
 // micHint explains the microphone picker for the state it is in.
-function micHint(denied: boolean, gone: boolean, hidden: boolean): string {
-  if (denied) {
-    return t(
-      "The browser was not allowed to use the microphone: allow it in this site's settings, then try again.",
-    );
-  }
+function micHint(gone: boolean, hidden: boolean): string {
   if (gone) {
     return t(
       "The chosen microphone is not connected: the default one is used.",
@@ -643,8 +643,8 @@ function micHint(denied: boolean, gone: boolean, hidden: boolean): string {
   return t("Used for dictation and the wake phrase, on this device only.");
 }
 
-// MicPicker chooses the microphone this device records with. The browser hides the names until
-// the page has been allowed to use one, so it offers to ask first.
+// MicPicker chooses the microphone this device records with. It is only usable once the browser
+// allowed the microphone, which is also when it shows their names.
 function MicPicker({
   usable,
   deviceId,
@@ -657,7 +657,6 @@ function MicPicker({
   const [devices, setDevices] = useState<
     { kind: string; deviceId: string; label: string }[]
   >([]);
-  const [denied, setDenied] = useState(false);
   const read = useCallback(async () => {
     const md = mediaDevices();
     if (!md?.enumerateDevices) {
@@ -679,23 +678,6 @@ function MicPicker({
     md?.addEventListener?.("devicechange", onChange);
     return () => md?.removeEventListener?.("devicechange", onChange);
   }, [usable, read]);
-  const allow = async () => {
-    const md = mediaDevices();
-    if (!md?.getUserMedia) {
-      setDenied(true);
-      return;
-    }
-    try {
-      const stream = await md.getUserMedia({ audio: true });
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-      setDenied(false);
-      await read();
-    } catch {
-      setDenied(true);
-    }
-  };
   const options = micOptions(devices, (n) => tf("Microphone {n}", { n }));
   const hidden = micNamesHidden(devices);
   const gone =
@@ -704,43 +686,99 @@ function MicPicker({
     <Row
       id="settings-mic-device"
       label={t("Microphone")}
-      hint={choose(usable, micHint(denied, gone, hidden), undefined)}
+      hint={choose(usable, micHint(gone, hidden), undefined)}
     >
-      <div class="flex gap-2 items-center">
-        {usable && hidden && (
-          <button
-            type="button"
-            class={smallBtn}
-            data-testid="mic-allow"
-            onClick={() => void allow()}
-          >
-            {t("Allow")}
-          </button>
-        )}
-        <select
-          class={inputCls + " max-w-[220px]"}
-          aria-labelledby="settings-mic-device"
-          data-testid="mic-device"
-          disabled={!usable}
-          value={deviceId}
-          onChange={(e) => onPick((e.target as HTMLSelectElement).value)}
-        >
-          <option value="">{t("System default")}</option>
-          {gone && <option value={deviceId}>{t("Not connected")}</option>}
-          {options.map((o) => (
-            <option key={o.deviceId} value={o.deviceId}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <select
+        class={inputCls + " max-w-[220px]"}
+        aria-labelledby="settings-mic-device"
+        data-testid="mic-device"
+        disabled={!usable}
+        value={deviceId}
+        onChange={(e) => onPick((e.target as HTMLSelectElement).value)}
+      >
+        <option value="">{t("System default")}</option>
+        {gone && <option value={deviceId}>{t("Not connected")}</option>}
+        {options.map((o) => (
+          <option key={o.deviceId} value={o.deviceId}>
+            {o.label}
+          </option>
+        ))}
+      </select>
     </Row>
+  );
+}
+
+// useMicPermission follows the browser's answer about the microphone, and asks for it. It only
+// asks the browser where the page can record at all (askable). null is before the browser said.
+function useMicPermission(askable: boolean) {
+  const [permission, setPermission] = useState<MicPermission | null>(null);
+  const [missing, setMissing] = useState(false);
+  useEffect(() => {
+    if (!askable) {
+      return undefined;
+    }
+    let live = true;
+    let status: PermissionStatusLike | undefined;
+    const onChange = () => {
+      if (status) {
+        setPermission(micPermissionOf(status.state));
+      }
+    };
+    void queryMicPermission(globalThis.navigator as never).then((r) => {
+      if (!live) {
+        return;
+      }
+      status = r.status;
+      setPermission(r.state);
+      status?.addEventListener?.("change", onChange);
+    });
+    return () => {
+      live = false;
+      status?.removeEventListener?.("change", onChange);
+    };
+  }, [askable]);
+  const ask = useCallback(async () => {
+    const md = mediaDevices();
+    if (!md?.getUserMedia) {
+      return;
+    }
+    try {
+      const stream = await md.getUserMedia({ audio: true });
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      setMissing(false);
+      setPermission("granted");
+    } catch (e) {
+      if (isPermissionRefused(e)) {
+        setPermission("denied");
+      } else {
+        setMissing(true);
+      }
+    }
+  }, []);
+  return { permission, missing, ask };
+}
+
+// permissionHint says why the voice settings wait for the microphone, and what to do.
+function permissionHint(permission: MicPermission, missing: boolean): string {
+  if (permission === "denied") {
+    return t(
+      "The browser was not allowed to use the microphone: allow it in this site's settings, then try again.",
+    );
+  }
+  if (missing) {
+    return t("No microphone was found on this device.");
+  }
+  return t(
+    "Allow the microphone to use voice. The browser asks once, and you can take it back in this site's settings.",
   );
 }
 
 // VoiceSettings are speech input on the gateway, the microphone of this device and the two
 // switches, which only work where the browser grants the microphone (https or localhost) and
-// the gateway has speech input on.
+// the gateway has speech input on. Until the browser allowed the microphone, all of it is greyed
+// out under a row that asks for it.
 export function VoiceSettings({
   state,
   hands,
@@ -764,59 +802,108 @@ export function VoiceSettings({
     (listen: boolean) => setPrefs({ ...prefs, listen }),
     [prefs, setPrefs],
   );
+  const askable = state !== "insecure" && state !== "unsupported";
+  const mic = useMicPermission(askable);
+  const allowed = askable && mic.permission === "granted";
   return (
     <section class="settings-group" aria-labelledby="settings-voice-h">
       <h3 id="settings-voice-h" class="settings-group-title">
         {t("Voice")}
       </h3>
       <div class="settings-card" data-testid="voice-setting">
-        {canSave && info && api && onInfo && (
-          <VoiceGateway api={api} info={info} onInfo={onInfo} />
+        {askable && mic.permission && !allowed && (
+          <div
+            class="settings-row settings-mic-permission"
+            data-testid="mic-permission"
+          >
+            <div class="settings-row-text">
+              <div id="settings-mic-permission" class="text-sm text-[#e8e8ea]">
+                {t("Microphone permission")}
+              </div>
+              <div
+                class={
+                  "text-xs mt-0.5 " +
+                  choose(
+                    mic.permission === "denied",
+                    "text-warning",
+                    "text-[#7a7a8c]",
+                  )
+                }
+                role="status"
+              >
+                {permissionHint(mic.permission, mic.missing)}
+              </div>
+            </div>
+            <div class="settings-row-control">
+              <button
+                type="button"
+                class={primaryBtn}
+                data-testid="mic-allow"
+                aria-describedby="settings-mic-permission"
+                onClick={() => void mic.ask()}
+              >
+                {choose(
+                  mic.permission === "denied",
+                  t("Try again"),
+                  t("Allow microphone"),
+                )}
+              </button>
+            </div>
+          </div>
         )}
-        <MicPicker
-          usable={state !== "insecure" && state !== "unsupported"}
-          deviceId={prefs.deviceId}
-          onPick={setDevice}
-        />
-        <Row
-          id="settings-mic"
-          label={t("Microphone button")}
-          warning={voiceWarning(state)}
-          hint={voiceHint(
-            state,
-            t(
-              "Dictate into the message box. You read and edit the text before sending it.",
-            ),
-            canSave,
-          )}
+        <fieldset
+          class="settings-voice-lock"
+          disabled={!allowed}
+          data-testid="voice-locked"
         >
-          <VoiceSwitch
+          {canSave && info && api && onInfo && (
+            <VoiceGateway api={api} info={info} onInfo={onInfo} />
+          )}
+          <MicPicker
+            usable={allowed}
+            deviceId={prefs.deviceId}
+            onPick={setDevice}
+          />
+          <Row
             id="settings-mic"
-            usable={state === "ready"}
-            checked={prefs.mic}
-            onChange={setMic}
-          />
-        </Row>
-        <Row
-          id="settings-listen"
-          label={t("Listen for the wake phrase")}
-          warning={voiceWarning(hands)}
-          hint={voiceHint(
-            hands,
-            tf(
-              "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
-              { phrases: phrases.map((p) => `“${p}”`).join(", ") },
-            ),
-            canSave,
-          )}
-        >
-          <VoiceSwitch
+            label={t("Microphone button")}
+            warning={voiceWarning(state)}
+            hint={voiceHint(
+              state,
+              t(
+                "Dictate into the message box. You read and edit the text before sending it.",
+              ),
+              canSave,
+            )}
+          >
+            <VoiceSwitch
+              id="settings-mic"
+              usable={allowed && state === "ready"}
+              checked={prefs.mic}
+              onChange={setMic}
+            />
+          </Row>
+          <Row
             id="settings-listen"
-            usable={hands === "ready"}
-            checked={prefs.listen}
-            onChange={setListen}
-          />
-        </Row>
+            label={t("Listen for the wake phrase")}
+            warning={voiceWarning(hands)}
+            hint={voiceHint(
+              hands,
+              tf(
+                "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
+                { phrases: phrases.map((p) => `“${p}”`).join(", ") },
+              ),
+              canSave,
+            )}
+          >
+            <VoiceSwitch
+              id="settings-listen"
+              usable={allowed && hands === "ready"}
+              checked={prefs.listen}
+              onChange={setListen}
+            />
+          </Row>
+        </fieldset>
       </div>
     </section>
   );
