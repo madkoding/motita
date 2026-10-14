@@ -527,7 +527,7 @@ honoured. The documented one wins when both are set.
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `task_source`  | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `anchor`       | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]`                                                                                                                                                                                                                                                                        |
-| `sandbox`      | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt) |
+| `sandbox`      | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt), `disk_access` (`workspace`/`full`, default `workspace`: confined to the workspace a command also cannot read nor list your files outside the directories it works in (the home directory, `/home`, `/root`, `/mnt`, `/media`, `/srv`) and `write_file`/`edit_file` refuse a path outside the workspace; `full` lets both reach the whole disk, motita's logins stay hidden. Settings → Security in the webui changes it, live, with a confirmation before `full`; `MOTITA_SANDBOX_DISK_ACCESS` overrides it) |
 | `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
 | `models`       | `plan`, `code`, `review`, `research`, `summary`: one `provider/model` per kind of work (see [Models per kind of work](#models-per-kind-of-work)); empty follows `llm.provider`/`llm.model`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -1254,6 +1254,29 @@ once, without a restart. `motita doctor` and `motita gateway setup` say when it 
 The variables are `MOTITA_VOICE_ENABLED`, `MOTITA_VOICE_BASE_URL`, `MOTITA_VOICE_API_KEY`,
 `MOTITA_VOICE_MODEL`, `MOTITA_VOICE_LANGUAGE` and `MOTITA_VOICE_MAX_AUDIO_KB`; the phrases are set
 in the file.
+
+### Disk access
+
+Settings → **Security** in the browser interface chooses how much of the disk the agent reaches
+(`sandbox.disk_access`):
+
+- **Workspace only** (the default): `write_file` and `edit_file` refuse a path outside the
+  session's folder and, on Linux with Landlock and `confine_writes` on, a command can neither write
+  outside the directories it works in nor read or list your files elsewhere (the home directory,
+  `/home`, `/root`, `/mnt`, `/media`, `/srv`). The system, the tools directory, your git
+  configuration and the repository of a worktree stay readable.
+- **Whole disk**: both reach anywhere your user account can. motita's logins and keys stay hidden
+  from its commands. The page asks first and spells out the risk.
+
+A command you approve one by one runs unconfined in both modes. The change is written into the
+configuration file in place and handed to every open session at once, from its next command; a
+command already running keeps its rules. Where the kernel cannot confine commands the page says
+that only motita's own file edits are limited.
+
+| Endpoint            | What it does                                                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`) |
+| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`; `confirm` is required for `full`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS` overrides it |
 
 ### Reading answers aloud
 

@@ -158,7 +158,7 @@ func TestConfineWritesHandlesReadsWhenSomethingIsHidden(t *testing.T) {
 			return 0, 0, 0
 		}
 		// No write root: every rule added is one granting reads around the hidden path.
-		err := confineWrites(nil, []string{auth})
+		err := confine(Spec{HiddenPaths: []string{auth}})
 		if (err != nil) != failing || rules == 0 {
 			t.Errorf("failing=%v: err=%v rules=%d", failing, err, rules)
 		}

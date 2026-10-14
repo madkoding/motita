@@ -66,6 +66,7 @@ const (
 	ModeNoNetwork    Mode = "netns_no_network"
 	ModeUnprivileged Mode = "unprivileged"
 	ModeWriteConfine Mode = "write_confined"
+	ModeReadConfine  Mode = "read_confined"
 )
 
 // Options for building the sandbox.
@@ -100,7 +101,12 @@ type Options struct {
 	// stored keys, which no command needs. Like the write confinement, it spares what the user
 	// approved, which also keeps motita's logins for git.
 	HiddenPaths []string
-	Log         *logx.Logger
+	// FullDisk lifts the confinement to the workspace: a command may then write anywhere and read
+	// everything but HiddenPaths. Without it (the default) a confined command also cannot read the
+	// user's files outside the directories it works in (see privatePaths). SetFullDisk changes it
+	// while the sandbox lives.
+	FullDisk bool
+	Log      *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -114,6 +120,9 @@ type Sandbox struct {
 	// gitRoots are the git directories the base worktree writes outside it, read once here,
 	// before any command could rewrite its `.git` file.
 	gitRoots []string
+	// fullDisk is Options.FullDisk as it is now. It is a pointer so the copies WithDir makes for
+	// background agents follow a change made to the sandbox they came from.
+	fullDisk *atomic.Bool
 }
 
 // noRunGroups is set once a child could not be started inside a run's cgroup. What refused it
@@ -143,7 +152,9 @@ func New(op Options) (*Sandbox, error) {
 		return nil, fmt.Errorf("could not locate this very executable (needed for the isolation): %w", err)
 	}
 
-	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable, gitRoots: gitDirs(abs)}
+	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable, gitRoots: gitDirs(abs),
+		fullDisk: new(atomic.Bool)}
+	s.fullDisk.Store(op.FullDisk)
 
 	if err := hideFromChildren(); err != nil {
 		s.notApplied = append(s.notApplied, "process hiding: a command can read motita's environment in /proc: "+err.Error())
@@ -293,11 +304,30 @@ func (s *Sandbox) Isolation() []Mode {
 	if s.op.Limits.NoNetwork {
 		modes = append(modes, ModeNoNetwork)
 	}
-	if s.op.ConfineWrites && !s.op.UseChroot {
-		modes = append(modes, ModeWriteConfine)
+	if s.op.ConfineWrites && !s.op.UseChroot && !s.FullDisk() {
+		modes = append(modes, ModeWriteConfine, ModeReadConfine)
 	}
 	return modes
 }
+
+// SetFullDisk lets the commands run from now on reach the whole disk (true) or confines them to
+// the directories they work in (false). A command already running keeps the rules it started with.
+func (s *Sandbox) SetFullDisk(full bool) {
+	if s.fullDisk == nil {
+		// A Sandbox built by hand rather than by New: it gets its switch now.
+		s.fullDisk = new(atomic.Bool)
+	}
+	s.fullDisk.Store(full)
+}
+
+// FullDisk reports whether the commands this sandbox runs reach the whole disk. A Sandbox built by
+// hand rather than by New is confined to the workspace, the default.
+func (s *Sandbox) FullDisk() bool { return s.fullDisk != nil && s.fullDisk.Load() }
+
+// ConfinementAvailable reports whether this kernel can confine what a command reads and writes
+// (Linux with Landlock). Where it cannot, the workspace limit holds for motita's own file actions
+// only.
+func ConfinementAvailable() bool { return landlockABI() > 0 }
 
 // NotApplied lists the isolation that was requested and could not be applied.
 func (s *Sandbox) NotApplied() []string { return s.notApplied }
@@ -386,8 +416,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	}
 
 	if confine {
-		spec.WriteRoots = s.writeRoots(workDir, tempDir)
-		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
+		s.confine(&spec, workDir, tempDir)
 	}
 
 	command := s.executable
@@ -440,6 +469,67 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	roots = append(roots, s.gitRoots...)
 	if workDir != s.base {
 		roots = append(roots, gitDirs(workDir)...)
+	}
+	return roots
+}
+
+// confine fills in what a confined command may reach. On the whole disk it may write anywhere: the
+// one root is "/", and only motita's logins and keys stay out of reach. Confined to the workspace it
+// writes only under writeRoots and reads the system, the directories it writes and readRoots, never
+// the user's files elsewhere (privatePaths).
+func (s *Sandbox) confine(spec *Spec, workDir, tempDir string) {
+	if s.FullDisk() {
+		spec.WriteRoots = []string{"/"}
+		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
+		return
+	}
+	spec.WriteRoots = s.writeRoots(workDir, tempDir)
+	spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
+	spec.ReadRoots = s.readRoots(workDir)
+	spec.PrivatePaths = s.privatePaths()
+}
+
+// privateTrees are where a machine keeps people's files: none of it is the workspace's business.
+var privateTrees = []string{"/home", "/root", "/mnt", "/media", "/srv", "/run/media"}
+
+// privatePaths are the trees a command confined to the workspace may not read: privateTrees and
+// the user's own home, wherever it is. The directories the command works in stay readable even when
+// they are inside one of them: they are granted by name (writeRoots, readRoots).
+func (s *Sandbox) privatePaths() []string {
+	private := append([]string(nil), privateTrees...)
+	if s.op.GitHome != "" && filepath.IsAbs(s.op.GitHome) && filepath.Clean(s.op.GitHome) != "/" {
+		private = append(private, filepath.Clean(s.op.GitHome))
+	}
+	return private
+}
+
+// readRoots are what a command confined to the workspace may read besides the system and the
+// directories it writes: the toolchains in the tools directory, the user's git configuration (its
+// files, not the credential store beside them), and the whole of the repository a worktree belongs
+// to, which git reads (its config, HEAD, packed refs) on every command.
+func (s *Sandbox) readRoots(workDir string) []string {
+	var roots []string
+	if tools := s.toolsDir(); tools != "" {
+		roots = append(roots, tools)
+	}
+	var gitConfigDirs []string
+	if s.op.GitHome != "" {
+		roots = append(roots, filepath.Join(s.op.GitHome, ".gitconfig"))
+		gitConfigDirs = append(gitConfigDirs, filepath.Join(s.op.GitHome, ".config", "git"))
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		gitConfigDirs = append(gitConfigDirs, filepath.Join(xdg, "git"))
+	}
+	for _, dir := range gitConfigDirs {
+		for _, name := range []string{"config", "ignore", "attributes"} {
+			roots = append(roots, filepath.Join(dir, name))
+		}
+	}
+	for _, dirs := range [][]string{s.gitRoots, gitDirs(workDir)} {
+		if len(dirs) > 0 {
+			// The first is the worktree's own directory, <repository>/worktrees/<id>.
+			roots = append(roots, filepath.Dir(filepath.Dir(dirs[0])))
+		}
 	}
 	return roots
 }

@@ -959,6 +959,30 @@ const es: Record<string, string> = {
   "Waiting for the provider…": "Esperando al proveedor…",
   "The sign-in did not finish: {err}": "El inicio de sesión no terminó: {err}",
   Network: "Red",
+  Security: "Seguridad",
+  "Disk access": "Acceso al disco",
+  "What Motita can reach": "A qué puede acceder Motita",
+  "Workspace only": "Solo su workspace",
+  "Whole disk": "Disco completo",
+  "Safest: Motita reads and writes only inside the folder of the session it works in. Your other files are out of its reach.":
+    "Lo más seguro: Motita lee y escribe solo dentro de la carpeta de la sesión en la que trabaja. Tus demás archivos quedan fuera de su alcance.",
+  "Motita can read and write any file your user account can: documents, other projects, settings.":
+    "Motita puede leer y escribir cualquier archivo al que llegue tu usuario: documentos, otros proyectos, configuraciones.",
+  "Motita will be able to read, change and delete any file your user account can, outside its workspace too.":
+    "Motita podrá leer, cambiar y borrar cualquier archivo al que llegue tu usuario, también fuera de su workspace.",
+  "A mistake, or instructions hidden in a web page or a repository it reads, could damage or leak your files.":
+    "Un error, o instrucciones escondidas en una página web o en un repositorio que lea, podría dañar o filtrar tus archivos.",
+  "It applies at once to every open session, from its next command.":
+    "Se aplica de inmediato a todas las sesiones abiertas, desde su próximo comando.",
+  "Give Motita access to the whole disk?":
+    "¿Darle a Motita acceso al disco completo?",
+  "Allow the whole disk": "Permitir el disco completo",
+  "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.":
+    "En este sistema solo se limitan las ediciones de archivos que hace Motita: sus comandos no, porque eso requiere Linux con Landlock y el confinamiento de escritura activado.",
+  "A command you approve one by one still runs as you approved it.":
+    "Un comando que apruebes uno por uno igual se ejecuta como lo aprobaste.",
+  "Motita's own logins and keys stay hidden from its commands either way.":
+    "Las sesiones y claves de Motita siguen ocultas para sus comandos en ambos casos.",
   "Who can connect": "Quién puede conectarse",
   "This machine only": "Solo este equipo",
   "Local network": "Red local",

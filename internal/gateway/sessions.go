@@ -832,6 +832,7 @@ func (s *Server) createSession() (*conversation, error) {
 		return nil, fmt.Errorf("a conversation could not be started: %w", err)
 	}
 	s.startingLLM(svc)
+	s.startingDiskAccess(svc)
 	return s.newSession(svc)
 }
 
