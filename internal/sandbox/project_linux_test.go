@@ -159,3 +159,14 @@ func TestAConfinedCommandStaysOutOfOtherProjects(t *testing.T) {
 		t.Error("motita's own reads follow the same rule")
 	}
 }
+
+// PrivateRoots is a copy of what the sandbox was given, and nothing for no sandbox.
+func TestPrivateRootsIsACopy(t *testing.T) {
+	var none *Sandbox
+	s := &Sandbox{op: Options{PrivateRoots: []string{"/w"}}}
+	got := s.PrivateRoots()
+	got[0] = "/x"
+	if none.PrivateRoots() != nil || s.PrivateRoots()[0] != "/w" {
+		t.Error("PrivateRoots")
+	}
+}

@@ -200,6 +200,9 @@ func TestTheSandboxFollowsTheProject(t *testing.T) {
 	if r.Box.Home() != filepath.Join(cfg.Sandbox.ToolsDir, "home") {
 		t.Errorf("no project is the shared HOME: %s", r.Box.Home())
 	}
+	if home, private := r.SandboxScope(); home != r.Box.Home() || len(private) != 1 || private[0] != root {
+		t.Errorf("SandboxScope: %s %v", home, private)
+	}
 	if got := privateRoots(root, filepath.Join(root, "sessions", "a")); len(got) != 1 || got[0] != root {
 		t.Errorf("privateRoots: %v", got)
 	}

@@ -161,3 +161,32 @@ func TestTheDiskAccessNeedsAFileAndReportsWhatFailed(t *testing.T) {
 		t.Errorf("without a file a new session keeps the running configuration: %v", svc.modes)
 	}
 }
+
+// scopeService is the fake that also reports its sandbox, like the production runner.
+type scopeService struct {
+	fakeService
+}
+
+func (scopeService) SandboxScope() (string, []string) { return "/t/homes/shop", []string{"/w"} }
+
+// A session's scope says where it works and what its sandbox keeps from its commands; a service
+// with no sandbox to describe answers the folder alone, and a session that does not exist is 404.
+func TestTheSessionScopeIsWhereItWorksAndWhatIsKeptFromIt(t *testing.T) {
+	srv := newTestServer(t, &scopeService{})
+	w := get(t, srv, "/v1/sessions/default/scope", testToken)
+	var v sessionScope
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if v.Home != "/t/homes/shop" || len(v.PrivateRoots) != 1 || v.PrivateRoots[0] != "/w" {
+		t.Errorf("scope: %+v", v)
+	}
+	bare := newTestServer(t, &fakeService{})
+	w = get(t, bare, "/v1/sessions/default/scope", testToken)
+	if !strings.Contains(w.Body.String(), `"private_roots":[]`) || !strings.Contains(w.Body.String(), `"home":""`) {
+		t.Errorf("no sandbox: %s", w.Body.String())
+	}
+	if w := get(t, bare, "/v1/sessions/nope/scope", testToken); w.Code != http.StatusNotFound {
+		t.Errorf("unknown session: %d", w.Code)
+	}
+}

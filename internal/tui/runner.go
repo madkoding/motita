@@ -475,6 +475,15 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	r.cfgMu.Unlock()
 }
 
+// SandboxScope is the HOME this session's commands get and the folders kept private from them,
+// for the settings page to show.
+func (r *AppRunner) SandboxScope() (home string, private []string) {
+	r.cfgMu.Lock()
+	box := r.Box
+	r.cfgMu.Unlock()
+	return box.Home(), box.PrivateRoots()
+}
+
 // privateRoots is the root the runner was born in, when the session now works somewhere else
 // inside it or beside it: the other projects and sessions there are none of this one's business.
 func privateRoots(root, dir string) []string {

@@ -164,3 +164,11 @@ func (s *Sandbox) HasTool(name string) bool {
 	}
 	return false
 }
+
+// PrivateRoots is a copy of the roots this sandbox was told to keep private (Options.PrivateRoots).
+func (s *Sandbox) PrivateRoots() []string {
+	if s == nil {
+		return nil
+	}
+	return append([]string(nil), s.op.PrivateRoots...)
+}

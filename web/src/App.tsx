@@ -506,10 +506,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <ThinkDrawer />
       <AgentsDrawer />
       {scroll.chatLoading && <ChatLoadingModal />}
-      <Subtitles
-        on={speech.prefs.subtitles}
-        size={speech.prefs.subtitleSize}
-      />
+      <Subtitles on={speech.prefs.subtitles} size={speech.prefs.subtitleSize} />
       {rs.approval && <ApprovalPanel approval={rs.approval} />}
       <PRBar pr={pr} />
       <Composer />
@@ -529,6 +526,7 @@ function SettingsHost() {
     status,
     voice,
     speech,
+    rs,
   } = useApp();
   const { changeLanguage } = language;
   const { setGitConnect } = projects;
@@ -571,7 +569,7 @@ function SettingsHost() {
         onNotice: (message, error) =>
           setToast({ message, type: choose(error, "error", "success") }),
       }}
-      security={{ api: request }}
+      security={{ api: request, sessionId: rs.sessionId }}
       network={{ api: request }}
       push={{ api: request }}
       git={{
@@ -639,7 +637,10 @@ function DialogModals() {
       <ContextMenu />
       {status.toast && (
         // Keyed by its text: a different toast is a new card, which enters again.
-        <ToastCard key={status.toast.type + ":" + status.toast.message} toast={status.toast} />
+        <ToastCard
+          key={status.toast.type + ":" + status.toast.message}
+          toast={status.toast}
+        />
       )}
       {updates.showUpgrade && <UpgradeModal />}
     </>

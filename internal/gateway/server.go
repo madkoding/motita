@@ -761,6 +761,7 @@ func (s *Server) routes() *http.ServeMux {
 	// security.go.
 	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))
 	mux.Handle("PUT /v1/security", plain(s.handlePutSecurity))
+	mux.Handle("GET /v1/sessions/{id}/scope", scoped(s.handleSessionScope))
 	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))
 	mux.Handle("PUT /v1/network", plain(s.handlePutNetwork))

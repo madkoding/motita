@@ -113,7 +113,7 @@ function fakeGateway(initial, overrides = {}) {
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-async function open(api) {
+async function open(api, sessionId) {
   const root = document.createElement("div");
   document.body.appendChild(root);
   await act(() => {
@@ -123,7 +123,7 @@ async function open(api) {
         langAvailable: true,
         onLang: () => {},
         onClose: () => {},
-        security: { api },
+        security: { api, sessionId },
         tab: "security",
       }),
       root,
@@ -331,4 +331,71 @@ test("every string of the security section has a Spanish translation", () => {
     [],
   );
   assert.equal(es.Security, "Seguridad");
+});
+
+test("the Security tab shows where the open session works and what is kept from it", async () => {
+  const scope = {
+    workspace: "/w/worktrees/s1",
+    project_dir: "/w/shop",
+    home: "/t/homes/shop-1a2b",
+    private_roots: ["/w"],
+  };
+  const gw = fakeGateway(secView(), {
+    "GET /v1/sessions/s%201/scope": () => json(scope),
+  });
+  const { root, done } = await open(gw.api, "s 1");
+  const note = root.querySelector("[data-testid=security-session-scope]");
+  assert.ok(note, "the session's scope is shown");
+  for (const want of [scope.workspace, scope.project_dir, scope.home, "/w"]) {
+    assert.ok(note.textContent.includes(want), want);
+  }
+  await done();
+
+  const bare = fakeGateway(secView(), {
+    "GET /v1/sessions/s2/scope": () =>
+      json({
+        workspace: "/w/sessions/s2",
+        project_dir: "",
+        home: "",
+        private_roots: [],
+      }),
+  });
+  const second = await open(bare.api, "s2");
+  const items = second.root.querySelectorAll(
+    "[data-testid=security-session-scope] li",
+  );
+  assert.equal(
+    items.length,
+    1,
+    "a free session without a tools HOME shows its folder only",
+  );
+  await second.done();
+
+  const none = fakeGateway(secView());
+  const third = await open(none.api, "gone");
+  assert.equal(
+    third.root.querySelector("[data-testid=security-session-scope]"),
+    null,
+    "a session the gateway cannot describe shows nothing",
+  );
+  await third.done();
+  const noSession = await open(none.api);
+  assert.equal(
+    noSession.root.querySelector("[data-testid=security-session-scope]"),
+    null,
+  );
+  assert.equal(
+    none.calls.filter((c) => c.path.endsWith("/scope")).length,
+    1,
+    "no session is not asked about",
+  );
+  await noSession.done();
+});
+
+test("getSessionScope passes a network failure on and asks nothing without a session", async () => {
+  const failing = async () => {
+    throw new Error("offline");
+  };
+  await assert.rejects(secApi.getSessionScope(failing, "s"));
+  assert.equal(await secApi.getSessionScope(failing, ""), null);
 });

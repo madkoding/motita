@@ -127,3 +127,35 @@ func applyDiskAccess(svc Service, mode string) {
 		ds.SetDiskAccess(mode)
 	}
 }
+
+// sessionScope is what GET /v1/sessions/{id}/scope answers: where the session's commands work and
+// what the sandbox keeps from them, so the Security tab can show it for the session that is open.
+type sessionScope struct {
+	// Workspace is the folder the session works in: its worktree, or its own folder.
+	Workspace string `json:"workspace"`
+	// ProjectDir is the project's checkout, "" for a session of no project.
+	ProjectDir string `json:"project_dir"`
+	// Home is the HOME its commands get, "" when the sandbox keeps the old layout.
+	Home string `json:"home"`
+	// PrivateRoots are the folders its commands may not read beyond what they work in.
+	PrivateRoots []string `json:"private_roots"`
+}
+
+// sandboxScoper is a service that can say what its sandbox gives a command.
+type sandboxScoper interface {
+	SandboxScope() (home string, private []string)
+}
+
+// handleSessionScope answers where a session works and what is kept from it.
+func (s *Server) handleSessionScope(w http.ResponseWriter, r *http.Request) {
+	c := conversationIfAny(r)
+	c.stateMu.Lock()
+	view := sessionScope{Workspace: c.workspace, ProjectDir: c.projectDir, PrivateRoots: []string{}}
+	c.stateMu.Unlock()
+	if sc, ok := c.svc.(sandboxScoper); ok {
+		home, private := sc.SandboxScope()
+		view.Home = home
+		view.PrivateRoots = append(view.PrivateRoots, private...)
+	}
+	writeJSON(w, http.StatusOK, view)
+}
