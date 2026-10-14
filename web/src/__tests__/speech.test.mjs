@@ -45,6 +45,11 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     voiceURI: "v1",
     rate: 1.5,
     maxChars: 0,
+    conversation: true,
+    notices: true,
+    byLanguage: true,
+    langVoices: { en: "eve" },
+    pronunciations: [{ term: "kubectl", say: "cube control" }],
   };
   m.saveSpeechPrefs(p);
   assert.deepEqual(m.loadSpeechPrefs(), p);
@@ -168,7 +173,7 @@ test("terms are said the way the language says them, as whole words", () => {
   assert.equal(m.pronounce("the PR", "en"), "the PR");
   const s = m.script("Opened the **PR**.", 0, "es");
   assert.deepEqual(s, [
-    { shown: "Opened the PR.", said: "Opened the pe erre." },
+    { shown: "Opened the PR.", said: "Opened the pe erre.", lang: "es" },
   ]);
 });
 
@@ -626,4 +631,164 @@ test("gateway voice: the clip is asked of the gateway with the voice chosen", as
   });
   await assert.rejects(m.speakClip(api, "")("bad", ctl.signal), /quota/);
   await assert.rejects(m.speakClip(api, "")("html", ctl.signal), /HTTP 500/);
+});
+
+test("pronunciations: the person's own list is typed one a line, kept clean, and said first", () => {
+  const list = m.parsePronunciations(
+    "kubectl = cube control\nno equals sign\n = nothing\nnginx =\nKubectl = kube control\n motita=mo ti ta ",
+  );
+  assert.deepEqual(list, [
+    { term: "Kubectl", say: "kube control" },
+    { term: "motita", say: "mo ti ta" },
+  ]);
+  assert.equal(
+    m.formatPronunciations(list),
+    "Kubectl = kube control\nmotita = mo ti ta",
+  );
+  assert.equal(
+    m.pronounce("Run KUBECTL get pods, not kubectl2.", "en", list),
+    "Run kube control get pods, not kubectl2.",
+    "any case, whole words only",
+  );
+  assert.equal(
+    m.pronounce("El PR de motita", "es", list),
+    "El pe erre de mo ti ta",
+    "the built-in ones still apply",
+  );
+  // A saved list that is not one, or has broken entries, keeps only what is whole.
+  localStorage.setItem(
+    m.SPEECH_KEY,
+    JSON.stringify({
+      pronunciations: [
+        { term: "a", say: "b" },
+        { term: 3 },
+        null,
+        { term: "x".repeat(81), say: "y" },
+      ],
+      langVoices: { es: "ana", en: 7, fr: "x" },
+    }),
+  );
+  const p = m.loadSpeechPrefs();
+  assert.deepEqual(p.pronunciations, [{ term: "a", say: "b" }]);
+  assert.deepEqual(p.langVoices, { es: "ana" });
+  localStorage.setItem(
+    m.SPEECH_KEY,
+    JSON.stringify({ pronunciations: "a=b", langVoices: null }),
+  );
+  assert.deepEqual(m.loadSpeechPrefs().pronunciations, []);
+  assert.deepEqual(m.loadSpeechPrefs().langVoices, {});
+});
+
+test("a voice per language: each sentence is told apart by its common words", () => {
+  assert.equal(
+    m.detectLang("The tests pass and the build is green.", "es"),
+    "en",
+  );
+  assert.equal(
+    m.detectLang("Los tests pasan y el build está verde.", "en"),
+    "es",
+  );
+  assert.equal(
+    m.detectLang("Kubernetes.", "es"),
+    "es",
+    "a lone word changes nothing",
+  );
+  assert.equal(
+    m.detectLang("the el", "es"),
+    "es",
+    "a tie keeps the interface's",
+  );
+  const list = m.script(
+    "Abrí el PR y el CI pasó. The tests pass and the build is green.",
+    0,
+    "es",
+    m.ENGLISH_WORDS,
+    { byLanguage: true },
+  );
+  assert.deepEqual(
+    list.map((s) => [s.lang, s.said]),
+    [
+      ["es", "Abrí el pe erre y el ce i pasó."],
+      ["en", "The tests pass and the build is green."],
+    ],
+    "Spanish acronyms are said the Spanish way only in Spanish",
+  );
+  // The reader gives each sentence the voice of its language.
+  const { synth, reader } = fakeSynth();
+  const ana = { voiceURI: "a", name: "Ana", lang: "es-CL" };
+  const eve = { voiceURI: "e", name: "Eve", lang: "en-US" };
+  reader.read(list, {
+    voice: ana,
+    voiceFor: (l) => (l === "en" ? eve : null),
+    lang: "es",
+    rate: 1,
+  });
+  synth.start();
+  synth.end();
+  assert.equal(synth.said[1].voice, eve);
+  assert.equal(synth.said[1].lang, "en-US");
+  reader.stop();
+  // Without a voice for the language, the browser is asked for its locale.
+  reader.read(list, { voice: ana, voiceFor: () => null, lang: "es", rate: 1 });
+  synth.start();
+  synth.end();
+  assert.equal(synth.said.at(-1).lang, "en-US");
+  assert.equal(synth.said.at(-1).voice, null);
+});
+
+test("a stop is told apart from an end, for whoever must go on after a reading", () => {
+  const { synth, reader } = fakeSynth();
+  const ends = [];
+  reader.read(two, {
+    voice: null,
+    lang: "es",
+    rate: 1,
+    onEnd: (e, stopped) => ends.push([e, stopped]),
+  });
+  reader.stop();
+  reader.read(two, {
+    voice: null,
+    lang: "es",
+    rate: 1,
+    onEnd: (e, stopped) => ends.push([e, stopped]),
+  });
+  synth.start();
+  synth.end();
+  synth.start();
+  synth.end();
+  assert.deepEqual(ends, [
+    [undefined, true],
+    [undefined, undefined],
+  ]);
+});
+
+test("conversation: the exit phrases end it, with or without Motita's name and punctuation", () => {
+  for (const s of [
+    "Basta.",
+    "Motita, basta",
+    "¡Eso es todo!",
+    "That's all.",
+    "stop",
+    "gracias, eso es todo",
+  ]) {
+    assert.equal(m.isExitPhrase(s), true, s);
+  }
+  for (const s of [
+    "basta de errores en el CI",
+    "stop the build",
+    "",
+    "para qué sirve esto",
+  ]) {
+    assert.equal(m.isExitPhrase(s), false, s);
+  }
+});
+
+test("notices are handed to the page to be said, and an empty one is not", () => {
+  const heard = [];
+  const on = (e) => heard.push(e.detail);
+  dom.window.addEventListener(m.SPEECH_NOTICE_EVENT, on);
+  m.sayNotice("  CI passed  ");
+  m.sayNotice("   ");
+  dom.window.removeEventListener(m.SPEECH_NOTICE_EVENT, on);
+  assert.deepEqual(heard, ["CI passed"]);
 });

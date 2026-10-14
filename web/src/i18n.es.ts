@@ -1050,6 +1050,26 @@ const es: Record<string, string> = {
   "This device": "Este dispositivo",
   "The gateway": "El gateway",
   "Gateway default": "La del gateway",
+  "Motita needs your answer.": "Motita necesita tu respuesta.",
+  "Conversation ended": "Conversación terminada",
+  Conversation: "Conversación",
+  "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.":
+    "Después de leer la respuesta a algo que dijiste, Motita vuelve a escuchar y envía lo que digas. Di “basta” o toca el micrófono para terminar.",
+  "Needs speech input: turn it on above.":
+    "Necesita la entrada de voz: actívala más arriba.",
+  "Voice notices": "Avisos por voz",
+  "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.":
+    "Dice el CI de un pull request y las preguntas que espera el agente, mientras esta pestaña está visible.",
+  "A voice per language": "Una voz por idioma",
+  "Each sentence is read with a voice of its own language: English with an English voice.":
+    "Cada oración se lee con una voz de su idioma: el inglés con una voz en inglés.",
+  "Voice for English": "Voz para inglés",
+  "Voice for Spanish": "Voz para español",
+  "This device has no voice for that language.":
+    "Este dispositivo no tiene voces en ese idioma.",
+  Pronunciations: "Pronunciaciones",
+  "One a line: the term, “=”, and how to say it. For example: kubectl = cube control":
+    "Una por línea: el término, “=” y cómo decirlo. Por ejemplo: kubectl = cube control",
   Off: "Apagado",
   "When I spoke": "Cuando hablé",
   Always: "Siempre",

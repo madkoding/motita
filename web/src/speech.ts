@@ -1,7 +1,7 @@
 // Speech output: the agent's answers read aloud with the voices of the device (the Web Speech
-// API's speechSynthesis). Nothing here talks to the gateway: the text never leaves this page for
-// Motita's sake, although a browser may hand it to a voice of its own vendor (Chrome's "Google"
-// voices are remote).
+// API's speechSynthesis), or with the gateway's voice (POST /v1/voice/speak) when it has one. With
+// the device's voices the text never leaves this page for Motita's sake, although a browser may
+// hand it to a voice of its own vendor (Chrome's "Google" voices are remote).
 //
 // The parts decided without a voice live here, so they can be tested without one: what is worth
 // reading out of an answer, how it is cut into sentences, how words are pronounced, which voice is
@@ -51,6 +51,23 @@ export interface SpeechPrefs {
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
   // Zero reads everything.
   maxChars: number;
+  // conversation listens again when an answer to a spoken turn has been read, and sends what it
+  // hears: a conversation without touching the page, until an exit phrase or a tap.
+  conversation: boolean;
+  // notices says aloud what the page shows as a notice: the CI of a pull request, an approval
+  // the agent waits for. Only while the tab is visible.
+  notices: boolean;
+  // byLanguage reads each sentence with a voice of its own language; langVoices are the voices
+  // chosen per language ("" or absent: the device's own for it).
+  byLanguage: boolean;
+  langVoices: Partial<Record<Lang, string>>;
+  // pronunciations are the person's own: a term and how to say it, before the built-in ones.
+  pronunciations: Pronunciation[];
+}
+
+export interface Pronunciation {
+  term: string;
+  say: string;
 }
 
 // The lengths an answer can be read whole up to, in characters: short, medium and long.
@@ -72,6 +89,11 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   voiceURI: "",
   rate: 1,
   maxChars: MEDIUM_CHARS,
+  conversation: false,
+  notices: false,
+  byLanguage: false,
+  langVoices: {},
+  pronunciations: [],
 };
 // SPEECH_PREFS_EVENT tells the page the settings changed in the settings screen.
 export const SPEECH_PREFS_EVENT = "motita-speech-prefs";
@@ -96,6 +118,70 @@ function stringOr(v: unknown, fallback: string): string {
   return fallback;
 }
 
+// The longest list of pronunciations kept, and the longest term or reading.
+const MAX_PRONUNCIATIONS = 200;
+const MAX_TERM = 80;
+
+// langVoicesOf keeps the voices of the languages this page knows.
+function langVoicesOf(v: unknown): Partial<Record<Lang, string>> {
+  const out: Partial<Record<Lang, string>> = {};
+  if (typeof v !== "object" || v === null) {
+    return out;
+  }
+  const raw = v as Record<string, unknown>;
+  for (const l of ["es", "en"] as Lang[]) {
+    if (typeof raw[l] === "string" && raw[l]) {
+      out[l] = raw[l];
+    }
+  }
+  return out;
+}
+
+// textOf is a saved string, trimmed, or "" for anything else.
+function textOf(v: unknown): string {
+  return stringOr(v, "").trim();
+}
+
+// pronunciationsOf keeps the well-formed entries of a saved list.
+function pronunciationsOf(v: unknown): Pronunciation[] {
+  if (!Array.isArray(v)) {
+    return [];
+  }
+  const out: Pronunciation[] = [];
+  for (const e of v.slice(0, MAX_PRONUNCIATIONS)) {
+    const term = textOf(e?.term);
+    const say = textOf(e?.say);
+    if (term && say && term.length <= MAX_TERM && say.length <= MAX_TERM) {
+      out.push({ term, say });
+    }
+  }
+  return out;
+}
+
+// parsePronunciations reads the list as typed in the settings: one "term = how to say it" a line.
+// A line without "=" or with an empty side is left out; a term typed twice keeps its last reading.
+export function parsePronunciations(text: string): Pronunciation[] {
+  const byTerm = new Map<string, Pronunciation>();
+  for (const line of text.split("\n")) {
+    const at = line.indexOf("=");
+    if (at < 0) {
+      continue;
+    }
+    const term = line.slice(0, at).trim();
+    const say = line.slice(at + 1).trim();
+    if (term && say) {
+      byTerm.delete(term.toLowerCase());
+      byTerm.set(term.toLowerCase(), { term, say });
+    }
+  }
+  return pronunciationsOf([...byTerm.values()]);
+}
+
+// formatPronunciations writes the list back the way parsePronunciations reads it.
+export function formatPronunciations(list: Pronunciation[]): string {
+  return list.map((p) => p.term + " = " + p.say).join("\n");
+}
+
 export function loadSpeechPrefs(): SpeechPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(SPEECH_KEY) || "{}");
@@ -108,6 +194,11 @@ export function loadSpeechPrefs(): SpeechPrefs {
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
+      conversation: raw.conversation === true,
+      notices: raw.notices === true,
+      byLanguage: raw.byLanguage === true,
+      langVoices: langVoicesOf(raw.langVoices),
+      pronunciations: pronunciationsOf(raw.pronunciations),
     };
   } catch {
     return { ...DEFAULT_SPEECH_PREFS };
@@ -158,20 +249,77 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
-// pronounce rewrites the terms of the language's pronunciation list.
-export function pronounce(text: string, lang: Lang): string {
-  const list = PRONUNCIATIONS[lang];
+// wholeWord matches a term as a whole word: no letter or digit on either side.
+function wholeWord(term: string, flags: string): RegExp {
+  return new RegExp(
+    String.raw`(^|[^\p{L}\p{N}])` +
+      escapeRegExp(term) +
+      String.raw`(?![\p{L}\p{N}])`,
+    flags,
+  );
+}
+
+// pronounce rewrites the person's own terms (whole words, any case), then the built-in ones of the
+// language (whole words, matching case: they are acronyms).
+export function pronounce(
+  text: string,
+  lang: Lang,
+  own: Pronunciation[] = [],
+): string {
   let out = text;
-  for (const term of Object.keys(list)) {
-    const re = new RegExp(
-      String.raw`(^|[^\p{L}\p{N}])` +
-        escapeRegExp(term) +
-        String.raw`(?![\p{L}\p{N}])`,
-      "gu",
+  for (const p of own) {
+    out = out.replace(
+      wholeWord(p.term, "giu"),
+      (_m, pre: string) => pre + p.say,
     );
-    out = out.replace(re, (_m, pre: string) => pre + list[term]);
+  }
+  const list = PRONUNCIATIONS[lang];
+  for (const term of Object.keys(list)) {
+    out = out.replace(
+      wholeWord(term, "gu"),
+      (_m, pre: string) => pre + list[term],
+    );
   }
   return out;
+}
+
+// LANGUAGE OF A SENTENCE: the most frequent words of each language, the ones the other one does
+// not share. Counting them is enough to tell a Spanish sentence from an English one in an answer
+// that mixes both, with no dictionary and no dependency.
+const COMMON: Record<Lang, Set<string>> = {
+  es: new Set(
+    (
+      "el la los las un una unos unas de del que y en es por para con no se lo le su sus al " +
+      "como pero más este esta estos estas ese esa hay ya muy también porque cuando donde " +
+      "sí son está están ser fue hace tiene puede todo todos otra otro sobre entre sin hasta"
+    ).split(" "),
+  ),
+  en: new Set(
+    (
+      "the of and to is in that it for with as was on are be this by at from or an but not " +
+      "have has had which you they we he she his her there their what when where will would " +
+      "can could should all one been if do does did into than then these those"
+    ).split(" "),
+  ),
+};
+
+// detectLang says which language a sentence is in, or the fallback when it cannot tell: it takes
+// two more of one language's words than of the other's, so a name or a stray word changes nothing.
+export function detectLang(text: string, fallback: Lang): Lang {
+  const words = text.toLowerCase().match(/\p{L}+/gu) || [];
+  let es = 0;
+  let en = 0;
+  for (const w of words) {
+    es += Number(COMMON.es.has(w));
+    en += Number(COMMON.en.has(w));
+  }
+  if (es >= en + 2) {
+    return "es";
+  }
+  if (en >= es + 2) {
+    return "en";
+  }
+  return fallback;
 }
 
 const FENCE = /^\s*(```|~~~)/;
@@ -469,10 +617,19 @@ export function sentences(text: string): string[] {
   return out;
 }
 
-// A sentence as it is shown (to find it on screen) and as it is said (pronunciations applied).
+// A sentence as it is shown (to find it on screen), as it is said (pronunciations applied), and
+// the language it is said in.
 export interface Sentence {
   shown: string;
   said: string;
+  lang?: Lang;
+}
+
+// How a text is turned into sentences: by language (each sentence in its own) and with the
+// person's pronunciations.
+export interface ScriptOptions {
+  byLanguage?: boolean;
+  pronunciations?: Pronunciation[];
 }
 
 // script is what an answer is read as.
@@ -481,12 +638,16 @@ export function script(
   maxChars: number,
   lang: Lang,
   words: SpeechWords = ENGLISH_WORDS,
+  opts: ScriptOptions = {},
 ): Sentence[] {
   const text = limitLength(toSpeakable(markdown, words), maxChars, words.rest);
-  return sentences(text).map((s) => ({
-    shown: s,
-    said: pronounce(s, lang),
-  }));
+  return sentences(text).map((s) => {
+    let l = lang;
+    if (opts.byLanguage) {
+      l = detectLang(s, lang);
+    }
+    return { shown: s, said: pronounce(s, l, opts.pronunciations), lang: l };
+  });
 }
 
 // The part of a voice this page uses: SpeechSynthesisVoice, or a test's stand-in.
@@ -550,12 +711,15 @@ export type MakeUtterance = (text: string) => UtteranceLike;
 
 export interface ReadOptions {
   voice: VoiceLike | null;
+  // voiceFor is the voice of a sentence in another language than lang; absent, voice says all.
+  voiceFor?: (lang: Lang) => VoiceLike | null;
   lang: Lang;
   rate: number;
   // onSentence is told which sentence the voice starts.
   onSentence?: (i: number) => void;
-  // onEnd is told once when the reading ends: finished, stopped, or failed (with the reason).
-  onEnd?: (error?: string) => void;
+  // onEnd is told once when the reading ends: finished, stopped (stopped is true), or failed
+  // (with the reason).
+  onEnd?: (error?: string, stopped?: boolean) => void;
 }
 
 // Reader says sentences one after another. One utterance at a time: a queue of many is where
@@ -592,8 +756,13 @@ export class Reader {
         return;
       }
       const u = this.make(list[i].said);
-      u.lang = opts.voice?.lang || LOCALE[opts.lang];
-      u.voice = opts.voice;
+      const l = list[i].lang ?? opts.lang;
+      let voice = opts.voice;
+      if (l !== opts.lang && opts.voiceFor) {
+        voice = opts.voiceFor(l);
+      }
+      u.lang = voice?.lang || LOCALE[l];
+      u.voice = voice;
       u.rate = opts.rate;
       u.onstart = () => {
         if (run === this.run) {
@@ -623,7 +792,7 @@ export class Reader {
     const was = this.active;
     this.active = null;
     this.synth.cancel();
-    was?.onEnd?.();
+    was?.onEnd?.(undefined, true);
   }
 
   private finish(error?: string): void {
@@ -651,6 +820,22 @@ export interface AudioLike {
 
 // fetchClip says one text with the gateway's voice: the audio, or a thrown error.
 export type FetchClip = (text: string, signal: AbortSignal) => Promise<Blob>;
+
+// reasonOf is why a clip could not be had: the gateway's message, or "error".
+function reasonOf(e: unknown): string {
+  if (e instanceof Error) {
+    return e.message;
+  }
+  return "error";
+}
+
+// playError is why a clip could not be played: the browser wants a tap first, or it could not.
+function playError(e: { name?: string }): string {
+  if (e?.name === "NotAllowedError") {
+    return "not-allowed";
+  }
+  return "audio";
+}
 
 // clipsPlaying counts the clips playing now, for voiceBusy.
 let clipsPlaying = 0;
@@ -741,7 +926,7 @@ export class ClipReader {
         src = await clip(i);
       } catch (e) {
         if (run === this.run) {
-          this.finish(e instanceof Error ? e.message : "error");
+          this.finish(reasonOf(e));
         }
         return;
       }
@@ -772,7 +957,7 @@ export class ClipReader {
       a.src = src;
       a.play().catch((e: { name?: string }) => {
         if (run === this.run) {
-          this.finish(e?.name === "NotAllowedError" ? "not-allowed" : "audio");
+          this.finish(playError(e));
         }
       });
     };
@@ -783,7 +968,7 @@ export class ClipReader {
   stop(): void {
     const was = this.active;
     this.end();
-    was?.onEnd?.();
+    was?.onEnd?.(undefined, true);
   }
 
   private finish(error?: string): void {
@@ -813,7 +998,7 @@ export class ClipReader {
   private setPlaying(on: boolean): void {
     if (on !== this.playing) {
       this.playing = on;
-      clipsPlaying += on ? 1 : -1;
+      clipsPlaying += Number(on) * 2 - 1;
     }
   }
 }
@@ -887,6 +1072,52 @@ export function textRange(root: Node, needle: string): Range | null {
 
 // SPEECH_STOP_EVENT asks the reader to be quiet: the microphone is about to listen.
 export const SPEECH_STOP_EVENT = "motita-speech-stop";
+
+// SPEECH_NOTICE_EVENT asks the page to say a notice aloud (the CI of a pull request, an approval):
+// it is said when the person turned voice notices on, and the tab is visible.
+export const SPEECH_NOTICE_EVENT = "motita-speech-notice";
+
+export function sayNotice(text: string): void {
+  if (typeof window !== "undefined" && text.trim()) {
+    window.dispatchEvent(
+      new CustomEvent(SPEECH_NOTICE_EVENT, { detail: text.trim() }),
+    );
+  }
+}
+
+// SPEECH_TURN_READ_EVENT tells the page the answer to a spoken turn was read to its end: in
+// conversation mode, the microphone listens again.
+export const SPEECH_TURN_READ_EVENT = "motita-speech-turn-read";
+
+// EXIT_PHRASES end a conversation: said alone, or with "Motita" and the punctuation around them.
+const EXIT_PHRASES = [
+  "basta",
+  "para",
+  "detente",
+  "eso es todo",
+  "gracias eso es todo",
+  "terminamos",
+  "stop",
+  "enough",
+  "that's all",
+  "thats all",
+  "that is all",
+  "we're done",
+  "were done",
+];
+
+// isExitPhrase says whether what was heard ends the conversation.
+export function isExitPhrase(text: string): boolean {
+  const plain = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}' ]+/gu, " ")
+    .replace(/\bmotita\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return EXIT_PHRASES.includes(plain);
+}
 
 export function stopSpeaking(): void {
   if (typeof window !== "undefined") {

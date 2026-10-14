@@ -30,7 +30,11 @@ import {
   type SpeechEngine,
   type SpeechPrefs,
   type VoiceLike,
+  formatPronunciations,
+  parsePronunciations,
+  voicesFor,
 } from "./speech";
+import type { Lang } from "./i18n";
 import {
   Row,
   Segmented,
@@ -61,6 +65,10 @@ export interface SpeechSettingsProps {
   // empty when it has none.
   device?: boolean;
   gatewayVoices?: string[];
+  // allVoices are the device's voices in every language, for the voice of each language;
+  // canListen says speech input works here, which conversation mode needs.
+  allVoices?: VoiceLike[];
+  canListen?: boolean;
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -93,6 +101,8 @@ export function SpeechSettings({
   test,
   device = true,
   gatewayVoices = [],
+  allVoices = [],
+  canListen = false,
 }: SpeechSettingsProps) {
   const set = useCallback(
     (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch }),
@@ -269,6 +279,47 @@ export function SpeechSettings({
             }))}
           />
         </Row>
+        {!gateway && (
+          <LanguageVoice
+            off={off}
+            prefs={prefs}
+            set={set}
+            allVoices={allVoices}
+          />
+        )}
+        <Row
+          id="settings-speech-conversation"
+          label={t("Conversation")}
+          hint={choose(
+            canListen,
+            t(
+              "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.",
+            ),
+            t("Needs speech input: turn it on above."),
+          )}
+        >
+          <SpeechSwitch
+            id="settings-speech-conversation"
+            usable={!off && canListen}
+            checked={prefs.conversation}
+            onChange={(conversation) => set({ conversation })}
+          />
+        </Row>
+        <Row
+          id="settings-speech-notices"
+          label={t("Voice notices")}
+          hint={t(
+            "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.",
+          )}
+        >
+          <SpeechSwitch
+            id="settings-speech-notices"
+            usable={!off}
+            checked={prefs.notices}
+            onChange={(notices) => set({ notices })}
+          />
+        </Row>
+        <Pronunciations off={off} prefs={prefs} set={set} />
         <Row id="settings-speech-test" label={t("Try the voice")}>
           <button
             type="button"
@@ -282,6 +333,154 @@ export function SpeechSettings({
         </Row>
       </div>
     </section>
+  );
+}
+
+// SpeechSwitch is one switch of the read-aloud section.
+function SpeechSwitch({
+  id,
+  usable,
+  checked,
+  onChange,
+}: {
+  id: string;
+  usable: boolean;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label class="settings-switch-hit">
+      <input
+        type="checkbox"
+        role="switch"
+        class="settings-switch"
+        aria-labelledby={id}
+        name={id}
+        disabled={!usable}
+        checked={usable && checked}
+        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
+      />
+    </label>
+  );
+}
+
+// otherLang is the language an answer mixes in besides the interface's.
+function otherLang(l: Lang): Lang {
+  return choose(l === "es", "en", "es");
+}
+
+// LanguageVoice reads each sentence with a voice of its own language, and picks the voice of the
+// other one: an answer in Spanish that quotes English is said by two voices, each in its own.
+function LanguageVoice({
+  off,
+  prefs,
+  set,
+  allVoices,
+}: {
+  off: boolean;
+  prefs: SpeechPrefs;
+  set: (patch: Partial<SpeechPrefs>) => void;
+  allVoices: VoiceLike[];
+}) {
+  const other = otherLang(lang());
+  const voices = voicesFor(allVoices, other);
+  return (
+    <>
+      <Row
+        id="settings-speech-bylang"
+        label={t("A voice per language")}
+        hint={t(
+          "Each sentence is read with a voice of its own language: English with an English voice.",
+        )}
+      >
+        <SpeechSwitch
+          id="settings-speech-bylang"
+          usable={!off}
+          checked={prefs.byLanguage}
+          onChange={(byLanguage) => set({ byLanguage })}
+        />
+      </Row>
+      {prefs.byLanguage && !off && (
+        <Row
+          id="settings-speech-other-voice"
+          label={choose(
+            other === "en",
+            t("Voice for English"),
+            t("Voice for Spanish"),
+          )}
+          hint={choose(
+            voices.length === 0,
+            t("This device has no voice for that language."),
+            undefined,
+          )}
+        >
+          <select
+            class={inputCls + " max-w-[220px]"}
+            aria-labelledby="settings-speech-other-voice"
+            value={prefs.langVoices[other] || ""}
+            onChange={(e) =>
+              set({
+                langVoices: {
+                  ...prefs.langVoices,
+                  [other]: (e.target as HTMLSelectElement).value,
+                },
+              })
+            }
+          >
+            <option value="">{t("Device default")}</option>
+            {voices.map((v) => (
+              <option key={v.voiceURI} value={v.voiceURI}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+      )}
+    </>
+  );
+}
+
+// Pronunciations is the person's own list: a term and how to say it, one a line. It is saved when
+// the field is left, so a half-typed line is never applied.
+function Pronunciations({
+  off,
+  prefs,
+  set,
+}: {
+  off: boolean;
+  prefs: SpeechPrefs;
+  set: (patch: Partial<SpeechPrefs>) => void;
+}) {
+  const saved = formatPronunciations(prefs.pronunciations);
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+  return (
+    <Row
+      id="settings-speech-words"
+      label={t("Pronunciations")}
+      stack
+      hint={t(
+        "One a line: the term, “=”, and how to say it. For example: kubectl = cube control",
+      )}
+    >
+      <textarea
+        class={inputCls + " w-full font-mono text-[12px]"}
+        aria-labelledby="settings-speech-words"
+        data-testid="speech-words"
+        rows={3}
+        disabled={off}
+        spellcheck={false}
+        value={text}
+        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+        onBlur={() => {
+          const list = parsePronunciations(text);
+          setText(formatPronunciations(list));
+          if (formatPronunciations(list) !== saved) {
+            set({ pronunciations: list });
+          }
+        }}
+      />
+    </Row>
   );
 }
 

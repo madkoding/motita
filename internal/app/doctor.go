@@ -2,6 +2,9 @@ package app
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/doctor"
@@ -34,7 +37,7 @@ func (op Options) doctorConfig(fl flags) []doctor.Check {
 	if err != nil {
 		return []doctor.Check{{Name: "config", Status: doctor.Fail, Detail: fmt.Sprintf("%s: %v", path, err)}}
 	}
-	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)}, voiceCheck(cfg)}
+	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)}, voiceCheck(cfg), speechCheck(cfg)}
 
 	cfg.Agent.LogFile = ""
 	cfg.Agent.LogConsole = false
@@ -70,4 +73,31 @@ func voiceCheck(cfg config.Config) doctor.Check {
 		detail += "; no wake phrases, so hands-free listening is unavailable"
 	}
 	return doctor.Check{Name: "voice", Detail: detail}
+}
+
+// speechCheck says whether the gateway's voice is on and where the text of answers goes, or that
+// the device's own voices are used. Like the rest of the doctor it calls no service.
+func speechCheck(cfg config.Config) doctor.Check {
+	tts := cfg.Voice.TTS
+	if !tts.Enabled {
+		return doctor.Check{Name: "speech", Detail: "answers are read with the voices of each device; " +
+			"set voice.tts.enabled: true for the gateway's own voice"}
+	}
+	detail := fmt.Sprintf("the gateway's voice is on: %s, model %s, voices %s", cfg.TTSBaseURL(), tts.Model,
+		strings.Join(cfg.TTSVoices(), ", "))
+	if cfg.TTSAPIKey() == "" && !localAddress(cfg.TTSBaseURL()) {
+		return doctor.Check{Name: "speech", Status: doctor.Warn,
+			Detail: detail + "; no key for a remote endpoint: set voice.tts.api_key or MOTITA_VOICE_TTS_API_KEY"}
+	}
+	return doctor.Check{Name: "speech", Detail: detail}
+}
+
+// localAddress reports whether an endpoint is on this machine, where a server needs no key.
+func localAddress(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	return h == "localhost" || net.ParseIP(h).IsLoopback()
 }

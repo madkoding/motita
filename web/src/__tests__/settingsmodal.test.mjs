@@ -528,7 +528,14 @@ test("the voice switches are greyed out until the page and the gateway allow the
 test("read aloud: when, which voice, how fast and how much, and a button to try it", async () => {
   const saved = [];
   let tried = 0;
-  const prefs = { mode: "voice", voiceURI: "", rate: 1, maxChars: 600 };
+  const prefs = {
+    mode: "voice",
+    voiceURI: "",
+    rate: 1,
+    maxChars: 600,
+    langVoices: {},
+    pronunciations: [],
+  };
   const speech = (supported, voices) => ({
     supported,
     prefs,
@@ -599,6 +606,8 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     voiceURI: "",
     rate: 1,
     maxChars: 600,
+    langVoices: {},
+    pronunciations: [],
   };
   let v = await open({ tab: "voice", speech: speech(base) });
   let card = v.root.querySelector("[data-testid=speech-setting]");
@@ -641,6 +650,86 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
   assert.deepEqual(
     [...card.querySelector("select").options].map((o) => o.value),
     ["", "alloy", "nova"],
+  );
+  await v.done();
+});
+
+test("read aloud: conversation, voice notices, a voice per language and the person's pronunciations", async () => {
+  const saved = [];
+  const base = {
+    mode: "voice",
+    style: "literal",
+    engine: "device",
+    gatewayVoice: "",
+    voiceURI: "",
+    rate: 1,
+    maxChars: 600,
+    conversation: false,
+    notices: false,
+    byLanguage: false,
+    langVoices: {},
+    pronunciations: [{ term: "PR", say: "pull request" }],
+  };
+  const speech = (prefs, canListen) => ({
+    supported: true,
+    prefs,
+    setPrefs: (p) => saved.push(p),
+    voices: [{ voiceURI: "ana", name: "Ana", lang: "es-CL" }],
+    allVoices: [
+      { voiceURI: "ana", name: "Ana", lang: "es-CL" },
+      { voiceURI: "eve", name: "Eve", lang: "en-US" },
+    ],
+    test: () => {},
+    canListen,
+  });
+  let v = await open({ tab: "voice", speech: speech(base, false) });
+  let card = v.root.querySelector("[data-testid=speech-setting]");
+  const sw = (name) => card.querySelector(`input[name=${name}]`);
+  assert.equal(sw("settings-speech-conversation").disabled, true);
+  assert.match(card.textContent, /Needs speech input/);
+  await act(() => sw("settings-speech-notices").click());
+  assert.deepEqual(saved.pop(), { ...base, notices: true });
+  await act(() => sw("settings-speech-bylang").click());
+  assert.deepEqual(saved.pop(), { ...base, byLanguage: true });
+  const words = card.querySelector("[data-testid=speech-words]");
+  assert.equal(words.value, "PR = pull request");
+  words.value = "PR = pull request\nkubectl = cube control\nbroken line";
+  await act(() =>
+    words.dispatchEvent(new window.Event("input", { bubbles: true })),
+  );
+  await act(() => words.dispatchEvent(new window.Event("blur")));
+  assert.deepEqual(saved.pop().pronunciations, [
+    { term: "PR", say: "pull request" },
+    { term: "kubectl", say: "cube control" },
+  ]);
+  await v.done();
+
+  v = await open({
+    tab: "voice",
+    speech: speech({ ...base, byLanguage: true }, true),
+  });
+  card = v.root.querySelector("[data-testid=speech-setting]");
+  assert.equal(sw("settings-speech-conversation").disabled, false);
+  await act(() => sw("settings-speech-conversation").click());
+  assert.equal(saved.pop().conversation, true);
+  const other = card.querySelector(
+    "[aria-labelledby=settings-speech-other-voice]",
+  );
+  // The other language than the interface's: English in a Spanish page, Spanish in an English one.
+  const english = card.textContent.includes("Voice for English");
+  const want = english ? "eve" : "ana";
+  assert.deepEqual(
+    [...other.options].map((o) => o.value),
+    ["", want],
+    "the voices of the other language",
+  );
+  other.value = want;
+  await act(() =>
+    other.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
+  assert.deepEqual(
+    saved.pop().langVoices,
+    english ? { en: "eve" } : { es: "ana" },
   );
   await v.done();
 });

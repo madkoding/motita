@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { loadCiToast, loadNotify } from "./settings";
 import { showNotification } from "./notify";
+import { sayNotice } from "./speech";
 import { loadPushOn } from "./pushApi";
 import {
   getPR,
@@ -155,6 +156,7 @@ function announce(
   if (loadCiToast()) {
     setToast(n);
   }
+  sayNotice([n.message, n.detail].filter(Boolean).join(". "));
   try {
     if (
       typeof Notification !== "undefined" &&

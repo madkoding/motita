@@ -1285,6 +1285,20 @@ The natural style asks the gateway for each line:
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/sessions/{id}/narrate` | One spoken line about the turn: `stage` (`start`, `progress` or `answer`), `lang`, `request`, and `notes` and `said` (progress) or `answer`. Answers `{"text": …}`, empty when there is nothing new; `501` when the session's model cannot be asked. |
 
+- **Conversation** (needs speech input): after the answer to a turn you spoke has been read to its
+  end, the microphone listens again and sends what you say as the next turn, so a conversation goes
+  on without touching the page. Saying an exit phrase alone ("basta", "eso es todo", "that's all",
+  "stop", with or without "Motita"), tapping the microphone, or eight seconds of silence ends it;
+  the exit phrase is never sent.
+- **Voice notices** say aloud what the page shows as a notice: the CI of a pull request, and a
+  question the agent waits on. Only while the tab is visible, after what is being said.
+- **A voice per language** reads each sentence with a voice of its own language, told apart by its
+  most common words, so an answer in Spanish that quotes English is said by two voices. The voice
+  of the other language is chosen below the switch.
+- **Pronunciations** are your own list, one `term = how to say it` a line (`kubectl = cube
+  control`): whole words, any case, applied before the built-in ones. Kept per device with the
+  rest of these settings.
+
 Unlike the microphone, reading aloud works on any address, https or not. Safari speaks only after
 a first tap on the page.
 

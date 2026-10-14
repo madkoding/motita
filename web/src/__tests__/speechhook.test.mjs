@@ -85,7 +85,8 @@ await build({
   logLevel: "silent",
 });
 const { useSpeech } = await import(pathToFileURL(join(out, "sp.mjs")).href);
-const { SPEECH_KEY, stopSpeaking } = await import("../speech.ts");
+const { SPEECH_KEY, SPEECH_TURN_READ_EVENT, stopSpeaking, sayNotice } =
+  await import("../speech.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 rmSync(out, { recursive: true });
@@ -103,6 +104,7 @@ async function mount(mode, heard = false, extra = {}) {
     style = "literal",
     engine = "device",
     gatewayVoice = "",
+    prefs = {},
     ...props0
   } = extra;
   localStorage.setItem(
@@ -115,6 +117,7 @@ async function mount(mode, heard = false, extra = {}) {
       voiceURI: "",
       rate: 1,
       maxChars: 600,
+      ...prefs,
     }),
   );
   synth.said = [];
@@ -523,4 +526,70 @@ test("gateway: chosen but off on this gateway, the device speaks", async () => {
     ["All done."],
   );
   await s.done();
+});
+
+test("notices: said when turned on and the tab is visible, after what is being said", async () => {
+  // jsdom is a hidden page unless told otherwise.
+  const hidden = (value) =>
+    Object.defineProperty(document, "hidden", { value, configurable: true });
+  hidden(false);
+  let s = await mount("off", false, { prefs: { notices: true } });
+  await act(() => sayNotice("CI passed. Pull request #3 is green."));
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    ["CI passed."],
+    "one sentence at a time",
+  );
+  // One that comes while another is said waits its turn.
+  await act(() => sayNotice("CI failed."));
+  await act(() => synth.finish());
+  assert.ok(synth.said.some((u) => u.text === "CI failed."));
+  // A new question of the agent is a notice too.
+  synth.said = [];
+  await s.set({ approval: { id: "a1", question: "Run rm -rf build?" } });
+  await act(() => synth.finish());
+  assert.match(
+    synth.said.map((u) => u.text).join(" "),
+    /Motita needs your answer\. Run rm -rf build\?/,
+  );
+  await s.done();
+
+  s = await mount("off", false);
+  await act(() => sayNotice("CI passed."));
+  assert.equal(synth.said.length, 0, "off by default");
+  await s.done();
+
+  s = await mount("off", false, { prefs: { notices: true } });
+  hidden(true);
+  await act(() => sayNotice("CI passed."));
+  delete document.hidden;
+  assert.equal(synth.said.length, 0, "not for a tab nobody looks at");
+  await s.done();
+});
+
+test("conversation: the page is told when the answer to a spoken turn was read to its end", async () => {
+  let told = 0;
+  const on = () => (told += 1);
+  window.addEventListener(SPEECH_TURN_READ_EVENT, on);
+  let s = await mount("voice", true);
+  await turn(s, answer(2));
+  await act(() => synth.finish());
+  assert.equal(told, 1);
+  await s.done();
+
+  // A stopped reading is not an end: nothing listens again.
+  s = await mount("voice", true);
+  await turn(s, answer(2));
+  await act(() => s.state.current.stop());
+  await act(() => synth.finish());
+  assert.equal(told, 1);
+  await s.done();
+
+  // A typed turn read in "always" mode is not a spoken one.
+  s = await mount("always", false);
+  await turn(s, answer(2));
+  await act(() => synth.finish());
+  assert.equal(told, 1);
+  await s.done();
+  window.removeEventListener(SPEECH_TURN_READ_EVENT, on);
 });

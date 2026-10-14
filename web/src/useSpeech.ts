@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "preact/hooks";
+import { choose } from "./choose";
 import { lang, t } from "./i18n";
 import type { Message, SetToast, StepView } from "./appTypes";
 import type { Api } from "./prApi";
@@ -20,7 +21,10 @@ import {
   type UtteranceLike,
   Reader,
   SPEECH_PREFS_EVENT,
+  SPEECH_NOTICE_EVENT,
   SPEECH_STOP_EVENT,
+  SPEECH_TURN_READ_EVENT,
+  sayNotice,
   type NarrateBody,
   loadSpeechPrefs,
   narrate,
@@ -50,6 +54,8 @@ interface Deps {
   stepsByTurn?: Record<number, StepView[]>;
   // tts is the gateway's voice, as GET /v1/voice describes it; absent or off, the device speaks.
   tts?: TTSInfo;
+  // approval is the question the agent waits on, said aloud as a notice when it arrives.
+  approval?: { id: string; question?: string } | null;
 }
 
 export interface TTSInfo {
@@ -224,10 +230,18 @@ function speechWords() {
   };
 }
 
+// turnRead tells the page the answer to a spoken turn was read to its end (conversation mode).
+function turnRead() {
+  window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT));
+}
+
 // A turn being watched: whether its answer is read on its own, the last message before it, and
 // what the person asked.
 interface PendingTurn {
   auto: boolean;
+  // spoken says the person spoke the turn: in conversation mode, the microphone listens again
+  // when its answer has been read.
+  spoken: boolean;
   after: number;
   request: string;
 }
@@ -246,6 +260,7 @@ function turnStart(
   }
   return {
     auto: mode === "always" || (mode === "voice" && spoken),
+    spoken,
     after: last?.id ?? -1,
     request: asked,
   };
@@ -467,7 +482,7 @@ function useAutoRead(o: {
   takeHeard: () => boolean;
   prefsRef: { current: SpeechPrefs };
   said: { current: string[] };
-  tellAnswer: (m: Message) => void;
+  tellAnswer: (m: Message, after?: () => void) => void;
   ask: Ask;
   say: Say;
   stop: () => void;
@@ -496,7 +511,7 @@ function useAutoRead(o: {
       }
       pending.current = null;
       if (p.auto) {
-        tellAnswer(answer);
+        tellAnswer(answer, choose(p.spoken, turnRead, undefined));
       }
     };
     const started = running && !wasRunning.current;
@@ -523,6 +538,33 @@ function useAutoRead(o: {
     pending.current = null;
   }, [o.sessionId]);
   return pending;
+}
+
+// useNotices says the page's notices aloud, when the person turned voice notices on and the tab is
+// visible: a notice for a tab nobody looks at is noise in the room. A notice that comes while
+// something is said waits its turn. A new approval is one of them.
+function useNotices(
+  prefsRef: { current: SpeechPrefs },
+  say: Say,
+  approval: { id: string; question?: string } | null | undefined,
+) {
+  useEffect(() => {
+    const onNotice = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail;
+      if (prefsRef.current.notices && !document.hidden && text) {
+        say(text, null);
+      }
+    };
+    window.addEventListener(SPEECH_NOTICE_EVENT, onNotice);
+    return () => window.removeEventListener(SPEECH_NOTICE_EVENT, onNotice);
+  }, [prefsRef, say]);
+  const id = approval?.id;
+  const question = approval?.question;
+  useEffect(() => {
+    if (id) {
+      sayNotice(t("Motita needs your answer.") + " " + (question || ""));
+    }
+  }, [id, question]);
 }
 
 // useProgressLines are the PROGRESS LINES: while a natural turn runs, every few seconds, when the
@@ -583,6 +625,7 @@ type ReadText = (
   id: number | null,
   rootOf?: () => HTMLElement | null,
   whole?: boolean,
+  after?: () => void,
 ) => void;
 
 // useReadText is the function that says a text, highlighting each sentence inside `rootOf()`
@@ -612,6 +655,7 @@ function useReadText(o: {
       id: number | null,
       rootOf?: () => HTMLElement | null,
       whole = false,
+      after?: () => void,
     ) => {
       if (!reader) {
         return;
@@ -623,11 +667,14 @@ function useReadText(o: {
         readLimit(id, whole, p.maxChars),
         l,
         speechWords(),
+        { byLanguage: p.byLanguage, pronunciations: p.pronunciations },
       );
       follow.current = true;
       setSpeakingId(id);
       reader.read(list, {
         voice: pickVoice(voicesRef.current, p.voiceURI, l),
+        voiceFor: (other) =>
+          pickVoice(voicesRef.current, p.langVoices[other] || "", other),
         lang: l,
         rate: p.rate,
         onSentence: (i) => {
@@ -639,13 +686,20 @@ function useReadText(o: {
             clearHighlight();
           }
         },
-        onEnd: (error) => {
+        onEnd: (error, stopped) => {
+          // A stop belongs to whoever stopped it: a new reading that takes over, or stop(), which
+          // clears the state itself.
+          if (stopped) {
+            return;
+          }
           clearHighlight();
           setSpeakingId(null);
           if (!error) {
             const next = queue.current.shift();
             if (next) {
-              readRef.current?.(next.text, next.id, undefined, true);
+              readRef.current?.(next.text, next.id, undefined, true, after);
+            } else {
+              after?.();
             }
             return;
           }
@@ -673,6 +727,7 @@ export function useSpeech({
   api,
   stepsByTurn,
   tts,
+  approval,
 }: Deps) {
   const device = useMemo(speechSupported, []);
   const gatewayOn = !!(tts?.enabled && api && typeof Audio !== "undefined");
@@ -696,6 +751,7 @@ export function useSpeech({
     queue.current = [];
     generation.current++;
     reader?.stop();
+    clearHighlight();
     setSpeakingId(null);
   }, [reader]);
 
@@ -752,10 +808,10 @@ export function useSpeech({
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const tellAnswer = useCallback(
-    (m: Message) => {
+    (m: Message, after?: () => void) => {
       const root = () => messageRoot(m.id);
       if (prefsRef.current.style !== "natural" || !api) {
-        read(spokenText(m), m.id, root);
+        read(spokenText(m), m.id, root, false, after);
         return;
       }
       queue.current = [];
@@ -773,10 +829,10 @@ export function useSpeech({
         if (text) {
           reader?.stop();
           said.current.push(text);
-          read(text, m.id, undefined, true);
+          read(text, m.id, undefined, true, after);
           return;
         }
-        read(spokenText(m), m.id, root);
+        read(spokenText(m), m.id, root, false, after);
       });
     },
     [api, ask, read, reader, prefsRef],
@@ -802,6 +858,7 @@ export function useSpeech({
   useReadShortcut(reader, speakingId, messagesRef, tellAnswer, stop);
   useStopOnLeave(stop, sessionId);
   useVoiceUnlock(device, prefs.mode);
+  useNotices(prefsRef, say, approval);
   const pending = useAutoRead({
     running,
     messages,
@@ -829,10 +886,11 @@ export function useSpeech({
     supported,
     // device says the device has voices of its own; gatewayVoices are the gateway's, when it has one.
     device,
-    gatewayVoices: gatewayOn ? tts!.voices : [],
+    gatewayVoices: choose(gatewayOn, tts?.voices ?? [], []),
     prefs,
     setPrefs,
     voices: voicesFor(voices, lang()),
+    allVoices: voices,
     speakingId,
     speak,
     stop,
