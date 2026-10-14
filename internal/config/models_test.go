@@ -118,3 +118,13 @@ func TestModelsFromTheEnvironment(t *testing.T) {
 		t.Errorf("models.code = %q", c.Models.Code)
 	}
 }
+
+func TestLoadRefusesAnUnreadableModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := os.WriteFile(path, []byte("models:\n  plan: gpt-5\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadWithoutKey(path); err == nil || !strings.Contains(err.Error(), "models.plan") {
+		t.Errorf("err = %v", err)
+	}
+}
