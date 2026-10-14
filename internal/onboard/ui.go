@@ -8,11 +8,11 @@ import (
 	"github.com/madkoding/motita/internal/i18n"
 )
 
-// ANSI colour codes used by the wizard. They are written unconditionally: the
-// caller (app.go) already checks NO_COLOR and TERM=dumb before deciding whether
-// to pass a writer that can interpret them, and a pipe or a test buffer strips
-// them or ignores them. The wizard itself never decides whether to emit colour
-// — that would duplicate a decision the caller already owns.
+// ANSI colour codes used by the wizard. They are written unconditionally: the caller (app.go) puts
+// a termcap filter in front of the output, which drops them where nothing can show them (NO_COLOR,
+// a pipe, TERM=dumb, a Windows console without virtual terminal mode) and swaps the glyphs a legacy
+// console cannot draw. The wizard itself never decides whether to emit colour: that would
+// duplicate a decision the caller already owns.
 const (
 	colReset  = "\x1b[0m"
 	colBold   = "\x1b[1m"

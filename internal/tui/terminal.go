@@ -4,29 +4,15 @@ import (
 	"os"
 
 	"github.com/madkoding/motita/internal/onboard"
+	"github.com/madkoding/motita/internal/termcap"
 )
 
 // IsTerminal reports whether a writer is a terminal.
 //
-// The test is "is a character device", which is the portable stand-in: the standard
-// library exposes no ioctl through unsafe and this module takes none, so the cheap
-// check is the honest one. It is exported because the caller that decides about colour
-// needs the same answer, and two implementations of one question is how they end up
-// disagreeing.
-//
-// Anything that is not an *os.File — a buffer, a pipe, a writer an embedder supplied —
-// is not a terminal, and neither is a file that cannot be inspected.
-func IsTerminal(w interface{ Write([]byte) (int, error) }) bool {
-	f, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
-}
+// The answer is termcap's, which also sees through the ASCII filter the interface may be writing
+// through: the caller that decides about colour and the mouse code have to agree, and two
+// implementations of one question is how they end up disagreeing.
+func IsTerminal(w interface{ Write([]byte) (int, error) }) bool { return termcap.IsTerminal(w) }
 
 // isTerminalOut is the internal spelling used by the mouse code.
 func isTerminalOut(w interface{ Write([]byte) (int, error) }) bool { return IsTerminal(w) }

@@ -376,6 +376,12 @@ func (op *Options) completeIO() {
 		) (onboard.Result, error) {
 			// The menus follow the arrow keys when the answers come from a terminal; from a pipe
 			// they are read as lines, so a script can still answer them.
+			//
+			// The wizard writes colour unconditionally, so the decision is made here, in front of
+			// it: the filter drops the colour where nothing can show it and swaps the glyphs a
+			// legacy Windows console cannot draw. Detect also switches that console into virtual
+			// terminal mode, without which it printed every colour code as text.
+			out = outputProfile(out).Writer(out)
 			return onboard.RunWithKeys(ctx, in, out, path, preset, time.Now(), tui.KeyModeFor(in))
 		}
 	}
