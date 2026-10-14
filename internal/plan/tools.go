@@ -156,14 +156,21 @@ func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
 	toolCtx, cancel := context.WithTimeout(ctx, p.commandTimeout)
 	defer cancel()
 
-	var command string
-	if strings.EqualFold(args.Literal, "true") {
-		command = fmt.Sprintf("grep -R -n -F %s %s", shellQuote(pattern), shellQuote(path))
+	literal := strings.EqualFold(args.Literal, "true")
+	var command, output string
+	var exit int
+	var err error
+	if searchNatively {
+		command = fmt.Sprintf("search_in_files %s %s", shellQuote(pattern), shellQuote(path))
+		output, exit, err = searchFiles(toolCtx, pattern, path, literal)
 	} else {
-		command = fmt.Sprintf("grep -R -n -E %s %s", shellQuote(pattern), shellQuote(path))
+		if literal {
+			command = fmt.Sprintf("grep -R -n -F %s %s", shellQuote(pattern), shellQuote(path))
+		} else {
+			command = fmt.Sprintf("grep -R -n -E %s %s", shellQuote(pattern), shellQuote(path))
+		}
+		output, exit, err = p.runner.RunCommand(toolCtx, command)
 	}
-
-	output, exit, err := p.runner.RunCommand(toolCtx, command)
 	output = limitString(output, maxToolOutputBytes)
 
 	var sb strings.Builder

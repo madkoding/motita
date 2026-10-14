@@ -28,8 +28,8 @@ func TestShellQuote(t *testing.T) {
 		"":             "''",
 	}
 	for input, expected := range cases {
-		if got := shellQuote(input); got != expected {
-			t.Errorf("shellQuote(%q) = %q, expected %q", input, got, expected)
+		if got := execx.Quote("/bin/sh", input); got != expected {
+			t.Errorf("Quote(%q) = %q, expected %q", input, got, expected)
 		}
 	}
 }

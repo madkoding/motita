@@ -298,6 +298,32 @@ jobs:
             ~/go/pkg/mod
           key: go-coverage-${{ hashFiles('go.mod', '**/*.go') }}
 
+  # The Windows side of the agent: the shell it runs lines through (PowerShell), the policy that
+  # judges those lines and the procedures served there. The Linux jobs cover the same code, but
+  # only a Windows machine has Windows PowerShell, Windows paths and Windows process creation.
+  windows:
+    name: windows · PowerShell, policy and procedures
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: the shell runs a line under PowerShell
+        run: go test -count=1 -run 'Shell|PowerShell|Quote|IsCmd' ./internal/execx/
+
+      - name: the policy judges PowerShell lines and Windows paths
+        run: go test -count=1 -run 'PowerShell|WindowsPath|WindowsRequest' ./internal/policy/
+
+      - name: the Windows procedures are served
+        run: go test -count=1 -run 'Variant|Windows' ./internal/skills/
+
   # The name branch protection requires. The checks it stood for are now three jobs that run
   # in parallel, so this job carries the old name and passes only when all three passed.
   # `always()` plus the explicit check matter: a required job that is SKIPPED counts as
@@ -305,10 +331,10 @@ jobs:
   verify:
     name: fmt · vet · test
     if: always()
-    needs: [lint, test, coverage]
+    needs: [lint, test, coverage, windows]
     runs-on: ubuntu-latest
     steps:
-      - name: lint, test and coverage all passed
+      - name: lint, test, coverage and windows all passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |

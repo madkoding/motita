@@ -298,6 +298,14 @@ var readers = map[string]bool{
 	"readlink": true, "realpath": true, "basename": true, "dirname": true,
 	"sort": true, "uniq": true, "tr": true, "seq": true, "expr": true,
 	"jq": true, "yq": true, "xmllint": true, "csvlook": true,
+	// The PowerShell cmdlets the Windows procedures read with (names are compared lower-cased).
+	// None of them has a parameter that writes; under PowerShell the policy refuses the syntax
+	// that would run code inside their arguments (internal/policy/powershell.go). `findstr` is
+	// the Windows program that searches text.
+	"get-content": true, "get-childitem": true, "get-item": true, "test-path": true,
+	"resolve-path": true, "split-path": true, "select-string": true, "measure-object": true,
+	"select-object": true, "get-filehash": true, "format-hex": true, "findstr": true,
+	"format-list": true, "format-table": true, "out-string": true,
 	// The line editors. Their reading form is what a coding agent lives on; their writing
 	// form is a flag, and a flag is what a rule can name.
 	"sed": true, "awk": true, "find": true, "gawk": true, "mawk": true,
