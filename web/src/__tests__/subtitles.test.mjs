@@ -116,7 +116,12 @@ test("the CSS keeps them legible on any background, out of the way, and still fo
   assert.match(box, /color: #fff/);
   assert.match(box, /text-shadow/);
   assert.match(box, /line-clamp: 3/, "a long sentence does not cover the conversation");
-  assert.match(box, /visibility 0s linear 180ms/, "hidden only after it fades");
+  assert.match(
+    box,
+    /visibility 0s linear var\(--motion-base, 180ms\)/,
+    "hidden only after it fades",
+  );
+  assert.match(box, /opacity var\(--motion-base, 180ms\) var\(--ease-out, ease-out\)/, "the shared motion tokens, with a fallback");
   for (const size of ["small", "medium", "large"]) {
     assert.match(rule(`.subtitles-${size}`), /font-size/);
   }

@@ -1269,12 +1269,13 @@ div[role="log"]:not(.chat-loading) > * {
   overflow: hidden;
   opacity: 0;
   visibility: hidden;
-  transform: translate(-50%, 0.4rem);
-  /* Hidden: visibility waits for the fade, so the box leaves the screen reader's tree after it. */
+  transform: translate(-50%, var(--motion-shift, 0.4rem));
+  /* The shared motion tokens (motion.css) when the page has them, the same values otherwise.
+   * Hidden: visibility waits for the fade, so the box leaves the screen reader's tree after it. */
   transition:
-    opacity 180ms ease-out,
-    transform 180ms ease-out,
-    visibility 0s linear 180ms;
+    opacity var(--motion-base, 180ms) var(--ease-out, ease-out),
+    transform var(--motion-base, 180ms) var(--ease-out, ease-out),
+    visibility 0s linear var(--motion-base, 180ms);
 }
 .subtitles[data-shown] {
   opacity: 1;
