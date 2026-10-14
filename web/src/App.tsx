@@ -210,7 +210,10 @@ function SpeakButton({ m }: { m: Message }) {
   const { speech, rs } = useApp();
   const reading = speech.speakingId === m.id;
   // An answer still streaming has no end yet: it is read once it is complete.
-  if (!speech.supported || (rs.running && m === rs.messages[rs.messages.length - 1])) {
+  if (
+    !speech.supported ||
+    (rs.running && m === rs.messages[rs.messages.length - 1])
+  ) {
     return null;
   }
   const label = choose(reading, t("Stop reading"), t("Read aloud"));
@@ -224,9 +227,17 @@ function SpeakButton({ m }: { m: Message }) {
       title={label + " (Alt+L)"}
       onClick={() => speech.speak(m)}
     >
-      {reading ? <IconStop /> : <IconSpeaker />}
+      <SpeakIcon reading={reading} />
     </button>
   );
+}
+
+// SpeakIcon is the stop square while the answer is being read, the speaker otherwise.
+function SpeakIcon({ reading }: { reading: boolean }) {
+  if (reading) {
+    return <IconStop />;
+  }
+  return <IconSpeaker />;
 }
 
 function IconSpeaker() {

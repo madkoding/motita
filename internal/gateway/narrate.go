@@ -125,27 +125,38 @@ func narratePrompt(b narrateRequest) (string, error) {
 		return asked + "The agent is starting on it now. In ONE short sentence, tell the " +
 			"person you are on it and what you will look at first.", nil
 	case narrateProgress:
-		notes := lastN(b.Notes, narrateMaxNotes, narrateMaxNote)
-		if len(notes) == 0 {
-			return "", fmt.Errorf("there are no notes to talk about")
-		}
-		return asked + "<already_said>\n" + bulleted(lastN(b.Said, narrateMaxSaid, narrateMaxNote)) +
-			"\n</already_said>\n\n<agent_activity>\n" + bulleted(notes) + "\n</agent_activity>\n\n" +
-			"The agent is still working. In ONE short sentence, tell the person what it is doing " +
-			"now or what it just found, without repeating what was already said. If nothing new " +
-			"is worth saying, answer exactly " + narrateSkip + ".", nil
+		return progressPrompt(asked, b)
 	case narrateAnswer:
-		answer := clip(b.Answer, narrateMaxAnswer)
-		if answer == "" {
-			return "", fmt.Errorf("the answer is empty")
-		}
-		return asked + "<written_answer>\n" + answer + "\n</written_answer>\n\n" +
-			"The agent has finished and wrote the answer above. Tell the person its gist in at " +
-			"most three short spoken sentences: the outcome first, then what they need to do, " +
-			"if anything. When the answer has much more detail, end by saying the details are " +
-			"on screen.", nil
+		return answerPrompt(asked, b)
+	default:
+		return "", fmt.Errorf("the stage %q is not one of start, progress or answer", b.Stage)
 	}
-	return "", fmt.Errorf("the stage %q is not one of start, progress or answer", b.Stage)
+}
+
+// progressPrompt asks for one line on what the agent is doing now, after the request in asked.
+func progressPrompt(asked string, b narrateRequest) (string, error) {
+	notes := lastN(b.Notes, narrateMaxNotes, narrateMaxNote)
+	if len(notes) == 0 {
+		return "", fmt.Errorf("there are no notes to talk about")
+	}
+	return asked + "<already_said>\n" + bulleted(lastN(b.Said, narrateMaxSaid, narrateMaxNote)) +
+		"\n</already_said>\n\n<agent_activity>\n" + bulleted(notes) + "\n</agent_activity>\n\n" +
+		"The agent is still working. In ONE short sentence, tell the person what it is doing " +
+		"now or what it just found, without repeating what was already said. If nothing new " +
+		"is worth saying, answer exactly " + narrateSkip + ".", nil
+}
+
+// answerPrompt asks for the spoken gist of the finished answer, after the request in asked.
+func answerPrompt(asked string, b narrateRequest) (string, error) {
+	answer := clip(b.Answer, narrateMaxAnswer)
+	if answer == "" {
+		return "", fmt.Errorf("the answer is empty")
+	}
+	return asked + "<written_answer>\n" + answer + "\n</written_answer>\n\n" +
+		"The agent has finished and wrote the answer above. Tell the person its gist in at " +
+		"most three short spoken sentences: the outcome first, then what they need to do, " +
+		"if anything. When the answer has much more detail, end by saying the details are " +
+		"on screen.", nil
 }
 
 var (

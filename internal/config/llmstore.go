@@ -147,7 +147,8 @@ func storedKey(configPath, provider string, configured bool) string {
 		if v := creds[ProviderStoreVariable(provider)]; v != "" {
 			return v
 		}
-		if v := creds[ProviderKeyVariable(provider)]; v != "" && (configured || ProviderKeyVariable(provider) != genericKeyVariable) {
+		variable := ProviderKeyVariable(provider)
+		if v := creds[variable]; v != "" && (configured || variable != genericKeyVariable) {
 			return v
 		}
 	}
@@ -286,17 +287,9 @@ func SetLLMDefault(path, provider, model, baseURL string) error {
 // missing block is added at the end.
 func setBlockValues(body, block string, kv [][2]string) (string, error) {
 	lines := strings.Split(body, "\n")
-	opening := regexp.MustCompile(`^` + regexp.QuoteMeta(block) + `:\s*(#.*)?$`)
-	start := -1
-	for i, l := range lines {
-		if opening.MatchString(l) {
-			start = i
-			break
-		}
-		if strings.HasPrefix(l, block+":") {
-			return "", fmt.Errorf("the configuration writes %s as an inline value (%q): change it by hand",
-				block, strings.TrimSpace(l))
-		}
+	start, inline := findBlockStart(lines, block)
+	if inline != "" {
+		return "", fmt.Errorf("the configuration writes %s as an inline value (%q): change it by hand", block, inline)
 	}
 	if start < 0 {
 		var b strings.Builder
@@ -312,16 +305,7 @@ func setBlockValues(body, block string, kv [][2]string) (string, error) {
 	end, indent := blockExtent(lines, start)
 	var missing []string
 	for _, p := range kv {
-		key := regexp.MustCompile(`^` + regexp.QuoteMeta(indent) + regexp.QuoteMeta(p[0]) + `:(\s*)(.*?)(\s+#.*)?$`)
-		found := false
-		for i := start + 1; i < end; i++ {
-			if m := key.FindStringSubmatch(lines[i]); m != nil {
-				lines[i] = indent + p[0] + ": " + p[1] + m[3]
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !replaceKeyLine(lines[start+1:end], indent, p[0], p[1]) {
 			missing = append(missing, indent+p[0]+": "+p[1])
 		}
 	}
@@ -329,6 +313,19 @@ func setBlockValues(body, block string, kv [][2]string) (string, error) {
 	out = append(out, missing...)
 	out = append(out, lines[start+1:]...)
 	return strings.Join(out, "\n"), nil
+}
+
+// replaceKeyLine sets the first `key:` line at indent in lines to value, keeping its comment, and
+// reports whether there was one.
+func replaceKeyLine(lines []string, indent, key, value string) bool {
+	re := regexp.MustCompile(`^` + regexp.QuoteMeta(indent) + regexp.QuoteMeta(key) + `:(\s*)(.*?)(\s+#.*)?$`)
+	for i, l := range lines {
+		if m := re.FindStringSubmatch(l); m != nil {
+			lines[i] = indent + key + ": " + value + m[3]
+			return true
+		}
+	}
+	return false
 }
 
 // blockExtent is the line after the last one of the block that opens at start, and the

@@ -192,13 +192,20 @@ func TestTailscaleIsOfferedForWhatItCanDo(t *testing.T) {
 		fails       bool
 	}{
 		{"not installed", "", &fakeTS{}, "tailscale.com/download", false, false},
-		{"stopped", "", &fakeTS{status: tailscale.Status{Installed: true, State: "Stopped"}}, "not connected (Stopped)", false, false},
+		{"stopped", "", &fakeTS{status: tailscale.Status{Installed: true, State: "Stopped"}},
+			"not connected (Stopped)", false, false},
 		{"no state", "", &fakeTS{status: tailscale.Status{Installed: true}}, "not connected (unknown)", false, false},
-		{"broken", "", &fakeTS{status: tailscale.Status{Installed: true, Error: "tailscale: boom"}}, "(tailscale: boom)", false, false},
-		{"already", "", &fakeTS{status: tailscale.Status{Installed: true, Running: true, Serving: true, URL: "https://b.ts.net"}},
+		{"broken", "", &fakeTS{status: tailscale.Status{Installed: true, Error: "tailscale: boom"}},
+			"(tailscale: boom)", false, false},
+		{"already", "", &fakeTS{status: tailscale.Status{
+			Installed: true, Running: true, Serving: true, URL: "https://b.ts.net",
+		}},
 			"already publishes the gateway in your tailnet: https://b.ts.net", false, false},
-		{"declined", "\n", &fakeTS{status: tailscale.Status{Installed: true, Running: true, DNSName: "b.ts.net"}}, "not published", false, false},
-		{"accepted", "y\n", &fakeTS{status: tailscale.Status{Installed: true, Running: true, DNSName: "b.ts.net", URL: "https://b.ts.net"}},
+		{"declined", "\n", &fakeTS{status: tailscale.Status{Installed: true, Running: true, DNSName: "b.ts.net"}},
+			"not published", false, false},
+		{"accepted", "y\n", &fakeTS{status: tailscale.Status{
+			Installed: true, Running: true, DNSName: "b.ts.net", URL: "https://b.ts.net",
+		}},
 			"published: https://b.ts.net", true, false},
 		{"denied", "yes\n", &fakeTS{serveErr: errors.New("Access denied"),
 			status: tailscale.Status{Installed: true, Running: true, DNSName: "b.ts.net"}}, "", true, true},
@@ -218,7 +225,8 @@ func TestTailscaleIsOfferedForWhatItCanDo(t *testing.T) {
 		}
 	}
 	op, out, _ := netOptions("")
-	if err := op.offerTailscale(context.Background(), bufio.NewReader(strings.NewReader("")), "x"); err != nil || out.Len() != 0 {
+	err := op.offerTailscale(context.Background(), bufio.NewReader(strings.NewReader("")), "x")
+	if err != nil || out.Len() != 0 {
 		t.Errorf("not looked for: %v %q", err, out)
 	}
 }

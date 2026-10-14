@@ -180,6 +180,30 @@ self.addEventListener("notificationclick", (event: NotificationEvent) => {
   );
 });
 
+// renewedSubscription is the subscription that replaces a lapsed one: the browser's own when it
+// made one, else a new one with the old options, else none.
+function renewedSubscription(event: {
+  oldSubscription?: PushSubscription | null;
+  newSubscription?: PushSubscription | null;
+}): Promise<PushSubscription | null> {
+  if (event.newSubscription) {
+    return Promise.resolve(event.newSubscription);
+  }
+  const options = event.oldSubscription?.options;
+  if (options) {
+    return self.registration.pushManager.subscribe(options);
+  }
+  return Promise.resolve(null);
+}
+
+// workerLang is the language the gateway writes this device's notifications in.
+function workerLang(): "es" | "en" {
+  if (self.navigator.language.startsWith("es")) {
+    return "es";
+  }
+  return "en";
+}
+
 // The browser renewed the subscription on its own (it does, now and then): the gateway is handed
 // the new one, so the notifications keep arriving. The page's cookie goes with the request.
 self.addEventListener("pushsubscriptionchange", ((
@@ -188,14 +212,8 @@ self.addEventListener("pushsubscriptionchange", ((
     newSubscription?: PushSubscription | null;
   },
 ) => {
-  const options = event.oldSubscription?.options;
   event.waitUntil(
-    (event.newSubscription
-      ? Promise.resolve(event.newSubscription)
-      : options
-        ? self.registration.pushManager.subscribe(options)
-        : Promise.resolve(null)
-    ).then((sub) => {
+    renewedSubscription(event).then((sub) => {
       if (!sub) {
         return undefined;
       }
@@ -205,7 +223,7 @@ self.addEventListener("pushsubscriptionchange", ((
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...sub.toJSON(),
-          lang: self.navigator.language.startsWith("es") ? "es" : "en",
+          lang: workerLang(),
         }),
       }).then(() => undefined);
     }),

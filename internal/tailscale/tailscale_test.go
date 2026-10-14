@@ -48,8 +48,10 @@ func TestNotInstalledIsAQuietAnswer(t *testing.T) {
 
 func TestRunningAndServingIsDetected(t *testing.T) {
 	f := &fake{answers: map[string]answer{
-		"status --json":       {out: running},
-		"serve status --json": {out: `{"Web":{"box.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":"http://localhost:7477"}}}}}`},
+		"status --json": {out: running},
+		"serve status --json": {
+			out: `{"Web":{"box.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":"http://localhost:7477"}}}}}`,
+		},
 	}}
 	st := f.client().Detect(context.Background(), "http://127.0.0.1:7477")
 	want := Status{Installed: true, Running: true, State: "Running", DNSName: "box.tail1234.ts.net",
@@ -86,8 +88,11 @@ func TestAStoppedDaemonIsInstalledButNotRunning(t *testing.T) {
 		"status --json": {out: `{"BackendState":"Stopped"}`, err: errors.New("exit status 1")},
 	}}
 	st := f.client().Detect(context.Background(), "http://127.0.0.1:7477")
-	if !st.Installed || st.Running || st.State != "Stopped" || st.URL != "" || st.Error != "" {
+	if !st.Installed || st.Running || st.State != "Stopped" {
 		t.Fatalf("status = %+v", st)
+	}
+	if st.URL != "" || st.Error != "" {
+		t.Fatalf("a stopped daemon has no URL nor error: %+v", st)
 	}
 	if len(f.calls) != 1 {
 		t.Fatalf("serve status asked of a stopped daemon: %v", f.calls)
