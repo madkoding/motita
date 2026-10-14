@@ -23,7 +23,7 @@ const out = mkdtempSync(join(here, ".lv-"));
 await build({
   stdin: {
     contents:
-      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./VoiceSettings";\n',
+      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./SpeechSettings";\n',
     resolveDir: join(here, ".."),
     loader: "ts",
   },
