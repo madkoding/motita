@@ -1,4 +1,4 @@
-// Local voices: a Piper model run in the browser. The synthesis with a stand-in onnxruntime and
+// Local voices: a Piper or Kokoro model run in the browser. The synthesis with a stand-in onnxruntime and
 // phonemizer, the page's side of the worker and of the gateway's catalog, and the settings that
 // download, choose and delete a voice (bundled with esbuild, since node cannot import TSX).
 import test from "node:test";
@@ -48,6 +48,7 @@ const VOICE = {
   inference: { noise_scale: 0.667, length_scale: 1, noise_w: 0.8 },
 };
 const enc = (s) => new TextEncoder().encode(s).buffer;
+const KOKORO_VOCAB = { " ": 16, ".": 4, h: 50, l: 54, o: 57, a: 43, k: 53, j: 52, "ɹ": 123, "ˈ": 156 };
 
 test("the WAV header says mono 16-bit at the voice's rate, and the samples are clipped", () => {
   const wav = new DataView(core.wavOf(Float32Array.from([0, 1, -2]), 22050));
@@ -74,9 +75,75 @@ test("a voice's settings, the phonemizer's command line and its answer are read"
     "--espeak_data",
     "/espeak-ng-data",
   ]);
-  assert.deepEqual(core.phonemeIds('{"phoneme_ids":[1,0,2]}'), [1, 0, 2]);
-  assert.throws(() => core.phonemeIds('{"phoneme_ids":[]}'), /answered nothing/);
+  assert.deepEqual(core.phonemized('{"phoneme_ids":[1,0,2],"phonemes":["ˈ","o"]}'), { ids: [1, 0, 2], phonemes: "ˈo" });
+  assert.deepEqual(core.phonemized('{"phoneme_ids":[1]}'), { ids: [1], phonemes: "" });
+  assert.throws(() => core.phonemized('{"phoneme_ids":[]}'), /answered nothing/);
   assert.equal(core.fileURL("a b", "model.onnx"), "/v1/voice/models/a%20b/model.onnx");
+});
+
+test("a Kokoro voice is known by its id, and its phonemes become the ids and the style it takes", () => {
+  assert.equal(core.isKokoro("kokoro-ef_dora"), true);
+  assert.equal(core.isKokoro("es_MX-claude-high"), false);
+  assert.deepEqual(
+    ["kokoro-af_heart", "kokoro-bm_george", "kokoro-ef_dora", "kokoro-zz"].map(core.kokoroEspeak),
+    ["en-us", "en-gb", "es", "en-us"],
+  );
+  const vocab = core.kokoroVocab(JSON.stringify({ model: { vocab: KOKORO_VOCAB } }));
+  assert.equal(vocab.get("ˈ"), 156);
+  assert.throws(() => core.kokoroVocab("{}"), /not Kokoro's tokenizer/);
+  // r and x become the sounds Kokoro knows, a sentence that ends is followed by a space, what the
+  // table lacks is dropped, and the whole is padded.
+  assert.deepEqual(core.kokoroTokens("hˈola.rxʔ", vocab), [0, 50, 156, 57, 54, 43, 4, 16, 123, 53, 0]);
+  assert.deepEqual(core.kokoroTokens("kəkˈoːɹoʊ ʲ", vocab).slice(0, 4), [0, 53, 156, 57]);
+  assert.equal(core.kokoroTokens("a".repeat(600), vocab).length, 510, "cut to what the model takes");
+  const styles = Float32Array.from({ length: 510 * 256 }, (_, i) => Math.floor(i / 256));
+  assert.deepEqual([...core.kokoroStyle(styles, 7)].slice(0, 2), [5, 5], "one row per token, without the pads");
+  assert.equal(core.kokoroStyle(styles, 1)[0], 0);
+  assert.equal(core.kokoroStyle(styles, 9999)[0], 509);
+  assert.equal(core.kokoroStyle(styles, 9999).length, 256);
+});
+
+test("Kokoro voices share one model, loaded once, and speak at its rate with their own style", async () => {
+  const { deps, log } = fakes();
+  const synth = new core.Synth(deps);
+  const seen = [];
+  await synth.warm("kokoro-ef_dora", (p) => seen.push(p));
+  assert.equal(seen.at(-1), 100);
+  assert.deepEqual(
+    log.bytes.filter((u) => !u.includes("/runtime/")),
+    ["/v1/voice/models/kokoro-ef_dora/voice.bin", "/v1/voice/models/kokoro/tokenizer.json", "/v1/voice/models/kokoro/model.onnx"],
+  );
+  const wav = await synth.say("kokoro-ef_dora", "Hola. Rx", { noise: 0, noiseW: 0 });
+  assert.equal(new DataView(wav).getUint32(24, true), core.KOKORO_RATE);
+  assert.equal(log.args[0][1], "es");
+  const f = log.feeds[0];
+  assert.deepEqual([...f.input_ids.data], [0n, 50n, 156n, 57n, 54n, 43n, 4n, 16n, 123n, 53n, 0n]);
+  assert.deepEqual(f.input_ids.dims, [1, 11]);
+  assert.equal(f.style.data[0], 9, "the style for nine phonemes");
+  assert.deepEqual([...f.speed.data], [1], "the page sets the speed");
+  // A second voice reads only its own styles.
+  await synth.say("kokoro-af_heart", "Hi");
+  assert.equal(log.sessions, 1);
+  assert.equal(log.args[1][1], "en-us");
+  assert.equal(log.bytes.filter((u) => u.endsWith("model.onnx")).length, 1);
+  await synth.warm("kokoro-af_heart");
+});
+
+test("a Kokoro model that failed to load is loaded again next time", async () => {
+  let fail = true;
+  const { deps } = fakes();
+  const synth = new core.Synth({
+    ...deps,
+    bytes: async (url, p) => {
+      if (url.endsWith("tokenizer.json") && fail) {
+        fail = false;
+        return enc("{}");
+      }
+      return deps.bytes(url, p);
+    },
+  });
+  await assert.rejects(synth.say("kokoro-ef_dora", "x"), /not Kokoro's tokenizer/);
+  await synth.say("kokoro-ef_dora", "x");
 });
 
 // fakes are a stand-in runtime and phonemizer that record what they were given.
@@ -95,6 +162,13 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
         }
         return enc(JSON.stringify({ ...VOICE, num_speakers: speakers }));
       }
+      if (url.endsWith("tokenizer.json")) {
+        return enc(JSON.stringify({ model: { vocab: KOKORO_VOCAB } }));
+      }
+      if (url.endsWith("voice.bin")) {
+        // Each style vector holds its own row number.
+        return Float32Array.from({ length: 510 * 256 }, (_, i) => Math.floor(i / 256)).buffer;
+      }
       return enc(url);
     },
     ort: async (wasm) => {
@@ -111,7 +185,8 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
           return {
             run: async (feeds) => {
               log.feeds.push(feeds);
-              return { output: { data: Float32Array.from([0.5, -0.5]) } };
+              const data = Float32Array.from([0.5, -0.5]);
+              return { output: { data }, waveform: { data } };
             },
           };
         },
@@ -125,7 +200,7 @@ function fakes({ speakers = 1, failFirstVoice = false, silent = false } = {}) {
           log.args.push(args);
           if (!silent) {
             print("[espeak] ready");
-            print('{"phoneme_ids":[1,0,5,0,2]}');
+            print('{"phoneme_ids":[1,0,5,0,2],"phonemes":["h","ˈ","o","l","a",".","r","x"]}');
           }
         },
       };
@@ -271,7 +346,21 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
     },
   };
   await lv.deleteVoice(api, "a");
-  assert.deepEqual(deleted, ["/v1/voice/models/a/model.onnx", "/v1/voice/models/a/model.json"]);
+  assert.deepEqual(deleted, ["/v1/voice/models/a/model.onnx", "/v1/voice/models/a/model.json", "/v1/voice/models/a/voice.bin"]);
+  // Kokoro's model goes from the page's copy with its last voice, and stays while one is left.
+  const k = (id, installed) => ({ id, engine: "kokoro", installed });
+  const kokoro = apiOf({
+    "DELETE /v1/voice/models/kokoro-a": () => new Response(null, { status: 204 }),
+    "GET /v1/voice/models": () => new Response(JSON.stringify({ ...cat, models: left }), { status: 200 }),
+  });
+  let left = [k("kokoro-a", false), k("kokoro-b", true)];
+  deleted.length = 0;
+  await lv.deleteVoice(kokoro.api, "kokoro-a");
+  assert.equal(deleted.length, 3);
+  left = [k("kokoro-a", false), k("kokoro-b", false)];
+  deleted.length = 0;
+  await lv.deleteVoice(kokoro.api, "kokoro-a");
+  assert.deepEqual(deleted.slice(3), ["/v1/voice/models/kokoro/model.onnx", "/v1/voice/models/kokoro/tokenizer.json"]);
   await assert.rejects(lv.deleteVoice(api, "b"), /HTTP 500/);
   await assert.rejects(lv.fetchCatalog(apiOf({}).api), /not found/);
   assert.deepEqual(calls.slice(0, 3), ["GET /v1/voice/models", "POST /v1/voice/models/a", "POST /v1/voice/models/b"]);
@@ -397,6 +486,19 @@ test("the settings download a voice, follow its progress, choose it and delete i
   const v = await mount(draw(""));
   const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
   assert.match(q("local-voices").textContent, /33 MB/, "the engine's size is named before the first download");
+  // The list opens on the interface's language; the filters widen or narrow it.
+  const pick = async (s, value) => {
+    q(s).value = value;
+    await act(async () => q(s).dispatchEvent(new window.Event("change", { bubbles: true })));
+  };
+  assert.equal(q("local-voice-es"), null, "another language is filtered out");
+  assert.deepEqual([...q("local-voice-language").options].map((o) => o.value), ["", "en", "es"]);
+  await pick("local-voice-quality", "high");
+  assert.equal(q("local-voice-en"), null);
+  assert.match(q("local-voices").textContent, /No voice matches these filters/);
+  await pick("local-voice-quality", "");
+  await pick("local-voice-language", "");
+  assert.ok(q("local-voice-es"));
   await act(async () => q("local-voice-get-es").click());
   await settle();
   assert.ok(calls.includes("POST /v1/voice/models/es"));
@@ -416,6 +518,71 @@ test("the settings download a voice, follow its progress, choose it and delete i
   assert.deepEqual(chosen, ["es", ""], "deleting the voice in use leaves none chosen");
   assert.ok(q("local-voice-get-es"));
   v.done();
+});
+
+test("a voice is heard before it is downloaded, one sample at a time, and Kokoro is named", async () => {
+  const played = [];
+  globalThis.Audio = class {
+    constructor(src) {
+      this.src = src;
+      played.push(this);
+    }
+    play() {
+      this.paused = false;
+      return Promise.resolve();
+    }
+    pause() {
+      this.paused = true;
+    }
+  };
+  const row = (id, extra) => ({ id, name: id, lang: "en-US", quality: "high", size: 1, installed: false, ...extra });
+  const { api, calls } = apiOf({
+    "GET /v1/voice/models": [
+      200,
+      {
+        runtime: { size: 1, installed: true },
+        models: [
+          row("a", { sample: true, engine: "piper" }),
+          row("b", { sample: true, engine: "piper", quality: "x-low" }),
+          row("kokoro-af_heart", { engine: "kokoro" }),
+        ],
+        download: null,
+      },
+    ],
+    "GET /v1/voice/models/a/sample": () => new Response(new Blob(["mp3"], { type: "audio/mpeg" }), { status: 200 }),
+    "GET /v1/voice/models/b/sample": [502, { error: "the sample could not be downloaded" }],
+  });
+  const v = await mount(h(lv.LocalVoices, { api, chosen: "", choose: () => {} }));
+  const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.equal(q("local-voice-sample-kokoro-af_heart"), null, "no sample, no button");
+  assert.match(q("local-voice-kokoro-af_heart").textContent, /Kokoro · High quality/);
+  assert.match(q("local-voice-b").textContent, /Very low quality/);
+  await act(async () => q("local-voice-sample-a").click());
+  await settle();
+  assert.ok(calls.includes("GET /v1/voice/models/a/sample"));
+  assert.equal(q("local-voice-sample-a").getAttribute("aria-pressed"), "true");
+  assert.equal(q("local-voice-sample-a").textContent, "■");
+  // Its end frees the button.
+  await act(async () => played[0].onended());
+  assert.equal(q("local-voice-sample-a").getAttribute("aria-pressed"), "false");
+  // Playing again, then pressing it once more, stops it.
+  await act(async () => q("local-voice-sample-a").click());
+  await settle();
+  await act(async () => q("local-voice-sample-a").click());
+  assert.equal(played[1].paused, true);
+  assert.equal(q("local-voice-sample-a").getAttribute("aria-pressed"), "false");
+  // A late end of a sample stopped already changes nothing.
+  await act(async () => played[1].onended());
+  // Another sample stops the one playing; one that fails says why.
+  await act(async () => q("local-voice-sample-a").click());
+  await settle();
+  await act(async () => q("local-voice-sample-b").click());
+  await settle();
+  assert.equal(played[2].paused, true);
+  assert.match(v.root.textContent, /The sample could not be played: the sample could not be downloaded/);
+  assert.equal(q("local-voice-sample-b").getAttribute("aria-pressed"), "false");
+  v.done();
+  delete globalThis.Audio;
 });
 
 test("a failed download and an unreachable catalog are shown", async () => {
@@ -498,6 +665,10 @@ test("who speaks offers the local voice when the gateway has them, and shows the
   v = await mount(h(lv.SpeechSettings, props({ ...prefs, engine: "local", variation: 1.6 }, { local: true, api })));
   await act(async () => v.root.querySelector("[data-testid=settings-speech-variation-reset]").click());
   assert.equal(saved.pop().variation, 1);
+  v.done();
+  // Kokoro has no such settings: its voices speak as they were trained.
+  v = await mount(h(lv.SpeechSettings, props({ ...prefs, engine: "local", localVoice: "kokoro-ef_dora" }, { local: true, api })));
+  assert.equal(v.root.querySelector("[data-testid=settings-speech-expressiveness]"), null);
   v.done();
 });
 
