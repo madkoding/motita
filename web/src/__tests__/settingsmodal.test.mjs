@@ -533,6 +533,9 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     voiceURI: "",
     rate: 1,
     maxChars: 600,
+    pitch: 1,
+    expressiveness: 1,
+    variation: 1,
     langVoices: {},
     pronunciations: [],
   };
@@ -606,13 +609,24 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     voiceURI: "",
     rate: 1,
     maxChars: 600,
+    pitch: 1,
+    expressiveness: 1,
+    variation: 1,
     langVoices: {},
     pronunciations: [],
   };
   let v = await open({ tab: "voice", speech: speech(base) });
   let card = v.root.querySelector("[data-testid=speech-setting]");
   assert.equal(radio(card, "settings-speech-engine", "device").checked, true);
-  assert.match(card.textContent, /nothing leaves the browser/);
+  assert.match(card.textContent, /System voices: The voices this device or browser already has. Nothing leaves the browser./);
+  // The device's voice has a pitch, back to normal with one button.
+  const pitch = card.querySelector("[data-testid=settings-speech-pitch]");
+  const pitchReset = card.querySelector("[data-testid=settings-speech-pitch-reset]");
+  assert.equal(pitchReset.disabled, true, "already normal");
+  pitch.value = "1.5";
+  await act(() => pitch.dispatchEvent(new window.Event("input", { bubbles: true })));
+  assert.deepEqual(saved.pop(), { ...base, pitch: 1.5 });
+  assert.equal(card.querySelector("[data-testid=settings-speech-expressiveness]"), null, "only for a downloaded voice");
   await act(() => radio(card, "settings-speech-engine", "gateway").click());
   assert.deepEqual(saved.pop(), { ...base, engine: "gateway" });
   await v.done();
@@ -624,7 +638,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
   card = v.root.querySelector("[data-testid=speech-setting]");
   assert.match(
     card.textContent,
-    /goes to the speech service/,
+    /goes to that service/,
     "where the text goes is said",
   );
   const select = card.querySelector("select");
@@ -664,6 +678,9 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
     voiceURI: "",
     rate: 1,
     maxChars: 600,
+    pitch: 1,
+    expressiveness: 1,
+    variation: 1,
     conversation: false,
     notices: false,
     byLanguage: false,

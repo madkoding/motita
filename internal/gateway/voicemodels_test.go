@@ -223,3 +223,35 @@ func TestLocalVoicesOff(t *testing.T) {
 		}
 	}
 }
+
+// A voice's sample plays before the voice is downloaded; a voice with none, or whose sample does
+// not match the catalog, says so.
+func TestLocalVoiceSample(t *testing.T) {
+	lib, _ := voiceLibrary(t)
+	sample := lib.Models[0].Files[0]
+	sample.Name = "sample.mp3"
+	lib.Models[0].Sample = &sample
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.VoiceModels = lib })
+	got := modelsOf(t, srv)
+	if !got.Models[0].Sample || got.Models[1].Sample {
+		t.Fatalf("catalog = %+v", got.Models)
+	}
+	w := get(t, srv, "/v1/voice/models/a/sample", testToken)
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "audio/mpeg" || w.Body.String() != "ONNX" ||
+		modelsOf(t, srv).Models[0].Installed {
+		t.Fatalf("sample: %d %q %q", w.Code, w.Header().Get("Content-Type"), w.Body)
+	}
+	if w := get(t, srv, "/v1/voice/models/b/sample", testToken); w.Code != http.StatusNotFound {
+		t.Errorf("no sample: %d", w.Code)
+	}
+	if w := get(t, srv, "/v1/voice/models/nope/sample", testToken); w.Code != http.StatusNotFound {
+		t.Errorf("unknown voice: %d", w.Code)
+	}
+	sample.Name = "other.mp3"
+	sample.SHA256 = strings.Repeat("0", 64)
+	lib.Models[1].Sample = &sample
+	if w := get(t, srv, "/v1/voice/models/b/sample", testToken); w.Code != http.StatusBadGateway ||
+		!strings.Contains(w.Body.String(), "not the file") {
+		t.Errorf("a sample that does not match: %d %s", w.Code, w.Body)
+	}
+}

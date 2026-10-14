@@ -7,23 +7,23 @@
 // without the network after the first time. The logic is in localVoiceCore.ts.
 import * as ort from "onnxruntime-web/wasm";
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
-import { Synth, VOICE_CACHE, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
+import { Synth, VOICE_CACHE, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
 
 // bytes is a downloaded file, from the page's copy when there is one.
-async function bytes(url: string): Promise<ArrayBuffer> {
+async function bytes(url: string, progress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
   const cache = await caches.open(VOICE_CACHE);
   const hit = await cache.match(url);
   if (hit) {
-    return hit.arrayBuffer();
+    return readAll(hit, progress);
   }
   const res = await fetch(url, { credentials: "same-origin" });
   if (!res.ok) {
     throw new Error("HTTP " + res.status + " " + url);
   }
-  await cache.put(url, res.clone());
-  return res.arrayBuffer();
+  const [, body] = await Promise.all([cache.put(url, res.clone()), readAll(res, progress)]);
+  return body;
 }
 
 const synth = new Synth({
@@ -49,6 +49,14 @@ const synth = new Synth({
     }),
 });
 
+// messageOf is what failed, as the page shows it.
+function messageOf(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
+
 self.onmessage = (e: MessageEvent<ToWorker>) => {
   const m = e.data;
   if (m.kind === "forget") {
@@ -56,18 +64,17 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     return;
   }
   if (m.kind === "warm") {
-    // A failure here is reported by the first sentence, which tries again.
-    synth.warm(m.id).catch(() => undefined);
+    // The page shows how far the voice is from being ready, and why it could not be.
+    synth
+      .warm(m.id, (pct) => self.postMessage({ kind: "progress", id: m.id, pct } satisfies FromWorker))
+      .then(
+        () => self.postMessage({ kind: "ready", id: m.id } satisfies FromWorker),
+        (err: unknown) => self.postMessage({ kind: "failed", id: m.id, error: messageOf(err) } satisfies FromWorker),
+      );
     return;
   }
-  synth.say(m.id, m.text).then(
+  synth.say(m.id, m.text, m.tune).then(
     (wav) => self.postMessage({ seq: m.seq, wav } satisfies FromWorker, [wav]),
-    (err: unknown) => {
-      let msg = String(err);
-      if (err instanceof Error) {
-        msg = err.message;
-      }
-      self.postMessage({ seq: m.seq, error: msg } satisfies FromWorker);
-    },
+    (err: unknown) => self.postMessage({ seq: m.seq, error: messageOf(err) } satisfies FromWorker),
   );
 };

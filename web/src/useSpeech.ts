@@ -337,7 +337,7 @@ function useClipReader(
       () => {
         const p = prefsRef.current;
         if (p.engine === "local") {
-          return localClip(p.localVoice);
+          return localClip(p.localVoice, { noise: p.expressiveness, noiseW: p.variation });
         }
         return speakClip(apiRef.current as Api, p.gatewayVoice);
       },
@@ -698,6 +698,7 @@ function useReadText(o: {
           pickVoice(voicesRef.current, p.langVoices[other] || "", other),
         lang: l,
         rate: p.rate,
+        pitch: p.pitch,
         onSentence: (i) => {
           const root = rootOf?.();
           const range = root && textRange(root, list[i].shown);
