@@ -8,6 +8,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const KEY_LENGTH = 65;
+const KEY_STRIDE = 37;
+const BYTE_RANGE = 256;
+const OPEN_NOTICE = "motita-open";
 const {
   pushState,
   keyBytes,
@@ -61,23 +65,26 @@ test("the state names what blocks push first", () => {
 });
 
 test("the gateway's base64url key becomes the bytes subscribe takes", () => {
-  const raw = Uint8Array.from({ length: 65 }, (_, i) => (i * 37) % 256);
+  const raw = Uint8Array.from(
+    { length: KEY_LENGTH },
+    (_, i) => (i * KEY_STRIDE) % BYTE_RANGE,
+  );
   const b64url = Buffer.from(raw)
     .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
   assert.deepEqual(Array.from(keyBytes(b64url)), Array.from(raw));
 });
 
 test("a tap on a notification names the session to open", () => {
   assert.equal(
-    sessionFromNotice({ type: "motita-open", url: "/?session=s%201" }),
+    sessionFromNotice({ type: OPEN_NOTICE, url: "/?session=s%201" }),
     "s 1",
   );
-  assert.equal(sessionFromNotice({ type: "motita-open", url: "/" }), "");
+  assert.equal(sessionFromNotice({ type: OPEN_NOTICE, url: "/" }), "");
   assert.equal(sessionFromNotice({ type: "other", url: "/?session=x" }), "");
-  assert.equal(sessionFromNotice({ type: "motita-open", url: 3 }), "");
+  assert.equal(sessionFromNotice({ type: OPEN_NOTICE, url: 3 }), "");
   assert.equal(sessionFromNotice(null), "");
 });
 

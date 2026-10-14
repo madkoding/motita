@@ -91,6 +91,8 @@ const SWITCH = "input[role=switch]";
 const NOTIFY_KEY = "motita.ui.notifications";
 const NOTIFY_CARD = "[data-testid=notifications-setting]";
 const NOTIFY_STEPS = "[data-testid=notify-steps]";
+const CI_TOAST_KEY = "motita.ui.ciToast";
+const INSECURE_WARNING = "[data-testid=insecure-warning]";
 
 const fakeApi = async () =>
   new Response(JSON.stringify({ accounts: ACCOUNTS }), { status: 200 });
@@ -156,7 +158,11 @@ test("the appearance tab offers every choice as one tap and applies it", async (
   assert.equal(document.documentElement.dataset.fontSize, "large");
   await act(() => radio(root, "settings-lang", "es").click());
   assert.deepEqual(calls.lang, ["es"]);
-  assert.equal(root.querySelector(NOTIFY_CARD), null, "notifications have their own tab");
+  assert.equal(
+    root.querySelector(NOTIFY_CARD),
+    null,
+    "notifications have their own tab",
+  );
 
   await act(() => root.querySelector("#settings-tab-notifications").click());
   const sw = root.querySelector(`${NOTIFY_CARD} ${SWITCH}`);
@@ -232,7 +238,7 @@ test("blocked notifications explain how to allow them again, and pick it up once
 });
 
 test("the CI toast has its own switch, on by default, and it works without https", async () => {
-  localStorage.removeItem("motita.ui.ciToast");
+  localStorage.removeItem(CI_TOAST_KEY);
   Object.defineProperty(window, "isSecureContext", {
     value: false,
     configurable: true,
@@ -243,11 +249,11 @@ test("the CI toast has its own switch, on by default, and it works without https
   const sw = card.querySelector("input[role=switch]");
   assert.equal(sw.disabled, false, "an insecure page does not grey it out");
   assert.equal(sw.checked, true);
-  assert.equal(card.querySelector("[data-testid=insecure-warning]"), null);
+  assert.equal(card.querySelector(INSECURE_WARNING), null);
   await act(() => sw.click());
-  assert.equal(localStorage.getItem("motita.ui.ciToast"), "off");
+  assert.equal(localStorage.getItem(CI_TOAST_KEY), "off");
   await act(() => sw.click());
-  assert.equal(localStorage.getItem("motita.ui.ciToast"), "on");
+  assert.equal(localStorage.getItem(CI_TOAST_KEY), "on");
   delete window.isSecureContext;
   await done();
 });
@@ -260,7 +266,7 @@ test("on a plain http address the setting says https is needed, with nothing to 
   });
   const { root, done } = await open({ tab: "notifications" });
   const card = root.querySelector(NOTIFY_CARD);
-  const pill = card.querySelector("[data-testid=insecure-warning]");
+  const pill = card.querySelector(INSECURE_WARNING);
   assert.ok(pill, "the reason is a warning pill");
   assert.equal(pill.getAttribute("role"), "note");
   assert.match(pill.textContent, /Connection not secure/);
@@ -323,7 +329,9 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
     ),
   );
   assert.equal(
-    root.querySelector("#settings-tab-notifications").getAttribute("aria-selected"),
+    root
+      .querySelector("#settings-tab-notifications")
+      .getAttribute("aria-selected"),
     "true",
     "the right arrow goes to the next tab",
   );
@@ -444,7 +452,7 @@ test("the voice switches are greyed out until the page and the gateway allow the
   assert.equal(mic.disabled, true);
   assert.equal(listen.disabled, true);
   assert.equal(mic.checked, false, "an unusable switch never reads as on");
-  const pills = section.querySelectorAll("[data-testid=insecure-warning]");
+  const pills = section.querySelectorAll(INSECURE_WARNING);
   assert.equal(pills.length, 2, "each blocked switch shows the warning pill");
   assert.match(pills[0].textContent, /without a secure connection/);
   assert.match(pills[0].querySelector("details").textContent, /https:\/\//);
@@ -515,7 +523,9 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     "the device's choice first, then the voices of the language",
   );
   select.value = "ana";
-  await act(() => select.dispatchEvent(new window.Event("change", { bubbles: true })));
+  await act(() =>
+    select.dispatchEvent(new window.Event("change", { bubbles: true })),
+  );
   assert.deepEqual(saved.pop(), { ...prefs, voiceURI: "ana" });
   await act(() => card.querySelector("[data-testid=speech-test]").click());
   assert.equal(tried, 1);

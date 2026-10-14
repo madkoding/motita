@@ -56,6 +56,24 @@ rmSync(out, { recursive: true });
 const llm = await import("../llmApi.ts");
 const es = (await import("../i18n.es.ts")).default;
 
+const HTTP_OK = 200;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_CONFLICT = 409;
+const HTTP_SERVER_ERROR = 500;
+const HTTP_BAD_GATEWAY = 502;
+const OPENAI_BASE_URL = "https://api.openai.com/v1";
+const LLM_FORM = "[data-testid=llm-form]";
+const KEY_INPUT = "input[type=password]";
+const DEFAULT_MODEL_INPUT = "#llm-default-model";
+const CLAUDE_CODE = "claude-code";
+const GPT_5_MINI = "gpt-5-mini";
+const SIGN_IN = "Sign in with your account";
+const PROVIDER_COUNT = 5;
+const CLAUDE_CODE_INDEX = 3;
+const MIN_PROVIDER_STRINGS = 30;
+const SIGN_IN_POLL_MS = 2000;
+const FAST_POLL_MS = 20;
+
 const provider = (id, name, extra = {}) => ({
   id,
   name,
@@ -67,18 +85,18 @@ const provider = (id, name, extra = {}) => ({
 });
 const VIEW = () => ({
   provider: "openai",
-  model: "gpt-5-mini",
+  model: GPT_5_MINI,
   writable: true,
   providers: [
     provider("openai", "OpenAI", {
       key: "stored",
       default: true,
       ask_base_url: true,
-      base_url: "https://api.openai.com/v1",
-      default_base_url: "https://api.openai.com/v1",
+      base_url: OPENAI_BASE_URL,
+      default_base_url: OPENAI_BASE_URL,
       console_url: "https://platform.openai.com/api-keys",
       models: [
-        { id: "gpt-5-mini", label: "GPT-5 mini" },
+        { id: GPT_5_MINI, label: "GPT-5 mini" },
         { id: "gpt-5", label: "GPT-5" },
       ],
     }),
@@ -87,13 +105,19 @@ const VIEW = () => ({
       key: "env",
       key_variable: "GEMINI_API_KEY",
     }),
-    provider("claude-code", "Claude Code", {
+    provider(CLAUDE_CODE, "Claude Code", {
       key: "not_needed",
       login: "claude auth login",
     }),
     provider("qwen", "Qwen", { supports_login: true }),
   ],
 });
+
+// parsedBody reads a request's JSON body, or undefined when it sent none.
+function parsedBody(body) {
+  if (!body) return undefined;
+  return JSON.parse(body);
+}
 
 // fakeGateway answers /v1/llm like the gateway, and records every request.
 function fakeGateway(view = VIEW(), answers = {}) {
@@ -103,7 +127,7 @@ function fakeGateway(view = VIEW(), answers = {}) {
     calls.push({
       method,
       path,
-      body: init.body ? JSON.parse(init.body) : undefined,
+      body: parsedBody(init.body),
     });
     const key = method + " " + path;
     if (answers[key]) {
@@ -111,23 +135,23 @@ function fakeGateway(view = VIEW(), answers = {}) {
       return new Response(JSON.stringify(body), { status });
     }
     if (key === "GET /v1/llm") {
-      return new Response(JSON.stringify(view), { status: 200 });
+      return new Response(JSON.stringify(view), { status: HTTP_OK });
     }
     if (key === "PUT /v1/llm/default") {
       const b = JSON.parse(init.body);
       view.provider = b.provider;
       view.model = b.model;
-      return new Response(JSON.stringify(view), { status: 200 });
+      return new Response(JSON.stringify(view), { status: HTTP_OK });
     }
     if (path.endsWith("/test")) {
       return new Response(
         JSON.stringify({ ok: true, models: ["m-a", "m-b"] }),
         {
-          status: 200,
+          status: HTTP_OK,
         },
       );
     }
-    return new Response(JSON.stringify(view.providers[0]), { status: 200 });
+    return new Response(JSON.stringify(view.providers[0]), { status: HTTP_OK });
   };
   return { api, calls };
 }
@@ -185,7 +209,7 @@ test("trialOf sends only what was typed, and modelChoices keeps the model in for
     "no endpoint for a fixed host",
   );
   assert.deepEqual(llm.modelChoices(p, undefined, "gpt-5"), [
-    "gpt-5-mini",
+    GPT_5_MINI,
     "gpt-5",
   ]);
   assert.deepEqual(llm.modelChoices(p, ["a"], "custom"), ["custom", "a"]);
@@ -197,7 +221,7 @@ test("trialOf sends only what was typed, and modelChoices keeps the model in for
     "an exported key wins",
   );
   assert.equal(
-    llm.canTypeKey(VIEW().providers[3]),
+    llm.canTypeKey(VIEW().providers[CLAUDE_CODE_INDEX]),
     false,
     "claude-code takes none",
   );
@@ -205,10 +229,13 @@ test("trialOf sends only what was typed, and modelChoices keeps the model in for
 
 test("the client sends each change where the gateway expects it and reads its refusals", async () => {
   const gw = fakeGateway(VIEW(), {
-    "PUT /v1/llm/providers/gemini": [409, { error: "env", code: "env_key" }],
+    "PUT /v1/llm/providers/gemini": [
+      HTTP_CONFLICT,
+      { error: "env", code: "env_key" },
+    ],
   });
   await llm.saveProvider(gw.api, "anthropic", { api_key: "k" });
-  await llm.forgetProvider(gw.api, "claude-code");
+  await llm.forgetProvider(gw.api, CLAUDE_CODE);
   await llm.testProvider(gw.api, "openai", {});
   await llm.saveDefault(gw.api, "openai", "gpt-5");
   assert.deepEqual(
@@ -224,12 +251,12 @@ test("the client sends each change where the gateway expects it and reads its re
     llm.saveProvider(gw.api, "gemini", { api_key: "k" }),
     (e) => {
       assert.ok(e instanceof llm.LLMError);
-      assert.equal(e.status, 409);
+      assert.equal(e.status, HTTP_CONFLICT);
       assert.equal(e.code, "env_key");
       return true;
     },
   );
-  const bare = async () => new Response("nope", { status: 500 });
+  const bare = async () => new Response("nope", { status: HTTP_SERVER_ERROR });
   await assert.rejects(llm.loadLLM(bare), /HTTP 500/);
 });
 
@@ -237,18 +264,18 @@ test("every provider shows where its key comes from, and no key is ever drawn", 
   const gw = fakeGateway();
   const { root, done } = await open(gw);
   const rows = root.querySelectorAll("[data-testid=llm-providers] li");
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, PROVIDER_COUNT);
   assert.match(row(root, "openai").textContent, /Default/);
   assert.match(row(root, "openai").textContent, /key saved/);
   assert.match(row(root, "anthropic").textContent, /Not connected/);
   assert.match(row(root, "gemini").textContent, /GEMINI_API_KEY/);
-  assert.match(row(root, "claude-code").textContent, /no key needed/);
+  assert.match(row(root, CLAUDE_CODE).textContent, /no key needed/);
   // The provider picker lists only those that can run.
   const options = [
     ...root.querySelectorAll("#llm-default-provider option"),
   ].map((o) => o.value);
-  assert.deepEqual(options, ["openai", "gemini", "claude-code"]);
-  assert.equal(root.querySelector("#llm-default-model").value, "gpt-5-mini");
+  assert.deepEqual(options, ["openai", "gemini", CLAUDE_CODE]);
+  assert.equal(root.querySelector(DEFAULT_MODEL_INPUT).value, GPT_5_MINI);
   assert.equal(root.querySelector("[data-testid=insecure-warning]"), null);
   await done();
 });
@@ -257,9 +284,9 @@ test("a key is typed, tested and saved, and the field never holds it again", asy
   const gw = fakeGateway();
   const { root, notices, done } = await open(gw);
   await act(() => row(root, "anthropic").querySelector("button").click());
-  const form = row(root, "anthropic").querySelector("[data-testid=llm-form]");
+  const form = row(root, "anthropic").querySelector(LLM_FORM);
   assert.ok(form, "the form opens under the row");
-  const key = form.querySelector("input[type=password]");
+  const key = form.querySelector(KEY_INPUT);
   assert.equal(key.getAttribute("autocomplete"), "off");
   assert.equal(form.querySelector("input[type=url]"), null, "one fixed host");
   assert.equal(
@@ -281,10 +308,7 @@ test("a key is typed, tested and saved, and the field never holds it again", asy
   const put = gw.calls.find((c) => c.method === "PUT");
   assert.deepEqual(put.body, { api_key: "sk-ant" });
   assert.deepEqual(notices.at(-1), ["Anthropic saved", false]);
-  assert.equal(
-    row(root, "anthropic").querySelector("[data-testid=llm-form]"),
-    null,
-  );
+  assert.equal(row(root, "anthropic").querySelector(LLM_FORM), null);
   assert.ok(
     !root.innerHTML.includes("sk-ant"),
     "the key is not left in the page",
@@ -298,7 +322,7 @@ test("each provider shows its logo, and a saved key its last four characters", a
   view.providers[2].key_hint = "…zz99";
   view.providers.push(provider("acme", "Acme"));
   const { root, done } = await open(fakeGateway(view));
-  for (const id of ["openai", "anthropic", "gemini", "claude-code", "qwen"]) {
+  for (const id of ["openai", "anthropic", "gemini", CLAUDE_CODE, "qwen"]) {
     assert.ok(
       row(root, id).querySelector(`[data-logo="${id}"] svg path`),
       id + " has a logo",
@@ -313,7 +337,7 @@ test("each provider shows its logo, and a saved key its last four characters", a
   assert.match(row(root, "gemini").textContent, /GEMINI_API_KEY …zz99/);
   await act(() => button(row(root, "openai"), "Manage").click());
   assert.equal(
-    row(root, "openai").querySelector("input[type=password]").placeholder,
+    row(root, "openai").querySelector(KEY_INPUT).placeholder,
     "Saved (…a1b2). Paste a new one to replace it",
   );
   await done();
@@ -322,8 +346,11 @@ test("each provider shows its logo, and a saved key its last four characters", a
 // fastPolls makes the sign-in's two-second polls short for the test it runs in, and poll waits one.
 function fastPolls(t) {
   const real = globalThis.setTimeout;
-  globalThis.setTimeout = (fn, ms, ...a) =>
-    real(fn, ms === 2000 ? 20 : ms, ...a);
+  const shorten = (ms) => {
+    if (ms === SIGN_IN_POLL_MS) return FAST_POLL_MS;
+    return ms;
+  };
+  globalThis.setTimeout = (fn, ms, ...a) => real(fn, shorten(ms), ...a);
   t.after(() => {
     globalThis.setTimeout = real;
   });
@@ -343,13 +370,13 @@ const LOGIN = {
 test("a device sign-in shows the code, waits for the provider and reloads", async (t) => {
   fastPolls(t);
   const gw = fakeGateway(VIEW(), {
-    "POST /v1/llm/providers/qwen/login": [200, LOGIN],
-    "GET /v1/llm/logins/f1": [200, { ...LOGIN, status: "connected" }],
+    "POST /v1/llm/providers/qwen/login": [HTTP_OK, LOGIN],
+    "GET /v1/llm/logins/f1": [HTTP_OK, { ...LOGIN, status: "connected" }],
   });
   const { root, notices, done } = await open(gw);
   await act(() => button(row(root, "qwen"), "Connect").click());
-  const form = row(root, "qwen").querySelector("[data-testid=llm-form]");
-  await act(() => button(form, "Sign in with your account").click());
+  const form = row(root, "qwen").querySelector(LLM_FORM);
+  await act(() => button(form, SIGN_IN).click());
   await settle();
   assert.equal(
     form.querySelector("[data-testid=llm-login-code]").textContent,
@@ -359,7 +386,7 @@ test("a device sign-in shows the code, waits for the provider and reloads", asyn
   assert.match(form.textContent, /Waiting for the provider/);
   await poll();
   assert.deepEqual(notices.at(-1), ["Signed in to Qwen", false]);
-  assert.equal(row(root, "qwen").querySelector("[data-testid=llm-form]"), null);
+  assert.equal(row(root, "qwen").querySelector(LLM_FORM), null);
   assert.equal(
     gw.calls.filter((c) => c.path === "/v1/llm").length,
     2,
@@ -377,17 +404,17 @@ test("a code sign-in takes the pasted address, and one that fails says why", asy
   fastPolls(t);
   const code = { ...LOGIN, method: "code", code: undefined };
   const gw = fakeGateway(VIEW(), {
-    "POST /v1/llm/providers/qwen/login": [200, code],
-    "POST /v1/llm/logins/f1/paste": [200, {}],
+    "POST /v1/llm/providers/qwen/login": [HTTP_OK, code],
+    "POST /v1/llm/logins/f1/paste": [HTTP_OK, {}],
     "GET /v1/llm/logins/f1": [
-      200,
+      HTTP_OK,
       { ...code, status: "failed", error: "state mismatch" },
     ],
   });
   const { root, done } = await open(gw);
   await act(() => button(row(root, "qwen"), "Connect").click());
-  const form = row(root, "qwen").querySelector("[data-testid=llm-form]");
-  await act(() => button(form, "Sign in with your account").click());
+  const form = row(root, "qwen").querySelector(LLM_FORM);
+  await act(() => button(form, SIGN_IN).click());
   await settle();
   const field = form.querySelector("[data-testid=llm-login] input");
   assert.equal(button(form, "Send").disabled, true);
@@ -400,19 +427,19 @@ test("a code sign-in takes the pasted address, and one that fails says why", asy
   });
   await poll();
   assert.match(form.textContent, /The sign-in did not finish: state mismatch/);
-  assert.ok(button(form, "Sign in with your account"), "it can start again");
+  assert.ok(button(form, SIGN_IN), "it can start again");
   await done();
 });
 
 test("a sign-in left open is cancelled, and a refused one is reported", async () => {
   const gw = fakeGateway(VIEW(), {
-    "POST /v1/llm/providers/qwen/login": [200, LOGIN],
-    "DELETE /v1/llm/logins/f1": [200, {}],
+    "POST /v1/llm/providers/qwen/login": [HTTP_OK, LOGIN],
+    "DELETE /v1/llm/logins/f1": [HTTP_OK, {}],
   });
   const { root, done } = await open(gw);
   await act(() => button(row(root, "qwen"), "Connect").click());
-  let form = row(root, "qwen").querySelector("[data-testid=llm-form]");
-  await act(() => button(form, "Sign in with your account").click());
+  let form = row(root, "qwen").querySelector(LLM_FORM);
+  await act(() => button(form, SIGN_IN).click());
   await settle();
   await act(() => button(form, "Cancel").click());
   assert.deepEqual(gw.calls.at(-1), {
@@ -420,7 +447,7 @@ test("a sign-in left open is cancelled, and a refused one is reported", async ()
     path: "/v1/llm/logins/f1",
     body: undefined,
   });
-  await act(() => button(form, "Sign in with your account").click());
+  await act(() => button(form, SIGN_IN).click());
   await settle();
   await act(() => button(row(root, "qwen"), "Close").click());
   assert.equal(
@@ -436,14 +463,14 @@ test("a sign-in left open is cancelled, and a refused one is reported", async ()
   const second = await open(
     fakeGateway(view, {
       "POST /v1/llm/providers/gemini/login": [
-        502,
+        HTTP_BAD_GATEWAY,
         { error: "run gcloud auth application-default login" },
       ],
     }),
   );
   assert.match(row(second.root, "gemini").textContent, /signed in/);
   await act(() => button(row(second.root, "gemini"), "Manage").click());
-  form = row(second.root, "gemini").querySelector("[data-testid=llm-form]");
+  form = row(second.root, "gemini").querySelector(LLM_FORM);
   assert.ok(button(form, "Disconnect"), "a login can be forgotten");
   await act(() => button(form, "Sign in again").click());
   await settle();
@@ -454,17 +481,20 @@ test("a sign-in left open is cancelled, and a refused one is reported", async ()
 test("a failed test and a refused save say why, in the reader's words", async () => {
   const gw = fakeGateway(VIEW(), {
     "POST /v1/llm/providers/openai/test": [
-      200,
+      HTTP_OK,
       { ok: false, error: "401 bad key" },
     ],
-    "PUT /v1/llm/providers/openai": [400, { error: "x", code: "cleartext" }],
+    "PUT /v1/llm/providers/openai": [
+      HTTP_BAD_REQUEST,
+      { error: "x", code: "cleartext" },
+    ],
   });
   const { root, done } = await open(gw);
   await act(() => button(row(root, "openai"), "Manage").click());
-  const form = row(root, "openai").querySelector("[data-testid=llm-form]");
+  const form = row(root, "openai").querySelector(LLM_FORM);
   const base = form.querySelector("input[type=url]");
-  assert.equal(base.value, "https://api.openai.com/v1");
-  assert.match(form.querySelector("input[type=password]").placeholder, /Saved/);
+  assert.equal(base.value, OPENAI_BASE_URL);
+  assert.match(form.querySelector(KEY_INPUT).placeholder, /Saved/);
   await act(() => button(form, "Test connection").click());
   await settle();
   assert.match(form.textContent, /It did not connect: 401 bad key/);
@@ -479,7 +509,7 @@ test("a saved key can be disconnected after a confirmation", async () => {
   const gw = fakeGateway();
   const { root, notices, done } = await open(gw);
   await act(() => button(row(root, "openai"), "Manage").click());
-  const form = row(root, "openai").querySelector("[data-testid=llm-form]");
+  const form = row(root, "openai").querySelector(LLM_FORM);
   await act(() => button(form, "Disconnect").click());
   await act(() => button(form, "Cancel").click());
   assert.equal(button(form, "Confirm"), undefined);
@@ -495,16 +525,16 @@ test("a key from the environment or a login command is explained, not asked for"
   const gw = fakeGateway();
   const { root, done } = await open(gw);
   await act(() => button(row(root, "gemini"), "Manage").click());
-  let form = row(root, "gemini").querySelector("[data-testid=llm-form]");
+  let form = row(root, "gemini").querySelector(LLM_FORM);
   assert.equal(form.querySelector("input"), null);
   assert.match(form.textContent, /GEMINI_API_KEY on the gateway's machine/);
   assert.equal(button(form, "Save"), undefined);
-  await act(() => button(row(root, "claude-code"), "Manage").click());
-  form = row(root, "claude-code").querySelector("[data-testid=llm-form]");
+  await act(() => button(row(root, CLAUDE_CODE), "Manage").click());
+  form = row(root, CLAUDE_CODE).querySelector(LLM_FORM);
   assert.match(form.textContent, /claude auth login/);
   await act(() => button(row(root, "qwen"), "Connect").click());
-  form = row(root, "qwen").querySelector("[data-testid=llm-form]");
-  assert.ok(button(form, "Sign in with your account"));
+  form = row(root, "qwen").querySelector(LLM_FORM);
+  assert.ok(button(form, SIGN_IN));
   await done();
 });
 
@@ -519,7 +549,7 @@ test("the default model is picked among the connected providers and saved", asyn
   await act(() =>
     select.dispatchEvent(new window.Event("change", { bubbles: true })),
   );
-  assert.equal(form.querySelector("#llm-default-model").value, "gemini-1");
+  assert.equal(form.querySelector(DEFAULT_MODEL_INPUT).value, "gemini-1");
   await act(() => save.click());
   await settle();
   assert.deepEqual(gw.calls.at(-1).body, {
@@ -545,12 +575,12 @@ test("a refused default and a gateway with no file say so", async () => {
 
   const gw2 = fakeGateway(VIEW(), {
     "PUT /v1/llm/default": [
-      409,
+      HTTP_CONFLICT,
       { error: "connect Gemini first", code: "no_key" },
     ],
   });
   const second = await open(gw2);
-  const model = second.root.querySelector("#llm-default-model");
+  const model = second.root.querySelector(DEFAULT_MODEL_INPUT);
   await type(model, "gpt-5");
   await act(() =>
     button(
@@ -582,7 +612,9 @@ test("on a plain http address the tab warns that a key travels unencrypted", asy
 
 test("a gateway that cannot be read is reported", async () => {
   const api = async () =>
-    new Response(JSON.stringify({ error: "down" }), { status: 502 });
+    new Response(JSON.stringify({ error: "down" }), {
+      status: HTTP_BAD_GATEWAY,
+    });
   const { root, done } = await open({ api });
   assert.match(root.textContent, /down/);
   await done();
@@ -605,7 +637,7 @@ test("every string of the providers tab has a Spanish translation", () => {
   for (const m of catalogue.matchAll(/Access:\s+"([^"]+)"/g)) {
     keys.add(m[1]);
   }
-  assert.ok(keys.size > 30);
+  assert.ok(keys.size > MIN_PROVIDER_STRINGS);
   assert.deepEqual(
     [...keys].filter((k) => !es[k]),
     [],
