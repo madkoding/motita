@@ -23,7 +23,7 @@ const out = mkdtempSync(join(here, ".lv-"));
 await build({
   stdin: {
     contents:
-      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./SpeechSettings";\n',
+      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS, FILTERS_KEY, loadFilters } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./SpeechSettings";\n',
     resolveDir: join(here, ".."),
     loader: "ts",
   },
@@ -123,7 +123,7 @@ test("a Kokoro voice is known by its id, and its phonemes become the ids and the
   assert.equal(core.isKokoro("es_MX-claude-high"), false);
   assert.deepEqual(
     ["kokoro-af_heart", "kokoro-bm_george", "kokoro-ef_dora", "kokoro-zz"].map(core.kokoroEspeak),
-    ["en-us", "en-gb", "es", "en-us"],
+    ["en-us", "en-gb-x-rp", "es", "en-us"],
   );
   const vocab = core.kokoroVocab(JSON.stringify({ model: { vocab: KOKORO_VOCAB } }));
   assert.equal(vocab.get("ˈ"), 156);
@@ -181,6 +181,91 @@ test("a Kokoro model that failed to load is loaded again next time", async () =>
   });
   await assert.rejects(synth.say("kokoro-ef_dora", "x"), /not Kokoro's tokenizer/);
   await synth.say("kokoro-ef_dora", "x");
+});
+
+// gpuFakes are fakes with WebGPU's build too, which fail when told to.
+function gpuFakes({ fail = false } = {}) {
+  const { deps, log } = fakes();
+  log.gpu = 0;
+  deps.gpu = async (wasm) => {
+    log.gpu++;
+    assert.equal(new TextDecoder().decode(wasm), "/v1/voice/models/accel-kokoro/ort-wasm-simd-threaded.asyncify.wasm");
+    if (fail) {
+      throw new Error("no WebGPU here");
+    }
+    const ort = await deps.ort(enc("/v1/voice/models/runtime/ort-wasm-simd-threaded.wasm"));
+    log.ort--;
+    return ort;
+  };
+  return { deps, log };
+}
+
+test("Kokoro runs on WebGPU when asked and its files are there, and on the CPU otherwise", async () => {
+  const { deps, log } = gpuFakes();
+  const synth = new core.Synth(deps);
+  synth.setGPU(true);
+  await synth.warm("kokoro-ef_dora");
+  const kokoro = log.bytes.filter((u) => u.includes("kokoro"));
+  assert.ok(kokoro.includes("/v1/voice/models/accel-kokoro/model.onnx"), "WebGPU's full model");
+  assert.ok(!kokoro.includes("/v1/voice/models/kokoro/model.onnx"), "not the CPU's");
+  assert.equal(await synth.onGPU(), true);
+  await synth.say("kokoro-ef_dora", "Hola");
+  assert.equal(log.gpu, 1);
+  synth.setGPU(true);
+  assert.equal(await synth.onGPU(), true, "the same choice keeps the model");
+  // Turned off, the CPU's model is loaded for the next sentence.
+  synth.setGPU(false);
+  assert.equal(await synth.onGPU(), false);
+  await synth.say("kokoro-ef_dora", "Hola");
+  assert.ok(log.bytes.includes("/v1/voice/models/kokoro/model.onnx"));
+  assert.equal(log.gpu, 1);
+  // A browser without the WebGPU build runs Kokoro on the CPU even when asked.
+  const plain = fakes();
+  const cpu = new core.Synth(plain.deps);
+  cpu.setGPU(true);
+  await cpu.say("kokoro-ef_dora", "Hola");
+  assert.equal(await cpu.onGPU(), false);
+  assert.ok(!plain.log.bytes.some((u) => u.includes("accel-kokoro")));
+});
+
+test("Kokoro falls back to the CPU when WebGPU fails, and tries it again only when asked anew", async () => {
+  const { deps, log } = gpuFakes({ fail: true });
+  const synth = new core.Synth(deps);
+  synth.setGPU(true);
+  const wav = await synth.say("kokoro-ef_dora", "Hola");
+  assert.equal(new DataView(wav).getUint32(24, true), core.KOKORO_RATE, "it still speaks");
+  assert.equal(await synth.onGPU(), false);
+  assert.equal(log.gpu, 1);
+  // The next load skips WebGPU: warming lists the CPU's files.
+  synth.setGPU(false);
+  synth.setGPU(true);
+  await synth.warm("kokoro-af_heart");
+  assert.equal(log.gpu, 2, "asked anew, it is tried again");
+});
+
+test("a Kokoro voice mixed with another speaks with a blend of both styles", async () => {
+  assert.deepEqual([...core.blendStyles(Float32Array.from([0, 2]), Float32Array.from([2, 4]), 0.25)], [0.5, 2.5]);
+  const { deps, log } = fakes();
+  const synth = new core.Synth({
+    ...deps,
+    bytes: async (url, p) => {
+      if (url.includes("kokoro-af_bella")) {
+        return new Float32Array(510 * 256).buffer;
+      }
+      if (url.includes("kokoro-gone")) {
+        throw new Error("HTTP 404 " + url);
+      }
+      return deps.bytes(url, p);
+    },
+  });
+  const mixed = (id, amount) => ({ noise: 1, noiseW: 1, mix: { id, amount } });
+  await synth.say("kokoro-ef_dora", "Hola. Rx", mixed("kokoro-af_bella", 0.5));
+  assert.equal(log.feeds.at(-1).style.data[0], 4.5, "halfway between row 9 and a silent voice");
+  // Nothing to mix: none at all, itself, a Piper voice, or one that cannot be loaded.
+  for (const tune of [mixed("kokoro-af_bella", 0), mixed("kokoro-ef_dora", 1), mixed("v1", 1), mixed("kokoro-gone", 1)]) {
+    await synth.say("kokoro-ef_dora", "Hola. Rx", tune);
+    assert.equal(log.feeds.at(-1).style.data[0], 9);
+  }
 });
 
 // fakes are a stand-in runtime and phonemizer that record what they were given.
@@ -436,7 +521,7 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
   let changes = 0;
   const off = lv.onLoadState(() => changes++);
   lv.warmLocal("v1");
-  assert.deepEqual(posted[0], { kind: "warm", id: "v1" });
+  assert.deepEqual(posted[0], { kind: "warm", id: "v1", gpu: false });
   posted.shift();
   assert.deepEqual(lv.loadStateOf("v1"), { pct: 0, ready: false });
   lv.warmLocal("v1");
@@ -447,7 +532,7 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
   tell({ kind: "failed", id: "v1", error: "no memory" });
   assert.deepEqual(lv.loadStateOf("v1"), { pct: 0, ready: false, error: "no memory" });
   lv.warmLocal("v1");
-  assert.deepEqual(posted.shift(), { kind: "warm", id: "v1" }, "a voice that failed is asked for again");
+  assert.deepEqual(posted.shift(), { kind: "warm", id: "v1", gpu: false }, "a voice that failed is asked for again");
   tell({ kind: "ready", id: "v1" });
   assert.deepEqual(lv.loadStateOf("v1"), { pct: 100, ready: true });
   assert.equal(changes, 5);
@@ -474,7 +559,75 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
     id: "v1",
     text: "Hola.",
     tune: { noise: 0.5, noiseW: 1.5 },
+    gpu: false,
   });
+  assert.equal(say.ahead, 1, "a Piper voice says one sentence at a time");
+  delete globalThis.Worker;
+});
+
+test("Kokoro on the CPU says the next sentences at once, in workers of their own", async () => {
+  // The worker of an earlier test goes, so these are made with the stand-in below.
+  globalThis.lastWorker?.onerror();
+  const made = [];
+  globalThis.Worker = class {
+    constructor() {
+      this.posted = [];
+      made.push(this);
+    }
+    postMessage(m) {
+      this.posted.push(m);
+    }
+  };
+  const cores = (n) =>
+    Object.defineProperty(globalThis.navigator, "hardwareConcurrency", { value: n, configurable: true });
+  cores(8);
+  assert.equal(lv.lanes("kokoro-ef_dora"), lv.MAX_LANES);
+  assert.equal(lv.lanes("v1"), 1, "a Piper voice is quick enough alone");
+  cores(2);
+  assert.equal(lv.lanes("kokoro-ef_dora"), 1, "one core is left to the page");
+  cores(8);
+  lv.warmLocal("kokoro-ef_dora");
+  assert.equal(made.length, 1, "the helpers wait for the first worker");
+  made[0].onmessage({ data: { kind: "ready", id: "kokoro-ef_dora" } });
+  assert.equal(made.length, lv.MAX_LANES);
+  assert.deepEqual(made[2].posted, [{ kind: "warm", id: "kokoro-ef_dora", gpu: false }]);
+  made[1].onmessage({ data: { kind: "progress", id: "kokoro-ef_dora", pct: 5 } });
+  assert.equal(lv.loadStateOf("kokoro-ef_dora").ready, true, "a helper's loading is not shown");
+  // Each sentence goes to the worker with the fewest waiting.
+  const say = lv.localClip("kokoro-ef_dora");
+  assert.equal(say.ahead, lv.MAX_LANES);
+  const signal = new AbortController().signal;
+  const clips = ["a", "b", "c", "d"].map((text) => say(text, signal));
+  const said = (w) => w.posted.filter((m) => m.kind === "say").map((m) => m.text);
+  assert.deepEqual(made.map(said), [["a", "d"], ["b"], ["c"]]);
+  for (const w of made) {
+    for (const m of w.posted.filter((p) => p.kind === "say")) {
+      w.onmessage({ data: { seq: m.seq, wav: enc(m.text) } });
+    }
+  }
+  assert.deepEqual(await Promise.all(clips.map(async (c) => (await c).text())), ["a", "b", "c", "d"]);
+  // A helper that dies fails only its own sentences, and leaves the voice loaded.
+  const lost = say("e", signal);
+  const kept = say("f", signal);
+  made[0].onerror();
+  await assert.rejects(lost, /the local voice stopped/);
+  made[1].onmessage({ data: { seq: made[1].posted.at(-1).seq, wav: enc("f") } });
+  assert.equal(await (await kept).text(), "f");
+  made[2].onerror();
+  made[1].onerror();
+  // On WebGPU one worker says them all, and the voices load again.
+  lv.setKokoroGPU(true);
+  lv.setKokoroGPU(true);
+  assert.equal(lv.kokoroOnGPU(), true);
+  assert.equal(lv.lanes("kokoro-ef_dora"), 1);
+  lv.warmLocal("kokoro-ef_dora");
+  assert.deepEqual(made.at(-1).posted, [{ kind: "warm", id: "kokoro-ef_dora", gpu: true }]);
+  made.at(-1).onmessage({ data: { kind: "ready", id: "kokoro-ef_dora", gpu: true } });
+  assert.deepEqual(lv.loadStateOf("kokoro-ef_dora"), { pct: 100, ready: true, gpu: true });
+  lv.setKokoroGPU(false);
+  assert.equal(lv.loadStateOf("kokoro-ef_dora"), undefined, "loaded again on the CPU");
+  made.at(-1).onerror();
+  delete globalThis.navigator.hardwareConcurrency;
   delete globalThis.Worker;
 });
 
@@ -502,6 +655,7 @@ async function mount(node) {
 
 test("the settings download a voice, follow its progress, choose it and delete it", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
+  localStorage.removeItem(lv.FILTERS_KEY);
   const model = (id, lang, installed) => ({ id, name: id.toUpperCase(), lang, quality: "medium", size: 63e6, installed });
   let state = {
     runtime: { size: 33e6, installed: false },
@@ -744,7 +898,7 @@ test("the voice in use shows its loading into memory, and says In use only when 
   const { api } = apiOf({ "GET /v1/voice/models": [200, cat] });
   const v = await mount(h(lv.LocalVoices, { api, chosen: "mx", choose: () => {} }));
   const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
-  assert.deepEqual(posted, [{ kind: "warm", id: "mx" }], "loaded as soon as it is shown");
+  assert.deepEqual(posted, [{ kind: "warm", id: "mx", gpu: false }], "loaded as soon as it is shown");
   assert.match(q("local-voice-loading-mx").textContent, /0/);
   assert.equal(q("local-voice-use-mx"), null, "not In use while it loads");
   const tell = async (data) => {
@@ -755,11 +909,142 @@ test("the voice in use shows its loading into memory, and says In use only when 
   await tell({ kind: "failed", id: "mx", error: "out of memory" });
   assert.match(v.root.textContent, /out of memory/);
   await act(async () => q("local-voice-retry-mx").click());
-  assert.deepEqual(posted.at(-1), { kind: "warm", id: "mx" });
+  assert.deepEqual(posted.at(-1), { kind: "warm", id: "mx", gpu: false });
   await tell({ kind: "ready", id: "mx" });
   assert.equal(q("local-voice-loading-mx"), null);
   assert.equal(q("local-voice-use-mx").getAttribute("aria-pressed"), "true");
   v.done();
+  globalThis.lastWorker.onerror();
+  delete globalThis.Worker;
+  delete globalThis.caches;
+});
+
+test("the filters chosen are kept for the next visit, and what cannot be read is left out", async () => {
+  localStorage.setItem(lv.FILTERS_KEY, JSON.stringify({ language: "en", quality: "high" }));
+  const cat = {
+    runtime: { size: 1, installed: true },
+    models: [
+      { id: "en", name: "EN", lang: "en-US", quality: "high", size: 1, installed: false },
+      { id: "es", name: "ES", lang: "es-MX", quality: "high", size: 1, installed: false },
+    ],
+    download: null,
+  };
+  const { api } = apiOf({ "GET /v1/voice/models": [HTTP_OK, cat] });
+  const v = await mount(h(lv.LocalVoices, { api, chosen: "x", choose: () => {} }));
+  const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.equal(q("local-voice-language").value, "en");
+  assert.equal(q("local-voice-quality").value, "high");
+  assert.equal(q("local-voice-es"), null);
+  q("local-voice-quality").value = "medium";
+  await act(async () => q("local-voice-quality").dispatchEvent(new window.Event("change", { bubbles: true })));
+  assert.deepEqual(JSON.parse(localStorage.getItem(lv.FILTERS_KEY)), { language: "en", quality: "medium" });
+  v.done();
+  localStorage.setItem(lv.FILTERS_KEY, JSON.stringify({ language: 3, quality: "loud" }));
+  assert.deepEqual(lv.loadFilters(), { language: "en", quality: "" }, "the interface's language, every quality");
+  localStorage.setItem(lv.FILTERS_KEY, "{not json");
+  assert.deepEqual(lv.loadFilters(), { language: "en", quality: "" });
+  localStorage.removeItem(lv.FILTERS_KEY);
+});
+
+test("the graphics card is offered for Kokoro where WebGPU is, and a Kokoro voice mixes with another", async () => {
+  globalThis.lastWorker?.onerror();
+  const posted = [];
+  globalThis.Worker = class {
+    constructor() {
+      globalThis.lastWorker = this;
+    }
+    postMessage(m) {
+      posted.push(m);
+    }
+  };
+  const dropped = [];
+  globalThis.caches = { open: async () => ({ delete: async (u) => dropped.push(u) }) };
+  const kokoro = (id, installed) => ({ id, name: id, lang: "es", quality: "high", engine: "kokoro", size: 1, installed });
+  const accel = (installed) => ({
+    id: "accel-kokoro",
+    name: "Kokoro WebGPU",
+    lang: "",
+    quality: "high",
+    engine: "accelerator",
+    size: 352e6,
+    installed,
+  });
+  let state = {
+    runtime: { size: 1, installed: true },
+    models: [kokoro("kokoro-ef_dora", true), kokoro("kokoro-em_alex", true), kokoro("kokoro-zz", false), accel(false)],
+    download: null,
+  };
+  const { api, calls } = apiOf({
+    "GET /v1/voice/models": () => new Response(JSON.stringify(state), { status: HTTP_OK }),
+    "POST /v1/voice/models/accel-kokoro": () => {
+      state = { ...state, models: [...state.models.slice(0, 3), accel(true)] };
+      return new Response("{}", { status: HTTP_ACCEPTED });
+    },
+    "DELETE /v1/voice/models/accel-kokoro": () => {
+      state = { ...state, models: [...state.models.slice(0, 3), accel(false)] };
+      return new Response(null, { status: HTTP_NO_CONTENT });
+    },
+    "DELETE /v1/voice/models/kokoro-em_alex": () => {
+      state = { ...state, models: [state.models[0], kokoro("kokoro-em_alex", false), ...state.models.slice(2)] };
+      return new Response(null, { status: HTTP_NO_CONTENT });
+    },
+  });
+  const mixes = [];
+  const draw = (mix) =>
+    h(lv.LocalVoices, { api, chosen: "kokoro-ef_dora", choose: () => {}, mix, setMix: (m) => mixes.push(m) });
+  // Without WebGPU it is not offered.
+  let v = await mount(draw({ id: "", amount: 0.5 }));
+  let q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.equal(q("local-voice-gpu"), null);
+  assert.deepEqual([...q("local-voice-language").options].map((o) => o.value), ["", "es"], "it is no language");
+  v.done();
+  // Nor where WebGPU has no graphics card to use.
+  let adapter = null;
+  Object.defineProperty(globalThis.navigator, "gpu", {
+    value: { requestAdapter: async () => adapter },
+    configurable: true,
+  });
+  v = await mount(draw({ id: "", amount: 0.5 }));
+  assert.equal(v.root.querySelector("[data-testid=local-voice-gpu]"), null);
+  v.done();
+  adapter = {};
+  v = await mount(draw({ id: "", amount: 0.5 }));
+  q = (s) => v.root.querySelector(`[data-testid=${s}]`);
+  assert.match(q("local-voice-gpu-note").textContent, /352 MB/);
+  assert.equal(q("local-voice-accel-kokoro"), null, "not listed as a voice");
+  await act(async () => q("local-voice-gpu-get").click());
+  await settle();
+  assert.ok(calls.includes("POST /v1/voice/models/accel-kokoro"));
+  assert.equal(lv.kokoroOnGPU(), true);
+  assert.deepEqual(posted.at(-1), { kind: "warm", id: "kokoro-ef_dora", gpu: true }, "loaded again for WebGPU");
+  assert.match(q("local-voice-gpu-note").textContent, /will use/);
+  await act(async () => globalThis.lastWorker.onmessage({ data: { kind: "ready", id: "kokoro-ef_dora", gpu: true } }));
+  assert.match(q("local-voice-gpu-note").textContent, /runs on the graphics/);
+  await act(async () => globalThis.lastWorker.onmessage({ data: { kind: "ready", id: "kokoro-ef_dora" } }));
+  assert.match(q("local-voice-gpu-note").textContent, /could not start/, "it fell back to the processor");
+  // The voice in use mixes with the other downloaded Kokoro voices.
+  assert.deepEqual([...q("local-voice-mix-voice").options].map((o) => o.value), ["", "kokoro-em_alex"]);
+  assert.equal(q("local-voice-mix-amount"), null, "no amount without a voice to mix");
+  q("local-voice-mix-voice").value = "kokoro-em_alex";
+  await act(async () => q("local-voice-mix-voice").dispatchEvent(new window.Event("change", { bubbles: true })));
+  assert.deepEqual(mixes.at(-1), { id: "kokoro-em_alex", amount: 0.5 });
+  await act(async () => render(draw({ id: "kokoro-em_alex", amount: 0.5 }), v.root));
+  q("local-voice-mix-amount").value = "0.3";
+  await act(async () => q("local-voice-mix-amount").dispatchEvent(new window.Event("input", { bubbles: true })));
+  assert.deepEqual(mixes.at(-1), { id: "kokoro-em_alex", amount: 0.3 });
+  assert.match(q("local-voice-mix").textContent, /50%/);
+  // Deleting the voice mixed in leaves the chosen one alone.
+  await act(async () => q("local-voice-delete-kokoro-em_alex").click());
+  await settle();
+  assert.deepEqual(mixes.at(-1), { id: "", amount: 0.5 });
+  assert.ok(q("local-voice-mix-none"), "nothing left to mix with");
+  await act(async () => q("local-voice-gpu-delete").click());
+  await settle();
+  assert.ok(calls.includes("DELETE /v1/voice/models/accel-kokoro"));
+  assert.ok(dropped.includes("/v1/voice/models/accel-kokoro/ort-wasm-simd-threaded.asyncify.wasm"), "its copy goes too");
+  assert.equal(lv.kokoroOnGPU(), false);
+  v.done();
+  delete globalThis.navigator.gpu;
   globalThis.lastWorker.onerror();
   delete globalThis.Worker;
   delete globalThis.caches;

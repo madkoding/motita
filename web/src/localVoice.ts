@@ -1,7 +1,9 @@
 // LOCAL VOICES on the page's side: the catalog the gateway offers, its downloads, and a FetchClip
 // that asks the worker (speechModel.worker.ts) to say a sentence.
 import {
+  KOKORO_GPU_ID,
   KOKORO_ID,
+  ORT_GPU_WASM,
   MODELS_PATH,
   VOICE_CACHE,
   fileURL,
@@ -10,6 +12,7 @@ import {
   type ToWorker,
   type Tune,
 } from "./localVoiceCore";
+import { choose } from "./choose";
 import type { Api } from "./prApi";
 import type { FetchClip } from "./speech";
 
@@ -75,7 +78,9 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
     return;
   }
   const cache = await caches.open(VOICE_CACHE);
-  const gone = ["model.onnx", "model.json", "voice.bin"].map((n) => fileURL(id, n));
+  // The accelerator's copy goes too: its model, and the build of the runtime that drives WebGPU.
+  const names = ["model.onnx", "model.json", "voice.bin", ...choose(id === KOKORO_GPU_ID, [ORT_GPU_WASM], [])];
+  const gone = names.map((n) => fileURL(id, n));
   // Kokoro's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
   if (isKokoro(id) && !(await fetchCatalog(api)).models.some((m) => isKokoro(m.id) && m.installed)) {
     gone.push(fileURL(KOKORO_ID, "model.onnx"), fileURL(KOKORO_ID, "tokenizer.json"));
@@ -93,24 +98,41 @@ export async function sampleOf(api: Api, id: string): Promise<Blob> {
   return res.blob();
 }
 
-// The worker, made the first time a sentence is said.
-let worker: Worker | null = null;
+// THE WORKERS. The first says every voice and tells how far one is from loaded. A Kokoro voice
+// on the CPU also has helpers, each with its own copy of the model, one per spare core up to
+// MAX_LANES: Kokoro takes longer to say a sentence than to play it, so the next sentences are
+// said at once, each by a worker of its own.
+export const MAX_LANES = 3;
+const workers: (Worker | null)[] = [];
+// busy counts the sentences each worker has been asked for and not answered yet.
+const busy: number[] = [];
 let seq = 0;
-const pending = new Map<number, { ok: (b: Blob) => void; fail: (e: Error) => void }>();
+const pending = new Map<number, { ok: (b: Blob) => void; fail: (e: Error) => void; w: number }>();
+// kokoroGPU says Kokoro runs on WebGPU: its files are downloaded and the browser has it.
+let kokoroGPU = false;
 
 function post(m: ToWorker): void {
-  worker?.postMessage(m);
+  for (const w of workers) {
+    w?.postMessage(m);
+  }
 }
 
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (e: MessageEvent<FromWorker>) => {
+function getWorker(n = 0): Worker {
+  let w = workers[n];
+  if (!w) {
+    w = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module" });
+    workers[n] = w;
+    busy[n] = 0;
+    w.onmessage = (e: MessageEvent<FromWorker>) => {
       const m = e.data;
       if ("kind" in m) {
-        loaded(m);
+        // Only the first worker's loading is shown; the helpers load quietly.
+        if (n === 0) {
+          loaded(m);
+        }
         return;
       }
+      busy[n] = Math.max(0, busy[n] - 1);
       const p = pending.get(m.seq);
       pending.delete(m.seq);
       if (!p) {
@@ -122,35 +144,78 @@ function getWorker(): Worker {
       }
       p.fail(new Error(m.error));
     };
-    worker.onerror = () => {
-      for (const p of pending.values()) {
-        p.fail(new Error("the local voice stopped"));
+    w.onerror = () => {
+      for (const [k, p] of pending) {
+        if (p.w === n) {
+          p.fail(new Error("the local voice stopped"));
+          pending.delete(k);
+        }
       }
-      pending.clear();
-      worker = null;
+      workers[n] = null;
       // The voices it had loaded went with it: a new worker loads them again.
-      for (const id of [...loads.keys()]) {
-        setLoad(id, undefined);
+      if (n === 0) {
+        for (const id of [...loads.keys()]) {
+          setLoad(id, undefined);
+        }
       }
     };
   }
-  return worker;
+  return w;
+}
+
+// lanes is how many workers say a voice's sentences at once: one, but for Kokoro on the CPU.
+export function lanes(id: string): number {
+  if (!isKokoro(id) || kokoroGPU) {
+    return 1;
+  }
+  const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 1;
+  return Math.max(1, Math.min(MAX_LANES, cores - 1));
+}
+
+// setKokoroGPU says whether Kokoro runs on WebGPU. A change loads the voices again.
+export function setKokoroGPU(on: boolean): void {
+  if (on === kokoroGPU) {
+    return;
+  }
+  kokoroGPU = on;
+  for (const id of [...loads.keys()]) {
+    if (isKokoro(id)) {
+      setLoad(id, undefined);
+    }
+  }
+}
+
+// kokoroOnGPU says whether Kokoro is meant to run on WebGPU.
+export function kokoroOnGPU(): boolean {
+  return kokoroGPU;
 }
 
 // localClip is the FetchClip of a local voice. A sentence asked for and then aborted is still
-// said by the worker (it cannot be cut mid-way), and its audio is dropped.
+// said by the worker (it cannot be cut mid-way), and its audio is dropped. Each sentence goes to
+// the worker with the fewest waiting, and the reader asks for as many ahead as there are.
 export function localClip(id: string, tune?: Tune): FetchClip {
-  return (text, signal) =>
+  const n = lanes(id);
+  const say: FetchClip = (text, signal) =>
     new Promise<Blob>((ok, fail) => {
+      let w = 0;
+      for (let k = 0; k < n; k++) {
+        getWorker(k);
+        if (busy[k] < busy[w]) {
+          w = k;
+        }
+      }
       seq++;
-      const n = seq;
-      pending.set(n, { ok, fail });
+      const s = seq;
+      pending.set(s, { ok, fail, w });
       signal.addEventListener("abort", () => {
-        pending.delete(n);
+        pending.delete(s);
         fail(new DOMException("aborted", "AbortError"));
       });
-      getWorker().postMessage({ kind: "say", seq: n, id, text, tune } satisfies ToWorker);
+      busy[w]++;
+      getWorker(w).postMessage({ kind: "say", seq: s, id, text, tune, gpu: kokoroGPU } satisfies ToWorker);
     });
+  say.ahead = n;
+  return say;
 }
 
 // LOADING a voice into the worker's memory: how far it is, for the settings to show.
@@ -159,6 +224,8 @@ export interface LoadState {
   pct: number;
   ready: boolean;
   error?: string;
+  // gpu says a Kokoro voice runs on WebGPU.
+  gpu?: boolean;
 }
 
 const loads = new Map<string, LoadState>();
@@ -182,7 +249,11 @@ function loaded(m: Extract<FromWorker, { kind: string }>): void {
     return;
   }
   if (m.kind === "ready") {
-    setLoad(m.id, { pct: 100, ready: true });
+    setLoad(m.id, { pct: 100, ready: true, ...(m.gpu ? { gpu: true } : {}) });
+    // The helpers load the voice too, once the first worker has it in its copy of the files.
+    for (let k = 1; k < lanes(m.id); k++) {
+      getWorker(k).postMessage({ kind: "warm", id: m.id, gpu: kokoroGPU } satisfies ToWorker);
+    }
     return;
   }
   setLoad(m.id, { pct: 0, ready: false, error: m.error });
@@ -207,7 +278,7 @@ export function warmLocal(id: string): void {
     return;
   }
   setLoad(id, { pct: 0, ready: false });
-  getWorker().postMessage({ kind: "warm", id } satisfies ToWorker);
+  getWorker().postMessage({ kind: "warm", id, gpu: kokoroGPU } satisfies ToWorker);
 }
 
 // localVoicesSupported says this browser can run a local voice at all.

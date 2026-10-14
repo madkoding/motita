@@ -57,6 +57,10 @@ export interface SpeechPrefs {
   pitch: number;
   expressiveness: number;
   variation: number;
+  // kokoroMix is the Kokoro voice the chosen one is mixed with ("" is none), and kokoroMixAmount
+  // how much of it (0 to 1: 0 is the chosen voice alone, 1 the other one).
+  kokoroMix: string;
+  kokoroMixAmount: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
   // Zero reads everything.
   maxChars: number;
@@ -101,6 +105,8 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   pitch: 1,
   expressiveness: 1,
   variation: 1,
+  kokoroMix: "",
+  kokoroMixAmount: 0.5,
   maxChars: MEDIUM_CHARS,
   conversation: false,
   notices: false,
@@ -128,6 +134,8 @@ function oneOf<T>(v: unknown, list: T[], fallback: T): T {
 // variation.
 export const PITCH_RANGE: [number, number] = [0.5, 2];
 export const TUNE_RANGE: [number, number] = [0, 2];
+// MIX_RANGE is how much of another Kokoro voice is mixed in.
+export const MIX_RANGE: [number, number] = [0, 1];
 
 // numberIn is v when it is a number within range, fallback otherwise.
 function numberIn(v: unknown, range: [number, number], fallback: number): number {
@@ -223,6 +231,8 @@ export function loadSpeechPrefs(): SpeechPrefs {
       pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
       expressiveness: numberIn(raw.expressiveness, TUNE_RANGE, d.expressiveness),
       variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
+      kokoroMix: stringOr(raw.kokoroMix, d.kokoroMix),
+      kokoroMixAmount: numberIn(raw.kokoroMixAmount, MIX_RANGE, d.kokoroMixAmount),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,
@@ -853,7 +863,9 @@ export interface AudioLike {
 }
 
 // fetchClip says one text with the gateway's voice or a local one: the audio, or a thrown error.
-export type FetchClip = (text: string, signal: AbortSignal) => Promise<Blob>;
+// ahead, when more than 1, is how many sentences it can say at once, and so how many the reader
+// asks for beyond the one playing (1 when absent).
+export type FetchClip = ((text: string, signal: AbortSignal) => Promise<Blob>) & { ahead?: number };
 
 // reasonOf is why a clip could not be had: the gateway's message, or "error".
 function reasonOf(e: unknown): string {
@@ -936,6 +948,7 @@ export class ClipReader {
     const abort = new AbortController();
     this.abort = abort;
     const fetchClip = this.fetchClip();
+    const ahead = Math.max(1, fetchClip.ahead ?? 1);
     const clips: Promise<string>[] = [];
     // clip asks for sentence i once; the answer is kept until it is played.
     const clip = (i: number): Promise<string> => {
@@ -956,9 +969,14 @@ export class ClipReader {
         this.finish();
         return;
       }
+      const current = clip(i);
+      // A voice that says several at once is asked for the next ones before this one is ready.
+      for (let k = 1; k < ahead && i + k < list.length; k++) {
+        void clip(i + k);
+      }
       let src: string;
       try {
-        src = await clip(i);
+        src = await current;
       } catch (e) {
         if (run === this.run) {
           this.finish(reasonOf(e));
@@ -968,8 +986,8 @@ export class ClipReader {
       if (run !== this.run) {
         return;
       }
-      if (i + 1 < list.length) {
-        void clip(i + 1);
+      if (i + ahead < list.length) {
+        void clip(i + ahead);
       }
       const a = this.makeAudio();
       this.audio = a;

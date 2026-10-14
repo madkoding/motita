@@ -387,6 +387,18 @@ const more: Record<string, string> = {
   "Every language": "Todos los idiomas",
   "Every quality": "Todas las calidades",
   "No voice matches these filters.": "Ninguna voz coincide con estos filtros.",
+  "Graphics card (WebGPU)": "Tarjeta gráfica (WebGPU)",
+  "Kokoro starts speaking sooner on the graphics card. Adds {size}.":
+    "Kokoro empieza a hablar antes con la tarjeta gráfica. Suma {size}.",
+  "Kokoro runs on the graphics card.": "Kokoro usa la tarjeta gráfica.",
+  "Kokoro will use the graphics card.": "Kokoro usará la tarjeta gráfica.",
+  "WebGPU could not start here: Kokoro runs on the processor.":
+    "WebGPU no pudo iniciar aquí: Kokoro usa el procesador.",
+  "Download another Kokoro voice to mix it with this one.":
+    "Descarga otra voz Kokoro para mezclarla con esta.",
+  "Mix with": "Mezclar con",
+  "No other voice": "Ninguna otra voz",
+  "How much": "Cuánto",
   "Stop the sample": "Detener la muestra",
   "Hear {name}": "Escuchar a {name}",
   "The sample could not be played: {error}": "No se pudo reproducir la muestra: {error}",
