@@ -7,7 +7,7 @@
 // without the network after the first time. The logic is in localVoiceCore.ts.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
-import { Synth, VOICE_CACHE, isKokoro, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
+import { Synth, VOICE_CACHE, isSupertonic, readAll, type FromWorker, type OrtLike, type ToWorker } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -48,8 +48,8 @@ const synth = new Synth({
       createSession: (model, weights) => InferenceSession.create(model, { executionProviders: ["wasm"], ...external(weights) }),
     } as OrtLike;
   },
-  // WebGPU's build is loaded only for Kokoro, on a browser that has WebGPU. Each way it can fail
-  // says so, and the page shows it.
+  // WebGPU's build runs Supertonic and Chatterbox on a browser that has WebGPU. Each way it can
+  // fail says so, and the page shows it.
   gpu: async (wasm) => {
     type Adapter = { features: unknown };
     type GPU = { requestAdapter(o?: { powerPreference?: string }): Promise<Adapter | null> };
@@ -101,9 +101,6 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     synth.forget(m.id);
     return;
   }
-  if (m.gpu !== undefined) {
-    synth.setGPU(m.gpu);
-  }
   if (m.kind === "warm") {
     // The page shows how far the voice is from being ready, and why it could not be.
     synth
@@ -114,7 +111,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
             kind: "ready",
             id: m.id,
             gpu: await synth.onGPU(m.id),
-            gpuError: (isKokoro(m.id) && synth.gpuError()) || undefined,
+            gpuError: (isSupertonic(m.id) && synth.gpuError()) || undefined,
           } satisfies FromWorker),
         (err: unknown) => self.postMessage({ kind: "failed", id: m.id, error: messageOf(err) } satisfies FromWorker),
       );

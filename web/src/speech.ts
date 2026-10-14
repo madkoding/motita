@@ -57,10 +57,10 @@ export interface SpeechPrefs {
   pitch: number;
   expressiveness: number;
   variation: number;
-  // kokoroMix is the Kokoro voice the chosen one is mixed with ("" is none), and kokoroMixAmount
-  // how much of it (0 to 1: 0 is the chosen voice alone, 1 the other one).
-  kokoroMix: string;
-  kokoroMixAmount: number;
+  // supertonicSpeed is the pace a Supertonic voice speaks at (1.05 is its own), and
+  // supertonicSteps how many times its sound is refined (0 leaves it to where it runs).
+  supertonicSpeed: number;
+  supertonicSteps: number;
   // chatterboxEmotion is how much emotion a Chatterbox voice puts in (its exaggeration).
   chatterboxEmotion: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
@@ -107,8 +107,8 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   pitch: 1,
   expressiveness: 1,
   variation: 1,
-  kokoroMix: "",
-  kokoroMixAmount: 0.5,
+  supertonicSpeed: 1.05,
+  supertonicSteps: 0,
   chatterboxEmotion: 0.5,
   maxChars: MEDIUM_CHARS,
   conversation: false,
@@ -137,8 +137,10 @@ function oneOf<T>(v: unknown, list: T[], fallback: T): T {
 // variation.
 export const PITCH_RANGE: [number, number] = [0.5, 2];
 export const TUNE_RANGE: [number, number] = [0, 2];
-// MIX_RANGE is how much of another Kokoro voice is mixed in.
-export const MIX_RANGE: [number, number] = [0, 1];
+// SUPERTONIC_SPEED_RANGE is the pace a Supertonic voice can be asked for, and
+// SUPERTONIC_STEPS_RANGE how many times its sound is refined (0 is its own for where it runs).
+export const SUPERTONIC_SPEED_RANGE: [number, number] = [0.7, 1.6];
+export const SUPERTONIC_STEPS_RANGE: [number, number] = [0, 16];
 // EMOTION_RANGE is how much emotion a Chatterbox voice can be asked for.
 export const EMOTION_RANGE: [number, number] = [0.25, 2];
 
@@ -162,6 +164,19 @@ const MAX_PRONUNCIATIONS = 200;
 const MAX_TERM = 80;
 
 // langVoicesOf keeps the voices of the languages this page knows.
+// RETIRED_VOICES start the ids of local voices taken out of the catalog (Kokoro's, and the files
+// that ran it on WebGPU).
+const RETIRED_VOICES = ["kokoro-", "accel-kokoro"];
+
+// currentVoice is a saved local voice, or none when it was taken out of the catalog: the page
+// then reads with the device's voice until another is chosen.
+function currentVoice(id: string): string {
+  if (RETIRED_VOICES.some((p) => id.startsWith(p))) {
+    return "";
+  }
+  return id;
+}
+
 function langVoicesOf(v: unknown): Partial<Record<Lang, string>> {
   const out: Partial<Record<Lang, string>> = {};
   if (typeof v !== "object" || v === null) {
@@ -230,14 +245,14 @@ export function loadSpeechPrefs(): SpeechPrefs {
       style: oneOf(raw.style, STYLES, d.style),
       engine: oneOf(raw.engine, ENGINES, d.engine),
       gatewayVoice: stringOr(raw.gatewayVoice, d.gatewayVoice),
-      localVoice: stringOr(raw.localVoice, d.localVoice),
+      localVoice: currentVoice(stringOr(raw.localVoice, d.localVoice)),
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
       expressiveness: numberIn(raw.expressiveness, TUNE_RANGE, d.expressiveness),
       variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
-      kokoroMix: stringOr(raw.kokoroMix, d.kokoroMix),
-      kokoroMixAmount: numberIn(raw.kokoroMixAmount, MIX_RANGE, d.kokoroMixAmount),
+      supertonicSpeed: numberIn(raw.supertonicSpeed, SUPERTONIC_SPEED_RANGE, d.supertonicSpeed),
+      supertonicSteps: Math.round(numberIn(raw.supertonicSteps, SUPERTONIC_STEPS_RANGE, d.supertonicSteps)),
       chatterboxEmotion: numberIn(raw.chatterboxEmotion, EMOTION_RANGE, d.chatterboxEmotion),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,

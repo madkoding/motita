@@ -1,4 +1,4 @@
-// LOCAL VOICES: a Piper, Kokoro, Supertonic or Chatterbox model run in this browser, the parts
+// LOCAL VOICES: a Piper, Supertonic or Chatterbox model run in this browser, the parts
 // that need no browser.
 //
 // The worker (speechModel.worker.ts) wires these to onnxruntime and the phonemizer; keeping the
@@ -11,14 +11,8 @@ export const RUNTIME_ID = "runtime";
 export const ORT_WASM = "ort-wasm-simd-threaded.wasm";
 export const PHONEMIZE_WASM = "piper_phonemize.wasm";
 export const PHONEMIZE_DATA = "piper_phonemize.data";
-// KOKORO_ID is where Kokoro's model is served; a Kokoro voice's id is it, a dash, and the voice's
-// name there, whose first letter is its language.
-export const KOKORO_ID = "kokoro";
-// KOKORO_GPU_ID is where the files that run Kokoro on WebGPU are served (see voice.KokoroGPU):
-// the full model, and onnxruntime's build that drives WebGPU.
-export const KOKORO_GPU_ID = "accel-kokoro";
+// ORT_GPU_WASM is onnxruntime's build that drives WebGPU, served with the model that uses it.
 export const ORT_GPU_WASM = "ort-wasm-simd-threaded.asyncify.wasm";
-export const KOKORO_RATE = 24000;
 // SUPERTONIC_ID is where Supertonic's model is served; a Supertonic voice's id is it, a dash, and
 // the voice's name there.
 export const SUPERTONIC_ID = "supertonic";
@@ -34,11 +28,12 @@ export const SUPERTONIC_LANGS = new Set(
 // chunk_compress_factor 6).
 const SUPERTONIC_CHUNK = 512 * 6;
 const SUPERTONIC_LATENT = 24 * 6;
-// SUPERTONIC_SPEED is the pace the model is asked for (its own default); the page's speed is the
-// audio's playback rate.
-const SUPERTONIC_SPEED = 1.05;
-// SUPERTONIC_STEPS are the steps the sound is refined in: its default on the graphics card, and
-// fewer on the processor, where each step takes about a second of a sentence's.
+// SUPERTONIC_SPEED is the pace the model speaks at when none is asked for (its own default):
+// it changes how long each sound lasts, not the pitch, unlike the page's playback rate.
+export const SUPERTONIC_SPEED = 1.05;
+// SUPERTONIC_STEPS are the steps the sound is refined in when none are asked for: its default
+// on the graphics card, and fewer on the processor, where each step takes about a second of a
+// sentence's.
 export const SUPERTONIC_STEPS = { gpu: 8, cpu: 5 };
 // CHATTERBOX_ID is where Chatterbox's model is served; a Chatterbox voice's id is it, a dash, and
 // the voice's name.
@@ -60,10 +55,6 @@ export const CHATTERBOX_MAX_TOKENS = 800;
 const CHATTERBOX_PENALTY = 1.2;
 // CHATTERBOX_EMOTION is the emotion setting a sentence gets when none is given (its default).
 export const CHATTERBOX_EMOTION = 0.5;
-// KOKORO_STYLE is the length of one style vector; a voice holds one for each length of input,
-// up to KOKORO_MAX_TOKENS.
-const KOKORO_STYLE = 256;
-const KOKORO_MAX_TOKENS = 510;
 // A warm's progress, out of 100: reading the files makes LOAD_SHARE, starting the runtime
 // RUNTIME_SHARE and the phonemizer PHONEMIZER_SHARE; preparing the model (onnxruntime's session,
 // the longest step once the files are on this device) is the rest.
@@ -108,25 +99,18 @@ export function phonemizeArgs(espeakVoice: string, text: string): string[] {
   return ["-l", espeakVoice, "--input", JSON.stringify([{ text }]), "--espeak_data", "/espeak-ng-data"];
 }
 
-// Phonemized is the phonemizer's output for one text: the ids a Piper model takes, and the
-// phonemes themselves (espeak-ng's IPA), which Kokoro reads.
+// Phonemized is the phonemizer's output for one text: the ids a Piper model takes.
 export interface Phonemized {
   ids: number[];
-  phonemes: string;
 }
 
 // phonemized reads the phonemizer's output line.
 export function phonemized(line: string): Phonemized {
-  const out = JSON.parse(line) as { phoneme_ids?: number[]; phonemes?: string[] };
+  const out = JSON.parse(line) as { phoneme_ids?: number[] };
   if (!Array.isArray(out.phoneme_ids) || out.phoneme_ids.length === 0) {
     throw new Error("the phonemizer answered nothing");
   }
-  return { ids: out.phoneme_ids, phonemes: (out.phonemes ?? []).join("") };
-}
-
-// isKokoro says whether a voice runs on Kokoro.
-export function isKokoro(id: string): boolean {
-  return id.startsWith(KOKORO_ID + "-");
+  return { ids: out.phoneme_ids };
 }
 
 // MAX_REASON is the longest reason for a failure the page shows.
@@ -407,55 +391,6 @@ export function nextToken(logits: Float32Array, said: Iterable<number>): number 
   return best;
 }
 
-// kokoroEspeak is the phonemizer's language for a Kokoro voice, from its name's first letter.
-export function kokoroEspeak(id: string): string {
-  const langs: Record<string, string> = { a: "en-us", b: "en-gb-x-rp", e: "es" };
-  return langs[id.charAt(KOKORO_ID.length + 1)] ?? "en-us";
-}
-
-// kokoroVocab reads the table from phonemes to ids out of Kokoro's tokenizer.json.
-export function kokoroVocab(text: string): Map<string, number> {
-  const raw = JSON.parse(text) as { model?: { vocab?: Record<string, number> } };
-  if (!raw.model?.vocab) {
-    throw new Error("not Kokoro's tokenizer");
-  }
-  return new Map(Object.entries(raw.model.vocab));
-}
-
-// kokoroTokens are the ids Kokoro takes for espeak-ng's phonemes. The phonemes are adjusted as
-// Kokoro's own pipeline does (sounds it was not trained on become their nearest), a sentence
-// that ends is followed by a space, anything the table lacks is dropped, and the whole is
-// wrapped in the pad id, 0.
-export function kokoroTokens(phonemes: string, vocab: Map<string, number>): number[] {
-  const fixed = phonemes
-    .replace(/kəkˈoːɹoʊ/g, "kˈoʊkəɹoʊ")
-    .replace(/ʲ/g, "j")
-    .replace(/r/g, "ɹ")
-    .replace(/x/g, "k")
-    .replace(/ɬ/g, "l")
-    .replace(/([.!?…])(?=\S)/g, "$1 ")
-    .trim();
-  const ids: number[] = [];
-  for (const c of fixed) {
-    const id = vocab.get(c);
-    if (id !== undefined) {
-      ids.push(id);
-    }
-  }
-  return [0, ...ids.slice(0, KOKORO_MAX_TOKENS - 2), 0];
-}
-
-// kokoroStyle is the style vector a Kokoro voice uses for an input of this many tokens.
-export function kokoroStyle(voice: Float32Array, tokens: number): Float32Array {
-  const n = Math.min(Math.max(tokens - 2, 0), KOKORO_MAX_TOKENS - 1);
-  return voice.slice(n * KOKORO_STYLE, (n + 1) * KOKORO_STYLE);
-}
-
-// blendStyles mixes two voices' style vectors: amount 0 is the first, 1 the second.
-export function blendStyles(a: Float32Array, b: Float32Array, amount: number): Float32Array {
-  return a.map((x, i) => x * (1 - amount) + b[i] * amount);
-}
-
 // The layout of a canonical 44-byte WAV header: byte offsets of its fields, in order.
 const WAV_RIFF = 0;
 const WAV_RIFF_SIZE = 4;
@@ -578,11 +513,10 @@ export interface SynthDeps {
   gpu?(wasm: ArrayBuffer): Promise<OrtLike>;
 }
 
-// A voice ready to speak: a Piper model, or a Kokoro or Supertonic voice's styles on its
-// engine's shared model.
+// A voice ready to speak: a Piper model, or a Supertonic or Chatterbox voice on its engine's
+// shared model.
 type LoadedVoice =
   | { kind: "piper"; config: VoiceConfig; session: SessionLike }
-  | { kind: "kokoro"; styles: Float32Array }
   | { kind: "supertonic"; style: SupertonicStyle }
   | { kind: "chatterbox"; voice: ChatterboxVoice };
 
@@ -604,27 +538,16 @@ interface SupertonicModel {
   gpu: boolean;
 }
 
-// Kokoro's model, loaded once for all its voices.
-interface KokoroModel {
-  // ort is the build the session runs on: its tensors are the ones the session takes.
-  ort: OrtLike;
-  session: SessionLike;
-  vocab: Map<string, number>;
-  gpu: boolean;
-}
-
 // Synth says texts with the local voices: the runtime and the phonemizer are loaded once, and
 // each voice the first time it speaks. Requests run one at a time, in order.
 export class Synth {
   private readonly deps: SynthDeps;
   private ort: Promise<OrtLike> | null = null;
   private phon: Promise<PhonemizerLike> | null = null;
-  private kokoro: Promise<KokoroModel> | null = null;
   private supertonic: Promise<SupertonicModel> | null = null;
   private chatterbox: Promise<ChatterboxModel> | null = null;
-  // gpu says Kokoro should run on WebGPU (its files are downloaded); failed is why it could not,
-  // here ("" when it did not fail), so the CPU model is used instead.
-  private gpu = false;
+  // failed is why Supertonic could not run on WebGPU here ("" when it did not fail), so the
+  // processor runs it instead.
   private failed = "";
   private printed: string[] = [];
   private readonly voices = new Map<string, Promise<LoadedVoice>>();
@@ -663,23 +586,12 @@ export class Synth {
       if (!this.phon && !readsText(id)) {
         files.push(fileURL(RUNTIME_ID, PHONEMIZE_WASM), fileURL(RUNTIME_ID, PHONEMIZE_DATA));
       }
-      const kokoro = isKokoro(id);
       const supertonic = isSupertonic(id);
       if (supertonic && !this.supertonic) {
         files.push(...this.supertonicFiles());
       }
       if (isChatterbox(id) && !this.chatterbox) {
         files.push(...chatterboxFiles());
-      }
-      if (kokoro && !this.kokoro) {
-        files.push(
-          fileURL(KOKORO_ID, "tokenizer.json"),
-          ...choose(
-            this.useGPU(),
-            [fileURL(KOKORO_GPU_ID, ORT_GPU_WASM), fileURL(KOKORO_GPU_ID, "model.onnx")],
-            [fileURL(KOKORO_ID, "model.onnx")],
-          ),
-        );
       }
       if (!this.voices.has(id)) {
         files.push(...this.voiceFiles(id));
@@ -711,24 +623,15 @@ export class Synth {
     this.voices.delete(id);
   }
 
-  // setGPU says whether Kokoro should run on WebGPU; a change loads its model again.
-  setGPU(on: boolean): void {
-    if (on !== this.gpu) {
-      this.gpu = on;
-      this.failed = "";
-      this.kokoro = null;
-    }
-  }
-
-  // gpuError is why Kokoro could not run on WebGPU here, "" when it did not fail.
+  // gpuError is why Supertonic could not run on WebGPU here, "" when it did not fail.
   gpuError(): string {
     return this.failed;
   }
 
-  // onGPU says whether a voice's engine runs on WebGPU now: Kokoro when asked for and it worked,
-  // Supertonic wherever it worked.
+  // onGPU says whether a voice's engine runs on WebGPU now: Supertonic wherever it worked, and
+  // Chatterbox, which runs nowhere else. Piper runs on the processor.
   async onGPU(id: string): Promise<boolean> {
-    let model: Promise<{ gpu: boolean }> | null = this.kokoro;
+    let model: Promise<{ gpu: boolean }> | null = null;
     if (isSupertonic(id)) {
       model = this.supertonic;
     } else if (isChatterbox(id)) {
@@ -745,7 +648,7 @@ export class Synth {
     if (isChatterbox(id)) {
       return [fileURL(id, "voice.bin")];
     }
-    return choose(isKokoro(id), [fileURL(id, "voice.bin")], [fileURL(id, "model.json"), fileURL(id, "model.onnx")]);
+    return [fileURL(id, "model.json"), fileURL(id, "model.onnx")];
   }
 
   // supertonicFiles are the files Supertonic's model is loaded from, here.
@@ -760,36 +663,10 @@ export class Synth {
   private async sayNow(id: string, text: string, tune: Tune = { noise: 1, noiseW: 1 }): Promise<ArrayBuffer> {
     const v = await this.voice(id);
     if (v.kind === "supertonic") {
-      return this.saySupertonic(v.style, text, tune.lang ?? "en");
+      return this.saySupertonic(v.style, text, tune);
     }
     if (v.kind === "chatterbox") {
       return this.sayChatterbox(v.voice, text, tune);
-    }
-    if (v.kind === "kokoro") {
-      const model = await this.kokoroModel();
-      const p = await this.phonemize(kokoroEspeak(id), text);
-      const ids = kokoroTokens(p.phonemes, model.vocab);
-      let style = kokoroStyle(v.styles, ids.length);
-      // Mixed with another Kokoro voice, the style is a blend of both.
-      const mix = tune.mix;
-      // A voice to mix with that cannot be loaded (deleted since) leaves this one alone.
-      if (mix && mix.amount > 0 && mix.id !== id && isKokoro(mix.id)) {
-        const other = (await this.voice(mix.id).catch(() => null)) as Extract<
-          LoadedVoice,
-          { kind: "kokoro" }
-        > | null;
-        if (other) {
-          style = blendStyles(style, kokoroStyle(other.styles, ids.length), mix.amount);
-        }
-      }
-      const T = model.ort.Tensor;
-      // The speed is the page's (the audio's playback rate), so the model speaks at its own.
-      const out = await model.session.run({
-        input_ids: new T("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
-        style: new T("float32", style, [1, 256]),
-        speed: new T("float32", Float32Array.from([1]), [1]),
-      });
-      return wavOf(out.waveform.data as Float32Array, KOKORO_RATE);
     }
     const ort = await this.runtime();
     const { ids } = await this.phonemize(v.config.espeak.voice, text);
@@ -809,11 +686,12 @@ export class Synth {
 
   // saySupertonic says a sentence the way Supertonic's own pipeline does: the length of each
   // sound, the text, then the sound refined from noise step by step, and the waveform.
-  private async saySupertonic(style: SupertonicStyle, text: string, lang: string): Promise<ArrayBuffer> {
+  // Its pace and its steps are the ones asked for, or its own.
+  private async saySupertonic(style: SupertonicStyle, text: string, tune: Tune): Promise<ArrayBuffer> {
     const m = await this.supertonicModel();
     const [dp, te, ve, voc] = m.parts;
     const T = m.ort.Tensor;
-    const ids = supertonicIds(supertonicText(text, lang), m.indexer);
+    const ids = supertonicIds(supertonicText(text, tune.lang ?? "en"), m.indexer);
     const textIds = new T("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]);
     const textMask = new T("float32", new Float32Array(ids.length).fill(1), [1, 1, ids.length]);
     const ttl = new T("float32", style.ttl, style.ttlDims);
@@ -821,9 +699,9 @@ export class Synth {
     const seconds = ((await dp.run({ text_ids: textIds, style_dp: dpStyle, text_mask: textMask })).duration
       .data as Float32Array)[0];
     const textEmb = (await te.run({ text_ids: textIds, style_ttl: ttl, text_mask: textMask })).text_emb;
-    const len = supertonicLatent(seconds / SUPERTONIC_SPEED);
+    const len = supertonicLatent(seconds / (tune.speed ?? SUPERTONIC_SPEED));
     const latentMask = new T("float32", new Float32Array(len).fill(1), [1, 1, len]);
-    const steps = choose(m.gpu, SUPERTONIC_STEPS.gpu, SUPERTONIC_STEPS.cpu);
+    const steps = tune.steps || choose(m.gpu, SUPERTONIC_STEPS.gpu, SUPERTONIC_STEPS.cpu);
     const total = new T("float32", Float32Array.from([steps]), [1]);
     let x = noise(SUPERTONIC_LATENT * len);
     for (let step = 0; step < steps; step++) {
@@ -969,9 +847,7 @@ export class Synth {
     let v = this.voices.get(id);
     if (!v) {
       let load = () => this.loadPiper(id);
-      if (isKokoro(id)) {
-        load = () => this.loadKokoro(id);
-      } else if (isSupertonic(id)) {
+      if (isSupertonic(id)) {
         load = () => this.loadSupertonic(id);
       } else if (isChatterbox(id)) {
         load = () => this.loadChatterbox(id);
@@ -994,11 +870,6 @@ export class Synth {
     const config = parseVoiceConfig(new TextDecoder().decode(json));
     const session = await ort.createSession(model);
     return { kind: "piper", config, session };
-  }
-
-  private async loadKokoro(id: string): Promise<LoadedVoice> {
-    const [styles] = await Promise.all([this.read(fileURL(id, "voice.bin")), this.kokoroModel()]);
-    return { kind: "kokoro", styles: new Float32Array(styles) };
   }
 
   private async loadSupertonic(id: string): Promise<LoadedVoice> {
@@ -1025,8 +896,9 @@ export class Synth {
         try {
           const ort = await read(ORT_GPU_WASM).then((w) => (this.deps.gpu as NonNullable<SynthDeps["gpu"]>)(w));
           return await start(ort, true);
-        } catch {
-          // The processor's runtime says it instead.
+        } catch (e) {
+          // The processor's runtime says it instead, and the page is told why.
+          this.failed = reasonOf(e);
         }
       }
       return start(await this.runtime(), false);
@@ -1068,37 +940,6 @@ export class Synth {
     return this.chatterbox;
   }
 
-  // useGPU says the next Kokoro model to load is WebGPU's.
-  private useGPU(): boolean {
-    return this.gpu && !this.failed && !!this.deps.gpu;
-  }
-
-  // kokoroModel is Kokoro's model and its table, loaded with the first Kokoro voice: on WebGPU
-  // when asked for, and on the CPU when that is not, or when WebGPU failed here.
-  private kokoroModel(): Promise<KokoroModel> {
-    this.kokoro ??= (async () => {
-      const vocab = this.read(fileURL(KOKORO_ID, "tokenizer.json")).then((b) => kokoroVocab(new TextDecoder().decode(b)));
-      if (this.useGPU()) {
-        try {
-          const [table, ort, model] = await Promise.all([
-            vocab,
-            this.read(fileURL(KOKORO_GPU_ID, ORT_GPU_WASM)).then((w) => (this.deps.gpu as NonNullable<SynthDeps["gpu"]>)(w)),
-            this.read(fileURL(KOKORO_GPU_ID, "model.onnx")),
-          ]);
-          return { ort, vocab: table, session: await ort.createSession(model), gpu: true };
-        } catch (e) {
-          this.failed = reasonOf(e);
-        }
-      }
-      const [table, ort, model] = await Promise.all([vocab, this.runtime(), this.read(fileURL(KOKORO_ID, "model.onnx"))]);
-      return { ort, vocab: table, session: await ort.createSession(model), gpu: false };
-    })();
-    this.kokoro.catch(() => {
-      this.kokoro = null;
-    });
-    return this.kokoro;
-  }
-
   private phonemizer(): Promise<PhonemizerLike> {
     this.phon ??= Promise.all([
       this.read(fileURL(RUNTIME_ID, PHONEMIZE_WASM)),
@@ -1128,7 +969,7 @@ export class Synth {
 }
 
 // Tune scales a Piper voice's noise settings: noise its intonation (noise_scale), noiseW its
-// rhythm (noise_w). 1 and 1 are the voice as it was trained. Kokoro has neither.
+// rhythm (noise_w). 1 and 1 are the voice as it was trained. The other engines have neither.
 export interface Tune {
   noise: number;
   noiseW: number;
@@ -1136,14 +977,16 @@ export interface Tune {
   lang?: string;
   // exaggeration is how much emotion a Chatterbox voice puts in (0.25 to 2; 0.5 its default).
   exaggeration?: number;
-  // mix blends a Kokoro voice with another one: amount 0 is the voice alone, 1 the other.
-  mix?: { id: string; amount: number };
+  // speed is the pace a Supertonic voice speaks at (SUPERTONIC_SPEED its own), and steps how
+  // many times its sound is refined (0 or none: SUPERTONIC_STEPS, by where it runs).
+  speed?: number;
+  steps?: number;
 }
 
 // The messages between the page and the worker.
 export type ToWorker =
-  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune; gpu?: boolean }
-  | { kind: "warm"; id: string; gpu?: boolean }
+  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune }
+  | { kind: "warm"; id: string }
   | { kind: "forget"; id: string };
 export type FromWorker =
   | { seq: number; wav: ArrayBuffer }

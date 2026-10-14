@@ -1,13 +1,11 @@
 // LOCAL VOICES on the page's side: the catalog the gateway offers, its downloads, and a FetchClip
 // that asks the worker (speechModel.worker.ts) to say a sentence.
 import {
-  KOKORO_GPU_ID,
-  KOKORO_ID,
   ORT_GPU_WASM,
   MODELS_PATH,
+  RUNTIME_ID,
   VOICE_CACHE,
   fileURL,
-  isKokoro,
   isSupertonic,
   isChatterbox,
   CHATTERBOX_ID,
@@ -28,7 +26,7 @@ export interface LocalModel {
   name: string;
   lang: string;
   quality: string;
-  // engine runs it: "piper" or "kokoro".
+  // engine runs it: "piper", "supertonic" or "chatterbox".
   engine: string;
   // size is what downloading it takes now (with its engine's model, while that is missing).
   size: number;
@@ -61,7 +59,36 @@ export async function fetchCatalog(api: Api): Promise<LocalCatalog> {
   if (!res.ok) {
     throw await failure(res);
   }
-  return (await res.json()) as LocalCatalog;
+  const catalog = (await res.json()) as LocalCatalog;
+  if (!pruned) {
+    pruned = true;
+    // A copy that cannot be dropped is only left behind: it is never read.
+    void pruneCache(catalog).catch(() => undefined);
+  }
+  return catalog;
+}
+
+// SHARED_SETS are the ids of the files voices share, which the catalog does not list as voices.
+const SHARED_SETS = [RUNTIME_ID, SUPERTONIC_ID, CHATTERBOX_ID];
+// pruned says this page has dropped the copies the catalog no longer has, once.
+let pruned = false;
+
+// pruneCache drops this page's copies of files no voice of the catalog uses: those of voices
+// taken out of it (Kokoro's), which nothing would read again.
+async function pruneCache(catalog: LocalCatalog): Promise<void> {
+  if (typeof caches === "undefined") {
+    return;
+  }
+  const keep = new Set([...SHARED_SETS, ...catalog.models.map((m) => m.id)]);
+  const prefix = MODELS_PATH + "/";
+  const cache = await caches.open(VOICE_CACHE);
+  for (const req of await cache.keys()) {
+    const at = req.url.indexOf(prefix);
+    const id = decodeURIComponent(req.url.slice(at + prefix.length).split("/")[0]);
+    if (at >= 0 && !keep.has(id)) {
+      await cache.delete(req);
+    }
+  }
 }
 
 // installVoice asks the gateway to download a voice; the progress is in the catalog.
@@ -84,13 +111,9 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
     return;
   }
   const cache = await caches.open(VOICE_CACHE);
-  // The accelerator's copy goes too: its model, and the build of the runtime that drives WebGPU.
-  const names = ["model.onnx", "model.json", "voice.bin", "voice.json", ...choose(id === KOKORO_GPU_ID, [ORT_GPU_WASM], [])];
-  const gone = names.map((n) => fileURL(id, n));
-  // Kokoro's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
-  // So do Supertonic's and Chatterbox's.
+  const gone = ["model.onnx", "model.json", "voice.bin", "voice.json"].map((n) => fileURL(id, n));
+  // An engine's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
   const engines = [
-    { of: isKokoro, files: [fileURL(KOKORO_ID, "model.onnx"), fileURL(KOKORO_ID, "tokenizer.json")] },
     {
       of: isSupertonic,
       files: [...SUPERTONIC_PARTS, "unicode_indexer.json", ORT_GPU_WASM].map((n) => fileURL(SUPERTONIC_ID, n)),
@@ -119,18 +142,15 @@ export async function sampleOf(api: Api, id: string): Promise<Blob> {
   return res.blob();
 }
 
-// THE WORKERS. The first says every voice and tells how far one is from loaded. A Kokoro voice
-// on the CPU also has helpers, each with its own copy of the model, one per spare core up to
-// MAX_LANES: Kokoro takes longer to say a sentence than to play it, so the next sentences are
-// said at once, each by a worker of its own.
-export const MAX_LANES = 3;
+// THE WORKERS. The first says every voice and tells how far one is from loaded. A Supertonic
+// voice on the CPU also has helpers, each with its own copy of the model, one per spare core up
+// to SUPERTONIC_LANES: it can take longer to say a sentence than to play it, so the next
+// sentences are said at once, each by a worker of its own.
 const workers: (Worker | null)[] = [];
 // busy counts the sentences each worker has been asked for and not answered yet.
 const busy: number[] = [];
 let seq = 0;
 const pending = new Map<number, { ok: (b: Blob) => void; fail: (e: Error) => void; w: number }>();
-// kokoroGPU says Kokoro runs on WebGPU: its files are downloaded and the browser has it.
-let kokoroGPU = false;
 
 function post(m: ToWorker): void {
   for (const w of workers) {
@@ -187,35 +207,12 @@ function getWorker(n = 0): Worker {
 // SUPERTONIC_LANES is Supertonic's most workers: each holds its 400 MB model in memory.
 export const SUPERTONIC_LANES = 2;
 
-// lanes is how many workers say a voice's sentences at once: one, but for Kokoro and Supertonic
-// on the CPU (Supertonic runs on the graphics card wherever the browser lets it).
+// lanes is how many workers say a voice's sentences at once: one, but for Supertonic on the CPU
+// (it runs on the graphics card wherever the browser lets it).
 export function lanes(id: string): number {
-  let most = 1;
-  if (isKokoro(id) && !kokoroGPU) {
-    most = MAX_LANES;
-  } else if (isSupertonic(id) && !loads.get(id)?.gpu) {
-    most = SUPERTONIC_LANES;
-  }
+  const most = choose(isSupertonic(id) && !loads.get(id)?.gpu, SUPERTONIC_LANES, 1);
   const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 1;
   return Math.max(1, Math.min(most, cores - 1));
-}
-
-// setKokoroGPU says whether Kokoro runs on WebGPU. A change loads the voices again.
-export function setKokoroGPU(on: boolean): void {
-  if (on === kokoroGPU) {
-    return;
-  }
-  kokoroGPU = on;
-  for (const id of [...loads.keys()]) {
-    if (isKokoro(id)) {
-      setLoad(id, undefined);
-    }
-  }
-}
-
-// kokoroOnGPU says whether Kokoro is meant to run on WebGPU.
-export function kokoroOnGPU(): boolean {
-  return kokoroGPU;
 }
 
 // localClip is the FetchClip of a local voice. A sentence asked for and then aborted is still
@@ -242,7 +239,7 @@ export function localClip(id: string, tune?: Tune): FetchClip {
       busy[w]++;
       // The sentence's language goes with it, for a voice that speaks several.
       const told = choose(lang === undefined, tune, { noise: 1, noiseW: 1, ...tune, lang });
-      getWorker(w).postMessage({ kind: "say", seq: s, id, text, tune: told, gpu: kokoroGPU } satisfies ToWorker);
+      getWorker(w).postMessage({ kind: "say", seq: s, id, text, tune: told } satisfies ToWorker);
     });
   say.ahead = n;
   return say;
@@ -254,7 +251,7 @@ export interface LoadState {
   pct: number;
   ready: boolean;
   error?: string;
-  // gpu says a Kokoro voice runs on WebGPU; gpuError why it could not, when it was asked to.
+  // gpu says the voice runs on WebGPU; gpuError why a Supertonic voice could not.
   gpu?: boolean;
   gpuError?: string;
 }
@@ -288,7 +285,7 @@ function loaded(m: Extract<FromWorker, { kind: string }>): void {
     });
     // The helpers load the voice too, once the first worker has it in its copy of the files.
     for (let k = 1; k < lanes(m.id); k++) {
-      getWorker(k).postMessage({ kind: "warm", id: m.id, gpu: kokoroGPU } satisfies ToWorker);
+      getWorker(k).postMessage({ kind: "warm", id: m.id } satisfies ToWorker);
     }
     return;
   }
@@ -314,7 +311,7 @@ export function warmLocal(id: string): void {
     return;
   }
   setLoad(id, { pct: 0, ready: false });
-  getWorker().postMessage({ kind: "warm", id, gpu: kokoroGPU } satisfies ToWorker);
+  getWorker().postMessage({ kind: "warm", id } satisfies ToWorker);
 }
 
 // localVoicesSupported says this browser can run a local voice at all.
