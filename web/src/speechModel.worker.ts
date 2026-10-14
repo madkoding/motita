@@ -73,7 +73,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       );
     return;
   }
-  synth.say(m.id, m.text).then(
+  synth.say(m.id, m.text, m.tune).then(
     (wav) => self.postMessage({ seq: m.seq, wav } satisfies FromWorker, [wav]),
     (err: unknown) => self.postMessage({ seq: m.seq, error: messageOf(err) } satisfies FromWorker),
   );

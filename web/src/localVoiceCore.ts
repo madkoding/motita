@@ -181,9 +181,9 @@ export class Synth {
     this.deps = deps;
   }
 
-  // say is one text as WAV audio.
-  say(id: string, text: string): Promise<ArrayBuffer> {
-    const job = this.queue.then(() => this.sayNow(id, text));
+  // say is one text as WAV audio; tune, when given, scales the voice's own noise settings.
+  say(id: string, text: string, tune?: Tune): Promise<ArrayBuffer> {
+    const job = this.queue.then(() => this.sayNow(id, text, tune));
     this.queue = job.catch(() => undefined);
     return job;
   }
@@ -226,7 +226,7 @@ export class Synth {
     this.voices.delete(id);
   }
 
-  private async sayNow(id: string, text: string): Promise<ArrayBuffer> {
+  private async sayNow(id: string, text: string, tune: Tune = { noise: 1, noiseW: 1 }): Promise<ArrayBuffer> {
     const v = await this.voice(id);
     const ids = await this.phonemize(v.config.espeak.voice, text);
     const ort = await this.runtime();
@@ -234,7 +234,7 @@ export class Synth {
     const feeds: Record<string, TensorLike> = {
       input: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
       input_lengths: new ort.Tensor("int64", BigInt64Array.from([BigInt(ids.length)]), [1]),
-      scales: new ort.Tensor("float32", Float32Array.from([inf.noise_scale, inf.length_scale, inf.noise_w]), [3]),
+      scales: new ort.Tensor("float32", Float32Array.from([inf.noise_scale * tune.noise, inf.length_scale, inf.noise_w * tune.noiseW]), [3]),
     };
     if ((v.config.num_speakers ?? 1) > 1) {
       feeds.sid = new ort.Tensor("int64", BigInt64Array.from([0n]), [1]);
@@ -348,9 +348,16 @@ export class Synth {
   }
 }
 
+// Tune scales a voice's noise settings: noise its intonation (noise_scale), noiseW its rhythm
+// (noise_w). 1 and 1 are the voice as it was trained.
+export interface Tune {
+  noise: number;
+  noiseW: number;
+}
+
 // The messages between the page and the worker.
 export type ToWorker =
-  | { kind: "say"; seq: number; id: string; text: string }
+  | { kind: "say"; seq: number; id: string; text: string; tune?: Tune }
   | { kind: "warm"; id: string }
   | { kind: "forget"; id: string };
 export type FromWorker =

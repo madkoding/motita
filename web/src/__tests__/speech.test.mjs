@@ -46,6 +46,9 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     voiceURI: "v1",
     rate: 1.5,
     maxChars: 0,
+    pitch: 1.5,
+    expressiveness: 0.4,
+    variation: 2,
     conversation: true,
     notices: true,
     byLanguage: true,
@@ -67,6 +70,9 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       voiceURI: 3,
       rate: 9,
       maxChars: 600,
+      pitch: 9,
+      expressiveness: -1,
+      variation: "x",
     }),
   );
   assert.deepEqual(m.loadSpeechPrefs(), {
@@ -257,6 +263,7 @@ test("the reader says the sentences one after another, and tells when it starts 
     voice,
     lang: "es",
     rate: QUICK,
+    pitch: 1.5,
     onSentence: (i) => started.push(i),
     onEnd: (e) => {
       ended++;
@@ -268,6 +275,7 @@ test("the reader says the sentences one after another, and tells when it starts 
   assert.equal(synth.said[0].lang, "es-CL");
   assert.equal(synth.said[0].voice, voice);
   assert.equal(synth.said[0].rate, QUICK);
+  assert.equal(synth.said[0].pitch, 1.5);
   synth.start();
   synth.end();
   assert.equal(synth.said[1].text, "pe erre.", "the said form is spoken");

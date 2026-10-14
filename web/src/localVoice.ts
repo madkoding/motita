@@ -1,6 +1,6 @@
 // LOCAL VOICES on the page's side: the catalog the gateway offers, its downloads, and a FetchClip
 // that asks the worker (speechModel.worker.ts) to say a sentence.
-import { MODELS_PATH, VOICE_CACHE, fileURL, type FromWorker, type ToWorker } from "./localVoiceCore";
+import { MODELS_PATH, VOICE_CACHE, fileURL, type FromWorker, type ToWorker, type Tune } from "./localVoiceCore";
 import type { Api } from "./prApi";
 import type { FetchClip } from "./speech";
 
@@ -109,7 +109,7 @@ function getWorker(): Worker {
 
 // localClip is the FetchClip of a local voice. A sentence asked for and then aborted is still
 // said by the worker (it cannot be cut mid-way), and its audio is dropped.
-export function localClip(id: string): FetchClip {
+export function localClip(id: string, tune?: Tune): FetchClip {
   return (text, signal) =>
     new Promise<Blob>((ok, fail) => {
       seq++;
@@ -119,7 +119,7 @@ export function localClip(id: string): FetchClip {
         pending.delete(n);
         fail(new DOMException("aborted", "AbortError"));
       });
-      getWorker().postMessage({ kind: "say", seq: n, id, text } satisfies ToWorker);
+      getWorker().postMessage({ kind: "say", seq: n, id, text, tune } satisfies ToWorker);
     });
 }
 
