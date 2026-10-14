@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
@@ -198,3 +199,45 @@ func TestRunPlanShowsTheAnswer(t *testing.T) {
 // attempt here added a second test that exercised the same code path with different inputs
 // and was more confusing than helpful — the cursor jump it masked was the same one
 // cursorMove(-1) fixes.)
+
+// TestThePlanAnswerStreamsAsALiveSnapshot: the planner's streamed text is never a progress line of
+// its own. Each fragment used to become a step of the web's trail; it is now one growing snapshot
+// of the answer, and a tool announcement clears it for the next one.
+func TestThePlanAnswerStreamsAsALiveSnapshot(t *testing.T) {
+	old := liveAnswerEvery
+	liveAnswerEvery = 0
+	defer func() { liveAnswerEvery = old }()
+	var lines []string
+	stream := livePlanText(func(format string, args ...any) {
+		lines = append(lines, fmt.Sprintf(format, args...))
+	})
+	stream("The answer ")
+	stream("is here.")
+	stream("[using tool: read_file]")
+	stream("Next")
+	want := []string{
+		agent.AnswerPrefix + "The answer ",
+		agent.AnswerPrefix + "The answer is here.",
+		agent.AnswerPrefix,
+		agent.AnswerPrefix + "Next",
+	}
+	if strings.Join(lines, "|") != strings.Join(want, "|") {
+		t.Errorf("lines = %q, want %q", lines, want)
+	}
+}
+
+// TestThePlanAnswerSnapshotsAreSpaced: fragments that arrive close together are not each sent
+// with everything before them.
+func TestThePlanAnswerSnapshotsAreSpaced(t *testing.T) {
+	old := liveAnswerEvery
+	liveAnswerEvery = time.Hour
+	defer func() { liveAnswerEvery = old }()
+	n := 0
+	stream := livePlanText(func(string, ...any) { n++ })
+	stream("a")
+	stream("b")
+	stream("c")
+	if n != 1 {
+		t.Errorf("snapshots = %d, want 1", n)
+	}
+}

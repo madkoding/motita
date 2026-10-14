@@ -225,3 +225,15 @@ func TestProgressSenderDropsLiveSnapshots(t *testing.T) {
 		t.Errorf("got %q: the snapshot must be dropped and the final reasoning kept", got)
 	}
 }
+
+// TestProgressSenderDropsAnswerSnapshots: the answer being written is not a line of this view; the
+// answer arrives whole when the run ends.
+func TestProgressSenderDropsAnswerSnapshots(t *testing.T) {
+	progress := make(chan string, 2)
+	send := progressSender(context.Background(), progress)
+	send("%sthe answer so far", agent.AnswerPrefix)
+	send("running: ls")
+	if got := <-progress; got != "running: ls" {
+		t.Errorf("got %q: the answer snapshot must be dropped", got)
+	}
+}

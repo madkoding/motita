@@ -243,3 +243,20 @@ func TestABackgroundAgentIsAnsweredOnlyByAStandingDecision(t *testing.T) {
 		t.Errorf("the run must say which agent ran on the standing answer: %+v", events)
 	}
 }
+
+// TestTheAnswerBeingWrittenIsFlashedNotLogged: a snapshot of the answer reaches the reader as an
+// answer event and is never a step of the run's log.
+func TestTheAnswerBeingWrittenIsFlashedNotLogged(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rn := newRun("r", ctx, cancel, "")
+	sub := rn.subscribe()
+	rn.progress()("%sThe answer so far", agent.AnswerPrefix)
+	got := <-sub.ch
+	if got.Event != EventAnswer || got.Seq != 0 || !strings.Contains(string(got.Data), "The answer so far") {
+		t.Errorf("got = %+v", got)
+	}
+	if replay, _ := rn.since(0); len(replay) != 0 {
+		t.Errorf("the log must stay empty: %+v", replay)
+	}
+}

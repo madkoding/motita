@@ -2,6 +2,7 @@
 // there, and the "Loading session" card stays up until the page has stopped changing.
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { createFollower } from "./smoothscroll";
+import { newIntent, readerActs, scrolled } from "./scrollIntent";
 import { hydrationState, hydrationLog, noteActivity } from "./hydration";
 import type { Message, StepView } from "./appTypes";
 import { BOTTOM_SLACK, CHAT_QUIET_EVENT, MODAL_EXIT_MS } from "./appConst";
@@ -148,7 +149,8 @@ function usePinnedFollow(scrollRef: { current: HTMLDivElement | null }) {
   return { pinnedRef, chatLoadingNow, chatFollower, followEnd, scrollToBottom };
 }
 
-// useReaderIntent unpins the reader only on their OWN input, and re-pins them at the end.
+// useReaderIntent lets go of the end when the reader moves up on their own, and takes it again when
+// they come back down to it (see scrollIntent.ts for the rule and why).
 function useReaderIntent(
   scrollRef: { current: HTMLDivElement | null },
   pinnedRef: { current: boolean },
@@ -158,44 +160,69 @@ function useReaderIntent(
     if (!el) {
       return undefined;
     }
-    // Only the READER'S OWN INPUT unpins them, and this is not a refinement — it is the fix for
-    // the bug that kept stranding the view. Measured: the container's `scrollTop` went 4551 ->
-    // 4511 on its own while the deferred work replaced a placeholder with a smaller drawing, and
-    // a rule that read "the position went up" as "the reader went back" unpinned them. From then
-    // on the anchor stopped following and the conversation ended 181px short, every single run.
-    // Scroll events also fire when CONTENT changes, so they cannot carry intent at all.
-    const unpin = () => {
-      if (gapToEnd(el) > BOTTOM_SLACK) {
-        pinnedRef.current = false;
+    // Only the READER'S OWN INPUT unpins them. Scroll events also fire when CONTENT changes:
+    // measured, the container's `scrollTop` went 4551 -> 4511 on its own while the deferred work
+    // replaced a placeholder with a smaller drawing, and a rule that read every move up as the
+    // reader going back left the conversation 181px short of the end, every single run.
+    const intent = newIntent(el.scrollTop);
+    intent.pinned = pinnedRef.current;
+    const sync = () => {
+      pinnedRef.current = intent.pinned;
+    };
+    const act = (up: boolean) => {
+      intent.pinned = pinnedRef.current;
+      readerActs(intent, performance.now(), up, el.scrollTop);
+      sync();
+    };
+    const onWheel = (e: WheelEvent) => act(e.deltaY < 0);
+    const onKey = (e: KeyboardEvent) => act(UP_KEYS.has(e.key));
+    const hold = () => {
+      intent.holding = true;
+      act(false);
+    };
+    // A press on the container itself (its scroll bar, not a message) starts a drag of the bar.
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.target === el) {
+        hold();
       }
     };
-    const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) {
-        unpin();
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (UP_KEYS.has(e.key)) {
-        unpin();
+    const release = () => {
+      if (intent.holding) {
+        intent.holding = false;
+        intent.userAt = performance.now();
       }
     };
     const onScroll = () => {
-      // Being at the end always re-pins: the reader has arrived at the last line, so following
-      // the growth is what they want again.
-      if (gapToEnd(el) <= BOTTOM_SLACK) {
-        pinnedRef.current = true;
-      }
+      intent.pinned = pinnedRef.current;
+      scrolled(
+        intent,
+        el.scrollTop,
+        gapToEnd(el),
+        performance.now(),
+        BOTTOM_SLACK,
+      );
+      sync();
     };
     onScroll();
     el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("touchmove", unpin, { passive: true });
+    el.addEventListener("touchstart", hold, { passive: true });
+    el.addEventListener("pointerdown", onPointerDown);
     el.addEventListener("keydown", onKey);
     el.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("touchend", release);
+    window.addEventListener("touchcancel", release);
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
     return () => {
       el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("touchmove", unpin);
+      el.removeEventListener("touchstart", hold);
+      el.removeEventListener("pointerdown", onPointerDown);
       el.removeEventListener("keydown", onKey);
       el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("touchend", release);
+      window.removeEventListener("touchcancel", release);
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
     };
   }, []);
 }

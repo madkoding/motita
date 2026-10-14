@@ -49,6 +49,9 @@ const (
 	// ephemeral - each one replaces the one before - and a client that (re)attaches gets the
 	// latest in the preamble instead of a replay.
 	EventAgents = "agents"
+	// EventAnswer is a SNAPSHOT of the answer while it is being written, everything so far. Like
+	// EventThinking it is ephemeral; the answer arrives whole in EventDone.
+	EventAnswer = "answer"
 )
 
 // progressEvent is one line of the agent's output.

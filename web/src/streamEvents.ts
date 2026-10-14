@@ -8,6 +8,7 @@ import { keyed } from "./useRunState";
 import type { RunState } from "./useRunState";
 import type {
   ChangeReport,
+  Message,
   PendingApproval,
   ShellEntry,
   StepView,
@@ -187,14 +188,63 @@ function onProgress(ctx: StreamContext, payload: StreamPayload) {
   onStep(ctx, text, kind);
 }
 
+// withoutDraft is the conversation without the answer being written, if its last message is one.
+export function withoutDraft(prev: Message[]): Message[] {
+  if (prev.length > 0 && prev[prev.length - 1].draft) {
+    return prev.slice(0, -1);
+  }
+  return prev;
+}
+
+// draftIdOr is the id of the draft that rest was taken from prev without, or a new one.
+function draftIdOr(
+  prev: Message[],
+  rest: Message[],
+  next: () => number,
+): number {
+  if (rest !== prev) {
+    return prev[prev.length - 1].id;
+  }
+  return next();
+}
+
+// onAnswer: a snapshot of the answer being written, everything so far. It is shown where the
+// answer will be, growing (the page reveals the new text letter by letter); an empty one clears it.
+function onAnswer({ rs }: StreamContext, payload: StreamPayload) {
+  const text: string = payload.text || "";
+  rs.setMessages((prev) => {
+    const rest = withoutDraft(prev);
+    if (!text) {
+      return rest;
+    }
+    const id = draftIdOr(prev, rest, rs.nextId);
+    return [
+      ...rest,
+      {
+        id,
+        role: "agent",
+        text,
+        turn: rs.liveTurnRef.current ?? undefined,
+        draft: true,
+      },
+    ];
+  });
+}
+
 function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
   rs.setActivity(null);
-  if (payload.result) {
-    const result = payload.result;
-    rs.setMessages((prev) => [
-      ...prev,
+  const result = payload.result;
+  rs.setMessages((prev) => {
+    const rest = withoutDraft(prev);
+    if (!result) {
+      return rest;
+    }
+    // The answer takes the place of its draft, as the same message, so it does not blink.
+    const id = draftIdOr(prev, rest, rs.nextId);
+    return [
+      ...rest,
       {
-        id: rs.nextId(),
+        id,
         role: "agent",
         text: result,
         turn: rs.liveTurnRef.current ?? undefined,
@@ -206,20 +256,24 @@ function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
         ),
         report: choose(hasReport(payload.report), payload.report, undefined),
       },
-    ]);
-  }
+    ];
+  });
   finish();
 }
 
 function onError({ rs, finish }: StreamContext, payload: StreamPayload) {
   rs.setActivity(null);
-  if (payload.error) {
-    const error = payload.error;
-    rs.setMessages((prev) => [
-      ...prev,
+  const error = payload.error;
+  rs.setMessages((prev) => {
+    const rest = withoutDraft(prev);
+    if (!error) {
+      return rest;
+    }
+    return [
+      ...rest,
       { id: rs.nextId(), role: "agent", text: error, kind: "error" },
-    ]);
-  }
+    ];
+  });
   finish();
 }
 
@@ -233,6 +287,8 @@ const HANDLERS: Record<
   progress: onProgress,
   // Ephemeral: never replayed, never kept. See EventThinking in the gateway.
   thinking: ({ rs }, payload) => rs.setLiveThought(payload.text || null),
+  // Ephemeral too: the answer while it is being written.
+  answer: onAnswer,
   approval: ({ rs }, payload) => {
     rs.setActivity(null);
     rs.setApproval(payload as PendingApproval);

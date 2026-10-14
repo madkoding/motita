@@ -24,6 +24,9 @@ export interface Message {
   shown?: string;
   // answers, on an answer with suggestions, is how they were answered.
   answers?: SuggestionAnswers;
+  // draft marks the answer while it is being written: it grows with each snapshot and becomes the
+  // answer itself, the same message, when the run ends. A draft is not read aloud.
+  draft?: boolean;
 }
 
 export interface ChangeReport {

@@ -359,7 +359,10 @@ function ActivityTyped({ text, class: cls }: { text: string; class?: string }) {
   );
 }
 
-// ActivityLine is what the agent is doing right now, below the turn it belongs to.
+// ActivityLine is what the agent is doing right now, below the turn it belongs to. It is ONE line,
+// like the steps of the trail: a progress line can be the whole summary of the answer (reported
+// when the run ends), and drawn whole it filled the "deciding the action" line with the text the
+// voice reads aloud. The full line stays in the title.
 export function ActivityLine({
   activity,
   shown,
@@ -370,10 +373,7 @@ export function ActivityLine({
   const { activityKind } = useTurn();
   const command = activityKind === "command";
   return (
-    <div
-      class={`msg activity ${activityKind}`}
-      style={{ whiteSpace: "pre-wrap" }}
-    >
+    <div class={`msg activity ${activityKind}`} title={activity}>
       <span class={`spin-${activityKind || "default"}`}></span>
       {/* Typed in like the terminal, each new step from the start (it is keyed by its text). */}
       {command && (
@@ -385,7 +385,7 @@ export function ActivityLine({
           <ShellStatus exit={lastExit(shown)} />
         </>
       )}
-      {!command && <ActivityTyped text={progressText(activity)} />}
+      {!command && <ActivityTyped text={oneLine(progressText(activity))} />}
     </div>
   );
 }
