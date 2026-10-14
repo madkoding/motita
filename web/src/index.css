@@ -2907,6 +2907,20 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-empty {
   color: var(--tx-dim);
 }
+/* The button above a drawer's window: the older entries are not mounted until asked for. */
+.term-earlier {
+  display: block;
+  margin: 0 0 8px;
+  padding: 2px 6px;
+  color: var(--tx-dim);
+  font: inherit;
+  background: transparent;
+  border: 1px dashed rgba(var(--tx-rgb), 0.35);
+  cursor: pointer;
+}
+.term-earlier:hover {
+  color: var(--tx-main);
+}
 .term-caret {
   display: inline-block;
   width: 7px;

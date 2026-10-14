@@ -119,6 +119,6 @@ test("the report offers the three answers, in both languages, and only while not
     assert.ok(es[label], `missing Spanish for ${label}`);
   }
   assert.match(report, /r\.suggestions\?\.length/);
-  assert.match(app, /rs\.running,\s*undefined/);
+  assert.match(app, /\brunning,\s*undefined/);
   assert.match(app, /onAnswer=\{onAnswer\}/);
 });
