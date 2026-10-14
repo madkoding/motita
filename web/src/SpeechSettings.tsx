@@ -6,7 +6,7 @@ import type { Lang } from "./i18n";
 import { choose } from "./choose";
 import type { Api } from "./gitApi";
 import { LocalVoices } from "./LocalVoiceSettings";
-import { isKokoro } from "./localVoiceCore";
+import { isChatterbox, isKokoro, isSupertonic } from "./localVoiceCore";
 import {
   LENGTHS,
   MEDIUM_CHARS,
@@ -107,7 +107,7 @@ function VoiceSlider({
 }
 
 // VoiceTuning are the sliders of the voice that speaks: expressiveness and rhythm for a downloaded
-// voice (Kokoro has neither), the pitch for the device's voices. The gateway's voice has none.
+// Piper voice (Kokoro and Supertonic have neither), the pitch for the device's voices. The gateway's voice has none.
 function VoiceTuning({
   localChosen,
   gateway,
@@ -132,7 +132,7 @@ function VoiceTuning({
   );
   const setPitch = useCallback((pitch: number) => set({ pitch }), [set]);
   if (localChosen) {
-    if (isKokoro(prefs.localVoice)) {
+    if (isKokoro(prefs.localVoice) || isSupertonic(prefs.localVoice) || isChatterbox(prefs.localVoice)) {
       return null;
     }
     return (
@@ -532,6 +532,10 @@ function SpeechVoice({
     (localVoice: string) => set({ localVoice }),
     [set],
   );
+  const setEmotion = useCallback(
+    (chatterboxEmotion: number) => set({ chatterboxEmotion }),
+    [set],
+  );
   const setMix = useCallback(
     (m: { id: string; amount: number }) =>
       set({ kokoroMix: m.id, kokoroMixAmount: m.amount }),
@@ -549,6 +553,8 @@ function SpeechVoice({
           choose={setLocalVoice}
           mix={{ id: prefs.kokoroMix, amount: prefs.kokoroMixAmount }}
           setMix={setMix}
+          emotion={prefs.chatterboxEmotion}
+          setEmotion={setEmotion}
         />
       </Row>
     );

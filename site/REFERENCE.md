@@ -1388,7 +1388,7 @@ The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
 
 A third choice in **Who speaks**, **Downloaded voice**, runs a voice in the browser itself: once
 it is downloaded, the text of the answers never leaves the device and no speech service is needed.
-**Settings → Voice → Voices to download** lists two engines:
+**Settings → Voice → Voices to download** lists four engines:
 
 - [Piper](https://github.com/rhasspy/piper): 24 Spanish (Mexico, Argentina, Spain) and English
   (US, UK) voices, from 14 to 114 MB each, plus 33 MB of engine the first time. **▶** plays a
@@ -1400,11 +1400,28 @@ it is downloaded, the text of the answers never leaves the device and no speech 
   each sentence (a few seconds on a laptop), so the first words wait for it; the next sentences
   are said at once, each in a Worker of its own (up to 3, one per spare core), so the pauses
   between them shrink.
+- [Supertonic 3](https://huggingface.co/Supertone/supertonic-3): 10 voices (F1 to F5, M1 to M5)
+  that each speak 31 languages, Spanish and English among them; every sentence is read in its own
+  language. They share one 398 MB model (plus 27 MB of onnxruntime's WebGPU build), downloaded with
+  the first; each voice is 0.3 MB more. It reads the text itself, with no phonemizer. Where the
+  browser has WebGPU it runs on the graphics card (8 refinement steps); otherwise on the processor
+  (5 steps, about 1.2 s of work per second of speech, with up to 2 Workers at once).
+- [Chatterbox Multilingual](https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX):
+  one expressive voice that speaks 21 languages, offered only where the browser has WebGPU (on the
+  processor a sentence would take minutes). Its model is 990 MB (the language model at 4 bits).
+  **Emotion**, from 0.25 to 2 (0.5 is its own), sets how much emotion the voice puts in; more is
+  livelier and a little faster. The voice is what the model's speech encoder made of the
+  repository's recording, compiled into the binary, so the 590 MB encoder is never downloaded.
+
+The Supertonic and Chatterbox samples, like Kokoro's, are generated with the voices themselves and
+compiled into the binary.
 
 On a browser with WebGPU, **Graphics card (WebGPU)** downloads 352 MB more (Kokoro's full model,
 which the 8-bit one cannot replace on the graphics card, and the build of onnxruntime that drives
 WebGPU). Every Kokoro voice then runs on the graphics card, one Worker for all; where WebGPU fails
-to start, it falls back to the processor. **Delete** goes back to the processor.
+to start, it falls back to the processor and the note says why (the browser has no WebGPU in its
+Workers, it gave no graphics card, or onnxruntime's own error). The graphics card asked for is the
+high-performance one, else any the browser offers. **Delete** goes back to the processor.
 
 A Kokoro voice in use can be mixed with another downloaded one: **Mix with** picks it and
 **How much** (0 to 100%) how far toward it the timbre goes. Kokoro has no setting for emotion; the
@@ -1412,7 +1429,7 @@ mix changes only how the voice sounds.
 
 The list opens on the language and quality chosen last time (the interface language the first
 time) and can be narrowed by both; the voice in use always stays in it. **Download** asks the gateway to fetch one, **Use** chooses it and
-**Delete** removes it (Kokoro's model goes with its last voice).
+**Delete** removes it (Kokoro's, Supertonic's and Chatterbox's models go with their last voice).
 
 The voice is tuned with sliders, each with a **Reset**: **Expressiveness** (how much the intonation
 varies) and **Rhythm variation** (how much the length of each sound varies) for a Piper voice,
@@ -1421,7 +1438,9 @@ all of them.
 
 The page cannot download anything itself. The gateway fetches each file once, from an address in
 a catalog compiled into the binary (the voices and their samples from `rhasspy/piper-voices` at
-`v1.0.0` on Hugging Face, Kokoro from `onnx-community/Kokoro-82M-v1.0-ONNX` at a fixed commit,
+`v1.0.0` on Hugging Face, Kokoro from `onnx-community/Kokoro-82M-v1.0-ONNX`, Supertonic from
+`Supertone/supertonic-3` and Chatterbox from `onnx-community/chatterbox-multilingual-ONNX`, each at
+a fixed commit,
 the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm` packages on
 npm), checks its size and SHA-256 before keeping it in `~/.motita/voices`, and serves it from its
 own origin. The page keeps a copy in Cache Storage and runs the voice in a Worker, on WebAssembly;
@@ -1434,7 +1453,7 @@ refused). `motita doctor` hashes the downloaded voices again.
 | `POST /v1/voice/models/{id}`             | Starts downloading a voice (and the engine, when missing): `202`; `200` when it is there already; `409` while another downloads. |
 | `DELETE /v1/voice/models/{id}`           | Removes a voice; the engine stays. `409` while it downloads.                                                         |
 | `GET /v1/voice/models/{id}/sample`       | A voice's sample (MP3), downloaded and checked the first time it is asked for; `404` for a voice with none. |
-| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`, `voice.bin`), of the engine with `{id}` = `runtime`, of Kokoro's model with `{id}` = `kokoro`, or of its WebGPU files with `{id}` = `accel-kokoro`. |
+| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`, `voice.bin`), of the engine with `{id}` = `runtime`, of Kokoro's model with `{id}` = `kokoro` (its WebGPU files `accel-kokoro`), or of Supertonic's and Chatterbox's with `{id}` = `supertonic` or `chatterbox`. |
 
 `GET /v1/voice` also answers `"local":true`. Loading a voice into the browser's memory takes a few
 seconds; the page starts it when it opens, and the voice in use shows **Loading into memory… N%**

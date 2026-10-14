@@ -61,6 +61,8 @@ export interface SpeechPrefs {
   // how much of it (0 to 1: 0 is the chosen voice alone, 1 the other one).
   kokoroMix: string;
   kokoroMixAmount: number;
+  // chatterboxEmotion is how much emotion a Chatterbox voice puts in (its exaggeration).
+  chatterboxEmotion: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
   // Zero reads everything.
   maxChars: number;
@@ -107,6 +109,7 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   variation: 1,
   kokoroMix: "",
   kokoroMixAmount: 0.5,
+  chatterboxEmotion: 0.5,
   maxChars: MEDIUM_CHARS,
   conversation: false,
   notices: false,
@@ -136,6 +139,8 @@ export const PITCH_RANGE: [number, number] = [0.5, 2];
 export const TUNE_RANGE: [number, number] = [0, 2];
 // MIX_RANGE is how much of another Kokoro voice is mixed in.
 export const MIX_RANGE: [number, number] = [0, 1];
+// EMOTION_RANGE is how much emotion a Chatterbox voice can be asked for.
+export const EMOTION_RANGE: [number, number] = [0.25, 2];
 
 // numberIn is v when it is a number within range, fallback otherwise.
 function numberIn(v: unknown, range: [number, number], fallback: number): number {
@@ -233,6 +238,7 @@ export function loadSpeechPrefs(): SpeechPrefs {
       variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
       kokoroMix: stringOr(raw.kokoroMix, d.kokoroMix),
       kokoroMixAmount: numberIn(raw.kokoroMixAmount, MIX_RANGE, d.kokoroMixAmount),
+      chatterboxEmotion: numberIn(raw.chatterboxEmotion, EMOTION_RANGE, d.chatterboxEmotion),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,
@@ -865,7 +871,8 @@ export interface AudioLike {
 // fetchClip says one text with the gateway's voice or a local one: the audio, or a thrown error.
 // ahead, when more than 1, is how many sentences it can say at once, and so how many the reader
 // asks for beyond the one playing (1 when absent).
-export type FetchClip = ((text: string, signal: AbortSignal) => Promise<Blob>) & { ahead?: number };
+// lang is the sentence's language, for a voice that speaks several.
+export type FetchClip = ((text: string, signal: AbortSignal, lang?: string) => Promise<Blob>) & { ahead?: number };
 
 // reasonOf is why a clip could not be had: the gateway's message, or "error".
 function reasonOf(e: unknown): string {
@@ -952,7 +959,7 @@ export class ClipReader {
     const clips: Promise<string>[] = [];
     // clip asks for sentence i once; the answer is kept until it is played.
     const clip = (i: number): Promise<string> => {
-      clips[i] ??= fetchClip(list[i].said, abort.signal).then((b) => {
+      clips[i] ??= fetchClip(list[i].said, abort.signal, list[i].lang ?? opts.lang).then((b) => {
         const u = this.url.create(b);
         this.urls.push(u);
         return u;

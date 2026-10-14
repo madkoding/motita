@@ -47,10 +47,12 @@ type Model struct {
 	Name    string `json:"name"`
 	Lang    string `json:"lang"`
 	Quality string `json:"quality"`
-	// Engine is what runs the voice in the page: EnginePiper or EngineKokoro.
+	// Engine is what runs the voice in the page: EnginePiper, EngineKokoro or EngineSupertonic
+	// (EngineAccelerator for files that are not a voice). A voice that speaks many languages has
+	// Lang "mul".
 	Engine string `json:"engine"`
-	// Shared is the id of the files this voice uses with the others of its engine (Kokoro's
-	// model), downloaded with the first of them; "" when it has none.
+	// Shared is the id of the files this voice uses with the others of its engine (Kokoro's or
+	// Supertonic's model), downloaded with the first of them; "" when it has none.
 	Shared string `json:"-"`
 	// Files are the voice's own: a Piper model and its settings (the .onnx.json the page reads
 	// the phonemizer voice and the sample rate from), or a Kokoro voice's style vectors.
@@ -64,6 +66,11 @@ type Model struct {
 const (
 	EnginePiper  = "piper"
 	EngineKokoro = "kokoro"
+	// EngineSupertonic is Supertone's Supertonic 3: one model for 31 languages, run step by step.
+	EngineSupertonic = "supertonic"
+	// EngineChatterbox is Resemble AI's Chatterbox Multilingual: a language model that writes the
+	// sound, with a setting for how much emotion it carries. It runs only on WebGPU.
+	EngineChatterbox = "chatterbox"
 	// EngineAccelerator is not a voice: files that make an engine faster where the browser can
 	// use them (KokoroGPU).
 	EngineAccelerator = "accelerator"
@@ -85,6 +92,13 @@ const (
 	// be the ones web/package.json pins, or the bundled code and the binary it loads disagree.
 	ortPackage   = "https://registry.npmjs.org/onnxruntime-web/-/onnxruntime-web-1.30.0.tgz"
 	piperPackage = "https://registry.npmjs.org/@diffusionstudio/piper-wasm/-/piper-wasm-1.0.0.tgz"
+	// supertonicRepo is Supertone's Supertonic 3, at a fixed commit.
+	supertonicRepo = "https://huggingface.co/Supertone/supertonic-3/resolve/" +
+		"3cadd1ee6394adea1bd021217a0e650ede09a323/"
+	// chatterboxRepo is onnx-community's ONNX export of Resemble AI's Chatterbox Multilingual, at a
+	// fixed commit.
+	chatterboxRepo = "https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX/resolve/" +
+		"452d3f434aa592098f1eedac9099f33642ab2da5/"
 	// kokoroRepo is onnx-community's ONNX export of Kokoro-82M v1.0, at a fixed commit.
 	kokoroRepo = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/" +
 		"1939ad2a8e416c0acfeecc08a694d14ef25f2231/"
@@ -140,16 +154,19 @@ var KokoroGPU = Model{ID: KokoroGPUID, Name: "Kokoro WebGPU", Quality: "high", E
 	Files: []ModelFile{
 		{Name: "model.onnx", URL: kokoroRepo + "onnx/model.onnx",
 			Size: 325532232, SHA256: "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb"},
-		{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
-			Member: "package/dist/ort-wasm-simd-threaded.asyncify.wasm",
-			Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"},
+		ortGPUWasm,
 	}}
 
-// kokoroSamples are the samples of the Kokoro voices: its repository has none, so they were
-// made with the voices themselves and are compiled in.
+// ortGPUWasm is onnxruntime's WebAssembly build that drives WebGPU.
+var ortGPUWasm = ModelFile{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
+	Member: "package/dist/ort-wasm-simd-threaded.asyncify.wasm",
+	Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"}
+
+// embeddedSamples are the samples of the Kokoro and Supertonic voices: their repositories have
+// none in a language of the page, so they were made with the voices themselves and are compiled in.
 //
-//go:embed samples/kokoro-*.mp3
-var kokoroSamples embed.FS
+//go:embed samples/*.mp3
+var embeddedSamples embed.FS
 
 // kokoroVoice is one voice of Kokoro, by its name there. The name's first letter is its language
 // (a American English, b British English, e Spanish), and the page reads it from the id.
@@ -163,7 +180,7 @@ func kokoroVoice(voice, name, lang, sum string) Model {
 
 // embeddedSample is a voice's compiled-in sample, nil when there is none.
 func embeddedSample(id string) *ModelFile {
-	data, err := kokoroSamples.ReadFile("samples/" + id + ".mp3")
+	data, err := embeddedSamples.ReadFile("samples/" + id + ".mp3")
 	if err != nil {
 		return nil
 	}
@@ -183,6 +200,99 @@ var KokoroVoices = []Model{
 	kokoroVoice("bf_emma", "Emma", "en-GB", "669fe0647f9dd04fcab92f1439a40eeb4c8b4ab1f82e4996fe3d918ce4a63b73"),
 	kokoroVoice("bm_george", "George", "en-GB", "c4b235a4c1f2cd3b939fed08b899ce9385638b763f7b73a59616c4fc9bd6c9bc"),
 }
+
+// SupertonicID is the directory, and the id in a file's URL, of the model every Supertonic voice
+// shares. The page knows a Supertonic voice by its id, which starts with SupertonicID and a dash.
+const SupertonicID = "supertonic"
+
+// SupertonicModel is the model every Supertonic voice runs on: its four parts (the length of each
+// sound, the text, the sound itself refined step by step, and the waveform), the table from
+// characters to ids, and onnxruntime's WebGPU build, which the page uses where it can.
+var SupertonicModel = []ModelFile{
+	{Name: "duration_predictor.onnx", URL: supertonicRepo + "onnx/duration_predictor.onnx",
+		Size: 3700147, SHA256: "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db"},
+	{Name: "text_encoder.onnx", URL: supertonicRepo + "onnx/text_encoder.onnx",
+		Size: 36416150, SHA256: "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff"},
+	{Name: "vector_estimator.onnx", URL: supertonicRepo + "onnx/vector_estimator.onnx",
+		Size: 256534781, SHA256: "883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c"},
+	{Name: "vocoder.onnx", URL: supertonicRepo + "onnx/vocoder.onnx",
+		Size: 101424195, SHA256: "085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba"},
+	{Name: "unicode_indexer.json", URL: supertonicRepo + "onnx/unicode_indexer.json",
+		Size: 277676, SHA256: "9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f"},
+	ortGPUWasm,
+}
+
+// supertonicVoice is one voice of Supertonic, by its name there. Every voice speaks every
+// language of the model ("mul"); the page says which one each sentence is in.
+func supertonicVoice(voice string, size int64, sum string) Model {
+	id := SupertonicID + "-" + voice
+	return Model{ID: id, Name: voice, Lang: "mul", Quality: "high", Engine: EngineSupertonic,
+		Shared: SupertonicID, Files: []ModelFile{
+			{Name: "voice.json", URL: supertonicRepo + "voice_styles/" + voice + ".json", Size: size, SHA256: sum},
+		}, Sample: embeddedSample(id)}
+}
+
+// SupertonicVoices are Supertonic's voices: five women's (F) and five men's (M).
+var SupertonicVoices = []Model{
+	supertonicVoice("F1", 292046, "bbdec6ee00231c2c742ad05483df5334cab3b52fda3ba38e6a07059c4563dbc2"),
+	supertonicVoice("F2", 292423, "7c722c6a72707b1a77f035d67f0d1351ba187738e06f7683e8c72b1df3477fc6"),
+	supertonicVoice("F3", 290794, "12f6ef2573baa2defa1128069cb59f203e3ab67c92af77b42df8a0e3a2f7c6ab"),
+	supertonicVoice("F4", 291808, "c2fa764c1225a76dfc3e2c73e8aa4f70d9ee48793860eb34c295fff01c2e032b"),
+	supertonicVoice("F5", 291479, "45966e73316415626cf41a7d1c6f3b4c70dbc1ba2bee5c1978ef0ce33244fc8d"),
+	supertonicVoice("M1", 291748, "e35604687f5d23694b8e91593a93eec0e4eca6c0b02bb8ed69139ab2ea6b0a5b"),
+	supertonicVoice("M2", 292055, "b76cbf62bac707c710cf0ae5aba5e31eea1a6339a9734bfae33ab98499534a50"),
+	supertonicVoice("M3", 290198, "ea1ac35ccb91b0d7ecad533a2fbd0eec10c91513d8951e3b25fbba99954e159b"),
+	supertonicVoice("M4", 291522, "ca8eefad4fcd989c9379032ff3e50738adc547eeb5e221b82593a6d7b3bac303"),
+	supertonicVoice("M5", 291469, "dd22b92740314321f8ae11c5e87f8dd60d060f15dd3a632b5adf77f471f77af2"),
+}
+
+// ChatterboxID is the directory, and the id in a file's URL, of Chatterbox's model. The page knows
+// a Chatterbox voice by its id, which starts with ChatterboxID and a dash.
+const ChatterboxID = "chatterbox"
+
+// ChatterboxModel is Chatterbox's model: the table from text to ids, the part that turns ids into
+// what the language model reads (with the emotion setting), the language model (4-bit), the part
+// that turns its sound tokens into a waveform, and onnxruntime's WebGPU build. Each .onnx keeps
+// its weights in the file of the same name ending in _data, which the page hands over with it.
+var ChatterboxModel = []ModelFile{
+	{Name: "tokenizer.json", URL: chatterboxRepo + "tokenizer.json",
+		Size: 71798, SHA256: "29d48c4a178f6af3ad5130097c34744639e9294847b38a7b912c8c68027cb819"},
+	{Name: "embed_tokens.onnx", URL: chatterboxRepo + "onnx/embed_tokens.onnx",
+		Size: 13286, SHA256: "f785819ca4f6271262d5bb8971d62796c3a909e3b031982c113dbe83a4c3b854"},
+	{Name: "embed_tokens.onnx_data", URL: chatterboxRepo + "onnx/embed_tokens.onnx_data",
+		Size: 68390912, SHA256: "2a15f7dd73b2ee47f6edf87740324011594b5a528ed6471ae55e327ed6cad68c"},
+	{Name: "language_model_q4.onnx", URL: chatterboxRepo + "onnx/language_model_q4.onnx",
+		Size: 227911, SHA256: "7f8cdca83b2493536cbf3acf421199808a3d68736f55f4eabd20ef8a99da4313"},
+	{Name: "language_model_q4.onnx_data", URL: chatterboxRepo + "onnx/language_model_q4.onnx_data",
+		Size: 353621248, SHA256: "e79ab8784122a501718868b9631ff46e151c552d9b24e50f25d721f375e3526c"},
+	{Name: "conditional_decoder.onnx", URL: chatterboxRepo + "onnx/conditional_decoder.onnx",
+		Size: 6350448, SHA256: "1656d0d31332bae1854839959a3139300ebb67c178651dfa3f8c5fbfa5351351"},
+	{Name: "conditional_decoder.onnx_data", URL: chatterboxRepo + "onnx/conditional_decoder.onnx_data",
+		Size: 533970816, SHA256: "51d58345a272747665ec9d5bb61e01835258a940e321a288582ac4c18cf01b5a"},
+	ortGPUWasm,
+}
+
+// chatterboxVoices are the Chatterbox voices, compiled in: what the model's speech encoder makes
+// of a recording (the repository's default_voice.wav), so the page needs neither the encoder
+// (590 MB) nor the recording.
+//
+//go:embed voices/chatterbox-*.bin
+var chatterboxVoices embed.FS
+
+// chatterboxVoice is one compiled-in Chatterbox voice, by its name.
+func chatterboxVoice(voice, name string) Model {
+	id := ChatterboxID + "-" + voice
+	// The catalog's test checks every one is there.
+	data, _ := chatterboxVoices.ReadFile("voices/" + id + ".bin")
+	sum := sha256.Sum256(data)
+	return Model{ID: id, Name: name, Lang: "mul", Quality: "high", Engine: EngineChatterbox,
+		Shared: ChatterboxID, Files: []ModelFile{
+			{Name: "voice.bin", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), Data: data},
+		}, Sample: embeddedSample(id)}
+}
+
+// ChatterboxVoices are Chatterbox's voices: the one its repository records.
+var ChatterboxVoices = []Model{chatterboxVoice("default", "Chatterbox")}
 
 // PiperVoices is the catalog: Spanish and English voices in every quality, from the 14 MB x-low
 // to the 114 MB high, the hashes those of the v1.0.0 tag of rhasspy/piper-voices.
@@ -461,14 +571,16 @@ func (l Library) Install(ctx context.Context, id string, progress func(done, tot
 		}
 	}
 	report(0)
-	// One request per address: the two phonemizer files come out of the same archive.
+	// One request per address and directory: the two phonemizer files come out of the same
+	// archive, and so does the WebGPU runtime another set keeps in its own directory. A file
+	// compiled in is kept on its own.
 	for len(needs) > 0 {
 		url := needs[0].f.URL
 		dir := needs[0].dir
 		var batch []ModelFile
 		var rest []need
-		for _, n := range needs {
-			if n.f.URL == url {
+		for i, n := range needs {
+			if i == 0 || (n.f.URL == url && n.dir == dir && n.f.Data == nil && needs[0].f.Data == nil) {
 				batch = append(batch, n.f)
 				continue
 			}
