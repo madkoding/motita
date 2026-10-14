@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
 )
 
 // describeTools tells the model where its HOME is and where installed tools persist, or nothing
@@ -30,4 +31,32 @@ func describeTools(sb config.Sandbox) string {
 - Read the "installing-a-toolchain" procedure before installing one.
 `, filepath.Join(tools, "home"), tools, filepath.Join(tools, "tools"), filepath.Join(tools, "tools"),
 		filepath.Join(tools, "bin"))
+}
+
+// describeShell tells the model which shell runs its commands when that shell is not POSIX.
+//
+// The procedures are looked up by name and the same names serve every platform, but a
+// command written for sh fails under PowerShell (`ls -la`, `head -n`, `2>/dev/null`), and the
+// model cannot tell from the work which one it got. A POSIX shell says nothing: it is what
+// every prompt and procedure already assumes.
+func describeShell(shell string) string {
+	switch {
+	case execx.IsPowerShell(shell):
+		return `
+## SHELL
+- Commands run under PowerShell on Windows, not sh. Write PowerShell: Get-ChildItem, Get-Content,
+  Select-String, Invoke-RestMethod; $null instead of /dev/null; paths in single quotes.
+- Script blocks ({ }), $variables, $(...) and backticks make a line unreadable to the guardrails, so it
+  is confirmed as a whole: prefer plain cmdlets with literal arguments. Write with relative paths inside the
+  workspace; a drive (C:\), a rooted path or ~ is confirmed.
+- Read the "files-and-directories" and "calling-an-http-api" procedures: they are written for this shell.
+`
+	case execx.IsCmd(shell):
+		return `
+## SHELL
+- Commands run under the Windows command processor (cmd.exe), not sh: dir, type, findstr, where.
+`
+	default:
+		return ""
+	}
 }

@@ -105,6 +105,12 @@ type Mode struct {
 	// It is optional: with nil the policy cannot tell a missing tool from a present one and says
 	// nothing about it.
 	Have func(name string) bool
+	// PowerShell says the line runs under PowerShell (the shell on Windows). The segments of a
+	// line are read with POSIX rules, and PowerShell gives meaning to text those rules call a
+	// plain word: a script block in braces, `$(…)` inside double quotes, a backtick escape. A
+	// line that holds any of them is not classified, so a "reader" cannot carry code past the
+	// policy. See powerShellSyntax.
+	PowerShell bool
 }
 
 // DecisionFor decides one command.
@@ -521,6 +527,8 @@ var externalPrograms = map[string]bool{
 	// the network
 	"curl": true, "wget": true, "ssh": true, "scp": true, "sftp": true, "rsync": true,
 	"nc": true, "netcat": true, "telnet": true, "ftp": true, "socat": true,
+	// the same on Windows, where the request is a cmdlet (or its alias) or curl.exe
+	"curl.exe": true, "invoke-restmethod": true, "invoke-webrequest": true, "irm": true, "iwr": true,
 	// services and init. `journalctl` is deliberately NOT here: it only reads the log, and
 	// it is in the reader list for exactly that reason.
 	"systemctl": true, "service": true,
@@ -723,6 +731,18 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	if d, hit := MandatoryInLine(line, dir); hit {
 		return d
 	}
+	if m.PowerShell {
+		if r, hit := powerShellSyntax(line); hit {
+			return m.Relaxing(m.ShellLine(fmt.Sprintf("PowerShell reads %q as code", string(r))))
+		}
+		// What is left uses a backslash only as a path separator, which the POSIX reading
+		// below would take for an escape: `srcpp` would be judged as `srcapp`. Windows takes
+		// `/` for the same separator, so the line is judged with it, floor included.
+		line = strings.ReplaceAll(line, `\`, "/")
+		if d, hit := MandatoryInLine(line, dir); hit {
+			return d
+		}
+	}
 
 	// The line is judged by its WORST segment, and the seed is the first segment's own
 	// verdict rather than a guess about the line. A seed of "it only reads" would be a
@@ -749,6 +769,9 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		}
 		if skip {
 			continue
+		}
+		if m.PowerShell {
+			d = powerShellVerdict(d, seg.words)
 		}
 		if !found {
 			worst, found = d, true

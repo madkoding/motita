@@ -76,8 +76,9 @@ func (a *Agent) SetApprover(fn Approver) { a.approver = fn }
 // policyMode is the operator's policy configuration, as the agent applies it.
 func (a *Agent) policyMode() policy.Mode {
 	mode := policy.Mode{
-		Enforce: a.cfg.Agent.Policy.Enforce,
-		Strict:  a.cfg.Agent.Policy.Strict,
+		Enforce:    a.cfg.Agent.Policy.Enforce,
+		Strict:     a.cfg.Agent.Policy.Strict,
+		PowerShell: execx.IsPowerShell(shellFor(a.cfg)),
 	}
 	if a.sandbox != nil {
 		mode.Have = a.sandbox.HasTool
@@ -164,6 +165,7 @@ func (a *Agent) planRequest(command string) RequestPlan {
 
 	dir := a.policyDir()
 	mode := a.policyMode()
+	shell := shellFor(a.cfg)
 
 	// The line is analysed as a whole, in segments, because that is what a line is: `ls`
 	// followed by `> file` is a reader and a write, and judging it by its first word would
@@ -173,7 +175,7 @@ func (a *Agent) planRequest(command string) RequestPlan {
 	return RequestPlan{
 		// With the policy off nobody is confirming anything, and confining would be a second
 		// policy the operator switched off.
-		Request: execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", command}, Timeout: timeout,
+		Request: execx.Request{Command: shell, Args: execx.ShellArgs(shell, command), Timeout: timeout,
 			Unconfined: !mode.Enforce},
 		Verdict:   d.Verdict,
 		Reason:    d.Reason,
@@ -213,4 +215,11 @@ func shellFor(cfg config.Config) string {
 		return cfg.Agent.Shell
 	}
 	return defaultShell()
+}
+
+// shellRequest is the request that runs line through the configured shell, handed to it the
+// way that shell expects (see execx.ShellArgs).
+func (a *Agent) shellRequest(line string) execx.Request {
+	shell := shellFor(a.cfg)
+	return execx.Request{Command: shell, Args: execx.ShellArgs(shell, line)}
 }

@@ -79,7 +79,7 @@ func (a *Agent) runModelLine(ctx context.Context, line string) (string, int, err
 		}
 	}
 	return a.runConfigured(ctx,
-		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", line}}, line)
+		a.shellRequest(line), line)
 }
 
 // runFinalAction runs the action planned for after a PASS. It returns a readable
@@ -180,12 +180,12 @@ func (a *Agent) finalGitCommit(ctx context.Context, c Command, prefix string) (s
 	// that a commit happens, not how.
 	sequence := []string{
 		"git add -A",
-		fmt.Sprintf("git commit -m %s", shellQuote(message)),
+		fmt.Sprintf("git commit -m %s", execx.Quote(shellFor(a.cfg), message)),
 	}
 	var outputs []string
 	for _, cmd := range sequence {
 		output, exit, err := a.runConfigured(ctx,
-			execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", cmd}}, cmd)
+			a.shellRequest(cmd), cmd)
 		outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
 		if err != nil {
 			a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
@@ -207,7 +207,7 @@ func (a *Agent) escalate(ctx context.Context, prefix string) {
 	}
 	a.log.Warn(prefix+"escalating after exhausting the attempts", "command", a.cfg.Agent.OnFailure.Command)
 	output, exit, err := a.runConfigured(ctx,
-		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", a.cfg.Agent.OnFailure.Command}},
+		a.shellRequest(a.cfg.Agent.OnFailure.Command),
 		a.cfg.Agent.OnFailure.Command)
 	if err != nil {
 		a.log.Error(prefix+"the escalation action failed", "error", err)
