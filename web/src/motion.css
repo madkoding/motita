@@ -1,0 +1,197 @@
+/* ─── Motion system ───────────────────────────────────────────────────
+ * One set of durations, curves and distances for every animation in the web UI, so a modal,
+ * a toast and a message enter with the same voice. New motion reads these tokens instead of
+ * writing its own numbers.
+ *
+ * Rules the tokens are built around:
+ * - Only `transform` and `opacity` move. Both are composited, so a phone keeps 60fps and the
+ *   layout never shifts under the reader.
+ * - Entering is quick and decelerates (--ease-out); leaving is quicker and accelerates
+ *   (--ease-in); something that moves between two resting states uses --ease-standard.
+ * - Nothing waits for an animation: an element that is leaving drops its pointer events at once.
+ * - `prefers-reduced-motion` redefines the distances to zero and the scale to one, so every
+ *   keyframe below turns into a short fade without a second set of rules. */
+:root {
+  /* Press, hover, a colour that changes state. */
+  --motion-fast: 120ms;
+  /* Menus, tabs, toasts, a line that appears. */
+  --motion-base: 200ms;
+  /* Modals, drawers, the sidebar. */
+  --motion-slow: 280ms;
+  /* A whole view that is revealed (the conversation after loading). */
+  --motion-slower: 420ms;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  /* A small overshoot, for things that "pop": a badge, a count, a toggle's knob. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* How far something travels as it enters or leaves. */
+  --motion-shift: 8px;
+  --motion-shift-lg: 16px;
+  /* The scale a popover or modal grows from. */
+  --motion-scale: 0.96;
+  /* Delay between siblings that enter together. */
+  --motion-stagger: 40ms;
+  /* 1 lets a panel travel its whole width (the sidebar sliding in); 0 keeps it in place. */
+  --motion-travel: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 1ms;
+    --motion-base: 140ms;
+    --motion-slow: 160ms;
+    --motion-slower: 200ms;
+    --ease-spring: var(--ease-standard);
+    --motion-shift: 0px;
+    --motion-shift-lg: 0px;
+    --motion-scale: 1;
+    --motion-stagger: 0ms;
+    --motion-travel: 0;
+  }
+}
+
+/* Keyframes every component shares. They read the tokens, so under reduced motion they are fades. */
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes motion-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+/* Rises into place from below: messages, toasts at the bottom, panels. */
+@keyframes motion-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-shift));
+  }
+}
+@keyframes motion-sink-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-shift));
+  }
+}
+/* Drops into place from above: toasts under the header, menus. */
+@keyframes motion-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--motion-shift)));
+  }
+}
+@keyframes motion-lift-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--motion-shift)));
+  }
+}
+/* Grows from slightly smaller: modals, popovers. */
+@keyframes motion-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-shift)) scale(var(--motion-scale));
+  }
+}
+@keyframes motion-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--motion-shift) / 2)) scale(var(--motion-scale));
+  }
+}
+/* A short sideways entrance, for list rows. */
+@keyframes motion-enter-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--motion-shift)));
+  }
+}
+/* A whole panel coming in from (and going back to) the left edge: the sidebar. */
+@keyframes motion-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-100% * var(--motion-travel)));
+  }
+}
+@keyframes motion-slide-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(calc(-100% * var(--motion-travel)));
+  }
+}
+/* A one-off nudge for something whose value changed (a count, a state pill). It animates the
+ * `scale` property, not `transform`, so it composes with a rotation the element already has. */
+@keyframes motion-bump {
+  40% {
+    scale: calc(2 - var(--motion-scale));
+  }
+}
+
+/* Utility classes, for markup that only needs to enter or leave. */
+.motion-fade-in {
+  animation: motion-fade-in var(--motion-base) var(--ease-out) both;
+}
+.motion-rise-in {
+  animation: motion-rise-in var(--motion-base) var(--ease-out) both;
+}
+.motion-drop-in {
+  animation: motion-drop-in var(--motion-base) var(--ease-out) both;
+}
+.motion-pop-in {
+  animation: motion-pop-in var(--motion-slow) var(--ease-out) both;
+}
+.motion-fade-out,
+.motion-sink-out,
+.motion-lift-out,
+.motion-pop-out,
+.motion-slide-out-left {
+  pointer-events: none;
+}
+.motion-fade-out {
+  animation: motion-fade-out var(--motion-fast) var(--ease-in) forwards;
+}
+.motion-sink-out {
+  animation: motion-sink-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-lift-out {
+  animation: motion-lift-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-pop-out {
+  animation: motion-pop-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-slide-out-left {
+  animation: motion-slide-out-left var(--motion-base) var(--ease-in) forwards;
+}
+
+/* The copy an unmounted element leaves behind while it animates out (motion.ts). It sits above
+ * everything, takes no input, and its leave animation must win over the entrance rules the copied
+ * classes still match (a backdrop copy still carries `bg-black/60`), hence the doubled class. */
+.motion-ghost {
+  z-index: 70;
+  pointer-events: none;
+}
+/* A copied node starts its CSS animations over, so every entrance inside the copy (a settings
+ * pane rising in, a spinner) would replay while it leaves. Only the leave animations run. */
+.motion-ghost *:not(.motion-pop-out) {
+  animation: none !important;
+}
+.motion-ghost.motion-fade-out {
+  animation: motion-fade-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost.motion-sink-out {
+  animation: motion-sink-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost.motion-lift-out {
+  animation: motion-lift-out var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost.motion-slide-out-left {
+  animation: motion-slide-out-left var(--motion-base) var(--ease-in) forwards;
+}
+.motion-ghost > .motion-pop-out,
+.motion-ghost.motion-pop-out {
+  animation: motion-pop-out var(--motion-base) var(--ease-in) forwards;
+}

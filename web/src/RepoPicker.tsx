@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { onActivate } from "./a11y";
 import { useBackdropClose } from "./useBackdropClose";
+import { useLeave } from "./motion";
 import "./dialog.css";
 import { t, tf } from "./i18n";
 import { useDialog } from "./useDialog";
@@ -75,6 +76,7 @@ export function RepoPicker({
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
+  useLeave(backdrop, "fade", "pop");
   useDialog(ref, onClose);
   useBackdropClose(backdrop, onClose);
   const [service, setService] = useState(pickService(accounts, initialService));

@@ -1,8 +1,10 @@
 // The dimmed layer under a dialog. A click on it (and not inside the dialog) closes the dialog,
-// and a click inside never reaches the page's own click listeners.
+// and a click inside never reaches the page's own click listeners. However the dialog is closed,
+// it leaves the way it came: the backdrop fades and the dialog shrinks away (motion.ts).
 import { useRef } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { useBackdropClose } from "./useBackdropClose";
+import { useLeave } from "./motion";
 
 // The backdrop most dialogs share.
 export const BACKDROP_CLASS =
@@ -25,6 +27,7 @@ export function ModalBackdrop({
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   useBackdropClose(ref, onClose);
+  useLeave(ref, "fade", "pop");
   return (
     <div ref={ref} class={cls} data-modal={modal || undefined}>
       {children}
