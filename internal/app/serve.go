@@ -34,6 +34,13 @@ type lifecycle struct {
 	shutdown func()
 }
 
+// updateAPIURL is the release API the gateway's updater asks. Empty, the production value,
+// means GitHub's. It is a package variable rather than a field of Options because it is a seam
+// for the suite as a whole: every test that starts a real gateway (and the text interface, which
+// asks its gateway for updates on start) would otherwise reach api.github.com, so TestMain
+// points it at a local address once instead of each test remembering to.
+var updateAPIURL string
+
 // runServe runs the gateway and no interface.
 //
 // The runner is the same tui.AppRunner the text interface uses, which is the whole point of the
@@ -241,6 +248,8 @@ func (op Options) startGateway(
 		MaxBodyKB:      cfg.Gateway.MaxBodyKB,
 		Version:        op.Version,
 		ExePath:        op.ExePath,
+		// Empty outside the tests: GitHub's release API.
+		UpdateAPIURL: updateAPIURL,
 		// The git logins: the connection the user makes in the settings, which the
 		// credential helper then serves to every git a session runs.
 		GitAuthDir: config.AuthDir(),

@@ -137,6 +137,11 @@ type Options struct {
 	// default is a test that waits an hour. A value shorter than the startup delay also shortens
 	// that delay, so a test is never caught between the two.
 	UpdateCheckInterval time.Duration
+	// UpdateAPIURL is the release API the updater asks for the latest release. Empty, the
+	// production value, means GitHub's. It is a seam for an embedder's tests: a gateway started
+	// for real answers /v1/update/check (which the text interface calls on start) by asking the
+	// release API, so a suite that starts real gateways points it somewhere that is not the network.
+	UpdateAPIURL string
 	// WebUI serves the browser interface from this same mux. The page and the API therefore
 	// share an origin, which is why no proxy and no CORS header are involved anywhere: the
 	// browser asks this server for everything.
@@ -378,6 +383,9 @@ func Start(opts Options) (*Server, error) {
 	// crashing.
 	if strings.TrimSpace(opts.ExePath) != "" {
 		s.updater = updater.New(opts.Version, opts.ExePath)
+		if apiURL := opts.UpdateAPIURL; apiURL != "" {
+			s.updater.APIURL = func() string { return apiURL }
+		}
 	}
 
 	s.openSessionStore()
