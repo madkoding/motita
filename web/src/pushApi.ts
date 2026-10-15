@@ -108,7 +108,7 @@ export function keyBytes(b64url: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
   const out = new Uint8Array(new ArrayBuffer(bin.length));
   for (let i = 0; i < bin.length; i++) {
-    out[i] = bin.codePointAt(i) ?? 0;
+    out[i] = bin.codePointAt(i) as number;
   }
   return out;
 }

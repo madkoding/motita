@@ -1,15 +1,15 @@
 // The Security section of the settings dialog: how much of the disk Motita reaches. The workspace
 // is the default, the whole disk is never given without a confirmation that spells out the risk,
-// and going back needs none. Runs the real dialog in jsdom, bundled with esbuild like
-// network.test.mjs, against a fake gateway.
+// and going back needs none. Runs the real dialog in jsdom, loaded through tsx-hooks.mjs
+// like network.test.mjs, against a fake gateway.
 // Run with: node --test web/src/__tests__/disksecurity.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -35,26 +35,9 @@ globalThis.Notification = { permission: "granted" };
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".sec-"));
-await build({
-  entryPoints: [join(here, "..", "Settings.tsx")],
-  outfile: join(out, "sec.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
-  logLevel: "silent",
-});
-const { SettingsModal } = await import(
-  pathToFileURL(join(out, "sec.mjs")).href
-);
+const { SettingsModal } = await load("Settings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 const secApi = await import("../securityApi.ts");
 const es = (await import("../i18n.es.ts")).default;
 

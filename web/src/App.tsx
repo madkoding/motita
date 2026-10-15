@@ -46,7 +46,6 @@ import {
   RunArtifacts,
   Trail,
   TurnHead,
-  UserText,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
@@ -145,9 +144,7 @@ function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
   const { running, lastUserId, answerSuggestions } = useTurn();
   if (m.role !== "agent" || m.kind) {
-    if (m.role === "user") {
-      return <UserText m={m} />;
-    }
+    // A user's message is never here: each one opens its turn and is drawn by TurnHead.
     if (isEmptyNote(m)) {
       return <EmptyNote />;
     }

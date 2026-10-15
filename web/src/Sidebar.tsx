@@ -224,10 +224,8 @@ function useCloseOnPhonePick(close: () => void) {
   const closeRef = useRef(close);
   closeRef.current = close;
   useEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return undefined;
-    }
+    // The aside is always drawn, so the ref is set by the time the effect runs.
+    const el = ref.current as HTMLElement;
     const onClick = (e: MouseEvent) => {
       if (isPhone() && closesOnPhone(e.target)) {
         closeRef.current();

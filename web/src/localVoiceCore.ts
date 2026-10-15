@@ -431,7 +431,7 @@ export function wavOf(samples: Float32Array, rate: number): ArrayBuffer {
   const view = new DataView(new ArrayBuffer(WAV_HEADER + samples.length * SAMPLE_BYTES));
   const text = (at: number, s: string) => {
     for (let i = 0; i < s.length; i++) {
-      view.setUint8(at + i, s.codePointAt(i) ?? 0);
+      view.setUint8(at + i, s.codePointAt(i) as number);
     }
   };
   text(WAV_RIFF, "RIFF");

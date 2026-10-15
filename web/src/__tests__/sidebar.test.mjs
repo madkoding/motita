@@ -1,17 +1,13 @@
 // The sidebar labels its two sections, free-standing sessions and projects, and says so when one is
 // empty. The upgrade modal has no button to press once the gateway restarts: it shows a spinner
 // and waits for the page to reload by itself, and offers a manual reload only if that never comes.
-// Runs the real components in jsdom (bundled with esbuild, since node cannot import TSX).
+// Runs the real components in jsdom (via tsx-hooks.mjs, since node cannot import TSX).
 // Run with: node --test web/src/__tests__/sidebar.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const SIDEBAR_EMPTY = "[data-testid=sidebar-empty]";
 const UPGRADE_RELOADING = "[data-testid=upgrade-reloading]";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -40,37 +36,13 @@ window.matchMedia = () => ({
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-// One bundle, so the components and the test share the same AppCtx.
-const out = mkdtempSync(join(here, ".sb-"));
-const entry = join(out, "entry.ts");
-writeFileSync(
-  entry,
-  [
-    `export { SessionList } from ${JSON.stringify(join(here, "..", "Sidebar.tsx"))};`,
-    `export { UpgradeModal } from ${JSON.stringify(join(here, "..", "UpgradeModal.tsx"))};`,
-    `export { useUpdates } from ${JSON.stringify(join(here, "..", "useUpdates.ts"))};`,
-    `export { AppCtx } from ${JSON.stringify(join(here, "..", "appStore.ts"))};`,
-  ].join("\n"),
-);
-await build({
-  entryPoints: [entry],
-  outfile: join(out, "sb.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
-  logLevel: "silent",
-});
-const { SessionList, UpgradeModal, AppCtx, useUpdates } = await import(
-  pathToFileURL(join(out, "sb.mjs")).href
-);
+// One module graph per process, so the components and the test share the same AppCtx.
+const { SessionList } = await load("Sidebar.tsx");
+const { UpgradeModal } = await load("UpgradeModal.tsx");
+const { useUpdates } = await load("useUpdates.ts");
+const { AppCtx } = await load("appStore.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const noop = () => {};
 
@@ -130,7 +102,8 @@ test("the sidebar labels sessions and projects and says when each is empty", asy
   const { root, done } = await mount(SessionList, store());
   const sessions = section(root, "sessions");
   const projects = section(root, "projects");
-  assert.ok(sessions && projects, "both sections are drawn");
+  assert.ok(sessions, "the sessions section is drawn");
+  assert.ok(projects, "and the projects one");
   assert.equal(
     sessions.compareDocumentPosition(projects) &
       dom.window.Node.DOCUMENT_POSITION_FOLLOWING,

@@ -509,6 +509,7 @@ func TestCheckBaseURL(t *testing.T) {
 		"https://api.example/v1#frag":     false,
 		"http://169.254.169.254/latest":   false,
 		"http://[fe80::1]/v1":             false,
+		"http://[1.2]:11434":              false,
 		"http://0.0.0.0:11434":            false,
 		"https://api.example/v1 evil.com": false,
 	} {

@@ -248,16 +248,16 @@ function useListenOnce({
       return null;
     }
     setPhase("transcribing");
+    let text: string | null = null;
     try {
-      const text = (await transcribe(api, audio, false)).text.trim();
-      heard.current = heard.current || text !== "";
-      return text || null;
+      const said = (await transcribe(api, audio, false)).text.trim();
+      heard.current = heard.current || said !== "";
+      text = said || null;
     } catch (e) {
       fail(e);
-      return null;
-    } finally {
-      setPhase("idle");
     }
+    setPhase("idle");
+    return text;
   }, [api, deviceId, fail]);
   const cancelListen = useCallback(() => listening1.current?.(), []);
   return { listenOnce, cancelListen };

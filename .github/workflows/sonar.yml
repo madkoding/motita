@@ -96,6 +96,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
       - name: Build web UI (go:embed needs the assets)
         run: cd web && npm ci && npm run build
       # The project's only coverage source: the test gate lives in ci.yml; here the profile only
@@ -107,6 +110,14 @@ jobs:
           go test -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... 2>&1 \
             | grep -Ev '^(ok|\?) ' || true
           test -s coverage.out
+      # The web UI's half: node --test maps the bundled TSX back to its sources, and the gate in
+      # ci.yml is what keeps it at 100 %; here a failing test does not stop the analysis either.
+      # The report names files relative to web/, Sonar resolves them from the repository root.
+      - name: Web coverage report for SonarQube
+        run: |
+          (cd web && npm run test:coverage >/dev/null 2>&1) || echo "::warning::web tests failed"
+          sed -i 's#^SF:src/#SF:web/src/#' web/coverage/lcov.info
+          test -s web/coverage/lcov.info
       - id: scan
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         with:

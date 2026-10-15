@@ -75,10 +75,8 @@ function partsOf(part: string): string | null {
   // character that has no asset.
   const out: string[] = [];
   for (const ch of part) {
-    const cp = ch.codePointAt(0);
-    if (cp === undefined) {
-      return null;
-    }
+    // Iterating a string yields whole characters, each with a code point.
+    const cp = ch.codePointAt(0) as number;
     if (cp === VS16 || cp === VS15 || cp === ZWJ) {
       // The presentation selector is dropped: a picker-inserted character carries it and a
       // hand-typed one does not, and both name the same glyph — keeping it would give the
@@ -91,10 +89,9 @@ function partsOf(part: string): string | null {
     out.push(hex(cp));
   }
   // `fe0f` only ever modifies the character before it; on its own it names nothing. The
-  // generator drops it for the same reason, so this has to as well.
-  const cleaned = out.filter((p, i) => !(p === "fe0f" && i > 0));
-  if (cleaned.length > 0) {
-    return cleaned.join("-");
+  // generator drops it for the same reason, and so does the loop above: it never reaches `out`.
+  if (out.length > 0) {
+    return out.join("-");
   }
   return null;
 }

@@ -56,7 +56,8 @@ function baseLang(m: LocalModel): string {
 // where the browser has none.
 function langName(code: string): string {
   try {
-    const name = new Intl.DisplayNames([lang()], { type: "language" }).of(code) ?? code;
+    // With its default fallback, of() answers the code itself for a language it cannot name.
+    const name = new Intl.DisplayNames([lang()], { type: "language" }).of(code) as string;
     return name.charAt(0).toLocaleUpperCase(lang()) + name.slice(1);
   } catch {
     return code;

@@ -6,11 +6,10 @@
 // Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
@@ -91,19 +90,8 @@ test("a project header's click target is drawn above its title and under its act
   assert.ok(hit < actions, "the button comes before the actions");
 });
 
-// appFormat.ts imports its siblings without extensions, so it is bundled first.
-const dir = mkdtempSync(join(tmpdir(), "motita-sessionrow-test-"));
-const out = join(dir, "format.mjs");
-await build({
-  entryPoints: [join(here, "..", "appFormat.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  outfile: out,
-  logLevel: "silent",
-});
-const { sessionTooltip, projectTooltip } = await import(out);
-rmSync(dir, { recursive: true, force: true });
+// appFormat.ts imports its siblings without extensions, which tsx-hooks.mjs resolves.
+const { sessionTooltip, projectTooltip } = await load("appFormat.ts");
 
 test("sessionTooltip says every fact the row shows, one per line", () => {
   const lines = sessionTooltip({

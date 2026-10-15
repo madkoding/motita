@@ -35,6 +35,17 @@ If you add code, add the tests that cover it. If you add a new package,
 add tests for it — a package with no test files gets a warning, not a
 pass.
 
+The web UI (`web/src`) has the same bar, lines **and** branches, file by
+file; a file no test loads fails like one at 0 %:
+
+```bash
+make cover-web
+```
+
+Its tests load each source through `web/src/__tests__/tsx-hooks.mjs`
+rather than an esbuild bundle: node merges coverage across test files
+only when every one compiles a source the same way.
+
 **Test-support packages** (packages that import `"testing"` in non-test
 source, like `tools/clitest`) are exempt: their remaining uncovered
 statements are their own failure and skip branches, which only run when

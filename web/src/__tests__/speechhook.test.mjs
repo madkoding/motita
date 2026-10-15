@@ -1,16 +1,12 @@
-// Runs useSpeech in jsdom with a stand-in voice (bundled with esbuild, since node cannot import
+// Runs useSpeech in jsdom with a stand-in voice (via tsx-hooks.mjs, since node cannot import
 // TSX): an answer is read on its own when the turn was spoken or the mode says always, Alt+L reads
 // the last answer or stops, the microphone and a change of conversation silence it, and a failure
 // is reported.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 // The stand-in voice gives up after this many utterances, so a loop cannot hang the test.
 const MAX_UTTERANCES = 50;
 // The id of a later message in a conversation.
@@ -79,17 +75,7 @@ dom.window.SpeechSynthesisUtterance = Utterance;
 globalThis.speechSynthesis = synth;
 globalThis.SpeechSynthesisUtterance = Utterance;
 
-const out = mkdtempSync(join(here, ".sp-"));
-await build({
-  entryPoints: [join(here, "..", "useSpeech.ts")],
-  outfile: join(out, "sp.mjs"),
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  logLevel: "silent",
-});
-const { useSpeech } = await import(pathToFileURL(join(out, "sp.mjs")).href);
+const { useSpeech } = await load("useSpeech.ts");
 const {
   SPEECH_KEY,
   SPEECH_TURN_READ_EVENT,
@@ -99,7 +85,6 @@ const {
 } = await import("../speech.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const user = (id) => ({ id, role: "user", text: "do it" });
 const answer = (id, text = "All done. Tests pass.") => ({

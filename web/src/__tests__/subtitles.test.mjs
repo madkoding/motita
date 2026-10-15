@@ -1,15 +1,15 @@
-// Runs the subtitles in jsdom (bundled with esbuild, since node cannot import TSX): off they draw
+// Runs the subtitles in jsdom (via tsx-hooks.mjs, since node cannot import TSX): off they draw
 // nothing; on, they show the sentence the voice starts and fade it out when it ends, keeping the
 // words while they fade. Also checks where the app draws them and the CSS that keeps them legible,
 // out of the way of clicks, and still for a reader who asked for less motion.
 // Run with: node --test web/src/__tests__/subtitles.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SECOND_LINE = "Tests pass.";
@@ -24,20 +24,7 @@ for (const k of ["document", "window", "Event", "CustomEvent", "HTMLElement", "N
   globalThis[k] = dom.window[k];
 }
 
-const out = mkdtempSync(join(here, ".sub-"));
-await build({
-  entryPoints: [join(here, "..", "Subtitles.tsx")],
-  outfile: join(out, "sub.mjs"),
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  external: ["preact", "preact/*"],
-  logLevel: "silent",
-});
-const { Subtitles } = await import(pathToFileURL(join(out, "sub.mjs")).href);
-rmSync(out, { recursive: true });
+const { Subtitles } = await load("Subtitles.tsx");
 const { SUBTITLE_EVENT, showSubtitle } = await import("../speech.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");

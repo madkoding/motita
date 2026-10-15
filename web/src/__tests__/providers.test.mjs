@@ -1,14 +1,14 @@
 // The providers tab of the settings: the client of /v1/llm, and the real tab rendered in jsdom
-// (bundled with esbuild, since node cannot import TSX) against a fake gateway. A key typed in it
+// (via tsx-hooks.mjs, since node cannot import TSX) against a fake gateway. A key typed in it
 // goes to the gateway and is never drawn back.
 // Run with: node --test web/src/__tests__/providers.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
@@ -35,24 +35,9 @@ globalThis.Notification = { permission: "granted" };
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".pv-"));
-await build({
-  entryPoints: [join(here, "..", "Settings.tsx")],
-  outfile: join(out, "pv.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
-  logLevel: "silent",
-});
-const { SettingsModal } = await import(pathToFileURL(join(out, "pv.mjs")).href);
+const { SettingsModal } = await load("Settings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 const llm = await import("../llmApi.ts");
 const es = (await import("../i18n.es.ts")).default;
 

@@ -207,7 +207,8 @@ function reveal(slices: Slice[], n: number) {
     // codePointAt reads the whole pair when the cut falls inside one, and a lone first half as
     // itself: either way the character before the cut starts with a first half.
     if (k > 0 && k < s.full.length) {
-      const c = s.full.codePointAt(k - 1) ?? 0;
+      // 0 < k - 1 < length here, so there is a code point to read.
+      const c = s.full.codePointAt(k - 1) as number;
       if (
         c >= SUPPLEMENTARY_MIN ||
         (c >= HIGH_SURROGATE_MIN && c <= HIGH_SURROGATE_MAX)
@@ -279,10 +280,8 @@ export function Typed({
   cb.current = { onTick, onDone };
 
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return undefined;
-    }
+    // A layout effect runs once the element is mounted.
+    const el = ref.current as HTMLElement;
     if (mounted.current?.html !== html) {
       mounted.current = { html, ...collect(el) };
     }

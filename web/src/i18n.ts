@@ -27,10 +27,9 @@ const listeners = new Set<() => void>();
 // set names it (es, es-CL, ...), English otherwise.
 export function browserLang(): Lang {
   try {
-    const list =
-      choose(navigator.languages?.length, navigator.languages, [
-        navigator.language,
-      ]) || [];
+    const list = choose(navigator.languages?.length, navigator.languages, [
+      navigator.language,
+    ]);
     for (const l of list) {
       if (!l) {
         continue;

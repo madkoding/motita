@@ -90,15 +90,12 @@ export function hasReport(r?: TaskReport | null): r is TaskReport {
 // them: `loadImage` fetches one and hands back an object URL (or null when it cannot be read).
 export type LoadImage = (name: string) => Promise<string | null>;
 
-function useImage(name: string | undefined, load?: LoadImage) {
+// A shot is drawn only for a half that names an image, and always with the card's loader.
+function useImage(name: string, load: LoadImage) {
   const [src, setSrc] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
     setSrc(undefined);
-    if (!name || !load) {
-      setSrc(null);
-      return undefined;
-    }
     load(name)
       .then((u) => {
         if (live) {
@@ -125,9 +122,9 @@ function Shot({
   onOpen,
 }: {
   kind: "before" | "after";
-  name?: string;
+  name: string;
   label: string;
-  load?: LoadImage;
+  load: LoadImage;
   onOpen: (src: string, label: string) => void;
 }) {
   const src = useImage(name, load);
@@ -562,16 +559,14 @@ function SuggestionsSection({
   const current = verdicts.indexOf(undefined);
   // asking says the buttons of suggestion i are drawn: it was answered, or it is the one asked now.
   const asking = (i: number) => !!picks[i] || (i === current && !done);
+  // Only reached with onAnswer: without it the buttons are disabled and nothing is applied.
   const finish = (next: (Verdict | undefined)[], pressed: Pick[]) => {
-    if (!onAnswer) {
-      return;
-    }
     const request = proposalRequest(
       t("Apply these suggestions you made, and nothing else:"),
       suggestions,
       next,
     );
-    onAnswer({ picks: pressed, verdicts: next as Verdict[], request });
+    onAnswer?.({ picks: pressed, verdicts: next as Verdict[], request });
   };
   const answer = (pick: ProposalAnswer) => {
     const next = settle(verdicts, current, pick);

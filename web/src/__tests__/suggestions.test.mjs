@@ -1,14 +1,14 @@
-// Answering a report's suggestions, with the real card in jsdom (bundled with esbuild, since node
+// Answering a report's suggestions, with the real card in jsdom (via tsx-hooks.mjs, since node
 // cannot import TSX): the button pressed stays marked, the answers come back after a reload, and
 // the turn that applies them is drawn as "Applying suggestions" instead of its prompt.
 // Run with: node --test web/src/__tests__/suggestions.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -33,32 +33,11 @@ Object.defineProperty(globalThis, "navigator", {
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".sg-"));
-await build({
-  stdin: {
-    contents: `export { ReportCard } from "./Report";
-export { transcriptMessages } from "./transcript";
-export { UserText } from "./ConversationParts";`,
-    resolveDir: join(here, ".."),
-    loader: "ts",
-    sourcefile: "entry.ts",
-  },
-  outfile: join(out, "sg.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  logLevel: "silent",
-});
-const { ReportCard, transcriptMessages, UserText } = await import(
-  pathToFileURL(join(out, "sg.mjs")).href
-);
+const { ReportCard } = await load("Report.tsx");
+const { transcriptMessages } = await load("transcript.ts");
+const { UserText } = await load("ConversationParts.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const report = {
   status: "done",

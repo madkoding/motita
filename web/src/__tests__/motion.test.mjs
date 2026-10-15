@@ -2,11 +2,10 @@
 // composited-only rule, and the exit copy (motion.ts). Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 import { JSDOM } from "jsdom";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,18 +21,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
 globalThis.document = dom.window.document;
 globalThis.window = dom.window;
 
-const dir = mkdtempSync(join(tmpdir(), "motita-motion-test-"));
-const out = join(dir, "motion.mjs");
-await build({
-  entryPoints: [join(here, "..", "motion.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  outfile: out,
-  logLevel: "silent",
-});
-const { leaveGhost } = await import(out);
-rmSync(dir, { recursive: true, force: true });
+const { leaveGhost } = await load("motion.ts");
 
 test("motion.css is imported by index.css", () => {
   assert.match(indexCss, /@import "\.\/motion\.css";/);
@@ -121,16 +109,7 @@ test("a leaving copy is inert, has no ids and does not count as a dialog", async
 });
 
 // The stream reveal, against a stand-in for the CSS Custom Highlight API (jsdom has none).
-const revealOut = join(mkdtempSync(join(tmpdir(), "motita-reveal-test-")), "reveal.mjs");
-await build({
-  entryPoints: [join(here, "..", "streamReveal.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  outfile: revealOut,
-  logLevel: "silent",
-});
-const { streamReveal } = await import(revealOut);
+const { streamReveal } = await load("streamReveal.ts");
 
 function fakeHighlights() {
   const reg = new Map();

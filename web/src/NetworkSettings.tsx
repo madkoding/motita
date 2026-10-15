@@ -44,10 +44,8 @@ function waitForGateway(onGone: () => void): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = Date.now() + restartTiming.waitMs;
+  // poll only runs from the pending timer, which stop clears: it starts only while not stopped.
   const poll = async () => {
-    if (stopped) {
-      return;
-    }
     let ok = false;
     try {
       ok = (await restartTiming.health()).ok;

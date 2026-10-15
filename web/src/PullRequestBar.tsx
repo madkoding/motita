@@ -517,7 +517,8 @@ function CiFailure({ pr, view }: { pr: PullRequest; view: PRView }) {
 // CiSuccess is a green CI: why the host would not merge it, or the merge itself, asked twice.
 function CiSuccess({ pr, view }: { pr: PullRequest; view: PRView }) {
   const refused = mergeRefused(view);
-  const blocked = !!view.merge && (refused || view.merge.code === "behind");
+  const code = view.merge?.code ?? "";
+  const blocked = refused || code === "behind";
   return (
     <>
       <span class="inline-flex items-center gap-1.5 text-[#4ade80]">
@@ -526,7 +527,7 @@ function CiSuccess({ pr, view }: { pr: PullRequest; view: PRView }) {
       </span>
       {blocked && (
         <span class="ml-auto text-[#f0a040]">
-          {mergeBlockedLabel(view.merge?.code ?? "")}
+          {mergeBlockedLabel(code)}
         </span>
       )}
       {!refused && (
