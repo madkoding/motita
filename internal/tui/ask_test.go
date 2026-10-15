@@ -463,6 +463,94 @@ func TestWindowIsCappedAndSaysSo(t *testing.T) {
 	}
 }
 
+// longOption is an option near the longest the agent may send (agent.optionMaxRunes is 240).
+func longOption(tag string) string {
+	return tag + " " + strings.Repeat("keep the session store in memory and flush it ", 5)[:225]
+}
+
+// Long options on a small terminal are cut, never the answer line or the keys hint: without them
+// the window cannot be answered or confirmed. Reproduced at 60x24 with four options of about 230
+// runes, where only two options were drawn and the answer line fell off the screen.
+func TestLongOptionsKeepTheAnswerLineOnScreen(t *testing.T) {
+	opts := []string{longOption("alpha"), longOption("bravo"), longOption("charlie"), longOption("delta")}
+	items := []agent.AskItem{
+		{Text: "where do the sessions live?", Assumption: "in memory", Options: opts},
+		{Text: "and the cache?"},
+	}
+	tui := newAskTUI(t, items, "x")
+	tui.Width, tui.Height = 60, 24
+	lines, _ := tui.layout(60, 24)
+	// The window takes no more rows than the frame without it: it fits the layout's reservation.
+	ask := tui.ask
+	tui.ask = nil
+	bare, _ := tui.layout(60, 24)
+	tui.ask = ask
+	if len(lines) != len(bare) || len(lines) > 24 {
+		t.Fatalf("the frame must keep its %d rows, got %d:\n%s", len(bare), len(lines),
+			stripANSI(strings.Join(lines, "\n")))
+	}
+	frame := stripANSI(strings.Join(lines, "\n"))
+	for _, want := range []string{"answer:", "switch question", "1) alpha", "2) bravo", "3) charlie", "4) delta", "…"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("the frame should show %q, got:\n%s", want, frame)
+		}
+	}
+	for _, l := range lines {
+		if visibleLen(l) > 60 {
+			t.Fatalf("a row is wider than the terminal: %q", stripANSI(l))
+		}
+	}
+}
+
+// With room for more than one row per option, each keeps as many as fit and the cut ones end in
+// an ellipsis.
+func TestLongOptionsKeepWhatFits(t *testing.T) {
+	items := []agent.AskItem{{Text: "which?", Options: []string{longOption("alpha"), "short"}}}
+	tui := newAskTUI(t, items, "x")
+	tui.Width = 60
+	full := tui.askLines(0)
+	capped := tui.askLines(len(full) - 1)
+	if len(capped) != len(full)-1 {
+		t.Fatalf("the cap must be met, got %d rows for %d", len(capped), len(full)-1)
+	}
+	got := stripANSI(strings.Join(capped, "\n"))
+	if !strings.Contains(got, "…\n") || !strings.Contains(got, "2) short") || !strings.HasSuffix(got, "answer: ") {
+		t.Fatalf("the long option is cut with an ellipsis and the rest kept, got:\n%s", got)
+	}
+}
+
+// Caps tighter than the question itself: the answer line is the last thing to go.
+func TestTinyCapsKeepTheAnswerLine(t *testing.T) {
+	items := []agent.AskItem{{Text: "which one?", Assumption: "a", Options: []string{"a", "b"}}}
+	tui := newAskTUI(t, items, "x")
+	tui.ask.answers[0] = "a" // a hint row under the answer line
+	for _, tc := range []struct {
+		max  int
+		want []string
+	}{
+		{1, []string{"answer: a"}},
+		{2, []string{"answer: a", "Enter confirms"}},
+		{3, []string{"which one?", "answer: a", "Enter confirms"}},
+		{4, []string{"which one?", "(if you do not answer: a)", "answer: a", "Enter confirms"}},
+		{5, []string{"which one?", "(if you do not answer: a)", "… and 2 more", "answer: a", "Enter confirms"}},
+	} {
+		got := tui.askLines(tc.max)
+		if len(got) != len(tc.want) {
+			t.Fatalf("cap %d: got %d rows %q", tc.max, len(got), stripANSI(strings.Join(got, "|")))
+		}
+		for i, w := range tc.want {
+			if !strings.Contains(stripANSI(got[i]), w) {
+				t.Fatalf("cap %d row %d: want %q, got %q", tc.max, i, w, stripANSI(got[i]))
+			}
+		}
+	}
+	// No options at all: nothing to cut, nothing said about more.
+	tui = newAskTUI(t, []agent.AskItem{{Text: "free?"}}, "x")
+	if got := tui.askLines(2); len(got) != 2 || strings.Contains(stripANSI(strings.Join(got, "")), "more") {
+		t.Fatalf("a question with no options draws the question and the answer line, got %q", got)
+	}
+}
+
 // --- the layout reservation ------------------------------------------------
 
 // The window takes the popup's reservation and the popup does not draw under it. Both drawing
