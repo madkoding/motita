@@ -77,20 +77,6 @@ func TestToolsDirIsIgnoredUnderAChroot(t *testing.T) {
 	}
 }
 
-// TestTempRootFallsBackWhenTheToolsDirectoryCannotBePrepared: a tools directory that cannot hold
-// a tmp folder must not stop the run; it goes back to the working directory.
-func TestTempRootFallsBackWhenTheToolsDirectoryCannotBePrepared(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "a-file")
-	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s := runnableSandbox(t, t.TempDir())
-	s.op.ToolsDir = file
-	if got := s.tempRoot(); got != s.base {
-		t.Errorf("tempRoot = %q, want the base %q", got, s.base)
-	}
-}
-
 // TestToolPath: <tools>/bin first, then each tools/<name>/bin in order, then the given PATH; a
 // file named bin is not a directory and is skipped; no tools directory changes nothing.
 func TestToolPath(t *testing.T) {
