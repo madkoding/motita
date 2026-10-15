@@ -6,6 +6,7 @@ import { IconClose } from "./icons";
 import "./dialog.css";
 import { t } from "./i18n";
 import { initSettings } from "./settings";
+import { ThemeSettings } from "./ThemeSettings";
 import type { Api } from "./gitApi";
 import { choose } from "./choose";
 import {
@@ -32,6 +33,7 @@ import {
   IconPlug,
   IconShield,
   IconSliders,
+  IconPalette,
   IconSpeaker,
 } from "./SettingsIcons";
 
@@ -69,6 +71,7 @@ interface Props extends AppearanceSettingsProps {
 // The tabs: one per kind of setting, so each is found where its name says.
 export type Tab =
   | "appearance"
+  | "themes"
   | "notifications"
   | "voice"
   | "speech"
@@ -89,6 +92,7 @@ interface TabInfo {
 function settingsTabs(p: Props): TabInfo[] {
   const tabs: TabInfo[] = [
     { id: "appearance", label: t("Appearance"), icon: <IconSliders /> },
+    { id: "themes", label: t("Themes"), icon: <IconPalette /> },
     {
       id: "notifications",
       label: t("Notifications"),
@@ -129,6 +133,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
       onLang={p.onLang}
     />
   ),
+  themes: () => <ThemeSettings />,
   notifications: (p) => <NotifySetting push={p.push} />,
   voice: (p) => p.voice && <VoiceSettings {...p.voice} />,
   speech: (p) => p.speech && <SpeechSettings {...p.speech} />,

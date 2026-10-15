@@ -1,0 +1,629 @@
+/* Colour themes: a mode (data-mode: dark | light, resolved from the saved choice and the system by
+ * theme.ts / public/theme-init.js) and a scheme (data-scheme). Every colour of the page that varies
+ * is a token set here; index.css only uses them. The values are generated so that text and accent
+ * clear WCAG AA (4.5:1) on every surface of their mode; themes.test.mjs checks them again.
+ *
+ * The first block is the default, with no data attributes: the dark Motita palette the page always
+ * had. A scheme card in Settings carries data-scheme too, so it previews its own palette under the
+ * mode that is showing. */
+:root {
+  --color-accent: #4cc2ff;
+  --accent-rgb: 76 194 255;
+  --neon-cyan: #00f0ff;
+  --neon-rgb: 0 240 255;
+  --s0: #0a0a0f;
+  --s1: #101018;
+  --s2: #16161e;
+  --s3: #26262e;
+  --bg-rgb: 16 16 24;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #16161e;
+  --color-surface-opaque: #16161e;
+  --veil: transparent;
+  --well-k: 1;
+  --on-accent: #ffffff;
+}
+
+/* motita, dark */
+:is(html[data-mode="dark"][data-scheme="motita"], html[data-mode="dark"] .theme-card[data-scheme="motita"]) {
+  --color-accent: #4cc2ff;
+  --accent-rgb: 76 194 255;
+  --neon-cyan: #00f0ff;
+  --neon-rgb: 0 240 255;
+  --s0: #0a0a0f;
+  --s1: #101018;
+  --s2: #16161e;
+  --s3: #26262e;
+  --bg-rgb: 16 16 24;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #16161e;
+  --color-surface-opaque: #16161e;
+  --veil: transparent;
+  --well-k: 1;
+  --on-accent: #ffffff;
+}
+
+/* motita, light */
+:is(html[data-mode="light"][data-scheme="motita"], html[data-mode="light"] .theme-card[data-scheme="motita"]) {
+  --color-accent: #0a6698;
+  --accent-rgb: 10 102 152;
+  --neon-cyan: #0a6698;
+  --neon-rgb: 10 102 152;
+  --s0: #f4f6fa;
+  --s1: #ffffff;
+  --s2: #eceff5;
+  --s3: #dee1e6;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #eceff5;
+  --color-surface-opaque: #eceff5;
+  --veil: rgb(244 246 250 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* violet, dark */
+:is(html[data-mode="dark"][data-scheme="violet"], html[data-mode="dark"] .theme-card[data-scheme="violet"]) {
+  --color-accent: #b78cff;
+  --accent-rgb: 183 140 255;
+  --neon-cyan: #c9a6ff;
+  --neon-rgb: 201 166 255;
+  --s0: #0d0a14;
+  --s1: #13101c;
+  --s2: #1a1624;
+  --s3: #2a2633;
+  --bg-rgb: 19 16 28;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #1a1624;
+  --color-surface-opaque: #1a1624;
+  --veil: rgb(13 10 20 / 0.58);
+  --well-k: 1;
+  --on-accent: #0b0f14;
+}
+
+/* violet, light */
+:is(html[data-mode="light"][data-scheme="violet"], html[data-mode="light"] .theme-card[data-scheme="violet"]) {
+  --color-accent: #6a35c8;
+  --accent-rgb: 106 53 200;
+  --neon-cyan: #6a35c8;
+  --neon-rgb: 106 53 200;
+  --s0: #f6f3fb;
+  --s1: #ffffff;
+  --s2: #eeeaf6;
+  --s3: #e0dce7;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #eeeaf6;
+  --color-surface-opaque: #eeeaf6;
+  --veil: rgb(246 243 251 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* forest, dark */
+:is(html[data-mode="dark"][data-scheme="forest"], html[data-mode="dark"] .theme-card[data-scheme="forest"]) {
+  --color-accent: #5fd08a;
+  --accent-rgb: 95 208 138;
+  --neon-cyan: #7be6a4;
+  --neon-rgb: 123 230 164;
+  --s0: #090e0b;
+  --s1: #0e1511;
+  --s2: #141c17;
+  --s3: #242c27;
+  --bg-rgb: 14 21 17;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #141c17;
+  --color-surface-opaque: #141c17;
+  --veil: rgb(9 14 11 / 0.58);
+  --well-k: 1;
+  --on-accent: #0b0f14;
+}
+
+/* forest, light */
+:is(html[data-mode="light"][data-scheme="forest"], html[data-mode="light"] .theme-card[data-scheme="forest"]) {
+  --color-accent: #166e38;
+  --accent-rgb: 22 110 56;
+  --neon-cyan: #166e38;
+  --neon-rgb: 22 110 56;
+  --s0: #f2f7f3;
+  --s1: #ffffff;
+  --s2: #e7f0ea;
+  --s3: #d9e2dc;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #e7f0ea;
+  --color-surface-opaque: #e7f0ea;
+  --veil: rgb(242 247 243 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* amber, dark */
+:is(html[data-mode="dark"][data-scheme="amber"], html[data-mode="dark"] .theme-card[data-scheme="amber"]) {
+  --color-accent: #ffb020;
+  --accent-rgb: 255 176 32;
+  --neon-cyan: #ffc44d;
+  --neon-rgb: 255 196 77;
+  --s0: #100c07;
+  --s1: #171209;
+  --s2: #1e1810;
+  --s3: #2e2821;
+  --bg-rgb: 23 18 9;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #1e1810;
+  --color-surface-opaque: #1e1810;
+  --veil: rgb(16 12 7 / 0.58);
+  --well-k: 1;
+  --on-accent: #0b0f14;
+}
+
+/* amber, light */
+:is(html[data-mode="light"][data-scheme="amber"], html[data-mode="light"] .theme-card[data-scheme="amber"]) {
+  --color-accent: #895300;
+  --accent-rgb: 137 83 0;
+  --neon-cyan: #895300;
+  --neon-rgb: 137 83 0;
+  --s0: #faf6ef;
+  --s1: #ffffff;
+  --s2: #f3ece0;
+  --s3: #e4ded3;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #f3ece0;
+  --color-surface-opaque: #f3ece0;
+  --veil: rgb(250 246 239 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* rose, dark */
+:is(html[data-mode="dark"][data-scheme="rose"], html[data-mode="dark"] .theme-card[data-scheme="rose"]) {
+  --color-accent: #ff7aa8;
+  --accent-rgb: 255 122 168;
+  --neon-cyan: #ff9bbf;
+  --neon-rgb: 255 155 191;
+  --s0: #10080c;
+  --s1: #170d12;
+  --s2: #1e1218;
+  --s3: #2e2328;
+  --bg-rgb: 23 13 18;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #1e1218;
+  --color-surface-opaque: #1e1218;
+  --veil: rgb(16 8 12 / 0.58);
+  --well-k: 1;
+  --on-accent: #0b0f14;
+}
+
+/* rose, light */
+:is(html[data-mode="light"][data-scheme="rose"], html[data-mode="light"] .theme-card[data-scheme="rose"]) {
+  --color-accent: #b3164f;
+  --accent-rgb: 179 22 79;
+  --neon-cyan: #b3164f;
+  --neon-rgb: 179 22 79;
+  --s0: #fbf3f6;
+  --s1: #ffffff;
+  --s2: #f5e9ee;
+  --s3: #e6dbe0;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #f5e9ee;
+  --color-surface-opaque: #f5e9ee;
+  --veil: rgb(251 243 246 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* graphite, dark */
+:is(html[data-mode="dark"][data-scheme="graphite"], html[data-mode="dark"] .theme-card[data-scheme="graphite"]) {
+  --color-accent: #c4c8d0;
+  --accent-rgb: 196 200 208;
+  --neon-cyan: #e2e5ea;
+  --neon-rgb: 226 229 234;
+  --s0: #0b0c0e;
+  --s1: #111215;
+  --s2: #17181b;
+  --s3: #27282b;
+  --bg-rgb: 17 18 21;
+  --ov-rgb: 255 255 255;
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+  --color-surface-solid: #17181b;
+  --color-surface-opaque: #17181b;
+  --veil: rgb(11 12 14 / 0.58);
+  --well-k: 1;
+  --on-accent: #0b0f14;
+}
+
+/* graphite, light */
+:is(html[data-mode="light"][data-scheme="graphite"], html[data-mode="light"] .theme-card[data-scheme="graphite"]) {
+  --color-accent: #4a5160;
+  --accent-rgb: 74 81 96;
+  --neon-cyan: #4a5160;
+  --neon-rgb: 74 81 96;
+  --s0: #f3f4f6;
+  --s1: #ffffff;
+  --s2: #e8eaee;
+  --s3: #dadce0;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #e8eaee;
+  --color-surface-opaque: #e8eaee;
+  --veil: rgb(243 244 246 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* ─── What follows the tokens ─────────────────────────────────────────────────────────────────── */
+
+/* The photograph behind the page, under a veil of the scheme's own surface colour: none for the
+ * original dark Motita, a tint for the other schemes, near white for light. */
+.app-bg {
+  background-image: linear-gradient(var(--veil), var(--veil)), url(/chat-bg.webp);
+  background-color: var(--s0);
+}
+
+/* Text on a filled accent button: white on the dark accent of the light palettes, and near black
+ * on the bright accents of the dark ones (white on amber or graphite is unreadable). */
+.bg-accent.text-white,
+.composer-send {
+  color: var(--on-accent);
+}
+
+/* ─── Theme picker (Settings → Themes) ────────────────────────────────────────────────────────── */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  cursor: pointer;
+  border: 1px solid rgb(var(--ov-rgb) / 0.12);
+  border-radius: 12px;
+  background: rgb(var(--ov-rgb) / 0.03);
+  color: var(--t1);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
+}
+.theme-card:hover {
+  border-color: rgb(var(--ov-rgb) / 0.3);
+}
+.theme-card:has(input:checked) {
+  border-color: var(--color-accent);
+  background: rgb(var(--accent-rgb) / 0.1);
+}
+.theme-card:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.theme-preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 3.25rem;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--s0);
+  border: 1px solid rgb(var(--ov-rgb) / 0.12);
+}
+.theme-preview-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 5px;
+  background: var(--s2);
+}
+.theme-preview-line {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--t3);
+}
+.theme-preview-line.short {
+  width: 55%;
+  background: var(--t4);
+}
+.theme-preview-accent {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.theme-name {
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+/* ─── Light mode: the places that spelled a dark colour out ───────────────────────────────────── */
+
+/* Tailwind's white and black overlays (hover washes, hairlines, input wells) become their inverse. */
+html[data-mode="light"] :is(.border-white\/5, .border-white\/6, .border-white\/10, .border-white\/15) {
+  border-color: rgb(0 0 0 / 0.12);
+}
+html[data-mode="light"] :is(.bg-white\/2, .bg-white\/3, .bg-white\/4, .bg-white\/5, .hover\:bg-white\/3:hover, .hover\:bg-white\/4:hover, .hover\:bg-white\/5:hover) {
+  background-color: rgb(0 0 0 / 0.05);
+}
+html[data-mode="light"] :is(.bg-white\/10, .hover\:bg-white\/10:hover) {
+  background-color: rgb(0 0 0 / 0.09);
+}
+html[data-mode="light"] :is(.bg-black\/15, .bg-black\/20, .bg-black\/30, .hover\:bg-black\/30:hover) {
+  background-color: rgb(0 0 0 / 0.04);
+}
+html[data-mode="light"] .hover\:border-white\/15:hover {
+  border-color: rgb(0 0 0 / 0.25);
+}
+
+/* Greys and signal colours spelled out in the markup, one tone per role. */
+html[data-mode="light"] :is([class~="text-[#e8e8ea]"], [class*="text-[#e8e8ea]/"], .hover\:text-\[\#e8e8ea\]:hover) {
+  color: var(--t1);
+}
+html[data-mode="light"] :is([class~="text-[#c8c8d2]"], [class*="text-[#c8c8d2]/"], [class~="text-[#c8c8d0]"], [class*="text-[#c8c8d0]/"]) {
+  color: var(--t2);
+}
+html[data-mode="light"] :is([class~="text-[#a0a0b0]"], [class*="text-[#a0a0b0]/"], [class~="text-[#9a9aaa]"], [class*="text-[#9a9aaa]/"], .hover\:text-\[\#9a9aaa\]:hover, [class~="text-[#8a8a9a]"], [class*="text-[#8a8a9a]/"]) {
+  color: var(--t3);
+}
+html[data-mode="light"] :is([class~="text-[#7a7a8c]"], [class*="text-[#7a7a8c]/"], [class~="text-[#5a5a68]"], [class*="text-[#5a5a68]/"]) {
+  color: var(--t4);
+}
+html[data-mode="light"] :is([class~="text-[#f0a040]"], [class*="text-[#f0a040]/"], [class~="text-[#edc06a]"], [class*="text-[#edc06a]/"], [class~="text-[#f0c040]"], [class*="text-[#f0c040]/"]) {
+  color: var(--c-amber);
+}
+html[data-mode="light"] :is([class~="text-[#5fd08a]"], [class*="text-[#5fd08a]/"], [class~="text-[#4ade80]"], [class*="text-[#4ade80]/"], [class~="text-[#40f0a0]"], [class*="text-[#40f0a0]/"], [class~="text-[#7ee0a0]"], [class*="text-[#7ee0a0]/"]) {
+  color: var(--c-green);
+}
+html[data-mode="light"] :is([class~="text-[#f87171]"], [class*="text-[#f87171]/"], [class~="text-[#ff8da1]"], [class*="text-[#ff8da1]/"]) {
+  color: var(--c-red);
+}
+html[data-mode="light"] :is([class~="text-[#a0a0f0]"], [class*="text-[#a0a0f0]/"], [class~="text-[#a78bfa]"], [class*="text-[#a78bfa]/"]) {
+  color: var(--c-violet);
+}
+html[data-mode="light"] [class~="text-[#79c0ff]"], [class*="text-[#79c0ff]/"] {
+  color: var(--c-sky);
+}
+
+/* Code and terminals stay dark in light mode, as in most editors: the highlight colours were
+ * chosen for a dark ground. Their tokens go back to the dark palette of the scheme. */
+html[data-mode="light"] :is(.markdown-body pre, .term-screen, .term-drawer) {
+  --t1: #e8e8ea;
+  --t2: #c8c8d4;
+  --t3: #9a9aaa;
+  --t4: #92929f;
+  --s1: #101018;
+  --s2: #16161e;
+  --s3: #15151c;
+  --ov-rgb: 255 255 255;
+  --c-red: #ff6b6b;
+  --c-green: #7ee787;
+  --c-amber: #ffb020;
+  --c-violet: #b078ff;
+  --c-sky: #8fe3ff;
+  color: var(--t1);
+/* …and the pale-text tones above, back to the originals. */
+  --k-4a86bd: initial;
+  --k-4fae5a: initial;
+  --k-5f9d69: initial;
+  --k-79c0ff: initial;
+  --k-7a7a8c: initial;
+  --k-93d6a8: initial;
+  --k-9ca3af: initial;
+  --k-9fd2ec: initial;
+  --k-a0a0b0: initial;
+  --k-a4a4b4: initial;
+  --k-aeb6c4: initial;
+  --k-b4b4c4: initial;
+  --k-b9dcff: initial;
+  --k-b9ecc0: initial;
+  --k-c47a2c: initial;
+  --k-c8b8f0: initial;
+  --k-c8c8d0: initial;
+  --k-c8c8d6: initial;
+  --k-c9d1d9: initial;
+  --k-d7b8ff: initial;
+  --k-d8f3ff: initial;
+  --k-dcefff: initial;
+  --k-e3c56a: initial;
+  --k-e6edf3: initial;
+  --k-ef8a8a: initial;
+  --k-f0f0f4: initial;
+  --k-f3dcae: initial;
+  --k-ff9a92: initial;
+  --k-ff9b9b: initial;
+  --k-ff9ee0: initial;
+  --k-ffa54a: initial;
+  --k-ffb0aa: initial;
+  --k-ffb86b: initial;
+  --k-ffd166: initial;
+  --k-ffdcb0: initial;
+  --k-ffe08a: initial;
+}
+
+/* Light mode: the pale text colours index.css spells out, each as a darker tone of the same hue
+ * (4.6:1 on the deepest light surface). A name is --k-<the dark hex>; dark mode leaves it unset and
+ * the var() fallback is the original colour. */
+html[data-mode="light"] {
+  --k-4a86bd: #3a658d;
+  --k-4fae5a: #366d3c;
+  --k-5f9d69: #446a4a;
+  --k-79c0ff: #0963b3;
+  --k-7a7a8c: #5f5f6d;
+  --k-93d6a8: #2f6f43;
+  --k-9ca3af: #5c6370;
+  --k-9fd2ec: #22688b;
+  --k-a0a0b0: #606071;
+  --k-a4a4b4: #5f5f72;
+  --k-aeb6c4: #586274;
+  --k-b4b4c4: #606077;
+  --k-b9dcff: #0a61b8;
+  --k-b9ecc0: #24702e;
+  --k-c47a2c: #885825;
+  --k-c8b8f0: #502caa;
+  --k-c8c8d0: #616170;
+  --k-c8c8d6: #5d5d79;
+  --k-c9d1d9: #546373;
+  --k-d7b8ff: #5f0bcb;
+  --k-d8f3ff: #086791;
+  --k-dcefff: #0963ae;
+  --k-e3c56a: #735e1b;
+  --k-e6edf3: #446683;
+  --k-ef8a8a: #b42222;
+  --k-f0f0f4: #5c5c7a;
+  --k-f3dcae: #7b5a19;
+  --k-ff9a92: #c2180a;
+  --k-ff9b9b: #c70a0a;
+  --k-ff9ee0: #b80a80;
+  --k-ffa54a: #964f08;
+  --k-ffb0aa: #c2170a;
+  --k-ffb86b: #914f08;
+  --k-ffd166: #7e5a07;
+  --k-ffdcb0: #915408;
+  --k-ffe08a: #795b06;
+}
