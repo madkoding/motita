@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -294,6 +295,26 @@ type catalogRepo struct {
 	Projects []catalogUse `json:"projects"`
 }
 
+// allProjects is every project the gateway knows, none when it has no store or cannot read it.
+func (s *Server) allProjects() []Project {
+	if s.projects == nil {
+		return nil
+	}
+	all, _ := s.projects.loadAll()
+	return all
+}
+
+// catalogUsers are the projects whose repositories include the catalog's clone at dir.
+func catalogUsers(projects []Project, dir string) []catalogUse {
+	users := []catalogUse{}
+	for _, p := range projects {
+		if slices.ContainsFunc(p.Repos, func(r ProjectRepo) bool { return r.Shared && gitx.SamePath(r.Dir, dir) }) {
+			users = append(users, catalogUse{ID: p.ID, Title: p.Title})
+		}
+	}
+	return users
+}
+
 // handleListRepos answers the catalog: every repository cloned there, and which projects use it,
 // so a project can add one that is already here without cloning it again.
 func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
@@ -301,8 +322,8 @@ func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
 	root := s.catalogDir()
 	entries, _ := os.ReadDir(root)
 	var projects []Project
-	if s.projects != nil && len(entries) > 0 {
-		projects, _ = s.projects.loadAll()
+	if len(entries) > 0 {
+		projects = s.allProjects()
 	}
 	for _, e := range entries {
 		dir := filepath.Join(root, e.Name())
@@ -310,15 +331,89 @@ func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
 		if !e.IsDir() || gitURL == "" {
 			continue
 		}
-		repo := catalogRepo{Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: []catalogUse{}}
-		for _, p := range projects {
-			if slices.ContainsFunc(p.Repos, func(r ProjectRepo) bool { return r.Shared && gitx.SamePath(r.Dir, dir) }) {
-				repo.Projects = append(repo.Projects, catalogUse{ID: p.ID, Title: p.Title})
-			}
-		}
-		out = append(out, repo)
+		out = append(out, catalogRepo{Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: catalogUsers(projects, dir)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
+}
+
+// removeAll is how a clone leaves the catalog; a variable so a test can make it fail.
+var removeAll = os.RemoveAll
+
+// handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
+// in it stops the deletion, unless the user confirmed the discard with `?force=1`.
+func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
+	root := s.catalogDir()
+	name := r.PathValue("name")
+	dir := filepath.Join(root, name)
+	if root == "" || repoNameOf(name, "") != name || !pathExists(dir) {
+		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
+		return
+	}
+	if users := catalogUsers(s.allProjects(), dir); len(users) > 0 {
+		titles := make([]string, len(users))
+		for i, u := range users {
+			titles[i] = u.Title
+		}
+		writeError(w, http.StatusConflict, fmt.Sprintf("the repository is used by %s: remove it from "+
+			"those projects first", strings.Join(titles, ", ")))
+		return
+	}
+	if _, dirty := firstDirtyDir(r.Context(), []string{dir}); dirty && !isForced(r) {
+		writeError(w, http.StatusConflict, "the repository has uncommitted changes (or they could not be read): "+
+			"commit them, or confirm the discard")
+		return
+	}
+	if err := removeAll(dir); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// fastForward moves the branch checked out at dir forward to ref, when it can without a merge.
+func fastForward(ctx context.Context, dir, ref string) error {
+	args := append(append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...), "merge", "--ff-only", ref)
+	return exec.CommandContext(ctx, "git", args...).Run()
+}
+
+// syncSharedRepos brings the folders of the project's shared repositories up to each one's main
+// branch after an integration, in every project that uses them, so none stays behind what was
+// merged. The clone learns what the host merged first.
+func (s *Server) syncSharedRepos(ctx context.Context, p *Project) {
+	if p == nil {
+		return
+	}
+	var all []Project
+	for _, repo := range p.Repos {
+		if !repo.Shared {
+			continue
+		}
+		// Advisory: a clone with no origin, or a merge made here, has nothing to bring in.
+		_ = gitx.PullFastForward(ctx, repo.Dir, cmp.Or(repo.MainBranch, defaultMainBranch))
+		if all == nil {
+			all = s.allProjects()
+		}
+		for i := range all {
+			for _, r := range all[i].Repos {
+				if r.Shared && gitx.SamePath(r.Dir, repo.Dir) {
+					syncProjectFolder(ctx, &all[i], r)
+				}
+			}
+		}
+	}
+}
+
+// syncProjectFolder fast-forwards the project's folder of a shared repository to its main branch.
+// Only a clean folder still on the project's branch moves, and only forward: work committed or
+// left there is never touched.
+func syncProjectFolder(ctx context.Context, p *Project, repo ProjectRepo) {
+	dir := p.repoPath(repo)
+	if gitx.Display(ctx, dir) != projectBranch(p) {
+		return
+	}
+	if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n == 0 {
+		_ = fastForward(ctx, dir, cmp.Or(repo.MainBranch, defaultMainBranch))
+	}
 }
 
 // sessionWorktreesOf lists the live worktrees the project's sessions have of repo.

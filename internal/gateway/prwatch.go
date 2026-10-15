@@ -591,6 +591,7 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, s
 	c.setMerged(sha)
 	s.saveSession(c)
 	s.syncProject(ctx, c, base)
+	s.syncSharedRepos(ctx, s.projectOf(c.projectID))
 	s.autoContinue(ctx, c, number)
 }
 

@@ -594,6 +594,19 @@ const first: Record<string, string> = {
   "Already in your workspace": "Ya en tu espacio de trabajo",
   "Add {name}": "Agregar {name}",
   "Also in {names}": "También en {names}",
+  "Could not delete the repository": "No se pudo eliminar el repositorio",
+  "Repositories in your workspace": "Repositorios en tu espacio de trabajo",
+  "Each repository is cloned once and shared by the projects that use it. One that no project uses can be deleted.":
+    "Cada repositorio se clona una vez y lo comparten los proyectos que lo usan. Uno que ningún proyecto usa se puede eliminar.",
+  "No repositories in your workspace yet.":
+    "Aún no hay repositorios en tu espacio de trabajo.",
+  "Used by {names}": "Lo usa {names}",
+  "No project uses it": "Ningún proyecto lo usa",
+  "Its clone and its local branches leave your workspace. A project can clone it again later.":
+    "Su clon y sus ramas locales salen de tu espacio de trabajo. Un proyecto puede volver a clonarlo después.",
+  "Discard the changes and delete it": "Descartar los cambios y eliminarlo",
+  "Delete {name}": "Eliminar {name}",
+  "Deleted {name}": "Se eliminó {name}",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",

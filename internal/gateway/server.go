@@ -741,6 +741,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
 	mux.Handle("DELETE /v1/projects/{id}/main", plain(s.handleDetachProjectMain))
 	mux.Handle("GET /v1/repos", plain(s.handleListRepos))
+	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
 	// agent, and the conversation it fires INTO is a field of the record. Everything
