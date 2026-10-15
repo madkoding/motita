@@ -257,18 +257,21 @@ export function LocalVoices({
   }, [chosen, chosenReady]);
 
   // act runs one request, then reads the catalog again; its failure is the one shown.
-  const act = async (id: string, run: () => Promise<void>) => {
-    setBusy(id);
-    let failure = "";
-    try {
-      await run();
-    } catch (e) {
-      failure = errorMessage(e);
-    }
-    setBusy("");
-    const why = await load();
-    setError(failure || why);
-  };
+  const act = useCallback(
+    async (id: string, run: () => Promise<void>) => {
+      setBusy(id);
+      let failure = "";
+      try {
+        await run();
+      } catch (e) {
+        failure = errorMessage(e);
+      }
+      setBusy("");
+      const why = await load();
+      setError(failure || why);
+    },
+    [load],
+  );
 
   if (!catalog) {
     return (
@@ -540,17 +543,17 @@ function Failures({
   catalog: string;
 }) {
   const alerts = [
-    sample,
-    choose(download, tf("The download failed: {error}", { error: download ?? "" }), ""),
-    choose(load, tf("The voice could not be loaded: {error}", { error: load ?? "" }), ""),
-    catalog,
+    { kind: "sample", text: sample },
+    { kind: "download", text: choose(download, tf("The download failed: {error}", { error: download ?? "" }), "") },
+    { kind: "load", text: choose(load, tf("The voice could not be loaded: {error}", { error: load ?? "" }), "") },
+    { kind: "catalog", text: catalog },
   ];
   return (
     <>
       {alerts.map(
-        (text, i) =>
+        ({ kind, text }) =>
           text && (
-            <div key={i} class="text-xs text-[#f87171]" role="alert">
+            <div key={kind} class="text-xs text-[#f87171]" role="alert">
               {text}
             </div>
           ),

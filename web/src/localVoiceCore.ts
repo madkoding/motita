@@ -612,9 +612,7 @@ export class Synth {
   // own, less what is loaded already.
   private filesToWarm(id: string): string[] {
     const files: string[] = [];
-    // Supertonic and Chatterbox read the text itself: they need no phonemizer, nor the
-    // processor's runtime where the graphics card runs them (Chatterbox runs nowhere else).
-    if (!this.ort && !isChatterbox(id) && !(isSupertonic(id) && this.deps.gpu)) {
+    if (this.needsRuntime(id)) {
       files.push(fileURL(RUNTIME_ID, ORT_WASM));
     }
     if (!this.phon && !readsText(id)) {
@@ -630,6 +628,16 @@ export class Synth {
       files.push(...this.voiceFiles(id));
     }
     return files;
+  }
+
+  // needsRuntime says whether a voice still needs the processor's runtime. Supertonic and
+  // Chatterbox read the text itself: they need no phonemizer, nor the processor's runtime where
+  // the graphics card runs them (Chatterbox runs nowhere else).
+  private needsRuntime(id: string): boolean {
+    if (this.ort || isChatterbox(id)) {
+      return false;
+    }
+    return !(isSupertonic(id) && this.deps.gpu);
   }
 
   // forget drops a voice, so the next request loads it again (after it was deleted, say).
