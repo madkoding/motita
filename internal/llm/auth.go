@@ -261,7 +261,7 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return nil, t, err // network error: retryable
+			return nil, t, Explain(err) // network error: retryable
 		}
 		if resp.StatusCode == http.StatusOK {
 			return resp, t, nil
@@ -396,7 +396,7 @@ func (c *Client) listJSON(ctx context.Context, path string, parse func([]byte) [
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, Explain(err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
