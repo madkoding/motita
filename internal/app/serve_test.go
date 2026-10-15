@@ -572,7 +572,7 @@ func TestStartGatewayRefusesAMalformedRuleDirectly(t *testing.T) {
 	cfg.Gateway.Allow = []string{"not a rule"}
 
 	op := Options{Out: &syncBuffer{}, Err: &syncBuffer{}}
-	_, err := op.startGateway(flags{}, cfg, nil, nil, nil, false, nil)
+	_, err := op.startGateway(flags{}, cfg, nil, nil, nil, false, lifecycle{})
 	if err == nil {
 		t.Fatal("a malformed rule was accepted when the gateway was built")
 	}

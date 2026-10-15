@@ -19,6 +19,7 @@ import (
 // OLD gateway was bound to, probed at the instant of the spawn.
 type upgradeRun struct {
 	restart  func()
+	shutdown func()
 	done     chan int
 	spawned  chan spawnSpec
 	portFree chan bool
@@ -50,6 +51,7 @@ func startUpgradeRun(t *testing.T, spawnErr error) *upgradeRun {
 	opts.NewGateway = func(o gateway.Options, _ config.Config) (*gateway.Server, error) {
 		mu.Lock()
 		r.restart = o.Restart
+		r.shutdown = o.Shutdown
 		mu.Unlock()
 		return gateway.Start(o)
 	}

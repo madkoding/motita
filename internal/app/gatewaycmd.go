@@ -500,6 +500,10 @@ func (op Options) gatewayStop(ctx context.Context, fl flags) int {
 		return Success
 	}
 
+	if askOverAPI && op.stopOverAPI(ctx, found) {
+		return op.reportStopped(found)
+	}
+
 	if err := op.SignalProcess(found.PID); err != nil {
 		fmt.Fprintf(op.Err, "the gateway (pid %d) could not be signalled: %v\n", found.PID, err)
 		return ConfigError
@@ -511,6 +515,36 @@ func (op Options) gatewayStop(ctx context.Context, fl flags) int {
 		fmt.Fprintf(op.Err, "the gateway did not stop: %v\n", err)
 		return ConfigError
 	}
+	return op.reportStopped(found)
+}
+
+// askOverAPI says whether `gateway stop` first asks the gateway to stop over its local API.
+//
+// It is the build's stopsOverAPI, and a variable only so the tests on unix can take the Windows
+// path: that is where the signal is os.Kill, and where the request is the only graceful stop.
+var askOverAPI = stopsOverAPI
+
+// stopOverAPI asks the gateway to shut down over POST /v1/shutdown and waits for it to go.
+//
+// It reports whether the gateway stopped. A request that is refused or a gateway that is still
+// answering after the wait is NOT an error here: the caller falls back to the signal, so the stop
+// still happens, only without the graceful path. What went wrong is said, because the user is
+// owed the reason their sessions were not saved.
+func (op Options) stopOverAPI(ctx context.Context, found gateway.Found) bool {
+	err := op.ShutdownGateway(ctx, found.BaseURL, found.Token)
+	if err == nil {
+		err = op.waitForGatewayGone(ctx, found.BaseURL)
+	}
+	if err != nil {
+		fmt.Fprintf(op.Err, "the gateway did not stop on request (%v); ending its process\n", err)
+		return false
+	}
+	return true
+}
+
+// reportStopped clears the service file and says the gateway stopped: the last step of every way
+// gatewayStop ends one.
+func (op Options) reportStopped(found gateway.Found) int {
 	_ = gateway.RemoveServiceFile(op.serviceFilePath())
 	fmt.Fprintf(op.Out, "the gateway (pid %d) stopped.\n", found.PID)
 	return Success

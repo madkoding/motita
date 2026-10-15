@@ -155,6 +155,10 @@ type Options struct {
 	// SignalProcess asks the gateway to stop. Injectable because killing a real process from a test
 	// would leave the assertion racing the operating system.
 	SignalProcess func(pid int) error
+	// ShutdownGateway asks a running gateway to stop over its local API (POST /v1/shutdown), which
+	// is how `gateway stop` reaches the graceful path where there is no SIGTERM. A seam for the
+	// same reason SignalProcess is one.
+	ShutdownGateway func(ctx context.Context, baseURL, token string) error
 	// GatewayWait bounds how long start and stop wait for the gateway to answer or to go away.
 	GatewayWait time.Duration
 	// DiscoverGateway asks whether a gateway is running. It is a seam so a test can produce the
@@ -434,6 +438,9 @@ func (op *Options) completeGateway() {
 	}
 	if op.SignalProcess == nil {
 		op.SignalProcess = signalByPID
+	}
+	if op.ShutdownGateway == nil {
+		op.ShutdownGateway = gateway.RequestShutdown
 	}
 	if op.GatewayWait == 0 {
 		op.GatewayWait = 10 * time.Second

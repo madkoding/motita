@@ -14,6 +14,10 @@ import (
 // has no SIGTERM and uses os.Kill, so there is nothing to share.
 func termSignal() os.Signal { return syscall.SIGTERM }
 
+// stopsOverAPI is false here: SIGTERM already reaches the gateway's graceful shutdown, so
+// `gateway stop` sends it directly and the local API is not involved.
+const stopsOverAPI = false
+
 // detach puts the child in its own session, so it is not attached to the terminal it was started
 // from.
 //

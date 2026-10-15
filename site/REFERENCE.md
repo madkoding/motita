@@ -704,6 +704,10 @@ motita gateway stop     # stops the one the service file names
 motita gateway setup    # where it answers: this machine, the local network or everywhere
 ```
 
+On Windows, where there is no SIGTERM, `gateway stop` first asks the gateway to shut down over
+`POST /v1/shutdown` (the same graceful path: sessions saved, runs cancelled, listener closed) and
+ends the process only if that request fails or the gateway is still answering after the wait.
+
 **Where it answers is asked once.** The first `gateway start` with a configuration file that
 names no `gateway.listen` asks it, at a terminal, and saves the answer in the file:
 

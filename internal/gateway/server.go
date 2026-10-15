@@ -98,6 +98,12 @@ type Options struct {
 	// then installs the binary and says so, instead of cancelling a gateway nobody would start
 	// again. Cancelling without a replacement is how an upgrade turns into an outage.
 	Restart func()
+	// Shutdown asks this process to stop the same way SIGTERM does on unix: the context the
+	// service runs under is cancelled and the ordinary graceful close follows. It is what
+	// `motita gateway stop` uses where there is no SIGTERM to send (Windows), through
+	// POST /v1/shutdown. Nil means this gateway's lifetime belongs to something else - the one
+	// inside a terminal's interface - and the endpoint then refuses instead of stopping it.
+	Shutdown func()
 	// NewService builds one more conversation when a client asks for one. Nil means this
 	// gateway serves exactly one conversation, which is a real deployment: the embedded case
 	// where the terminal that started this process is the only front end there will ever be.
@@ -809,6 +815,9 @@ func (s *Server) routes() *http.ServeMux {
 	// the gateway process itself, not any one conversation.
 	mux.Handle("GET /v1/update/check", plain(s.handleUpdateCheck))
 	mux.Handle("POST /v1/update/run", plain(s.handleUpdateRun))
+	// The bearer token specifically, not the browser cookie: stopping the service is the CLI's
+	// job (`gateway stop`), and no page has a reason to do it.
+	mux.Handle("POST /v1/shutdown", requireBearer(s.opts.Token, http.HandlerFunc(s.handleShutdown)))
 
 	mux.Handle("GET /v1/sessions/{id}", scoped(s.handleSession))
 	mux.Handle("GET /v1/sessions/{id}/report", scoped(s.handleSessionReport))
