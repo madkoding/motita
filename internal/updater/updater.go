@@ -61,6 +61,21 @@ const (
 	maxChecksumsSize = 64 << 10
 )
 
+// Network deadlines. There is deliberately no whole-request timeout on the client: a release binary
+// is tens of megabytes, and on a slow link (Termux on a phone, a congested network) a fixed 30 s
+// budget for headers plus body failed every download. Instead the server must answer within
+// headerTimeout, small metadata requests (the release JSON, SHA256SUMS, its signature) get
+// metadataTimeout end to end, and the binary download only fails when no byte arrives for
+// downloadIdleTimeout, however long the whole transfer takes. The caller's ctx still bounds it all.
+const (
+	headerTimeout       = 30 * time.Second
+	metadataTimeout     = 30 * time.Second
+	downloadIdleTimeout = 60 * time.Second
+)
+
+// errDownloadStalled is the cause recorded when a download receives nothing for the idle timeout.
+var errDownloadStalled = errors.New("the download stalled: no data received")
+
 // Release is the information about the latest release that matters to us.
 type Release struct {
 	TagName     string  `json:"tag_name"`     // e.g. "v0.5.0"
@@ -114,6 +129,12 @@ type Updater struct {
 	// AssetHosts are the hosts release files may come from (https only). Nil means
 	// DefaultAssetHosts. Injectable for tests.
 	AssetHosts []string
+	// MetadataTimeout bounds each small request (release JSON, SHA256SUMS, signature) end to end.
+	// Zero means metadataTimeout.
+	MetadataTimeout time.Duration
+	// IdleTimeout aborts the binary download when no data arrives for this long. Zero means
+	// downloadIdleTimeout.
+	IdleTimeout time.Duration
 }
 
 // apiURLFor returns the real GitHub API URL for the latest release.
@@ -143,8 +164,10 @@ func New(version, exePath string) *Updater {
 		APIURL:         apiURLFor,
 		PublicKey:      mustPublicKey(ReleasePublicKey),
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = headerTimeout
 	u.HTTPClient = &http.Client{
-		Timeout: 30 * time.Second,
+		Transport: transport,
 		// A redirect is held to the same rule as the URL it came from: https, to a GitHub host.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
@@ -243,8 +266,19 @@ func (u *Updater) LatestRelease(ctx context.Context) (*Release, error) {
 	return u.fetchLatestRelease(ctx)
 }
 
+// metadataContext bounds one small request end to end.
+func (u *Updater) metadataContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	d := u.MetadataTimeout
+	if d <= 0 {
+		d = metadataTimeout
+	}
+	return context.WithTimeout(ctx, d)
+}
+
 // fetchLatestRelease calls the GitHub Releases API.
 func (u *Updater) fetchLatestRelease(ctx context.Context) (*Release, error) {
+	ctx, cancel := u.metadataContext(ctx)
+	defer cancel()
 	url := apiURLFor()
 	if u.APIURL != nil {
 		url = u.APIURL()
@@ -406,8 +440,31 @@ func (u *Updater) stagingDir() string {
 
 // downloadFile downloads a URL to a local path, reporting progress. More than limit bytes is an
 // error rather than a bigger file.
+//
+// The transfer has no total deadline: it ends when ctx is cancelled, or when nothing arrives for
+// the idle timeout (the watchdog below is re-armed after every read).
 func (u *Updater) downloadFile(
 	ctx context.Context, url string, limit int64, dest string, progress func(ProgressEvent),
+) error {
+	idle := u.IdleTimeout
+	if idle <= 0 {
+		idle = downloadIdleTimeout
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	watchdog := time.AfterFunc(idle, func() { cancel(errDownloadStalled) })
+	defer watchdog.Stop()
+
+	err := u.copyDownload(ctx, url, limit, dest, func() { watchdog.Reset(idle) }, progress)
+	if errors.Is(context.Cause(ctx), errDownloadStalled) {
+		return fmt.Errorf("%w for %s", errDownloadStalled, idle)
+	}
+	return err
+}
+
+// copyDownload does the request and copies the body into dest, calling alive after every read.
+func (u *Updater) copyDownload(
+	ctx context.Context, url string, limit int64, dest string, alive func(), progress func(ProgressEvent),
 ) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -418,6 +475,7 @@ func (u *Updater) downloadFile(
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	alive()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("the download answered %d", resp.StatusCode)
@@ -444,6 +502,7 @@ func (u *Updater) downloadFile(
 		default:
 		}
 		n, readErr := body.Read(buf)
+		alive()
 		if written+int64(n) > limit {
 			return fmt.Errorf("the download is larger than the %d bytes expected", limit)
 		}
@@ -475,6 +534,8 @@ func (u *Updater) downloadFile(
 
 // fetchSmall downloads a small release file whole, refusing one longer than max bytes.
 func (u *Updater) fetchSmall(ctx context.Context, url, name string, max int64) ([]byte, error) {
+	ctx, cancel := u.metadataContext(ctx)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

@@ -283,8 +283,14 @@ func TestNew(t *testing.T) {
 	if u.HTTPClient == nil {
 		t.Error("HTTPClient is nil")
 	}
-	if u.HTTPClient.Timeout != 30*time.Second {
-		t.Errorf("Timeout = %v, want 30s", u.HTTPClient.Timeout)
+	// No whole-request timeout: it would cut a large download on a slow link. The server must
+	// still answer its headers in time.
+	if u.HTTPClient.Timeout != 0 {
+		t.Errorf("Timeout = %v, want none", u.HTTPClient.Timeout)
+	}
+	tr, ok := u.HTTPClient.Transport.(*http.Transport)
+	if !ok || tr.ResponseHeaderTimeout != headerTimeout {
+		t.Errorf("Transport = %#v, want ResponseHeaderTimeout %v", u.HTTPClient.Transport, headerTimeout)
 	}
 	if u.APIURL == nil {
 		t.Error("APIURL is nil")
