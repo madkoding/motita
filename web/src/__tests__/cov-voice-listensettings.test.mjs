@@ -226,8 +226,13 @@ test("with WebGPU the models for the card come first, and say where they run", a
   gw.catalog.runtime.installed = true;
   gw.catalog.models = gw.catalog.models.map((x) => (x.id === "whisper-small-gpu" ? { ...x, installed: true } : x));
   const m = await mount({ listener: "whisper-small-gpu", engine: "local" });
+  // The one in use stays in sight; the rest are folded, the ones for the card first.
   const rows = [...m.root.querySelectorAll("[data-testid^=local-listener-whisper]")].map((r) => r.dataset.testid);
-  assert.deepEqual(rows.slice(0, 2), ["local-listener-whisper-base-gpu", "local-listener-whisper-small-gpu"]);
+  assert.deepEqual(rows.slice(0, 2), ["local-listener-whisper-small-gpu", "local-listener-whisper-base-gpu"]);
+  const list = m.tid("local-listener-list");
+  assert.equal(list.open, false, "the list starts folded");
+  assert.equal(text(list.querySelector("summary")), "Every model (4)");
+  assert.equal(list.querySelector("[data-testid=local-listener-whisper-small-gpu]"), null);
   assert.match(text(m.tid("local-listener-whisper-small-gpu")), /Whisper small · WebGPU ?High quality · 80 MB · Recommended/);
   await tell({ kind: "ready", id: "whisper-small-gpu", gpu: true });
   assert.match(text(m.tid("local-listener-whisper-small-gpu")), /on the graphics card/);

@@ -538,7 +538,7 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
     },
   });
   let v = await open({
-    tab: "voice",
+    tab: "speech",
     speech: speech(true, [{ voiceURI: "ana", name: "Ana", lang: "es-CL" }]),
   });
   const card = v.root.querySelector(SPEECH_CARD);
@@ -566,11 +566,11 @@ test("read aloud: when, which voice, how fast and how much, and a button to try 
   assert.equal(tried, 1);
   await v.done();
 
-  v = await open({ tab: "voice", speech: speech(true, []) });
+  v = await open({ tab: "speech", speech: speech(true, []) });
   assert.match(v.root.textContent, /no voice for the interface language/);
   await v.done();
 
-  v = await open({ tab: "voice", speech: speech(false, []) });
+  v = await open({ tab: "speech", speech: speech(false, []) });
   const off = v.root.querySelector(SPEECH_CARD);
   assert.match(off.textContent, /cannot read aloud/);
   assert.equal(off.querySelector("select").disabled, true);
@@ -604,7 +604,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     langVoices: {},
     pronunciations: [],
   };
-  let v = await open({ tab: "voice", speech: speech(base) });
+  let v = await open({ tab: "speech", speech: speech(base) });
   let card = v.root.querySelector(SPEECH_CARD);
   assert.equal(radio(card, "settings-speech-engine", "device").checked, true);
   assert.match(card.textContent, /System voices: The voices this device or browser already has. Nothing leaves the browser./);
@@ -621,7 +621,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
   await v.done();
 
   v = await open({
-    tab: "voice",
+    tab: "speech",
     speech: speech({ ...base, engine: "gateway" }),
   });
   card = v.root.querySelector(SPEECH_CARD);
@@ -647,7 +647,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
   await v.done();
 
   // A device without voices of its own uses the gateway, with nothing to choose.
-  v = await open({ tab: "voice", speech: speech(base, false) });
+  v = await open({ tab: "speech", speech: speech(base, false) });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(card.querySelector("[name=settings-speech-engine]"), null);
   assert.deepEqual(
@@ -688,11 +688,14 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
     test: () => {},
     canListen,
   });
-  let v = await open({ tab: "voice", speech: speech(base, false) });
+  let v = await open({ tab: "speech", speech: speech(base, false) });
   let card = v.root.querySelector(SPEECH_CARD);
   const sw = (name) => card.querySelector(`input[name=${name}]`);
   assert.equal(sw(CONVERSATION_SWITCH).disabled, true);
   assert.match(card.textContent, /Needs speech input/);
+  const otherOff = card.querySelector("[aria-labelledby=settings-speech-other-voice]");
+  assert.equal(otherOff.disabled, true, "shown, but waits for a voice per language");
+  assert.match(card.textContent, /Needs a voice per language on/);
   await act(() => sw("settings-speech-notices").click());
   assert.deepEqual(saved.pop(), { ...base, notices: true });
   await act(() => sw("settings-speech-bylang").click());
@@ -711,7 +714,7 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
   await v.done();
 
   v = await open({
-    tab: "voice",
+    tab: "speech",
     speech: speech({ ...base, byLanguage: true }, true),
   });
   card = v.root.querySelector(SPEECH_CARD);
@@ -739,6 +742,13 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
     other.dispatchEvent(new window.Event("change", { bubbles: true })),
   );
   assert.deepEqual(saved.pop().langVoices, langVoices);
+  await v.done();
+
+  // Nothing read aloud, nothing to answer: conversation waits for it.
+  v = await open({ tab: "speech", speech: speech({ ...base, mode: "off" }, true) });
+  card = v.root.querySelector(SPEECH_CARD);
+  assert.equal(sw(CONVERSATION_SWITCH).disabled, true);
+  assert.match(card.textContent, /Needs answers read aloud/);
   await v.done();
 });
 
@@ -994,21 +1004,20 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
     voices: [],
     test: () => {},
   });
-  let v = await open({ tab: "voice", speech: speech(base) });
+  let v = await open({ tab: "speech", speech: speech(base) });
   let card = v.root.querySelector(SPEECH_CARD);
   const sw = card.querySelector(SUBTITLES_SWITCH);
   assert.equal(sw.checked, false, "off unless asked");
   assert.match(card.textContent, /like a film's subtitles/);
-  assert.equal(
-    card.querySelector("[name=settings-speech-subtitle-size]"),
-    null,
-    "no size while they are off",
-  );
+  for (const r of card.querySelectorAll("[name=settings-speech-subtitle-size]")) {
+    assert.equal(r.disabled, true, "no size while they are off");
+  }
+  assert.match(card.textContent, /Needs subtitles on/);
   await act(() => sw.click());
   assert.deepEqual(saved.pop(), { ...base, subtitles: true });
   await v.done();
 
-  v = await open({ tab: "voice", speech: speech({ ...base, subtitles: true }) });
+  v = await open({ tab: "speech", speech: speech({ ...base, subtitles: true }) });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(
     card.querySelector(SUBTITLES_SWITCH).checked,
@@ -1020,9 +1029,9 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
   await v.done();
 
   // A browser that cannot speak has nothing to subtitle.
-  v = await open({ tab: "voice", speech: speech({ ...base, subtitles: true }, false) });
+  v = await open({ tab: "speech", speech: speech({ ...base, subtitles: true }, false) });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(card.querySelector(SUBTITLES_SWITCH).disabled, true);
-  assert.equal(card.querySelector("[name=settings-speech-subtitle-size]"), null);
+  assert.equal(card.querySelector("[name=settings-speech-subtitle-size]").disabled, true);
   await v.done();
 });

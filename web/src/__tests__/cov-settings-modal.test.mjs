@@ -111,7 +111,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     push: { api },
   };
   const m = await mount(props);
-  assert.deepEqual(m.tabs(), ["appearance", "notifications", "voice", "security", "network", "providers", "models", "git"]);
+  assert.deepEqual(m.tabs(), ["appearance", "notifications", "voice", "speech", "security", "network", "providers", "models", "git"]);
   const shown = {};
   for (const id of m.tabs()) {
     click(m.root.querySelector(`#settings-tab-${id}`));
@@ -120,7 +120,8 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     shown[id] = m.pane();
   }
   assert.equal(text(shown.notifications), "push");
-  assert.equal(text(shown.voice), "voice inspeech out");
+  assert.equal(text(shown.voice), "voice in");
+  assert.equal(text(shown.speech), "speech out");
   assert.ok(shown.security.querySelector("[data-testid=security-setting]"));
   assert.ok(shown.network.querySelector("[data-testid=network-setting]"));
   assert.ok(shown.providers.querySelector("[data-testid=provider-settings]"));
@@ -128,17 +129,20 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
   assert.equal(text(shown.git), "git hosts");
   await m.unmount();
 
-  // Voice alone, and speech alone, each give the voice tab.
-  for (const [p, want] of [[{ voice: { label: "only voice" } }, "only voice"], [{ speech: { label: "only speech" } }, "only speech"]]) {
-    const n = await mount({ ...p, tab: "voice" });
-    assert.deepEqual(n.tabs(), ["appearance", "notifications", "voice"]);
+  // Voice alone, and speech alone, each give their own tab.
+  for (const [p, tab, want] of [
+    [{ voice: { label: "only voice" } }, "voice", "only voice"],
+    [{ speech: { label: "only speech" } }, "speech", "only speech"],
+  ]) {
+    const n = await mount({ ...p, tab });
+    assert.deepEqual(n.tabs(), ["appearance", "notifications", tab]);
     assert.equal(text(n.pane()), want);
     await n.unmount();
   }
 });
 
 test("the dialog opens on the tab asked for; a tab whose section is absent shows nothing", async () => {
-  for (const tab of ["security", "network", "providers", "models", "git"]) {
+  for (const tab of ["voice", "speech", "security", "network", "providers", "models", "git"]) {
     const m = await mount({ tab });
     assert.equal(m.pane().getAttribute("aria-labelledby"), `settings-tab-${tab}`);
     assert.equal(m.pane().innerHTML, "");

@@ -846,7 +846,7 @@ export function VoiceSettings({
   return (
     <section class="settings-group" aria-labelledby="settings-voice-h">
       <h3 id="settings-voice-h" class="settings-group-title">
-        {t("Voice")}
+        {t("Voice input")}
       </h3>
       <div class="settings-card" data-testid="voice-setting">
         {askable && mic.permission && !allowed && (

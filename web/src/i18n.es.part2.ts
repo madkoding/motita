@@ -415,8 +415,12 @@ const more: Record<string, string> = {
   Conversation: "Conversación",
   "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.":
     "Después de leer la respuesta a algo que dijiste, Motita vuelve a escuchar y envía lo que digas. Di “basta” o toca el micrófono para terminar.",
-  "Needs speech input: turn it on above.":
-    "Necesita la entrada de voz: actívala más arriba.",
+  "Needs speech input: turn it on in Voice input.":
+    "Necesita la entrada de voz: actívala en Entrada de voz.",
+  "Needs answers read aloud: choose when above.":
+    "Necesita leer las respuestas en voz alta: elige cuándo más arriba.",
+  "Needs subtitles on.": "Necesita los subtítulos activados.",
+  "Needs a voice per language on.": "Necesita activar una voz por idioma.",
   "Voice notices": "Avisos por voz",
   "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.":
     "Dice el CI de un pull request y las preguntas que espera el agente, mientras esta pestaña está visible.",
@@ -481,6 +485,10 @@ const more: Record<string, string> = {
   Processor: "Procesador",
   "on the graphics card": "en la tarjeta gráfica",
   Recommended: "Recomendado",
+  "Voice input": "Entrada de voz",
+  "Voice output": "Salida de voz",
+  "Every model ({n})": "Todos los modelos ({n})",
+  "Every voice ({n})": "Todas las voces ({n})",
 };
 
 export default more;

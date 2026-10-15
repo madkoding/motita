@@ -18,7 +18,7 @@ import {
 import { isChatterbox, isSupertonic } from "./localVoiceCore";
 import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
-import { inputCls, primaryBtn, smallBtn } from "./SettingsControls";
+import { Collapsed, inputCls, primaryBtn, smallBtn } from "./SettingsControls";
 
 // How often the catalog is read again while a voice downloads.
 export const DOWNLOAD_POLL_MS = 1000;
@@ -291,6 +291,24 @@ export function LocalVoices({
   const voices = catalog.models.filter((m) => m.engine !== "chatterbox" || webGPU);
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   const visible = listed(voices, languages, filters, [chosen, dl?.id]);
+  // The voice in use and the one downloading stay in sight; the rest wait folded, with the filters.
+  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl.id === m.id);
+  const pinned = visible.filter(inSight);
+  const rest = visible.filter((m) => !inSight(m));
+  const row = (m: LocalModel) => (
+    <VoiceRow
+      key={m.id}
+      m={m}
+      chosen={chosen}
+      pick={pick}
+      loading={loading}
+      dl={dl}
+      busy={busy}
+      sample={sample}
+      act={act}
+      api={api}
+    />
+  );
   return (
     <div class="flex flex-col gap-2 w-full" data-testid="local-voices">
       {!catalog.runtime.installed && (
@@ -300,51 +318,41 @@ export function LocalVoices({
           })}
         </div>
       )}
-      <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
-        <select
-          class={inputCls}
-          aria-label={t("Language")}
-          data-testid="local-voice-language"
-          value={language}
-          onChange={(e) => filter({ language: (e.target as HTMLSelectElement).value })}
-        >
-          <option value="">{t("Every language")}</option>
-          {languages.map((code) => (
-            <option key={code} value={code}>
-              {langName(code)}
-            </option>
-          ))}
-        </select>
-        <select
-          class={inputCls}
-          aria-label={t("Quality")}
-          data-testid="local-voice-quality"
-          value={quality}
-          onChange={(e) => filter({ quality: (e.target as HTMLSelectElement).value })}
-        >
-          <option value="">{t("Every quality")}</option>
-          {QUALITY_FILTERS.map((q) => (
-            <option key={q} value={q}>
-              {qualityLabel(q)}
-            </option>
-          ))}
-        </select>
-      </div>
-      {visible.length === 0 && <div class="text-xs text-[#7a7a8c]">{t("No voice matches these filters.")}</div>}
-      {visible.map((m) => (
-        <VoiceRow
-          key={m.id}
-          m={m}
-          chosen={chosen}
-          pick={pick}
-          loading={loading}
-          dl={dl}
-          busy={busy}
-          sample={sample}
-          act={act}
-          api={api}
-        />
-      ))}
+      {pinned.map(row)}
+      <Collapsed label={tf("Every voice ({n})", { n: String(voices.length) })} testid="local-voice-list">
+        <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
+          <select
+            class={inputCls}
+            aria-label={t("Language")}
+            data-testid="local-voice-language"
+            value={language}
+            onChange={(e) => filter({ language: (e.target as HTMLSelectElement).value })}
+          >
+            <option value="">{t("Every language")}</option>
+            {languages.map((code) => (
+              <option key={code} value={code}>
+                {langName(code)}
+              </option>
+            ))}
+          </select>
+          <select
+            class={inputCls}
+            aria-label={t("Quality")}
+            data-testid="local-voice-quality"
+            value={quality}
+            onChange={(e) => filter({ quality: (e.target as HTMLSelectElement).value })}
+          >
+            <option value="">{t("Every quality")}</option>
+            {QUALITY_FILTERS.map((q) => (
+              <option key={q} value={q}>
+                {qualityLabel(q)}
+              </option>
+            ))}
+          </select>
+        </div>
+        {rest.length === 0 && <div class="text-xs text-[#7a7a8c]">{t("No voice matches these filters.")}</div>}
+        {rest.map(row)}
+      </Collapsed>
       {isSupertonic(chosen) && loading?.gpuError && (
         <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
           {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: loading.gpuError })}

@@ -8,7 +8,7 @@ import { forGPU, listenStateOf, onListenState, warmListener } from "./localListe
 import { DOWNLOAD_POLL_MS, megabytes, qualityLabel, useWebGPU } from "./LocalVoiceSettings";
 import type { VoicePrefs } from "./voice";
 import type { Api } from "./prApi";
-import { Row, primaryBtn, selectCls, smallBtn } from "./SettingsControls";
+import { Collapsed, Row, primaryBtn, selectCls, smallBtn } from "./SettingsControls";
 
 // LISTEN_LANGUAGES are the languages the settings offer to say which one is spoken; Whisper
 // knows many more, and tells them apart itself with "".
@@ -132,6 +132,24 @@ export function LocalListening({
       </div>
     );
   }
+  // The model in use and the one downloading stay in sight; the rest wait folded.
+  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl.id === m.id);
+  const pinned = models.filter(inSight);
+  const rest = models.filter((m) => !inSight(m));
+  const row = (m: LocalModel) => (
+    <ListenerRow
+      key={m.id}
+      m={m}
+      chosen={chosen}
+      pick={pick}
+      loading={loading}
+      dl={dl}
+      busy={busy}
+      act={act}
+      api={api}
+      recommended={m.id === recommendedFor(webGPU)}
+    />
+  );
   const alerts = [
     { kind: "download", text: choose(dl?.error, tf("The download failed: {error}", { error: dl?.error ?? "" }), "") },
     {
@@ -156,20 +174,10 @@ export function LocalListening({
               {tf("The first download adds {size} for the engine.", { size: megabytes(catalog.runtime.size) })}
             </div>
           )}
-          {models.map((m) => (
-            <ListenerRow
-              key={m.id}
-              m={m}
-              chosen={chosen}
-              pick={pick}
-              loading={loading}
-              dl={dl}
-              busy={busy}
-              act={act}
-              api={api}
-              recommended={m.id === recommendedFor(webGPU)}
-            />
-          ))}
+          {pinned.map(row)}
+          <Collapsed label={tf("Every model ({n})", { n: String(rest.length) })} testid="local-listener-list">
+            {rest.map(row)}
+          </Collapsed>
           {forGPU(chosen) && loading.gpuError && (
             <div class="text-xs text-[#7a7a8c]" data-testid="local-listener-gpu-note">
               {tf("WebGPU could not start here ({reason}): the model runs on the processor.", {
