@@ -134,6 +134,17 @@ var argumentRules = map[string]func([]string) (string, bool){
 		}
 		return "", false
 	},
+	"file": func(args []string) (string, bool) {
+		// `file -C` (`--compile`) writes a compiled magic file, `magic.mgc`, into the current
+		// directory. getopt_long takes any unambiguous abbreviation (`--comp`), and the short
+		// option clusters (`-bC`).
+		for _, a := range args {
+			if shortClusterHas(a, "C") || longOptionAbbrev(a, "--compile", len("--co")) {
+				return fmt.Sprintf("file %s compiles a magic file and writes it", a), true
+			}
+		}
+		return "", false
+	},
 	"uniq": func(args []string) (string, bool) {
 		// `uniq [OPTION]... [INPUT [OUTPUT]]`: a SECOND operand is an output file.
 		if len(positionals("uniq", args)) >= 2 {

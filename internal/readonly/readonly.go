@@ -53,6 +53,12 @@ func Check(command string, args []string) Decision {
 		}
 	}
 
+	// A network path is refused before the kind is looked at: a reader handed one is a connection
+	// to another machine (see windowsNetworkPaths).
+	if d, hit := networkPathRefusal(args); hit {
+		return d
+	}
+
 	switch kind {
 	case KindReader:
 		return Decision{true, reason}
