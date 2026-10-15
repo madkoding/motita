@@ -402,9 +402,11 @@ func TestTheMainRepositoryMovesToAFolderOfItsOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, p := detachMain(t, srv, id)
-	if code != http.StatusOK || p.GitURL != "" || len(p.Repos) != 2 || p.Repos[0].Name != "proj" ||
-		p.Repos[1].Name != "web-client" {
+	if code != http.StatusOK || p.GitURL != "" || len(p.Repos) != 2 {
 		t.Fatalf("moving the main repository: %d %+v", code, p)
+	}
+	if p.Repos[0].Name != "proj" || p.Repos[1].Name != "web-client" {
+		t.Fatalf("the moved repository comes first: %+v", p.Repos)
 	}
 	moved := filepath.Join(projectDir, "proj")
 	if p.Repos[0].Dir != moved || gitx.Repo(context.Background(), moved) != nil {
