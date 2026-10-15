@@ -72,7 +72,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 		p.Repos[0].MainBranch != "main" {
 		t.Fatalf("adding a repository: %d %+v", code, p)
 	}
-	clone := filepath.Join(projectDir, gitx.ReposDir, "web-client")
+	clone := filepath.Join(projectDir, "web-client")
 	if p.Repos[0].Dir != clone || gitx.Repo(context.Background(), clone) != nil {
 		t.Fatalf("the repository is cloned inside the project: %q", p.Repos[0].Dir)
 	}
@@ -82,7 +82,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	}
 	// The session already open gets a worktree of it, on its own branch.
 	ws := convNamed(t, srv, sessionID).workspaceDir()
-	wt := filepath.Join(ws, gitx.ReposDir, "web-client")
+	wt := filepath.Join(ws, "web-client")
 	if got := gitx.Display(context.Background(), wt); got != sessionBranch(sessionID) {
 		t.Errorf("the session's worktree of the repository is on %q", got)
 	}
@@ -113,7 +113,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	var second SessionStatus
 	_ = json.Unmarshal(created.Body.Bytes(), &second)
 	if _, ok, _ := gitx.LiveWorktreeAt(context.Background(), clone,
-		filepath.Join(second.Workspace, gitx.ReposDir, "web-client")); !ok {
+		filepath.Join(second.Workspace, "web-client")); !ok {
 		t.Errorf("a new session must get a worktree of every repository: %s", created.Body)
 	}
 }
@@ -152,8 +152,8 @@ func TestRemovingARepositoryFromAProject(t *testing.T) {
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"lib"}`); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
-	clone := filepath.Join(projectDir, gitx.ReposDir, "lib")
-	wt := filepath.Join(convNamed(t, srv, sessionID).workspaceDir(), gitx.ReposDir, "lib")
+	clone := filepath.Join(projectDir, "lib")
+	wt := filepath.Join(convNamed(t, srv, sessionID).workspaceDir(), "lib")
 	remove := func(path string) int {
 		return send(t, srv, http.MethodDelete, path, testToken, "").Code
 	}
@@ -207,13 +207,13 @@ func TestDeletingASessionGivesBackItsOtherRepositories(t *testing.T) {
 		t.Fatalf("adding: %d", code)
 	}
 	clone := srv.projectOf(id).Repos[0].Dir
-	wt := filepath.Join(convNamed(t, srv, sessionID).workspaceDir(), gitx.ReposDir, "lib")
+	wt := filepath.Join(convNamed(t, srv, sessionID).workspaceDir(), "lib")
 	if err := os.WriteFile(filepath.Join(wt, "new.txt"), []byte("work\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The preview names the work in the other repository, under its folder.
 	w := get(t, srv, sessionPath(srv, sessionID, "/deletion-preview"), testToken)
-	if !strings.Contains(w.Body.String(), filepath.Join(gitx.ReposDir, "lib", "new.txt")) {
+	if !strings.Contains(w.Body.String(), filepath.Join("lib", "new.txt")) {
 		t.Fatalf("the preview must list the other repository's changes: %s", w.Body)
 	}
 	if w := send(t, srv, http.MethodDelete, sessionPath(srv, sessionID, ""), testToken, ""); w.Code !=
@@ -252,7 +252,7 @@ func TestAttachingARepositoryThatCannotBranch(t *testing.T) {
 	ws := t.TempDir()
 	p := &Project{Dir: t.TempDir(), Repos: []ProjectRepo{{Name: "empty", Dir: t.TempDir()}}}
 	srv.attachProjectRepos(context.Background(), p, ws, "s1")
-	if _, err := os.Stat(filepath.Join(ws, gitx.ReposDir, "empty")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(ws, "empty")); !os.IsNotExist(err) {
 		t.Errorf("a repository that cannot branch is skipped: %v", err)
 	}
 	srv.attachProjectRepos(context.Background(), nil, ws, "s1") // no project: nothing to do
@@ -272,11 +272,11 @@ func (n *noteService) SetProjectNote(note string) { n.note = note }
 func TestTheAgentIsToldAboutTheOtherRepositories(t *testing.T) {
 	svc := &noteService{}
 	applyRuntimeTo(svc, &Project{}, "")
-	if strings.Contains(svc.note, gitx.ReposDir) {
+	if strings.Contains(svc.note, "git repository") {
 		t.Errorf("a one-repository project names no other repository: %q", svc.note)
 	}
 	applyRuntimeTo(svc, &Project{Repos: []ProjectRepo{{Name: "api", GitURL: "https://x/api.git"}}}, "")
-	if !strings.Contains(svc.note, gitx.ReposDir+"/api (https://x/api.git)") {
+	if !strings.Contains(svc.note, "- api (https://x/api.git)") {
 		t.Errorf("the note must name each repository: %q", svc.note)
 	}
 }
@@ -289,7 +289,7 @@ func TestTheIntegrationTaskNamesTheOtherRepositories(t *testing.T) {
 	}
 	ws := convNamed(t, srv, sessionID).workspaceDir()
 	note := otherReposMergeNote(srv.projectOf(id), ws, sessionBranch(sessionID))
-	if !strings.Contains(note, filepath.Join(ws, gitx.ReposDir, "lib")) {
+	if !strings.Contains(note, filepath.Join(ws, "lib")) {
 		t.Errorf("the task must name the worktree of each repository: %q", note)
 	}
 	if otherReposMergeNote(&Project{}, ws, "b") != "" {
@@ -328,5 +328,40 @@ func TestTheAgentIsToldWhichProjectItWorksIn(t *testing.T) {
 	}
 	if n := projectScopeNote(&Project{Title: "T"}, ""); !strings.Contains(n, `"T"`) || strings.Contains(n, "Its root") {
 		t.Errorf("without a directory the note names only the project: %q", n)
+	}
+}
+
+// A repository cloned before repositories became plain folders keeps its place in every session.
+func TestARepositoryClonedUnderTheOldFolderKeepsItsPlace(t *testing.T) {
+	p := &Project{Dir: "/proj", Repos: []ProjectRepo{
+		{Name: "old", Dir: filepath.Join("/proj", gitx.ReposDir, "old")},
+		{Name: "new", Dir: filepath.Join("/proj", "new")},
+		{Name: "stray", Dir: "/elsewhere/stray"},
+	}}
+	want := []string{filepath.Join(gitx.ReposDir, "old"), "new", "stray"}
+	for i, repo := range p.Repos {
+		if got := repo.relPath(p.Dir); got != want[i] {
+			t.Errorf("%s sits at %q, want %q", repo.Name, got, want[i])
+		}
+	}
+	if got := sessionRepoPath("/ws", p, p.Repos[0]); got != filepath.Join("/ws", gitx.ReposDir, "old") {
+		t.Errorf("a session finds the old clone at %q", got)
+	}
+	note := projectReposNote(p)
+	for _, line := range []string{"- .motita-repos/old (", "- new (", "- stray ("} {
+		if !strings.Contains(note, line) {
+			t.Errorf("the note must say %q: %q", line, note)
+		}
+	}
+}
+
+func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
+	srv, projectDir, _ := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+	if err := os.MkdirAll(filepath.Join(projectDir, "taken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"taken"}`); code != http.StatusConflict {
+		t.Errorf("a repository over an existing folder: %d", code)
 	}
 }

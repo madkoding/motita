@@ -16,13 +16,14 @@ import (
 // A project is not always one repository: a service and its web client, a library and the app
 // that uses it. The project's own folder (Project.Dir) stays its MAIN repository, the first of
 // the list, and everything that already worked on it keeps working on it. The others are
-// cloned INSIDE it, under gitx.ReposDir, so a session confined to its own checkout can reach
-// them: a session with a worktree gets a worktree of each one at the same place inside its own,
-// on the session's branch, and gives them back with it.
+// cloned INSIDE it, as plain folders (`<project>/<name>`), so a session confined to its own
+// checkout can reach them: a session with a worktree gets a worktree of each one at the same place
+// inside its own, on the session's branch, and gives them back with it. The ones cloned before
+// that, under gitx.ReposDir, stay where they are.
 
 // ProjectRepo is one of a project's other repositories.
 type ProjectRepo struct {
-	// Name is the repository's folder under gitx.ReposDir, and what the user calls it.
+	// Name is the repository's folder name, and what the user calls it.
 	Name   string `json:"name"`
 	GitURL string `json:"git_url"`
 	Dir    string `json:"dir"`
@@ -55,9 +56,18 @@ func (p *Project) repoIndex(name string) int {
 	return slices.IndexFunc(p.Repos, func(r ProjectRepo) bool { return r.Name == name })
 }
 
-// sessionRepoPath is where a session that runs in workspace finds the project's repository name.
-func sessionRepoPath(workspace, name string) string {
-	return filepath.Join(workspace, gitx.ReposDir, name)
+// relPath is where the repository sits inside the project's folder, and so inside every session's
+// worktree of it: its name, or under gitx.ReposDir for a repository cloned there before.
+func (r ProjectRepo) relPath(projectDir string) string {
+	if rel, err := filepath.Rel(projectDir, r.Dir); err == nil && rel != "." && filepath.IsLocal(rel) {
+		return rel
+	}
+	return r.Name
+}
+
+// sessionRepoPath is where a session that runs in workspace finds the project's repository repo.
+func sessionRepoPath(workspace string, p *Project, repo ProjectRepo) string {
+	return filepath.Join(workspace, repo.relPath(p.Dir))
 }
 
 // handleAddProjectRepo clones one more repository into a project. The body carries git_url
@@ -91,7 +101,12 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	default:
 		// A URL and a free folder name: the clone can start.
 	}
-	dest := filepath.Join(p.Dir, gitx.ReposDir, name)
+	dest := filepath.Join(p.Dir, name)
+	if _, err := os.Lstat(dest); err == nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("the project already has a folder called %q: "+
+			"choose another name for the repository", name))
+		return
+	}
 	if _, err := cloneGitRepo(gitURL, dest, s.gitCommandEnv()); err != nil {
 		s.writeCloneError(w, gitURL, err)
 		return
@@ -161,7 +176,7 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 func (s *Server) sessionWorktreesOf(ctx context.Context, p *Project, repo ProjectRepo) []string {
 	var worktrees []string
 	for _, c := range s.sessionsOfProject(p.ID) {
-		path := sessionRepoPath(c.workspaceDir(), repo.Name)
+		path := sessionRepoPath(c.workspaceDir(), p, repo)
 		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
 			worktrees = append(worktrees, path)
 		}
@@ -190,7 +205,7 @@ func (s *Server) attachProjectRepos(ctx context.Context, p *Project, workspace, 
 		return
 	}
 	for _, repo := range p.Repos {
-		path := sessionRepoPath(workspace, repo.Name)
+		path := sessionRepoPath(workspace, p, repo)
 		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
 			continue
 		}
@@ -214,7 +229,7 @@ func sessionRepoWorktrees(ctx context.Context, p *Project, workspace string) [][
 		return out
 	}
 	for _, repo := range p.Repos {
-		path := sessionRepoPath(workspace, repo.Name)
+		path := sessionRepoPath(workspace, p, repo)
 		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
 			out = append(out, [2]string{repo.Dir, path})
 		}
@@ -270,13 +285,13 @@ func projectReposNote(p *Project) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\nThis project has more than one git repository. The folder you work in is the main one; " +
-		"each other repository is a checkout of its own, with its own history, at:")
+	b.WriteString("\n\nThis project has more than one git repository. The folder you work in holds them: " +
+		"each other repository is a checkout of its own, with its own history, in a folder of it:")
 	for _, repo := range p.Repos {
-		fmt.Fprintf(&b, "\n- %s/%s (%s)", gitx.ReposDir, repo.Name, repo.GitURL)
+		fmt.Fprintf(&b, "\n- %s (%s)", filepath.ToSlash(repo.relPath(p.Dir)), repo.GitURL)
 	}
 	b.WriteString("\nRun git inside the repository you changed, and commit each one on its own. " +
-		"The main repository ignores the " + gitx.ReposDir + " folder.")
+		"The project's own repository ignores these folders.")
 	return b.String()
 }
 
