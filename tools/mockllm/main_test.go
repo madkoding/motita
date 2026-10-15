@@ -397,7 +397,8 @@ func TestPlanModeIsAskedToRunACommandThenAnswers(t *testing.T) {
 		return rec.Body.String()
 	}
 	first := ask(`{"stream":true,` + tools + `,"messages":[{"role":"user","content":"hi"}]}`)
-	for _, want := range []string{"reasoning_content", "Let me look", `"name":"execute_command"`, "ls -la", "tool_calls", "[DONE]"} {
+	wants := []string{"reasoning_content", "Let me look", `"name":"execute_command"`, "ls -la", "tool_calls", "[DONE]"}
+	for _, want := range wants {
 		if !strings.Contains(first, want) {
 			t.Errorf("first round lacks %q: %s", want, first)
 		}
