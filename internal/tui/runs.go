@@ -248,6 +248,15 @@ func (s *planStream) handle(line string) {
 	if s.tui.takeAgents(line) {
 		return
 	}
+	if label, isStep, keep := planStepLabel(line); isStep {
+		// A plan's commands and reasoning are reported as a task's are, for the web's drawers.
+		// Here a command is a tool line like any other, and its output and the reasoning are
+		// not part of the answer.
+		if keep {
+			s.handle("[using tool: " + label + "]")
+		}
+		return
+	}
 	if _, isPhase := phaseLabel(line); isPhase {
 		// A phase is shown as movement (the spinner and the marker on the open
 		// block), never as answer text: the block stays empty until real output
@@ -267,6 +276,18 @@ func (s *planStream) handle(line string) {
 	}
 	s.text += line
 	s.tui.messages[s.pendingIdx].Text = s.text
+}
+
+// planStepLabel reads a line a plan reports as a task step. isStep says it is one; keep says it
+// is shown, as a tool line with the label: a command is, its output and the reasoning are not.
+func planStepLabel(line string) (label string, isStep, keep bool) {
+	if command, ok := strings.CutPrefix(line, "running: "); ok {
+		return "execute_command " + command, true, true
+	}
+	if strings.HasPrefix(line, "output (exit ") || strings.HasPrefix(line, agent.ThinkingPrefix) {
+		return "", true, false
+	}
+	return "", false, false
 }
 
 // actionLabel is the counter line shown instead of each command.
