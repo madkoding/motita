@@ -14,7 +14,10 @@ func TestSandboxApparmorIsParsed(t *testing.T) {
 			t.Errorf("%s: %+v, %v", action, fl, err)
 		}
 	}
-	for _, bad := range [][]string{{"sandbox"}, {"sandbox", "apparmor"}, {"sandbox", "selinux", "print"}, {"sandbox", "apparmor", "wipe"}} {
+	bads := [][]string{
+		{"sandbox"}, {"sandbox", "apparmor"}, {"sandbox", "selinux", "print"}, {"sandbox", "apparmor", "wipe"},
+	}
+	for _, bad := range bads {
 		if _, err := parse(bad); err == nil || !strings.Contains(err.Error(), "sandbox apparmor <print|install|remove>") {
 			t.Errorf("%v: %v", bad, err)
 		}
@@ -32,8 +35,14 @@ func TestSandboxApparmorCommands(t *testing.T) {
 		var out, errb bytes.Buffer
 		code := Run(Options{
 			Args: []string{"sandbox", "apparmor", action}, Out: &out, Err: &errb, ExePath: exe,
-			InstallAppArmor: func(e string) error { installed = e; return installErr },
-			RemoveAppArmor:  func() error { removed++; return removeErr },
+			InstallAppArmor: func(e string) error {
+				installed = e
+				return installErr
+			},
+			RemoveAppArmor: func() error {
+				removed++
+				return removeErr
+			},
 		})
 		return code, out.String(), errb.String()
 	}

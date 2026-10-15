@@ -23,7 +23,7 @@ var appArmorHooks = struct {
 	remove:    os.Remove,
 	stat:      os.Stat,
 	run: func(name string, args ...string) ([]byte, error) {
-		// nosemgrep: dangerous-exec-command -- the program is the fixed apparmor_parser, the arguments a fixed flag and our own profile path.
+		// nosemgrep: dangerous-exec-command -- fixed program, flag and profile path.
 		return exec.Command(name, args...).CombinedOutput()
 	},
 	readLabel: func() ([]byte, error) { return os.ReadFile("/proc/self/attr/current") },

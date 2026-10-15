@@ -27,7 +27,10 @@ func stubAppArmor(t *testing.T, euid int) *appArmorCalls {
 		calls.written[name] = string(data)
 		return nil
 	}
-	appArmorHooks.remove = func(name string) error { calls.removed = append(calls.removed, name); return nil }
+	appArmorHooks.remove = func(name string) error {
+		calls.removed = append(calls.removed, name)
+		return nil
+	}
 	appArmorHooks.stat = func(string) (os.FileInfo, error) { return nil, nil }
 	appArmorHooks.run = func(name string, args ...string) ([]byte, error) {
 		calls.ran = append(calls.ran, name+" "+strings.Join(args, " "))
