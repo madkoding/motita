@@ -299,8 +299,10 @@ test("an answer that asked carries its questions and the request they are about"
   await send("done", { result: "which?", questions });
   assert.equal(rs().messages[1].origin, "add login");
   await send("done", { result: "ok", questions: [] });
-  assert.equal(rs().messages[3].questions, undefined, "an empty list asks nothing");
-  assert.equal(rs().messages[3].origin, undefined);
+  const last = rs().messages[rs().messages.length - 1];
+  assert.equal(last.text, "ok");
+  assert.equal(last.questions, undefined, "an empty list asks nothing");
+  assert.equal(last.origin, undefined);
   await hook.unmount();
 });
 
