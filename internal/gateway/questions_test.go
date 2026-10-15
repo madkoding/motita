@@ -53,7 +53,8 @@ func TestQuestionAnswersAreKeptWithTheTurn(t *testing.T) {
 	dir := t.TempDir()
 	srv := newTestServer(t, askingService(), func(o *Options) { o.SessionDir = dir })
 	runTask(t, srv, "add login")
-	if got := questionAnswerReq(t, srv, "0", `{"answers":["GitHub",""],"request":"add login\n\nanswers"}`); got != http.StatusOK {
+	body := `{"answers":["GitHub",""],"request":"add login\n\nanswers"}`
+	if got := questionAnswerReq(t, srv, "0", body); got != http.StatusOK {
 		t.Fatalf("answering = %d", got)
 	}
 	if err := srv.Close(context.Background()); err != nil {

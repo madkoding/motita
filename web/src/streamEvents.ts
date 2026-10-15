@@ -273,8 +273,14 @@ function questionsOf(
   if (!hasQuestions(questions)) {
     return {};
   }
-  const asked = prev.filter((m) => m.role === "user").pop();
-  return { questions, origin: asked?.text ?? "" };
+  // The last user message, found by hand: findLast is newer than the ES2020 the build targets.
+  let origin = "";
+  for (const m of prev) {
+    if (m.role === "user") {
+      origin = m.text;
+    }
+  }
+  return { questions, origin };
 }
 
 function onError({ rs, finish }: StreamContext, payload: StreamPayload) {

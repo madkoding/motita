@@ -46,8 +46,7 @@ import {
   ActivityLine,
   ChangesCard,
   RunArtifacts,
-  Trail,
-  TurnHead,
+  TurnTop,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
@@ -334,10 +333,13 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
   return (
     <div class="turn">
-      {head && (
-        <TurnHead head={head} turn={g.turn} liveHere={liveHere} mode={mode} />
-      )}
-      {trail.length > 0 && <Trail steps={trail} liveHere={liveHere} />}
+      <TurnTop
+        head={head}
+        turn={g.turn}
+        liveHere={liveHere}
+        mode={mode}
+        steps={trail}
+      />
       {rest.map((m) => (
         <MessageItem key={m.id} m={m} auto={mode !== null} />
       ))}

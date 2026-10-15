@@ -6,7 +6,7 @@ import { choose } from "./choose";
 import { useTurn } from "./turnView";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
-import { ActionTrail } from "./ActionTrail";
+import { ActionCount, ActionTrail } from "./ActionTrail";
 import { Typed, esc } from "./Term";
 import { BodyPortal } from "./BodyPortal";
 import {
@@ -159,19 +159,8 @@ function TurnMenu({
   text: string;
   turn: number | null | undefined;
 }) {
-  const {
-    cpMenu,
-    setCpMenu,
-    cpArmed,
-    setCpArmed,
-    toggleCpMenu,
-    restoreCheckpoint,
-    cpInfo,
-    stopRun,
-    submit,
-  } = useTurn();
+  const { cpMenu, setCpMenu, toggleCpMenu, stopRun, submit } = useTurn();
   const open = cpMenu === menuKey;
-  const files = turn != null && cpInfo[turn]?.files;
   return (
     <div class="cp-wrap">
       <button
@@ -217,47 +206,51 @@ function TurnMenu({
               <small>{t("sends this message again")}</small>
             </button>
           )}
-          {turn != null && (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => restoreCheckpoint(turn, false)}
-              >
-                {t("Go back to this checkpoint")}
-                <small>{t("conversation only")}</small>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                class={choose(cpArmed, "is-armed", "")}
-                disabled={!files}
-                title={choose(
-                  files,
-                  "",
-                  t("This checkpoint did not keep the files"),
-                )}
-                onClick={(e) => {
-                  if (!cpArmed) {
-                    e.stopPropagation();
-                    setCpArmed(true);
-                    return;
-                  }
-                  restoreCheckpoint(turn, true);
-                }}
-              >
-                {choose(
-                  cpArmed,
-                  t("Click again: discard changes since"),
-                  t("Go back and restore the changes"),
-                )}
-                <small>{t("conversation and files")}</small>
-              </button>
-            </>
-          )}
+          {turn != null && <CheckpointItems turn={turn} />}
         </div>
       )}
     </div>
+  );
+}
+
+// CheckpointItems are the menu's ways back to an input's checkpoint: the conversation only, or
+// the files too. Putting the files back asks twice.
+function CheckpointItems({ turn }: { turn: number }) {
+  const { cpArmed, setCpArmed, restoreCheckpoint, cpInfo } = useTurn();
+  const files = cpInfo[turn]?.files;
+  return (
+    <>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => restoreCheckpoint(turn, false)}
+      >
+        {t("Go back to this checkpoint")}
+        <small>{t("conversation only")}</small>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class={choose(cpArmed, "is-armed", "")}
+        disabled={!files}
+        title={choose(files, "", t("This checkpoint did not keep the files"))}
+        onClick={(e) => {
+          if (!cpArmed) {
+            e.stopPropagation();
+            setCpArmed(true);
+            return;
+          }
+          restoreCheckpoint(turn, true);
+        }}
+      >
+        {choose(
+          cpArmed,
+          t("Click again: discard changes since"),
+          t("Go back and restore the changes"),
+        )}
+        <small>{t("conversation and files")}</small>
+      </button>
+    </>
   );
 }
 
@@ -275,18 +268,64 @@ export function UserText({ m }: { m: Message }) {
   );
 }
 
+// TurnTop is the top of a turn: the input that opened it with the count of its actions in its
+// bar, and their detail under it once opened. A turn opened by no input (the agent's first lines)
+// has only the counter, on a line of its own.
+export function TurnTop({
+  head,
+  turn,
+  liveHere,
+  mode,
+  steps,
+}: {
+  head: Message | null;
+  turn?: number;
+  liveHere: boolean;
+  mode: "plan" | "task" | null;
+  steps: StepView[];
+}) {
+  const [open, setOpen] = useState(false);
+  if (!head) {
+    return choose(steps.length > 0, <Trail steps={steps} liveHere={liveHere} />, null);
+  }
+  const actions = choose(
+    steps.length > 0,
+    { count: steps.length, open, onToggle: () => setOpen((o) => !o) },
+    undefined,
+  );
+  return (
+    <>
+      <TurnHead
+        head={head}
+        turn={turn}
+        liveHere={liveHere}
+        mode={mode}
+        actions={actions}
+      />
+      {open && actions && (
+        <div class="activity-trail turn-steps" aria-label={t("steps")}>
+          <TrailSteps steps={steps} liveHere={liveHere} />
+        </div>
+      )}
+    </>
+  );
+}
+
 // TurnHead is the input that opened a turn, sticky inside its group: a card whose top bar says
-// who wrote it and the mode it ran in, with its one menu at the end of the bar.
+// who wrote it, the mode it ran in and how many actions it took, with its one menu at the end.
 export function TurnHead({
   head,
   turn,
   liveHere,
   mode = null,
+  actions,
 }: {
   head: Message;
   turn?: number;
   liveHere: boolean;
   mode?: "plan" | "task" | null;
+  // actions is the turn's action counter, drawn in the bar so it costs no row of its own.
+  actions?: { count: number; open: boolean; onToggle: () => void };
 }) {
   const { cpInfo, running } = useTurn();
   const canGoBack = turn != null && cpInfo[turn] !== undefined && !running;
@@ -300,6 +339,7 @@ export function TurnHead({
         <div class="turn-bar">
           <span class="turn-who">{t("You")}</span>
           {mode && <ModeBadge mode={mode} />}
+          {actions && <ActionCount {...actions} />}
           {(liveHere || canGoBack || canSwitch) && (
             <TurnMenu
               menuKey={menuKey}
@@ -359,10 +399,25 @@ export function Trail({
 }) {
   return (
     <ActionTrail count={steps.length}>
+      <TrailSteps steps={steps} liveHere={liveHere} />
+    </ActionTrail>
+  );
+}
+
+// TrailSteps are the steps of a turn's trail, one line each.
+function TrailSteps({
+  steps,
+  liveHere,
+}: {
+  steps: StepView[];
+  liveHere: boolean;
+}) {
+  return (
+    <>
       {steps.map((step) => (
         <TrailStep key={step.key} step={step} settled={!liveHere} />
       ))}
-    </ActionTrail>
+    </>
   );
 }
 

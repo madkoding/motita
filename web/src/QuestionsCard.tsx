@@ -85,7 +85,7 @@ export function QuestionsCard({
             item={it}
             value={given[i]}
             locked={locked}
-            onChange={(v) => set(i, v)}
+            onChange={set}
           />
         ))}
       </ol>
@@ -108,8 +108,7 @@ export function QuestionsCard({
 }
 
 // Question is one question: where it sits in the list, its text, its options as numbered rows, a
-// field for an answer of one's own, and what happens when it is left blank. Picking the chosen
-// option again clears it.
+// field for an answer of one's own, and what happens when it is left blank.
 function Question({
   n,
   total,
@@ -123,43 +122,27 @@ function Question({
   item: AskItem;
   value: string;
   locked: boolean;
-  onChange: (v: string) => void;
+  // onChange sets the answer of the question at index n - 1.
+  onChange: (i: number, v: string) => void;
 }) {
   const options = item.options ?? [];
   const own = !!value && !options.includes(value);
   const answered = value.trim() !== "";
   const id = `qcard-q${n}`;
+  const change = (v: string) => onChange(n - 1, v);
   return (
     <li class={`qcard-item${choose(answered, " answered", "")}`}>
-      {total > 1 && (
-        <div class="qcard-step">
-          <span>{tf("Question {n} of {total}", { n, total })}</span>
-          {answered && <span class="qcard-ok">✓ {t("Answered")}</span>}
-        </div>
-      )}
+      {total > 1 && <Step n={n} total={total} answered={answered} />}
       <p class="qcard-q" id={id}>
         {item.text}
       </p>
-      {options.length > 0 && (
-        <div class="qcard-opts" role="radiogroup" aria-labelledby={id}>
-          {options.map((o, k) => (
-            <button
-              key={o}
-              type="button"
-              role="radio"
-              aria-checked={value === o}
-              class={`qcard-opt${choose(value === o, " picked", "")}`}
-              disabled={locked}
-              onClick={() => onChange(choose(value === o, "", o))}
-            >
-              <span class="qcard-key" aria-hidden="true">
-                {choose(value === o, "✓", k + 1)}
-              </span>
-              <span class="qcard-opt-text">{o}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <Options
+        id={id}
+        options={options}
+        value={value}
+        locked={locked}
+        onChange={change}
+      />
       {!locked && (
         <input
           type="text"
@@ -171,7 +154,7 @@ function Question({
             t("Write your answer"),
           )}
           value={choose(own, value, "")}
-          onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+          onInput={(e) => change((e.target as HTMLInputElement).value)}
         />
       )}
       {locked && own && <p class="qcard-yours">{value}</p>}
@@ -183,5 +166,62 @@ function Question({
         </p>
       )}
     </li>
+  );
+}
+
+// Step is where a question sits in the list, and whether it is answered.
+function Step({
+  n,
+  total,
+  answered,
+}: {
+  n: number;
+  total: number;
+  answered: boolean;
+}) {
+  return (
+    <div class="qcard-step">
+      <span>{tf("Question {n} of {total}", { n, total })}</span>
+      {answered && <span class="qcard-ok">✓ {t("Answered")}</span>}
+    </div>
+  );
+}
+
+// Options are a question's options as numbered rows. Picking the chosen option again clears it.
+function Options({
+  id,
+  options,
+  value,
+  locked,
+  onChange,
+}: {
+  id: string;
+  options: string[];
+  value: string;
+  locked: boolean;
+  onChange: (v: string) => void;
+}) {
+  if (options.length === 0) {
+    return null;
+  }
+  return (
+    <div class="qcard-opts" role="radiogroup" aria-labelledby={id}>
+      {options.map((o, k) => (
+        <button
+          key={o}
+          type="button"
+          role="radio"
+          aria-checked={value === o}
+          class={`qcard-opt${choose(value === o, " picked", "")}`}
+          disabled={locked}
+          onClick={() => onChange(choose(value === o, "", o))}
+        >
+          <span class="qcard-key" aria-hidden="true">
+            {choose(value === o, "✓", k + 1)}
+          </span>
+          <span class="qcard-opt-text">{o}</span>
+        </button>
+      ))}
+    </div>
   );
 }

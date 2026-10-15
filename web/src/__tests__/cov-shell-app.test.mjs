@@ -79,8 +79,11 @@ component(
   "./ConversationParts",
   ["ChangesCard", "RunArtifacts"],
   `export function UserText(props) { return mark("UserText", props, props.m.text); }
-  export function TurnHead(props) { return mark("TurnHead", props, props.head.text); }
-  export function Trail(props) { return mark("Trail", props, props.steps.map((s) => s.text).join("|")); }
+  // TurnTop draws its two parts as their own stubs, so a turn reads as before: the input, then its steps.
+  export function TurnTop(props) {
+    return h("div", null, props.head && mark("TurnHead", props, props.head.text),
+      props.steps.length > 0 && mark("Trail", props, props.steps.map((s) => s.text).join("|")));
+  }
   export function ActivityLine(props) { return mark("ActivityLine", props, props.activity); }`,
 );
 stub(

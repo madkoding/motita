@@ -451,6 +451,38 @@ test("the mode badge says what auto mode picked, and the menu sends the message 
   await busy.m.unmount();
 });
 
+test("the top of a turn counts its actions in the input's bar and opens them under the card", async () => {
+  const head = { id: 1, role: "user", text: "go" };
+  const steps = [
+    { key: 1, kind: "command", text: "running: ls", exit: 0 },
+    { key: 2, kind: "progress", text: "thinking: about it" },
+  ];
+  const top = await inTurn(h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps }));
+  const count = top.q(".turn-bar button.action-trail-toggle");
+  assert.equal(text(count), "▸2 actions");
+  assert.equal(top.q(".turn-steps"), null, "folded at first");
+  await act(() => count.click());
+  assert.equal(count.getAttribute("aria-expanded"), "true");
+  assert.equal(top.qa(".turn-steps .trail-step").length, 2);
+  assert.equal(top.q(".turn-steps").getAttribute("aria-label"), "steps");
+  await act(() => count.click());
+  assert.equal(top.q(".turn-steps"), null);
+  await top.m.unmount();
+  // No steps: no counter.
+  const bare = await inTurn(h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps: [] }));
+  assert.equal(bare.q(".action-trail-toggle"), null);
+  assert.equal(text(bare.q(".turn-text")), "go");
+  await bare.m.unmount();
+  // No input: the counter stands on its own line, and with no steps there is nothing.
+  const lone = await inTurn(h(P.TurnTop, { head: null, liveHere: true, mode: null, steps }));
+  assert.equal(lone.q(".turn-card"), null);
+  assert.ok(lone.q(".action-trail > button.action-trail-toggle"));
+  await lone.m.unmount();
+  const none = await inTurn(h(P.TurnTop, { head: null, liveHere: false, mode: null, steps: [] }));
+  assert.equal(none.q(".action-trail"), null);
+  await none.m.unmount();
+});
+
 test("the trail folds the steps behind a count and draws commands and progress", async () => {
   const steps = [
     { key: 1, kind: "command", text: "running: ls -la", exit: 0 },
