@@ -124,11 +124,21 @@ func (w *Watcher) FireDue(ctx context.Context) []string {
 		}
 		// The record is written AFTER the firing, and it is what stops the task firing
 		// again on the next tick: a firing that did not update it would fire forever.
-		s.LastRun = now
-		s.RunCount++
-		s.LastOutcome = outcome
-		if err := w.store.Save(s); err != nil {
+		//
+		// It is written through Update and NOT by saving s: s is the copy read before the
+		// firing, which can have taken minutes, and the record may have been edited, paused
+		// or deleted since. Only the three fields the firing owns are written, onto the
+		// record as it is now, and a record that was deleted is left deleted.
+		found, err := w.store.Update(s.ID, func(rec *Schedule) {
+			rec.LastRun = now
+			rec.RunCount++
+			rec.LastOutcome = outcome
+		})
+		switch {
+		case err != nil:
 			w.log.Warn("could not record the firing", "id", s.ID, "error", err.Error())
+		case !found:
+			w.log.Info("a scheduled task was deleted while it ran; its firing is not recorded", "id", s.ID)
 		}
 		fired = append(fired, s.ID)
 	}

@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -208,5 +209,90 @@ func TestSetTickIsHonouredByTheLoop(t *testing.T) {
 
 	if len(f.ids()) != 1 {
 		t.Fatalf("the loop fired %v, want exactly one firing", f.ids())
+	}
+}
+
+// A task deleted while it runs stays deleted. The pass used to save the copy it fired
+// from, and that copy brought the record back from the dead.
+func TestATaskDeletedWhileItRunsStaysDeleted(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	w, st := newTestWatcher(t, nil)
+	w.now = func() time.Time { return now }
+	// The firer deletes its own task, the way a person pressing "delete" during the run does.
+	w.fire = func(_ context.Context, s Schedule) (string, error) {
+		return "the run finished", st.Delete(s.ID)
+	}
+	mustSave(t, st, Schedule{ID: "doomed", Title: "d", Task: "t", Kind: KindTask,
+		Every: Duration(time.Hour), Enabled: true, Created: now.Add(-2 * time.Hour)})
+
+	if fired := w.FireDue(context.Background()); len(fired) != 1 || fired[0] != "doomed" {
+		t.Fatalf("FireDue fired %v, want the task that ran", fired)
+	}
+	rec, err := st.Load("doomed")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if rec != nil {
+		t.Fatalf("the deleted task came back after its firing: %+v", rec)
+	}
+}
+
+// A task paused and edited while it runs keeps the edits: the firing writes only what it
+// owns (when it ran, how many times, how it ended) onto the record as it is NOW.
+func TestATaskPausedWhileItRunsStaysPaused(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	w, st := newTestWatcher(t, nil)
+	w.now = func() time.Time { return now }
+	// The firer pauses and renames its own task, the way a PATCH during the run does.
+	w.fire = func(_ context.Context, s Schedule) (string, error) {
+		rec, err := st.Load(s.ID)
+		if err != nil || rec == nil {
+			return "", fmt.Errorf("the record to edit: %v, %v", rec, err)
+		}
+		rec.Enabled = false
+		rec.Title = "renamed while it ran"
+		return "the run finished", st.Save(*rec)
+	}
+	mustSave(t, st, Schedule{ID: "paused", Title: "p", Task: "t", Kind: KindTask,
+		Every: Duration(time.Hour), Enabled: true, Created: now.Add(-2 * time.Hour), RunCount: 4})
+
+	w.FireDue(context.Background())
+	rec, err := st.Load("paused")
+	if err != nil || rec == nil {
+		t.Fatalf("Load = %v, %v", rec, err)
+	}
+	if rec.Enabled {
+		t.Error("the task was paused while it ran, and recording the firing enabled it again")
+	}
+	if rec.Title != "renamed while it ran" {
+		t.Errorf("Title = %q, want the edit made while it ran", rec.Title)
+	}
+	if rec.RunCount != 5 || !rec.LastRun.Equal(now) || rec.LastOutcome != "the run finished" {
+		t.Errorf("the firing was not recorded on the edited record: %+v", rec)
+	}
+}
+
+// Update changes the record on disk and says whether there was one. A record that cannot be
+// read is an error rather than "missing", and nothing is changed or written over it.
+func TestUpdateChangesOnlyARecordThatExists(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	called := false
+	if found, err := st.Update("absent", func(*Schedule) { called = true }); found || err != nil || called {
+		t.Errorf("Update of a missing record = %v, %v (change called: %v), want false, nil and no call",
+			found, err, called)
+	}
+	if _, err := os.Stat(st.Path("absent")); !os.IsNotExist(err) {
+		t.Errorf("Update must not create a missing record: stat = %v", err)
+	}
+
+	if err := os.WriteFile(st.Path("broken"), []byte("{ not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := st.Update("broken", func(*Schedule) { called = true }); found || err == nil || called {
+		t.Errorf("Update of an unreadable record = %v, %v (change called: %v), want an error and no call",
+			found, err, called)
 	}
 }

@@ -43,7 +43,11 @@ func (st *Store) Path(id string) string { return filepath.Join(st.dir, id+".json
 func (st *Store) Save(s Schedule) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	return st.save(s)
+}
 
+// save is Save for a caller that already holds st.mu.
+func (st *Store) save(s Schedule) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("could not encode the schedule %q: %w", s.ID, err)
@@ -64,7 +68,11 @@ func (st *Store) Save(s Schedule) error {
 func (st *Store) Load(id string) (*Schedule, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	return st.load(id)
+}
 
+// load is Load for a caller that already holds st.mu.
+func (st *Store) load(id string) (*Schedule, error) {
 	data, err := os.ReadFile(st.Path(id))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -77,6 +85,27 @@ func (st *Store) Load(id string) (*Schedule, error) {
 		return nil, fmt.Errorf("could not parse the schedule %q: %w", id, err)
 	}
 	return &s, nil
+}
+
+// Update applies change to the record as it is on disk NOW and writes it back, all under the
+// store's lock, and reports whether there was a record to change.
+//
+// It exists for a writer whose copy of a record may be stale. The watcher holds the copy it
+// fired from for as long as the firing lasts - minutes, for an agent turn - and saving that
+// copy afterwards undid every edit made in the meantime: a task paused while it ran came back
+// enabled, and one deleted while it ran came back from the dead. Reading, changing and writing
+// under one lock means only the fields change touches are this writer's, and a record that is
+// gone stays gone: there is nothing to change, so nothing is written.
+func (st *Store) Update(id string, change func(*Schedule)) (bool, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	s, err := st.load(id)
+	if err != nil || s == nil {
+		return false, err
+	}
+	change(s)
+	return true, st.save(*s)
 }
 
 // LoadAll reads every task, sorted by creation time so a list is stable between reads.
