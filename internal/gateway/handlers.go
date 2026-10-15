@@ -250,6 +250,10 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
+// newModelClient builds the client handleModelList asks. A seam, so a test can route the request
+// to a transport of its own instead of the provider's real endpoint.
+var newModelClient = llm.New
+
 // handleModelList queries the provider's own API for the list of available
 // models, rather than the static catalogue. A failure is a 502: the agent is
 // fine, the provider is what did not answer.
@@ -258,7 +262,7 @@ func (s *Server) handleModelList(w http.ResponseWriter, r *http.Request) {
 	// The provider's own client lists the models, authenticated the way its requests are:
 	// a bare Bearer key was sent to every provider, which Anthropic and Gemini refuse and
 	// which cannot express a stored login.
-	client, err := llm.New(cfg.LLM, nil)
+	client, err := newModelClient(cfg.LLM, nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

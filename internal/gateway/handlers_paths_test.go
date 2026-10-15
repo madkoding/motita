@@ -11,6 +11,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // A provider with no BaseURL configured has one derived from its own name, so a user who picked a
@@ -72,18 +75,36 @@ func TestTheModelListFallsBackToTheProvidersDefaultURL(t *testing.T) {
 	cfg.LLM.BaseURL = ""
 	cfg.LLM.APIKey = "test-key"
 
+	// The request is caught by a transport of the test's own: this test used to reach the real
+	// api.openai.com. What matters is where it was going, which the transport records.
+	rt := &hostRecorder{}
+	old := newModelClient
+	newModelClient = func(c config.LLM, log *logx.Logger) (*llm.Client, error) {
+		client, err := llm.New(c, log)
+		if err != nil {
+			return nil, err
+		}
+		return client.WithTransport(rt), nil
+	}
+	t.Cleanup(func() { newModelClient = old })
+
 	srv := newTestServer(t, &fakeService{cfg: cfg})
 	w := runModelList(t, srv)
 
-	// No network is available to api.openai.com in a test, so the answer is a failure - and what
-	// matters is that it is a failure from the PROVIDER (502) rather than the "no API base URL"
-	// 502 that an empty URL produces. Both are 502, so the message is what distinguishes them.
-	if !strings.Contains(w.Body.String(), "openai.com") {
-		t.Fatalf("body = %q, want it to name the provider's own default URL", w.Body.String())
+	if w.Code != http.StatusBadGateway || strings.Contains(w.Body.String(), "no API base URL") {
+		t.Errorf("the provider's default must be used, not an empty URL: %d %q", w.Code, w.Body.String())
 	}
-	if strings.Contains(w.Body.String(), "no API base URL") {
-		t.Error("the provider's default must be used, not an empty URL")
+	if len(rt.hosts) == 0 || rt.hosts[0] != "api.openai.com" {
+		t.Errorf("hosts = %v, want the provider's own default api.openai.com", rt.hosts)
 	}
+}
+
+// hostRecorder answers every request with an error and remembers the host it was going to.
+type hostRecorder struct{ hosts []string }
+
+func (h *hostRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	h.hosts = append(h.hosts, req.URL.Host)
+	return nil, errors.New("offline")
 }
 
 // runModelList calls the model list endpoint on a conversation resolved through the scoped route,
