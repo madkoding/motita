@@ -56,7 +56,22 @@ type Result struct {
 	LoggedIn bool
 	// Keyless is true for a provider that takes no key here (a self-hosted Ollama).
 	Keyless bool
+	// Next is what the user chose to do once the setup is saved. The zero value is NextExit, so a
+	// run that never asked (a preset, a script, no terminal) ends as it always has.
+	Next Next
 }
+
+// Next is the final step of the interactive wizard: where to go from the saved setup.
+type Next int
+
+const (
+	// NextExit leaves motita: the setup is saved and nothing else starts.
+	NextExit Next = iota
+	// NextTUI continues in the terminal interface.
+	NextTUI
+	// NextGateway starts the gateway, which serves the browser interface (WebUI).
+	NextGateway
+)
 
 // modelLister is the function the wizard uses to fetch models from hosts that
 // publish them. It is a package-level variable so tests can replace it with a
@@ -163,8 +178,45 @@ func runSetup(
 				continue
 			}
 		}
-		return w.save(s, now)
+		res, err := w.save(s, now)
+		if err != nil || !interactive {
+			return res, err
+		}
+		// The setup is already on disk, so a failure to read the answer is not a cancellation:
+		// it only means nobody is there to choose, and the run ends as it did before this step.
+		res.Next = w.chooseNext(ctx)
+		return res, nil
 	}
+}
+
+// chooseNext asks what to do now that the setup is saved: the terminal interface, the gateway
+// with its browser interface, or nothing. It is not numbered among the steps - the setup is
+// already written - and any answer it cannot read (end of input, Ctrl+C, three invalid tries)
+// means NextExit, never an error: the user's configuration is safe either way.
+func (s *session) chooseNext(ctx context.Context) Next {
+	printSection(s.out, "What next?")
+	s.say("")
+	m := s.showMenu(
+		[]string{"Continue in the TUI", "Start the gateway (WebUI)", "Exit"},
+		[]string{"open the terminal interface now", "serve the browser interface from this machine",
+			"come back any time with: motita"})
+	for attempt := 0; attempt < 3; attempt++ {
+		answer, err := s.choose(ctx, "Next [1]:", m)
+		if err != nil {
+			return NextExit
+		}
+		switch answer {
+		case "", "1":
+			return NextTUI
+		case "2":
+			return NextGateway
+		case "3":
+			return NextExit
+		default:
+			s.say("    Choose 1, 2 or 3.")
+		}
+	}
+	return NextExit
 }
 
 // collect asks every question of one pass, skipping the ones the preset answers.

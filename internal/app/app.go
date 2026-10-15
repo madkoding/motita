@@ -330,8 +330,11 @@ func Run(op Options) int {
 	}
 
 	if fl.initConfig {
-		code, _ := op.initConfig(fl)
-		return code
+		code, _, next := op.initConfig(fl)
+		if code != Success {
+			return code
+		}
+		return op.continueAfterSetup(fl, next)
 	}
 
 	if fl.doctor {
@@ -446,7 +449,7 @@ func (op *Options) completeGateway() {
 // initConfig runs the first-run wizard. The default destination is
 // ./motita.yaml next to wherever the agent is being set up, which is what the
 // summary then tells the user to pass with -config.
-func (op Options) initConfig(fl flags) (int, bool) {
+func (op Options) initConfig(fl flags) (int, bool, onboard.Next) {
 	path := fl.configPath
 	if path == "" {
 		// The wizard's default is the motita home, so a first run lands where the program
@@ -466,10 +469,10 @@ func (op Options) initConfig(fl flags) (int, bool) {
 	if err != nil {
 		if errors.Is(err, onboard.ErrCancelled) {
 			fmt.Fprintf(op.Out, "\nCancelled: nothing was written.\n")
-			return Success, false
+			return Success, false, onboard.NextExit
 		}
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
-		return ConfigError, false
+		return ConfigError, false, onboard.NextExit
 	}
 
 	// Prove right away that the file works: if the wizard wrote something the
@@ -477,10 +480,28 @@ func (op Options) initConfig(fl flags) (int, bool) {
 	cfg, err := config.LoadWithoutKey(res.ConfigPath)
 	if err != nil {
 		fmt.Fprintf(op.Err, "❌ the generated configuration does not load: %v\n", err)
-		return ConfigError, false
+		return ConfigError, false, onboard.NextExit
 	}
 	fmt.Fprintf(op.Out, "✅ the configuration loads: %s\n", DescribeConfig(cfg))
-	return Success, true
+	return Success, true, res.Next
+}
+
+// continueAfterSetup does what the user chose at the end of `motita config`: open the terminal
+// interface, start the gateway, or stop. The zero choice is to stop, so a setup that never asked
+// (a script, no terminal) ends exactly as it did before the question existed.
+func (op Options) continueAfterSetup(fl flags, next onboard.Next) int {
+	switch next {
+	case onboard.NextTUI:
+		fl.initConfig = false
+		fl.tui = true
+		fl.notice = onboardingNotice(true)
+		return op.run(fl)
+	case onboard.NextGateway:
+		fl.initConfig = false
+		return op.gatewayStart(op.BaseCtx, fl)
+	default:
+		return Success
+	}
 }
 
 // resolvedConfigPath answers WHICH configuration file an invocation reads, and the empty string
@@ -603,9 +624,14 @@ func (op Options) run(fl flags) int {
 	// (-task, -p, -version) are excluded: they do not need a provider, and
 	// launching a wizard from a script would hang it.
 	if op.needsOnboarding(fl) {
-		code, written := op.initConfig(fl)
+		code, written, next := op.initConfig(fl)
 		if code != Success {
 			return code
+		}
+		// The first run goes on to the interface it was asked for; the gateway and the exit
+		// are the other two answers to the wizard's last question.
+		if written && next != onboard.NextTUI {
+			return op.continueAfterSetup(fl, next)
 		}
 		// The interface clears the screen when it opens, and the wizard's summary goes with it:
 		// the first thing it shows is therefore what just happened, in one line.
