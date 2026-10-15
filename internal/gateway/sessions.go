@@ -125,6 +125,10 @@ type conversation struct {
 	// the same lock as `running`, because the two are read together: the run slot being taken
 	// IS a run being current.
 	current *run
+	// lastRun is the run that ended last, kept so a client that lost its connection just before
+	// the end and reattaches by the run's id is given its outcome instead of a 404. Guarded by
+	// stateMu, like current.
+	lastRun *run
 	// pending is the approval waiting to be answered, and nil when nothing is being asked.
 	//
 	// It lives on the CONVERSATION rather than inside the run so that a client which reconnects
@@ -303,7 +307,38 @@ func (c *conversation) endRun(rn *run) {
 		return
 	}
 	c.current = nil
+	c.lastRun = rn
 	c.running = false
+}
+
+// runByID finds the run a reconnecting client names: the one in flight, or the last one to end.
+// The status says why there is none: 409 when another run is in flight (attaching to it would show
+// this client a turn it did not start, and its result as if it were its own), 410 when the run is
+// gone and nothing replaced it.
+func (c *conversation) runByID(id string) (*run, int) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	switch {
+	case c.current != nil && c.current.id == id:
+		return c.current, http.StatusOK
+	case c.lastRun != nil && c.lastRun.id == id:
+		return c.lastRun, http.StatusOK
+	case c.current != nil:
+		return nil, http.StatusConflict
+	default:
+		return nil, http.StatusGone
+	}
+}
+
+// pendingFor returns the question being asked, but only while rn is the run in flight: the
+// question belongs to that run, and a client attached to the one before must not answer it.
+func (c *conversation) pendingFor(rn *run) *pendingApproval {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.current != rn {
+		return nil
+	}
+	return c.pending
 }
 
 // setPendingApproval records the question being asked.
