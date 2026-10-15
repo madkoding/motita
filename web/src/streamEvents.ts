@@ -2,6 +2,7 @@
 import { tf } from "./i18n";
 import { choose } from "./choose";
 import { hasReport, type TaskReport } from "./Report";
+import { hasQuestions, type AskItem } from "./questions";
 import { sortAgents } from "./appFormat";
 import { classifyProgress, commandOf, splitOutput } from "./appParse";
 import { keyed } from "./useRunState";
@@ -26,6 +27,7 @@ export interface StreamPayload {
   changes?: ChangeReport;
   artifacts?: { name: string; type: string; size: number }[];
   report?: TaskReport;
+  questions?: AskItem[];
   error?: string;
 }
 
@@ -255,10 +257,24 @@ function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
           undefined,
         ),
         report: choose(hasReport(payload.report), payload.report, undefined),
+        ...questionsOf(payload.questions, rest),
       },
     ];
   });
   finish();
+}
+
+// questionsOf is what an answer that asked carries: its questions, and the request they are about
+// (the user's newest input), which goes back with the answers. Nothing when it asked nothing.
+function questionsOf(
+  questions: AskItem[] | undefined,
+  prev: Message[],
+): Pick<Message, "questions" | "origin"> {
+  if (!hasQuestions(questions)) {
+    return {};
+  }
+  const asked = prev.filter((m) => m.role === "user").pop();
+  return { questions, origin: asked?.text ?? "" };
 }
 
 function onError({ rs, finish }: StreamContext, payload: StreamPayload) {

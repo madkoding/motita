@@ -383,3 +383,149 @@
   opacity: 0.7;
   margin: 0 0 4px;
 }
+
+/* Questions the agent asked before doing anything: every one on the card, each with its options
+ * as buttons and a field for an answer of one's own, sent together with one button. The accent is
+ * the app's blue: nothing went wrong, Motita is waiting on the reader. */
+.qcard {
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(100%, 22rem);
+}
+.qcard-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.qcard-head strong {
+  color: #4cc2ff;
+}
+.qcard-count {
+  font-size: 0.8em;
+  color: #9a9aaa;
+}
+.qcard-note {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 0;
+}
+.qcard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.qcard-list > li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+.qcard-list > li.answered {
+  border-color: rgba(76, 194, 255, 0.45);
+}
+.qcard-q {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0;
+  font-weight: 600;
+}
+.qcard-num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5em;
+  height: 1.5em;
+  border-radius: 999px;
+  font-size: 0.8em;
+  background: rgba(76, 194, 255, 0.18);
+  color: #4cc2ff;
+}
+.qcard-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.qcard-opts button {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.qcard-opts button.picked,
+.qcard-opts button.picked:disabled {
+  opacity: 1;
+  border-color: #4cc2ff;
+  background: rgba(76, 194, 255, 0.2);
+  font-weight: 600;
+}
+.qcard-opts button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qcard-own {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font: inherit;
+}
+.qcard-own:focus {
+  outline: none;
+  border-color: #4cc2ff;
+}
+.qcard-yours {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid #4cc2ff;
+}
+.qcard-assume {
+  margin: 0;
+  font-size: 0.82em;
+  color: #9a9aaa;
+}
+.qcard-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.qcard-send {
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: 1px solid #4cc2ff;
+  background: #4cc2ff;
+  color: #0b0f14;
+  font-weight: 700;
+  cursor: pointer;
+}
+.qcard-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qcard-hint {
+  color: #9a9aaa;
+}
+.qcard-done {
+  color: #8fe0a8;
+  font-weight: 600;
+}
+.qcard.expired .qcard-list > li {
+  opacity: 0.55;
+}

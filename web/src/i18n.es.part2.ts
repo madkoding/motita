@@ -457,6 +457,16 @@ const more: Record<string, string> = {
   "Shows on screen what Motita says aloud, sentence by sentence, like a film's subtitles.":
     "Muestra en pantalla lo que Motita dice en voz alta, frase por frase, como los subtítulos de una película.",
   "Subtitle size": "Tamaño de los subtítulos",
+  "Motita needs an answer to continue": "Motita necesita una respuesta para seguir",
+  "Motita needs {n} answers to continue": "Motita necesita {n} respuestas para seguir",
+  "{done} of {total} answered": "{done} de {total} respondidas",
+  "Answers sent": "Respuestas enviadas",
+  "Send answers": "Enviar respuestas",
+  "A question left blank goes with what Motita suggests.":
+    "Si dejas una pregunta en blanco, Motita sigue con lo que propone.",
+  "Or write your own answer": "O escribe tu propia respuesta",
+  "Write your answer": "Escribe tu respuesta",
+  "If you leave it blank: {assumption}": "Si la dejas en blanco: {assumption}",
 };
 
 export default more;

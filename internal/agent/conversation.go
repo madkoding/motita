@@ -222,6 +222,31 @@ func buildQuestions(a Analysis) []AskItem {
 	return out
 }
 
+// AskedText writes several questions as one message: each numbered, with its options under it and
+// the assumption it falls back to in brackets. It is "" for fewer than two, which the single
+// question already says in full.
+//
+// No label of the program's own is added: the questions, options and assumptions are the model's
+// words in the user's language, and an English lead in front of them would mix two languages.
+func AskedText(items []AskItem) string {
+	if len(items) < 2 {
+		return ""
+	}
+	blocks := make([]string, 0, len(items))
+	for i, it := range items {
+		var b strings.Builder
+		fmt.Fprintf(&b, "%d. %s", i+1, it.Text)
+		for _, opt := range it.Options {
+			b.WriteString("\n   - " + opt)
+		}
+		if it.Assumption != "" {
+			b.WriteString("\n   (" + it.Assumption + ")")
+		}
+		blocks = append(blocks, b.String())
+	}
+	return strings.Join(blocks, "\n\n")
+}
+
 // assumptionLead is the phrase the interface puts in front of an assumption, and which the model
 // also tends to put there itself.
 //

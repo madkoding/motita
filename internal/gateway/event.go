@@ -91,6 +91,10 @@ type doneEvent struct {
 	// Artifacts are the files this run saved or changed for the person, so a client can offer
 	// them without asking. Omitted when the run saved none.
 	Artifacts []Artifact `json:"artifacts,omitempty"`
+	// Questions are what the turn asked, when it stopped to ask: every question with its options
+	// and its assumption, so a client can offer them as answers to pick instead of Result's text,
+	// which carries only the first. Omitted when the turn asked nothing.
+	Questions []agent.AskItem `json:"questions,omitempty"`
 }
 
 // approvalDeniedEvent is a command that was asked about and refused because there was

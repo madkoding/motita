@@ -4,6 +4,13 @@ import { choose } from "./choose";
 import { t } from "./i18n";
 import { isApplying, type SuggestionAnswers } from "./proposals";
 import { hasReport, type TaskReport } from "./Report";
+import {
+  answersLabel,
+  hasQuestions,
+  isAnswering,
+  type AskItem,
+  type QuestionAnswers,
+} from "./questions";
 import type { ChangeReport, Message, StepView } from "./appTypes";
 
 // TurnOutcome is how a turn ended, as the gateway kept it with the turn's checkpoint.
@@ -13,6 +20,7 @@ export interface TurnOutcome {
   report?: TaskReport;
   files?: NonNullable<ChangeReport["files"]>;
   artifacts?: { name: string; type: string; size: number }[];
+  questions?: AskItem[];
 }
 
 export interface Checkpoint {
@@ -23,6 +31,8 @@ export interface Checkpoint {
   outcome?: TurnOutcome;
   // answers are how the suggestions of this turn's report were answered.
   answers?: SuggestionAnswers;
+  // question_answers are how the questions this turn asked were answered.
+  question_answers?: QuestionAnswers;
 }
 
 export interface TranscriptTurn {
@@ -38,18 +48,21 @@ function answerOf(
   id: number,
   result: string,
   out: TurnOutcome,
-  turn?: number,
-  answers?: SuggestionAnswers,
+  cp?: Checkpoint,
 ): Message {
+  const asked = hasQuestions(out.questions);
   return {
     id,
     role: "agent",
-    turn,
-    answers,
+    turn: cp?.turn,
+    answers: cp?.answers,
     text: result,
     changes: choose(!!out.files?.length, { files: out.files }, undefined),
     report: choose(hasReport(out.report), out.report, undefined),
     artifacts: choose(!!out.artifacts?.length, out.artifacts, undefined),
+    questions: choose(asked, out.questions, undefined),
+    origin: choose(asked, cp?.task ?? "", undefined),
+    questionAnswers: cp?.question_answers,
   };
 }
 
@@ -62,7 +75,7 @@ function agentMessages(
   cp?: Checkpoint,
 ): Message[] {
   if (out?.result) {
-    return [answerOf(nextId(), out.result, out, cp?.turn, cp?.answers)];
+    return [answerOf(nextId(), out.result, out, cp)];
   }
   const msgs: Message[] = [];
   if (said) {
@@ -72,6 +85,20 @@ function agentMessages(
     msgs.push({ id: nextId(), role: "agent", text: out.error, kind: "error" });
   }
   return msgs;
+}
+
+// shownOf is the label a user turn is drawn under when it carries what was answered on the turn
+// before it (`prev`): the accepted suggestions, or the answers to its questions. The prompt it
+// carries is for the agent, not for the reader.
+function shownOf(prev: Checkpoint | undefined, text: string): string | undefined {
+  if (isApplying(prev?.answers, text)) {
+    return t("Applying suggestions");
+  }
+  const qa = prev?.question_answers;
+  if (isAnswering(qa, text)) {
+    return answersLabel(prev?.outcome?.questions ?? [], (qa as QuestionAnswers).answers);
+  }
+  return undefined;
 }
 
 // transcriptMessages turns the gateway's transcript, and the outcomes kept with its checkpoints,
@@ -90,11 +117,7 @@ export function transcriptMessages(
     if (m.User) {
       // The turn that applies the suggestions answered on the turn before it is drawn by name:
       // the prompt it carries is for the agent, not for the reader.
-      const shown = choose(
-        isApplying(byTurn.get(i - 1)?.answers, m.User),
-        t("Applying suggestions"),
-        undefined,
-      );
+      const shown = shownOf(byTurn.get(i - 1), m.User);
       out.push({ id: nextId(), role: "user", text: m.User, turn: i, shown });
     }
     // A turn still open carries what the run had done before it was cut. The stream only

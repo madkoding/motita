@@ -10,6 +10,8 @@ import {
 import { Markdown } from "./Markdown";
 import { Lightbox } from "./Lightbox";
 import { ReportCard } from "./Report";
+import { QuestionsCard } from "./QuestionsCard";
+import type { QuestionAnswers } from "./questions";
 import type { SuggestionAnswers } from "./proposals";
 import "./report.css";
 import { copyText } from "./clipboard";
@@ -142,13 +144,32 @@ function groupsOf(messages: Message[]): Group[] {
 // `auto` says the turn went through auto mode, which applies the needed suggestions on its own.
 function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
-  const { running, lastUserId, answerSuggestions } = useTurn();
+  const { running, lastUserId, answerSuggestions, answerQuestions } =
+    useTurn();
   if (m.role !== "agent" || m.kind) {
     // A user's message is never here: each one opens its turn and is drawn by TurnHead.
     if (isEmptyNote(m)) {
       return <EmptyNote />;
     }
     return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
+  }
+  if (m.questions) {
+    // The agent asked before doing anything: the questions are answered on a card, while nothing
+    // runs, and they are stale once the conversation moved on without them.
+    const onAnswer = choose(
+      running,
+      undefined,
+      (a: QuestionAnswers, shown: string) => answerQuestions(m, a, shown),
+    );
+    return (
+      <QuestionsCard
+        items={m.questions}
+        origin={m.origin ?? ""}
+        answers={m.questionAnswers}
+        expired={!m.questionAnswers && lastUserId > m.id}
+        onAnswer={onAnswer}
+      />
+    );
   }
   if (m.report) {
     // The suggestions of a report are answered only while nothing runs: applying them is a turn.

@@ -61,6 +61,7 @@ component("./ArtifactsModal", ["ArtifactsModal"]);
 component("./ScheduledTasksModal", ["ScheduledTasksModal"]);
 component("./Lightbox", ["Lightbox"]);
 component("./Report", ["ReportCard"]);
+component("./QuestionsCard", ["QuestionsCard"]);
 component(
   "./PullRequestBar",
   ["PRBar"],
@@ -183,6 +184,7 @@ function makeStore(log) {
     shell: { stopAutoApprove: noop, answerApproval: fn("answerApproval"), onApprovalKey: noop },
     stream: { stopRun: fn("stopRun"), submit: fn("submit") },
     answerSuggestions: fn("answerSuggestions"),
+    answerQuestions: fn("answerQuestions"),
     checkpoints: {
       cpMenu: null,
       cpArmed: false,
@@ -621,6 +623,36 @@ test("notes: the empty conversation is a card, a kind note is translated, other 
   assert.equal(text(notes[1]), "Stopped");
   assert.equal(notes[2].className, "msg activity progress");
   assert.equal(text(notes[2]), "raw progress");
+  await ctl.done();
+});
+
+test("an answer that asked is a questions card, answerable only while idle and while current", async () => {
+  const questions = [{ text: "which?", options: ["a", "b"] }];
+  const qa = { answers: ["a"], request: "r" };
+  const ctl = await mountApp((s) => {
+    s.rs.messages = [
+      msg(1, "user", "Do it", { turn: 1 }),
+      msg(2, "agent", "which?", { questions, origin: "Do it" }),
+      msg(3, "agent", "which?", { questions }),
+      msg(4, "user", "Next", { turn: 2 }),
+      msg(5, "agent", "which?", { questions, questionAnswers: qa }),
+      msg(6, "agent", "which?", { questions, origin: "Next" }),
+    ];
+  });
+  const cards = props("QuestionsCard");
+  const stale = cards.find((c) => c.expired && c.origin === "Do it");
+  assert.ok(stale, "unanswered questions older than the last input are expired");
+  assert.ok(cards.some((c) => c.expired && c.origin === ""), "a missing origin is empty");
+  assert.equal(cards.find((c) => c.answers === qa).expired, false, "answered ones never expire");
+  const current = cards.filter((c) => c.origin === "Next").at(-1);
+  assert.equal(current.expired, false);
+  assert.equal(current.items, questions);
+  current.onAnswer(qa, "a");
+  assert.deepEqual(ctl.log.at(-1), ["answerQuestions", ctl.store.rs.messages[5], qa, "a"]);
+  await ctl.set((s) => {
+    s.rs = { ...s.rs, running: true };
+  });
+  assert.equal(props("QuestionsCard").at(-1).onAnswer, undefined, "answering is a turn: not while one runs");
   await ctl.done();
 });
 

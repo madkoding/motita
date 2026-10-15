@@ -142,7 +142,11 @@ type AppRunner struct {
 	pendingMu sync.Mutex
 	pending   []agent.AskItem
 	// report is the structured account of the last finished task, kept for TakeReport.
-	report        *agent.Report
+	report *agent.Report
+	// asked is the questions the last finished turn asked, kept for TakeQuestions. Unlike pending
+	// it holds only questions about the request, never proposals: a client that lays the report
+	// out itself already has those.
+	asked         []agent.AskItem
 	pendingOrigin string
 
 	// review is the background self-improvement fork, and reviewMu guards it together with
@@ -938,6 +942,11 @@ func summarise(tr agent.TaskResult) string {
 // questionText is the question of a turn that needs the user, with the assumption the agent
 // would proceed on.
 func questionText(tr agent.TaskResult) string {
+	// Several questions are all written out, so the conversation above the window (and any client
+	// that shows only this text) carries every one, not just the first.
+	if listed := agent.AskedText(tr.Questions); listed != "" {
+		return listed
+	}
 	var b strings.Builder
 	if tr.Question != "" {
 		b.WriteString(tr.Question)
@@ -1062,6 +1071,7 @@ func (r *AppRunner) observe(o taskObserver, task string, progress func(string, .
 	o.SetObserver(func(tr agent.TaskResult) {
 		*result = summarise(tr)
 		r.setReport(tr.Report)
+		r.setAsked(tr)
 		// The questions are handed to the caller as STRUCTURE, not only as the sentence
 		// above: the window needs the question, its assumption and its options to draw a
 		// pickable list, and none of that survives being flattened into a string.
@@ -1112,6 +1122,29 @@ func (r *AppRunner) setReport(rep *agent.Report) {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 	r.report = rep
+}
+
+// setAsked records the questions of the turn that just finished, or none when it asked nothing, so a
+// turn that did not ask never hands over the previous turn's questions.
+func (r *AppRunner) setAsked(tr agent.TaskResult) {
+	var items []agent.AskItem
+	if tr.NeedsInput {
+		items = tr.Questions
+	}
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	r.asked = items
+}
+
+// TakeQuestions returns the questions the last turn asked and clears them, or nil when it asked
+// none. It is the gateway's copy for clients that draw the questions themselves (the web), and it
+// leaves TakePendingQuestions alone: the terminal's window still gets its own.
+func (r *AppRunner) TakeQuestions() []agent.AskItem {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	items := r.asked
+	r.asked = nil
+	return items
 }
 
 // TakeReport returns the structured report of the last task and clears it, or nil when that turn
