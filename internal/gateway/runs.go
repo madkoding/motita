@@ -188,18 +188,24 @@ func (s *Server) startDetachedRun(
 func (s *Server) startNotedRun(
 	c *conversation, task, kind, intent, note string, approverFor func(*run) agent.Approver,
 ) (*run, bool) {
-	if c == nil || c.svc == nil {
+	if !runnable(c) || !c.takeRunSlot() {
 		return nil, false
 	}
-	// An integrated session is read-only on every path, not only the ones a person types into: a
-	// schedule or a resumed run would otherwise keep writing on a branch whose work is already in
-	// the project.
-	if c.isMerged() {
-		return nil, false
-	}
-	if !c.takeRunSlot() {
-		return nil, false
-	}
+	return s.launchRun(c, task, kind, intent, note, approverFor), true
+}
+
+// runnable reports whether a conversation can run at all. An integrated session is read-only on
+// every path, not only the ones a person types into: a schedule or a resumed run would otherwise
+// keep writing on a branch whose work is already in the project.
+func runnable(c *conversation) bool {
+	return c != nil && c.svc != nil && !c.isMerged()
+}
+
+// launchRun starts a run on a slot the caller has ALREADY taken (takeRunSlot, takeSlotOrEnqueue or
+// takeQueued), so the decision to run and the reservation are one step of the caller's.
+func (s *Server) launchRun(
+	c *conversation, task, kind, intent, note string, approverFor func(*run) agent.Approver,
+) *run {
 
 	// The run derives its context from the PROCESS, not from any request: that is what
 	// lets a turn outlive the client that asked for it, and it is also what a gateway
@@ -274,7 +280,7 @@ func (s *Server) startNotedRun(
 			go s.followOpenedPR(c)
 		}
 	}()
-	return rn, true
+	return rn
 }
 
 // closeRun ends a run in the order its clients depend on: the session is written, the slot is

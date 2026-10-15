@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/gitforge"
-	"github.com/madkoding/motita/internal/schedule"
 )
 
 // The gateway follows the CI of a session's pull request on its own, so the loop does not depend
@@ -479,10 +478,7 @@ func (s *Server) prFailed(c *conversation, w *prWatchState) bool {
 
 // sendToAgent gives the agent a task: it starts a run, or queues behind the one in flight.
 func (s *Server) sendToAgent(c *conversation, task string) (started bool, position int) {
-	if _, ok := s.startDetachedRun(c, task, schedule.KindTask, "", s.approverFactory(c)); ok {
-		return true, 0
-	}
-	return false, c.pushQueue(task, false)
+	return s.startOrQueue(c, task)
 }
 
 // handleMergePR merges the session's pull request once its CI has passed. It is the user's click:
