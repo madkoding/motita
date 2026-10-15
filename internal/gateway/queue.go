@@ -17,6 +17,13 @@ func (c *conversation) pushQueue(task string) int {
 	return len(c.queue)
 }
 
+// restoreQueue puts back the queue a persisted session was saved with.
+func (c *conversation) restoreQueue(queue []string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.queue = append([]string(nil), queue...)
+}
+
 // takeSlotOrEnqueue is "start this message or queue it" as ONE step under the lock that guards
 // both the run slot and the queue. It reports true when the caller now holds the slot and must
 // start the run itself; otherwise the message was queued and its position is returned.
@@ -110,11 +117,16 @@ var (
 // busy. It reports whether it started, and the queue position when it did not.
 func (s *Server) startOrQueue(c *conversation, task string) (bool, int) {
 	if !runnable(c) {
-		return false, c.pushQueue(task)
+		pos := c.pushQueue(task)
+		s.saveSession(c)
+		return false, pos
 	}
 	taken, pos := c.takeSlotOrEnqueue(task)
 	if !taken {
 		afterQueued()
+		// Saved, so a restart before it runs does not lose it; then drained, in case the slot was
+		// free behind older messages.
+		s.saveSession(c)
 		s.drainQueue(c)
 		return false, pos
 	}
@@ -165,6 +177,9 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	afterQueuedBehindRun()
+	if strings.TrimSpace(body.Task) != "" {
+		s.saveSession(c)
+	}
 	if rn != nil {
 		rn.cancel()
 	}

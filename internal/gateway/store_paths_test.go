@@ -397,6 +397,7 @@ func TestASessionRecordRoundTripsEveryRestoreField(t *testing.T) {
 	conv.lastTask = "the last thing asked"
 	conv.lastKind = "task"
 	conv.running = true
+	conv.current = &run{} // a RUN holds the slot: only that is saved as work to resume
 	if err := st.save(conv); err != nil {
 		t.Fatalf("save: %v", err)
 	}
