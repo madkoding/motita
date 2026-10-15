@@ -159,5 +159,12 @@ if [ "$fail" = "0" ]; then
   echo "VERDICT: suggestions are proposed, answered once, applied, and survive a restart"
 else
   echo "VERDICT: FAILED ($fail) - logs are in $OUT"
+  # CI throws the directory away, so what the gateway and the agent logged is printed here.
+  echo "--- gateway.log (last 60 lines)"
+  tail -n 60 "$OUT/gateway.log" 2>/dev/null | sed 's/^/    /'
+  find "$HOME_DIR" -name motita.log -print 2>/dev/null | while read -r f; do
+    echo "--- $f (last 60 lines)"
+    tail -n 60 "$f" | sed 's/^/    /'
+  done
 fi
 exit "$fail"
