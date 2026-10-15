@@ -61,3 +61,18 @@ func TestTheCmdShellLineIsApprovedWhole(t *testing.T) {
 		t.Error("the mode must say the line runs under cmd.exe")
 	}
 }
+
+// sandbox.ask_unconfined_runs: false lets the project's code run without confinement and without a
+// question; a read outside the workspace is still asked about.
+func TestTheOperatorMayTrustUnconfinedRuns(t *testing.T) {
+	withoutConfinement(t)
+	a := agentWith(t, false)
+	a.cfg.Agent.Policy.Enforce = true
+	a.cfg.Sandbox.AskUnconfinedRuns = false
+	if p := a.planRequest("python t.py"); p.Verdict != policy.Allow {
+		t.Errorf("python t.py: got %s/%s, want allow", p.Verdict, p.Rule)
+	}
+	if p := a.planRequest("cat ../../x"); p.Verdict != policy.Ask || p.Rule != "unconfined-read" {
+		t.Errorf("cat ../../x: got %s/%s, want ask/unconfined-read", p.Verdict, p.Rule)
+	}
+}

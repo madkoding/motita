@@ -116,6 +116,10 @@ type Mode struct {
 	// user's keys, and the project's own code (a script, a build, a test) is confirmed before it
 	// runs. See unconfinedDecision.
 	Unconfined bool
+	// TrustUnconfinedRuns keeps, with Unconfined, the project's own code (a script, a build, a test)
+	// running without a question: the operator chose that (sandbox.ask_unconfined_runs: false). A
+	// path outside the workspace is still asked about. Off, the default, asks.
+	TrustUnconfinedRuns bool
 	// Cmd says the line runs under cmd.exe, whose expansions (`%VAR%`, `!VAR!`), escape (`^`) and
 	// word division the POSIX reading does not know. Only a line of plain words is classified;
 	// anything else is approved as a whole. See cmdLine.

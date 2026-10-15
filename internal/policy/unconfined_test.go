@@ -90,6 +90,25 @@ func TestUnconfinedProjectCodeIsConfirmed(t *testing.T) {
 	}
 }
 
+// The operator may trust the project's code without confinement; reads outside are still asked.
+func TestTrustedUnconfinedRunsStaySilent(t *testing.T) {
+	dir := t.TempDir()
+	m := Mode{Enforce: true, Unconfined: true, TrustUnconfinedRuns: true}
+	if d := m.DecideLine("python t.py", dir); d.Verdict != Allow || d.Rule != "local-tool" {
+		t.Errorf("python t.py: got %s/%s, want allow/local-tool", d.Verdict, d.Rule)
+	}
+	if d := m.DecideLine("python ../t.py", dir); d.Verdict != Ask {
+		t.Errorf("a script outside: got %s/%s, want ask", d.Verdict, d.Rule)
+	}
+	if d := m.DecideLine("cat ~/.ssh/id_rsa", dir); d.Verdict != Ask || d.Rule != "unconfined-read" {
+		t.Errorf("a read outside: got %s/%s, want ask/unconfined-read", d.Verdict, d.Rule)
+	}
+	cmd := Mode{Enforce: true, Cmd: true, TrustUnconfinedRuns: true}
+	if d := cmd.DecideLine(`type %X%`, dir); d.Rule != "shell-line" {
+		t.Errorf("a cmd.exe line: got %s/%s, want shell-line", d.Verdict, d.Rule)
+	}
+}
+
 func TestPathOperandAndPrivatePath(t *testing.T) {
 	for w, want := range map[string]string{
 		"x": "x", "--output=y": "y", "-Path:C:/z": "C:/z", "-r": "", "--x=": "", `'a b'`: "a b",

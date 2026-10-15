@@ -177,6 +177,12 @@ type Sandbox struct {
 	// file actions and its commands inside the working directory, "full" lets them read and write
 	// anywhere the user's account can. See diskaccess.go.
 	DiskAccess string `yaml:"disk_access"`
+	// AskUnconfinedRuns asks before the project's own code runs (a script, a build, a test) where
+	// nothing confines a command (Windows, macOS, Linux without Landlock): that code can read the
+	// user's keys and motita's logins. Default true. Off, such commands run without asking again,
+	// while a command that reaches outside the workspace and a cmd.exe line with cmd's own syntax
+	// are still asked about. Where the kernel confines commands it changes nothing.
+	AskUnconfinedRuns bool `yaml:"ask_unconfined_runs"`
 }
 
 // Providers are the values llm.provider accepts. The LLM client, the wizard and
@@ -379,20 +385,21 @@ func Default() Config {
 			Baseline: true,
 		},
 		Sandbox: Sandbox{
-			Kind:          "none",
-			Cgroups:       "auto",
-			CgroupRoot:    "/sys/fs/cgroup",
-			MemoryMB:      512,
-			CPUSeconds:    60,
-			Processes:     128,
-			OpenFiles:     256,
-			MaxFileSizeMB: 64,
-			Timeout:       300 * time.Second,
-			CheckTimeout:  15 * time.Minute,
-			MaxOutputKB:   256,
-			ToolsDir:      defaultToolsDir(),
-			ConfineWrites: true,
-			DiskAccess:    DiskWorkspace,
+			Kind:              "none",
+			Cgroups:           "auto",
+			CgroupRoot:        "/sys/fs/cgroup",
+			MemoryMB:          512,
+			CPUSeconds:        60,
+			Processes:         128,
+			OpenFiles:         256,
+			MaxFileSizeMB:     64,
+			Timeout:           300 * time.Second,
+			CheckTimeout:      15 * time.Minute,
+			MaxOutputKB:       256,
+			ToolsDir:          defaultToolsDir(),
+			ConfineWrites:     true,
+			DiskAccess:        DiskWorkspace,
+			AskUnconfinedRuns: true,
 		},
 		LLM: LLM{
 			Provider:       "openai",

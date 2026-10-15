@@ -13,6 +13,7 @@ import {
 } from "./securityApi";
 import { Row, Segmented } from "./SettingsControls";
 import { InlineConfirm } from "./NetworkSettings";
+import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
 
 // accessHint says what the choice shown lets the agent reach.
 function accessHint(m: DiskAccess): string {
@@ -101,7 +102,7 @@ function useSecurity(api: Api) {
   const confirm = useCallback(() => void save("full"), [save]);
   const cancel = useCallback(() => setAsking(false), []);
 
-  return { view, loadErr, err, busy, asking, pick, confirm, cancel };
+  return { view, setView, loadErr, err, busy, asking, pick, confirm, cancel };
 }
 
 // DiskAccessControls is the disk access choice once the gateway reported it: the switch, the
@@ -281,6 +282,9 @@ export function SecuritySettings({
             asking={asking}
             sec={sec}
           />
+        )}
+        {view?.ask_unconfined_runs !== undefined && (
+          <UnconfinedRunsSetting api={api} view={view} onView={sec.setView} />
         )}
         {scope && <SessionScopeNote scope={scope} />}
         {err && (

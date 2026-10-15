@@ -16,7 +16,8 @@ import (
 //
 //   - a command that runs code the policy cannot see (unconfinedRuns): `python t.py`, `./x.ps1`,
 //     `make`, `npm test`. The script, the Makefile or the test was written by the model, or by
-//     whoever wrote the repository, and it can read `~/.motita/auth` as easily as `cat` can;
+//     whoever wrote the repository, and it can read `~/.motita/auth` as easily as `cat` can.
+//     The operator may keep these silent (Mode.TrustUnconfinedRuns);
 //   - a command that names a path outside the workspace or among the user's keys
 //     (privateDirs): `Get-Content ~/.motita/auth/x`, `Select-String -Path ~/.ssh/*`,
 //     `cp ../../.ssh/id_rsa .`, `git log --output=../../x`.
@@ -45,7 +46,7 @@ func (m Mode) unconfinedDecision(d Decision, args []string, dir string) Decision
 	if !m.Unconfined || d.Verdict != Allow {
 		return d
 	}
-	if unconfinedRuns[d.Rule] {
+	if unconfinedRuns[d.Rule] && !m.TrustUnconfinedRuns {
 		return Decision{Ask, d.Reason + "; nothing on this platform confines what it runs, so code it " +
 			"starts could read the user's keys and logins, and it is confirmed", "unconfined-run", false}
 	}

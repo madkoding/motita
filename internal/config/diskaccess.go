@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // HOW MUCH OF THE DISK THE AGENT REACHES.
@@ -44,6 +45,21 @@ func SetDiskAccess(path, mode string) error {
 	if !ValidDiskAccess(mode) {
 		return fmt.Errorf("the disk access %q is not one of workspace, full", mode)
 	}
+	return setSandboxKey(path, "disk_access", strconv.Quote(mode),
+		func(cfg Config) bool { return cfg.Sandbox.DiskAccess == mode })
+}
+
+// SetAskUnconfinedRuns writes ask into the configuration file at path as
+// sandbox.ask_unconfined_runs, in place and with the same checks as SetDiskAccess.
+func SetAskUnconfinedRuns(path string, ask bool) error {
+	return setSandboxKey(path, "ask_unconfined_runs", strconv.FormatBool(ask),
+		func(cfg Config) bool { return cfg.Sandbox.AskUnconfinedRuns == ask })
+}
+
+// setSandboxKey sets sandbox.key to value (YAML text) in the file at path, then loads the file
+// whole and undoes the change when it does not load or when applied says the loaded configuration
+// does not carry it: the environment (MOTITA_SANDBOX_<KEY>) overrides the file.
+func setSandboxKey(path, key, value string, applied func(Config) bool) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
@@ -52,7 +68,7 @@ func SetDiskAccess(path, mode string) error {
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
-	text, err := setBlockKeyText(string(body), "sandbox", "disk_access", strconv.Quote(mode))
+	text, err := setBlockKeyText(string(body), "sandbox", key, value)
 	if err != nil {
 		return err
 	}
@@ -61,9 +77,10 @@ func SetDiskAccess(path, mode string) error {
 		return err
 	}
 	cfg, err := LoadWithoutKey(path)
-	if err == nil && cfg.Sandbox.DiskAccess != mode {
-		err = fmt.Errorf("MOTITA_SANDBOX_DISK_ACCESS in the gateway's environment overrides sandbox.disk_access: " +
-			"remove it from the environment, or change it there")
+	if err == nil && !applied(cfg) {
+		env := "MOTITA_SANDBOX_" + strings.ToUpper(key)
+		err = fmt.Errorf("%s in the gateway's environment overrides sandbox.%s: "+
+			"remove it from the environment, or change it there", env, key)
 	}
 	if err != nil {
 		if rerr := writeConfigAtomic(path, body, perm); rerr != nil {

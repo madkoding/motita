@@ -88,7 +88,8 @@ func (a *Agent) policyMode() policy.Mode {
 		Cmd:        execx.IsCmd(shell),
 		// Where nothing confines a command (Windows, macOS, a kernel without Landlock) the
 		// policy is the only thing between a reader and the user's keys.
-		Unconfined: !confinementAvailable(),
+		Unconfined:          !confinementAvailable(),
+		TrustUnconfinedRuns: !a.cfg.Sandbox.AskUnconfinedRuns,
 	}
 	if a.sandbox != nil {
 		mode.Have = a.sandbox.HasTool
