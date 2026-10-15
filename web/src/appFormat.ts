@@ -253,7 +253,7 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
       ),
     !!s.branch && tf("Branch: {branch}", { branch: s.branch }),
     !!sessionWorktreeChip(s) &&
-      tf("Worktree: {worktree}", { worktree: s.worktree || "" }),
+      tf("Worktree: {worktree}", { worktree: String(s.worktree) }),
     !!s.model &&
       tf("Model: {provider} / {model}", {
         provider: s.provider || "",

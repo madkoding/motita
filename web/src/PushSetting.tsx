@@ -161,7 +161,7 @@ async function subscribeHere(
     (await reg.pushManager.getSubscription()) ??
     (await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: keyBytes(gateway?.public_key ?? ""),
+      applicationServerKey: keyBytes((gateway as PushView).public_key ?? ""),
     }));
   await saveSubscription(api, next.toJSON(), lang());
   savePushOn(true);
@@ -214,12 +214,10 @@ export function PushSetting({ api }: { api: Api }) {
         void refresh();
       });
   };
+  // The test row only shows while on, which takes a subscription.
   const sendTest = () => {
-    if (!sub) {
-      return;
-    }
     setTested(t("Sending…"));
-    testPush(api, sub.endpoint)
+    testPush(api, (sub as PushSubscription).endpoint)
       .then(() =>
         setTested(
           t(

@@ -15,13 +15,14 @@ export async function copyText(text: string): Promise<boolean> {
   ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
   document.body.appendChild(ta);
   ta.select();
+  let copied = false;
   try {
-    return legacyCopy(document);
+    copied = legacyCopy(document);
   } catch {
-    return false;
-  } finally {
-    ta.remove();
+    /* no legacy route either */
   }
+  ta.remove();
+  return copied;
 }
 
 // The one legacy command this file needs: copy the current selection. execCommand is deprecated,

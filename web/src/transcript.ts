@@ -36,7 +36,7 @@ export interface TranscriptTurn {
 // again came back shorter than it was.
 function answerOf(
   id: number,
-  said: string,
+  result: string,
   out: TurnOutcome,
   turn?: number,
   answers?: SuggestionAnswers,
@@ -46,7 +46,7 @@ function answerOf(
     role: "agent",
     turn,
     answers,
-    text: out.result || said,
+    text: result,
     changes: choose(!!out.files?.length, { files: out.files }, undefined),
     report: choose(hasReport(out.report), out.report, undefined),
     artifacts: choose(!!out.artifacts?.length, out.artifacts, undefined),
@@ -62,7 +62,7 @@ function agentMessages(
   cp?: Checkpoint,
 ): Message[] {
   if (out?.result) {
-    return [answerOf(nextId(), said ?? "", out, cp?.turn, cp?.answers)];
+    return [answerOf(nextId(), out.result, out, cp?.turn, cp?.answers)];
   }
   const msgs: Message[] = [];
   if (said) {

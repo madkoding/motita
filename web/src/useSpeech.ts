@@ -193,9 +193,8 @@ function showRange(range: Range, follow: boolean) {
     return;
   }
   const box = range.getBoundingClientRect();
-  const log = (
-    range.startContainer.parentElement || null
-  )?.closest<HTMLElement>("[role=log]");
+  const log =
+    range.startContainer.parentElement?.closest<HTMLElement>("[role=log]");
   if (!log || box.height === 0) {
     return;
   }
@@ -876,9 +875,6 @@ export function useSpeech({
   // say speaks one line of the natural style, after the line being said if there is one.
   const say = useCallback(
     (text: string, id: number | null) => {
-      if (!text) {
-        return;
-      }
       said.current.push(text);
       if (reader?.reading) {
         queue.current.push({ text, id });

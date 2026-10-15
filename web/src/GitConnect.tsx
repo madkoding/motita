@@ -285,7 +285,9 @@ function useConnectFlow(
     try {
       const r = await connect(api, { ...base(), method });
       if (r.type === "connected") {
-        finish(r.service || account.id, r.account);
+        // A one-click login only exists for a listed account, whose id went out as the service
+        // and comes back as r.service when the gateway names none.
+        finish(r.service, r.account);
         return;
       }
       flowId.current = r.flow.flow_id;

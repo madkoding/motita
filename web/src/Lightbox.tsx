@@ -29,10 +29,8 @@ function useNativeEvents(ref: RefObject<HTMLElement | null>, listeners: Listener
   const latest = useRef(listeners);
   latest.current = listeners;
   useEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return undefined;
-    }
+    // Effects run once the element is mounted.
+    const el = ref.current as HTMLElement;
     const proxies = Object.keys(latest.current).map((name) => {
       const proxy = (e: Event) => {
         (

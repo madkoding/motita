@@ -105,15 +105,12 @@ function useReadStream(rs: RunState, finish: () => void) {
   // An event of a stream that is no longer the one on screen is dropped: it belongs to another
   // conversation, and drawing it here is how two sessions ended up mixed in one view.
   const dispatchEvent = useCallback(
-    (link: RunLink, name: string, data: string | null, id: string | null) => {
+    (link: RunLink, name: string, data: string, id: string | null) => {
       if (!live(link)) {
         return;
       }
       if (id) {
         lastIdRef.current = Number.parseInt(id, 10) || lastIdRef.current;
-      }
-      if (data === null) {
-        return;
       }
       let payload: StreamPayload;
       try {

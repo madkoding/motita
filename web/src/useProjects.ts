@@ -120,10 +120,10 @@ function useProjectRepos(
           message: tf("Could not add {name}", { name: repo.name }),
           type: "error",
         });
-        return false;
       } finally {
         setRepoBusy("");
       }
+      return false;
     },
     [id],
   );

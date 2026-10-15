@@ -31,11 +31,9 @@ function menuPlace(trigger: HTMLElement): {
   return { top, left, above: !fitsBelow };
 }
 
-// outsideMenu says whether a press landed outside the open menu and its own toggle.
-function outsideMenu(target: HTMLElement | null): boolean {
-  if (!target) {
-    return true;
-  }
+// outsideMenu says whether a press landed outside the open menu and its own toggle. A press
+// listened to on the document always has an element as its target.
+function outsideMenu(target: HTMLElement): boolean {
   return (
     !target.closest(".row-menu") &&
     !target.closest("button[data-row-menu-trigger]")
@@ -82,11 +80,10 @@ export function useRowMenus() {
     if (rowMenuClosingRef.current) {
       return;
     }
+    // No timer is pending here: one runs only while closing, which returned above, and
+    // openRowMenu clears it.
     rowMenuClosingRef.current = true;
     setRowMenuClosing(true);
-    if (rowMenuTimer.current) {
-      clearTimeout(rowMenuTimer.current);
-    }
     rowMenuTimer.current = setTimeout(() => {
       setRowMenu(null);
       setRowMenuClosing(false);
@@ -140,7 +137,7 @@ export function useRowMenus() {
       return undefined;
     }
     const onDown = (e: Event) => {
-      if (outsideMenu(e.target as HTMLElement | null)) {
+      if (outsideMenu(e.target as HTMLElement)) {
         closeRowMenu();
       }
     };

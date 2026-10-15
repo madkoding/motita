@@ -153,7 +153,8 @@ function ArtifactRow({ a }: { a: ArtifactItem }) {
         {expiresSoon(a) && (
           <div class="text-xs text-[#f0a040]" data-testid="artifact-expiry">
             {tf("Deleted in {n} days unless pinned", {
-              n: String(Math.max(0, daysUntil(a.expires_at ?? ""))),
+              // expiresSoon holds only for a file that has an expiry.
+              n: String(Math.max(0, daysUntil(a.expires_at as string))),
             })}
           </div>
         )}

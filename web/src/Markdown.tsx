@@ -250,9 +250,8 @@ const INLINE_MATH = /\$([^\s$][^$\n]*?)\$(?!\$)/g;
 const MATH_OPEN = '<span class="math-inline">';
 const MATH_CLOSE = "</span>";
 
-const defaultText =
-  md.renderer.rules.text ||
-  ((tokens: Token[], idx: number) => md.utils.escapeHtml(tokens[idx].content));
+// markdown-it ships a text rule of its own; it is kept for the text that holds no `$`.
+const defaultText = md.renderer.rules.text as NonNullable<typeof md.renderer.rules.text>;
 md.renderer.rules.text = (
   tokens: Token[],
   idx: number,
@@ -398,11 +397,8 @@ export function sanitizeMessage(html: string): string {
 
 /** The source a placeholder was left carrying, as TEXT. */
 function sourceOf(el: HTMLElement): string {
-  return (
-    el.querySelector("code")?.textContent ??
-    el.textContent ??
-    ""
-  ).replace(/\n$/, "");
+  // An element's textContent is never null.
+  return ((el.querySelector("code") ?? el).textContent as string).replace(/\n$/, "");
 }
 
 /**
@@ -644,10 +640,8 @@ export function Markdown({ content }: { content: string }) {
   }, [content]);
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return undefined;
-    }
+    // Effects run after the mount, so the element is there.
+    const el = ref.current as HTMLDivElement;
     // The copy button's payload, restored after the sanitizer has run: an answer
     // containing an HTML comment marker or an arrow would otherwise have had this
     // attribute dropped, and the button would copy an empty string.
@@ -670,16 +664,11 @@ export function Markdown({ content }: { content: string }) {
     return watchForHydration(
       el,
       () => {
-        return hydrate(el).then(
-          () =>
-            el.dispatchEvent(
-              new CustomEvent("motita:hydrated", { bubbles: true }),
-            ),
-          () =>
-            el.dispatchEvent(
-              new CustomEvent("motita:hydrated", { bubbles: true }),
-            ),
-        );
+        const announce = () =>
+          el.dispatchEvent(
+            new CustomEvent("motita:hydrated", { bubbles: true }),
+          );
+        return hydrate(el).then(announce, announce);
       },
       () => releaseMessage(el, html, content),
     );

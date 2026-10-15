@@ -156,18 +156,15 @@ interface ServiceForm {
 
 // serviceChange is what the form changes: only the fields that differ from the file, and the key
 // only when one was typed.
-function serviceChange(
-  saved: VoiceInfo["saved"],
-  form: ServiceForm,
-): VoiceChange {
+function serviceChange(saved: SavedVoice, form: ServiceForm): VoiceChange {
   const change: VoiceChange = { enabled: true, confirm: true };
   const base = form.base_url.trim();
   const model = form.model.trim();
   const key = form.api_key.trim();
-  if (base !== (saved?.base_url ?? "")) {
+  if (base !== saved.base_url) {
     change.base_url = base;
   }
-  if (model && model !== saved?.model) {
+  if (model && model !== saved.model) {
     change.model = model;
   }
   if (key) {
@@ -205,14 +202,15 @@ function VoiceGateway({
   info: VoiceInfo;
   onInfo: (i: VoiceInfo) => void;
 }) {
-  const saved = info.saved;
+  // Only drawn with a saved configuration (see gatewayEditor).
+  const saved = info.saved as SavedVoice;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<ServiceForm>({
     base_url: "",
     model: "",
     api_key: "",
   });
-  const savedPhrases = (saved?.wake_phrases ?? []).join(", ");
+  const savedPhrases = (saved.wake_phrases ?? []).join(", ");
   const [phrases, setPhrases] = useState(savedPhrases);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -231,9 +229,6 @@ function VoiceGateway({
     },
     [api, onInfo],
   );
-  if (!saved) {
-    return null;
-  }
   return (
     <>
       <VoiceGatewaySwitch
@@ -636,11 +631,9 @@ function useMicPermission(askable: boolean) {
     }
     let live = true;
     let status: PermissionStatusLike | undefined;
-    const onChange = () => {
-      if (status) {
-        setPermission(micPermissionOf(status.state));
-      }
-    };
+    // Only listened to on the status itself.
+    const onChange = () =>
+      setPermission(micPermissionOf((status as PermissionStatusLike).state));
     void queryMicPermission(globalThis.navigator as never).then((r) => {
       if (!live) {
         return;

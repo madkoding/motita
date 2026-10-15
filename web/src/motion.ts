@@ -28,11 +28,9 @@ const GHOST_MAX_MS = 600;
 function copyFieldValues(from: HTMLElement, to: HTMLElement) {
   const src = from.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
   const dst = to.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
+  // The copy is a deep clone made just before, so it holds the same fields in the same order.
   src.forEach((el, i) => {
     const copy = dst[i];
-    if (!copy) {
-      return;
-    }
     if (el.type === "checkbox" || el.type === "radio") {
       (copy as HTMLInputElement).checked = (el as HTMLInputElement).checked;
     } else if (el.type !== "file") {
