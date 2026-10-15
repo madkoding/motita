@@ -1,6 +1,6 @@
 // A project's repositories: the main one (the project's own folder) and the others the gateway
 // clones inside it. The New project and Edit project dialogs both list them the same way.
-import type { ProjectInfo, ProjectRepoInfo } from "./appTypes";
+import type { CatalogRepo, ProjectInfo, ProjectRepoInfo } from "./appTypes";
 
 // RepoDraft is a repository the New project dialog will add once the project exists.
 export interface RepoDraft {
@@ -68,6 +68,8 @@ function lastPathPart(path: string): string {
 export interface MainRepo {
   name: string;
   source: string;
+  // The repository can be moved out of the project's folder into one of its own.
+  movable?: boolean;
 }
 
 // mainRepoOf describes a project's main repository: its URL when it was cloned, its folder otherwise.
@@ -77,8 +79,34 @@ export function mainRepoOf(p: Pick<ProjectInfo, "dir" | "git_url">): MainRepo {
   return { name: repoFolderOf(p.git_url || "") || folder, source };
 }
 
+// shownMainOf is the main repository the edit dialog lists: none once the project's folder only
+// holds repositories (no URL of its own, and others inside it), because then the folder is not one.
+export function shownMainOf(
+  p: Pick<ProjectInfo, "dir" | "git_url" | "repos">,
+): MainRepo | null {
+  if (!p.git_url && reposOf(p).length > 0) {
+    return null;
+  }
+  return { ...mainRepoOf(p), movable: !!p.git_url };
+}
+
 // reposOf is a project's other repositories, never undefined: a project from before they existed
 // has none.
 export function reposOf(p: Pick<ProjectInfo, "repos">): ProjectRepoInfo[] {
   return p.repos ?? [];
+}
+
+// sameRepoUrl is the form two URLs of one repository share: no trailing slash or ".git", any case.
+export function sameRepoUrl(url: string): string {
+  let u = url.trim().toLowerCase();
+  while (u.endsWith("/")) {
+    u = u.slice(0, -1);
+  }
+  return u.replace(/\.git$/, "");
+}
+
+// knownRepos is the workspace catalog as a set of sameRepoUrl addresses, for a field or picker
+// that marks the repositories it would not clone again.
+export function knownRepos(catalog: CatalogRepo[]): ReadonlySet<string> {
+  return new Set(catalog.map((c) => sameRepoUrl(c.git_url)));
 }

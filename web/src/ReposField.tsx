@@ -1,15 +1,19 @@
 // The repositories of a project, as the New project and Edit project dialogs show them: the main
-// one first (the project's own folder, which cannot be taken out), then the others, each with a
-// button to remove it, and a field to add one more.
+// one first (the project's own folder), then the others, each with a button to remove it, a field
+// to add one more, and the repositories the workspace already has, to add without cloning again.
 import { useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
   addRepoProblem,
   repoDraftOf,
+  repoFolderOf,
+  knownRepos,
+  sameRepoUrl,
   type MainRepo,
   type RepoDraft,
 } from "./projectRepos";
+import type { CatalogRepo } from "./appTypes";
 import { IconSpinner, IconTrash } from "./icons";
 
 const LABEL = "block text-sm text-[#9a9aaa] mb-1.5";
@@ -20,8 +24,12 @@ const ROW = "flex items-start gap-2.5 px-3 py-2.5";
 export interface RepoListItem {
   name: string;
   git_url: string;
+  dir?: string;
   branch?: string;
   changes?: number;
+  main_branch?: string;
+  behind?: number;
+  shared?: boolean;
 }
 
 // RepoConflict is a removal the gateway refused because the repository holds uncommitted work.
@@ -60,6 +68,14 @@ function stateOf(r: RepoListItem): string {
   if (r.changes) {
     parts.push(tf("{n} changes", { n: r.changes }));
   }
+  if (r.behind) {
+    parts.push(
+      tf("{n} behind {branch}", {
+        n: r.behind,
+        branch: r.main_branch || "main",
+      }),
+    );
+  }
   return parts.filter(Boolean).join(" · ");
 }
 
@@ -69,12 +85,18 @@ function OtherRepoRow({
   r,
   busy,
   conflict,
+  alsoIn,
   onRemove,
+  onSync,
 }: {
   r: RepoListItem;
   busy: boolean;
   conflict?: RepoConflict | null;
+  // The other projects that use the same clone of the repository.
+  alsoIn: string[];
   onRemove: (name: string, force: boolean) => void;
+  // Brings the project's folder of a shared repository up to its main branch (edit dialog only).
+  onSync?: (name: string) => void;
 }) {
   const refused = conflict?.name === r.name;
   return (
@@ -86,6 +108,14 @@ function OtherRepoRow({
             <span class="text-sm font-semibold text-[#e8e8ea] truncate">
               {r.name}
             </span>
+            {r.shared && (
+              <span
+                class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-white/5 text-[#9a9aaa]"
+                data-testid="repo-shared"
+              >
+                {t("shared")}
+              </span>
+            )}
             <span class="text-xs text-[#7a7a8c] font-mono truncate">
               {stateOf(r)}
             </span>
@@ -96,6 +126,25 @@ function OtherRepoRow({
           >
             {r.git_url}
           </span>
+          {alsoIn.length > 0 && (
+            <span
+              class="block text-xs text-accent/80 truncate"
+              data-testid="repo-also-in"
+            >
+              {tf("Also in {names}", { names: alsoIn.join(", ") })}
+            </span>
+          )}
+          {!!r.behind && onSync && (
+            <button
+              type="button"
+              class="mt-1 px-2 min-h-[26px] rounded-lg border border-[#f0a040]/50 text-[#f0a040] text-xs font-semibold disabled:opacity-30"
+              onClick={() => onSync(r.name)}
+              disabled={busy}
+              data-testid="repo-sync"
+            >
+              {tf("Bring up to {branch}", { branch: r.main_branch || "main" })}
+            </button>
+          )}
         </span>
         <button
           type="button"
@@ -131,19 +180,127 @@ function OtherRepoRow({
   );
 }
 
+// MainRepoRow is the main repository. When it can be moved, it has a button that first asks, and
+// then moves it into a folder of its own: the project's folder is left holding repositories only.
+function MainRepoRow({
+  main,
+  busy,
+  onMove,
+}: {
+  main: MainRepo;
+  busy: boolean;
+  onMove?: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <li data-testid="repo-main">
+      <div class={ROW}>
+        <GitMark />
+        <span class="flex-1 min-w-0">
+          <span class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-[#e8e8ea] truncate">
+              {main.name}
+            </span>
+            <span class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-accent/15 text-accent">
+              {t("main")}
+            </span>
+          </span>
+          {main.source && (
+            <span
+              class="block text-xs text-[#7a7a8c] font-mono truncate"
+              title={main.source}
+            >
+              {main.source}
+            </span>
+          )}
+        </span>
+        {onMove && (
+          <button
+            type="button"
+            class="flex-none p-1.5 -m-1 rounded-lg text-[#9a9aaa] hover:text-danger hover:bg-white/5 disabled:opacity-30"
+            onClick={() => setAsking(true)}
+            disabled={busy || asking}
+            aria-label={tf("Remove {name}", { name: main.name })}
+            data-testid="repo-main-remove"
+          >
+            {choose(
+              busy,
+              <IconSpinner class="animate-spin" size={16} />,
+              <IconTrash size={16} />,
+            )}
+          </button>
+        )}
+      </div>
+      {onMove && asking && (
+        <div
+          class="px-3 pb-2.5 -mt-1 text-xs text-[#9a9aaa]"
+          data-testid="repo-main-ask"
+        >
+          <p>
+            {tf(
+              "{name} moves into its own folder inside the project, and the project becomes a folder of repositories. Nothing is deleted.",
+              { name: main.name },
+            )}
+          </p>
+          <div class="mt-1.5 flex gap-2">
+            <button
+              type="button"
+              class="px-2.5 min-h-[30px] rounded-lg bg-accent text-white font-semibold"
+              onClick={() => {
+                setAsking(false);
+                onMove();
+              }}
+              data-testid="repo-main-move"
+            >
+              {t("Move it")}
+            </button>
+            <button
+              type="button"
+              class="px-2.5 min-h-[30px] rounded-lg border border-white/10 text-[#e8e8ea]"
+              onClick={() => setAsking(false)}
+            >
+              {t("Cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+// alsoInOf names the other projects that use the catalog's clone at dir.
+function alsoInOf(
+  catalog: CatalogRepo[],
+  dir: string | undefined,
+  projectId: string,
+): string[] {
+  const entry = catalog.find((c) => c.dir === dir);
+  return (entry?.projects ?? [])
+    .filter((p) => p.id !== projectId)
+    .map((p) => p.title);
+}
+
 // RepoList lists the main repository and the others.
 export function RepoList({
   main,
   repos,
   busy,
   conflict,
+  catalog = [],
+  projectId = "",
   onRemove,
+  onMoveMain,
+  onSync,
 }: {
   main: MainRepo | null;
   repos: RepoListItem[];
   busy: string;
   conflict?: RepoConflict | null;
+  catalog?: CatalogRepo[];
+  projectId?: string;
   onRemove: (name: string, force: boolean) => void;
+  onMoveMain?: () => void;
+  onSync?: (name: string) => void;
 }) {
   if (!main && repos.length === 0) {
     return null;
@@ -154,27 +311,11 @@ export function RepoList({
       data-testid="repo-list"
     >
       {main && (
-        <li class={ROW}>
-          <GitMark />
-          <span class="flex-1 min-w-0">
-            <span class="flex items-center gap-2">
-              <span class="text-sm font-semibold text-[#e8e8ea] truncate">
-                {main.name}
-              </span>
-              <span class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-accent/15 text-accent">
-                {t("main")}
-              </span>
-            </span>
-            {main.source && (
-              <span
-                class="block text-xs text-[#7a7a8c] font-mono truncate"
-                title={main.source}
-              >
-                {main.source}
-              </span>
-            )}
-          </span>
-        </li>
+        <MainRepoRow
+          main={main}
+          busy={busy === "*"}
+          onMove={choose(main.movable, onMoveMain, undefined)}
+        />
       )}
       {repos.map((r) => (
         <OtherRepoRow
@@ -182,7 +323,9 @@ export function RepoList({
           r={r}
           busy={busy === r.name}
           conflict={conflict}
+          alsoIn={alsoInOf(catalog, r.dir, projectId)}
           onRemove={onRemove}
+          onSync={onSync}
         />
       ))}
     </ul>
@@ -191,14 +334,20 @@ export function RepoList({
 
 // AddRepo is the field that adds one more repository. onAdd answers whether it was added, so the
 // field empties only then.
+// NO_KNOWN is the empty workspace of a field that is not told what it already has.
+const NO_KNOWN: ReadonlySet<string> = new Set();
+
 export function AddRepo({
   taken,
   busy,
   onAdd,
+  known = NO_KNOWN,
 }: {
   taken: string[];
   busy: boolean;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
+  // The repositories the workspace already has, as sameRepoUrl writes them.
+  known?: ReadonlySet<string>;
 }) {
   const [url, setUrl] = useState("");
   const [problem, setProblem] = useState("");
@@ -248,6 +397,11 @@ export function AddRepo({
           )}
         </button>
       </div>
+      {!problem && url.trim() && known.has(sameRepoUrl(url)) && (
+        <p class="text-xs text-accent/80 mt-1" data-testid="repo-add-known">
+          {t("Already in your workspace: it is not cloned again.")}
+        </p>
+      )}
       {problem && (
         <p class="text-xs text-danger mt-1" data-testid="repo-add-problem">
           {choose(
@@ -261,6 +415,55 @@ export function AddRepo({
   );
 }
 
+// CatalogPicks are the repositories the workspace already has that the list does not: one click
+// adds one, and the project shares the clone instead of making another.
+function CatalogPicks({
+  catalog,
+  repos,
+  busy,
+  onAdd,
+}: {
+  catalog: CatalogRepo[];
+  repos: RepoListItem[];
+  busy: boolean;
+  onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
+}) {
+  const urls = new Set(repos.map((r) => sameRepoUrl(r.git_url)));
+  const names = new Set(repos.map((r) => r.name));
+  const picks = catalog
+    .map((c) => ({
+      name: repoFolderOf(c.git_url) || c.name,
+      git_url: c.git_url,
+    }))
+    .filter((c) => !urls.has(sameRepoUrl(c.git_url)) && !names.has(c.name));
+  if (picks.length === 0) {
+    return null;
+  }
+  return (
+    <div data-testid="repo-catalog">
+      <p class="text-xs text-[#7a7a8c] mb-1">
+        {t("Already in your workspace")}
+      </p>
+      <div class="flex flex-wrap gap-1.5">
+        {picks.map((c) => (
+          <button
+            key={c.git_url}
+            type="button"
+            class="px-2.5 min-h-[30px] rounded-lg border border-white/10 bg-black/20 text-sm text-[#e8e8ea] hover:border-accent/60 disabled:opacity-30"
+            onClick={() => onAdd(c)}
+            disabled={busy}
+            title={c.git_url}
+            aria-label={tf("Add {name}", { name: c.name })}
+            data-testid="repo-catalog-pick"
+          >
+            + {c.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ReposSection is the whole block: the title, the list, the field and what the repositories are.
 export function ReposSection({
   main,
@@ -269,6 +472,11 @@ export function ReposSection({
   conflict,
   onRemove,
   onAdd,
+  onChoose,
+  onMoveMain,
+  onSync,
+  catalog = [],
+  projectId,
   hint,
 }: {
   main: MainRepo | null;
@@ -277,6 +485,16 @@ export function ReposSection({
   conflict?: RepoConflict | null;
   onRemove: (name: string, force: boolean) => void;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
+  // Opens the picker of the person's own repositories, when a git host is connected.
+  onChoose?: () => void;
+  // Moves the main repository into a folder of its own (the edit dialog only).
+  onMoveMain?: () => void;
+  // Brings a shared repository's folder up to its main branch (the edit dialog only).
+  onSync?: (name: string) => void;
+  // The repositories the workspace already has, and the project the dialog is about (none yet
+  // in the New project one).
+  catalog?: CatalogRepo[];
+  projectId?: string;
   hint: string;
 }) {
   return (
@@ -288,13 +506,34 @@ export function ReposSection({
           repos={repos}
           busy={busy}
           conflict={conflict}
+          catalog={catalog}
+          projectId={projectId}
           onRemove={onRemove}
+          onMoveMain={onMoveMain}
+          onSync={onSync}
         />
         <AddRepo
           taken={repos.map((r) => r.name)}
           busy={busy === "+"}
           onAdd={onAdd}
+          known={knownRepos(catalog)}
         />
+        <CatalogPicks
+          catalog={catalog}
+          repos={repos}
+          busy={busy === "+"}
+          onAdd={onAdd}
+        />
+        {onChoose && (
+          <button
+            type="button"
+            class="text-sm text-accent underline underline-offset-2"
+            onClick={onChoose}
+            data-testid="repo-choose"
+          >
+            {t("Add from my repositories")}
+          </button>
+        )}
       </div>
       <p class={HINT}>{hint}</p>
     </div>

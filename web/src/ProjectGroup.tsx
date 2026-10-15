@@ -1,7 +1,7 @@
 // A project in the sidebar: a collapsible container with its sessions nested inside. The header
 // toggles the session list; its action buttons are separate so they do not toggle on touch.
 import { useCallback, useRef } from "preact/hooks";
-import { t } from "./i18n";
+import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { useLongPress } from "./domHooks";
@@ -49,6 +49,29 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
   );
 }
 
+// BehindFact says how many of the project's shared repositories its folder has left behind their
+// main branch: they hold work of their own, so an integration did not bring them up to date.
+function BehindFact({ p }: { p: ProjectInfo }) {
+  const behind = (p.repos ?? []).filter((r) => r.behind);
+  if (behind.length === 0) {
+    return null;
+  }
+  return (
+    <span
+      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
+      title={tf("Behind their main branch: {names}", {
+        names: behind.map((r) => r.name).join(", "),
+      })}
+      data-testid="project-behind"
+    >
+      <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
+        {t("behind")}
+      </span>
+      <span class="tabular-nums text-[#f0a040]">{behind.length}</span>
+    </span>
+  );
+}
+
 // ProjectFacts is the facts line, labelled and coloured exactly like a
 // session's: `project` says this is the project's own
 // checkout rather than a session's.
@@ -78,6 +101,7 @@ function ProjectFacts({ p }: { p: ProjectInfo }) {
           podman
         </span>
       )}
+      <BehindFact p={p} />
       {!!p.changes && (
         <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
           <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">

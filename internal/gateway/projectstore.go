@@ -200,13 +200,8 @@ func (ps *projectStore) delete(id string) error {
 // sameOrigin reports whether dir is a git checkout whose origin is gitURL, ignoring a
 // trailing ".git" or slash and the case of the host.
 func sameOrigin(dir, gitURL string, env []string) bool {
-	// The folder is the working directory, not a "-C" argument: nothing that came from a
-	// request ends up among git's arguments.
-	cmd := exec.Command("git", append(gitx.HardeningFor(context.Background(), dir), "remote", "get-url", "origin")...)
-	cmd.Dir = dir
-	cmd.Env = env
-	out, err := cmd.Output()
-	if err != nil {
+	origin := originOf(dir, env)
+	if origin == "" {
 		return false
 	}
 	norm := func(u string) string {
@@ -214,7 +209,21 @@ func sameOrigin(dir, gitURL string, env []string) bool {
 		u = strings.TrimSuffix(strings.TrimSuffix(u, "/"), ".git")
 		return strings.ToLower(u)
 	}
-	return norm(string(out)) == norm(gitURL)
+	return norm(origin) == norm(gitURL)
+}
+
+// originOf is the URL of the origin of the git checkout at dir, "" when it has none (or is none).
+func originOf(dir string, env []string) string {
+	// The folder is the working directory, not a "-C" argument: nothing that came from a
+	// request ends up among git's arguments.
+	cmd := exec.Command("git", append(gitx.HardeningFor(context.Background(), dir), "remote", "get-url", "origin")...)
+	cmd.Dir = dir
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // freeCloneDir returns dir when a clone of gitURL can go there (it is missing, empty, or already

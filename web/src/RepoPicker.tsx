@@ -17,6 +17,7 @@ import {
 } from "./gitApi";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
+import { sameRepoUrl } from "./projectRepos";
 
 export function relTimeText(iso: string | undefined): string {
   const r = relativeTime(iso);
@@ -63,7 +64,13 @@ interface Props {
   // The host refused the saved credentials: the caller opens the connect flow for it.
   onAuthRequired: (service: string) => void;
   onClose: () => void;
+  // The repositories the workspace already has, as sameRepoUrl writes them: picking one does not
+  // clone it again.
+  known?: ReadonlySet<string>;
 }
+
+// NOTHING_KNOWN is the workspace of a picker that is not told what it already has.
+const NOTHING_KNOWN: ReadonlySet<string> = new Set();
 
 export function RepoPicker({
   api,
@@ -73,6 +80,7 @@ export function RepoPicker({
   onConnectAnother,
   onAuthRequired,
   onClose,
+  known = NOTHING_KNOWN,
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
@@ -294,6 +302,14 @@ export function RepoPicker({
                   <span class="flex-1 min-w-0 truncate font-medium">
                     {r.full_name}
                   </span>
+                  {known.has(sameRepoUrl(r.clone_url)) && (
+                    <span
+                      class="flex-none text-[11px] px-1.5 rounded bg-accent/15 text-accent"
+                      data-testid="repo-picker-known"
+                    >
+                      {t("In your workspace")}
+                    </span>
+                  )}
                   {r.private && (
                     <svg
                       class="flex-none text-[#9a9aaa]"

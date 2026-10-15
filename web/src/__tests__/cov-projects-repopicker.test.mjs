@@ -216,9 +216,7 @@ test("more pages are loaded on demand, without repeating a repository", async ()
 
 test("searching waits for the box to stay still, and says when nothing matches", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const p = await picker((s, q) =>
-    res(200, { repos: q ? [] : [repo("a")] }),
-  );
+  const p = await picker((s, q) => res(200, { repos: q ? [] : [repo("a")] }));
   await type(search(p.m), "zz");
   await act(() => t.mock.timers.tick(100));
   await type(search(p.m), "zzz ");
@@ -324,5 +322,22 @@ test("the picker closes from its button, Escape or the backdrop", async () => {
   });
   await click(p.m.q("[data-testid=repo-picker]"));
   assert.deepEqual(p.log, [["close"], ["close"], ["close"]]);
+  await p.m.unmount();
+});
+
+test("a repository the workspace already has is marked", async () => {
+  const known = new Set(["https://github.com/ada/site"]);
+  const p = await picker(
+    () => res(200, { repos: [repo("site"), repo("lib")] }),
+    {
+      known,
+    },
+  );
+  const rows = options(p.m);
+  assert.equal(
+    rows[0].querySelector("[data-testid=repo-picker-known]").textContent,
+    "In your workspace",
+  );
+  assert.equal(rows[1].querySelector("[data-testid=repo-picker-known]"), null);
   await p.m.unmount();
 });

@@ -9,6 +9,7 @@ import { IconClose } from "./icons";
 import type { EditProjectDraft } from "./appTypes";
 import { EDIT_PROJECT, PR_MAX_FIXES_LIMIT } from "./appConst";
 import { ReposSection } from "./ReposField";
+import { connectedAccounts } from "./gitApi";
 
 // The look of the dialog's fields.
 const FIELD =
@@ -165,8 +166,18 @@ function PullRequestFields({
 
 // EditRepos are the project's repositories. They change at once, not on Save.
 function EditRepos({ p }: { p: EditProjectDraft }) {
-  const { repoBusy, repoConflict, addProjectRepo, removeProjectRepo } =
-    useApp().projects;
+  const {
+    repoBusy,
+    repoConflict,
+    addProjectRepo,
+    removeProjectRepo,
+    detachProjectMain,
+    syncProjectRepo,
+    gitAccounts,
+    openOtherRepoPicker,
+    repoCatalog,
+  } = useApp().projects;
+  const connected = !!gitAccounts && connectedAccounts(gitAccounts).length > 0;
   const onRemove = useCallback(
     (name: string, force: boolean) => void removeProjectRepo(name, force),
     [removeProjectRepo],
@@ -179,8 +190,13 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       conflict={repoConflict}
       onRemove={onRemove}
       onAdd={addProjectRepo}
+      onMoveMain={detachProjectMain}
+      onSync={syncProjectRepo}
+      onChoose={choose(connected, openOtherRepoPicker, undefined)}
+      catalog={repoCatalog}
+      projectId={p.id}
       hint={t(
-        "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.",
+        "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.",
       )}
     />
   );

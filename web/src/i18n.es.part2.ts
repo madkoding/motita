@@ -136,10 +136,10 @@ const more: Record<string, string> = {
     "El proyecto ya tiene un repositorio con ese nombre.",
   "That is not a repository URL.": "Esa no es la URL de un repositorio.",
   "A new folder": "Una carpeta nueva",
-  "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.":
-    "El primero es el repositorio principal, la carpeta del proyecto. Los demás se clonan dentro de él, y cada sesión recibe su propia copia de cada uno.",
-  "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.":
-    "Agregar o quitar un repositorio ocurre al instante. Las sesiones abiertas reciben una copia del nuevo; quitar uno borra su carpeta.",
+  "The first one is the main repository, the project's folder. The others are shared from your workspace, and every session gets its own copy of each.":
+    "El primero es el repositorio principal, la carpeta del proyecto. Los demás se comparten desde tu espacio de trabajo, y cada sesión recibe su propia copia de cada uno.",
+  "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.":
+    "Agregar o quitar un repositorio ocurre al instante. Las sesiones abiertas reciben una copia del nuevo; quitar uno lo saca de este proyecto, y los demás proyectos que lo usan lo conservan.",
   "Could not add {name}": "No se pudo agregar {name}",
   "Could not remove {name}": "No se pudo quitar {name}",
   'Project "{title}" created, but some repositories could not be added: {names}':
@@ -482,8 +482,10 @@ const more: Record<string, string> = {
   "Shows on screen what Motita says aloud, sentence by sentence, like a film's subtitles.":
     "Muestra en pantalla lo que Motita dice en voz alta, frase por frase, como los subtítulos de una película.",
   "Subtitle size": "Tamaño de los subtítulos",
-  "Motita needs an answer to continue": "Motita necesita una respuesta para seguir",
-  "Motita needs {n} answers to continue": "Motita necesita {n} respuestas para seguir",
+  "Motita needs an answer to continue":
+    "Motita necesita una respuesta para seguir",
+  "Motita needs {n} answers to continue":
+    "Motita necesita {n} respuestas para seguir",
   "{done} of {total} answered": "{done} de {total} respondidas",
   "Answers sent": "Respuestas enviadas",
   "Could not send the answers": "No se pudieron enviar las respuestas",

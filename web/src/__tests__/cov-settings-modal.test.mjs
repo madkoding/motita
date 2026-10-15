@@ -18,30 +18,53 @@ import {
 } from "./cov-settings-helpers.mjs";
 
 installDom();
-localStorage.setItem("motita.ui.settings", JSON.stringify({ fontSize: "large", density: "compact" }));
-stub("./NotifySettings", `
+localStorage.setItem(
+  "motita.ui.settings",
+  JSON.stringify({ fontSize: "large", density: "compact" }),
+);
+stub(
+  "./NotifySettings",
+  `
 export function NotifySetting({ push }) {
   return <p data-testid="notify-stub">{push ? "push" : "no push"}</p>;
 }
 export function unblockSteps() {
   return ["stub step"];
 }
-`);
-stub("./VoiceSettings", `
+`,
+);
+stub(
+  "./VoiceSettings",
+  `
 export function VoiceSettings(p) {
   return <p data-testid="voice-stub">{p.label}</p>;
 }
-`);
-stub("./SpeechSettings", `
+`,
+);
+stub(
+  "./SpeechSettings",
+  `
 export function SpeechSettings(p) {
   return <p data-testid="speech-stub">{p.label}</p>;
 }
-`);
-stub("./GitConnections", `
+`,
+);
+stub(
+  "./GitConnections",
+  `
 export function GitConnections(p) {
   return <p data-testid="git-stub">{p.label}</p>;
 }
-`);
+`,
+);
+stub(
+  "./RepoCatalogSettings",
+  `
+export function RepoCatalogSettings() {
+  return null;
+}
+`,
+);
 const S = await load("Settings.tsx");
 const { h, render } = await import("preact");
 
@@ -55,12 +78,25 @@ test("loading the dialog applies the saved look and re-exports its helpers", () 
 });
 
 const api = fakeApi({
-  "GET /v1/security": json(200, { disk_access: "workspace", can_save: true, enforced: true }),
-  "GET /v1/network": json(200, {
-    mode: "local", listen: "127.0.0.1:1", active_mode: "local", active_listen: "127.0.0.1:1",
-    restart_needed: false, can_save: true,
+  "GET /v1/security": json(200, {
+    disk_access: "workspace",
+    can_save: true,
+    enforced: true,
   }),
-  "GET /v1/llm": json(200, { provider: "p", model: "m", writable: true, providers: [] }),
+  "GET /v1/network": json(200, {
+    mode: "local",
+    listen: "127.0.0.1:1",
+    active_mode: "local",
+    active_listen: "127.0.0.1:1",
+    restart_needed: false,
+    can_save: true,
+  }),
+  "GET /v1/llm": json(200, {
+    provider: "p",
+    model: "m",
+    writable: true,
+    providers: [],
+  }),
 }).api;
 
 const base = { langSetting: "auto", langAvailable: false, onLang() {} };
@@ -69,13 +105,22 @@ async function mount(props) {
   const root = document.createElement("div");
   document.body.appendChild(root);
   let closed = 0;
-  render(h(S.SettingsModal, { ...base, onClose: () => closed++, ...props }), root);
+  render(
+    h(S.SettingsModal, { ...base, onClose: () => closed++, ...props }),
+    root,
+  );
   await settle();
   return {
     root,
     closed: () => closed,
-    tabs: () => [...root.querySelectorAll("[role=tab]")].map((t) => t.id.replace("settings-tab-", "")),
-    selected: () => root.querySelector("[role=tab][aria-selected=true]").id.replace("settings-tab-", ""),
+    tabs: () =>
+      [...root.querySelectorAll("[role=tab]")].map((t) =>
+        t.id.replace("settings-tab-", ""),
+      ),
+    selected: () =>
+      root
+        .querySelector("[role=tab][aria-selected=true]")
+        .id.replace("settings-tab-", ""),
     pane: () => root.querySelector("#settings-pane"),
     async unmount() {
       render(null, root);
@@ -90,13 +135,22 @@ test("a page with no extra sections gets appearance and notifications", async ()
   assert.deepEqual(m.tabs(), ["appearance", "themes", "notifications"]);
   assert.equal(m.selected(), "appearance");
   assert.equal(text(m.root.querySelector("#settings-title")), "Settings");
-  assert.equal(m.root.querySelector("[role=tab][aria-selected=true]").tabIndex, 0);
-  assert.equal(m.root.querySelector("#settings-tab-notifications").tabIndex, -1);
+  assert.equal(
+    m.root.querySelector("[role=tab][aria-selected=true]").tabIndex,
+    0,
+  );
+  assert.equal(
+    m.root.querySelector("#settings-tab-notifications").tabIndex,
+    -1,
+  );
   click(m.root.querySelector("#settings-tab-notifications"));
   await settle();
   assert.equal(m.selected(), "notifications");
   assert.equal(text(m.pane()), "no push");
-  assert.equal(m.pane().getAttribute("aria-labelledby"), "settings-tab-notifications");
+  assert.equal(
+    m.pane().getAttribute("aria-labelledby"),
+    "settings-tab-notifications",
+  );
   await m.unmount();
 });
 
@@ -111,7 +165,18 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     push: { api },
   };
   const m = await mount(props);
-  assert.deepEqual(m.tabs(), ["appearance", "themes", "notifications", "voice", "speech", "security", "network", "providers", "models", "git"]);
+  assert.deepEqual(m.tabs(), [
+    "appearance",
+    "themes",
+    "notifications",
+    "voice",
+    "speech",
+    "security",
+    "network",
+    "providers",
+    "models",
+    "git",
+  ]);
   const shown = {};
   for (const id of m.tabs()) {
     click(m.root.querySelector(`#settings-tab-${id}`));
@@ -142,9 +207,20 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
 });
 
 test("the dialog opens on the tab asked for; a tab whose section is absent shows nothing", async () => {
-  for (const tab of ["voice", "speech", "security", "network", "providers", "models", "git"]) {
+  for (const tab of [
+    "voice",
+    "speech",
+    "security",
+    "network",
+    "providers",
+    "models",
+    "git",
+  ]) {
     const m = await mount({ tab });
-    assert.equal(m.pane().getAttribute("aria-labelledby"), `settings-tab-${tab}`);
+    assert.equal(
+      m.pane().getAttribute("aria-labelledby"),
+      `settings-tab-${tab}`,
+    );
     assert.equal(m.pane().innerHTML, "");
     assert.equal(m.root.querySelector("[role=tab][aria-selected=true]"), null);
     await m.unmount();
@@ -167,7 +243,11 @@ test("the arrow keys move between the tabs and wrap; other keys do nothing", asy
   key(list, "ArrowUp");
   await settle();
   assert.equal(m.selected(), "notifications");
-  const e = new window.KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true });
+  const e = new window.KeyboardEvent("keydown", {
+    key: "Home",
+    bubbles: true,
+    cancelable: true,
+  });
   list.dispatchEvent(e);
   await settle();
   assert.equal(e.defaultPrevented, false);
@@ -191,11 +271,18 @@ test("the close button, Escape and a click on the backdrop close it", async () =
 
 test("appearance: the language when the page offers it, and the font size and density saved", async () => {
   const langs = [];
-  const m = await mount({ langAvailable: true, langSetting: "es", onLang: (l) => langs.push(l) });
-  const radio = (name, v) => m.root.querySelector(`input[name=${name}][value=${v}]`);
+  const m = await mount({
+    langAvailable: true,
+    langSetting: "es",
+    onLang: (l) => langs.push(l),
+  });
+  const radio = (name, v) =>
+    m.root.querySelector(`input[name=${name}][value=${v}]`);
   assert.equal(radio("settings-lang", "es").checked, true);
   assert.deepEqual(
-    [...m.root.querySelectorAll("input[name=settings-lang]")].map((r) => text(r.parentElement)),
+    [...m.root.querySelectorAll("input[name=settings-lang]")].map((r) =>
+      text(r.parentElement),
+    ),
     ["Automatic", "English", "Español"],
   );
   radio("settings-lang", "en").click();
@@ -209,13 +296,19 @@ test("appearance: the language when the page offers it, and the font size and de
   radio("settings-density", "comfortable").click();
   await settle();
   assert.equal(document.documentElement.dataset.density, "comfortable");
-  assert.deepEqual(JSON.parse(localStorage.getItem("motita.ui.settings")), { fontSize: "small", density: "comfortable" });
+  assert.deepEqual(JSON.parse(localStorage.getItem("motita.ui.settings")), {
+    fontSize: "small",
+    density: "comfortable",
+  });
   assert.equal(radio("settings-font", "small").checked, true);
   await m.unmount();
 
   // Without a language choice the row is left out.
   const n = await mount({});
   assert.equal(n.root.querySelector("input[name=settings-lang]"), null);
-  assert.equal(n.root.querySelector("input[name=settings-font][value=small]").checked, true);
+  assert.equal(
+    n.root.querySelector("input[name=settings-font][value=small]").checked,
+    true,
+  );
   await n.unmount();
 });
