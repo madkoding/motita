@@ -143,99 +143,118 @@ function MenuDots() {
   );
 }
 
-// RunMenu is the menu of the input being worked on: it stops the agent.
-function RunMenu() {
-  const { cpMenu, setCpMenu, toggleCpMenu, stopRun } = useTurn();
+// TurnMenu is the one ⋮ of an input, everything that can be done with it in one place: stopping
+// the run it started, sending it again in the other mode, and going back to its checkpoint, with
+// or without the files. Putting the files back asks twice.
+function TurnMenu({
+  menuKey,
+  liveHere,
+  mode,
+  text,
+  turn,
+}: {
+  menuKey: number;
+  liveHere: boolean;
+  mode: "plan" | "task" | null;
+  text: string;
+  turn: number | null | undefined;
+}) {
+  const {
+    cpMenu,
+    setCpMenu,
+    cpArmed,
+    setCpArmed,
+    toggleCpMenu,
+    restoreCheckpoint,
+    cpInfo,
+    stopRun,
+    submit,
+  } = useTurn();
+  const open = cpMenu === menuKey;
+  const files = turn != null && cpInfo[turn]?.files;
   return (
     <div class="cp-wrap">
       <button
         type="button"
         class="cp-btn"
-        aria-label={t("Run menu")}
+        aria-label={t("Message menu")}
         aria-haspopup="menu"
-        aria-expanded={cpMenu === RUN_MENU}
-        title={t("Run menu")}
-        onClick={() => toggleCpMenu(RUN_MENU)}
+        aria-expanded={open}
+        title={t("Message menu")}
+        onClick={() => toggleCpMenu(menuKey)}
       >
         <MenuDots />
       </button>
-      {cpMenu === RUN_MENU && (
+      {open && (
         <div class="cp-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            class="is-armed"
-            onClick={() => {
-              setCpMenu(null);
-              stopRun();
-            }}
-          >
-            {t("Stop the agent")}
-            <small>
-              {t("Enter sends a message that interrupts; Alt+Enter queues it")}
-            </small>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// CheckpointMenu is the menu of an input that made a checkpoint: going back to it, with or without
-// the files. Putting the files back asks twice.
-function CheckpointMenu({ turn }: { turn: number }) {
-  const { cpMenu, cpArmed, setCpArmed, toggleCpMenu, restoreCheckpoint, cpInfo } =
-    useTurn();
-  const files = cpInfo[turn]?.files;
-  return (
-    <div class="cp-wrap">
-      <button
-        type="button"
-        class="cp-btn"
-        aria-label={t("Checkpoint menu")}
-        aria-haspopup="menu"
-        aria-expanded={cpMenu === turn}
-        title={t("Checkpoint")}
-        onClick={() => toggleCpMenu(turn)}
-      >
-        <MenuDots />
-      </button>
-      {cpMenu === turn && (
-        <div class="cp-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => restoreCheckpoint(turn, false)}
-          >
-            {t("Go back to this checkpoint")}
-            <small>{t("conversation only")}</small>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            class={choose(cpArmed, "is-armed", "")}
-            disabled={!files}
-            title={choose(
-              files,
-              "",
-              t("This checkpoint did not keep the files"),
-            )}
-            onClick={(e) => {
-              if (!cpArmed) {
-                e.stopPropagation();
-                setCpArmed(true);
-                return;
-              }
-              restoreCheckpoint(turn, true);
-            }}
-          >
-            {choose(
-              cpArmed,
-              t("Click again: discard changes since"),
-              t("Go back and restore the changes"),
-            )}
-            <small>{t("conversation and files")}</small>
-          </button>
+          {liveHere && (
+            <button
+              type="button"
+              role="menuitem"
+              class="is-armed"
+              onClick={() => {
+                setCpMenu(null);
+                stopRun();
+              }}
+            >
+              {t("Stop the agent")}
+              <small>
+                {t("Enter sends a message that interrupts; Alt+Enter queues it")}
+              </small>
+            </button>
+          )}
+          {mode && (
+            <button
+              type="button"
+              role="menuitem"
+              class="cp-mode"
+              onClick={() => {
+                setCpMenu(null);
+                submit(switchedText(text, mode));
+              }}
+            >
+              {choose(mode === "plan", t("Run as task"), t("Run as plan"))}
+              <small>{t("sends this message again")}</small>
+            </button>
+          )}
+          {turn != null && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => restoreCheckpoint(turn, false)}
+              >
+                {t("Go back to this checkpoint")}
+                <small>{t("conversation only")}</small>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                class={choose(cpArmed, "is-armed", "")}
+                disabled={!files}
+                title={choose(
+                  files,
+                  "",
+                  t("This checkpoint did not keep the files"),
+                )}
+                onClick={(e) => {
+                  if (!cpArmed) {
+                    e.stopPropagation();
+                    setCpArmed(true);
+                    return;
+                  }
+                  restoreCheckpoint(turn, true);
+                }}
+              >
+                {choose(
+                  cpArmed,
+                  t("Click again: discard changes since"),
+                  t("Go back and restore the changes"),
+                )}
+                <small>{t("conversation and files")}</small>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -256,12 +275,13 @@ export function UserText({ m }: { m: Message }) {
   );
 }
 
-// TurnHead is the input that opened a turn, sticky inside its group, with its menus.
+// TurnHead is the input that opened a turn, sticky inside its group: a card whose top bar says
+// who wrote it and the mode it ran in, with its one menu at the end of the bar.
 export function TurnHead({
   head,
   turn,
   liveHere,
-  mode,
+  mode = null,
 }: {
   head: Message;
   turn?: number;
@@ -270,42 +290,41 @@ export function TurnHead({
 }) {
   const { cpInfo, running } = useTurn();
   const canGoBack = turn != null && cpInfo[turn] !== undefined && !running;
+  const canSwitch = !!mode && !running;
+  // The live input's menu is RUN_MENU (it has no checkpoint yet); any other is keyed by its
+  // turn, or, without one, by a key of its own below RUN_MENU.
+  const menuKey = choose(liveHere, RUN_MENU, turn ?? RUN_MENU - 1 - head.id);
   return (
     <div class="turn-head">
-      <div class="msg user" data-who={t("You")}>
-        <UserText m={head} />
+      <div class="msg user turn-card">
+        <div class="turn-bar">
+          <span class="turn-who">{t("You")}</span>
+          {mode && <ModeBadge mode={mode} />}
+          {(liveHere || canGoBack || canSwitch) && (
+            <TurnMenu
+              menuKey={menuKey}
+              liveHere={liveHere}
+              mode={choose(canSwitch, mode, null)}
+              text={head.text}
+              turn={choose(canGoBack, turn, null)}
+            />
+          )}
+        </div>
+        <div class="turn-text">
+          <UserText m={head} />
+        </div>
       </div>
-      {mode && <ModeChip mode={mode} text={head.text} />}
-      {liveHere && <RunMenu />}
-      {canGoBack && <CheckpointMenu turn={turn} />}
     </div>
   );
 }
 
-// ModeChip says which mode auto mode picked for a turn, and sends the same message again in the
-// other one: the one-click correction of a wrong guess.
-export function ModeChip({
-  mode,
-  text,
-}: {
-  mode: "plan" | "task";
-  text: string;
-}) {
-  const { running, submit } = useTurn();
-  const label = choose(mode === "plan", t("Plan"), t("Task"));
-  const other = choose(mode === "plan", t("Run as task"), t("Run as plan"));
+// ModeBadge says which mode auto mode picked for a turn. Sending it again in the other mode is
+// in the input's menu.
+export function ModeBadge({ mode }: { mode: "plan" | "task" }) {
   return (
-    <div class="mode-chip">
-      <span class="mode-chip-kind">{label}</span>
-      <button
-        type="button"
-        class="mode-chip-switch"
-        disabled={running}
-        onClick={() => submit(switchedText(text, mode))}
-      >
-        {other}
-      </button>
-    </div>
+    <span class="mode-badge" data-mode={mode} title={t("The mode auto mode picked")}>
+      {choose(mode === "plan", t("Plan"), t("Task"))}
+    </span>
   );
 }
 

@@ -325,23 +325,29 @@ test("a user's message is its text, or a label with the prompt folded under it",
   await shown.unmount();
 });
 
-test("the input being worked on has a run menu that stops the agent", async () => {
+test("the input being worked on has one menu that stops the agent, under a bar that says who wrote it", async () => {
   const head = { id: 1, role: "user", text: "go" };
-  const closed = await inTurn(h(P.TurnHead, { head, turn: 0, liveHere: true }));
-  const btn = closed.q("button.cp-btn");
-  assert.equal(btn.getAttribute("aria-label"), "Run menu");
+  const closed = await inTurn(h(P.TurnHead, { head, turn: 0, liveHere: true }), { running: true });
+  assert.equal(text(closed.q(".turn-who")), "You");
+  assert.equal(text(closed.q(".turn-text")), "go");
+  assert.equal(closed.q(".mode-badge"), null, "no mode, no badge");
+  const btn = closed.q(".turn-bar button.cp-btn");
+  assert.equal(btn.getAttribute("aria-label"), "Message menu");
   assert.equal(btn.getAttribute("aria-expanded"), "false");
   assert.equal(closed.q("[role=menu]"), null);
   btn.click();
   assert.deepEqual(closed.calls, [["toggleCpMenu", -1]]);
   await closed.m.unmount();
-  const open = await inTurn(h(P.TurnHead, { head, liveHere: true }), { cpMenu: -1 });
+  const open = await inTurn(h(P.TurnHead, { head, liveHere: true, mode: "task" }), {
+    cpMenu: -1,
+    running: true,
+  });
   assert.equal(open.q("button.cp-btn").getAttribute("aria-expanded"), "true");
-  const stop = open.q("[role=menuitem]");
-  assert.match(text(stop), /^Stop the agent/);
-  stop.click();
+  const items = open.qa("[role=menuitem]");
+  assert.equal(items.length, 1, "while it runs, stopping is all there is");
+  assert.match(text(items[0]), /^Stop the agent/);
+  items[0].click();
   assert.deepEqual(open.calls, [["setCpMenu", null], ["stopRun"]]);
-  assert.equal(text(open.q(".msg.user")), "go");
   await open.m.unmount();
 });
 
@@ -361,7 +367,7 @@ test("an input with a checkpoint can go back to it, and asks twice before puttin
     cpInfo: { 3: { files: true } },
   });
   const btn = closed.q("button.cp-btn");
-  assert.equal(btn.getAttribute("aria-label"), "Checkpoint menu");
+  assert.equal(btn.getAttribute("aria-label"), "Message menu");
   assert.equal(btn.getAttribute("aria-expanded"), "false");
   btn.click();
   assert.deepEqual(closed.calls, [["toggleCpMenu", 3]]);
@@ -407,20 +413,42 @@ test("an input with a checkpoint can go back to it, and asks twice before puttin
   await bare.m.unmount();
 });
 
-test("the mode chip says what auto mode picked and sends the message again in the other mode", async () => {
+test("the mode badge says what auto mode picked, and the menu sends the message again in the other mode", async () => {
   const head = { id: 1, role: "user", text: "/plan sketch it" };
+  // No checkpoint: the menu is the switch alone, keyed by the input itself.
   const plan = await inTurn(h(P.TurnHead, { head, liveHere: false, mode: "plan" }));
-  assert.equal(text(plan.q(".mode-chip-kind")), "Plan");
-  const sw = plan.q(".mode-chip-switch");
-  assert.equal(text(sw), "Run as task");
-  sw.click();
-  assert.deepEqual(plan.calls, [["submit", "/task sketch it"]]);
+  const badge = plan.q(".turn-bar .mode-badge");
+  assert.equal(text(badge), "Plan");
+  assert.equal(badge.dataset.mode, "plan");
+  plan.q("button.cp-btn").click();
+  assert.deepEqual(plan.calls, [["toggleCpMenu", -3]]);
   await plan.m.unmount();
-  const task = await inTurn(h(P.ModeChip, { mode: "task", text: "build it" }), { running: true });
-  assert.equal(text(task.q(".mode-chip-kind")), "Task");
-  assert.equal(text(task.q(".mode-chip-switch")), "Run as plan");
-  assert.equal(task.q(".mode-chip-switch").disabled, true, "not while a run works");
-  await task.m.unmount();
+  const open = await inTurn(h(P.TurnHead, { head, liveHere: false, mode: "plan" }), { cpMenu: -3 });
+  const items = open.qa("[role=menuitem]");
+  assert.equal(items.length, 1);
+  assert.match(text(items[0]), /^Run as task/);
+  items[0].click();
+  assert.deepEqual(open.calls, [["setCpMenu", null], ["submit", "/task sketch it"]]);
+  await open.m.unmount();
+  // With a checkpoint the switch comes first, then going back.
+  const both = await inTurn(h(P.TurnHead, { head: { ...head, text: "build it" }, turn: 2, liveHere: false, mode: "task" }), {
+    cpInfo: { 2: { files: true } },
+    cpMenu: 2,
+  });
+  assert.equal(text(both.q(".mode-badge")), "Task");
+  const [sw, back] = both.qa("[role=menuitem]");
+  assert.match(text(sw), /^Run as plan/);
+  assert.equal(sw.className, "cp-mode");
+  assert.match(text(back), /^Go back to this checkpoint/);
+  await both.m.unmount();
+  // While a run works the badge stays and the switch is gone.
+  const busy = await inTurn(h(P.TurnHead, { head, turn: 2, liveHere: false, mode: "task" }), {
+    cpInfo: { 2: { files: true } },
+    running: true,
+  });
+  assert.ok(busy.q(".mode-badge"));
+  assert.equal(busy.q("button.cp-btn"), null);
+  await busy.m.unmount();
 });
 
 test("the trail folds the steps behind a count and draws commands and progress", async () => {

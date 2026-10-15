@@ -2987,13 +2987,43 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   gap: 4px;
   max-width: 100%;
 }
-.turn-head .msg.user {
-  max-height: 26vh;
-  overflow-y: auto;
+/* The input that opened a turn is a card: a bar with who wrote it, the mode it ran in and its one
+   menu, then the text, which scrolls on its own so the menu is never clipped. */
+.turn-head .msg.user.turn-card {
   /* Opaque enough to sit over the text that scrolls under it. */
   background: rgba(10, 10, 16, 0.94);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 10px 12px;
+}
+.turn-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  white-space: nowrap;
+}
+.turn-who {
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4cc2ff;
+}
+.turn-bar .cp-wrap {
+  margin-left: auto;
+}
+.turn-bar .cp-btn {
+  background: transparent;
+  border-color: transparent;
+}
+.turn-text {
+  max-height: 26vh;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .cp-wrap {
   position: relative;
@@ -3070,6 +3100,8 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 /* Action counter: the steps of a turn collapse into one line; click to expand. */
 .action-trail {
   align-self: flex-start;
+  /* Lined up with the text of the input above it, under its card's bar. */
+  margin-left: 15px;
 }
 .action-trail-toggle {
   display: inline-flex;
@@ -3217,7 +3249,7 @@ html[data-density="compact"] .rpt-sec ul {
     font-size: 0.7em;
     max-width: 100%;
   }
-  html[data-density="compact"] .turn-head .msg.user {
+  html[data-density="compact"] .turn-head .msg.user.turn-card {
     padding: 2px 6px;
   }
 }
@@ -3247,7 +3279,8 @@ html[data-density="compact"] .rpt-sec ul {
   .turn {
     gap: 6px;
   }
-  .turn-head .msg.user { max-height: 14vh; overflow-y: auto; padding: 4px 8px; }
+  .turn-head .msg.user.turn-card { padding: 2px 6px 6px 8px; gap: 2px; }
+  .turn-text { max-height: 14vh; }
   .cp-btn {
     width: 24px;
     height: 24px;
@@ -3605,32 +3638,32 @@ fieldset.approval-panel {
   min-inline-size: 0;
 }
 
-/* The mode auto mode picked for a turn, with the button that sends the message again in the
-   other one. */
-.mode-chip {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 8px;
-  border: 1px solid rgba(76, 194, 255, 0.35);
+/* The mode auto mode picked for a turn: a small tag in the input's bar, plan and task each in
+   their own colour. */
+.mode-badge {
+  padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(10, 10, 16, 0.94);
-  font-size: 0.72em;
+  font-size: 0.66em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: #a8d4ef;
+  background: rgba(76, 194, 255, 0.14);
+  border: 1px solid rgba(76, 194, 255, 0.35);
 }
-.mode-chip-switch {
-  border: 0;
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: rgba(76, 194, 255, 0.15);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+.mode-badge[data-mode="plan"] {
+  color: #d7b8ff;
+  background: rgba(176, 124, 255, 0.14);
+  border-color: rgba(176, 124, 255, 0.4);
 }
-.mode-chip-switch:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* Sending the input again in the other mode, set apart from going back to its checkpoint. */
+.cp-menu button.cp-mode {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px 7px 0 0;
+}
+.cp-menu button.cp-mode:last-child {
+  border-bottom: 0;
+  border-radius: 7px;
 }
 
 /* ─── Phones and touch screens ───────────────────────────────────────

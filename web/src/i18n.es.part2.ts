@@ -469,6 +469,9 @@ const more: Record<string, string> = {
   "If you leave it blank: {assumption}": "Si la dejas en blanco: {assumption}",
   "Question {n} of {total}": "Pregunta {n} de {total}",
   Answered: "Respondida",
+  "Message menu": "Opciones del mensaje",
+  "sends this message again": "vuelve a enviar este mensaje",
+  "The mode auto mode picked": "El modo que eligió el modo automático",
 };
 
 export default more;
