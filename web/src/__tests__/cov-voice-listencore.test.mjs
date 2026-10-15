@@ -191,6 +191,24 @@ test("a model that never ends stops at its most tokens; one without languages ke
   assert.equal(h.lang, "xx");
 });
 
+test("a recording longer than 30 s is written down window by window, silent ones left out", async () => {
+  assert.deepEqual(core.windowsOf(new Float32Array(0)).map((w) => w.length), [0], "nothing is one window");
+  assert.deepEqual(
+    core.windowsOf(new Float32Array(core.CHUNK_SAMPLES * 2 + 5)).map((w) => w.length),
+    [core.CHUNK_SAMPLES, core.CHUNK_SAMPLES, 5],
+  );
+  assert.deepEqual(core.windowsOf(new Float32Array(core.CHUNK_SAMPLES)).map((w) => w.length), [core.CHUNK_SAMPLES]);
+
+  // 70 s: three windows, the second silent. The language heard first is the one asked after.
+  const d = deps({ dec: decoder({ windows: [[1, 0], "quiet", [5, 6]] }) });
+  const r = await new core.Listener(d).hear("whisper-base", new Float32Array(70 * 16000), "");
+  assert.deepEqual(r, { text: "mundo hola the end", lang: "es" });
+  const prompts = d.dec.runs.filter((f) => f.input_ids.dims[1] === 3);
+  assert.equal(prompts.length, 2, "the silent window writes nothing");
+  assert.ok(prompts.every((f) => f.input_ids.data[0] === BigInt(ID["<|es|>"])));
+  assert.equal(d.dec.runs.filter((f) => f.use_cache_branch.data[0] === 0).length, 3, "one first pass per window");
+});
+
 test("the model for the graphics card runs there, or on the processor saying why it could not", async () => {
   const on = deps({ gpu: "works" });
   assert.deepEqual(await new core.Listener(on).warm("whisper-base-gpu"), { gpu: true, gpuError: "" });

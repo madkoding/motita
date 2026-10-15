@@ -26,15 +26,25 @@ export function tokenizer({ drop = [], extra = [] } = {}) {
 export const GEN = JSON.stringify({ suppress_tokens: [8], begin_suppress_tokens: [0, ID["<|endoftext|>"]] });
 
 // The stand-in onnxruntime: tensors that keep what they were made with, an encoder that answers
-// a hidden state 128 wide (two heads), and a decoder that writes `script` then ends the text.
+// a hidden state 128 wide (two heads), and a decoder that writes `script` then ends the text. Each
+// window of a recording starts again with nothing cached, and the decoder with it; `windows`, when
+// given, is what it writes in each window instead (`quiet` for one where nothing is said).
 export class Tensor {
   constructor(type, data, dims) {
     Object.assign(this, { type, data, dims });
   }
 }
-export function decoder({ script = [1, 0, 4], lang = "<|es|>", quiet = false, ends = true, layers = 2 } = {}) {
+export function decoder({
+  script = [1, 0, 4],
+  lang = "<|es|>",
+  quiet = false,
+  ends = true,
+  layers = 2,
+  windows = null,
+} = {}) {
   const runs = [];
   let step = 0;
+  let window = -1;
   return {
     runs,
     inputNames: [
@@ -43,14 +53,20 @@ export function decoder({ script = [1, 0, 4], lang = "<|es|>", quiet = false, en
     ],
     async run(feeds) {
       runs.push(feeds);
+      if (feeds.use_cache_branch.data[0] === 0) {
+        step = 0;
+        window++;
+      }
+      const w = windows?.[window];
+      const says = w === undefined || w === "quiet" ? script : w;
       const n = feeds.input_ids.dims[1];
       const logits = new Float32Array(n * VOCAB);
       const last = logits.subarray((n - 1) * VOCAB);
       if (step === 0) {
         last[ID[lang]] = 5;
-        last[ID["<|nospeech|>"]] = quiet ? 50 : -50;
+        last[ID["<|nospeech|>"]] = quiet || w === "quiet" ? 50 : -50;
       } else {
-        const want = script[step - 1];
+        const want = says[step - 1];
         if (want === undefined) {
           last[choose(ends, ID["<|endoftext|>"], 7)] = 9;
         } else {

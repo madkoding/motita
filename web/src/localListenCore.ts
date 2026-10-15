@@ -128,7 +128,8 @@ function reflect(i: number, n: number): number {
 }
 
 // logMel is the spectrogram Whisper reads, N_MELS rows of N_FRAMES, from up to 30 seconds of
-// 16 kHz samples (padded with silence, or cut). It follows Whisper's own: a centred transform with
+// 16 kHz samples (padded with silence, or cut: a longer recording is cut into windows first, see
+// windowsOf). It follows Whisper's own: a centred transform with
 // a Hann window, power in mel bands, log10, at most 8 below the loudest, then scaled.
 export function logMel(samples: Float32Array): Float32Array {
   const { mel } = transformTables();
@@ -340,6 +341,16 @@ export function maxTokens(samples: number): number {
   return Math.min(MAX_TOKENS, Math.ceil((samples / WHISPER_RATE) * 8) + 16);
 }
 
+// windowsOf cuts a recording into the 30-second windows Whisper reads, one after the other; a
+// recording with nothing in it is still one window, so it is answered like any other.
+export function windowsOf(samples: Float32Array): Float32Array[] {
+  const out: Float32Array[] = [];
+  for (let at = 0; at === 0 || at < samples.length; at += CHUNK_SAMPLES) {
+    out.push(samples.subarray(at, at + CHUNK_SAMPLES));
+  }
+  return out;
+}
+
 // lastLogits is the row of a [1, n, vocab] output for its last position.
 function lastLogits(t: TensorLike): Float32Array {
   const data = t.data as Float32Array;
@@ -468,8 +479,25 @@ export class Listener {
     return loaded;
   }
 
+  // hearNow writes a recording down window by window: Whisper reads 30 seconds at a time, and a
+  // dictation may last longer. The language heard in the first window that said anything is the
+  // one the rest are written in.
   private async hearNow(id: string, samples: Float32Array, lang: string): Promise<Hearing> {
     const m = await this.model(id);
+    const said: string[] = [];
+    let heard = lang;
+    for (const window of windowsOf(samples)) {
+      const h = await this.hearWindow(m, window, heard);
+      if (h.text) {
+        said.push(h.text);
+        heard = h.lang;
+      }
+    }
+    return { text: said.join(" "), lang: heard };
+  }
+
+  // hearWindow writes down one window of up to 30 seconds.
+  private async hearWindow(m: LoadedModel, samples: Float32Array, lang: string): Promise<Hearing> {
     const T = m.ort.Tensor;
     const v = m.vocab;
     const enc = await m.encoder.run({
