@@ -519,7 +519,7 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
   box.remove();
 });
 
-test("listening in the browser: dictation never leaves it, and the gateway only checks the wake phrase", async () => {
+test("listening in the browser: neither dictation nor the wake phrase leaves it", async () => {
   reset();
   localStorage.setItem(VOICE_KEY, JSON.stringify({ engine: "local", listener: "whisper-base", language: "es" }));
   heard.texts = ["arregla los tests"];
@@ -538,20 +538,33 @@ test("listening in the browser: dictation never leaves it, and the gateway only 
   assert.ok(!v.s.asked.some(([p]) => p.startsWith("/v1/voice/transcribe")), "no recording reaches the gateway");
   await v.done();
 
-  // Hands-free: what it heard is asked about the wake phrase; nothing heard is not even asked.
+  // Hands-free: the wake phrase is looked for here, among the ones the gateway listed; what it
+  // heard is never sent anywhere.
   localStorage.setItem(
     VOICE_KEY,
     JSON.stringify({ engine: "local", listener: "whisper-base", listen: true }),
   );
-  heard.texts = ["oye motita abre un pr", ""];
-  v = await mount({ replies: [{ text: "oye motita abre un pr", wake: { phrase: "oye motita", rest: "abre un pr" } }] });
+  heard.texts = ["Eh, hey Mótita: abre un pr", "", "hola a todos"];
+  v = await mount();
   assert.equal(v.s.voice.listening, true);
   await speak();
   assert.equal(v.s.input, "abre un pr");
-  assert.deepEqual(v.s.asked.at(-1), ["/v1/voice/wake", "application/json"]);
-  const asked = v.s.asked.length;
+  assert.equal(v.s.toasts.at(-1).message, "Heard “hey motita”");
   await speak();
-  assert.equal(v.s.asked.length, asked, "nothing heard: no question");
+  await speak();
+  assert.equal(v.s.input, "abre un pr", "nothing heard, or no wake phrase: nothing written");
+  assert.deepEqual(
+    v.s.asked.map(([p]) => p),
+    ["/v1/voice"],
+    "the gateway is only asked for its settings",
+  );
+  await v.done();
+
+  // Before the gateway lists its phrases, nothing wakes it.
+  heard.texts = ["hey motita go"];
+  v = await mount({ info: null });
+  await speak();
+  assert.equal(v.s.input, "");
   await v.done();
 });
 

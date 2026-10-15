@@ -35,8 +35,8 @@ import {
   saveVoicePrefs,
   transcribe,
   voiceState,
-  wakeOf,
 } from "./voice";
+import { matchWake } from "./wakeMatch";
 import { hearLocal, localListenSupported, warmListener } from "./localListen";
 import { stopSpeaking, voiceBusy } from "./speech";
 
@@ -49,6 +49,10 @@ const FRAME_MS = 50;
 const IDLE_RESTART_MS = 4000;
 // How long conversation mode waits for the person to start speaking before it stops listening.
 const NOTHING_HEARD_MS = 8000;
+
+// NO_PHRASES stands for the wake phrases before the gateway listed them: one array, so the
+// listener is not made again on every render.
+const NO_PHRASES: readonly string[] = [];
 
 export type VoicePhase = "idle" | "recording" | "transcribing";
 
@@ -401,9 +405,16 @@ function useHandsFree({
   }, [active, hear, deviceId, fail, setInput, setToast]);
 }
 
-// useHear is the listener chosen: a model run in this browser, which the gateway only asks for a
-// wake phrase, or the transcription service.
-function useHear(api: Api, engine: string, listener: string, language: string): Hear {
+// useHear is the listener chosen: a model run in this browser, or the transcription service. What
+// a local model hears never leaves this device: its wake phrase is looked for here too, among the
+// phrases the gateway listed.
+function useHear(
+  api: Api,
+  engine: string,
+  listener: string,
+  language: string,
+  phrases: readonly string[],
+): Hear {
   return useMemo(() => {
     if (engine !== "local") {
       return Object.assign((audio: Blob, wake: boolean) => transcribe(api, audio, wake), {
@@ -415,10 +426,11 @@ function useHear(api: Api, engine: string, listener: string, language: string): 
       if (!wake || !text) {
         return { text };
       }
-      return wakeOf(api, text);
+      const found = matchWake(text, phrases);
+      return choose(found, { text, wake: found }, { text });
     };
     return Object.assign(local, { ready: () => warmListener(listener) });
-  }, [api, engine, listener, language]);
+  }, [api, engine, listener, language, phrases]);
 }
 
 export function useVoice({ api, authed, setInput, setToast }: Deps) {
@@ -481,7 +493,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     null,
   );
   const deviceId = prefs.deviceId;
-  const hear = useHear(api, engine, prefs.listener, prefs.language);
+  const hear = useHear(api, engine, prefs.listener, prefs.language, info?.wake_phrases ?? NO_PHRASES);
   // listening ends the one phrase conversation mode is listening for, when there is one.
   const listening1 = useRef<(() => void) | null>(null);
   const toggleDictation = useDictation({

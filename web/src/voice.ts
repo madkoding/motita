@@ -483,19 +483,6 @@ export async function putVoice(
   return (await res.json()) as VoiceInfo;
 }
 
-// wakeOf asks the gateway whether a text heard in this browser opens with a wake phrase.
-export async function wakeOf(api: Api, text: string): Promise<Transcript> {
-  const res = await api("/v1/voice/wake", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) {
-    throw new Error(await errorOf(res));
-  }
-  return (await res.json()) as Transcript;
-}
-
 // transcribe sends one recording. With wake, the answer also names the wake phrase it opened with.
 export async function transcribe(
   api: Api,
