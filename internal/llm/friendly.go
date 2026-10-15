@@ -124,6 +124,8 @@ func Friendly(code int, body string) string {
 		return msgNoModel
 	case p.has("overloaded"):
 		return msgOverloaded
+	default:
+		// no field settles it: the status code decides below
 	}
 	switch {
 	case code == 401:
@@ -148,8 +150,9 @@ func Friendly(code int, body string) string {
 		return msgServer
 	case code == 400 || code == 422:
 		return msgBadRequest
+	default:
+		return msgUnknown
 	}
-	return msgUnknown
 }
 
 // oneLine is s on a single line, cut to max runes.

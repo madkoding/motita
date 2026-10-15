@@ -3,10 +3,12 @@ package i18n
 // The sentences a failed call to an LLM provider is shown with (internal/llm/friendly.go), in
 // Spanish. They are swapped inside longer messages, so each one is a whole sentence.
 var esLLM = map[string]string{
-	"The provider rejected the API key or the login.":      "El proveedor rechazó la clave de API o el inicio de sesión.",
-	"The key has no permission for this model or action.":  "La clave no tiene permiso para este modelo o esta acción.",
-	"The account is out of credit or over its quota.":      "La cuenta se quedó sin crédito o superó su cuota.",
-	"The provider is limiting requests right now.":         "El proveedor está limitando las solicitudes en este momento.",
+	"The provider rejected the API key or the login.": "El proveedor rechazó la clave de API o el inicio " +
+		"de sesión.",
+	"The key has no permission for this model or action.": "La clave no tiene permiso para este modelo o esta acción.",
+	"The account is out of credit or over its quota.":     "La cuenta se quedó sin crédito o superó su cuota.",
+	"The provider is limiting requests right now.": "El proveedor está limitando las solicitudes " +
+		"en este momento.",
 	"The provider does not have this model.":               "El proveedor no tiene este modelo.",
 	"The provider is overloaded.":                          "El proveedor está sobrecargado.",
 	"The provider had an internal error.":                  "El proveedor tuvo un error interno.",

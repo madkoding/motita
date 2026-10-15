@@ -293,7 +293,8 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 			}
 			last = err
 			if !retryable(err) {
-				c.log.Error("LLM tool stream failed with no possibility of retry", "attempt", attempt, "error", err, "detail", Detail(err))
+				c.log.Error("LLM tool stream failed with no possibility of retry",
+					"attempt", attempt, "error", err, "detail", Detail(err))
 				out <- StreamChunk{Event: StreamError, Error: err}
 				return
 			}

@@ -22,16 +22,25 @@ func TestFriendlyByStatusAndProviderFields(t *testing.T) {
 		body string
 		want string
 	}{
-		{"openai bad key", 401, `{"error":{"message":"Incorrect API key provided: sk-***","type":"invalid_request_error","code":"invalid_api_key"}}`, msgBadKey},
-		{"openai quota", 429, `{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}`, msgQuota},
-		{"openai rate limit", 429, `{"error":{"message":"Rate limit reached","type":"requests","code":"rate_limit_exceeded"}}`, msgRateLimit},
-		{"openai no model", 404, `{"error":{"message":"The model 'x' does not exist","type":"invalid_request_error","code":"model_not_found"}}`, msgNoModel},
-		{"openai too long", 400, `{"error":{"message":"maximum context length is 8192","code":"context_length_exceeded"}}`, msgTooLong},
-		{"anthropic auth", 401, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`, msgBadKey},
-		{"anthropic overloaded", 529, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, msgOverloaded},
+		{"openai bad key", 401, `{"error":{"message":"Incorrect API key provided: sk-***","type":"invalid_request_error",` +
+			`"code":"invalid_api_key"}}`, msgBadKey},
+		{"openai quota", 429, `{"error":{"message":"You exceeded your current quota","type":"insufficient_quota",` +
+			`"code":"insufficient_quota"}}`, msgQuota},
+		{"openai rate limit", 429, `{"error":{"message":"Rate limit reached","type":"requests",` +
+			`"code":"rate_limit_exceeded"}}`, msgRateLimit},
+		{"openai no model", 404, `{"error":{"message":"The model 'x' does not exist","type":"invalid_request_error",` +
+			`"code":"model_not_found"}}`, msgNoModel},
+		{"openai too long", 400, `{"error":{"message":"maximum context length is 8192",` +
+			`"code":"context_length_exceeded"}}`, msgTooLong},
+		{"anthropic auth", 401, `{"type":"error","error":{"type":"authentication_error",` +
+			`"message":"invalid x-api-key"}}`, msgBadKey},
+		{"anthropic overloaded", 529, `{"type":"error","error":{"type":"overloaded_error",` +
+			`"message":"Overloaded"}}`, msgOverloaded},
 		{"anthropic not found", 404, `{"type":"error","error":{"type":"not_found_error","message":"model: x"}}`, msgNoModel},
-		{"anthropic billing", 400, `{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}`, msgQuota},
-		{"gemini bad key", 400, `{"error":{"code":400,"message":"API key not valid.","status":"INVALID_ARGUMENT"}}`, msgBadKey},
+		{"anthropic billing", 400, `{"type":"error","error":{"type":"invalid_request_error",` +
+			`"message":"Your credit balance is too low"}}`, msgQuota},
+		{"gemini bad key", 400, `{"error":{"code":400,"message":"API key not valid.",` +
+			`"status":"INVALID_ARGUMENT"}}`, msgBadKey},
 		{"gemini quota", 429, `{"error":{"code":429,"message":"quota","status":"RESOURCE_EXHAUSTED"}}`, msgQuota},
 		{"gemini list form", 403, `[{"error":{"code":403,"status":"PERMISSION_DENIED","message":"nope"}}]`, msgNoAccess},
 		{"plain 402", 402, ``, msgQuota},

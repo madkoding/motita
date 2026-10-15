@@ -150,7 +150,8 @@ func TestTheClientReadsAndSetsTheInterfaceLanguage(t *testing.T) {
 func TestLocalizeLLMFollowsTheInterfaceLanguage(t *testing.T) {
 	text := "error: " + llm.Friendly(401, "") + " (HTTP 401)"
 	es := newTestServer(t, &fakeService{}, func(o *Options) { o.UILanguage = "es" })
-	if got := es.localizeLLM(text); got != "error: El proveedor rechazó la clave de API o el inicio de sesión. (HTTP 401)" {
+	want := "error: El proveedor rechazó la clave de API o el inicio de sesión. (HTTP 401)"
+	if got := es.localizeLLM(text); got != want {
 		t.Errorf("Spanish: %q", got)
 	}
 	en := newTestServer(t, &fakeService{}, func(o *Options) { o.UILanguage = "en" })
