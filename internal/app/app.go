@@ -330,11 +330,7 @@ func Run(op Options) int {
 	}
 
 	if fl.initConfig {
-		code, _, next := op.initConfig(fl)
-		if code != Success {
-			return code
-		}
-		return op.continueAfterSetup(fl, next)
+		return op.runConfigCommand(fl)
 	}
 
 	if fl.doctor {
@@ -484,6 +480,15 @@ func (op Options) initConfig(fl flags) (int, bool, onboard.Next) {
 	}
 	fmt.Fprintf(op.Out, "✅ the configuration loads: %s\n", DescribeConfig(cfg))
 	return Success, true, res.Next
+}
+
+// runConfigCommand is `motita config`: the wizard, then what the user chose to do next.
+func (op Options) runConfigCommand(fl flags) int {
+	code, _, next := op.initConfig(fl)
+	if code != Success {
+		return code
+	}
+	return op.continueAfterSetup(fl, next)
 }
 
 // continueAfterSetup does what the user chose at the end of `motita config`: open the terminal
