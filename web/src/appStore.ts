@@ -88,6 +88,7 @@ export function useAppStore(api: Api) {
     api,
     rs,
     stream,
+    { reload: conv.transcript, setToast },
   );
   const composer = useComposer({
     rs,

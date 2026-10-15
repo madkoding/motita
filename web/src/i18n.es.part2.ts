@@ -467,6 +467,7 @@ const more: Record<string, string> = {
   "Motita needs {n} answers to continue": "Motita necesita {n} respuestas para seguir",
   "{done} of {total} answered": "{done} de {total} respondidas",
   "Answers sent": "Respuestas enviadas",
+  "Could not send the answers": "No se pudieron enviar las respuestas",
   "Send answers": "Enviar respuestas",
   "A question left blank goes with what Motita suggests.":
     "Si dejas una pregunta en blanco, Motita sigue con lo que propone.",
