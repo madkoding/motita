@@ -449,7 +449,7 @@ func TestStartGatewayReportsAnUnwritableServiceFileWithoutRefusing(t *testing.T)
 		t.Fatalf("newSandbox: %v", err)
 	}
 
-	srv, err := op.startGateway(flags{}, base, nil, box, log, false, nil)
+	srv, err := op.startGateway(flags{}, base, nil, box, log, false, lifecycle{})
 	if err != nil {
 		t.Fatalf("a gateway that cannot write the file must still serve: %v", err)
 	}

@@ -32,6 +32,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("HOME", home)
+	// No gateway started by the suite asks the real release API: port 1 on the loopback refuses
+	// at once, so an update check fails fast and offline, the same way on every machine.
+	updateAPIURL = "http://127.0.0.1:1/releases/latest"
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)

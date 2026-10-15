@@ -134,6 +134,10 @@ type Sandbox struct {
 	// fullDisk is Options.FullDisk as it is now. It is a pointer so the copies WithDir makes for
 	// background agents follow a change made to the sandbox they came from.
 	fullDisk *atomic.Bool
+	// noNetwork is whether the commands run without a network, shared with the copies WithDir
+	// makes like fullDisk. Options.Limits.NoNetwork is only the request New starts from; each
+	// run's own is runLimits'.
+	noNetwork *atomic.Bool
 }
 
 // noRunGroups is set once a child could not be started inside a run's cgroup. What refused it
@@ -164,10 +168,14 @@ func New(op Options) (*Sandbox, error) {
 	}
 
 	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable,
-		fullDisk: new(atomic.Bool)}
+		fullDisk: new(atomic.Bool), noNetwork: new(atomic.Bool)}
 	s.fullDisk.Store(op.FullDisk)
+	s.op.Limits.NoNetwork = false
 	s.gitRoots, s.repoRoots = worktreeGit(abs)
 
+	// Asked BEFORE this process stops being dumpable: a process that is not root can only map a
+	// user namespace for a child while it is (see needsNamespaceRelay). The answer is kept.
+	_ = networkIsolationError()
 	if err := hideFromChildren(); err != nil {
 		s.notApplied = append(s.notApplied, "process hiding: a command can read motita's environment in /proc: "+err.Error())
 	}
@@ -182,6 +190,10 @@ func New(op Options) (*Sandbox, error) {
 
 	if op.ConfineWrites {
 		s.checkWriteConfinement()
+	}
+
+	if op.Limits.NoNetwork {
+		s.requestNetwork(true)
 	}
 
 	if !hasLimits(op.Limits) {
@@ -313,7 +325,7 @@ func (s *Sandbox) Isolation() []Mode {
 	if s.op.DropPrivs {
 		modes = append(modes, ModeUnprivileged)
 	}
-	if s.op.Limits.NoNetwork {
+	if s.IsolatesNetwork() {
 		modes = append(modes, ModeNoNetwork)
 	}
 	if s.op.ConfineWrites && !s.op.UseChroot && !s.FullDisk() {
@@ -423,7 +435,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		Command:     p.Command,
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
-		Limits:      s.op.Limits,
+		Limits:      s.runLimits(p),
 		Environment: s.environmentWithTmp(tempDir, !confine || p.Approved),
 	}
 
@@ -467,7 +479,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		"temp_dir", tempDir,
 		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
-	return s.launch(ctx, command, args, workDir, timeout, maxOutput)
+	return s.launch(ctx, command, args, workDir, timeout, maxOutput, spec.Limits)
 }
 
 // writeRoots are the directories a confined command may write: where it works, the home the
@@ -680,12 +692,14 @@ var launchCommand = func(ctx context.Context, command string, args ...string) *e
 }
 
 // launch starts the isolation child and collects its output.
+//
+// limits are the run's own (runLimits): whether it gets a network is decided per request.
 func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir string, timeout time.Duration,
-	maxOutput int64) (string, bool, int, error) {
+	maxOutput int64, limits Limits) (string, bool, int, error) {
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	attr, warnings := childAttributes(s.op.Limits, false, 0, 0)
+	attr, warnings := childAttributes(limits, false, 0, 0)
 	// The platform's warnings (the isolation it could not apply) are recorded
 	// like the rest. On Linux childAttributes has none; on the platforms where
 	// it has, this keeps them.

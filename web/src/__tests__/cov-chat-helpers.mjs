@@ -175,6 +175,7 @@ export function fakeRunState(init = {}) {
     runningRef: { current: false },
     liveTurnRef: { current: null },
     lastIdRef: { current: 0 },
+    runIdRef: { current: "" },
     runSessionRef: { current: "" },
     approvalRef: { current: null },
     nextId: () => ++id,

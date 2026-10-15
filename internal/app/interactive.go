@@ -197,7 +197,7 @@ func (op Options) startOwnGateway(
 		baseURL, token, err := op.StartGatewayForTest(true)
 		return baseURL, token, nil, err
 	}
-	srv, err := op.startGateway(fl, cfg, engine, box, log, true, nil)
+	srv, err := op.startGateway(fl, cfg, engine, box, log, true, lifecycle{})
 	if err != nil {
 		return "", "", nil, err
 	}

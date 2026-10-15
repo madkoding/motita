@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,6 +127,14 @@ func TestDoctorFailsOnABrokenMachineOrConfiguration(t *testing.T) {
 func TestDoctorChecksThisProcessByDefault(t *testing.T) {
 	silence(t)
 	t.Setenv("HOME", t.TempDir())
+	// The real machine's checks include a DNS lookup of api.github.com, read through
+	// net.DefaultResolver at the call. A resolver that refuses every query keeps that check
+	// offline: what is under test is that the process's own Env is used, not the network.
+	saved := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("offline")
+	}}
+	t.Cleanup(func() { net.DefaultResolver = saved })
 	inTempDir(t, func() {
 		var out bytes.Buffer
 		Run(Options{Args: []string{"doctor"}, Out: &out, Version: "v7", Goos: "linux", Goarch: "amd64"})

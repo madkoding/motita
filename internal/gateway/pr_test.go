@@ -31,6 +31,11 @@ func prSession(t *testing.T, origin string, opts ...func(*Options)) (*Server, *g
 	}
 	if origin != "" {
 		mustRun(t, "git", "-C", ss.Workspace, "remote", "add", "origin", origin)
+		// The origin is a real host's URL because the forge is read from it, but nothing a test
+		// does may reach that host: the fetch that follows a merge would otherwise ask
+		// github.com. Refusing the transport makes git fail at once, offline, while
+		// `git remote get-url` still reports the URL as written.
+		mustRun(t, "git", "-C", ss.Workspace, "config", "protocol.https.allow", "never")
 	}
 	return srv, host, ss
 }

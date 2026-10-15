@@ -34,6 +34,7 @@ import {
 } from "./appFormat";
 import { PR_POLL_MS, SESSIONS_PATH } from "./appConst";
 import type { SessionInfo } from "./appTypes";
+import { restartFollow } from "./useRunState";
 
 // ── Pull request bar ─────────────────────────────────────────────────────
 // A session with work in it can propose it: "Create PR" has the agent commit, push and open
@@ -354,7 +355,7 @@ export function usePullRequest(store: Store, api: Api) {
       if (started && sid === sessionRef.current) {
         // The run is one this tab did not start: attach to it like a reconnection does.
         rs.runSessionRef.current = sid;
-        rs.lastIdRef.current = 0;
+        restartFollow(rs);
         lists.setRunningState(true);
         status.setState("working");
         void stream.followReconnect();

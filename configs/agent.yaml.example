@@ -73,7 +73,7 @@ sandbox:
   processes: 128
   open_files: 256
   max_file_size_mb: 64
-  isolate_network: false   # true = own network namespace (no network)
+  isolate_network: true    # own network namespace, loopback only; approved commands keep the network
   cgroups: auto        # auto | on | off   (v1: memory + pids)
   cgroup_root: /sys/fs/cgroup
   timeout: 300s

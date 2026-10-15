@@ -146,14 +146,18 @@ type Check struct {
 
 // Sandbox describes the isolated execution environment (Layer C).
 type Sandbox struct {
-	Kind           string        `yaml:"kind"` // none | chroot | cgroups
-	Root           string        `yaml:"root"` // chroot: root directory
-	User           string        `yaml:"user"` // optional "uid:gid"
-	MemoryMB       int           `yaml:"memory_mb"`
-	CPUSeconds     int           `yaml:"cpu_seconds"`
-	Processes      int           `yaml:"processes"`
-	OpenFiles      int           `yaml:"open_files"`
-	MaxFileSizeMB  int           `yaml:"max_file_size_mb"`
+	Kind          string `yaml:"kind"` // none | chroot | cgroups
+	Root          string `yaml:"root"` // chroot: root directory
+	User          string `yaml:"user"` // optional "uid:gid"
+	MemoryMB      int    `yaml:"memory_mb"`
+	CPUSeconds    int    `yaml:"cpu_seconds"`
+	Processes     int    `yaml:"processes"`
+	OpenFiles     int    `yaml:"open_files"`
+	MaxFileSizeMB int    `yaml:"max_file_size_mb"`
+	// IsolateNetwork runs every command in a network namespace of its own, with only a loopback
+	// (Linux): once a command has read something, the network is how it would send it away.
+	// Default true. A command the user approves, and every command with the policy off, keeps the
+	// network. Where the kernel cannot give a command a namespace it is reported as not applied.
 	IsolateNetwork bool          `yaml:"isolate_network"`
 	Cgroups        string        `yaml:"cgroups"` // auto | on | off
 	CgroupRoot     string        `yaml:"cgroup_root"`
@@ -400,6 +404,7 @@ func Default() Config {
 			ConfineWrites:     true,
 			DiskAccess:        DiskWorkspace,
 			AskUnconfinedRuns: true,
+			IsolateNetwork:    true,
 		},
 		LLM: LLM{
 			Provider:       "openai",

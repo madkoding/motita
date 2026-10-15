@@ -69,6 +69,13 @@ func (c *Curator) MaybeRun(ctx context.Context) error {
 		c.mu.Unlock()
 		return nil
 	}
+	// The in-memory time only knows about passes THIS process ran. The state file is what
+	// carries the schedule across restarts (and across a `motita curator run` from another
+	// process), so the later of the two is the last run. Without it, interval_hours would
+	// mean "once per process", and every new session would pay for a pass.
+	if persisted := c.persistedLastRun(); persisted.After(c.lastRun) {
+		c.lastRun = persisted
+	}
 	if c.now().Sub(c.lastRun) < time.Duration(c.cfg.IntervalHours)*time.Hour {
 		c.mu.Unlock()
 		return nil
@@ -336,11 +343,17 @@ func (c *Curator) Status() string {
 		fmt.Fprintf(&b, "  stale      %d\n", stale)
 		fmt.Fprintf(&b, "  archived   %d\n", archived)
 	}
+	// `motita curator status` runs in a fresh process, so the state file is the only place
+	// that knows about a pass an earlier process ran.
 	c.mu.Lock()
-	if !c.lastRun.IsZero() {
-		fmt.Fprintf(&b, "\nlast run: %s\n", c.lastRun.Format("2006-01-02 15:04"))
-	}
+	last := c.lastRun
 	c.mu.Unlock()
+	if persisted := c.persistedLastRun(); persisted.After(last) {
+		last = persisted
+	}
+	if !last.IsZero() {
+		fmt.Fprintf(&b, "\nlast run: %s\n", last.Format("2006-01-02 15:04"))
+	}
 	return b.String()
 }
 
@@ -372,6 +385,29 @@ func (c *Curator) saveState(report *PassReport) error {
 		return err
 	}
 	return os.WriteFile(c.cfg.StateFile, data, 0o600)
+}
+
+// persistedLastRun reads last_run_at from the state file. Every failure (no state file
+// configured, a missing, unreadable or corrupt file) reads as "never ran": the state is a
+// convenience, and the worst a lost state can cost is one pass that runs early. A time in the
+// future (a clock that went backwards, a file copied from another machine) is ignored for the
+// same reason: trusting it would postpone every pass until the clock caught up.
+func (c *Curator) persistedLastRun() time.Time {
+	if c.cfg.StateFile == "" {
+		return time.Time{}
+	}
+	data, err := os.ReadFile(c.cfg.StateFile)
+	if err != nil {
+		return time.Time{}
+	}
+	var state curatorState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return time.Time{}
+	}
+	if state.LastRunAt.After(c.now()) {
+		return time.Time{}
+	}
+	return state.LastRunAt
 }
 
 func (c *Curator) runCount() int {

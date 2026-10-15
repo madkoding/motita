@@ -530,6 +530,20 @@ const more: Record<string, string> = {
   "Every voice ({n})": "Todas las voces ({n})",
   "The local listener took too long and was stopped.":
     "La transcripción local tardó demasiado y se detuvo.",
+  "Network for commands": "Red para los comandos",
+  "No network": "Sin red",
+  "Allow the network": "Permitir la red",
+  "Motita's commands run without a network: only this machine's loopback, so tests on 127.0.0.1 still work. A command you approve keeps the network.":
+    "Los comandos de Motita se ejecutan sin red: solo el loopback de esta máquina, así que los tests sobre 127.0.0.1 siguen funcionando. Un comando que apruebas conserva la red.",
+  "Motita's commands can reach the network. A command that read your files could send them anywhere.":
+    "Los comandos de Motita pueden usar la red. Un comando que leyó tus archivos podría enviarlos a cualquier parte.",
+  "A command that has read something, your code or a key in a file, could send it out.":
+    "Un comando que leyó algo, tu código o una clave en un archivo, podría enviarlo fuera.",
+  "Instructions hidden in a web page or a repository could make it do that before you see it.":
+    "Instrucciones ocultas en una página web o en un repositorio podrían hacer que lo haga antes de que lo veas.",
+  "This system cannot take the network away from a command (it needs Linux), so this changes nothing here.":
+    "Este sistema no puede quitarle la red a un comando (necesita Linux), así que aquí no cambia nada.",
+  "Give Motita's commands the network?": "¿Dar la red a los comandos de Motita?",
 };
 
 export default more;

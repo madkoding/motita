@@ -335,3 +335,32 @@ func assetNameForThisPlatform() string {
 	}
 	return "motita-" + runtime.GOOS + "-" + runtime.GOARCH + ext
 }
+
+// TestTheUpdateAPIURLReplacesGitHub: an embedder that starts a real gateway in its tests points
+// the release check at its own server, and the check then asks THAT server and nobody else.
+func TestTheUpdateAPIURLReplacesGitHub(t *testing.T) {
+	asked := make(chan string, 4)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked <- r.URL.Path
+		_, _ = w.Write([]byte(releaseJSON("v1.0.0")))
+	}))
+	defer ts.Close()
+	srv, _ := startServer(t, Options{
+		Token:               testToken,
+		WorkspaceDir:        t.TempDir(),
+		SessionDir:          filepath.Join(t.TempDir(), "sessions"),
+		ProjectDir:          filepath.Join(t.TempDir(), "projects"),
+		ExePath:             filepath.Join(t.TempDir(), "motita"),
+		UpdateCheckInterval: -1,
+		UpdateAPIURL:        ts.URL + "/release",
+	})
+	if got := srv.updater.APIURL(); got != ts.URL+"/release" {
+		t.Fatalf("APIURL = %q", got)
+	}
+	if w := get(t, srv, "/v1/update/check", testToken); w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if path := <-asked; path != "/release" {
+		t.Errorf("the check asked %q", path)
+	}
+}

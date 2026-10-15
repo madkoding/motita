@@ -7,6 +7,7 @@ export const HTTP_NO_CONTENT = 204;
 export const HTTP_UNAUTHORIZED = 401;
 export const HTTP_NOT_FOUND = 404;
 export const HTTP_CONFLICT = 409;
+export const HTTP_GONE = 410;
 
 // The credentials every request of the page is sent with.
 export const SAME_ORIGIN = "same-origin";

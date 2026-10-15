@@ -23,6 +23,24 @@ import (
 	"github.com/madkoding/motita/internal/voice"
 )
 
+// lifecycle is how a gateway process can be ended from inside it.
+//
+// restart is what the updater calls once a new binary is installed; shutdown is what
+// POST /v1/shutdown calls, the graceful stop `gateway stop` asks for where there is no SIGTERM
+// (Windows). Both are nil for the gateway inside a terminal's interface, whose lifetime belongs to
+// that terminal (see gateway.Options.Restart and gateway.Options.Shutdown).
+type lifecycle struct {
+	restart  func()
+	shutdown func()
+}
+
+// updateAPIURL is the release API the gateway's updater asks. Empty, the production value,
+// means GitHub's. It is a package variable rather than a field of Options because it is a seam
+// for the suite as a whole: every test that starts a real gateway (and the text interface, which
+// asks its gateway for updates on start) would otherwise reach api.github.com, so TestMain
+// points it at a local address once instead of each test remembering to.
+var updateAPIURL string
+
 // runServe runs the gateway and no interface.
 //
 // The runner is the same tui.AppRunner the text interface uses, which is the whole point of the
@@ -44,7 +62,7 @@ func (op Options) runServe(
 		stop()
 	}
 
-	srv, err := op.startGateway(fl, cfg, engine, box, log, false, restart)
+	srv, err := op.startGateway(fl, cfg, engine, box, log, false, lifecycle{restart: restart, shutdown: stop})
 	if err != nil {
 		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
 		return ConfigError
@@ -134,11 +152,10 @@ func (op Options) runGatewayLoop(srv *gateway.Server, log *logx.Logger, timeout 
 // a port of 0 the real port is chosen at bind time, and writing the zero down would leave a file
 // nobody can use.
 //
-// restart is what the updater calls once a new binary is installed, and nil for a gateway that
-// cannot replace itself (see gateway.Options.Restart).
+// life is how the service ends: see lifecycle.
 func (op Options) startGateway(
 	fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, owned bool,
-	restart func(),
+	life lifecycle,
 ) (*gateway.Server, error) {
 	if strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
 		return nil, errors.New("the gateway was turned off with -gateway off")
@@ -231,10 +248,13 @@ func (op Options) startGateway(
 		MaxBodyKB:      cfg.Gateway.MaxBodyKB,
 		Version:        op.Version,
 		ExePath:        op.ExePath,
+		// Empty outside the tests: GitHub's release API.
+		UpdateAPIURL: updateAPIURL,
 		// The git logins: the connection the user makes in the settings, which the
 		// credential helper then serves to every git a session runs.
 		GitAuthDir: config.AuthDir(),
-		Restart:    restart,
+		Restart:    life.restart,
+		Shutdown:   life.shutdown,
 		Log:        log,
 		// The interface is served from THIS mux, so the page and the API share an origin
 		// and no proxy or CORS is involved anywhere.
