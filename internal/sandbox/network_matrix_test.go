@@ -71,20 +71,15 @@ func outboundAddress(t *testing.T) string {
 	return ""
 }
 
-func TestNetworkIsolationOnThisMachine(t *testing.T) {
-	expect := os.Getenv("MOTITA_NETISO_EXPECT")
-	if expect == "" {
-		t.Skip("MOTITA_NETISO_EXPECT is not set: this runs in the network isolation CI job")
-	}
-	if expect != "isolated" && expect != "unavailable" {
-		t.Fatalf("MOTITA_NETISO_EXPECT = %q, want isolated or unavailable", expect)
-	}
-
+// serveAndLocate starts a listener on every interface that accepts and drops connections, and
+// returns its address on an interface that is not the loopback.
+func serveAndLocate(t *testing.T) string {
+	t.Helper()
 	l, err := net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = l.Close() }()
+	t.Cleanup(func() { _ = l.Close() })
 	go func() {
 		for {
 			c, err := l.Accept()
@@ -95,13 +90,12 @@ func TestNetworkIsolationOnThisMachine(t *testing.T) {
 		}
 	}()
 	_, port, _ := net.SplitHostPort(l.Addr().String())
-	remote := net.JoinHostPort(outboundAddress(t), port)
+	return net.JoinHostPort(outboundAddress(t), port)
+}
 
-	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{NoNetwork: true}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dial := func(approved bool, target string) int {
+// dialer returns a function that runs the helper in the sandbox and reports whether it connected.
+func dialer(t *testing.T, s *Sandbox) func(approved bool, target string) bool {
+	return func(approved bool, target string) bool {
 		t.Helper()
 		out, _, code, err := s.Run(context.Background(), execx.Request{
 			Command:  os.Args[0],
@@ -115,38 +109,62 @@ func TestNetworkIsolationOnThisMachine(t *testing.T) {
 		if code != netIsoOKExit && code != netIsoDialExit {
 			t.Fatalf("the helper did not run (exit %d):\n%s", code, out)
 		}
-		return code
+		return code == netIsoOKExit
 	}
+}
 
+func checkIsolated(t *testing.T, s *Sandbox, dial func(bool, string) bool, remote string) {
+	t.Helper()
+	if !NetworkIsolationAvailable() || !s.IsolatesNetwork() {
+		t.Fatalf("expected isolation here, but it is unavailable: %v", networkIsolationError())
+	}
+	if dial(false, remote) {
+		t.Error("a command that is not approved reached the machine's network")
+	}
+	if !dial(false, "loopback") {
+		t.Error("a command without a network lost its own loopback")
+	}
+	if len(s.NotApplied()) != 0 {
+		t.Errorf("isolation applied, yet reported as not: %v", s.NotApplied())
+	}
+}
+
+func checkUnavailable(t *testing.T, s *Sandbox, dial func(bool, string) bool, remote string) {
+	t.Helper()
+	if NetworkIsolationAvailable() || s.IsolatesNetwork() {
+		t.Fatal("expected isolation to be unavailable here, but it is claimed")
+	}
+	if got := strings.Join(s.NotApplied(), "|"); !strings.Contains(got, "network isolation") {
+		t.Errorf("isolation not applied, but not said: %q", got)
+	}
+	if err := s.SetIsolateNetwork(true); err == nil {
+		t.Error("SetIsolateNetwork(true) succeeded where the machine cannot isolate")
+	}
+	if !dial(false, remote) {
+		t.Error("commands were cut off from the network although isolation is not applied")
+	}
+}
+
+func TestNetworkIsolationOnThisMachine(t *testing.T) {
+	expect := os.Getenv("MOTITA_NETISO_EXPECT")
+	if expect == "" {
+		t.Skip("MOTITA_NETISO_EXPECT is not set: this runs in the network isolation CI job")
+	}
+	remote := serveAndLocate(t)
+	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{NoNetwork: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dial := dialer(t, s)
 	switch expect {
 	case "isolated":
-		if !NetworkIsolationAvailable() || !s.IsolatesNetwork() {
-			t.Fatalf("expected isolation here, but it is unavailable: %v", networkIsolationError())
-		}
-		if got := dial(false, remote); got != netIsoDialExit {
-			t.Error("a command that is not approved reached the machine's network")
-		}
-		if got := dial(false, "loopback"); got != netIsoOKExit {
-			t.Error("a command without a network lost its own loopback")
-		}
-		if len(s.NotApplied()) != 0 {
-			t.Errorf("isolation applied, yet reported as not: %v", s.NotApplied())
-		}
+		checkIsolated(t, s, dial, remote)
 	case "unavailable":
-		if NetworkIsolationAvailable() || s.IsolatesNetwork() {
-			t.Fatal("expected isolation to be unavailable here, but it is claimed")
-		}
-		if got := strings.Join(s.NotApplied(), "|"); !strings.Contains(got, "network isolation") {
-			t.Errorf("isolation not applied, but not said: %q", got)
-		}
-		if err := s.SetIsolateNetwork(true); err == nil {
-			t.Error("SetIsolateNetwork(true) succeeded where the machine cannot isolate")
-		}
-		if got := dial(false, remote); got != netIsoOKExit {
-			t.Error("commands were cut off from the network although isolation is not applied")
-		}
+		checkUnavailable(t, s, dial, remote)
+	default:
+		t.Fatalf("MOTITA_NETISO_EXPECT = %q, want isolated or unavailable", expect)
 	}
-	if got := dial(true, remote); got != netIsoOKExit {
+	if !dial(true, remote) {
 		t.Error("an approved command did not keep the network")
 	}
 }
