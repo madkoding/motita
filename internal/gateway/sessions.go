@@ -76,6 +76,8 @@ type conversation struct {
 	// prWatch is what the gateway is doing about the session's pull request, nil when nothing.
 	prWatch    *PRWatchView
 	prFixedKey string // the push whose failure was last handed to the agent
+	// prSeen is the comment IDs the watch has already taken in (see prWatchRecord.Seen).
+	prSeen []string
 	// lastTask is the most recent task or plan prompt submitted to this
 	// conversation. It is saved so that a session interrupted by a gateway
 	// restart (an upgrade) can be resumed automatically: the new process

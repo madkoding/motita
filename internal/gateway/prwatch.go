@@ -60,6 +60,24 @@ type prWatchRecord struct {
 	Attempts int    `json:"attempts"`
 	Number   int    `json:"number,omitempty"`
 	FixedKey string `json:"fixed_key,omitempty"`
+	// Seen is the comment IDs the watch had already taken in, so a restart reports the comments
+	// made while the gateway was down instead of swallowing them in a new baseline. null when there
+	// was no baseline yet (or it grew past prSeenLimit); an empty list is a baseline with no
+	// comments, which is why the field has no omitempty.
+	Seen []string `json:"seen"`
+}
+
+// prSeenLimit is the most comment IDs saved with a watch. A pull request with more is a long
+// discussion the record should not carry: past it the restart takes a new baseline, as before.
+const prSeenLimit = 500
+
+// seenRecord is the tracker's seen IDs as the record keeps them: nil past prSeenLimit.
+func (w *prWatchState) seenRecord() []string {
+	seen := w.talk.Seen()
+	if len(seen) > prSeenLimit {
+		return nil
+	}
+	return seen
 }
 
 // restorePRWatch gives a restored session the watch it had.
@@ -70,6 +88,7 @@ func (c *conversation) restorePRWatch(r *prWatchRecord, max int) {
 	c.stateMu.Lock()
 	c.prWatch = &PRWatchView{Status: r.Status, Attempts: r.Attempts, Max: max, Number: r.Number}
 	c.prFixedKey = r.FixedKey
+	c.prSeen = r.Seen
 	c.stateMu.Unlock()
 }
 
@@ -231,7 +250,7 @@ func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
 	prev := c.prWatch
 	changed := prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts ||
 		prev.Number != view.Number
-	c.prWatch, c.prFixedKey = view, w.fixedKey
+	c.prWatch, c.prFixedKey, c.prSeen = view, w.fixedKey, w.seenRecord()
 	c.stateMu.Unlock()
 	if changed {
 		s.saveSession(c)
@@ -373,6 +392,7 @@ func (s *Server) pollTalk(
 		if news := w.talk.NewComments(act); len(news) > 0 {
 			task, status = reviewTask(t.branch, pr, news), prReviewing
 		}
+		s.rememberTalk(c, w)
 	}
 	if m, err := t.api.MergeState(ctx, t.remote, pr.Number); err == nil && w.talk.Conflict(m) && task == "" {
 		task, status = conflictTask(t.branch, pr), prResolving
@@ -391,6 +411,19 @@ func (s *Server) pollTalk(
 	s.publishPR(c, w, pr.Number)
 	s.sendToAgent(c, task)
 	return false
+}
+
+// rememberTalk keeps the comments the watch has taken in with the session, and saves it when they
+// changed: a restart resumes the tracker from them (see prWatchRecord.Seen).
+func (s *Server) rememberTalk(c *conversation, w *prWatchState) {
+	seen := w.seenRecord()
+	c.stateMu.Lock()
+	moved := !slices.Equal(c.prSeen, seen) || (c.prSeen == nil) != (seen == nil)
+	c.prSeen = seen
+	c.stateMu.Unlock()
+	if moved {
+		s.saveSession(c)
+	}
 }
 
 // answerCIFailure sends the agent to fix a failed CI, and reports whether the watch is over. A

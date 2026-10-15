@@ -138,6 +138,7 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 	if c.prWatch != nil {
 		rec.PRWatch = &prWatchRecord{
 			Status: c.prWatch.Status, Attempts: c.prWatch.Attempts, Number: c.prWatch.Number, FixedKey: c.prFixedKey,
+			Seen: c.prSeen,
 		}
 	}
 	c.stateMu.Unlock()
