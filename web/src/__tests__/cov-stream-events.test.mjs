@@ -279,6 +279,25 @@ test("the answer grows as a draft and the final one takes its place", async () =
   await hook.unmount();
 });
 
+test("an answer that asked carries its questions and the request they are about", async () => {
+  const { hook, rs, send } = await run();
+  const questions = [{ text: "which?", options: ["a"] }];
+  await send("done", { result: "which?", questions });
+  assert.deepEqual([rs().messages[0].questions, rs().messages[0].origin], [questions, ""]);
+  await hook.act(() => {
+    rs().setMessages([
+      { id: 1, role: "user", text: "first" },
+      { id: 2, role: "user", text: "add login" },
+    ]);
+  });
+  await send("done", { result: "which?", questions });
+  assert.equal(rs().messages[2].origin, "add login", "the newest input is the request asked about");
+  await send("done", { result: "ok", questions: [] });
+  assert.equal(rs().messages[3].questions, undefined, "an empty list asks nothing");
+  assert.equal(rs().messages[3].origin, undefined);
+  await hook.unmount();
+});
+
 test("an error ends the run with its message, and an approval asks the question", async () => {
   const { hook, rs, send, finished } = await run();
   await send("answer", { text: "partial" });

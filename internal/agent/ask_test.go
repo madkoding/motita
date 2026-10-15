@@ -111,7 +111,9 @@ func TestCleanOptions(t *testing.T) {
 		{"all blank", []string{"", "   ", "\t"}, 0},
 		{"duplicates", []string{"yes", "yes", "no"}, 2},
 		{"multi-line collapses to one row", []string{"yes\nno"}, 1},
-		{"too long", []string{strings.Repeat("x", optionMaxRunes+1)}, 0},
+		{"too long is kept, cut short", []string{strings.Repeat("x", optionMaxRunes+1)}, 1},
+		{"cut short to the same text is one choice",
+			[]string{strings.Repeat("x", optionMaxRunes) + "a", strings.Repeat("x", optionMaxRunes) + "b"}, 1},
 		{"exactly the limit", []string{strings.Repeat("x", optionMaxRunes)}, 1},
 		{"keeps the order", []string{"one", "two", "three"}, 3},
 	}
@@ -126,6 +128,19 @@ func TestCleanOptions(t *testing.T) {
 
 // The cap applies to what is kept, so a long list of duplicates or junk still yields at most a
 // handful of choices.
+// A long option is kept and only cut short past the limit, with an ellipsis marking the cut.
+func TestCleanOptionsCutsALongOptionShort(t *testing.T) {
+	long := strings.Repeat("word ", optionMaxRunes)
+	got := cleanOptions([]string{"Cookies, the simplest choice with no extra server to run at all", long})
+	if len(got) != 2 || got[0] != "Cookies, the simplest choice with no extra server to run at all" {
+		t.Fatalf("a long option must be kept whole, got %q", got)
+	}
+	if r := []rune(got[1]); len(r) > optionMaxRunes || !strings.HasSuffix(got[1], "…") {
+		t.Fatalf("an absurdly long option must be cut to %d runes with an ellipsis, got %d: %q",
+			optionMaxRunes, len(r), got[1])
+	}
+}
+
 func TestCleanOptionsIsCapped(t *testing.T) {
 	in := make([]string, 0, maxOptions+4)
 	for i := 0; i < maxOptions+4; i++ {

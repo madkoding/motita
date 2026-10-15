@@ -2987,13 +2987,39 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   gap: 4px;
   max-width: 100%;
 }
-.turn-head .msg.user {
-  max-height: 26vh;
-  overflow-y: auto;
+/* The input that opened a turn is a card: a bar with who wrote it, the mode it ran in and its one
+   menu, then the text, which scrolls on its own so the menu is never clipped. */
+.turn-head .msg.user.turn-card {
   /* Opaque enough to sit over the text that scrolls under it. */
   background: rgba(10, 10, 16, 0.94);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 10px 12px;
+}
+.turn-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  white-space: nowrap;
+}
+.turn-who {
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4cc2ff;
+}
+.turn-bar .cp-wrap {
+  margin-left: auto;
+}
+.turn-text {
+  max-height: 26vh;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .cp-wrap {
   position: relative;
@@ -3070,6 +3096,8 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 /* Action counter: the steps of a turn collapse into one line; click to expand. */
 .action-trail {
   align-self: flex-start;
+  /* Lined up with the text of the input above it, under its card's bar. */
+  margin-left: 15px;
 }
 .action-trail-toggle {
   display: inline-flex;
@@ -3217,7 +3245,7 @@ html[data-density="compact"] .rpt-sec ul {
     font-size: 0.7em;
     max-width: 100%;
   }
-  html[data-density="compact"] .turn-head .msg.user {
+  html[data-density="compact"] .turn-head .msg.user.turn-card {
     padding: 2px 6px;
   }
 }
@@ -3247,7 +3275,8 @@ html[data-density="compact"] .rpt-sec ul {
   .turn {
     gap: 6px;
   }
-  .turn-head .msg.user { max-height: 14vh; overflow-y: auto; padding: 4px 8px; }
+  .turn-head .msg.user.turn-card { padding: 4px 6px 6px 8px; gap: 2px; }
+  .turn-text { max-height: 14vh; }
   .cp-btn {
     width: 24px;
     height: 24px;
@@ -3605,32 +3634,33 @@ fieldset.approval-panel {
   min-inline-size: 0;
 }
 
-/* The mode auto mode picked for a turn, with the button that sends the message again in the
-   other one. */
-.mode-chip {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 8px;
-  border: 1px solid rgba(76, 194, 255, 0.35);
+/* The mode auto mode picked for a turn: a small tag in the input's bar, plan and task each in
+   their own colour. */
+.mode-badge {
+  padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(10, 10, 16, 0.94);
-  font-size: 0.72em;
+  font-size: 0.66em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: #a8d4ef;
+  /* Opaque: the cyan at 14 % over the card, so its contrast does not depend on what is under it. */
+  background: #132431;
+  border: 1px solid rgba(76, 194, 255, 0.35);
 }
-.mode-chip-switch {
-  border: 0;
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: rgba(76, 194, 255, 0.15);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+.mode-badge[data-mode="plan"] {
+  color: #d7b8ff;
+  background: #211a31;
+  border-color: rgba(176, 124, 255, 0.4);
 }
-.mode-chip-switch:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* Sending the input again in the other mode, set apart from going back to its checkpoint. */
+.cp-menu button.cp-mode {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px 7px 0 0;
+}
+.cp-menu button.cp-mode:last-child {
+  border-bottom: 0;
+  border-radius: 7px;
 }
 
 /* ─── Phones and touch screens ───────────────────────────────────────
@@ -4321,4 +4351,107 @@ html[data-density="compact"] .settings-warn {
 }
 ::highlight(stream-fade-3) {
   color: rgb(232 232 234 / 0.8);
+}
+
+/* The input's ⋮ and the actions counter are quiet controls: no box and no cut corners, so they
+ * read as part of the card and the line under it rather than as two more buttons. On a touch
+ * screen they keep a finger-sized target but give the room back with negative margins, so the
+ * card's bar and the counter's line stay as short as on a desktop. */
+.turn-bar button.cp-btn,
+:is(.action-trail, .turn-bar) button.action-trail-toggle {
+  clip-path: none;
+}
+.turn-bar .cp-btn::before,
+.turn-bar .cp-btn::after {
+  display: none;
+}
+.turn-bar .cp-btn {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+}
+.turn-bar .cp-btn[aria-expanded="true"] {
+  background: rgba(76, 194, 255, 0.12);
+}
+@media (hover: hover) {
+  .turn-bar .cp-btn:hover {
+    background: rgba(76, 194, 255, 0.12);
+  }
+}
+:is(.action-trail, .turn-bar) button.action-trail-toggle {
+  padding: 1px 8px 1px 6px;
+  /* Opaque, so it reads over the bright parts of the background image. */
+  background: #121219;
+  border: 0;
+  border-radius: 999px;
+}
+@media (hover: hover) {
+  :is(.action-trail, .turn-bar) button.action-trail-toggle:hover {
+    background: #22222b;
+  }
+}
+@media (pointer: coarse) {
+  /* 36px, the compact floor, so it fits inside the card's bar instead of spilling over its edge. */
+  .turn-bar button.cp-btn.cp-btn {
+    min-width: 36px;
+    min-height: 36px;
+    margin: -4px -4px -4px 0;
+  }
+  /* The pill stays slim; an invisible ring around it takes the finger. */
+  :is(.action-trail, .turn-bar) button.action-trail-toggle {
+    min-height: 0;
+    clip-path: none;
+    overflow: visible;
+  }
+  :is(.action-trail, .turn-bar) button.action-trail-toggle::after {
+    content: "";
+    position: absolute;
+    inset: -10px -6px;
+  }
+}
+@media (max-width: 640px) {
+  /* The card's text starts 11px in on a phone (3px bar + 8px padding): the counter lines up. */
+  .action-trail {
+    margin-left: 5px;
+  }
+}
+
+/* In the card's bar the counter is one more tag after the mode, on the card's own dark. The steps
+ * it opens hang under the card, lined up with its text. */
+.turn-bar button.action-trail-toggle {
+  font-size: 0.72em;
+  background: #19191e;
+}
+.turn-steps {
+  margin-left: 15px;
+}
+@media (max-width: 640px) {
+  .turn-steps {
+    margin-left: 11px;
+  }
+  /* A phone has no free corner for the toast: under the header it sat over the input that opened
+   * the turn. It goes over the header instead, which only names the session, for its few seconds. */
+  .toast-layer.toast-layer {
+    top: calc(env(safe-area-inset-top) + 6px);
+  }
+  /* And it is held to about the header's height: tighter padding and text, and its link keeps a
+   * finger-sized target in an invisible ring rather than a 44px row of its own. */
+  .toast-layer .toast-card {
+    padding: 8px 10px 8px 12px;
+    gap: 8px;
+  }
+  .toast-layer .toast-card p {
+    font-size: 13px;
+    line-height: 1.3;
+  }
+  .toast-layer .toast-card button.text-accent {
+    min-height: 0;
+    margin-top: 4px;
+    clip-path: none;
+  }
+  .toast-layer .toast-card button.text-accent::after {
+    content: "";
+    position: absolute;
+    inset: -10px -8px;
+  }
 }

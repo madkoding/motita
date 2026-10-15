@@ -383,3 +383,199 @@
   opacity: 0.7;
   margin: 0 0 4px;
 }
+
+/* Questions the agent asked before doing anything: every one on the card, each in a panel of its
+ * own with clear space between them, its options as numbered rows (a number key, the text beside
+ * it), a field for an answer of one's own, and one button that sends them all. The accent is the
+ * app's blue: nothing went wrong, Motita is waiting on the reader. */
+.qcard {
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: min(100%, 22rem);
+}
+.qcard-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.qcard-head strong {
+  color: #4cc2ff;
+  font-size: 1.05em;
+}
+.qcard-count {
+  font-size: 0.8em;
+  color: #9a9aaa;
+}
+.qcard-note {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin: 0;
+}
+.qcard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+/* One question: an opaque panel with a bar on the left that turns blue once it is answered, so
+ * where one question ends and the next begins reads at a glance. */
+.qcard-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 4px solid rgba(255, 255, 255, 0.22);
+}
+.qcard-item.answered {
+  border-left-color: #4cc2ff;
+}
+.qcard-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8a9a;
+}
+.qcard-ok {
+  color: #4cc2ff;
+}
+.qcard-q {
+  margin: 0;
+  font-size: 1.02em;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.qcard-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* An option is one row: the number key, then its text beside it. The text can be a sentence: it
+ * wraps next to the key, never past the card, and a long word (a path, an identifier) breaks
+ * rather than pushing the card wider than the screen. */
+.qcard-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+.qcard-key {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid rgba(76, 194, 255, 0.55);
+  background: #0f1a24;
+  color: #4cc2ff;
+  font-weight: 700;
+  font-size: 0.9em;
+}
+.qcard-opt-text {
+  flex: 1;
+  min-width: 0;
+  padding-top: 4px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+@media (hover: hover) {
+  .qcard-opt:not(:disabled):hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .qcard-opt:not(:disabled):hover .qcard-key {
+    background: rgba(76, 194, 255, 0.2);
+  }
+}
+.qcard-opt.picked,
+.qcard-opt.picked:disabled {
+  opacity: 1;
+  border-color: rgba(76, 194, 255, 0.45);
+  background: rgba(76, 194, 255, 0.12);
+}
+.qcard-opt.picked .qcard-key {
+  background: #4cc2ff;
+  border-color: #4cc2ff;
+  color: #0b0f14;
+}
+.qcard-opt.picked .qcard-opt-text {
+  font-weight: 600;
+}
+.qcard-opt:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qcard-own {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font: inherit;
+}
+.qcard-own:focus {
+  outline: none;
+  border-color: #4cc2ff;
+}
+.qcard-yours {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid #4cc2ff;
+}
+.qcard-assume {
+  margin: 0;
+  font-size: 0.82em;
+  color: #9a9aaa;
+}
+.qcard-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.qcard-send {
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: 1px solid #4cc2ff;
+  background: #4cc2ff;
+  color: #0b0f14;
+  font-weight: 700;
+  cursor: pointer;
+}
+.qcard-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qcard-hint {
+  color: #9a9aaa;
+}
+.qcard-done {
+  color: #8fe0a8;
+  font-weight: 600;
+}
+.qcard.expired .qcard-item {
+  opacity: 0.55;
+}

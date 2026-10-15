@@ -38,6 +38,8 @@ type fakeService struct {
 	verdict   func(good bool, note string) string
 	reward    string
 	questions []agent.AskItem
+	// asked is what TakeQuestions hands back: the questions the last task asked, as structure.
+	asked []agent.AskItem
 	// structured is what TakeReport hands back: the report of the last task, as structure.
 	structured *agent.Report
 	origin     string
@@ -66,6 +68,8 @@ func (f *fakeService) RunTask(ctx context.Context, t2 string, pr func(string, ..
 }
 
 func (f *fakeService) TakeReport() *agent.Report { return f.structured }
+
+func (f *fakeService) TakeQuestions() []agent.AskItem { return f.asked }
 
 func (f *fakeService) RunModels(ctx context.Context) (string, error) {
 	if f.models == nil {
