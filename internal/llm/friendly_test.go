@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -131,3 +132,52 @@ func TestLocalizeTranslatesEverySentence(t *testing.T) {
 		t.Errorf("Spanish: %q", got)
 	}
 }
+
+// Odd bodies never panic and never leak: a bare string, an empty list, a null code, a wrongly
+// typed field, and the statuses that only the code can classify.
+func TestFriendlyOddBodiesAndBareStatuses(t *testing.T) {
+	cases := []struct {
+		code int
+		body string
+		want string
+	}{
+		{400, `{"error":"insufficient_quota"}`, msgQuota},
+		{500, `[]`, msgServer},
+		{400, `[1]`, msgBadRequest},
+		{500, `{"error":{"code":null,"message":"boom"}}`, msgServer},
+		{400, `{"error":{"type":5}}`, msgBadRequest},
+		{404, ``, msgNoModel},
+		{413, ``, msgTooLong},
+		{503, ``, msgOverloaded},
+		{408, ``, msgTimeout},
+		{429, ``, msgRateLimit},
+		{422, ``, msgBadRequest},
+		{302, ``, msgUnknown},
+	}
+	for _, tc := range cases {
+		if got := Friendly(tc.code, tc.body); got != tc.want {
+			t.Errorf("Friendly(%d, %q) = %q, want %q", tc.code, tc.body, got, tc.want)
+		}
+	}
+	if got := parseProviderError(`{"error":{"code":null,"message":"boom"}}`); got.Code != "" || got.Message != "boom" {
+		t.Errorf("a null code must read as none: %+v", got)
+	}
+	he := &HTTPError{Code: 401}
+	if Explain(he) != error(he) {
+		t.Error("an HTTP failure passes through Explain untouched")
+	}
+}
+
+// A timeout is named as such.
+func TestExplainNamesTimeouts(t *testing.T) {
+	err := Explain(&net.OpError{Op: "read", Err: timeoutErr{}})
+	if !strings.Contains(err.Error(), msgTimeout) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
