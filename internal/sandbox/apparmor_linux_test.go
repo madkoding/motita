@@ -130,3 +130,14 @@ func TestTheNotAppliedNoticeCarriesTheHint(t *testing.T) {
 		t.Errorf("not applied = %q", got)
 	}
 }
+
+// The real call runs the program it is given and returns what it printed.
+func TestTheRealParserCallRunsAProgram(t *testing.T) {
+	out, err := appArmorHooks.run("echo", "loaded")
+	if err != nil || strings.TrimSpace(string(out)) != "loaded" {
+		t.Errorf("run = %q, %v", out, err)
+	}
+	if _, err := appArmorHooks.readLabel(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Logf("no AppArmor label here: %v", err)
+	}
+}
