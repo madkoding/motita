@@ -36,6 +36,37 @@ function external(weights?: { path: string; data: ArrayBuffer }) {
   return { externalData: [{ path: weights.path, data: new Uint8Array(weights.data) }] };
 }
 
+// The limits onnxruntime raises to the card's own when it makes its device (larger models need
+// more than the defaults), and the features it turns on when the card has them.
+const DEVICE_LIMITS: (keyof GPUSupportedLimits)[] = [
+  "maxBindGroups",
+  "maxComputeWorkgroupStorageSize",
+  "maxComputeWorkgroupsPerDimension",
+  "maxStorageBufferBindingSize",
+  "maxBufferSize",
+  "maxComputeInvocationsPerWorkgroup",
+  "maxComputeWorkgroupSizeX",
+  "maxComputeWorkgroupSizeY",
+  "maxComputeWorkgroupSizeZ",
+];
+const DEVICE_FEATURES: GPUFeatureName[] = ["shader-f16", "subgroups"];
+// Timing inside passes when the browser offers it, plain timestamps otherwise.
+const TIMESTAMP_FEATURES = ["chromium-experimental-timestamp-query-inside-passes", "timestamp-query"] as GPUFeatureName[];
+
+// cardDevice makes the GPU device onnxruntime runs on, on the card given.
+function cardDevice(card: GPUAdapter): Promise<GPUDevice> {
+  const requiredLimits: Record<string, number> = {};
+  for (const name of DEVICE_LIMITS) {
+    requiredLimits[name] = card.limits[name] as number;
+  }
+  const requiredFeatures = DEVICE_FEATURES.filter((f) => card.features.has(f));
+  const timestamps = TIMESTAMP_FEATURES.find((f) => card.features.has(f));
+  if (timestamps) {
+    requiredFeatures.push(timestamps);
+  }
+  return card.requestDevice({ requiredLimits, requiredFeatures });
+}
+
 const synth = new Synth({
   bytes,
   ort: async (wasm) => {
@@ -51,8 +82,7 @@ const synth = new Synth({
   // WebGPU's build runs Supertonic and Chatterbox on a browser that has WebGPU. Each way it can
   // fail says so, and the page shows it.
   gpu: async (wasm) => {
-    type Adapter = { features: unknown };
-    type GPU = { requestAdapter(o?: { powerPreference?: string }): Promise<Adapter | null> };
+    type GPU = { requestAdapter(o?: { powerPreference?: GPUPowerPreference }): Promise<GPUAdapter | null> };
     const gpu = (self.navigator as Navigator & { gpu?: GPU }).gpu;
     if (!gpu) {
       throw new Error("this browser has no WebGPU in its workers");
@@ -66,14 +96,18 @@ const synth = new Synth({
     ortGPU.env.wasm.numThreads = 1;
     ortGPU.env.wasm.proxy = false;
     ortGPU.env.wasm.wasmBinary = wasm;
-    // onnxruntime uses the card found here, not one it would ask for again.
-    ortGPU.env.webgpu.adapter = adapter as typeof ortGPU.env.webgpu.adapter;
+    // onnxruntime uses the card found here, not one it would ask for again: it is handed a device
+    // made on that card, as onnxruntime itself would make it.
+    const device = await cardDevice(adapter);
     // Its notes on which nodes stay on the CPU are expected, not errors.
     ortGPU.env.logLevel = "error";
     return {
       Tensor: ortGPU.Tensor as unknown as OrtLike["Tensor"],
       createSession: (model, weights) =>
-        ortGPU.InferenceSession.create(model, { executionProviders: ["webgpu"], ...external(weights) }),
+        ortGPU.InferenceSession.create(model, {
+          executionProviders: [{ name: "webgpu", device }],
+          ...external(weights),
+        }),
     } as OrtLike;
   },
   phonemizer: (wasm, data, print) =>
