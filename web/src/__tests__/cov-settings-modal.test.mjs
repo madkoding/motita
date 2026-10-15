@@ -87,7 +87,7 @@ async function mount(props) {
 
 test("a page with no extra sections gets appearance and notifications", async () => {
   const m = await mount({});
-  assert.deepEqual(m.tabs(), ["appearance", "notifications"]);
+  assert.deepEqual(m.tabs(), ["appearance", "themes", "notifications"]);
   assert.equal(m.selected(), "appearance");
   assert.equal(text(m.root.querySelector("#settings-title")), "Settings");
   assert.equal(m.root.querySelector("[role=tab][aria-selected=true]").tabIndex, 0);
@@ -111,7 +111,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     push: { api },
   };
   const m = await mount(props);
-  assert.deepEqual(m.tabs(), ["appearance", "notifications", "voice", "speech", "security", "network", "providers", "models", "git"]);
+  assert.deepEqual(m.tabs(), ["appearance", "themes", "notifications", "voice", "speech", "security", "network", "providers", "models", "git"]);
   const shown = {};
   for (const id of m.tabs()) {
     click(m.root.querySelector(`#settings-tab-${id}`));
@@ -135,7 +135,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     [{ speech: { label: "only speech" } }, "speech", "only speech"],
   ]) {
     const n = await mount({ ...p, tab });
-    assert.deepEqual(n.tabs(), ["appearance", "notifications", tab]);
+    assert.deepEqual(n.tabs(), ["appearance", "themes", "notifications", tab]);
     assert.equal(text(n.pane()), want);
     await n.unmount();
   }

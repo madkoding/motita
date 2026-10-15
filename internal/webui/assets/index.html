@@ -6,19 +6,21 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <!-- Dark, deliberately and permanently. Announced to the UA before the
+    <!-- Dark until the saved theme says otherwise. Announced to the UA before the
        bundle arrives, so the page never paints a light scrollbar or a white
        overscroll gutter for one frame on a phone set to light. The stylesheet
-       carries the same declaration for the JS-disabled case. -->
+       carries the same declaration for the JS-disabled case, and theme-init.js
+       (blocking, before the first paint) applies the saved mode and scheme. -->
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0a0a0f" />
+    <script src="/theme-init.js"></script>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <!-- The icon an iPhone puts on the home screen: installed there, the page can receive
        phone notifications. -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Motita</title>
-    <script type="module" crossorigin src="/assets/index-ByML6XNB.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BA5EQ8cy.css">
+    <script type="module" crossorigin src="/assets/index-BFjzJ9vx.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DBZpj0lz.css">
   <link rel="manifest" href="/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
   <body>
     <div id="root"></div>
