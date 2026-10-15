@@ -129,6 +129,13 @@ if [ "$root" = site ]; then
   printf 'the version marker the deploy rewrites is present, exactly once\n'
 fi
 
+# --- the generated documentation pages ----------------------------------------
+# site/docs*.html come from scripts/gen-docs.mjs; an edit made to the HTML by hand
+# (or to the generator without regenerating) would otherwise ship silently.
+if [ "$root" = site ] && command -v node >/dev/null 2>&1; then
+  node scripts/gen-docs.mjs --check
+fi
+
 cd "$root"
 
 missing=0
