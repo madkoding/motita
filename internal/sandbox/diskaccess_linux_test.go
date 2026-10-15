@@ -224,6 +224,22 @@ func TestConfineGrantsTheWorkspaceReadsWhenTheUsersFilesArePrivate(t *testing.T)
 	home, work := userHome(t)
 	real := landlockSyscall
 	t.Cleanup(func() { landlockSyscall = real })
+	// The directories around home are listed twice, by confine and by the count below, and
+	// home sits in the shared temporary directory, where other packages' tests add and remove
+	// entries in between: both have to see one listing per directory.
+	realReadDir := readDir
+	t.Cleanup(func() { readDir = realReadDir })
+	listed := map[string][]os.DirEntry{}
+	readDir = func(dir string) ([]os.DirEntry, error) {
+		if entries, ok := listed[dir]; ok {
+			return entries, nil
+		}
+		entries, err := realReadDir(dir)
+		if err == nil {
+			listed[dir] = entries
+		}
+		return entries, err
+	}
 	rules := 0
 	landlockSyscall = func(trap, a1, a2, a3 uintptr) (uintptr, uintptr, syscall.Errno) {
 		switch {
