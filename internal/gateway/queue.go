@@ -109,8 +109,12 @@ func (s *Server) releaseAndDrain(c *conversation) {
 // right after a message was queued because the slot was busy, so a test can end the run holding
 // the slot at exactly that point.
 var (
-	afterQueued          = func() {}
-	afterQueuedBehindRun = func() {}
+	afterQueued = func() {
+		// Nothing outside tests: a test replaces it to act inside the window.
+	}
+	afterQueuedBehindRun = func() {
+		// Nothing outside tests: a test replaces it to act inside the window.
+	}
 )
 
 // startOrQueue starts a message as a task when the conversation is idle and queues it when it is

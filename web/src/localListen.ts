@@ -41,7 +41,7 @@ function settle(n: number): Pending | undefined {
 // drop gives up on the worker: what it was asked fails with reason, and the models it had loaded
 // went with it, so a new worker loads them again.
 function drop(reason: string): void {
-  for (const n of [...pending.keys()]) {
+  for (const n of pending.keys()) {
     settle(n)?.fail(new Error(reason));
   }
   worker = null;

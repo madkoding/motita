@@ -105,7 +105,10 @@ export function matchWake(text: string, phrases: readonly string[]): { phrase: s
   phrases.forEach((phrase, i) => {
     const want = tokenize(phrase);
     // An empty phrase never matches.
-    const start = want.length ? find(words, want) : -1;
+    let start = -1;
+    if (want.length) {
+      start = find(words, want);
+    }
     if (start < 0) {
       return;
     }

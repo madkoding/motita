@@ -82,6 +82,8 @@ export function UnconfinedRunsSetting({
     },
     [current, save],
   );
+  const confirm = useCallback(() => void save(false), [save]);
+  const cancel = useCallback(() => setAsking(false), []);
   const shown: RunsChoice = choose(asking, "run", current);
   const confined = choose(
     view.enforced,
@@ -118,8 +120,8 @@ export function UnconfinedRunsSetting({
           confirmLabel={t("Run without asking")}
           danger
           busy={busy}
-          onConfirm={() => void save(false)}
-          onCancel={() => setAsking(false)}
+          onConfirm={confirm}
+          onCancel={cancel}
         />
       )}
       {err && (

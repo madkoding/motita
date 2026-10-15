@@ -10,7 +10,7 @@ import type { Stream } from "./useStream";
 import type { Message, SetToast } from "./appTypes";
 import type { SuggestionAnswers } from "./proposals";
 import type { QuestionAnswers } from "./questions";
-import { JSON_HEADERS, SESSIONS_PATH } from "./appConst";
+import { HTTP_CONFLICT, JSON_HEADERS, SESSIONS_PATH } from "./appConst";
 
 // answersPath is where the gateway keeps the answers of one turn's suggestions.
 export function answersPath(session: string, turn: number): string {
@@ -154,7 +154,7 @@ export function useSuggestions(
       /* offline: told below, like any other failure */
     }
     const here = rs.sessionRef.current === sid;
-    if (status === 409) {
+    if (status === HTTP_CONFLICT) {
       if (here) {
         await ui.reload();
       }
