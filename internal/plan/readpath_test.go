@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // rootedRunner is a CommandRunner that knows a working directory, the way the real agent does:
@@ -81,6 +83,31 @@ func TestTheReadToolsWorkInTheSessionsDirectory(t *testing.T) {
 	got := p.toolSearchInFiles(context.Background(), json.RawMessage(`{"pattern":"needle"}`))
 	if !strings.Contains(got, filepath.Join(root, "notes.txt")+":1:needle here") {
 		t.Errorf("the Go search reads the working directory: %q", got)
+	}
+}
+
+// TestToolResultsAreRedacted: read_file on a .env and the native search both used to hand the
+// provider a key verbatim. Every tool result now goes through the redactor in runTool.
+func TestToolResultsAreRedacted(t *testing.T) {
+	root := t.TempDir()
+	secret := "sk-proj-" + strings.Repeat("A1b2", 8)
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("OPENAI_API_KEY="+secret+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &Planner{runner: &rootedRunner{root: root}, commandTimeout: defaultCommandTimeout}
+	searchNatively = true
+	defer func() { searchNatively = false }()
+
+	for name, args := range map[string]string{
+		"read_file":       `{"path":".env"}`,
+		"search_in_files": `{"pattern":"OPENAI_API_KEY"}`,
+	} {
+		got := p.runTool(context.Background(), llm.ToolCall{
+			Function: llm.FunctionCall{Name: name, Arguments: json.RawMessage(args)},
+		})
+		if strings.Contains(got, secret) || !strings.Contains(got, "[REDACTED]") {
+			t.Errorf("%s must mask the key: %q", name, got)
+		}
 	}
 }
 
