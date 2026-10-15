@@ -65,6 +65,23 @@ export function isAnswering(
   return !!qa?.request && qa.request === text;
 }
 
+// STRIPPED_MODES are the leading commands the gateway takes off a turn before running it
+// (internal/intent explicitMode); /goal is kept, so it is not one of them.
+const STRIPPED_MODES = ["/plan", "/p", "/task", "/t"];
+
+// turnTask is the task the gateway keeps for a turn typed as `text`: trimmed, and without a
+// leading /plan or /task. It is what a conversation opened again reads back as the request a
+// turn's questions are about (the checkpoint's task), so the live card sends the same one.
+export function turnTask(text: string): string {
+  const trimmed = text.trim();
+  const space = trimmed.indexOf(" ");
+  const head = space < 0 ? trimmed : trimmed.slice(0, space);
+  if (!STRIPPED_MODES.includes(head.toLowerCase())) {
+    return trimmed;
+  }
+  return space < 0 ? "" : trimmed.slice(space + 1).trim();
+}
+
 // hasQuestions says the gateway sent a list of questions with at least one in it.
 export function hasQuestions(q: unknown): q is AskItem[] {
   return Array.isArray(q) && q.length > 0;

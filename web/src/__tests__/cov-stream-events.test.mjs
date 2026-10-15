@@ -292,6 +292,12 @@ test("an answer that asked carries its questions and the request they are about"
   });
   await send("done", { result: "which?", questions });
   assert.equal(rs().messages[2].origin, "add login", "the newest input is the request asked about");
+  // Typed with a mode, the request is what the gateway kept for the turn, as a reload reads it.
+  await hook.act(() => {
+    rs().setMessages([{ id: 1, role: "user", text: "  /task add login " }]);
+  });
+  await send("done", { result: "which?", questions });
+  assert.equal(rs().messages[1].origin, "add login");
   await send("done", { result: "ok", questions: [] });
   assert.equal(rs().messages[3].questions, undefined, "an empty list asks nothing");
   assert.equal(rs().messages[3].origin, undefined);
