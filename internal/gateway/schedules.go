@@ -320,9 +320,11 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 // handleRunScheduleNow starts the task immediately.
 //
 // 202 and not 200: a run is STARTED, not finished, and the same is true of a scheduled
-// firing. The run is recorded like a firing of the watcher (LastRun, RunCount and
-// LastOutcome) once it ends: a task a person ran by hand has run, and a record that
-// said otherwise would show "never ran" next to a result the person just read.
+// firing. Once it ends, the run is counted (RunCount) and its outcome kept (LastOutcome): a
+// task a person ran by hand has run, and a record that said otherwise would show nothing
+// next to a result the person just read. LastRun is deliberately left alone: it is the
+// origin of the cadence, and "run it now" is a person overriding the clock once, not a
+// decision to move the schedule.
 //
 // A task whose session no longer exists is 404, not 409: nothing is busy, the place it
 // fires into is gone, and the fix is to edit the task.
@@ -350,7 +352,6 @@ func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
 	rn, started := s.startDetachedRun(c, rec.Task, rec.Kind, "", s.unattendedApprover(rec.ID))
 	if !started {
 		writeError(w, http.StatusConflict,
@@ -358,26 +359,26 @@ func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !body.Wait {
-		s.scheduleWG.Go(func() { s.recordManualRun(rec.ID, now, rn) })
-		writeJSON(w, http.StatusAccepted, map[string]any{"schedule": viewOfSchedule(*rec, now), "run_id": rn.id})
+		s.scheduleWG.Go(func() { s.recordManualRun(rec.ID, rn) })
+		writeJSON(w, http.StatusAccepted, map[string]any{"schedule": viewOfSchedule(*rec, time.Now()), "run_id": rn.id})
 		return
 	}
-	s.recordManualRun(rec.ID, now, rn)
+	s.recordManualRun(rec.ID, rn)
 	outcome, result, errText, _ := rn.outcomeOf()
 	writeJSON(w, http.StatusOK, map[string]any{"outcome": outcome, "result": result, "error": errText})
 }
 
-// recordManualRun waits for a run started by hand and writes it onto the task's record, like
-// the watcher writes a firing: through Update, onto the record as it is now, and only the three
-// fields a firing owns. A task deleted while it ran stays deleted.
-func (s *Server) recordManualRun(id string, at time.Time, rn *run) {
+// recordManualRun waits for a run started by hand and writes it onto the task's record the way
+// the watcher writes a firing - through Update, onto the record as it is now, so a task deleted
+// while it ran stays deleted - except for LastRun, which would move the cadence (see
+// handleRunScheduleNow).
+func (s *Server) recordManualRun(id string, rn *run) {
 	<-rn.done
 	outcome, err := describeRun(rn)
 	if err != nil {
 		outcome = err.Error()
 	}
 	found, err := s.schedules.Update(id, func(rec *schedule.Schedule) {
-		rec.LastRun = at
 		rec.RunCount++
 		rec.LastOutcome = outcome
 	})

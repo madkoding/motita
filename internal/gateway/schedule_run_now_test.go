@@ -24,8 +24,9 @@ func loadSchedule(t *testing.T, srv *Server, id string) *schedule.Schedule {
 	return rec
 }
 
-// A task run by hand has run: once its run ends, the record carries it like a firing of the
-// watcher, so the list does not say "never ran" next to a result the person just read.
+// A task run by hand has run: once its run ends, the record counts it and keeps its outcome, so
+// the list does not show nothing next to a result the person just read. LastRun is not written:
+// it is the origin of the cadence, which a run by hand leaves alone.
 func TestRunScheduleNowRecordsTheRun(t *testing.T) {
 	srv := newTestServer(t, &fakeService{task: func(context.Context, string, func(string, ...any)) (string, error) {
 		return "the result\nmore", nil
@@ -33,7 +34,6 @@ func TestRunScheduleNowRecordsTheRun(t *testing.T) {
 	withSchedules(t, srv, time.Minute)
 	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
 
-	before := time.Now()
 	if w := postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, ""); w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d %s", w.Code, w.Body.String())
 	}
@@ -43,8 +43,8 @@ func TestRunScheduleNowRecordsTheRun(t *testing.T) {
 	if rec.RunCount != 1 {
 		t.Errorf("RunCount = %d, want 1", rec.RunCount)
 	}
-	if rec.LastRun.Before(before) {
-		t.Errorf("LastRun = %v, want the moment it was started (after %v)", rec.LastRun, before)
+	if !rec.LastRun.IsZero() {
+		t.Errorf("LastRun = %v, want it untouched: it is the origin of the cadence", rec.LastRun)
 	}
 	if rec.LastOutcome != "the run finished: the result" {
 		t.Errorf("LastOutcome = %q", rec.LastOutcome)
@@ -171,7 +171,7 @@ func TestRecordManualRunOfADeletedTaskIsLogged(t *testing.T) {
 	finished := &run{outcome: "done", done: make(chan struct{})}
 	close(finished.done)
 
-	srv.recordManualRun("s-gone", time.Now(), finished)
+	srv.recordManualRun("s-gone", finished)
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -184,5 +184,5 @@ func TestRecordManualRunOfADeletedTaskIsLogged(t *testing.T) {
 	}
 
 	srv.opts.Log = nil
-	srv.recordManualRun("s-gone", time.Now(), finished)
+	srv.recordManualRun("s-gone", finished)
 }
