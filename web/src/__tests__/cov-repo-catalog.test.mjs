@@ -112,6 +112,12 @@ test("an answer that arrives after the section is gone is dropped", async () => 
       release();
       await flush();
     });
+    assert.equal(
+      m.root.isConnected,
+      false,
+      "nothing is drawn after the section is gone",
+    );
+    assert.deepEqual(m.notices, []);
   }
 });
 

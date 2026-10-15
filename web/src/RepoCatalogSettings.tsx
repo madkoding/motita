@@ -54,7 +54,10 @@ export function RepoCatalogSettings({
     let live = true;
     api("/v1/repos")
       .then(async (res) => {
-        const d: { repos?: CatalogRepo[] } = res.ok ? await res.json() : {};
+        let d: { repos?: CatalogRepo[] } = {};
+        if (res.ok) {
+          d = await res.json();
+        }
         if (live) {
           setRepos(d.repos ?? []);
         }
@@ -142,16 +145,16 @@ export function RepoCatalogSettings({
               </div>
               {r.projects.length === 0 && (
                 <div class="settings-row-control flex gap-2">
-                  {asking?.name === r.name ? (
+                  {asking?.name === r.name && (
                     <>
                       <button
                         class={dangerBtn}
                         disabled={busy}
-                        onClick={() => remove(r.name, !!asking.refusal)}
+                        onClick={() => remove(r.name, !!asking?.refusal)}
                         data-testid="catalog-confirm"
                       >
                         {choose(
-                          asking.refusal,
+                          asking?.refusal,
                           t("Discard the changes and delete it"),
                           t("Delete"),
                         )}
@@ -160,7 +163,8 @@ export function RepoCatalogSettings({
                         {t("Cancel")}
                       </button>
                     </>
-                  ) : (
+                  )}
+                  {asking?.name !== r.name && (
                     <button
                       class={smallBtn}
                       aria-label={tf("Delete {name}", { name: r.name })}

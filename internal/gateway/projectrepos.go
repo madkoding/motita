@@ -396,11 +396,16 @@ func (s *Server) syncSharedRepos(ctx context.Context, p *Project) {
 		if all == nil {
 			all = s.allProjects()
 		}
-		for i := range all {
-			for _, r := range all[i].Repos {
-				if r.Shared && gitx.SamePath(r.Dir, repo.Dir) {
-					syncProjectFolder(ctx, &all[i], r)
-				}
+		syncUsersOf(ctx, all, repo.Dir)
+	}
+}
+
+// syncUsersOf brings up to date the folder every project of all has of the clone at dir.
+func syncUsersOf(ctx context.Context, all []Project, dir string) {
+	for i := range all {
+		for _, r := range all[i].Repos {
+			if r.Shared && gitx.SamePath(r.Dir, dir) {
+				syncProjectFolder(ctx, &all[i], r)
 			}
 		}
 	}
