@@ -14,6 +14,7 @@ import {
 import { Row, Segmented } from "./SettingsControls";
 import { InlineConfirm } from "./NetworkSettings";
 import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
+import { NetworkIsolationSetting } from "./NetworkIsolationSetting";
 
 // accessHint says what the choice shown lets the agent reach.
 function accessHint(m: DiskAccess): string {
@@ -285,6 +286,9 @@ export function SecuritySettings({
         )}
         {view?.ask_unconfined_runs !== undefined && (
           <UnconfinedRunsSetting api={api} view={view} onView={sec.setView} />
+        )}
+        {view?.isolate_network !== undefined && (
+          <NetworkIsolationSetting api={api} view={view} onView={sec.setView} />
         )}
         {scope && <SessionScopeNote scope={scope} />}
         {err && (

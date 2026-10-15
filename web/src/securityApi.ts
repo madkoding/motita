@@ -17,6 +17,10 @@ export interface SecurityView {
   // Whether the agent asks before the project's own code runs (a script, a build, a test) where
   // nothing confines its commands. Missing from a gateway older than the setting.
   ask_unconfined_runs?: boolean;
+  // Whether the agent's commands run without a network, and whether this machine can do it.
+  // Missing from a gateway older than the setting.
+  isolate_network?: boolean;
+  network_enforced?: boolean;
 }
 
 const HTTP_NOT_FOUND = 404;
@@ -65,6 +69,21 @@ export async function setAskUnconfinedRuns(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ask_unconfined_runs: ask, confirm: !ask }),
+  });
+  return view(res);
+}
+
+// setIsolateNetwork saves whether the agent's commands run without a network. Giving them the
+// network is sent only after the person confirmed what it implies, with confirm; taking it back
+// needs none.
+export async function setIsolateNetwork(
+  api: Api,
+  on: boolean,
+): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isolate_network: on, confirm: !on }),
   });
   return view(res);
 }
