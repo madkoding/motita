@@ -30,7 +30,7 @@ PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 android/arm64 \
 # Running plain `make` shows the list of commands instead of silently starting a release check.
 .DEFAULT_GOAL := help
 
-.PHONY: help web build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
+.PHONY: help web build dist verify-dist test test-matrix vet bench fmt fmt-check check cover cover-web \
         staticcheck hooks run smoke e2e e2e-agent e2e-gateway clean test-release release-dry-run release-key
 
 test-release: ## Check that commit messages produce the right version number
@@ -145,6 +145,10 @@ check: fmt-check vet staticcheck test ## Run every check CI runs (do this before
 staticcheck: ## Run the extra linter that CI uses
 	@echo "▶ Running the linter CI uses (the first run downloads it)…"
 	@GOTOOLCHAIN=$(STATICCHECK_GO) $(GO) run $(STATICCHECK) ./... && echo "✔ The linter found nothing." || { echo "✖ The linter reported the problems above. Each line is file:line: what is wrong (rule code)."; exit 1; }
+
+cover-web: ## Show the web UI's coverage (goal: 100% of lines and branches per file)
+	@echo "▶ Measuring the web UI's coverage. Any file listed below has lines or branches no test runs."
+	@cd web && npm run --silent test:coverage >/dev/null && node scripts/coverage-gate.mjs
 
 cover: ## Show how much of the code the tests exercise (goal: 100% per package)
 	@echo "▶ Measuring how much code the tests exercise. Each line is a package and the share of its code the tests run; the goal is 100.0%."
