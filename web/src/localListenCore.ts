@@ -8,9 +8,11 @@
 import { choose } from "./choose";
 import {
   ORT_GPU_WASM,
+  NO_WEBGPU,
   ORT_WASM,
   RUNTIME_ID,
   fileURL,
+  noWebGPU,
   reasonOf,
   type OrtLike,
   type SessionLike,
@@ -369,6 +371,7 @@ export interface ListenerDeps {
   bytes(url: string, progress?: (loaded: number, total: number) => void): Promise<ArrayBuffer>;
   ort(wasm: ArrayBuffer): Promise<OrtLike>;
   gpu?(wasm: ArrayBuffer): Promise<OrtLike>;
+  webGPU?(): boolean;
 }
 
 // A model ready to listen.
@@ -446,20 +449,24 @@ export class Listener {
       read(fileURL(id, WHISPER_FILES.tokenizer), SHARES.text / 2),
       read(fileURL(id, WHISPER_FILES.generation), SHARES.text / 2),
     ]);
-    const wantsGPU = id.endsWith(WHISPER_GPU) && !!this.deps.gpu;
+    // WebGPU's runtime is fetched only where the browser has WebGPU: the processor's then takes
+    // its share of the progress.
+    const loadGPU = choose(id.endsWith(WHISPER_GPU), this.deps.gpu, undefined);
     let ort: OrtLike | null = null;
     let gpuError = "";
-    if (wantsGPU) {
+    let tried = false;
+    if (loadGPU && noWebGPU(this.deps)) {
+      gpuError = NO_WEBGPU;
+    } else if (loadGPU) {
+      tried = true;
       try {
-        ort = await (this.deps.gpu as NonNullable<ListenerDeps["gpu"]>)(
-          await read(fileURL(id, ORT_GPU_WASM), SHARES.runtime),
-        );
+        ort = await loadGPU(await read(fileURL(RUNTIME_ID, ORT_GPU_WASM), SHARES.runtime));
       } catch (e) {
         gpuError = reasonOf(e);
       }
     }
     const gpu = ort !== null;
-    ort ??= await this.deps.ort(await read(fileURL(RUNTIME_ID, ORT_WASM), choose(wantsGPU, 0, SHARES.runtime)));
+    ort ??= await this.deps.ort(await read(fileURL(RUNTIME_ID, ORT_WASM), choose(tried, 0, SHARES.runtime)));
     // One at a time, so only one model is ever held twice in memory.
     const encoder = await ort.createSession(await read(fileURL(id, WHISPER_FILES.encoder), SHARES.encoder));
     const decoder = await ort.createSession(await read(fileURL(id, WHISPER_FILES.decoder), SHARES.decoder));

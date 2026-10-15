@@ -4,11 +4,11 @@
 // graphics card. Its files come from the gateway like the local voices' (see workerOrt.ts); the
 // logic is in localListenCore.ts.
 import { Listener, type FromListener, type ToListener } from "./localListenCore";
-import { bytes, cpuOrt, gpuOrt, messageOf } from "./workerOrt";
+import { bytes, cpuOrt, gpuOrt, messageOf, webGPU } from "./workerOrt";
 
 declare const self: DedicatedWorkerGlobalScope;
 
-const listener = new Listener({ bytes, ort: cpuOrt, gpu: gpuOrt });
+const listener = new Listener({ bytes, ort: cpuOrt, gpu: gpuOrt, webGPU });
 
 self.onmessage = (e: MessageEvent<ToListener>) => {
   const m = e.data;

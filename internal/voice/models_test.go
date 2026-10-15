@@ -235,7 +235,7 @@ func TestVerifyNoticesChanges(t *testing.T) {
 // starting as the page reads.
 func TestTheCatalog(t *testing.T) {
 	seen := map[string]bool{RuntimeID: true, samplesDir: true, SupertonicID: true, ChatterboxID: true}
-	for _, files := range [][]ModelFile{PiperRuntime, SupertonicModel, ChatterboxModel} {
+	for _, files := range [][]ModelFile{OrtRuntime, PhonemizerRuntime, GPURuntime, SupertonicModel, ChatterboxModel} {
 		checkCatalogFiles(t, files)
 	}
 	checkCatalogVoices(t, seen, PiperVoices, goodPiperVoice, func(m Model) []ModelFile {
@@ -288,15 +288,20 @@ func goodCatalogFile(f ModelFile) bool {
 // goodPiperVoice says whether a Piper voice stands on its own with a model, its config, a name
 // and a sample.
 func goodPiperVoice(m Model) bool {
-	engine := m.Engine == EnginePiper && m.Shared == ""
+	engine := m.Engine == EnginePiper && m.Shared == "" && sameNames(m.Runtime, PhonemizerRuntime)
 	files := len(m.Files) == 2 && m.Sample != nil
 	return engine && files && m.Name != ""
+}
+
+// sameNames says whether two lists of files name the same files, in the same order.
+func sameNames(a, b []ModelFile) bool {
+	return slices.EqualFunc(a, b, func(x, y ModelFile) bool { return x.Name == y.Name })
 }
 
 // goodSharedVoice says whether a voice rides on the shared models of its engine, its id
 // starting with theirs, for every language, with one file of its own and a sample.
 func goodSharedVoice(m Model, engine, shared string) bool {
-	onShared := m.Engine == engine && m.Shared == shared
+	onShared := m.Engine == engine && m.Shared == shared && sameNames(m.Runtime, GPURuntime)
 	named := strings.HasPrefix(m.ID, shared+"-") && m.Lang == "mul"
 	return onShared && named && len(m.Files) == 1 && m.Sample != nil
 }
@@ -321,17 +326,19 @@ func goodChatterboxVoice(m Model) bool {
 }
 
 // goodWhisperModel says whether a Whisper model stands on its own with its four files under the
-// names the page reads (and WebGPU's runtime for one built for it), for every language.
+// names the page reads, for every language, needing no phonemizer: only WebGPU's runtime, for
+// one built for it.
 func goodWhisperModel(m Model) bool {
 	names := []string{"tokenizer.json", "generation_config.json", "encoder.onnx", "decoder.onnx"}
+	var runtime []ModelFile
 	if strings.HasSuffix(m.ID, WhisperGPU) {
-		names = append(names, ortGPUWasm.Name)
+		runtime = GPURuntime
 	}
 	var got []string
 	for _, f := range m.Files {
 		got = append(got, f.Name)
 	}
-	alone := m.Engine == EngineWhisper && m.Shared == "" && m.Sample == nil
+	alone := m.Engine == EngineWhisper && m.Shared == "" && m.Sample == nil && sameNames(m.Runtime, runtime)
 	named := strings.HasPrefix(m.ID, WhisperID+"-") && m.Lang == "mul" && m.Name != ""
 	return alone && named && slices.Equal(got, names)
 }
@@ -453,5 +460,92 @@ func TestPrune(t *testing.T) {
 	_ = os.WriteFile(lib.Dir, nil, 0o600)
 	if err := lib.Prune(); err == nil {
 		t.Fatal("Prune should fail on a file")
+	}
+}
+
+// What a voice adds to the runtime is kept once, in RuntimeID, downloaded with the first voice
+// that needs it and counted in its size while it is missing; a voice that does not need it is
+// installed without it.
+func TestRuntimePerVoice(t *testing.T) {
+	lib, hits := testLibrary(t)
+	extra := lib.Runtime[1]
+	lib.Runtime = lib.Runtime[:1]
+	plain := lib.Models[0]
+	for _, id := range []string{"g1", "g2"} {
+		lib.Models = append(lib.Models, Model{ID: id, Runtime: []ModelFile{extra}, Files: plain.Files[1:]})
+	}
+	g1, _ := lib.Find("g1")
+	if lib.DownloadSize(g1) != 2+6 || lib.DownloadSize(plain) != 6 || lib.RuntimeSize() != 4 {
+		t.Fatalf("sizes %d %d %d", lib.DownloadSize(g1), lib.DownloadSize(plain), lib.RuntimeSize())
+	}
+	if _, ok := lib.File(RuntimeID, extra.Name); ok {
+		t.Fatal("nothing is on disk yet")
+	}
+	if err := lib.Install(context.Background(), "v1", nil); err != nil || !lib.Installed("v1") {
+		t.Fatalf("Install v1: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(lib.Dir, RuntimeID, extra.Name)); !os.IsNotExist(err) {
+		t.Fatalf("a voice that does not need it does not bring it: %v", err)
+	}
+	if lib.Installed("g1") {
+		t.Fatal("g1 still needs what it adds to the runtime")
+	}
+	if err := lib.Install(context.Background(), "g1", nil); err != nil || !lib.Installed("g1") {
+		t.Fatalf("Install g1: %v", err)
+	}
+	g2, _ := lib.Find("g2")
+	if lib.DownloadSize(g2) != 2 || *hits != 5 {
+		t.Fatalf("once it is here: %d, %d requests", lib.DownloadSize(g2), *hits)
+	}
+	if p, ok := lib.File(RuntimeID, extra.Name); !ok || filepath.Base(filepath.Dir(p)) != RuntimeID {
+		t.Fatalf("runtime File = %q %v", p, ok)
+	}
+	if err := lib.Verify("g1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Prune moves the runtime files an earlier catalog kept with each voice into RuntimeID, so those
+// voices stay downloaded; a second copy, or one of another size, is removed, and a file a set
+// lists as its own stays.
+func TestPruneAdoptsTheRuntime(t *testing.T) {
+	lib, _ := testLibrary(t)
+	extra := lib.Runtime[1]
+	lib.Runtime = lib.Runtime[:1]
+	lib.Shared = map[string][]ModelFile{"k": {extra}}
+	lib.Models = append(lib.Models,
+		Model{ID: "g1", Runtime: []ModelFile{extra}, Files: lib.Models[0].Files[1:]},
+		Model{ID: "g2", Runtime: []ModelFile{extra}, Files: lib.Models[0].Files[1:]},
+		Model{ID: "g3", Runtime: []ModelFile{extra}, Files: lib.Models[0].Files[1:]},
+		Model{ID: "k-1", Shared: "k"})
+	write := func(dir, name, content string) {
+		_ = os.MkdirAll(filepath.Join(lib.Dir, dir), 0o700)
+		_ = os.WriteFile(filepath.Join(lib.Dir, dir, name), []byte(content), 0o600)
+	}
+	for _, id := range []string{"g1", "g2", "k"} {
+		write(id, extra.Name, "BBBBBB")
+		write(id, "model.json", "{}")
+	}
+	write("g3", extra.Name, "short")
+	if err := lib.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"g1", "g2", "g3"} {
+		if _, err := os.Stat(filepath.Join(lib.Dir, gone, extra.Name)); !os.IsNotExist(err) {
+			t.Fatalf("%s should keep no copy: %v", gone, err)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(lib.Dir, RuntimeID, extra.Name)); err != nil || string(b) != "BBBBBB" {
+		t.Fatalf("the runtime should have it: %q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(lib.Dir, "k", extra.Name)); err != nil {
+		t.Fatalf("a set's own file stays: %v", err)
+	}
+	// A runtime file that cannot be moved says so.
+	write("g1", extra.Name, "BBBBBB")
+	_ = os.RemoveAll(filepath.Join(lib.Dir, RuntimeID))
+	_ = os.WriteFile(filepath.Join(lib.Dir, RuntimeID), nil, 0o600)
+	if err := lib.Prune(); err == nil {
+		t.Fatal("Prune should fail when the runtime is not a directory")
 	}
 }

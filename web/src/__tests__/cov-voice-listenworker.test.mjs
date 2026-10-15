@@ -37,7 +37,9 @@ globalThis.caches = {
   },
 };
 const missing = new Set();
+const fetched = [];
 globalThis.fetch = async (url) => {
+  fetched.push(url);
   if (missing.has(url)) {
     return new Response("not here", { status: 404 });
   }
@@ -119,6 +121,10 @@ test("the model for the graphics card runs there, or says why it could not", asy
     gpu: false,
     gpuError: "this browser has no WebGPU in its workers",
   });
+  assert.ok(!fetched.some((u) => u.endsWith(".asyncify.wasm")), "without WebGPU its runtime is not fetched");
+  // Asked to load WebGPU's runtime anyway, it says the same.
+  const { gpuOrt } = await source("workerOrt.ts");
+  await assert.rejects(gpuOrt(new ArrayBuffer(0)), /no WebGPU in its workers/);
 
   self.navigator.gpu = {
     async requestAdapter() {

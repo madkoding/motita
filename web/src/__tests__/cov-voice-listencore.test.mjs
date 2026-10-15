@@ -212,13 +212,26 @@ test("a recording longer than 30 s is written down window by window, silent ones
 test("the model for the graphics card runs there, or on the processor saying why it could not", async () => {
   const on = deps({ gpu: "works" });
   assert.deepEqual(await new core.Listener(on).warm("whisper-base-gpu"), { gpu: true, gpuError: "" });
-  assert.ok(on.asked.includes("/v1/voice/models/whisper-base-gpu/ort-wasm-simd-threaded.asyncify.wasm"));
-  assert.ok(!on.asked.some((u) => u.includes("/runtime/")), "the processor's runtime is not read");
+  assert.ok(on.asked.includes("/v1/voice/models/runtime/ort-wasm-simd-threaded.asyncify.wasm"), "one copy for all");
+  assert.ok(!on.asked.some((u) => u.endsWith("/runtime/ort-wasm-simd-threaded.wasm")), "the processor's runtime is not read");
   assert.ok(on.made.every((m) => m.kind === "gpu"));
 
   const off = deps({ gpu: "fails" });
   assert.deepEqual(await new core.Listener(off).warm("whisper-base-gpu"), { gpu: false, gpuError: "no adapter" });
   assert.ok(off.made.every((m) => m.kind === "cpu"));
+
+  // A browser known to have no WebGPU does not fetch its runtime at all, and says why.
+  const none = deps({ gpu: "works" });
+  none.webGPU = () => false;
+  assert.deepEqual(await new core.Listener(none).warm("whisper-base-gpu"), {
+    gpu: false,
+    gpuError: "this browser has no WebGPU in its workers",
+  });
+  assert.ok(!none.asked.some((u) => u.endsWith(".asyncify.wasm")), "WebGPU's runtime is not fetched");
+  assert.ok(none.made.every((m) => m.kind === "cpu"));
+  const has = deps({ gpu: "works" });
+  has.webGPU = () => true;
+  assert.deepEqual(await new core.Listener(has).warm("whisper-base-gpu"), { gpu: true, gpuError: "" });
 
   // A model for the processor never asks for the card, and a browser without one runs it too.
   const cpu = deps({ gpu: "works" });

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -62,6 +63,10 @@ type Model struct {
 	// Sample is a short recording of the voice, heard before it is downloaded. Nil when the
 	// catalog has none.
 	Sample *ModelFile `json:"-"`
+	// Runtime are the files of the runtime this voice needs besides the ones every voice does
+	// (Library.Runtime): Piper's phonemizer, or onnxruntime's WebGPU build. They are kept once,
+	// in RuntimeID, for every voice that needs them.
+	Runtime []ModelFile `json:"-"`
 }
 
 // The engines a local voice runs on.
@@ -98,11 +103,16 @@ const (
 		"452d3f434aa592098f1eedac9099f33642ab2da5/"
 )
 
-// PiperRuntime are the files every local voice needs: onnxruntime's WebAssembly build, which
-// runs the model, and the phonemizer (espeak-ng compiled to WebAssembly, with its data).
-var PiperRuntime = []ModelFile{
+// OrtRuntime are the files every local voice and model needs: onnxruntime's WebAssembly build,
+// which runs it on the processor.
+var OrtRuntime = []ModelFile{
 	{Name: "ort-wasm-simd-threaded.wasm", URL: ortPackage, Member: "package/dist/ort-wasm-simd-threaded.wasm",
 		Size: 14239897, SHA256: "3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2"},
+}
+
+// PhonemizerRuntime is what only Piper's voices need besides OrtRuntime: the phonemizer
+// (espeak-ng compiled to WebAssembly, with its data). The other engines read the text themselves.
+var PhonemizerRuntime = []ModelFile{
 	{Name: "piper_phonemize.wasm", URL: piperPackage, Member: "package/build/piper_phonemize.wasm",
 		Size: 635212, SHA256: "b777cd107a91d2bcc6a1ea46f2c26a662a7407394fe84589198aeaa83dd7a9d6"},
 	{Name: "piper_phonemize.data", URL: piperPackage, Member: "package/build/piper_phonemize.data",
@@ -121,7 +131,7 @@ type fileSum struct {
 func piperVoice(path, name, lang, quality string, model, config, sample fileSum) Model {
 	cut := strings.LastIndex(path, "/") + 1
 	return Model{ID: path[cut:], Name: name, Lang: lang, Quality: quality, Engine: EnginePiper,
-		Files: []ModelFile{
+		Runtime: PhonemizerRuntime, Files: []ModelFile{
 			{Name: "model.onnx", URL: piperVoices + path + ".onnx", Size: model.size, SHA256: model.sum},
 			{Name: "model.json", URL: piperVoices + path + ".onnx.json", Size: config.size, SHA256: config.sum},
 		},
@@ -129,10 +139,11 @@ func piperVoice(path, name, lang, quality string, model, config, sample fileSum)
 			Size: sample.size, SHA256: sample.sum}}
 }
 
-// ortGPUWasm is onnxruntime's WebAssembly build that drives WebGPU.
-var ortGPUWasm = ModelFile{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
+// GPURuntime is onnxruntime's WebAssembly build that drives WebGPU, for the voices and models
+// that run on the graphics card: one copy for all of them, in RuntimeID.
+var GPURuntime = []ModelFile{{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
 	Member: "package/dist/ort-wasm-simd-threaded.asyncify.wasm",
-	Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"}
+	Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"}}
 
 // embeddedSamples are the samples of the Supertonic and Chatterbox voices: their repositories have
 // none in a language of the page, so they were made with the voices themselves and are compiled in.
@@ -156,7 +167,7 @@ const SupertonicID = "supertonic"
 
 // SupertonicModel is the model every Supertonic voice runs on: its four parts (the length of each
 // sound, the text, the sound itself refined step by step, and the waveform), the table from
-// characters to ids, and onnxruntime's WebGPU build, which the page uses where it can.
+// characters to ids. Its voices bring GPURuntime too, which the page uses where it can.
 var SupertonicModel = []ModelFile{
 	{Name: "duration_predictor.onnx", URL: supertonicRepo + "onnx/duration_predictor.onnx",
 		Size: 3700147, SHA256: "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db"},
@@ -168,7 +179,6 @@ var SupertonicModel = []ModelFile{
 		Size: 101424195, SHA256: "085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba"},
 	{Name: "unicode_indexer.json", URL: supertonicRepo + "onnx/unicode_indexer.json",
 		Size: 277676, SHA256: "9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f"},
-	ortGPUWasm,
 }
 
 // supertonicVoice is one voice of Supertonic, by its name there. Every voice speaks every
@@ -176,7 +186,7 @@ var SupertonicModel = []ModelFile{
 func supertonicVoice(voice string, size int64, sum string) Model {
 	id := SupertonicID + "-" + voice
 	return Model{ID: id, Name: voice, Lang: "mul", Quality: "high", Engine: EngineSupertonic,
-		Shared: SupertonicID, Files: []ModelFile{
+		Shared: SupertonicID, Runtime: GPURuntime, Files: []ModelFile{
 			{Name: "voice.json", URL: supertonicRepo + "voice_styles/" + voice + ".json", Size: size, SHA256: sum},
 		}, Sample: embeddedSample(id)}
 }
@@ -201,8 +211,8 @@ const ChatterboxID = "chatterbox"
 
 // ChatterboxModel is Chatterbox's model: the table from text to ids, the part that turns ids into
 // what the language model reads (with the emotion setting), the language model (4-bit), the part
-// that turns its sound tokens into a waveform, and onnxruntime's WebGPU build. Each .onnx keeps
-// its weights in the file of the same name ending in _data, which the page hands over with it.
+// that turns its sound tokens into a waveform; its voices bring GPURuntime. Each .onnx keeps its
+// weights in the file of the same name ending in _data, which the page hands over with it.
 var ChatterboxModel = []ModelFile{
 	{Name: tokenizerJSON, URL: chatterboxRepo + tokenizerJSON,
 		Size: 71798, SHA256: "29d48c4a178f6af3ad5130097c34744639e9294847b38a7b912c8c68027cb819"},
@@ -218,7 +228,6 @@ var ChatterboxModel = []ModelFile{
 		Size: 6350448, SHA256: "1656d0d31332bae1854839959a3139300ebb67c178651dfa3f8c5fbfa5351351"},
 	{Name: "conditional_decoder.onnx_data", URL: chatterboxRepo + "onnx/conditional_decoder.onnx_data",
 		Size: 533970816, SHA256: "51d58345a272747665ec9d5bb61e01835258a940e321a288582ac4c18cf01b5a"},
-	ortGPUWasm,
 }
 
 // chatterboxVoices are the Chatterbox voices, compiled in: what the model's speech encoder makes
@@ -235,7 +244,7 @@ func chatterboxVoice(voice, name string) Model {
 	data, _ := chatterboxVoices.ReadFile("voices/" + id + ".bin")
 	sum := sha256.Sum256(data)
 	return Model{ID: id, Name: name, Lang: "mul", Quality: "high", Engine: EngineChatterbox,
-		Shared: ChatterboxID, Files: []ModelFile{
+		Shared: ChatterboxID, Runtime: GPURuntime, Files: []ModelFile{
 			{Name: "voice.bin", Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), Data: data},
 		}, Sample: embeddedSample(id)}
 }
@@ -274,17 +283,18 @@ func whisperTokenizer(repo string) ModelFile {
 
 // whisperModel is one Whisper model: its tokenizer, what it must not write
 // (generation_config.json), and its two parts, renamed encoder.onnx and decoder.onnx (the decoder
-// is the one with its cache merged in). A model for the graphics card also brings onnxruntime's
-// WebGPU build; it runs on the processor too, where WebGPU fails.
+// is the one with its cache merged in). A model for the graphics card also brings GPURuntime; it
+// runs on the processor too, where WebGPU fails. None needs Piper's phonemizer.
 func whisperModel(id, name, quality, repo string, gen, encoder, decoder ModelFile) Model {
 	gen.Name, gen.URL = "generation_config.json", repo+"generation_config.json"
 	encoder.Name, encoder.URL = "encoder.onnx", repo+"onnx/"+encoder.URL
 	decoder.Name, decoder.URL = "decoder.onnx", repo+"onnx/"+decoder.URL
-	files := []ModelFile{whisperTokenizer(repo), gen, encoder, decoder}
+	var runtime []ModelFile
 	if strings.HasSuffix(id, WhisperGPU) {
-		files = append(files, ortGPUWasm)
+		runtime = GPURuntime
 	}
-	return Model{ID: id, Name: name, Lang: "mul", Quality: quality, Engine: EngineWhisper, Files: files}
+	return Model{ID: id, Name: name, Lang: "mul", Quality: quality, Engine: EngineWhisper, Runtime: runtime,
+		Files: []ModelFile{whisperTokenizer(repo), gen, encoder, decoder}}
 }
 
 var (
@@ -437,7 +447,8 @@ var PiperVoices = []Model{
 // Library is the local voices on this machine: the catalog, and the directory the downloaded
 // files are kept in (one subdirectory per voice, plus RuntimeID and each shared set's id).
 type Library struct {
-	Dir     string
+	Dir string
+	// Runtime are the files every voice needs; a voice's Model.Runtime adds to them.
 	Runtime []ModelFile
 	// Shared are the files some voices share, by the id their Model.Shared names.
 	Shared map[string][]ModelFile
@@ -466,7 +477,7 @@ func (l Library) Find(id string) (Model, bool) {
 // files are the files of an id: the runtime's, a shared set's or a voice's.
 func (l Library) files(id string) ([]ModelFile, bool) {
 	if id == RuntimeID {
-		return l.Runtime, true
+		return l.runtimeFiles(), true
 	}
 	if set, ok := l.Shared[id]; ok {
 		return set, true
@@ -481,9 +492,29 @@ type fileSet struct {
 	files []ModelFile
 }
 
-// sets are every file a voice needs, by directory: the runtime, its shared set, its own.
+// runtimeFiles are every file kept in RuntimeID: the ones every voice needs, and those some of
+// them add, each once.
+func (l Library) runtimeFiles() []ModelFile {
+	files := slices.Clone(l.Runtime)
+	for _, m := range l.Models {
+		for _, f := range m.Runtime {
+			if !listed(files, f.Name) {
+				files = append(files, f)
+			}
+		}
+	}
+	return files
+}
+
+// listed says whether a file of this name is among files.
+func listed(files []ModelFile, name string) bool {
+	return slices.ContainsFunc(files, func(f ModelFile) bool { return f.Name == name })
+}
+
+// sets are every file a voice needs, by directory: the runtime (what every voice needs and what
+// this one adds), its shared set, its own.
 func (l Library) sets(m Model) []fileSet {
-	sets := []fileSet{{RuntimeID, l.Runtime}}
+	sets := []fileSet{{RuntimeID, slices.Concat(l.Runtime, m.Runtime)}}
 	if m.Shared != "" {
 		sets = append(sets, fileSet{m.Shared, l.Shared[m.Shared]})
 	}
@@ -528,12 +559,18 @@ func (m Model) Size() int64 {
 	return n
 }
 
-// DownloadSize is how many bytes downloading a voice takes besides the runtime: its own files,
-// and its shared set while that is not on disk.
+// DownloadSize is how many bytes downloading a voice takes besides the runtime every voice needs:
+// its own files, its shared set while that is not on disk, and what it adds to the runtime while
+// that is missing.
 func (l Library) DownloadSize(m Model) int64 {
 	n := m.Size()
 	if m.Shared != "" && !l.present(m.Shared, l.Shared[m.Shared]) {
 		n += Model{Files: l.Shared[m.Shared]}.Size()
+	}
+	for _, f := range m.Runtime {
+		if !l.present(RuntimeID, []ModelFile{f}) {
+			n += f.Size
+		}
 	}
 	return n
 }
@@ -599,8 +636,7 @@ func (l Library) Install(ctx context.Context, id string, progress func(done, tot
 	}
 	report(0)
 	// One request per address and directory: the two phonemizer files come out of the same
-	// archive, and so does the WebGPU runtime another set keeps in its own directory. A file
-	// compiled in is kept on its own.
+	// archive, and so does onnxruntime's WebGPU build. A file compiled in is kept on its own.
 	for len(needs) > 0 {
 		first := needs[0]
 		var batch []ModelFile
@@ -692,8 +728,13 @@ func (l Library) Prune() error {
 	}
 	var errs []error
 	for _, e := range entries {
-		if !keep[e.Name()] {
+		switch {
+		case !keep[e.Name()]:
 			errs = append(errs, os.RemoveAll(filepath.Join(l.Dir, e.Name())))
+		case e.Name() != RuntimeID && e.Name() != samplesDir:
+			errs = append(errs, l.adopt(e.Name()))
+		default:
+			// The runtime and the samples are where they belong.
 		}
 	}
 	// No samples directory yet is nothing to prune.
@@ -702,6 +743,29 @@ func (l Library) Prune() error {
 		if !samples[e.Name()] {
 			errs = append(errs, os.RemoveAll(filepath.Join(l.Dir, samplesDir, e.Name())))
 		}
+	}
+	return errors.Join(errs...)
+}
+
+// adopt moves into RuntimeID the runtime files an earlier catalog kept in a voice's or a shared
+// set's own directory (onnxruntime's WebGPU build, once one copy per model that used it), so a
+// voice downloaded then stays downloaded. Its hash was checked when it was kept, as for any file
+// on disk; a copy RuntimeID already has, or one of another size, is removed.
+func (l Library) adopt(id string) error {
+	own, _ := l.files(id)
+	var errs []error
+	for _, f := range l.runtimeFiles() {
+		old := filepath.Join(l.Dir, id, f.Name)
+		st, err := os.Stat(old)
+		if err != nil || listed(own, f.Name) {
+			continue
+		}
+		if st.Size() == f.Size && !l.present(RuntimeID, []ModelFile{f}) {
+			errs = append(errs, os.MkdirAll(filepath.Join(l.Dir, RuntimeID), 0o700),
+				os.Rename(old, filepath.Join(l.Dir, RuntimeID, f.Name)))
+			continue
+		}
+		errs = append(errs, os.Remove(old))
 	}
 	return errors.Join(errs...)
 }
