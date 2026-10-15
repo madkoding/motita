@@ -243,6 +243,29 @@ function SessionScopeNote({ scope }: { scope: SessionScope }) {
   );
 }
 
+// CommandSettings are the toggles for what a command may do, each shown only when the gateway
+// reports it.
+function CommandSettings({
+  api,
+  view,
+  onView,
+}: {
+  api: Api;
+  view: SecurityView;
+  onView: (v: SecurityView) => void;
+}) {
+  return (
+    <>
+      {view.ask_unconfined_runs !== undefined && (
+        <UnconfinedRunsSetting api={api} view={view} onView={onView} />
+      )}
+      {view.isolate_network !== undefined && (
+        <NetworkIsolationSetting api={api} view={view} onView={onView} />
+      )}
+    </>
+  );
+}
+
 // SecuritySettings is how much of the disk Motita reaches: its workspace only (the default) or
 // the whole disk, which is never given without a confirmation that says what it implies. The
 // section stays hidden on a gateway without the security API.
@@ -284,12 +307,7 @@ export function SecuritySettings({
             sec={sec}
           />
         )}
-        {view?.ask_unconfined_runs !== undefined && (
-          <UnconfinedRunsSetting api={api} view={view} onView={sec.setView} />
-        )}
-        {view?.isolate_network !== undefined && (
-          <NetworkIsolationSetting api={api} view={view} onView={sec.setView} />
-        )}
+        {view && <CommandSettings api={api} view={view} onView={sec.setView} />}
         {scope && <SessionScopeNote scope={scope} />}
         {err && (
           <p
