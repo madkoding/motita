@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>La interfaz de terminal · Documentación de Motita</title>
+    <meta name="description" content="La interfaz a pantalla completa que obtienes al escribir motita." />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <link rel="alternate" hreflang="en" href="docs-terminal.html" />
+    <link rel="alternate" hreflang="es" href="docs-es-terminal.html" />
+    <link rel="preload" href="fonts/Sansation-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Saltar al contenido</a>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="index.html" aria-label="Motita, inicio"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</a>
+        <nav aria-label="Site">
+          <a href="index.html">Inicio</a>
+          <a href="docs-es.html" aria-current="true">Documentación</a>
+          <a href="REFERENCE.md">Referencia</a>
+          <a href="https://github.com/madkoding/motita">GitHub</a>
+          <a class="lang" href="docs-terminal.html" hreflang="en" lang="en" aria-label="Read in English">English</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap layout">
+      <nav class="side" aria-label="Documentación">
+        <p class="side-title">Documentación</p>
+        <div class="side-links">
+          <a href="docs-es.html">Resumen</a>
+          <a href="docs-es-install.html">Instalación y primer uso</a>
+          <a href="docs-es-terminal.html" aria-current="page">La interfaz de terminal</a>
+          <a href="docs-es-web.html">Interfaz web y gateway</a>
+          <a href="docs-es-projects.html">Proyectos, sesiones y git</a>
+          <a href="docs-es-models.html">Modelos y proveedores</a>
+          <a href="docs-es-voice.html">Voz</a>
+          <a href="docs-es-skills.html">Skills: lo que aprende</a>
+          <a href="docs-es-security.html">Seguridad y sandbox</a>
+          <a href="docs-es-network.html">Red y acceso remoto</a>
+          <a href="docs-es-automation.html">Actualizaciones y tareas programadas</a>
+        </div>
+      </nav>
+      <main id="main">
+      <h1>La interfaz de terminal</h1>
+      <p class="lead">La interfaz a pantalla completa que obtienes al escribir motita.</p>
+<p>Ejecuta <code>motita</code> sin argumentos y obtienes una interfaz de terminal completa, escrita solo con la biblioteca estándar de Go.</p>
+<img src="shots/tui-welcome.webp" alt="La interfaz de terminal justo después de la configuración" width="987" height="659" loading="lazy" />
+<h2>Lo que ves</h2>
+<ul>
+<li><strong>Quién responde.</strong> Una línea nombra el proveedor y el modelo, y cuánto piensa. Si falta la clave, lo dice con palabras y cómo agregarla.</li>
+<li><strong>Qué hará Enter.</strong> El cuadro de entrada lleva el modo como título. <strong>Task</strong> hace cambios y los demuestra con tu verificación. <strong>Plan</strong> solo lee y explica. <kbd>Tab</kbd> cambia de modo.</li>
+<li><strong>Las teclas que sirven ahora.</strong> El pie cambia mientras escribes un comando, mientras corre una tarea o mientras te desplazas hacia atrás.</li>
+</ul>
+<h2>Mantener el control</h2>
+<ul>
+<li><kbd>Esc</kbd> detiene la tarea en curso.</li>
+<li>Un mensaje escrito mientras el agente trabaja queda en cola y se envía al terminar.</li>
+<li><code>/</code> abre la lista de comandos. <code>?</code> muestra todos los comandos y teclas. Una palabra suelta siempre es un mensaje, así que escribir <code>new</code> nunca ejecuta un comando por accidente.</li>
+<li>Un turno fallido muestra el error tal como ocurrió más una pista para lo primero que encuentran quienes empiezan: Ollama apagado, una clave rechazada, un modelo inexistente, un límite de uso.</li>
+</ul>
+<h2>Comandos que conviene conocer</h2>
+<table>
+<thead><tr><th>Comando</th><th>Qué hace</th></tr></thead>
+<tbody>
+<tr><td><code>/config</code></td><td>Repite la configuración.</td></tr>
+<tr><td><code>/models</code></td><td>Lista y cambia el modelo de esta conversación.</td></tr>
+<tr><td><code>/sessions</code>, <code>/attach</code>, <code>/new</code>, <code>/back</code></td><td>Ver, unirse, abrir y dejar conversaciones. Una ejecución sigue mientras miras otra.</td></tr>
+<tr><td><code>/agents</code> (<kbd>Ctrl+G</kbd>)</td><td>Los agentes en segundo plano y qué hace cada uno.</td></tr>
+<tr><td><code>/good</code>, <code>/bad</code></td><td>Dile a motita si el último procedimiento ayudó.</td></tr>
+<tr><td><code>/git</code></td><td>Conecta GitHub, GitLab o Bitbucket.</td></tr>
+<tr><td><code>/artifacts</code></td><td>Archivos que el agente guardó en esta conversación.</td></tr>
+<tr><td><code>/language</code></td><td>Cambia entre inglés y español al instante.</td></tr>
+<tr><td><code>/update</code></td><td>Instala la versión más nueva.</td></tr>
+</tbody>
+</table>
+<h2>Idioma</h2>
+<p>La terminal, el navegador y la configuración hablan inglés o español. Por defecto siguen el idioma de tu sistema; <code>ui.language</code> o <code>/language</code> elige uno para todas las interfaces.</p>
+      <h2>Profundizar</h2>
+      <ul class="more">
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#a-terminal-interface-youll-actually-want-to-use">Guía: la interfaz de terminal</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#colour-and-glyphs-in-the-terminal">Referencia: colores y glifos</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#the-interface-language">Referencia: el idioma de la interfaz</a></li>
+        <li><a href="TUI-DESIGN-REVIEW.md">Revisión de diseño de la TUI</a></li>
+      </ul>
+      <nav class="pn" aria-label="Página anterior y siguiente">
+        <a class="prev" href="docs-es-install.html"><span>Anterior</span>Instalación y primer uso</a>
+        <a class="next" href="docs-es-web.html"><span>Siguiente</span>Interfaz web y gateway</a>
+      </nav>
+      </main>
+    </div>
+    <footer>
+      <div class="wrap frow">
+        <span class="mono">✦ motita</span>
+        <span>Licencia GPL-3.0-or-later.</span>
+        <span class="sep"></span>
+        <a href="index.html">Inicio</a>
+        <a href="docs-es.html">Documentación</a>
+        <a href="REFERENCE.md">Referencia</a>
+        <a href="https://github.com/madkoding/motita">GitHub</a>
+      </div>
+    </footer>
+    <script>
+      // Remember the language picked here, so the home page opens in it too.
+      document.querySelector("a.lang").addEventListener("click", function () {
+        try {
+          localStorage.setItem("motita-lang", this.getAttribute("hreflang"));
+        } catch (e) {
+          // blocked storage: the choice just does not carry over
+        }
+      });
+    </script>
+  </body>
+</html>

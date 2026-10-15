@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modelos y proveedores · Documentación de Motita</title>
+    <meta name="description" content="Trae tu propio modelo y elige uno distinto para cada tipo de trabajo." />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <link rel="alternate" hreflang="en" href="docs-models.html" />
+    <link rel="alternate" hreflang="es" href="docs-es-models.html" />
+    <link rel="preload" href="fonts/Sansation-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Saltar al contenido</a>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="index.html" aria-label="Motita, inicio"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</a>
+        <nav aria-label="Site">
+          <a href="index.html">Inicio</a>
+          <a href="docs-es.html" aria-current="true">Documentación</a>
+          <a href="REFERENCE.md">Referencia</a>
+          <a href="https://github.com/madkoding/motita">GitHub</a>
+          <a class="lang" href="docs-models.html" hreflang="en" lang="en" aria-label="Read in English">English</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap layout">
+      <nav class="side" aria-label="Documentación">
+        <p class="side-title">Documentación</p>
+        <div class="side-links">
+          <a href="docs-es.html">Resumen</a>
+          <a href="docs-es-install.html">Instalación y primer uso</a>
+          <a href="docs-es-terminal.html">La interfaz de terminal</a>
+          <a href="docs-es-web.html">Interfaz web y gateway</a>
+          <a href="docs-es-projects.html">Proyectos, sesiones y git</a>
+          <a href="docs-es-models.html" aria-current="page">Modelos y proveedores</a>
+          <a href="docs-es-voice.html">Voz</a>
+          <a href="docs-es-skills.html">Skills: lo que aprende</a>
+          <a href="docs-es-security.html">Seguridad y sandbox</a>
+          <a href="docs-es-network.html">Red y acceso remoto</a>
+          <a href="docs-es-automation.html">Actualizaciones y tareas programadas</a>
+        </div>
+      </nav>
+      <main id="main">
+      <h1>Modelos y proveedores</h1>
+      <p class="lead">Trae tu propio modelo y elige uno distinto para cada tipo de trabajo.</p>
+<p>motita no trae un modelo. Habla con el que ya usas, y el bucle que lo rodea es el mismo responda quien responda.</p>
+<h2>Proveedores</h2>
+<table>
+<thead><tr><th>Proveedor</th><th>Cómo te conectas</th></tr></thead>
+<tbody>
+<tr><td>OpenAI y cualquier host compatible con OpenAI</td><td>API key</td></tr>
+<tr><td>ChatGPT (Codex)</td><td>Iniciar sesión con tu plan de ChatGPT</td></tr>
+<tr><td>GitHub Copilot</td><td>Código de dispositivo de GitHub</td></tr>
+<tr><td>Anthropic</td><td>API key</td></tr>
+<tr><td>Suscripción de Claude (<code>claude-code</code>)</td><td><code>claude auth login</code> en el cliente de Anthropic</td></tr>
+<tr><td>Google Gemini</td><td>API key o tu propio inicio de sesión de Google</td></tr>
+<tr><td>Qwen</td><td>API key de DashScope</td></tr>
+<tr><td>Ollama</td><td>Nada en tu máquina; una API key para Ollama Cloud</td></tr>
+</tbody>
+</table>
+<p>Una API key siempre gana sobre una sesión guardada. Las claves que pegas van a un archivo aparte solo para tu usuario junto a la configuración (<code>~/.motita/motita.env</code>), así que la configuración puede versionarse y compartirse. Una clave nunca se envía de vuelta al navegador.</p>
+<img src="shots/webui-ask.webp" alt="La interfaz del navegador respondiendo una pregunta" width="1600" height="1000" loading="lazy" />
+<h2>Desde el navegador</h2>
+<p><strong>Ajustes &rarr; Proveedores</strong> lista cada proveedor, de dónde sale su clave, un campo para clave y endpoint, y un botón que prueba la conexión listando los modelos del proveedor. Copilot, Qwen, Codex y Gemini pueden iniciar sesión con una cuenta desde la misma página.</p>
+<h2>Un modelo para cada tipo de trabajo</h2>
+<p>La pestaña <strong>Modelos</strong> fija el modelo por defecto y, debajo, uno para cada tipo de trabajo. Un tipo en <em>Igual que el predeterminado</em> sigue a la sesión.</p>
+<table>
+<thead><tr><th>Tipo</th><th>Se usa para</th></tr></thead>
+<tbody>
+<tr><td><code>plan</code></td><td>Turnos en modo Plan</td></tr>
+<tr><td><code>code</code></td><td>Modo Task y agentes en segundo plano que escriben</td></tr>
+<tr><td><code>review</code></td><td>Agentes en segundo plano con rol de revisión</td></tr>
+<tr><td><code>research</code></td><td>Agentes en segundo plano con rol de investigación</td></tr>
+<tr><td><code>summary</code></td><td>Títulos, resúmenes de compactación, la suposición del modo auto</td></tr>
+</tbody>
+</table>
+<p>Un modelo potente para planificar y uno barato para resúmenes es una división común. Si el proveedor de un tipo no tiene clave, vuelve al modelo de la sesión y el registro lo dice.</p>
+      <h2>Profundizar</h2>
+      <ul class="more">
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#providers-and-how-each-one-authenticates">Guía: proveedores y cómo se autentica cada uno</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#your-claude-subscription-through-claude-code">Guía: tu suscripción de Claude</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#llm-providers-from-the-browser">Referencia: proveedores LLM desde el navegador</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#models-per-kind-of-work">Referencia: modelos por tipo de trabajo</a></li>
+      </ul>
+      <nav class="pn" aria-label="Página anterior y siguiente">
+        <a class="prev" href="docs-es-projects.html"><span>Anterior</span>Proyectos, sesiones y git</a>
+        <a class="next" href="docs-es-voice.html"><span>Siguiente</span>Voz</a>
+      </nav>
+      </main>
+    </div>
+    <footer>
+      <div class="wrap frow">
+        <span class="mono">✦ motita</span>
+        <span>Licencia GPL-3.0-or-later.</span>
+        <span class="sep"></span>
+        <a href="index.html">Inicio</a>
+        <a href="docs-es.html">Documentación</a>
+        <a href="REFERENCE.md">Referencia</a>
+        <a href="https://github.com/madkoding/motita">GitHub</a>
+      </div>
+    </footer>
+    <script>
+      // Remember the language picked here, so the home page opens in it too.
+      document.querySelector("a.lang").addEventListener("click", function () {
+        try {
+          localStorage.setItem("motita-lang", this.getAttribute("hreflang"));
+        } catch (e) {
+          // blocked storage: the choice just does not carry over
+        }
+      });
+    </script>
+  </body>
+</html>
