@@ -129,7 +129,7 @@ func TestAGeneratedTitleIsDroppedWhenTheConversationMovedOn(t *testing.T) {
 				return tc.answer
 			})
 
-			srv.maybeAutoTitle(context.Background(), c)
+			srv.maybeAutoTitle(context.Background(), c, 0)
 
 			if got := c.status().Title; got != tc.want {
 				t.Errorf("Title = %q, want %q", got, tc.want)

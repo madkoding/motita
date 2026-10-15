@@ -659,26 +659,10 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// stops the whole deletion unless the user confirmed the discard with
 	// `?force=1`. The work belongs to the user, not to the project record, and
 	// deleting the record is not a decision to destroy it.
-	for _, c := range s.snapshot() {
-		if c.projectID != id {
-			continue
-		}
-		if stopped, settled := c.stopRunForDeletion(deleteStopTimeout); stopped && !settled {
-			writeError(w, http.StatusConflict,
-				"a run in one of this project's sessions did not stop in time, so the project was not deleted: "+
-					"stop it and try again")
-			return
-		}
-	}
-	discard := isForced(r)
-	for _, c := range s.sessionsOfProject(id) {
-		if err := s.releaseWorktree(c, discard); err != nil {
-			// Refused, not forced: the message names the session and its files, so
-			// the decision stays with the user. Nothing is forgotten yet, which is
-			// why this runs BEFORE any session is dropped.
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		}
+	sessions := s.sessionsOfProject(id)
+	if err := s.closeProjectSessions(sessions, isForced(r)); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
 	}
 	// The project's own folder goes with it, so a later project of the same name does not find
 	// the old files in the way. The deletion dialog is the confirmation.
@@ -691,7 +675,8 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// Only now that every checkout has been proven safe to give back are the
 	// sessions forgotten and the project removed. A partial deletion would leave
 	// the sessions unreachable AND their worktrees gone.
-	for _, c := range s.sessionsOfProject(id) {
+	for _, c := range sessions {
+		c.closeForGood()
 		s.forget(c.id)
 		s.deletePersistedSession(c.id)
 	}

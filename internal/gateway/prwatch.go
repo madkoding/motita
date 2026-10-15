@@ -286,7 +286,7 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 // not followed yet: the agent may have opened it from its shell rather than through the pull
 // request button, and from here on the waiting is the gateway's and not the model's.
 func (s *Server) followOpenedPR(c *conversation) {
-	if c.isMerged() || c.projectID == "" || c.prWatchView() != nil {
+	if c.isMerged() || c.isClosing() || c.projectID == "" || c.prWatchView() != nil {
 		return
 	}
 	t, perr := s.prTargetOf(s.baseCtx, c)

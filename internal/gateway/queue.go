@@ -32,7 +32,7 @@ func (c *conversation) pushQueue(task string) int {
 func (c *conversation) takeSlotOrEnqueue(task string) (bool, int) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if !c.running && len(c.queue) == 0 {
+	if !c.running && !c.closing && len(c.queue) == 0 {
 		c.running = true
 		return true, 0
 	}
@@ -46,7 +46,7 @@ func (c *conversation) takeSlotOrEnqueue(task string) (bool, int) {
 func (c *conversation) takeQueued() (string, bool) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if c.running || len(c.queue) == 0 {
+	if c.running || c.closing || len(c.queue) == 0 {
 		return "", false
 	}
 	next := c.queue[0]
