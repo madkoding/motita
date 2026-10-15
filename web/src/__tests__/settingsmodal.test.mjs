@@ -748,7 +748,19 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
   v = await open({ tab: "speech", speech: speech({ ...base, mode: "off" }, true) });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(sw(CONVERSATION_SWITCH).disabled, true);
-  assert.match(card.textContent, /Needs answers read aloud/);
+  assert.match(card.textContent, /Needs answers read aloud: choose when above/);
+  // Nor is how answers are said, nor how fast while nothing at all is said.
+  for (const group of ["settings-speak-style", "settings-speech-length", "settings-speech-rate"]) {
+    assert.equal(card.querySelector(`[name=${group}]`).disabled, true, group);
+  }
+  assert.match(card.textContent, /Needs answers read aloud or voice notices on/);
+  await v.done();
+
+  // Voice notices are still said: their speed can be chosen.
+  v = await open({ tab: "speech", speech: speech({ ...base, mode: "off", notices: true }, true) });
+  card = v.root.querySelector(SPEECH_CARD);
+  assert.equal(card.querySelector("[name=settings-speech-rate]").disabled, false);
+  assert.equal(card.querySelector("[name=settings-speech-length]").disabled, true);
   await v.done();
 });
 

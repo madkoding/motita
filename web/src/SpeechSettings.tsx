@@ -434,19 +434,13 @@ export function SpeechSettings({
           id="settings-speak-style"
           label={t("What it says")}
           stack
-          hint={choose(
-            prefs.style === "natural",
-            t(
-              "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
-            ),
-            t("Word for word: the answer as it is written."),
-          )}
+          hint={answersHint(prefs.mode, styleHint(prefs.style))}
         >
           <Segmented<SpeakStyle>
             name="settings-speak-style"
             labelledBy="settings-speak-style"
             value={prefs.style}
-            disabled={off}
+            disabled={off || prefs.mode === "off"}
             onChange={setStyle}
             options={[
               { value: "literal", label: t("Word for word") },
@@ -479,12 +473,12 @@ export function SpeechSettings({
           voices={voices}
           gatewayVoices={gatewayVoices}
         />
-        <Row id="settings-speech-rate" label={t("Speed")} stack>
+        <Row id="settings-speech-rate" label={t("Speed")} stack hint={rateHint(prefs)}>
           <Segmented<string>
             name="settings-speech-rate"
             labelledBy="settings-speech-rate"
             value={String(prefs.rate)}
-            disabled={off}
+            disabled={off || speaksNothing(prefs)}
             onChange={setRate}
             options={RATES.map((r) => ({
               value: String(r),
@@ -503,13 +497,13 @@ export function SpeechSettings({
           id="settings-speech-length"
           label={t("Length")}
           stack
-          hint={t("A longer answer is read up to its first paragraph.")}
+          hint={answersHint(prefs.mode, t("A longer answer is read up to its first paragraph."))}
         >
           <Segmented<string>
             name="settings-speech-length"
             labelledBy="settings-speech-length"
             value={String(prefs.maxChars)}
-            disabled={off}
+            disabled={off || prefs.mode === "off"}
             onChange={setLength}
             options={LENGTHS.map((n) => ({
               value: String(n),
@@ -721,6 +715,33 @@ function SpeechSwitch({
       />
     </label>
   );
+}
+
+// styleHint says what the chosen way of saying answers does.
+function styleHint(style: SpeakStyle): string {
+  return choose(
+    style === "natural",
+    t(
+      "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
+    ),
+    t("Word for word: the answer as it is written."),
+  );
+}
+
+// answersHint is the hint of a setting about answers read aloud: what it does, or, while answers
+// are never read, that it waits for them.
+function answersHint(mode: SpeakMode, hint: string): string {
+  return choose(mode === "off", t("Needs answers read aloud: choose when above."), hint);
+}
+
+// speaksNothing says nothing is said aloud at all: no answers, and no voice notices.
+function speaksNothing(prefs: SpeechPrefs): boolean {
+  return prefs.mode === "off" && !prefs.notices;
+}
+
+// rateHint is why the speed waits, or nothing while something is said aloud.
+function rateHint(prefs: SpeechPrefs): string | undefined {
+  return choose(speaksNothing(prefs), t("Needs answers read aloud or voice notices on."), undefined);
 }
 
 // conversationHint says what conversation mode does, or what it waits on: speech input working

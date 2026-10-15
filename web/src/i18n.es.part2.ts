@@ -419,6 +419,8 @@ const more: Record<string, string> = {
     "Necesita la entrada de voz: actívala en Entrada de voz.",
   "Needs answers read aloud: choose when above.":
     "Necesita leer las respuestas en voz alta: elige cuándo más arriba.",
+  "Needs answers read aloud or voice notices on.":
+    "Necesita leer las respuestas en voz alta o los avisos por voz.",
   "Needs subtitles on.": "Necesita los subtítulos activados.",
   "Needs a voice per language on.": "Necesita activar una voz por idioma.",
   "Voice notices": "Avisos por voz",
