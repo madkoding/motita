@@ -204,12 +204,48 @@ function useProjectRepos(
     }
   }, [id]);
 
+  // syncProjectRepo brings a shared repository's folder up to the main branch the other projects
+  // integrate into. A folder with work of its own is refused, with the gateway's reason.
+  const syncProjectRepo = useCallback(
+    async (name: string) => {
+      setRepoBusy(name);
+      try {
+        const res = await api(
+          PROJECTS_PATH +
+            encodeURIComponent(id) +
+            "/repos/" +
+            encodeURIComponent(name) +
+            "/sync",
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          setToast({
+            message: tf("Could not bring {name} up to date", { name }),
+            type: "error",
+            detail: await errorOf(res),
+          });
+          return;
+        }
+        settle(await res.json());
+      } catch {
+        setToast({
+          message: tf("Could not bring {name} up to date", { name }),
+          type: "error",
+        });
+      } finally {
+        setRepoBusy("");
+      }
+    },
+    [id],
+  );
+
   return {
     repoBusy,
     repoConflict,
     addProjectRepo,
     removeProjectRepo,
     detachProjectMain,
+    syncProjectRepo,
   };
 }
 

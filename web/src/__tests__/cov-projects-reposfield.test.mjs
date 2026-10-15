@@ -388,3 +388,59 @@ test("a shared repository behind its main branch says by how much", async () => 
   assert.match(rows[1].textContent, /1 behind main/);
   await m.unmount();
 });
+
+test("a shared repository is marked, and one behind can be brought up to its main branch", async () => {
+  const synced = [];
+  const repos = [
+    {
+      name: "api",
+      git_url: "u/api",
+      shared: true,
+      behind: 2,
+      main_branch: "develop",
+    },
+    { name: "web", git_url: "u/web", shared: true, behind: 1 },
+    { name: "own", git_url: "u/own" },
+  ];
+  const props = { main: null, repos, onSync: (n) => synced.push(n) };
+  const m = await mount(AppCtx, null, section(props));
+  assert.equal(m.qa("[data-testid=repo-shared]").length, 2);
+  const sync = m.qa("[data-testid=repo-sync]");
+  assert.deepEqual(
+    sync.map((b) => b.textContent),
+    ["Bring up to develop", "Bring up to main"],
+  );
+  await click(sync[0]);
+  assert.deepEqual(synced, ["api"]);
+  await m.rerender(null, section({ ...props, busy: "api" }));
+  assert.equal(m.q("[data-testid=repo-sync]").disabled, true);
+  await m.rerender(null, section({ ...props, onSync: undefined }));
+  assert.equal(
+    m.q("[data-testid=repo-sync]"),
+    null,
+    "the New project dialog has none",
+  );
+  await m.unmount();
+});
+
+test("a URL the workspace already has says it is not cloned again", async () => {
+  const catalog = [
+    {
+      name: "api",
+      git_url: "https://x.io/u/api.git",
+      dir: "/w/repos/api",
+      projects: [],
+    },
+  ];
+  const m = await mount(AppCtx, null, section({ main: null, catalog }));
+  const input = m.q("[data-testid=repo-add-url]");
+  assert.equal(m.q("[data-testid=repo-add-known]"), null);
+  await type(input, "https://X.io/u/api/");
+  assert.equal(
+    m.q("[data-testid=repo-add-known]").textContent,
+    "Already in your workspace: it is not cloned again.",
+  );
+  await type(input, "https://x.io/u/new.git");
+  assert.equal(m.q("[data-testid=repo-add-known]"), null);
+  await m.unmount();
+});

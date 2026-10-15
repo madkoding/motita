@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -296,6 +297,23 @@ type catalogRepo struct {
 	GitURL   string       `json:"git_url"`
 	Dir      string       `json:"dir"`
 	Projects []catalogUse `json:"projects"`
+	// Size is what the clone takes on disk, in bytes.
+	Size int64 `json:"size"`
+}
+
+// dirSize adds up the size of the files under dir. What cannot be read counts as nothing: the
+// figure is a guide to what deleting a clone frees, not an inventory.
+func dirSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, ierr := d.Info(); ierr == nil {
+				n += info.Size()
+			}
+		}
+		return nil
+	})
+	return n
 }
 
 // allProjects is every project the gateway knows, none when it has no store or cannot read it.
@@ -334,7 +352,9 @@ func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
 		if !e.IsDir() || gitURL == "" {
 			continue
 		}
-		out = append(out, catalogRepo{Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: catalogUsers(projects, dir)})
+		out = append(out, catalogRepo{
+			Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: catalogUsers(projects, dir), Size: dirSize(dir),
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
 }
@@ -345,10 +365,8 @@ var removeAll = os.RemoveAll
 // handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
 // in it stops the deletion, unless the user confirmed the discard with `?force=1`.
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
-	root := s.catalogDir()
-	name := r.PathValue("name")
-	dir := filepath.Join(root, name)
-	if root == "" || repoNameOf(name, "") != name || !pathExists(dir) {
+	dir := s.catalogRepoDir(r.PathValue("name"))
+	if dir == "" {
 		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
 		return
 	}
@@ -547,6 +565,9 @@ func projectReposNote(p *Project) string {
 		"each other repository is a checkout of its own, with its own history, in a folder of it:")
 	for _, repo := range p.Repos {
 		fmt.Fprintf(&b, "\n- %s (%s)", filepath.ToSlash(repo.relPath(p.Dir)), repo.GitURL)
+		if repo.Shared {
+			b.WriteString(": shared with other projects, so its main branch is theirs too")
+		}
 	}
 	b.WriteString("\nRun git inside the repository you changed, and commit each one on its own. " +
 		"The project's own repository ignores these folders.")
@@ -719,4 +740,63 @@ func moveMainRepo(p *Project, name string) error {
 		moved = append(moved, e.Name())
 	}
 	return nil
+}
+
+// catalogRepoDir is the folder of the catalog's clone called name, "" when there is none.
+func (s *Server) catalogRepoDir(name string) string {
+	root := s.catalogDir()
+	dir := filepath.Join(root, name)
+	if root == "" || repoNameOf(name, "") != name || !pathExists(dir) {
+		return ""
+	}
+	return dir
+}
+
+// handleUpdateRepo brings the catalog's clone called name up to date with its origin, on the
+// branch it has out, when it can move forward without a merge.
+func (s *Server) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
+	dir := s.catalogRepoDir(r.PathValue("name"))
+	if dir == "" {
+		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
+		return
+	}
+	ctx := r.Context()
+	if err := gitx.PullFastForward(ctx, dir, gitx.Display(ctx, dir)); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSyncProjectRepo brings the project's folder of a shared repository up to that
+// repository's main branch: the one-click answer to a folder the list marks as behind. It only
+// moves forward, and never over uncommitted work.
+func (s *Server) handleSyncProjectRepo(w http.ResponseWriter, r *http.Request) {
+	p := s.projectOf(r.PathValue("id"))
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	i := p.repoIndex(r.PathValue("name"))
+	if i < 0 || !p.Repos[i].Shared {
+		writeError(w, http.StatusNotFound, "the project has no shared repository with that name")
+		return
+	}
+	repo := p.Repos[i]
+	ctx := r.Context()
+	dir := p.repoPath(repo)
+	if _, dirty := firstDirtyDir(ctx, []string{dir}); dirty {
+		writeError(w, http.StatusConflict, "the folder has uncommitted changes: commit them first")
+		return
+	}
+	mainBranch := cmp.Or(repo.MainBranch, defaultMainBranch)
+	// Advisory: a clone with no origin has nothing to bring in.
+	_ = gitx.PullFastForward(ctx, repo.Dir, mainBranch)
+	if err := fastForward(ctx, dir, mainBranch); err != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("the folder has commits of its own that %s does not: "+
+			"merge %s into it to bring it up to date", mainBranch, mainBranch))
+		return
+	}
+	liveRepos(ctx, p)
+	writeJSON(w, http.StatusOK, p)
 }

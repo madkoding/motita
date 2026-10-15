@@ -172,6 +172,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
     addProjectRepo,
     removeProjectRepo,
     detachProjectMain,
+    syncProjectRepo,
     gitAccounts,
     openOtherRepoPicker,
     repoCatalog,
@@ -190,6 +191,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       onRemove={onRemove}
       onAdd={addProjectRepo}
       onMoveMain={detachProjectMain}
+      onSync={syncProjectRepo}
       onChoose={choose(connected, openOtherRepoPicker, undefined)}
       catalog={repoCatalog}
       projectId={p.id}

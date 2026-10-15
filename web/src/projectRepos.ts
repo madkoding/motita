@@ -1,6 +1,6 @@
 // A project's repositories: the main one (the project's own folder) and the others the gateway
 // clones inside it. The New project and Edit project dialogs both list them the same way.
-import type { ProjectInfo, ProjectRepoInfo } from "./appTypes";
+import type { CatalogRepo, ProjectInfo, ProjectRepoInfo } from "./appTypes";
 
 // RepoDraft is a repository the New project dialog will add once the project exists.
 export interface RepoDraft {
@@ -94,4 +94,19 @@ export function shownMainOf(
 // has none.
 export function reposOf(p: Pick<ProjectInfo, "repos">): ProjectRepoInfo[] {
   return p.repos ?? [];
+}
+
+// sameRepoUrl is the form two URLs of one repository share: no trailing slash or ".git", any case.
+export function sameRepoUrl(url: string): string {
+  let u = url.trim().toLowerCase();
+  while (u.endsWith("/")) {
+    u = u.slice(0, -1);
+  }
+  return u.replace(/\.git$/, "");
+}
+
+// knownRepos is the workspace catalog as a set of sameRepoUrl addresses, for a field or picker
+// that marks the repositories it would not clone again.
+export function knownRepos(catalog: CatalogRepo[]): ReadonlySet<string> {
+  return new Set(catalog.map((c) => sameRepoUrl(c.git_url)));
 }

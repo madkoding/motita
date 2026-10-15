@@ -1088,3 +1088,47 @@ test("the workspace catalog is read when a dialog with repositories opens", asyn
   assert.deepEqual(s.p.repoCatalog, []);
   await s.m.unmount();
 });
+
+test("a shared repository behind its main branch is brought up to date, or says why not", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/repos/api/sync": () => {
+      n++;
+      if (n === 1) {
+        return res(200, {
+          ...PROJECT,
+          repos: [{ ...PROJECT.repos[0], shared: true, behind: 0 }],
+        });
+      }
+      if (n === 2) {
+        return res(409, { error: "the folder has commits of its own" });
+      }
+      throw new Error("down");
+    },
+  });
+  await run(() =>
+    s.p.openEditProject({
+      ...PROJECT,
+      repos: [{ ...PROJECT.repos[0], shared: true, behind: 2 }],
+    }),
+  );
+  await flush();
+  assert.equal(s.p.editProject.repos[0].behind, 2);
+  await run(() => s.p.syncProjectRepo("api"));
+  assert.equal(s.p.repoBusy, "");
+  assert.equal(s.p.editProject.repos[0].behind, 0);
+  assert.equal(s.counts.projects, 1);
+  await run(() => s.p.syncProjectRepo("api"));
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not bring api up to date",
+    type: "error",
+    detail: "the folder has commits of its own",
+  });
+  await run(() => s.p.syncProjectRepo("api"));
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not bring api up to date",
+    type: "error",
+  });
+  assert.equal(s.p.repoBusy, "");
+  await s.m.unmount();
+});

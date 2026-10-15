@@ -104,3 +104,11 @@ test("every string of the repository screens has a Spanish translation", () => {
     [],
   );
 });
+
+test("the workspace catalog is known by address, however it was written", () => {
+  const known = r.knownRepos([
+    { name: "api", git_url: "https://X.io/u/API.git//", dir: "", projects: [] },
+  ]);
+  assert.ok(known.has(r.sameRepoUrl("https://x.io/u/api")));
+  assert.equal(known.has(r.sameRepoUrl("https://x.io/u/web")), false);
+});

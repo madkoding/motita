@@ -14,8 +14,10 @@ import {
 } from "./cov-git-helpers.mjs";
 
 installDom();
-const { RepoCatalogSettings } = await loadSources({
+const { RepoCatalogSettings, sizeText, sortedCatalog } = await loadSources({
   RepoCatalogSettings: "RepoCatalogSettings.tsx",
+  sizeText: "RepoCatalogSettings.tsx",
+  sortedCatalog: "RepoCatalogSettings.tsx",
 });
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
@@ -79,13 +81,15 @@ test("it says it is loading, then lists each clone and who uses it", async () =>
   });
   const rows = [...m.root.querySelectorAll("[data-testid=catalog-repo]")];
   assert.equal(rows.length, 2);
-  assert.match(text(rows[0]), /Used by Shop, Admin/);
+  assert.match(text(rows[0]), /No project uses it/, "the unused one first");
+  assert.match(text(rows[1]), /Used by Shop, Admin/);
   assert.equal(
-    rows[0].querySelector("button"),
+    rows[1].querySelector("[data-testid=catalog-delete]"),
     null,
     "one in use cannot be deleted",
   );
-  assert.match(text(rows[1]), /No project uses it/);
+  assert.match(text(m.root.querySelector("h3")), /2$/, "the title counts them");
+  assert.equal(q(m.root, "catalog-unused"), null, "one unused needs no bulk");
   await m.done();
 });
 
@@ -173,7 +177,10 @@ test("uncommitted work asks again, and only then is discarded", async () => {
     "Discard the changes and delete it",
   );
   await click(q(m.root, "catalog-confirm"));
-  assert.equal(f.calls.at(-1).path, "/v1/repos/old?force=1");
+  assert.equal(
+    f.calls.filter((c) => c.method === "DELETE").at(-1).path,
+    "/v1/repos/old?force=1",
+  );
   assert.deepEqual(m.notices, [["Could not delete the repository", true]]);
   assert.equal(q(m.root, "catalog-ask"), null);
   await m.done();
@@ -211,4 +218,98 @@ test("a refusal with a reason says it; one whose body cannot be read says what f
     }
     await m.done();
   }
+});
+
+test("sizes read the way a person reads them", () => {
+  assert.equal(sizeText(0), "1 KB");
+  assert.equal(sizeText(300 * 1024), "300 KB");
+  assert.equal(sizeText(5.25 * 1024 * 1024), "5.3 MB");
+  assert.equal(sizeText(2 * 1024 * 1024 * 1024), "2.0 GB");
+});
+
+test("the unused come first, then each group by name", () => {
+  const r = (name, used) => ({ name, projects: used ? [{ id: "p" }] : [] });
+  assert.deepEqual(
+    sortedCatalog([
+      r("b", true),
+      r("z", false),
+      r("a", true),
+      r("c", false),
+    ]).map((x) => x.name),
+    ["c", "z", "a", "b"],
+  );
+});
+
+test("a row shows its size, and updating says it is up to date or why not", async () => {
+  const f = fakeApi({
+    "GET /v1/repos": json(200, {
+      repos: [{ ...REPOS[0], size: 3 * 1024 * 1024 }],
+    }),
+    "POST /v1/repos/api/update": {
+      ok: true,
+      status: 204,
+      json: async () => ({}),
+    },
+  });
+  const m = await mount(f.api);
+  assert.match(text(q(m.root, "catalog-repo")), /3\.0 MB/);
+  await click(q(m.root, "catalog-update"));
+  assert.deepEqual(m.notices, [["api is up to date"]]);
+  await m.done();
+  for (const [answer, want] of [
+    [
+      json(409, { error: "not possible to fast-forward" }),
+      "not possible to fast-forward",
+    ],
+    [json(500, {}), "Could not update the repository"],
+  ]) {
+    const g = fakeApi({
+      "GET /v1/repos": json(200, { repos: REPOS }),
+      "POST /v1/repos/old/update": answer,
+    });
+    const n = await mount(g.api);
+    await click(q(n.root, "catalog-update"));
+    assert.deepEqual(n.notices, [[want, true]]);
+    await n.done();
+  }
+});
+
+test("the unused can go all at once, keeping one with work in it", async () => {
+  const many = [
+    ...REPOS,
+    {
+      name: "dirty",
+      git_url: "https://x.io/u/dirty.git",
+      dir: "/w/repos/dirty",
+      projects: [],
+    },
+  ];
+  const f = fakeApi({
+    "GET /v1/repos": json(200, { repos: many }),
+    "DELETE /v1/repos/old": { ok: true, status: 204, json: async () => ({}) },
+    "DELETE /v1/repos/dirty": json(409, { error: "uncommitted" }),
+  });
+  const m = await mount(f.api);
+  assert.equal(text(q(m.root, "catalog-unused-delete")), "Delete the 2 unused");
+  await click(q(m.root, "catalog-unused-delete"));
+  assert.match(
+    text(q(m.root, "catalog-unused")),
+    /The 2 repositories no project uses/,
+  );
+  const cancel = [
+    ...q(m.root, "catalog-unused").querySelectorAll("button"),
+  ].find((b) => text(b) === "Cancel");
+  await click(cancel);
+  assert.equal(q(m.root, "catalog-unused-confirm"), null);
+  await click(q(m.root, "catalog-unused-delete"));
+  await click(q(m.root, "catalog-unused-confirm"));
+  assert.deepEqual(
+    f.calls
+      .filter((c) => c.method === "DELETE")
+      .map((c) => c.path)
+      .sort(),
+    ["/v1/repos/dirty", "/v1/repos/old"],
+  );
+  assert.deepEqual(m.notices, [["Deleted 1 of 2 unused repositories"]]);
+  await m.done();
 });

@@ -146,6 +146,8 @@ export interface CatalogRepo {
   git_url: string;
   dir: string;
   projects: { id: string; title: string }[];
+  // size is what the clone takes on disk, in bytes.
+  size?: number;
 }
 
 export interface ConfigView {

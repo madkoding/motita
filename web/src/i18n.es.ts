@@ -334,8 +334,8 @@ const first: Record<string, string> = {
   "This conversation will be permanently deleted. This cannot be undone.":
     "Esta conversación se eliminará para siempre. No se puede deshacer.",
   "This needs your approval": "Esto necesita tu aprobación",
-  "This project, all its sessions and its folder will be permanently deleted. This cannot be undone.":
-    "Este proyecto, todas sus sesiones y su carpeta se eliminarán para siempre. No se puede deshacer.",
+  "This project, all its sessions and its folder will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.":
+    "Este proyecto, todas sus sesiones y su carpeta se eliminarán para siempre. No se puede deshacer. Los repositorios que comparte con otros proyectos se quedan en tu espacio de trabajo.",
   "This session is already integrated": "Esta sesión ya está integrada",
   "This session is read-only after integration":
     "Esta sesión es de solo lectura después de integrarla",
@@ -610,6 +610,21 @@ const first: Record<string, string> = {
   "Discard the changes and delete it": "Descartar los cambios y eliminarlo",
   "Delete {name}": "Eliminar {name}",
   "Deleted {name}": "Se eliminó {name}",
+  "Deleted {done} of {total} unused repositories":
+    "Se eliminaron {done} de {total} repositorios sin uso",
+  "Could not update the repository": "No se pudo actualizar el repositorio",
+  "{name} is up to date": "{name} está al día",
+  "The {n} repositories no project uses leave your workspace, with their local branches.":
+    "Los {n} repositorios que ningún proyecto usa salen de tu espacio de trabajo, con sus ramas locales.",
+  "Delete the {n} unused": "Eliminar los {n} sin uso",
+  "Update {name}": "Actualizar {name}",
+  Update: "Actualizar",
+  shared: "compartido",
+  "Bring up to {branch}": "Poner al día con {branch}",
+  "Already in your workspace: it is not cloned again.":
+    "Ya está en tu espacio de trabajo: no se vuelve a clonar.",
+  "In your workspace": "En tu espacio de trabajo",
+  "Could not bring {name} up to date": "No se pudo poner al día {name}",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",

@@ -146,6 +146,7 @@ function makeStore(log) {
       showNewProject: false,
       showGitIdentity: false,
       showRepoPicker: false,
+      repoCatalog: [],
       gitAccounts: null,
       gitConnect: null,
       gitRev: 3,

@@ -8,6 +8,8 @@ import {
   addRepoProblem,
   repoDraftOf,
   repoFolderOf,
+  knownRepos,
+  sameRepoUrl,
   type MainRepo,
   type RepoDraft,
 } from "./projectRepos";
@@ -27,6 +29,7 @@ export interface RepoListItem {
   changes?: number;
   main_branch?: string;
   behind?: number;
+  shared?: boolean;
 }
 
 // RepoConflict is a removal the gateway refused because the repository holds uncommitted work.
@@ -84,6 +87,7 @@ function OtherRepoRow({
   conflict,
   alsoIn,
   onRemove,
+  onSync,
 }: {
   r: RepoListItem;
   busy: boolean;
@@ -91,6 +95,8 @@ function OtherRepoRow({
   // The other projects that use the same clone of the repository.
   alsoIn: string[];
   onRemove: (name: string, force: boolean) => void;
+  // Brings the project's folder of a shared repository up to its main branch (edit dialog only).
+  onSync?: (name: string) => void;
 }) {
   const refused = conflict?.name === r.name;
   return (
@@ -102,6 +108,14 @@ function OtherRepoRow({
             <span class="text-sm font-semibold text-[#e8e8ea] truncate">
               {r.name}
             </span>
+            {r.shared && (
+              <span
+                class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-white/5 text-[#9a9aaa]"
+                data-testid="repo-shared"
+              >
+                {t("shared")}
+              </span>
+            )}
             <span class="text-xs text-[#7a7a8c] font-mono truncate">
               {stateOf(r)}
             </span>
@@ -119,6 +133,17 @@ function OtherRepoRow({
             >
               {tf("Also in {names}", { names: alsoIn.join(", ") })}
             </span>
+          )}
+          {!!r.behind && onSync && (
+            <button
+              type="button"
+              class="mt-1 px-2 min-h-[26px] rounded-lg border border-[#f0a040]/50 text-[#f0a040] text-xs font-semibold disabled:opacity-30"
+              onClick={() => onSync(r.name)}
+              disabled={busy}
+              data-testid="repo-sync"
+            >
+              {tf("Bring up to {branch}", { branch: r.main_branch || "main" })}
+            </button>
           )}
         </span>
         <button
@@ -265,6 +290,7 @@ export function RepoList({
   projectId = "",
   onRemove,
   onMoveMain,
+  onSync,
 }: {
   main: MainRepo | null;
   repos: RepoListItem[];
@@ -274,6 +300,7 @@ export function RepoList({
   projectId?: string;
   onRemove: (name: string, force: boolean) => void;
   onMoveMain?: () => void;
+  onSync?: (name: string) => void;
 }) {
   if (!main && repos.length === 0) {
     return null;
@@ -298,6 +325,7 @@ export function RepoList({
           conflict={conflict}
           alsoIn={alsoInOf(catalog, r.dir, projectId)}
           onRemove={onRemove}
+          onSync={onSync}
         />
       ))}
     </ul>
@@ -306,14 +334,20 @@ export function RepoList({
 
 // AddRepo is the field that adds one more repository. onAdd answers whether it was added, so the
 // field empties only then.
+// NO_KNOWN is the empty workspace of a field that is not told what it already has.
+const NO_KNOWN: ReadonlySet<string> = new Set();
+
 export function AddRepo({
   taken,
   busy,
   onAdd,
+  known = NO_KNOWN,
 }: {
   taken: string[];
   busy: boolean;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
+  // The repositories the workspace already has, as sameRepoUrl writes them.
+  known?: ReadonlySet<string>;
 }) {
   const [url, setUrl] = useState("");
   const [problem, setProblem] = useState("");
@@ -363,6 +397,11 @@ export function AddRepo({
           )}
         </button>
       </div>
+      {!problem && url.trim() && known.has(sameRepoUrl(url)) && (
+        <p class="text-xs text-accent/80 mt-1" data-testid="repo-add-known">
+          {t("Already in your workspace: it is not cloned again.")}
+        </p>
+      )}
       {problem && (
         <p class="text-xs text-danger mt-1" data-testid="repo-add-problem">
           {choose(
@@ -374,15 +413,6 @@ export function AddRepo({
       )}
     </div>
   );
-}
-
-// sameRepo is the form two URLs of one repository share: no trailing slash or ".git", any case.
-function sameRepo(url: string): string {
-  let u = url.trim().toLowerCase();
-  while (u.endsWith("/")) {
-    u = u.slice(0, -1);
-  }
-  return u.replace(/\.git$/, "");
 }
 
 // CatalogPicks are the repositories the workspace already has that the list does not: one click
@@ -398,14 +428,14 @@ function CatalogPicks({
   busy: boolean;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
 }) {
-  const urls = new Set(repos.map((r) => sameRepo(r.git_url)));
+  const urls = new Set(repos.map((r) => sameRepoUrl(r.git_url)));
   const names = new Set(repos.map((r) => r.name));
   const picks = catalog
     .map((c) => ({
       name: repoFolderOf(c.git_url) || c.name,
       git_url: c.git_url,
     }))
-    .filter((c) => !urls.has(sameRepo(c.git_url)) && !names.has(c.name));
+    .filter((c) => !urls.has(sameRepoUrl(c.git_url)) && !names.has(c.name));
   if (picks.length === 0) {
     return null;
   }
@@ -444,6 +474,7 @@ export function ReposSection({
   onAdd,
   onChoose,
   onMoveMain,
+  onSync,
   catalog = [],
   projectId,
   hint,
@@ -458,6 +489,8 @@ export function ReposSection({
   onChoose?: () => void;
   // Moves the main repository into a folder of its own (the edit dialog only).
   onMoveMain?: () => void;
+  // Brings a shared repository's folder up to its main branch (the edit dialog only).
+  onSync?: (name: string) => void;
   // The repositories the workspace already has, and the project the dialog is about (none yet
   // in the New project one).
   catalog?: CatalogRepo[];
@@ -477,11 +510,13 @@ export function ReposSection({
           projectId={projectId}
           onRemove={onRemove}
           onMoveMain={onMoveMain}
+          onSync={onSync}
         />
         <AddRepo
           taken={repos.map((r) => r.name)}
           busy={busy === "+"}
           onAdd={onAdd}
+          known={knownRepos(catalog)}
         />
         <CatalogPicks
           catalog={catalog}
