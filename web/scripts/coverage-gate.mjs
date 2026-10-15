@@ -11,17 +11,30 @@ import { join, relative } from "node:path";
 
 const [lcovPath = "coverage/lcov.info", ...only] = process.argv.slice(2);
 
+const say = (line) => process.stdout.write(`${line}\n`);
+
 // Files with nothing to execute: type declarations only.
-const isSource = (f) => /\.(ts|tsx)$/.test(f) && !f.endsWith(".d.ts");
+function isSource(name) {
+  return /\.(ts|tsx)$/.test(name) && !name.endsWith(".d.ts");
+}
 
 function sources(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = join(dir, e.name);
-    if (e.isDirectory()) return e.name === "__tests__" ? [] : sources(p);
-    return isSource(e.name) ? [relative(".", p)] : [];
+    if (e.isDirectory()) {
+      if (e.name === "__tests__") {
+        return [];
+      }
+      return sources(p);
+    }
+    if (isSource(e.name)) {
+      return [relative(".", p)];
+    }
+    return [];
   });
 }
 
+// parse reads, per file, the lines that never ran and the lines holding a branch that never ran.
 function parse(text) {
   const files = new Map();
   let cur;
@@ -32,31 +45,41 @@ function parse(text) {
       files.set(rest, cur);
     } else if (tag === "DA") {
       const [n, hits] = rest.split(",").map(Number);
-      if (hits === 0) cur.lines.push(n);
+      if (hits === 0) {
+        cur.lines.push(n);
+      }
     } else if (tag === "BRDA") {
       const [n, , , hits] = rest.split(",");
-      if (hits === "0" || hits === "-") cur.branches.push(Number(n));
+      if (hits === "0" || hits === "-") {
+        cur.branches.push(Number(n));
+      }
     }
   }
   return files;
 }
 
 const report = parse(readFileSync(lcovPath, "utf8"));
-const wanted = only.length ? only.map((f) => relative(".", f)) : sources("src");
+let wanted = sources("src");
+if (only.length) {
+  wanted = only.map((f) => relative(".", f));
+}
 let failed = 0;
-for (const f of wanted.sort()) {
+for (const f of wanted.sort((a, b) => a.localeCompare(b))) {
   const r = report.get(f);
   if (!r) {
-    console.log(`${f}: not loaded by any test`);
+    say(`${f}: not loaded by any test`);
     failed++;
     continue;
   }
   const lines = [...new Set(r.lines)];
   const branches = [...new Set(r.branches)];
   if (lines.length || branches.length) {
-    console.log(`${f}: uncovered lines [${lines.join(",")}] branches at [${branches.join(",")}]`);
+    say(`${f}: uncovered lines [${lines.join(",")}] branches at [${branches.join(",")}]`);
     failed++;
   }
 }
-console.log(failed ? `${failed} of ${wanted.length} files below 100 %` : `${wanted.length} files at 100 %`);
-process.exit(failed ? 1 : 0);
+if (failed) {
+  say(`${failed} of ${wanted.length} files below 100 %`);
+  process.exit(1);
+}
+say(`${wanted.length} files at 100 %`);
