@@ -48,7 +48,7 @@ export function useSessionActions({
   setToast,
 }: Deps) {
   const { sessionRef } = rs;
-  const { fetchSessions, setSessions } = lists;
+  const { sessions, fetchSessions, loadSessions, setSessions } = lists;
   const { switchSession, showNoSession } = conv;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -123,11 +123,13 @@ export function useSessionActions({
         // Remove the deleted session from the local state IMMEDIATELY, before
         // the refetch. A 3-second polling interval (or a run's deferred
         // saveSession resurrecting the file) can slip a stale list in between
-        // the DELETE and fetchSessions, making the session flicker back into
+        // the DELETE and the refetch, making the session flicker back into
         // the sidebar. A default session that was reset (200) is empty, and the
         // gateway no longer lists it either.
         setSessions((prev) => prev.filter((s) => s.id !== id));
-        const list = await fetchSessions();
+        // A refetch that fails (the network dropped right after the DELETE) is not "no
+        // sessions left": the list already on screen, minus the deleted one, decides then.
+        const list = (await loadSessions()) ?? sessions;
         // If we deleted the active session, switch to the most recent remaining one, or to
         // no session at all when it was the last.
         if (id === sessionRef.current) {
@@ -142,7 +144,7 @@ export function useSessionActions({
         setState("could not delete the session", true);
       }
     },
-    [fetchSessions, switchSession, showNoSession],
+    [sessions, loadSessions, switchSession, showNoSession],
   );
 
   // renameSession changes the title of a conversation.
