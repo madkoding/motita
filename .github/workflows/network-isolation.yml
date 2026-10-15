@@ -1,0 +1,80 @@
+name: network isolation
+
+# sandbox.isolate_network is on by default, so what it really does on each kind of machine is
+# checked here, not assumed: a command that is not approved has no network, an approved one keeps
+# it, and where the machine cannot isolate (macOS, Windows, a Linux whose AppArmor takes the
+# capabilities from a user namespace) the request is reported as not applied. The test is
+# TestNetworkIsolationOnThisMachine in internal/sandbox; MOTITA_NETISO_EXPECT says what the
+# machine must do.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "internal/sandbox/**"
+      - "internal/execx/**"
+      - ".github/workflows/network-isolation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netiso-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  network:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1: a user namespace
+          # made by an unprivileged process holds no capabilities, so the loopback cannot be brought
+          # up and the setting must say it cannot isolate.
+          - { name: "ubuntu 24.04 · AppArmor restricts user namespaces", os: ubuntu-24.04, expect: unavailable, restrict: "1" }
+          - { name: "ubuntu 24.04 · restriction off", os: ubuntu-24.04, expect: isolated, restrict: "0" }
+          - { name: "ubuntu 24.04 · as root", os: ubuntu-24.04, expect: isolated, root: "true" }
+          - { name: "ubuntu 22.04 · no restriction", os: ubuntu-22.04, expect: isolated }
+          - { name: "macOS", os: macos-latest, expect: unavailable }
+          - { name: "Windows", os: windows-latest, expect: unavailable }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set the AppArmor user namespace restriction
+        if: matrix.restrict != ''
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=${{ matrix.restrict }}
+
+      - name: What the kernel says
+        if: runner.os == 'Linux'
+        run: |
+          uname -r
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo "no AppArmor user namespace restriction"
+          id -u
+
+      - name: Build the sandbox tests
+        run: go test -c -o "$RUNNER_TEMP/sandbox.test" ./internal/sandbox/
+
+      - name: A command without approval has no network, an approved one has
+        env:
+          MOTITA_NETISO_EXPECT: ${{ matrix.expect }}
+          ROOT: ${{ matrix.root }}
+        run: |
+          bin="$RUNNER_TEMP/sandbox.test"
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          if [ "$ROOT" = "true" ]; then
+            sudo --preserve-env=MOTITA_NETISO_EXPECT "$bin" -test.run '^TestNetworkIsolationOnThisMachine$' -test.v
+          else
+            "$bin" -test.run '^TestNetworkIsolationOnThisMachine$' -test.v
+          fi
