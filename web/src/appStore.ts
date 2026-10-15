@@ -84,7 +84,11 @@ export function useAppStore(api: Api) {
     setToast,
   });
   const stream = useStream({ api, rs, lists, conv, setState, setToast });
-  const { answerSuggestions } = useSuggestions(api, rs, stream);
+  const { answerSuggestions, answerQuestions } = useSuggestions(
+    api,
+    rs,
+    stream,
+  );
   const composer = useComposer({
     rs,
     drawers,
@@ -171,6 +175,7 @@ export function useAppStore(api: Api) {
     shell,
     stream,
     answerSuggestions,
+    answerQuestions,
     composer,
     checkpoints,
     auth,

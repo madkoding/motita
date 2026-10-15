@@ -72,6 +72,8 @@ type checkpoint struct {
 	Outcome *turnOutcome `json:"outcome,omitempty"`
 	// Answers are how the user answered the suggestions of this turn's report; nil until they do.
 	Answers *suggestionAnswers `json:"answers,omitempty"`
+	// QuestionAnswers are how the user answered the questions this turn asked; nil until they do.
+	QuestionAnswers *questionAnswers `json:"question_answers,omitempty"`
 }
 
 // suggestionAnswers is the user's answer to a report's suggestions, kept with the turn so the
@@ -102,6 +104,9 @@ type turnOutcome struct {
 	Report    *agent.Report     `json:"report,omitempty"`
 	Files     []gitx.FileChange `json:"files,omitempty"`
 	Artifacts []Artifact        `json:"artifacts,omitempty"`
+	// Questions are what the turn asked the user, each with its options and what the agent
+	// assumes when it is left unanswered. The web draws them as a card to answer.
+	Questions []agent.AskItem `json:"questions,omitempty"`
 }
 
 // checkpointView is the checkpoint as a client sees it: the anchors are the gateway's business.
@@ -114,6 +119,8 @@ type checkpointView struct {
 	Steps   []stepRecord       `json:"steps"`
 	Outcome *turnOutcome       `json:"outcome,omitempty"`
 	Answers *suggestionAnswers `json:"answers,omitempty"`
+	// QuestionAnswers are how the questions of this turn were answered.
+	QuestionAnswers *questionAnswers `json:"question_answers,omitempty"`
 }
 
 // checkpointRef names the git reference that keeps a turn's snapshot alive.
@@ -251,7 +258,7 @@ func (c *conversation) checkpointViews() []checkpointView {
 		out = append(out, checkpointView{
 			Turn: cp.Turn, Task: cp.Task, Kind: cp.Kind, Created: cp.Created,
 			Files: cp.Snap != "", Steps: append([]stepRecord{}, cp.Steps...), Outcome: cp.Outcome,
-			Answers: cp.Answers,
+			Answers: cp.Answers, QuestionAnswers: cp.QuestionAnswers,
 		})
 	}
 	return out

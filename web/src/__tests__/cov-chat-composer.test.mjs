@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { act, fakeApi, json, load, renderHook } from "./cov-chat-helpers.mjs";
 
 const { useComposer } = await load("useComposer.ts");
-const { useSuggestions, answersPath } = await load("useSuggestions.ts");
+const { useSuggestions, answersPath, questionAnswersPath } = await load("useSuggestions.ts");
 
 const CMDS = [
   { name: "/plan", group: "mode", help: "plan", aliases: ["/p"] },
@@ -233,6 +233,47 @@ test("while a run works, Enter interrupts with the message, Alt+Enter queues it,
   await run((x) => x.handleKeydown(esc));
   assert.equal(esc.prevented, true);
   assert.deepEqual(calls.pop(), ["stop"]);
+  await hook.unmount();
+});
+
+test("answering questions keeps the answers, stores them, and sends them under their label", async () => {
+  assert.equal(questionAnswersPath("a b", 3), "/v1/sessions/a%20b/checkpoints/3/question-answers");
+  const api = fakeApi(async (path) => {
+    if (path.includes("/checkpoints/4/")) {
+      throw new TypeError("offline");
+    }
+    return json({});
+  });
+  const sent = [];
+  const rs = {
+    sessionRef: { current: "s" },
+    messages: [
+      { id: 1, turn: 3, text: "a" },
+      { id: 2, turn: 4, text: "b" },
+      { id: 3, text: "c" },
+    ],
+    setMessages(fn) {
+      rs.messages = fn(rs.messages);
+    },
+  };
+  const stream = { submit: async (...a) => sent.push(a) };
+  const hook = await renderHook(() => useSuggestions(api, rs, stream));
+  const { answerQuestions } = hook.result.current;
+  const qa = { answers: ["x"], request: "do it\n\nanswers" };
+  await answerQuestions(rs.messages[0], qa, "x");
+  assert.equal(rs.messages[0].questionAnswers, qa);
+  assert.equal(rs.messages[1].questionAnswers, undefined);
+  assert.deepEqual(api.calls.map((c) => [c.path, c.init.method, c.body]), [
+    ["/v1/sessions/s/checkpoints/3/question-answers", "PUT", qa],
+  ]);
+  assert.deepEqual(sent, [["do it\n\nanswers", "/v1/sessions/s/task", "x"]]);
+  // A gateway that cannot keep them: the turn is sent anyway.
+  await answerQuestions(rs.messages[1], qa, "x");
+  assert.equal(sent.length, 2);
+  // No turn number: nothing stored; no label: the prompt is drawn as it is.
+  await answerQuestions(rs.messages[2], qa, "");
+  assert.equal(api.calls.length, 2);
+  assert.deepEqual(sent[2], ["do it\n\nanswers", "/v1/sessions/s/task", undefined]);
   await hook.unmount();
 });
 

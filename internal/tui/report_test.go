@@ -57,3 +57,35 @@ func TestSummariseDrawsTheReportAsText(t *testing.T) {
 		t.Errorf("without a report the summary stands alone, got %q", got)
 	}
 }
+
+// The questions a turn asked reach the gateway's clients once, without emptying the window's own
+// copy, and a turn that asked nothing does not hand over the previous turn's.
+func TestTheQuestionsOfATurnAreHandedOverOnce(t *testing.T) {
+	r := NewAppRunner(&strings.Builder{}, &strings.Builder{}, config.Default(),
+		&llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	asked := []agent.AskItem{{Text: "which login?", Options: []string{"email", "GitHub"}}, {Text: "where?"}}
+	res := agent.TaskResult{NeedsInput: true, Question: "which login?", Questions: asked}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
+		return &askingAgent{res: res}
+	}
+	out, _ := r.RunTask(context.Background(), "add login", func(string, ...any) {})
+	if !strings.Contains(out, "2. where?") || !strings.Contains(out, "   - GitHub") {
+		t.Errorf("the answer text must list every question with its options, got %q", out)
+	}
+	if got := r.TakeQuestions(); len(got) != 2 || got[1].Text != "where?" {
+		t.Fatalf("TakeQuestions = %+v", got)
+	}
+	if again := r.TakeQuestions(); again != nil {
+		t.Errorf("taking must clear, got %+v", again)
+	}
+	if items, _ := r.TakePendingQuestions(); len(items) != 2 {
+		t.Errorf("the window keeps its own copy, got %+v", items)
+	}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
+		return &askingAgent{res: agent.TaskResult{Pass: true, Summary: "done"}}
+	}
+	_, _ = r.RunTask(context.Background(), "y", func(string, ...any) {})
+	if got := r.TakeQuestions(); got != nil {
+		t.Errorf("a turn that asked nothing returned %+v", got)
+	}
+}

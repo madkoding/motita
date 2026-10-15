@@ -415,8 +415,14 @@ const more: Record<string, string> = {
   Conversation: "Conversación",
   "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.":
     "Después de leer la respuesta a algo que dijiste, Motita vuelve a escuchar y envía lo que digas. Di “basta” o toca el micrófono para terminar.",
-  "Needs speech input: turn it on above.":
-    "Necesita la entrada de voz: actívala más arriba.",
+  "Needs speech input: turn it on in Voice input.":
+    "Necesita la entrada de voz: actívala en Entrada de voz.",
+  "Needs answers read aloud: choose when above.":
+    "Necesita leer las respuestas en voz alta: elige cuándo más arriba.",
+  "Needs answers read aloud or voice notices on.":
+    "Necesita leer las respuestas en voz alta o los avisos por voz.",
+  "Needs subtitles on.": "Necesita los subtítulos activados.",
+  "Needs a voice per language on.": "Necesita activar una voz por idioma.",
   "Voice notices": "Avisos por voz",
   "Says the CI of a pull request and the questions the agent waits on, while this tab is visible.":
     "Dice el CI de un pull request y las preguntas que espera el agente, mientras esta pestaña está visible.",
@@ -457,6 +463,49 @@ const more: Record<string, string> = {
   "Shows on screen what Motita says aloud, sentence by sentence, like a film's subtitles.":
     "Muestra en pantalla lo que Motita dice en voz alta, frase por frase, como los subtítulos de una película.",
   "Subtitle size": "Tamaño de los subtítulos",
+  "Motita needs an answer to continue": "Motita necesita una respuesta para seguir",
+  "Motita needs {n} answers to continue": "Motita necesita {n} respuestas para seguir",
+  "{done} of {total} answered": "{done} de {total} respondidas",
+  "Answers sent": "Respuestas enviadas",
+  "Send answers": "Enviar respuestas",
+  "A question left blank goes with what Motita suggests.":
+    "Si dejas una pregunta en blanco, Motita sigue con lo que propone.",
+  "Or write your own answer": "O escribe tu propia respuesta",
+  "Write your answer": "Escribe tu respuesta",
+  "If you leave it blank: {assumption}": "Si la dejas en blanco: {assumption}",
+  "Question {n} of {total}": "Pregunta {n} de {total}",
+  Answered: "Respondida",
+  "Message menu": "Opciones del mensaje",
+  "sends this message again": "vuelve a enviar este mensaje",
+  "The mode auto mode picked": "El modo que eligió el modo automático",
+  "Download a model to listen with above first.":
+    "Primero descarga un modelo para escuchar, más arriba.",
+  "Who listens": "Quién escucha",
+  "A model downloaded once, run in this browser.":
+    "Un modelo que se descarga una vez y corre en este navegador.",
+  "A transcription service, through the gateway.":
+    "Un servicio de transcripción, a través del gateway.",
+  "This browser": "Este navegador",
+  "Only while this tab is open. What you say is heard in this browser. Say: {phrases}":
+    "Solo mientras esta pestaña esté abierta. Lo que dices se escucha en este navegador. Di: {phrases}",
+  "The model could not be loaded: {error}":
+    "No se pudo cargar el modelo: {error}",
+  "Model to listen with": "Modelo para escuchar",
+  "Whisper runs in this browser, on WebGPU where there is one and on WebAssembly otherwise: what you say never leaves this device.":
+    "Whisper corre en este navegador, con WebGPU donde lo hay y con WebAssembly si no: lo que dices nunca sale de este dispositivo.",
+  "The first download adds {size} for the engine.":
+    "La primera descarga suma {size} para el motor.",
+  "WebGPU could not start here ({reason}): the model runs on the processor.":
+    "WebGPU no pudo iniciar aquí ({reason}): el modelo corre en el procesador.",
+  "Language you speak": "Idioma en que hablas",
+  "Detect it": "Detectarlo",
+  Processor: "Procesador",
+  "on the graphics card": "en la tarjeta gráfica",
+  Recommended: "Recomendado",
+  "Voice input": "Entrada de voz",
+  "Voice output": "Salida de voz",
+  "Every model ({n})": "Todos los modelos ({n})",
+  "Every voice ({n})": "Todas las voces ({n})",
 };
 
 export default more;

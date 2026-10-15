@@ -133,7 +133,17 @@ func (t *TUI) askOptionLines(it agent.AskItem, width int) []string {
 			// The answers of a proposal are the interface's own, so they are in its language.
 			label = t.tr(opt)
 		}
-		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, label), width))
+		// A long option wraps under its own text instead of being clipped at the edge: the end of
+		// an option is often what tells two of them apart.
+		lead := fmt.Sprintf("%s %d) ", mark, i+1)
+		indent := strings.Repeat(" ", len(lead))
+		for j, line := range wordWrap(label, width-visibleLen("│ "+lead)) {
+			if j == 0 {
+				out = append(out, t.askLine(lead+line, width))
+				continue
+			}
+			out = append(out, t.askLine(indent+line, width))
+		}
 	}
 	return out
 }

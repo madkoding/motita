@@ -316,6 +316,11 @@ func (r *taskRun) askUser() {
 		// hardcoded lead would fix the conversation's language from the program.
 		said += "\n\n" + r.res.Assumption
 	}
+	// Several questions are recorded whole. With only the first one kept, answers to the others
+	// arrived on the next turn with nothing in the conversation to pair them with.
+	if listed := AskedText(r.res.Questions); listed != "" {
+		said = listed
+	}
 	r.a.note(r.t, said, KindAsk)
 }
 

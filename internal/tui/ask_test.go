@@ -79,6 +79,25 @@ func TestWindowOpensWithQuestions(t *testing.T) {
 	}
 }
 
+// A long option wraps under its own text instead of being clipped at the edge of the window.
+func TestALongOptionWrapsInsteadOfBeingClipped(t *testing.T) {
+	long := "Redis, if you plan to run several instances of the server behind a load balancer one day"
+	tui := newAskTUI(t, []agent.AskItem{{Text: "where?", Options: []string{"cookies", long}}}, "x")
+	tui.Width = 50
+	lines := tui.askLines(0)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"2) Redis, if you plan", "     balancer one day"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("the window should show %q, got:\n%s", want, joined)
+		}
+	}
+	for _, l := range lines {
+		if visibleLen(l) > tui.bodyWidth() {
+			t.Fatalf("a line is wider than the window: %q", l)
+		}
+	}
+}
+
 // A single question is a list of one: the same shape, no special case, and nothing to navigate.
 func TestSingleQuestionHasNoNavigation(t *testing.T) {
 	tui := newAskTUI(t, []agent.AskItem{{Text: "which one?", Options: []string{"a", "b"}}}, "x")

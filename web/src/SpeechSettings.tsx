@@ -434,19 +434,13 @@ export function SpeechSettings({
           id="settings-speak-style"
           label={t("What it says")}
           stack
-          hint={choose(
-            prefs.style === "natural",
-            t(
-              "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
-            ),
-            t("Word for word: the answer as it is written."),
-          )}
+          hint={answersHint(prefs.mode, styleHint(prefs.style))}
         >
           <Segmented<SpeakStyle>
             name="settings-speak-style"
             labelledBy="settings-speak-style"
             value={prefs.style}
-            disabled={off}
+            disabled={off || prefs.mode === "off"}
             onChange={setStyle}
             options={[
               { value: "literal", label: t("Word for word") },
@@ -479,12 +473,12 @@ export function SpeechSettings({
           voices={voices}
           gatewayVoices={gatewayVoices}
         />
-        <Row id="settings-speech-rate" label={t("Speed")} stack>
+        <Row id="settings-speech-rate" label={t("Speed")} stack hint={rateHint(prefs)}>
           <Segmented<string>
             name="settings-speech-rate"
             labelledBy="settings-speech-rate"
             value={String(prefs.rate)}
-            disabled={off}
+            disabled={off || speaksNothing(prefs)}
             onChange={setRate}
             options={RATES.map((r) => ({
               value: String(r),
@@ -503,13 +497,13 @@ export function SpeechSettings({
           id="settings-speech-length"
           label={t("Length")}
           stack
-          hint={t("A longer answer is read up to its first paragraph.")}
+          hint={answersHint(prefs.mode, t("A longer answer is read up to its first paragraph."))}
         >
           <Segmented<string>
             name="settings-speech-length"
             labelledBy="settings-speech-length"
             value={String(prefs.maxChars)}
-            disabled={off}
+            disabled={off || prefs.mode === "off"}
             onChange={setLength}
             options={LENGTHS.map((n) => ({
               value: String(n),
@@ -528,17 +522,11 @@ export function SpeechSettings({
         <Row
           id="settings-speech-conversation"
           label={t("Conversation")}
-          hint={choose(
-            canListen,
-            t(
-              "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.",
-            ),
-            t("Needs speech input: turn it on above."),
-          )}
+          hint={conversationHint(canListen, prefs.mode)}
         >
           <SpeechSwitch
             id="settings-speech-conversation"
-            usable={!off && canListen}
+            usable={!off && canListen && prefs.mode !== "off"}
             checked={prefs.conversation}
             onChange={setConversation}
           />
@@ -571,21 +559,25 @@ export function SpeechSettings({
             onChange={setSubtitles}
           />
         </Row>
-        {!off && prefs.subtitles && (
-          <Row id="settings-speech-subtitle-size" label={t("Subtitle size")} stack>
-            <Segmented<SubtitleSize>
-              name="settings-speech-subtitle-size"
-              labelledBy="settings-speech-subtitle-size"
-              value={prefs.subtitleSize}
-              onChange={setSubtitleSize}
-              options={[
-                { value: "small", label: t("Small") },
-                { value: "medium", label: t("Normal") },
-                { value: "large", label: t("Large") },
-              ]}
-            />
-          </Row>
-        )}
+        <Row
+          id="settings-speech-subtitle-size"
+          label={t("Subtitle size")}
+          stack
+          hint={choose(prefs.subtitles, undefined, t("Needs subtitles on."))}
+        >
+          <Segmented<SubtitleSize>
+            name="settings-speech-subtitle-size"
+            labelledBy="settings-speech-subtitle-size"
+            value={prefs.subtitleSize}
+            disabled={off || !prefs.subtitles}
+            onChange={setSubtitleSize}
+            options={[
+              { value: "small", label: t("Small") },
+              { value: "medium", label: t("Normal") },
+              { value: "large", label: t("Large") },
+            ]}
+          />
+        </Row>
         <Pronunciations off={off} prefs={prefs} set={set} />
         <Row id="settings-speech-test" label={t("Try the voice")}>
           <button
@@ -725,6 +717,55 @@ function SpeechSwitch({
   );
 }
 
+// styleHint says what the chosen way of saying answers does.
+function styleHint(style: SpeakStyle): string {
+  return choose(
+    style === "natural",
+    t(
+      "Natural: the session's model says what the agent is doing while it works, and the gist of the answer at the end. Each line is a short extra call to the model.",
+    ),
+    t("Word for word: the answer as it is written."),
+  );
+}
+
+// answersHint is the hint of a setting about answers read aloud: what it does, or, while answers
+// are never read, that it waits for them.
+function answersHint(mode: SpeakMode, hint: string): string {
+  return choose(mode === "off", t("Needs answers read aloud: choose when above."), hint);
+}
+
+// speaksNothing says nothing is said aloud at all: no answers, and no voice notices.
+function speaksNothing(prefs: SpeechPrefs): boolean {
+  return prefs.mode === "off" && !prefs.notices;
+}
+
+// rateHint is why the speed waits, or nothing while something is said aloud.
+function rateHint(prefs: SpeechPrefs): string | undefined {
+  return choose(speaksNothing(prefs), t("Needs answers read aloud or voice notices on."), undefined);
+}
+
+// conversationHint says what conversation mode does, or what it waits on: speech input working
+// here, and answers read aloud.
+function conversationHint(canListen: boolean, mode: SpeakMode): string {
+  if (!canListen) {
+    return t("Needs speech input: turn it on in Voice input.");
+  }
+  if (mode === "off") {
+    return t("Needs answers read aloud: choose when above.");
+  }
+  return t(
+    "After reading the answer to a turn you spoke, Motita listens again and sends what you say. Say “that's all” or tap the microphone to end it.",
+  );
+}
+
+// otherVoiceHint is why the voice for the other language cannot be picked yet, or "" when it can.
+function otherVoiceHint(byLanguage: boolean, voices: number): string | undefined {
+  if (!byLanguage) {
+    return t("Needs a voice per language on.");
+  }
+  return choose(voices === 0, t("This device has no voice for that language."), undefined);
+}
+
 // otherLang is the language an answer mixes in besides the interface's.
 function otherLang(l: Lang): Lang {
   return choose(l === "es", "en", "es");
@@ -765,42 +806,37 @@ function LanguageVoice({
           onChange={setByLanguage}
         />
       </Row>
-      {prefs.byLanguage && !off && (
-        <Row
-          id="settings-speech-other-voice"
-          label={choose(
-            other === "en",
-            t("Voice for English"),
-            t("Voice for Spanish"),
-          )}
-          hint={choose(
-            voices.length === 0,
-            t("This device has no voice for that language."),
-            undefined,
-          )}
+      <Row
+        id="settings-speech-other-voice"
+        label={choose(
+          other === "en",
+          t("Voice for English"),
+          t("Voice for Spanish"),
+        )}
+        hint={otherVoiceHint(prefs.byLanguage, voices.length)}
+      >
+        <select
+          class={selectCls}
+          aria-labelledby="settings-speech-other-voice"
+          disabled={off || !prefs.byLanguage}
+          value={prefs.langVoices[other] || ""}
+          onChange={(e) =>
+            set({
+              langVoices: {
+                ...prefs.langVoices,
+                [other]: (e.target as HTMLSelectElement).value,
+              },
+            })
+          }
         >
-          <select
-            class={selectCls}
-            aria-labelledby="settings-speech-other-voice"
-            value={prefs.langVoices[other] || ""}
-            onChange={(e) =>
-              set({
-                langVoices: {
-                  ...prefs.langVoices,
-                  [other]: (e.target as HTMLSelectElement).value,
-                },
-              })
-            }
-          >
-            <option value="">{t("Device default")}</option>
-            {voices.map((v) => (
-              <option key={v.voiceURI} value={v.voiceURI}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </Row>
-      )}
+          <option value="">{t("Device default")}</option>
+          {voices.map((v) => (
+            <option key={v.voiceURI} value={v.voiceURI}>
+              {v.name}
+            </option>
+          ))}
+        </select>
+      </Row>
     </>
   );
 }

@@ -2,6 +2,7 @@
 import type { TaskReport } from "./Report";
 import type { PRWatch, ToastType } from "./prApi";
 import type { SuggestionAnswers } from "./proposals";
+import type { AskItem, QuestionAnswers } from "./questions";
 import type { SelfHosted } from "./GitConnect";
 
 export interface Message {
@@ -24,6 +25,12 @@ export interface Message {
   shown?: string;
   // answers, on an answer with suggestions, is how they were answered.
   answers?: SuggestionAnswers;
+  // questions, on an answer, are what the agent asked before doing anything: drawn as a card to
+  // answer. origin is the request they are about, sent again with the answers.
+  questions?: AskItem[];
+  origin?: string;
+  // questionAnswers, on an answer with questions, is how they were answered.
+  questionAnswers?: QuestionAnswers;
   // draft marks the answer while it is being written: it grows with each snapshot and becomes the
   // answer itself, the same message, when the run ends. A draft is not read aloud.
   draft?: boolean;

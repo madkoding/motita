@@ -444,3 +444,19 @@ func TestASubtaskIsNotRecordedAsATurnOfItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// Several questions are written out whole, each with its options and assumption; one question
+// is left to the single-question text.
+func TestAskedTextListsEveryQuestion(t *testing.T) {
+	if got := AskedText([]AskItem{{Text: "only one?"}}); got != "" {
+		t.Errorf("a single question = %q, want empty", got)
+	}
+	got := AskedText([]AskItem{
+		{Text: "which login?", Assumption: "email", Options: []string{"email", "GitHub"}},
+		{Text: "where?"},
+	})
+	want := "1. which login?\n   - email\n   - GitHub\n   (email)\n\n2. where?"
+	if got != want {
+		t.Errorf("AskedText = %q, want %q", got, want)
+	}
+}

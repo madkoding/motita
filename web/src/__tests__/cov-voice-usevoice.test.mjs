@@ -72,6 +72,23 @@ globalThis.AudioContext = class {
     return Promise.resolve();
   }
 };
+// The browser runs a model to listen with: its worker answers each recording with the next of
+// `heard.texts`, and decoding a recording gives one sample.
+const heard = { texts: [], sent: [] };
+globalThis.Worker = class {
+  postMessage(m) {
+    heard.sent.push(m);
+    if (m.kind === "hear") {
+      void Promise.resolve().then(() => this.onmessage({ data: { seq: m.seq, text: heard.texts.shift() ?? "", lang: "es" } }));
+    }
+  }
+};
+globalThis.OfflineAudioContext = class {
+  async decodeAudioData() {
+    return { length: 1, numberOfChannels: 1, getChannelData: () => Float32Array.of(0) };
+  }
+};
+globalThis.caches = {};
 // The device's own voice, which hands-free listening must not take for the person.
 globalThis.speechSynthesis = { speaking: false };
 
@@ -178,20 +195,25 @@ async function speak(ms = 600) {
 
 test("what the page says before it can listen: not signed in, a refused gateway, an older one", async () => {
   reset();
+  // With no service on, the browser is the one to listen: it needs a model first.
   let v = await mount({ authed: false });
   assert.equal(v.s.asked.length, 0, "nothing is asked before signing in");
-  assert.equal(v.s.voice.state, "off");
+  assert.equal(v.s.voice.state, "no-model");
+  assert.equal(v.s.voice.engine, "local");
   assert.equal(v.s.voice.showMic, false);
   await v.done();
 
   v = await mount({ info: new Error("offline") });
   assert.equal(v.s.voice.info, null);
-  assert.equal(v.s.voice.state, "off");
+  assert.equal(v.s.voice.state, "no-model");
   await v.done();
 
+  // The service chosen, but off (or a gateway too old to say).
+  localStorage.setItem(VOICE_KEY, JSON.stringify({ engine: "service" }));
   v = await mount({ info: null });
   assert.equal(v.s.voice.state, "off", "an older gateway answers 404");
   await v.done();
+  localStorage.clear();
 
   v = await mount({ info: { ...INFO, wake_phrases: [] } });
   assert.equal(v.s.voice.state, "ready");
@@ -204,7 +226,7 @@ test("the switches are saved, and the page follows a change made elsewhere", asy
   reset();
   localStorage.setItem(VOICE_KEY, JSON.stringify({ mic: false, deviceId: 3 }));
   const v = await mount();
-  assert.deepEqual(v.s.voice.prefs, { mic: false, listen: false, deviceId: "" });
+  assert.deepEqual(v.s.voice.prefs, { mic: false, listen: false, deviceId: "", engine: "", listener: "", language: "" });
   assert.equal(v.s.voice.showMic, false);
   await act(() => v.s.voice.setPrefs({ mic: true, listen: false, deviceId: "usb" }));
   assert.equal(v.s.voice.prefs.deviceId, "usb");
@@ -213,7 +235,7 @@ test("the switches are saved, and the page follows a change made elsewhere", asy
   await act(() => window.dispatchEvent(new CustomEvent(VOICE_PREFS_EVENT)));
   assert.equal(v.s.voice.prefs.deviceId, "other");
   await act(() => v.s.voice.setInfo({ ...INFO, enabled: false }));
-  assert.equal(v.s.voice.state, "off", "the settings' answer applies at once");
+  assert.equal(v.s.voice.state, "no-model", "the settings' answer applies at once: the browser listens now");
   await v.done();
 });
 
@@ -495,6 +517,42 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
   await v.done();
   assert.equal(ctxs.closed, closed + 1, "leaving closes the microphone");
   box.remove();
+});
+
+test("listening in the browser: dictation never leaves it, and the gateway only checks the wake phrase", async () => {
+  reset();
+  localStorage.setItem(VOICE_KEY, JSON.stringify({ engine: "local", listener: "whisper-base", language: "es" }));
+  heard.texts = ["arregla los tests"];
+  heard.sent.length = 0;
+  let v = await mount({ info: null });
+  assert.equal(v.s.voice.state, "ready");
+  await tap(v);
+  await settle();
+  assert.deepEqual(heard.sent[0], { kind: "warm", id: "whisper-base" }, "the model loads while the person speaks");
+  await tap(v);
+  await settle();
+  assert.equal(v.s.input, "arregla los tests");
+  const hear = heard.sent.find((m) => m.kind === "hear");
+  assert.equal(hear.id, "whisper-base");
+  assert.equal(hear.lang, "es");
+  assert.ok(!v.s.asked.some(([p]) => p.startsWith("/v1/voice/transcribe")), "no recording reaches the gateway");
+  await v.done();
+
+  // Hands-free: what it heard is asked about the wake phrase; nothing heard is not even asked.
+  localStorage.setItem(
+    VOICE_KEY,
+    JSON.stringify({ engine: "local", listener: "whisper-base", listen: true }),
+  );
+  heard.texts = ["oye motita abre un pr", ""];
+  v = await mount({ replies: [{ text: "oye motita abre un pr", wake: { phrase: "oye motita", rest: "abre un pr" } }] });
+  assert.equal(v.s.voice.listening, true);
+  await speak();
+  assert.equal(v.s.input, "abre un pr");
+  assert.deepEqual(v.s.asked.at(-1), ["/v1/voice/wake", "application/json"]);
+  const asked = v.s.asked.length;
+  await speak();
+  assert.equal(v.s.asked.length, asked, "nothing heard: no question");
+  await v.done();
 });
 
 test("hands-free: an answer that comes after it was turned off is dropped", async () => {

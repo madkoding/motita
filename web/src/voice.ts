@@ -81,31 +81,70 @@ export interface Transcript {
   wake?: { phrase: string; rest: string };
 }
 
-// The two switches of the settings screen, kept in this browser only: a microphone is a property
-// of the device, not of the gateway.
+// Who turns speech into text: a model run in this browser, or the transcription service.
+export type ListenEngine = "local" | "service";
+
+// The switches of the settings screen, kept in this browser only: a microphone is a property of
+// the device, not of the gateway, and so is the model it listens with.
 export interface VoicePrefs {
   mic: boolean;
   listen: boolean;
   // deviceId is the microphone chosen on this device; "" is the system's default.
   deviceId: string;
+  // engine is who listens, "" until it was chosen (see listenEngine); listener is the local model
+  // chosen ("" when none is), and language the one spoken ("" lets the model tell).
+  engine: ListenEngine | "";
+  listener: string;
+  language: string;
 }
 export const VOICE_KEY = "motita.ui.voice";
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   mic: true,
   listen: false,
   deviceId: "",
+  engine: "",
+  listener: "",
+  language: "",
 };
+
+// listenEngine is who listens: the one chosen, or before anything was, the model of this browser
+// where there is one, the transcription service where only it is on, and the model otherwise
+// (the settings then offer to download one).
+export function listenEngine(prefs: VoicePrefs, info: VoiceInfo | null): ListenEngine {
+  if (prefs.engine) {
+    return prefs.engine;
+  }
+  if (!prefs.listener && info?.enabled) {
+    return "service";
+  }
+  return "local";
+}
+
+// stringOf is a stored string, or "" for anything else.
+function stringOf(v: unknown): string {
+  if (typeof v === "string") {
+    return v;
+  }
+  return "";
+}
 // VOICE_PREFS_EVENT tells the page the switches changed in the settings screen.
 export const VOICE_PREFS_EVENT = "motita-voice-prefs";
 
 export function loadVoicePrefs(): VoicePrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(VOICE_KEY) || "{}");
-    let deviceId = "";
-    if (typeof raw.deviceId === "string") {
-      deviceId = raw.deviceId;
+    let engine: VoicePrefs["engine"] = "";
+    if (raw.engine === "local" || raw.engine === "service") {
+      engine = raw.engine;
     }
-    return { mic: raw.mic !== false, listen: raw.listen === true, deviceId };
+    return {
+      mic: raw.mic !== false,
+      listen: raw.listen === true,
+      deviceId: stringOf(raw.deviceId),
+      engine,
+      listener: stringOf(raw.listener),
+      language: stringOf(raw.language),
+    };
   } catch {
     return { ...DEFAULT_VOICE_PREFS };
   }
@@ -124,15 +163,26 @@ export function saveVoicePrefs(p: VoicePrefs): void {
 
 // Why speech input can or cannot be used here, in the order a person can fix it.
 //   insecure     the page is not https or localhost: the browser hides the microphone
-//   unsupported  the browser has no microphone API or no MediaRecorder
-//   off          the gateway has speech input off (voice.enabled)
+//   unsupported  the browser has no microphone API or no MediaRecorder (or, to listen itself, no
+//                worker, WebAssembly or audio decoding)
+//   no-model     it listens itself, and no model was downloaded and chosen yet
+//   off          the transcription service listens, and the gateway has it off (voice.enabled)
 //   ready        it can be used
-export type VoiceState = "insecure" | "unsupported" | "off" | "ready";
+export type VoiceState = "insecure" | "unsupported" | "no-model" | "off" | "ready";
+
+// Listening is who listens and with what: see listenEngine.
+export interface Listening {
+  engine: ListenEngine;
+  listener: string;
+  // runs says this browser can run a model itself (localListenSupported).
+  runs: boolean;
+}
 
 export function voiceState(
   secure: boolean,
   supported: boolean,
   info: VoiceInfo | null,
+  listening: Listening,
 ): VoiceState {
   if (!secure) {
     return "insecure";
@@ -140,8 +190,17 @@ export function voiceState(
   if (!supported) {
     return "unsupported";
   }
-  if (!info?.enabled) {
-    return "off";
+  if (listening.engine === "service") {
+    if (!info?.enabled) {
+      return "off";
+    }
+    return "ready";
+  }
+  if (!listening.runs) {
+    return "unsupported";
+  }
+  if (!listening.listener) {
+    return "no-model";
   }
   return "ready";
 }
@@ -422,6 +481,19 @@ export async function putVoice(
     throw new Error(await errorOf(res));
   }
   return (await res.json()) as VoiceInfo;
+}
+
+// wakeOf asks the gateway whether a text heard in this browser opens with a wake phrase.
+export async function wakeOf(api: Api, text: string): Promise<Transcript> {
+  const res = await api("/v1/voice/wake", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorOf(res));
+  }
+  return (await res.json()) as Transcript;
 }
 
 // transcribe sends one recording. With wake, the answer also names the wake phrase it opened with.

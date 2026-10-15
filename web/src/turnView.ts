@@ -11,6 +11,7 @@ import { useContext, useMemo, useRef } from "preact/hooks";
 import type { Store } from "./appStore";
 import type { CheckpointInfo, Message, StepView } from "./appTypes";
 import type { SuggestionAnswers } from "./proposals";
+import type { QuestionAnswers } from "./questions";
 
 export interface TurnView {
   running: boolean;
@@ -31,6 +32,7 @@ export interface TurnView {
   stopRun: () => void;
   submit: (text: string) => void;
   answerSuggestions: (m: Message, a: SuggestionAnswers) => void;
+  answerQuestions: (m: Message, a: QuestionAnswers, shown: string) => void;
   speak: (m: Message) => void;
   showRunArtifact: (a: { name: string; type: string }) => void;
 }
@@ -70,6 +72,8 @@ export function useTurnView(store: Store): TurnView {
       submit: (text: string) => void latest.current.stream.submit(text),
       answerSuggestions: (m: Message, a: SuggestionAnswers) =>
         void latest.current.answerSuggestions(m, a),
+      answerQuestions: (m: Message, a: QuestionAnswers, shown: string) =>
+        void latest.current.answerQuestions(m, a, shown),
       speak: (m: Message) => latest.current.speech.speak(m),
       showRunArtifact: (a: { name: string; type: string }) =>
         latest.current.artifacts.showRunArtifact(a),

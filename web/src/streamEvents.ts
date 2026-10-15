@@ -2,6 +2,7 @@
 import { tf } from "./i18n";
 import { choose } from "./choose";
 import { hasReport, type TaskReport } from "./Report";
+import { hasQuestions, type AskItem } from "./questions";
 import { sortAgents } from "./appFormat";
 import { classifyProgress, commandOf, splitOutput } from "./appParse";
 import { keyed } from "./useRunState";
@@ -26,6 +27,7 @@ export interface StreamPayload {
   changes?: ChangeReport;
   artifacts?: { name: string; type: string; size: number }[];
   report?: TaskReport;
+  questions?: AskItem[];
   error?: string;
   // approval_denied: what was refused, and why it needed asking.
   command?: string;
@@ -258,6 +260,7 @@ function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
           undefined,
         ),
         report: choose(hasReport(payload.report), payload.report, undefined),
+        ...questionsOf(payload.questions, rest),
       },
     ];
   });
@@ -280,6 +283,25 @@ function onApprovalDenied({ rs }: StreamContext, payload: StreamPayload) {
       text: choose(payload.error, note + " — " + payload.error, note),
     },
   ]);
+}
+
+// questionsOf is what an answer that asked carries: its questions, and the request they are about
+// (the user's newest input), which goes back with the answers. Nothing when it asked nothing.
+function questionsOf(
+  questions: AskItem[] | undefined,
+  prev: Message[],
+): Pick<Message, "questions" | "origin"> {
+  if (!hasQuestions(questions)) {
+    return {};
+  }
+  // The last user message, found by hand: findLast is newer than the ES2020 the build targets.
+  let origin = "";
+  for (const m of prev) {
+    if (m.role === "user") {
+      origin = m.text;
+    }
+  }
+  return { questions, origin };
 }
 
 function onError({ rs, finish }: StreamContext, payload: StreamPayload) {

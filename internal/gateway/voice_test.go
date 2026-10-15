@@ -113,6 +113,27 @@ func TestTranscribeAnswersTheTextAndTheWakePhrase(t *testing.T) {
 	}
 }
 
+// TestWakeMatchesATextTheBrowserHeard: a transcript made in the page is matched against the same
+// phrases, with no transcription service on.
+func TestWakeMatchesATextTheBrowserHeard(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.WakePhrases = []string{"hey motita"} })
+	w := postJSON(t, srv, "/v1/voice/wake", testToken, `{"text":"Hey, Motita: run the tests"}`)
+	var got transcription
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("POST = %d %s", w.Code, w.Body.String())
+	}
+	if got.Wake == nil || got.Wake.Phrase != "hey motita" || got.Wake.Rest != "run the tests" {
+		t.Errorf("answer = %+v", got)
+	}
+	w = postJSON(t, srv, "/v1/voice/wake", testToken, `{"text":"just talking"}`)
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "wake") {
+		t.Errorf("no phrase was said: %d %s", w.Code, w.Body.String())
+	}
+	if w := postJSON(t, srv, "/v1/voice/wake", testToken, `{`); w.Code != http.StatusBadRequest {
+		t.Errorf("a body that is not JSON = %d", w.Code)
+	}
+}
+
 type failingBody struct{}
 
 func (failingBody) Read([]byte) (int, error) { return 0, errors.New("the connection dropped") }

@@ -656,6 +656,7 @@ func (s *Server) voiceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) ht
 	mux.Handle("GET /v1/voice", plain(s.handleVoice))
 	mux.Handle("PUT /v1/voice", plain(s.handlePutVoice))
 	mux.Handle("POST /v1/voice/transcribe", plain(s.handleTranscribe))
+	mux.Handle("POST /v1/voice/wake", plain(s.handleWake))
 	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
 	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
 	// Local voices: the catalog, its downloads, and the files the page runs. See voicemodels.go.
@@ -816,6 +817,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/checkpoints", scoped(s.handleCheckpoints))
 	mux.Handle("POST /v1/sessions/{id}/checkpoints/{turn}/restore", scoped(s.handleRestoreCheckpoint))
 	mux.Handle("PUT /v1/sessions/{id}/checkpoints/{turn}/answers", scoped(s.handleSuggestionAnswers))
+	mux.Handle("PUT /v1/sessions/{id}/checkpoints/{turn}/question-answers", scoped(s.handleQuestionAnswers))
 	mux.Handle("GET /v1/sessions/{id}/config", scoped(s.handleConfig))
 	mux.Handle("PATCH /v1/sessions/{id}/config", scoped(s.handleUpdateConfig))
 	mux.Handle("POST /v1/sessions/{id}/config/reload", scoped(s.handleReloadConfig))
