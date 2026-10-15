@@ -2,10 +2,10 @@
 // page stays in English rather than showing a half-translated screen.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { installDom, useSources, source } from "./cov-stream-helpers.mjs";
+import { installDom, unreachable, source } from "./cov-stream-helpers.mjs";
 
 installDom();
-useSources({ unreachable: ["i18n.es.ts"] });
+unreachable(["i18n.es.ts"]);
 const lone = await source("i18n.ts");
 
 test("a Spanish dictionary that cannot be fetched leaves the page in English", async () => {

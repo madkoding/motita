@@ -111,10 +111,7 @@ for (const font of fonts) {
     }
     assert.equal(version, MAXP_TRUETYPE);
     const zones = maxp.readUInt16BE(MAX_ZONES_AT);
-    assert.ok(
-      zones === 1 || zones === 2,
-      `maxZones is ${zones}, must be 1 or 2`,
-    );
+    assert.ok([1, 2].includes(zones), `maxZones is ${zones}, must be 1 or 2`);
   });
 }
 

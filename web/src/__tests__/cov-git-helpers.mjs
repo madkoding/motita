@@ -1,8 +1,11 @@
 // Shared setup for the cov-git-* tests: a jsdom page installed as the globals, a loader for the
-// TSX components (through the compile hook of cov-shell-helpers.mjs),
-// and a fake api that answers from a route table and records what was asked.
+// TSX components (through the module hook of tsx-hooks.mjs), and a fake api that answers from a
+// route table and records what was asked.
 import { JSDOM } from "jsdom";
-import { load } from "./cov-shell-helpers.mjs";
+import { load } from "./tsx-hooks.mjs";
+import { flush as flushTimers } from "./dom-helpers.mjs";
+
+export { text } from "./dom-helpers.mjs";
 
 export function installDom() {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -38,7 +41,7 @@ export function installDom() {
 }
 
 // loadSources imports the named exports ({ name: "File.tsx" } relative to src). The sources are
-// not bundled: cov-shell-helpers.mjs registers a hook that compiles each .tsx on its own (the .ts
+// not bundled: tsx-hooks.mjs registers a hook that compiles each .tsx on its own (the .ts
 // files load natively), so node's coverage maps every module back to its own file.
 export async function loadSources(exports) {
   const out = {};
@@ -80,6 +83,5 @@ export function fakeApi(routes = {}) {
   return { api, calls, routes };
 }
 
-export const text = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
-
-export const flush = () => new Promise((r) => setTimeout(r, 0));
+// flush lets one turn of zero-delay timers run.
+export const flush = () => flushTimers(1);

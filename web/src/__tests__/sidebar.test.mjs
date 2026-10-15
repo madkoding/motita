@@ -102,7 +102,8 @@ test("the sidebar labels sessions and projects and says when each is empty", asy
   const { root, done } = await mount(SessionList, store());
   const sessions = section(root, "sessions");
   const projects = section(root, "projects");
-  assert.ok(sessions && projects, "both sections are drawn");
+  assert.ok(sessions, "the sessions section is drawn");
+  assert.ok(projects, "and the projects one");
   assert.equal(
     sessions.compareDocumentPosition(projects) &
       dom.window.Node.DOCUMENT_POSITION_FOLLOWING,

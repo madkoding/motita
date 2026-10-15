@@ -129,7 +129,8 @@ test("text that grows is hidden and revealed letter by letter, with a fading edg
   frame(1050);
   // At least 90 characters a second, faster when far behind: 11 left / 0.6s ≈ 18/s → 90/s.
   const [[from]] = spans(reg, "stream-hidden", el);
-  assert.ok(from > 5 && from < 16, `revealed up to ${from}`);
+  assert.ok(from > 5, `revealed up to ${from}`);
+  assert.ok(from < 16, `revealed up to ${from}`);
   frame(3000);
   assert.equal(reg.get("stream-hidden").ranges.size, 0, "all of it is shown");
   assert.equal(frames.size, 0, "and the animation stops");

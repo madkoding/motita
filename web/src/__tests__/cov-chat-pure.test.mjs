@@ -156,7 +156,8 @@ test("the follower glides to the end, frame by frame, and stops there", () => {
     el.scrollHeight = 2100;
     f.kick();
     frames.flush((t += 16));
-    assert.ok(el.scrollTop > 1000 && el.scrollTop < 2000);
+    assert.ok(el.scrollTop > 1000, `scrolled to ${el.scrollTop}, past 1000`);
+    assert.ok(el.scrollTop < 2000, `scrolled to ${el.scrollTop}, short of 2000`);
     const at = el.scrollTop;
     on = false;
     frames.flush((t += 16));

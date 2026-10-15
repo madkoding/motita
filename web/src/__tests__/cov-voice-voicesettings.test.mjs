@@ -3,10 +3,9 @@
 // microphone this device records with, and the browser's permission for it.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, useSourceHooks, settle as settleWith, json } from "./cov-voice-helpers.mjs";
+import { setupDom, source, settle as settleWith, json } from "./cov-voice-helpers.mjs";
 
 const dom = setupDom("https://localhost/");
-useSourceHooks();
 const { VoiceSettings } = await source("VoiceSettings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");

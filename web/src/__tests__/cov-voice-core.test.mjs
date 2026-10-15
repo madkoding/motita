@@ -30,7 +30,9 @@ test("BPE joins the lowest-ranked pair first, whatever order the pairs come in",
   assert.ok(ids.includes(5), "a + bc joined last into abc");
   assert.ok(!ids.includes(6), "a + b was never joined");
   const cab = core.chatterboxTokens(tokenizer({ c: 1, a: 2, b: 3, ab: 4, ca: 5 }, ["a b", "c a"]), "cab");
-  assert.ok(cab.includes(4) && cab.includes(1), "c + ab: a+b (rank 0) beats c+a (rank 1) that comes first");
+  // c + ab: a+b (rank 0) beats c+a (rank 1) that comes first.
+  assert.ok(cab.includes(4), "a + b joined into ab");
+  assert.ok(cab.includes(1), "c left alone");
 });
 
 test("a vocabulary without [UNK] or [SPACE] falls back to id 1", () => {

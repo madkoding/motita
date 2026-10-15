@@ -149,7 +149,8 @@ test("the wheel zooms around the pointer; a double click zooms in and then fits 
   assert.equal(zoomText(), "115%");
   // The point under the pointer (100px right of the centre) stays put: x = 100 - 100 * 1.15.
   const [x, y] = /translate\(([-\d.e]+)px, ([-\d.e]+)px\)/.exec(imgEl().style.transform).slice(1).map(Number);
-  assert.ok(Math.abs(x + 15) < 1e-9 && y === 0, imgEl().style.transform);
+  assert.ok(Math.abs(x + 15) < 1e-9, imgEl().style.transform);
+  assert.equal(y, 0, imgEl().style.transform);
   await fire(stage, "wheel", { deltaY: 100, clientX: 200, clientY: 50 }, W.WheelEvent);
   assert.equal(zoomText(), "100%");
   await fire(stage, "dblclick", { clientX: 100, clientY: 50 });

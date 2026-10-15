@@ -42,10 +42,8 @@ test("the preview fills the window and has zoom, pan, fit, actual size and keybo
     assert.ok(lightbox.includes(handler), handler);
   }
   for (const key of ["+", "-", "0", "1", "ArrowRight", "ArrowLeft"]) {
-    assert.ok(
-      lightbox.includes(`'${key}'`) || lightbox.includes(`"${key}"`),
-      key,
-    );
+    // Quoted either way.
+    assert.ok([`'${key}'`, `"${key}"`].some((q) => lightbox.includes(q)), key);
   }
   assert.ok(
     lightbox.includes("useDialog"),

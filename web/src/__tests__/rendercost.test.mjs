@@ -128,7 +128,8 @@ test("a built message far out of view is released, at its height, and built agai
   const stop = HY.watchForHydration(el, () => { builds++; }, () => { releases++; return true; });
   const near = observers.find((o) => o.margin === "600px 0px");
   const far = observers.find((o) => o.margin === "4000px 0px");
-  assert.ok(near && far, "a near and a far observer watch the message");
+  assert.ok(near, "a near observer watches the message");
+  assert.ok(far, "and a far one");
   assert.ok(far.targets.has(el));
 
   near.fire(el, true);

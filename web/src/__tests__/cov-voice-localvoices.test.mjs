@@ -3,10 +3,9 @@
 // browser cannot name, and a browser that cannot keep the list's filters.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, useSourceHooks, settle as settleWith, json } from "./cov-voice-helpers.mjs";
+import { setupDom, source, settle as settleWith, json } from "./cov-voice-helpers.mjs";
 
 const dom = setupDom("https://localhost/");
-useSourceHooks();
 const lv = await source("LocalVoiceSettings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");

@@ -3,10 +3,9 @@
 // what each one does when the microphone, the gateway or the person does not cooperate.
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, useSourceHooks, settle as settleWith } from "./cov-voice-helpers.mjs";
+import { setupDom, source, settle as settleWith } from "./cov-voice-helpers.mjs";
 
 setupDom();
-useSourceHooks();
 globalThis.isSecureContext = true;
 
 // The stand-in microphone. loud says whether the person speaks now; refuse holds errors the next

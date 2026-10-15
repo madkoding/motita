@@ -751,7 +751,8 @@ test("the insecure-connection pill is translated, amber, and tighter in compact 
     "Your browser blocks the microphone because Motita was opened without a secure connection.",
     "Your browser blocks notifications because Motita was opened without a secure connection.",
   ]) {
-    assert.ok(es.includes(JSON.stringify(k)) || es.includes(`${k}:`), k);
+    // As a quoted key, or a bare one.
+    assert.ok([JSON.stringify(k), `${k}:`].some((form) => es.includes(form)), k);
   }
   const css = src("index.css");
   assert.match(css, /\.settings-warn \{[^}]*rgba\(237, 181, 88/);

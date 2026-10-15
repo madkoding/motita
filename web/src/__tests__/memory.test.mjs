@@ -79,10 +79,9 @@ test("a turn that is moved stays observed", async () => {
   const mo = observeChildren(box, ro);
   a.before(b);
   await flush();
-  assert.ok(
-    ro.held.has(a) && ro.held.has(b),
-    "reordering does not drop either turn",
-  );
+  // Reordering does not drop either turn.
+  assert.ok(ro.held.has(a), "the first turn is still observed");
+  assert.ok(ro.held.has(b), "the second turn is still observed");
   mo.disconnect();
 });
 

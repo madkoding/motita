@@ -1,11 +1,11 @@
-// useSpeech loaded as the source itself (see useSourceHooks): every scenario of speechhook.test.mjs
+// useSpeech loaded as the source itself (through tsx-hooks.mjs): every scenario of speechhook.test.mjs
 // (a spoken turn read, Alt+L, stops, failures, subtitles, the natural style, the gateway's and a
 // local voice, notices, conversation mode), then what that file leaves out: the sentence
 // highlighted and kept in view, scrolling by hand, the voice unlocked by a first tap, a device
 // without a voice, and the edges of the natural style.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, useSourceHooks } from "./cov-voice-helpers.mjs";
+import { setupDom, source } from "./cov-voice-helpers.mjs";
 
 // The stand-in voice gives up after this many utterances, so a loop cannot hang the test.
 const MAX_UTTERANCES = 50;
@@ -20,7 +20,6 @@ const TESTS_PASS = "Tests pass.";
 const LOCAL_VOICE = "es_MX-claude-high";
 const CI_PASSED = "CI passed.";
 const dom = setupDom("http://localhost/");
-useSourceHooks();
 
 // The stand-in voice: it records each utterance and lets the test end it.
 const synth = {

@@ -258,8 +258,9 @@ test("closing a dialog whose opener cannot take focus any more does not throw", 
     throw new Error("gone");
   };
   const { done } = await mount(h(Dialog, { id: "d", onClose() {} }, h("button", {}, "x")));
-  await done();
-  assert.ok(true, "unmounted without throwing");
+  assert.ok(document.getElementById("d"), "the dialog is open");
+  await assert.doesNotReject(done(), "unmounted without throwing");
+  assert.equal(document.getElementById("d"), null, "and it is gone");
   opener.remove();
 });
 

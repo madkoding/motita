@@ -1,13 +1,16 @@
 // The module hook the tests load the web UI's sources through: node imports each TSX file itself,
-// compiled on its own as it is loaded, so a test drives the real module graph of the app.
+// compiled on its own as it is loaded, so a test drives the real module graph of the app. Every
+// test imports it, directly or through its group's cov-*-helpers.mjs, so there is one hook and one
+// compiler for the whole suite.
 //
 // Each .tsx is compiled alone by esbuild (TSX to JS, inline source map) instead of being bundled:
 // node's coverage merges what the test processes report only where a function maps to the same
 // range of its file, and a bundle mixes every module into one script, so its lines neither merge
 // with what other tests cover nor map the module's top level back to its file (a header comment
-// reads as uncovered). The compile options and spanWholeFile below are those of the cov-*-helpers
-// hooks, byte for byte, so the ranges every test reports agree and merge. Node loads .ts files
-// itself (type stripping), and a .css import becomes an empty module.
+// reads as uncovered). That is also why compile() and spanWholeFile below must not change for one
+// test alone: every process has to produce the same script for a file, or their ranges disagree
+// and stop merging. Node loads .ts files itself (type stripping), and a .css import becomes an
+// empty module.
 //
 // Extensionless relative imports resolve to .ts before .tsx, as esbuild and Vite try them, so
 // "./settings" is settings.ts and not Settings.tsx on a case-sensitive filesystem.
@@ -15,35 +18,58 @@
 // One module graph is shared per test file (node runs each in its own process), so a context such
 // as AppCtx is the same object for every module that imports it, as it is in the app.
 //
-// `stub(specifier, source)` replaces what the sources import under that name with a small stand-in,
-// so a component can be tested without the whole app under it.
+// `stub(specifier, source)` replaces what the sources import under that name (a sibling such as
+// "./Sidebar", or a package such as "mermaid") with a small stand-in, so a component can be tested
+// without the whole app, or a heavy dependency, under it. A stand-in of FAIL makes the import
+// fail, the way a lazily loaded chunk that cannot be fetched does; `unreachable(files)` does the
+// same to source files themselves.
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { transformSync } from "esbuild";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const srcDir = join(here, "..");
+export const here = dirname(fileURLToPath(import.meta.url));
+export const srcDir = join(here, "..");
 export const srcPath = (f) => join(srcDir, f);
+export const FAIL = 'throw new Error("the module could not be loaded");';
 // Stand-ins get URLs under __tests__, which the coverage report leaves out (no file is written).
 const STUB_DIR = join(here, ".tsx-hooks-stubs");
+const STUB_HREF = pathToFileURL(STUB_DIR).href;
 const stubs = new Map(); // specifier -> source
+// A stand-in's URL carries a hash of its source: node merges the coverage of every test process by
+// URL (before the report leaves __tests__ out), and fails outright on two different scripts under
+// one URL, as two groups' stand-ins for "./appStore" would be.
 const stubUrl = (spec) =>
-  pathToFileURL(join(STUB_DIR, spec.replace(/[^\w.-]/g, "_") + ".tsx")).href;
+  pathToFileURL(
+    join(
+      STUB_DIR,
+      spec.replace(/[^\w.-]/g, "_") +
+        "-" +
+        createHash("sha256").update(stubs.get(spec)).digest("hex").slice(0, 12) +
+        ".tsx",
+    ),
+  ).href;
+// Source files (names under src/, e.g. "i18n.es.ts") whose loading fails.
+let unreachableFiles = [];
 
+// The tests themselves (and the stand-ins) live under src/ too, but are never compiled here.
 const isSource = (url) =>
   url.startsWith("file:") &&
   fileURLToPath(url).startsWith(srcDir) &&
+  !fileURLToPath(url).startsWith(here) &&
   /\.(tsx|css)$/.test(url);
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    // A stand-in replaces what the sources (and the tests) import, but not what a stand-in itself
+    // imports, which gets the real module.
     const fromSource =
       context.parentURL?.startsWith("file:") &&
       fileURLToPath(context.parentURL).startsWith(srcDir) &&
       !fileURLToPath(context.parentURL).startsWith(STUB_DIR);
-    if (specifier.startsWith(pathToFileURL(STUB_DIR).href)) {
+    if (specifier.startsWith(STUB_HREF)) {
       return { url: specifier, shortCircuit: true };
     }
     if (fromSource && stubs.has(specifier)) {
@@ -64,7 +90,10 @@ registerHooks({
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
-    if (url.startsWith(pathToFileURL(STUB_DIR).href)) {
+    if (unreachableFiles.some((name) => url.endsWith("/" + name))) {
+      throw new Error("Failed to fetch dynamically imported module: " + url);
+    }
+    if (url.startsWith(STUB_HREF)) {
       const spec = [...stubs.keys()].find((s) => stubUrl(s) === url);
       return { format: "module", source: compile(stubs.get(spec), url), shortCircuit: true };
     }
@@ -208,6 +237,12 @@ export function stub(specifier, source) {
 // stubModule imports the stand-in registered for `specifier`, the same instance the sources get.
 export function stubModule(specifier) {
   return import(stubUrl(specifier));
+}
+
+// unreachable makes loading the named source files fail from now on (their names under src/), the
+// way a chunk that could not be fetched does. It must be called before they are first imported.
+export function unreachable(files) {
+  unreachableFiles = files;
 }
 
 // load imports a source file by its path under src (e.g. "Settings.tsx").

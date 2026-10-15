@@ -4,10 +4,9 @@
 // is asked of them.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, useSourceHooks, settle as settleWith, json } from "./cov-voice-helpers.mjs";
+import { setupDom, source, settle as settleWith, json } from "./cov-voice-helpers.mjs";
 
 const dom = setupDom("https://localhost/");
-useSourceHooks();
 const { NotifySetting, unblockSteps } = await source("NotifySettings.tsx");
 const { PushSetting } = await source("PushSetting.tsx");
 const { InsecureWarning } = await source("InsecureWarning.tsx");

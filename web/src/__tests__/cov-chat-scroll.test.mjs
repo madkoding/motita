@@ -251,7 +251,8 @@ for (const M of forms) {
     const log = window.__chatLoadingLog();
     assert.deepEqual(Object.keys(log).sort(), ["registered", "transitions", "visiblePending"]);
     assert.equal(log.visiblePending, false);
-    assert.ok(Array.isArray(window.__modalLog) && window.__modalLog.length > 0);
+    assert.ok(Array.isArray(window.__modalLog), "the modal log is kept");
+    assert.ok(window.__modalLog.length > 0, "and has entries");
     await c.unmount();
   });
 
