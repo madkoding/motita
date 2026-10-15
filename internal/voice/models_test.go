@@ -155,6 +155,12 @@ func TestUnknownIdsAndNames(t *testing.T) {
 			t.Fatalf("File(%q, %q) answered", c[0], c[1])
 		}
 	}
+	if lib.Sum("v1", "model.onnx") != lib.Models[0].Files[0].SHA256 || lib.Sum(RuntimeID, "a.wasm") != lib.Runtime[0].SHA256 {
+		t.Fatal("Sum should be the pinned hash of a listed file")
+	}
+	if lib.Sum("v1", "nope") != "" || lib.Sum("nope", "model.onnx") != "" {
+		t.Fatal("Sum of a name the catalog does not list should be empty")
+	}
 	if m, _ := lib.Find("v1"); m.Size() != 6 || lib.RuntimeSize() != 10 {
 		t.Fatalf("sizes %d %d", m.Size(), lib.RuntimeSize())
 	}

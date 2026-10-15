@@ -66,8 +66,34 @@ export async function fetchCatalog(api: Api): Promise<LocalCatalog> {
     pruned = true;
     // A copy that cannot be dropped is only left behind: it is never read.
     void pruneCache(catalog).catch(() => undefined);
+    if (catalog.models.some((m) => m.installed)) {
+      void keepOnDisk();
+    }
   }
   return catalog;
+}
+
+// keepOnDisk asks the browser to keep this page's copies of the models (hundreds of MB) when it
+// runs short of room, instead of evicting them as it may evict any site's storage. Browsers grant
+// it on their own terms (an installed app, a site used often) or ask; it is asked once a page,
+// and answers whether the copies are kept.
+let keepAsked: Promise<boolean> | undefined;
+export function keepOnDisk(): Promise<boolean> {
+  keepAsked ??= askToKeep(globalThis.navigator?.storage);
+  return keepAsked;
+}
+
+// askToKeep asks storage to keep this page's data, unless it already does; false where it cannot
+// be asked or refuses.
+export async function askToKeep(storage: StorageManager | undefined): Promise<boolean> {
+  if (!storage?.persist) {
+    return false;
+  }
+  try {
+    return (await storage.persisted()) || (await storage.persist());
+  } catch {
+    return false;
+  }
 }
 
 // SHARED_SETS are the ids of the files voices share, which the catalog does not list as voices.
@@ -101,6 +127,8 @@ function ownGPURuntime(url: string, id: string): boolean {
 
 // installVoice asks the gateway to download a voice; the progress is in the catalog.
 export async function installVoice(api: Api, id: string): Promise<void> {
+  // Asked here, on the click that downloads it, where a browser that asks has a gesture to ask on.
+  void keepOnDisk();
   const res = await api(MODELS_PATH + "/" + encodeURIComponent(id), { method: "POST" });
   if (!res.ok) {
     throw await failure(res);

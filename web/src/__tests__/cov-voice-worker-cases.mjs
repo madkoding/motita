@@ -88,8 +88,20 @@ globalThis.caches = {
 };
 const missing = new Set();
 const fetched = [];
+// The gateway tags each file with its pinned hash: asked again with the same tag, it sends nothing.
+const revalidated = [];
+const pinned = new Map();
+const tagOf = (url) => '"' + (pinned.get(url) ?? "sum") + '"';
+let gatewayDown = false;
 globalThis.fetch = async (url, init) => {
   assert.equal(init.credentials, "same-origin");
+  if (gatewayDown) {
+    throw new TypeError("Failed to fetch");
+  }
+  if (init.headers["If-None-Match"] === tagOf(url) && !missing.has(url)) {
+    revalidated.push(url);
+    return new Response(null, { status: 304 });
+  }
   fetched.push(url);
   if (missing.has(url)) {
     return new Response("not here", { status: 404 });
@@ -108,7 +120,7 @@ globalThis.fetch = async (url, init) => {
   } else if (url.includes("broken")) {
     body = enc("broken model");
   }
-  return new Response(body, { status: 200 });
+  return new Response(body, { status: 200, headers: { ETag: tagOf(url) } });
 };
 
 // The worker's scope: what it posts back, and the WebGPU the browser offers (none at first).
@@ -185,6 +197,50 @@ if (!cpuRun) {
     send({ kind: "warm", id: PIPER });
     assert.equal((await next(outcome(PIPER), from)).m.kind, "ready");
     assert.deepEqual(fetched, ["/v1/voice/models/es_MX-test-high/model.onnx"]);
+    assert.ok(revalidated.includes("/v1/voice/models/es_MX-test-high/model.json"), "the copy is asked for with its tag");
+  });
+
+  test("the page's copy outlives an update: kept while the gateway pins it, fetched anew when it does not", async () => {
+    const json = "/v1/voice/models/es_MX-test-high/model.json";
+    // A newer catalog pins another file under the same name: its bytes come again.
+    pinned.set(json, "newer");
+    send({ kind: "forget", id: PIPER });
+    fetched.length = 0;
+    let from = posted.length;
+    send({ kind: "warm", id: PIPER });
+    assert.equal((await next(outcome(PIPER), from)).m.kind, "ready");
+    assert.ok(fetched.includes(json), "a file pinned anew is fetched again");
+    assert.equal(cached.get(json).headers.get("ETag"), '"newer"', "and kept with its new tag");
+
+    // Without the gateway (offline, or it restarts), the copy is read as it is.
+    gatewayDown = true;
+    send({ kind: "forget", id: PIPER });
+    from = posted.length;
+    send({ kind: "warm", id: PIPER });
+    const offline = (await next(outcome(PIPER), from)).m;
+    gatewayDown = false;
+    assert.equal(offline.kind, "failed", "the file that never fit has no copy to fall back to");
+    assert.match(offline.error, /Failed to fetch/);
+    putRefused.clear();
+    send({ kind: "forget", id: PIPER });
+    from = posted.length;
+    send({ kind: "warm", id: PIPER });
+    assert.equal((await next(outcome(PIPER), from)).m.kind, "ready");
+    gatewayDown = true;
+    send({ kind: "forget", id: PIPER });
+    from = posted.length;
+    send({ kind: "warm", id: PIPER });
+    const kept = (await next(outcome(PIPER), from)).m;
+    gatewayDown = false;
+    assert.equal(kept.kind, "ready", "every file read from the copy");
+
+    // A file the gateway no longer has (removed from another device) is read from the copy too.
+    missing.add(json);
+    send({ kind: "forget", id: PIPER });
+    from = posted.length;
+    send({ kind: "warm", id: PIPER });
+    assert.equal((await next(outcome(PIPER), from)).m.kind, "ready");
+    missing.delete(json);
   });
 
   test("a voice that cannot be had says why: the gateway's answer, or what the runtime threw", async () => {

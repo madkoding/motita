@@ -8,20 +8,33 @@ import { NO_WEBGPU, VOICE_CACHE, readAll, type OrtLike } from "./localVoiceCore"
 
 declare const self: DedicatedWorkerGlobalScope;
 
-// bytes is a downloaded file, from the page's copy when there is one.
+// bytes is a downloaded file, from the page's copy when the gateway still has the same one. The
+// copy outlives updates of the page, so it is asked for again with its tag: the gateway answers
+// 304 while its catalog pins the same file, and the new bytes once it pins another (a newer
+// onnxruntime under the same name). Without the gateway, or without the file there, the copy is
+// read as it is.
 export async function bytes(url: string, progress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
   const cache = await caches.open(VOICE_CACHE);
   const hit = await cache.match(url);
-  if (hit) {
+  const tag = hit?.headers.get("ETag");
+  const res = await fetch(url, {
+    credentials: "same-origin",
+    headers: tag ? { "If-None-Match": tag } : {},
+  }).catch((err: unknown) => {
+    if (!hit) {
+      throw err;
+    }
+  });
+  if (hit && !res?.ok) {
     return readAll(hit, progress);
   }
-  const res = await fetch(url, { credentials: "same-origin" });
-  if (!res.ok) {
-    throw new Error("HTTP " + res.status + " " + url);
+  const got = res as Response;
+  if (!got.ok) {
+    throw new Error("HTTP " + got.status + " " + url);
   }
   // A copy the browser cannot keep (out of room for a large model) is read from the gateway
   // again next time; the voice still loads.
-  const [, body] = await Promise.all([cache.put(url, res.clone()).catch(() => undefined), readAll(res, progress)]);
+  const [, body] = await Promise.all([cache.put(url, got.clone()).catch(() => undefined), readAll(got, progress)]);
   return body;
 }
 
