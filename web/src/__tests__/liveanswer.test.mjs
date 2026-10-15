@@ -6,14 +6,9 @@
 // which the finished answer replaces as the same message. Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -21,21 +16,7 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage;
 
-const dir = mkdtempSync(join(tmpdir(), "motita-liveanswer-test-"));
-const out = join(dir, "events.mjs");
-await build({
-  sourcemap: "inline",
-  entryPoints: [join(here, "..", "streamEvents.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "browser",
-  outfile: out,
-  logLevel: "silent",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-});
-const { handleStreamEvent, withoutDraft } = await import(out);
-rmSync(dir, { recursive: true, force: true });
+const { handleStreamEvent, withoutDraft } = await load("streamEvents.ts");
 
 // fakeRun is the part of the run state the events write, with plain values in place of hooks.
 function fakeRun() {

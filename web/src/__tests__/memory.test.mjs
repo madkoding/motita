@@ -2,11 +2,10 @@
 // and closed drawers must not keep animating. Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 import { JSDOM } from "jsdom";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,23 +20,8 @@ globalThis.MutationObserver = dom.window.MutationObserver;
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-// useChatScroll.ts imports its siblings without extensions, so it is bundled like the hooks in
-// sessions.test.mjs.
-const dir = mkdtempSync(join(tmpdir(), "motita-memory-test-"));
-const out = join(dir, "scroll.mjs");
-await build({
-  sourcemap: "inline",
-  entryPoints: [join(here, "..", "useChatScroll.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  outfile: out,
-  logLevel: "silent",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-});
-const { observeChildren } = await import(out);
-rmSync(dir, { recursive: true, force: true });
+// useChatScroll.ts imports its siblings without extensions, which tsx-hooks.mjs resolves.
+const { observeChildren } = await load("useChatScroll.ts");
 
 // A ResizeObserver stand-in that records what it is currently holding.
 function fakeObserver() {

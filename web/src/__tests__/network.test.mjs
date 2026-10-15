@@ -1,14 +1,14 @@
 // The Network section of the settings dialog: who can connect to the gateway (saved for the next
 // start, never without a confirmation that says what it implies) and Tailscale. Runs the real
-// dialog in jsdom, bundled with esbuild like settingsmodal.test.mjs, against a fake gateway.
+// dialog in jsdom, via tsx-hooks.mjs like settingsmodal.test.mjs, against a fake gateway.
 // Run with: node --test web/src/__tests__/network.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -34,27 +34,9 @@ globalThis.Notification = { permission: "granted" };
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".nw-"));
-await build({
-  sourcemap: "inline",
-  entryPoints: [join(here, "..", "Settings.tsx")],
-  outfile: join(out, "nw.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
-  logLevel: "silent",
-});
-const { SettingsModal, restartTiming } = await import(
-  pathToFileURL(join(out, "nw.mjs")).href
-);
+const { SettingsModal, restartTiming } = await load("Settings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 const net = await import("../networkApi.ts");
 const es = (await import("../i18n.es.ts")).default;
 

@@ -1,15 +1,11 @@
-// Runs conversation mode in jsdom with a stand-in microphone (bundled with esbuild, since node
+// Runs conversation mode in jsdom with a stand-in microphone (via tsx-hooks.mjs, since node
 // cannot import TSX): when an answer to a spoken turn has been read, one phrase is listened for,
 // ended by the silence after it, transcribed and sent; an exit phrase, a tap or a silence ends it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "https://localhost/",
 });
@@ -71,29 +67,11 @@ globalThis.AudioContext = class {
   }
 };
 
-const out = mkdtempSync(join(here, ".vc-"));
-await build({
-  sourcemap: "inline",
-  stdin: {
-    contents:
-      'export { useVoice } from "./useVoice";\nexport { useVoiceConversation } from "./useVoiceConversation";\n',
-    resolveDir: join(here, ".."),
-    loader: "ts",
-  },
-  outfile: join(out, "vc.mjs"),
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  logLevel: "silent",
-});
-const { useVoice, useVoiceConversation } = await import(
-  pathToFileURL(join(out, "vc.mjs")).href
-);
+const { useVoice } = await load("useVoice.ts");
+const { useVoiceConversation } = await load("useVoiceConversation.ts");
 const { SPEECH_TURN_READ_EVENT } = await import("../speech.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const settle = () => act(() => new Promise((r) => setImmediate(r)));
 

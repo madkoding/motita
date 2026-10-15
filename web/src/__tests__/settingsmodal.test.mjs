@@ -1,14 +1,14 @@
-// Runs the real settings dialog in jsdom (bundled with esbuild, since node cannot import TSX): its
+// Runs the real settings dialog in jsdom (via tsx-hooks.mjs, since node cannot import TSX): its
 // sections as tabs, the segmented choices, the notification switch, the git accounts and closing.
 // Also checks that the app, not the sidebar, draws it, and the CSS that lays it out on a phone.
 // Run with: node --test web/src/__tests__/settingsmodal.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
@@ -77,28 +77,10 @@ Object.defineProperty(dom.window.navigator, "permissions", {
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".st-"));
-await build({
-  sourcemap: "inline",
-  entryPoints: [join(here, "..", "Settings.tsx")],
-  outfile: join(out, "st.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  // "./settings" is settings.ts; esbuild would try Settings.tsx (this very file) first.
-  resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
-  logLevel: "silent",
-});
-const { SettingsModal, unblockSteps } = await import(
-  pathToFileURL(join(out, "st.mjs")).href
-);
+// "./settings" is settings.ts: tsx-hooks.mjs tries .ts before .tsx, so it is not Settings.tsx.
+const { SettingsModal, unblockSteps } = await load("Settings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const ACCOUNTS = [
   {

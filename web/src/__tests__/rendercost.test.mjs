@@ -1,15 +1,11 @@
 // Regression tests for what the conversation re-renders and keeps in the page: memoized turns,
 // drawers that mount nothing while closed, and built messages released once far away.
-// The modules import their siblings without extensions, so they are bundled with esbuild.
+// The modules import their siblings without extensions, which tsx-hooks.mjs resolves.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 import { JSDOM } from "jsdom";
 
-const src = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -39,26 +35,12 @@ globalThis.IntersectionObserver = class {
   fire(el, isIntersecting) { this.cb([{ target: el, isIntersecting }]); }
 };
 
-// Inside web/, so the bundles resolve the same preact as this test.
-const dir = mkdtempSync(join(src, "..", "node_modules", ".rendercost-"));
-async function load(entry) {
-  const out = join(dir, entry.replace(/\W/g, "_") + ".mjs");
-  await build({
-    sourcemap: "inline",
-    entryPoints: [join(src, entry)],
-    bundle: true, format: "esm", platform: "node", outfile: out, logLevel: "silent",
-    jsx: "automatic", jsxImportSource: "preact",
-    // One preact for the test and the bundle: two copies would not share hooks.
-    external: ["preact", "preact/*"],
-  });
-  return import(out);
-}
+// One preact for the test and the modules, so they share hooks.
 const TV = await load("turnView.ts");
 const DW = await load("drawerWindow.ts");
 const HY = await load("hydration.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(dir, { recursive: true, force: true });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 

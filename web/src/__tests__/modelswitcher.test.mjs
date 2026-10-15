@@ -1,16 +1,12 @@
 // The model switcher's provider picker: one button per provider the session can switch to, with
 // its logo, and the model select underneath listing the picked provider's models. The real modal
-// is rendered in jsdom (bundled with esbuild, since node cannot import TSX) over a fake store.
+// is rendered in jsdom (via tsx-hooks.mjs, since node cannot import TSX) over a fake store.
 // Run with: node --test web/src/__tests__/modelswitcher.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -33,35 +29,12 @@ Object.defineProperty(globalThis, "navigator", {
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".ms-"));
-const entry = join(out, "entry.ts");
-const { writeFileSync } = await import("node:fs");
-writeFileSync(
-  entry,
-  `export { ModelSwitcherModal } from ${JSON.stringify(join(here, "..", "ModelSwitcherModal.tsx"))};
-export { AppCtx } from ${JSON.stringify(join(here, "..", "appStore.ts"))};`,
-);
-await build({
-  sourcemap: "inline",
-  entryPoints: [entry],
-  outfile: join(out, "ms.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  resolveExtensions: [".ts", ".tsx", ".mjs", ".js"],
-  logLevel: "silent",
-});
-const { ModelSwitcherModal, AppCtx } = await import(
-  pathToFileURL(join(out, "ms.mjs")).href
-);
+// One module graph is shared per process, so the modal reads the same AppCtx this test provides.
+const { ModelSwitcherModal } = await load("ModelSwitcherModal.tsx");
+const { AppCtx } = await load("appStore.ts");
 const { h, render } = await import("preact");
 const { useState } = await import("preact/hooks");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const GPT_MINI = "gpt-5-mini";
 const GEMINI_PRO = "gemini-2.5-pro";

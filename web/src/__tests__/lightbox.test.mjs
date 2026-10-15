@@ -1,15 +1,11 @@
-// Runs the real Lightbox in jsdom (bundled with esbuild, since node cannot import TSX): zoom
+// Runs the real Lightbox in jsdom (via tsx-hooks.mjs, since node cannot import TSX): zoom
 // buttons, keyboard, pair navigation and closing.
 // Run with: node --test web/src/__tests__/lightbox.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
@@ -29,23 +25,9 @@ Object.defineProperty(globalThis, "navigator", {
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const out = mkdtempSync(join(here, ".lb-"));
-await build({
-  sourcemap: "inline",
-  entryPoints: [join(here, "..", "Lightbox.tsx")],
-  outfile: join(out, "lb.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  logLevel: "silent",
-});
-const { Lightbox } = await import(pathToFileURL(join(out, "lb.mjs")).href);
+const { Lightbox } = await load("Lightbox.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 // act() flushes Preact's pending renders AND effects before it resolves. A fixed timer was not
 // enough: under load the effect that attaches the key listener could still be pending when the next

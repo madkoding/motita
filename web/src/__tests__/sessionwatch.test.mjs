@@ -1,29 +1,10 @@
 // The tab's word on sessions it is not showing, and on a model switch in the one it is.
-// sessionWatch.ts imports i18n, so it is bundled with esbuild like the hooks in sessions.test.mjs.
+// sessionWatch.ts imports i18n without an extension, which tsx-hooks.mjs resolves.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 
-const src = join(dirname(fileURLToPath(import.meta.url)), "..");
-const dir = mkdtempSync(join(tmpdir(), "motita-watch-test-"));
-const out = join(dir, "watch.mjs");
-await build({
-  sourcemap: "inline",
-  entryPoints: [join(src, "sessionWatch.ts")],
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  outfile: out,
-  logLevel: "silent",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-});
-const W = await import(out);
-rmSync(dir, { recursive: true, force: true });
+const W = await load("sessionWatch.ts");
 
 const row = (id, running, extra = {}) => ({
   id,

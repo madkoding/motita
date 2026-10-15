@@ -7,19 +7,12 @@
 // the old run's events kept being drawn into the new conversation.
 //
 // The hooks import their siblings without extensions, which node cannot load on its own, so the
-// real hooks are bundled with esbuild (already installed with vite) and driven in jsdom against a
-// fake gateway. Run with: node --test web/src/__tests__/
+// real hooks are loaded through tsx-hooks.mjs and driven in jsdom against a fake gateway.
+// Run with: node --test web/src/__tests__/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const src = join(here, "..");
+import { load } from "./tsx-hooks.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -38,54 +31,36 @@ try {
 }
 
 // The harness mounts the four hooks a run goes through, wired the way appStore wires them.
-const harness = `
-import { h, render } from 'preact'
-import { useRunState } from './useRunState'
-import { useSessionList } from './useSessionList'
-import { useConversation } from './useConversation'
-import { useStream } from './useStream'
-import { useSessionActions } from './useSessionActions'
-import { lastSessionOf } from './useAuth'
-import { isLive, openLink, cutLink } from './runLink'
-export { isLive, openLink, cutLink, lastSessionOf }
-export function mount(api, onStore) {
-  const noop = () => {}
-  function H() {
-    const rs = useRunState()
-    const lists = useSessionList(api, rs)
-    const conv = useConversation({ api, rs, lists, setState: noop, setConfig: noop, requestModal: noop })
-    const stream = useStream({ api, rs, lists, conv, setState: noop, setToast: noop })
-    const actions = useSessionActions({ api, rs, lists, conv, setState: noop, setToast: noop })
-    onStore({ rs, lists, conv, stream, actions })
-    return null
-  }
-  const root = document.createElement('div')
-  document.body.appendChild(root)
-  render(h(H, {}), root)
-  return () => render(null, root)
-}
-`;
-
-const dir = mkdtempSync(join(tmpdir(), "motita-sessions-test-"));
-const out = join(dir, "harness.mjs");
-await build({
-  sourcemap: "inline",
-  stdin: {
-    contents: harness,
-    resolveDir: src,
-    loader: "ts",
-    sourcefile: "harness.ts",
+const { h, render } = await import("preact");
+const { useRunState } = await load("useRunState.ts");
+const { useSessionList } = await load("useSessionList.ts");
+const { useConversation } = await load("useConversation.ts");
+const { useStream } = await load("useStream.ts");
+const { useSessionActions } = await load("useSessionActions.ts");
+const { lastSessionOf } = await load("useAuth.ts");
+const { isLive, openLink, cutLink } = await load("runLink.ts");
+const H = {
+  isLive,
+  openLink,
+  cutLink,
+  lastSessionOf,
+  mount(api, onStore) {
+    const noop = () => {};
+    function Hooks() {
+      const rs = useRunState();
+      const lists = useSessionList(api, rs);
+      const conv = useConversation({ api, rs, lists, setState: noop, setConfig: noop, requestModal: noop });
+      const stream = useStream({ api, rs, lists, conv, setState: noop, setToast: noop });
+      const actions = useSessionActions({ api, rs, lists, conv, setState: noop, setToast: noop });
+      onStore({ rs, lists, conv, stream, actions });
+      return null;
+    }
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    render(h(Hooks, {}), root);
+    return () => render(null, root);
   },
-  bundle: true,
-  format: "esm",
-  platform: "browser",
-  outfile: out,
-  logLevel: "silent",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-});
-const H = await import(out);
-rmSync(dir, { recursive: true, force: true });
+};
 
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
 

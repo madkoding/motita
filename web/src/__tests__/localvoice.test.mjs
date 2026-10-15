@@ -1,14 +1,14 @@
 // Local voices: a Piper, Supertonic or Chatterbox model run in the browser. The synthesis with a stand-in onnxruntime and
 // phonemizer, the page's side of the worker and of the gateway's catalog, and the settings that
-// download, choose and delete a voice (bundled with esbuild, since node cannot import TSX). How
+// download, choose and delete a voice (via tsx-hooks.mjs, since node cannot import TSX). How
 // Supertonic and Chatterbox read and speak a sentence is in localvoiceengines.test.mjs.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import { build } from "esbuild";
+import { load } from "./tsx-hooks.mjs";
 import { CHATTERBOX, MODEL_OUTPUT, PHONEME_IDS, SAMPLE_RATE, SAMPLE_RATE_AT, VOICE, enc, fakes } from "./localvoiceFakes.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,29 +21,14 @@ for (const k of ["document", "window", "Event", "HTMLElement", "Node", "localSto
 
 const core = await import("../localVoiceCore.ts");
 
-const out = mkdtempSync(join(here, ".lv-"));
-await build({
-  sourcemap: "inline",
-  stdin: {
-    contents:
-      'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS, FILTERS_KEY, loadFilters } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./SpeechSettings";\n',
-    resolveDir: join(here, ".."),
-    loader: "ts",
-  },
-  outfile: join(out, "lv.mjs"),
-  bundle: true,
-  format: "esm",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-  platform: "node",
-  external: ["preact", "preact/*"],
-  loader: { ".css": "empty" },
-  logLevel: "silent",
-});
-const lv = await import(pathToFileURL(join(out, "lv.mjs")).href);
+// The modules the voice settings are made of, as one namespace.
+const lv = {
+  ...(await load("localVoice.ts")),
+  ...(await load("LocalVoiceSettings.tsx")),
+  ...(await load("SpeechSettings.tsx")),
+};
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
-rmSync(out, { recursive: true });
 
 const HTTP_OK = 200;
 const HTTP_ACCEPTED = 202;
