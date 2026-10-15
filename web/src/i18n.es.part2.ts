@@ -507,6 +507,8 @@ const more: Record<string, string> = {
   "Voice output": "Salida de voz",
   "Every model ({n})": "Todos los modelos ({n})",
   "Every voice ({n})": "Todas las voces ({n})",
+  "The local listener took too long and was stopped.":
+    "La transcripción local tardó demasiado y se detuvo.",
 };
 
 export default more;

@@ -6,10 +6,59 @@
 import { WHISPER_GPU, WHISPER_RATE, type FromListener, type ToListener } from "./localListenCore";
 import { choose } from "./choose";
 import type { LoadState } from "./localVoice";
+import { t } from "./i18n";
+
+// How long a recording may take to be written down before the worker is given up on: a worker
+// that ran out of memory (on a phone, say) never answers, and "transcribing" must not last
+// forever. A slow processor writes down several times slower than real time, so the time grows
+// with the recording; it starts again whenever the model being loaded makes progress.
+export const HEAR_BASE_MS = 120_000;
+export const HEAR_PER_SECOND_MS = 5_000;
+
+// A recording being written down: how it is answered, the model it waits on, and its clock.
+interface Pending {
+  ok: (text: string) => void;
+  fail: (e: Error) => void;
+  id: string;
+  ms: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 let worker: Worker | null = null;
 let seq = 0;
-const pending = new Map<number, { ok: (text: string) => void; fail: (e: Error) => void }>();
+const pending = new Map<number, Pending>();
+
+// settle takes a request out of the waiting ones, its clock stopped.
+function settle(n: number): Pending | undefined {
+  const p = pending.get(n);
+  pending.delete(n);
+  if (p) {
+    clearTimeout(p.timer);
+  }
+  return p;
+}
+
+// drop gives up on the worker: what it was asked fails with reason, and the models it had loaded
+// went with it, so a new worker loads them again.
+function drop(reason: string): void {
+  for (const n of [...pending.keys()]) {
+    settle(n)?.fail(new Error(reason));
+  }
+  worker = null;
+  for (const id of loads.keys()) {
+    setLoad(id, undefined);
+  }
+}
+
+// arm (re)starts the clock of request n.
+function arm(n: number, p: Pending): void {
+  clearTimeout(p.timer);
+  p.timer = setTimeout(() => {
+    worker?.terminate();
+    drop(t("The local listener took too long and was stopped."));
+  }, p.ms);
+  pending.set(n, p);
+}
 
 function getWorker(): Worker {
   if (!worker) {
@@ -21,8 +70,7 @@ function getWorker(): Worker {
         loaded(m);
         return;
       }
-      const p = pending.get(m.seq);
-      pending.delete(m.seq);
+      const p = settle(m.seq);
       if (!p) {
         return;
       }
@@ -32,17 +80,7 @@ function getWorker(): Worker {
       }
       p.fail(new Error(m.error));
     };
-    w.onerror = () => {
-      for (const p of pending.values()) {
-        p.fail(new Error("the local listener stopped"));
-      }
-      pending.clear();
-      worker = null;
-      // The models it had loaded went with it: a new worker loads them again.
-      for (const id of loads.keys()) {
-        setLoad(id, undefined);
-      }
-    };
+    w.onerror = () => drop("the local listener stopped");
   }
   return worker;
 }
@@ -65,6 +103,12 @@ function setLoad(id: string, state: LoadState | undefined): void {
 function loaded(m: Extract<FromListener, { kind: string }>): void {
   if (m.kind === "progress") {
     setLoad(m.id, { pct: m.pct, ready: false });
+    // A model still on its way is not a worker that stopped answering.
+    for (const [n, p] of pending) {
+      if (p.id === m.id) {
+        arm(n, p);
+      }
+    }
     return;
   }
   if (m.kind === "ready") {
@@ -123,13 +167,15 @@ export async function samplesOf(audio: Blob): Promise<Float32Array> {
 }
 
 // hearLocal writes down what a recording says, with a model of the catalog run in this browser.
-// lang is the language spoken, or "" to let the model tell.
+// lang is the language spoken, or "" to let the model tell. It fails, and the worker is stopped,
+// when no answer comes in time (HEAR_BASE_MS, and HEAR_PER_SECOND_MS for each second recorded).
 export async function hearLocal(id: string, audio: Blob, lang: string): Promise<string> {
   const samples = await samplesOf(audio);
   warmListener(id);
+  const ms = HEAR_BASE_MS + Math.ceil(samples.length / WHISPER_RATE) * HEAR_PER_SECOND_MS;
   return new Promise<string>((ok, fail) => {
     seq++;
-    pending.set(seq, { ok, fail });
+    arm(seq, { ok, fail, id, ms });
     getWorker().postMessage({ kind: "hear", seq, id, samples, lang } satisfies ToListener, [samples.buffer]);
   });
 }
