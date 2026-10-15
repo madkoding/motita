@@ -98,6 +98,7 @@ footer a:hover { color: var(--accent); }
 @media (max-width: 560px) {
   .wrap { padding: 0 16px; }
   header nav { gap: 12px; font-size: 0.9rem; }
+  header nav a[href="REFERENCE.md"], header nav a[href^="https://github.com"] { display: none; }
   h1 { font-size: 1.8rem; }
 }
 
