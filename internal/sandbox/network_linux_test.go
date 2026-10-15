@@ -14,9 +14,20 @@ import (
 	"github.com/madkoding/motita/internal/execx"
 )
 
+// makeDumpable lets this process set up the namespaces of a child again for the rest of the test:
+// the sandbox tests that ran before made it undumpable (hideFromChildren), and without root the
+// uid map of a child cannot be written then. It is put back as it was.
+func makeDumpable(t *testing.T) {
+	t.Helper()
+	was, _, _ := syscall.RawSyscall(syscall.SYS_PRCTL, 3 /* PR_GET_DUMPABLE */, 0, 0)
+	syscall.RawSyscall(syscall.SYS_PRCTL, prSetDumpable, 1, 0)
+	t.Cleanup(func() { syscall.RawSyscall(syscall.SYS_PRCTL, prSetDumpable, was, 0) })
+}
+
 // skipWithoutNamespaces skips where this machine cannot give a command a network of its own.
 func skipWithoutNamespaces(t *testing.T) {
 	t.Helper()
+	makeDumpable(t)
 	if err := probeNetworkIsolation(); err != nil {
 		t.Skipf("no network namespaces here: %v", err)
 	}
@@ -228,5 +239,19 @@ func TestTheRealIoctlReadsTheLoopback(t *testing.T) {
 	}
 	if err := networkHooks.ioctl(-1, syscall.SIOCGIFFLAGS, &ifr); err == nil {
 		t.Error("an ioctl on no descriptor succeeded")
+	}
+}
+
+// Only root asks the kernel for the network namespace in the child's own clone; without root the
+// isolation child relays into it (see relayInNamespace).
+func TestChildAttributesAskForTheNamespaceOnlyAsRoot(t *testing.T) {
+	prev := osHooks.euid
+	t.Cleanup(func() { osHooks.euid = prev })
+	for euid, want := range map[int]bool{0: true, 1000: false} {
+		osHooks.euid = func() int { return euid }
+		attr, _ := childAttributes(Limits{NoNetwork: true}, false, 0, 0)
+		if got := attr.Cloneflags&syscall.CLONE_NEWNET != 0; got != want {
+			t.Errorf("euid %d: CLONE_NEWNET = %v, want %v", euid, got, want)
+		}
 	}
 }
