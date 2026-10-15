@@ -1,11 +1,12 @@
-// The sidebar: the sessions grouped by project, the buttons that create them, and the way to the
-// skill library, the artifacts, the scheduled tasks and the settings.
+// The sidebar: the sessions grouped by project, each section with the "+" that adds to it, and the
+// way to the skill library, the artifacts, the scheduled tasks and the settings.
+import type { ComponentChildren } from "preact";
 import { useCallback, useEffect, useRef } from "preact/hooks";
 import { t } from "./i18n";
 import { useApp } from "./appStore";
 import { useBackdropClose } from "./useBackdropClose";
 import { useLeave } from "./motion";
-import { NewSessionButton } from "./NewSessionButton";
+import { buttonIcon } from "./NewSessionButton";
 import { SessionRow } from "./SessionRow";
 import { ProjectGroup } from "./ProjectGroup";
 import {
@@ -13,7 +14,6 @@ import {
   IconClock,
   IconClose,
   IconDownload,
-  IconFolderPlus,
 } from "./icons";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
@@ -46,39 +46,55 @@ function SidebarHeader() {
   );
 }
 
-// NewButtons are the New session and New project buttons.
-function NewButtons() {
-  const { actions, projects } = useApp();
-  const { createSession } = actions;
-  const newSession = useCallback(() => createSession(), [createSession]);
+// SectionAdd is the small "+" at the right of a section title: it adds one more of what the
+// section lists. While a session is being created it shows the spinner and cannot be repeated.
+function SectionAdd({
+  label,
+  onClick,
+  loading = false,
+  testid,
+}: {
+  label: string;
+  onClick: () => void;
+  loading?: boolean;
+  testid: string;
+}) {
   return (
-    <div class="px-3 py-2 flex-none flex gap-2">
-      <NewSessionButton
-        loading={actions.creatingSession === ""}
-        onClick={newSession}
-        label={t(NEW_SESSION_TITLE)}
-      />
-      <button
-        class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
-        onClick={projects.openNewProject}
-        title={t(NEW_PROJECT)}
-      >
-        <IconFolderPlus size={16} />
-      </button>
-    </div>
+    <button
+      type="button"
+      class="section-add flex items-center justify-center p-1 rounded-md text-[#7a7a8c] hover:text-accent hover:bg-white/5 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-wait"
+      onClick={onClick}
+      disabled={loading}
+      aria-label={label}
+      title={label}
+      data-testid={testid}
+    >
+      {buttonIcon(loading)}
+    </button>
   );
 }
 
 // SectionTitle is the label over one part of the list, so a session and a project are never
-// mistaken for each other.
-function SectionTitle({ id, label }: { id: string; label: string }) {
+// mistaken for each other, with the "+" that adds to that part.
+function SectionTitle({
+  id,
+  label,
+  children,
+}: {
+  id: string;
+  label: string;
+  children: ComponentChildren;
+}) {
   return (
-    <h2
-      id={id}
-      class="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#7a7a8c]"
-    >
-      {label}
-    </h2>
+    <div class="flex items-center gap-2 pl-2 pr-1 pt-3 pb-1">
+      <h2
+        id={id}
+        class="flex-1 text-[10px] font-semibold uppercase tracking-wider text-[#7a7a8c]"
+      >
+        {label}
+      </h2>
+      {children}
+    </div>
   );
 }
 
@@ -97,7 +113,9 @@ function EmptySection({ label }: { label: string }) {
 // SessionList is two labelled sections: the free-standing sessions, then one group per project.
 // Each says so when it is empty.
 export function SessionList() {
-  const { lists } = useApp();
+  const { lists, actions, projects } = useApp();
+  const { createSession } = actions;
+  const newSession = useCallback(() => createSession(), [createSession]);
   const loose = lists.sessions.filter((s) => !s.project_id);
   return (
     <div class="flex-1 overflow-y-auto px-2 pb-2">
@@ -105,7 +123,14 @@ export function SessionList() {
         aria-labelledby="sidebar-sessions"
         data-testid="sidebar-sessions"
       >
-        <SectionTitle id="sidebar-sessions" label={t("Sessions")} />
+        <SectionTitle id="sidebar-sessions" label={t("Sessions")}>
+          <SectionAdd
+            label={t(NEW_SESSION_TITLE)}
+            onClick={newSession}
+            loading={actions.creatingSession === ""}
+            testid="sidebar-new-session"
+          />
+        </SectionTitle>
         {loose.map((s) => (
           <SessionRow key={s.id} s={s} />
         ))}
@@ -116,7 +141,13 @@ export function SessionList() {
         class="mt-2 pt-1 border-t border-white/5"
         data-testid="sidebar-projects"
       >
-        <SectionTitle id="sidebar-projects" label={t("Projects")} />
+        <SectionTitle id="sidebar-projects" label={t("Projects")}>
+          <SectionAdd
+            label={t(NEW_PROJECT)}
+            onClick={projects.openNewProject}
+            testid="sidebar-new-project"
+          />
+        </SectionTitle>
         {lists.projects.map((p) => (
           <ProjectGroup key={p.id} p={p} />
         ))}
@@ -256,7 +287,6 @@ export function Sidebar() {
         ref={aside}
       >
         <SidebarHeader />
-        <NewButtons />
         <SessionList />
         {updates.updateInfo?.update_available && <UpgradeButton />}
         <SidebarFoot />
