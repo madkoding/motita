@@ -94,6 +94,10 @@ type Validator interface {
 	Validate(ctx context.Context) Result
 }
 
+// failedOutputLogged is how much of a failing check's output goes to the log: enough to tell why it
+// failed without copying a whole build log into it.
+const failedOutputLogged = 400
+
 // Validate runs every check. It returns PASS only when all of them pass.
 func (a *Anchor) Validate(ctx context.Context) Result {
 	start := time.Now()
@@ -141,6 +145,8 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 		for _, c := range res.Checks {
 			if !c.Pass {
 				failed = append(failed, c.Name)
+				a.log.Warn("anchor check failed", "check", c.Name, "exit", c.Exit, "error", c.Error,
+					"output", truncate(c.Output, failedOutputLogged))
 			}
 		}
 		res.Reason = "failed checks: " + strings.Join(failed, ", ")
