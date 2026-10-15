@@ -29,7 +29,7 @@ func (p *Planner) toolListDirectory(raw []byte) string {
 	}
 	path, err := p.readPath(args.Path)
 	if err != nil {
-		return "Error: " + err.Error()
+		return errPrefix + err.Error()
 	}
 
 	entries, err := os.ReadDir(path)
@@ -61,7 +61,7 @@ func (p *Planner) toolReadFile(raw []byte) string {
 	}
 	path, err := p.readPath(args.Path)
 	if err != nil {
-		return "Error: " + err.Error()
+		return errPrefix + err.Error()
 	}
 
 	fi, err := os.Stat(path)
@@ -182,7 +182,7 @@ func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
 	// one, because it runs in this process, whose directory is not the session's.
 	resolved, err := p.readPath(path)
 	if err != nil {
-		return "Error: " + err.Error()
+		return errPrefix + err.Error()
 	}
 
 	toolCtx, cancel := context.WithTimeout(ctx, p.commandTimeout)

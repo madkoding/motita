@@ -480,7 +480,10 @@ func (l Library) Sample(ctx context.Context, id string) (string, error) {
 	f.Name = m.ID + filepath.Ext(f.Name)
 	dir := filepath.Join(l.Dir, samplesDir)
 	if !l.present(samplesDir, []ModelFile{f}) {
-		if err := l.fetch(ctx, f.URL, dir, []ModelFile{f}, func(int64) {}); err != nil {
+		noProgress := func(int64) {
+			// A sample is a few seconds of audio: its download is not reported.
+		}
+		if err := l.fetch(ctx, f.URL, dir, []ModelFile{f}, noProgress); err != nil {
 			return "", err
 		}
 	}
@@ -494,20 +497,7 @@ func (l Library) Install(ctx context.Context, id string, progress func(done, tot
 	if !ok {
 		return ErrUnknownModel
 	}
-	type need struct {
-		dir string
-		f   ModelFile
-	}
-	var needs []need
-	var total int64
-	for _, set := range l.sets(m) {
-		for _, f := range set.files {
-			if !l.present(set.dir, []ModelFile{f}) {
-				needs = append(needs, need{set.dir, f})
-				total += f.Size
-			}
-		}
-	}
+	needs, total := l.missing(m)
 	var done int64
 	report := func(n int64) {
 		done += n
@@ -520,23 +510,50 @@ func (l Library) Install(ctx context.Context, id string, progress func(done, tot
 	// archive, and so does the WebGPU runtime another set keeps in its own directory. A file
 	// compiled in is kept on its own.
 	for len(needs) > 0 {
-		url := needs[0].f.URL
-		dir := needs[0].dir
+		first := needs[0]
 		var batch []ModelFile
 		var rest []need
 		for i, n := range needs {
-			if i == 0 || (n.f.URL == url && n.dir == dir && n.f.Data == nil && needs[0].f.Data == nil) {
+			if i == 0 || first.joins(n) {
 				batch = append(batch, n.f)
 				continue
 			}
 			rest = append(rest, n)
 		}
-		if err := l.fetch(ctx, url, filepath.Join(l.Dir, dir), batch, report); err != nil {
+		if err := l.fetch(ctx, first.f.URL, filepath.Join(l.Dir, first.dir), batch, report); err != nil {
 			return err
 		}
 		needs = rest
 	}
 	return nil
+}
+
+// need is a file an install is missing, with the directory of the set it belongs to.
+type need struct {
+	dir string
+	f   ModelFile
+}
+
+// joins says whether n comes in the same request as first: the same address into the same
+// directory, neither of them compiled in.
+func (first need) joins(n need) bool {
+	sameSource := n.f.URL == first.f.URL && n.dir == first.dir
+	return sameSource && n.f.Data == nil && first.f.Data == nil
+}
+
+// missing lists the files of m's sets that are not on disk, and how many bytes they add up to.
+func (l Library) missing(m Model) ([]need, int64) {
+	var needs []need
+	var total int64
+	for _, set := range l.sets(m) {
+		for _, f := range set.files {
+			if !l.present(set.dir, []ModelFile{f}) {
+				needs = append(needs, need{set.dir, f})
+				total += f.Size
+			}
+		}
+	}
+	return needs, total
 }
 
 // Remove deletes a voice's files. The runtime stays: another voice may use it. A shared set goes

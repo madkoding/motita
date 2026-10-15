@@ -119,17 +119,7 @@ func TestLocalVoiceLifecycle(t *testing.T) {
 	if w := post(t, srv, "/v1/voice/models/a", "", testToken); w.Code != http.StatusOK {
 		t.Fatalf("second install: %d", w.Code)
 	}
-	for _, c := range []struct{ path, ctype, body string }{
-		{"/v1/voice/models/a/model.json", "application/json", `{"a":1}`},
-		{"/v1/voice/models/a/model.onnx", "application/octet-stream", "ONNX"},
-		{"/v1/voice/models/runtime/ort.wasm", "application/wasm", "WASM"},
-	} {
-		w := get(t, srv, c.path, testToken)
-		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != c.ctype || w.Body.String() != c.body ||
-			w.Header().Get("Cache-Control") != "private, no-cache" {
-			t.Errorf("%s: %d %q %q", c.path, w.Code, w.Header().Get("Content-Type"), w.Body)
-		}
-	}
+	checkServedVoiceFiles(t, srv)
 	if w := get(t, srv, "/v1/voice/models/b/model.onnx", testToken); w.Code != http.StatusNotFound {
 		t.Errorf("a file not downloaded: %d", w.Code)
 	}
@@ -138,6 +128,24 @@ func TestLocalVoiceLifecycle(t *testing.T) {
 	}
 	if got := modelsOf(t, srv); got.Models[0].Installed || !got.Runtime.Installed {
 		t.Fatalf("after the delete: %+v", got)
+	}
+}
+
+// checkServedVoiceFiles asserts that the installed voice's files and the runtime are served with
+// their type and are not cached.
+func checkServedVoiceFiles(t *testing.T, srv *Server) {
+	t.Helper()
+	for _, c := range []struct{ path, ctype, body string }{
+		{"/v1/voice/models/a/model.json", "application/json", `{"a":1}`},
+		{"/v1/voice/models/a/model.onnx", "application/octet-stream", "ONNX"},
+		{"/v1/voice/models/runtime/ort.wasm", "application/wasm", "WASM"},
+	} {
+		w := get(t, srv, c.path, testToken)
+		served := w.Code == http.StatusOK && w.Body.String() == c.body
+		typed := w.Header().Get("Content-Type") == c.ctype && w.Header().Get("Cache-Control") == "private, no-cache"
+		if !served || !typed {
+			t.Errorf("%s: %d %q %q", c.path, w.Code, w.Header().Get("Content-Type"), w.Body)
+		}
 	}
 }
 

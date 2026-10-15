@@ -133,11 +133,17 @@ func Key(projectDir string) string {
 	}
 	dir = filepath.Clean(dir)
 	sum := sha256.Sum256([]byte(dir))
-	base := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
-			return r
-		}
-		return '-'
-	}, filepath.Base(dir))
+	base := strings.Map(keyRune, filepath.Base(dir))
 	return base + "-" + hex.EncodeToString(sum[:])[:12]
+}
+
+// keyRune keeps a rune that is safe in a file name (an ASCII letter or digit, '-' or '_') and
+// turns any other into '-'.
+func keyRune(r rune) rune {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		return r
+	default:
+		return '-'
+	}
 }

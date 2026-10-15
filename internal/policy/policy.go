@@ -352,19 +352,22 @@ func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
 	return Decision{}, false
 }
 
+// longDirectoryFlag is the long spelling of -C shared by make and tar.
+const longDirectoryFlag = "--directory"
+
 // dirFlags are, per program, the options that make it work in (or on) another directory than the
 // one it is started in. Each takes a value as the next argument (`-C dir`, `--directory dir`) or
 // after "=" (`--directory=dir`); a short one also attached (`-Cdir`).
 var dirFlags = map[string][]string{
 	"git":   {"-C", "--git-dir", "--work-tree"},
-	"make":  {"-C", "--directory", "-f", "--file", "--makefile"},
-	"gmake": {"-C", "--directory", "-f", "--file", "--makefile"},
+	"make":  {"-C", longDirectoryFlag, "-f", "--file", "--makefile"},
+	"gmake": {"-C", longDirectoryFlag, "-f", "--file", "--makefile"},
 	"go":    {"-C"},
 	"npm":   {"--prefix"},
 	"pnpm":  {"-C", "--dir"},
 	"yarn":  {"--cwd"},
 	"cargo": {"--manifest-path"},
-	"tar":   {"-C", "--directory"},
+	"tar":   {"-C", longDirectoryFlag},
 }
 
 // dirFlagTargets are the directories (or files) the given flags name in args, every occurrence:
@@ -380,6 +383,8 @@ func dirFlagTargets(flags []string, args []string) []string {
 				out = append(out, a[len(f)+1:])
 			case len(f) == 2 && strings.HasPrefix(a, f) && len(a) > 2 && a[2] != '=':
 				out = append(out, a[2:])
+			default:
+				// This argument is not flag f: nothing to collect.
 			}
 		}
 	}
