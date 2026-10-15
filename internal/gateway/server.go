@@ -286,6 +286,9 @@ type Server struct {
 	// schedules persists the tasks that fire on their own. nil when no directory was
 	// configured, which means scheduling is off.
 	schedules *schedule.Store
+	// scheduleWG tracks the "run now" runs whose end is still to be written onto their task's
+	// record. See recordManualRun.
+	scheduleWG sync.WaitGroup
 	// updater is the self-update checker, nil when no ExePath was provided.
 	updater *updater.Updater
 	// lastCheck is the cached result of the most recent update check.

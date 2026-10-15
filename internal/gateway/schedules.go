@@ -317,11 +317,15 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleRunScheduleNow starts the task immediately, without touching its cadence.
+// handleRunScheduleNow starts the task immediately.
 //
 // 202 and not 200: a run is STARTED, not finished, and the same is true of a scheduled
-// firing. The cadence is deliberately left alone - "run it now" is a person overriding
-// the clock once, not a decision to move the schedule.
+// firing. The run is recorded like a firing of the watcher (LastRun, RunCount and
+// LastOutcome) once it ends: a task a person ran by hand has run, and a record that
+// said otherwise would show "never ran" next to a result the person just read.
+//
+// A task whose session no longer exists is 404, not 409: nothing is busy, the place it
+// fires into is gone, and the fix is to edit the task.
 //
 // An optional body may carry {"wait": true}, which blocks until the run ends and answers
 // with its outcome. It exists for a script that wants the result; the browser does not use
@@ -339,21 +343,73 @@ func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	c := s.conversationOf(rec.SessionID)
+	if c == nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf(
+			"there is no session %q to run this task in: edit the task or create the session again", rec.SessionID))
+		return
+	}
 
-	rn, started := s.startDetachedRun(s.conversationOf(rec.SessionID), rec.Task, rec.Kind, "",
-		s.unattendedApprover(rec.ID))
+	now := time.Now()
+	rn, started := s.startDetachedRun(c, rec.Task, rec.Kind, "", s.unattendedApprover(rec.ID))
 	if !started {
 		writeError(w, http.StatusConflict,
 			fmt.Sprintf("a run is already in progress in session %q, which is where this task fires", rec.SessionID))
 		return
 	}
 	if !body.Wait {
-		writeJSON(w, http.StatusAccepted, map[string]any{"schedule": viewOfSchedule(*rec, time.Now()), "run_id": rn.id})
+		s.scheduleWG.Go(func() { s.recordManualRun(rec.ID, now, rn) })
+		writeJSON(w, http.StatusAccepted, map[string]any{"schedule": viewOfSchedule(*rec, now), "run_id": rn.id})
 		return
 	}
-	<-rn.done
+	s.recordManualRun(rec.ID, now, rn)
 	outcome, result, errText, _ := rn.outcomeOf()
 	writeJSON(w, http.StatusOK, map[string]any{"outcome": outcome, "result": result, "error": errText})
+}
+
+// recordManualRun waits for a run started by hand and writes it onto the task's record, like
+// the watcher writes a firing: through Update, onto the record as it is now, and only the three
+// fields a firing owns. A task deleted while it ran stays deleted.
+func (s *Server) recordManualRun(id string, at time.Time, rn *run) {
+	<-rn.done
+	outcome, err := describeRun(rn)
+	if err != nil {
+		outcome = err.Error()
+	}
+	found, err := s.schedules.Update(id, func(rec *schedule.Schedule) {
+		rec.LastRun = at
+		rec.RunCount++
+		rec.LastOutcome = outcome
+	})
+	if msg := recordProblem(found, err); msg != "" && s.opts.Log != nil {
+		s.opts.Log.Warn(msg, "id", id)
+	}
+}
+
+// recordProblem says why a run could not be written onto its task's record, or "" when it was:
+// the store failed, or the task was deleted while it ran (then nothing is written).
+func recordProblem(found bool, err error) string {
+	switch {
+	case err != nil:
+		return "could not record the run of a scheduled task: " + err.Error()
+	case !found:
+		return "a scheduled task was deleted while it ran; its run is not recorded"
+	default:
+		return ""
+	}
+}
+
+// describeRun says how a finished run ended, in the sentence a schedule's record carries.
+func describeRun(rn *run) (string, error) {
+	outcome, result, errText, _ := rn.outcomeOf()
+	switch outcome {
+	case "done":
+		return fmt.Sprintf("the run finished: %s", firstLine(result)), nil
+	case "cancelled":
+		return "the run was cancelled", nil
+	default:
+		return "", fmt.Errorf("the run failed: %s", errText)
+	}
 }
 
 // startScheduler runs the watcher that fires what is due, in the background, for the
@@ -395,15 +451,7 @@ func (s *Server) schedulerFirer() schedule.Firer {
 			return "", fmt.Errorf("a run is already in progress in session %q", sc.SessionID)
 		}
 		<-rn.done
-		outcome, result, errText, _ := rn.outcomeOf()
-		switch outcome {
-		case "done":
-			return fmt.Sprintf("the run finished: %s", firstLine(result)), nil
-		case "cancelled":
-			return "the run was cancelled", nil
-		default:
-			return "", fmt.Errorf("the run failed: %s", errText)
-		}
+		return describeRun(rn)
 	}
 }
 

@@ -760,18 +760,13 @@ func TestScheduleEndpointsWithoutAStoreAnswer501(t *testing.T) {
 	}
 }
 
-// A run is STARTED, not finished, so it is accepted with a handle; and "run it now" is a person
-// overriding the clock once, not a decision to move the schedule.
-func TestRunScheduleNowAcceptsAndLeavesTheCadenceAlone(t *testing.T) {
+// A run is STARTED, not finished, so it is accepted with a handle.
+func TestRunScheduleNowAcceptsWithARunHandle(t *testing.T) {
 	srv := newTestServer(t, &fakeService{task: func(context.Context, string, func(string, ...any)) (string, error) {
 		return "the result", nil
 	}})
 	withSchedules(t, srv, time.Minute)
 	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
-	before, err := srv.schedules.Load(id)
-	if err != nil || before == nil {
-		t.Fatalf("Load: (%v, %v)", before, err)
-	}
 
 	w := postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, "")
 	if w.Code != http.StatusAccepted {
@@ -785,14 +780,6 @@ func TestRunScheduleNowAcceptsAndLeavesTheCadenceAlone(t *testing.T) {
 	}
 	if body.RunID == "" {
 		t.Error("the answer must carry the run id: it is how the client follows the run")
-	}
-
-	after, err := srv.schedules.Load(id)
-	if err != nil || after == nil {
-		t.Fatalf("Load: (%v, %v)", after, err)
-	}
-	if !after.Next(after.Created).Equal(before.Next(before.Created)) {
-		t.Error("running a task now must not move its schedule")
 	}
 }
 

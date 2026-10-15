@@ -44,6 +44,13 @@ func withSchedules(t *testing.T, srv *Server, minEvery time.Duration) {
 	}
 	srv.schedules = st
 	srv.opts.ScheduleMinEvery = minEvery
+	// A "run now" writes its end onto the record from its own goroutine. Registered after the
+	// temporary directory, so it runs before that is removed: the runs are stopped, and the
+	// writes they owe are waited for.
+	t.Cleanup(func() {
+		_ = srv.Close(context.Background())
+		srv.scheduleWG.Wait()
+	})
 }
 
 func TestCreateScheduleStoresTheTask(t *testing.T) {
