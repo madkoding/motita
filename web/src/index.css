@@ -3842,9 +3842,11 @@ html[data-keyboard="open"] .app-shell {
     gap: 0.25rem;
     /* Zero basis: every tab gets the same share. The floor keeps a long label from being squeezed,
      * so when they do not all fit the row scrolls instead. */
-    flex: 1 0 5.5rem;
-    min-width: 5.5rem;
-    padding: 0.375rem 0.25rem;
+    flex: 1 0 6.5rem;
+    min-width: 6.5rem;
+    /* Icon pinned to the top, so one- and two-line labels start at the same height. */
+    justify-content: flex-start;
+    padding: 0.5rem 0.25rem;
     font-size: 0.75rem;
     line-height: 1.2;
     text-align: center;

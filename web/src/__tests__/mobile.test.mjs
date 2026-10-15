@@ -265,8 +265,8 @@ test("the settings tabs fit a phone's width instead of running off the panel", (
   const phone = mediaBlocks(PHONE_MEDIA);
   assert.match(phone, /\.settings-tab\s*\{[^}]*white-space:\s*normal/);
   // Equal share (zero basis) with a floor, so the row scrolls rather than squeezing a label.
-  assert.match(phone, /\.settings-tab\s*\{[^}]*flex:\s*1 0 5\.5rem/);
-  assert.match(phone, /\.settings-tab\s*\{[^}]*min-width:\s*5\.5rem/);
+  assert.match(phone, /\.settings-tab\s*\{[^}]*flex:\s*1 0 6\.5rem/);
+  assert.match(phone, /\.settings-tab\s*\{[^}]*min-width:\s*6\.5rem/);
 });
 
 test("an open dialog moves the toast off its title", () => {
