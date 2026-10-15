@@ -368,11 +368,11 @@ export function AddRepo({
 
 // sameRepo is the form two URLs of one repository share: no trailing slash or ".git", any case.
 function sameRepo(url: string): string {
-  return url
-    .trim()
-    .replace(/\/+$/, "")
-    .replace(/\.git$/, "")
-    .toLowerCase();
+  let u = url.trim().toLowerCase();
+  while (u.endsWith("/")) {
+    u = u.slice(0, -1);
+  }
+  return u.replace(/\.git$/, "");
 }
 
 // CatalogPicks are the repositories the workspace already has that the list does not: one click
@@ -388,16 +388,14 @@ function CatalogPicks({
   busy: boolean;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
 }) {
-  const urls = repos.map((r) => sameRepo(r.git_url));
-  const names = repos.map((r) => r.name);
+  const urls = new Set(repos.map((r) => sameRepo(r.git_url)));
+  const names = new Set(repos.map((r) => r.name));
   const picks = catalog
     .map((c) => ({
       name: repoFolderOf(c.git_url) || c.name,
       git_url: c.git_url,
     }))
-    .filter(
-      (c) => !urls.includes(sameRepo(c.git_url)) && !names.includes(c.name),
-    );
+    .filter((c) => !urls.has(sameRepo(c.git_url)) && !names.has(c.name));
   if (picks.length === 0) {
     return null;
   }
@@ -412,7 +410,7 @@ function CatalogPicks({
             key={c.git_url}
             type="button"
             class="px-2.5 min-h-[30px] rounded-lg border border-white/10 bg-black/20 text-sm text-[#e8e8ea] hover:border-accent/60 disabled:opacity-30"
-            onClick={() => void onAdd(c)}
+            onClick={() => onAdd(c)}
             disabled={busy}
             title={c.git_url}
             aria-label={tf("Add {name}", { name: c.name })}

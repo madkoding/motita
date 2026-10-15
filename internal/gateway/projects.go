@@ -251,8 +251,8 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 }
 
 // reservedFolders are the workspace's own folders, which hold the worktrees and folders of every
-// session of every project, and the repositories they share. A project there would run its sessions among all the others' work, and
-// deleting it would delete that work.
+// session of every project, and the repositories they share. A project there would run its
+// sessions among all the others' work, and deleting it would delete that work.
 var reservedFolders = map[string]bool{"worktrees": true, "sessions": true, catalogFolder: true}
 
 // projectInDir is the project whose folder is dir, inside it or around it, nil when there is

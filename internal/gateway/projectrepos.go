@@ -260,6 +260,8 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
 	} else if s.ownsProjectDir(repo.Dir) {
 		_ = os.RemoveAll(repo.Dir)
+	} else {
+		// A clone registered from outside the workspace is the user's: it stays where it is.
 	}
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
