@@ -224,21 +224,18 @@ func TestConfineGrantsTheWorkspaceReadsWhenTheUsersFilesArePrivate(t *testing.T)
 	home, work := userHome(t)
 	real := landlockSyscall
 	t.Cleanup(func() { landlockSyscall = real })
-	// The directories around home are listed twice, by confine and by the count below, and
 	// home sits in the shared temporary directory, where other packages' tests add and remove
-	// entries in between: both have to see one listing per directory.
+	// entries while this one runs: the directories above the test's own one list as empty, so
+	// what is granted around home is only the sibling made here.
+	sibling := t.TempDir()
+	root := filepath.Dir(home)
 	realReadDir := readDir
 	t.Cleanup(func() { readDir = realReadDir })
-	listed := map[string][]os.DirEntry{}
 	readDir = func(dir string) ([]os.DirEntry, error) {
-		if entries, ok := listed[dir]; ok {
-			return entries, nil
+		if dir != root && !strings.HasPrefix(dir, root+"/") {
+			return nil, nil
 		}
-		entries, err := realReadDir(dir)
-		if err == nil {
-			listed[dir] = entries
-		}
-		return entries, err
+		return realReadDir(dir)
 	}
 	rules := 0
 	landlockSyscall = func(trap, a1, a2, a3 uintptr) (uintptr, uintptr, syscall.Errno) {
@@ -259,10 +256,13 @@ func TestConfineGrantsTheWorkspaceReadsWhenTheUsersFilesArePrivate(t *testing.T)
 	if err := confine(spec); err != nil {
 		t.Fatal(err)
 	}
-	around := len(readableAround([]string{home}))
+	around := readableAround([]string{home})
+	if len(around) != 1 || around[0] != sibling {
+		t.Fatalf("readable around home: %v, want [%s]", around, sibling)
+	}
 	// One write rule and one read rule for the workspace, one for the file, and the ones around.
-	if rules != around+3 {
-		t.Errorf("rules=%d, want %d", rules, around+3)
+	if rules != len(around)+3 {
+		t.Errorf("rules=%d, want %d", rules, len(around)+3)
 	}
 }
 
