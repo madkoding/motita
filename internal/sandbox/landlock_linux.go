@@ -162,7 +162,8 @@ func confine(spec Spec) error {
 	ruleset := int(fd)
 	defer syscall.Close(ruleset)
 
-	for _, root := range spec.WriteRoots {
+	writeProtected := append(append([]string(nil), spec.HiddenPaths...), spec.ReadonlyPaths...)
+	for _, root := range writeGrantRoots(spec.WriteRoots, writeProtected) {
 		if err := allowWrites(ruleset, root, handled&^readAccess); err != nil {
 			return err
 		}
@@ -179,6 +180,51 @@ func confine(spec Spec) error {
 		return fmt.Errorf("landlock_restrict_self: %w", errno)
 	}
 	return nil
+}
+
+// writeGrantRoots are the directories to grant write on: each write root as given, except a root
+// that would contain a path writes must not reach - a secret (also hidden from reads), or a tools
+// bin directory a PATH hijack would use - which is replaced by everything AROUND those paths, so
+// they fall outside every write grant. A grant covers what is beneath it, so the broad "/" of full
+// disk access cannot be granted whole without also granting the secrets beneath it.
+//
+// When what stays writable around the protected paths cannot be worked out, the root is granted
+// whole, the same fail-open the read side takes (see readableAround): a command is never left
+// unable to write where it must because a directory could not be listed.
+func writeGrantRoots(writeRoots, protected []string) []string {
+	targets, _ := hiddenTargets(protected)
+	if len(targets) == 0 {
+		return writeRoots
+	}
+	var out []string
+	for _, root := range writeRoots {
+		resolved := resolveExisting(filepath.Clean(root))
+		if !rootCovers(resolved, targets) {
+			out = append(out, root)
+			continue
+		}
+		around := readableAround(protected)
+		if around == nil {
+			out = append(out, root)
+			continue
+		}
+		out = append(out, around...)
+	}
+	return out
+}
+
+// rootCovers reports whether root is one of targets or an ancestor of one: a write grant on root
+// would then reach that target.
+func rootCovers(root string, targets []string) bool {
+	// "/" + "/" would be "//", which is the prefix of nothing; trimming the trailing slash first
+	// makes the root "/" match every absolute path beneath it.
+	prefix := strings.TrimRight(root, "/") + "/"
+	for _, t := range targets {
+		if t == root || strings.HasPrefix(t, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // allowWrites grants the write rights to root and everything beneath it (or, for what stays

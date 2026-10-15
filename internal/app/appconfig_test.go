@@ -89,8 +89,9 @@ func TestSandboxOptionsTranslatesEverything(t *testing.T) {
 	if !op.DropPrivs || op.Uid != 1000 || op.Gid != 1001 {
 		t.Errorf("user not translated: %+v", op)
 	}
-	// A confined command must not read motita's logins nor its stored keys.
-	if strings.Join(op.HiddenPaths, " ") != strings.Join(config.SecretFiles(""), " ") || len(op.HiddenPaths) != 3 {
+	// A confined command must not read motita's logins, its stored keys, nor the gateway's own
+	// state (its token, the push key and the sessions): SandboxOptions hides exactly SecretFiles.
+	if strings.Join(op.HiddenPaths, " ") != strings.Join(config.SecretFiles(""), " ") {
 		t.Errorf("motita's secrets are not hidden from the sandbox: %v", op.HiddenPaths)
 	}
 }
