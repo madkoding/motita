@@ -611,10 +611,14 @@ func (s *Sandbox) readRoots(workDir string) []string {
 // inside it. A repository is its checkout when its git directory is the checkout's `.git`.
 func worktreeGit(dir string) (writes, repos []string) {
 	trees := []string{dir}
-	entries, _ := os.ReadDir(filepath.Join(dir, gitx.ReposDir))
-	for _, e := range entries {
-		if e.IsDir() {
-			trees = append(trees, filepath.Join(dir, gitx.ReposDir, e.Name()))
+	// A repository is a folder of the project like any other; the ones added before that lived under
+	// gitx.ReposDir. gitDirs says which of them are worktrees.
+	for _, parent := range []string{dir, filepath.Join(dir, gitx.ReposDir)} {
+		entries, _ := os.ReadDir(parent)
+		for _, e := range entries {
+			if e.IsDir() {
+				trees = append(trees, filepath.Join(parent, e.Name()))
+			}
 		}
 	}
 	for _, tree := range trees {

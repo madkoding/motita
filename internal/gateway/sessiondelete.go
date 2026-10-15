@@ -322,7 +322,8 @@ func (s *Server) inspectWorktree(c *conversation) worktreeRelease {
 			return release
 		}
 		for _, ch := range more {
-			ch.Path = filepath.Join(gitx.ReposDir, filepath.Base(wt[1]), ch.Path)
+			rel, _ := filepath.Rel(workspace, wt[1])
+			ch.Path = filepath.Join(rel, ch.Path)
 			changes = append(changes, ch)
 		}
 	}

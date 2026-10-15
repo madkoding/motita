@@ -62,6 +62,7 @@ function store(state = {}) {
     addNewProjectRepo: rec("addRepo", true),
     removeNewProjectRepo: rec("removeRepo"),
     setShowRepoPicker: rec("picker"),
+    openOtherRepoPicker: rec("pickOther"),
     setGitConnect: rec("connect"),
     createProject: rec("create"),
     closeNewProject: rec("close"),
@@ -72,6 +73,7 @@ function store(state = {}) {
     closeEditProject: rec("closeEdit"),
     saveEditProject: rec("save", Promise.resolve()),
     addProjectRepo: rec("addProjectRepo", Promise.resolve(true)),
+    detachProjectMain: rec("detachMain", Promise.resolve()),
     removeProjectRepo: rec("removeProjectRepo", Promise.resolve()),
     ...state,
   };
@@ -148,8 +150,11 @@ test("a named empty project can be created, in the folder typed or one from its 
   await click(create);
   assert.deepEqual(s.log, [["podman", true], ["create"]]);
   await m.rerender(
-    store({ newProjectMode: "empty", newProjectTitle: "x", newProjectDir: " own " })
-      .value,
+    store({
+      newProjectMode: "empty",
+      newProjectTitle: "x",
+      newProjectDir: " own ",
+    }).value,
   );
   assert.match(m.q("[data-testid=repo-list]").textContent, /own/);
   await m.unmount();
@@ -179,7 +184,8 @@ test("from a repository: the URL comes first and names the project", async () =>
   const url = fieldByLabel(m.root, "Repository URL");
   assert.equal(fieldByLabel(m.root, "Name").placeholder, "The repository name");
   assert.doesNotMatch(
-    fieldByLabel(m.root, "Name").parentElement.querySelector("label").textContent,
+    fieldByLabel(m.root, "Name").parentElement.querySelector("label")
+      .textContent,
     /\*/,
   );
   // No URL yet: no main repository to show, nothing to clone.
@@ -283,6 +289,47 @@ test("the other repositories of a new project are added and removed in the dialo
   await m.unmount();
 });
 
+test("a connected host lets the person choose the other repositories from their own", async () => {
+  const s = store({
+    newProjectMode: "git",
+    gitAccounts: [{ id: "github", connected: true }],
+  });
+  const m = await mount(AppCtx, s.value, h(NewProjectModal));
+  await click(m.q("[data-testid=repo-choose]"));
+  assert.deepEqual(s.log, [["pickOther"]]);
+  await m.unmount();
+
+  // No host connected: the section has no such link.
+  const none = store({ newProjectMode: "git", gitAccounts: [] });
+  const n = await mount(AppCtx, none.value, h(NewProjectModal));
+  assert.equal(n.q("[data-testid=repo-choose]"), null);
+  await n.unmount();
+});
+
+test("several repositories: the folder holds them all, and needs at least one", async () => {
+  const start = store({});
+  const c = await mount(AppCtx, start.value, h(NewProjectModal));
+  await click(c.q("[data-testid=new-project-multi]"));
+  assert.deepEqual(start.log, [["mode", "multi"]]);
+  await c.unmount();
+
+  const empty = store({ newProjectMode: "multi", newProjectTitle: "suite" });
+  const m = await mount(AppCtx, empty.value, h(NewProjectModal));
+  assert.match(m.root.textContent, /Several repositories/);
+  assert.match(m.root.textContent, /Each repository is cloned once in your workspace/);
+  assert.equal(buttonByText(m.root, "Create").disabled, true);
+  await m.unmount();
+
+  const ready = store({
+    newProjectMode: "multi",
+    newProjectTitle: "suite",
+    newProjectRepos: [{ name: "api", git_url: "https://x.io/u/api.git" }],
+  });
+  const r = await mount(AppCtx, ready.value, h(NewProjectModal));
+  assert.equal(buttonByText(r.root, "Create").disabled, false);
+  await r.unmount();
+});
+
 const DRAFT = {
   id: "p1",
   title: "Motita",
@@ -298,6 +345,35 @@ const DRAFT = {
   repos: [{ name: "api", git_url: "https://x.io/u/api.git" }],
 };
 
+test("the edit dialog offers the person's repositories when a host is connected", async () => {
+  const s = store({ gitAccounts: [{ id: "github", connected: true }] });
+  const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: DRAFT }));
+  await click(m.q("[data-testid=repo-choose]"));
+  assert.deepEqual(s.log, [["pickOther"]]);
+  await m.unmount();
+  const none = store({ gitAccounts: [] });
+  const n = await mount(AppCtx, none.value, h(EditProjectModal, { p: DRAFT }));
+  assert.equal(n.q("[data-testid=repo-choose]"), null);
+  await n.unmount();
+});
+
+test("the edit dialog moves the main repository when asked", async () => {
+  const s = store();
+  const draft = {
+    ...DRAFT,
+    mainRepo: {
+      name: "motita",
+      source: "https://x.io/u/motita.git",
+      movable: true,
+    },
+  };
+  const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: draft }));
+  await click(m.q("[data-testid=repo-main-remove]"));
+  await click(m.q("[data-testid=repo-main-move]"));
+  assert.deepEqual(s.log, [["detachMain"]]);
+  await m.unmount();
+});
+
 test("the edit dialog shows the project's settings", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: DRAFT }));
@@ -305,7 +381,10 @@ test("the edit dialog shows the project's settings", async () => {
   assert.equal(fieldByLabel(m.root, "Title").value, "Motita");
   assert.equal(fieldByLabel(m.root, "Description").value, "the app");
   const main = m.q("[data-testid=edit-project-main]");
-  assert.deepEqual([...main.options].map((o) => o.value), ["main", "develop"]);
+  assert.deepEqual(
+    [...main.options].map((o) => o.value),
+    ["main", "develop"],
+  );
   assert.equal(main.value, "develop");
   assert.match(m.root.textContent, /It is on feat now\./);
   assert.equal(m.q("[data-testid=edit-project-merge]").value, "squash");
@@ -315,9 +394,15 @@ test("the edit dialog shows the project's settings", async () => {
   assert.match(m.q("[data-testid=repo-list]").textContent, /motita/);
   assert.equal(buttonByText(m.root, "Save").disabled, false);
   // On its main branch, or with no branch known, nothing more is said.
-  await m.rerender(s.value, h(EditProjectModal, { p: { ...DRAFT, current: "develop" } }));
+  await m.rerender(
+    s.value,
+    h(EditProjectModal, { p: { ...DRAFT, current: "develop" } }),
+  );
   assert.doesNotMatch(m.root.textContent, /It is on/);
-  await m.rerender(s.value, h(EditProjectModal, { p: { ...DRAFT, current: "" } }));
+  await m.rerender(
+    s.value,
+    h(EditProjectModal, { p: { ...DRAFT, current: "" } }),
+  );
   assert.doesNotMatch(m.root.textContent, /It is on/);
   await m.unmount();
 });
@@ -385,7 +470,10 @@ test("the edit dialog saves, cancels and closes", async () => {
     h(EditProjectModal, { p: DRAFT }),
   );
   assert.equal(buttonByText(m.root, "Saving…").disabled, true);
-  await m.rerender(s.value, h(EditProjectModal, { p: { ...DRAFT, title: " " } }));
+  await m.rerender(
+    s.value,
+    h(EditProjectModal, { p: { ...DRAFT, title: " " } }),
+  );
   assert.equal(buttonByText(m.root, "Save").disabled, true);
   await m.unmount();
 });

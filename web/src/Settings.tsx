@@ -24,6 +24,7 @@ import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
+import { RepoCatalogSettings } from "./RepoCatalogSettings";
 import {
   IconBell,
   IconBranch,
@@ -104,7 +105,11 @@ function settingsTabs(p: Props): TabInfo[] {
     tabs.push({ id: "voice", label: t("Voice input"), icon: <IconMic /> });
   }
   if (p.speech) {
-    tabs.push({ id: "speech", label: t("Voice output"), icon: <IconSpeaker /> });
+    tabs.push({
+      id: "speech",
+      label: t("Voice output"),
+      icon: <IconSpeaker />,
+    });
   }
   if (p.security) {
     tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
@@ -144,7 +149,13 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,
-  git: (p) => p.git && <GitConnections {...p.git} />,
+  git: (p) =>
+    p.git && (
+      <>
+        <GitConnections {...p.git} />
+        <RepoCatalogSettings api={p.git.api} onNotice={p.git.onNotice} />
+      </>
+    ),
 };
 
 // SettingsModal is the settings dialog. On a screen with room it is a centred window with the

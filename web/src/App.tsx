@@ -19,6 +19,7 @@ import { t, useLang, type LangSetting } from "./i18n";
 import { SettingsModal } from "./Settings";
 import { GitConnectModal } from "./GitConnect";
 import { RepoPicker } from "./RepoPicker";
+import { knownRepos } from "./projectRepos";
 import { connectedAccounts } from "./gitApi";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
 import { choose } from "./choose";
@@ -144,8 +145,7 @@ function groupsOf(messages: Message[]): Group[] {
 // `auto` says the turn went through auto mode, which applies the needed suggestions on its own.
 function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
-  const { running, lastUserId, answerSuggestions, answerQuestions } =
-    useTurn();
+  const { running, lastUserId, answerSuggestions, answerQuestions } = useTurn();
   if (m.role !== "agent" || m.kind) {
     // A user's message is never here: each one opens its turn and is drawn by TurnHead.
     if (isEmptyNote(m)) {
@@ -629,6 +629,7 @@ function ProjectModals() {
           onClose={projects.closeRepoPicker}
           onConnectAnother={projects.connectAnother}
           onAuthRequired={projects.pickerAuthRequired}
+          known={knownRepos(projects.repoCatalog)}
         />
       )}
       {gitConnect && (

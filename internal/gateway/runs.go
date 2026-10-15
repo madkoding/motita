@@ -351,6 +351,7 @@ func (s *Server) recordIntegration(ctx context.Context, c *conversation, rn *run
 		if s.baseCtx.Err() == nil {
 			s.saveSession(c)
 		}
+		s.syncSharedRepos(ctx, s.projectOf(c.projectID))
 	}
 }
 

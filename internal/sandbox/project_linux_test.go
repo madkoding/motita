@@ -59,6 +59,9 @@ func TestTheOtherRepositoriesOfAProjectAreGranted(t *testing.T) {
 	extra := filepath.Join(work, gitx.ReposDir, "api")
 	extraOwn, _ := fakeWorktreeAt(t, t.TempDir(), extra)
 	_ = extraOwn
+	// A repository cloned as a plain folder of the project is granted the same way.
+	direct := filepath.Join(work, "web")
+	fakeWorktreeAt(t, t.TempDir(), direct)
 	if err := os.MkdirAll(filepath.Join(work, gitx.ReposDir, "plain"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +69,7 @@ func TestTheOtherRepositoriesOfAProjectAreGranted(t *testing.T) {
 		t.Fatal(err)
 	}
 	writes, repos := worktreeGit(work)
-	if len(repos) != 2 || repos[0] != filepath.Dir(filepath.Dir(filepath.Dir(own))) {
+	if len(repos) != 3 || repos[0] != filepath.Dir(filepath.Dir(filepath.Dir(own))) {
 		t.Fatalf("repositories: %v", repos)
 	}
 	if !slices.Contains(writes, filepath.Join(filepath.Dir(repos[1]), "main", ".git", "worktrees", "w")) &&

@@ -57,9 +57,10 @@ async function setup(routes = {}) {
   return s;
 }
 
-const run = (fn) => act(async () => {
-  await fn();
-});
+const run = (fn) =>
+  act(async () => {
+    await fn();
+  });
 
 const callsTo = (s, prefix) =>
   s.api.calls.filter((c) => (c.method + " " + c.path).startsWith(prefix));
@@ -249,9 +250,7 @@ test("a project from a repository clones it, adds the other repositories and say
     s.p.newProjectRepos.map((r) => r.name),
     ["api", "lib", "web"],
   );
-  await run(() =>
-    s.p.createProject({ name: "Ada", email: "ada@example.com" }),
-  );
+  await run(() => s.p.createProject({ name: "Ada", email: "ada@example.com" }));
   await flush();
   const [call] = callsTo(s, "POST /v1/projects");
   assert.deepEqual(call.body, {
@@ -444,6 +443,146 @@ test("a repository picked fills the form, keeping what was already typed", async
   await s.m.unmount();
 });
 
+test("a repository chosen for the other repositories joins them, once", async () => {
+  const s = await setup();
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.setNewProjectGit("https://github.com/u/site.git"));
+  await run(() => s.p.openOtherRepoPicker());
+  assert.equal(s.p.showRepoPicker, true);
+  assert.equal(s.p.pickForOthers, true);
+  await run(() =>
+    s.p.pickRepo({
+      full_name: "u/api",
+      clone_url: "https://github.com/u/api.git",
+    }),
+  );
+  assert.deepEqual(s.p.newProjectRepos, [
+    { name: "api", git_url: "https://github.com/u/api.git" },
+  ]);
+  // The main repository stays the one typed above.
+  assert.equal(s.p.newProjectGit, "https://github.com/u/site.git");
+  assert.equal(s.p.showRepoPicker, false);
+  assert.equal(s.p.pickForOthers, false);
+
+  // The same name again, or the main's, is refused with a word, not added twice.
+  for (const url of ["https://x.io/o/api", "https://x.io/o/site"]) {
+    await run(() => s.p.openOtherRepoPicker());
+    await run(() => s.p.pickRepo({ full_name: "o/x", clone_url: url }));
+  }
+  assert.equal(s.p.newProjectRepos.length, 1);
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "The project already has a repository with that name.",
+    type: "warning",
+  });
+
+  // Closing the picker forgets what it was opened for.
+  await run(() => s.p.openOtherRepoPicker());
+  await run(() => s.p.closeRepoPicker());
+  assert.equal(s.p.pickForOthers, false);
+  await s.m.unmount();
+});
+
+test("a repository chosen while editing a project is added to it at once, unless its name is taken", async () => {
+  const s = await setup({
+    "GET /v1/projects/p1/branches": res(200, { branches: ["develop"] }),
+    "POST /v1/projects/p1/repos": res(200, {
+      ...PROJECT,
+      repos: [...PROJECT.repos, { name: "web", git_url: "u/web" }],
+    }),
+  });
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  assert.equal(
+    callsTo(s, "GET /v1/git/accounts").length,
+    1,
+    "the connected hosts are read when the edit dialog opens",
+  );
+  await run(() => s.p.openOtherRepoPicker());
+  await run(() =>
+    s.p.pickRepo({
+      full_name: "u/web",
+      clone_url: "https://github.com/u/web.git",
+    }),
+  );
+  await flush();
+  const calls = callsTo(s, "POST /v1/projects/p1/repos");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].body, {
+    name: "web",
+    git_url: "https://github.com/u/web.git",
+  });
+  assert.equal(s.p.showRepoPicker, false);
+  assert.equal(
+    s.p.newProjectRepos.length,
+    0,
+    "the New project list is untouched",
+  );
+
+  // The main repository's name and another one's are taken.
+  for (const url of ["https://x.io/o/api", "https://x.io/o/motita"]) {
+    await run(() => s.p.openOtherRepoPicker());
+    await run(() => s.p.pickRepo({ full_name: "o/x", clone_url: url }));
+  }
+  assert.equal(callsTo(s, "POST /v1/projects/p1/repos").length, 1);
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "The project already has a repository with that name.",
+    type: "warning",
+  });
+  await s.m.unmount();
+});
+
+test("the main repository moves into a folder of its own, or says why not", async () => {
+  let n = 0;
+  const s = await setup({
+    "DELETE /v1/projects/p1/main": () => {
+      n++;
+      if (n === 1) {
+        return res(200, {
+          ...PROJECT,
+          git_url: "",
+          repos: [
+            { name: "motita", git_url: PROJECT.git_url },
+            ...PROJECT.repos,
+          ],
+        });
+      }
+      if (n === 2) {
+        return res(409, { error: "a session is running" });
+      }
+      throw new Error("down");
+    },
+  });
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  assert.equal(s.p.editProject.mainRepo.movable, true);
+  await run(() => s.p.detachProjectMain());
+  assert.equal(s.p.repoBusy, "");
+  assert.equal(
+    s.p.editProject.mainRepo,
+    null,
+    "the folder only holds repositories now",
+  );
+  assert.deepEqual(
+    s.p.editProject.repos.map((r) => r.name),
+    ["motita", "api"],
+  );
+  assert.equal(s.counts.projects, 1);
+
+  await run(() => s.p.detachProjectMain());
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not move the main repository",
+    type: "error",
+    detail: "a session is running",
+  });
+  await run(() => s.p.detachProjectMain());
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not move the main repository",
+    type: "error",
+  });
+  assert.equal(s.p.repoBusy, "");
+  await s.m.unmount();
+});
+
 test("the remote's main branch is offered, unless the person chose one", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let answer = () => res(200, { branch: "develop" });
@@ -503,8 +642,7 @@ test("a branch answer for a URL that changed meanwhile is dropped", async (t) =>
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const pending = [];
   const s = await setup({
-    "GET /v1/git/default-branch": () =>
-      new Promise((ok) => pending.push(ok)),
+    "GET /v1/git/default-branch": () => new Promise((ok) => pending.push(ok)),
   });
   await run(() => s.p.openNewProject());
   await run(() => s.p.setNewProjectMode("git"));
@@ -568,7 +706,11 @@ test("the edit dialog starts from the project's values and the gateway's branche
     prMaxFixes: 3,
     autoMerge: true,
     autoContinue: true,
-    mainRepo: { name: "motita", source: "https://github.com/u/motita.git" },
+    mainRepo: {
+      name: "motita",
+      source: "https://github.com/u/motita.git",
+      movable: true,
+    },
     repos: PROJECT.repos,
   });
   await s.m.unmount();
@@ -578,7 +720,9 @@ test("a project with no settings yet gets the defaults", async () => {
   const s = await setup({
     "GET /v1/projects/p2/branches": res(200, {}),
   });
-  await run(() => s.p.openEditProject({ id: "p2", title: "Bare", dir: "/ws/bare/" }));
+  await run(() =>
+    s.p.openEditProject({ id: "p2", title: "Bare", dir: "/ws/bare/" }),
+  );
   await flush();
   assert.deepEqual(s.p.editProject, {
     id: "p2",
@@ -591,13 +735,17 @@ test("a project with no settings yet gets the defaults", async () => {
     prMaxFixes: 0,
     autoMerge: false,
     autoContinue: false,
-    mainRepo: { name: "bare", source: "/ws/bare/" },
+    mainRepo: { name: "bare", source: "/ws/bare/", movable: false },
     repos: [],
   });
   // A project at the root folder is shown by that folder.
   await run(() => s.p.openEditProject({ id: "p2", title: "Root", dir: "/" }));
   await flush();
-  assert.deepEqual(s.p.editProject.mainRepo, { name: "/", source: "/" });
+  assert.deepEqual(s.p.editProject.mainRepo, {
+    name: "/",
+    source: "/",
+    movable: false,
+  });
   await s.m.unmount();
 });
 
@@ -660,7 +808,10 @@ test("saving sends the dialog, reads the list again and says so", async () => {
   assert.equal(s.p.editProject, null);
   assert.equal(s.p.savingProject, false);
   assert.equal(s.counts.projects, 1);
-  assert.deepEqual(s.toasts.at(-1), { message: "Project saved", type: "success" });
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Project saved",
+    type: "success",
+  });
   await s.m.unmount();
 });
 
@@ -692,7 +843,11 @@ test("a blank title or a closed dialog saves nothing; a refused save says why", 
     await flush();
   }
   assert.deepEqual(s.toasts, [
-    { message: "Could not save the project", type: "error", detail: "title taken" },
+    {
+      message: "Could not save the project",
+      type: "error",
+      detail: "title taken",
+    },
     { message: "Could not save the project", type: "error", detail: undefined },
     { message: "Could not save the project", type: "error" },
   ]);
@@ -896,5 +1051,84 @@ test("deleting a project reads the lists again, or says why it was refused", asy
     ["could not delete the project", true],
   ]);
   assert.deepEqual(s.counts, { projects: 2, sessions: 2 });
+  await s.m.unmount();
+});
+
+test("the workspace catalog is read when a dialog with repositories opens", async () => {
+  const CATALOG = [
+    { name: "web", git_url: "u/web", dir: "/w/repos/web", projects: [] },
+  ];
+  let answer = res(200, { repos: CATALOG });
+  const s = await setup({
+    "GET /v1/repos": () => answer,
+    "GET /v1/projects/p1/branches": res(200, {}),
+  });
+  assert.equal(
+    callsTo(s, "GET /v1/repos").length,
+    0,
+    "nothing is read while no dialog is open",
+  );
+  await run(() => s.p.openNewProject());
+  await flush();
+  assert.deepEqual(s.p.repoCatalog, CATALOG);
+
+  // A refused answer keeps what the dialog had.
+  await run(() => s.p.closeNewProject());
+  answer = res(500, { error: "x" });
+  await run(() => s.p.openNewProject());
+  await flush();
+  assert.equal(callsTo(s, "GET /v1/repos").length, 2);
+  assert.deepEqual(s.p.repoCatalog, CATALOG);
+
+  // An answer with no list is an empty catalog.
+  await run(() => s.p.closeNewProject());
+  answer = res(200, {});
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  assert.deepEqual(s.p.repoCatalog, []);
+  await s.m.unmount();
+});
+
+test("a shared repository behind its main branch is brought up to date, or says why not", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/repos/api/sync": () => {
+      n++;
+      if (n === 1) {
+        return res(200, {
+          ...PROJECT,
+          repos: [{ ...PROJECT.repos[0], shared: true, behind: 0 }],
+        });
+      }
+      if (n === 2) {
+        return res(409, { error: "the folder has commits of its own" });
+      }
+      throw new Error("down");
+    },
+  });
+  await run(() =>
+    s.p.openEditProject({
+      ...PROJECT,
+      repos: [{ ...PROJECT.repos[0], shared: true, behind: 2 }],
+    }),
+  );
+  await flush();
+  assert.equal(s.p.editProject.repos[0].behind, 2);
+  await run(() => s.p.syncProjectRepo("api"));
+  assert.equal(s.p.repoBusy, "");
+  assert.equal(s.p.editProject.repos[0].behind, 0);
+  assert.equal(s.counts.projects, 1);
+  await run(() => s.p.syncProjectRepo("api"));
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not bring api up to date",
+    type: "error",
+    detail: "the folder has commits of its own",
+  });
+  await run(() => s.p.syncProjectRepo("api"));
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not bring api up to date",
+    type: "error",
+  });
+  assert.equal(s.p.repoBusy, "");
   await s.m.unmount();
 });

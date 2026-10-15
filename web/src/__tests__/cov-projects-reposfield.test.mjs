@@ -167,9 +167,7 @@ test("adding a repository: refused when not a URL or taken, emptied once added",
   // Refused by the caller: the field keeps the URL.
   await key(input, "Enter");
   await flush();
-  assert.deepEqual(added, [
-    { name: "web", git_url: "https://x.io/u/web.git" },
-  ]);
+  assert.deepEqual(added, [{ name: "web", git_url: "https://x.io/u/web.git" }]);
   assert.equal(input.value, "https://x.io/u/web.git");
 
   // A trailing slash is not part of the name.
@@ -205,4 +203,244 @@ test("in Spanish the block speaks Spanish", async () => {
   } finally {
     await setLang("en");
   }
+});
+
+test("a main repository that can move asks first, then moves", async () => {
+  const moved = [];
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      main: {
+        name: "motita",
+        source: "https://x.io/u/motita.git",
+        movable: true,
+      },
+      onMoveMain: () => moved.push("moved"),
+    }),
+  );
+  assert.equal(m.q("[data-testid=repo-main-ask]"), null);
+  await click(m.q("[data-testid=repo-main-remove]"));
+  assert.match(
+    m.q("[data-testid=repo-main-ask]").textContent,
+    /motita moves into its own folder/,
+  );
+  assert.equal(m.q("[data-testid=repo-main-remove]").disabled, true);
+  // Changing their mind moves nothing.
+  await click(
+    [...m.root.querySelectorAll("button")].find(
+      (b) => b.textContent === "Cancel",
+    ),
+  );
+  assert.equal(m.q("[data-testid=repo-main-ask]"), null);
+  assert.deepEqual(moved, []);
+  await click(m.q("[data-testid=repo-main-remove]"));
+  await click(m.q("[data-testid=repo-main-move]"));
+  assert.deepEqual(moved, ["moved"]);
+  assert.equal(m.q("[data-testid=repo-main-ask]"), null);
+  await m.unmount();
+});
+
+test("the main repository has no button when it cannot move, and spins while it does", async () => {
+  const fixed = await mount(
+    AppCtx,
+    null,
+    section({
+      main: { name: "notes", source: "/ws/notes", movable: false },
+      onMoveMain: () => {},
+    }),
+  );
+  assert.equal(fixed.q("[data-testid=repo-main-remove]"), null);
+  await fixed.unmount();
+
+  const noHandler = await mount(
+    AppCtx,
+    null,
+    section({ main: { name: "a", source: "u", movable: true } }),
+  );
+  assert.equal(noHandler.q("[data-testid=repo-main-remove]"), null);
+  await noHandler.unmount();
+
+  const busy = await mount(
+    AppCtx,
+    null,
+    section({
+      busy: "*",
+      main: { name: "a", source: "u", movable: true },
+      onMoveMain: () => {},
+    }),
+  );
+  assert.equal(busy.q("[data-testid=repo-main-remove]").disabled, true);
+  assert.ok(busy.q("[data-testid=repo-main-remove] svg"));
+  await busy.unmount();
+});
+
+test("the repositories the workspace already has are offered, except the ones the list has", async () => {
+  const added = [];
+  const catalog = [
+    {
+      name: "api",
+      git_url: "https://X.io/u/API.git/",
+      dir: "/w/repos/api",
+      projects: [],
+    },
+    {
+      name: "lib-2",
+      git_url: "https://x.io/o/lib.git",
+      dir: "/w/repos/lib-2",
+      projects: [],
+    },
+    { name: "odd", git_url: "host:", dir: "/w/repos/odd", projects: [] },
+    {
+      name: "web",
+      git_url: "https://x.io/u/web.git",
+      dir: "/w/repos/web",
+      projects: [],
+    },
+  ];
+  const props = {
+    main: null,
+    repos: [
+      { name: "api", git_url: "https://x.io/u/api" },
+      { name: "lib", git_url: "https://x.io/other/lib" },
+    ],
+    catalog,
+    onAdd: (d) => {
+      added.push(d);
+      return true;
+    },
+  };
+  const m = await mount(AppCtx, null, section(props));
+  const picks = m.qa("[data-testid=repo-catalog-pick]");
+  assert.deepEqual(
+    picks.map((b) => b.textContent),
+    ["+ odd", "+ web"],
+    "the same repository, or one whose name is taken, is not offered",
+  );
+  await click(picks[1]);
+  assert.deepEqual(added, [{ name: "web", git_url: "https://x.io/u/web.git" }]);
+  await m.rerender(null, section({ ...props, busy: "+" }));
+  assert.equal(m.q("[data-testid=repo-catalog-pick]").disabled, true);
+  await m.rerender(null, section({ ...props, catalog: catalog.slice(0, 2) }));
+  assert.equal(
+    m.q("[data-testid=repo-catalog]"),
+    null,
+    "nothing left to offer",
+  );
+  await m.unmount();
+});
+
+test("a repository other projects share says which ones", async () => {
+  const catalog = [
+    {
+      name: "api",
+      git_url: "u/api",
+      dir: "/w/repos/api",
+      projects: [
+        { id: "p1", title: "Shop" },
+        { id: "p2", title: "Admin" },
+        { id: "p3", title: "Docs" },
+      ],
+    },
+  ];
+  const repos = [
+    { name: "api", git_url: "u/api", dir: "/w/repos/api" },
+    { name: "own", git_url: "u/own", dir: "/w/shop/own" },
+  ];
+  const m = await mount(
+    AppCtx,
+    null,
+    h(RepoList, {
+      main: null,
+      repos,
+      busy: "",
+      catalog,
+      projectId: "p1",
+      onRemove() {},
+    }),
+  );
+  const also = m.qa("[data-testid=repo-also-in]");
+  assert.equal(also.length, 1);
+  assert.equal(also[0].textContent, "Also in Admin, Docs");
+  await m.unmount();
+});
+
+test("a shared repository behind its main branch says by how much", async () => {
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      main: null,
+      repos: [
+        {
+          name: "api",
+          git_url: "u/api",
+          branch: "project/shop",
+          behind: 3,
+          main_branch: "develop",
+        },
+        { name: "web", git_url: "u/web", behind: 1 },
+      ],
+    }),
+  );
+  const rows = m.qa("[data-testid=repo-row]");
+  assert.match(rows[0].textContent, /project\/shop · 3 behind develop/);
+  assert.match(rows[1].textContent, /1 behind main/);
+  await m.unmount();
+});
+
+test("a shared repository is marked, and one behind can be brought up to its main branch", async () => {
+  const synced = [];
+  const repos = [
+    {
+      name: "api",
+      git_url: "u/api",
+      shared: true,
+      behind: 2,
+      main_branch: "develop",
+    },
+    { name: "web", git_url: "u/web", shared: true, behind: 1 },
+    { name: "own", git_url: "u/own" },
+  ];
+  const props = { main: null, repos, onSync: (n) => synced.push(n) };
+  const m = await mount(AppCtx, null, section(props));
+  assert.equal(m.qa("[data-testid=repo-shared]").length, 2);
+  const sync = m.qa("[data-testid=repo-sync]");
+  assert.deepEqual(
+    sync.map((b) => b.textContent),
+    ["Bring up to develop", "Bring up to main"],
+  );
+  await click(sync[0]);
+  assert.deepEqual(synced, ["api"]);
+  await m.rerender(null, section({ ...props, busy: "api" }));
+  assert.equal(m.q("[data-testid=repo-sync]").disabled, true);
+  await m.rerender(null, section({ ...props, onSync: undefined }));
+  assert.equal(
+    m.q("[data-testid=repo-sync]"),
+    null,
+    "the New project dialog has none",
+  );
+  await m.unmount();
+});
+
+test("a URL the workspace already has says it is not cloned again", async () => {
+  const catalog = [
+    {
+      name: "api",
+      git_url: "https://x.io/u/api.git",
+      dir: "/w/repos/api",
+      projects: [],
+    },
+  ];
+  const m = await mount(AppCtx, null, section({ main: null, catalog }));
+  const input = m.q("[data-testid=repo-add-url]");
+  assert.equal(m.q("[data-testid=repo-add-known]"), null);
+  await type(input, "https://X.io/u/api/");
+  assert.equal(
+    m.q("[data-testid=repo-add-known]").textContent,
+    "Already in your workspace: it is not cloned again.",
+  );
+  await type(input, "https://x.io/u/new.git");
+  assert.equal(m.q("[data-testid=repo-add-known]"), null);
+  await m.unmount();
 });

@@ -13,6 +13,7 @@ import {
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
 import type {
+  CatalogRepo,
   EditProjectDraft,
   GitConnectRequest,
   ProjectInfo,
@@ -20,7 +21,13 @@ import type {
   SetToast,
   Toast,
 } from "./appTypes";
-import { mainRepoOf, reposOf, type RepoDraft } from "./projectRepos";
+import {
+  shownMainOf,
+  repoDraftOf,
+  repoFolderOf,
+  reposOf,
+  type RepoDraft,
+} from "./projectRepos";
 import type { RepoConflict } from "./ReposField";
 import {
   BRANCH_LOOKUP_DELAY_MS,
@@ -32,7 +39,7 @@ import {
   PROJECTS_PATH,
 } from "./appConst";
 
-type NewProjectMode = null | "empty" | "git";
+type NewProjectMode = null | "empty" | "git" | "multi";
 
 // draftOf is what the edit dialog starts from: the project's own values.
 function draftOf(p: ProjectInfo): EditProjectDraft {
@@ -47,7 +54,7 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     prMaxFixes: p.pr_max_fixes ?? 0,
     autoMerge: p.auto_merge === true,
     autoContinue: p.auto_continue === true,
-    mainRepo: mainRepoOf(p),
+    mainRepo: shownMainOf(p),
     repos: reposOf(p),
   };
 }
@@ -57,6 +64,8 @@ async function errorOf(res: Response): Promise<string> {
   const err = await res.json().catch(() => ({}));
   return err.error || "";
 }
+
+const nameOf = (r: { name: string }) => r.name;
 
 // addRepoTo clones one more repository into a project, and answers the project as it is now, or
 // the gateway's reason when it was refused.
@@ -95,7 +104,7 @@ function useProjectRepos(
       if (prev?.id !== p.id) {
         return prev;
       }
-      return { ...prev, repos: reposOf(p) };
+      return { ...prev, repos: reposOf(p), mainRepo: shownMainOf(p) };
     });
     void fetchProjects();
   };
@@ -168,7 +177,99 @@ function useProjectRepos(
     [id],
   );
 
-  return { repoBusy, repoConflict, addProjectRepo, removeProjectRepo };
+  // detachProjectMain moves the main repository into a folder of its own; the project's folder
+  // then only holds repositories. Nothing is deleted, so there is nothing to confirm after the ask.
+  const detachProjectMain = useCallback(async () => {
+    setRepoBusy("*");
+    try {
+      const res = await api(PROJECTS_PATH + encodeURIComponent(id) + "/main", {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setToast({
+          message: t("Could not move the main repository"),
+          type: "error",
+          detail: await errorOf(res),
+        });
+        return;
+      }
+      settle(await res.json());
+    } catch {
+      setToast({
+        message: t("Could not move the main repository"),
+        type: "error",
+      });
+    } finally {
+      setRepoBusy("");
+    }
+  }, [id]);
+
+  // syncProjectRepo brings a shared repository's folder up to the main branch the other projects
+  // integrate into. A folder with work of its own is refused, with the gateway's reason.
+  const syncProjectRepo = useCallback(
+    async (name: string) => {
+      setRepoBusy(name);
+      try {
+        const res = await api(
+          PROJECTS_PATH +
+            encodeURIComponent(id) +
+            "/repos/" +
+            encodeURIComponent(name) +
+            "/sync",
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          setToast({
+            message: tf("Could not bring {name} up to date", { name }),
+            type: "error",
+            detail: await errorOf(res),
+          });
+          return;
+        }
+        settle(await res.json());
+      } catch {
+        setToast({
+          message: tf("Could not bring {name} up to date", { name }),
+          type: "error",
+        });
+      } finally {
+        setRepoBusy("");
+      }
+    },
+    [id],
+  );
+
+  return {
+    repoBusy,
+    repoConflict,
+    addProjectRepo,
+    removeProjectRepo,
+    detachProjectMain,
+    syncProjectRepo,
+  };
+}
+
+// useRepoCatalog is the workspace catalog: the repositories already cloned there, which a project
+// adds without cloning them again. It is read when a dialog that lists repositories opens, and
+// again each time the edit dialog's list changes.
+function useRepoCatalog(api: Api, open: boolean, version: unknown) {
+  const [repoCatalog, setRepoCatalog] = useState<CatalogRepo[]>([]);
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    api("/v1/repos")
+      .then(async (res) => {
+        if (res.ok) {
+          const d: { repos?: CatalogRepo[] } = await res.json();
+          setRepoCatalog(d.repos ?? []);
+        }
+      })
+      .catch(() => {
+        /* without the catalog, a repository is added by its URL */
+      });
+  }, [open, version]);
+  return { repoCatalog };
 }
 
 // withBranches puts what the gateway says about a project's branches into the edit dialog.
@@ -417,6 +518,8 @@ function useGitHosts(
   // `after` says what to do once the host is connected: pick a repository, or send the create again.
   const [gitConnect, setGitConnect] = useState<GitConnectRequest | null>(null);
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  // What the picker fills: the project's main repository, or one more of its repositories.
+  const [pickForOthers, setPickForOthers] = useState(false);
   const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null);
   const [gitRev, setGitRev] = useState(0);
 
@@ -464,7 +567,14 @@ function useGitHosts(
     [gitConnect],
   );
 
-  const closeRepoPicker = useCallback(() => setShowRepoPicker(false), []);
+  const closeRepoPicker = useCallback(() => {
+    setShowRepoPicker(false);
+    setPickForOthers(false);
+  }, []);
+  const openOtherRepoPicker = useCallback(() => {
+    setPickForOthers(true);
+    setShowRepoPicker(true);
+  }, []);
   const connectAnother = useCallback(
     () => setGitConnect({ after: "picker" }),
     [],
@@ -483,6 +593,9 @@ function useGitHosts(
     showRepoPicker,
     setShowRepoPicker,
     closeRepoPicker,
+    pickForOthers,
+    setPickForOthers,
+    openOtherRepoPicker,
     connectAnother,
     pickerAuthRequired,
     gitAccounts,
@@ -787,9 +900,14 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const createProjectRef = useRef<() => void>(() => {});
   const git = useGitHosts(
     api,
-    form.showNewProject,
+    form.showNewProject || !!edit.editProject,
     setToast,
     createProjectRef,
+  );
+  const catalog = useRepoCatalog(
+    api,
+    form.showNewProject || !!edit.editProject,
+    edit.editProject?.repos,
   );
   const remoteMain = useRemoteMain(api, form);
   const runtimes = useRuntimes(api, form.showNewProject);
@@ -814,15 +932,47 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectTitle,
     setNewProjectDesc,
   } = form;
-  const { setShowRepoPicker } = git;
-  const pickRepo = useCallback((r: GitRepo) => {
+  const { setShowRepoPicker, pickForOthers, setPickForOthers } = git;
+  const { newProjectRepos, addNewProjectRepo } = form;
+  const { editProject, addProjectRepo } = edit;
+  const pickRepo = useCallback(
+    (r: GitRepo) => {
+      if (pickForOthers) {
+        pickOtherRepo(r);
+      } else {
+        pickMainRepo(r);
+      }
+      setPickForOthers(false);
+      setShowRepoPicker(false);
+    },
+    [pickForOthers, newProjectRepos, form.newProjectGit, editProject],
+  );
+  // pickOtherRepo adds a repository the user chose to the project's other repositories, unless
+  // the project already has one by that name.
+  function pickOtherRepo(r: GitRepo) {
+    // The edit dialog adds it to the project at once; the New project one, to its list.
+    const taken = choose(
+      editProject,
+      [editProject?.mainRepo?.name, ...(editProject?.repos ?? []).map(nameOf)],
+      [repoFolderOf(form.newProjectGit), ...newProjectRepos.map(nameOf)],
+    );
+    const draft = repoDraftOf(r.clone_url);
+    if (draft && !taken.includes(draft.name)) {
+      choose(editProject, addProjectRepo, addNewProjectRepo)(draft);
+    } else {
+      setToast({
+        message: t("The project already has a repository with that name."),
+        type: "warning",
+      });
+    }
+  }
+  function pickMainRepo(r: GitRepo) {
     const name = repoShortName(r);
     setNewProjectMode("git");
     setNewProjectGit(r.clone_url);
     setNewProjectTitle((prev) => choose(prev.trim(), prev, name));
     setNewProjectDesc((prev) => choose(prev.trim(), prev, r.description || ""));
-    setShowRepoPicker(false);
-  }, []);
+  }
 
   return {
     showNewProject: form.showNewProject,
@@ -856,6 +1006,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     gitUserEmail: form.gitUserEmail,
     setGitUserEmail: form.setGitUserEmail,
     ...git,
+    ...catalog,
     pickRepo,
     creatingProject: form.creatingProject,
     createProject,

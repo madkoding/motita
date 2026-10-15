@@ -74,8 +74,14 @@ test("a project with no sessions says so, and its header folds the list", async 
   const hit = m.q(".row-hit");
   assert.equal(hit.getAttribute("aria-expanded"), "true");
   assert.equal(hit.getAttribute("title"), null, "nothing to say about it");
-  assert.equal(m.q(".project-chevron").classList.contains("is-collapsed"), false);
-  assert.equal(m.q(".project-sessions").classList.contains("is-collapsed"), false);
+  assert.equal(
+    m.q(".project-chevron").classList.contains("is-collapsed"),
+    false,
+  );
+  assert.equal(
+    m.q(".project-sessions").classList.contains("is-collapsed"),
+    false,
+  );
   await click(hit);
   assert.deepEqual(s.log, [["toggle", "p1"]]);
   await m.unmount();
@@ -197,7 +203,33 @@ test("a long press on the header opens the context menu where the finger is", as
     t.mock.timers.tick(500);
   });
   assert.deepEqual(s.log, [
-    ["contextMenu", { type: "project", id: "p1", title: "Motita", x: 12, y: 34 }],
+    [
+      "contextMenu",
+      { type: "project", id: "p1", title: "Motita", x: 12, y: 34 },
+    ],
   ]);
+  await m.unmount();
+});
+
+test("the facts line counts the shared repositories left behind their main branch", async () => {
+  const s = store();
+  const repos = [
+    { name: "api", git_url: "u/api", dir: "/w/repos/api", behind: 2 },
+    { name: "web", git_url: "u/web", dir: "/w/repos/web" },
+    { name: "docs", git_url: "u/docs", dir: "/w/repos/docs", behind: 1 },
+  ];
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...P, repos } }),
+  );
+  const fact = m.q("[data-testid=project-behind]");
+  assert.equal(fact.textContent, "behind2");
+  assert.equal(fact.title, "Behind their main branch: api, docs");
+  await m.rerender(
+    s.value,
+    h(ProjectGroup, { p: { ...P, repos: repos.slice(1, 2) } }),
+  );
+  assert.equal(m.q("[data-testid=project-behind]"), null);
   await m.unmount();
 });

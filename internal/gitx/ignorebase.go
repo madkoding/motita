@@ -47,9 +47,9 @@ var ignoreBase = []struct {
 	{[]string{"mix.exs"}, []string{"_build/", "deps/"}},
 }
 
-// ReposDir is the folder, at the root of a project's checkout and of each session's worktree,
-// that holds the project's OTHER repositories: one checkout of each, by name. It is ignored, so
-// the repository that holds it never reports another repository as its own change.
+// ReposDir is where the project's OTHER repositories were cloned before they became plain
+// folders of the project (`<project>/<name>`). Projects that have some there keep them there; the
+// folder stays ignored.
 const ReposDir = ".motita-repos"
 
 // ignoreEverywhere is the editor and OS litter that belongs in no project, the home of the
@@ -192,10 +192,30 @@ func ignoreBlock(repoDir, gitignore string) string {
 	for _, p := range ignoreEverywhere {
 		add(p)
 	}
+	for _, name := range nestedRepos(repoDir) {
+		add("/" + name + "/")
+	}
 	for _, l := range strings.Split(gitignore, "\n") {
 		add(l)
 	}
 	return ignoreBlockBegin + "\n" + strings.Join(lines, "\n") + "\n" + ignoreBlockEnd + "\n"
+}
+
+// nestedRepos are the folders at the root of repoDir that are repositories of their own: the other
+// repositories of a project, cloned next to its files. The repository that holds them must not
+// report them as its own change. A name git would read as a pattern is left out.
+func nestedRepos(repoDir string) []string {
+	var names []string
+	entries, _ := os.ReadDir(repoDir)
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || strings.ContainsAny(e.Name(), "*?[]!#\\ \t") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(repoDir, e.Name(), ".git")); err == nil {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }
 
 // replaceIgnoreBlock puts block in text: over the managed block when there is one, at the end

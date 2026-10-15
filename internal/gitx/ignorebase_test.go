@@ -336,3 +336,30 @@ func TestIgnoreBaseHidesTheProjectsOtherRepositories(t *testing.T) {
 		t.Errorf("the folder of the project's other repositories must be ignored")
 	}
 }
+
+func TestNestedRepositoriesAreIgnored(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"api", "web client", ".hidden", "odd*name", "plain"} {
+		if err := os.MkdirAll(filepath.Join(dir, name, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "file"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "plain", ".git")); err != nil {
+		t.Fatal(err)
+	}
+	block := ignoreBlock(dir, "")
+	if !strings.Contains(block, "\n/api/\n") {
+		t.Errorf("a folder that is a repository is ignored: %q", block)
+	}
+	for _, not := range []string{"web client", ".hidden", "odd*name", "/docs/", "/plain/", "/file/"} {
+		if strings.Contains(block, not) {
+			t.Errorf("%q must not be ignored: %q", not, block)
+		}
+	}
+}

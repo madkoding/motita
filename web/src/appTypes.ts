@@ -125,7 +125,7 @@ export interface ProjectInfo {
   repos?: ProjectRepoInfo[];
 }
 
-// ProjectRepoInfo is one of a project's other repositories, cloned inside its folder.
+// ProjectRepoInfo is one of a project's other repositories, a folder inside the project's.
 export interface ProjectRepoInfo {
   name: string;
   git_url: string;
@@ -133,6 +133,21 @@ export interface ProjectRepoInfo {
   main_branch?: string;
   branch?: string;
   changes?: number;
+  // shared: dir is the workspace catalog's clone, which other projects may use too.
+  shared?: boolean;
+  // behind counts the commits of the main branch the project's folder of a shared one lacks.
+  behind?: number;
+}
+
+// CatalogRepo is one repository of the workspace catalog: cloned once, used by any number of
+// projects.
+export interface CatalogRepo {
+  name: string;
+  git_url: string;
+  dir: string;
+  projects: { id: string; title: string }[];
+  // size is what the clone takes on disk, in bytes.
+  size?: number;
 }
 
 export interface ConfigView {
@@ -312,7 +327,7 @@ export interface EditProjectDraft {
   autoMerge: boolean;
   autoContinue: boolean;
   // The repositories, which change at once rather than on Save: adding one clones it.
-  mainRepo: { name: string; source: string };
+  mainRepo: { name: string; source: string; movable?: boolean } | null;
   repos: ProjectRepoInfo[];
 }
 
