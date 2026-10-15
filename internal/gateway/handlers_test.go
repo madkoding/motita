@@ -143,18 +143,17 @@ func TestReasoningIsSet(t *testing.T) {
 	}
 }
 
-// The level is passed through VERBATIM, including the empty string: validating the vocabulary is
-// the runner's job (it cycles a fixed list) and a transport that second-guessed it would be a
-// second place the valid levels live.
-func TestReasoningPassesTheLevelThrough(t *testing.T) {
-	svc := &fakeService{}
+// An empty level is refused and changes nothing: it is not a level the agent knows, and saving it
+// would replace a chosen level with nothing on the next restart.
+func TestReasoningRefusesAnEmptyLevel(t *testing.T) {
+	svc := &fakeService{reasoning: "high"}
 	srv := newTestServer(t, svc)
 	if w := post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":""}`,
-		testToken); w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d", w.Code)
+		testToken); w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
-	if svc.reasoning != "" {
-		t.Errorf("level = %q, want it passed through as given", svc.reasoning)
+	if svc.reasoning != "high" {
+		t.Errorf("level = %q, want the previous one kept", svc.reasoning)
 	}
 }
 
@@ -239,8 +238,8 @@ func registerOtherSession(t *testing.T, srv *Server, id string) string {
 	return id
 }
 
-// TestAnEmptyLevelDoesNotEraseTheStoredOne: the transport passes an empty level through (see
-// TestReasoningPassesTheLevelThrough), and a save that recorded that empty string would replace a
+// TestAnEmptyLevelDoesNotEraseTheStoredOne: an empty level is refused (see
+// TestReasoningRefusesAnEmptyLevel), and a save that recorded that empty string would replace a
 // real level with nothing on the next restart. The record is left alone instead.
 func TestAnEmptyLevelDoesNotEraseTheStoredOne(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sessions")
