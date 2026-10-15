@@ -40,7 +40,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
@@ -66,7 +66,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
@@ -95,7 +95,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}

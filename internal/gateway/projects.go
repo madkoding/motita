@@ -739,7 +739,7 @@ var ErrProjectNotFound = errors.New("there is no project with that id")
 // agent's progress and the final summary in the chat.
 func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
@@ -812,7 +812,7 @@ func (s *Server) handleContinueSession(w http.ResponseWriter, r *http.Request) {
 // continueFrom opens a new session from a merged one, in a worktree of the project's updated base
 // branch. The status is what to answer when it cannot.
 func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversation, int, error) {
-	if !c.merged {
+	if !c.isMerged() {
 		return nil, http.StatusConflict, errors.New("this session has not been integrated yet; merge it first")
 	}
 	if c.workspace == "" || c.projectID == "" {
