@@ -138,22 +138,26 @@ func (p *Planner) toolExecuteCommand(ctx context.Context, raw []byte) string {
 	toolCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	if p.steps != nil {
+		p.steps.Command(command)
+	}
 	output, exit, err := p.runner.RunCommand(toolCtx, command)
 	output = limitString(output, maxToolOutputBytes)
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "$ %s\n", command)
+	var body strings.Builder
 	if err != nil {
-		fmt.Fprintf(&sb, "Execution error: %v\n", err)
+		fmt.Fprintf(&body, "Execution error: %v\n", err)
 	}
 	if output != "" {
-		sb.WriteString(output)
+		body.WriteString(output)
 		if !strings.HasSuffix(output, "\n") {
-			sb.WriteString("\n")
+			body.WriteString("\n")
 		}
 	}
-	fmt.Fprintf(&sb, "[exit=%d]", exit)
-	return sb.String()
+	if p.steps != nil {
+		p.steps.Output(exit, strings.TrimSpace(body.String()))
+	}
+	return fmt.Sprintf("$ %s\n%s[exit=%d]", command, body.String(), exit)
 }
 
 // searchInFilesArgs are the arguments for search_in_files.
