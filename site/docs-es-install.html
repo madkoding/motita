@@ -90,5 +90,15 @@ irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
         <a href="https://github.com/madkoding/motita">GitHub</a>
       </div>
     </footer>
+    <script>
+      // Remember the language picked here, so the home page opens in it too.
+      document.querySelector("a.lang").addEventListener("click", function () {
+        try {
+          localStorage.setItem("motita-lang", this.getAttribute("hreflang"));
+        } catch (e) {
+          // blocked storage: the choice just does not carry over
+        }
+      });
+    </script>
   </body>
 </html>

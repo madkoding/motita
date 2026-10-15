@@ -379,6 +379,20 @@
         transform-origin: left;
         transition: transform 0.3s var(--ease-out);
       }
+      nav .lang-switch {
+        font: inherit;
+        font-size: 0.875rem;
+        color: var(--fg);
+        background: transparent;
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        padding: 4px 12px;
+        min-height: 32px;
+        cursor: pointer;
+      }
+      nav .lang-switch:hover {
+        border-color: var(--accent);
+      }
       nav a:hover {
         color: var(--fg);
         text-decoration: none;
@@ -1824,11 +1838,11 @@
     </style>
   </head>
   <body>
-    <a class="skip" href="#main">Skip to content</a>
+    <a data-es="Saltar al contenido" class="skip" href="#main">Skip to content</a>
 
     <header>
       <div class="wrap bar">
-        <a class="brand" href="#top" aria-label="Motita, back to the top"
+        <a translate="no" class="brand" href="#top" aria-label="Motita, back to the top" data-es-aria-label="Motita, volver arriba"
           ><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true">
             <g
               stroke="currentColor"
@@ -1859,17 +1873,17 @@
             </g></svg
           >Motita</a
         >
-        <nav aria-label="Sections">
-          <a href="#demo">See it work</a>
-          <a href="#tour">Tour</a>
-          <a href="#uses">What it does</a>
-          <a href="#how">How it works</a>
-          <a href="#providers">Models</a>
-          <a href="#guardrails">Safety</a>
-          <a href="#run">Run it</a>
-          <a href="docs.html">Docs</a>
-          <a href="REFERENCE.md">Reference</a>
-          <a class="gh" href="https://github.com/madkoding/motita">
+        <nav aria-label="Sections" data-es-aria-label="Secciones">
+          <a data-es="Demo" href="#demo">See it work</a>
+          <a data-es="Recorrido" href="#tour">Tour</a>
+          <a data-es="Qué hace" href="#uses">What it does</a>
+          <a data-es="Cómo funciona" href="#how">How it works</a>
+          <a data-es="Modelos" href="#providers">Models</a>
+          <a data-es="Seguridad" href="#guardrails">Safety</a>
+          <a data-es="Usarlo" href="#run">Run it</a>
+          <a data-es="Docs" href="docs.html">Docs</a>
+          <a data-es="Referencia" href="REFERENCE.md">Reference</a>
+          <a translate="no" class="gh" href="https://github.com/madkoding/motita">
             <svg
               width="15"
               height="15"
@@ -1883,6 +1897,16 @@
             </svg>
             GitHub
           </a>
+        <button
+          type="button"
+          class="lang-switch"
+          id="lang-switch"
+          translate="no"
+          lang="es"
+          aria-label="Leer en español"
+        >
+          Español
+        </button>
         </nav>
       </div>
       <span class="meter" aria-hidden="true"></span>
@@ -1898,10 +1922,13 @@
              fallback so an unfilled marker is obvious in a local render. -->
             <span class="pill"
               ><span class="dot" aria-hidden="true"></span>
-              <span data-motita-version>v0.0.0</span> · free &amp; open source ·
-              zero dependencies</span
+              <span data-motita-version>v0.0.0</span
+            ><span
+              data-es=" · gratis y de código abierto · cero dependencias"
+              > · free &amp; open source · zero dependencies</span
+            ></span
             >
-            <p class="hero-title">
+            <p translate="no" class="hero-title">
               <svg
                 viewBox="0 0 32 32"
                 width="34"
@@ -1937,7 +1964,7 @@
                 </g></svg
               >Motita
             </p>
-            <h1 aria-label="The AI agent that proves it's done.">
+            <h1 data-es="&lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.05s&quot;&gt;El&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.12s&quot;&gt;agente&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.19s&quot;&gt;de&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.26s&quot;&gt;IA&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.33s&quot;&gt;que&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.4s&quot;&gt;&lt;em&gt;demuestra&lt;/em&gt;&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.46s&quot;&gt;que&lt;/span&gt; &lt;span class=&quot;w&quot; style=&quot;animation-delay: 0.6s&quot;&gt;terminó.&lt;/span&gt;" aria-label="The AI agent that proves it's done." data-es-aria-label="El agente de IA que demuestra que terminó.">
               <span class="w" style="animation-delay: 0.05s">The</span>
               <span class="w" style="animation-delay: 0.12s">AI</span>
               <span class="w" style="animation-delay: 0.19s">agent</span>
@@ -1948,14 +1975,14 @@
               <span class="w" style="animation-delay: 0.52s">it's</span>
               <span class="w" style="animation-delay: 0.6s">done.</span>
             </h1>
-            <p class="lede">
+            <p data-es="Dile lo que necesitas con palabras simples. motita escribe el cambio, &lt;strong&gt;ejecuta tus pruebas reales&lt;/strong&gt;, lee los fallos, los corrige, y solo dice “listo” cuando la verificación pasa. Se acabó el “en mi máquina funcionaba” de un chatbot." class="lede">
               Tell it what you need in plain words. motita writes the change,
               <strong>runs your real tests</strong>, reads the failures, fixes
               them — and only says “done” when the check passes. No more “it
               worked on my end” from a chatbot.
             </p>
             <div class="ctas">
-              <a class="btn primary" href="#install"
+              <a data-es="Instalar en una línea {svg}" class="btn primary" href="#install"
                 >Install in one line
                 <svg
                   width="16"
@@ -1968,7 +1995,7 @@
                 >
                   <path d="M3 8h10M9 4l4 4-4 4" /></svg
               ></a>
-              <a class="btn" href="#demo"
+              <a data-es="Verlo trabajar {svg}" class="btn" href="#demo"
                 >Watch it work
                 <svg
                   width="16"
@@ -1981,7 +2008,7 @@
               ></a>
             </div>
             <ul class="perks">
-              <li>
+              <li data-es="{svg}Usa el plan de IA que ya pagas">
                 <svg
                   width="14"
                   height="14"
@@ -1994,7 +2021,7 @@
                   <path d="M2 8.5l4 4 8-9" /></svg
                 >Uses the AI plan you already pay for
               </li>
-              <li>
+              <li data-es="{svg}Un solo archivo, nada más que instalar">
                 <svg
                   width="14"
                   height="14"
@@ -2007,7 +2034,7 @@
                   <path d="M2 8.5l4 4 8-9" /></svg
                 >One file, nothing else to install
               </li>
-              <li>
+              <li data-es="{svg}Pregunta antes de cualquier riesgo">
                 <svg
                   width="14"
                   height="14"
@@ -2033,16 +2060,16 @@
                 width="1600"
                 height="1000"
                 fetchpriority="high"
-                alt="The motita browser interface after a real task: a DONE badge, 3 of 3 checks passed, the two files it changed, how each change was verified, a risk worth knowing and the next steps."
+                alt="The motita browser interface after a real task: a DONE badge, 3 of 3 checks passed, the two files it changed, how each change was verified, a risk worth knowing and the next steps." data-es-alt="La interfaz de navegador de motita tras una tarea real: una insignia LISTO, 3 de 3 verificaciones aprobadas, los dos archivos que cambió, cómo se verificó cada cambio, un riesgo que conviene conocer y los siguientes pasos."
               />
             </div>
-            <div class="float f1" aria-hidden="true">
+            <div data-es="&lt;b&gt;✕ intento 1&lt;/b&gt; go test: undefined: json" class="float f1" aria-hidden="true">
               <b>✕ attempt 1</b> go test: undefined: json
             </div>
-            <div class="float f2" aria-hidden="true">
+            <div data-es="&lt;b&gt;✓ intento 2&lt;/b&gt; go test ./... ok" class="float f2" aria-hidden="true">
               <b>✓ attempt 2</b> go test ./... ok
             </div>
-            <div class="float f3" aria-hidden="true">
+            <div data-es="&lt;b&gt;◆ LISTO&lt;/b&gt; 3/3 verificaciones · 2 archivos" class="float f3" aria-hidden="true">
               <b>◆ DONE</b> 3/3 checks · 2 files
             </div>
           </div>
@@ -2056,9 +2083,9 @@
           <div
             class="tabs"
             role="tablist"
-            aria-label="Install command by platform"
+            aria-label="Install command by platform" data-es-aria-label="Comando de instalación por plataforma"
           >
-            <button
+            <button translate="no"
               class="tab"
               type="button"
               role="tab"
@@ -2068,7 +2095,7 @@
             >
               Linux &middot; macOS
             </button>
-            <button
+            <button translate="no"
               class="tab"
               type="button"
               role="tab"
@@ -2092,7 +2119,7 @@
                 >curl -fsSL https://motita.kodingvibes.com/install.sh |
                 sh</code
               >
-              <button class="copy" type="button" data-copy="install-cmd">
+              <button translate="no" class="copy" type="button" data-copy="install-cmd">
                 Copy
               </button>
             </div>
@@ -2109,7 +2136,7 @@
               <code id="install-cmd-windows"
                 >irm https://motita.kodingvibes.com/install.ps1 | iex</code
               >
-              <button
+              <button translate="no"
                 class="copy"
                 type="button"
                 data-copy="install-cmd-windows"
@@ -2132,7 +2159,7 @@
             </div>
           </noscript>
           <output class="sr" id="copy-status"></output>
-          <p class="hero-note">
+          <p data-es="Luego escribe &lt;code&gt;motita&lt;/code&gt;. Un asistente de un minuto conecta tu IA y encuentra las pruebas de tu proyecto. Un binario estático, sin Docker ni runtime. Incluso corre en un netbook de 2008 con 484 MB de RAM." class="hero-note">
             Then type <code>motita</code>. A one-minute wizard connects your AI
             and finds your project's tests. One static binary — no Docker, no
             runtime. It even runs on a 2008 netbook with 484 MB of RAM.
@@ -2142,11 +2169,11 @@
 
       <section id="demo">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>See it work</p>
-          <h2 data-reveal>
+          <p data-es="Míralo trabajar" class="eyebrow" data-reveal>See it work</p>
+          <h2 data-es="Se equivoca. Luego &lt;em&gt;demuestra&lt;/em&gt; que lo hizo bien." data-reveal>
             It gets it wrong. Then it <em>proves</em> it got it right.
           </h2>
-          <p class="sub">
+          <p data-es="motita agrega una opción &lt;code&gt;--json&lt;/code&gt; a una CLI pequeña. El primer intento no compila, &lt;strong&gt;la verificación real lo detecta&lt;/strong&gt; y el segundo intento pasa." class="sub">
             motita adds a <code>--json</code> flag to a small CLI. The first try
             doesn't compile, <strong>the real check catches it</strong>, and the
             second try passes.
@@ -2154,39 +2181,39 @@
 
           <div class="replay" data-reveal>
             <ol class="rail" id="rail">
-              <li data-step="0"><b>You ask</b>in plain words</li>
-              <li data-step="1">
+              <li data-es="&lt;b&gt;Tú pides&lt;/b&gt;con palabras simples" data-step="0"><b>You ask</b>in plain words</li>
+              <li data-es="&lt;b&gt;Planifica&lt;/b&gt;y anota qué significa “listo”" data-step="1">
                 <b>It plans</b>and writes down what “done” means
               </li>
-              <li data-step="2">
+              <li data-es="&lt;b&gt;Lee y luego edita&lt;/b&gt;archivos reales, con precisión" data-step="2">
                 <b>It reads, then edits</b>real files, exactly
               </li>
-              <li data-step="3" class="bad">
+              <li data-es="&lt;b&gt;La verificación falla&lt;/b&gt;y el error real vuelve al agente" data-step="3" class="bad">
                 <b>The check fails</b>and the real error goes back
               </li>
-              <li data-step="4"><b>It fixes the cause</b>not the symptom</li>
-              <li data-step="5" class="good">
+              <li data-es="&lt;b&gt;Arregla la causa&lt;/b&gt;no el síntoma" data-step="4"><b>It fixes the cause</b>not the symptom</li>
+              <li data-es="&lt;b&gt;La verificación pasa&lt;/b&gt;— solo ahora está listo" data-step="5" class="good">
                 <b>The check passes</b>— only now is it done
               </li>
-              <li data-step="6">
+              <li data-es="&lt;b&gt;Recibes un informe&lt;/b&gt;qué cambió y cómo se comprobó" data-step="6">
                 <b>You get a report</b>what changed, how it was proven
               </li>
             </ol>
             <figure
               class="term"
-              aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report."
+              aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report." data-es-aria-label="Una repetición de una ejecución real de motita: la tarea, el plan, las ediciones, una verificación fallida, el arreglo, la verificación aprobada y el informe."
             >
               <div class="term-bar">
-                <span>motita · notes</span><span>openai / gpt-5.1-codex</span
-                ><span class="live" id="live"><i></i>live</span
-                ><button class="replay-btn" type="button" id="replay">
+                <span data-es="motita · notas">motita · notes</span><span translate="no">openai / gpt-5.1-codex</span
+                ><span data-es="&lt;i&gt;&lt;/i&gt;en vivo" class="live" id="live"><i></i>live</span
+                ><button data-es="↻ repetir" class="replay-btn" type="button" id="replay">
                   ↻ replay
                 </button>
               </div>
               <div class="term-body" id="term" aria-hidden="true"></div>
             </figure>
           </div>
-          <p class="replay-note">
+          <p data-es="Reproducido de una ejecución real: los comandos, el error y el informe son los de las capturas de abajo." class="replay-note">
             Replayed from a real run — the commands, the error and the report
             are the ones in the screenshots below.
           </p>
@@ -2195,15 +2222,15 @@
 
       <section id="tour">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>A tour of the real thing</p>
-          <h2 data-reveal>Nothing here is a mock-up. It's the app.</h2>
-          <p class="sub">
+          <p data-es="Un recorrido por lo real" class="eyebrow" data-reveal>A tour of the real thing</p>
+          <h2 data-es="Nada de esto es una maqueta. Es la aplicación." data-reveal>Nothing here is a mock-up. It's the app.</h2>
+          <p data-es="El mismo binario te da una app de navegador, una app de teléfono y una app de terminal. Cada pantalla de abajo se capturó con motita ejecutando esa tarea." class="sub">
             The same binary gives you a browser app, a phone app and a terminal
             app. Every screen below was captured from motita running that task.
           </p>
 
           <div class="tour" data-reveal>
-            <div class="tour-list" role="tablist" aria-label="Screens">
+            <div class="tour-list" role="tablist" aria-label="Screens" data-es-aria-label="Pantallas">
               <button
                 class="tour-tab"
                 role="tab"
@@ -2212,7 +2239,7 @@
                 aria-controls="tp-report"
                 aria-selected="true"
               >
-                <b>The report</b><span>Evidence, not adjectives</span
+                <b data-es="El informe">The report</b><span data-es="Evidencia, no adjetivos">Evidence, not adjectives</span
                 ><i class="prog" aria-hidden="true"></i>
               </button>
               <button
@@ -2224,7 +2251,7 @@
                 aria-selected="false"
                 tabindex="-1"
               >
-                <b>Its thinking</b><span>Watch the plan form</span
+                <b data-es="Su razonamiento">Its thinking</b><span data-es="Mira cómo se forma el plan">Watch the plan form</span
                 ><i class="prog" aria-hidden="true"></i>
               </button>
               <button
@@ -2236,7 +2263,7 @@
                 aria-selected="false"
                 tabindex="-1"
               >
-                <b>Every command</b><span>Nothing happens in secret</span
+                <b data-es="Cada comando">Every command</b><span data-es="Nada ocurre en secreto">Nothing happens in secret</span
                 ><i class="prog" aria-hidden="true"></i>
               </button>
               <button
@@ -2248,7 +2275,7 @@
                 aria-selected="false"
                 tabindex="-1"
               >
-                <b>It asks first</b><span>When it matters</span
+                <b data-es="Pregunta primero">It asks first</b><span data-es="Cuando importa">When it matters</span
                 ><i class="prog" aria-hidden="true"></i>
               </button>
               <button
@@ -2260,7 +2287,7 @@
                 aria-selected="false"
                 tabindex="-1"
               >
-                <b>In your terminal</b><span>Same agent, keyboard-first</span
+                <b data-es="En tu terminal">In your terminal</b><span data-es="El mismo agente, con el teclado primero">Same agent, keyboard-first</span
                 ><i class="prog" aria-hidden="true"></i>
               </button>
               <button
@@ -2272,7 +2299,7 @@
                 aria-selected="false"
                 tabindex="-1"
               >
-                <b>One-minute setup</b><span>Five questions, done</span
+                <b data-es="Configuración de un minuto">One-minute setup</b><span data-es="Cinco preguntas y listo">Five questions, done</span
                 ><i class="prog" aria-hidden="true"></i>
               </button>
             </div>
@@ -2288,17 +2315,17 @@
                   <div class="frame" data-zoom="shots/webui-report.webp">
                     <div class="chrome" aria-hidden="true">
                       <i></i><i></i><i></i
-                      ><span>motita · Add JSON output to notes</span>
+                      ><span data-es="motita · Agregar salida JSON a notes">motita · Add JSON output to notes</span>
                     </div>
                     <img
                       src="shots/webui-report.webp"
                       width="1600"
                       height="1000"
                       loading="lazy"
-                      alt="The finished task: a DONE badge, 3 of 3 checks passed, the files changed, the checks with their evidence, a risk and the next steps."
+                      alt="The finished task: a DONE badge, 3 of 3 checks passed, the files changed, the checks with their evidence, a risk and the next steps." data-es-alt="La tarea terminada: una insignia LISTO, 3 de 3 verificaciones aprobadas, los archivos cambiados, las verificaciones con su evidencia, un riesgo y los siguientes pasos."
                     />
                   </div>
-                  <figcaption>
+                  <figcaption data-es="&lt;strong&gt;Una tarea terminada responde como lo haría un buen colega:&lt;/strong&gt; qué cambió, cómo se verificó cada cambio y con qué resultado, a qué prestar atención y qué hacer después. El veredicto lo da la verificación, no el ánimo del modelo.">
                     <strong
                       >A finished task answers like a good colleague
                       would:</strong
@@ -2319,17 +2346,17 @@
                 <figure>
                   <div class="frame" data-zoom="shots/webui-think.webp">
                     <div class="chrome" aria-hidden="true">
-                      <i></i><i></i><i></i><span>motita · thinking</span>
+                      <i></i><i></i><i></i><span data-es="motita · razonamiento">motita · thinking</span>
                     </div>
                     <img
                       src="shots/webui-think.webp"
                       width="1600"
                       height="1000"
                       loading="lazy"
-                      alt="The THINK drawer while the task runs: what done means, the four-step plan and the first decision."
+                      alt="The THINK drawer while the task runs: what done means, the four-step plan and the first decision." data-es-alt="El panel THINK mientras corre la tarea: qué significa listo, el plan de cuatro pasos y la primera decisión."
                     />
                   </div>
-                  <figcaption>
+                  <figcaption data-es="&lt;strong&gt;Abre el panel THINK y lee en paralelo.&lt;/strong&gt; Antes de tocar un archivo escribe qué significa “listo” y el plan para llegar ahí, en vivo mientras el modelo lo escribe.">
                     <strong>Open the THINK drawer and read along.</strong>
                     Before touching a file it writes down what “done” means and
                     the plan to get there — streamed live as the model writes
@@ -2347,17 +2374,17 @@
                 <figure>
                   <div class="frame" data-zoom="shots/webui-tty.webp">
                     <div class="chrome" aria-hidden="true">
-                      <i></i><i></i><i></i><span>motita · terminal</span>
+                      <i></i><i></i><i></i><span data-es="motita · terminal">motita · terminal</span>
                     </div>
                     <img
                       src="shots/webui-tty.webp"
                       width="1600"
                       height="1000"
                       loading="lazy"
-                      alt="The TTY drawer: every command the agent ran with its real output, ending with go test passing and the JSON the new flag prints."
+                      alt="The TTY drawer: every command the agent ran with its real output, ending with go test passing and the JSON the new flag prints." data-es-alt="El panel TTY: cada comando que ejecutó el agente con su salida real, terminando con go test aprobando y el JSON que imprime la nueva opción."
                     />
                   </div>
-                  <figcaption>
+                  <figcaption data-es="&lt;strong&gt;Cada comando, con su salida real.&lt;/strong&gt; El panel TTY es la shell del agente, con scroll hecho por ti: el archivo que leyó, las ediciones que hizo, las pruebas que corrió y lo que dijeron.">
                     <strong>Every command, with its real output.</strong> The
                     TTY drawer is the agent's shell, scrolled for you: the file
                     it read, the edits it made, the tests it ran and what they
@@ -2375,14 +2402,14 @@
                 <figure class="duo">
                   <div class="frame" data-zoom="shots/webui-ask.webp">
                     <div class="chrome" aria-hidden="true">
-                      <i></i><i></i><i></i><span>motita · approval</span>
+                      <i></i><i></i><i></i><span data-es="motita · aprobación">motita · approval</span>
                     </div>
                     <img
                       src="shots/webui-ask.webp"
                       width="1600"
                       height="1000"
                       loading="lazy"
-                      alt="An approval request: git push can reach outside this machine, with the buttons Run it, Allow all this session and No."
+                      alt="An approval request: git push can reach outside this machine, with the buttons Run it, Allow all this session and No." data-es-alt="Una solicitud de aprobación: git push puede llegar fuera de esta máquina, con los botones Ejecutar, Permitir en toda la sesión y No."
                     />
                   </div>
                   <div class="phone" data-zoom="shots/webui-phone.webp">
@@ -2391,10 +2418,10 @@
                       width="600"
                       height="1298"
                       loading="lazy"
-                      alt="The same approval on a phone, where the interface installs as an app."
+                      alt="The same approval on a phone, where the interface installs as an app." data-es-alt="La misma aprobación en un teléfono, donde la interfaz se instala como app."
                     />
                   </div>
-                  <figcaption style="grid-column: 1 / -1">
+                  <figcaption data-es="&lt;strong&gt;Compilar y probar simplemente corre. Llegar al mundo exterior pregunta primero.&lt;/strong&gt; “Súbelo” es una petición de publicar, así que ves el comando exacto y decides, desde tu escritorio o desde tu teléfono, donde la interfaz se instala como app." style="grid-column: 1 / -1">
                     <strong
                       >Building and testing just runs. Reaching the outside
                       world asks first.</strong
@@ -2419,17 +2446,17 @@
                     style="background: #141218"
                   >
                     <div class="chrome" aria-hidden="true">
-                      <i></i><i></i><i></i><span>~/projects/app — motita</span>
+                      <i></i><i></i><i></i><span translate="no">~/projects/app — motita</span>
                     </div>
                     <img
                       src="shots/tui-welcome.webp"
                       width="987"
                       height="659"
                       loading="lazy"
-                      alt="The terminal interface right after setup: suggestions for a first task, Plan mode on Tab, and the commands /models, /config and ?."
+                      alt="The terminal interface right after setup: suggestions for a first task, Plan mode on Tab, and the commands /models, /config and ?." data-es-alt="La interfaz de terminal justo después de la configuración: sugerencias para una primera tarea, modo Plan con Tab y los comandos /models, /config y ?."
                     />
                   </div>
-                  <figcaption>
+                  <figcaption data-es="&lt;strong&gt;¿Prefieres el teclado?&lt;/strong&gt; Escribe &lt;code&gt;motita&lt;/code&gt; y obtienes una interfaz de terminal completa: Tab cambia al modo Plan para preguntas de solo lectura, &lt;code&gt;/&lt;/code&gt; abre todos los comandos. Es el mismo binario, no un envoltorio.">
                     <strong>Prefer the keyboard?</strong> Type
                     <code>motita</code> and you get a full terminal interface —
                     Tab switches to Plan mode for read-only questions,
@@ -2452,17 +2479,17 @@
                     style="background: #141218; max-width: 640px"
                   >
                     <div class="chrome" aria-hidden="true">
-                      <i></i><i></i><i></i><span>motita config</span>
+                      <i></i><i></i><i></i><span translate="no">motita config</span>
                     </div>
                     <img
                       src="shots/wizard-onboard.webp"
                       width="958"
                       height="1039"
                       loading="lazy"
-                      alt="The first-run wizard: pick a provider from eight, how to connect, and which model to use."
+                      alt="The first-run wizard: pick a provider from eight, how to connect, and which model to use." data-es-alt="El asistente de primera ejecución: elige un proveedor entre ocho, cómo conectarte y qué modelo usar."
                     />
                   </div>
-                  <figcaption>
+                  <figcaption data-es="&lt;strong&gt;Cinco pasos, cerca de un minuto:&lt;/strong&gt; elige tu proveedor, inicia sesión o pega una clave, elige un modelo, confirma la verificación que encontró en tu proyecto y revisa. No se escribe nada hasta el último paso.">
                     <strong>Five steps, about a minute:</strong> pick your
                     provider, sign in or paste a key, choose a model, confirm
                     the check it found in your project, review. Nothing is
@@ -2477,11 +2504,11 @@
 
       <section id="uses">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>What you can hand it</p>
-          <h2 data-reveal>
+          <p data-es="Lo que puedes encargarle" class="eyebrow" data-reveal>What you can hand it</p>
+          <h2 data-es="Desde un arreglo de una línea hasta una &lt;em&gt;tarde&lt;/em&gt; completa de trabajo." data-reveal>
             From a one-line fix to a whole <em>afternoon</em> of work.
           </h2>
-          <p class="sub">
+          <p data-es="Describe el resultado. motita deduce los pasos, los ejecuta y sigue hasta que la verificación de tu propio proyecto esté de acuerdo." class="sub">
             Describe the outcome. motita works out the steps, runs them, and
             keeps going until your project's own check agrees.
           </p>
@@ -2509,12 +2536,12 @@
                     d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"
                   /></svg
               ></span>
-              <h3>Fix what's broken</h3>
-              <p>
+              <h3 data-es="Arregla lo que está roto">Fix what's broken</h3>
+              <p data-es="Apúntalo a una prueba que falla o a un reporte de bug. Lo reproduce, arregla la causa y demuestra que la prueba pasa.">
                 Point it at a failing test or a bug report. It reproduces it,
                 fixes the cause, and proves the test is green.
               </p>
-              <span class="ex">fix the failing test in the parser</span>
+              <span data-es="arregla la prueba que falla en el parser" class="ex">fix the failing test in the parser</span>
             </div>
             <div class="card" data-reveal style="--d: 0.06s">
               <span class="ic"
@@ -2529,12 +2556,12 @@
                 >
                   <path d="M12 5v14M5 12h14" /></svg
               ></span>
-              <h3>Build a feature, with its test</h3>
-              <p>
+              <h3 data-es="Construye una funcionalidad, con su prueba">Build a feature, with its test</h3>
+              <p data-es="Nuevas opciones, endpoints, pantallas. Escribe el cambio y la prueba que lo fija.">
                 New flags, endpoints, screens. It writes the change and the test
                 that pins it down.
               </p>
-              <span class="ex">add a --verbose flag and a test for it</span>
+              <span data-es="agrega una opción --verbose y una prueba" class="ex">add a --verbose flag and a test for it</span>
             </div>
             <div class="card" data-reveal style="--d: 0.18s">
               <span class="ic"
@@ -2549,13 +2576,13 @@
                 >
                   <path d="M13 2L4 14h7l-1 8 9-12h-7z" /></svg
               ></span>
-              <h3>Autopilot with a paper trail</h3>
-              <p>
+              <h3 data-es="Piloto automático con registro">Autopilot with a paper trail</h3>
+              <p data-es="&lt;code&gt;/goal&lt;/code&gt; nunca se detiene a preguntar: toma la opción recomendada y anota cada decisión, para que puedas revisar —o deshacer— cualquiera después.">
                 <code>/goal</code> never stops to ask: it takes the recommended
                 option and writes each decision down, so you can review — or
                 undo — any of them later.
               </p>
-              <span class="ex">/goal migrate the config loader to YAML</span>
+              <span data-es="/goal migra el cargador de configuración a YAML" class="ex">/goal migrate the config loader to YAML</span>
             </div>
             <div class="card" data-reveal style="--d: 0.06s">
               <span class="ic"
@@ -2574,13 +2601,13 @@
                     d="M6 8.5V18a2 2 0 0 0 2 2h7.5M13 4h3a2 2 0 0 1 2 2v9.5"
                   /></svg
               ></span>
-              <h3>Ship it: push, PR, CI</h3>
-              <p>
+              <h3 data-es="Publícalo: push, PR, CI">Ship it: push, PR, CI</h3>
+              <p data-es="Conecta GitHub, GitLab o Bitbucket una vez. Hace commits con mensajes semánticos, abre el pull request, lee el CI y vuelve a arreglarlo si el CI falla.">
                 Connect GitHub, GitLab or Bitbucket once. It commits with
                 semantic messages, opens the pull request, reads the CI — and
                 goes back to fix it if CI fails.
               </p>
-              <span class="ex">open a PR and keep CI green</span>
+              <span data-es="abre un PR y mantén el CI en verde" class="ex">open a PR and keep CI green</span>
             </div>
             <div class="card" data-reveal style="--d: 0.12s">
               <span class="ic"
@@ -2596,13 +2623,13 @@
                   <circle cx="12" cy="12" r="8.5" />
                   <path d="M12 7v5l3 2" /></svg
               ></span>
-              <h3>Work while you sleep</h3>
-              <p>
+              <h3 data-es="Trabaja mientras duermes">Work while you sleep</h3>
+              <p data-es="Tareas que se disparan solas, cada &lt;code&gt;30m&lt;/code&gt; o &lt;code&gt;24h&lt;/code&gt;, hacia una conversación que puedes abrir después y leer como cualquier otra.">
                 Tasks that fire on their own, every <code>30m</code> or
                 <code>24h</code>, into a conversation you can open later and
                 read like any other.
               </p>
-              <span class="ex">every 24h: update deps and run the suite</span>
+              <span data-es="cada 24h: actualiza dependencias y corre la suite" class="ex">every 24h: update deps and run the suite</span>
             </div>
             <div class="card" data-reveal style="--d: 0.18s">
               <span class="ic"
@@ -2618,12 +2645,12 @@
                   <rect x="7" y="2.5" width="10" height="19" rx="2" />
                   <path d="M11 18h2" /></svg
               ></span>
-              <h3>From anywhere</h3>
-              <p>
+              <h3 data-es="Desde cualquier lugar">From anywhere</h3>
+              <p data-es="Terminal, navegador, teléfono, una API HTTP o un WebSocket: todo es la misma conversación. Empieza en el portátil y aprueba desde el sofá.">
                 Terminal, browser, phone, an HTTP API or a WebSocket — all the
                 same conversation. Start on the laptop, approve from the couch.
               </p>
-              <span class="ex">motita gateway start</span>
+              <span translate="no" class="ex">motita gateway start</span>
             </div>
           </div>
         </div>
@@ -2633,11 +2660,11 @@
         <div class="wrap">
           <div class="loop-wrap">
             <div>
-              <p class="eyebrow" data-reveal>Why you can trust “done”</p>
-              <h2 data-reveal>
+              <p data-es="Por qué puedes confiar en “listo”" class="eyebrow" data-reveal>Why you can trust “done”</p>
+              <h2 data-es="El modelo propone. &lt;em&gt;Tu código&lt;/em&gt; dispone." data-reveal>
                 The model proposes. <em>Your code</em> disposes.
               </h2>
-              <p class="sub">
+              <p data-es="Otros agentes se corrigen sus propias tareas, y un modelo de lenguaje siempre producirá una frase que &lt;em&gt;suena&lt;/em&gt; a éxito. motita divide cada tarea en tres, y el modelo solo llega a &lt;strong&gt;proponer&lt;/strong&gt;. Una verificación real —tus pruebas, tu linter, tu build— es lo único que puede declarar terminada una tarea. Si falla, el agente recibe el error real y lo intenta de nuevo. Si no puede pasar, lo dice y se detiene." class="sub">
                 Other agents grade their own homework, and a language model will
                 always produce a sentence that <em>sounds</em> like success.
                 motita splits every task in three, and the model only ever gets
@@ -2646,7 +2673,7 @@
                 done. If it fails, the agent gets the real error and tries
                 again. If it can't pass, it says so and stops.
               </p>
-              <p class="sub" style="margin-bottom: 0">
+              <p data-es="No tienes que configurar la verificación: el valor por defecto del asistente, &lt;code&gt;anchor.kind: auto&lt;/code&gt;, encuentra la que tu proyecto ya tiene." class="sub" style="margin-bottom: 0">
                 You don't have to configure the check: the wizard's default,
                 <code>anchor.kind: auto</code>, finds the one your project
                 already has.
@@ -2708,9 +2735,9 @@
 
           <div class="cards" style="margin-top: var(--space-7)">
             <div class="card" data-reveal>
-              <span class="k">Layer A · the anchor</span>
-              <h3>Deterministic code, not AI</h3>
-              <p>
+              <span data-es="Capa A · el ancla" class="k">Layer A · the anchor</span>
+              <h3 data-es="Código determinista, no IA">Deterministic code, not AI</h3>
+              <p data-es="Por defecto ejecuta la puerta que el proyecto declara: &lt;code&gt;.motita/anchor&lt;/code&gt;, el &lt;code&gt;check&lt;/code&gt;/&lt;code&gt;test&lt;/code&gt; de un Makefile, &lt;code&gt;go test&lt;/code&gt;, el lint/typecheck/test de un &lt;code&gt;package.json&lt;/code&gt;, &lt;code&gt;cargo test&lt;/code&gt;, &lt;code&gt;pytest&lt;/code&gt;. O tu propio comando, código de salida y patrón de salida. Si la puerta ya estaba en rojo antes de la tarea, solo un fallo &lt;em&gt;nuevo&lt;/em&gt; la bloquea. No se le puede convencer de dar otra respuesta.">
                 By default it runs the gate the project declares:
                 <code>.motita/anchor</code>, a Makefile's
                 <code>check</code>/<code>test</code>, <code>go test</code>, a
@@ -2722,9 +2749,9 @@
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.08s">
-              <span class="k">Layer B · reasoning</span>
-              <h3>Any provider, one client</h3>
-              <p>
+              <span data-es="Capa B · razonamiento" class="k">Layer B · reasoning</span>
+              <h3 data-es="Cualquier proveedor, un cliente">Any provider, one client</h3>
+              <p data-es="Un cliente escrito a mano para cada &lt;a href=&quot;#providers&quot;&gt;proveedor&lt;/a&gt;. Las respuestas se ajustan a un esquema donde el proveedor puede exigirlo, y cada token se cuenta por agente.">
                 One hand-written client for every
                 <a href="#providers">provider</a>. Replies are held to a schema
                 where the provider can enforce one, and every token is counted
@@ -2732,9 +2759,9 @@
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.16s">
-              <span class="k">Layer C · the sandbox</span>
-              <h3>Honest about its limits</h3>
-              <p>
+              <span data-es="Capa C · el sandbox" class="k">Layer C · the sandbox</span>
+              <h3 data-es="Honesto sobre sus límites">Honest about its limits</h3>
+              <p data-es="Ejecuta la acción bajo límites reales y te dice qué &lt;em&gt;no&lt;/em&gt; pudo aplicar, en vez de fingir que el aislamiento es más fuerte de lo que es. Una toolchain que el agente instala una vez queda en su &lt;code&gt;PATH&lt;/code&gt; para todas las sesiones siguientes.">
                 Runs the action under real limits — and tells you what it could
                 <em>not</em> apply, instead of pretending the isolation is
                 stronger than it is. A toolchain the agent installs once stays
@@ -2750,12 +2777,12 @@
               loading="lazy"
             ></iframe>
             <div class="foot">
-              <span
+              <span data-es="Toda la arquitectura, interactiva: cambia el tema, sigue una relación, exporta SVG o PNG."
                 >The whole architecture, interactive: switch theme, trace a
                 relationship, export SVG or PNG.</span
               >
               <span class="sep"></span>
-              <a href="architecture.html" target="_blank" rel="noopener"
+              <a data-es="Abrir en pantalla completa ↗" href="architecture.html" target="_blank" rel="noopener"
                 >Open full screen ↗</a
               >
             </div>
@@ -2765,11 +2792,11 @@
 
       <section id="providers">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>Bring your own AI</p>
-          <h2 data-reveal>
+          <p data-es="Trae tu propia IA" class="eyebrow" data-reveal>Bring your own AI</p>
+          <h2 data-es="Tu suscripción, o cualquier API. &lt;em&gt;Tu&lt;/em&gt; elección." data-reveal>
             Your subscription, or any API. <em>Your</em> choice.
           </h2>
-          <p class="sub">
+          <p data-es="Inicia sesión con la cuenta que ya pagas o pega una clave. Las sesiones se renuevan solas antes de vencer, y las claves se guardan con permisos &lt;code&gt;0600&lt;/code&gt;, nunca en la configuración. Cambia cuando quieras con &lt;code&gt;/models&lt;/code&gt;: nada más en el agente se entera de cuál hay detrás." class="sub">
             Sign in with the account you already pay for, or paste a key. Logins
             renew themselves before they expire, and keys are stored
             <code>0600</code>, never in the config. Switch any time with
@@ -2778,8 +2805,8 @@
           </p>
           <div class="cards">
             <div class="card" data-reveal>
-              <span class="k">claude-code</span>
-              <p>
+              <span translate="no" class="k">claude-code</span>
+              <p data-es="Tu plan &lt;strong&gt;Claude Pro o Max&lt;/strong&gt;, a través del CLI &lt;code&gt;claude&lt;/code&gt; de Anthropic tras &lt;code&gt;claude auth login&lt;/code&gt;. motita nunca lee esas credenciales.">
                 Your <strong>Claude Pro or Max</strong> plan, through
                 Anthropic's own <code>claude</code> CLI after
                 <code>claude auth login</code>. motita never reads those
@@ -2787,49 +2814,49 @@
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.05s">
-              <span class="k">codex</span>
-              <p>
+              <span translate="no" class="k">codex</span>
+              <p data-es="&lt;strong&gt;Inicia sesión con ChatGPT&lt;/strong&gt; (Plus, Pro, Business) o con una clave de OpenAI, sobre la Responses API.">
                 <strong>Sign in with ChatGPT</strong> (Plus, Pro, Business) or
                 an OpenAI key, over the Responses API.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.1s">
-              <span class="k">copilot</span>
-              <p>
+              <span translate="no" class="k">copilot</span>
+              <p data-es="Un inicio de sesión con código de dispositivo de GitHub con una suscripción activa de &lt;strong&gt;Copilot&lt;/strong&gt;; el token de sesión se renueva solo.">
                 A GitHub device-code login with an active
                 <strong>Copilot</strong> subscription; the session token is
                 renewed on its own.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.15s">
-              <span class="k">ollama</span>
-              <p>
+              <span translate="no" class="k">ollama</span>
+              <p data-es="&lt;strong&gt;Gratis y privado:&lt;/strong&gt; un servidor local no necesita nada; Ollama Cloud pide una clave. El asistente lista los modelos que tu servidor realmente tiene.">
                 <strong>Free and private:</strong> a local server needs nothing
                 at all; Ollama Cloud takes a key. The wizard lists the models
                 your server really has.
               </p>
             </div>
             <div class="card" data-reveal>
-              <span class="k">openai</span>
-              <p>
+              <span translate="no" class="k">openai</span>
+              <p data-es="Una API key, contra OpenAI o cualquier host compatible con OpenAI: Groq, OpenRouter, DeepSeek, tu propia máquina.">
                 An API key, against OpenAI or any OpenAI-compatible host: Groq,
                 OpenRouter, DeepSeek, your own box.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.05s">
-              <span class="k">anthropic</span>
-              <p>An Anthropic API key, over the Messages API.</p>
+              <span translate="no" class="k">anthropic</span>
+              <p data-es="Una API key de Anthropic, sobre la Messages API.">An Anthropic API key, over the Messages API.</p>
             </div>
             <div class="card" data-reveal style="--d: 0.1s">
-              <span class="k">gemini</span>
-              <p>
+              <span translate="no" class="k">gemini</span>
+              <p data-es="Una clave, un inicio de sesión de Google con tu propio cliente OAuth, o las credenciales predeterminadas de gcloud.">
                 A key, a Google login with your own OAuth client, or gcloud's
                 application-default credentials.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.15s">
-              <span class="k">qwen</span>
-              <p>A qwen.ai device-code login, or a DashScope key.</p>
+              <span translate="no" class="k">qwen</span>
+              <p data-es="Un inicio de sesión con código de dispositivo de qwen.ai, o una clave de DashScope.">A qwen.ai device-code login, or a DashScope key.</p>
             </div>
           </div>
         </div>
@@ -2837,9 +2864,9 @@
 
       <section id="sessions">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>Your repository stays yours</p>
-          <h2 data-reveal>Every conversation on its own <em>branch</em>.</h2>
-          <p class="sub">
+          <p data-es="Tu repositorio sigue siendo tuyo" class="eyebrow" data-reveal>Your repository stays yours</p>
+          <h2 data-es="Cada conversación en su propia &lt;em&gt;rama&lt;/em&gt;." data-reveal>Every conversation on its own <em>branch</em>.</h2>
+          <p data-es="Apunta motita a un repositorio y cada sesión trabaja en su propio &lt;strong&gt;git worktree&lt;/strong&gt;, en la rama &lt;code&gt;motita/&amp;lt;sesión&amp;gt;&lt;/code&gt;. Tu copia de trabajo nunca es la que se edita, y dos sesiones nunca se pisan." class="sub">
             Point motita at a repository and each session works in a
             <strong>git worktree</strong> of its own, on branch
             <code>motita/&lt;session&gt;</code>. Your checkout is never the one
@@ -2847,36 +2874,36 @@
           </p>
           <div class="cards">
             <div class="card" data-reveal>
-              <span class="k">Checkpoints</span>
-              <h3>Go back a turn</h3>
-              <p>
+              <span data-es="Puntos de control" class="k">Checkpoints</span>
+              <h3 data-es="Vuelve un turno atrás">Go back a turn</h3>
+              <p data-es="Cada turno es un punto de control. Volver atrás retrocede la conversación, y los archivos también si lo pides, después de guardar el estado actual, así que volver atrás es en sí reversible.">
                 Every turn is a checkpoint. Going back rewinds the conversation,
                 and the files too when you ask — after the current state is
                 saved, so going back is itself reversible.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.06s">
-              <span class="k">Integrate</span>
-              <h3>It merges its own work</h3>
-              <p>
+              <span data-es="Integrar" class="k">Integrate</span>
+              <h3 data-es="Fusiona su propio trabajo">It merges its own work</h3>
+              <p data-es="Hace commit del trabajo de la sesión y lo fusiona en la rama del proyecto. La sesión pasa a solo lectura y &lt;em&gt;continuar&lt;/em&gt; abre una nueva desde la base actualizada.">
                 It commits the session's work and merges it into the project's
                 branch. The session then becomes read-only, and
                 <em>continue</em> opens a fresh one from the updated base.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.12s">
-              <span class="k">Background agents</span>
-              <h3>Hand off a piece</h3>
-              <p>
+              <span data-es="Agentes en segundo plano" class="k">Background agents</span>
+              <h3 data-es="Delega una parte">Hand off a piece</h3>
+              <p data-es="Cada ayudante trabaja en su propio worktree desde una instantánea del árbol —incluido el trabajo sin confirmar— y avisa con el único comando que trae su rama.">
                 Each helper works in its own worktree from a snapshot of the
                 tree — uncommitted work included — and reports back with the one
                 command that brings its branch in.
               </p>
             </div>
             <div class="card" data-reveal style="--d: 0.18s">
-              <span class="k">Delete</span>
-              <h3>Asked first, with the list</h3>
-              <p>
+              <span data-es="Borrar" class="k">Delete</span>
+              <h3 data-es="Pregunta primero, con la lista">Asked first, with the list</h3>
+              <p data-es="Borrar una sesión o un proyecto nombra los archivos que se perderían antes de hacer nada, y devuelve los worktrees.">
                 Deleting a session or a project names the files that would be
                 lost before anything goes, and gives the worktrees back.
               </p>
@@ -2895,11 +2922,11 @@ Agents  1 running · 48.2k tok
 
       <section id="guardrails">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>Safety</p>
-          <h2 data-reveal>
+          <p data-es="Seguridad" class="eyebrow" data-reveal>Safety</p>
+          <h2 data-es="Rápido donde es seguro. &lt;em&gt;Pregunta&lt;/em&gt; donde no." data-reveal>
             Fast where it's safe. <em>Asks</em> where it isn't.
           </h2>
-          <p class="sub">
+          <p data-es="Un guardarraíl que te interrumpe por &lt;code&gt;make&lt;/code&gt; se apaga en una semana. Así que motita ejecuta el trabajo cotidiano en silencio, se detiene ante todo lo que sale de tu proyecto, y tiene un piso de comandos que rechaza pase lo que pase, con &lt;strong&gt;ningún flag, clave ni variable que lo relaje&lt;/strong&gt;." class="sub">
             A guardrail that interrupts you for <code>make</code> gets switched
             off within a week. So motita runs the everyday work silently, stops
             for anything that reaches past your project, and has a floor of
@@ -2909,8 +2936,8 @@ Agents  1 running · 48.2k tok
           <div class="guard">
             <div class="verdicts">
               <div class="v allow" data-reveal>
-                <b>ALLOW</b>
-                <span
+                <b data-es="PERMITIR">ALLOW</b>
+                <span data-es="No cambia nada, o solo el workspace que le indicaste. &lt;code&gt;make&lt;/code&gt;, &lt;code&gt;go build&lt;/code&gt;, &lt;code&gt;npm test&lt;/code&gt; y tus propios &lt;code&gt;./scripts/*&lt;/code&gt; corren &lt;strong&gt;en silencio&lt;/strong&gt;."
                   >It changes nothing, or only the workspace you pointed it at.
                   <code>make</code>, <code>go build</code>,
                   <code>npm test</code> and your own
@@ -2918,8 +2945,8 @@ Agents  1 running · 48.2k tok
                 >
               </div>
               <div class="v ask" data-reveal style="--d: 0.08s">
-                <b>ASK</b>
-                <span
+                <b data-es="PREGUNTAR">ASK</b>
+                <span data-es="Llega a la red o al sistema, escribe fuera del workspace, o no se puede clasificar. &lt;strong&gt;Se te pregunta&lt;/strong&gt; antes de ejecutar: una vez, o para toda la sesión."
                   >It reaches the network or the system, writes outside the
                   workspace, or can't be classified.
                   <strong>You are asked</strong> before anything runs — once, or
@@ -2927,8 +2954,8 @@ Agents  1 running · 48.2k tok
                 >
               </div>
               <div class="v deny" data-reveal style="--d: 0.16s">
-                <b>DENY</b>
-                <span
+                <b data-es="DENEGAR">DENY</b>
+                <span data-es="El piso, siempre: &lt;code&gt;mkfs&lt;/code&gt;, editores de particiones, &lt;code&gt;dd&lt;/code&gt; con una salida, los comandos de energía, y &lt;code&gt;rm&lt;/code&gt;/&lt;code&gt;mv&lt;/code&gt;/&lt;code&gt;cp&lt;/code&gt;/&lt;code&gt;ln&lt;/code&gt; dirigidos a &lt;code&gt;/&lt;/code&gt;, &lt;code&gt;~&lt;/code&gt;, una ruta del sistema o el árbol que &lt;em&gt;contiene&lt;/em&gt; tu workspace."
                   >The floor, always: <code>mkfs</code>, partition editors,
                   <code>dd</code> with an output, the power verbs, and
                   <code>rm</code>/<code>mv</code>/<code>cp</code>/<code
@@ -2946,18 +2973,18 @@ Agents  1 running · 48.2k tok
               data-zoom="shots/webui-ask.webp"
             >
               <div class="chrome" aria-hidden="true">
-                <i></i><i></i><i></i><span>an ASK, live</span>
+                <i></i><i></i><i></i><span data-es="una pregunta, en vivo">an ASK, live</span>
               </div>
               <img
                 src="shots/webui-ask.webp"
                 width="1600"
                 height="1000"
                 loading="lazy"
-                alt="motita asking before git push -u origin HEAD, with Run it, Allow all this session and No."
+                alt="motita asking before git push -u origin HEAD, with Run it, Allow all this session and No." data-es-alt="motita preguntando antes de git push -u origin HEAD, con Ejecutar, Permitir en toda la sesión y No."
               />
             </div>
           </div>
-          <p class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
+          <p data-es="&lt;strong&gt;El modo Plan es de solo lectura por estructura.&lt;/strong&gt; Llama a las herramientas por un camino que nunca invoca una shell, así que las tuberías, redirecciones y metacaracteres no están bloqueados: son &lt;em&gt;inalcanzables sintácticamente&lt;/em&gt;. Y el enlace del navegador lleva su token en el fragmento de la URL, canjeado una vez por una cookie que guarda un &lt;strong&gt;HMAC&lt;/strong&gt; de él." class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
             <strong>Plan mode is structurally read-only.</strong> It calls tools
             through a path that never invokes a shell, so pipes, redirections
             and metacharacters aren't blocked — they're
@@ -2970,11 +2997,11 @@ Agents  1 running · 48.2k tok
 
       <section id="learns">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>It gets better with you</p>
-          <h2 data-reveal>
+          <p data-es="Mejora contigo" class="eyebrow" data-reveal>It gets better with you</p>
+          <h2 data-es="Aprende de ti, no de un proceso de &lt;em&gt;reentrenamiento&lt;/em&gt;." data-reveal>
             It learns from you, not from a <em>retraining</em> pipeline.
           </h2>
-          <p class="sub">
+          <p data-es="Una biblioteca de procedimientos: cómo se hace un tipo de trabajo, los comandos que funcionan, las trampas que alguien ya pagó. Ocho vienen dentro del binario, el agente escribe nuevos cuando aprende algo, y un proyecto puede tener los suyos. Son archivos: léelos, corrígelos, versiónalos." class="sub">
             A library of procedures: how a kind of work is done, the commands
             that work, the pitfalls someone already paid for. Eight ship inside
             the binary, the agent writes new ones when it learns something, and
@@ -2982,17 +3009,17 @@ Agents  1 running · 48.2k tok
             version them.
           </p>
           <ul class="plain" data-reveal>
-            <li>
+            <li data-es="&lt;strong&gt;&lt;code&gt;/good&lt;/code&gt; y &lt;code&gt;/bad&lt;/code&gt;&lt;/strong&gt; caen sobre los procedimientos que un turno realmente usó, y la biblioteca se busca según lo que funcionó antes. Sin ajuste fino, sin cuenta extra.">
               <strong><code>/good</code> and <code>/bad</code></strong> land on
               the procedures a turn actually used, and the library is searched
               by what has worked before. No fine-tuning, no extra bill.
             </li>
-            <li>
+            <li data-es="&lt;strong&gt;Un curador mantiene el estante ordenado&lt;/strong&gt; sin modelo: los procedimientos sin uso se marcan obsoletos y luego se archivan —nunca se borran—, y uno fijado jamás se toca.">
               <strong>A curator keeps the shelf tidy</strong> without a model:
               unused procedures are marked stale, then archived — never deleted
               — and a pinned one is never touched.
             </li>
-            <li>
+            <li data-es="&lt;strong&gt;Reintentos que aprenden algo:&lt;/strong&gt; una verificación fallida devuelve el comando, su salida real y un veredicto estructurado, para que el siguiente intento arregle el problema real en vez de volver a tirar los dados.">
               <strong>Retries that learn something:</strong> a failed check
               sends back the command, its real output and a structured verdict,
               so the next attempt fixes the actual problem instead of re-rolling
@@ -3004,11 +3031,11 @@ Agents  1 running · 48.2k tok
 
       <section id="run">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>Running it</p>
-          <h2 data-reveal>
+          <p data-es="Usarlo" class="eyebrow" data-reveal>Running it</p>
+          <h2 data-es="Un binario: configúralo, ejecútalo, sírvelo, &lt;em&gt;automatízalo&lt;/em&gt;." data-reveal>
             One binary: configure it, run it, serve it, <em>script</em> it.
           </h2>
-          <p class="sub">
+          <p data-es="Tras el instalador, el binario es el programa completo: la interfaz de terminal, el gateway y la página del navegador son el mismo archivo. Sin configuración en la máquina, la primera ejecución lanza el asistente, y el paso que ningún otro agente te hace responder es el &lt;strong&gt;ancla&lt;/strong&gt;: el comando que demuestra que una tarea está realmente terminada." class="sub">
             After the installer, the binary is the whole program: the terminal
             interface, the gateway and the browser page are the same file. With
             no configuration on the machine, the first run launches the wizard —
@@ -3018,27 +3045,27 @@ Agents  1 running · 48.2k tok
           </p>
           <div class="run">
             <div data-reveal>
-              <h3>First run · configure</h3>
+              <h3 data-es="Primera ejecución · configurar">First run · configure</h3>
               <pre><code><span class="c"># the wizard: provider → connect → model → check → review</span>
 motita config
 
 <span class="c"># or just start it — with no config found, the wizard runs itself</span>
 motita</code></pre>
-              <p class="hint">
+              <p data-es="Guarda &lt;code&gt;~/.motita/motita.yaml&lt;/code&gt;; &lt;code&gt;/config&lt;/code&gt; lo ejecuta de nuevo desde dentro de la interfaz y conserva lo que ya tienes." class="hint">
                 It saves <code>~/.motita/motita.yaml</code>;
                 <code>/config</code> runs it again from inside the interface and
                 keeps what you already have.
               </p>
             </div>
             <div data-reveal style="--d: 0.08s">
-              <h3>The terminal interface</h3>
+              <h3 data-es="La interfaz de terminal">The terminal interface</h3>
               <pre><code><span class="c"># no arguments: a gateway is started for this interface, in-process</span>
 motita
 
 <span class="c"># one-shot, scriptable: exit 0 when the check passed, 1 when not</span>
 motita -task "fix the failing test in internal/policy"
 motita -p "how many files are there?"</code></pre>
-              <p class="hint">
+              <p data-es="&lt;code&gt;/task&lt;/code&gt; y &lt;code&gt;/plan&lt;/code&gt;, &lt;code&gt;/models&lt;/code&gt;, &lt;code&gt;/goal&lt;/code&gt;, &lt;code&gt;/agents&lt;/code&gt; (o &lt;code&gt;Ctrl+G&lt;/code&gt;), &lt;code&gt;/git&lt;/code&gt;, &lt;code&gt;/update&lt;/code&gt; — &lt;code&gt;?&lt;/code&gt; lista todos los comandos y teclas." class="hint">
                 <code>/task</code> and <code>/plan</code>, <code>/models</code>,
                 <code>/goal</code>, <code>/agents</code> (or
                 <code>Ctrl+G</code>), <code>/git</code>, <code>/update</code> —
@@ -3046,7 +3073,7 @@ motita -p "how many files are there?"</code></pre>
               </p>
             </div>
           </div>
-          <p class="hint" data-reveal>
+          <p data-es="El gateway, cada ajuste y los códigos de salida están en la &lt;a href=&quot;REFERENCE.md&quot;&gt;referencia&lt;/a&gt;." class="hint" data-reveal>
             The gateway, every setting and the exit codes are in the
             <a href="REFERENCE.md">reference</a>.
           </p>
@@ -3055,12 +3082,12 @@ motita -p "how many files are there?"</code></pre>
 
       <section id="numbers">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>Built like it matters</p>
-          <h2 data-reveal>
+          <p data-es="Construido como si importara" class="eyebrow" data-reveal>Built like it matters</p>
+          <h2 data-es="Probado como probarías algo en lo que estás por &lt;em&gt;apostar&lt;/em&gt;." data-reveal>
             Tested the way you'd test something you were about to
             <em>bet on</em>.
           </h2>
-          <p class="sub">
+          <p data-es="Esto se mide, no se afirma, y las afirmaciones de la documentación están ancladas al código por pruebas, así que esta página no puede desviarse del comportamiento." class="sub">
             These are measured, not asserted — and the documentation's claims
             are anchored to the code by tests, so this page cannot drift away
             from the behaviour.
@@ -3068,7 +3095,7 @@ motita -p "how many files are there?"</code></pre>
           <div class="stats" data-reveal>
             <div class="stat">
               <span class="n">100%</span
-              ><span class="l"
+              ><span data-es="de cobertura de sentencias en cada paquete que se publica: 42 de 42 (&lt;code&gt;./internal/... ./cmd/...&lt;/code&gt;), verificado uno por uno para que un hueco no se esconda tras un promedio; los arneses de CI en &lt;code&gt;tools/&lt;/code&gt; se cuentan aparte" class="l"
                 >statement coverage in every package that ships — 42 of 42
                 (<code>./internal/... ./cmd/...</code>), checked one by one so a
                 gap can't hide behind an average; the CI harnesses in
@@ -3077,7 +3104,7 @@ motita -p "how many files are there?"</code></pre>
             </div>
             <div class="stat">
               <span class="n">0</span
-              ><span class="l"
+              ><span data-es="dependencias externas: &lt;code&gt;go.mod&lt;/code&gt; no tiene ninguna línea &lt;code&gt;require&lt;/code&gt; y no existe &lt;code&gt;go.sum&lt;/code&gt;" class="l"
                 >external dependencies — <code>go.mod</code> has no
                 <code>require</code> line, and there is no
                 <code>go.sum</code></span
@@ -3085,7 +3112,7 @@ motita -p "how many files are there?"</code></pre>
             </div>
             <div class="stat">
               <span class="n">9</span
-              ><span class="l"
+              ><span data-es="plataformas, un binario estático cada una: Linux &lt;code&gt;386 · amd64 · arm · arm64&lt;/code&gt;, Windows &lt;code&gt;386 · amd64 · arm64&lt;/code&gt;, macOS &lt;code&gt;amd64 · arm64&lt;/code&gt;" class="l"
                 >platforms, one static binary each: Linux
                 <code>386 · amd64 · arm · arm64</code>, Windows
                 <code>386 · amd64 · arm64</code>, macOS
@@ -3093,14 +3120,14 @@ motita -p "how many files are there?"</code></pre>
               >
             </div>
             <div class="stat">
-              <span class="n">17.8–18.9&nbsp;MiB</span
-              ><span class="l"
+              <span translate="no" class="n">17.8–18.9&nbsp;MiB</span
+              ><span data-es="por binario estático publicado, medido en los 9 destinos: cópialo con &lt;code&gt;scp&lt;/code&gt; y desentiéndete" class="l"
                 >per published static binary, measured across all 9 targets —
                 copy it over <code>scp</code> and walk away</span
               >
             </div>
           </div>
-          <p class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
+          <p data-es="El CI lee la &lt;strong&gt;cabecera ELF&lt;/strong&gt; para demostrar que el binario i386 realmente es de 32 bits, ejecuta las pruebas de extremo a extremo dentro de un contenedor real de 32 bits, y corre &lt;code&gt;staticcheck&lt;/code&gt; y &lt;code&gt;govulncheck&lt;/code&gt; antes de publicar nada. Go puro, solo biblioteca estándar: sin cgo, nada que vendorizar, nada que parchar." class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
             CI reads the <strong>ELF header</strong> to prove the i386 binary
             really is 32-bit, runs the end-to-end tests inside a real 32-bit
             container, and runs <code>staticcheck</code> and
@@ -3112,22 +3139,22 @@ motita -p "how many files are there?"</code></pre>
 
       <section class="final">
         <div class="wrap">
-          <p class="eyebrow" data-reveal>Your turn</p>
-          <h2 data-reveal>
+          <p data-es="Tu turno" class="eyebrow" data-reveal>Your turn</p>
+          <h2 data-es="Dale una tarea &lt;em&gt;esta noche&lt;/em&gt;.&lt;br /&gt;Lee la prueba mañana." data-reveal>
             Give it a task <em>tonight</em>.<br />Read the proof tomorrow.
           </h2>
-          <p class="sub">Free, open source, and one line away.</p>
+          <p data-es="Gratis, de código abierto, y a una línea de distancia." class="sub">Free, open source, and one line away.</p>
           <div class="cmd" data-reveal>
             <span class="prompt" aria-hidden="true">$</span>
             <code id="install-cmd-final"
               >curl -fsSL https://motita.kodingvibes.com/install.sh |
               sh</code
             >
-            <button class="copy" type="button" data-copy="install-cmd-final">
+            <button translate="no" class="copy" type="button" data-copy="install-cmd-final">
               Copy
             </button>
           </div>
-          <p class="hero-note">
+          <p data-es="En Windows: &lt;code&gt;irm https://motita.kodingvibes.com/install.ps1 | iex&lt;/code&gt; · &lt;a href=&quot;REFERENCE.md&quot;&gt;Lee la referencia&lt;/a&gt; · &lt;a href=&quot;https://github.com/madkoding/motita&quot;&gt;Dale una estrella en GitHub&lt;/a&gt;" class="hero-note">
             On Windows:
             <code
               >irm https://motita.kodingvibes.com/install.ps1 | iex</code
@@ -3141,25 +3168,25 @@ motita -p "how many files are there?"</code></pre>
 
     <footer>
       <div class="wrap frow">
-        <span class="mono">✦ motita</span>
-        <span
+        <span translate="no" class="mono">✦ motita</span>
+        <span data-es="Licenciado GPL-3.0-or-later: tómalo, publícalo, ejecútalo en el hardware que todos los demás descartaron. Las versiones modificadas siguen siendo libres."
           >GPL-3.0-or-later licensed — take it, ship it, run it on hardware
           everyone else wrote off. Modified versions stay free.</span
         >
-        <span
+        <span data-es="motita.kodingvibes.com cuenta las visitas con Vercel Web Analytics: sin cookies, nada personal, y se respeta No Rastrear."
           >motita.kodingvibes.com counts page views with Vercel Web Analytics:
           no cookies, nothing personal, and Do Not Track is honored.</span
         >
         <span class="sep"></span>
-        <a href="https://github.com/madkoding/motita">GitHub</a>
-        <a href="docs.html">Docs</a>
-        <a href="REFERENCE.md">Reference</a>
-        <a href="TUI-DESIGN-REVIEW.md">TUI design review</a>
+        <a translate="no" href="https://github.com/madkoding/motita">GitHub</a>
+        <a data-es="Documentación" href="docs.html">Docs</a>
+        <a data-es="Referencia" href="REFERENCE.md">Reference</a>
+        <a data-es="Revisión de diseño de la TUI" href="TUI-DESIGN-REVIEW.md">TUI design review</a>
       </div>
     </footer>
 
-    <dialog class="lb" id="lb" aria-label="Screenshot, full size">
-      <button type="button" id="lb-close" aria-label="Close">✕</button>
+    <dialog class="lb" id="lb" aria-label="Screenshot, full size" data-es-aria-label="Captura de pantalla, tamaño completo">
+      <button type="button" id="lb-close" aria-label="Close" data-es-aria-label="Cerrar">✕</button>
       <img id="lb-img" src="shots/webui-report.webp" alt="" />
     </dialog>
 
@@ -3338,17 +3365,22 @@ motita -p "how many files are there?"</code></pre>
             var status = document.getElementById("copy-status");
             try {
               await navigator.clipboard.writeText(target.textContent.trim());
-              btn.textContent = "Copied ✓";
+              btn.textContent = window.motitaT ? window.motitaT("Copied ✓") : "Copied ✓";
               btn.classList.add("done");
-              status.textContent = "Install command copied to clipboard.";
+              status.textContent = window.motitaT
+                ? window.motitaT("Install command copied to clipboard.")
+                : "Install command copied to clipboard.";
             } catch {
               // The browser refused the clipboard (no permission, or not a secure page): the reader
               // is told to copy it by hand, which is all there is to do about it.
-              status.textContent =
-                "Copy failed — select the command and copy it manually.";
+              status.textContent = window.motitaT
+                ? window.motitaT(
+                    "Copy failed — select the command and copy it manually.",
+                  )
+                : "Copy failed — select the command and copy it manually.";
             }
             setTimeout(function () {
-              btn.textContent = "Copy";
+              btn.textContent = window.motitaT ? window.motitaT("Copy") : "Copy";
               btn.classList.remove("done");
             }, COPIED_MS);
           });
@@ -3725,5 +3757,6 @@ motita -p "how many files are there?"</code></pre>
         }
       })();
     </script>
+    <script src="lang.js"></script>
   </body>
 </html>
