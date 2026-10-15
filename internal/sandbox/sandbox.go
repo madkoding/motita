@@ -559,13 +559,14 @@ func (s *Sandbox) approvedHidden() []string {
 	return hidden
 }
 
-// privatePaths are the trees a command confined to the workspace may not read: privateTrees, the
-// user's own home wherever it is, the PrivateRoots it was given and the tools directory, which
-// holds the HOME and the worktrees of every other project. The directories the command works in
+// privatePaths are the trees a command confined to the workspace may not read: privateTrees and
+// the platform's own (platformPrivateTrees: the profiles on Windows), the user's own home wherever
+// it is, the PrivateRoots it was given and the tools directory, which holds the HOME and the
+// worktrees of every other project. The directories the command works in
 // stay readable even when they are inside one of them: they are granted by name (writeRoots,
 // readRoots), and so are the toolchains.
 func (s *Sandbox) privatePaths() []string {
-	private := append([]string(nil), privateTrees...)
+	private := append(append([]string(nil), privateTrees...), platformPrivateTrees()...)
 	for _, p := range append([]string{s.op.GitHome, s.toolsDir()}, s.op.PrivateRoots...) {
 		if p != "" && filepath.IsAbs(p) && filepath.Clean(p) != "/" {
 			private = append(private, filepath.Clean(p))
@@ -873,8 +874,9 @@ func (s *Sandbox) Readable(path string) bool {
 
 // pathUnder reports whether p is one of targets or inside one.
 func pathUnder(p string, targets []string) bool {
+	p = foldCase(p)
 	for _, t := range targets {
-		t = filepath.Clean(t)
+		t = foldCase(filepath.Clean(t))
 		if p == t || strings.HasPrefix(p, strings.TrimSuffix(t, string(filepath.Separator))+string(filepath.Separator)) {
 			return true
 		}
