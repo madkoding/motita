@@ -1,6 +1,6 @@
 // Artifacts: the files the agent saved for the person in the selected session (or its project),
 // and the one being looked at.
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { choose } from "./choose";
 import type { Api } from "./prApi";
 import type {
@@ -47,6 +47,11 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
   const [artifactScope, setArtifactScope] = useState<ArtifactScope>("session");
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
   const [artifactView, setArtifactView] = useState<ArtifactView | null>(null);
+  // sidRef is the session on screen now: an answer that arrives after the person moved to
+  // another session belongs to the old one and is dropped instead of shown over the new one.
+  const sidRef = useRef(sessionId);
+  sidRef.current = sessionId;
+  const moved = (sid: string) => sidRef.current !== sid;
 
   const artifactBase = useCallback(
     () => SESSIONS_PATH + encodeURIComponent(sessionId) + "/artifacts",
@@ -59,12 +64,17 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
         setArtifacts([]);
         return;
       }
+      const sid = sessionId;
+      let list: ArtifactItem[];
       try {
         const res = await api(artifactBase() + scopeQuery(scope));
         const d = await jsonOrEmpty(res);
-        setArtifacts(choose(Array.isArray(d.artifacts), d.artifacts, []));
+        list = choose(Array.isArray(d.artifacts), d.artifacts, []);
       } catch {
-        setArtifacts([]);
+        list = [];
+      }
+      if (!moved(sid)) {
+        setArtifacts(list);
       }
     },
     [sessionId, artifactScope, artifactBase],
@@ -78,6 +88,13 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
       a: { name: string; type: string },
       scope: ArtifactScope = artifactScope,
     ) => {
+      const sid = sessionId;
+      // show puts the file on screen, unless the session changed while it was fetched.
+      const show = (view: () => ArtifactView) => {
+        if (!moved(sid)) {
+          setArtifactView(view());
+        }
+      };
       try {
         const res = await api(
           artifactBase() + "/" + encodeURIComponent(a.name) + scopeQuery(scope),
@@ -90,20 +107,18 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
           a.type.startsWith("image/") ||
           a.type.startsWith("application/pdf")
         ) {
-          setArtifactView({
+          const blob = await res.blob();
+          show(() => ({
             name: a.name,
             type: a.type,
-            url: URL.createObjectURL(await res.blob()),
-          });
+            url: URL.createObjectURL(blob),
+          }));
         } else if (
           a.type.startsWith("text/") ||
           a.type === "application/json"
         ) {
-          setArtifactView({
-            name: a.name,
-            type: a.type,
-            body: await res.text(),
-          });
+          const body = await res.text();
+          show(() => ({ name: a.name, type: a.type, body }));
         } else {
           download(await res.blob(), a.name);
         }
@@ -111,8 +126,18 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
         setState("could not open the artifact", true);
       }
     },
-    [artifactScope, artifactBase],
+    [sessionId, artifactScope, artifactBase],
   );
+
+  // A new session starts with nothing of the old one on screen: its list and the file being
+  // looked at go, and an open list is loaded again for the session now shown.
+  useEffect(() => {
+    setArtifacts([]);
+    setArtifactView(null);
+    if (showArtifacts) {
+      void loadArtifacts();
+    }
+  }, [sessionId]);
 
   const deleteArtifact = useCallback(
     async (name: string) => {
