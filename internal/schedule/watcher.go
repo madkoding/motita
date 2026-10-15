@@ -134,14 +134,22 @@ func (w *Watcher) FireDue(ctx context.Context) []string {
 			rec.RunCount++
 			rec.LastOutcome = outcome
 		})
-		if err != nil {
-			w.log.Warn("could not record the firing", "id", s.ID, "error", err.Error())
-		} else if !found {
-			w.log.Info("a scheduled task was deleted while it ran; its firing is not recorded", "id", s.ID)
-		}
+		w.logRecord(s.ID, found, err)
 		fired = append(fired, s.ID)
 	}
 	return fired
+}
+
+// logRecord says when a firing could not be recorded: the store failed, or the task was deleted
+// while it ran (then nothing is written, and that is not a failure).
+func (w *Watcher) logRecord(id string, found bool, err error) {
+	if err != nil {
+		w.log.Warn("could not record the firing", "id", id, "error", err.Error())
+		return
+	}
+	if !found {
+		w.log.Info("a scheduled task was deleted while it ran; its firing is not recorded", "id", id)
+	}
 }
 
 // busy reports whether a pass is in flight, for tests and for the loop's own guard.
