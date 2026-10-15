@@ -370,3 +370,74 @@ func TestAnUnreachableCatalogueIsExplained(t *testing.T) {
 		t.Errorf("any other failure is reported as it is, got %q", got)
 	}
 }
+
+// --- The last step: what to do next -----------------------------------------
+
+// The interactive wizard ends by asking where to go from the saved setup. Each answer maps to
+// one outcome, and the empty answer takes the first option, as the other menus do.
+func TestTheLastStepReportsWhereToGoNext(t *testing.T) {
+	cases := []struct {
+		name   string
+		answer string
+		want   Next
+	}{
+		{"default is the TUI", "", NextTUI},
+		{"1 is the TUI", "1", NextTUI},
+		{"2 is the gateway", "2", NextGateway},
+		{"3 is exit", "3", NextExit},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			out, res, err := run(context.Background(), t, dir,
+				[]string{"openai", "", "", "", "3", "y", c.answer}, Answers{})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if res.Next != c.want {
+				t.Errorf("Next = %v, want %v", res.Next, c.want)
+			}
+			plain := stripANSI(out)
+			for _, want := range []string{"What next?", "Continue in the TUI", "Start the gateway (WebUI)", "Exit"} {
+				if !strings.Contains(plain, want) {
+					t.Errorf("the transcript lacks %q:\n%s", want, plain)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err != nil {
+				t.Errorf("the setup must be saved before the question: %v", err)
+			}
+		})
+	}
+}
+
+// The setup is on disk before the question, so a run with nobody to answer (the input ended) or
+// with answers that make no sense still succeeds and simply exits.
+func TestTheLastStepNeverFailsTheSavedSetup(t *testing.T) {
+	for name, tail := range map[string][]string{
+		"end of input":  nil,
+		"three invalid": {"x", "y", "z"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			answers := append([]string{"openai", "", "", "", "3", "y"}, tail...)
+			_, res, err := run(context.Background(), t, t.TempDir(), answers, Answers{})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if res.Next != NextExit {
+				t.Errorf("Next = %v, want NextExit", res.Next)
+			}
+		})
+	}
+}
+
+// A preset means a script or a test is answering: the question would have no one to ask.
+func TestAPresetRunDoesNotAskWhatNext(t *testing.T) {
+	out, res, err := run(context.Background(), t, t.TempDir(), nil,
+		Answers{Provider: "openai", Model: "gpt-4o-mini", APIKey: "sk-test-key-1234", AnchorCommand: "make"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Next != NextExit || strings.Contains(stripANSI(out), "What next?") {
+		t.Errorf("Next = %v; the question must not be asked:\n%s", res.Next, out)
+	}
+}
