@@ -57,9 +57,10 @@ async function setup(routes = {}) {
   return s;
 }
 
-const run = (fn) => act(async () => {
-  await fn();
-});
+const run = (fn) =>
+  act(async () => {
+    await fn();
+  });
 
 const callsTo = (s, prefix) =>
   s.api.calls.filter((c) => (c.method + " " + c.path).startsWith(prefix));
@@ -249,9 +250,7 @@ test("a project from a repository clones it, adds the other repositories and say
     s.p.newProjectRepos.map((r) => r.name),
     ["api", "lib", "web"],
   );
-  await run(() =>
-    s.p.createProject({ name: "Ada", email: "ada@example.com" }),
-  );
+  await run(() => s.p.createProject({ name: "Ada", email: "ada@example.com" }));
   await flush();
   const [call] = callsTo(s, "POST /v1/projects");
   assert.deepEqual(call.body, {
@@ -444,6 +443,45 @@ test("a repository picked fills the form, keeping what was already typed", async
   await s.m.unmount();
 });
 
+test("a repository chosen for the other repositories joins them, once", async () => {
+  const s = await setup();
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.setNewProjectGit("https://github.com/u/site.git"));
+  await run(() => s.p.openOtherRepoPicker());
+  assert.equal(s.p.showRepoPicker, true);
+  assert.equal(s.p.pickForOthers, true);
+  await run(() =>
+    s.p.pickRepo({
+      full_name: "u/api",
+      clone_url: "https://github.com/u/api.git",
+    }),
+  );
+  assert.deepEqual(s.p.newProjectRepos, [
+    { name: "api", git_url: "https://github.com/u/api.git" },
+  ]);
+  // The main repository stays the one typed above.
+  assert.equal(s.p.newProjectGit, "https://github.com/u/site.git");
+  assert.equal(s.p.showRepoPicker, false);
+  assert.equal(s.p.pickForOthers, false);
+
+  // The same name again, or the main's, is refused with a word, not added twice.
+  for (const url of ["https://x.io/o/api", "https://x.io/o/site"]) {
+    await run(() => s.p.openOtherRepoPicker());
+    await run(() => s.p.pickRepo({ full_name: "o/x", clone_url: url }));
+  }
+  assert.equal(s.p.newProjectRepos.length, 1);
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "The project already has a repository with that name.",
+    type: "warning",
+  });
+
+  // Closing the picker forgets what it was opened for.
+  await run(() => s.p.openOtherRepoPicker());
+  await run(() => s.p.closeRepoPicker());
+  assert.equal(s.p.pickForOthers, false);
+  await s.m.unmount();
+});
+
 test("the remote's main branch is offered, unless the person chose one", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let answer = () => res(200, { branch: "develop" });
@@ -503,8 +541,7 @@ test("a branch answer for a URL that changed meanwhile is dropped", async (t) =>
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const pending = [];
   const s = await setup({
-    "GET /v1/git/default-branch": () =>
-      new Promise((ok) => pending.push(ok)),
+    "GET /v1/git/default-branch": () => new Promise((ok) => pending.push(ok)),
   });
   await run(() => s.p.openNewProject());
   await run(() => s.p.setNewProjectMode("git"));
@@ -578,7 +615,9 @@ test("a project with no settings yet gets the defaults", async () => {
   const s = await setup({
     "GET /v1/projects/p2/branches": res(200, {}),
   });
-  await run(() => s.p.openEditProject({ id: "p2", title: "Bare", dir: "/ws/bare/" }));
+  await run(() =>
+    s.p.openEditProject({ id: "p2", title: "Bare", dir: "/ws/bare/" }),
+  );
   await flush();
   assert.deepEqual(s.p.editProject, {
     id: "p2",
@@ -660,7 +699,10 @@ test("saving sends the dialog, reads the list again and says so", async () => {
   assert.equal(s.p.editProject, null);
   assert.equal(s.p.savingProject, false);
   assert.equal(s.counts.projects, 1);
-  assert.deepEqual(s.toasts.at(-1), { message: "Project saved", type: "success" });
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Project saved",
+    type: "success",
+  });
   await s.m.unmount();
 });
 
@@ -692,7 +734,11 @@ test("a blank title or a closed dialog saves nothing; a refused save says why", 
     await flush();
   }
   assert.deepEqual(s.toasts, [
-    { message: "Could not save the project", type: "error", detail: "title taken" },
+    {
+      message: "Could not save the project",
+      type: "error",
+      detail: "title taken",
+    },
     { message: "Could not save the project", type: "error", detail: undefined },
     { message: "Could not save the project", type: "error" },
   ]);

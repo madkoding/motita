@@ -269,6 +269,7 @@ export function ReposSection({
   conflict,
   onRemove,
   onAdd,
+  onChoose,
   hint,
 }: {
   main: MainRepo | null;
@@ -277,6 +278,8 @@ export function ReposSection({
   conflict?: RepoConflict | null;
   onRemove: (name: string, force: boolean) => void;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
+  // Opens the picker of the person's own repositories, when a git host is connected.
+  onChoose?: () => void;
   hint: string;
 }) {
   return (
@@ -295,6 +298,16 @@ export function ReposSection({
           busy={busy === "+"}
           onAdd={onAdd}
         />
+        {onChoose && (
+          <button
+            type="button"
+            class="text-sm text-accent underline underline-offset-2"
+            onClick={onChoose}
+            data-testid="repo-choose"
+          >
+            {t("Add from my repositories")}
+          </button>
+        )}
       </div>
       <p class={HINT}>{hint}</p>
     </div>

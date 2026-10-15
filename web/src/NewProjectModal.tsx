@@ -80,7 +80,9 @@ function ChooseStart() {
             {t("From a Git repository")}
           </span>
           <span class="block text-xs text-[#7a7a8c] mt-0.5">
-            {t("Clone a repository from GitHub, GitLab or any URL")}
+            {t(
+              "Clone one or several repositories from GitHub, GitLab or any URL",
+            )}
           </span>
         </span>
       </button>
@@ -255,6 +257,8 @@ function newMainRepo(
 function NewProjectRepos() {
   const p = useApp().projects;
   const { removeNewProjectRepo } = p;
+  const connected =
+    !!p.gitAccounts && connectedAccounts(p.gitAccounts).length > 0;
   const onRemove = useCallback(
     (name: string) => removeNewProjectRepo(name),
     [removeNewProjectRepo],
@@ -271,6 +275,7 @@ function NewProjectRepos() {
       busy=""
       onRemove={onRemove}
       onAdd={p.addNewProjectRepo}
+      onChoose={choose(connected, p.openOtherRepoPicker, undefined)}
       hint={t(
         "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.",
       )}

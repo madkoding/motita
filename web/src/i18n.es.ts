@@ -120,8 +120,8 @@ const first: Record<string, string> = {
   "A new folder to start from scratch":
     "Una carpeta nueva para empezar desde cero",
   "From a Git repository": "Desde un repositorio Git",
-  "Clone a repository from GitHub, GitLab or any URL":
-    "Clona un repositorio de GitHub, GitLab o de cualquier URL",
+  "Clone one or several repositories from GitHub, GitLab or any URL":
+    "Clona uno o varios repositorios de GitHub, GitLab o de cualquier URL",
   Back: "Atrás",
   Name: "Nombre",
   "Repository URL": "URL del repositorio",
@@ -567,6 +567,7 @@ const first: Record<string, string> = {
   "{n}mo ago": "hace {n} meses",
   "{n}y ago": "hace {n} años",
   "Choose from my repositories": "Elegir de mis repositorios",
+  "Add from my repositories": "Agregar de mis repositorios",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",

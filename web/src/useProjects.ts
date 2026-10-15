@@ -20,7 +20,13 @@ import type {
   SetToast,
   Toast,
 } from "./appTypes";
-import { mainRepoOf, reposOf, type RepoDraft } from "./projectRepos";
+import {
+  mainRepoOf,
+  repoDraftOf,
+  repoFolderOf,
+  reposOf,
+  type RepoDraft,
+} from "./projectRepos";
 import type { RepoConflict } from "./ReposField";
 import {
   BRANCH_LOOKUP_DELAY_MS,
@@ -417,6 +423,8 @@ function useGitHosts(
   // `after` says what to do once the host is connected: pick a repository, or send the create again.
   const [gitConnect, setGitConnect] = useState<GitConnectRequest | null>(null);
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  // What the picker fills: the project's main repository, or one more of its repositories.
+  const [pickForOthers, setPickForOthers] = useState(false);
   const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null);
   const [gitRev, setGitRev] = useState(0);
 
@@ -464,7 +472,14 @@ function useGitHosts(
     [gitConnect],
   );
 
-  const closeRepoPicker = useCallback(() => setShowRepoPicker(false), []);
+  const closeRepoPicker = useCallback(() => {
+    setShowRepoPicker(false);
+    setPickForOthers(false);
+  }, []);
+  const openOtherRepoPicker = useCallback(() => {
+    setPickForOthers(true);
+    setShowRepoPicker(true);
+  }, []);
   const connectAnother = useCallback(
     () => setGitConnect({ after: "picker" }),
     [],
@@ -483,6 +498,9 @@ function useGitHosts(
     showRepoPicker,
     setShowRepoPicker,
     closeRepoPicker,
+    pickForOthers,
+    setPickForOthers,
+    openOtherRepoPicker,
     connectAnother,
     pickerAuthRequired,
     gitAccounts,
@@ -785,12 +803,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const edit = useEditProject(api, fetchProjects, setToast);
   const form = useNewProjectForm();
   const createProjectRef = useRef<() => void>(() => {});
-  const git = useGitHosts(
-    api,
-    form.showNewProject,
-    setToast,
-    createProjectRef,
-  );
+  const git = useGitHosts(api, form.showNewProject, setToast, createProjectRef);
   const remoteMain = useRemoteMain(api, form);
   const runtimes = useRuntimes(api, form.showNewProject);
   const createProject = useCreateProject(
@@ -814,15 +827,44 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectTitle,
     setNewProjectDesc,
   } = form;
-  const { setShowRepoPicker } = git;
-  const pickRepo = useCallback((r: GitRepo) => {
+  const { setShowRepoPicker, pickForOthers, setPickForOthers } = git;
+  const { newProjectRepos, addNewProjectRepo } = form;
+  const pickRepo = useCallback(
+    (r: GitRepo) => {
+      if (pickForOthers) {
+        pickOtherRepo(r);
+      } else {
+        pickMainRepo(r);
+      }
+      setPickForOthers(false);
+      setShowRepoPicker(false);
+    },
+    [pickForOthers, newProjectRepos, form.newProjectGit],
+  );
+  // pickOtherRepo adds a repository the user chose to the project's other repositories, unless
+  // the project already has one by that name.
+  function pickOtherRepo(r: GitRepo) {
+    const taken = [
+      repoFolderOf(form.newProjectGit),
+      ...newProjectRepos.map((x) => x.name),
+    ];
+    const draft = repoDraftOf(r.clone_url);
+    if (draft && !taken.includes(draft.name)) {
+      addNewProjectRepo(draft);
+    } else {
+      setToast({
+        message: t("The project already has a repository with that name."),
+        type: "warning",
+      });
+    }
+  }
+  function pickMainRepo(r: GitRepo) {
     const name = repoShortName(r);
     setNewProjectMode("git");
     setNewProjectGit(r.clone_url);
     setNewProjectTitle((prev) => choose(prev.trim(), prev, name));
     setNewProjectDesc((prev) => choose(prev.trim(), prev, r.description || ""));
-    setShowRepoPicker(false);
-  }, []);
+  }
 
   return {
     showNewProject: form.showNewProject,
