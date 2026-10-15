@@ -103,6 +103,8 @@ const first: Record<string, string> = {
   Agent: "Agente",
   "The command could not be run": "No se pudo ejecutar el comando",
   "The approval could not be answered": "No se pudo responder la aprobación",
+  "Refused, nobody was there to approve it: {what}":
+    "Rechazado, no había nadie para aprobarlo: {what}",
   "Run in the shell": "Ejecutar en el shell",
   Send: "Enviar",
   "Edit project": "Editar proyecto",

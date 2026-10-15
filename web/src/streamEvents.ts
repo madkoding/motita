@@ -27,6 +27,9 @@ export interface StreamPayload {
   artifacts?: { name: string; type: string; size: number }[];
   report?: TaskReport;
   error?: string;
+  // approval_denied: what was refused, and why it needed asking.
+  command?: string;
+  reason?: string;
 }
 
 // StreamContext is what the handlers act on.
@@ -261,6 +264,24 @@ function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
   finish();
 }
 
+// onApprovalDenied: a run with nobody to ask (a scheduled one) needed an approval, and the
+// gateway refused it on the user's behalf. The run goes on without that action, so the
+// conversation says what was not done and the gateway's reason, which names the setting that
+// changes it: without this the turn just ends without explaining what it skipped.
+function onApprovalDenied({ rs }: StreamContext, payload: StreamPayload) {
+  const what = payload.command || payload.reason || "";
+  const note = tf("Refused, nobody was there to approve it: {what}", { what });
+  rs.setMessages((prev) => [
+    ...prev,
+    {
+      id: rs.nextId(),
+      role: "agent",
+      kind: "warning",
+      text: choose(payload.error, note + " — " + payload.error, note),
+    },
+  ]);
+}
+
 function onError({ rs, finish }: StreamContext, payload: StreamPayload) {
   rs.setActivity(null);
   const error = payload.error;
@@ -293,6 +314,7 @@ const HANDLERS: Record<
     rs.setActivity(null);
     rs.setApproval(payload as PendingApproval);
   },
+  approval_denied: onApprovalDenied,
   done: onDone,
   error: onError,
 };
