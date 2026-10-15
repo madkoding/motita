@@ -44,6 +44,8 @@ const submit = (root) =>
   act(() => root.querySelector("form").dispatchEvent(new W.Event("submit", { bubbles: true, cancelable: true })));
 const questions = (root) => [...root.querySelectorAll(".qcard-list > li")];
 const options = (li) => [...li.querySelectorAll(".qcard-opts button")];
+const optionText = (b) => b.querySelector(".qcard-opt-text").textContent;
+const key = (b) => b.querySelector(".qcard-key").textContent;
 
 test("answerRequest sends each question with its answer, or its assumption when blank", () => {
   assert.equal(
@@ -79,7 +81,9 @@ test("every question is on the card with its options, a field of its own and its
   assert.equal(text(root.querySelector(".qcard-count")), "0 of 3 answered");
   const qs = questions(root);
   assert.equal(qs.length, 3);
-  assert.deepEqual(options(qs[0]).map((b) => b.textContent), ["email", "GitHub"]);
+  assert.deepEqual(options(qs[0]).map(optionText), ["email", "GitHub"]);
+  assert.deepEqual(options(qs[0]).map(key), ["1", "2"], "each option is a numbered row");
+  assert.equal(text(qs[1].querySelector(".qcard-step")), "Question 2 of 3");
   assert.equal(options(qs[2]).length, 0, "a question without options has only the field");
   assert.equal(qs[0].querySelector(".qcard-own").placeholder, "Or write your own answer");
   assert.equal(qs[2].querySelector(".qcard-own").placeholder, "Write your answer");
@@ -96,8 +100,10 @@ test("an option is picked and unpicked, a typed answer replaces it, and Send ans
   await click(options(qs[0])[1]);
   qs = questions(root);
   assert.equal(options(qs[0])[1].getAttribute("aria-checked"), "true");
-  assert.equal(options(qs[0])[1].textContent, "✓ GitHub");
-  assert.equal(qs[0].className, "answered");
+  assert.equal(key(options(qs[0])[1]), "✓", "the picked option's number becomes a check");
+  assert.equal(options(qs[0])[1].className, "qcard-opt picked");
+  assert.equal(qs[0].className, "qcard-item answered");
+  assert.equal(text(qs[0].querySelector(".qcard-step")), "Question 1 of 3✓ Answered");
   assert.equal(qs[0].querySelector(".qcard-assume"), null, "an answered question drops its assumption");
   assert.equal(text(root.querySelector(".qcard-count")), "1 of 3 answered");
   await click(options(qs[0])[1]);
@@ -156,6 +162,7 @@ test("questions the conversation moved on from are no longer offered; one with n
   const one = await mount({ items: [{ text: "which?" }], onAnswer() {} });
   assert.equal(text(one.root.querySelector(".qcard-head strong")), "Motita needs an answer to continue");
   assert.equal(one.root.querySelector(".qcard-count"), null, "one question needs no tally");
+  assert.equal(one.root.querySelector(".qcard-step"), null, "nor a position");
   await one.done();
 });
 

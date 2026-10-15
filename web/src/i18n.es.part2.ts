@@ -467,6 +467,8 @@ const more: Record<string, string> = {
   "Or write your own answer": "O escribe tu propia respuesta",
   "Write your answer": "Escribe tu respuesta",
   "If you leave it blank: {assumption}": "Si la dejas en blanco: {assumption}",
+  "Question {n} of {total}": "Pregunta {n} de {total}",
+  Answered: "Respondida",
 };
 
 export default more;
