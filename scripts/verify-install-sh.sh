@@ -108,6 +108,24 @@ printf '%s\n' "$out" | grep -q 'checksum mismatch' || fail "failed, but not on t
 sums
 echo "the installer refuses a checksum mismatch, override or not"
 
+# --- 4a. with a key but no OpenSSL 3, fail closed unless overridden ----------
+# It used to skip the signature and install on the checksum alone. An openssl
+# without -rawin (LibreSSL, OpenSSL 1.1) stands in for a missing one.
+rm -rf "$WORK/dest" "$WORK/nossl"
+mkdir -p "$WORK/nossl"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/nossl/openssl"
+chmod +x "$WORK/nossl/openssl"
+sed 's#^RELEASE_PUBLIC_KEY=""#RELEASE_PUBLIC_KEY="placeholder-key"#' "$WORK/install.sh" > "$WORK/install-keyed.sh"
+grep -q '^RELEASE_PUBLIC_KEY="placeholder-key"' "$WORK/install-keyed.sh" || fail "the placeholder key did not land"
+nossl() { PATH="$WORK/nossl:$PATH" sh "$WORK/install-keyed.sh" 2>&1; }
+if out="$(nossl)"; then fail "the installer SUCCEEDED without OpenSSL 3 while a key is set"; fi
+printf '%s\n' "$out" | grep -q 'no OpenSSL 3' || fail "the refusal does not name OpenSSL: $out"
+printf '%s\n' "$out" | grep -q 'MOTITA_INSECURE_SKIP_VERIFY=1' || fail "the refusal does not name the override: $out"
+[ ! -e "$WORK/dest/motita" ] || fail "a refused install left a binary behind"
+out="$(MOTITA_INSECURE_SKIP_VERIFY=1 nossl)" || fail "the override did not install without OpenSSL: $out"
+printf '%s\n' "$out" | grep -q 'UNVERIFIED' || fail "the override did not warn: $out"
+echo "without OpenSSL 3 the installer refuses a keyed release unless MOTITA_INSECURE_SKIP_VERIFY=1"
+
 # --- 5. the signature, when a key is configured and OpenSSL 3 is present ------
 if command -v openssl >/dev/null 2>&1 && openssl pkeyutl -help 2>&1 | grep -q -- -rawin; then
   openssl genpkey -algorithm ed25519 -out "$WORK/key.pem" 2>/dev/null

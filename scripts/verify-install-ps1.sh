@@ -194,6 +194,57 @@ printf '%s\n' "$out" | grep -q 'UNVERIFIED' || {
 }
 echo "the installer refuses an unverifiable release unless MOTITA_INSECURE_SKIP_VERIFY=1"
 
+# --- 4c. with a key but no OpenSSL 3, fail closed unless overridden ----------
+# It used to skip the signature and install on the checksum alone, which is what nearly
+# every Windows machine (no OpenSSL on the PATH) got. The PATH is cut down to pwsh's own
+# directory so no openssl is found; Program Files and LOCALAPPDATA do not exist here.
+(cd "$WORK/rel" && sha256sum motita-* | sort -k2 > SHA256SUMS)
+rm -rf "$WORK/dest"
+sed "s#^\$ReleasePublicKey = ''#\$ReleasePublicKey = 'placeholder-key'#" \
+  "$WORK/install-mock.ps1" > "$WORK/install-keyed.ps1"
+PWSH_REAL="$(readlink -f "$(command -v "$PWSH")")"
+nossl() {
+  env PATH="$(dirname "$PWSH_REAL")" "$PWSH_REAL" -NoProfile -File "$WORK/install-keyed.ps1" 2>&1
+}
+if out="$(nossl)"; then
+  echo "error: the installer SUCCEEDED without OpenSSL 3 while a key is set"
+  exit 1
+fi
+printf '%s\n' "$out" | grep -q 'no OpenSSL 3' || {
+  echo "error: the refusal does not name OpenSSL:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+}
+if [ -e "$WORK/dest/motita.exe" ]; then
+  echo "error: a refused install left a binary behind"
+  exit 1
+fi
+if ! out="$(MOTITA_INSECURE_SKIP_VERIFY=1 nossl)"; then
+  echo "error: MOTITA_INSECURE_SKIP_VERIFY=1 did not let the install through without OpenSSL:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+fi
+printf '%s\n' "$out" | grep -q 'UNVERIFIED' || {
+  echo "error: the override installed without saying the download is unverified"
+  exit 1
+}
+echo "without OpenSSL 3 the installer refuses a keyed release unless MOTITA_INSECURE_SKIP_VERIFY=1"
+# With an OpenSSL 3 on the PATH it is found and used: the mock release has no signature, so
+# the refusal moves on to SHA256SUMS.sig.
+if command -v openssl >/dev/null 2>&1 && openssl pkeyutl -help 2>&1 | grep -q -- -rawin; then
+  rm -rf "$WORK/dest"
+  if out="$("$PWSH" -NoProfile -File "$WORK/install-keyed.ps1" 2>&1)"; then
+    echo "error: the installer SUCCEEDED on an unsigned release while a key is set"
+    exit 1
+  fi
+  printf '%s\n' "$out" | grep -q 'SHA256SUMS.sig is not available' || {
+    echo "error: the OpenSSL on the PATH was not used:"
+    printf '%s\n' "$out" | sed 's/^/    /'
+    exit 1
+  }
+  echo "the installer uses the OpenSSL 3 on the PATH and refuses an unsigned release"
+fi
+
 # --- 5. and it stays runnable under irm | iex ---------------------------------
 # The static rules ran at the top (step 0). This asserts the thing they cannot: that the
 # SHIPPED script, invoked the way the site tells people to invoke it, installs the right
