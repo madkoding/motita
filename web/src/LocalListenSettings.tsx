@@ -4,7 +4,7 @@ import { choose } from "./choose";
 import { type LocalCatalog, type LocalModel, type LoadState, deleteVoice, installVoice } from "./localVoice";
 import { isWhisper } from "./localListenCore";
 import { forGPU, listenStateOf, onListenState, warmListener } from "./localListen";
-import { megabytes, qualityLabel, useCatalog, useWebGPU } from "./LocalVoiceSettings";
+import { KeptNote, megabytes, qualityLabel, useCatalog, useWebGPU } from "./LocalVoiceSettings";
 import type { VoicePrefs } from "./voice";
 import type { Api } from "./prApi";
 import { Collapsed, Row, primaryBtn, selectCls, smallBtn } from "./SettingsControls";
@@ -127,6 +127,7 @@ export function LocalListening({
             </div>
           )}
           {pinned.map(row)}
+          <KeptNote catalog={catalog} />
           <Collapsed label={tf("Every model ({n})", { n: String(rest.length) })} testid="local-listener-list">
             {rest.map(row)}
           </Collapsed>

@@ -96,6 +96,15 @@ export async function askToKeep(storage: StorageManager | undefined): Promise<bo
   }
 }
 
+// storageKept says whether the browser promised to keep this page's data, without asking it.
+export async function storageKept(storage: StorageManager | undefined = globalThis.navigator?.storage): Promise<boolean> {
+  try {
+    return (await storage?.persisted?.()) === true;
+  } catch {
+    return false;
+  }
+}
+
 // SHARED_SETS are the ids of the files voices share, which the catalog does not list as voices.
 const SHARED_SETS = [RUNTIME_ID, SUPERTONIC_ID, CHATTERBOX_ID];
 // pruned says this page has dropped the copies the catalog no longer has, once.

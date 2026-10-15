@@ -386,6 +386,10 @@ const more: Record<string, string> = {
   "The first download adds {size} for the voice engine.":
     "La primera descarga suma {size} del motor de voz.",
   "Downloading… {pct}%": "Descargando… {pct} %",
+  "This browser keeps the downloaded models, also when you update Motita.":
+    "Este navegador conserva los modelos descargados, también cuando actualizas Motita.",
+  "This browser may delete the downloaded models if the disk runs short; they download again. Installing Motita as an app helps it keep them.":
+    "Este navegador puede borrar los modelos descargados si se queda sin disco; se descargan de nuevo. Instalar Motita como app ayuda a que los conserve.",
   "The download failed: {error}": "La descarga falló: {error}",
   "In use": "En uso",
   Expressiveness: "Expresividad",
