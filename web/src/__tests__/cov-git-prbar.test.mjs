@@ -555,6 +555,31 @@ test("answers for a session the user already left are dropped", async () => {
   await m.done();
 });
 
+test("moving straight from one project session to another asks about the new one", async () => {
+  const m = await mount(
+    {
+      "GET /v1/sessions/s1/": json(200, view()),
+      "GET /v1/sessions/s2/": json(200, view({ pr: { number: 7, url: "u7" } })),
+    },
+    { session: sess({ mergeable: true }) },
+  );
+  assert.equal(text(m.root.querySelector("a")), "Pull request #12");
+  // s1's view is on screen when s2 is opened: s2 is still asked, and its own pull request drawn.
+  await m.draw(m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }));
+  assert.deepEqual(
+    m.f.calls.map((c) => c.path),
+    ["/v1/sessions/s1/pr", "/v1/sessions/s2/pr"],
+  );
+  assert.equal(text(m.root.querySelector("a")), "Pull request #7");
+  // Out to a session outside a project and back to s2: it is asked again.
+  await m.draw(m.next({ sessionId: "s9", session: sess({ id: "s9", project_id: undefined }) }));
+  await m.draw(m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }));
+  assert.equal(m.f.calls.at(-1).path, "/v1/sessions/s2/pr");
+  assert.equal(m.f.calls.length, 3);
+  assert.equal(text(m.root.querySelector("a")), "Pull request #7");
+  await m.done();
+});
+
 test("while the gateway follows the CI the bar asks every 20 seconds, and stops after", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const following = sess({ pr_watch: { status: "following", attempts: 0, max: 3 } });

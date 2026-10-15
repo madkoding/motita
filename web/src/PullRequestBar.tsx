@@ -286,13 +286,19 @@ export function usePullRequest(store: Store, api: Api) {
     setPrMergeArmed(false);
   }, [prSessionId]);
   const wasRunningRef = useRef(false);
+  // loadedForRef is the session the bar last asked about. It is what says a session was just
+  // opened: prView cannot, because in the render that moves from one project session straight to
+  // another it still holds the old session's view (the reset above lands in the same commit).
+  const loadedForRef = useRef("");
   useEffect(() => {
     if (!prSessionId) {
+      loadedForRef.current = "";
       return;
     }
     const ended = wasRunningRef.current && !prRunning;
     wasRunningRef.current = prRunning;
-    if (ended || prView === null) {
+    if (ended || loadedForRef.current !== prSessionId) {
+      loadedForRef.current = prSessionId;
       void refreshPR(prSessionId);
     }
   }, [prSessionId, prRunning]);
