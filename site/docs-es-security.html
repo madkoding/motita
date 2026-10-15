@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seguridad y sandbox · Documentación de Motita</title>
+    <meta name="description" content="Lo que nunca puede hacer, lo que pregunta y cuánto disco alcanza." />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <link rel="alternate" hreflang="en" href="docs-security.html" />
+    <link rel="alternate" hreflang="es" href="docs-es-security.html" />
+    <link rel="preload" href="fonts/Sansation-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Saltar al contenido</a>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="index.html" aria-label="Motita, inicio"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</a>
+        <nav aria-label="Site">
+          <a href="index.html">Inicio</a>
+          <a href="docs-es.html" aria-current="true">Documentación</a>
+          <a href="REFERENCE.md">Referencia</a>
+          <a href="https://github.com/madkoding/motita">GitHub</a>
+          <a class="lang" href="docs-security.html" hreflang="en" lang="en" aria-label="Read in English">English</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap layout">
+      <nav class="side" aria-label="Documentación">
+        <p class="side-title">Documentación</p>
+        <div class="side-links">
+          <a href="docs-es.html">Resumen</a>
+          <a href="docs-es-install.html">Instalación y primer uso</a>
+          <a href="docs-es-terminal.html">La interfaz de terminal</a>
+          <a href="docs-es-web.html">Interfaz web y gateway</a>
+          <a href="docs-es-projects.html">Proyectos, sesiones y git</a>
+          <a href="docs-es-models.html">Modelos y proveedores</a>
+          <a href="docs-es-voice.html">Voz</a>
+          <a href="docs-es-skills.html">Skills: lo que aprende</a>
+          <a href="docs-es-security.html" aria-current="page">Seguridad y sandbox</a>
+          <a href="docs-es-network.html">Red y acceso remoto</a>
+          <a href="docs-es-automation.html">Actualizaciones y tareas programadas</a>
+        </div>
+      </nav>
+      <main id="main">
+      <h1>Seguridad y sandbox</h1>
+      <p class="lead">Lo que nunca puede hacer, lo que pregunta y cuánto disco alcanza.</p>
+<p>Un agente que ejecuta comandos necesita límites que no dependan de que el modelo se porte bien. motita tiene dos capas, y solo una es tuya.</p>
+<h2>El piso</h2>
+<p>Algunos comandos se rechazan siempre: formatear discos y editores de particiones, <code>shred</code>, <code>dd</code> hacia una salida, comandos de estado de energía, y <code>rm</code>, <code>mv</code>, <code>cp</code> o <code>ln</code> dirigidos a <code>/</code>, tu home, una ruta del sistema o la carpeta que contiene tu workspace (también tras <code>sudo</code>, <code>xargs</code> o <code>find -exec</code>). <strong>Ninguna clave, variable o flag relaja el piso.</strong></p>
+<h2>Permitir, preguntar, denegar</h2>
+<table>
+<thead><tr><th>Veredicto</th><th>Cuándo</th></tr></thead>
+<tbody>
+<tr><td>Permitir</td><td>El comando no cambia nada, o solo el workspace: <code>make</code>, <code>go build</code>, <code>npm test</code>, tus propios <code>./scripts/*</code>. Corre en silencio, porque una política que pregunta por eso termina apagada.</td></tr>
+<tr><td>Preguntar</td><td>Llega a la red o al sistema, escribe fuera del workspace, o no se puede clasificar. Se te pregunta antes de ejecutarlo.</td></tr>
+<tr><td>Denegar</td><td>Modo estricto y la línea no se puede ubicar.</td></tr>
+</tbody>
+</table>
+<h2>El sandbox</h2>
+<p>Los comandos corren confinados, sin Docker. Se limitan memoria, tiempo de CPU, procesos, archivos abiertos y tamaño de salida, y opcionalmente no hay red dentro del comando. En Linux con Landlock, un comando no puede escribir fuera de los directorios en los que trabaja ni leer las sesiones, la configuración o el almacén de credenciales de git de motita.</p>
+<h2>Acceso al disco</h2>
+<p><strong>Ajustes &rarr; Seguridad</strong> elige cuánto del disco alcanza el agente:</p>
+<ul>
+<li><strong>Solo el workspace</strong> (por defecto): se rechazan las ediciones de archivos fuera de la carpeta de la sesión, y en Linux un comando no puede leer ni listar tus archivos en otras partes (home, <code>/home</code>, <code>/mnt</code>, ...).</li>
+<li><strong>Todo el disco</strong>: ambos llegan a cualquier parte que tu cuenta alcance. La página pregunta primero y explica el riesgo. Las credenciales propias de motita quedan ocultas en ambos casos.</li>
+</ul>
+<p>Donde nada confina un comando (Windows, macOS, Linux sin Landlock), el agente pregunta antes de ejecutar código del propio proyecto, salvo que lo desactives.</p>
+<p>Cada sesión además tiene su propio HOME y no puede leer los demás proyectos y sesiones del mismo gateway.</p>
+      <h2>Profundizar</h2>
+      <ul class="more">
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#guardrails-that-cant-be-switched-off">Guía: guardarraíles que no se pueden apagar</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#guardrails-and-the-two-layers-of-them">Referencia: guardarraíles y sus dos capas</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#disk-access">Referencia: acceso al disco</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#what-runs-silently-and-why-that-is-a-design-decision">Referencia: qué corre en silencio</a></li>
+      </ul>
+      <nav class="pn" aria-label="Página anterior y siguiente">
+        <a class="prev" href="docs-es-skills.html"><span>Anterior</span>Skills: lo que aprende</a>
+        <a class="next" href="docs-es-network.html"><span>Siguiente</span>Red y acceso remoto</a>
+      </nav>
+      </main>
+    </div>
+    <footer>
+      <div class="wrap frow">
+        <span class="mono">✦ motita</span>
+        <span>Licencia GPL-3.0-or-later.</span>
+        <span class="sep"></span>
+        <a href="index.html">Inicio</a>
+        <a href="docs-es.html">Documentación</a>
+        <a href="REFERENCE.md">Referencia</a>
+        <a href="https://github.com/madkoding/motita">GitHub</a>
+      </div>
+    </footer>
+    <script>
+      // Remember the language picked here, so the home page opens in it too.
+      document.querySelector("a.lang").addEventListener("click", function () {
+        try {
+          localStorage.setItem("motita-lang", this.getAttribute("hreflang"));
+        } catch (e) {
+          // blocked storage: the choice just does not carry over
+        }
+      });
+    </script>
+  </body>
+</html>
