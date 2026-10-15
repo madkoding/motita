@@ -9,7 +9,12 @@ the single definition of "unit" shared by the check and by whoever adds one.
     python3 scripts/index_units.py            list units still missing data-es
     python3 scripts/index_units.py --check    same, and exit 1 if there are any
     python3 scripts/index_units.py --all      list every unit
+
+An element that must stay as it is (a product name, a code sample) says so with
+translate="no" and is not a unit.
 """
+from __future__ import annotations
+
 import html
 import re
 import sys
@@ -19,45 +24,56 @@ INLINE = {"a", "b", "strong", "em", "i", "code", "kbd", "span", "small", "sup", 
           "br", "mark", "abbr", "time", "button", "svg", "path", "circle", "rect", "g",
           "line", "polyline", "polygon", "ellipse", "use", "defs", "title"}
 VOID = {"br", "img", "meta", "link", "input", "hr", "source", "wbr"}
+# <pre> blocks are code, and the head holds no visible prose of the page body.
 SKIP = {"script", "style", "svg", "noscript", "head", "pre"}
-# <pre> blocks are code; only their "# comment" lines are prose, and those are
-# translated through the lines' own spans (see PRE_COMMENT below).
+HEADINGS = ("h1", "h2", "h3")
 
 
 class Node:
-    def __init__(self, tag, attrs, start, parent):
-        self.tag, self.attrs, self.start, self.parent = tag, dict(attrs), start, parent
-        self.children = []
-        self.text = ""  # direct text, concatenated
+    """One element: its tag, attributes, children and the text it holds directly."""
+
+    def __init__(self, tag: str, attrs: list, start: int, parent: Node | None) -> None:
+        self.tag = tag
+        self.attrs = dict(attrs)
+        self.start = start
+        self.parent = parent
+        self.children: list[Node] = []
+        self.text = ""
+        self.tag_end = start
+        self.inner_end = start
 
 
 class Tree(HTMLParser):
-    def __init__(self, src):
+    """Builds a tree that remembers where each element sits in the source text."""
+
+    def __init__(self, src: str) -> None:
         super().__init__(convert_charrefs=True)
-        self.src = src
         self.lines = [0]
         for m in re.finditer("\n", src):
             self.lines.append(m.end())
         self.root = Node("#root", [], 0, None)
         self.cur = self.root
 
-    def off(self):
+    def off(self) -> int:
+        """Offset in the source of the construct being parsed."""
         line, col = self.getpos()
         return self.lines[line - 1] + col
 
-    def handle_starttag(self, tag, attrs):
+    def _add(self, tag: str, attrs: list) -> Node:
         n = Node(tag, attrs, self.off(), self.cur)
-        n.tag_end = n.start + len(self.get_starttag_text())
+        n.tag_end = n.start + len(self.get_starttag_text() or "")
         self.cur.children.append(n)
+        return n
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        n = self._add(tag, attrs)
         if tag not in VOID:
             self.cur = n
 
-    def handle_startendtag(self, tag, attrs):
-        n = Node(tag, attrs, self.off(), self.cur)
-        n.tag_end = n.start + len(self.get_starttag_text())
-        self.cur.children.append(n)
+    def handle_startendtag(self, tag: str, attrs: list) -> None:
+        self._add(tag, attrs)
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         n = self.cur
         while n is not self.root and n.tag != tag:
             n = n.parent
@@ -65,63 +81,78 @@ class Tree(HTMLParser):
             n.inner_end = self.off()
             self.cur = n.parent
 
-    def handle_data(self, d):
-        self.cur.text += d
+    def handle_data(self, data: str) -> None:
+        self.cur.text += data
 
 
-def all_inline(n):
+def all_inline(n: Node) -> bool:
+    """True when every descendant is an inline element."""
     return all(c.tag in INLINE and all_inline(c) for c in n.children)
 
 
-def has_text(s):
+def has_text(s: str) -> bool:
+    """True when the string holds at least two letters."""
     return re.search(r"[A-Za-z]{2}", s) is not None
 
 
-def own_text(n):
-    return has_text(n.text)
+def deep_text(n: Node) -> bool:
+    """True when the element or anything inside it (outside <svg> etc.) holds text."""
+    if has_text(n.text):
+        return True
+    return any(deep_text(c) for c in n.children if c.tag not in SKIP)
 
 
-def deep_text(n):
-    return own_text(n) or any(deep_text(c) for c in n.children if c.tag not in SKIP)
+def is_unit(n: Node) -> bool:
+    """Whether n is a translatable unit (see the module docstring)."""
+    if n.tag == "#root" or n.attrs.get("translate") == "no" or n.tag in ("code", "kbd"):
+        return False
+    has_own = has_text(n.text) or n.tag in HEADINGS
+    return has_own and all_inline(n) and deep_text(n)
 
 
-def units(n, out):
-    if n.tag in SKIP and n.tag != "head":
+def units(n: Node, out: list[Node]) -> None:
+    """Collects the topmost units under n, in document order."""
+    if n.tag in SKIP or n.attrs.get("translate") == "no":
         return
-    if n.tag == "head":
-        return
-    if n.attrs.get("translate") == "no" or n.tag in ("code", "kbd"):
-        return
-    if n.tag != "#root" and (own_text(n) or n.tag in ("h1", "h2", "h3")) and all_inline(n) and deep_text(n):
+    if is_unit(n):
         out.append(n)
         return
     for c in n.children:
         units(c, out)
 
 
-def inner(src, n):
+def inner(src: str, n: Node) -> str:
+    """The element's inner HTML with whitespace collapsed."""
     return re.sub(r"\s+", " ", src[n.tag_end:n.inner_end]).strip()
 
 
-def load(path="site/index.html"):
-    src = open(path, encoding="utf-8").read()
-    t = Tree(src)
-    t.feed(src)
-    out = []
-    units(t.root, out)
+def load(path: str = "site/index.html") -> tuple[str, list[Node]]:
+    """Reads the page and returns its source and its units."""
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    tree = Tree(src)
+    tree.feed(src)
+    out: list[Node] = []
+    units(tree.root, out)
     return src, out
 
 
-if __name__ == "__main__":
-    src, us = load()
-    show_all = "--all" in sys.argv
+def main(argv: list[str]) -> int:
+    """Command-line entry point; returns the exit status."""
+    _, us = load()
     missing = [u for u in us if "data-es" not in u.attrs]
-    for u in us if show_all else missing:
-        cls = u.attrs.get("class", "")
+    shown = us if "--all" in argv else missing
+    for u in shown:
         text = re.sub(r"\s+", " ", html.unescape(u.text)).strip()[:80]
-        print(f"{u.tag}.{cls}\t{text}")
-    if "--check" in sys.argv:
-        if missing:
-            print(f"\n{len(missing)} units of site/index.html have no data-es", file=sys.stderr)
-            sys.exit(1)
-        print(f"every one of the {len(us)} text units of site/index.html has a Spanish version")
+        print(f"{u.tag}.{u.attrs.get('class', '')}\t{text}")
+    if "--check" not in argv:
+        return 0
+    if missing:
+        print(f"\n{len(missing)} units of site/index.html have no data-es", file=sys.stderr)
+        return 1
+    print(f"every one of the {len(us)} text units of site/index.html has a Spanish version")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

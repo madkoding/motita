@@ -342,7 +342,7 @@ motita curator pin build-firmware</pre>`,
     slug: "automation",
     title: "Updates and scheduled tasks",
     blurb: "Stay on the newest verified release, and run tasks on a cadence.",
-    body: `
+    body: String.raw`
 <h2>Updating</h2>
 <p><code>/update</code> installs the newest release. The welcome screen and the browser's sidebar tell you when one exists. The download must match the release's <code>SHA256SUMS</code> or nothing is installed. A gateway started with <code>-serve</code> restarts itself on the new binary; an interface tells you to restart it.</p>
 <p>The gateway reports its own build through <code>motita gateway status</code>, so after installing over an old binary you can tell whether the process still running is the previous one.</p>
@@ -355,9 +355,9 @@ motita curator pin build-firmware</pre>`,
 <li>A task can be a <code>plan</code> (read-only) or a <code>task</code>, and can be pinned to a session.</li>
 <li>Create, change, run-now and delete them through <code>/v1/schedules</code>, or from the interface.</li>
 </ul>
-<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \\
-  -H 'Content-Type: application/json' \\
-  -d '{"title":"nightly audit","task":"check the logs and report","kind":"plan","every":"24h"}' \\
+<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"nightly audit","task":"check the logs and report","kind":"plan","every":"24h"}' \
   http://127.0.0.1:7477/v1/schedules</pre>`,
     more: [
       ["Reference: scheduled tasks", reference("scheduled-tasks")],
@@ -367,7 +367,7 @@ motita curator pin build-firmware</pre>`,
 ];
 
 const esc = (s) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
 // English is the default and keeps the short names (docs.html, docs-<slug>.html);
 // Spanish sits beside it as docs-es.html and docs-es-<slug>.html.
@@ -463,19 +463,28 @@ function pnCard(lang, kind, label, target) {
 }
 
 // The page before and after, as [page, title] (a null page is the overview).
-function neighbours(lang, list, currentIndex) {
-  const t = ui[lang];
-  let prev = null;
+function prevOf(t, list, currentIndex) {
+  if (currentIndex < 0) {
+    return null;
+  }
   if (currentIndex === 0) {
-    prev = [null, t.overview];
-  } else if (currentIndex > 0) {
-    prev = [pages[currentIndex - 1], list[currentIndex - 1].title];
+    return [null, t.overview];
   }
-  let next = null;
-  if (currentIndex + 1 < pages.length) {
-    next = [pages[currentIndex + 1], list[currentIndex + 1].title];
+  return [pages[currentIndex - 1], list[currentIndex - 1].title];
+}
+
+function nextOf(list, currentIndex) {
+  if (currentIndex + 1 >= pages.length) {
+    return null;
   }
-  return { prev, next };
+  return [pages[currentIndex + 1], list[currentIndex + 1].title];
+}
+
+function neighbours(lang, list, currentIndex) {
+  return {
+    prev: prevOf(ui[lang], list, currentIndex),
+    next: nextOf(list, currentIndex),
+  };
 }
 
 // currentIndex: -1 for the overview, otherwise the page's position.
@@ -637,4 +646,8 @@ for (const [name, html] of Object.entries(out)) {
 if (stale) {
   process.exit(1);
 }
-console.info(check ? "docs pages are up to date" : `wrote ${Object.keys(out).length} docs pages`);
+if (check) {
+  console.info("docs pages are up to date");
+} else {
+  console.info(`wrote ${Object.keys(out).length} docs pages`);
+}

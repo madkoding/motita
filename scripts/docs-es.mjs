@@ -300,7 +300,7 @@ motita curator pin build-firmware</pre>`,
     title: "Actualizaciones y tareas programadas",
     blurb: "Mantente en la última versión verificada y ejecuta tareas con una cadencia.",
     more: ["Referencia: tareas programadas", "Guía: versiones automáticas"],
-    body: `
+    body: String.raw`
 <h2>Actualizar</h2>
 <p><code>/update</code> instala la versión más nueva. La pantalla de bienvenida y la barra lateral del navegador avisan cuando existe una. La descarga debe coincidir con el <code>SHA256SUMS</code> de la versión o no se instala nada. Un gateway iniciado con <code>-serve</code> se reinicia solo con el nuevo binario; una interfaz te dice que la reinicies.</p>
 <p>El gateway informa su propia compilación en <code>motita gateway status</code>, así que tras instalar sobre un binario viejo puedes saber si el proceso que sigue corriendo es el anterior.</p>
@@ -313,9 +313,9 @@ motita curator pin build-firmware</pre>`,
 <li>Una tarea puede ser un <code>plan</code> (solo lectura) o un <code>task</code>, y puede fijarse a una sesión.</li>
 <li>Créalas, cámbialas, ejecútalas al instante y bórralas con <code>/v1/schedules</code>, o desde la interfaz.</li>
 </ul>
-<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \\
-  -H 'Content-Type: application/json' \\
-  -d '{"title":"auditoría nocturna","task":"revisa los logs y reporta","kind":"plan","every":"24h"}' \\
+<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"auditoría nocturna","task":"revisa los logs y reporta","kind":"plan","every":"24h"}' \
   http://127.0.0.1:7477/v1/schedules</pre>`,
   },
 };

@@ -9,11 +9,10 @@
 // first of the browser's languages that is English or Spanish; English otherwise.
 // Without scripts, or if this file does not load, the page is simply English.
 (function () {
-  "use strict";
-  var KEY = "motita-lang";
-  var LANGS = ["en", "es"];
+  const KEY = "motita-lang";
+  const LANGS = ["en", "es"];
 
-  var STR = {
+  const STR = {
     es: {
       Copy: "Copiar",
       "Copied ✓": "Copiado ✓",
@@ -23,7 +22,7 @@
         "No se pudo copiar: selecciona el comando y cópialo a mano.",
     },
   };
-  var META = {
+  const META = {
     es: {
       title: "Motita — el agente de IA que demuestra que terminó",
       description:
@@ -33,30 +32,40 @@
         "Una verificación real, no el modelo, decide cuándo una tarea está terminada. Un binario, cualquier modelo, tu terminal, tu navegador o tu teléfono.",
     },
   };
+  const SWITCH_LABEL = {
+    es: { text: "Español", label: "Leer en español" },
+    en: { text: "English", label: "Read in English" },
+  };
+  const DOCS_HREF = { en: "docs.html", es: "docs-es.html" };
 
-  var lang = "en";
-  var originals = new Map();
+  let lang = "en";
+  const originals = new Map();
 
   function stored() {
     try {
-      var v = localStorage.getItem(KEY);
-      return LANGS.indexOf(v) >= 0 ? v : null;
-    } catch (e) {
-      return null;
+      const v = localStorage.getItem(KEY);
+      if (LANGS.includes(v)) {
+        return v;
+      }
+    } catch {
+      // blocked storage: there is no saved choice
     }
+    return null;
   }
+
   function remember(v) {
     try {
       localStorage.setItem(KEY, v);
-    } catch (e) {
+    } catch {
       // private mode or blocked storage: the choice lasts until the page closes
     }
   }
+
   function detect() {
-    var list = navigator.languages || [navigator.language || "en"];
-    for (var i = 0; i < list.length; i++) {
-      var code = String(list[i]).slice(0, 2).toLowerCase();
-      if (LANGS.indexOf(code) >= 0) {
+    const list = navigator.languages || [navigator.language || "en"];
+    for (const entry of list) {
+      const code = String(entry).slice(0, 2).toLowerCase();
+      if (LANGS.includes(code)) {
         return code;
       }
     }
@@ -65,25 +74,22 @@
 
   // T translates a string the page's script builds at run time.
   function T(en) {
-    return (STR[lang] && STR[lang][en]) || en;
+    return STR[lang]?.[en] || en;
   }
   window.motitaT = T;
 
-  function meta(sel, attr) {
-    var el = document.querySelector(sel);
-    return el ? { el: el, attr: attr } : null;
-  }
-  var targets = {
-    description: meta('meta[name="description"]', "content"),
-    ogTitle: meta('meta[property="og:title"]', "content"),
-    ogDescription: meta('meta[property="og:description"]', "content"),
+  const targets = {
+    description: ['meta[name="description"]', "content"],
+    ogTitle: ['meta[property="og:title"]', "content"],
+    ogDescription: ['meta[property="og:description"]', "content"],
   };
-  var enMeta = { title: document.title };
-  Object.keys(targets).forEach(function (k) {
-    if (targets[k]) {
-      enMeta[k] = targets[k].el.getAttribute(targets[k].attr);
+  const enMeta = { title: document.title };
+  for (const [key, [selector, attr]] of Object.entries(targets)) {
+    const el = document.querySelector(selector);
+    if (el) {
+      enMeta[key] = el.getAttribute(attr);
     }
-  });
+  }
 
   function swapText(el) {
     if (lang === "en" && !originals.has(el)) {
@@ -92,80 +98,99 @@
     if (!originals.has(el)) {
       originals.set(el, el.innerHTML);
     }
-    var en = originals.get(el);
+    const en = originals.get(el);
     if (lang === "en") {
       el.innerHTML = en;
       return;
     }
     // Icons are not translated: they are carried over from the English, in order.
-    var svgs = en.match(/<svg[\s\S]*?<\/svg\s*>/g) || [];
-    var i = 0;
-    el.innerHTML = el.getAttribute("data-es").replace(/\{svg\}/g, function () {
-      return svgs[i++] || "";
+    const svgs = en.match(/<svg[\s\S]*?<\/svg\s*>/g) || [];
+    let next = 0;
+    el.innerHTML = el.dataset.es.replaceAll("{svg}", () => {
+      const svg = svgs[next] || "";
+      next += 1;
+      return svg;
     });
   }
 
   function swapAttr(el, attr) {
-    var key = "data-orig-" + attr;
+    const key = "data-orig-" + attr;
     if (lang === "en" && !el.hasAttribute(key)) {
       return;
     }
     if (!el.hasAttribute(key)) {
       el.setAttribute(key, el.getAttribute(attr) || "");
     }
-    el.setAttribute(
-      attr,
-      lang === "en" ? el.getAttribute(key) : el.getAttribute("data-es-" + attr),
-    );
+    let value = el.getAttribute(key);
+    if (lang !== "en") {
+      value = el.getAttribute("data-es-" + attr);
+    }
+    el.setAttribute(attr, value);
+  }
+
+  function applyMeta() {
+    document.title = enMeta.title;
+    if (lang !== "en") {
+      document.title = META[lang].title;
+    }
+    for (const [key, [selector, attr]] of Object.entries(targets)) {
+      const el = document.querySelector(selector);
+      if (el) {
+        let value = enMeta[key];
+        if (lang !== "en") {
+          value = META[lang][key];
+        }
+        el.setAttribute(attr, value);
+      }
+    }
+  }
+
+  function applySwitch() {
+    const button = document.getElementById("lang-switch");
+    if (!button) {
+      return;
+    }
+    let other = "es";
+    if (lang === "es") {
+      other = "en";
+    }
+    button.textContent = SWITCH_LABEL[other].text;
+    button.setAttribute("lang", other);
+    button.setAttribute("aria-label", SWITCH_LABEL[other].label);
   }
 
   function apply(next) {
     lang = next;
     document.documentElement.lang = lang;
-    document.querySelectorAll("[data-es]").forEach(swapText);
-    ["alt", "aria-label"].forEach(function (attr) {
-      document.querySelectorAll("[data-es-" + attr + "]").forEach(function (el) {
+    for (const el of document.querySelectorAll("[data-es]")) {
+      swapText(el);
+    }
+    for (const attr of ["alt", "aria-label"]) {
+      for (const el of document.querySelectorAll("[data-es-" + attr + "]")) {
         swapAttr(el, attr);
-      });
-    });
-    var m = META[lang] || enMeta;
-    document.title = lang === "en" ? enMeta.title : m.title;
-    Object.keys(targets).forEach(function (k) {
-      if (targets[k]) {
-        targets[k].el.setAttribute(
-          targets[k].attr,
-          lang === "en" ? enMeta[k] : m[k],
-        );
       }
-    });
-    document.querySelectorAll(".copy").forEach(function (b) {
+    }
+    applyMeta();
+    for (const b of document.querySelectorAll(".copy")) {
       if (!b.classList.contains("done")) {
         b.textContent = T("Copy");
       }
-    });
-    document.querySelectorAll('a[href="docs.html"], a[href="docs-es.html"]').forEach(function (a) {
-      a.setAttribute("href", lang === "es" ? "docs-es.html" : "docs.html");
-    });
-    var sw = document.getElementById("lang-switch");
-    if (sw) {
-      var other = lang === "es" ? "en" : "es";
-      sw.textContent = other === "es" ? "Español" : "English";
-      sw.setAttribute("lang", other);
-      sw.setAttribute(
-        "aria-label",
-        other === "es" ? "Leer en español" : "Read in English",
-      );
     }
+    for (const a of document.querySelectorAll(
+      'a[href="docs.html"], a[href="docs-es.html"]',
+    )) {
+      a.setAttribute("href", DOCS_HREF[lang]);
+    }
+    applySwitch();
   }
 
-  var sw = document.getElementById("lang-switch");
-  if (sw) {
-    sw.addEventListener("click", function () {
-      var next = lang === "es" ? "en" : "es";
-      remember(next);
-      apply(next);
-    });
-  }
-  var first = stored() || detect();
-  apply(first);
+  document.getElementById("lang-switch")?.addEventListener("click", () => {
+    let next = "es";
+    if (lang === "es") {
+      next = "en";
+    }
+    remember(next);
+    apply(next);
+  });
+  apply(stored() || detect());
 })();

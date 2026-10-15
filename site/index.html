@@ -3355,28 +3355,31 @@ motita -p "how many files are there?"</code></pre>
         }
 
         // ── Copy buttons ────────────────────────────────────────────────
+        // site/lang.js (loaded after this script) translates what is shown here.
+        function tr(text) {
+          if (window.motitaT) {
+            return window.motitaT(text);
+          }
+          return text;
+        }
         document.querySelectorAll(".copy").forEach(function (btn) {
           btn.addEventListener("click", async function () {
             var target = document.getElementById(btn.dataset.copy);
             var status = document.getElementById("copy-status");
             try {
               await navigator.clipboard.writeText(target.textContent.trim());
-              btn.textContent = window.motitaT ? window.motitaT("Copied ✓") : "Copied ✓";
+              btn.textContent = tr("Copied ✓");
               btn.classList.add("done");
-              status.textContent = window.motitaT
-                ? window.motitaT("Install command copied to clipboard.")
-                : "Install command copied to clipboard.";
+              status.textContent = tr("Install command copied to clipboard.");
             } catch {
               // The browser refused the clipboard (no permission, or not a secure page): the reader
               // is told to copy it by hand, which is all there is to do about it.
-              status.textContent = window.motitaT
-                ? window.motitaT(
-                    "Copy failed — select the command and copy it manually.",
-                  )
-                : "Copy failed — select the command and copy it manually.";
+              status.textContent = tr(
+                "Copy failed — select the command and copy it manually.",
+              );
             }
             setTimeout(function () {
-              btn.textContent = window.motitaT ? window.motitaT("Copy") : "Copy";
+              btn.textContent = tr("Copy");
               btn.classList.remove("done");
             }, COPIED_MS);
           });
