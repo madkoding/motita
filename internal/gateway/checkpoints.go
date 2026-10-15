@@ -208,6 +208,10 @@ func (c *conversation) recordStep(turn int, text string) {
 	if cp == nil || text == "" {
 		return
 	}
+	if sub, ok := agent.ParseSubLine(text); ok {
+		cp.Steps = appendStep(cp.Steps, subStep(sub))
+		return
+	}
 	if rest, ok := strings.CutPrefix(text, "output (exit "); ok {
 		// "output (exit N):\nbody" closes the command that is still open.
 		num, body, _ := strings.Cut(rest, "):")
@@ -233,10 +237,29 @@ func (c *conversation) recordStep(turn int, text string) {
 	default:
 		// Any other line stays a plain step.
 	}
-	cp.Steps = append(cp.Steps, step)
-	if len(cp.Steps) > maxStepsPerTurn {
-		cp.Steps = append([]stepRecord(nil), cp.Steps[len(cp.Steps)-maxStepsPerTurn:]...)
+	cp.Steps = appendStep(cp.Steps, step)
+}
+
+// appendStep adds a step, keeping the most recent maxStepsPerTurn.
+func appendStep(steps []stepRecord, step stepRecord) []stepRecord {
+	steps = append(steps, step)
+	if len(steps) > maxStepsPerTurn {
+		return append([]stepRecord(nil), steps[len(steps)-maxStepsPerTurn:]...)
 	}
+	return steps
+}
+
+// subStep is what a background agent did as a step of the turn, in the same shape as the main
+// agent's own: its name is the tag in front of the text, so a client that knows nothing of agents
+// still shows who did it.
+func subStep(sub agent.SubLine) stepRecord {
+	text := "[" + sub.Tag() + "] " + sub.Text
+	if sub.Kind == agent.SubThought {
+		return stepRecord{Kind: stepThought, Text: clipMiddle("thinking: "+text, maxStepText)}
+	}
+	code := sub.Exit
+	return stepRecord{Kind: stepCommand, Text: clipMiddle("running: "+text, maxStepText), Exit: &code,
+		Out: clipMiddle(sub.Out, maxStepText)}
 }
 
 // recordOutcome keeps how a turn ended with its checkpoint. The outcome is never changed

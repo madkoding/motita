@@ -261,6 +261,11 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
     "subtask {a}/{b}: {x}",
     ["a", "b", "x"],
   ],
+  [
+    /^waiting for (\d+) background agent\(s\)\.\.\.$/,
+    "waiting for {n} background agent(s)...",
+    ["n"],
+  ],
   [/^asking you to approve: ([\s\S]*)$/, "asking you to approve: {x}", ["x"]],
   [
     /^approved \(all commands allowed in this session\): ([\s\S]*)$/,
@@ -288,6 +293,32 @@ export function progressText(text: string): string {
     return tf(format, args);
   }
   return text;
+}
+
+// SubStep is what a background agent did: a command with what it printed, or a thought.
+export interface SubStep {
+  agent: string;
+  role?: string;
+  kind: string;
+  text: string;
+  exit?: number;
+  out?: string;
+}
+
+// parseSub reads the line a background agent's command or thought arrives as, after its prefix.
+// A line that is not one is null.
+export function parseSub(body: string): SubStep | null {
+  try {
+    const sub = JSON.parse(body) as SubStep;
+    return choose(sub.agent, sub, null);
+  } catch {
+    return null;
+  }
+}
+
+// subTag is how the agent is named beside what it did: "a1", or "a2 · review".
+export function subTag(sub: SubStep): string {
+  return sub.agent + choose(sub.role, " · " + sub.role, "");
 }
 
 // upgradeMessage shows a stage message of /v1/update/run in the reader's language. The gateway

@@ -42,6 +42,7 @@ const first: Record<string, string> = {
     "({n} evento(s) no se guardaron mientras nadie escuchaba)",
   "1 action": "1 acción",
   "1 agent": "1 agente",
+  "1 subagent": "1 subagente",
   "1 background agent running": "1 agente en segundo plano trabajando",
   "1 change": "1 cambio",
   "1 command": "1 comando",
@@ -471,6 +472,8 @@ const first: Record<string, string> = {
   "subtask {a}/{b}: {x}": "subtarea {a}/{b}: {x}",
   "switch to another conversation": "cambia a otra conversación",
   "synthesizing answer...": "sintetizando la respuesta...",
+  "waiting for {n} background agent(s)...":
+    "esperando a {n} agente(s) en segundo plano...",
   "task complete: {x}": "tarea completa: {x}",
   "terminal history": "historial de la terminal",
   "the diagram renderer could not be loaded":
@@ -496,6 +499,7 @@ const first: Record<string, string> = {
   worktree: "worktree",
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",
+  "{n} subagents": "{n} subagentes",
   "{n} background agents running": "{n} agentes en segundo plano trabajando",
   "{n} changes": "{n} cambios",
   "{n} commands": "{n} comandos",

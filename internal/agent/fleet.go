@@ -128,6 +128,9 @@ func (f *Fleet) setRound(m *fleetMember, round int) {
 func (f *Fleet) finish(m *fleetMember, state, summary string) {
 	f.update(m, func(m *fleetMember) {
 		m.state, m.finished = state, fleetNow()
+		// What it was doing is over: leaving the last phase line would show a finished agent still
+		// "synthesizing answer...".
+		m.activity = ""
 		if summary != "" {
 			m.summary = truncate(summary, 600)
 		}

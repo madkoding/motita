@@ -22,6 +22,7 @@ const { AppCtx } = await stubModule("./appStore");
 const { ChatHeader } = await load("ChatHeader.tsx");
 const { ChatLoadingModal, ApprovalPanel } = await load("ChatPanels.tsx");
 const { TermDrawer, ThinkDrawer, AgentsDrawer } = await load("Drawers.tsx");
+const { SubagentsStrip } = await load("ConversationParts.tsx");
 const { ToastCard } = await load("ToastCard.tsx");
 const { AuthModal } = await load("AuthModal.tsx");
 const { h } = await import("preact");
@@ -429,7 +430,7 @@ test("the agents drawer lists the fleet with time, tokens and state", async () =
   assert.equal(tab.title, "Close the agents");
   assert.equal(text(tab.querySelector(".term-tab-count")), "1", "one sub-agent running");
   const title = root.querySelector(".term-titlebar span");
-  assert.equal(text(title), "motita@fleet — 3 agents · 14k tok");
+  assert.equal(text(title), "motita@fleet — 2 subagents · 14k tok");
   assert.equal(title.title, "in 13k · out 845 · cache read 7");
   const rows = [...root.querySelectorAll(".agent-row")];
   assert.deepEqual(rows.map((r) => r.className), [
@@ -456,6 +457,39 @@ test("the agents drawer lists the fleet with time, tokens and state", async () =
   tab.click();
   root.querySelector(".term-close").click();
   assert.deepEqual(calls, [["toggleAgent", "sub2"], ["toggleAgents"], ["closeAgents"]]);
+  await done();
+});
+
+test("a finished agent shows how it ended instead of the phase it was in, and a running one is worded", async () => {
+  const done = agent({ id: "e1", parent: "m", state: "passed", summary: "Docs written.\nsecond", activity: "" });
+  const none = agent({ id: "e2", parent: "m", state: "failed", activity: "" });
+  const busy = agent({ id: "e3", parent: "m", activity: "waiting for 2 background agent(s)..." });
+  const { store } = drawerStore({ drawers: { agentsOpen: true }, rs: { agents: [done, none, busy] } });
+  const { root, done: close } = await show(AgentsDrawer, store);
+  const lines = [...root.querySelectorAll(".agent-row")].map((r) => text(r.querySelector(".agent-activity")));
+  assert.deepEqual(lines, ["Docs written. second", "", "waiting for 2 background agent(s)..."]);
+  await close();
+});
+
+test("the conversation counts the background agents at work and opens their list", async () => {
+  const a = agent({ id: "s1", parent: "m", purpose: "write the docs" });
+  const b = agent({ id: "s2", parent: "m", purpose: "", state: "passed" });
+  const c = agent({ id: "s3", parent: "m", purpose: "" });
+  const main = agent({ id: "m", state: "running" });
+  const { store, calls } = drawerStore({ rs: { agents: [main, a, b, c] } });
+  const { root, update, done } = await show(SubagentsStrip, store);
+  assert.equal(text(root.querySelector(".subagents-count")), "2 background agents running");
+  const chips = [...root.querySelectorAll(".subagents-chip")];
+  assert.deepEqual(chips.map(text), ["write the docs", "s3"], "named by the id without a purpose");
+  assert.equal(chips[0].title, "write the docs");
+  root.querySelector(".subagents-strip").click();
+  assert.deepEqual(calls, [["toggleAgents"]]);
+  await update({ ...store, rs: { ...store.rs, agents: [main, a] } });
+  assert.equal(text(root.querySelector(".subagents-count")), "1 background agent running");
+  await update({ ...store, drawers: { ...store.drawers, agentsOpen: true } });
+  assert.equal(root.innerHTML, "", "not drawn while the list is open");
+  await update({ ...store, rs: { ...store.rs, agents: [main, b] } });
+  assert.equal(root.innerHTML, "", "not drawn when nothing runs");
   await done();
 });
 

@@ -497,6 +497,10 @@ test("the agent's phase lines and upgrade stages are worded", () => {
   );
   assert.equal(m.progressText("analysing the task..."), "analysing the task...");
   assert.equal(m.progressText("free text"), "free text");
+  assert.equal(
+    m.progressText("waiting for 3 background agent(s)..."),
+    "waiting for 3 background agent(s)...",
+  );
   assert.equal(m.upgradeMessage("Downloaded 40%"), "Downloaded 40%");
   assert.equal(m.upgradeMessage("Downloading v2"), "Downloading v2");
   assert.equal(m.upgradeMessage("Installed v2"), "Installed v2");
@@ -598,3 +602,13 @@ test("Spanish is loaded on demand and English stays the fallback", async () => {
   await act(() => render(null, root));
 });
 
+
+test("a background agent's step is read from its line, and named by its tag", () => {
+  const cmd = m.parseSub('{"agent":"a2","role":"review","kind":"command","text":"ls","exit":1}');
+  assert.equal(cmd.text, "ls");
+  assert.equal(m.subTag(cmd), "a2 · review");
+  assert.equal(m.subTag({ agent: "a1" }), "a1");
+  assert.equal(m.parseSub("{not json"), null);
+  assert.equal(m.parseSub("null"), null);
+  assert.equal(m.parseSub('{"kind":"command"}'), null, "a step without its agent is nothing");
+});

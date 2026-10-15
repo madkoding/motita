@@ -229,6 +229,7 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 		label = role + ": " + label
 	}
 	child.member = a.fleet.add(a.member.id, id, label, place.branch)
+	child.Progress = a.relayProgress(id, role, child.Progress)
 	// The main agent's approver, marked: a session where the user allowed every command lets a
 	// background agent run what the main agent could, and any other question is refused instead of
 	// being asked about a run nobody is watching. With no approver at all, a child has none either.

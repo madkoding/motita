@@ -208,6 +208,58 @@ test("progress lines become the turn's steps, its commands and the terminal log"
     out: "/tmp",
   });
 
+  // What a background agent ran and thought reaches the same drawers, named by the agent. A command
+  // arrives with its result, so it never takes the main agent's command that is still waiting.
+  await hook.act(() => {
+    rs().liveTurnRef.current = 1;
+  });
+  await send("progress", { text: "running: sleep 5" });
+  await send("progress", {
+    text: 'sub: {"agent":"a1","kind":"command","text":"go test","exit":2,"out":"FAIL"}',
+  });
+  await send("progress", {
+    text: 'sub: {"agent":"a2","role":"review","kind":"command","text":"ls"}',
+  });
+  await send("progress", {
+    text: 'sub: {"agent":"a2","role":"review","kind":"thought","text":"all good"}',
+  });
+  await send("progress", { text: "sub: not json" });
+  const added = rs().stepsByTurn[1].slice(-3);
+  assert.deepEqual(
+    added.map((s) => [s.kind, s.text, s.exit, s.out]),
+    [
+      ["command", "running: [a1] go test", 2, "FAIL"],
+      ["command", "running: [a2 · review] ls", 0, ""],
+      ["thought", "thinking: [a2 · review] all good", undefined, undefined],
+    ],
+  );
+  assert.deepEqual(
+    rs().shellLog.slice(-3).map((e) => [e.cmd, e.exit, e.out]),
+    [
+      ["sleep 5", null, ""],
+      ["[a1] go test", 2, "FAIL"],
+      ["[a2 · review] ls", 0, ""],
+    ],
+  );
+  await send("progress", { text: "output (exit 0):\ndone" });
+  assert.deepEqual(
+    rs().shellLog.map((e) => [e.cmd, e.exit]).filter(([c]) => c === "sleep 5"),
+    [["sleep 5", 0]],
+    "the output settled the main agent's command",
+  );
+  await hook.act(() => {
+    rs().liveTurnRef.current = null;
+  });
+  const logLen = rs().shellLog.length;
+  await send("progress", { text: 'sub: {"agent":"a1","kind":"command","text":"x"}' });
+  assert.equal(rs().shellLog.length, logLen, "with no turn in flight there is nowhere to file it");
+  // A turn with no steps yet takes a background agent's first one.
+  await hook.act(() => {
+    rs().liveTurnRef.current = 9;
+  });
+  await send("progress", { text: 'sub: {"agent":"a1","kind":"thought","text":"first"}' });
+  assert.equal(rs().stepsByTurn[9][0].text, "thinking: [a1] first");
+
   // The agent list as a plain line is a snapshot, never a step.
   await send("progress", { text: 'agents: [{"id":"z","started":"x"}]' });
   assert.deepEqual(rs().agents.map((a) => a.id), ["z"]);

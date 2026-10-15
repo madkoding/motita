@@ -4,7 +4,13 @@ import { choose } from "./choose";
 import { hasReport, type TaskReport } from "./Report";
 import { hasQuestions, turnTask, type AskItem } from "./questions";
 import { sortAgents } from "./appFormat";
-import { classifyProgress, commandOf, splitOutput } from "./appParse";
+import {
+  classifyProgress,
+  commandOf,
+  parseSub,
+  splitOutput,
+  subTag,
+} from "./appParse";
 import { keyed } from "./useRunState";
 import type { RunState } from "./useRunState";
 import type {
@@ -14,7 +20,12 @@ import type {
   ShellEntry,
   StepView,
 } from "./appTypes";
-import { AGENTS_PREFIX, SHELL_LOG_MAX, STEPS_MAX } from "./appConst";
+import {
+  AGENTS_PREFIX,
+  SHELL_LOG_MAX,
+  STEPS_MAX,
+  SUB_PREFIX,
+} from "./appConst";
 
 // StreamPayload is the data of one event, with every field an event of the stream can carry.
 export interface StreamPayload {
@@ -172,8 +183,58 @@ function onStep({ rs }: StreamContext, text: string, kind: string) {
   rs.setLiveThought(null);
 }
 
+// onSub: a command a background agent ran, or a thought it finished. They go to the terminal and
+// thinking drawers like the main agent's, named by the agent in a tag in front of the text; the
+// command arrives with its result, so it never waits to be settled by an output line that another
+// agent's command could take.
+function onSub({ rs }: StreamContext, body: string) {
+  const sub = parseSub(body);
+  const liveTurn = rs.liveTurnRef.current;
+  if (!sub || liveTurn == null) {
+    return;
+  }
+  const tag = "[" + subTag(sub) + "] ";
+  const isThought = sub.kind === "thought";
+  // The line leaves out a success and an empty output.
+  const exit = sub.exit ?? 0;
+  const out = sub.out ?? "";
+  const step = keyed(
+    choose(
+      isThought,
+      { kind: "thought", text: "thinking: " + tag + sub.text },
+      {
+        kind: "command",
+        text: "running: " + tag + sub.text,
+        exit,
+        out,
+      },
+    ),
+  );
+  rs.setStepsByTurn((prev) => ({
+    ...prev,
+    [liveTurn]: [...(prev[liveTurn] ?? []), step].slice(-STEPS_MAX),
+  }));
+  if (!isThought) {
+    rs.setShellLog((prev) =>
+      [
+        ...prev,
+        {
+          id: rs.nextId(),
+          cmd: tag + sub.text,
+          exit,
+          out,
+        },
+      ].slice(-SHELL_LOG_MAX),
+    );
+  }
+}
+
 function onProgress(ctx: StreamContext, payload: StreamPayload) {
   const text: string = payload.text || "";
+  if (text.startsWith(SUB_PREFIX)) {
+    onSub(ctx, text.slice(SUB_PREFIX.length));
+    return;
+  }
   if (text.startsWith(AGENTS_PREFIX)) {
     // The agent list sent as a plain line: a snapshot, never a step of the conversation.
     try {
