@@ -10,7 +10,7 @@ import {
 } from "./appFormat";
 import { commandOf } from "./appParse";
 import { sessionFromNotice } from "./pushApi";
-import { keyed } from "./useRunState";
+import { keyed, restartFollow } from "./useRunState";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
@@ -277,7 +277,7 @@ export function useConversation({
       rs.runSessionRef.current = id;
       lists.setRunningState(true, id);
       setState("working");
-      rs.lastIdRef.current = 0;
+      restartFollow(rs);
       followRef.current();
     }
     return true;
@@ -302,7 +302,7 @@ export function useConversation({
         rs.clearConversation();
       }
       void loadAgents(id);
-      rs.lastIdRef.current = 0;
+      restartFollow(rs);
       // The transcript is being fetched: the message area is empty until it arrives, and an
       // empty area is not the same message as "this conversation has nothing in it yet". The
       // spinner covers the fetch AND the deferred rendering that follows, and is cleared below

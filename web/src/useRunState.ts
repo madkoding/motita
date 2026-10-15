@@ -57,6 +57,10 @@ export function useRunState() {
   const [noSession, setNoSession] = useState(false);
 
   const lastIdRef = useRef(0);
+  // runIdRef is the id of the run this tab follows, as the stream's attached event named it. A
+  // reconnection names it (?run=), so the gateway answers for THAT run and not whichever one is
+  // current; empty until the first attached event of a new follow.
+  const runIdRef = useRef("");
   const runningRef = useRef(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const msgIdRef = useRef(0);
@@ -129,6 +133,7 @@ export function useRunState() {
     setNoSession,
     setSessionId,
     lastIdRef,
+    runIdRef,
     runningRef,
     reconnectTimer,
     sessionRef,
@@ -141,3 +146,11 @@ export function useRunState() {
 }
 
 export type RunState = ReturnType<typeof useRunState>;
+
+// restartFollow forgets where the stream of the last run got to, before a new run is followed
+// from its start: its first event is numbered 1 again, and its id is the one the next attached
+// event gives.
+export function restartFollow(rs: Pick<RunState, "lastIdRef" | "runIdRef">) {
+  rs.lastIdRef.current = 0;
+  rs.runIdRef.current = "";
+}

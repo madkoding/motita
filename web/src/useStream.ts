@@ -10,13 +10,15 @@ import {
   type StreamPayload,
 } from "./streamEvents";
 import { cutLink, isLive, openLink, type RunLink } from "./runLink";
-import type { RunState } from "./useRunState";
+import { restartFollow, type RunState } from "./useRunState";
 import { withSession, type SessionList } from "./useSessionList";
 import type { Conversation } from "./useConversation";
 import type { Api } from "./prApi";
 import type { SetStatus, SetToast } from "./appTypes";
 import {
   HANDOFF_RELOAD_MS,
+  HTTP_CONFLICT,
+  HTTP_GONE,
   HTTP_NOT_FOUND,
   JSON_HEADERS,
   NO_RESULT,
@@ -94,6 +96,20 @@ function closeOpenCommands<E extends { exit?: number | null }>(prev: E[]): E[] {
     }
     return e;
   });
+}
+
+// RUN_OVER are the answers to a reconnection that say the run it followed is over.
+const RUN_OVER = new Set([HTTP_NOT_FOUND, HTTP_GONE, HTTP_CONFLICT]);
+
+// eventsPath is where a dropped stream is followed again: from the last event seen and, once the
+// stream named its run, for that run only. Without the run the gateway would attach the tab to
+// whatever run is current, and show another turn's result as the one it was following.
+function eventsPath(sid: string, from: number, run: string): string {
+  let path = SESSIONS_PATH + sid + "/events?from=" + from;
+  if (run) {
+    path += "&run=" + encodeURIComponent(run);
+  }
+  return path;
 }
 
 // useReadStream answers readStream, which consumes an SSE response body and draws each event.
@@ -270,6 +286,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     runSessionRef,
     runningRef,
     lastIdRef,
+    runIdRef,
     reconnectTimer,
     handoffRef,
     liveTurnRef,
@@ -332,6 +349,25 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
 
   const readStream = useReadStream(rs, finish);
 
+  // runOver answers a reconnection refused because the run it followed is over. Gone (404, 410):
+  // what it said is in the history, which is read again. Another run in flight (409): the
+  // conversation is read again softly, which follows that run from its start as opening the
+  // session does. Retrying would only be refused again.
+  const runOver = useCallback(
+    async (sid: string, status: number) => {
+      if (!runningRef.current) {
+        return;
+      }
+      finish();
+      if (status === HTTP_CONFLICT) {
+        await switchSessionRef.current?.(sid, "none", true);
+      } else {
+        await transcript();
+      }
+    },
+    [finish, transcript],
+  );
+
   // followReconnect reattaches to a dropped stream.
   //
   // It follows the session ON SCREEN, so a timer left over from a session the reader has left must
@@ -351,7 +387,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     let res: Response;
     try {
       res = await api(
-        SESSIONS_PATH + link.sid + "/events?from=" + lastIdRef.current,
+        eventsPath(link.sid, lastIdRef.current, runIdRef.current),
         { signal: link.ctrl.signal },
       );
     } catch {
@@ -361,11 +397,8 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     if (!live(link)) {
       return;
     }
-    if (res.status === HTTP_NOT_FOUND) {
-      if (runningRef.current) {
-        finish();
-        await transcript();
-      }
+    if (RUN_OVER.has(res.status)) {
+      await runOver(link.sid, res.status);
       return;
     }
     if (!res.ok) {
@@ -378,7 +411,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
       // Stream broke mid-read.
     }
     retry();
-  }, [finish, transcript, readStream]);
+  }, [runOver, readStream]);
 
   useEffect(() => {
     followRef.current = followReconnect;
@@ -403,7 +436,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
       rs.setLiveThought(null);
       // A new run numbers its events from 1 again: a cursor left over from the last one would
       // ask a reconnection for events that do not exist yet.
-      lastIdRef.current = 0;
+      restartFollow(rs);
       // Pinned BEFORE the run starts, so the spinner and its clearing are both
       // addressed to the conversation this turn belongs to.
       runSessionRef.current = sid;

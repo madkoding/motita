@@ -71,6 +71,7 @@ test("attached marks the user's message with its turn and resets a replayed turn
     rs().setStepsByTurn({ 2: [{ kind: "step", text: "loaded" }] });
   });
   await send("attached", {
+    run_id: "run-2",
     turn: 2,
     dropped: 3,
     pending_approval: { id: "ap", command: "rm" },
@@ -81,6 +82,7 @@ test("attached marks the user's message with its turn and resets a replayed turn
   });
   const s = rs();
   assert.equal(s.liveTurnRef.current, 2);
+  assert.equal(s.runIdRef.current, "run-2", "the run a reconnection names");
   assert.equal(s.messages[1].turn, 2);
   assert.equal(s.messages[0].turn, 1);
   assert.deepEqual(s.stepsByTurn[2], []);
@@ -109,6 +111,7 @@ test("attached marks the user's message with its turn and resets a replayed turn
   assert.equal(rs().messages[0].turn, undefined);
   await send("attached", { dropped: 0 });
   assert.equal(rs().liveTurnRef.current, 7);
+  assert.equal(rs().runIdRef.current, "run-2", "a preamble with no run id keeps the one known");
   await hook.unmount();
 });
 

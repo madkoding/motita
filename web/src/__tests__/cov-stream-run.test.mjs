@@ -484,6 +484,106 @@ test("a run the gateway no longer has is finished and the transcript is read", a
   await h.unmount();
 });
 
+test("a reconnection names the run it follows, and a run that is over is not retried", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const b = body();
+    const m = await mount({ "POST /v1/sessions/s1/run": () => streamRes(b) });
+    const { h, cur, conv } = m;
+    let done;
+    await h.act(async () => {
+      done = cur().stream.submit("x");
+      await tick();
+    });
+    await h.act(async () => {
+      b.push(ev("attached", { run_id: "r 1", turn: 1 }, null) + ev("progress", { text: "a" }, "4"));
+      b.fail(new Error("reset"));
+      await done;
+    });
+    assert.equal(cur().rs.runIdRef.current, "r 1");
+    // The gateway kept the run, and it is over now: the rest of it arrives.
+    const b2 = body();
+    m.routes["GET /v1/sessions/s1/events?from=4&run=r%201"] = () => streamRes(b2);
+    await h.act(async () => {
+      mock.timers.tick(1000);
+      await tick();
+    });
+    await h.act(async () => {
+      b2.push(ev("done", { result: "fine" }, "5"));
+      b2.end();
+      await tick(20);
+    });
+    assert.equal(cur().rs.running, false);
+    assert.equal(cur().rs.messages.at(-1).text, "fine");
+
+    const eventCalls = () => m.calls.filter((c) => c.key.includes("/events")).length;
+    let before;
+    // 410: the run is gone and nothing replaced it. The history is read; nothing retries.
+    await h.act(() => {
+      cur().rs.runningRef.current = true;
+      cur().rs.setRunning(true);
+    });
+    m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () => res(410, {});
+    await h.act(() => cur().stream.followReconnect());
+    before = eventCalls();
+    assert.equal(cur().rs.running, false);
+    assert.equal(conv.transcripts, 1);
+    await h.act(async () => {
+      mock.timers.tick(5000);
+      await tick();
+    });
+    assert.equal(eventCalls(), before, "nothing is retried");
+
+    // 409: another run is in flight. The conversation is read again softly (which follows that
+    // run from its start), and nothing retries.
+    await h.act(() => {
+      cur().rs.runningRef.current = true;
+      cur().rs.setRunning(true);
+    });
+    m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () => res(409, {});
+    await h.act(() => cur().stream.followReconnect());
+    before = eventCalls();
+    assert.equal(cur().rs.running, false);
+    assert.deepEqual(conv.switched, [["s1", "none", true]]);
+    await h.act(async () => {
+      mock.timers.tick(5000);
+      await tick();
+    });
+    assert.equal(eventCalls(), before, "nothing is retried");
+
+    // Answers that arrive after the run ended by other means change nothing.
+    for (const status of [409, 410]) {
+      await h.act(() => {
+        cur().rs.runningRef.current = true;
+      });
+      m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () => {
+        cur().rs.runningRef.current = false;
+        return res(status, {});
+      };
+      await h.act(() => cur().stream.followReconnect());
+    }
+    assert.equal(conv.transcripts, 1);
+    assert.equal(conv.switched.length, 1);
+
+    // A new task forgets the run before it: its first reconnection names no run.
+    const b3 = body();
+    m.routes["POST /v1/sessions/s1/run"] = () => streamRes(b3);
+    await h.act(async () => {
+      done = cur().stream.submit("y");
+      await tick();
+    });
+    assert.equal(cur().rs.runIdRef.current, "");
+    assert.equal(cur().rs.lastIdRef.current, 0);
+    await h.act(async () => {
+      b3.end();
+      await done;
+    });
+    await h.unmount();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test("a stream that breaks after the reader left is not followed", async () => {
   const b = body();
   const m = await mount({ "POST /v1/sessions/s1/run": () => streamRes(b) });

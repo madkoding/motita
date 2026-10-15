@@ -55,6 +55,7 @@ function makeStore({ session, sessions = [], sessionId = "s1" } = {}) {
       sessionRef,
       runSessionRef: { current: "" },
       lastIdRef: { current: 5 },
+      runIdRef: { current: "old-run" },
       handoffRef: { current: false },
     },
     lists: {
@@ -421,6 +422,8 @@ test("after Motita gave up, Try again sends it back and follows the run it start
   assert.equal(posts(m.f, "/fix").length, 1);
   assert.equal(m.store.rs.runSessionRef.current, "s1");
   assert.equal(m.store.rs.lastIdRef.current, 0);
+  // The run it starts is not the one followed before: its own attached event names it.
+  assert.equal(m.store.rs.runIdRef.current, "");
   assert.deepEqual(m.log.running, [true]);
   assert.deepEqual(m.log.states, ["working"]);
   assert.equal(m.log.follows, 1);

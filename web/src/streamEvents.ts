@@ -18,6 +18,8 @@ import { AGENTS_PREFIX, SHELL_LOG_MAX, STEPS_MAX } from "./appConst";
 
 // StreamPayload is the data of one event, with every field an event of the stream can carry.
 export interface StreamPayload {
+  // attached: the id of the run the stream follows.
+  run_id?: string;
   turn?: number;
   dropped?: number;
   pending_approval?: PendingApproval;
@@ -61,6 +63,9 @@ function markTurn(rs: RunState, turn: number) {
 // onAttached: which checkpoint this run is. A run that is replayed from the start rebuilds its
 // steps from that replay, so what was loaded for it is dropped first: it would be doubled.
 function onAttached({ rs }: StreamContext, payload: StreamPayload) {
+  if (payload.run_id) {
+    rs.runIdRef.current = payload.run_id;
+  }
   if (typeof payload.turn === "number") {
     const turn: number = payload.turn;
     rs.liveTurnRef.current = turn;
