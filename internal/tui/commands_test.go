@@ -129,7 +129,8 @@ func TestCompletionsMatchPrefixes(t *testing.T) {
 		{"/n", []string{"/new"}},
 		{"/a", []string{"/auto", "/attach", "/artifacts", "/agents"}},
 		{"/se", []string{"/session", "/sessions"}},
-		{"/", []string{"/task", "/goal", "/decisions", "/plan", "/auto", "/models", "/config", "/git",
+		{"/i", []string{"/init"}},
+		{"/", []string{"/task", "/goal", "/init", "/decisions", "/plan", "/auto", "/models", "/config", "/git",
 			"/reasoning", "/language", "/find", "/session", "/sessions", "/attach", "/back", "/artifacts",
 			"/agents", "/good", "/bad", "/value", "/new", "/update", "/help", "/quit"}},
 	} {
