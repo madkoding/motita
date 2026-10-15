@@ -129,6 +129,7 @@ const VOICE_CARD = "[data-testid=voice-setting]";
 const SPEECH_CARD = "[data-testid=speech-setting]";
 const MIC_GATE = "[data-testid=mic-permission]";
 const CONVERSATION_SWITCH = "settings-speech-conversation";
+const SUBTITLES_SWITCH = "input[name=settings-speech-subtitles]";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 
 const fakeApi = async () =>
@@ -1011,7 +1012,7 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
   });
   let v = await open({ tab: "voice", speech: speech(base) });
   let card = v.root.querySelector(SPEECH_CARD);
-  const sw = card.querySelector("input[name=settings-speech-subtitles]");
+  const sw = card.querySelector(SUBTITLES_SWITCH);
   assert.equal(sw.checked, false, "off unless asked");
   assert.match(card.textContent, /like a film's subtitles/);
   assert.equal(
@@ -1026,7 +1027,7 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
   v = await open({ tab: "voice", speech: speech({ ...base, subtitles: true }) });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(
-    card.querySelector("input[name=settings-speech-subtitles]").checked,
+    card.querySelector(SUBTITLES_SWITCH).checked,
     true,
   );
   assert.equal(radio(card, "settings-speech-subtitle-size", `"medium"`).checked, true);
@@ -1037,7 +1038,7 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
   // A browser that cannot speak has nothing to subtitle.
   v = await open({ tab: "voice", speech: speech({ ...base, subtitles: true }, false) });
   card = v.root.querySelector(SPEECH_CARD);
-  assert.equal(card.querySelector("input[name=settings-speech-subtitles]").disabled, true);
+  assert.equal(card.querySelector(SUBTITLES_SWITCH).disabled, true);
   assert.equal(card.querySelector("[name=settings-speech-subtitle-size]"), null);
   await v.done();
 });

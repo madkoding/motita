@@ -22,6 +22,7 @@ const QUICK = 1.25;
 const NEW_NOTES = 3;
 const SAID_NOTES = 2;
 const FAST = 1.5;
+const HIGH_PITCH = 1.5;
 const MAX_TERM = 80; // speech.ts: the longest term or saying a pronunciation keeps
 const NOT_ALLOWED = "not-allowed";
 
@@ -289,7 +290,7 @@ test("the reader says the sentences one after another, and tells when it starts 
     voice,
     lang: "es",
     rate: QUICK,
-    pitch: 1.5,
+    pitch: HIGH_PITCH,
     onSentence: (i) => started.push(i),
     onEnd: (e) => {
       ended++;
@@ -301,7 +302,7 @@ test("the reader says the sentences one after another, and tells when it starts 
   assert.equal(synth.said[0].lang, "es-CL");
   assert.equal(synth.said[0].voice, voice);
   assert.equal(synth.said[0].rate, QUICK);
-  assert.equal(synth.said[0].pitch, 1.5);
+  assert.equal(synth.said[0].pitch, HIGH_PITCH);
   synth.start();
   synth.end();
   assert.equal(synth.said[1].text, "pe erre.", "the said form is spoken");

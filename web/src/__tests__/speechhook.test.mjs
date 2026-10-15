@@ -15,6 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const MAX_UTTERANCES = 50;
 // The id of a later message in a conversation.
 const LATER_ID = 3;
+const SYNTHESIS_FAILED = "synthesis-failed";
 // Longer than the gap the natural style waits between progress lines.
 const PAST_THE_GAP_MS = 20000;
 const OPENING = "Dale, lo reviso.";
@@ -301,8 +302,8 @@ test("a failure of the voice is reported, and says what to do when the browser w
   await act(() => synth.said.at(-1).onerror({ error: "voice-unavailable" }));
   assert.match(s.state.toasts[1].detail, /no voice/);
   await act(() => s.state.current.speak(answer(4)));
-  await act(() => synth.said.at(-1).onerror({ error: "synthesis-failed" }));
-  assert.equal(s.state.toasts[2].detail, "synthesis-failed");
+  await act(() => synth.said.at(-1).onerror({ error: SYNTHESIS_FAILED }));
+  assert.equal(s.state.toasts[2].detail, SYNTHESIS_FAILED);
   assert.deepEqual(
     s.state.current.voices.map((v) => v.voiceURI),
     ["ana"],
@@ -341,7 +342,7 @@ test("subtitles: each sentence as the voice starts it, gone when it ends, is sto
   sub.seen.length = 0;
   await act(() => s.state.current.speak(answer(4)));
   await act(() => synth.said.at(-1).onstart({}));
-  await act(() => synth.said.at(-1).onerror({ error: "synthesis-failed" }));
+  await act(() => synth.said.at(-1).onerror({ error: SYNTHESIS_FAILED }));
   assert.deepEqual(sub.seen, [ALL_DONE, ""], "gone when the voice fails");
   sub.off();
   await s.done();

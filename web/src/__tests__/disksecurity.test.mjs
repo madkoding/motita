@@ -333,6 +333,8 @@ test("every string of the security section has a Spanish translation", () => {
   assert.equal(es.Security, "Seguridad");
 });
 
+const SESSION_SCOPE = "[data-testid=security-session-scope]";
+
 test("the Security tab shows where the open session works and what is kept from it", async () => {
   const scope = {
     workspace: "/w/worktrees/s1",
@@ -344,7 +346,7 @@ test("the Security tab shows where the open session works and what is kept from 
     "GET /v1/sessions/s%201/scope": () => json(scope),
   });
   const { root, done } = await open(gw.api, "s 1");
-  const note = root.querySelector("[data-testid=security-session-scope]");
+  const note = root.querySelector(SESSION_SCOPE);
   assert.ok(note, "the session's scope is shown");
   for (const want of [scope.workspace, scope.project_dir, scope.home, "/w"]) {
     assert.ok(note.textContent.includes(want), want);
@@ -361,9 +363,7 @@ test("the Security tab shows where the open session works and what is kept from 
       }),
   });
   const second = await open(bare.api, "s2");
-  const items = second.root.querySelectorAll(
-    "[data-testid=security-session-scope] li",
-  );
+  const items = second.root.querySelectorAll(`${SESSION_SCOPE} li`);
   assert.equal(
     items.length,
     1,
@@ -374,16 +374,13 @@ test("the Security tab shows where the open session works and what is kept from 
   const none = fakeGateway(secView());
   const third = await open(none.api, "gone");
   assert.equal(
-    third.root.querySelector("[data-testid=security-session-scope]"),
+    third.root.querySelector(SESSION_SCOPE),
     null,
     "a session the gateway cannot describe shows nothing",
   );
   await third.done();
   const noSession = await open(none.api);
-  assert.equal(
-    noSession.root.querySelector("[data-testid=security-session-scope]"),
-    null,
-  );
+  assert.equal(noSession.root.querySelector(SESSION_SCOPE), null);
   assert.equal(
     none.calls.filter((c) => c.path.endsWith("/scope")).length,
     1,
