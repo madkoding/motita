@@ -93,7 +93,7 @@ test("the dark pale-text colours index.css spells out each have a light tone, an
   const used = [...new Set([...index.matchAll(/var\((--k-[0-9a-f]{6}),/g)].map((m) => m[1]))];
   assert.ok(used.length > 10);
   const light = /html\[data-mode="light"\] \{([^}]*)\}/.exec(themes)[1];
-  const reset = /term-drawer\) \{\s*(--k-[^}]*)\}/.exec(themes)[1];
+  const reset = /term-drawer\) \{([^}]*)\}/.exec(themes)[1];
   for (const k of used) {
     const line = light.split("\n").find((l) => l.trim().startsWith(`${k}:`));
     assert.ok(line, `${k} has a light tone`);

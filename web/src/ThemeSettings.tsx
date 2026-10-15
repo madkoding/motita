@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useCallback, useState } from "preact/hooks";
 import { t } from "./i18n";
 import {
   loadTheme,
@@ -48,6 +48,10 @@ export function ThemeSettings() {
     setTheme(next);
     saveTheme(next);
   };
+  const setMode = useCallback(
+    (mode: Mode) => update({ ...theme, mode }),
+    [theme],
+  );
   return (
     <section class="settings-group" aria-labelledby="settings-themes-h">
       <h3 id="settings-themes-h" class="settings-group-title">
@@ -59,7 +63,7 @@ export function ThemeSettings() {
             name="settings-mode"
             labelledBy="settings-mode"
             value={theme.mode}
-            onChange={(mode) => update({ ...theme, mode })}
+            onChange={setMode}
             options={MODES.map((value) => ({
               value,
               label: modeLabel(value),

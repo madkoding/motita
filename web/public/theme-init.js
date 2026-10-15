@@ -16,7 +16,10 @@
     /* the defaults */
   }
   if (mode === "system") {
-    mode = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    mode = "dark";
+    if (matchMedia("(prefers-color-scheme: light)").matches) {
+      mode = "light";
+    }
   }
   var root = document.documentElement;
   root.dataset.mode = mode;
@@ -24,7 +27,11 @@
   root.style.colorScheme = mode;
   var bar = document.querySelector('meta[name="theme-color"]');
   if (bar) {
-    bar.setAttribute("content", mode === "light" ? "#f4f6fa" : "#0a0a0f");
+    var color = "#0a0a0f";
+    if (mode === "light") {
+      color = "#f4f6fa";
+    }
+    bar.setAttribute("content", color);
   }
   var cs = document.querySelector('meta[name="color-scheme"]');
   if (cs) {

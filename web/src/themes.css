@@ -547,6 +547,43 @@ html[data-mode="light"] :is(.markdown-body pre, .term-screen, .term-drawer) {
   --c-violet: #b078ff;
   --c-sky: #8fe3ff;
   color: var(--t1);
+/* …and the pale-text tones above, back to the originals. */
+  --k-4a86bd: initial;
+  --k-4fae5a: initial;
+  --k-5f9d69: initial;
+  --k-79c0ff: initial;
+  --k-7a7a8c: initial;
+  --k-93d6a8: initial;
+  --k-9ca3af: initial;
+  --k-9fd2ec: initial;
+  --k-a0a0b0: initial;
+  --k-a4a4b4: initial;
+  --k-aeb6c4: initial;
+  --k-b4b4c4: initial;
+  --k-b9dcff: initial;
+  --k-b9ecc0: initial;
+  --k-c47a2c: initial;
+  --k-c8b8f0: initial;
+  --k-c8c8d0: initial;
+  --k-c8c8d6: initial;
+  --k-c9d1d9: initial;
+  --k-d7b8ff: initial;
+  --k-d8f3ff: initial;
+  --k-dcefff: initial;
+  --k-e3c56a: initial;
+  --k-e6edf3: initial;
+  --k-ef8a8a: initial;
+  --k-f0f0f4: initial;
+  --k-f3dcae: initial;
+  --k-ff9a92: initial;
+  --k-ff9b9b: initial;
+  --k-ff9ee0: initial;
+  --k-ffa54a: initial;
+  --k-ffb0aa: initial;
+  --k-ffb86b: initial;
+  --k-ffd166: initial;
+  --k-ffdcb0: initial;
+  --k-ffe08a: initial;
 }
 
 /* Light mode: the pale text colours index.css spells out, each as a darker tone of the same hue
@@ -589,57 +626,4 @@ html[data-mode="light"] {
   --k-ffd166: #7e5a07;
   --k-ffdcb0: #915408;
   --k-ffe08a: #795b06;
-}
-
-/* …and code and terminals go back to theirs. */
-html[data-mode="light"] :is(.markdown-body pre, .term-screen, .term-drawer) {
-  --k-4a86bd: initial;
-  --k-4fae5a: initial;
-  --k-5f9d69: initial;
-  --k-79c0ff: initial;
-  --k-7a7a8c: initial;
-  --k-93d6a8: initial;
-  --k-9ca3af: initial;
-  --k-9fd2ec: initial;
-  --k-a0a0b0: initial;
-  --k-a4a4b4: initial;
-  --k-aeb6c4: initial;
-  --k-b4b4c4: initial;
-  --k-b9dcff: initial;
-  --k-b9ecc0: initial;
-  --k-c47a2c: initial;
-  --k-c8b8f0: initial;
-  --k-c8c8d0: initial;
-  --k-c8c8d6: initial;
-  --k-c9d1d9: initial;
-  --k-d7b8ff: initial;
-  --k-d8f3ff: initial;
-  --k-dcefff: initial;
-  --k-e3c56a: initial;
-  --k-e6edf3: initial;
-  --k-ef8a8a: initial;
-  --k-f0f0f4: initial;
-  --k-f3dcae: initial;
-  --k-ff9a92: initial;
-  --k-ff9b9b: initial;
-  --k-ff9ee0: initial;
-  --k-ffa54a: initial;
-  --k-ffb0aa: initial;
-  --k-ffb86b: initial;
-  --k-ffd166: initial;
-  --k-ffdcb0: initial;
-  --k-ffe08a: initial;
-}
-
-/* The scrim behind a dialog is lighter on a light page. */
-html[data-mode="light"] :is(.fixed.bg-black\/50, .fixed.bg-black\/60, .fixed.bg-black\/70, .fixed.bg-black\/80, .settings-backdrop) {
-  background-color: rgb(20 24 36 / 0.32);
-}
-html[data-mode="light"] .bg-black\/40:not(.fixed) {
-  background-color: rgb(0 0 0 / 0.06);
-}
-
-/* A full-screen settings panel on a phone sits on the scrim: nearly opaque, so it reads as a page. */
-html[data-mode="light"] .settings-panel.frosted {
-  background: rgb(var(--bg-rgb) / 0.97);
 }
