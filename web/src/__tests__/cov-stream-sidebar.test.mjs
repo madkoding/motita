@@ -338,10 +338,19 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   assert.equal(text(root.querySelector("h1").nextElementSibling), "v1.2.3");
   assert.equal(text(root.querySelector("[data-testid=sidebar-sessions] .truncate")), "Loose");
   assert.equal(root.querySelectorAll("[data-testid=sidebar-empty]").length, 0);
-  assert.ok(root.querySelector(".btn-spinner"), "the new session button shows it is busy");
+  // Each section title carries its own "+", named for what it adds, and nothing sits above them.
+  const addSession = root.querySelector("[data-testid=sidebar-new-session]");
+  const addProject = root.querySelector("[data-testid=sidebar-new-project]");
+  assert.equal(addSession.getAttribute("aria-label"), "New session");
+  assert.equal(addProject.getAttribute("aria-label"), "New project");
+  assert.ok(root.querySelector("[data-testid=sidebar-sessions] h2").parentElement.contains(addSession));
+  assert.ok(root.querySelector("[data-testid=sidebar-projects] h2").parentElement.contains(addProject));
+  assert.equal(root.querySelector(".btn-cut"), null, "the big New session button is gone");
+  assert.ok(addSession.querySelector(".btn-spinner"), "the new session button shows it is busy");
+  assert.equal(addSession.disabled, true);
 
   await click(root.querySelector('[aria-label="Close sidebar"]'));
-  await click(byTitle(root, "New project"));
+  await click(addProject);
   const upgrade = buttonNamed(root, "Upgrade Motitav1.3.0");
   assert.equal(text(upgrade.querySelector(".font-mono")), "v1.3.0");
   await click(upgrade);
@@ -366,7 +375,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   assert.equal(buttonNamed(root, "Upgrade Motitav1.3.0"), undefined);
   assert.equal(root.querySelector(".btn-spinner"), null);
   await click(root.querySelector("[data-testid=artifacts-button]"));
-  await click(buttonNamed(root, "New session"));
+  await click(root.querySelector("[data-testid=sidebar-new-session]"));
   // A click on the dimmed layer closes the sidebar; one inside it does not.
   const overlay = root.querySelector(".bg-black\\/50");
   await click(overlay);
