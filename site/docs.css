@@ -100,3 +100,6 @@ footer a:hover { color: var(--accent); }
   header nav { gap: 12px; font-size: 0.9rem; }
   h1 { font-size: 1.8rem; }
 }
+
+header nav a.lang { border: 1px solid var(--border); border-radius: 999px; padding: 0 12px; min-height: 32px; align-self: center; color: var(--fg); }
+header nav a.lang:hover { border-color: var(--accent); }

@@ -1,5 +1,7 @@
 // Generates the Documentation pages of the site: site/docs.html plus one
-// site/docs-<topic>.html per area, all styled by site/docs.css.
+// site/docs-<topic>.html per area, in English, and the same set in Spanish as
+// docs-es.html and docs-es-<topic>.html (translations in scripts/docs-es.mjs), all
+// styled by site/docs.css.
 //
 //   node scripts/gen-docs.mjs          write the pages
 //   node scripts/gen-docs.mjs --check  fail when the committed pages are stale
@@ -15,6 +17,7 @@
 // local reference from the site root, and flat paths resolve identically on
 // Vercel (cleanUrls) and under the /motita/ prefix of GitHub Pages.
 import { readFileSync, writeFileSync } from "node:fs";
+import { es } from "./docs-es.mjs";
 
 const REPO = "https://github.com/madkoding/motita/blob/main/docs";
 const guide = (anchor) => `${REPO}/GUIDE.md#${anchor}`;
@@ -366,51 +369,134 @@ motita curator pin build-firmware</pre>`,
 const esc = (s) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const file = (p) => (p ? `docs-${p.slug}.html` : "docs.html");
+// English is the default and keeps the short names (docs.html, docs-<slug>.html);
+// Spanish sits beside it as docs-es.html and docs-es-<slug>.html.
+const file = (lang, p) =>
+  `docs${lang === "es" ? "-es" : ""}${p ? `-${p.slug}` : ""}.html`;
+
+const ui = {
+  en: {
+    skip: "Skip to content",
+    home: "Home",
+    docs: "Docs",
+    reference: "Reference",
+    overview: "Overview",
+    documentation: "Documentation",
+    prevNext: "Previous and next page",
+    prev: "Previous",
+    next: "Next",
+    deeper: "Go deeper",
+    license: "GPL-3.0-or-later licensed.",
+    other: "Español",
+    otherLabel: "Leer en español",
+    suffix: "Motita docs",
+    homeLabel: "Motita, home",
+    overviewDesc:
+      "What each part of Motita is for: install, terminal, browser, projects, models, voice, skills, safety, network and updates.",
+    lead: "Motita is one program with several parts. Pick the one you want to understand; each page explains what it is for, how to use it, and where the full detail lives.",
+    detailTitle: "Looking for the engineering detail?",
+    detail: `These pages explain. For every configuration key, endpoint and the architecture in full, read the <a href="REFERENCE.md">reference</a> or the <a href="${REPO}/GUIDE.md">complete guide</a> (both in English). For how the terminal interface was designed, see the <a href="TUI-DESIGN-REVIEW.md">TUI design review</a>.`,
+  },
+  es: {
+    skip: "Saltar al contenido",
+    home: "Inicio",
+    docs: "Documentación",
+    reference: "Referencia",
+    overview: "Resumen",
+    documentation: "Documentación",
+    prevNext: "Página anterior y siguiente",
+    prev: "Anterior",
+    next: "Siguiente",
+    deeper: "Profundizar",
+    license: "Licencia GPL-3.0-or-later.",
+    other: "English",
+    otherLabel: "Read in English",
+    suffix: "Documentación de Motita",
+    homeLabel: "Motita, inicio",
+    overviewDesc:
+      "Para qué sirve cada parte de Motita: instalación, terminal, navegador, proyectos, modelos, voz, skills, seguridad, red y actualizaciones.",
+    lead: "Motita es un solo programa con varias partes. Elige la que quieras entender; cada página explica para qué sirve, cómo se usa y dónde está el detalle completo.",
+    detailTitle: "¿Buscas el detalle técnico?",
+    detail: `Estas páginas explican. Para cada clave de configuración, cada endpoint y la arquitectura completa, lee la <a href="REFERENCE.md">referencia</a> o la <a href="${REPO}/GUIDE.md">guía completa</a> (ambas en inglés). Para saber cómo se diseñó la interfaz de terminal, mira la <a href="TUI-DESIGN-REVIEW.md">revisión de diseño de la TUI</a>.`,
+  },
+};
+
+// A page in one language: the English data, overlaid with its translation.
+const view = (lang, p, i) => {
+  if (lang === "en") return p;
+  const t = es[p.slug];
+  return {
+    ...p,
+    title: t.title,
+    blurb: t.blurb,
+    body: t.body,
+    more: p.more.map(([, url], k) => [t.more[k], url]),
+  };
+};
 
 const brand = `<svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>`;
 
-function layout({ title, description, current, main, prev, next }) {
+// currentIndex: -1 for the overview, otherwise the page's position.
+function layout({ lang, title, description, currentIndex, main }) {
+  const t = ui[lang];
+  const list = pages.map((p, i) => view(lang, p, i));
+  const link = (target, label, current) =>
+    `<a href="${file(lang, target)}"${current ? ' aria-current="page"' : ""}>${esc(label)}</a>`;
   const side = [
-    `<a href="docs.html"${current === null ? ' aria-current="page"' : ""}>Overview</a>`,
-    ...pages.map(
-      (p) => `<a href="${file(p)}"${current === p ? ' aria-current="page"' : ""}>${esc(p.title)}</a>`,
-    ),
+    link(null, t.overview, currentIndex === -1),
+    ...list.map((p, i) => link(pages[i], p.title, currentIndex === i)),
   ].join("\n          ");
-  const pn = [prev, next].some(Boolean)
-    ? `<nav class="pn" aria-label="Previous and next page">
-        ${prev ? `<a class="prev" href="${file(prev === "overview" ? null : prev)}"><span>Previous</span>${esc(prev === "overview" ? "Overview" : prev.title)}</a>` : "<span></span>"}
-        ${next ? `<a class="next" href="${file(next)}"><span>Next</span>${esc(next.title)}</a>` : "<span></span>"}
+  const prev =
+    currentIndex === -1
+      ? null
+      : currentIndex === 0
+        ? [null, t.overview]
+        : [pages[currentIndex - 1], list[currentIndex - 1].title];
+  const next =
+    currentIndex + 1 < pages.length
+      ? [pages[currentIndex + 1], list[currentIndex + 1].title]
+      : null;
+  const pn =
+    prev || next
+      ? `<nav class="pn" aria-label="${esc(t.prevNext)}">
+        ${prev ? `<a class="prev" href="${file(lang, prev[0])}"><span>${t.prev}</span>${esc(prev[1])}</a>` : "<span></span>"}
+        ${next ? `<a class="next" href="${file(lang, next[0])}"><span>${t.next}</span>${esc(next[1])}</a>` : "<span></span>"}
       </nav>`
-    : "";
+      : "";
+  const otherLang = lang === "en" ? "es" : "en";
+  const here = currentIndex === -1 ? null : pages[currentIndex];
+  const alt = file(otherLang, here);
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${esc(title)} · Motita docs</title>
+    <title>${esc(title)} · ${t.suffix}</title>
     <meta name="description" content="${esc(description)}" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0a0a0f" />
+    <link rel="alternate" hreflang="${otherLang}" href="${alt}" />
+    <link rel="alternate" hreflang="${lang}" href="${file(lang, here)}" />
     <link rel="preload" href="fonts/Sansation-Regular.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="docs.css" />
   </head>
   <body>
-    <a class="skip" href="#main">Skip to content</a>
+    <a class="skip" href="#main">${t.skip}</a>
     <header>
       <div class="wrap bar">
-        <a class="brand" href="index.html" aria-label="Motita, home">${brand}Motita</a>
+        <a class="brand" href="index.html" aria-label="${esc(t.homeLabel)}">${brand}Motita</a>
         <nav aria-label="Site">
-          <a href="index.html">Home</a>
-          <a href="docs.html" aria-current="true">Docs</a>
-          <a href="REFERENCE.md">Reference</a>
+          <a href="index.html">${t.home}</a>
+          <a href="${file(lang, null)}" aria-current="true">${t.docs}</a>
+          <a href="REFERENCE.md">${t.reference}</a>
           <a href="https://github.com/madkoding/motita">GitHub</a>
+          <a class="lang" href="${alt}" hreflang="${otherLang}" lang="${otherLang}" aria-label="${esc(t.otherLabel)}">${t.other}</a>
         </nav>
       </div>
     </header>
     <div class="wrap layout">
-      <nav class="side" aria-label="Documentation">
-        <p class="side-title">Documentation</p>
+      <nav class="side" aria-label="${t.documentation}">
+        <p class="side-title">${t.documentation}</p>
         <div class="side-links">
           ${side}
         </div>
@@ -423,11 +509,11 @@ ${main}
     <footer>
       <div class="wrap frow">
         <span class="mono">✦ motita</span>
-        <span>GPL-3.0-or-later licensed.</span>
+        <span>${t.license}</span>
         <span class="sep"></span>
-        <a href="index.html">Home</a>
-        <a href="docs.html">Docs</a>
-        <a href="REFERENCE.md">Reference</a>
+        <a href="index.html">${t.home}</a>
+        <a href="${file(lang, null)}">${t.docs}</a>
+        <a href="REFERENCE.md">${t.reference}</a>
         <a href="https://github.com/madkoding/motita">GitHub</a>
       </div>
     </footer>
@@ -438,44 +524,47 @@ ${main}
 
 const out = {};
 
-out["docs.html"] = layout({
-  title: "Documentation",
-  description:
-    "What each part of Motita is for: install, terminal, browser, projects, models, voice, skills, safety, network and updates.",
-  current: null,
-  next: pages[0],
-  main: `      <h1>Documentation</h1>
-      <p class="lead">Motita is one program with several parts. Pick the one you want to understand; each page explains what it is for, how to use it, and where the full detail lives.</p>
+for (const lang of ["en", "es"]) {
+  const t = ui[lang];
+  const list = pages.map((p, i) => view(lang, p, i));
+
+  out[file(lang, null)] = layout({
+    lang,
+    title: t.documentation,
+    description: t.overviewDesc,
+    currentIndex: -1,
+    main: `      <h1>${t.documentation}</h1>
+      <p class="lead">${t.lead}</p>
       <div class="cards">
-        ${pages
+        ${list
           .map(
-            (p) =>
-              `<a class="card" href="${file(p)}"><h2>${esc(p.title)}</h2><p>${esc(p.blurb)}</p></a>`,
+            (p, i) =>
+              `<a class="card" href="${file(lang, pages[i])}"><h2>${esc(p.title)}</h2><p>${esc(p.blurb)}</p></a>`,
           )
           .join("\n        ")}
       </div>
-      <h2>Looking for the engineering detail?</h2>
-      <p>These pages explain. For every configuration key, endpoint and the architecture in full, read the <a href="REFERENCE.md">reference</a> or the <a href="${REPO}/GUIDE.md">complete guide</a>. For how the terminal interface was designed, see the <a href="TUI-DESIGN-REVIEW.md">TUI design review</a>.</p>`,
-});
+      <h2>${t.detailTitle}</h2>
+      <p>${t.detail}</p>`,
+  });
 
-pages.forEach((p, i) => {
-  out[file(p)] = layout({
-    title: p.title,
-    description: p.blurb,
-    current: p,
-    prev: i === 0 ? "overview" : pages[i - 1],
-    next: pages[i + 1],
-    main: `      <h1>${esc(p.title)}</h1>
+  list.forEach((p, i) => {
+    out[file(lang, pages[i])] = layout({
+      lang,
+      title: p.title,
+      description: p.blurb,
+      currentIndex: i,
+      main: `      <h1>${esc(p.title)}</h1>
       <p class="lead">${esc(p.blurb)}</p>
 ${p.body.trim()}
-      <h2>Go deeper</h2>
+      <h2>${t.deeper}</h2>
       <ul class="more">
         ${p.more
           .map(([label, url]) => `<li><a href="${esc(url)}">${esc(label)}</a></li>`)
           .join("\n        ")}
       </ul>`,
+    });
   });
-});
+}
 
 const check = process.argv.includes("--check");
 let stale = 0;

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Instalación y primer uso · Documentación de Motita</title>
+    <meta name="description" content="Un comando para instalar y una configuración corta la primera vez." />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <link rel="alternate" hreflang="en" href="docs-install.html" />
+    <link rel="alternate" hreflang="es" href="docs-es-install.html" />
+    <link rel="preload" href="fonts/Sansation-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Saltar al contenido</a>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="index.html" aria-label="Motita, inicio"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</a>
+        <nav aria-label="Site">
+          <a href="index.html">Inicio</a>
+          <a href="docs-es.html" aria-current="true">Documentación</a>
+          <a href="REFERENCE.md">Referencia</a>
+          <a href="https://github.com/madkoding/motita">GitHub</a>
+          <a class="lang" href="docs-install.html" hreflang="en" lang="en" aria-label="Read in English">English</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap layout">
+      <nav class="side" aria-label="Documentación">
+        <p class="side-title">Documentación</p>
+        <div class="side-links">
+          <a href="docs-es.html">Resumen</a>
+          <a href="docs-es-install.html" aria-current="page">Instalación y primer uso</a>
+          <a href="docs-es-terminal.html">La interfaz de terminal</a>
+          <a href="docs-es-web.html">Interfaz web y gateway</a>
+          <a href="docs-es-projects.html">Proyectos, sesiones y git</a>
+          <a href="docs-es-models.html">Modelos y proveedores</a>
+          <a href="docs-es-voice.html">Voz</a>
+          <a href="docs-es-skills.html">Skills: lo que aprende</a>
+          <a href="docs-es-security.html">Seguridad y sandbox</a>
+          <a href="docs-es-network.html">Red y acceso remoto</a>
+          <a href="docs-es-automation.html">Actualizaciones y tareas programadas</a>
+        </div>
+      </nav>
+      <main id="main">
+      <h1>Instalación y primer uso</h1>
+      <p class="lead">Un comando para instalar y una configuración corta la primera vez.</p>
+<p>motita es un único binario estático. No hay nada que compilar ni nada más que instalar antes.</p>
+<h2>Instalar</h2>
+<pre><span class="c"># Linux y macOS</span>
+curl -fsSL https://motita.kodingvibes.com/install.sh | sh
+
+<span class="c"># Windows (PowerShell)</span>
+irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
+<p>El instalador detecta tu sistema y arquitectura, descarga el binario que corresponde y lo verifica contra el <code>SHA256SUMS</code> de la versión. Si no coincide, se detiene y tu sistema queda intacto. Se instala sin permisos de administrador y ejecuta el binario una vez para comprobar que arranca.</p>
+<h2>Primer uso</h2>
+<p>Escribe <code>motita</code>. Si no hay configuración, arranca solo una configuración corta de cinco pasos. No escribe nada hasta que ves el resultado:</p>
+<ol>
+<li><strong>Proveedor.</strong> Qué servicio de modelos responde: OpenAI, ChatGPT (Codex), GitHub Copilot, Ollama, Anthropic, tu suscripción de Claude, Gemini o Qwen.</li>
+<li><strong>Conexión.</strong> Inicia sesión con tu cuenta o pega una API key (queda oculta al pegarla).</li>
+<li><strong>Modelo.</strong> Elige uno de los sugeridos o escribe cualquier ID de modelo.</li>
+<li><strong>Verificación.</strong> Qué decide que una tarea está realmente terminada. Por defecto se detecta desde el proyecto: tu <code>make test</code>, <code>go test</code>, <code>npm test</code>, <code>cargo test</code>. Un proyecto con una compilación poco habitual lista sus propios comandos en <code>.motita/anchor</code>.</li>
+<li><strong>Revisar y guardar.</strong> Todas las respuestas en una pantalla. <code>n</code> las recorre otra vez.</li>
+</ol>
+<p>Puedes repetir la configuración cuando quieras con <code>/config</code> dentro de motita o con <code>motita config</code>. Ofrece conservar tu clave y sesión actuales, y guarda el archivo anterior como <code>motita.yaml.bak</code>.</p>
+<h2>Cuando algo no funciona</h2>
+<p><code>motita doctor</code> revisa la máquina antes de ejecutar nada, una línea por prueba: la compilación frente al sistema, el shell, el DNS, tu <code>PATH</code>, git, la configuración y el sandbox que construiría. No necesita clave ni llama a ningún modelo.</p>
+<div class="note">Las máquinas antiguas y pequeñas son un objetivo, no un detalle: hay compilaciones para x86 de 32 bits, ARM, ARM64, macOS y Windows.</div>
+      <h2>Profundizar</h2>
+      <ul class="more">
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#install">Guía: Install</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#installation">Referencia: Installation</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#checking-the-machine-motita-doctor">Referencia: motita doctor</a></li>
+      </ul>
+      <nav class="pn" aria-label="Página anterior y siguiente">
+        <a class="prev" href="docs-es.html"><span>Anterior</span>Resumen</a>
+        <a class="next" href="docs-es-terminal.html"><span>Siguiente</span>La interfaz de terminal</a>
+      </nav>
+      </main>
+    </div>
+    <footer>
+      <div class="wrap frow">
+        <span class="mono">✦ motita</span>
+        <span>Licencia GPL-3.0-or-later.</span>
+        <span class="sep"></span>
+        <a href="index.html">Inicio</a>
+        <a href="docs-es.html">Documentación</a>
+        <a href="REFERENCE.md">Referencia</a>
+        <a href="https://github.com/madkoding/motita">GitHub</a>
+      </div>
+    </footer>
+  </body>
+</html>

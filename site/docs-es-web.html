@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Interfaz web y gateway · Documentación de Motita</title>
+    <meta name="description" content="El mismo agente desde un navegador o un teléfono, servido por un solo puerto." />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <link rel="alternate" hreflang="en" href="docs-web.html" />
+    <link rel="alternate" hreflang="es" href="docs-es-web.html" />
+    <link rel="preload" href="fonts/Sansation-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="docs.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Saltar al contenido</a>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="index.html" aria-label="Motita, inicio"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</a>
+        <nav aria-label="Site">
+          <a href="index.html">Inicio</a>
+          <a href="docs-es.html" aria-current="true">Documentación</a>
+          <a href="REFERENCE.md">Referencia</a>
+          <a href="https://github.com/madkoding/motita">GitHub</a>
+          <a class="lang" href="docs-web.html" hreflang="en" lang="en" aria-label="Read in English">English</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap layout">
+      <nav class="side" aria-label="Documentación">
+        <p class="side-title">Documentación</p>
+        <div class="side-links">
+          <a href="docs-es.html">Resumen</a>
+          <a href="docs-es-install.html">Instalación y primer uso</a>
+          <a href="docs-es-terminal.html">La interfaz de terminal</a>
+          <a href="docs-es-web.html" aria-current="page">Interfaz web y gateway</a>
+          <a href="docs-es-projects.html">Proyectos, sesiones y git</a>
+          <a href="docs-es-models.html">Modelos y proveedores</a>
+          <a href="docs-es-voice.html">Voz</a>
+          <a href="docs-es-skills.html">Skills: lo que aprende</a>
+          <a href="docs-es-security.html">Seguridad y sandbox</a>
+          <a href="docs-es-network.html">Red y acceso remoto</a>
+          <a href="docs-es-automation.html">Actualizaciones y tareas programadas</a>
+        </div>
+      </nav>
+      <main id="main">
+      <h1>Interfaz web y gateway</h1>
+      <p class="lead">El mismo agente desde un navegador o un teléfono, servido por un solo puerto.</p>
+<p>Cada proceso de motita es también un <strong>gateway</strong>: escucha en <code>127.0.0.1:7477</code> detrás de un token, y la terminal que miras es solo uno de sus clientes. Una página web o un teléfono pueden unirse a la misma conversación, con las mismas skills y el mismo historial.</p>
+<img src="shots/webui-phone.webp" alt="La interfaz del navegador en un teléfono" class="phone" width="600" height="1298" loading="lazy" />
+<h2>La interfaz del navegador</h2>
+<p>Se sirve desde el puerto del propio gateway: no hay un segundo servidor ni configuración entre orígenes. Abre <code>http://127.0.0.1:7477</code>, pega el token una vez y tienes chat, proyectos, ajustes y la biblioteca de skills. Se instala como app (PWA) y va compilada dentro del binario.</p>
+<p>El token se lee de <code>~/.motita/gateway.token</code> y lo imprime <code>motita gateway start</code>.</p>
+<h2>Ejecutar el gateway</h2>
+<pre>motita gateway start    <span class="c"># inicia el servicio y espera a que responda</span>
+motita gateway status   <span class="c"># si hay uno corriendo, dónde y qué compilación</span>
+motita gateway stop
+motita gateway setup    <span class="c"># dónde responde: esta máquina, la LAN, todos</span></pre>
+<p>Si ya hay un gateway corriendo, <code>motita</code> se conecta a él y nunca lo apaga. Si no hay ninguno, levanta uno para sí mismo y lo detiene al salir.</p>
+<h2>Las dos mitades por separado</h2>
+<pre><span class="c"># en la máquina que ejecuta los comandos</span>
+motita -serve -gateway 127.0.0.1:7477
+
+<span class="c"># en cualquier otro lugar: sin sandbox, sin agente en este proceso</span>
+motita -connect 127.0.0.1:7477 -tui</pre>
+<p>Un cliente <code>-connect</code> es solo una interfaz, así que corre en un portátil, una tableta o un teléfono a través de un túnel. Cómo llegar desde otras máquinas de forma segura está en <a href="docs-es-network.html">Red y acceso remoto</a>.</p>
+<h2>Más de una conversación</h2>
+<p>Un gateway mantiene muchas sesiones a la vez. El modelo pertenece a la sesión: cambiarlo afecta solo a esa conversación y sobrevive a un reinicio. Otros programas pueden manejar las mismas sesiones por HTTP, eventos del servidor o un protocolo WebSocket; la referencia lista todos los endpoints.</p>
+      <h2>Profundizar</h2>
+      <ul class="more">
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#the-browser-interface-from-the-same-port">Guía: la interfaz del navegador</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#more-than-one-conversation-at-a-time">Guía: más de una conversación</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#websocket-a-bidirectional-flag-protocol">Guía: protocolo WebSocket</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#the-gateway">Referencia: el gateway</a></li>
+      </ul>
+      <nav class="pn" aria-label="Página anterior y siguiente">
+        <a class="prev" href="docs-es-terminal.html"><span>Anterior</span>La interfaz de terminal</a>
+        <a class="next" href="docs-es-projects.html"><span>Siguiente</span>Proyectos, sesiones y git</a>
+      </nav>
+      </main>
+    </div>
+    <footer>
+      <div class="wrap frow">
+        <span class="mono">✦ motita</span>
+        <span>Licencia GPL-3.0-or-later.</span>
+        <span class="sep"></span>
+        <a href="index.html">Inicio</a>
+        <a href="docs-es.html">Documentación</a>
+        <a href="REFERENCE.md">Referencia</a>
+        <a href="https://github.com/madkoding/motita">GitHub</a>
+      </div>
+    </footer>
+  </body>
+</html>
