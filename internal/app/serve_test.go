@@ -432,6 +432,54 @@ func TestAFailedShutdownIsReported(t *testing.T) {
 	}
 }
 
+// The gateway is shut down with the configured grace period, on a context of its own. It used to
+// be handed the context whose cancellation started the shutdown, which was already done: every
+// stream was cut at once and the runs' final saves raced the process exit.
+func TestTheGatewayShutdownGetsTheConfiguredGracePeriod(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+
+	cfgPath, _ := gatewayConfig(t, srv)
+	cfg, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The agent section is the last one in the file, so the line lands inside it.
+	mustWrite(t, cfgPath, string(cfg)+"  graceful_shutdown_timeout: 7s\n")
+	var out syncBuffer
+	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", cfgPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	opts.BaseCtx = ctx
+	opts.Signals = nil
+	opts.NewEngine = mockEngine(srv)
+	type seen struct {
+		err      error
+		deadline time.Duration
+		bounded  bool
+	}
+	closed := make(chan seen, 1)
+	opts.CloseGateway = func(g *gateway.Server, closeCtx context.Context) error {
+		deadline, bounded := closeCtx.Deadline()
+		closed <- seen{err: closeCtx.Err(), deadline: time.Until(deadline), bounded: bounded}
+		return g.Close(closeCtx)
+	}
+
+	done := make(chan int, 1)
+	go func() { done <- Run(opts) }()
+	cancel()
+	if code := <-done; code != Success {
+		t.Fatalf("code = %d: %s", code, out.String())
+	}
+	got := <-closed
+	if got.err != nil {
+		t.Fatalf("the shutdown was handed a context that was already done (%v): it had no time to close anything", got.err)
+	}
+	if !got.bounded || got.deadline <= 5*time.Second || got.deadline > 7*time.Second {
+		t.Errorf("the shutdown's deadline was %v away (bounded: %v), want the configured 7s", got.deadline, got.bounded)
+	}
+}
+
 // The -gateway flag is checked HERE, at start, and not by the configuration validator: the flag
 // never goes through the config file, so an address given on the command line is the gateway's
 // own last line of defence. An address that cannot be parsed is refused with a configuration

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
@@ -48,7 +49,7 @@ func (op Options) runServe(
 		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
 		return ConfigError
 	}
-	closeGateway := op.runGatewayLoop(ctx, srv, log)
+	closeGateway := op.runGatewayLoop(srv, log, cfg.Agent.ShutdownTimeout)
 
 	// Serve until the process is asked to stop. The signal handling already in run() cancels
 	// this context; nothing else ends a server.
@@ -87,9 +88,14 @@ func (op Options) runServe(
 // were fixed.
 //
 // The returned function is what the caller defers, and it does not block the shutdown on a
-// client that never goes away: Server.Close is bounded by the same context the process was
-// cancelled with.
-func (op Options) runGatewayLoop(ctx context.Context, srv *gateway.Server, log *logx.Logger) func() {
+// client that never goes away: Server.Close is bounded by timeout, the configured graceful
+// shutdown (agent.graceful_shutdown_timeout).
+//
+// It is bounded by a FRESH context and not by the process's. That one is what was cancelled to
+// start the shutdown, so by the time the shutdown runs it is already done: a Close bounded by it
+// gave every open stream no time at all, cut them instead of letting them end, and left the
+// runs' final saves racing the process exit.
+func (op Options) runGatewayLoop(srv *gateway.Server, log *logx.Logger, timeout time.Duration) func() {
 	go func() {
 		serve := func(*gateway.Server) error { return srv.Serve() }
 		if op.ServeGateway != nil {
@@ -100,12 +106,14 @@ func (op Options) runGatewayLoop(ctx context.Context, srv *gateway.Server, log *
 		}
 	}()
 
-	closeGateway := func(*gateway.Server, context.Context) error { return srv.Close(ctx) }
+	closeGateway := func(_ *gateway.Server, closeCtx context.Context) error { return srv.Close(closeCtx) }
 	if op.CloseGateway != nil {
 		closeGateway = op.CloseGateway
 	}
 	return func() {
-		if err := closeGateway(srv, ctx); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := closeGateway(srv, closeCtx); err != nil {
 			log.Warn("the gateway did not shut down cleanly", "error", err)
 		}
 	}
