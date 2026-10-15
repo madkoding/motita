@@ -1053,3 +1053,38 @@ test("deleting a project reads the lists again, or says why it was refused", asy
   assert.deepEqual(s.counts, { projects: 2, sessions: 2 });
   await s.m.unmount();
 });
+
+test("the workspace catalog is read when a dialog with repositories opens", async () => {
+  const CATALOG = [
+    { name: "web", git_url: "u/web", dir: "/w/repos/web", projects: [] },
+  ];
+  let answer = res(200, { repos: CATALOG });
+  const s = await setup({
+    "GET /v1/repos": () => answer,
+    "GET /v1/projects/p1/branches": res(200, {}),
+  });
+  assert.equal(
+    callsTo(s, "GET /v1/repos").length,
+    0,
+    "nothing is read while no dialog is open",
+  );
+  await run(() => s.p.openNewProject());
+  await flush();
+  assert.deepEqual(s.p.repoCatalog, CATALOG);
+
+  // A refused answer keeps what the dialog had.
+  await run(() => s.p.closeNewProject());
+  answer = res(500, { error: "x" });
+  await run(() => s.p.openNewProject());
+  await flush();
+  assert.equal(callsTo(s, "GET /v1/repos").length, 2);
+  assert.deepEqual(s.p.repoCatalog, CATALOG);
+
+  // An answer with no list is an empty catalog.
+  await run(() => s.p.closeNewProject());
+  answer = res(200, {});
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  assert.deepEqual(s.p.repoCatalog, []);
+  await s.m.unmount();
+});

@@ -174,6 +174,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
     detachProjectMain,
     gitAccounts,
     openOtherRepoPicker,
+    repoCatalog,
   } = useApp().projects;
   const connected = !!gitAccounts && connectedAccounts(gitAccounts).length > 0;
   const onRemove = useCallback(
@@ -190,8 +191,10 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       onAdd={addProjectRepo}
       onMoveMain={detachProjectMain}
       onChoose={choose(connected, openOtherRepoPicker, undefined)}
+      catalog={repoCatalog}
+      projectId={p.id}
       hint={t(
-        "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.",
+        "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.",
       )}
     />
   );

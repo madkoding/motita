@@ -13,6 +13,7 @@ import {
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
 import type {
+  CatalogRepo,
   EditProjectDraft,
   GitConnectRequest,
   ProjectInfo,
@@ -210,6 +211,29 @@ function useProjectRepos(
     removeProjectRepo,
     detachProjectMain,
   };
+}
+
+// useRepoCatalog is the workspace catalog: the repositories already cloned there, which a project
+// adds without cloning them again. It is read when a dialog that lists repositories opens, and
+// again each time the edit dialog's list changes.
+function useRepoCatalog(api: Api, open: boolean, version: unknown) {
+  const [repoCatalog, setRepoCatalog] = useState<CatalogRepo[]>([]);
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    api("/v1/repos")
+      .then(async (res) => {
+        if (res.ok) {
+          const d: { repos?: CatalogRepo[] } = await res.json();
+          setRepoCatalog(d.repos ?? []);
+        }
+      })
+      .catch(() => {
+        /* without the catalog, a repository is added by its URL */
+      });
+  }, [open, version]);
+  return { repoCatalog };
 }
 
 // withBranches puts what the gateway says about a project's branches into the edit dialog.
@@ -844,6 +868,11 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setToast,
     createProjectRef,
   );
+  const catalog = useRepoCatalog(
+    api,
+    form.showNewProject || !!edit.editProject,
+    edit.editProject?.repos,
+  );
   const remoteMain = useRemoteMain(api, form);
   const runtimes = useRuntimes(api, form.showNewProject);
   const createProject = useCreateProject(
@@ -941,6 +970,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     gitUserEmail: form.gitUserEmail,
     setGitUserEmail: form.setGitUserEmail,
     ...git,
+    ...catalog,
     pickRepo,
     creatingProject: form.creatingProject,
     createProject,

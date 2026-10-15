@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,11 +17,17 @@ import (
 
 // A project is not always one repository: a service and its web client, a library and the app
 // that uses it. The project's own folder (Project.Dir) stays its MAIN repository, the first of
-// the list, and everything that already worked on it keeps working on it. The others are
-// cloned INSIDE it, as plain folders (`<project>/<name>`), so a session confined to its own
-// checkout can reach them: a session with a worktree gets a worktree of each one at the same place
-// inside its own, on the session's branch, and gives them back with it. The ones cloned before
-// that, under gitx.ReposDir, stay where they are.
+// the list, and everything that already worked on it keeps working on it. The others sit INSIDE
+// it, as plain folders (`<project>/<name>`), so a session confined to its own checkout can reach
+// them: a session with a worktree gets a worktree of each one at the same place inside its own,
+// on the session's branch, and gives them back with it.
+//
+// One repository can belong to many projects, and many projects to one repository. So each one
+// is cloned ONCE, in the workspace's catalog (catalogFolder), and the folder a project has of it
+// is a worktree of that clone on the project's own branch: a commit made in one project is in
+// the repository every other project uses, and adding the repository to one more project is a
+// worktree, not another download. The ones cloned inside a project before the catalog (or under
+// gitx.ReposDir before that) stay where they are, clones of their own.
 
 // ProjectRepo is one of a project's other repositories.
 type ProjectRepo struct {
@@ -29,6 +37,9 @@ type ProjectRepo struct {
 	Dir    string `json:"dir"`
 	// MainBranch is the branch the clone was settled on when it was added.
 	MainBranch string `json:"main_branch,omitempty"`
+	// Shared marks a repository of the catalog: Dir is the clone every project that uses it
+	// shares, and the project's folder holds a worktree of it.
+	Shared bool `json:"shared,omitempty"`
 	// Branch and Changes are read live, like the project's own.
 	Branch  string `json:"branch,omitempty"`
 	Changes int    `json:"changes,omitempty"`
@@ -63,6 +74,18 @@ func (r ProjectRepo) relPath(projectDir string) string {
 		return rel
 	}
 	return r.Name
+}
+
+// repoPath is where the repository is in the project's own folder: the clone itself, or the
+// project's worktree of the catalog's clone.
+func (p *Project) repoPath(repo ProjectRepo) string {
+	return filepath.Join(p.Dir, repo.relPath(p.Dir))
+}
+
+// projectBranch is the branch a project's worktree of a shared repository is on: one of its own,
+// because git checks a branch out in one worktree only, and the catalog's clone has the main one.
+func projectBranch(p *Project) string {
+	return "project/" + filepath.Base(p.Dir)
 }
 
 // sessionRepoPath is where a session that runs in workspace finds the project's repository repo.
@@ -107,17 +130,16 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 			"choose another name for the repository", name))
 		return
 	}
-	if _, err := cloneGitRepo(gitURL, dest, s.gitCommandEnv()); err != nil {
+	ctx := r.Context()
+	repo, err := s.placeRepo(ctx, p, name, gitURL, dest)
+	if err != nil {
 		s.writeCloneError(w, gitURL, err)
 		return
 	}
-	ctx := r.Context()
-	// The project's own repository must not see the clone as a change of its own. Advisory, as it
+	// The project's own repository must not see the folder as a change of its own. Advisory, as it
 	// is for a worktree: a folder that is not a repository has nothing to ignore it in.
 	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
-	p.Repos = append(p.Repos, ProjectRepo{
-		Name: name, GitURL: gitURL, Dir: dest, MainBranch: settleMainBranch(ctx, dest, defaultMainBranch),
-	})
+	p.Repos = append(p.Repos, repo)
 	if err := s.projects.save(*p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -129,9 +151,77 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, p)
 }
 
-// handleRemoveProjectRepo takes a repository out of a project: its worktree in every session,
-// and its clone. Uncommitted work in any of them stops it, unless the user confirmed the discard
-// with `?force=1` - the same rule a session's own checkout follows.
+// errNoCatalog is catalogClone's answer when the workspace has no catalog to clone into.
+var errNoCatalog = errors.New("the workspace has no catalog of repositories")
+
+// catalogFolder is the workspace folder that holds the repositories projects share.
+const catalogFolder = "repos"
+
+// catalogDir is the catalog's folder, "" when there is none: no workspace, or a project of its
+// own already in that folder.
+func (s *Server) catalogDir() string {
+	if s.opts.WorkspaceDir == "" {
+		return ""
+	}
+	dir := filepath.Join(s.opts.WorkspaceDir, catalogFolder)
+	if s.projectInDir(dir, "") != nil {
+		return ""
+	}
+	return dir
+}
+
+// catalogClone answers the catalog's clone of gitURL, cloning it the first time a project asks
+// for it, and whether it was cloned now. It is found by its origin, whatever its folder is called.
+func (s *Server) catalogClone(gitURL, name string) (dir string, fresh bool, err error) {
+	root := s.catalogDir()
+	if root == "" {
+		return "", false, errNoCatalog
+	}
+	env := s.gitCommandEnv()
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if d := filepath.Join(root, e.Name()); e.IsDir() && sameOrigin(d, gitURL, env) {
+			return d, false, nil
+		}
+	}
+	dir = freeCloneDir(filepath.Join(root, cmp.Or(repoNameOf("", gitURL), name)), gitURL, env)
+	if _, err := cloneGitRepo(gitURL, dir, env); err != nil {
+		return "", false, err
+	}
+	return dir, true, nil
+}
+
+// placeRepo puts the repository gitURL in the project's folder, at dest: a worktree of the
+// catalog's clone on the project's own branch. A repository with nothing to branch from yet (an
+// empty one), or a workspace without a catalog, gets a clone of its own there instead.
+func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest string) (ProjectRepo, error) {
+	src, fresh, err := s.catalogClone(gitURL, name)
+	switch {
+	case err == nil && gitx.HasCommits(ctx, src):
+		mainBranch := settleMainBranch(ctx, src, defaultMainBranch)
+		if err := gitx.AddWorktree(ctx, src, dest, projectBranch(p)); err != nil {
+			return ProjectRepo{}, err
+		}
+		return ProjectRepo{Name: name, GitURL: gitURL, Dir: src, MainBranch: mainBranch, Shared: true}, nil
+	case fresh:
+		// An empty repository has no commit a worktree could start from: the project takes the clone.
+		err = renamePath(src, dest)
+	case err == nil || errors.Is(err, errNoCatalog):
+		_, err = cloneGitRepo(gitURL, dest, s.gitCommandEnv())
+	default:
+		// The catalog's clone failed: that is the answer.
+	}
+	if err != nil {
+		return ProjectRepo{}, err
+	}
+	mainBranch := settleMainBranch(ctx, dest, defaultMainBranch)
+	return ProjectRepo{Name: name, GitURL: gitURL, Dir: dest, MainBranch: mainBranch}, nil
+}
+
+// handleRemoveProjectRepo takes a repository out of a project: its worktree in every session, and
+// the project's folder of it (the project's worktree of a shared one, which stays in the catalog
+// for the others, or its own clone). Uncommitted work in any of them stops it, unless the user
+// confirmed the discard with `?force=1` - the same rule a session's own checkout follows.
 func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request) {
 	p := s.projectOf(r.PathValue("id"))
 	if p == nil {
@@ -147,7 +237,7 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	worktrees := s.sessionWorktreesOf(ctx, p, repo)
 	if !isForced(r) {
-		if dir, dirty := firstDirtyDir(ctx, append([]string{repo.Dir}, worktrees...)); dirty {
+		if dir, dirty := firstDirtyDir(ctx, append([]string{p.repoPath(repo)}, worktrees...)); dirty {
 			writeError(w, http.StatusConflict, fmt.Sprintf(
 				"the repository %s has uncommitted changes in %s (or they could not be read): "+
 					"commit them, or confirm the discard", repo.Name, dir))
@@ -163,13 +253,70 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s.ownsProjectDir(repo.Dir) {
+	if repo.Shared {
+		// Best effort, like the sessions' above. The branch goes only when it holds nothing that
+		// is not merged: what was committed there is work.
+		_ = worktreeRemove(ctx, repo.Dir, p.repoPath(repo), true)
+		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
+	} else if s.ownsProjectDir(repo.Dir) {
 		_ = os.RemoveAll(repo.Dir)
 	}
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// releaseSharedRepos is what a deleted project leaves in the catalog: its folder is gone, so the
+// registrations of its worktrees are cleared, and its branches go when nothing on them is unmerged.
+func releaseSharedRepos(ctx context.Context, p *Project) {
+	for _, repo := range p.Repos {
+		if repo.Shared {
+			_ = gitx.PruneWorktrees(ctx, repo.Dir)
+			_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
+		}
+	}
+}
+
+// catalogUse is a project that uses a repository of the catalog.
+type catalogUse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// catalogRepo is one repository of the catalog, and the projects that use it.
+type catalogRepo struct {
+	Name     string       `json:"name"`
+	GitURL   string       `json:"git_url"`
+	Dir      string       `json:"dir"`
+	Projects []catalogUse `json:"projects"`
+}
+
+// handleListRepos answers the catalog: every repository cloned there, and which projects use it,
+// so a project can add one that is already here without cloning it again.
+func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
+	out := []catalogRepo{}
+	root := s.catalogDir()
+	entries, _ := os.ReadDir(root)
+	var projects []Project
+	if s.projects != nil && len(entries) > 0 {
+		projects, _ = s.projects.loadAll()
+	}
+	for _, e := range entries {
+		dir := filepath.Join(root, e.Name())
+		gitURL := originOf(dir, s.gitCommandEnv())
+		if !e.IsDir() || gitURL == "" {
+			continue
+		}
+		repo := catalogRepo{Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: []catalogUse{}}
+		for _, p := range projects {
+			if slices.ContainsFunc(p.Repos, func(r ProjectRepo) bool { return r.Shared && gitx.SamePath(r.Dir, dir) }) {
+				repo.Projects = append(repo.Projects, catalogUse{ID: p.ID, Title: p.Title})
+			}
+		}
+		out = append(out, repo)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
 }
 
 // sessionWorktreesOf lists the live worktrees the project's sessions have of repo.
@@ -240,8 +387,9 @@ func sessionRepoWorktrees(ctx context.Context, p *Project, workspace string) [][
 // liveRepos fills in what each of the project's other repositories says right now.
 func liveRepos(ctx context.Context, p *Project) {
 	for i := range p.Repos {
-		p.Repos[i].Branch = gitx.Display(ctx, p.Repos[i].Dir)
-		p.Repos[i].Changes, _ = gitx.WorkingTreeChanges(ctx, p.Repos[i].Dir)
+		dir := p.repoPath(p.Repos[i])
+		p.Repos[i].Branch = gitx.Display(ctx, dir)
+		p.Repos[i].Changes, _ = gitx.WorkingTreeChanges(ctx, dir)
 	}
 }
 

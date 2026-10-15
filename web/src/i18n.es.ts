@@ -125,8 +125,8 @@ const first: Record<string, string> = {
   "Several repositories": "Varios repositorios",
   "A folder that holds all the repositories you clone into it":
     "Una carpeta que reúne todos los repositorios que clones en ella",
-  "Each repository is cloned inside the project's folder, and every session gets its own copy of each.":
-    "Cada repositorio se clona dentro de la carpeta del proyecto, y cada sesión recibe su propia copia de cada uno.",
+  "Each repository is cloned once in your workspace and shared by the projects that use it. Every session gets its own copy of each.":
+    "Cada repositorio se clona una sola vez en tu espacio de trabajo y lo comparten los proyectos que lo usan. Cada sesión recibe su propia copia de cada uno.",
   Back: "Atrás",
   Name: "Nombre",
   "Repository URL": "URL del repositorio",
@@ -591,6 +591,9 @@ const first: Record<string, string> = {
   "{name} moves into its own folder inside the project, and the project becomes a folder of repositories. Nothing is deleted.":
     "{name} pasa a su propia carpeta dentro del proyecto, y el proyecto queda como una carpeta de repositorios. No se borra nada.",
   "Move it": "Moverlo",
+  "Already in your workspace": "Ya en tu espacio de trabajo",
+  "Add {name}": "Agregar {name}",
+  "Also in {names}": "También en {names}",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",

@@ -316,7 +316,7 @@ test("several repositories: the folder holds them all, and needs at least one", 
   const empty = store({ newProjectMode: "multi", newProjectTitle: "suite" });
   const m = await mount(AppCtx, empty.value, h(NewProjectModal));
   assert.match(m.root.textContent, /Several repositories/);
-  assert.match(m.root.textContent, /Each repository is cloned inside/);
+  assert.match(m.root.textContent, /Each repository is cloned once in your workspace/);
   assert.equal(buttonByText(m.root, "Create").disabled, true);
   await m.unmount();
 

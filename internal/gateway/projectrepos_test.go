@@ -72,9 +72,13 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 		p.Repos[0].MainBranch != "main" {
 		t.Fatalf("adding a repository: %d %+v", code, p)
 	}
-	clone := filepath.Join(projectDir, "web-client")
-	if p.Repos[0].Dir != clone || gitx.Repo(context.Background(), clone) != nil {
-		t.Fatalf("the repository is cloned inside the project: %q", p.Repos[0].Dir)
+	// Cloned once in the catalog, and the project's folder has a worktree of it on its own branch.
+	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "web-client")
+	if p.Repos[0].Dir != clone || !p.Repos[0].Shared || gitx.Repo(context.Background(), clone) != nil {
+		t.Fatalf("the repository is cloned in the catalog: %+v", p.Repos[0])
+	}
+	if got := gitx.Display(context.Background(), filepath.Join(projectDir, "web-client")); got != "project/proj" {
+		t.Fatalf("the project's folder of it is on %q", got)
 	}
 	// The main repository does not see the clone as its own change.
 	if n, _ := gitx.WorkingTreeChanges(context.Background(), projectDir); n != 0 {
@@ -101,7 +105,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 		Projects []Project `json:"projects"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &list)
-	if len(list.Projects) != 1 || len(list.Projects[0].Repos) != 1 || list.Projects[0].Repos[0].Branch != "main" {
+	if len(list.Projects) != 1 || len(list.Projects[0].Repos) != 1 || list.Projects[0].Repos[0].Branch != "project/proj" {
 		t.Fatalf("the list must carry the repository: %s", w.Body)
 	}
 
@@ -223,8 +227,8 @@ func TestDeletingASessionGivesBackItsOtherRepositories(t *testing.T) {
 	if w := send(t, srv, http.MethodDelete, sessionPath(srv, sessionID, "?force=1"), testToken, ""); w.Code >= 300 {
 		t.Fatalf("a confirmed deletion: %d %s", w.Code, w.Body)
 	}
-	if wts, _ := gitx.Worktrees(context.Background(), clone); len(wts) != 1 {
-		t.Errorf("only the clone's own checkout may be left: %+v", wts)
+	if wts, _ := gitx.Worktrees(context.Background(), clone); len(wts) != 2 {
+		t.Errorf("only the clone's own checkout and the project's may be left: %+v", wts)
 	}
 }
 

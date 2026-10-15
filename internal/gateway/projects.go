@@ -243,7 +243,7 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		return "", false
 	}
 	if reservedFolders[strings.ToLower(dirName)] {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("%q is where motita keeps its sessions: "+
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("%q is where motita keeps its sessions and shared repositories: "+
 			"choose another folder name", dirName))
 		return "", false
 	}
@@ -251,9 +251,9 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 }
 
 // reservedFolders are the workspace's own folders, which hold the worktrees and folders of every
-// session of every project. A project there would run its sessions among all the others' work, and
+// session of every project, and the repositories they share. A project there would run its sessions among all the others' work, and
 // deleting it would delete that work.
-var reservedFolders = map[string]bool{"worktrees": true, "sessions": true}
+var reservedFolders = map[string]bool{"worktrees": true, "sessions": true, catalogFolder: true}
 
 // projectInDir is the project whose folder is dir, inside it or around it, nil when there is
 // none. Two projects on one checkout would share its branches, its files and its skills, and
@@ -669,7 +669,8 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	var projectDir string
 	// A folder another project also stands on (a record from before folders were refused twice)
 	// stays: it is that project's too.
-	if p := s.projectOf(id); p != nil && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
+	p := s.projectOf(id)
+	if p != nil && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
 		projectDir = p.Dir
 	}
 	// Only now that every checkout has been proven safe to give back are the
@@ -689,6 +690,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		// Best effort: the project is already gone, and a folder that resists (a file in use)
 		// is left for the user rather than failing a deletion that has otherwise happened.
 		_ = os.RemoveAll(projectDir)
+		releaseSharedRepos(r.Context(), p)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

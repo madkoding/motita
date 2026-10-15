@@ -1,15 +1,17 @@
 // The repositories of a project, as the New project and Edit project dialogs show them: the main
-// one first (the project's own folder, which cannot be taken out), then the others, each with a
-// button to remove it, and a field to add one more.
+// one first (the project's own folder), then the others, each with a button to remove it, a field
+// to add one more, and the repositories the workspace already has, to add without cloning again.
 import { useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
   addRepoProblem,
   repoDraftOf,
+  repoFolderOf,
   type MainRepo,
   type RepoDraft,
 } from "./projectRepos";
+import type { CatalogRepo } from "./appTypes";
 import { IconSpinner, IconTrash } from "./icons";
 
 const LABEL = "block text-sm text-[#9a9aaa] mb-1.5";
@@ -20,6 +22,7 @@ const ROW = "flex items-start gap-2.5 px-3 py-2.5";
 export interface RepoListItem {
   name: string;
   git_url: string;
+  dir?: string;
   branch?: string;
   changes?: number;
 }
@@ -69,11 +72,14 @@ function OtherRepoRow({
   r,
   busy,
   conflict,
+  alsoIn,
   onRemove,
 }: {
   r: RepoListItem;
   busy: boolean;
   conflict?: RepoConflict | null;
+  // The other projects that use the same clone of the repository.
+  alsoIn: string[];
   onRemove: (name: string, force: boolean) => void;
 }) {
   const refused = conflict?.name === r.name;
@@ -96,6 +102,14 @@ function OtherRepoRow({
           >
             {r.git_url}
           </span>
+          {alsoIn.length > 0 && (
+            <span
+              class="block text-xs text-accent/80 truncate"
+              data-testid="repo-also-in"
+            >
+              {tf("Also in {names}", { names: alsoIn.join(", ") })}
+            </span>
+          )}
         </span>
         <button
           type="button"
@@ -219,12 +233,26 @@ function MainRepoRow({
   );
 }
 
+// alsoInOf names the other projects that use the catalog's clone at dir.
+function alsoInOf(
+  catalog: CatalogRepo[],
+  dir: string | undefined,
+  projectId: string,
+): string[] {
+  const entry = catalog.find((c) => c.dir === dir);
+  return (entry?.projects ?? [])
+    .filter((p) => p.id !== projectId)
+    .map((p) => p.title);
+}
+
 // RepoList lists the main repository and the others.
 export function RepoList({
   main,
   repos,
   busy,
   conflict,
+  catalog = [],
+  projectId = "",
   onRemove,
   onMoveMain,
 }: {
@@ -232,6 +260,8 @@ export function RepoList({
   repos: RepoListItem[];
   busy: string;
   conflict?: RepoConflict | null;
+  catalog?: CatalogRepo[];
+  projectId?: string;
   onRemove: (name: string, force: boolean) => void;
   onMoveMain?: () => void;
 }) {
@@ -256,6 +286,7 @@ export function RepoList({
           r={r}
           busy={busy === r.name}
           conflict={conflict}
+          alsoIn={alsoInOf(catalog, r.dir, projectId)}
           onRemove={onRemove}
         />
       ))}
@@ -335,6 +366,66 @@ export function AddRepo({
   );
 }
 
+// sameRepo is the form two URLs of one repository share: no trailing slash or ".git", any case.
+function sameRepo(url: string): string {
+  return url
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "")
+    .toLowerCase();
+}
+
+// CatalogPicks are the repositories the workspace already has that the list does not: one click
+// adds one, and the project shares the clone instead of making another.
+function CatalogPicks({
+  catalog,
+  repos,
+  busy,
+  onAdd,
+}: {
+  catalog: CatalogRepo[];
+  repos: RepoListItem[];
+  busy: boolean;
+  onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
+}) {
+  const urls = repos.map((r) => sameRepo(r.git_url));
+  const names = repos.map((r) => r.name);
+  const picks = catalog
+    .map((c) => ({
+      name: repoFolderOf(c.git_url) || c.name,
+      git_url: c.git_url,
+    }))
+    .filter(
+      (c) => !urls.includes(sameRepo(c.git_url)) && !names.includes(c.name),
+    );
+  if (picks.length === 0) {
+    return null;
+  }
+  return (
+    <div data-testid="repo-catalog">
+      <p class="text-xs text-[#7a7a8c] mb-1">
+        {t("Already in your workspace")}
+      </p>
+      <div class="flex flex-wrap gap-1.5">
+        {picks.map((c) => (
+          <button
+            key={c.git_url}
+            type="button"
+            class="px-2.5 min-h-[30px] rounded-lg border border-white/10 bg-black/20 text-sm text-[#e8e8ea] hover:border-accent/60 disabled:opacity-30"
+            onClick={() => void onAdd(c)}
+            disabled={busy}
+            title={c.git_url}
+            aria-label={tf("Add {name}", { name: c.name })}
+            data-testid="repo-catalog-pick"
+          >
+            + {c.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ReposSection is the whole block: the title, the list, the field and what the repositories are.
 export function ReposSection({
   main,
@@ -345,6 +436,8 @@ export function ReposSection({
   onAdd,
   onChoose,
   onMoveMain,
+  catalog = [],
+  projectId,
   hint,
 }: {
   main: MainRepo | null;
@@ -357,6 +450,10 @@ export function ReposSection({
   onChoose?: () => void;
   // Moves the main repository into a folder of its own (the edit dialog only).
   onMoveMain?: () => void;
+  // The repositories the workspace already has, and the project the dialog is about (none yet
+  // in the New project one).
+  catalog?: CatalogRepo[];
+  projectId?: string;
   hint: string;
 }) {
   return (
@@ -368,11 +465,19 @@ export function ReposSection({
           repos={repos}
           busy={busy}
           conflict={conflict}
+          catalog={catalog}
+          projectId={projectId}
           onRemove={onRemove}
           onMoveMain={onMoveMain}
         />
         <AddRepo
           taken={repos.map((r) => r.name)}
+          busy={busy === "+"}
+          onAdd={onAdd}
+        />
+        <CatalogPicks
+          catalog={catalog}
+          repos={repos}
           busy={busy === "+"}
           onAdd={onAdd}
         />

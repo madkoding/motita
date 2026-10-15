@@ -274,3 +274,93 @@ test("the main repository has no button when it cannot move, and spins while it 
   assert.ok(busy.q("[data-testid=repo-main-remove] svg"));
   await busy.unmount();
 });
+
+test("the repositories the workspace already has are offered, except the ones the list has", async () => {
+  const added = [];
+  const catalog = [
+    {
+      name: "api",
+      git_url: "https://X.io/u/API.git/",
+      dir: "/w/repos/api",
+      projects: [],
+    },
+    {
+      name: "lib-2",
+      git_url: "https://x.io/o/lib.git",
+      dir: "/w/repos/lib-2",
+      projects: [],
+    },
+    { name: "odd", git_url: "host:", dir: "/w/repos/odd", projects: [] },
+    {
+      name: "web",
+      git_url: "https://x.io/u/web.git",
+      dir: "/w/repos/web",
+      projects: [],
+    },
+  ];
+  const props = {
+    main: null,
+    repos: [
+      { name: "api", git_url: "https://x.io/u/api" },
+      { name: "lib", git_url: "https://x.io/other/lib" },
+    ],
+    catalog,
+    onAdd: (d) => {
+      added.push(d);
+      return true;
+    },
+  };
+  const m = await mount(AppCtx, null, section(props));
+  const picks = m.qa("[data-testid=repo-catalog-pick]");
+  assert.deepEqual(
+    picks.map((b) => b.textContent),
+    ["+ odd", "+ web"],
+    "the same repository, or one whose name is taken, is not offered",
+  );
+  await click(picks[1]);
+  assert.deepEqual(added, [{ name: "web", git_url: "https://x.io/u/web.git" }]);
+  await m.rerender(null, section({ ...props, busy: "+" }));
+  assert.equal(m.q("[data-testid=repo-catalog-pick]").disabled, true);
+  await m.rerender(null, section({ ...props, catalog: catalog.slice(0, 2) }));
+  assert.equal(
+    m.q("[data-testid=repo-catalog]"),
+    null,
+    "nothing left to offer",
+  );
+  await m.unmount();
+});
+
+test("a repository other projects share says which ones", async () => {
+  const catalog = [
+    {
+      name: "api",
+      git_url: "u/api",
+      dir: "/w/repos/api",
+      projects: [
+        { id: "p1", title: "Shop" },
+        { id: "p2", title: "Admin" },
+        { id: "p3", title: "Docs" },
+      ],
+    },
+  ];
+  const repos = [
+    { name: "api", git_url: "u/api", dir: "/w/repos/api" },
+    { name: "own", git_url: "u/own", dir: "/w/shop/own" },
+  ];
+  const m = await mount(
+    AppCtx,
+    null,
+    h(RepoList, {
+      main: null,
+      repos,
+      busy: "",
+      catalog,
+      projectId: "p1",
+      onRemove() {},
+    }),
+  );
+  const also = m.qa("[data-testid=repo-also-in]");
+  assert.equal(also.length, 1);
+  assert.equal(also[0].textContent, "Also in Admin, Docs");
+  await m.unmount();
+});

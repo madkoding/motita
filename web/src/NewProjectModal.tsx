@@ -296,11 +296,12 @@ function NewProjectRepos() {
       onRemove={onRemove}
       onAdd={p.addNewProjectRepo}
       onChoose={choose(connected, p.openOtherRepoPicker, undefined)}
+      catalog={p.repoCatalog}
       hint={t(
         choose(
           p.newProjectMode === "multi",
-          "Each repository is cloned inside the project's folder, and every session gets its own copy of each.",
-          "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.",
+          "Each repository is cloned once in your workspace and shared by the projects that use it. Every session gets its own copy of each.",
+          "The first one is the main repository, the project's folder. The others are shared from your workspace, and every session gets its own copy of each.",
         ),
       )}
     />
