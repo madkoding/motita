@@ -604,6 +604,10 @@ never touched while they work.
   which files would be lost, and nothing is discarded until you confirm.
 - **Procedures can belong to a project.** `<project>/.motita/skills/` is searched first
   and shadows the shared library.
+- **Instruction files are read.** A session in a project reads `AGENTS.md` (or `CLAUDE.md`
+  when a folder has no `AGENTS.md`) from the git root down to its working folder, plus your own
+  `~/.motita/AGENTS.md`, up to 16 KB in all. They guide how to work; they never override your
+  request, Settings → Security or the project's scope. Symbolic links are ignored.
 
 ### Git hosts: connect once, and every session can push
 
