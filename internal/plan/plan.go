@@ -73,6 +73,8 @@ type Planner struct {
 	answer func(string)
 	// stream receives live model output (thinking fragments, tool call names).
 	stream func(string)
+	// steps receives the commands, their results and the reasoning of the run; nil means none.
+	steps *Steps
 
 	// library is the procedure library the skill tools read and write. Nil means the tools
 	// answer that no library is configured, which is what a planner used as a plain one-shot
@@ -179,6 +181,35 @@ func (p *Planner) WithStream(fn func(string)) *Planner {
 	p.stream = fn
 	return p
 }
+
+// Steps is where a plan run reports what it does in the terms a task run uses for the same things:
+// the commands it runs with their results, and the reasoning it writes. Every field must be set.
+//
+// Reported from real use: "the think and the tty are empty when I open the drawers". A question is
+// answered in plan mode, and plan mode only announced its tools ("[using tool: ...]") and dropped the
+// model's reasoning, so the terminal and thinking drawers - which read the task path's lines - stayed
+// empty for every question, however many commands it ran.
+type Steps struct {
+	// Command is a command about to run.
+	Command func(command string)
+	// Output is the result of the command reported last.
+	Output func(exit int, output string)
+	// Thought is reasoning the model finished: its reasoning tokens, or what it said before using
+	// its tools.
+	Thought func(text string)
+	// Live is the reasoning being written, whole so far: each one replaces the one before.
+	Live func(text string)
+}
+
+// WithSteps sets where the run's commands and reasoning are reported.
+func (p *Planner) WithSteps(s Steps) *Planner {
+	p.steps = &s
+	return p
+}
+
+// liveThoughtEvery is the least time between two live snapshots of the reasoning. A variable so a
+// test can take every one.
+var liveThoughtEvery = 250 * time.Millisecond
 
 // WithSoul sets the system prompt this planner opens conversations with, so a
 // caller that resolved a user's SOUL.md can pass it in. Empty keeps the default.
@@ -618,15 +649,15 @@ func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.
 	streamCh := p.engine.CompleteToolsStream(ctx, messages, p.tools())
 	var acc llm.StreamResult
 	var pendingTool string
-	var textBuf strings.Builder
+	var thought strings.Builder
+	var lastLive time.Time
 	for chunk := range streamCh {
 		switch chunk.Event {
 		case llm.StreamError:
 			return llm.Reply{}, chunk.Error
 		case llm.StreamDone:
-			return acc.FinalReply(), nil
+			return p.reasoned(acc.FinalReply(), thought.String()), nil
 		case llm.StreamText:
-			textBuf.WriteString(chunk.Text)
 			p.writeStream(chunk.Text)
 			acc.Handle(chunk)
 		case llm.StreamToolCall:
@@ -638,12 +669,36 @@ func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.
 				p.writeStream(fmt.Sprintf("[using tool: %s]", chunk.Call.Function.Name))
 			}
 			acc.Handle(chunk)
+		case llm.StreamThinking:
+			// Reasoning tokens are not part of a plan's answer: they are shown while they are
+			// written, and kept as a thought once the reply is complete.
+			thought.WriteString(chunk.Text)
+			if p.steps != nil && time.Since(lastLive) >= liveThoughtEvery {
+				lastLive = time.Now()
+				p.steps.Live(thought.String())
+			}
 		default:
-			// Reasoning tokens are not part of a plan's answer: nothing to accumulate.
+			// No other event carries anything for a plan.
 		}
 	}
 	// Channel closed without a done event: use what we accumulated.
-	return acc.FinalReply(), nil
+	return p.reasoned(acc.FinalReply(), thought.String()), nil
+}
+
+// reasoned reports the reasoning of a complete reply as thoughts, and returns the reply. Two things
+// are reasoning: the tokens the provider streamed apart, and the text of a reply that goes on to use
+// tools - the model saying what it is about to do, which is not the answer.
+func (p *Planner) reasoned(reply llm.Reply, thought string) llm.Reply {
+	if p.steps == nil {
+		return reply
+	}
+	if t := strings.TrimSpace(thought); t != "" {
+		p.steps.Thought(t)
+	}
+	if t := strings.TrimSpace(reply.Content); t != "" && reply.WantsTools() {
+		p.steps.Thought(t)
+	}
+	return reply
 }
 
 func (p *Planner) writeStream(s string) {
@@ -664,7 +719,10 @@ func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 
 // dispatchTool runs the tool a call names and returns its unmasked result.
 func (p *Planner) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
-	emitToolCall(p.trace, tc.Function.Name, tc.Function.Arguments)
+	// A command reported as a step is announced by that step, not twice.
+	if p.steps == nil || tc.Function.Name != "execute_command" {
+		emitToolCall(p.trace, tc.Function.Name, tc.Function.Arguments)
+	}
 	switch tc.Function.Name {
 	case "list_directory":
 		return p.toolListDirectory(tc.Function.Arguments)

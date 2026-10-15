@@ -386,3 +386,25 @@ func TestSynthesizeProposesSuggestionsWhenAsked(t *testing.T) {
 		t.Fatalf("report = %+v", with)
 	}
 }
+
+// TestPlanModeIsAskedToRunACommandThenAnswers: plan mode offers execute_command, and the mock
+// reasons, says what it will do and calls it once; with the result in the conversation it answers.
+func TestPlanModeIsAskedToRunACommandThenAnswers(t *testing.T) {
+	tools := `"tools":[{"function":{"name":"execute_command"}}]`
+	ask := func(body string) string {
+		rec := httptest.NewRecorder()
+		handle(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+		return rec.Body.String()
+	}
+	first := ask(`{"stream":true,` + tools + `,"messages":[{"role":"user","content":"hi"}]}`)
+	wants := []string{"reasoning_content", "Let me look", `"name":"execute_command"`, "ls -la", "tool_calls", "[DONE]"}
+	for _, want := range wants {
+		if !strings.Contains(first, want) {
+			t.Errorf("first round lacks %q: %s", want, first)
+		}
+	}
+	second := ask(`{"stream":true,` + tools + `,"messages":[{"role":"tool","content":"x"}]}`)
+	if !strings.Contains(second, "The workspac") || strings.Contains(second, "tool_calls") {
+		t.Errorf("second round must answer: %s", second)
+	}
+}
