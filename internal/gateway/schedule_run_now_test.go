@@ -183,6 +183,9 @@ func TestRecordManualRunOfADeletedTaskIsLogged(t *testing.T) {
 		t.Error("a deleted task was written back")
 	}
 
-	srv.opts.Log = nil
-	srv.recordManualRun("s-gone", finished)
+	// Without a log the same end is silent. A server of its own, because the first one's
+	// background loops read its options while it runs.
+	quiet := newTestServer(t, &fakeService{})
+	withSchedules(t, quiet, time.Minute)
+	quiet.recordManualRun("s-gone", finished)
 }
