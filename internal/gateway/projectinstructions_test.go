@@ -103,3 +103,31 @@ func TestInstructionsAreCapped(t *testing.T) {
 		t.Fatalf("note is %d bytes, cap is %d", len(got), maxInstructionBytes)
 	}
 }
+
+func TestInstructionsSkipEmptyAndUnreadableFiles(t *testing.T) {
+	ws := t.TempDir()
+	putFile(t, filepath.Join(ws, "AGENTS.md"), "  \n")
+	if got := projectInstructionsNote(ws, ""); got != "" {
+		t.Fatalf("an empty file produced %q", got)
+	}
+	if os.Getuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	locked := filepath.Join(ws, "AGENTS.md")
+	putFile(t, locked, "secret")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := projectInstructionsNote(ws, ""); got != "" {
+		t.Fatalf("an unreadable file produced %q", got)
+	}
+}
+
+func TestInstructionsBudgetIsSharedAcrossFiles(t *testing.T) {
+	ws, home := t.TempDir(), t.TempDir()
+	putFile(t, filepath.Join(home, ".motita", "AGENTS.md"), strings.Repeat("g", maxInstructionBytes))
+	putFile(t, filepath.Join(ws, "AGENTS.md"), "LOCAL")
+	if got := projectInstructionsNote(ws, home); strings.Contains(got, "LOCAL") {
+		t.Fatalf("the budget was spent, yet the project's file was added: %d bytes", len(got))
+	}
+}

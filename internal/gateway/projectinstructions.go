@@ -27,12 +27,12 @@ func readInstructionFile(dir string) (name, text string) {
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
+		var data []byte
 		f, err := os.Open(p)
-		if err != nil {
-			continue
+		if err == nil {
+			data, err = io.ReadAll(io.LimitReader(f, maxInstructionBytes+1))
+			_ = f.Close()
 		}
-		data, err := io.ReadAll(io.LimitReader(f, maxInstructionBytes+1))
-		_ = f.Close()
 		if err != nil {
 			continue
 		}
