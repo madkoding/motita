@@ -4,6 +4,7 @@
 // speechListen.worker.ts, which listens): their files, read from the page's copy or the gateway,
 // and onnxruntime on the processor or on the graphics card.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
+import { choose } from "./choose";
 import { NO_WEBGPU, VOICE_CACHE, readAll, type OrtLike } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -19,7 +20,7 @@ export async function bytes(url: string, progress?: (loaded: number, total: numb
   const tag = hit?.headers.get("ETag");
   const res = await fetch(url, {
     credentials: "same-origin",
-    headers: tag ? { "If-None-Match": tag } : {},
+    headers: choose(!!tag, { "If-None-Match": tag ?? "" }, {}),
   }).catch((err: unknown) => {
     if (!hit) {
       throw err;

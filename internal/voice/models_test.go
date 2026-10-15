@@ -155,7 +155,8 @@ func TestUnknownIdsAndNames(t *testing.T) {
 			t.Fatalf("File(%q, %q) answered", c[0], c[1])
 		}
 	}
-	if lib.Sum("v1", "model.onnx") != lib.Models[0].Files[0].SHA256 || lib.Sum(RuntimeID, "a.wasm") != lib.Runtime[0].SHA256 {
+	own, shared := lib.Models[0].Files[0].SHA256, lib.Runtime[0].SHA256
+	if lib.Sum("v1", "model.onnx") != own || lib.Sum(RuntimeID, "a.wasm") != shared {
 		t.Fatal("Sum should be the pinned hash of a listed file")
 	}
 	if lib.Sum("v1", "nope") != "" || lib.Sum("nope", "model.onnx") != "" {
