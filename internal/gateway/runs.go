@@ -40,7 +40,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
@@ -66,7 +66,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
@@ -95,7 +95,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
@@ -448,7 +448,7 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 	// pending RIGHT NOW. A client that reconnects while the run is blocked on an approval has to be
 	// told about it, or it waits forever for a run that is waiting for it.
 	var pending *approvalEvent
-	if p := c.pendingApprovalNow(); p != nil {
+	if p := c.pendingFor(rn); p != nil {
 		pending = &approvalEvent{ID: p.id, Command: p.command, Reason: p.reason, Rule: p.rule}
 	}
 	outcome, _, _, _ := rn.outcomeOf()
@@ -723,14 +723,33 @@ func (s *Server) handleAutoApprove(w http.ResponseWriter, r *http.Request) {
 // gateway holds the events, so a client that went away asks for what follows the last one it saw.
 // It keeps nothing and reconstructs nothing - which is what it means for a client to be a remote
 // control.
+//
+// A client that reconnects to a run it was following names it with ?run=<id> (the run_id of the
+// attached event). Without it, the client would be attached to whatever run is current - another
+// client's turn, started after its own ended - and shown that turn's result as its own. With it,
+// the run is found even after it ended (see conversation.lastRun), and a run that is no longer
+// there is refused with 409 (another run is in flight) or 410 (nothing is) instead.
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	rn, ok := c.currentRun()
-	if !ok {
-		writeError(w, http.StatusNotFound, "there is no run in progress in this session to attach to")
+	id := strings.TrimSpace(r.URL.Query().Get("run"))
+	if id == "" {
+		rn, ok := c.currentRun()
+		if !ok {
+			writeError(w, http.StatusNotFound, "there is no run in progress in this session to attach to")
+			return
+		}
+		s.attach(w, r, c, rn, fromParam(r))
 		return
 	}
-	s.attach(w, r, c, rn, fromParam(r))
+	rn, status := c.runByID(id)
+	switch status {
+	case http.StatusConflict:
+		writeError(w, status, fmt.Sprintf("the run %q is over and another run is in progress in this session", id))
+	case http.StatusGone:
+		writeError(w, status, fmt.Sprintf("the run %q is no longer available in this session", id))
+	default:
+		s.attach(w, r, c, rn, fromParam(r))
+	}
 }
 
 // handleRunStatus answers what is running, without opening a stream.

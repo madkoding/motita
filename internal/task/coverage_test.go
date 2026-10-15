@@ -266,24 +266,57 @@ func TestQueueSourceUnreadableFileInList(t *testing.T) {
 	}
 }
 
-// TestQueueSourceRenameFails: if the file cannot be marked as done the task is
-// still delivered (repeating work is better than losing it).
+// TestQueueSourceRenameFails: a file that cannot be marked as done is skipped,
+// not delivered. Delivering it used to repeat the same task on every poll,
+// forever, because it never left the queue.
 func TestQueueSourceRenameFails(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "t.txt"), []byte("work"), 0o644)
+	os.WriteFile(filepath.Join(dir, "u.txt"), []byte("other"), 0o644)
+	// A non-empty directory with the target name makes the rename fail.
+	os.MkdirAll(filepath.Join(dir, "t.txt.done", "keep"), 0o755)
+
+	f, _ := New(config.TaskSource{Kind: "queue", Dir: dir, Interval: 5 * time.Millisecond}, logx.Global())
+	task, err := f.Next(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Description != "other" {
+		t.Errorf("description = %q, want the claimable file", task.Description)
+	}
+
+	// The unclaimable file is not offered again on later polls.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	if task, err := f.Next(ctx); err != io.EOF {
+		t.Errorf("Next = %+v, %v; want io.EOF with nothing claimable", task, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "t.txt")); err != nil {
+		t.Errorf("the unclaimable file must stay where it was: %v", err)
+	}
+}
+
+// TestQueueSourceSkipsEmptyAndUnreadableClaims: an empty file is consumed with
+// no task, and a claimed entry that cannot be read is skipped.
+func TestQueueSourceSkipsEmptyAndUnreadableClaims(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("  \n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "b"), 0o755)
+	os.WriteFile(filepath.Join(dir, "c.txt"), []byte("real"), 0o644)
 
 	f, _ := New(config.TaskSource{Kind: "queue", Dir: dir, Interval: time.Millisecond}, logx.Global())
 	src := f.(*queueSource)
-	// A directory with the target name makes the rename fail.
-	os.MkdirAll(filepath.Join(dir, "t.txt.done"), 0o755)
-	src.pending = []string{filepath.Join(dir, "t.txt")}
-
+	// A directory renames fine but does not read as a file.
+	src.pending = []string{filepath.Join(dir, "a.txt"), filepath.Join(dir, "b"), filepath.Join(dir, "c.txt")}
 	task, err := f.Next(context.Background())
 	if err != nil {
-		t.Fatalf("the task must still be delivered: %v", err)
+		t.Fatal(err)
 	}
-	if task.Description != "work" {
+	if task.Description != "real" {
 		t.Errorf("description = %q", task.Description)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt.done")); err != nil {
+		t.Errorf("the empty file must be consumed: %v", err)
 	}
 }
 

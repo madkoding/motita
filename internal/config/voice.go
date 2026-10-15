@@ -117,13 +117,27 @@ func (c *Config) validateVoice() error {
 		return fmt.Errorf("voice.base_url is empty and the %s provider has no transcription endpoint: "+
 			"name one (an OpenAI-compatible /audio/transcriptions)", c.LLM.Provider)
 	}
-	if !httpURL(base) {
-		return fmt.Errorf("voice.base_url %q is not an http(s) URL", base)
+	if err := checkKeyedEndpoint("voice.base_url", base, c.VoiceAPIKey()); err != nil {
+		return err
 	}
 	for i, p := range c.Voice.WakePhrases {
 		if strings.TrimSpace(p) == "" {
 			return fmt.Errorf("voice.wake_phrases[%d] is blank", i)
 		}
+	}
+	return nil
+}
+
+// checkKeyedEndpoint checks an endpoint the key is sent to: it must be an http(s) URL, and a key
+// may not travel in clear text to a host outside this machine and its network, the rule
+// llm.base_url follows. A recording or a key read on the way is as much a leak as an LLM prompt.
+func checkKeyedEndpoint(field, base, key string) error {
+	if !httpURL(base) {
+		return fmt.Errorf("%s %q is not an http(s) URL", field, base)
+	}
+	if key != "" && IsClearTextToRemote(base) {
+		return fmt.Errorf("%s %q is plain http to a host outside this machine and its network: "+
+			"the key would travel in clear text, use https", field, base)
 	}
 	return nil
 }

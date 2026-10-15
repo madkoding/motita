@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -218,3 +219,64 @@ func TestDownloadFileWriteError(t *testing.T) {
 
 // Ensure io is used (prevents unused import if some branches are optimized away).
 var _ = io.EOF
+
+// stallingServer answers with headers and one byte, then sends nothing until the test ends.
+func stallingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		_, _ = w.Write([]byte{0})
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		srv.Close()
+	})
+	return srv
+}
+
+func TestDownloadFileStallsAfterIdleTimeout(t *testing.T) {
+	srv := stallingServer(t)
+	u := &Updater{HTTPClient: srv.Client(), IdleTimeout: 100 * time.Millisecond}
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, filepath.Join(t.TempDir(), "x"),
+		func(ProgressEvent) {})
+	if !errors.Is(err, errDownloadStalled) {
+		t.Fatalf("err = %v, want errDownloadStalled", err)
+	}
+}
+
+func TestDownloadFileSlowButSteadyOutlivesIdleTimeout(t *testing.T) {
+	// Ten chunks 30 ms apart take ~300 ms in all, three times the idle timeout: a steady trickle
+	// must finish, which a whole-request timeout of that size would not allow.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		for i := 0; i < 10; i++ {
+			_, _ = w.Write([]byte{'x'})
+			w.(http.Flusher).Flush()
+			time.Sleep(30 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+	u := &Updater{HTTPClient: srv.Client(), IdleTimeout: 100 * time.Millisecond}
+	dest := filepath.Join(t.TempDir(), "x")
+	if err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, dest, func(ProgressEvent) {}); err != nil {
+		t.Fatalf("downloadFile: %v", err)
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "xxxxxxxxxx" {
+		t.Errorf("downloaded %q", got)
+	}
+}
+
+func TestFetchSmallMetadataTimeout(t *testing.T) {
+	srv := stallingServer(t)
+	u := &Updater{HTTPClient: srv.Client(), MetadataTimeout: 100 * time.Millisecond}
+	_, err := u.fetchSmall(context.Background(), srv.URL, "SHA256SUMS", 1<<20)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want a deadline error", err)
+	}
+}

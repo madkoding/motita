@@ -62,7 +62,8 @@ if (noCache) {
 } else {
   test("the first catalog read drops the copies no voice of it uses, once", async () => {
     const page = "http://localhost/v1/voice/models/";
-    const keys = ["old-voice/model.onnx", "runtime/ort.wasm", "a/model.onnx", "supertonic/vocoder.onnx"]
+    const keys = ["old-voice/model.onnx", "runtime/ort.wasm", "a/model.onnx", "supertonic/vocoder.onnx",
+      "a/ort-wasm-simd-threaded.asyncify.wasm", "runtime/ort-wasm-simd-threaded.asyncify.wasm"]
       .map((f) => ({ url: page + f }))
       .concat([{ url: "http://localhost/elsewhere" }]);
     const dropped = [];
@@ -75,10 +76,10 @@ if (noCache) {
     const { api } = apiOf({ [CATALOG]: () => json(cat([model("a", "piper")])) });
     await lv.fetchCatalog(api);
     await new Promise((r) => setTimeout(r, 0));
-    assert.deepEqual(dropped, [page + "old-voice/model.onnx"]);
+    assert.deepEqual(dropped, [page + "old-voice/model.onnx", page + "a/ort-wasm-simd-threaded.asyncify.wasm"]);
     await lv.fetchCatalog(api);
     await new Promise((r) => setTimeout(r, 0));
-    assert.equal(dropped.length, 1, "once a page");
+    assert.equal(dropped.length, 2, "once a page");
     assert.equal(lv.localVoicesSupported(), true);
   });
 
@@ -124,7 +125,6 @@ if (noCache) {
     await lv.deleteVoice(last.api, "chatterbox-b");
     assert.deepEqual(deleted.slice(4), [
       "/v1/voice/models/chatterbox/tokenizer.json",
-      "/v1/voice/models/chatterbox/ort-wasm-simd-threaded.asyncify.wasm",
       "/v1/voice/models/chatterbox/embed_tokens.onnx",
       "/v1/voice/models/chatterbox/embed_tokens.onnx_data",
       "/v1/voice/models/chatterbox/language_model_q4.onnx",

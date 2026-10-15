@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/session"
@@ -652,7 +653,17 @@ func (p *Planner) writeStream(s string) {
 }
 
 // runTool executes one tool call and returns a model-readable result.
+//
+// Every tool result goes into the conversation sent to the model provider, so this is the one
+// place where secrets in it are masked: read_file on a .env, a native search hit on a line holding
+// a token, a skill that quotes a key. Command output is already masked by the agent; masking it
+// again is harmless, and covering every tool here means a new one cannot forget it.
 func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
+	return redact.String(p.dispatchTool(ctx, tc))
+}
+
+// dispatchTool runs the tool a call names and returns its unmasked result.
+func (p *Planner) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
 	emitToolCall(p.trace, tc.Function.Name, tc.Function.Arguments)
 	switch tc.Function.Name {
 	case "list_directory":

@@ -69,6 +69,13 @@ func TestValidateTTS(t *testing.T) {
 		{"format", func(c *Config) { c.Voice.TTS.Format = "ogg" }, "voice.tts.format"},
 		{"no endpoint", func(c *Config) { c.LLM.Provider = "anthropic" }, "voice.tts.base_url is empty"},
 		{"scheme", func(c *Config) { c.Voice.TTS.BaseURL = "ftp://x" }, "not an http(s) URL"},
+		{"clear text remote with key", func(c *Config) {
+			c.Voice.TTS.BaseURL, c.Voice.TTS.APIKey = "http://tts.example.com/v1", "tk"
+		}, "voice.tts.base_url \"http://tts.example.com/v1\" is plain http"},
+		{"clear text remote without key", func(c *Config) { c.Voice.TTS.BaseURL = "http://tts.example.com/v1" }, ""},
+		{"clear text local with key", func(c *Config) {
+			c.Voice.TTS.BaseURL, c.Voice.TTS.APIKey = "http://localhost:8880/v1", "tk"
+		}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

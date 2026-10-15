@@ -199,6 +199,13 @@ test("the session list is read from the gateway, and the answered session stays 
   });
   assert.deepEqual(got, []);
   assert.deepEqual(cur().lists.sessions, [{ id: "keep" }]);
+  // An error status is a failure too, not an empty list to show.
+  gw.routes["GET /v1/sessions"] = () => res(503, { error: "down" });
+  await h.act(async () => {
+    got = await cur().lists.loadSessions();
+  });
+  assert.equal(got, null);
+  assert.deepEqual(cur().lists.sessions, [{ id: "keep" }]);
   await h.act(async () => {
     got = await cur().lists.fetchProjects();
   });
@@ -411,6 +418,32 @@ test("deleting a session removes it at once and opens the next one, or none", as
     ["could not delete the session", true],
     ["could not delete the session", true],
   ]);
+  await h.unmount();
+});
+
+test("deleting the open session offline opens the next one still listed", async () => {
+  phone(false);
+  const gw = gateway({
+    "DELETE /v1/sessions/b": () => res(204, null),
+    "GET /v1/sessions": () => {
+      throw new Error("offline");
+    },
+  });
+  const { h, conv, cur } = await actions(gw);
+  await h.act(() => {
+    cur().lists.setSessions([
+      { id: "a", last_used: "2024-01-01T00:00:00Z" },
+      { id: "b", last_used: "2024-02-01T00:00:00Z" },
+    ]);
+    cur().rs.sessionRef.current = "b";
+  });
+  await h.act(() => cur().actions.deleteSession("b"));
+  assert.deepEqual(conv.switched, ["a"]);
+  assert.equal(conv.noSession, 0);
+  assert.deepEqual(
+    cur().lists.sessions.map((s) => s.id),
+    ["a"],
+  );
   await h.unmount();
 });
 

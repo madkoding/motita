@@ -660,6 +660,9 @@ func (op Options) run(fl flags) int {
 	}
 	logx.Install(log)
 	defer log.Close()
+	for _, note := range cfg.Deprecations() {
+		log.Warn(note)
+	}
 
 	// A CLIENT of somebody else's gateway builds none of the layers below.
 	//

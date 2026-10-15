@@ -7,7 +7,7 @@
 // without the network after the first time. The logic is in localVoiceCore.ts.
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
 import { Synth, isSupertonic, type FromWorker, type ToWorker } from "./localVoiceCore";
-import { bytes, cpuOrt, gpuOrt, messageOf } from "./workerOrt";
+import { bytes, cpuOrt, gpuOrt, messageOf, webGPU } from "./workerOrt";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -17,6 +17,7 @@ const synth = new Synth({
   // WebGPU's build runs Supertonic and Chatterbox on a browser that has WebGPU. Each way it can
   // fail says so, and the page shows it.
   gpu: gpuOrt,
+  webGPU,
   phonemizer: (wasm, data, print) =>
     createPiperPhonemize({
       print,

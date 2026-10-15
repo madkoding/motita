@@ -361,7 +361,7 @@ func voiceLibrary() *voice.Library {
 	if d == "" {
 		return nil
 	}
-	lib := &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.PiperRuntime,
+	lib := &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.OrtRuntime,
 		Shared: map[string][]voice.ModelFile{voice.SupertonicID: voice.SupertonicModel,
 			voice.ChatterboxID: voice.ChatterboxModel},
 		Models: slices.Concat(voice.PiperVoices, voice.SupertonicVoices, voice.ChatterboxVoices, voice.WhisperModels)}

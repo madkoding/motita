@@ -177,6 +177,10 @@ type queueSource struct {
 	interval time.Duration
 	log      *logx.Logger
 	pending  []string
+	// unclaimable holds the files that could not be renamed to .done. They are left out of later
+	// listings: retrying them on every poll would only log the same failure again, and returning
+	// one anyway is how a task used to repeat forever.
+	unclaimable map[string]bool
 }
 
 func (f *queueSource) Describe() string { return "queue:" + f.dir }
@@ -195,17 +199,10 @@ func (f *queueSource) Next(ctx context.Context) (Task, error) {
 		if len(f.pending) > 0 {
 			path := f.pending[0]
 			f.pending = f.pending[1:]
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				f.log.Warn("could not read the queue file", "path", path, "error", err)
-				continue
+			if t, ok := f.claim(path); ok {
+				return t, nil
 			}
-			t := Task{Description: strings.TrimSpace(string(data)), Origin: path}
-			if err := os.Rename(path, path+".done"); err != nil {
-				f.log.Warn("could not mark the file as done", "path", path, "error", err)
-			}
-			return t, nil
+			continue
 		}
 
 		// No work right now: wait for the polling interval.
@@ -235,10 +232,44 @@ func (f *queueSource) list() ([]string, error) {
 		if strings.HasSuffix(e.Name(), ".done") || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		pending = append(pending, filepath.Join(f.dir, e.Name()))
+		path := filepath.Join(f.dir, e.Name())
+		if f.unclaimable[path] {
+			continue
+		}
+		pending = append(pending, path)
 	}
 	sort.Strings(pending)
 	return pending, nil
+}
+
+// claim takes one queue file: it is renamed to .done FIRST and only then read, so a file the
+// source cannot mark as consumed is never handed out. Handing it out and renaming afterwards
+// meant a failed rename (a file held open by another process, common on Windows) put the same
+// task back in the queue on every poll, forever. The rename is also what makes the claim
+// exclusive when two agents watch one directory. An empty file is consumed without a task.
+func (f *queueSource) claim(path string) (Task, bool) {
+	claimed := path + ".done"
+	if err := os.Rename(path, claimed); err != nil {
+		if _, statErr := os.Stat(path); statErr == nil {
+			if f.unclaimable == nil {
+				f.unclaimable = map[string]bool{}
+			}
+			f.unclaimable[path] = true
+		}
+		f.log.Warn("could not claim the queue file; skipping it", "path", path, "error", err)
+		return Task{}, false
+	}
+	data, err := os.ReadFile(claimed)
+	if err != nil {
+		f.log.Warn("could not read the queue file", "path", claimed, "error", err)
+		return Task{}, false
+	}
+	description := strings.TrimSpace(string(data))
+	if description == "" {
+		f.log.Warn("skipping an empty queue file", "path", path)
+		return Task{}, false
+	}
+	return Task{Description: description, Origin: path}, true
 }
 
 // --- API --------------------------------------------------------------------

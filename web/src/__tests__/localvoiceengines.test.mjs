@@ -25,6 +25,7 @@ const SUPERTONIC = "supertonic-F1";
 const SUPERTONIC_M = "supertonic-M1";
 const NO_PHONEMIZER = "no phonemizer";
 const NOTHING_OF_THE_CPU = "nothing of the CPU's";
+const CPU_RUNTIME = "/runtime/ort-wasm-simd-threaded.wasm";
 const NOT_A_CHATTERBOX_VOICE = /not a Chatterbox voice/;
 // Supertonic's indexer: the ids of "a" and "b", which come after every code point before "a".
 const CODE_A = "a".codePointAt(0);
@@ -184,14 +185,14 @@ test("Supertonic runs on WebGPU where the browser has it, and on the CPU when th
   deps.gpu = ((gpu) => async (wasm) => {
     assert.equal(
       new TextDecoder().decode(wasm),
-      "/v1/voice/models/supertonic/ort-wasm-simd-threaded.asyncify.wasm",
+      "/v1/voice/models/runtime/ort-wasm-simd-threaded.asyncify.wasm",
     );
     return gpu(wasm);
   })(deps.gpu);
   const synth = new core.Synth(deps);
   await synth.warm(SUPERTONIC_M);
   assert.ok(
-    !log.bytes.some((u) => u.includes("/runtime/")),
+    !log.bytes.some((u) => u.endsWith(CPU_RUNTIME)),
     NOTHING_OF_THE_CPU,
   );
   assert.equal(await synth.onGPU(SUPERTONIC_M), true);
@@ -296,7 +297,7 @@ test("a Chatterbox voice speaks on WebGPU: the voice, then the text, then one so
   await synth.warm(CHATTERBOX);
   assert.equal(log.phon, 0, NO_PHONEMIZER);
   assert.ok(
-    !log.bytes.some((u) => u.includes("/runtime/")),
+    !log.bytes.some((u) => u.endsWith(CPU_RUNTIME)),
     NOTHING_OF_THE_CPU,
   );
   assert.deepEqual(
@@ -377,6 +378,19 @@ test("a Chatterbox voice speaks on WebGPU: the voice, then the text, then one so
     [...log.feeds.findLast((f) => f.exaggeration).exaggeration.data],
     [core.CHATTERBOX_EMOTION],
   );
+});
+
+test("a browser known to have no WebGPU never fetches its runtime: Supertonic runs on the CPU", async () => {
+  const { deps, log } = gpuFakes();
+  deps.webGPU = () => false;
+  const synth = new core.Synth(deps);
+  await synth.warm(SUPERTONIC);
+  assert.equal(await synth.onGPU(SUPERTONIC), false);
+  assert.equal(synth.gpuError(), "this browser has no WebGPU in its workers");
+  assert.ok(log.bytes.some((u) => u.endsWith(CPU_RUNTIME)), "the CPU's runtime is read");
+  assert.ok(!log.bytes.some((u) => u.endsWith(".asyncify.wasm")), "WebGPU's is not");
+  await assert.rejects(synth.say(CHATTERBOX, "a"), /no WebGPU in its workers/);
+  assert.ok(!log.bytes.some((u) => u.endsWith(".asyncify.wasm")));
 });
 
 test("Chatterbox does not run without WebGPU, and its sentences stop at the most tokens", async () => {

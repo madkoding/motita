@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -481,7 +482,7 @@ func (c *Client) run(ctx context.Context, sid, rest string, body any, progress f
 	}
 	request := payload.Bytes()
 
-	var result string
+	var result, runID string
 	var last uint64
 	// started is an EXPLICIT flag and not `last > 0`: a run that fails before emitting anything
 	// leaves last at 0, and a retry keyed on that would POST the task again and start a SECOND
@@ -491,6 +492,7 @@ func (c *Client) run(ctx context.Context, sid, rest string, body any, progress f
 
 	follow := &runFollow{
 		sid: sid, path: scopedTo(sid, rest), body: request, from: &last, result: &result, progress: progress,
+		runID: &runID,
 	}
 	var waited time.Duration
 	for attempt := 0; attempt < runAttempts; attempt++ {
@@ -522,8 +524,10 @@ func (c *Client) run(ctx context.Context, sid, rest string, body any, progress f
 			return result, ctx.Err()
 		}
 		// Reaching the end of a stream means the attempt got as far as the gateway had to give,
-		// so the next one must not POST the task again.
-		started = true
+		// so the next one must not POST the task again - unless the POST never reached the
+		// gateway at all: a refused or unresolved connection started nothing, and reattaching
+		// instead would join whatever run happens to be in flight, or find none.
+		started = started || !notConnected(err)
 		// The run is over on the gateway's side, or the request itself was refused. Retrying
 		// either is pointless: the answer will be the same, and the user is owed the reason.
 		if !resumed {
@@ -531,6 +535,13 @@ func (c *Client) run(ctx context.Context, sid, rest string, body any, progress f
 		}
 	}
 	return result, fmt.Errorf("the connection to the gateway kept dropping and the run could not be followed: %w", lastErr)
+}
+
+// notConnected reports whether err is a connection that could not be opened at all (dialling
+// failed): the request was never sent, so the gateway did not see it.
+func notConnected(err error) bool {
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
 }
 
 // slotPoll and slotWait bound how long a new turn waits for the conversation's previous one to let
@@ -562,6 +573,20 @@ type runFollow struct {
 	from      *uint64
 	result    *string
 	progress  func(string, ...any)
+	// runID is the id of the run being followed, as its attached event gave it; empty until then.
+	// A reattach names it, so the gateway attaches this client to ITS run and not to whichever one
+	// is current (see handleAttach).
+	runID *string
+}
+
+// eventsURL is where a reattach reads the run from: after the last event seen, and naming the run
+// when its id is known.
+func (f *runFollow) eventsURL(base string) string {
+	u := fmt.Sprintf("%s%s?from=%d", base, scopedTo(f.sid, "/events"), *f.from)
+	if f.runID != nil && *f.runID != "" {
+		u += "&run=" + url.QueryEscape(*f.runID)
+	}
+	return u
 }
 
 // streamOnce makes one attempt, and reports whether the failure is one worth resuming from.
@@ -584,8 +609,7 @@ func (c *Client) streamOnce(ctx context.Context, f *runFollow, started bool) (bo
 		// from is the LAST ID this client saw, and it is the caller's variable: the retry has to
 		// know where the previous attempt got to, and a copy taken here would always resume from
 		// the beginning - re-reading the whole stream and duplicating every line.
-		req, err = http.NewRequestWithContext(ctx, http.MethodGet,
-			fmt.Sprintf("%s%s?from=%d", c.baseURL, scopedTo(sid, "/events"), *from), nil)
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, f.eventsURL(c.baseURL), nil)
 	}
 	if err != nil {
 		return false, err
@@ -602,16 +626,19 @@ func (c *Client) streamOnce(ctx context.Context, f *runFollow, started bool) (bo
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		// A refusal is the gateway answering, and the answer will not change by asking again. A
-		// 404 on the reattach means the run ENDED while this client was away, which is a fact to
-		// report rather than to retry.
+		// 409 or 410 on the reattach means this client's run is no longer there to follow (another
+		// one took its place, or it is gone), which is a fact to report rather than to retry.
 		return false, refusalError(resp)
 	}
 
 	// The reading half is SHARED with a client that joins a run it did not start: same wire
 	// format, same events, one reader. Two readers would be two places for the client to
 	// disagree with itself about what a stream means.
-	answered, err := c.readRunStream(ctx, sid, resp.Body, from, result, progress)
-	if !answered {
+	rs := &runStreamReader{
+		c: c, ctx: ctx, sid: sid, from: from, result: result, progress: progress, runID: f.runID,
+	}
+	err = streamEvents(ctx, resp.Body, rs.event)
+	if !rs.answered {
 		// The stream ended without a done or an error, so the gateway never said how the turn
 		// finished - which means the connection dropped, whatever the transport reported. A body
 		// that simply ends is exactly what a dropped socket looks like, and treating it as a
@@ -652,6 +679,9 @@ type runStreamReader struct {
 	from     *uint64
 	result   *string
 	progress func(string, ...any)
+	// runID receives the run's id from the attached event, when the caller follows it across
+	// reconnections; nil when nobody asks.
+	runID *string
 	// answered records that the stream delivered a VERDICT - a done or an error - so the difference
 	// between "the gateway said how it ended" and "the socket died" survives the callback's error
 	// return. Only the second is worth resuming.
@@ -700,6 +730,9 @@ func (rs *runStreamReader) attached(data []byte) error {
 	var a attachedEvent
 	if err := json.Unmarshal(data, &a); err != nil {
 		return err
+	}
+	if rs.runID != nil && a.RunID != "" {
+		*rs.runID = a.RunID
 	}
 	// The agents already working when this client joined. They are handed over as the same
 	// line the agent writes in local mode, so a consumer has ONE format to understand

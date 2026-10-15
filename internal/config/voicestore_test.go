@@ -67,6 +67,25 @@ func TestSetVoiceUndoesAnInvalidChange(t *testing.T) {
 	}
 }
 
+// TestSetVoiceRefusesAKeyForAClearTextRemote: the key is stored after the file, so it is checked
+// before either is kept; a key for a plain-http remote endpoint leaves both untouched.
+func TestSetVoiceRefusesAKeyForAClearTextRemote(t *testing.T) {
+	t.Setenv("MOTITA_VOICE_ENABLED", "")
+	t.Setenv("MOTITA_VOICE_API_KEY", "")
+	const body = "llm:\n  provider: openai\n"
+	path := voiceFile(t, body)
+	_, err := SetVoice(path, VoiceChange{Enabled: true, BaseURL: strp("http://stt.example.com/v1"), APIKey: strp("k")})
+	if err == nil || !strings.Contains(err.Error(), "plain http") {
+		t.Fatalf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != body {
+		t.Errorf("restored = %q", got)
+	}
+	if _, err := os.Stat(CredentialsPath(path)); !os.IsNotExist(err) {
+		t.Errorf("the key must not be stored: %v", err)
+	}
+}
+
 func TestSetVoiceReportsAnEnvironmentOverride(t *testing.T) {
 	t.Setenv("MOTITA_VOICE_ENABLED", "false")
 	path := voiceFile(t, "llm:\n  provider: openai\n")

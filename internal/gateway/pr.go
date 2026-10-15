@@ -172,7 +172,7 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 // its branch and opens the pull request, and streams it like /task.
 func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
@@ -274,7 +274,7 @@ Fetch origin, merge %[4]s into %[1]s and resolve the conflicts keeping the inten
 // the start: it is what "Try again" does after the gateway gave up.
 func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}

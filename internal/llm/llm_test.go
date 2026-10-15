@@ -493,6 +493,30 @@ func TestListModelsRejectsAnEmptyBaseURL(t *testing.T) {
 	}
 }
 
+// recordingTransport answers every request with an error and remembers where it was going.
+type recordingTransport struct{ hosts []string }
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.hosts = append(r.hosts, req.URL.Host)
+	return nil, fmt.Errorf("offline")
+}
+
+// TestWithTransportSeesTheProvidersDefaultEndpoint: with no base_url the provider's own endpoint
+// is asked, observed through the transport instead of reaching the network.
+func TestWithTransportSeesTheProvidersDefaultEndpoint(t *testing.T) {
+	c, err := New(config.LLM{Provider: "openai", Model: "m", APIKey: "k", MaxAttempts: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := &recordingTransport{}
+	if _, err := c.WithTransport(rt).ListModels(context.Background()); err == nil {
+		t.Fatal("an offline transport must fail")
+	}
+	if len(rt.hosts) == 0 || rt.hosts[0] != "api.openai.com" {
+		t.Errorf("hosts = %v, want the provider's default api.openai.com", rt.hosts)
+	}
+}
+
 func TestListModelsReturnsNetworkError(t *testing.T) {
 	_, err := ListModels(context.Background(), "http://127.0.0.1:1/v1", "k")
 	if err == nil {

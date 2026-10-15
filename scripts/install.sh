@@ -11,8 +11,10 @@
 #   MOTITA_INSTALL_DIR=~/bin   install somewhere else
 #   MOTITA_INSECURE_SKIP_VERIFY=1
 #                              install even when the release cannot be verified
-#                              (no SHA256SUMS, or no entry for this platform).
-#                              A checksum MISMATCH is refused regardless.
+#                              (no SHA256SUMS, no entry for this platform, no
+#                              SHA256SUMS.sig, or no OpenSSL 3 to check it).
+#                              A checksum MISMATCH or a BAD signature is refused
+#                              regardless.
 #   MOTITA_NO_MODIFY_PATH=1    do not add the install directory to the shell's
 #                              rc file when it is not on the PATH
 #
@@ -125,8 +127,10 @@ unverified() {
 # A checksum published beside the binary only proves the download is intact;
 # whoever could replace the binary could replace SHA256SUMS too. The signature
 # is what ties the checksums to the release key. It needs OpenSSL 3 (ed25519 and
-# -rawin); without it, or before a key is configured, it is skipped and the
-# installer says how to check the build provenance instead.
+# -rawin). Without it the install is refused, like any other release that cannot
+# be verified: skipping the check quietly left only the checksum, which proves
+# nothing against whoever replaced the release. Before a key is configured the
+# check is skipped and the installer says how to check the build provenance.
 verify_signature() {
 	SIGNED=0
 	if [ -z "$RELEASE_PUBLIC_KEY" ]; then
@@ -134,7 +138,10 @@ verify_signature() {
 		return 0
 	fi
 	if ! command -v openssl >/dev/null 2>&1 || ! openssl pkeyutl -help 2>&1 | grep -q -- -rawin; then
-		say "  signature: not checked (needs OpenSSL 3 with ed25519)"
+		say "  signature: needs OpenSSL 3 with ed25519. Install it and run the installer again"
+		say "    (Debian/Ubuntu: apt install openssl; macOS: brew install openssl@3, first on the PATH;"
+		say "    Termux: pkg install openssl)"
+		unverified "no OpenSSL 3 was found to check the release signature"
 		return 0
 	fi
 	if ! download "${BASE}/SHA256SUMS.sig" "${TMP}/SHA256SUMS.sig" 2>/dev/null || [ ! -s "${TMP}/SHA256SUMS.sig" ]; then

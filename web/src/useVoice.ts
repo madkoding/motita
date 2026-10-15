@@ -17,6 +17,7 @@ import { TASK_INPUT_ID } from "./appConst";
 import { errorMessage } from "./errors";
 import { choose } from "./choose";
 import {
+  type ListenEngine,
   type Transcript,
   type VoiceInfo,
   type VoicePrefs,
@@ -38,6 +39,7 @@ import {
 } from "./voice";
 import { matchWake } from "./wakeMatch";
 import { hearLocal, localListenSupported, warmListener } from "./localListen";
+import { fetchCatalog } from "./localVoice";
 import { stopSpeaking, voiceBusy } from "./speech";
 
 // The longest dictation, after which it stops on its own: a button left on by mistake must not
@@ -433,6 +435,37 @@ function useHear(
   }, [api, engine, listener, language, phrases]);
 }
 
+// useListenerInstalled says whether the gateway still has the model chosen to listen with: a
+// saved choice outlives the model (deleted elsewhere, or by the gateway), and dictating with it
+// would only fail. Undefined while that is not known: it does not block anything then.
+export function useListenerInstalled(
+  api: Api,
+  authed: boolean,
+  engine: ListenEngine,
+  listener: string,
+): boolean | undefined {
+  const [installed, setInstalled] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    setInstalled(undefined);
+    if (!authed || engine !== "local" || !listener) {
+      return undefined;
+    }
+    let current = true;
+    fetchCatalog(api)
+      .then((c) => c.models.some((m) => m.id === listener && m.installed))
+      .catch(() => undefined)
+      .then((v) => {
+        if (current) {
+          setInstalled(v);
+        }
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, authed, engine, listener]);
+  return installed;
+}
+
 export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const [info, setInfo] = useState<VoiceInfo | null>(null);
   const [prefs, setPrefsState] = useState<VoicePrefs>(loadVoicePrefs);
@@ -441,10 +474,12 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const support = useMemo(browserSupport, []);
   const engine = listenEngine(prefs, info);
   const runs = useMemo(localListenSupported, []);
+  const installed = useListenerInstalled(api, authed, engine, prefs.listener);
   const state = voiceState(support.secure, support.supported, info, {
     engine,
     listener: prefs.listener,
     runs,
+    installed,
   });
   const hands = listenState(state, info);
   const phaseRef = useRef<VoicePhase>("idle");

@@ -761,7 +761,8 @@ func TestScheduleEndpointsWithoutAStoreAnswer501(t *testing.T) {
 }
 
 // A run is STARTED, not finished, so it is accepted with a handle; and "run it now" is a person
-// overriding the clock once, not a decision to move the schedule.
+// overriding the clock once, not a decision to move the schedule - even once the run has been
+// recorded.
 func TestRunScheduleNowAcceptsAndLeavesTheCadenceAlone(t *testing.T) {
 	srv := newTestServer(t, &fakeService{task: func(context.Context, string, func(string, ...any)) (string, error) {
 		return "the result", nil
@@ -787,11 +788,16 @@ func TestRunScheduleNowAcceptsAndLeavesTheCadenceAlone(t *testing.T) {
 		t.Error("the answer must carry the run id: it is how the client follows the run")
 	}
 
+	// Waited for, so the check reads the record AFTER the run was written onto it.
+	srv.scheduleWG.Wait()
 	after, err := srv.schedules.Load(id)
 	if err != nil || after == nil {
 		t.Fatalf("Load: (%v, %v)", after, err)
 	}
-	if !after.Next(after.Created).Equal(before.Next(before.Created)) {
+	if after.RunCount != 1 {
+		t.Errorf("RunCount = %d, want the run counted", after.RunCount)
+	}
+	if !after.Next(after.Created).Equal(before.Next(before.Created)) || !after.LastRun.Equal(before.LastRun) {
 		t.Error("running a task now must not move its schedule")
 	}
 }

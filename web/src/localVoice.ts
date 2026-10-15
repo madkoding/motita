@@ -87,10 +87,16 @@ async function pruneCache(catalog: LocalCatalog): Promise<void> {
   for (const req of await cache.keys()) {
     const at = req.url.indexOf(prefix);
     const id = decodeURIComponent(req.url.slice(at + prefix.length).split("/")[0]);
-    if (at >= 0 && !keep.has(id)) {
+    if (at >= 0 && (!keep.has(id) || ownGPURuntime(req.url, id))) {
       await cache.delete(req);
     }
   }
+}
+
+// ownGPURuntime says a copy is onnxruntime's WebGPU build as an earlier catalog served it, with
+// each model that used it: it is read from the runtime now, once for all of them.
+function ownGPURuntime(url: string, id: string): boolean {
+  return id !== RUNTIME_ID && url.endsWith("/" + ORT_GPU_WASM);
 }
 
 // installVoice asks the gateway to download a voice; the progress is in the catalog.
@@ -117,10 +123,10 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
     return;
   }
   const cache = await caches.open(VOICE_CACHE);
-  // A model to listen with keeps all its files apart, its WebGPU runtime too.
+  // A model to listen with keeps all its files apart; the runtime, WebGPU's too, stays.
   const own = choose(
     isWhisper(id),
-    [...Object.values(WHISPER_FILES), ORT_GPU_WASM],
+    Object.values(WHISPER_FILES),
     ["model.onnx", "model.json", "voice.bin", "voice.json"],
   );
   const gone = own.map((n) => fileURL(id, n));
@@ -128,11 +134,11 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
   const engines = [
     {
       of: isSupertonic,
-      files: [...SUPERTONIC_PARTS, "unicode_indexer.json", ORT_GPU_WASM].map((n) => fileURL(SUPERTONIC_ID, n)),
+      files: [...SUPERTONIC_PARTS, "unicode_indexer.json"].map((n) => fileURL(SUPERTONIC_ID, n)),
     },
     {
       of: isChatterbox,
-      files: ["tokenizer.json", ORT_GPU_WASM, ...CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"])].map((n) =>
+      files: ["tokenizer.json", ...CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"])].map((n) =>
         fileURL(CHATTERBOX_ID, n),
       ),
     },

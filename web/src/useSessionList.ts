@@ -149,10 +149,15 @@ export function useSessionList(api: Api, rs: RunState) {
     }
   };
 
-  // fetchSessions loads the list of conversations from the gateway.
-  const fetchSessions = useCallback(async (): Promise<SessionInfo[]> => {
+  // loadSessions loads the list of conversations from the gateway, or answers null when the
+  // gateway could not be asked (offline, an error status, an unreadable body): a caller that
+  // must tell "no sessions left" from "could not tell" uses it, everyone else fetchSessions.
+  const loadSessions = useCallback(async (): Promise<SessionInfo[] | null> => {
     try {
       const res = await api(SESSIONS_URL);
+      if (!res.ok) {
+        return null;
+      }
       const data = await res.json();
       const list: SessionInfo[] = data.sessions || [];
       setSessions(list);
@@ -171,9 +176,16 @@ export function useSessionList(api: Api, rs: RunState) {
       }
       return list;
     } catch {
-      return [];
+      return null;
     }
   }, []);
+
+  // fetchSessions loads the list of conversations from the gateway; a failure is an empty list
+  // and leaves the one on screen as it was.
+  const fetchSessions = useCallback(
+    async (): Promise<SessionInfo[]> => (await loadSessions()) ?? [],
+    [loadSessions],
+  );
 
   // Poll session list while a run is in flight, so the sidebar shows a
   // spinner on whichever conversations the agent is working in.
@@ -241,6 +253,7 @@ export function useSessionList(api: Api, rs: RunState) {
     toggleProject,
     answeredHere,
     setRunningState,
+    loadSessions,
     fetchSessions,
     fetchProjects,
   };

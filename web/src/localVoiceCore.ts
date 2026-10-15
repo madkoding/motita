@@ -11,8 +11,17 @@ export const RUNTIME_ID = "runtime";
 export const ORT_WASM = "ort-wasm-simd-threaded.wasm";
 export const PHONEMIZE_WASM = "piper_phonemize.wasm";
 export const PHONEMIZE_DATA = "piper_phonemize.data";
-// ORT_GPU_WASM is onnxruntime's build that drives WebGPU, served with the model that uses it.
+// ORT_GPU_WASM is onnxruntime's build that drives WebGPU, served with the runtime (RUNTIME_ID):
+// one copy for every model that runs on the graphics card.
 export const ORT_GPU_WASM = "ort-wasm-simd-threaded.asyncify.wasm";
+// NO_WEBGPU is why a model does not run on the graphics card in a browser without WebGPU.
+export const NO_WEBGPU = "this browser has no WebGPU in its workers";
+
+// noWebGPU says the browser is known to have no WebGPU, so onnxruntime's WebGPU build is not even
+// fetched; without a way to tell, it is tried.
+export function noWebGPU(deps: { webGPU?(): boolean }): boolean {
+  return deps.webGPU?.() === false;
+}
 // SUPERTONIC_ID is where Supertonic's model is served; a Supertonic voice's id is it, a dash, and
 // the voice's name there.
 export const SUPERTONIC_ID = "supertonic";
@@ -216,7 +225,7 @@ function readsText(id: string): boolean {
 // chatterboxFiles are the files Chatterbox's model is loaded from.
 function chatterboxFiles(): string[] {
   const parts = CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"]);
-  return ["tokenizer.json", ORT_GPU_WASM, ...parts].map((n) => fileURL(CHATTERBOX_ID, n));
+  return [fileURL(RUNTIME_ID, ORT_GPU_WASM), ...["tokenizer.json", ...parts].map((n) => fileURL(CHATTERBOX_ID, n))];
 }
 
 // isChatterbox says whether a voice runs on Chatterbox.
@@ -525,6 +534,8 @@ export interface SynthDeps {
   // gpu loads onnxruntime's WebGPU build, given its WebAssembly; its sessions run on WebGPU,
   // and it throws where the browser has none.
   gpu?(wasm: ArrayBuffer): Promise<OrtLike>;
+  // webGPU says whether the browser has WebGPU at all, asked before that build is fetched.
+  webGPU?(): boolean;
 }
 
 // A voice ready to speak: a Piper model, or a Supertonic or Chatterbox voice on its engine's
@@ -643,7 +654,13 @@ export class Synth {
     if (this.ort || isChatterbox(id)) {
       return false;
     }
-    return !(isSupertonic(id) && this.deps.gpu);
+    return !(isSupertonic(id) && this.gpuHere());
+  }
+
+  // gpuHere says WebGPU may run a model here: there is a way to load it, and the browser is not
+  // known to lack it.
+  private gpuHere(): boolean {
+    return !!this.deps.gpu && !noWebGPU(this.deps);
   }
 
   // forget drops a voice, so the next request loads it again (after it was deleted, say).
@@ -684,8 +701,8 @@ export class Synth {
   // supertonicFiles are the files Supertonic's model is loaded from, here.
   private supertonicFiles(): string[] {
     const files = [...SUPERTONIC_PARTS, "unicode_indexer.json"].map((n) => fileURL(SUPERTONIC_ID, n));
-    if (this.deps.gpu) {
-      files.push(fileURL(SUPERTONIC_ID, ORT_GPU_WASM));
+    if (this.gpuHere()) {
+      files.push(fileURL(RUNTIME_ID, ORT_GPU_WASM));
     }
     return files;
   }
@@ -924,9 +941,12 @@ export class Synth {
         }
         return { ort, parts, indexer: await indexer, gpu };
       };
-      if (this.deps.gpu) {
+      const gpu = this.deps.gpu;
+      if (gpu && noWebGPU(this.deps)) {
+        this.failed = NO_WEBGPU;
+      } else if (gpu) {
         try {
-          const ort = await read(ORT_GPU_WASM).then((w) => (this.deps.gpu as NonNullable<SynthDeps["gpu"]>)(w));
+          const ort = await this.read(fileURL(RUNTIME_ID, ORT_GPU_WASM)).then((w) => gpu(w));
           return await start(ort, true);
         } catch (e) {
           // The processor's runtime says it instead, and the page is told why.
@@ -954,9 +974,12 @@ export class Synth {
       if (!gpu) {
         throw new Error("Chatterbox needs WebGPU");
       }
+      if (noWebGPU(this.deps)) {
+        throw new Error(NO_WEBGPU);
+      }
       const read = (n: string) => this.read(fileURL(CHATTERBOX_ID, n));
       const tokenizer = read("tokenizer.json").then((b) => chatterboxTokenizer(new TextDecoder().decode(b)));
-      const ort = await read(ORT_GPU_WASM).then((w) => gpu(w));
+      const ort = await this.read(fileURL(RUNTIME_ID, ORT_GPU_WASM)).then((w) => gpu(w));
       const sessions: SessionLike[] = [];
       // One at a time, each with its weights, so only one is ever held twice in memory.
       for (const part of CHATTERBOX_PARTS) {

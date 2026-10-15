@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -60,6 +61,21 @@ const (
 	maxBinarySize    = 100 << 20
 	maxChecksumsSize = 64 << 10
 )
+
+// Network deadlines. There is deliberately no whole-request timeout on the client: a release binary
+// is tens of megabytes, and on a slow link (Termux on a phone, a congested network) a fixed 30 s
+// budget for headers plus body failed every download. Instead the server must answer within
+// headerTimeout, small metadata requests (the release JSON, SHA256SUMS, its signature) get
+// metadataTimeout end to end, and the binary download only fails when no byte arrives for
+// downloadIdleTimeout, however long the whole transfer takes. The caller's ctx still bounds it all.
+const (
+	headerTimeout       = 30 * time.Second
+	metadataTimeout     = 30 * time.Second
+	downloadIdleTimeout = 60 * time.Second
+)
+
+// errDownloadStalled is the cause recorded when a download receives nothing for the idle timeout.
+var errDownloadStalled = errors.New("the download stalled: no data received")
 
 // Release is the information about the latest release that matters to us.
 type Release struct {
@@ -114,6 +130,12 @@ type Updater struct {
 	// AssetHosts are the hosts release files may come from (https only). Nil means
 	// DefaultAssetHosts. Injectable for tests.
 	AssetHosts []string
+	// MetadataTimeout bounds each small request (release JSON, SHA256SUMS, signature) end to end.
+	// Zero means metadataTimeout.
+	MetadataTimeout time.Duration
+	// IdleTimeout aborts the binary download when no data arrives for this long. Zero means
+	// downloadIdleTimeout.
+	IdleTimeout time.Duration
 }
 
 // apiURLFor returns the real GitHub API URL for the latest release.
@@ -143,8 +165,10 @@ func New(version, exePath string) *Updater {
 		APIURL:         apiURLFor,
 		PublicKey:      mustPublicKey(ReleasePublicKey),
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = headerTimeout
 	u.HTTPClient = &http.Client{
-		Timeout: 30 * time.Second,
+		Transport: transport,
 		// A redirect is held to the same rule as the URL it came from: https, to a GitHub host.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
@@ -243,8 +267,19 @@ func (u *Updater) LatestRelease(ctx context.Context) (*Release, error) {
 	return u.fetchLatestRelease(ctx)
 }
 
+// metadataContext bounds one small request end to end.
+func (u *Updater) metadataContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	d := u.MetadataTimeout
+	if d <= 0 {
+		d = metadataTimeout
+	}
+	return context.WithTimeout(ctx, d)
+}
+
 // fetchLatestRelease calls the GitHub Releases API.
 func (u *Updater) fetchLatestRelease(ctx context.Context) (*Release, error) {
+	ctx, cancel := u.metadataContext(ctx)
+	defer cancel()
 	url := apiURLFor()
 	if u.APIURL != nil {
 		url = u.APIURL()
@@ -406,8 +441,31 @@ func (u *Updater) stagingDir() string {
 
 // downloadFile downloads a URL to a local path, reporting progress. More than limit bytes is an
 // error rather than a bigger file.
+//
+// The transfer has no total deadline: it ends when ctx is cancelled, or when nothing arrives for
+// the idle timeout (the watchdog below is re-armed after every read).
 func (u *Updater) downloadFile(
 	ctx context.Context, url string, limit int64, dest string, progress func(ProgressEvent),
+) error {
+	idle := u.IdleTimeout
+	if idle <= 0 {
+		idle = downloadIdleTimeout
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	watchdog := time.AfterFunc(idle, func() { cancel(errDownloadStalled) })
+	defer watchdog.Stop()
+
+	err := u.copyDownload(ctx, url, limit, dest, func() { watchdog.Reset(idle) }, progress)
+	if errors.Is(context.Cause(ctx), errDownloadStalled) {
+		return fmt.Errorf("%w for %s", errDownloadStalled, idle)
+	}
+	return err
+}
+
+// copyDownload does the request and copies the body into dest, calling alive after every read.
+func (u *Updater) copyDownload(
+	ctx context.Context, url string, limit int64, dest string, alive func(), progress func(ProgressEvent),
 ) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -418,6 +476,7 @@ func (u *Updater) downloadFile(
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	alive()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("the download answered %d", resp.StatusCode)
@@ -444,6 +503,7 @@ func (u *Updater) downloadFile(
 		default:
 		}
 		n, readErr := body.Read(buf)
+		alive()
 		if written+int64(n) > limit {
 			return fmt.Errorf("the download is larger than the %d bytes expected", limit)
 		}
@@ -475,6 +535,8 @@ func (u *Updater) downloadFile(
 
 // fetchSmall downloads a small release file whole, refusing one longer than max bytes.
 func (u *Updater) fetchSmall(ctx context.Context, url, name string, max int64) ([]byte, error) {
+	ctx, cancel := u.metadataContext(ctx)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -598,6 +660,9 @@ func (u *Updater) install(tempPath string) error {
 // A current version of "dev" (a build from source without -ldflags) is always
 // considered older than any release tag, so a developer running from source
 // will be offered the upgrade — and can choose to take it or not.
+//
+// Pre-releases order the way semver says (0.5.0-rc1 < 0.5.0-rc2 < 0.5.0), so a
+// release candidate is offered the final release.
 func isNewer(current, latest string) bool {
 	c := normalizeVersion(current)
 	l := normalizeVersion(latest)
@@ -607,18 +672,93 @@ func isNewer(current, latest string) bool {
 	if l == "" {
 		return false
 	}
-	return compareSemver(l, c) > 0
+	return compareVersions(l, c) > 0
 }
 
-// normalizeVersion strips a leading "v" and any trailing build metadata.
+// describeSuffix matches what `git describe --tags` (the Makefile's version) appends to the
+// nearest tag: commits since it and the abbreviated hash. Such a build is the tag plus local work,
+// not a pre-release of it, so the suffix is dropped rather than compared.
+var describeSuffix = regexp.MustCompile(`-[0-9]+-g[0-9a-f]+$`)
+
+// normalizeVersion strips a leading "v", build metadata ("+..."), and the "-dirty" and "-N-gHASH"
+// suffixes git describe adds. A pre-release ("0.5.0-rc1") is kept: it orders below its release.
 func normalizeVersion(v string) string {
 	v = strings.TrimSpace(v)
 	v = strings.TrimPrefix(v, "v")
-	// Strip pre-release suffix for comparison: "0.5.0-rc1" -> "0.5.0".
-	if i := strings.IndexByte(v, '-'); i >= 0 {
+	if i := strings.IndexByte(v, '+'); i >= 0 {
 		v = v[:i]
 	}
+	v = strings.TrimSuffix(v, "-dirty")
+	v = describeSuffix.ReplaceAllString(v, "")
 	return strings.TrimSpace(v)
+}
+
+// compareVersions compares two normalized versions, "x.y.z" with an optional "-pre-release".
+// Returns >0 if a > b, <0 if a < b, 0 if equal.
+func compareVersions(a, b string) int {
+	coreA, preA, _ := strings.Cut(a, "-")
+	coreB, preB, _ := strings.Cut(b, "-")
+	if c := compareSemver(coreA, coreB); c != 0 {
+		return c
+	}
+	return comparePrerelease(preA, preB)
+}
+
+// comparePrerelease orders two pre-release strings by the semver rules: none at all ranks above
+// any, dot-separated identifiers compare left to right (numeric ones numerically and below
+// alphanumeric ones), and a longer list wins when every shared identifier is equal.
+func comparePrerelease(a, b string) int {
+	switch {
+	case a == b:
+		return 0
+	case a == "":
+		return 1
+	case b == "":
+		return -1
+	default:
+		ia := strings.Split(a, ".")
+		ib := strings.Split(b, ".")
+		for i := 0; i < len(ia) && i < len(ib); i++ {
+			if c := compareIdentifier(ia[i], ib[i]); c != 0 {
+				return c
+			}
+		}
+		return len(ia) - len(ib)
+	}
+}
+
+// compareIdentifier compares one pre-release identifier pair.
+func compareIdentifier(a, b string) int {
+	numA, numB := isNumeric(a), isNumeric(b)
+	switch {
+	case numA && numB:
+		// Compared as decimal strings so no length can overflow: without leading zeros, the
+		// longer one is the bigger number.
+		a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+		if len(a) != len(b) {
+			return len(a) - len(b)
+		}
+		return strings.Compare(a, b)
+	case numA:
+		return -1
+	case numB:
+		return 1
+	default:
+		return strings.Compare(a, b)
+	}
+}
+
+// isNumeric reports whether s is a non-empty run of ASCII digits.
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // compareSemver compares two "x.y.z" strings. Returns >0 if a > b, <0 if a < b,

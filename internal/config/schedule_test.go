@@ -37,7 +37,6 @@ func TestANegativeScheduleSettingIsRefused(t *testing.T) {
 	}{
 		{"a negative tick", func(c *Config) { c.Schedule.Tick = -time.Second }, "schedule.tick"},
 		{"a negative minimum cadence", func(c *Config) { c.Schedule.MinEvery = -time.Minute }, "schedule.min_every"},
-		{"a negative run cap", func(c *Config) { c.Schedule.MaxRunsKept = -1 }, "schedule.max_runs_kept"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,5 +77,26 @@ func TestTheScheduleBlockComesFromTheEnvironment(t *testing.T) {
 	}
 	if c.Schedule.MaxRunsKept != 25 {
 		t.Errorf("MOTITA_SCHEDULE_MAX_RUNS_KEPT was ignored: max_runs_kept = %d", c.Schedule.MaxRunsKept)
+	}
+}
+
+// TestDeprecatedKeysAreReportedNotRefused: curator.min_idle_minutes and schedule.max_runs_kept
+// still load (an unknown key is an error), but setting one is reported, and the defaults
+// report nothing.
+func TestDeprecatedKeysAreReportedNotRefused(t *testing.T) {
+	c := Default()
+	if notes := c.Deprecations(); len(notes) != 0 {
+		t.Fatalf("the defaults report %v", notes)
+	}
+	c.Curator.MinIdleMinutes = 120
+	c.Schedule.MaxRunsKept = -1
+	if err := c.ValidateWithoutKey(); err != nil {
+		t.Fatalf("a deprecated key must not stop the configuration loading: %v", err)
+	}
+	notes := strings.Join(c.Deprecations(), "\n")
+	for _, want := range []string{"curator.min_idle_minutes is deprecated", "schedule.max_runs_kept is deprecated"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("missing %q in %q", want, notes)
+		}
 	}
 }

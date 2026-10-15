@@ -99,17 +99,20 @@ func (s *Server) handleReasoning(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
+	// Refused before anything is applied, like the reasoning field of PATCH /config: a level the
+	// agent does not know would be saved and then sent upstream on every turn, where the provider
+	// answers 400 to each one. The empty string is refused too - it would replace a chosen level
+	// with nothing on the next restart, and no client sends it.
+	if !validReasoning(body.Level) {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("the reasoning level %q is not one of off, low, medium, high", body.Level))
+		return
+	}
 	c := convOf(r)
 	c.svc.SetReasoning(body.Level)
 	// Written now, like the model and the "allow all commands" answer: the level is the user's
 	// decision about this conversation, and a gateway stopped a moment later must still know it.
-	//
-	// An empty level is passed through but NOT saved: it is this transport's "leave unchanged"
-	// sentinel (see TestReasoningPassesTheLevelThrough), and writing it would replace a stored
-	// level with nothing on the next restart.
-	if body.Level != "" {
-		s.saveSession(c)
-	}
+	s.saveSession(c)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -139,9 +142,8 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	// Refused BEFORE anything is applied: POST /reasoning passes its level through because
-	// the terminal cycles a fixed list, but this comes from a form, and a half-applied
-	// change (model switched, level refused) is worse than none.
+	// Refused BEFORE anything is applied, like POST /reasoning: a half-applied change (model
+	// switched, level refused) is worse than none.
 	if body.Reasoning != "" && !validReasoning(body.Reasoning) {
 		writeError(w, http.StatusBadRequest,
 			fmt.Sprintf("the reasoning level %q is not one of off, low, medium, high", body.Reasoning))
@@ -250,6 +252,10 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
+// newModelClient builds the client handleModelList asks. A seam, so a test can route the request
+// to a transport of its own instead of the provider's real endpoint.
+var newModelClient = llm.New
+
 // handleModelList queries the provider's own API for the list of available
 // models, rather than the static catalogue. A failure is a 502: the agent is
 // fine, the provider is what did not answer.
@@ -258,7 +264,7 @@ func (s *Server) handleModelList(w http.ResponseWriter, r *http.Request) {
 	// The provider's own client lists the models, authenticated the way its requests are:
 	// a bare Bearer key was sent to every provider, which Anthropic and Gemini refuse and
 	// which cannot express a stored login.
-	client, err := llm.New(cfg.LLM, nil)
+	client, err := newModelClient(cfg.LLM, nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

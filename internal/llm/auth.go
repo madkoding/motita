@@ -346,7 +346,7 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 		// The ChatGPT backend publishes no catalogue to a third party.
 		return nil, errors.New("a ChatGPT login does not publish a model list; type the model id")
 	}
-	return fetchModelList(ctx, t.base+"/models", t.headers)
+	return fetchModelList(ctx, c.http.Transport, t.base+"/models", t.headers)
 }
 
 // parseAnthropicModels reads the model ids of Anthropic's /v1/models.

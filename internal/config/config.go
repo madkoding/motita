@@ -515,16 +515,14 @@ func Default() Config {
 		Curator: Curator{
 			Enabled:          true,
 			IntervalHours:    168, // 7 days
-			MinIdleMinutes:   120,
 			StaleAfterDays:   14,
 			ArchiveAfterDays: 30,
 			Consolidate:      false,
 		},
 		Schedule: Schedule{
-			Enabled:     true,
-			Tick:        30 * time.Second,
-			MinEvery:    time.Minute,
-			MaxRunsKept: 50,
+			Enabled:  true,
+			Tick:     30 * time.Second,
+			MinEvery: time.Minute,
 		},
 		UI:    UI{Language: "auto"},
 		Voice: defaultVoice(),
@@ -1071,11 +1069,23 @@ func (c *Config) validateSchedule() error {
 		return fmt.Errorf("schedule.min_every is %s: it cannot be negative (0 means the built-in default)",
 			c.Schedule.MinEvery)
 	}
-	if c.Schedule.MaxRunsKept < 0 {
-		return fmt.Errorf("schedule.max_runs_kept is %d: it cannot be negative (0 means the built-in default)",
-			c.Schedule.MaxRunsKept)
-	}
 	return nil
+}
+
+// Deprecations lists the keys this configuration sets that are still read, so an existing file
+// keeps loading (an unknown key is an error), but no longer do anything. Each note is meant for
+// the log at startup.
+func (c Config) Deprecations() []string {
+	var notes []string
+	if c.Curator.MinIdleMinutes != 0 {
+		notes = append(notes, "curator.min_idle_minutes is deprecated and ignored: the automatic pass runs "+
+			"when a session starts, never from an idle gateway; remove it from the configuration")
+	}
+	if c.Schedule.MaxRunsKept != 0 {
+		notes = append(notes, "schedule.max_runs_kept is deprecated and ignored: a scheduled task's record "+
+			"keeps only its last run, so there is no history to bound; remove it from the configuration")
+	}
+	return notes
 }
 
 func (c *Config) validateAgent() error {
@@ -1194,8 +1204,11 @@ type Review struct {
 // Curator configures periodic skill library maintenance: deterministic
 // stale/archive transitions (no LLM) and optional LLM consolidation.
 type Curator struct {
-	Enabled          bool   `yaml:"enabled"`
-	IntervalHours    int    `yaml:"interval_hours"`
+	Enabled       bool `yaml:"enabled"`
+	IntervalHours int  `yaml:"interval_hours"`
+	// MinIdleMinutes is deprecated and ignored: the automatic pass runs when a session starts,
+	// and no gateway-side scheduler measures idleness. Still read so existing files keep
+	// loading; Deprecations reports it.
 	MinIdleMinutes   int    `yaml:"min_idle_minutes"`
 	StaleAfterDays   int    `yaml:"stale_after_days"`
 	ArchiveAfterDays int    `yaml:"archive_after_days"`
@@ -1210,8 +1223,8 @@ type Curator struct {
 // scheduler, and the gateway is merely the process it happens to live in today.
 //
 // Every field is a knob an operator can turn from the environment as well as the
-// YAML (see environment.go): MOTITA_SCHEDULE_ENABLED, _TICK, _MIN_EVERY,
-// _MAX_RUNS_KEPT.
+// YAML (see environment.go): MOTITA_SCHEDULE_ENABLED, _TICK, _MIN_EVERY (and the
+// deprecated _MAX_RUNS_KEPT).
 type Schedule struct {
 	// Enabled turns the whole module on and off. On by default, because the browser
 	// interface ships a window for it: a feature whose window exists while the
@@ -1225,7 +1238,8 @@ type Schedule struct {
 	// because it is below the time an agent turn takes: a tighter loop would stack
 	// runs on top of each other instead of scheduling them.
 	MinEvery time.Duration `yaml:"min_every"`
-	// MaxRunsKept bounds the per-task history kept in the record, so a task firing
-	// every minute cannot grow the file without bound.
+	// MaxRunsKept is deprecated and ignored: a task's record keeps only its last run, so
+	// there is no history to bound. It is still read so existing files keep loading, and
+	// Deprecations reports it.
 	MaxRunsKept int `yaml:"max_runs_kept"`
 }

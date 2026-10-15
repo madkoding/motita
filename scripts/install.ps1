@@ -11,8 +11,9 @@
 #   $env:MOTITA_INSTALL_DIR  install somewhere else
 #   $env:MOTITA_INSECURE_SKIP_VERIFY = '1'
 #                            install even when the release cannot be verified (no
-#                            SHA256SUMS, or no entry for this platform). A checksum
-#                            MISMATCH is refused regardless.
+#                            SHA256SUMS, no entry for this platform, no SHA256SUMS.sig,
+#                            or no OpenSSL 3 to check it). A checksum MISMATCH or a BAD
+#                            signature is refused regardless.
 #
 # On failure this THROWS rather than exiting, and the difference is not cosmetic: this
 # script is normally run through `irm ... | iex`, and `exit` inside Invoke-Expression ends
@@ -71,6 +72,26 @@ function Invoke-OpenSsl {
         $ErrorActionPreference = $Saved
     }
     return @{ Code = $Code; Output = $Output }
+}
+
+# The path of an OpenSSL 3 that can check an ed25519 signature (pkeyutl -rawin), or $null.
+# The one on the PATH comes first; Git for Windows carries one that is usually not on it.
+function Find-OpenSsl {
+    $Candidates = @()
+    $OnPath = Get-Command openssl -ErrorAction SilentlyContinue
+    if ($OnPath) { $Candidates += $OnPath.Source }
+    foreach ($Root in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+        if (-not $Root) { continue }
+        foreach ($Sub in @('Git\usr\bin\openssl.exe', 'Git\mingw64\bin\openssl.exe', 'Programs\Git\usr\bin\openssl.exe')) {
+            $Candidates += (Join-Path $Root $Sub)
+        }
+    }
+    foreach ($Path in $Candidates) {
+        if ((Test-Path $Path) -and ((Invoke-OpenSsl $Path @('pkeyutl', '-help')).Output -match '-rawin')) {
+            return $Path
+        }
+    }
+    return $null
 }
 
 # --- 1. which system is this? -------------------------------------------------
@@ -139,13 +160,17 @@ try {
     }
 
     if ($SumsAvailable -and (Test-Path $SumsPath)) {
-        # Windows ships no ed25519 verifier, so the signature is checked with OpenSSL 3 when
-        # one is on the PATH (Git for Windows carries it), and skipped otherwise.
-        $OpenSsl = Get-Command openssl -ErrorAction SilentlyContinue
+        # Windows ships no ed25519 verifier, so the signature is checked with OpenSSL 3: the one
+        # on the PATH, or the one Git for Windows carries. Without one the install is refused
+        # like any other release that cannot be verified; skipping the check quietly left only
+        # the checksum, which proves nothing against whoever replaced the release.
+        $OpenSsl = Find-OpenSsl
         if (-not $ReleasePublicKey) {
             Say '  signature: not checked (this installer carries no release key yet)'
-        } elseif (-not $OpenSsl -or -not ((Invoke-OpenSsl $OpenSsl.Source @('pkeyutl', '-help')).Output -match '-rawin')) {
-            Say '  signature: not checked (needs OpenSSL 3 with ed25519 on the PATH)'
+        } elseif (-not $OpenSsl) {
+            Say '  signature: needs OpenSSL 3 with ed25519. Install it and run the installer again'
+            Say '    (Git for Windows carries one, or: winget install ShiningLight.OpenSSL.Light)'
+            Unverified 'no OpenSSL 3 was found to check the release signature'
         } else {
             $SigPath = Join-Path $Tmp 'SHA256SUMS.sig'
             $SigAvailable = $true
@@ -159,7 +184,7 @@ try {
             } else {
                 $PubPath = Join-Path $Tmp 'release.pub'
                 Set-Content -Path $PubPath -Encoding ascii -Value @('-----BEGIN PUBLIC KEY-----', $ReleasePublicKey, '-----END PUBLIC KEY-----')
-                $Check = Invoke-OpenSsl $OpenSsl.Source @('pkeyutl', '-verify', '-pubin', '-inkey', $PubPath, '-rawin', '-in', $SumsPath, '-sigfile', $SigPath)
+                $Check = Invoke-OpenSsl $OpenSsl @('pkeyutl', '-verify', '-pubin', '-inkey', $PubPath, '-rawin', '-in', $SumsPath, '-sigfile', $SigPath)
                 if ($Check.Code -ne 0) {
                     Fail "SHA256SUMS.sig does not verify against the release key.`n  The release may have been tampered with. Nothing was installed."
                 }

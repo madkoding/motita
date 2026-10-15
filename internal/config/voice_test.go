@@ -69,6 +69,13 @@ func TestValidateVoice(t *testing.T) {
 		{"no host", func(c *Config) { c.Voice.BaseURL = "http://" }, "not an http(s) URL"},
 		{"unparsable", func(c *Config) { c.Voice.BaseURL = "http://a b\x7f" }, "not an http(s) URL"},
 		{"blank phrase", func(c *Config) { c.Voice.WakePhrases = []string{"hey motita", " "} }, "voice.wake_phrases[1]"},
+		{"clear text remote with key", func(c *Config) {
+			c.Voice.BaseURL, c.Voice.APIKey = "http://stt.example.com/v1", "vk"
+		}, "voice.base_url \"http://stt.example.com/v1\" is plain http"},
+		{"clear text remote without key", func(c *Config) { c.Voice.BaseURL = "http://stt.example.com/v1" }, ""},
+		{"clear text on the LAN with key", func(c *Config) {
+			c.Voice.BaseURL, c.Voice.APIKey = "http://192.168.1.5:8080/v1", "vk"
+		}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

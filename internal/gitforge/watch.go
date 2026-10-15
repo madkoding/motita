@@ -138,6 +138,35 @@ func (t *Tracker) NewComments(a Activity) []Comment {
 	return news
 }
 
+// Seen lists the comment IDs the tracker has taken in, sorted, for a caller that keeps them across
+// a restart. It is nil before the first reading, which is what tells "no baseline yet" apart from
+// "a baseline with no comments in it".
+func (t *Tracker) Seen() []string {
+	if !t.started {
+		return nil
+	}
+	ids := make([]string, 0, len(t.seen))
+	for id := range t.seen {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// Resume gives the tracker the comment IDs an earlier one had seen, so its first reading reports
+// what was said since then instead of taking a new baseline that would swallow it. nil leaves the
+// tracker to take its baseline as usual.
+func (t *Tracker) Resume(ids []string) {
+	if ids == nil {
+		return
+	}
+	t.started = true
+	t.seen = make(map[string]bool, len(ids))
+	for _, id := range ids {
+		t.seen[id] = true
+	}
+}
+
 // Conflict reports whether the branch has just started to conflict with its base.
 func (t *Tracker) Conflict(m MergeState) bool {
 	was := t.conflict

@@ -248,13 +248,23 @@ func (s *Server) resumePRWatch(rec sessionRecord) {
 		return
 	}
 	if c, ok := s.lookup(rec.ID); ok {
-		s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
+		st := &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey}
+		st.talk.Resume(w.Seen)
+		s.startPRWatch(c, st)
 	}
 }
 
-// isWatchedPRStatus reports whether a pull request in this state is still being followed.
+// isWatchedPRStatus reports whether a pull request in this state is still being followed. The
+// agent being sent to answer a review or resolve a conflict is one of them: the watch reads the
+// pull request again once that run ends, and leaving those two out stopped it for good at a
+// restart, with the comments made during the downtime never answered.
 func isWatchedPRStatus(status string) bool {
-	return status == prFollowing || status == prFixing || status == prPassed
+	switch status {
+	case prFollowing, prFixing, prPassed, prReviewing, prResolving:
+		return true
+	default:
+		return false
+	}
 }
 
 // resumeRun starts again the task a session was running when the gateway stopped.

@@ -117,6 +117,14 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}, nil
 }
 
+// WithTransport sends every request of this client, the login's included, through rt instead of
+// the network. It is the seam that lets a caller's test see where a request would have gone
+// (the provider's default endpoint, say) without making it.
+func (c *Client) WithTransport(rt http.RoundTripper) *Client {
+	c.http.Transport = rt
+	return c
+}
+
 // openStreamOr returns the injected opener, or the real HTTP one.
 func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan StreamChunk, error) {
 	if c.openStream != nil {
@@ -476,7 +484,7 @@ func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 		if apiKey != "" {
 			headers["Authorization"] = "Bearer " + apiKey
 		}
-		names, err := fetchModelList(ctx, url, headers)
+		names, err := fetchModelList(ctx, nil, url, headers)
 		if err == nil && len(names) > 0 {
 			return names, nil
 		}
@@ -492,7 +500,12 @@ func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 
 // fetchModelList performs one request and decodes both response shapes the two
 // endpoint families use: {"data":[{"id":...}]} and {"models":[{"name":...}]}.
-func fetchModelList(ctx context.Context, url string, headers map[string]string) ([]string, error) {
+//
+// rt is the transport of the client asking (so a client's WithTransport covers its model list
+// too); nil means a fresh one.
+func fetchModelList(
+	ctx context.Context, rt http.RoundTripper, url string, headers map[string]string,
+) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -501,13 +514,13 @@ func fetchModelList(ctx context.Context, url string, headers map[string]string) 
 		req.Header.Set(k, v)
 	}
 
-	client := http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
+	if rt == nil {
+		rt = &http.Transport{
 			Proxy:           http.ProxyFromEnvironment,
 			TLSClientConfig: TLSConfig(),
-		},
+		}
 	}
+	client := http.Client{Timeout: 15 * time.Second, Transport: rt}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

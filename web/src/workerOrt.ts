@@ -4,7 +4,7 @@
 // speechListen.worker.ts, which listens): their files, read from the page's copy or the gateway,
 // and onnxruntime on the processor or on the graphics card.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
-import { VOICE_CACHE, readAll, type OrtLike } from "./localVoiceCore";
+import { NO_WEBGPU, VOICE_CACHE, readAll, type OrtLike } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -76,13 +76,25 @@ export async function cpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
   } as OrtLike;
 }
 
+type GPU = { requestAdapter(o?: { powerPreference?: GPUPowerPreference }): Promise<GPUAdapter | null> };
+
+// workerGPU is the worker's WebGPU, undefined in a browser that has none.
+function workerGPU(): GPU | undefined {
+  return (self.navigator as Navigator & { gpu?: GPU }).gpu;
+}
+
+// webGPU says whether this worker has WebGPU at all: where it does not, onnxruntime's WebGPU
+// build (27 MB) is not fetched.
+export function webGPU(): boolean {
+  return workerGPU() !== undefined;
+}
+
 // gpuOrt is onnxruntime's WebGPU build, given its WebAssembly: its sessions run on the graphics
 // card. Each way it can fail says so, and the page shows it.
 export async function gpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
-  type GPU = { requestAdapter(o?: { powerPreference?: GPUPowerPreference }): Promise<GPUAdapter | null> };
-  const gpu = (self.navigator as Navigator & { gpu?: GPU }).gpu;
+  const gpu = workerGPU();
   if (!gpu) {
-    throw new Error("this browser has no WebGPU in its workers");
+    throw new Error(NO_WEBGPU);
   }
   // The fast card first, as a laptop with two would otherwise give the slow one; then any.
   const adapter = (await gpu.requestAdapter({ powerPreference: "high-performance" })) ?? (await gpu.requestAdapter());
