@@ -176,6 +176,59 @@ function voicesOf(catalog: LocalCatalog): LocalCatalog {
   return { ...catalog, models: catalog.models.filter((m) => !isWhisper(m.id)) };
 }
 
+// useCatalog is the gateway's catalog of local models as shape keeps them, read again on its own
+// while one downloads, with the request about a model that is running (busy) and the last failure.
+// shape must keep its identity between renders: a function declared at the top of a module.
+export function useCatalog(api: Api, shape: (c: LocalCatalog) => LocalCatalog) {
+  const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+
+  // load reads the catalog again, and answers why it could not ("" when it could).
+  const load = useCallback(async (): Promise<string> => {
+    let why = "";
+    try {
+      setCatalog(shape(await fetchCatalog(api)));
+    } catch (e) {
+      why = errorMessage(e);
+    }
+    setError(why);
+    return why;
+  }, [api, shape]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const dl = catalog?.download;
+  const downloading = !!dl && !dl.error;
+  // While a model downloads, the catalog is read again until it is done.
+  useEffect(() => {
+    if (!downloading) {
+      return undefined;
+    }
+    const timer = setInterval(() => void load(), DOWNLOAD_POLL_MS);
+    return () => clearInterval(timer);
+  }, [downloading, load]);
+
+  // act runs one request about a model, then reads the catalog again; its failure is the one shown.
+  const act = useCallback(
+    async (id: string, run: () => Promise<void>) => {
+      setBusy(id);
+      let failure = "";
+      try {
+        await run();
+      } catch (e) {
+        failure = errorMessage(e);
+      }
+      setBusy("");
+      const why = await load();
+      setError(failure || why);
+    },
+    [load],
+  );
+  return { catalog, error, busy, downloading, act };
+}
+
 // useLoadState is how far a voice is from being ready in this browser, kept current.
 function useLoadState(id: string): LoadState | undefined {
   const [, redraw] = useState(0);
@@ -199,9 +252,7 @@ export function LocalVoices({
   emotion?: number;
   setEmotion?: (n: number) => void;
 }) {
-  const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
+  const { catalog, error, busy, downloading, act } = useCatalog(api, voicesOf);
   // The list opens on the filters chosen last time.
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const { language, quality } = filters;
@@ -212,32 +263,7 @@ export function LocalVoices({
   };
   const sample = useSample(api);
 
-  // load reads the catalog again, and answers why it could not ("" when it could).
-  const load = useCallback(async (): Promise<string> => {
-    let why = "";
-    try {
-      setCatalog(voicesOf(await fetchCatalog(api)));
-    } catch (e) {
-      why = errorMessage(e);
-    }
-    setError(why);
-    return why;
-  }, [api]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const dl = catalog?.download;
-  const downloading = !!dl && !dl.error;
-  // While a voice downloads, the catalog is read again until it is done.
-  useEffect(() => {
-    if (!downloading) {
-      return undefined;
-    }
-    const timer = setInterval(() => void load(), DOWNLOAD_POLL_MS);
-    return () => clearInterval(timer);
-  }, [downloading, load]);
 
   // The first voice downloaded is the one used, when none was chosen.
   useEffect(() => {
@@ -263,23 +289,6 @@ export function LocalVoices({
     }
   }, [chosen, chosenReady]);
 
-  // act runs one request, then reads the catalog again; its failure is the one shown.
-  const act = useCallback(
-    async (id: string, run: () => Promise<void>) => {
-      setBusy(id);
-      let failure = "";
-      try {
-        await run();
-      } catch (e) {
-        failure = errorMessage(e);
-      }
-      setBusy("");
-      const why = await load();
-      setError(failure || why);
-    },
-    [load],
-  );
-
   if (!catalog) {
     return (
       <div class="text-xs text-[#7a7a8c]" data-testid="local-voices">
@@ -292,7 +301,7 @@ export function LocalVoices({
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   const visible = listed(voices, languages, filters, [chosen, dl?.id]);
   // The voice in use and the one downloading stay in sight; the rest wait folded, with the filters.
-  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl.id === m.id);
+  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
   const pinned = visible.filter(inSight);
   const rest = visible.filter((m) => !inSight(m));
   const row = (m: LocalModel) => (

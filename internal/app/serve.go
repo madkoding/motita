@@ -345,8 +345,9 @@ func projectDir() string {
 
 // pushDir returns the directory where the phone notifications' key and subscriptions are kept:
 // ~/.motita/push. Empty when there is no home directory, and then there are none.
-// voiceLibrary is the catalog of local voices (and of the models the page listens with) and where they are kept, ~/.motita/voices, rid of
-// what the catalog no longer has. Nil without a home directory.
+// voiceLibrary is the catalog of local voices (and of the models the page listens with) and
+// where they are kept, ~/.motita/voices, rid of what the catalog no longer has. Nil without a
+// home directory.
 func voiceLibrary() *voice.Library {
 	d := config.Dir()
 	if d == "" {

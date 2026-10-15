@@ -155,7 +155,7 @@ test("a model is downloaded with its progress, chosen, loaded into memory, and d
   assert.match(list(), /The first download adds 33 MB for the engine\./);
   assert.doesNotMatch(list(), /X/, "the voices are not listed");
   assert.doesNotMatch(list(), /WebGPU/, "without WebGPU the models for the card are not offered");
-  assert.match(text(m.tid("local-listener-whisper-base")), /Whisper base · Processor ?Medium quality · 80 MB · Recommended/);
+  assert.match(text(m.tid("local-listener-whisper-base")), /Whisper base ?Processor · Medium quality · 80 MB · Recommended/);
   assert.match(text(m.root), /Language you speak/);
 
   // Downloading: its progress, and no second download meanwhile.
@@ -233,7 +233,7 @@ test("with WebGPU the models for the card come first, and say where they run", a
   assert.equal(list.open, false, "the list starts folded");
   assert.equal(text(list.querySelector("summary")), "Every model (4)");
   assert.equal(list.querySelector("[data-testid=local-listener-whisper-small-gpu]"), null);
-  assert.match(text(m.tid("local-listener-whisper-small-gpu")), /Whisper small · WebGPU ?High quality · 80 MB · Recommended/);
+  assert.match(text(m.tid("local-listener-whisper-small-gpu")), /Whisper small ?WebGPU · High quality · 80 MB · Recommended/);
   await tell({ kind: "ready", id: "whisper-small-gpu", gpu: true });
   assert.match(text(m.tid("local-listener-whisper-small-gpu")), /on the graphics card/);
   await tell({ kind: "ready", id: "whisper-small-gpu", gpuError: "no adapter" });

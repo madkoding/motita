@@ -41,22 +41,39 @@ export const WHISPER_RATE = 16000;
 export const N_FFT = 400;
 export const HOP = 160;
 export const N_MELS = 80;
-export const CHUNK_SAMPLES = 30 * WHISPER_RATE;
+const CHUNK_SECONDS = 30;
+export const CHUNK_SAMPLES = CHUNK_SECONDS * WHISPER_RATE;
 export const N_FRAMES = CHUNK_SAMPLES / HOP;
 // Every Whisper attention head is 64 wide: the number of heads is the model's width over that.
 const HEAD_DIM = 64;
 
+// The most the progress says while a model is still loading.
+const ALMOST_DONE = 99;
+
 // The share of loading each part takes, for the progress the page shows.
 const SHARES = { runtime: 15, encoder: 25, decoder: 55, text: 5 };
+
+// Slaney's mel scale: linear below 1 kHz, 3 mels every 200 Hz, then logarithmic, 27 mels for each
+// factor of 6.4 in frequency.
+const SLANEY_HZ = 200;
+const SLANEY_MELS = 3;
+const SLANEY_LOG_HZ = 1000;
+const SLANEY_LOG_RATIO = 6.4;
+const SLANEY_LOG_MELS = 27;
 
 // melFilters is the mel filter bank Whisper was trained with (librosa's, Slaney's scale and
 // normalisation): nMels rows of nFft / 2 + 1 weights, one per frequency of the transform.
 export function melFilters(nMels = N_MELS, nFft = N_FFT, rate = WHISPER_RATE): Float32Array[] {
-  const fSp = 200 / 3;
-  const minLogHz = 1000;
+  const fSp = SLANEY_HZ / SLANEY_MELS;
+  const minLogHz = SLANEY_LOG_HZ;
   const minLogMel = minLogHz / fSp;
-  const logStep = Math.log(6.4) / 27;
-  const toHz = (mel: number) => (mel < minLogMel ? mel * fSp : minLogHz * Math.exp(logStep * (mel - minLogMel)));
+  const logStep = Math.log(SLANEY_LOG_RATIO) / SLANEY_LOG_MELS;
+  const toHz = (mel: number) => {
+    if (mel < minLogMel) {
+      return mel * fSp;
+    }
+    return minLogHz * Math.exp(logStep * (mel - minLogMel));
+  };
   const bins = nFft / 2 + 1;
   // The highest frequency is far above 1 kHz, on the scale's logarithmic part.
   const top = minLogMel + Math.log(rate / 2 / minLogHz) / logStep;
@@ -114,41 +131,22 @@ function reflect(i: number, n: number): number {
 // 16 kHz samples (padded with silence, or cut). It follows Whisper's own: a centred transform with
 // a Hann window, power in mel bands, log10, at most 8 below the loudest, then scaled.
 export function logMel(samples: Float32Array): Float32Array {
-  const { win, cos, sin, mel } = transformTables();
+  const { mel } = transformTables();
   const audio = new Float32Array(CHUNK_SAMPLES);
   audio.set(samples.subarray(0, CHUNK_SAMPLES));
-  const bins = N_FFT / 2 + 1;
   const out = new Float32Array(N_MELS * N_FRAMES);
   // Past the sound everything is silence: those frames are all the same floor.
   const heard = Math.min(N_FRAMES, Math.ceil((Math.min(samples.length, CHUNK_SAMPLES) + N_FFT / 2) / HOP) + 1);
-  const frame = new Float32Array(N_FFT);
-  const power = new Float32Array(bins);
+  const power = new Float32Array(N_FFT / 2 + 1);
   let loudest = -Infinity;
   for (let t = 0; t < N_FRAMES; t++) {
     if (t < heard) {
-      for (let n = 0; n < N_FFT; n++) {
-        frame[n] = audio[reflect(t * HOP + n - N_FFT / 2, CHUNK_SAMPLES)] * win[n];
-      }
-      for (let k = 0; k < bins; k++) {
-        let re = 0;
-        let im = 0;
-        const at = k * N_FFT;
-        for (let n = 0; n < N_FFT; n++) {
-          re += frame[n] * cos[at + n];
-          im -= frame[n] * sin[at + n];
-        }
-        power[k] = re * re + im * im;
-      }
+      framePower(audio, t, power);
     } else {
       power.fill(0);
     }
     for (let m = 0; m < N_MELS; m++) {
-      const row = mel[m];
-      let e = 0;
-      for (let k = 0; k < bins; k++) {
-        e += row[k] * power[k];
-      }
-      const v = Math.log10(Math.max(e, 1e-10));
+      const v = Math.log10(Math.max(dot(mel[m], power), 1e-10));
       out[m * N_FRAMES + t] = v;
       loudest = Math.max(loudest, v);
     }
@@ -160,10 +158,37 @@ export function logMel(samples: Float32Array): Float32Array {
   return out;
 }
 
+// framePower writes into power the power of each frequency of frame t: its samples, centred on
+// t * HOP and read past the ends mirrored, through the Hann window and the transform.
+function framePower(audio: Float32Array, t: number, power: Float32Array): void {
+  const { win, cos, sin } = transformTables();
+  const frame = new Float32Array(N_FFT);
+  for (let n = 0; n < N_FFT; n++) {
+    frame[n] = audio[reflect(t * HOP + n - N_FFT / 2, CHUNK_SAMPLES)] * win[n];
+  }
+  for (let k = 0; k < power.length; k++) {
+    const at = k * N_FFT;
+    const re = dot(frame, cos, at);
+    const im = dot(frame, sin, at);
+    power[k] = re * re + im * im;
+  }
+}
+
+// dot is the sum of a's values times b's, b read from its index at.
+function dot(a: Float32Array, b: Float32Array, at = 0): number {
+  let sum = 0;
+  for (let i = 0, j = at; i < a.length; i++, j++) {
+    sum += a[i] * b[j];
+  }
+  return sum;
+}
+
 // byteDecoder maps the characters of GPT-2's byte-level vocabulary back to the bytes they stand
 // for: printable bytes stand for themselves, the rest were moved past 255.
 function byteDecoder(): Map<string, number> {
-  const printable = (b: number) => (b >= 33 && b <= 126) || (b >= 161 && b <= 172) || (b >= 174 && b <= 255);
+  // GPT-2's printable bytes: "!" to "~", "¡" to "¬", and "®" to "ÿ".
+  const ranges = ["!~", "¡¬", "®ÿ"].map((r) => [r.codePointAt(0) as number, r.codePointAt(1) as number]);
+  const printable = (b: number) => ranges.some(([lo, hi]) => b >= lo && b <= hi);
   const map = new Map<string, number>();
   let moved = 0;
   for (let b = 0; b < 256; b++) {
@@ -205,7 +230,7 @@ export function vocabulary(json: string): Vocabulary {
     tokens[a.id] = a.content;
     named.set(a.content, a.id);
   }
-  const id = (name: string) => {
+  const idOf = (name: string) => {
     const n = named.get(name);
     if (n === undefined) {
       throw new Error("the tokenizer has no " + name);
@@ -221,11 +246,11 @@ export function vocabulary(json: string): Vocabulary {
   }
   return {
     tokens,
-    eot: id("<|endoftext|>"),
-    sot: id("<|startoftranscript|>"),
-    transcribe: id("<|transcribe|>"),
-    noTimestamps: id("<|notimestamps|>"),
-    noSpeech: named.get("<|nospeech|>") ?? id("<|nocaptions|>"),
+    eot: idOf("<|endoftext|>"),
+    sot: idOf("<|startoftranscript|>"),
+    transcribe: idOf("<|transcribe|>"),
+    noTimestamps: idOf("<|notimestamps|>"),
+    noSpeech: named.get("<|nospeech|>") ?? idOf("<|nocaptions|>"),
     langs,
   };
 }
@@ -306,10 +331,13 @@ export function nextOf(logits: Float32Array, v: Vocabulary, g: Generation, first
   return best;
 }
 
+// MAX_TOKENS is the most Whisper writes for one window: half its context of 448.
+const MAX_TOKENS = 224;
+
 // maxTokens is how many tokens a recording may be written in: speech is never more than a few per
 // second, and a model stuck repeating itself stops there.
 export function maxTokens(samples: number): number {
-  return Math.min(224, Math.ceil((samples / WHISPER_RATE) * 8) + 16);
+  return Math.min(MAX_TOKENS, Math.ceil((samples / WHISPER_RATE) * 8) + 16);
 }
 
 // lastLogits is the row of a [1, n, vocab] output for its last position.
@@ -394,11 +422,12 @@ export class Listener {
     let done = 0;
     const read = (url: string, share: number) => {
       let last = 0;
-      return this.deps.bytes(url, (loaded, total) => {
-        const now = (share * loaded) / Math.max(total, loaded, 1);
+      return this.deps.bytes(url, (got, total) => {
+        const now = (share * got) / Math.max(total, got, 1);
         done += now - last;
         last = now;
-        progress(Math.min(99, Math.floor(done)));
+        // 100 % is said once everything is loaded, not when the last byte arrives.
+        progress(Math.min(ALMOST_DONE, Math.floor(done)));
       });
     };
     progress(0);

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { lang, t, tf } from "./i18n";
 import { choose } from "./choose";
-import { errorMessage } from "./errors";
-import { type LocalCatalog, type LocalModel, type LoadState, deleteVoice, fetchCatalog, installVoice } from "./localVoice";
+import { type LocalCatalog, type LocalModel, type LoadState, deleteVoice, installVoice } from "./localVoice";
 import { isWhisper } from "./localListenCore";
 import { forGPU, listenStateOf, onListenState, warmListener } from "./localListen";
-import { DOWNLOAD_POLL_MS, megabytes, qualityLabel, useWebGPU } from "./LocalVoiceSettings";
+import { megabytes, qualityLabel, useCatalog, useWebGPU } from "./LocalVoiceSettings";
 import type { VoicePrefs } from "./voice";
 import type { Api } from "./prApi";
 import { Collapsed, Row, primaryBtn, selectCls, smallBtn } from "./SettingsControls";
@@ -56,40 +55,13 @@ export function LocalListening({
   prefs: VoicePrefs;
   setPrefs: (p: VoicePrefs) => void;
 }) {
-  const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
+  const { catalog, error, busy, downloading, act } = useCatalog(api, whisperOf);
   const webGPU = useWebGPU();
   const chosen = prefs.listener;
   const pick = useCallback((listener: string) => setPrefs({ ...prefs, listener }), [prefs, setPrefs]);
 
-  // load reads the catalog again, and answers why it could not ("" when it could).
-  const load = useCallback(async (): Promise<string> => {
-    let why = "";
-    try {
-      setCatalog(await fetchCatalog(api));
-    } catch (e) {
-      why = errorMessage(e);
-    }
-    setError(why);
-    return why;
-  }, [api]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const dl = catalog?.download;
-  const downloading = !!dl && !dl.error;
-  // While a model downloads, the catalog is read again until it is done.
-  useEffect(() => {
-    if (!downloading) {
-      return undefined;
-    }
-    const timer = setInterval(() => void load(), DOWNLOAD_POLL_MS);
-    return () => clearInterval(timer);
-  }, [downloading, load]);
-
-  const models = byPreference(catalog?.models.filter((m) => isWhisper(m.id)) ?? [], webGPU);
+  const models = byPreference(catalog?.models ?? [], webGPU);
   // The first model downloaded is the one used, when none was chosen.
   const firstReady = models.find((m) => m.installed)?.id ?? "";
   useEffect(() => {
@@ -108,23 +80,6 @@ export function LocalListening({
   }, [chosen, chosenReady]);
   const loading = useListenState(chosen) ?? { pct: 0, ready: false };
 
-  // act runs one request, then reads the catalog again; its failure is the one shown.
-  const act = useCallback(
-    async (id: string, run: () => Promise<void>) => {
-      setBusy(id);
-      let failure = "";
-      try {
-        await run();
-      } catch (e) {
-        failure = errorMessage(e);
-      }
-      setBusy("");
-      const why = await load();
-      setError(failure || why);
-    },
-    [load],
-  );
-
   if (!catalog) {
     return (
       <div class="settings-card-note text-xs text-[#7a7a8c]" data-testid="local-listeners">
@@ -133,7 +88,7 @@ export function LocalListening({
     );
   }
   // The model in use and the one downloading stay in sight; the rest wait folded.
-  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl.id === m.id);
+  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
   const pinned = models.filter(inSight);
   const rest = models.filter((m) => !inSight(m));
   const row = (m: LocalModel) => (
@@ -150,14 +105,7 @@ export function LocalListening({
       recommended={m.id === recommendedFor(webGPU)}
     />
   );
-  const alerts = [
-    { kind: "download", text: choose(dl?.error, tf("The download failed: {error}", { error: dl?.error ?? "" }), "") },
-    {
-      kind: "load",
-      text: choose(loading.error, tf("The model could not be loaded: {error}", { error: loading.error ?? "" }), ""),
-    },
-    { kind: "catalog", text: error },
-  ];
+  const alerts = alertsOf(dl?.error, loading.error, error);
   return (
     <>
       <Row
@@ -215,6 +163,21 @@ export function LocalListening({
   );
 }
 
+// alertsOf are the failures the list says: the download's, loading the model in use, and reading
+// the catalog; "" for each that did not fail.
+function alertsOf(download: string | undefined, load: string | undefined, catalog: string) {
+  return [
+    { kind: "download", text: choose(download, tf("The download failed: {error}", { error: download ?? "" }), "") },
+    { kind: "load", text: choose(load, tf("The model could not be loaded: {error}", { error: load ?? "" }), "") },
+    { kind: "catalog", text: catalog },
+  ];
+}
+
+// whisperOf is the catalog with only the models speech input listens with.
+function whisperOf(catalog: LocalCatalog): LocalCatalog {
+  return { ...catalog, models: catalog.models.filter((m) => isWhisper(m.id)) };
+}
+
 // The download the gateway is busy with, as the catalog reports it.
 type Download = LocalCatalog["download"];
 
@@ -245,11 +208,9 @@ function ListenerRow({
   return (
     <div class="flex items-center justify-between gap-3" data-testid={"local-listener-" + m.id}>
       <div class="min-w-0">
-        <div class="text-sm text-[#e8e8ea] truncate">
-          {m.name} · {where}
-        </div>
+        <div class="text-sm text-[#e8e8ea] truncate">{m.name}</div>
         <div class="text-xs text-[#7a7a8c]">
-          {qualityLabel(m.quality)} · {megabytes(m.size)}
+          {where} · {qualityLabel(m.quality)} · {megabytes(m.size)}
           {choose(onGPU, " · " + t("on the graphics card"), "")}
           {choose(recommended, " · " + t("Recommended"), "")}
         </div>

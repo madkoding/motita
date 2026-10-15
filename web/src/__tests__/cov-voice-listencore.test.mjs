@@ -86,7 +86,8 @@ test("generation settings, and how the next token is chosen", () => {
   assert.equal(core.maxTokens(16000), 24);
   assert.equal(core.maxTokens(16000 * 60), 224);
   assert.equal(core.layersOf(["input_ids", "past_key_values.0.decoder.key", "past_key_values.1.decoder.key"]), 2);
-  assert.ok(core.isWhisper("whisper-base") && !core.isWhisper("supertonic-F1"));
+  assert.equal(core.isWhisper("whisper-base"), true);
+  assert.equal(core.isWhisper("supertonic-F1"), false);
 });
 
 // deps serve the files by name, with their progress, and record what was asked for.

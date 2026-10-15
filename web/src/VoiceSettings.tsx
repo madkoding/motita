@@ -807,6 +807,34 @@ function listenHint(engine: ListenEngine, phrases: string[]): string {
   );
 }
 
+// ListenSource is who listens and what that one needs: the models to download for this browser,
+// or the transcription service of the gateway (whose wake phrases count for either).
+function ListenSource({
+  engine,
+  onPick,
+  api,
+  editor,
+  prefs,
+  setPrefs,
+}: {
+  engine: ListenEngine;
+  onPick: (e: ListenEngine) => void;
+  api: Api | undefined;
+  editor: ReturnType<typeof gatewayEditor>;
+  prefs: VoicePrefs;
+  setPrefs: (p: VoicePrefs) => void;
+}) {
+  return (
+    <>
+      <ListenEngineRow engine={engine} onPick={onPick} />
+      {engine === "local" && api && (
+        <LocalListening api={api} prefs={prefs} setPrefs={setPrefs} />
+      )}
+      {editor && <VoiceGateway {...editor} service={engine === "service"} />}
+    </>
+  );
+}
+
 // VoiceSettings are speech input on the gateway, the microphone of this device and the two
 // switches, which only work where the browser grants the microphone (https or localhost) and
 // the gateway has speech input on. Until the browser allowed the microphone, all of it is greyed
@@ -861,13 +889,14 @@ export function VoiceSettings({
           disabled={!allowed}
           data-testid="voice-locked"
         >
-          <ListenEngineRow engine={engine} onPick={setEngine} />
-          {engine === "local" && api && (
-            <LocalListening api={api} prefs={prefs} setPrefs={setPrefs} />
-          )}
-          {editor && (
-            <VoiceGateway {...editor} service={engine === "service"} />
-          )}
+          <ListenSource
+            engine={engine}
+            onPick={setEngine}
+            api={api}
+            editor={editor}
+            prefs={prefs}
+            setPrefs={setPrefs}
+          />
           <MicPicker
             usable={allowed}
             deviceId={prefs.deviceId}

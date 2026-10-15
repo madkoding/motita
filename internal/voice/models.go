@@ -204,7 +204,7 @@ const ChatterboxID = "chatterbox"
 // that turns its sound tokens into a waveform, and onnxruntime's WebGPU build. Each .onnx keeps
 // its weights in the file of the same name ending in _data, which the page hands over with it.
 var ChatterboxModel = []ModelFile{
-	{Name: "tokenizer.json", URL: chatterboxRepo + "tokenizer.json",
+	{Name: tokenizerJSON, URL: chatterboxRepo + tokenizerJSON,
 		Size: 71798, SHA256: "29d48c4a178f6af3ad5130097c34744639e9294847b38a7b912c8c68027cb819"},
 	{Name: "embed_tokens.onnx", URL: chatterboxRepo + "onnx/embed_tokens.onnx",
 		Size: 13286, SHA256: "f785819ca4f6271262d5bb8971d62796c3a909e3b031982c113dbe83a4c3b854"},
@@ -250,6 +250,17 @@ const (
 	WhisperGPU = "-gpu"
 )
 
+// The name of a model's tokenizer, in every repository that has one.
+const tokenizerJSON = "tokenizer.json"
+
+// The parts of a Whisper export: 8-bit for the processor, 4-bit for the graphics card.
+const (
+	whisperEncoder8 = "encoder_model_quantized.onnx"
+	whisperDecoder8 = "decoder_model_merged_quantized.onnx"
+	whisperEncoder4 = "encoder_model_q4.onnx"
+	whisperDecoder4 = "decoder_model_merged_q4.onnx"
+)
+
 // whisperRepo is onnx-community's ONNX export of one Whisper model, at a fixed commit.
 func whisperRepo(model, commit string) string {
 	return "https://huggingface.co/onnx-community/whisper-" + model + "/resolve/" + commit + "/"
@@ -257,7 +268,7 @@ func whisperRepo(model, commit string) string {
 
 // whisperTokenizer is the table from tokens to text, the same for every multilingual model.
 func whisperTokenizer(repo string) ModelFile {
-	return ModelFile{Name: "tokenizer.json", URL: repo + "tokenizer.json",
+	return ModelFile{Name: tokenizerJSON, URL: repo + tokenizerJSON,
 		Size: 2480466, SHA256: "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"}
 }
 
@@ -294,29 +305,29 @@ var (
 // WebGPU runs and 8-bit it does not.
 var WhisperModels = []Model{
 	whisperModel(WhisperID+"-tiny", "Whisper tiny", "low", whisperTiny, whisperTinyGen,
-		ModelFile{URL: "encoder_model_quantized.onnx", Size: 10124990,
+		ModelFile{URL: whisperEncoder8, Size: 10124990,
 			SHA256: "2af4a414ca47aa30f61246017e5fe82b0a8d229281d1255ba666a2a7f6b84d19"},
-		ModelFile{URL: "decoder_model_merged_quantized.onnx", Size: 30719241,
+		ModelFile{URL: whisperDecoder8, Size: 30719241,
 			SHA256: "25e807a962b6349356d0ea5d0dfe530b7e5bf0e2a484aeca0359d03143faddd3"}),
 	whisperModel(WhisperID+"-base", "Whisper base", "medium", whisperBase, whisperBaseGen,
-		ModelFile{URL: "encoder_model_quantized.onnx", Size: 23201314,
+		ModelFile{URL: whisperEncoder8, Size: 23201314,
 			SHA256: "5862993336bf33acd23736071aae2b32261d3b1b2f37780194460d4ef974dd46"},
-		ModelFile{URL: "decoder_model_merged_quantized.onnx", Size: 53693315,
+		ModelFile{URL: whisperDecoder8, Size: 53693315,
 			SHA256: "fa3ef9902734ce5ae6f9ef2bdb2ba9a6c4b5785b09f4f420ce036573dc9d090b"}),
 	whisperModel(WhisperID+"-small", "Whisper small", "high", whisperSmall, whisperSmallGen,
-		ModelFile{URL: "encoder_model_quantized.onnx", Size: 92326160,
+		ModelFile{URL: whisperEncoder8, Size: 92326160,
 			SHA256: "a43a83f3c5361cd591cfa7c36f14b43cf7cb22f47a415cc14a8d557be800fa92"},
-		ModelFile{URL: "decoder_model_merged_quantized.onnx", Size: 156750845,
+		ModelFile{URL: whisperDecoder8, Size: 156750845,
 			SHA256: "ec07c3cbb64172c39791e26ee870a65ac22b458c36722bfe2776b3dbf741e0c9"}),
 	whisperModel(WhisperID+"-base"+WhisperGPU, "Whisper base", "medium", whisperBase, whisperBaseGen,
-		ModelFile{URL: "encoder_model_q4.onnx", Size: 18772451,
+		ModelFile{URL: whisperEncoder4, Size: 18772451,
 			SHA256: "9d4e9c31e8559e71de3e0e49d60b830951484699ef53747a4a06261bbbc8cb88"},
-		ModelFile{URL: "decoder_model_merged_q4.onnx", Size: 123602419,
+		ModelFile{URL: whisperDecoder4, Size: 123602419,
 			SHA256: "09f83b71ceedc97dab1d90b914715dc532a646a147abda11d83c64867b7c319c"}),
 	whisperModel(WhisperID+"-small"+WhisperGPU, "Whisper small", "high", whisperSmall, whisperSmallGen,
-		ModelFile{URL: "encoder_model_q4.onnx", Size: 66182104,
+		ModelFile{URL: whisperEncoder4, Size: 66182104,
 			SHA256: "9f088ad0fe15ba2cf094c9fb22ac7fe1111fc9ef317c1e4d1f6a3bca38a931ba"},
-		ModelFile{URL: "decoder_model_merged_q4.onnx", Size: 233149327,
+		ModelFile{URL: whisperDecoder4, Size: 233149327,
 			SHA256: "795c61b344576719c2b249cc9911c78b4cc552c8c6a5407be21a3380a0791b13"}),
 }
 
