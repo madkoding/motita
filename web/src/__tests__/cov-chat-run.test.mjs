@@ -322,12 +322,28 @@ test("a yes to a typed command still runs it when allowing all fails", async () 
 
 test("the agent's questions are answered once, or for the whole session", async () => {
   let fail = false;
+  let refuse = false;
   const s = await shell(() => {
     if (fail) {
       throw new TypeError("offline");
     }
+    if (refuse) {
+      return json({ error: "no question is waiting" }, 409);
+    }
     return json({});
   });
+  // A refused "allow every command" does not turn the switch on, and the user is told.
+  refuse = true;
+  await s.c().answerApproval("q0", true, true);
+  assert.equal(s.lists.sessions[0].auto_approve, false);
+  assert.deepEqual(s.states, [["could not answer the approval", true]]);
+  assert.deepEqual(s.toasts, [
+    { message: "The approval could not be answered", type: "error" },
+  ]);
+  s.states.length = 0;
+  s.toasts.length = 0;
+  s.api.calls.length = 0;
+  refuse = false;
   await s.c().answerApproval("q1", true);
   await s.c().answerApproval("q2", false);
   await s.c().answerApproval("q3", true, true);
