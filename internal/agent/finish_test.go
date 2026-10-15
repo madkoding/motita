@@ -442,6 +442,13 @@ func TestARequestIsFinishedWithThePolicyOnAndNobodyToAsk(t *testing.T) {
 		"test -f lib/feature.txt && grep -q 'export const feature' lib/feature.txt",
 		func(c *config.Config) {
 			c.Agent.Policy = config.Policy{Enforce: true}
+			// The install is the route under test, not the registry: a project .npmrc keeps npm
+			// offline (no install, audit or update-notifier request to registry.npmjs.org), and
+			// the command still runs exactly as the session ran it.
+			npmrc := "offline=true\naudit=false\nfund=false\nupdate-notifier=false\n"
+			if err := os.WriteFile(filepath.Join(c.Agent.WorkspaceDir, ".npmrc"), []byte(npmrc), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		},
 	)
 	if err != nil || !result.Pass {
