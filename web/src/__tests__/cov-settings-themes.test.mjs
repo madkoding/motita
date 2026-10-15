@@ -7,8 +7,12 @@ import { installDom, load, text, settle } from "./cov-settings-helpers.mjs";
 
 installDom();
 const root = document.documentElement;
-document.head.innerHTML =
-  '<meta name="color-scheme" content="dark"><meta name="theme-color" content="#0a0a0f">';
+for (const [name, content] of [["color-scheme", "dark"], ["theme-color", "#0a0a0f"]]) {
+  const m = document.createElement("meta");
+  m.setAttribute("name", name);
+  m.setAttribute("content", content);
+  document.head.append(m);
+}
 const T = await load("theme.ts");
 const { ThemeSettings } = await load("ThemeSettings.tsx");
 const { h, render } = await import("preact");
@@ -72,11 +76,11 @@ test("applying a theme sets the attributes, the colour-scheme hint and the brows
   assert.equal(root.dataset.mode, "dark");
   assert.equal(meta("theme-color"), "#0a0a0f");
   // A page without those meta tags is themed all the same.
-  const saved = document.head.innerHTML;
-  document.head.innerHTML = "";
+  const metas = [...document.head.querySelectorAll("meta")];
+  metas.forEach((m) => m.remove());
   T.applyTheme({ mode: "light", scheme: "amber" });
   assert.equal(root.dataset.scheme, "amber");
-  document.head.innerHTML = saved;
+  document.head.append(...metas);
 });
 
 test("saving keeps the choice and applies it; a storage that refuses still applies it", () => {
