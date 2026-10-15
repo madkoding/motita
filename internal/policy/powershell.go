@@ -3,6 +3,8 @@ package policy
 import (
 	"fmt"
 	"strings"
+
+	"github.com/madkoding/motita/internal/readonly"
 )
 
 // What changes when the line runs under PowerShell, which is the shell on Windows.
@@ -95,43 +97,9 @@ func unquotedRune(runes []rune, i int) (rune, bool) {
 	}
 }
 
-// uncPath reports whether a network path starts at runes[i]: `\\` anywhere, or `//` that is not
-// the `//` of a URL (`https://`), whose request is judged by the program that makes it.
-func uncPath(runes []rune, i int) bool {
-	if i+1 >= len(runes) || runes[i] != runes[i+1] {
-		return false
-	}
-	switch runes[i] {
-	case '\\':
-		return true
-	case '/':
-		return !urlScheme(runes[:i])
-	default:
-		return false
-	}
-}
-
-// urlScheme reports whether before ends in `scheme:`, the scheme starting a word with a letter.
-func urlScheme(before []rune) bool {
-	n := len(before)
-	if n < 2 || before[n-1] != ':' {
-		return false
-	}
-	k := n - 1
-	for k > 0 && schemeRune(before[k-1]) {
-		k--
-	}
-	first := before[k]
-	if k == n-1 || !isLetter(first) {
-		return false
-	}
-	return k == 0 || strings.ContainsRune(" \t'\"=,", before[k-1])
-}
-
-// schemeRune reports whether r may appear in a URL scheme.
-func schemeRune(r rune) bool {
-	return strings.ContainsRune("+.-", r) || isLetter(r) || isDigit(r)
-}
+// uncPath reports whether a network path starts at runes[i]. It is the read-only mode's own
+// rule (readonly.NetworkPathAt), so plan mode and this one agree on what reaches another machine.
+func uncPath(runes []rune, i int) bool { return readonly.NetworkPathAt(runes, i) }
 
 // pathRune reports whether r may follow a backslash in a Windows path without POSIX and
 // PowerShell disagreeing about the word it belongs to.

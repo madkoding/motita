@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -72,18 +73,44 @@ func (t *TUI) askRows() int {
 //
 // The cap exists for the same reason the completion popup has one: on a short terminal the
 // window would otherwise take the frame past the bottom of the window and scroll the interface
-// on a keypress. When it is cut the LAST row says so, because a silently truncated list of
-// options looks complete and the user would not know there was more.
+// on a keypress. What gives way is the OPTIONS: the answer line and the keys hint are always
+// kept, because without them the window cannot be answered or confirmed. Long options are cut to
+// fewer wrapped rows each, ending in an ellipsis, and when even one row each is too many the last
+// row says how many options are not shown, because a silently truncated list looks complete.
 func (t *TUI) askLines(max int) []string {
 	if !t.asking() {
 		return nil
 	}
 	a := t.ask
 	width := t.bodyWidth()
-	var out []string
-
-	n := len(a.items)
 	it := a.items[a.cur]
+	head := t.askHeadLines(it, width)
+	blocks := t.askOptionBlocks(it, width)
+	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
+	// it is what makes the questions answerable when the agent could think of no choices.
+	tail := append([]string{t.askAnswerLine(width)}, t.askHintLines(width)...)
+
+	var opts []string
+	if max > 0 {
+		if len(tail) > max {
+			tail = tail[:max]
+		}
+		head, opts = t.fitAsk(head, blocks, max-len(tail), width)
+	} else {
+		opts = t.askOptionRows(blocks, optionLimits(blocks, math.MaxInt), width)
+	}
+	out := make([]string, 0, len(head)+len(opts)+len(tail))
+	out = append(out, head...)
+	out = append(out, opts...)
+	return append(out, tail...)
+}
+
+// askHeadLines is what comes above the options: where the user is in the list, the question, the
+// assumption the agent falls back on and any detail.
+func (t *TUI) askHeadLines(it agent.AskItem, width int) []string {
+	a := t.ask
+	n := len(a.items)
+	var out []string
 	// Header: where they are in the list, so "next" has a meaning before pressing it. A proposal
 	// always has one, even alone: it says the item is something the agent offers to do, not a
 	// question about the request.
@@ -103,26 +130,92 @@ func (t *TUI) askLines(max int) []string {
 	if it.Detail != "" {
 		out = append(out, t.askLine(t.muted(EscapeControls(it.Detail)), width))
 	}
+	return out
+}
 
-	out = append(out, t.askOptionLines(it, width)...)
+// fitAsk fits the rows above the answer line into `room`: the question first, then as much of the
+// options as is left. A question too tall for the room keeps its first rows and no options.
+func (t *TUI) fitAsk(head []string, blocks [][]string, room, width int) (kept, opts []string) {
+	if len(head) > room {
+		return head[:room], nil
+	}
+	room -= len(head)
+	if limits := optionLimits(blocks, room); limits != nil {
+		return head, t.askOptionRows(blocks, limits, width)
+	}
+	if room == 0 || len(blocks) == 0 {
+		return head, nil
+	}
+	// Not even one row per option fits: the first ones are shown, and the last row says how many
+	// are not.
+	shown := room - 1
+	opts = t.askOptionRows(blocks[:shown], optionLimits(blocks[:shown], shown), width)
+	return head, append(opts, t.askLine(t.trf("… and %d more", len(blocks)-shown), width))
+}
 
-	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
-	// it is what makes the questions answerable when the agent could think of no choices.
-	out = append(out, t.askAnswerLine(width))
-	out = append(out, t.askHintLines(width)...)
+// optionLimits says how many rows each option keeps within `room`: the same cap for all, the
+// tallest that fits, with the rows still free going to the first options that were cut, so a cut
+// window fills the rows the layout reserved for it. Nil when not even one row each fits.
+func optionLimits(blocks [][]string, room int) []int {
+	for k := longestBlock(blocks); k >= 1; k-- {
+		used := blockRows(blocks, k)
+		if used > room {
+			continue
+		}
+		spare := room - used
+		limits := make([]int, len(blocks))
+		for i, b := range blocks {
+			limits[i] = min(len(b), k)
+			if spare > 0 && len(b) > k {
+				limits[i]++
+				spare--
+			}
+		}
+		return limits
+	}
+	return nil
+}
 
-	if max > 0 && len(out) > max {
-		out = out[:max]
-		out[max-1] = t.askLine(t.trf("… and %d more", len(t.askLines(0))-(max-1)), width)
+// longestBlock is how many rows the tallest option wraps to.
+func longestBlock(blocks [][]string) int {
+	n := 0
+	for _, b := range blocks {
+		n = max(n, len(b))
+	}
+	return n
+}
+
+// blockRows is how many rows the options take when each is cut to at most k rows.
+func blockRows(blocks [][]string, k int) int {
+	n := 0
+	for _, b := range blocks {
+		n += min(len(b), k)
+	}
+	return n
+}
+
+// askOptionRows draws the options, each cut to its limit. A cut option ends in an ellipsis, so it
+// does not read as complete.
+func (t *TUI) askOptionRows(blocks [][]string, limits []int, width int) []string {
+	var out []string
+	for i, b := range blocks {
+		n := limits[i]
+		for j, line := range b[:n] {
+			if j == n-1 && len(b) > n {
+				line += "…"
+			}
+			out = append(out, t.askLine(line, width))
+		}
 	}
 	return out
 }
 
-// askOptionLines is one row per option of it, numbered by the key that picks it. The numbers are
-// the interface's, not the agent's: they are position, and the agent never sees them.
-func (t *TUI) askOptionLines(it agent.AskItem, width int) []string {
+// askOptionBlocks is the rows of each option of it, numbered by the key that picks it, before the
+// window's margin is drawn. The numbers are the interface's, not the agent's: they are position,
+// and the agent never sees them.
+func (t *TUI) askOptionBlocks(it agent.AskItem, width int) [][]string {
 	a := t.ask
-	out := make([]string, 0, len(it.Options))
+	out := make([][]string, 0, len(it.Options))
 	for i, opt := range it.Options {
 		mark := " "
 		if a.answers[a.cur] == opt {
@@ -137,13 +230,16 @@ func (t *TUI) askOptionLines(it agent.AskItem, width int) []string {
 		// an option is often what tells two of them apart.
 		lead := fmt.Sprintf("%s %d) ", mark, i+1)
 		indent := strings.Repeat(" ", len(lead))
-		for j, line := range wordWrap(label, width-visibleLen("│ "+lead)) {
+		wrapped := wordWrap(label, width-visibleLen("│ "+lead))
+		block := make([]string, 0, len(wrapped))
+		for j, line := range wrapped {
 			if j == 0 {
-				out = append(out, t.askLine(lead+line, width))
+				block = append(block, lead+line)
 				continue
 			}
-			out = append(out, t.askLine(indent+line, width))
+			block = append(block, indent+line)
 		}
+		out = append(out, block)
 	}
 	return out
 }

@@ -52,7 +52,7 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
-	if c.merged {
+	if c.isMerged() {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
@@ -61,11 +61,15 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, "this session cannot run shell commands")
 		return
 	}
-	if c.isRunning() {
+	// The command HOLDS the run slot while it runs, rather than only checking it is free: a check
+	// let a scheduled run, a pull request fix or a queued message start in the same workspace while
+	// the command was still writing to it. What was queued meanwhile starts when it lets go.
+	if !c.takeRunSlot() {
 		writeError(w, http.StatusConflict,
 			"the agent is working in this session: stop it or wait for it to finish before running a command")
 		return
 	}
+	defer s.releaseAndDrain(c)
 
 	res := shellResult{Command: command}
 	approver := func(_ context.Context, req agent.ApprovalRequest) (bool, error) {

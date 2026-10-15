@@ -16,6 +16,9 @@ globalThis.Worker = class {
   postMessage(m, transfer) {
     this.sent.push({ m, transfer });
   }
+  terminate() {
+    this.terminated = true;
+  }
 };
 // The browser decodes a recording into two channels, 16 kHz.
 const decoded = [];
@@ -107,6 +110,34 @@ test("a worker that stops fails what it was asked, forgets what it loaded, and i
   assert.equal(L.listenStateOf("whisper-tiny"), undefined);
   L.warmListener("whisper-tiny");
   assert.notEqual(worker(), first, "a new worker");
+});
+
+test("a worker that never answers is stopped in time, the clock restarting while its model loads", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let failed = null;
+  const p = L.hearLocal("whisper-tiny", new Blob(["x"]), "").catch((e) => {
+    failed = e;
+  });
+  for (let i = 0; i < 5 && !worker().sent.some(({ m }) => m.kind === "hear"); i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  const stuck = worker();
+  // Three samples are a second: the base time and one second's more.
+  const ms = L.HEAR_BASE_MS + L.HEAR_PER_SECOND_MS;
+  t.mock.timers.tick(ms - 1);
+  answer({ kind: "progress", id: "whisper-tiny", pct: 50 });
+  answer({ kind: "progress", id: "whisper-small", pct: 10 });
+  t.mock.timers.tick(ms - 1);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(failed, null, "still loading: still waiting");
+  assert.equal(stuck.terminated, undefined);
+  t.mock.timers.tick(1);
+  await p;
+  assert.match(String(failed), /The local listener took too long and was stopped\./);
+  assert.equal(stuck.terminated, true);
+  assert.equal(L.listenStateOf("whisper-tiny"), undefined, "what it loaded went with it");
+  L.warmListener("whisper-tiny");
+  assert.notEqual(worker(), stuck, "a new worker");
 });
 
 test("whether the browser can listen itself, and which models are for the graphics card", () => {

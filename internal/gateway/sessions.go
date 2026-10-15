@@ -154,6 +154,13 @@ type conversation struct {
 	// queue holds messages sent while a run was in flight, oldest first. Guarded by stateMu.
 	// It is per conversation, so a busy session never holds back another one.
 	queue []string
+
+	// closing is set while the conversation is being deleted (or reset, for the default one) and
+	// stays set once it is gone: no run starts in it and no title is written to it. Guarded by
+	// stateMu. epoch counts deletions and resets, so work begun before one (a title being
+	// generated) can tell that the conversation it was for is no longer there.
+	closing bool
+	epoch   uint64
 }
 
 // setAutoApprove turns "allow all commands for this session" on or off.
@@ -227,7 +234,7 @@ func (c *conversation) touch() {
 func (c *conversation) takeRunSlot() bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if c.running {
+	if c.running || c.closing {
 		return false
 	}
 	c.running = true
@@ -1162,13 +1169,17 @@ const autoTitleTimeout = 30 * time.Second
 // One title request at a time per conversation: a second turn that ends while the first title is
 // still being asked for has nothing to add, and two answers racing to name one session would leave
 // whichever landed last.
+//
+// A conversation being deleted is not titled, and a title asked for before a deletion or a reset
+// is not written after it: the epoch it was asked in is carried to the write.
 func (s *Server) autoTitle(c *conversation) {
 	c.stateMu.Lock()
-	if c.titling {
+	if c.titling || c.closing {
 		c.stateMu.Unlock()
 		return
 	}
 	c.titling = true
+	epoch := c.epoch
 	c.stateMu.Unlock()
 
 	go func() {
@@ -1179,7 +1190,7 @@ func (s *Server) autoTitle(c *conversation) {
 		}()
 		ctx, cancel := context.WithTimeout(s.baseCtx, autoTitleTimeout)
 		defer cancel()
-		s.maybeAutoTitle(ctx, c)
+		s.maybeAutoTitle(ctx, c, epoch)
 	}()
 }
 
@@ -1192,7 +1203,7 @@ func (s *Server) autoTitle(c *conversation) {
 // arrives the person may have renamed the session (their title wins), or deleted the default one,
 // which empties it (a title for a conversation that is gone is not set). A gateway that is closing
 // writes nothing either.
-func (s *Server) maybeAutoTitle(ctx context.Context, c *conversation) {
+func (s *Server) maybeAutoTitle(ctx context.Context, c *conversation, epoch uint64) {
 	// Only replace a placeholder title, never a user-set or already-generated one.
 	if !c.hasPlaceholderTitle() {
 		return
@@ -1205,7 +1216,7 @@ func (s *Server) maybeAutoTitle(ctx context.Context, c *conversation) {
 	if title == "" || s.baseCtx.Err() != nil || firstUserMessage(c.svc.Transcript()) != first {
 		return
 	}
-	if c.setTitleIfPlaceholder(title) {
+	if c.setTitleIfPlaceholder(title, epoch) {
 		s.saveSession(c)
 	}
 }
@@ -1229,12 +1240,13 @@ func (c *conversation) hasPlaceholderTitle() bool {
 }
 
 // setTitleIfPlaceholder sets a generated title, unless somebody named the conversation while it
-// was being generated. The check and the write are one step under the lock, so a rename that
-// lands between them cannot be overwritten.
-func (c *conversation) setTitleIfPlaceholder(t string) bool {
+// was being generated, or it was deleted or reset since the title was asked for (in epoch). The
+// check and the write are one step under the lock, so a rename that lands between them cannot be
+// overwritten.
+func (c *conversation) setTitleIfPlaceholder(t string, epoch uint64) bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if !isPlaceholderTitle(c.title) {
+	if !isPlaceholderTitle(c.title) || c.closing || c.epoch != epoch {
 		return false
 	}
 	c.title = t

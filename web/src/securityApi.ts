@@ -14,6 +14,9 @@ export interface SecurityView {
   // Whether the kernel confines the agent's commands too (Linux with Landlock). Without it the
   // workspace limit holds for motita's own file actions only.
   enforced: boolean;
+  // Whether the agent asks before the project's own code runs (a script, a build, a test) where
+  // nothing confines its commands. Missing from a gateway older than the setting.
+  ask_unconfined_runs?: boolean;
 }
 
 const HTTP_NOT_FOUND = 404;
@@ -47,6 +50,21 @@ export async function setDiskAccess(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ disk_access: mode, confirm: mode === "full" }),
+  });
+  return view(res);
+}
+
+// setAskUnconfinedRuns saves whether the agent asks before the project's own code runs where
+// nothing confines its commands. Turning the question off is sent only after the person confirmed
+// what it implies, with confirm; turning it back on needs none.
+export async function setAskUnconfinedRuns(
+  api: Api,
+  ask: boolean,
+): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ask_unconfined_runs: ask, confirm: !ask }),
   });
   return view(res);
 }

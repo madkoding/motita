@@ -269,6 +269,21 @@ const more: Record<string, string> = {
     "Un comando que apruebes uno por uno puede escribir donde lo aprobaste, y sudo corre sin confinamiento.",
   "Motita's own logins and keys stay hidden from its commands either way, approved ones included.":
     "Las sesiones y claves de Motita siguen ocultas para sus comandos en ambos casos, también para los aprobados.",
+  "Running the project's code": "Ejecutar el código del proyecto",
+  "Ask first": "Preguntar antes",
+  "Run without asking": "Ejecutar sin preguntar",
+  "Where nothing confines its commands (Windows, macOS, Linux without Landlock), Motita asks before it runs the project's own code: a script, a build, a test.":
+    "Donde nada confina sus comandos (Windows, macOS, Linux sin Landlock), Motita pregunta antes de ejecutar el código del propio proyecto: un script, una compilación, un test.",
+  "Motita runs the project's own scripts, builds and tests without asking, even where nothing confines them. Reads outside the workspace are still asked about.":
+    "Motita ejecuta los scripts, compilaciones y tests del propio proyecto sin preguntar, aunque nada los confine. Las lecturas fuera del workspace se siguen preguntando.",
+  "This system confines Motita's commands, so this changes nothing here.":
+    "Este sistema confina los comandos de Motita, así que aquí esto no cambia nada.",
+  "Run the project's code without asking?":
+    "¿Ejecutar el código del proyecto sin preguntar?",
+  "On a system that does not confine it, that code can read your keys and Motita's own logins.":
+    "En un sistema que no lo confina, ese código puede leer tus claves y las sesiones de Motita.",
+  "A script written from instructions hidden in a web page or a repository would run before you see it.":
+    "Un script escrito a partir de instrucciones escondidas en una página web o en un repositorio se ejecutaría antes de que lo veas.",
   "This session works in": "Esta sesión trabaja en",
   "Its project is": "Su proyecto es",
   "Its commands' HOME is": "El HOME de sus comandos es",
@@ -467,6 +482,7 @@ const more: Record<string, string> = {
   "Motita needs {n} answers to continue": "Motita necesita {n} respuestas para seguir",
   "{done} of {total} answered": "{done} de {total} respondidas",
   "Answers sent": "Respuestas enviadas",
+  "Could not send the answers": "No se pudieron enviar las respuestas",
   "Send answers": "Enviar respuestas",
   "A question left blank goes with what Motita suggests.":
     "Si dejas una pregunta en blanco, Motita sigue con lo que propone.",
@@ -506,6 +522,8 @@ const more: Record<string, string> = {
   "Voice output": "Salida de voz",
   "Every model ({n})": "Todos los modelos ({n})",
   "Every voice ({n})": "Todas las voces ({n})",
+  "The local listener took too long and was stopped.":
+    "La transcripción local tardó demasiado y se detuvo.",
 };
 
 export default more;

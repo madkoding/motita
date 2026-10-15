@@ -75,6 +75,11 @@ type sessionRecord struct {
 	// the CI up where it was and does not forget a pull request it was following.
 	PRWatch *prWatchRecord `json:"pr_watch,omitempty"`
 
+	// Queue is the messages sent while a run was in flight and not started yet, oldest first. Kept
+	// only in memory they were lost by every restart, although the person had been told they
+	// would run.
+	Queue []string `json:"queue,omitempty"`
+
 	Running  bool                 `json:"running,omitempty"`
 	LastTask string               `json:"last_task,omitempty"`
 	LastKind string               `json:"last_kind,omitempty"`
@@ -121,7 +126,8 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		ProjectID:   c.projectID,
 		Created:     c.created,
 		LastUsed:    c.lastUsed,
-		Running:     c.running && !ended,
+		Running:     c.running && c.current != nil && !ended,
+		Queue:       append([]string(nil), c.queue...),
 		LastTask:    c.lastTask,
 		LastKind:    c.lastKind,
 		ProjectDir:  c.projectDir,

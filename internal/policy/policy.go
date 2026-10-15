@@ -111,6 +111,19 @@ type Mode struct {
 	// line that holds any of them is not classified, so a "reader" cannot carry code past the
 	// policy. See powerShellSyntax.
 	PowerShell bool
+	// Unconfined says nothing confines what a command reads (no Landlock: Windows, macOS, an old
+	// kernel). A reader is then confirmed when it names a path outside the workspace or among the
+	// user's keys, and the project's own code (a script, a build, a test) is confirmed before it
+	// runs. See unconfinedDecision.
+	Unconfined bool
+	// TrustUnconfinedRuns keeps, with Unconfined, the project's own code (a script, a build, a test)
+	// running without a question: the operator chose that (sandbox.ask_unconfined_runs: false). A
+	// path outside the workspace is still asked about. Off, the default, asks.
+	TrustUnconfinedRuns bool
+	// Cmd says the line runs under cmd.exe, whose expansions (`%VAR%`, `!VAR!`), escape (`^`) and
+	// word division the POSIX reading does not know. Only a line of plain words is classified;
+	// anything else is approved as a whole. See cmdLine.
+	Cmd bool
 }
 
 // DecisionFor decides one command.
@@ -121,6 +134,11 @@ type Mode struct {
 // it" is the difference between work and damage, and it is the only judgement here that
 // needs to know where.
 func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
+	return m.unconfinedDecision(m.decisionFor(command, args, dir), args, dir)
+}
+
+// decisionFor is DecisionFor before what the lack of confinement changes.
+func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	// Leading `VAR=value` assignments are the environment, not the program: `FOO=1 ls` runs
 	// `ls`. The floor scan already skips them, and classifying them as a program name made the
 	// policy ask about a plain reader.
@@ -811,7 +829,7 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	if d, hit := MandatoryInLine(line, dir); hit {
 		return d
 	}
-	line, d, hit := m.powerShellLine(line, dir)
+	line, d, hit := m.windowsLine(line, dir)
 	if hit {
 		return d
 	}
@@ -857,11 +875,15 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	return m.Relaxing(worst)
 }
 
-// powerShellLine prepares a line for the POSIX reading when PowerShell will run it: a line
-// PowerShell reads as code is decided here (hit), and what is left comes back with its
-// backslashes turned into slashes, the floor checked again on it. Any other shell's line comes
-// back as it is.
-func (m Mode) powerShellLine(line, dir string) (string, Decision, bool) {
+// windowsLine prepares a line for the POSIX reading when a Windows shell will run it. Under
+// cmd.exe a line of anything but plain words is decided here (hit, see cmdLine). Under PowerShell
+// a line PowerShell reads as code is decided here, and what is left comes back with its
+// backslashes turned into slashes, the floor checked again on it. Any other line comes back as
+// it is.
+func (m Mode) windowsLine(line, dir string) (string, Decision, bool) {
+	if d, hit := m.cmdLine(line); hit {
+		return line, d, true
+	}
 	if !m.PowerShell {
 		return line, Decision{}, false
 	}
@@ -967,7 +989,8 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 	// output would be a false alarm here, and the real read is refused elsewhere if the
 	// permissions say so.
 	if strings.HasPrefix(seg.op, "<") {
-		return Decision{Allow, fmt.Sprintf("the line reads from %q", target), "line-redirect-input", false}
+		return m.unconfinedDecision(Decision{Allow, fmt.Sprintf("the line reads from %q", target),
+			"line-redirect-input", false}, []string{target}, dir)
 	}
 	if strings.HasPrefix(target, "/dev/") {
 		// The null and stream devices are not files: `> /dev/null` is the most common

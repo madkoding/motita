@@ -311,7 +311,7 @@ func TestAnAutomaticTitleOnlyReplacesAPlaceholder(t *testing.T) {
 			c.svc = svc
 			srv.saveSession(c)
 
-			srv.maybeAutoTitle(context.Background(), c)
+			srv.maybeAutoTitle(context.Background(), c, 0)
 
 			if got := c.status().Title; got != tc.want {
 				t.Errorf("Title = %q, want %q", got, tc.want)

@@ -19,6 +19,10 @@ import (
 // itself, like the network exposure: the page tells the person what it means first and sends
 // confirm only after they said yes. Going back to the workspace narrows what the agent can do and
 // needs nothing.
+//
+// The same page says whether the agent asks before the project's own code runs where nothing
+// confines a command (sandbox.ask_unconfined_runs, on by default). Turning that off needs the same
+// explicit confirmation, and turning it back on needs nothing.
 
 // securityView is what GET and PUT /v1/security answer.
 type securityView struct {
@@ -30,6 +34,41 @@ type securityView struct {
 	// confinement on, no chroot). Without it the workspace limit holds for motita's own file
 	// actions only, and the page says so.
 	Enforced bool `json:"enforced"`
+	// AskUnconfinedRuns says the agent asks before the project's own code runs where nothing
+	// confines a command (sandbox.ask_unconfined_runs).
+	AskUnconfinedRuns bool `json:"ask_unconfined_runs"`
+}
+
+// securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, or
+// both, and the confirmation that widening either needs.
+type securityChange struct {
+	DiskAccess        string `json:"disk_access"`
+	AskUnconfinedRuns *bool  `json:"ask_unconfined_runs"`
+	Confirm           bool   `json:"confirm"`
+}
+
+// refusal is why the change cannot be made as sent ("" when it can); mode is its disk access,
+// normalised.
+func (c securityChange) refusal(mode string) string {
+	switch {
+	case mode == "" && c.AskUnconfinedRuns == nil:
+		return "send disk_access (workspace or full), ask_unconfined_runs, or both"
+	case mode != "" && !config.ValidDiskAccess(mode):
+		return "disk_access must be workspace or full"
+	case mode == config.DiskFull && !c.Confirm:
+		return "giving the agent the whole disk needs confirm: true, " +
+			"sent after the person has been told what the change means"
+	case c.AskUnconfinedRuns != nil && !*c.AskUnconfinedRuns && !c.Confirm:
+		return "running the project's code without asking where nothing confines it needs confirm: true, " +
+			"sent after the person has been told what the change means"
+	default:
+		return ""
+	}
+}
+
+// unconfinedRunsSetter is a service that can take the unconfined-runs choice for its next command.
+type unconfinedRunsSetter interface {
+	SetAskUnconfinedRuns(ask bool)
 }
 
 // diskAccessSetter is a service that can take a new disk access for its next command.
@@ -41,6 +80,7 @@ type diskAccessSetter interface {
 // test can make the write fail and choose what the kernel offers.
 var (
 	setDiskAccess        = config.SetDiskAccess
+	setAskUnconfinedRuns = config.SetAskUnconfinedRuns
 	confinementAvailable = sandbox.ConfinementAvailable
 )
 
@@ -69,6 +109,8 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 		DiskAccess: mode,
 		CanSave:    canSave,
 		Enforced:   confinementAvailable() && cfg.Sandbox.ConfineWrites && cfg.Sandbox.Kind != "chroot",
+		// The view always carries the choice: a missing key would read as false on the page.
+		AskUnconfinedRuns: cfg.Sandbox.AskUnconfinedRuns,
 	})
 }
 
@@ -77,37 +119,50 @@ func (s *Server) handleGetSecurity(w http.ResponseWriter, _ *http.Request) {
 	s.writeSecurity(w)
 }
 
-// handlePutSecurity saves a new disk access and hands it to every open conversation.
+// handlePutSecurity saves a new disk access, unconfined-runs choice or both, and hands them to
+// every open conversation.
 func (s *Server) handlePutSecurity(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		DiskAccess string `json:"disk_access"`
-		Confirm    bool   `json:"confirm"`
-	}
+	var body securityChange
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
 	mode := strings.ToLower(strings.TrimSpace(body.DiskAccess))
-	if !config.ValidDiskAccess(mode) {
-		writeError(w, http.StatusBadRequest, "disk_access must be workspace or full")
-		return
-	}
-	if mode == config.DiskFull && !body.Confirm {
-		writeError(w, http.StatusBadRequest, "giving the agent the whole disk needs confirm: true, "+
-			"sent after the person has been told what the change means")
+	if why := body.refusal(mode); why != "" {
+		writeError(w, http.StatusBadRequest, why)
 		return
 	}
 	if !s.needFile(w) {
 		return
 	}
-	if err := setDiskAccess(s.opts.ConfigPath, mode); err != nil {
+	if err := s.saveSecurity(mode, body.AskUnconfinedRuns); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	for _, c := range s.snapshot() {
-		applyDiskAccess(c.svc, mode)
-	}
-	s.info("the agent's disk access was changed from the settings", "disk_access", mode)
 	s.writeSecurity(w)
+}
+
+// saveSecurity writes what the change names into the file and hands it to every open conversation:
+// the disk access when mode is set, the unconfined-runs choice when ask is.
+func (s *Server) saveSecurity(mode string, ask *bool) error {
+	if mode != "" {
+		if err := setDiskAccess(s.opts.ConfigPath, mode); err != nil {
+			return err
+		}
+		for _, c := range s.snapshot() {
+			applyDiskAccess(c.svc, mode)
+		}
+		s.info("the agent's disk access was changed from the settings", "disk_access", mode)
+	}
+	if ask != nil {
+		if err := setAskUnconfinedRuns(s.opts.ConfigPath, *ask); err != nil {
+			return err
+		}
+		for _, c := range s.snapshot() {
+			applyAskUnconfinedRuns(c.svc, *ask)
+		}
+		s.info("asking before unconfined runs was changed from the settings", "ask_unconfined_runs", *ask)
+	}
+	return nil
 }
 
 // startingDiskAccess hands a new conversation the disk access the file names now: the conversation
@@ -118,6 +173,14 @@ func (s *Server) startingDiskAccess(svc Service) {
 	}
 	if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
 		applyDiskAccess(svc, cfg.Sandbox.DiskAccess)
+		applyAskUnconfinedRuns(svc, cfg.Sandbox.AskUnconfinedRuns)
+	}
+}
+
+// applyAskUnconfinedRuns gives svc the unconfined-runs choice, when it can take one.
+func applyAskUnconfinedRuns(svc Service, ask bool) {
+	if us, ok := svc.(unconfinedRunsSetter); ok {
+		us.SetAskUnconfinedRuns(ask)
 	}
 }
 

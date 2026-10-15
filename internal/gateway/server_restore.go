@@ -77,6 +77,7 @@ func (s *Server) restoreDefaultSession(rec sessionRecord) {
 		def.svc.RestoreTranscript(rec.Turns)
 	}
 	def.setCheckpoints(rec.Checkpoints)
+	def.restoreQueue(rec.Queue)
 	if rec.Title != "" {
 		def.setTitle(rec.Title)
 	}
@@ -135,6 +136,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 		svc.RestoreTranscript(rec.Turns)
 	}
 	conv.setCheckpoints(rec.Checkpoints)
+	conv.restoreQueue(rec.Queue)
 	conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
 	// Restore provider/model if they were persisted and differ from the
 	// defaults the factory built with.
@@ -227,12 +229,15 @@ func (s *Server) resumeInterruptedSessions() {
 	}
 	for _, rec := range records {
 		s.resumePRWatch(rec)
-		if !rec.Running || strings.TrimSpace(rec.LastTask) == "" {
+		c, ok := s.lookup(rec.ID)
+		if !ok {
 			continue
 		}
-		if c, ok := s.lookup(rec.ID); ok {
+		if rec.Running && strings.TrimSpace(rec.LastTask) != "" {
 			s.resumeRun(c, rec)
 		}
+		// What was queued starts now, or when the resumed run ends and drains it.
+		s.drainQueue(c)
 	}
 }
 

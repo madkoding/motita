@@ -11,6 +11,7 @@ import (
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/readonly"
+	"github.com/madkoding/motita/internal/sandbox"
 )
 
 // forgeWaitTimeout is the timeout of a command that waits on a pull request. `motita forge pr
@@ -73,12 +74,22 @@ type Approver func(ctx context.Context, req ApprovalRequest) (bool, error)
 // the interface's job to provide one; a batch run leaves it nil.
 func (a *Agent) SetApprover(fn Approver) { a.approver = fn }
 
+// confinementAvailable reports whether this platform confines what a command reads (Linux with
+// Landlock). A variable so the tests can stand on a platform without it.
+var confinementAvailable = sandbox.ConfinementAvailable
+
 // policyMode is the operator's policy configuration, as the agent applies it.
 func (a *Agent) policyMode() policy.Mode {
+	shell := shellFor(a.cfg)
 	mode := policy.Mode{
 		Enforce:    a.cfg.Agent.Policy.Enforce,
 		Strict:     a.cfg.Agent.Policy.Strict,
-		PowerShell: execx.IsPowerShell(shellFor(a.cfg)),
+		PowerShell: execx.IsPowerShell(shell),
+		Cmd:        execx.IsCmd(shell),
+		// Where nothing confines a command (Windows, macOS, a kernel without Landlock) the
+		// policy is the only thing between a reader and the user's keys.
+		Unconfined:          !confinementAvailable(),
+		TrustUnconfinedRuns: !a.cfg.Sandbox.AskUnconfinedRuns,
 	}
 	if a.sandbox != nil {
 		mode.Have = a.sandbox.HasTool

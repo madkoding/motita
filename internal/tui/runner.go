@@ -510,6 +510,14 @@ func (r *AppRunner) SetDiskAccess(mode string) {
 	}
 }
 
+// SetAskUnconfinedRuns says whether the agent asks before the project's own code runs where
+// nothing confines a command (sandbox.ask_unconfined_runs). The next command follows it.
+func (r *AppRunner) SetAskUnconfinedRuns(ask bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Sandbox.AskUnconfinedRuns = ask
+	r.cfgMu.Unlock()
+}
+
 // SetContainerRuntime tells the agent how this project is run: with podman, instead of
 // docker. An empty name clears it. The sentence goes into the session's system prompt, so
 // it holds for every turn, and it replaces the previous one when the user changes the answer.

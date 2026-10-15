@@ -377,6 +377,12 @@ func Start(opts Options) (*Server, error) {
 	// would run in the parent of every project, worktree and session folder, and reach them all.
 	s.placeFreeStanding(first, false)
 	s.openProjectStore()
+	// Resume any sessions that were mid-run when the previous gateway shut down (e.g. for an
+	// upgrade), and start what they had queued. This must happen AFTER loadPersistedSessions has
+	// registered every conversation and wired its service, because starting a run needs a fully
+	// constructed conversation - and after the default session has its own folder and the
+	// projects are open, or its resumed run would work in the workspace root.
+	s.resumeInterruptedSessions()
 	s.openScheduleStore()
 	s.openPush()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
@@ -494,10 +500,6 @@ func (s *Server) openSessionStore() {
 	}
 	s.store = st
 	s.loadPersistedSessions()
-	// Resume any sessions that were mid-run when the previous gateway shut down (e.g. for an
-	// upgrade). This must happen AFTER loadPersistedSessions has registered every conversation
-	// and wired its service, because starting a run needs a fully constructed conversation.
-	s.resumeInterruptedSessions()
 }
 
 // openProjectStore opens the project store when a directory is configured.

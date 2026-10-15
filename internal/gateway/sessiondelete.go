@@ -91,7 +91,13 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	// auto-title and saves the session - before the conversation is forgotten and
 	// its file removed. Deleting first would leave a turn writing into a session
 	// that no longer exists.
+	//
+	// The conversation is marked closing FIRST: the run goroutine goes on after its
+	// done channel closes, and without the mark its queue drain would start the next
+	// message here and its auto-title would name the conversation just reset.
+	c.beginClosing()
 	if stopped, settled := c.stopRunForDeletion(deleteStopTimeout); stopped && !settled {
+		s.reopenAndDrain(c, false)
 		writeError(w, http.StatusConflict,
 			"the run in this session did not stop in time, so the session was not deleted: stop it and try again")
 		return
@@ -101,6 +107,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		s.forgetCheckpoints(c)
 		c.setTitle(placeholderTitle)
 		s.deletePersistedSession(c.id)
+		s.reopenAndDrain(c, true)
 		writeJSON(w, http.StatusOK, c.status())
 		return
 	}
@@ -125,9 +132,11 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		// would otherwise destroy it silently, and a worktree with uncommitted changes is
 		// exactly the state the user cannot recover from. The session is kept so the
 		// decision stays theirs.
+		s.reopenAndDrain(c, false)
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	c.closeForGood()
 	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)
 	s.forget(c.id)

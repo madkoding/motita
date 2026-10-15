@@ -236,45 +236,124 @@ test("while a run works, Enter interrupts with the message, Alt+Enter queues it,
   await hook.unmount();
 });
 
-test("answering questions keeps the answers, stores them, and sends them under their label", async () => {
-  assert.equal(questionAnswersPath("a b", 3), "/v1/sessions/a%20b/checkpoints/3/question-answers");
-  const api = fakeApi(async (path) => {
-    if (path.includes("/checkpoints/4/")) {
-      throw new TypeError("offline");
-    }
-    return json({});
-  });
+// answering mounts useSuggestions over a run state on session "s" with messages of turns 3 to 7
+// and one with no turn, answering requests with `route`. What it sent, toasted and reloaded is
+// recorded.
+async function answering(route) {
+  const api = fakeApi((path, init) => route(path, init, rs));
   const sent = [];
+  const toasts = [];
+  let reloads = 0;
   const rs = {
     sessionRef: { current: "s" },
-    messages: [
-      { id: 1, turn: 3, text: "a" },
-      { id: 2, turn: 4, text: "b" },
-      { id: 3, text: "c" },
-    ],
+    messages: [3, 4, 5, 6, 7].map((turn) => ({ id: turn, turn, text: "q" })).concat([{ id: 9, text: "c" }]),
     setMessages(fn) {
       rs.messages = fn(rs.messages);
     },
   };
   const stream = { submit: async (...a) => sent.push(a) };
-  const hook = await renderHook(() => useSuggestions(api, rs, stream));
-  const { answerQuestions } = hook.result.current;
+  const ui = {
+    reload: async () => {
+      reloads += 1;
+    },
+    setToast: (t) => toasts.push(t),
+  };
+  const hook = await renderHook(() => useSuggestions(api, rs, stream, ui));
+  return { api, rs, sent, toasts, reloads: () => reloads, hook, ...hook.result.current };
+}
+
+const byTurn = (rs, turn) => rs.messages.find((m) => m.turn === turn);
+
+test("answering questions keeps the answers, stores them, and sends them under their label", async () => {
+  assert.equal(questionAnswersPath("a b", 3), "/v1/sessions/a%20b/checkpoints/3/question-answers");
+  const x = await answering(async () => json({}));
   const qa = { answers: ["x"], request: "do it\n\nanswers" };
-  await answerQuestions(rs.messages[0], qa, "x");
-  assert.equal(rs.messages[0].questionAnswers, qa);
-  assert.equal(rs.messages[1].questionAnswers, undefined);
-  assert.deepEqual(api.calls.map((c) => [c.path, c.init.method, c.body]), [
+  await x.answerQuestions(byTurn(x.rs, 3), qa, "x");
+  assert.equal(byTurn(x.rs, 3).questionAnswers, qa);
+  assert.equal(byTurn(x.rs, 4).questionAnswers, undefined);
+  assert.deepEqual(x.api.calls.map((c) => [c.path, c.init.method, c.body]), [
     ["/v1/sessions/s/checkpoints/3/question-answers", "PUT", qa],
   ]);
-  assert.deepEqual(sent, [["do it\n\nanswers", "/v1/sessions/s/task", "x"]]);
-  // A gateway that cannot keep them: the turn is sent anyway.
-  await answerQuestions(rs.messages[1], qa, "x");
-  assert.equal(sent.length, 2);
+  assert.deepEqual(x.sent, [["do it\n\nanswers", "/v1/sessions/s/task", "x"]]);
   // No turn number: nothing stored; no label: the prompt is drawn as it is.
-  await answerQuestions(rs.messages[2], qa, "");
-  assert.equal(api.calls.length, 2);
-  assert.deepEqual(sent[2], ["do it\n\nanswers", "/v1/sessions/s/task", undefined]);
-  await hook.unmount();
+  await x.answerQuestions(x.rs.messages[5], qa, "");
+  assert.equal(x.api.calls.length, 1);
+  assert.deepEqual(x.sent[1], ["do it\n\nanswers", "/v1/sessions/s/task", undefined]);
+  assert.deepEqual(x.toasts, []);
+  await x.hook.unmount();
+});
+
+test("answers the gateway did not keep are not sent: the card unlocks and a toast says so", async () => {
+  const x = await answering(async (path, _init, rs) => {
+    if (path.includes("/checkpoints/4/")) {
+      throw new TypeError("offline");
+    }
+    if (path.includes("/checkpoints/5/")) {
+      rs.sessionRef.current = "other"; // the user left while the answers were being kept
+    }
+    return json({ error: "boom" }, 500);
+  });
+  const qa = { answers: ["x"], request: "r" };
+  await x.answerQuestions(byTurn(x.rs, 4), qa, "x");
+  assert.equal(byTurn(x.rs, 4).questionAnswers, undefined, "unlocked to be sent again");
+  await x.answerQuestions(byTurn(x.rs, 3), qa, "x");
+  assert.equal(byTurn(x.rs, 3).questionAnswers, undefined);
+  await x.answerQuestions(byTurn(x.rs, 5), qa, "x");
+  assert.equal(byTurn(x.rs, 5).questionAnswers, qa, "the conversation on screen is another one");
+  assert.deepEqual(x.sent, []);
+  assert.deepEqual(x.toasts.map((t) => [t.message, t.type]), [
+    ["Could not send the answers", "error"],
+    ["Could not send the answers", "error"],
+    ["Could not send the answers", "error"],
+  ]);
+  assert.equal(x.reloads(), 0);
+  await x.hook.unmount();
+});
+
+test("questions another tab answered first are not answered twice: the conversation is read again", async () => {
+  const x = await answering(async (path, _init, rs) => {
+    if (path.includes("/checkpoints/7/")) {
+      rs.sessionRef.current = "other";
+    }
+    return json({ error: "already answered" }, 409);
+  });
+  const qa = { answers: ["x"], request: "r" };
+  await x.answerQuestions(byTurn(x.rs, 6), qa, "x");
+  assert.equal(x.reloads(), 1);
+  // Gone to another conversation meanwhile: that one is not the one to read again.
+  await x.answerQuestions(byTurn(x.rs, 7), qa, "x");
+  assert.equal(x.reloads(), 1);
+  assert.deepEqual(x.sent, []);
+  assert.deepEqual(x.toasts, []);
+  await x.hook.unmount();
+});
+
+test("answers kept while the user moved to another conversation start the turn where they were asked", async () => {
+  let post = "ok";
+  const x = await answering(async (path, init, rs) => {
+    if (init.method === "PUT") {
+      rs.sessionRef.current = "other";
+      return json({});
+    }
+    if (post === "offline") {
+      throw new TypeError("offline");
+    }
+    return post === "empty" ? new Response(null) : json({});
+  });
+  const qa = { answers: ["x"], request: "r" };
+  await x.answerQuestions(byTurn(x.rs, 3), qa, "x");
+  const posts = () => x.api.calls.filter((c) => c.init.method === "POST");
+  assert.deepEqual(posts().map((c) => [c.path, c.body]), [["/v1/sessions/s/task", { task: "r" }]]);
+  assert.deepEqual(x.sent, [], "the stream draws into the conversation on screen, not this one");
+  x.rs.sessionRef.current = "s";
+  post = "empty";
+  await x.answerQuestions(byTurn(x.rs, 4), qa, "x");
+  assert.equal(posts().length, 2);
+  x.rs.sessionRef.current = "s";
+  post = "offline";
+  await x.answerQuestions(byTurn(x.rs, 5), qa, "x");
+  assert.deepEqual(x.toasts.map((t) => t.message), ["Could not send the answers"]);
+  await x.hook.unmount();
 });
 
 test("answering suggestions keeps the answers, stores them, and sends the accepted ones", async () => {
@@ -298,7 +377,8 @@ test("answering suggestions keeps the answers, stores them, and sends the accept
     },
   };
   const stream = { submit: async (...a) => sent.push(a) };
-  const hook = await renderHook(() => useSuggestions(api, rs, stream));
+  const ui = { reload: async () => {}, setToast: () => assert.fail("no toast") };
+  const hook = await renderHook(() => useSuggestions(api, rs, stream, ui));
   const { answerSuggestions } = hook.result.current;
   const answers = { picks: ["this"], verdicts: ["apply"], request: "- do it" };
   await answerSuggestions(rs.messages[0], answers);

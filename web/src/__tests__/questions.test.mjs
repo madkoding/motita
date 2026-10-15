@@ -60,6 +60,17 @@ test("answerRequest sends each question with its answer, or its assumption when 
   assert.equal(q.answerRequest("", [{ text: "x?" }], ["y"]), "Answers to what you asked:\n- x? -> y");
 });
 
+test("turnTask is the task the gateway keeps: trimmed, without a leading /plan or /task", () => {
+  assert.equal(q.turnTask("  add login "), "add login");
+  assert.equal(q.turnTask("/task add login"), "add login");
+  assert.equal(q.turnTask("/T  add login "), "add login");
+  assert.equal(q.turnTask("/p why?"), "why?");
+  assert.equal(q.turnTask("/plan"), "");
+  assert.equal(q.turnTask("/goal ship it"), "/goal ship it", "/goal is kept as typed");
+  assert.equal(q.turnTask("/tasks add"), "/tasks add");
+  assert.equal(q.turnTask("plain"), "plain");
+});
+
 test("answersLabel is the answers in order, the assumption standing in for a blank one", () => {
   assert.equal(q.answersLabel(ITEMS, ["GitHub"]), "GitHub · nothing");
   assert.equal(q.answersLabel([{ text: "x?" }], [" "]), "");

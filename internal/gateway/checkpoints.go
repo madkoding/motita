@@ -402,7 +402,9 @@ func restoreCheckpointFiles(
 // - it discards whatever changed since, the user's own edits included - so the state it replaces
 // is first kept under a reference of its own, and the answer says whether that worked.
 //
-// A run in flight is refused, not stopped: going back while the agent is writing would race it.
+// A run in flight is refused, not stopped: going back while the agent is writing would race it. The
+// run slot is HELD for the whole restore, not only checked, so no run (scheduled, a pull request
+// fix, a queued message) can start in the workspace while its files are being put back.
 func (s *Server) handleRestoreCheckpoint(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
 	turn, err := strconv.Atoi(r.PathValue("turn"))
@@ -416,10 +418,11 @@ func (s *Server) handleRestoreCheckpoint(w http.ResponseWriter, r *http.Request)
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if c.isRunning() {
+	if !c.takeRunSlot() {
 		writeError(w, http.StatusConflict, "a run is in progress in this session: stop it before going back")
 		return
 	}
+	defer s.releaseAndDrain(c)
 	c.cpMu.Lock()
 	cp := c.checkpointLocked(turn)
 	var found checkpoint

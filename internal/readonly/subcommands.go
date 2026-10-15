@@ -52,8 +52,26 @@ func gitRule(args []string) (string, bool) {
 		if a == flagOutput || strings.HasPrefix(a, "--output=") {
 			return fmt.Sprintf("git %s %s writes a file", sub, a), true
 		}
+		if gitRunsDriver(a) {
+			return fmt.Sprintf("git %s %s runs the diff driver a configuration names", sub, a), true
+		}
 	}
 	return gitSubcommandRule(sub, rest)
+}
+
+// gitRunsDriver reports whether a is `--ext-diff` or `--textconv`, which make git run the external
+// diff program or the text conversion command the repository's configuration names: a command
+// the repository chose, run on a line read-only mode was asked to only read. git accepts any
+// unambiguous abbreviation of a long option (`--ext`, `--textc`).
+func gitRunsDriver(a string) bool {
+	name, _, _ := strings.Cut(a, "=")
+	return longOptionAbbrev(name, "--ext-diff", len("--ext")) ||
+		longOptionAbbrev(name, "--textconv", len("--textc"))
+}
+
+// longOptionAbbrev reports whether name is option or an abbreviation of it at least minLen long.
+func longOptionAbbrev(name, option string, minLen int) bool {
+	return len(name) >= minLen && strings.HasPrefix(option, name)
 }
 
 // gitSubcommandRule applies the rule of the reading subcommands that also have a writing form.

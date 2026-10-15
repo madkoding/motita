@@ -214,9 +214,13 @@ func TestDrainQueueKeepsTheMessageWhenTheSlotIsTaken(t *testing.T) {
 	waitBlocked(t, rec)
 
 	c := srv.conversationOf(a.ID)
-	c.pushQueue("waiting", false)
+	c.pushQueue("waiting")
 	srv.drainQueue(c)
-	if got, ok := c.popQueue(); !ok || got != "waiting" {
-		t.Fatalf("the message must be kept: %q %v", got, ok)
+	if got := queueOf(c); len(got) != 1 || got[0] != "waiting" {
+		t.Fatalf("the message must be kept: %q", got)
 	}
+	// Taken out again, so the run that ends at cleanup has nothing to start in a closing test.
+	c.stateMu.Lock()
+	c.queue = nil
+	c.stateMu.Unlock()
 }

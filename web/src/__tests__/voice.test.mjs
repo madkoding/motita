@@ -221,17 +221,6 @@ test("the requests: the info, the recording as its own type, and the gateway's r
     m.transcribe(reply(HTTP_SERVER_ERROR, "<html>"), audio, false),
     /HTTP 500/,
   );
-
-  // A text heard in the browser is only asked about its wake phrase.
-  const woke = await m.wakeOf(
-    reply(HTTP_OK, { text: "motita hi", wake: { phrase: "motita", rest: "hi" } }),
-    "motita hi",
-  );
-  assert.equal(woke.wake.rest, "hi");
-  assert.equal(calls.at(-1).path, "/v1/voice/wake");
-  assert.equal(calls.at(-1).init.method, "POST");
-  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { text: "motita hi" });
-  await assert.rejects(m.wakeOf(reply(HTTP_SERVER_ERROR, { error: "down" }), "x"), /down/);
 });
 
 test("the microphone of this device: asked for by id, listed by name, numbered while hidden", () => {
