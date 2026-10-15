@@ -596,6 +596,14 @@ With `enforce` off the two interact in one direction only: a command that would
 have been _asked_ about is then _allowed_, and one that `strict` _refuses_ stays
 refused. Turning the confirmation off can never promote a refusal into a run.
 
+Where nothing confines a command (Windows, macOS, a Linux kernel without
+Landlock) the sandbox cannot keep motita's logins or your keys out of a
+command's reach, so the policy asks in two more cases: before the project's own
+code runs (`python t.py`, `./build.ps1`, `make`, `go test`, `npm ci`), and before
+a command reaches a path outside the workspace or inside a keys directory
+(`~/.ssh`, `~/.motita/auth`, `.aws`, …). Reading and writing inside the
+workspace stays silent.
+
 **The layer you do not own** is the floor. It has two groups, and they are not
 the same shape.
 

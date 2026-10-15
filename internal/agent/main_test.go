@@ -22,5 +22,8 @@ func TestMain(m *testing.M) {
 	}
 	l, _ := logx.New(logx.Options{Level: logx.Error, Console: false})
 	logx.Install(l)
+	// The suite measures the policy as Linux with Landlock applies it, whatever kernel runs the
+	// tests; what changes without confinement has its own tests (unconfined_test.go).
+	confinementAvailable = func() bool { return true }
 	os.Exit(m.Run())
 }

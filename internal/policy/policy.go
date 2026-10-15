@@ -111,6 +111,11 @@ type Mode struct {
 	// line that holds any of them is not classified, so a "reader" cannot carry code past the
 	// policy. See powerShellSyntax.
 	PowerShell bool
+	// Unconfined says nothing confines what a command reads (no Landlock: Windows, macOS, an old
+	// kernel). A reader is then confirmed when it names a path outside the workspace or among the
+	// user's keys, and the project's own code (a script, a build, a test) is confirmed before it
+	// runs. See unconfinedDecision.
+	Unconfined bool
 }
 
 // DecisionFor decides one command.
@@ -121,6 +126,11 @@ type Mode struct {
 // it" is the difference between work and damage, and it is the only judgement here that
 // needs to know where.
 func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
+	return m.unconfinedDecision(m.decisionFor(command, args, dir), args, dir)
+}
+
+// decisionFor is DecisionFor before what the lack of confinement changes.
+func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	// Leading `VAR=value` assignments are the environment, not the program: `FOO=1 ls` runs
 	// `ls`. The floor scan already skips them, and classifying them as a program name made the
 	// policy ask about a plain reader.
@@ -967,7 +977,8 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 	// output would be a false alarm here, and the real read is refused elsewhere if the
 	// permissions say so.
 	if strings.HasPrefix(seg.op, "<") {
-		return Decision{Allow, fmt.Sprintf("the line reads from %q", target), "line-redirect-input", false}
+		return m.unconfinedDecision(Decision{Allow, fmt.Sprintf("the line reads from %q", target),
+			"line-redirect-input", false}, []string{target}, dir)
 	}
 	if strings.HasPrefix(target, "/dev/") {
 		// The null and stream devices are not files: `> /dev/null` is the most common
