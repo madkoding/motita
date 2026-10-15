@@ -165,7 +165,8 @@ export function saveVoicePrefs(p: VoicePrefs): void {
 //   insecure     the page is not https or localhost: the browser hides the microphone
 //   unsupported  the browser has no microphone API or no MediaRecorder (or, to listen itself, no
 //                worker, WebAssembly or audio decoding)
-//   no-model     it listens itself, and no model was downloaded and chosen yet
+//   no-model     it listens itself, and no model was downloaded and chosen yet (or the one chosen
+//                is no longer downloaded)
 //   off          the transcription service listens, and the gateway has it off (voice.enabled)
 //   ready        it can be used
 export type VoiceState = "insecure" | "unsupported" | "no-model" | "off" | "ready";
@@ -176,6 +177,9 @@ export interface Listening {
   listener: string;
   // runs says this browser can run a model itself (localListenSupported).
   runs: boolean;
+  // installed says the gateway still has the chosen listener downloaded: false when its catalog
+  // says it does not, undefined while that is not known (not asked yet, or it could not answer).
+  installed?: boolean;
 }
 
 export function voiceState(
@@ -199,7 +203,7 @@ export function voiceState(
   if (!listening.runs) {
     return "unsupported";
   }
-  if (!listening.listener) {
+  if (!listening.listener || listening.installed === false) {
     return "no-model";
   }
   return "ready";

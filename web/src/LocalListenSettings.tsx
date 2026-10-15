@@ -62,17 +62,21 @@ export function LocalListening({
 
   const dl = catalog?.download;
   const models = byPreference(catalog?.models ?? [], webGPU);
-  // The first model downloaded is the one used, when none was chosen.
+  // The first model downloaded is the one used, when none was chosen or the one chosen is not
+  // downloaded any more (deleted here, elsewhere, or by the gateway): that choice goes, and with
+  // nothing downloaded none is left. It is decided from the catalog once it was read, so a
+  // deletion that failed keeps the choice, and from every model, those for a graphics card this
+  // browser lacks too.
   const firstReady = models.find((m) => m.installed)?.id ?? "";
+  const chosenReady = !!catalog?.models.some((m) => m.id === chosen && m.installed);
   useEffect(() => {
-    if (!chosen && firstReady) {
+    if (catalog && !chosenReady && chosen !== firstReady) {
       pick(firstReady);
     }
-  }, [chosen, firstReady, pick]);
+  }, [catalog, chosen, chosenReady, firstReady, pick]);
 
   // The model in use is loaded into memory as soon as it is downloaded, and how far that is shows
   // in place of "In use" until it is ready.
-  const chosenReady = models.some((m) => m.id === chosen && m.installed);
   useEffect(() => {
     if (chosenReady) {
       warmListener(chosen);
@@ -241,6 +245,9 @@ function ListenerState({
   act: (id: string, run: () => Promise<void>) => Promise<void>;
   api: Api;
 }) {
+  // Deleting the model in use needs nothing more here: the catalog read again after it no longer
+  // has it, and the choice moves on (see LocalListening).
+  const remove = useCallback(() => void act(m.id, () => deleteVoice(api, m.id)), [act, api, m.id]);
   const downloading = !!dl && !dl.error;
   if (downloading && dl.id === m.id) {
     const pct = Math.floor((100 * dl.done) / Math.max(dl.total, 1));
@@ -273,14 +280,7 @@ function ListenerState({
         class={smallBtn}
         disabled={busy !== ""}
         data-testid={"local-listener-delete-" + m.id}
-        onClick={() =>
-          // The choice goes once the catalog no longer has it: another one downloaded takes its place.
-          void act(m.id, () => deleteVoice(api, m.id)).then(() => {
-            if (inUse) {
-              pick("");
-            }
-          })
-        }
+        onClick={remove}
       >
         {t("Delete")}
       </button>

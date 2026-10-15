@@ -204,6 +204,36 @@ test("a model is downloaded with its progress, chosen, loaded into memory, and d
   await m.done();
 });
 
+test("a refused deletion keeps the model in use, and a choice the catalog lost moves on", async () => {
+  const installed = (...ids) => {
+    gw.catalog.models = gw.catalog.models.map((x) => ({ ...x, installed: x.engine === "piper" || ids.includes(x.id) }));
+  };
+  installed("whisper-base");
+  gw.refuse = "the model is in use";
+  let m = await mount({ listener: "whisper-base", engine: "local", language: "es" });
+  await click(m.tid("local-listener-delete-whisper-base"));
+  assert.match(text(m.root), /the model is in use/);
+  assert.equal(m.box.prefs.listener, "whisper-base", "a deletion that failed keeps the choice");
+  await m.done();
+
+  // Deleted while the language was changed: the language stays, the next model downloaded is used.
+  gw.refuse = "";
+  installed("whisper-base", "whisper-tiny");
+  m = await mount({ listener: "whisper-base", engine: "local" });
+  await pick(m.tid("listen-language"), "pt");
+  installed("whisper-tiny");
+  await click(m.tid("local-listener-delete-whisper-base"));
+  assert.equal(m.box.prefs.listener, "whisper-tiny");
+  assert.equal(m.box.prefs.language, "pt");
+  await m.done();
+
+  // Saved before it was deleted elsewhere, with nothing left downloaded: no model is chosen.
+  installed();
+  m = await mount({ listener: "whisper-small", engine: "local" });
+  assert.equal(m.box.prefs.listener, "");
+  await m.done();
+});
+
 test("what the gateway refuses, a failed download, and a catalog that cannot be read are said", async () => {
   gw.refuse = "another voice is downloading";
   const m = await mount();

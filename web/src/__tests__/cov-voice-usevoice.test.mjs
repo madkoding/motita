@@ -113,8 +113,10 @@ async function advance(ms, step = 50) {
 const INFO = { enabled: true, wake_phrases: ["hey motita"], max_audio_bytes: 1e6 };
 
 // mount renders both hooks. replies are the gateway's answers to transcriptions, in order (an
-// Error rejects); info is GET /v1/voice's answer (or an Error to throw).
-async function mount({ info = INFO, replies = [], authed = true, conversation = false } = {}) {
+// Error rejects); info is GET /v1/voice's answer (or an Error to throw); models is the catalog's
+// list of models (or an Error for a catalog that cannot be read).
+const WHISPER_BASE = [{ id: "whisper-base", installed: true }];
+async function mount({ info = INFO, replies = [], authed = true, conversation = false, models = WHISPER_BASE } = {}) {
   const s = { input: "", toasts: [], sent: [], asked: [], voice: null };
   const api = async (path, init) => {
     s.asked.push([path, init?.headers?.["Content-Type"]]);
@@ -126,6 +128,12 @@ async function mount({ info = INFO, replies = [], authed = true, conversation = 
         return new Response("{}", { status: 404 });
       }
       return new Response(JSON.stringify(info), { status: 200 });
+    }
+    if (path === "/v1/voice/models") {
+      if (models instanceof Error) {
+        throw models;
+      }
+      return new Response(JSON.stringify({ runtime: {}, models, download: null }), { status: 200 });
     }
     const r = await replies.shift();
     if (r instanceof Error) {
@@ -554,9 +562,9 @@ test("listening in the browser: neither dictation nor the wake phrase leaves it"
   await speak();
   assert.equal(v.s.input, "abre un pr", "nothing heard, or no wake phrase: nothing written");
   assert.deepEqual(
-    v.s.asked.map(([p]) => p),
-    ["/v1/voice"],
-    "the gateway is only asked for its settings",
+    v.s.asked.map(([p]) => p).sort(),
+    ["/v1/voice", "/v1/voice/models"],
+    "the gateway is only asked for its settings and whether the model is still there",
   );
   await v.done();
 
@@ -565,6 +573,21 @@ test("listening in the browser: neither dictation nor the wake phrase leaves it"
   v = await mount({ info: null });
   await speak();
   assert.equal(v.s.input, "");
+  await v.done();
+});
+
+test("a chosen model the gateway no longer has is no model at all", async () => {
+  reset();
+  localStorage.setItem(VOICE_KEY, JSON.stringify({ engine: "local", listener: "whisper-base" }));
+  let v = await mount({ models: [{ id: "whisper-base", installed: false }, { id: "whisper-tiny", installed: true }] });
+  assert.equal(v.s.voice.state, "no-model");
+  await v.done();
+  // A catalog that cannot be read blocks nothing: dictation says why if it fails.
+  v = await mount({ models: new Error("offline") });
+  assert.equal(v.s.voice.state, "ready");
+  // Another model chosen while the gateway is asked: the answer about the old one is dropped.
+  await act(() => v.s.voice.setPrefs({ ...v.s.voice.prefs, listener: "whisper-tiny" }));
+  assert.equal(v.s.voice.state, "ready");
   await v.done();
 });
 
