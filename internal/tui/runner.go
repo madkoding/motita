@@ -518,6 +518,26 @@ func (r *AppRunner) SetAskUnconfinedRuns(ask bool) {
 	r.cfgMu.Unlock()
 }
 
+// setBoxNetwork is the sandbox's SetIsolateNetwork, as a variable so a test can choose what the
+// machine answers.
+var setBoxNetwork = (*sandbox.Sandbox).SetIsolateNetwork
+
+// SetIsolateNetwork says whether the commands run without a network (sandbox.isolate_network). The
+// next command follows it; a command already running keeps what it started with. Where the machine
+// cannot isolate, the sandbox stays without it and says why in the log.
+func (r *AppRunner) SetIsolateNetwork(on bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Sandbox.IsolateNetwork = on
+	box := r.Box
+	r.cfgMu.Unlock()
+	if box == nil {
+		return
+	}
+	if err := setBoxNetwork(box, on); err != nil && r.Log != nil {
+		r.Log.Warn("the commands keep the network: this machine cannot isolate them", "error", err.Error())
+	}
+}
+
 // SetContainerRuntime tells the agent how this project is run: with podman, instead of
 // docker. An empty name clears it. The sentence goes into the session's system prompt, so
 // it holds for every turn, and it replaces the previous one when the user changes the answer.

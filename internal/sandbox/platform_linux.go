@@ -27,9 +27,10 @@ func childAttributes(l Limits, dropPrivs bool, uid, gid int) (*syscall.SysProcAt
 	}
 	var warnings []string
 
-	if l.NoNetwork {
+	if l.NoNetwork && osHooks.euid() == 0 {
 		// CLONE_NEWNET needs CAP_SYS_ADMIN. If the clone fails, the exec error
-		// will say so; it is not silenced.
+		// will say so; it is not silenced. A process that is not root gets its
+		// namespace from the isolation child instead (see relayInNamespace).
 		attr.Cloneflags |= syscall.CLONE_NEWNET
 	}
 	if dropPrivs {

@@ -56,6 +56,13 @@ func SetAskUnconfinedRuns(path string, ask bool) error {
 		func(cfg Config) bool { return cfg.Sandbox.AskUnconfinedRuns == ask })
 }
 
+// SetIsolateNetwork writes on into the configuration file at path as sandbox.isolate_network, in
+// place and with the same checks as SetDiskAccess.
+func SetIsolateNetwork(path string, on bool) error {
+	return setSandboxKey(path, "isolate_network", strconv.FormatBool(on),
+		func(cfg Config) bool { return cfg.Sandbox.IsolateNetwork == on })
+}
+
 // setSandboxKey sets sandbox.key to value (YAML text) in the file at path, then loads the file
 // whole and undoes the change when it does not load or when applied says the loaded configuration
 // does not carry it: the environment (MOTITA_SANDBOX_<KEY>) overrides the file.

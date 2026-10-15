@@ -23,6 +23,10 @@ import (
 // The same page says whether the agent asks before the project's own code runs where nothing
 // confines a command (sandbox.ask_unconfined_runs, on by default). Turning that off needs the same
 // explicit confirmation, and turning it back on needs nothing.
+//
+// And whether the agent's commands run without a network (sandbox.isolate_network, on by default):
+// once a command has read something, the network is how it would send it away. Turning it off needs
+// the same confirmation; a command the user approves keeps the network either way.
 
 // securityView is what GET and PUT /v1/security answer.
 type securityView struct {
@@ -37,33 +41,49 @@ type securityView struct {
 	// AskUnconfinedRuns says the agent asks before the project's own code runs where nothing
 	// confines a command (sandbox.ask_unconfined_runs).
 	AskUnconfinedRuns bool `json:"ask_unconfined_runs"`
+	// IsolateNetwork says the commands run without a network (sandbox.isolate_network), and
+	// NetworkEnforced that this machine can do it: without it the setting changes nothing, and the
+	// page says so.
+	IsolateNetwork  bool `json:"isolate_network"`
+	NetworkEnforced bool `json:"network_enforced"`
 }
 
-// securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, or
-// both, and the confirmation that widening either needs.
+// securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, the
+// network isolation, any of them together, and the confirmation that widening any needs.
 type securityChange struct {
 	DiskAccess        string `json:"disk_access"`
 	AskUnconfinedRuns *bool  `json:"ask_unconfined_runs"`
+	IsolateNetwork    *bool  `json:"isolate_network"`
 	Confirm           bool   `json:"confirm"`
+}
+
+// widens says whether the change turns off asking or the network isolation: what needs confirm.
+func (c securityChange) widens() bool {
+	return (c.AskUnconfinedRuns != nil && !*c.AskUnconfinedRuns) || (c.IsolateNetwork != nil && !*c.IsolateNetwork)
 }
 
 // refusal is why the change cannot be made as sent ("" when it can); mode is its disk access,
 // normalised.
 func (c securityChange) refusal(mode string) string {
 	switch {
-	case mode == "" && c.AskUnconfinedRuns == nil:
-		return "send disk_access (workspace or full), ask_unconfined_runs, or both"
+	case mode == "" && c.AskUnconfinedRuns == nil && c.IsolateNetwork == nil:
+		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, or several"
 	case mode != "" && !config.ValidDiskAccess(mode):
 		return "disk_access must be workspace or full"
 	case mode == config.DiskFull && !c.Confirm:
 		return "giving the agent the whole disk needs confirm: true, " +
 			"sent after the person has been told what the change means"
-	case c.AskUnconfinedRuns != nil && !*c.AskUnconfinedRuns && !c.Confirm:
-		return "running the project's code without asking where nothing confines it needs confirm: true, " +
-			"sent after the person has been told what the change means"
+	case c.widens() && !c.Confirm:
+		return "running the project's code without asking where nothing confines it, or giving the " +
+			"commands the network, needs confirm: true, sent after the person has been told what the change means"
 	default:
 		return ""
 	}
+}
+
+// networkIsolationSetter is a service that can take the network isolation for its next command.
+type networkIsolationSetter interface {
+	SetIsolateNetwork(on bool)
 }
 
 // unconfinedRunsSetter is a service that can take the unconfined-runs choice for its next command.
@@ -81,7 +101,9 @@ type diskAccessSetter interface {
 var (
 	setDiskAccess        = config.SetDiskAccess
 	setAskUnconfinedRuns = config.SetAskUnconfinedRuns
+	setIsolateNetwork    = config.SetIsolateNetwork
 	confinementAvailable = sandbox.ConfinementAvailable
+	networkAvailable     = sandbox.NetworkIsolationAvailable
 )
 
 // securityConfig is the configuration the setting is read from: the file's when there is one, the
@@ -111,6 +133,8 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 		Enforced:   confinementAvailable() && cfg.Sandbox.ConfineWrites && cfg.Sandbox.Kind != "chroot",
 		// The view always carries the choice: a missing key would read as false on the page.
 		AskUnconfinedRuns: cfg.Sandbox.AskUnconfinedRuns,
+		IsolateNetwork:    cfg.Sandbox.IsolateNetwork,
+		NetworkEnforced:   networkAvailable(),
 	})
 }
 
@@ -134,7 +158,7 @@ func (s *Server) handlePutSecurity(w http.ResponseWriter, r *http.Request) {
 	if !s.needFile(w) {
 		return
 	}
-	if err := s.saveSecurity(mode, body.AskUnconfinedRuns); err != nil {
+	if err := s.saveSecurity(mode, body); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -142,8 +166,8 @@ func (s *Server) handlePutSecurity(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveSecurity writes what the change names into the file and hands it to every open conversation:
-// the disk access when mode is set, the unconfined-runs choice when ask is.
-func (s *Server) saveSecurity(mode string, ask *bool) error {
+// the disk access when mode is set, each choice when the change carries it.
+func (s *Server) saveSecurity(mode string, change securityChange) error {
 	if mode != "" {
 		if err := setDiskAccess(s.opts.ConfigPath, mode); err != nil {
 			return err
@@ -153,7 +177,7 @@ func (s *Server) saveSecurity(mode string, ask *bool) error {
 		}
 		s.info("the agent's disk access was changed from the settings", "disk_access", mode)
 	}
-	if ask != nil {
+	if ask := change.AskUnconfinedRuns; ask != nil {
 		if err := setAskUnconfinedRuns(s.opts.ConfigPath, *ask); err != nil {
 			return err
 		}
@@ -162,6 +186,22 @@ func (s *Server) saveSecurity(mode string, ask *bool) error {
 		}
 		s.info("asking before unconfined runs was changed from the settings", "ask_unconfined_runs", *ask)
 	}
+	if on := change.IsolateNetwork; on != nil {
+		return s.saveIsolateNetwork(*on)
+	}
+	return nil
+}
+
+// saveIsolateNetwork writes the network isolation into the file and hands it to every open
+// conversation.
+func (s *Server) saveIsolateNetwork(on bool) error {
+	if err := setIsolateNetwork(s.opts.ConfigPath, on); err != nil {
+		return err
+	}
+	for _, c := range s.snapshot() {
+		applyIsolateNetwork(c.svc, on)
+	}
+	s.info("the network isolation of the commands was changed from the settings", "isolate_network", on)
 	return nil
 }
 
@@ -174,6 +214,14 @@ func (s *Server) startingDiskAccess(svc Service) {
 	if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
 		applyDiskAccess(svc, cfg.Sandbox.DiskAccess)
 		applyAskUnconfinedRuns(svc, cfg.Sandbox.AskUnconfinedRuns)
+		applyIsolateNetwork(svc, cfg.Sandbox.IsolateNetwork)
+	}
+}
+
+// applyIsolateNetwork gives svc the network isolation, when it can take one.
+func applyIsolateNetwork(svc Service, on bool) {
+	if ns, ok := svc.(networkIsolationSetter); ok {
+		ns.SetIsolateNetwork(on)
 	}
 }
 

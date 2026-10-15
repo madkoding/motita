@@ -53,6 +53,9 @@ type Spec struct {
 	// bin directories, which come first on every session's PATH, so a command must not be able to
 	// plant a `git` or a `make` there to hijack a later approved command.
 	ReadonlyPaths []string `json:"readonly_paths,omitempty"`
+	// InNamespace marks the child relayInNamespace started inside the namespaces a command
+	// without a network gets, so it does not relay again.
+	InNamespace bool `json:"in_namespace,omitempty"`
 }
 
 // jsonMarshal is the serialiser used for the sandbox spec and for the isolation
@@ -124,6 +127,9 @@ func RunAsChild(args []string) error {
 	if spec.Command == "" {
 		return fmt.Errorf("the sandbox spec carries no command")
 	}
+	if needsNamespaceRelay(spec) {
+		return relayInNamespace(spec)
+	}
 
 	// IMPORTANT ORDER: all the Go runtime work (chdir, chroot, dropping
 	// privileges, resolving the command's path) happens BEFORE applying the
@@ -136,6 +142,10 @@ func RunAsChild(args []string) error {
 
 	if err := enterWorkDir(spec); err != nil {
 		return err
+	}
+
+	if spec.Limits.NoNetwork {
+		enterNoNetwork()
 	}
 
 	if spec.DropPrivileges {

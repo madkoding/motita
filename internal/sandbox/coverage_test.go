@@ -72,6 +72,7 @@ func TestIsolationJSONWithWarnings(t *testing.T) {
 
 // TestIsolationWithAllModes: Isolation summarises what is really active.
 func TestIsolationWithAllModes(t *testing.T) {
+	withNetworkIsolation(t, nil)
 	dir := t.TempDir()
 	s, err := New(Options{
 		Dir:       dir,
