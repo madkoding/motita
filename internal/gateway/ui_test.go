@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/motita/internal/llm"
 )
 
 func putUI(t *testing.T, srv *Server, body, token string) *httptest.ResponseRecorder {
@@ -141,5 +143,18 @@ func TestTheClientReadsAndSetsTheInterfaceLanguage(t *testing.T) {
 	}
 	if _, _, err := gone.FetchUILanguage(context.Background()); err == nil {
 		t.Error("an unreachable gateway must be an error")
+	}
+}
+
+// A provider's failure reaches the web in the interface's language, whatever the run reports.
+func TestLocalizeLLMFollowsTheInterfaceLanguage(t *testing.T) {
+	text := "error: " + llm.Friendly(401, "") + " (HTTP 401)"
+	es := newTestServer(t, &fakeService{}, func(o *Options) { o.UILanguage = "es" })
+	if got := es.localizeLLM(text); got != "error: El proveedor rechazó la clave de API o el inicio de sesión. (HTTP 401)" {
+		t.Errorf("Spanish: %q", got)
+	}
+	en := newTestServer(t, &fakeService{}, func(o *Options) { o.UILanguage = "en" })
+	if got := en.localizeLLM(text); got != text {
+		t.Errorf("English must stay as it is: %q", got)
 	}
 }
