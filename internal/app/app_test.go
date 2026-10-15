@@ -223,6 +223,22 @@ func TestValidateConfigDoesNotRequireKey(t *testing.T) {
 		}
 	})
 }
+
+// TestDeprecatedKeysStillLoad: a configuration that sets a deprecated key still loads; the key
+// is reported in the log rather than refused.
+func TestDeprecatedKeysStillLoad(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		path := filepath.Join(t.TempDir(), "old.yaml")
+		mustWrite(t, path, "curator:\n  min_idle_minutes: 120\nschedule:\n  max_runs_kept: 50\n")
+		var out, errs bytes.Buffer
+		code := Run(Options{Args: []string{"-config", path, "-validate-config"}, Out: &out, Err: &errs})
+		if code != Success {
+			t.Fatalf("a deprecated key must not stop the configuration loading: %d %q", code, errs.String())
+		}
+	})
+}
+
 func TestMissingConfig(t *testing.T) {
 	silence(t)
 	var errs bytes.Buffer

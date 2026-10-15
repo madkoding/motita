@@ -296,9 +296,6 @@ schedule:
   # The shortest cadence a task may be given. A tighter one starts a task faster than an
   # agent turn can finish, which stacks runs instead of scheduling them.
   min_every: 1m
-  # How many firings are kept in a task's record. It bounds a task that fires every
-  # minute from growing its file without bound.
-  max_runs_kept: 50
 
 models:
   # A model for each kind of work, as provider/model. Empty follows llm.provider and

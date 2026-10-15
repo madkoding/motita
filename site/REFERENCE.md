@@ -515,8 +515,8 @@ The three settings that are lists or maps (`task_source.headers`, `anchor.args`
 and `anchor.checks`) have no variable: they are collections, so they are set in
 the YAML file.
 
-The `schedule` block reads `MOTITA_SCHEDULE_ENABLED`, `MOTITA_SCHEDULE_TICK`,
-`MOTITA_SCHEDULE_MIN_EVERY` and `MOTITA_SCHEDULE_MAX_RUNS_KEPT`.
+The `schedule` block reads `MOTITA_SCHEDULE_ENABLED`, `MOTITA_SCHEDULE_TICK` and
+`MOTITA_SCHEDULE_MIN_EVERY`.
 
 One setting also answers to its older name: `agent.graceful_shutdown_timeout` is
 `MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT`, and
@@ -535,7 +535,7 @@ honoured. The documented one wins when both are set.
 | `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
 | `skills`       | `dir`, `max_file_bytes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `gateway`      | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click)                                                                                                                                                                                                                                                                                                                                                                                  |
-| `schedule`     | `enabled`, `tick`, `min_every`, `max_runs_kept`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `schedule`     | `enabled`, `tick`, `min_every`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `ui`           | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
@@ -1071,7 +1071,6 @@ schedule:
   enabled: true
   tick: 30s # resolution at which a cadence is NOTICED, not the cadence itself
   min_every: 1m # shortest cadence a task may be given
-  max_runs_kept: 50 # firings kept in a task's record
 ```
 
 | Endpoint                      | What it does                                                                  |
@@ -1512,7 +1511,6 @@ skills:
 curator:
   enabled: true # run the maintenance pass on its own
   interval_hours: 168 # how often: a week
-  min_idle_minutes: 120 # and only when nobody has been talking for two hours
   stale_after_days: 14 # unused for this long, and it is marked stale
   archive_after_days: 30 # stale for this long, and it moves to the archive
   consolidate: false # let the model merge overlapping documents
