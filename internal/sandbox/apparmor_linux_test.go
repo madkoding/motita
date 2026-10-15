@@ -141,3 +141,18 @@ func TestTheRealParserCallRunsAProgram(t *testing.T) {
 		t.Logf("no AppArmor label here: %v", err)
 	}
 }
+
+// Where the hint would not help, the notice is the reason alone.
+func TestTheNotAppliedNoticeHasNoHintWhereItWouldNotHelp(t *testing.T) {
+	stubAppArmor(t, 1000)
+	stubRestriction(t, "0\n", nil)
+	withNetworkIsolation(t, errors.New("no namespaces here"))
+	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{NoNetwork: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.NotApplied(), "|"); !strings.Contains(got, "no namespaces here") ||
+		strings.Contains(got, "apparmor") {
+		t.Errorf("not applied = %q", got)
+	}
+}
