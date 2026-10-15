@@ -3,6 +3,8 @@ package gitforge
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +13,17 @@ import (
 	"github.com/madkoding/motita/internal/oauth"
 )
 
+// offlineHTTP stands in for the network in the helper tests: every request fails, so a test
+// that makes the store renew a login exercises the failure path without reaching the real host.
+type offlineHTTP struct{ calls *int }
+
+func (o offlineHTTP) Do(*http.Request) (*http.Response, error) {
+	*o.calls++
+	return nil, errors.New("offline")
+}
+
 func helperStore(t *testing.T) Store {
-	s := Store{Dir: t.TempDir(), Env: noEnv}
+	s := Store{Dir: t.TempDir(), Env: noEnv, HTTP: offlineHTTP{calls: new(int)}}
 	_ = s.Save(ghService(), oauth.Token{AccessToken: "gho_secret"}, "octo", false)
 	bb := Defaults(noEnv)[2]
 	_ = s.Save(bb, oauth.Token{AccessToken: "app-pw"}, "bbuser", true)
@@ -60,6 +71,10 @@ func TestHelperStaysSilentWhenItCannotHelp(t *testing.T) {
 	_ = oauth.SaveCredential(s.Dir, oauth.Credential{Provider: "git-gitlab", RefreshToken: "r"})
 	if got := ask(t, s, "get", "protocol=https\nhost=gitlab.com\n"); got != "" {
 		t.Errorf("empty token: %q", got)
+	}
+	// The empty token was due for renewal, and the renewal went to the stand-in, not gitlab.com.
+	if calls := *s.HTTP.(offlineHTTP).calls; calls != 1 {
+		t.Errorf("renewal requests = %d, want 1", calls)
 	}
 	// store and erase are accepted and do nothing: a wrong password once must
 	// never delete a login the user made in the settings.
