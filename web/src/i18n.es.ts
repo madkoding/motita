@@ -617,6 +617,7 @@ const first: Record<string, string> = {
   "Load more": "Cargar más",
   "Disconnected from {host}": "Desconectado de {host}",
   "Git connections": "Conexiones de git",
+  Git: "Git",
   "Connect a git host to pick your repositories and clone private ones.":
     "Conecta un host de git para elegir tus repositorios y clonar los privados.",
   "Not connected": "No conectado",

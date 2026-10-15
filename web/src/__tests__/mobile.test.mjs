@@ -264,7 +264,15 @@ test("a project's + is visible on a touch screen", () => {
 test("the settings tabs fit a phone's width instead of running off the panel", () => {
   const phone = mediaBlocks(PHONE_MEDIA);
   assert.match(phone, /\.settings-tab\s*\{[^}]*white-space:\s*normal/);
-  assert.match(phone, /\.settings-tab\s*\{[^}]*min-width:\s*0/);
+  // Equal share (zero basis) with a floor, so the row scrolls rather than squeezing a label.
+  assert.match(phone, /\.settings-tab\s*\{[^}]*flex:\s*1 0 6\.5rem/);
+  assert.match(phone, /\.settings-tab\s*\{[^}]*min-width:\s*6\.5rem/);
+  // Compact tightens the box; the row fades only toward the side with more tabs behind it.
+  assert.match(
+    phone,
+    /html\[data-density="compact"\] \.settings-tab\s*\{[^}]*min-height:\s*0/,
+  );
+  assert.match(phone, /animation-timeline:\s*scroll\(self inline\)/);
 });
 
 test("an open dialog moves the toast off its title", () => {
