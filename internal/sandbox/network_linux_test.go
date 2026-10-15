@@ -28,7 +28,7 @@ func makeDumpable(t *testing.T) {
 func skipWithoutNamespaces(t *testing.T) {
 	t.Helper()
 	makeDumpable(t)
-	if err := probeNetworkIsolation(); err != nil {
+	if err := probeNamespaces(); err != nil {
 		t.Skipf("no network namespaces here: %v", err)
 	}
 }
@@ -37,6 +37,9 @@ func skipWithoutNamespaces(t *testing.T) {
 // keeps the machine's interfaces. As root it is the parent's namespace, otherwise the relay's.
 func TestACommandWithoutNetworkHasOnlyAWorkingLoopback(t *testing.T) {
 	skipWithoutNamespaces(t)
+	if osHooks.euid() != 0 && restricted() {
+		t.Skip("this kernel takes the capabilities away from a user namespace: no loopback in it")
+	}
 	withNetworkIsolation(t, nil)
 	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{NoNetwork: true}})
 	if err != nil {
@@ -76,6 +79,7 @@ func TestProbeNetworkIsolationReportsTheRefusal(t *testing.T) {
 	})
 	prev := osHooks.euid
 	t.Cleanup(func() { osHooks.euid = prev })
+	stubRestriction(t, "0\n", nil)
 	osHooks.euid = func() int { return 1000 }
 	if err := probeNetworkIsolation(); err != nil || flags&syscall.CLONE_NEWUSER == 0 {
 		t.Fatalf("probe = %v, flags %#x", err, flags)
@@ -253,5 +257,42 @@ func TestChildAttributesAskForTheNamespaceOnlyAsRoot(t *testing.T) {
 		if got := attr.Cloneflags&syscall.CLONE_NEWNET != 0; got != want {
 			t.Errorf("euid %d: CLONE_NEWNET = %v, want %v", euid, got, want)
 		}
+	}
+}
+
+// stubRestriction chooses what the kernel says about restricted user namespaces.
+func stubRestriction(t *testing.T, content string, err error) {
+	t.Helper()
+	prev := readRestriction
+	t.Cleanup(func() { readRestriction = prev })
+	readRestriction = func(string) ([]byte, error) { return []byte(content), err }
+}
+
+// A kernel that takes the capabilities away from an unprivileged user namespace cannot give a
+// command a loopback, so the isolation is reported as unavailable instead of breaking localhost.
+func TestIsolationIsUnavailableWhereUserNamespacesAreRestricted(t *testing.T) {
+	prev := osHooks.euid
+	t.Cleanup(func() { osHooks.euid = prev })
+	osHooks.euid = func() int { return 1000 }
+	stubProbeStart(t, func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
+		return nil, &os.PathError{Op: "fork/exec", Path: name, Err: syscall.ENOENT}
+	})
+	stubRestriction(t, "1\n", nil)
+	if err := probeNetworkIsolation(); err == nil || !strings.Contains(err.Error(), userNamespaceRestriction) {
+		t.Errorf("restricted: got %v", err)
+	}
+	stubRestriction(t, "0\n", nil)
+	if err := probeNetworkIsolation(); err != nil {
+		t.Errorf("not restricted: got %v", err)
+	}
+	stubRestriction(t, "", os.ErrNotExist)
+	if err := probeNetworkIsolation(); err != nil {
+		t.Errorf("a kernel without the rule: got %v", err)
+	}
+	// Root is not a user namespace's creator: the rule does not concern it.
+	osHooks.euid = func() int { return 0 }
+	stubRestriction(t, "1\n", nil)
+	if err := probeNetworkIsolation(); err != nil {
+		t.Errorf("root: got %v", err)
 	}
 }

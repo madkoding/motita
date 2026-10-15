@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -117,6 +118,20 @@ func exitCodeOf(state *os.ProcessState) int {
 	return state.ExitCode()
 }
 
+// userNamespaceRestriction is the sysctl with which Ubuntu 24.04 and later take every capability
+// away from a process in a user namespace made by an unprivileged one: the namespace is created, but
+// nobody in it can bring the loopback up, so a command in it could not even reach 127.0.0.1.
+const userNamespaceRestriction = "kernel.apparmor_restrict_unprivileged_userns"
+
+// restricted reports whether userNamespaceRestriction is on. A kernel without it has no such rule.
+func restricted() bool {
+	data, err := readRestriction("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+	return err == nil && strings.TrimSpace(string(data)) == "1"
+}
+
+// readRestriction is os.ReadFile, a variable so a test can choose what the kernel says.
+var readRestriction = os.ReadFile
+
 // probeTarget is a path nothing is at: the probe's child is cloned into the namespaces and its exec
 // fails, so nothing runs. "Not found" is the answer that the namespaces were made.
 const probeTarget = "/nonexistent/motita-network-probe"
@@ -128,6 +143,15 @@ const probeTarget = "/nonexistent/motita-network-probe"
 // The relay's namespaces are asked for from THIS process, so the answer is only right while it is
 // still dumpable: New asks before hideFromChildren, and the answer is kept.
 func probeNetworkIsolation() error {
+	if osHooks.euid() != 0 && restricted() {
+		return errors.New("the kernel gives a user namespace no capabilities " +
+			"(" + userNamespaceRestriction + " is 1), so its loopback cannot be brought up")
+	}
+	return probeNamespaces()
+}
+
+// probeNamespaces asks for the namespaces and nothing else (see probeNetworkIsolation).
+func probeNamespaces() error {
 	attr := &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET}
 	if osHooks.euid() != 0 {
 		attr = userNamespaceAttributes()
