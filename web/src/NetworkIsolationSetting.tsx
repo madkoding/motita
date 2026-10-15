@@ -87,8 +87,14 @@ export function NetworkIsolationSetting({
   const unenforced = choose(
     view.network_enforced === false,
     " " +
-      t(
-        "This system cannot take the network away from a command (it needs Linux), so this changes nothing here.",
+      choose(
+        view.network_hint,
+        t(
+          "This system blocks it for programs without permission (Ubuntu 24.04 and later). To allow it, run once on the machine that runs Motita: sudo motita sandbox apparmor install",
+        ),
+        t(
+          "This system cannot take the network away from a command (it needs Linux), so this changes nothing here.",
+        ),
       ),
     "",
   );

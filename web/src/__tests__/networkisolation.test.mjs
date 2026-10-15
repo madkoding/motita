@@ -126,6 +126,14 @@ test("where the machine cannot isolate the choice says it changes nothing", asyn
   await m.unmount();
 });
 
+test("where the profile would fix it the choice says which command to run", async () => {
+  const hint = "to allow it, run once: sudo motita sandbox apparmor install";
+  const m = await mount(gateway({ ...SEC, network_enforced: false, network_hint: hint }).api);
+  assert.match(text(m.root), /sudo motita sandbox apparmor install/);
+  assert.doesNotMatch(text(m.root), /it needs Linux/);
+  await m.unmount();
+});
+
 test("an older gateway without the setting draws no choice, and no file means no change", async () => {
   const { isolate_network: _, network_enforced: __, ...old } = SEC;
   let m = await mount(gateway(old).api);

@@ -36,6 +36,9 @@ jobs:
           # made by an unprivileged process holds no capabilities, so the loopback cannot be brought
           # up and the setting must say it cannot isolate.
           - { name: "ubuntu 24.04 · AppArmor restricts user namespaces", os: ubuntu-24.04, expect: unavailable, restrict: "1" }
+          # `motita sandbox apparmor install` is the fix for the row above: the same restriction,
+          # but the binary has the profile, so the isolation works.
+          - { name: "ubuntu 24.04 · AppArmor profile installed", os: ubuntu-24.04, expect: isolated, restrict: "1", profile: "true" }
           - { name: "ubuntu 24.04 · restriction off", os: ubuntu-24.04, expect: isolated, restrict: "0" }
           - { name: "ubuntu 24.04 · as root", os: ubuntu-24.04, expect: isolated, root: "true" }
           - { name: "ubuntu 22.04 · no restriction", os: ubuntu-22.04, expect: isolated }
@@ -65,6 +68,15 @@ jobs:
 
       - name: Build the sandbox tests
         run: go test -c -o "$RUNNER_TEMP/sandbox.test" ./internal/sandbox/
+
+      - name: Install the AppArmor profile for the binary
+        if: matrix.profile == 'true'
+        env:
+          MOTITA_NETISO_INSTALL: "1"
+        run: |
+          sudo --preserve-env=MOTITA_NETISO_INSTALL "$RUNNER_TEMP/sandbox.test" \
+            -test.run '^TestInstallTheAppArmorProfileForThisBinary$' -test.v
+          cat /etc/apparmor.d/motita
 
       - name: A command without approval has no network, an approved one has
         env:

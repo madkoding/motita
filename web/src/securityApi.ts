@@ -21,6 +21,10 @@ export interface SecurityView {
   // Missing from a gateway older than the setting.
   isolate_network?: boolean;
   network_enforced?: boolean;
+  // Why this machine cannot, and what would make it possible (a command to run once), when it
+  // cannot. Missing where it can, and from an older gateway.
+  network_reason?: string;
+  network_hint?: string;
 }
 
 const HTTP_NOT_FOUND = 404;

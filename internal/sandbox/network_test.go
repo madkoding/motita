@@ -71,3 +71,15 @@ func TestAHandBuiltSandboxGetsItsNetworkSwitch(t *testing.T) {
 		t.Fatalf("SetIsolateNetwork = %v", err)
 	}
 }
+
+// The reason is the kernel's refusal, and empty where isolation works.
+func TestNetworkIsolationReason(t *testing.T) {
+	withNetworkIsolation(t, errors.New("no namespaces here"))
+	if got := NetworkIsolationReason(); got != "no namespaces here" {
+		t.Errorf("reason = %q", got)
+	}
+	withNetworkIsolation(t, nil)
+	if got := NetworkIsolationReason(); got != "" {
+		t.Errorf("reason = %q", got)
+	}
+}
