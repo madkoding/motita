@@ -12,6 +12,8 @@ func TestClassify(t *testing.T) {
 		{"/task what is here?", KindTask, SourceExplicit, "what is here?"},
 		{"/t", KindTask, SourceExplicit, ""},
 		{"/goal ship the release", KindTask, SourceExplicit, "/goal ship the release"},
+		{"/init", KindTask, SourceExplicit, InitPrompt},
+		{"/INIT now", KindTask, SourceExplicit, InitPrompt},
 		// Orders, in both languages, polite or not, with pronouns fused on.
 		{"Add a dark theme to the settings", KindTask, SourceHeuristic, ""},
 		{"can you please fix the flaky test?", KindTask, SourceHeuristic, ""},

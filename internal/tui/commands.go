@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/intent"
 )
 
 // Command is one slash command: what it is typed as, and what it means.
@@ -43,6 +44,7 @@ var commands = []Command{
 	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check",
 		Group: "mode"},
 	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
+	{Name: "/init", Help: "write an AGENTS.md for this project, which later sessions load", Group: "action"},
 	{Name: "/decisions", Help: "what /goal decided; undo n removes one", Arg: "[undo n]", Group: "action"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
 	{Name: "/auto", Help: "Auto mode: picks plan or task from what you write", Group: "mode"},
@@ -85,6 +87,12 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool {
 		t.setScreen(ScreenTask)
+		return false
+	},
+	// The prompt is shown as the short command the person typed; the task is the full request.
+	"/init": func(t *TUI, ctx context.Context, _ string) bool {
+		t.setScreen(ScreenTask)
+		t.runTaskAs(ctx, intent.InitPrompt, "/init")
 		return false
 	},
 	"/decisions": func(t *TUI, _ context.Context, arg string) bool {
