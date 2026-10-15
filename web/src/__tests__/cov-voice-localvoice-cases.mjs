@@ -83,6 +83,37 @@ if (noCache) {
     assert.equal(lv.localVoicesSupported(), true);
   });
 
+  test("the browser is asked to keep the copies: once a page, and only when it can be", async () => {
+    assert.equal(await lv.askToKeep(undefined), false, "no storage manager");
+    assert.equal(await lv.askToKeep({}), false, "one that cannot be asked");
+    const asked = [];
+    const storage = (kept, grant) => ({
+      persisted: async () => kept,
+      persist: async () => {
+        asked.push(grant);
+        if (grant instanceof Error) {
+          throw grant;
+        }
+        return grant;
+      },
+    });
+    assert.equal(await lv.askToKeep(storage(true, false)), true, "already kept: not asked again");
+    assert.equal(await lv.askToKeep(storage(false, true)), true, "granted");
+    assert.equal(await lv.askToKeep(storage(false, false)), false, "refused");
+    assert.equal(await lv.askToKeep(storage(false, new Error("no"))), false, "a failure is a refusal");
+    assert.deepEqual(asked.length, 3);
+    assert.equal(lv.keepOnDisk(), lv.keepOnDisk(), "asked once a page");
+  });
+
+  test("whether the browser keeps the copies is read without asking", async () => {
+    assert.equal(await lv.storageKept(undefined), false, "no storage manager");
+    assert.equal(await lv.storageKept({}), false, "one that cannot say");
+    assert.equal(await lv.storageKept({ persisted: async () => true }), true);
+    assert.equal(await lv.storageKept({ persisted: async () => false }), false);
+    assert.equal(await lv.storageKept({ persisted: async () => { throw new Error("no"); } }), false);
+    assert.equal(typeof (await lv.storageKept()), "boolean", "the browser's own, by default");
+  });
+
   test("the gateway's refusals are told in its words, or by their status", async () => {
     const { api } = apiOf({
       "POST /v1/voice/models/a": () => json({}, 202),

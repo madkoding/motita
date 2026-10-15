@@ -10,9 +10,10 @@ declare const self: ServiceWorkerGlobalScope;
 // This is ~2 KB minified vs. ~50 KB for Workbox's generated SW.
 
 // Bumping this name is what retires the previous generation of the cache: `activate` deletes every
-// cache that is not this one, so a worker that was broken (or served a shell from a stale build)
-// does not leave its entries behind for the next one to match.
-const SHELL_CACHE = "motita-shell-v21";
+// shell cache that is not this one, so a worker that was broken (or served a shell from a stale
+// build) does not leave its entries behind for the next one to match.
+const SHELL_PREFIX = "motita-shell-";
+const SHELL_CACHE = SHELL_PREFIX + "v21";
 
 // Shell assets to pre-cache on install. The PWA plugin injects the actual
 // build manifest entries here via self.__WB_MANIFEST.
@@ -67,7 +68,11 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.filter((k) => k !== SHELL_CACHE).map((k) => caches.delete(k)),
+          // Only the shell's: the local voices and listening models the page keeps (hundreds of
+          // MB, see localVoiceCore's VOICE_CACHE) outlive every update of the page.
+          keys
+            .filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL_CACHE)
+            .map((k) => caches.delete(k)),
         ),
       ),
   );

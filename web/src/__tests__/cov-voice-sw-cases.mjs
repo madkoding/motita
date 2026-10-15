@@ -142,12 +142,14 @@ test("install precaches the assets but never the document, and a missing one doe
   }
 });
 
-test("activate retires every other cache and takes the open pages", async () => {
+test("activate retires every other shell cache, keeps the voices, and takes the open pages", async () => {
   cacheNamed("motita-shell-v1");
+  cacheNamed("motita-voices-v1");
   const e = event();
   listeners.activate(e);
   await settled(e);
   assert.equal(store.has("motita-shell-v1"), false);
+  assert.equal(store.has("motita-voices-v1"), true, "the downloaded models survive an update");
   assert.equal([...store.keys()].some((n) => n.startsWith("motita-shell")), true);
   assert.equal(log.claimed, 1);
 });
