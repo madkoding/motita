@@ -245,6 +245,7 @@ func TestTheCatalog(t *testing.T) {
 		return m.Files[:1]
 	})
 	checkCatalogVoices(t, seen, ChatterboxVoices, goodChatterboxVoice, func(Model) []ModelFile { return nil })
+	checkCatalogVoices(t, seen, WhisperModels, goodWhisperModel, func(m Model) []ModelFile { return m.Files })
 	if embeddedSample("nope") != nil {
 		t.Error("a voice with no sample compiled in has none")
 	}
@@ -317,6 +318,22 @@ func goodChatterboxVoice(m Model) bool {
 	}
 	f := m.Files[0]
 	return f.Size != 0 && int64(len(f.Data)) == f.Size && catalogSum.MatchString(f.SHA256)
+}
+
+// goodWhisperModel says whether a Whisper model stands on its own with its four files under the
+// names the page reads (and WebGPU's runtime for one built for it), for every language.
+func goodWhisperModel(m Model) bool {
+	names := []string{"tokenizer.json", "generation_config.json", "encoder.onnx", "decoder.onnx"}
+	if strings.HasSuffix(m.ID, WhisperGPU) {
+		names = append(names, ortGPUWasm.Name)
+	}
+	var got []string
+	for _, f := range m.Files {
+		got = append(got, f.Name)
+	}
+	alone := m.Engine == EngineWhisper && m.Shared == "" && m.Sample == nil
+	named := strings.HasPrefix(m.ID, WhisperID+"-") && m.Lang == "mul" && m.Name != ""
+	return alone && named && slices.Equal(got, names)
 }
 
 // A sample compiled in is written where the others are kept, checked like them, and not

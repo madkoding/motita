@@ -18,7 +18,8 @@ import (
 	"strings"
 )
 
-// LOCAL VOICES: Piper, Supertonic and Chatterbox models the browser runs itself.
+// LOCAL VOICES: Piper, Supertonic and Chatterbox models the browser runs itself, and the Whisper
+// models it listens with (speech input with no transcription service).
 //
 // The page cannot download a model from anywhere it likes: the gateway fetches each file once,
 // from an address in this fixed catalog, checks its size and SHA-256, and serves it from its own
@@ -71,6 +72,9 @@ const (
 	// EngineChatterbox is Resemble AI's Chatterbox Multilingual: a language model that writes the
 	// sound, with a setting for how much emotion it carries. It runs only on WebGPU.
 	EngineChatterbox = "chatterbox"
+	// EngineWhisper is OpenAI's Whisper, which turns speech into text: a model of the catalog that
+	// listens rather than speaks.
+	EngineWhisper = "whisper"
 )
 
 // RuntimeID is the directory, and the id in a file's URL, of the files every voice shares.
@@ -200,7 +204,7 @@ const ChatterboxID = "chatterbox"
 // that turns its sound tokens into a waveform, and onnxruntime's WebGPU build. Each .onnx keeps
 // its weights in the file of the same name ending in _data, which the page hands over with it.
 var ChatterboxModel = []ModelFile{
-	{Name: "tokenizer.json", URL: chatterboxRepo + "tokenizer.json",
+	{Name: tokenizerJSON, URL: chatterboxRepo + tokenizerJSON,
 		Size: 71798, SHA256: "29d48c4a178f6af3ad5130097c34744639e9294847b38a7b912c8c68027cb819"},
 	{Name: "embed_tokens.onnx", URL: chatterboxRepo + "onnx/embed_tokens.onnx",
 		Size: 13286, SHA256: "f785819ca4f6271262d5bb8971d62796c3a909e3b031982c113dbe83a4c3b854"},
@@ -238,6 +242,94 @@ func chatterboxVoice(voice, name string) Model {
 
 // ChatterboxVoices are Chatterbox's voices: the one its repository records.
 var ChatterboxVoices = []Model{chatterboxVoice("default", "Chatterbox")}
+
+// WhisperID starts the id of every Whisper model; WhisperGPU ends the id of those built for the
+// graphics card. The page knows a model by them.
+const (
+	WhisperID  = "whisper"
+	WhisperGPU = "-gpu"
+)
+
+// The name of a model's tokenizer, in every repository that has one.
+const tokenizerJSON = "tokenizer.json"
+
+// The parts of a Whisper export: 8-bit for the processor, 4-bit for the graphics card.
+const (
+	whisperEncoder8 = "encoder_model_quantized.onnx"
+	whisperDecoder8 = "decoder_model_merged_quantized.onnx"
+	whisperEncoder4 = "encoder_model_q4.onnx"
+	whisperDecoder4 = "decoder_model_merged_q4.onnx"
+)
+
+// whisperRepo is onnx-community's ONNX export of one Whisper model, at a fixed commit.
+func whisperRepo(model, commit string) string {
+	return "https://huggingface.co/onnx-community/whisper-" + model + "/resolve/" + commit + "/"
+}
+
+// whisperTokenizer is the table from tokens to text, the same for every multilingual model.
+func whisperTokenizer(repo string) ModelFile {
+	return ModelFile{Name: tokenizerJSON, URL: repo + tokenizerJSON,
+		Size: 2480466, SHA256: "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"}
+}
+
+// whisperModel is one Whisper model: its tokenizer, what it must not write
+// (generation_config.json), and its two parts, renamed encoder.onnx and decoder.onnx (the decoder
+// is the one with its cache merged in). A model for the graphics card also brings onnxruntime's
+// WebGPU build; it runs on the processor too, where WebGPU fails.
+func whisperModel(id, name, quality, repo string, gen, encoder, decoder ModelFile) Model {
+	gen.Name, gen.URL = "generation_config.json", repo+"generation_config.json"
+	encoder.Name, encoder.URL = "encoder.onnx", repo+"onnx/"+encoder.URL
+	decoder.Name, decoder.URL = "decoder.onnx", repo+"onnx/"+decoder.URL
+	files := []ModelFile{whisperTokenizer(repo), gen, encoder, decoder}
+	if strings.HasSuffix(id, WhisperGPU) {
+		files = append(files, ortGPUWasm)
+	}
+	return Model{ID: id, Name: name, Lang: "mul", Quality: quality, Engine: EngineWhisper, Files: files}
+}
+
+var (
+	whisperTiny  = whisperRepo("tiny", "ff4177021cc41f7db950912b73ea4fdf7d01d8e7")
+	whisperBase  = whisperRepo("base", "1846881b6b3a3024392c1eea3ad983695bc23925")
+	whisperSmall = whisperRepo("small", "36050c46d777d46dc4b5f43f6d90574fc38f8732")
+)
+
+// The generation settings of each model, the same but for the alignment of its heads.
+var (
+	whisperTinyGen  = ModelFile{Size: 3772, SHA256: "f5c67e5a4f7102f8cb4d058bc95da276bbc19eeec997267c3bb0f25ef68facd1"}
+	whisperBaseGen  = ModelFile{Size: 3832, SHA256: "61070cf8de25b1e9256e8e102ded49d8d24a8369ed36ef84fdf21549e68125a0"}
+	whisperSmallGen = ModelFile{Size: 3893, SHA256: "f538b28220c6a6d6f1af1458d4141cacb4ef4963df3de98a19490440c412ddf0"}
+)
+
+// WhisperModels are the models the page listens with, in every language Whisper knows. Those for
+// the processor are 8-bit, the fastest there; those for the graphics card are 4-bit, which
+// WebGPU runs and 8-bit it does not.
+var WhisperModels = []Model{
+	whisperModel(WhisperID+"-tiny", "Whisper tiny", "low", whisperTiny, whisperTinyGen,
+		ModelFile{URL: whisperEncoder8, Size: 10124990,
+			SHA256: "2af4a414ca47aa30f61246017e5fe82b0a8d229281d1255ba666a2a7f6b84d19"},
+		ModelFile{URL: whisperDecoder8, Size: 30719241,
+			SHA256: "25e807a962b6349356d0ea5d0dfe530b7e5bf0e2a484aeca0359d03143faddd3"}),
+	whisperModel(WhisperID+"-base", "Whisper base", "medium", whisperBase, whisperBaseGen,
+		ModelFile{URL: whisperEncoder8, Size: 23201314,
+			SHA256: "5862993336bf33acd23736071aae2b32261d3b1b2f37780194460d4ef974dd46"},
+		ModelFile{URL: whisperDecoder8, Size: 53693315,
+			SHA256: "fa3ef9902734ce5ae6f9ef2bdb2ba9a6c4b5785b09f4f420ce036573dc9d090b"}),
+	whisperModel(WhisperID+"-small", "Whisper small", "high", whisperSmall, whisperSmallGen,
+		ModelFile{URL: whisperEncoder8, Size: 92326160,
+			SHA256: "a43a83f3c5361cd591cfa7c36f14b43cf7cb22f47a415cc14a8d557be800fa92"},
+		ModelFile{URL: whisperDecoder8, Size: 156750845,
+			SHA256: "ec07c3cbb64172c39791e26ee870a65ac22b458c36722bfe2776b3dbf741e0c9"}),
+	whisperModel(WhisperID+"-base"+WhisperGPU, "Whisper base", "medium", whisperBase, whisperBaseGen,
+		ModelFile{URL: whisperEncoder4, Size: 18772451,
+			SHA256: "9d4e9c31e8559e71de3e0e49d60b830951484699ef53747a4a06261bbbc8cb88"},
+		ModelFile{URL: whisperDecoder4, Size: 123602419,
+			SHA256: "09f83b71ceedc97dab1d90b914715dc532a646a147abda11d83c64867b7c319c"}),
+	whisperModel(WhisperID+"-small"+WhisperGPU, "Whisper small", "high", whisperSmall, whisperSmallGen,
+		ModelFile{URL: whisperEncoder4, Size: 66182104,
+			SHA256: "9f088ad0fe15ba2cf094c9fb22ac7fe1111fc9ef317c1e4d1f6a3bca38a931ba"},
+		ModelFile{URL: whisperDecoder4, Size: 233149327,
+			SHA256: "795c61b344576719c2b249cc9911c78b4cc552c8c6a5407be21a3380a0791b13"}),
+}
 
 // PiperVoices is the catalog: Spanish and English voices in every quality, from the 14 MB x-low
 // to the 114 MB high, the hashes those of the v1.0.0 tag of rhasspy/piper-voices.

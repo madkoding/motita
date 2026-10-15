@@ -4277,6 +4277,55 @@ html[data-density="compact"] .settings-warn {
 .settings-mic-permission + .settings-voice-lock > :first-child {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+/* A list of models starts folded: its summary line opens it, with a chevron that turns. */
+.settings-collapse-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: fit-content;
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #a0a0b0;
+}
+.settings-collapse-summary::-webkit-details-marker {
+  display: none;
+}
+.settings-collapse-summary::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.settings-collapse[open] > .settings-collapse-summary::before {
+  transform: rotate(45deg);
+}
+.settings-collapse-summary:hover {
+  color: #e8e8ea;
+}
+/* How far a model to listen with is downloaded, or loaded into memory. */
+.settings-progress {
+  appearance: none;
+  width: 5rem;
+  height: 0.375rem;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.settings-progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+.settings-progress::-webkit-progress-value {
+  background: var(--color-accent);
+  transition: width var(--motion-fast, 120ms) linear;
+}
+.settings-progress::-moz-progress-bar {
+  background: var(--color-accent);
+}
 
 /* ─── Text that arrives ─────────────────────────────────────────────
  * The activity line is typed in by the terminal's typewriter (Typed in Term.tsx); its cursor

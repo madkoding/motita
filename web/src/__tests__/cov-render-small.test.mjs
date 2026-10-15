@@ -680,6 +680,7 @@ test("the settings tab icons are decorative 18px drawings, each its own", async 
   for (const name of [
     "IconBell",
     "IconMic",
+    "IconSpeaker",
     "IconShield",
     "IconGlobe",
     "IconSliders",
@@ -693,7 +694,7 @@ test("the settings tab icons are decorative 18px drawings, each its own", async 
     assert.ok(s.shapes >= 1, name);
     drawn.add(s.html);
   }
-  assert.equal(drawn.size, 8);
+  assert.equal(drawn.size, 9);
 });
 
 // ── provider logos ────────────────────────────────────────────────────────────

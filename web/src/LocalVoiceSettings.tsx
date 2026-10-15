@@ -16,14 +16,15 @@ import {
   warmLocal,
 } from "./localVoice";
 import { isChatterbox, isSupertonic } from "./localVoiceCore";
+import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
-import { inputCls, primaryBtn, smallBtn } from "./SettingsControls";
+import { Collapsed, inputCls, primaryBtn, smallBtn } from "./SettingsControls";
 
 // How often the catalog is read again while a voice downloads.
 export const DOWNLOAD_POLL_MS = 1000;
 
 // megabytes writes a size as people read it: 63 MB, and 1 MB for anything smaller.
-function megabytes(n: number): string {
+export function megabytes(n: number): string {
   return Math.max(1, Math.round(n / 1e6)).toLocaleString(lang()) + " MB";
 }
 
@@ -37,7 +38,7 @@ const ENGINES: Record<string, string> = { supertonic: "Supertonic · ", chatterb
 const LANGUAGES_OF: Record<string, number> = { supertonic: 31, chatterbox: 21 };
 
 // qualityLabel names a voice's quality.
-function qualityLabel(q: string): string {
+export function qualityLabel(q: string): string {
   const labels: Record<string, string> = {
     high: t("High quality"),
     medium: t("Medium quality"),
@@ -108,7 +109,7 @@ export function saveFilters(f: Filters): void {
 
 // useWebGPU says whether this browser has WebGPU and a graphics card it can use, which Chatterbox
 // needs: false until the browser answers.
-function useWebGPU(): boolean {
+export function useWebGPU(): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
@@ -170,6 +171,64 @@ function useSample(api: Api) {
   return { playing, play, error };
 }
 
+// voicesOf is the catalog without the models speech input listens with (LocalListenSettings.tsx).
+function voicesOf(catalog: LocalCatalog): LocalCatalog {
+  return { ...catalog, models: catalog.models.filter((m) => !isWhisper(m.id)) };
+}
+
+// useCatalog is the gateway's catalog of local models as shape keeps them, read again on its own
+// while one downloads, with the request about a model that is running (busy) and the last failure.
+// shape must keep its identity between renders: a function declared at the top of a module.
+export function useCatalog(api: Api, shape: (c: LocalCatalog) => LocalCatalog) {
+  const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+
+  // load reads the catalog again, and answers why it could not ("" when it could).
+  const load = useCallback(async (): Promise<string> => {
+    let why = "";
+    try {
+      setCatalog(shape(await fetchCatalog(api)));
+    } catch (e) {
+      why = errorMessage(e);
+    }
+    setError(why);
+    return why;
+  }, [api, shape]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const dl = catalog?.download;
+  const downloading = !!dl && !dl.error;
+  // While a model downloads, the catalog is read again until it is done.
+  useEffect(() => {
+    if (!downloading) {
+      return undefined;
+    }
+    const timer = setInterval(() => void load(), DOWNLOAD_POLL_MS);
+    return () => clearInterval(timer);
+  }, [downloading, load]);
+
+  // act runs one request about a model, then reads the catalog again; its failure is the one shown.
+  const act = useCallback(
+    async (id: string, run: () => Promise<void>) => {
+      setBusy(id);
+      let failure = "";
+      try {
+        await run();
+      } catch (e) {
+        failure = errorMessage(e);
+      }
+      setBusy("");
+      const why = await load();
+      setError(failure || why);
+    },
+    [load],
+  );
+  return { catalog, error, busy, downloading, act };
+}
+
 // useLoadState is how far a voice is from being ready in this browser, kept current.
 function useLoadState(id: string): LoadState | undefined {
   const [, redraw] = useState(0);
@@ -193,9 +252,7 @@ export function LocalVoices({
   emotion?: number;
   setEmotion?: (n: number) => void;
 }) {
-  const [catalog, setCatalog] = useState<LocalCatalog | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
+  const { catalog, error, busy, downloading, act } = useCatalog(api, voicesOf);
   // The list opens on the filters chosen last time.
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const { language, quality } = filters;
@@ -206,32 +263,7 @@ export function LocalVoices({
   };
   const sample = useSample(api);
 
-  // load reads the catalog again, and answers why it could not ("" when it could).
-  const load = useCallback(async (): Promise<string> => {
-    let why = "";
-    try {
-      setCatalog(await fetchCatalog(api));
-    } catch (e) {
-      why = errorMessage(e);
-    }
-    setError(why);
-    return why;
-  }, [api]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const dl = catalog?.download;
-  const downloading = !!dl && !dl.error;
-  // While a voice downloads, the catalog is read again until it is done.
-  useEffect(() => {
-    if (!downloading) {
-      return undefined;
-    }
-    const timer = setInterval(() => void load(), DOWNLOAD_POLL_MS);
-    return () => clearInterval(timer);
-  }, [downloading, load]);
 
   // The first voice downloaded is the one used, when none was chosen.
   useEffect(() => {
@@ -257,23 +289,6 @@ export function LocalVoices({
     }
   }, [chosen, chosenReady]);
 
-  // act runs one request, then reads the catalog again; its failure is the one shown.
-  const act = useCallback(
-    async (id: string, run: () => Promise<void>) => {
-      setBusy(id);
-      let failure = "";
-      try {
-        await run();
-      } catch (e) {
-        failure = errorMessage(e);
-      }
-      setBusy("");
-      const why = await load();
-      setError(failure || why);
-    },
-    [load],
-  );
-
   if (!catalog) {
     return (
       <div class="text-xs text-[#7a7a8c]" data-testid="local-voices">
@@ -285,6 +300,24 @@ export function LocalVoices({
   const voices = catalog.models.filter((m) => m.engine !== "chatterbox" || webGPU);
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   const visible = listed(voices, languages, filters, [chosen, dl?.id]);
+  // The voice in use and the one downloading stay in sight; the rest wait folded, with the filters.
+  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
+  const pinned = visible.filter(inSight);
+  const rest = visible.filter((m) => !inSight(m));
+  const row = (m: LocalModel) => (
+    <VoiceRow
+      key={m.id}
+      m={m}
+      chosen={chosen}
+      pick={pick}
+      loading={loading}
+      dl={dl}
+      busy={busy}
+      sample={sample}
+      act={act}
+      api={api}
+    />
+  );
   return (
     <div class="flex flex-col gap-2 w-full" data-testid="local-voices">
       {!catalog.runtime.installed && (
@@ -294,51 +327,41 @@ export function LocalVoices({
           })}
         </div>
       )}
-      <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
-        <select
-          class={inputCls}
-          aria-label={t("Language")}
-          data-testid="local-voice-language"
-          value={language}
-          onChange={(e) => filter({ language: (e.target as HTMLSelectElement).value })}
-        >
-          <option value="">{t("Every language")}</option>
-          {languages.map((code) => (
-            <option key={code} value={code}>
-              {langName(code)}
-            </option>
-          ))}
-        </select>
-        <select
-          class={inputCls}
-          aria-label={t("Quality")}
-          data-testid="local-voice-quality"
-          value={quality}
-          onChange={(e) => filter({ quality: (e.target as HTMLSelectElement).value })}
-        >
-          <option value="">{t("Every quality")}</option>
-          {QUALITY_FILTERS.map((q) => (
-            <option key={q} value={q}>
-              {qualityLabel(q)}
-            </option>
-          ))}
-        </select>
-      </div>
-      {visible.length === 0 && <div class="text-xs text-[#7a7a8c]">{t("No voice matches these filters.")}</div>}
-      {visible.map((m) => (
-        <VoiceRow
-          key={m.id}
-          m={m}
-          chosen={chosen}
-          pick={pick}
-          loading={loading}
-          dl={dl}
-          busy={busy}
-          sample={sample}
-          act={act}
-          api={api}
-        />
-      ))}
+      {pinned.map(row)}
+      <Collapsed label={tf("Every voice ({n})", { n: String(voices.length) })} testid="local-voice-list">
+        <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
+          <select
+            class={inputCls}
+            aria-label={t("Language")}
+            data-testid="local-voice-language"
+            value={language}
+            onChange={(e) => filter({ language: (e.target as HTMLSelectElement).value })}
+          >
+            <option value="">{t("Every language")}</option>
+            {languages.map((code) => (
+              <option key={code} value={code}>
+                {langName(code)}
+              </option>
+            ))}
+          </select>
+          <select
+            class={inputCls}
+            aria-label={t("Quality")}
+            data-testid="local-voice-quality"
+            value={quality}
+            onChange={(e) => filter({ quality: (e.target as HTMLSelectElement).value })}
+          >
+            <option value="">{t("Every quality")}</option>
+            {QUALITY_FILTERS.map((q) => (
+              <option key={q} value={q}>
+                {qualityLabel(q)}
+              </option>
+            ))}
+          </select>
+        </div>
+        {rest.length === 0 && <div class="text-xs text-[#7a7a8c]">{t("No voice matches these filters.")}</div>}
+        {rest.map(row)}
+      </Collapsed>
       {isSupertonic(chosen) && loading?.gpuError && (
         <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
           {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: loading.gpuError })}

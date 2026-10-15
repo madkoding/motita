@@ -32,6 +32,7 @@ import {
   IconPlug,
   IconShield,
   IconSliders,
+  IconSpeaker,
 } from "./SettingsIcons";
 
 initSettings();
@@ -70,6 +71,7 @@ export type Tab =
   | "appearance"
   | "notifications"
   | "voice"
+  | "speech"
   | "security"
   | "network"
   | "providers"
@@ -93,8 +95,12 @@ function settingsTabs(p: Props): TabInfo[] {
       icon: <IconBell />,
     },
   ];
-  if (p.voice || p.speech) {
-    tabs.push({ id: "voice", label: t("Voice"), icon: <IconMic /> });
+  // Speech input and reading aloud are two tabs: what is heard, and what is said.
+  if (p.voice) {
+    tabs.push({ id: "voice", label: t("Voice input"), icon: <IconMic /> });
+  }
+  if (p.speech) {
+    tabs.push({ id: "speech", label: t("Voice output"), icon: <IconSpeaker /> });
   }
   if (p.security) {
     tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
@@ -114,16 +120,6 @@ function settingsTabs(p: Props): TabInfo[] {
   return tabs;
 }
 
-// VoiceTab is speech input and reading aloud, each where the page has it.
-function VoiceTab({ voice, speech }: Pick<Props, "voice" | "speech">) {
-  return (
-    <>
-      {voice && <VoiceSettings {...voice} />}
-      {speech && <SpeechSettings {...speech} />}
-    </>
-  );
-}
-
 // PANES draw the content of each tab.
 const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
   appearance: (p) => (
@@ -134,7 +130,8 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     />
   ),
   notifications: (p) => <NotifySetting push={p.push} />,
-  voice: (p) => <VoiceTab voice={p.voice} speech={p.speech} />,
+  voice: (p) => p.voice && <VoiceSettings {...p.voice} />,
+  speech: (p) => p.speech && <SpeechSettings {...p.speech} />,
   security: (p) =>
     p.security && (
       <SecuritySettings api={p.security.api} sessionId={p.security.sessionId} />
