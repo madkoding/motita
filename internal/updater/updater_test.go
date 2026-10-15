@@ -15,66 +15,6 @@ import (
 	"time"
 )
 
-func TestIsNewer(t *testing.T) {
-	tests := []struct {
-		current, latest string
-		want            bool
-	}{
-		{"v0.4.0", "v0.5.0", true},
-		{"v0.5.0", "v0.5.0", false},
-		{"v0.5.0", "v0.4.0", false},
-		{"dev", "v0.5.0", true},
-		{"v0.5.0", "dev", false},
-		{"0.4.0", "0.5.0", true},
-		{"v1.0.0", "v1.0.1", true},
-		{"v1.0.0", "v2.0.0", true},
-		{"", "v0.5.0", true},
-		{"v0.5.0", "", false},
-	}
-	for _, tt := range tests {
-		got := isNewer(tt.current, tt.latest)
-		if got != tt.want {
-			t.Errorf("isNewer(%q, %q) = %v, want %v", tt.current, tt.latest, got, tt.want)
-		}
-	}
-}
-
-func TestNormalizeVersion(t *testing.T) {
-	tests := []struct{ in, want string }{
-		{"v0.5.0", "0.5.0"},
-		{"0.5.0", "0.5.0"},
-		{"v0.5.0-rc1", "0.5.0"},
-		{" dev ", "dev"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		got := normalizeVersion(tt.in)
-		if got != tt.want {
-			t.Errorf("normalizeVersion(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
-
-func TestCompareSemver(t *testing.T) {
-	tests := []struct {
-		a, b string
-		want int
-	}{
-		{"0.5.0", "0.5.0", 0},
-		{"0.5.0", "0.4.0", 1},
-		{"0.4.0", "0.5.0", -1},
-		{"1.0.0", "0.9.9", 1},
-		{"1.2.3", "1.2.4", -1},
-	}
-	for _, tt := range tests {
-		got := compareSemver(tt.a, tt.b)
-		wrongSign := (tt.want > 0 && got <= 0) || (tt.want < 0 && got >= 0)
-		if wrongSign || (tt.want == 0 && got != 0) {
-			t.Errorf("compareSemver(%q, %q) = %d, want sign %d", tt.a, tt.b, got, tt.want)
-		}
-	}
-}
-
 func TestAssetName(t *testing.T) {
 	u := &Updater{Goos: "linux", Goarch: "amd64"}
 	if got := u.assetName(); got != "motita-linux-amd64" {

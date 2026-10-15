@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -659,6 +660,9 @@ func (u *Updater) install(tempPath string) error {
 // A current version of "dev" (a build from source without -ldflags) is always
 // considered older than any release tag, so a developer running from source
 // will be offered the upgrade — and can choose to take it or not.
+//
+// Pre-releases order the way semver says (0.5.0-rc1 < 0.5.0-rc2 < 0.5.0), so a
+// release candidate is offered the final release.
 func isNewer(current, latest string) bool {
 	c := normalizeVersion(current)
 	l := normalizeVersion(latest)
@@ -668,18 +672,93 @@ func isNewer(current, latest string) bool {
 	if l == "" {
 		return false
 	}
-	return compareSemver(l, c) > 0
+	return compareVersions(l, c) > 0
 }
 
-// normalizeVersion strips a leading "v" and any trailing build metadata.
+// describeSuffix matches what `git describe --tags` (the Makefile's version) appends to the
+// nearest tag: commits since it and the abbreviated hash. Such a build is the tag plus local work,
+// not a pre-release of it, so the suffix is dropped rather than compared.
+var describeSuffix = regexp.MustCompile(`-[0-9]+-g[0-9a-f]+$`)
+
+// normalizeVersion strips a leading "v", build metadata ("+..."), and the "-dirty" and "-N-gHASH"
+// suffixes git describe adds. A pre-release ("0.5.0-rc1") is kept: it orders below its release.
 func normalizeVersion(v string) string {
 	v = strings.TrimSpace(v)
 	v = strings.TrimPrefix(v, "v")
-	// Strip pre-release suffix for comparison: "0.5.0-rc1" -> "0.5.0".
-	if i := strings.IndexByte(v, '-'); i >= 0 {
+	if i := strings.IndexByte(v, '+'); i >= 0 {
 		v = v[:i]
 	}
+	v = strings.TrimSuffix(v, "-dirty")
+	v = describeSuffix.ReplaceAllString(v, "")
 	return strings.TrimSpace(v)
+}
+
+// compareVersions compares two normalized versions, "x.y.z" with an optional "-pre-release".
+// Returns >0 if a > b, <0 if a < b, 0 if equal.
+func compareVersions(a, b string) int {
+	coreA, preA, _ := strings.Cut(a, "-")
+	coreB, preB, _ := strings.Cut(b, "-")
+	if c := compareSemver(coreA, coreB); c != 0 {
+		return c
+	}
+	return comparePrerelease(preA, preB)
+}
+
+// comparePrerelease orders two pre-release strings by the semver rules: none at all ranks above
+// any, dot-separated identifiers compare left to right (numeric ones numerically and below
+// alphanumeric ones), and a longer list wins when every shared identifier is equal.
+func comparePrerelease(a, b string) int {
+	switch {
+	case a == b:
+		return 0
+	case a == "":
+		return 1
+	case b == "":
+		return -1
+	default:
+		ia := strings.Split(a, ".")
+		ib := strings.Split(b, ".")
+		for i := 0; i < len(ia) && i < len(ib); i++ {
+			if c := compareIdentifier(ia[i], ib[i]); c != 0 {
+				return c
+			}
+		}
+		return len(ia) - len(ib)
+	}
+}
+
+// compareIdentifier compares one pre-release identifier pair.
+func compareIdentifier(a, b string) int {
+	numA, numB := isNumeric(a), isNumeric(b)
+	switch {
+	case numA && numB:
+		// Compared as decimal strings so no length can overflow: without leading zeros, the
+		// longer one is the bigger number.
+		a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+		if len(a) != len(b) {
+			return len(a) - len(b)
+		}
+		return strings.Compare(a, b)
+	case numA:
+		return -1
+	case numB:
+		return 1
+	default:
+		return strings.Compare(a, b)
+	}
+}
+
+// isNumeric reports whether s is a non-empty run of ASCII digits.
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // compareSemver compares two "x.y.z" strings. Returns >0 if a > b, <0 if a < b,
