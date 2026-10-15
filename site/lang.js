@@ -10,7 +10,7 @@
 // Without scripts, or if this file does not load, the page is simply English.
 (function () {
   const KEY = "motita-lang";
-  const LANGS = ["en", "es"];
+  const LANGS = new Set(["en", "es"]);
 
   const STR = {
     es: {
@@ -44,7 +44,7 @@
   function stored() {
     try {
       const v = localStorage.getItem(KEY);
-      if (LANGS.includes(v)) {
+      if (LANGS.has(v)) {
         return v;
       }
     } catch {
@@ -65,7 +65,7 @@
     const list = navigator.languages || [navigator.language || "en"];
     for (const entry of list) {
       const code = String(entry).slice(0, 2).toLowerCase();
-      if (LANGS.includes(code)) {
+      if (LANGS.has(code)) {
         return code;
       }
     }

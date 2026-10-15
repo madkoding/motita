@@ -32,7 +32,7 @@ HEADINGS = ("h1", "h2", "h3")
 class Node:
     """One element: its tag, attributes, children and the text it holds directly."""
 
-    def __init__(self, tag: str, attrs: list, start: int, parent: Node | None) -> None:
+    def __init__(self, tag: str, attrs: list[tuple[str, str | None]], start: int, parent: Node | None) -> None:
         self.tag = tag
         self.attrs = dict(attrs)
         self.start = start
@@ -59,18 +59,18 @@ class Tree(HTMLParser):
         line, col = self.getpos()
         return self.lines[line - 1] + col
 
-    def _add(self, tag: str, attrs: list) -> Node:
+    def _add(self, tag: str, attrs: list[tuple[str, str | None]]) -> Node:
         n = Node(tag, attrs, self.off(), self.cur)
         n.tag_end = n.start + len(self.get_starttag_text() or "")
         self.cur.children.append(n)
         return n
 
-    def handle_starttag(self, tag: str, attrs: list) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         n = self._add(tag, attrs)
         if tag not in VOID:
             self.cur = n
 
-    def handle_startendtag(self, tag: str, attrs: list) -> None:
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self._add(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:
