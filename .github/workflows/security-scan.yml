@@ -149,6 +149,8 @@ jobs:
           # análisis de main, para que el PR vea los mismos hallazgos que verá main al integrarse.
           KEY="${GITHUB_REPOSITORY//\//_}-pr-${PR_NUMBER}"
           echo "SONAR_PR_KEY=$KEY" >> "$GITHUB_ENV"
+          # GITHUB_ENV llega a los pasos siguientes; el script de Python de este paso la lee de aquí.
+          export SONAR_PR_KEY="$KEY"
           ARGS=(-Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" -Dsonar.projectKey="$KEY" -Dsonar.projectName="${GITHUB_REPOSITORY#*/} PR #${PR_NUMBER}"
                 -Dsonar.working.directory="$KV/scannerwork" -Dsonar.scm.revision="$HEAD_SHA")
           if [ ! -f sonar-project.properties ]; then
