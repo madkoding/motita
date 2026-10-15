@@ -11,6 +11,9 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
 const css = src("index.css");
+// The colours of these cards are tokens now (themes.css); the contrast is pinned on the original
+// dark Motita palette, the one in :root, and on the light ones by themes.test.mjs.
+const root = /:root \{([^}]*)\}/.exec(src("themes.css"))[1];
 const app = src("App.tsx");
 
 const AA = 4.5;
@@ -46,11 +49,20 @@ function rule(selector) {
 }
 
 function prop(body, name) {
-  const m = body.match(
-    new RegExp(String.raw`(?:^|[;\s])${name}:\s*(#[0-9a-fA-F]{6})\s*;`),
-  );
-  assert.ok(m, `${name} is a solid #rrggbb colour`);
-  return m[1];
+  const decl = body
+    .split(/[;\n]/)
+    .map((d) => d.trim())
+    .find((d) => d.startsWith(`${name}:`));
+  const m = /:\s*(#[0-9a-fA-F]{6}|var\(--[\w-]+\))$/.exec(decl ?? "");
+  assert.ok(m, `${name} is a solid #rrggbb colour or a token`);
+  const token = /^var\((--[\w-]+)\)$/.exec(m[1]);
+  if (!token) {
+    return m[1];
+  }
+  const line = root.split("\n").find((l) => l.trim().startsWith(`${token[1]}:`));
+  const value = /(#[0-9a-fA-F]{6});/.exec(line ?? "");
+  assert.ok(value, `${token[1]} is a solid colour in :root`);
+  return value[1];
 }
 
 const rgb = (hex) =>

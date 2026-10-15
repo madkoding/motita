@@ -161,6 +161,7 @@ test("the appearance tab offers every choice as one tap and applies it", async (
     tabs.map((t) => [t.id, t.getAttribute(ARIA_SELECTED)]),
     [
       ["settings-tab-appearance", "true"],
+      ["settings-tab-themes", "false"],
       ["settings-tab-notifications", "false"],
       ["settings-tab-git", "false"],
     ],
@@ -346,28 +347,28 @@ test("the git tab lists the accounts, and the arrow keys move between tabs", asy
   const { root, calls, done } = await open();
   const first = root.querySelector("#settings-tab-appearance");
   first.focus();
-  await act(() =>
-    first.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    ),
+  const arrow = (k) =>
+    act(() =>
+      document.activeElement.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k, bubbles: true }),
+      ),
+    );
+  await arrow("ArrowRight");
+  assert.equal(
+    root.querySelector("#settings-tab-themes").getAttribute(ARIA_SELECTED),
+    "true",
+    "the right arrow goes to the next tab",
   );
+  await arrow("ArrowRight");
   assert.equal(
     root
       .querySelector("#settings-tab-notifications")
       .getAttribute(ARIA_SELECTED),
     "true",
-    "the right arrow goes to the next tab",
   );
-  await act(() =>
-    document.activeElement.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
-    ),
-  );
-  await act(() =>
-    document.activeElement.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
-    ),
-  );
+  await arrow("ArrowLeft");
+  await arrow("ArrowLeft");
+  await arrow("ArrowLeft");
   const git = root.querySelector("#settings-tab-git");
   assert.equal(git.getAttribute(ARIA_SELECTED), "true");
   assert.equal(document.activeElement, git, "focus follows the chosen tab");
@@ -411,7 +412,7 @@ test("a tab whose API is absent is not offered", async () => {
   const { root, done } = await open({ git: undefined, langAvailable: false });
   assert.deepEqual(
     [...root.querySelectorAll("[role=tab]")].map((t) => t.id),
-    ["settings-tab-appearance", "settings-tab-notifications"],
+    ["settings-tab-appearance", "settings-tab-themes", "settings-tab-notifications"],
   );
   assert.equal(root.querySelectorAll("[role=radiogroup]").length, 2);
   await done();
