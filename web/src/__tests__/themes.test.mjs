@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import vm from "node:vm";
 import { JSDOM } from "jsdom";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -96,9 +95,10 @@ test("the dark pale-text colours index.css spells out each have a light tone, an
   const light = /html\[data-mode="light"\] \{([^}]*)\}/.exec(themes)[1];
   const reset = /term-drawer\) \{\s*(--k-[^}]*)\}/.exec(themes)[1];
   for (const k of used) {
-    const m = new RegExp(`${k}:\\s*(#[0-9a-f]{6});`).exec(light);
-    assert.ok(m, `${k} has a light tone`);
-    assert.ok(contrast(m[1], "#dee1e6") >= AA, `${k} ${m[1]} is readable on a light surface`);
+    const line = light.split("\n").find((l) => l.trim().startsWith(`${k}:`));
+    assert.ok(line, `${k} has a light tone`);
+    const tone = line.split(":")[1].replace(";", "").trim();
+    assert.ok(contrast(tone, "#dee1e6") >= AA, `${k} ${tone} is readable on a light surface`);
     assert.ok(reset.includes(`${k}: initial;`), `${k} goes back inside code and terminals`);
   }
 });
@@ -121,7 +121,7 @@ test("the page loads theme-init.js before anything paints, and the two theme lis
 function run({ saved, prefersLight = false, broken = false }) {
   const dom = new JSDOM(
     '<!doctype html><html style="color-scheme: dark"><head><meta name="color-scheme" content="dark"><meta name="theme-color" content="#0a0a0f"></head></html>',
-    { url: "http://localhost/", runScripts: "outside-only" },
+    { url: "http://localhost/", runScripts: "dangerously" },
   );
   const w = dom.window;
   w.matchMedia = () => ({ matches: prefersLight });
@@ -131,7 +131,9 @@ function run({ saved, prefersLight = false, broken = false }) {
   if (broken) {
     Object.defineProperty(w, "localStorage", { get() { throw new Error("denied"); } });
   }
-  vm.runInContext(read("public", "theme-init.js"), dom.getInternalVMContext());
+  const script = w.document.createElement("script");
+  script.textContent = read("public", "theme-init.js");
+  w.document.head.append(script);
   const root = w.document.documentElement;
   return {
     mode: root.dataset.mode,
@@ -159,6 +161,6 @@ test("theme-init.js applies the saved theme before the first paint, like theme.t
 test("the names the picker shows are translated", () => {
   const es = read("src", "i18n.es.ts");
   for (const key of ["Themes", "Mode", "Color scheme", "Follow the system", "Light", "Dark", "Violet", "Forest", "Amber", "Rose", "Graphite"]) {
-    assert.match(es, new RegExp(`(^|\\n)\\s*"?${key}"?: "`), key);
+    assert.ok(es.includes(`  ${key}: "`) || es.includes(`  "${key}": "`), key);
   }
 });
