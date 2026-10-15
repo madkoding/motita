@@ -129,6 +129,21 @@ if [ "$root" = site ]; then
   printf 'the version marker the deploy rewrites is present, exactly once\n'
 fi
 
+# --- the generated documentation pages ----------------------------------------
+# site/docs*.html come from scripts/gen-docs.mjs; an edit made to the HTML by hand
+# (or to the generator without regenerating) would otherwise ship silently.
+if [ "$root" = site ] && command -v node >/dev/null 2>&1; then
+  node scripts/gen-docs.mjs --check
+fi
+
+# --- the Spanish of the home page ---------------------------------------------
+# Every text element of site/index.html carries its Spanish in data-es (see
+# site/lang.js); an English edit without its translation would otherwise leave a
+# visitor in Spanish reading English in the middle of a page.
+if [ "$root" = site ] && command -v python3 >/dev/null 2>&1; then
+  python3 scripts/index_units.py --check
+fi
+
 cd "$root"
 
 missing=0

@@ -7,6 +7,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/i18n"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // THE INTERFACE LANGUAGE, as one setting for every face of the program.
@@ -81,4 +82,10 @@ func (s *Server) handlePutUI(w http.ResponseWriter, r *http.Request) {
 	s.uiLanguage = lang
 	s.uiMu.Unlock()
 	writeJSON(w, http.StatusOK, viewOfUI(lang))
+}
+
+// localizeLLM puts the provider-failure sentences in text into the interface's language, so the
+// web shows "La clave de API fue rechazada" and not the English line. Other text is untouched.
+func (s *Server) localizeLLM(text string) string {
+	return llm.Localize(i18n.Lang(viewOfUI(s.uiSetting()).Resolved), text)
 }

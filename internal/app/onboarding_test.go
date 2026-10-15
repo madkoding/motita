@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/madkoding/motita/internal/gateway"
 	"io"
 	"os"
 	"path/filepath"
@@ -386,4 +387,86 @@ func TestAutoOnboardingWizardFailure(t *testing.T) {
 			t.Fatalf("code = %d, want ConfigError; errs = %q", code, errs.String())
 		}
 	})
+}
+
+// --- The last step of `motita config` ---------------------------------------
+
+// wizardChoosing is a wizard that writes a loadable file and reports the user's answer to the
+// last question.
+func wizardChoosing(t *testing.T, next onboard.Next) func(
+	context.Context, io.Reader, io.Writer, string, onboard.Answers,
+) (onboard.Result, error) {
+	t.Helper()
+	return func(_ context.Context, _ io.Reader, _ io.Writer, path string, _ onboard.Answers) (onboard.Result, error) {
+		if err := os.WriteFile(path, []byte("anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  "+
+			"api_key: test\n  model: gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return onboard.Result{ConfigPath: path, Provider: onboard.Providers()[0], Model: "m", Next: next}, nil
+	}
+}
+
+// TestConfigEndsAsBeforeWhenNothingWasChosen: the zero answer is to exit, so a script or a
+// terminal-less run neither opens the interface nor starts a gateway.
+func TestConfigEndsAsBeforeWhenNothingWasChosen(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		tuiOpened := false
+		code := Run(Options{
+			Args: []string{"config", "-config", path}, Out: io.Discard, Err: io.Discard,
+			RunOnboard: wizardChoosing(t, onboard.NextExit),
+			RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+				tuiOpened = true
+				return Success
+			},
+		})
+		if code != Success || tuiOpened {
+			t.Fatalf("code = %d, tuiOpened = %v; want a plain exit", code, tuiOpened)
+		}
+	})
+}
+
+// TestConfigContinuesInTheTUIWhenAsked: choosing the first option opens the interface with the
+// setup that was just saved.
+func TestConfigContinuesInTheTUIWhenAsked(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		tuiOpened := false
+		code := Run(Options{
+			Args: []string{"config", "-config", path}, Out: io.Discard, Err: io.Discard,
+			RunOnboard: wizardChoosing(t, onboard.NextTUI),
+			RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+				tuiOpened = true
+				return Success
+			},
+		})
+		if code != Success || !tuiOpened {
+			t.Fatalf("code = %d, tuiOpened = %v; want the interface opened", code, tuiOpened)
+		}
+	})
+}
+
+// TestConfigStartsTheGatewayWhenAsked: choosing the second option goes through `gateway start`,
+// so the same single-instance rule applies and it is not spawned a second time.
+func TestConfigStartsTheGatewayWhenAsked(t *testing.T) {
+	out := &syncBuffer{}
+	servicePath := filepath.Join(t.TempDir(), "gateway.json")
+	_, address := fakeGatewayProcess(t, nil)
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 777},
+	); err != nil {
+		t.Fatalf("WriteServiceFile: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	op := gatewayTestOptions(t, out, "", "config", "-config", path)
+	op.ServiceFile = servicePath
+	op.RunOnboard = wizardChoosing(t, onboard.NextGateway)
+	if code := Run(op); code != Success {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "a gateway is already running at") {
+		t.Fatalf("the gateway was not started through `gateway start`: %q", out.String())
+	}
 }

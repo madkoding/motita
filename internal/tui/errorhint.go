@@ -4,17 +4,20 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // errorText is how a failed turn is reported: the error as it happened, and - when it is one of the
 // failures a newcomer meets first - one sentence on what to do about it.
 //
-// The raw error stays first and whole. It is the evidence, and a hint that replaced it would be
+// The error stays first. For a provider's failure it is already a readable sentence (the provider's
+// own JSON goes to the logs); a hint that replaced it would be
 // the interface guessing in place of the program reporting. The hint only adds the step the error
 // leaves out: "connection refused" is accurate, and it does not say that the Ollama server is not
 // running or which command starts it.
 func (t *TUI) errorText(err error) string {
 	text := t.trf("error: %v", err)
+	text = llm.Localize(t.Lang, text)
 	if hint := t.errorHint(err); hint != "" {
 		// The hints are fixed sentences, translated as they are; the one built around the
 		// provider's name is translated where it is built.
@@ -37,7 +40,8 @@ func (t *TUI) errorHint(err error) string {
 		return false
 	}
 	switch {
-	case has("connection refused", "no such host", "i/o timeout", "network is unreachable", "dial tcp"):
+	case has("connection refused", "no such host", "i/o timeout", "network is unreachable", "dial tcp",
+		"could not reach the provider"):
 		return unreachableHint(llmCfg)
 	case has("already in progress"):
 		return "hint: the previous task is still stopping. Wait a moment and send it again."
