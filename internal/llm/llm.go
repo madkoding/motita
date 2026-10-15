@@ -240,7 +240,7 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 			// A credentials or request error does not improve by retrying:
 			// fail fast instead of burning time and quota.
 			c.log.Error("LLM call failed with no possibility of retry",
-				"attempt", attempt, "error", err)
+				"attempt", attempt, "error", err, "detail", Detail(err))
 			return "", err
 		}
 		if attempt == c.cfg.MaxAttempts {
@@ -249,7 +249,7 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 
 		c.log.Warn("retrying LLM call",
 			"attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
-			"wait", wait.String(), "error", err)
+			"wait", wait.String(), "error", err, "detail", Detail(err))
 
 		select {
 		case <-ctx.Done():
@@ -293,7 +293,8 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 			}
 			last = err
 			if !retryable(err) {
-				c.log.Error("LLM tool stream failed with no possibility of retry", "attempt", attempt, "error", err)
+				c.log.Error("LLM tool stream failed with no possibility of retry",
+					"attempt", attempt, "error", err, "detail", Detail(err))
 				out <- StreamChunk{Event: StreamError, Error: err}
 				return
 			}
@@ -348,7 +349,7 @@ func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools
 
 		if !retryable(err) {
 			c.log.Error("LLM tool call failed with no possibility of retry",
-				"attempt", attempt, "error", err)
+				"attempt", attempt, "error", err, "detail", Detail(err))
 			return empty, err
 		}
 		if attempt == c.cfg.MaxAttempts {
@@ -357,7 +358,7 @@ func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools
 
 		c.log.Warn("retrying LLM tool call",
 			"attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
-			"wait", wait.String(), "error", err)
+			"wait", wait.String(), "error", err, "detail", Detail(err))
 
 		select {
 		case <-ctx.Done():
@@ -375,10 +376,6 @@ func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools
 type HTTPError struct {
 	Code int
 	Body string
-}
-
-func (e *HTTPError) Error() string {
-	return fmt.Sprintf("HTTP %d: %s", e.Code, truncate(e.Body, 400))
 }
 
 // retryable says whether it is worth trying again.
