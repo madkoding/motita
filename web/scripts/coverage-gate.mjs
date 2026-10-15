@@ -40,19 +40,28 @@ function parse(text) {
   let cur;
   for (const line of text.split("\n")) {
     const [tag, rest = ""] = line.split(/:(.*)/s);
-    if (tag === "SF") {
-      cur = { lines: [], branches: [] };
-      files.set(rest, cur);
-    } else if (tag === "DA") {
-      const [n, hits] = rest.split(",").map(Number);
-      if (hits === 0) {
-        cur.lines.push(n);
+    switch (tag) {
+      case "SF":
+        cur = { lines: [], branches: [] };
+        files.set(rest, cur);
+        break;
+      case "DA": {
+        const [n, hits] = rest.split(",").map(Number);
+        if (hits === 0) {
+          cur.lines.push(n);
+        }
+        break;
       }
-    } else if (tag === "BRDA") {
-      const [n, , , hits] = rest.split(",");
-      if (hits === "0" || hits === "-") {
-        cur.branches.push(Number(n));
+      case "BRDA": {
+        const [n, , , hits] = rest.split(",");
+        if (hits === "0" || hits === "-") {
+          cur.branches.push(Number(n));
+        }
+        break;
       }
+      default:
+        // Totals (LF, LH, BRF...) and function records: the gate reads lines and branches only.
+        break;
     }
   }
   return files;
