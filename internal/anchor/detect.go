@@ -142,7 +142,7 @@ var makeTarget = regexp.MustCompile(`(?m)^([A-Za-z0-9_.-]+)[ 	]*:[ 	]*(.*)$`)
 // whole gate" (in the repository this was written in, `check` runs fmt-check, vet
 // AND test), and a project that has one has said which is the fuller check.
 func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
-	body, ok := readIfPresent(a.dir, "Makefile")
+	makefile, body, ok := a.makefile()
 	if !ok {
 		return nil
 	}
@@ -157,15 +157,37 @@ func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
 	for _, name := range []string{"check", "test"} {
 		if targets[name] {
 			return []config.Check{{
-				Name:       name,
-				Command:    "make",
-				Args:       []string{name},
+				Name:    name,
+				Command: "make",
+				// `-f <makefile>` names the file the target was read from. Without it `make`
+				// reads whichever of GNUmakefile, makefile and Makefile comes FIRST, so an agent
+				// that writes a GNUmakefile beside a Makefile makes `make check` run its target,
+				// not the one detection saw - a false PASS. The file is named so the gate that
+				// runs is the gate that was read.
+				Args:       []string{"-f", makefile, name},
 				Timeout:    timeout,
 				ExpectExit: 0,
 			}}
 		}
 	}
 	return nil
+}
+
+// makefileNames are the files GNU make reads, in the order it prefers them: it uses the FIRST that
+// exists, so a GNUmakefile shadows a makefile, which shadows a Makefile. Detection and the gate
+// fingerprint both go through this order, so the file the gate runs is the one make would pick and
+// a higher-priority file appearing later changes the fingerprint.
+var makefileNames = []string{"GNUmakefile", "makefile", "Makefile"}
+
+// makefile returns the makefile GNU make would read in the anchor's directory - its name and body
+// - or reports that there is none.
+func (a *Anchor) makefile() (name, body string, ok bool) {
+	for _, name := range makefileNames {
+		if body, ok := readIfPresent(a.dir, name); ok {
+			return name, body, true
+		}
+	}
+	return "", "", false
 }
 
 // goChecks uses the toolchain's own test command.
@@ -268,11 +290,16 @@ func (a *Anchor) GateFingerprint() string {
 	for _, c := range a.detectChecks() {
 		fmt.Fprintf(h, "check %q %q %q %d %q\n", c.Name, c.Command, c.Args, c.ExpectExit, c.ExpectOutput)
 	}
-	for _, name := range []string{declaredGateFile, "Makefile"} {
+	// Every makefile make could read, not only Makefile: writing a GNUmakefile or a makefile
+	// beside a Makefile is how the gate was made to run a different target (make prefers them),
+	// so each one's presence and content is part of what the caller compares.
+	names := append([]string{declaredGateFile}, makefileNames...)
+	for _, name := range names {
 		body, ok := readIfPresent(a.dir, name)
 		fmt.Fprintf(h, "file %s %t %d\n%s\n", name, ok, len(body), body)
 	}
-	// Only the scripts: a dependency added to package.json changes nothing the gate runs.
+	// Only the scripts: a dependency added to package.json changes nothing the gate runs. The
+	// .npmrc is included because it can change how `npm run` resolves and runs those scripts.
 	if body, ok := readIfPresent(a.dir, "package.json"); ok {
 		var pkg struct {
 			Scripts map[string]string `json:"scripts"`
@@ -280,6 +307,8 @@ func (a *Anchor) GateFingerprint() string {
 		_ = json.Unmarshal([]byte(body), &pkg)
 		scripts, _ := json.Marshal(pkg.Scripts)
 		fmt.Fprintf(h, "scripts %s\n", scripts)
+		npmrc, present := readIfPresent(a.dir, ".npmrc")
+		fmt.Fprintf(h, "npmrc %t %d\n%s\n", present, len(npmrc), npmrc)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
