@@ -75,8 +75,8 @@ func (s *Server) projectRemote(ctx context.Context, c *conversation) string {
 	if p := s.projectOf(c.projectID); p != nil && strings.TrimSpace(p.GitURL) != "" {
 		return strings.TrimSpace(p.GitURL)
 	}
-	cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", c.workspace}, gitx.HardeningFor(ctx, c.workspace)...),
-		"remote", "get-url", "origin")...)
+	gitArgs := append([]string{"-C", c.workspace}, gitx.HardeningFor(ctx, c.workspace)...)
+	cmd := exec.CommandContext(ctx, "git", append(gitArgs, "remote", "get-url", "origin")...)
 	cmd.Env = s.gitCommandEnv()
 	out, err := cmd.Output()
 	if err != nil {
@@ -325,7 +325,8 @@ func (s *Server) syncProject(ctx context.Context, c *conversation, base string) 
 	ctx, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
 	for _, args := range [][]string{{"fetch", "origin", base}, {"merge", "--ff-only", "origin/" + base}} {
-		cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", p.Dir}, gitx.HardeningFor(ctx, p.Dir)...), args...)...)
+		gitArgs := append(append([]string{"-C", p.Dir}, gitx.HardeningFor(ctx, p.Dir)...), args...)
+		cmd := exec.CommandContext(ctx, "git", gitArgs...)
 		cmd.Env = s.gitCommandEnv()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			if s.opts.Log != nil {

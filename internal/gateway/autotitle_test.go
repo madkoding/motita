@@ -22,7 +22,9 @@ func (t *titleService) GenerateTitle(ctx context.Context, first string) string {
 
 // newTitleServer is a server whose default conversation is untitled and has a first message, which
 // is exactly the state the first run of every new session ends in.
-func newTitleServer(t *testing.T, generate func(context.Context, string) string) (*Server, *conversation, *titleService) {
+func newTitleServer(
+	t *testing.T, generate func(context.Context, string) string,
+) (*Server, *conversation, *titleService) {
 	t.Helper()
 	svc := &titleService{
 		fakeService: &fakeService{

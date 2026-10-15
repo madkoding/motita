@@ -134,10 +134,9 @@ func (w *Watcher) FireDue(ctx context.Context) []string {
 			rec.RunCount++
 			rec.LastOutcome = outcome
 		})
-		switch {
-		case err != nil:
+		if err != nil {
 			w.log.Warn("could not record the firing", "id", s.ID, "error", err.Error())
-		case !found:
+		} else if !found {
 			w.log.Info("a scheduled task was deleted while it ran; its firing is not recorded", "id", s.ID)
 		}
 		fired = append(fired, s.ID)

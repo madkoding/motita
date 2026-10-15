@@ -285,9 +285,7 @@ func (s *Server) startNotedRun(
 // only after the auto-title's model call and the final save, so that message was answered 409 "a
 // run is already in progress". With the slot free before the event, whoever sees the end of a run
 // can start the next one.
-func (s *Server) closeRun(c *conversation, rn *run, event string, payload any,
-	outcome, result, errText string, snap session.Snapshot,
-) {
+func (s *Server) closeRun(c *conversation, rn *run, end runEnd) {
 	// The record says whether this run was INTERRUPTED or ENDED, and getting that wrong
 	// is what lost sessions. The slot is still held here, so a plain save writes
 	// running=true - which is right when the gateway is closing (the run did not end,
@@ -301,8 +299,18 @@ func (s *Server) closeRun(c *conversation, rn *run, event string, payload any,
 		s.saveSession(c)
 	}
 	c.endRun(rn)
-	rn.append(event, payload)
-	rn.finish(outcome, result, errText, snap)
+	rn.append(end.event, end.payload)
+	rn.finish(end.outcome, end.result, end.errText, end.snap)
+}
+
+// runEnd is how a run ended: the last event its clients get, and what its done channel reports.
+type runEnd struct {
+	event   string
+	payload any
+	outcome string
+	result  string
+	errText string
+	snap    session.Snapshot
 }
 
 // executeTurn runs the turn's task, or plan, in the conversation. The checkpoint is taken BEFORE
@@ -360,7 +368,7 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 		out.Files = done.Changes.Files
 	}
 	c.recordOutcome(rn.turn, out)
-	s.closeRun(c, rn, EventDone, done, "done", result, "", snap)
+	s.closeRun(c, rn, runEnd{event: EventDone, payload: done, outcome: "done", result: result, snap: snap})
 	s.autoTitle(c)
 }
 
@@ -368,7 +376,7 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 // conversation opened again still says why it stopped.
 func (s *Server) reportFailed(c *conversation, rn *run, outcome, msg string) {
 	c.recordOutcome(rn.turn, turnOutcome{Error: msg})
-	s.closeRun(c, rn, EventError, map[string]string{"error": msg}, outcome, "", msg, session.Snapshot{})
+	s.closeRun(c, rn, runEnd{event: EventError, payload: map[string]string{"error": msg}, outcome: outcome, errText: msg})
 }
 
 // approverFactory adapts approverFor to the factory startDetachedRun takes.

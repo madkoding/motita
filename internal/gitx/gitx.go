@@ -185,6 +185,29 @@ var dangerousConfigKeys = map[string]bool{
 	"sendemail.sendmailcmd": true,
 }
 
+// commandFilterVars are the variables of a filter driver that run a command.
+var commandFilterVars = map[string]bool{"clean": true, "smudge": true, "process": true}
+
+// commandVars are, per section, the variables of a subsectioned key (diff.x.textconv) that name
+// a command git runs; emptying them disarms it.
+var commandVars = map[string]map[string]bool{
+	"diff":       {"textconv": true, "command": true},
+	"merge":      {"driver": true},
+	"trailer":    {"command": true, "cmd": true},
+	"gpg":        {"program": true, "defaultkeycommand": true},
+	"credential": {"helper": true},
+	"remote":     {"uploadpack": true, "receivepack": true},
+}
+
+// specialOverrides are the keys an empty value cannot disarm. protocol.ext.allow takes a policy,
+// and "never" is the one that forbids the transport that runs a command. core.gitProxy is a list
+// in which the first match wins, so a later value cannot replace the repository's: the git://
+// transport that would run it is forbidden instead.
+var specialOverrides = map[string]string{
+	"protocol.ext.allow": "protocol.ext.allow=never",
+	"core.gitproxy":      "protocol.git.allow=never",
+}
+
 // neutralize returns the -c overrides that disarm one config variable, or nothing when the
 // variable runs no command. git lower-cases a config section and variable but keeps the
 // subsection (the quoted middle of filter."name".clean) as written, so the name is matched
@@ -199,35 +222,16 @@ func neutralize(name string) []string {
 	if i := strings.LastIndexByte(lower, '.'); i >= 0 {
 		last = lower[i+1:]
 	}
-	switch {
-	case first == "filter" && (last == "clean" || last == "smudge" || last == "process"):
+	if first == "filter" && commandFilterVars[last] {
 		// A required filter whose command is emptied would make `git add` fail closed rather
 		// than run it; dropping the requirement keeps the snapshot working while the command
 		// is gone.
 		return []string{"-c", name + "=", "-c", "filter." + subsectionOf(name) + ".required=false"}
-	case first == "diff" && (last == "textconv" || last == "command"):
-		return []string{"-c", name + "="}
-	case first == "merge" && last == "driver":
-		return []string{"-c", name + "="}
-	case first == "trailer" && (last == "command" || last == "cmd"):
-		return []string{"-c", name + "="}
-	case first == "gpg" && (last == "program" || last == "defaultkeycommand"):
-		return []string{"-c", name + "="}
-	case first == "credential" && last == "helper":
-		return []string{"-c", name + "="}
-	case first == "remote" && (last == "uploadpack" || last == "receivepack"):
-		return []string{"-c", name + "="}
-	case first == "uploadpack" || first == "receivepack":
-		return []string{"-c", name + "="}
-	case lower == "protocol.ext.allow":
-		// An empty value is not a valid policy; "never" is the one that forbids the transport
-		// that runs a command.
-		return []string{"-c", name + "=never"}
-	case lower == "core.gitproxy":
-		// core.gitProxy is a list in which the first match wins, so a later value cannot
-		// replace the repository's. The git:// transport that would run it is forbidden instead.
-		return []string{"-c", "protocol.git.allow=never"}
-	case dangerousConfigKeys[lower]:
+	}
+	if override, ok := specialOverrides[lower]; ok {
+		return []string{"-c", override}
+	}
+	if commandVars[first][last] || first == "uploadpack" || first == "receivepack" || dangerousConfigKeys[lower] {
 		return []string{"-c", name + "="}
 	}
 	return nil
