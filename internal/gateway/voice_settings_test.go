@@ -141,6 +141,14 @@ func TestVoiceSettingsRefusals(t *testing.T) {
 	if w := sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{not json`); w.Code != http.StatusBadRequest {
 		t.Errorf("bad body = %d", w.Code)
 	}
+	// A key may not travel in clear text to a remote host, the rule llm.base_url follows.
+	t.Setenv("MOTITA_VOICE_ENABLED", "")
+	t.Setenv("MOTITA_VOICE_API_KEY", "")
+	w := sendNetwork(t, srv, http.MethodPut, "/v1/voice", `{"enabled":true,"confirm":true,`+
+		`"base_url":"http://stt.example.com/v1","api_key":"k"}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "plain http") {
+		t.Errorf("clear text = %d %s", w.Code, w.Body.String())
+	}
 	old := setVoice
 	setVoice = func(string, config.VoiceChange) (config.Config, error) {
 		return config.Config{}, errors.New("disk full")

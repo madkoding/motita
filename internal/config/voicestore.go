@@ -56,6 +56,14 @@ func SetVoice(path string, ch VoiceChange) (Config, error) {
 		err = fmt.Errorf("MOTITA_VOICE_ENABLED in the gateway's environment overrides voice.enabled: " +
 			"remove it from the environment, or change it there")
 	}
+	if err == nil && ch.APIKey != nil {
+		// The new key is stored after the file, so the load above validated the old one. Checked
+		// here against the new key, so a key bound for a plain-http remote endpoint is refused
+		// before anything is kept, instead of leaving a configuration that no longer loads.
+		probe := cfg
+		probe.Voice.APIKey = strings.TrimSpace(*ch.APIKey)
+		err = probe.validateVoice()
+	}
 	if err != nil {
 		if rerr := writeConfigAtomic(path, body, mode); rerr != nil {
 			return Config{}, fmt.Errorf("%w (and the file could not be restored: %v)", err, rerr)

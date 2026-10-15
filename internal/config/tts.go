@@ -121,8 +121,5 @@ func (c *Config) validateTTS() error {
 		return fmt.Errorf("voice.tts.base_url is empty and the %s provider has no speech endpoint: "+
 			"name one (an OpenAI-compatible /audio/speech)", c.LLM.Provider)
 	}
-	if !httpURL(base) {
-		return fmt.Errorf("voice.tts.base_url %q is not an http(s) URL", base)
-	}
-	return nil
+	return checkKeyedEndpoint("voice.tts.base_url", base, c.TTSAPIKey())
 }

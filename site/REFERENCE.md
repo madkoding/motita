@@ -1279,7 +1279,9 @@ voice:
 - **Transcription service**: the gateway forwards the recording to
   `POST {base_url}/audio/transcriptions` (the OpenAI transcription API, which OpenAI, Groq and a
   local `whisper-server` answer) and returns the text. The audio is held in memory for that one
-  request and never written to disk.
+  request and never written to disk. As with the language model, a key is never sent in clear
+  text: a plain `http://` `voice.base_url` or `voice.tts.base_url` is refused when a key would go
+  to it, unless it points at this machine or a private network address.
 
 Before anything is chosen, a browser with a downloaded model listens itself, and one without uses
 the transcription service when it is on.
@@ -1309,7 +1311,7 @@ once, without a restart. `motita doctor` and `motita gateway setup` say when it 
 | Endpoint                    | What it does                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/voice`             | `{"enabled":true,"wake_phrases":["hey motita"],"max_audio_bytes":10485760}`                                                                                                                                                                                                                                       |
-| `PUT /v1/voice`             | `{"enabled":true,"confirm":true,"base_url":"...","model":"...","api_key":"...","wake_phrases":[...]}`; every field but `enabled` is optional. `confirm` is required to turn it on or change `base_url`. Answers `GET` plus `can_save`, `saved` (the file's block, `has_key` instead of the key) and `restart_needed`.                                    |
+| `PUT /v1/voice`             | `{"enabled":true,"confirm":true,"base_url":"...","model":"...","api_key":"...","wake_phrases":[...]}`; every field but `enabled` is optional. `confirm` is required to turn it on or change `base_url`; `400` for a key bound for plain http to a remote host. Answers `GET` plus `can_save`, `saved` (the file's block, `has_key` instead of the key) and `restart_needed`.                                    |
 | `POST /v1/voice/transcribe` | The raw recording as the body, typed by `Content-Type` (`audio/webm`, `audio/mp4`, `audio/wav`, ...). `{"text":"..."}`; with `?wake=1` also `"wake":{"phrase","rest"}` when one opened it. `415` for another type, `413` over the cap, `501` when voice is off, `502` with the endpoint's answer when it refused. |
 | `POST /v1/voice/wake`      | `{"text":"..."}`, a text the browser transcribed itself. Answers `{"text":"..."}`, with `"wake":{"phrase","rest"}` when a wake phrase opened it. Needs no transcription service. |
 
