@@ -3852,6 +3852,53 @@ html[data-keyboard="open"] .app-shell {
     text-align: center;
     white-space: normal;
   }
+  /* Compact: the same tabs, a tighter box. */
+  html[data-density="compact"] .settings-tab {
+    min-height: 0;
+    gap: 0.125rem;
+    padding: 0.25rem 0.25rem;
+  }
+  /* The row fades at the edge that has more tabs behind it. It follows the scroll, so nothing fades
+   * when they all fit or at the end that is already showing. Without scroll timelines: no fade. */
+  @supports (animation-timeline: scroll()) {
+    .settings-nav {
+      mask-image: linear-gradient(
+        to right,
+        transparent 0,
+        #000 var(--tabs-fade-l),
+        #000 calc(100% - var(--tabs-fade-r)),
+        transparent 100%
+      );
+      animation: tabs-fade linear both;
+      animation-timeline: scroll(self inline);
+    }
+  }
+}
+@property --tabs-fade-l {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --tabs-fade-r {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes tabs-fade {
+  0% {
+    --tabs-fade-l: 0px;
+    --tabs-fade-r: 1.5rem;
+  }
+  5% {
+    --tabs-fade-l: 1.5rem;
+  }
+  95% {
+    --tabs-fade-r: 1.5rem;
+  }
+  100% {
+    --tabs-fade-l: 1.5rem;
+    --tabs-fade-r: 0px;
+  }
 }
 .settings-tab[aria-selected="true"] {
   color: var(--t1);
