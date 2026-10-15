@@ -371,8 +371,16 @@ const esc = (s) =>
 
 // English is the default and keeps the short names (docs.html, docs-<slug>.html);
 // Spanish sits beside it as docs-es.html and docs-es-<slug>.html.
-const file = (lang, p) =>
-  `docs${lang === "es" ? "-es" : ""}${p ? `-${p.slug}` : ""}.html`;
+function file(lang, p) {
+  let name = "docs";
+  if (lang === "es") {
+    name += "-es";
+  }
+  if (p) {
+    name += "-" + p.slug;
+  }
+  return name + ".html";
+}
 
 const ui = {
   en: {
@@ -422,8 +430,10 @@ const ui = {
 };
 
 // A page in one language: the English data, overlaid with its translation.
-const view = (lang, p, i) => {
-  if (lang === "en") return p;
+function view(lang, p) {
+  if (lang === "en") {
+    return p;
+  }
   const t = es[p.slug];
   return {
     ...p,
@@ -432,39 +442,68 @@ const view = (lang, p, i) => {
     body: t.body,
     more: p.more.map(([, url], k) => [t.more[k], url]),
   };
-};
+}
 
 const brand = `<svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>`;
+
+function currentAttr(current) {
+  if (current) {
+    return ' aria-current="page"';
+  }
+  return "";
+}
+
+// A previous/next card, or an empty spacer when there is none.
+function pnCard(lang, kind, label, target) {
+  if (!target) {
+    return "<span></span>";
+  }
+  const [page, title] = target;
+  return `<a class="${kind}" href="${file(lang, page)}"><span>${label}</span>${esc(title)}</a>`;
+}
+
+// The page before and after, as [page, title] (a null page is the overview).
+function neighbours(lang, list, currentIndex) {
+  const t = ui[lang];
+  let prev = null;
+  if (currentIndex === 0) {
+    prev = [null, t.overview];
+  } else if (currentIndex > 0) {
+    prev = [pages[currentIndex - 1], list[currentIndex - 1].title];
+  }
+  let next = null;
+  if (currentIndex + 1 < pages.length) {
+    next = [pages[currentIndex + 1], list[currentIndex + 1].title];
+  }
+  return { prev, next };
+}
 
 // currentIndex: -1 for the overview, otherwise the page's position.
 function layout({ lang, title, description, currentIndex, main }) {
   const t = ui[lang];
-  const list = pages.map((p, i) => view(lang, p, i));
+  const list = pages.map((p) => view(lang, p));
   const link = (target, label, current) =>
-    `<a href="${file(lang, target)}"${current ? ' aria-current="page"' : ""}>${esc(label)}</a>`;
+    `<a href="${file(lang, target)}"${currentAttr(current)}>${esc(label)}</a>`;
   const side = [
     link(null, t.overview, currentIndex === -1),
     ...list.map((p, i) => link(pages[i], p.title, currentIndex === i)),
   ].join("\n          ");
-  const prev =
-    currentIndex === -1
-      ? null
-      : currentIndex === 0
-        ? [null, t.overview]
-        : [pages[currentIndex - 1], list[currentIndex - 1].title];
-  const next =
-    currentIndex + 1 < pages.length
-      ? [pages[currentIndex + 1], list[currentIndex + 1].title]
-      : null;
-  const pn =
-    prev || next
-      ? `<nav class="pn" aria-label="${esc(t.prevNext)}">
-        ${prev ? `<a class="prev" href="${file(lang, prev[0])}"><span>${t.prev}</span>${esc(prev[1])}</a>` : "<span></span>"}
-        ${next ? `<a class="next" href="${file(lang, next[0])}"><span>${t.next}</span>${esc(next[1])}</a>` : "<span></span>"}
-      </nav>`
-      : "";
-  const otherLang = lang === "en" ? "es" : "en";
-  const here = currentIndex === -1 ? null : pages[currentIndex];
+  const { prev, next } = neighbours(lang, list, currentIndex);
+  let pn = "";
+  if (prev || next) {
+    pn = `<nav class="pn" aria-label="${esc(t.prevNext)}">
+        ${pnCard(lang, "prev", t.prev, prev)}
+        ${pnCard(lang, "next", t.next, next)}
+      </nav>`;
+  }
+  let otherLang = "en";
+  if (lang === "en") {
+    otherLang = "es";
+  }
+  let here = null;
+  if (currentIndex >= 0) {
+    here = pages[currentIndex];
+  }
   const alt = file(otherLang, here);
   return `<!doctype html>
 <html lang="${lang}">
@@ -536,7 +575,7 @@ const out = {};
 
 for (const lang of ["en", "es"]) {
   const t = ui[lang];
-  const list = pages.map((p, i) => view(lang, p, i));
+  const list = pages.map((p) => view(lang, p));
 
   out[file(lang, null)] = layout({
     lang,
@@ -595,5 +634,7 @@ for (const [name, html] of Object.entries(out)) {
     writeFileSync(path, html);
   }
 }
-if (stale) process.exit(1);
+if (stale) {
+  process.exit(1);
+}
 console.info(check ? "docs pages are up to date" : `wrote ${Object.keys(out).length} docs pages`);
