@@ -1,0 +1,43 @@
+name: Go environment
+description: >-
+  Go toolchain (from go.mod), the embedded web UI assets built once by the `web` job, and the
+  Go build cache restored. Pair it with go-cache-save as the job's last step.
+inputs:
+  cache-key:
+    description: Cache key prefix, per job (and per target); the hash of go.mod and the Go files is appended.
+    required: true
+  cache-paths:
+    description: Paths the cache holds.
+    default: |
+      ~/.cache/go-build
+      ~/go/pkg/mod
+  web-assets:
+    description: Download and unpack the web UI assets (jobs that embed the UI).
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - if: inputs.web-assets == 'true'
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: webui-assets
+
+    - if: inputs.web-assets == 'true'
+      name: Unpack the embedded assets
+      shell: bash
+      run: tar -C internal/webui -xf webui-assets.tar && rm webui-assets.tar
+
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: false
+
+    # Restored on every ref but tags, saved only from main (go-cache-save): a pull request
+    # starts from main's cache and cannot write one, and a release is built cold.
+    - name: Restore the Go build cache
+      if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.cache-paths }}
+        key: ${{ inputs.cache-key }}-${{ hashFiles('go.mod', '**/*.go') }}
+        restore-keys: ${{ inputs.cache-key }}-

@@ -698,7 +698,9 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	// The project itself, and its other repositories, so the agent knows what it works on, where
 	// that is, and that each repository is committed on its own.
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
-		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p))
+		home, _ := os.UserHomeDir()
+		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) +
+			projectInstructionsNote(workspace, home))
 	}
 }
 

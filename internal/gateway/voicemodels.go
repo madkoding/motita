@@ -186,8 +186,13 @@ func (s *Server) handleVoiceModelFile(w http.ResponseWriter, r *http.Request) {
 		ctype = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", ctype)
-	// The page keeps its own copy (Cache Storage); the browser may revalidate this one.
+	// The page keeps its own copy (Cache Storage) across updates and asks again with its tag: the
+	// pinned hash answers 304 while the catalog keeps the file, and the new bytes once it pins
+	// another.
 	w.Header().Set("Cache-Control", "private, no-cache")
+	if sum := lib.Sum(r.PathValue("id"), r.PathValue("name")); sum != "" {
+		w.Header().Set("ETag", `"`+sum+`"`)
+	}
 	http.ServeFile(w, r, path)
 }
 

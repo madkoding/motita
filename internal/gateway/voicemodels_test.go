@@ -146,6 +146,20 @@ func checkServedVoiceFiles(t *testing.T, srv *Server) {
 		if !served || !typed {
 			t.Errorf("%s: %d %q %q", c.path, w.Code, w.Header().Get("Content-Type"), w.Body)
 		}
+		// The page keeps its copy across updates and asks again with the pinned hash: unchanged,
+		// nothing is sent again.
+		tag := w.Header().Get("ETag")
+		if len(tag) != 66 {
+			t.Errorf("%s: ETag %q is not the pinned hash", c.path, tag)
+		}
+		req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+c.path, nil)
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		req.Header.Set("If-None-Match", tag)
+		again := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(again, req)
+		if again.Code != http.StatusNotModified || again.Body.Len() != 0 {
+			t.Errorf("%s asked again with its tag: %d %q", c.path, again.Code, again.Body)
+		}
 	}
 }
 

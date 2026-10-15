@@ -693,6 +693,18 @@ func livePlanText(progress func(string, ...any)) func(string) {
 	}
 }
 
+// planSteps reports a plan run's commands and reasoning as the progress lines a task run writes for
+// the same things, so the web's terminal and thinking drawers, and the turn's checkpoint, fill the
+// same way whichever mode answered.
+func planSteps(progress func(string, ...any)) plan.Steps {
+	return plan.Steps{
+		Command: func(command string) { progress("running: %s", command) },
+		Output:  func(exit int, output string) { progress("output (exit %d):\n%s", exit, output) },
+		Thought: func(text string) { progress("%s%s", agent.ThinkingPrefix, text) },
+		Live:    func(text string) { progress("%s%s", agent.LivePrefix, text) },
+	}
+}
+
 // RunPlan executes the read-only planner and writes the final answer to Out.
 func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
 	cfg, engine, err := r.engineFor(config.TaskPlan)
@@ -711,6 +723,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		WithLoops(planDefaultLoops(cfg)).
 		WithTrace(progress).
 		WithStream(livePlanText(progress)).
+		WithSteps(planSteps(progress)).
 		WithAnswer(func(s string) {
 			// The answer is already streamed through progress; nothing else to print.
 		}).

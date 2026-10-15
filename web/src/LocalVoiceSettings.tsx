@@ -11,6 +11,7 @@ import {
   installVoice,
   loadStateOf,
   localVoicesSupported,
+  storageKept,
   onLoadState,
   sampleOf,
   warmLocal,
@@ -236,6 +237,30 @@ function useLoadState(id: string): LoadState | undefined {
   return choose(id !== "", loadStateOf(id), undefined);
 }
 
+// KeptNote says, once a model is downloaded, whether the browser will keep it: when it will not,
+// it may delete the copy when the disk runs short, and the model downloads again.
+export function KeptNote({ catalog }: { catalog: LocalCatalog }) {
+  const [kept, setKept] = useState(true);
+  const any = catalog.models.some((m) => m.installed);
+  useEffect(() => {
+    if (any) {
+      void storageKept().then(setKept);
+    }
+  }, [any]);
+  if (!any) {
+    return null;
+  }
+  return (
+    <div class="text-xs text-[#7a7a8c]" data-testid="local-kept-note">
+      {choose(
+        kept,
+        t("This browser keeps the downloaded models, also when you update Motita."),
+        t("This browser may delete the downloaded models if the disk runs short; they download again. Installing Motita as an app helps it keep them."),
+      )}
+    </div>
+  );
+}
+
 // LocalVoices lists the voices the gateway can download to run in this browser: download one,
 // follow its progress, choose it, or delete it. A Chatterbox voice in use has its emotion setting.
 export function LocalVoices({
@@ -328,6 +353,7 @@ export function LocalVoices({
         </div>
       )}
       {pinned.map(row)}
+      <KeptNote catalog={catalog} />
       <Collapsed label={tf("Every voice ({n})", { n: String(voices.length) })} testid="local-voice-list">
         <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
           <select

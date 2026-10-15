@@ -595,6 +595,19 @@ func (l Library) File(id, name string) (string, bool) {
 	return "", false
 }
 
+// Sum is the SHA-256 the catalog pins for one file of a voice (or of RuntimeID, or of a shared
+// set), empty for a name it does not list. The page keeps its own copy of each file and asks
+// again with it, so a file a newer catalog pins anew is fetched again and an unchanged one is not.
+func (l Library) Sum(id, name string) string {
+	files, _ := l.files(id)
+	for _, f := range files {
+		if f.Name == name {
+			return f.SHA256
+		}
+	}
+	return ""
+}
+
 // Sample is the path of a voice's sample, downloaded (and checked) the first time it is asked
 // for. It is kept apart from the voice, which need not be downloaded.
 func (l Library) Sample(ctx context.Context, id string) (string, error) {
