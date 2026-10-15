@@ -231,6 +231,10 @@ the provider, the key, the model or the check. It **offers to keep** the key and
 you already have, keeps the previous configuration as `motita.yaml.bak`, and the new setup
 **takes effect immediately** in the session you ran it from.
 
+When the setup is saved it asks **what next**: continue in the TUI, start the gateway (the
+WebUI) or exit. Without a terminal, or with the answers given in advance, it is not asked and
+the command ends as before.
+
 ### Providers and how each one authenticates
 
 | Provider (`llm.provider`) | API key (variable)                            | Account login                                                | Protocol                                                 |
@@ -605,6 +609,10 @@ never touched while they work.
   which files would be lost, and nothing is discarded until you confirm.
 - **Procedures can belong to a project.** `<project>/.motita/skills/` is searched first
   and shadows the shared library.
+- **Instruction files are read.** A session in a project reads `AGENTS.md` (or `CLAUDE.md`
+  when a folder has no `AGENTS.md`) from the git root down to its working folder, plus your own
+  `~/.motita/AGENTS.md`, up to 16 KB in all. They guide how to work; they never override your
+  request, Settings → Security or the project's scope. Symbolic links are ignored.
 
 ### Git hosts: connect once, and every session can push
 
@@ -811,6 +819,7 @@ ports — they are **two views of one conversation**.
 | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/task` `/plan`                                                                    | switch between doing work and read-only exploration                                                                                                                                                                                                                                                                                                                               |
 | `/goal <text>`                                                                     | autonomous task: never asks, takes the recommended option and reports each decision                                                                                                                                                                                                                                                                                               |
+| `/init` | runs a task that reads the project and writes (or fixes) its `AGENTS.md`, which later sessions load |
 | `/decisions` `/decisions undo <n>`                                                 | what `/goal` decided, numbered; `undo` removes one. Kept in `.motita/decisions.md`, which is versioned with the project on purpose (it is the spec) and respected by later runs                                                                                                                                                                                                   |
 | `/models` `/models <id>`                                                           | your provider, your key status and the models it really publishes; with an id, switch to that model for this session                                                                                                                                                                                                                                                              |
 | `/reasoning`                                                                       | cycle the thinking budget                                                                                                                                                                                                                                                                                                                                                         |

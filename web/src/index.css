@@ -2859,6 +2859,43 @@ html[data-density="compact"] .provider-choice .git-account-icon {
     visibility: hidden;
   }
 }
+/* The background agents at work, in the conversation: one tappable row under the turns. */
+.subagents-strip {
+  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgb(var(--tx-rgb, 79, 174, 90));
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.subagents-count {
+  font-weight: 600;
+}
+.subagents-chip {
+  max-width: 14rem;
+  padding: 1px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+/* On a phone an open panel covers the screen, and the other drawers' tabs stacked on its edge and
+   cut its text. Only the open drawer keeps its tab (the way to close it). */
+@media (max-width: 767px) {
+  body:has(.term-drawer.is-open) .term-drawer:not(.is-open) .term-tab {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .term-drawer,
   .term-panel {

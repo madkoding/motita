@@ -1,0 +1,19 @@
+name: Save the Go build cache
+description: Saves the Go build cache; only from main. Same inputs as the go-env restore.
+inputs:
+  cache-key:
+    description: Same prefix given to go-env.
+    required: true
+  cache-paths:
+    description: Same paths given to go-env.
+    default: |
+      ~/.cache/go-build
+      ~/go/pkg/mod
+runs:
+  using: composite
+  steps:
+    - if: github.ref == 'refs/heads/main'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.cache-paths }}
+        key: ${{ inputs.cache-key }}-${{ hashFiles('go.mod', '**/*.go') }}

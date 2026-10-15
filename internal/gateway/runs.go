@@ -274,7 +274,7 @@ func (s *Server) launchRun(
 			// an empty answer rendered as success is the interface lying.
 			s.reportFailed(c, rn, "error", "the run finished without reporting a result")
 		default:
-			s.reportDone(c, rn, kind, startRev, result, madeArtifacts)
+			s.reportDone(c, rn, kind, startRev, s.localizeLLM(result), madeArtifacts)
 		}
 		if s.baseCtx.Err() == nil {
 			go s.followOpenedPR(c)
@@ -381,6 +381,7 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 // reportFailed ends a run that did not answer, and keeps the error with its turn so the
 // conversation opened again still says why it stopped.
 func (s *Server) reportFailed(c *conversation, rn *run, outcome, msg string) {
+	msg = s.localizeLLM(msg)
 	c.recordOutcome(rn.turn, turnOutcome{Error: msg})
 	s.closeRun(c, rn, runEnd{event: EventError, payload: map[string]string{"error": msg}, outcome: outcome, errText: msg})
 }
@@ -597,6 +598,8 @@ func (r *run) progress() func(string, ...any) {
 			r.flash(EventAgents, agentsEvent{Agents: agents})
 			return
 		}
+		// A command or a thought of a background agent is a step like any other: it is kept with
+		// the turn (onLine files it as the step it is) and sent as the line it arrived as.
 		if r.onLine != nil {
 			r.onLine(text)
 		}

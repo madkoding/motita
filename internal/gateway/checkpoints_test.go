@@ -448,3 +448,26 @@ func TestAFreeStandingSessionCheckpointsTheConfiguredWorkspace(t *testing.T) {
 		t.Errorf("a removed checkpoint left its reference: %q", out)
 	}
 }
+
+// What a background agent ran and thought is kept with the turn as the same kind of step the main
+// agent's are, named by the tag in front of the text.
+func TestBackgroundAgentStepsAreKeptWithTheTurn(t *testing.T) {
+	c := &conversation{}
+	c.openCheckpoint(0, "a", "task", false)
+	c.recordStep(0, agent.SubLine{Agent: "a1", Kind: agent.SubCommand, Text: "go test", Exit: 2, Out: "FAIL"}.Line())
+	c.recordStep(0, agent.SubLine{Agent: "a2", Role: "review", Kind: agent.SubThought, Text: "looks fine"}.Line())
+	steps := c.checkpointViews()[0].Steps
+	if len(steps) != 2 {
+		t.Fatalf("steps = %+v", steps)
+	}
+	s := steps[0]
+	if s.Kind != stepCommand || s.Text != "running: [a1] go test" || s.Out != "FAIL" {
+		t.Errorf("command step = %+v", s)
+	}
+	if s.Exit == nil || *s.Exit != 2 {
+		t.Errorf("command exit = %v, want 2", s.Exit)
+	}
+	if s = steps[1]; s.Kind != stepThought || s.Text != "thinking: [a2 · review] looks fine" {
+		t.Errorf("thought step = %+v", s)
+	}
+}

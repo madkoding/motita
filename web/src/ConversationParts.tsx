@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "preact/hooks";
 import { t, tf, plural } from "./i18n";
 import { choose } from "./choose";
+import { useApp } from "./appStore";
 import { useTurn } from "./turnView";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
@@ -461,6 +462,37 @@ export function ActivityLine({
       )}
       {!command && <ActivityTyped text={oneLine(progressText(activity))} />}
     </div>
+  );
+}
+
+// SubagentsStrip is the run's background agents at work, in the conversation: without it a main
+// agent waiting on three others looked like one line of "waiting...", and the list was behind a tab.
+// A click opens that list. It is not drawn while the list is open, or when nothing is running.
+export function SubagentsStrip() {
+  const { rs, drawers } = useApp();
+  const running = rs.agents.filter((a) => a.parent && a.state === "running");
+  if (running.length === 0 || drawers.agentsOpen) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      class="subagents-strip"
+      onClick={drawers.toggleAgents}
+    >
+      <span class="subagents-count">
+        {plural(
+          running.length,
+          "1 background agent running",
+          "{n} background agents running",
+        )}
+      </span>
+      {running.map((a) => (
+        <span key={a.id} class="subagents-chip" title={a.purpose}>
+          {oneLine(a.purpose || a.id, 32)}
+        </span>
+      ))}
+    </button>
   );
 }
 

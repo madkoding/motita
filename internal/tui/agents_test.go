@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 )
 
@@ -228,5 +229,54 @@ func TestPlanAndFollowedRunsTakeTheSnapshotToo(t *testing.T) {
 	tui.addProgress(agent.AgentsLine(sampleAgents()[:1]))
 	if len(tui.agents) != 1 || len(tui.messages) != before {
 		t.Fatalf("followed run: agents=%d messages %d -> %d", len(tui.agents), before, len(tui.messages))
+	}
+}
+
+// What a background agent ran or thought is for the web's views: the terminal interface drops it
+// instead of printing a line of JSON in the conversation.
+func TestABackgroundAgentsStepsNeverReachTheChat(t *testing.T) {
+	sub := agent.SubLine{Agent: "a1", Kind: agent.SubCommand, Text: "ls", Out: "x"}.Line()
+	runner := &agentsRunner{fakeRunner: &fakeRunner{}, lines: []string{sub}}
+	tui := newFakeTUI("my task\n\n", runner)
+	tui.Run(context.Background())
+	for _, m := range tui.messages {
+		if strings.Contains(m.Text, agent.SubPrefix) {
+			t.Fatalf("a background agent's step reached the conversation: %q", m.Text)
+		}
+	}
+}
+
+func TestTheAgentsPanelWordsThePhaseLinesInTheReadersLanguage(t *testing.T) {
+	tui := agentsTUI(nil)
+	for line, want := range map[string]string{
+		"deciding action (round 2/100)...":      "deciding action (round 2/100)...",
+		"waiting for 3 background agent(s)...":  "waiting for 3 background agent(s)...",
+		"plan ready: 1 steps":                   "plan ready: 1 steps",
+		"planning...":                           "planning...",
+		"running: go test ./...":                "running: go test ./...",
+		"the model's own words, left untouched": "the model's own words, left untouched",
+	} {
+		if got := tui.activityText(line); got != want {
+			t.Errorf("%q -> %q, want %q", line, got, want)
+		}
+	}
+	tui.Lang = i18n.ES
+	for line, want := range map[string]string{
+		"deciding action (round 2/100)...":     "decidiendo la acción (ronda 2/100)...",
+		"waiting for 3 background agent(s)...": "esperando a 3 agente(s) en segundo plano...",
+		"plan ready: 4 steps":                  "plan listo: 4 pasos",
+		"synthesizing answer...":               "sintetizando la respuesta...",
+		"running: go test ./...":               "running: go test ./...",
+	} {
+		if got := tui.activityText(line); got != want {
+			t.Errorf("%q -> %q, want %q", line, got, want)
+		}
+	}
+}
+
+func TestMarksAroundWordsAreDroppedFromTheAnswer(t *testing.T) {
+	got := plainInline("**a1** agregó `validate.js`, y **a2** la revisó. 2 * 3 ` solo")
+	if want := "a1 agregó validate.js, y a2 la revisó. 2 * 3 ` solo"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

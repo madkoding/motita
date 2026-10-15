@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,11 @@ const (
 // one. Every path a run reports through calls it first - a task, a plan, a followed run - so the
 // snapshot never reaches the conversation as a line of JSON.
 func (t *TUI) takeAgents(line string) bool {
+	if _, sub := agent.ParseSubLine(line); sub {
+		// What a background agent ran or thought: for the web's terminal and thinking views, and
+		// never a line of this conversation.
+		return true
+	}
 	agents, ok := agent.ParseAgentsLine(line)
 	if !ok {
 		return false
@@ -140,7 +146,7 @@ func (t *TUI) agentLines(a agent.AgentInfo, width int, now time.Time) []string {
 	// left, and the activity only what is left after that.
 	room := width - 4 - visibleLen(figures)
 	left := clipLine(purpose, room)
-	if act := strings.TrimSpace(EscapeControls(a.Activity)); act != "" && room-visibleLen(left) > 6 {
+	if act := strings.TrimSpace(EscapeControls(t.activityText(a.Activity))); act != "" && room-visibleLen(left) > 6 {
 		left += t.muted(" " + glyphMid + " " + clipLine(act, room-visibleLen(left)-3))
 	}
 	gap := room - visibleLen(left)
@@ -224,5 +230,42 @@ func nonEmpty(items ...string) []string {
 // firstLine is the first line of s.
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return line
+}
+
+// activityForms are the agent's own phase lines (agent.report), in English on the wire, with the
+// catalog key each one is shown as. The numbers are carried over by the verbs.
+var activityForms = []struct {
+	re     *regexp.Regexp
+	format string
+}{
+	{regexp.MustCompile(`^deciding action \(round (\d+)/(\d+)\)\.\.\.$`), "deciding action (round %s/%s)..."},
+	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`), "waiting for %s background agent(s)..."},
+	{regexp.MustCompile(`^plan ready: (\d+) steps?$`), "plan ready: %s steps"},
+}
+
+// activityFixed are the phase lines that carry nothing.
+var activityFixed = map[string]bool{
+	"analysing the task...":     true,
+	"planning...":               true,
+	"validating with anchor...": true,
+	"synthesizing answer...":    true,
+}
+
+// activityText shows an agent's latest phase line in the reader's language. Anything that is not
+// one of the agent's phase lines - a command, the model's words - is shown as it arrived.
+func (t *TUI) activityText(line string) string {
+	if activityFixed[line] {
+		return t.tr(line)
+	}
+	for _, f := range activityForms {
+		if m := f.re.FindStringSubmatch(line); m != nil {
+			args := make([]any, len(m)-1)
+			for i, v := range m[1:] {
+				args[i] = v
+			}
+			return t.trf(f.format, args...)
+		}
+	}
 	return line
 }

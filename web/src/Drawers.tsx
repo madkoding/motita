@@ -6,6 +6,7 @@ import { useCallback, useRef } from "preact/hooks";
 import { t, plural } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
+import { oneLine, progressText } from "./appParse";
 import { useStopClicks } from "./domHooks";
 import {
   TermEntry,
@@ -344,6 +345,12 @@ function AgentRow({ a }: { a: AgentInfo }) {
   const done = a.state !== "running";
   const open = done && rs.agentOpenId === a.id;
   const mark = agentMark(a.state);
+  // What it is doing, in the reader's language; once it has finished, how it ended in its own words.
+  const line = choose(
+    done,
+    oneLine(a.summary || ""),
+    progressText(a.activity || ""),
+  );
   return (
     <div class={`agent-row is-${a.state}${choose(done, " is-done", "")}`}>
       {done && (
@@ -360,9 +367,9 @@ function AgentRow({ a }: { a: AgentInfo }) {
       </span>
       <div class="agent-body">
         <AgentHead a={a} />
-        {a.activity && !open && (
-          <div class="agent-activity" title={a.activity}>
-            {a.activity}
+        {line && !open && (
+          <div class="agent-activity" title={line}>
+            {line}
           </div>
         )}
         {open && <AgentDetail a={a} />}
@@ -408,7 +415,8 @@ export function AgentsDrawer() {
       >
         <div class="term-titlebar">
           <span title={tokenBreakdown(total)}>
-            motita@fleet — {plural(agents.length, "1 agent", "{n} agents")} ·{" "}
+            motita@fleet —{" "}
+            {plural(subagents.length, "1 subagent", "{n} subagents")} ·{" "}
             {formatTokens(tokenTotal(total))} tok
           </span>
           <button

@@ -77,7 +77,7 @@ component(
 );
 component(
   "./ConversationParts",
-  ["ChangesCard", "RunArtifacts"],
+  ["ChangesCard", "RunArtifacts", "SubagentsStrip"],
   `export function UserText(props) { return mark("UserText", props, props.m.text); }
   // TurnTop draws its two parts as their own stubs, so a turn reads as before: the input, then its steps.
   export function TurnTop(props) {

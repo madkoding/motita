@@ -82,7 +82,9 @@ jobs:
             --skip-dirs '**/node_modules,**/vendor,**/.git,**/dist,**/build,**/target,**/.venv' \
             --format sarif --output "$KV/reports/trivy.sarif" .
 
+      # En un PR, Semgrep lo corre sonar.yml (contra el commit base, y falla con cualquier hallazgo nuevo).
       - name: Semgrep (análisis estático de seguridad)
+        if: env.EVENT_NAME != 'pull_request'
         continue-on-error: true
         run: |
           semgrep scan --metrics off --quiet --disable-version-check --timeout 60 --max-memory 4000 \
@@ -114,16 +116,25 @@ jobs:
             echo "$dir" > "$KV/reports/govulncheck_$n.sarif.prefix"
           done < "$KV/gomods.txt"
 
+      - name: Caché de sonar-scanner
+        id: scanner-cache
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/kv-sonar
+          key: sonar-scanner-${{ env.SCANNER_VERSION }}
+
       - name: Instalar sonar-scanner
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         run: |
           set -euo pipefail
+          echo "$HOME/kv-sonar/sonar-scanner-${SCANNER_VERSION}-linux-x64/bin" >> "$GITHUB_PATH"
+          [ "${{ steps.scanner-cache.outputs.cache-hit }}" = true ] && exit 0
           cd "$RUNNER_TEMP"
           base="https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip"
           curl -sSfLO "$base"
           echo "$(curl -sSf "$base.sha256")  sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" | sha256sum -c -
           unzip -q "sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" -d "$HOME/kv-sonar"
-          echo "$HOME/kv-sonar/sonar-scanner-${SCANNER_VERSION}-linux-x64/bin" >> "$GITHUB_PATH"
 
       - name: SonarQube (rama principal; publica todos los informes)
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != '' && env.EVENT_NAME != 'pull_request'

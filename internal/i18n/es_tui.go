@@ -275,6 +275,15 @@ var esTUI = map[string]string{
 	// Auto mode applying the suggestions whose answer is obvious.
 	"Applied without asking, they are needed:": "Se aplican sin preguntar, son necesarias:",
 
+	// The phase lines an agent reports, as the agents panel shows them.
+	"analysing the task...":                 "analizando la tarea...",
+	"planning...":                           "planificando...",
+	"validating with anchor...":             "validando con el ancla...",
+	"synthesizing answer...":                "sintetizando la respuesta...",
+	"deciding action (round %s/%s)...":      "decidiendo la acción (ronda %s/%s)...",
+	"waiting for %s background agent(s)...": "esperando a %s agente(s) en segundo plano...",
+	"plan ready: %s steps":                  "plan listo: %s pasos",
+
 	// The input box's title.
 	"Approve":                              "Aprobar",
 	"the agent is waiting for your answer": "el agente espera tu respuesta",

@@ -152,9 +152,23 @@ func Classify(text string) Decision {
 	return Decision{KindTask, trimmed, SourceDefault, "default"}
 }
 
-// explicitMode reads a leading /plan, /task or /goal.
+// InitPrompt is the task behind /init: write the AGENTS.md that later sessions in this project
+// load (see the gateway's project instructions). It asks for what the agent cannot guess from the
+// code, and for a file that is kept short, because every line of it is paid for in every session.
+const InitPrompt = "Read this project and write an AGENTS.md at its root for the agents that will work here next. " +
+	"Look first at what exists (README, Makefile, package.json, go.mod or the like, CI files, the folder layout, " +
+	"a CLAUDE.md if there is one). Include only what is true and cannot be guessed from the code: the commands " +
+	"to build, test and lint (copied from the project's own files, never invented), the layout of the main " +
+	"folders, the conventions that are followed, and the traps that cost time. Keep it under 80 lines, in the " +
+	"language the project's docs use, with no secrets. If an AGENTS.md already exists, keep what is right in " +
+	"it and fix or add only what is missing instead of rewriting it. Do not change anything else."
+
+// explicitMode reads a leading /plan, /task, /goal or /init.
 func explicitMode(text string) (Decision, bool) {
 	head, rest, _ := strings.Cut(text, " ")
+	if strings.EqualFold(head, "/init") {
+		return Decision{KindTask, InitPrompt, SourceExplicit, "/init"}, true
+	}
 	mode, ok := explicit[strings.ToLower(head)]
 	if !ok {
 		return Decision{}, false
