@@ -263,10 +263,47 @@ func (s *Session) NeedsCompaction() bool {
 // summariser, a provider failure — the session reports the failure and leaves the history
 // ALONE: an over-long context is a provider error the caller can act on, while a silently
 // truncated one is a wrong answer nobody can trace.
+//
+// The summary is a model call that can take many seconds, and the turn keeps appending to the
+// session meanwhile. So the part to summarise is copied under the lock, summarised without it,
+// and only that prefix is replaced under the lock again: a message appended during the call
+// stays, where replacing the whole history with the tail read before the call lost it.
 func (s *Session) Compact(ctx context.Context) error {
 	if !s.NeedsCompaction() {
 		return nil
 	}
+	removed, carried, gen, err := s.compactionInput()
+	if err != nil {
+		return err
+	}
+	summary, err := s.summarise(ctx, carried, removed)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.lastErr = err
+		return err
+	}
+	if s.compactions != gen {
+		// Another compaction finished while this one was summarising: the prefix this one read
+		// is already gone from the history, folded into that one's summary. Installing this
+		// summary over it would drop the other's account, so this one is discarded instead.
+		return nil
+	}
+	// Appends only extend the history, so its first len(removed) messages are still the ones
+	// that were summarised. The rest is copied out so the removed prefix is not kept alive.
+	s.summary = summary
+	s.messages = append([]llm.Message(nil), s.messages[len(removed):]...)
+	s.compactions++
+	s.lastErr = nil
+	return nil
+}
+
+// compactionInput copies, under the lock, what a compaction summarises: the messages before the
+// verbatim tail, the account already carried, and the compaction count it was read at.
+func (s *Session) compactionInput() ([]llm.Message, string, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	keep := s.KeepRecent
 	if keep < 1 {
 		keep = DefaultKeepRecent
@@ -275,37 +312,21 @@ func (s *Session) Compact(ctx context.Context) error {
 		// Nothing to summarise yet: the window is smaller than the tail that must stay
 		// verbatim, which no amount of summarising can fix. Reporting it is better than
 		// looping.
-		return fmt.Errorf("the context is full but only %d messages are held, fewer than the %d kept verbatim",
+		return nil, "", 0, fmt.Errorf(
+			"the context is full but only %d messages are held, fewer than the %d kept verbatim",
 			len(s.messages), keep)
 	}
-
 	cut := len(s.messages) - keep
-	removed := s.messages[:cut]
-	tail := s.messages[cut:]
-
 	// A tool result whose assistant call is being removed must go too, or the remaining
 	// history starts with an orphan the provider rejects.
-	for len(tail) > 0 && tail[0].Role == "tool" {
-		removed = append(removed, tail[0])
-		tail = tail[1:]
+	for cut < len(s.messages) && s.messages[cut].Role == "tool" {
+		cut++
 	}
-
 	if s.Summariser == nil {
 		s.lastErr = ErrNoSummariser
-		return s.lastErr
+		return nil, "", 0, s.lastErr
 	}
-
-	summary, err := s.summarise(ctx, removed)
-	if err != nil {
-		s.lastErr = err
-		return err
-	}
-
-	s.summary = summary
-	s.messages = tail
-	s.compactions++
-	s.lastErr = nil
-	return nil
+	return append([]llm.Message(nil), s.messages[:cut]...), s.summary, s.compactions, nil
 }
 
 // compactPrompt is what the summariser is asked. It is written as an instruction to a
@@ -332,13 +353,15 @@ not in the conversation.`
 
 // summarise asks for the account. The messages being removed are handed over as a
 // transcript, which is what the model can read without ambiguity.
-func (s *Session) summarise(ctx context.Context, removed []llm.Message) (string, error) {
+//
+// carried is the account already held, passed in rather than read: this runs without the lock.
+func (s *Session) summarise(ctx context.Context, carried string, removed []llm.Message) (string, error) {
 	var b strings.Builder
-	if s.summary != "" {
+	if carried != "" {
 		// The account already carried is compacted together with what is being removed,
 		// so the summary stays a single document instead of a growing stack of them.
 		b.WriteString("## Account carried from earlier\n\n")
-		b.WriteString(s.summary)
+		b.WriteString(carried)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("## Conversation to fold in\n\n")
