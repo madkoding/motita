@@ -155,10 +155,8 @@ function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   }
   if (m.report) {
     // The suggestions of a report are answered only while nothing runs: applying them is a turn.
-    const onAnswer = choose(
-      running,
-      undefined,
-      (a: SuggestionAnswers) => void answerSuggestions(m, a),
+    const onAnswer = choose(running, undefined, (a: SuggestionAnswers) =>
+      answerSuggestions(m, a),
     );
     // Suggestions left unanswered once the conversation moved on are stale: the work they were
     // about has changed since, so they are no longer offered.

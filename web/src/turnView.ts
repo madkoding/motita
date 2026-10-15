@@ -78,9 +78,10 @@ export function useTurnView(store: Store): TurnView {
   );
   const { rs, checkpoints, speech } = store;
   const { messages } = rs;
-  const lastMsgId = messages.length
-    ? messages[messages.length - 1].id
-    : null;
+  let lastMsgId: number | null = null;
+  if (messages.length) {
+    lastMsgId = messages[messages.length - 1].id;
+  }
   const lastUserId = lastUserIdOf(messages);
   return useMemo(
     () => ({
@@ -124,15 +125,24 @@ export interface TurnInput {
  * that did not change is the same object, and so are the steps of a turn nothing was added to.
  */
 export function sameTurn(a: TurnInput, b: TurnInput): boolean {
-  if (
-    a.steps !== b.steps ||
-    a.liveHere !== b.liveHere ||
-    a.activity !== b.activity ||
-    a.g.key !== b.g.key ||
-    a.g.turn !== b.g.turn ||
-    a.g.items.length !== b.g.items.length
-  ) {
+  if (!sameRunState(a, b) || !sameGroupShape(a.g, b.g)) {
     return false;
   }
   return a.g.items.every((m, i) => m === b.g.items[i]);
+}
+
+// sameRunState says the run state that concerns a turn is the same in both renders.
+function sameRunState(a: TurnInput, b: TurnInput): boolean {
+  return (
+    a.steps === b.steps &&
+    a.liveHere === b.liveHere &&
+    a.activity === b.activity
+  );
+}
+
+// sameGroupShape says two groups are the same turn holding as many messages.
+function sameGroupShape(a: TurnInput["g"], b: TurnInput["g"]): boolean {
+  return (
+    a.key === b.key && a.turn === b.turn && a.items.length === b.items.length
+  );
 }

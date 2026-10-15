@@ -12,6 +12,8 @@
 // Only text that GROWS after the message mounted is revealed: a message read from the history
 // mounts complete and shows at once.
 
+import { choose } from "./choose";
+
 // The reveal keeps up with the stream: it never runs below MIN_CPS, and it speeds up so the
 // backlog it is behind by is shown within CATCH_UP_S.
 const MIN_CPS = 90;
@@ -51,9 +53,7 @@ function highlights(): HighlightLike[] | null {
 function textNodes(root: HTMLElement): { nodes: Text[]; total: number } {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) =>
-      n.parentElement?.closest(".copy-msg-btn")
-        ? NodeFilter.FILTER_REJECT
-        : NodeFilter.FILTER_ACCEPT,
+      choose(n.parentElement?.closest(".copy-msg-btn"), NodeFilter.FILTER_REJECT, NodeFilter.FILTER_ACCEPT),
   });
   const nodes: Text[] = [];
   let total = 0;
@@ -99,12 +99,12 @@ export function streamReveal(el: HTMLElement, content: string): StreamReveal {
   // Hydration (code colours, formulas) replaces text nodes under the reveal: the list is read
   // again before the next paint, or the ranges would point at nodes no longer in the page.
   let stale = false;
-  const observer =
-    typeof MutationObserver !== "undefined"
-      ? new MutationObserver(() => {
-          stale = true;
-        })
-      : null;
+  let observer: MutationObserver | null = null;
+  if (typeof MutationObserver !== "undefined") {
+    observer = new MutationObserver(() => {
+      stale = true;
+    });
+  }
   observer?.observe(el, { childList: true, subtree: true, characterData: true });
 
   const clear = () => {
@@ -141,12 +141,19 @@ export function streamReveal(el: HTMLElement, content: string): StreamReveal {
   };
 
   const step = (now: number) => {
-    const dt = last ? (now - last) / 1000 : 0;
+    let dt = 0;
+    if (last) {
+      dt = (now - last) / 1000;
+    }
     last = now;
     const rate = Math.max(MIN_CPS, (total - shown) / CATCH_UP_S);
     shown = Math.min(total, shown + rate * dt);
     paint();
-    raf = shown < total ? requestAnimationFrame(step) : 0;
+    if (shown < total) {
+      raf = requestAnimationFrame(step);
+    } else {
+      raf = 0;
+    }
     if (!raf) {
       last = 0;
     }

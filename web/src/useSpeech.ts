@@ -787,7 +787,7 @@ function useReadText(o: {
 function speechEngines(
   device: boolean,
   tts: TTSInfo | undefined,
-  local: boolean | undefined,
+  local: boolean,
   api: Api | undefined,
 ) {
   const audio = typeof Audio !== "undefined";
@@ -817,10 +817,11 @@ export function useSpeech({
   approval,
 }: Deps) {
   const device = useMemo(speechSupported, []);
+  // A gateway that says nothing about local voices offers none.
   const { gatewayOn, localOn, supported } = speechEngines(
     device,
     tts,
-    local,
+    !!local,
     api,
   );
   const { prefs, prefsRef, setPrefs } = useSpeechPrefs();
