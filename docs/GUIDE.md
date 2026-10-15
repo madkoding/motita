@@ -231,6 +231,10 @@ the provider, the key, the model or the check. It **offers to keep** the key and
 you already have, keeps the previous configuration as `motita.yaml.bak`, and the new setup
 **takes effect immediately** in the session you ran it from.
 
+When the setup is saved it asks **what next**: continue in the TUI, start the gateway (the
+WebUI) or exit. Without a terminal, or with the answers given in advance, it is not asked and
+the command ends as before.
+
 ### Providers and how each one authenticates
 
 | Provider (`llm.provider`) | API key (variable)                            | Account login                                                | Protocol                                                 |
