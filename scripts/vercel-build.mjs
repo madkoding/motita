@@ -32,18 +32,20 @@ for (const name of ["index.html", "architecture.html"]) {
     continue;
   }
   if (html.split("</head>").length !== 2) {
-    console.error("site/" + name + " needs exactly one closing head tag");
+    process.stderr.write(
+      "site/" + name + " needs exactly one closing head tag\n",
+    );
     process.exit(1);
   }
   writeFileSync(file, html.replace("</head>", analytics + "  </head>"));
-  console.log(`added Vercel Web Analytics to site/${name}`);
+  console.info(`added Vercel Web Analytics to site/${name}`);
 }
 
 const src = readFileSync(page, "utf8");
 const found = src.match(marker)?.length ?? 0;
 if (found !== 1) {
-  console.error(
-    `site/index.html has ${found} version markers; expected exactly one`,
+  process.stderr.write(
+    `site/index.html has ${found} version markers; expected exactly one\n`,
   );
   process.exit(1);
 }
@@ -75,9 +77,9 @@ try {
     page,
     src.replace(marker, (_, open, close) => open + version + close),
   );
-  console.log(`stamped site/index.html with ${version}`);
+  console.info(`stamped site/index.html with ${version}`);
 } catch (err) {
-  console.warn(
-    `version not stamped (${err.message}); the page fetches it at runtime`,
+  process.stderr.write(
+    `version not stamped (${err.message}); the page fetches it at runtime\n`,
   );
 }
