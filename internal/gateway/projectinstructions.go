@@ -67,6 +67,35 @@ func instructionDirs(workspace string) []string {
 	return out
 }
 
+// instructionSource is one instruction file found for a session, with the label the model sees.
+type instructionSource struct{ label, text string }
+
+// instructionSources lists the files that apply, in the order the model reads them: the user's
+// own first, then the project's from the checkout's root down to the working directory.
+func instructionSources(workspace, home string) []instructionSource {
+	var out []instructionSource
+	if home != "" {
+		if name, text := readInstructionFile(filepath.Join(home, ".motita")); name != "" {
+			out = append(out, instructionSource{"your user's own instructions (~/.motita/" + name + ")", text})
+		}
+	}
+	if workspace == "" {
+		return out
+	}
+	for _, dir := range instructionDirs(workspace) {
+		name, text := readInstructionFile(dir)
+		if name == "" {
+			continue
+		}
+		rel, err := filepath.Rel(workspace, dir)
+		if err != nil || rel == "." {
+			rel = ""
+		}
+		out = append(out, instructionSource{"the project's " + filepath.ToSlash(filepath.Join(rel, name)), text})
+	}
+	return out
+}
+
 // projectInstructionsNote is what a session's agent is told from the instruction files of its
 // project: the user's own ~/.motita/AGENTS.md first, then the project's AGENTS.md (or CLAUDE.md)
 // from the checkout's root down to the working directory, the closest last so it wins. "" when
@@ -75,31 +104,16 @@ func instructionDirs(workspace string) []string {
 func projectInstructionsNote(workspace, home string) string {
 	var b strings.Builder
 	left := maxInstructionBytes
-	add := func(label, text string) {
-		if text == "" || left <= 0 {
-			return
+	for _, src := range instructionSources(workspace, home) {
+		if src.text == "" || left <= 0 {
+			continue
 		}
+		text := src.text
 		if len(text) > left {
 			text = strings.ToValidUTF8(text[:left], "") + "\n[...cut]"
 		}
 		left -= len(text)
-		fmt.Fprintf(&b, "\n\n--- %s ---\n%s", label, text)
-	}
-	if home != "" {
-		if name, text := readInstructionFile(filepath.Join(home, ".motita")); name != "" {
-			add("your user's own instructions (~/.motita/"+name+")", text)
-		}
-	}
-	if workspace != "" {
-		for _, dir := range instructionDirs(workspace) {
-			if name, text := readInstructionFile(dir); name != "" {
-				rel, err := filepath.Rel(workspace, dir)
-				if err != nil || rel == "." {
-					rel = ""
-				}
-				add("the project's "+filepath.ToSlash(filepath.Join(rel, name)), text)
-			}
-		}
+		fmt.Fprintf(&b, "\n\n--- %s ---\n%s", src.label, text)
 	}
 	if b.Len() == 0 {
 		return ""
