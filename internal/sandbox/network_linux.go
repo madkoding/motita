@@ -48,12 +48,15 @@ func userNamespaceAttributes() *syscall.SysProcAttr {
 // deadline reaches both.
 func relayInNamespace(spec Spec) error {
 	spec.InNamespace = true
+	workOutReadable(&spec)
 	encoded, err := spec.Encode()
 	if err != nil {
+		_ = os.Remove(spec.ReadableFile)
 		return err
 	}
 	exe, err := osHooks.executable()
 	if err != nil {
+		_ = os.Remove(spec.ReadableFile)
 		return err
 	}
 	// nosemgrep: dangerous-exec-command -- exe is this very binary, from os.Executable, never user input.
@@ -62,6 +65,7 @@ func relayInNamespace(spec Spec) error {
 	cmd.SysProcAttr = userNamespaceAttributes()
 	cmd.SysProcAttr.Pdeathsig = syscall.SIGKILL
 	if err := cmd.Start(); err != nil {
+		_ = os.Remove(spec.ReadableFile)
 		fmt.Fprintf(os.Stderr, "motita: could not give the command a network of its own: %v\n", err)
 		childHooks.exit(namespaceFailedCode)
 		return err
@@ -70,6 +74,39 @@ func relayInNamespace(spec Spec) error {
 	childHooks.exit(exitCodeOf(cmd.ProcessState))
 	return nil
 }
+
+// workOutReadable lists, here and now, what stays readable around the hidden and private paths, so
+// the child in the namespaces uses the answer instead of listing directories itself: some of them
+// cannot be listed from inside a user namespace on a kernel that restricts them (AppArmor on
+// Ubuntu), and a command that is confined to the workspace does not run when the list is missing.
+// When it cannot be worked out here either, the child tries for itself, as it would have.
+func workOutReadable(spec *Spec) {
+	if len(spec.WriteRoots) == 0 {
+		return
+	}
+	readable := readableAround(hiddenAndPrivate(*spec))
+	if readable == nil {
+		return
+	}
+	data, err := jsonMarshal(readable)
+	if err != nil {
+		return
+	}
+	file, err := os.CreateTemp("", "motita-readable-")
+	if err != nil {
+		return
+	}
+	name := file.Name()
+	_ = file.Close()
+	if err := writeReadable(name, data, 0o600); err != nil {
+		_ = os.Remove(name)
+		return
+	}
+	spec.ReadableFile = name
+}
+
+// writeReadable is os.WriteFile, a variable so a test can make the write fail.
+var writeReadable = os.WriteFile
 
 // exitCodeOf is the code a shell would report for the relayed process: its own, or 128 plus the
 // signal that ended it.

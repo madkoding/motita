@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -136,7 +137,10 @@ func confine(spec Spec) error {
 	if private {
 		readAccess |= accessReadDir
 	}
-	readable := readableAround(append(append([]string(nil), spec.HiddenPaths...), spec.PrivatePaths...))
+	readable, known := takeReadableFile(spec.ReadableFile)
+	if !known {
+		readable = readableAround(hiddenAndPrivate(spec))
+	}
 	if readable == nil && private {
 		return fmt.Errorf("could not work out what stays readable around %s", strings.Join(spec.PrivatePaths, ", "))
 	}
@@ -336,6 +340,28 @@ func isRealDir(p string) bool {
 
 // readDir lists a directory, a variable so a test can make a listing fail.
 var readDir = os.ReadDir
+
+// takeReadableFile reads, and removes, the list the isolation child left for this one. known is
+// false when there is none or it cannot be read, and the caller works the list out for itself.
+func takeReadableFile(name string) (readable []string, known bool) {
+	if name == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(name)
+	_ = os.Remove(name)
+	if err != nil || json.Unmarshal(data, &readable) != nil {
+		return nil, false
+	}
+	if readable == nil {
+		readable = []string{} // "null": nothing stays readable, which is an answer and not a failure
+	}
+	return readable, true
+}
+
+// hiddenAndPrivate are the paths whose surroundings readableAround works out.
+func hiddenAndPrivate(spec Spec) []string {
+	return append(append([]string(nil), spec.HiddenPaths...), spec.PrivatePaths...)
+}
 
 // readableAround is what stays readable when the paths in hidden must not be: every entry of every
 // directory on the way down to a hidden path, except the entries on that way. A grant covers what
