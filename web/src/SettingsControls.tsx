@@ -85,3 +85,22 @@ export function Row({
     </div>
   );
 }
+
+// Collapsed is a long list that starts folded under one line saying what it holds: a list of
+// models to download is read once, and then only the one in use matters.
+export function Collapsed({
+  label,
+  testid,
+  children,
+}: {
+  label: string;
+  testid: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <details class="settings-collapse" data-testid={testid}>
+      <summary class="settings-collapse-summary">{label}</summary>
+      <div class="flex flex-col gap-2 pt-2">{children}</div>
+    </details>
+  );
+}

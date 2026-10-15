@@ -17,6 +17,7 @@ import { TASK_INPUT_ID } from "./appConst";
 import { errorMessage } from "./errors";
 import { choose } from "./choose";
 import {
+  type Transcript,
   type VoiceInfo,
   type VoicePrefs,
   VOICE_PREFS_EVENT,
@@ -26,6 +27,7 @@ import {
   browserSupport,
   fetchVoiceInfo,
   isMissingDevice,
+  listenEngine,
   listenState,
   level,
   loadVoicePrefs,
@@ -33,7 +35,9 @@ import {
   saveVoicePrefs,
   transcribe,
   voiceState,
+  wakeOf,
 } from "./voice";
+import { hearLocal, localListenSupported, warmListener } from "./localListen";
 import { stopSpeaking, voiceBusy } from "./speech";
 
 // The longest dictation, after which it stops on its own: a button left on by mistake must not
@@ -104,10 +108,18 @@ function focusComposer() {
   document.getElementById(TASK_INPUT_ID)?.focus();
 }
 
+// Hear turns one recording into text, with the listener chosen; with wake, the answer also names
+// the wake phrase it opened with. ready, called as the microphone opens, loads a local model while
+// the person speaks.
+interface Hear {
+  (audio: Blob, wake: boolean): Promise<Transcript>;
+  ready(): void;
+}
+
 // What the microphone hooks share: the state of the composer's voice, whether the person spoke,
 // the dictation running and the phrase conversation mode listens for.
 interface MicRefs {
-  api: Api;
+  hear: Hear;
   deviceId: string;
   fail: (e: unknown) => void;
   setPhase: Dispatch<StateUpdater<VoicePhase>>;
@@ -121,7 +133,7 @@ interface MicRefs {
 // useDictation is the dictation button: one tap starts, the next one stops and transcribes into
 // the composer.
 function useDictation({
-  api,
+  hear,
   deviceId,
   fail,
   setInput,
@@ -149,6 +161,7 @@ function useDictation({
     }
     // The person is about to speak: Motita stops talking over them.
     stopSpeaking();
+    hear.ready();
     let stream: MediaStream;
     try {
       stream = await openMic(deviceId);
@@ -169,7 +182,7 @@ function useDictation({
     stopTracks(stream);
     setPhase("transcribing");
     try {
-      const r = await transcribe(api, audio, false);
+      const r = await hear(audio, false);
       setInput((cur) => appendText(cur, r.text));
       heard.current = heard.current || r.text.trim() !== "";
       focusComposer();
@@ -178,14 +191,14 @@ function useDictation({
     } finally {
       setPhase("idle");
     }
-  }, [api, deviceId, fail, setInput]);
+  }, [hear, deviceId, fail, setInput]);
 }
 
 // useListenOnce is conversation mode's listening: one phrase, ended by the silence after it,
 // transcribed and handed back (null when nobody spoke, the listening was cancelled, or it
 // failed). What it hears counts as spoken.
 function useListenOnce({
-  api,
+  hear,
   deviceId,
   fail,
   setPhase,
@@ -202,6 +215,7 @@ function useListenOnce({
     ) {
       return null;
     }
+    hear.ready();
     let stream: MediaStream;
     try {
       stream = await openMic(deviceId);
@@ -250,7 +264,7 @@ function useListenOnce({
     setPhase("transcribing");
     let text: string | null = null;
     try {
-      const said = (await transcribe(api, audio, false)).text.trim();
+      const said = (await hear(audio, false)).text.trim();
       heard.current = heard.current || said !== "";
       text = said || null;
     } catch (e) {
@@ -258,7 +272,7 @@ function useListenOnce({
     }
     setPhase("idle");
     return text;
-  }, [api, deviceId, fail]);
+  }, [hear, deviceId, fail]);
   const cancelListen = useCallback(() => listening1.current?.(), []);
   return { listenOnce, cancelListen };
 }
@@ -267,7 +281,7 @@ function useListenOnce({
 // and only one that opens with a wake phrase reaches the composer.
 function useHandsFree({
   active,
-  api,
+  hear,
   deviceId,
   fail,
   setInput,
@@ -275,7 +289,7 @@ function useHandsFree({
   setListening,
   phaseRef,
   heard,
-}: Pick<MicRefs, "api" | "deviceId" | "fail" | "phaseRef" | "heard"> & {
+}: Pick<MicRefs, "hear" | "deviceId" | "fail" | "phaseRef" | "heard"> & {
   active: boolean;
   setInput: Deps["setInput"];
   setToast: SetToast;
@@ -306,7 +320,7 @@ function useHandsFree({
     };
     const send = async (audio: Promise<Blob>) => {
       try {
-        const r = await transcribe(api, await audio, true);
+        const r = await hear(await audio, true);
         if (!stopped && r.wake) {
           heard.current = true;
           setInput((cur) => appendText(cur, r.wake?.rest || ""));
@@ -321,6 +335,7 @@ function useHandsFree({
       }
     };
 
+    hear.ready();
     void (async () => {
       try {
         stream = await openMic(deviceId);
@@ -383,7 +398,27 @@ function useHandsFree({
       void ctx?.close();
       setListening(false);
     };
-  }, [active, api, deviceId, fail, setInput, setToast]);
+  }, [active, hear, deviceId, fail, setInput, setToast]);
+}
+
+// useHear is the listener chosen: a model run in this browser, which the gateway only asks for a
+// wake phrase, or the transcription service.
+function useHear(api: Api, engine: string, listener: string, language: string): Hear {
+  return useMemo(() => {
+    if (engine !== "local") {
+      return Object.assign((audio: Blob, wake: boolean) => transcribe(api, audio, wake), {
+        ready: () => undefined,
+      });
+    }
+    const local = async (audio: Blob, wake: boolean): Promise<Transcript> => {
+      const text = await hearLocal(listener, audio, language);
+      if (!wake || !text) {
+        return { text };
+      }
+      return wakeOf(api, text);
+    };
+    return Object.assign(local, { ready: () => warmListener(listener) });
+  }, [api, engine, listener, language]);
 }
 
 export function useVoice({ api, authed, setInput, setToast }: Deps) {
@@ -392,7 +427,13 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const [phase, setPhase] = useState<VoicePhase>("idle");
   const [listening, setListening] = useState(false);
   const support = useMemo(browserSupport, []);
-  const state = voiceState(support.secure, support.supported, info);
+  const engine = listenEngine(prefs, info);
+  const runs = useMemo(localListenSupported, []);
+  const state = voiceState(support.secure, support.supported, info, {
+    engine,
+    listener: prefs.listener,
+    runs,
+  });
   const hands = listenState(state, info);
   const phaseRef = useRef<VoicePhase>("idle");
   phaseRef.current = phase;
@@ -440,10 +481,11 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     null,
   );
   const deviceId = prefs.deviceId;
+  const hear = useHear(api, engine, prefs.listener, prefs.language);
   // listening ends the one phrase conversation mode is listening for, when there is one.
   const listening1 = useRef<(() => void) | null>(null);
   const toggleDictation = useDictation({
-    api,
+    hear,
     deviceId,
     fail,
     setInput,
@@ -456,7 +498,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
 
   // CONVERSATION: one phrase, ended by the silence after it, transcribed and handed back.
   const { listenOnce, cancelListen } = useListenOnce({
-    api,
+    hear,
     deviceId,
     fail,
     setPhase,
@@ -471,7 +513,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   const active = prefs.listen && hands === "ready" && authed;
   useHandsFree({
     active,
-    api,
+    hear,
     deviceId,
     fail,
     setInput,
@@ -483,6 +525,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
 
   return {
     info,
+    engine,
     // setInfo takes what the settings saved, so the composer follows a change at once.
     setInfo,
     state,

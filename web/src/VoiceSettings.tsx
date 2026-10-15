@@ -4,6 +4,7 @@ import { InsecureWarning } from "./InsecureWarning";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
+  type ListenEngine,
   type MicPermission,
   type PermissionStatusLike,
   type VoiceChange,
@@ -12,6 +13,7 @@ import {
   type VoiceState,
   VOICE_PRESETS,
   isPermissionRefused,
+  listenEngine,
   micNamesHidden,
   micOptions,
   micPermissionOf,
@@ -21,6 +23,7 @@ import {
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
+import { LocalListening } from "./LocalListenSettings";
 import {
   Row,
   inputCls,
@@ -46,6 +49,9 @@ export interface VoiceSettingsProps {
 function voiceBlocker(state: string, canSave: boolean): string {
   if (state === "unsupported") {
     return t("This browser cannot record audio.");
+  }
+  if (state === "no-model") {
+    return t("Download a model to listen with above first.");
   }
   if (state === "off") {
     return choose(
@@ -197,10 +203,13 @@ function VoiceGateway({
   api,
   info,
   onInfo,
+  service,
 }: {
   api: Api;
   info: VoiceInfo;
   onInfo: (i: VoiceInfo) => void;
+  // service says the transcription service listens: its switch and form are shown.
+  service: boolean;
 }) {
   // Only drawn with a saved configuration (see gatewayEditor).
   const saved = info.saved as SavedVoice;
@@ -231,16 +240,18 @@ function VoiceGateway({
   );
   return (
     <>
-      <VoiceGatewaySwitch
-        saved={saved}
-        editing={editing}
-        busy={busy}
-        setEditing={setEditing}
-        setErr={setErr}
-        setForm={setForm}
-        save={save}
-      />
-      {editing && (
+      {service && (
+        <VoiceGatewaySwitch
+          saved={saved}
+          editing={editing}
+          busy={busy}
+          setEditing={setEditing}
+          setErr={setErr}
+          setForm={setForm}
+          save={save}
+        />
+      )}
+      {service && editing && (
         <VoiceServiceForm
           saved={saved}
           form={form}
@@ -746,6 +757,84 @@ function MicPermissionRow({
   );
 }
 
+// ListenEngineRow chooses who turns speech into text: a model run in this browser (the first
+// choice: nothing leaves the device) or the transcription service.
+function ListenEngineRow({
+  engine,
+  onPick,
+}: {
+  engine: ListenEngine;
+  onPick: (e: ListenEngine) => void;
+}) {
+  return (
+    <Row
+      id="settings-listen-engine"
+      label={t("Who listens")}
+      hint={choose(
+        engine === "local",
+        t("A model downloaded once, run in this browser."),
+        t("A transcription service, through the gateway."),
+      )}
+    >
+      <select
+        class={selectCls}
+        aria-labelledby="settings-listen-engine"
+        data-testid="voice-engine"
+        value={engine}
+        onChange={(e) =>
+          onPick((e.target as HTMLSelectElement).value as ListenEngine)
+        }
+      >
+        <option value="local">{t("This browser")}</option>
+        <option value="service">{t("Transcription service")}</option>
+      </select>
+    </Row>
+  );
+}
+
+// listenHint is what listening for the wake phrase does with what it hears.
+function listenHint(engine: ListenEngine, phrases: string[]): string {
+  const said = phrases.map((p) => `“${p}”`).join(", ");
+  if (engine === "local") {
+    return tf(
+      "Only while this tab is open. What you say is heard in this browser. Say: {phrases}",
+      { phrases: said },
+    );
+  }
+  return tf(
+    "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
+    { phrases: said },
+  );
+}
+
+// ListenSource is who listens and what that one needs: the models to download for this browser,
+// or the transcription service of the gateway (whose wake phrases count for either).
+function ListenSource({
+  engine,
+  onPick,
+  api,
+  editor,
+  prefs,
+  setPrefs,
+}: {
+  engine: ListenEngine;
+  onPick: (e: ListenEngine) => void;
+  api: Api | undefined;
+  editor: ReturnType<typeof gatewayEditor>;
+  prefs: VoicePrefs;
+  setPrefs: (p: VoicePrefs) => void;
+}) {
+  return (
+    <>
+      <ListenEngineRow engine={engine} onPick={onPick} />
+      {engine === "local" && api && (
+        <LocalListening api={api} prefs={prefs} setPrefs={setPrefs} />
+      )}
+      {editor && <VoiceGateway {...editor} service={engine === "service"} />}
+    </>
+  );
+}
+
 // VoiceSettings are speech input on the gateway, the microphone of this device and the two
 // switches, which only work where the browser grants the microphone (https or localhost) and
 // the gateway has speech input on. Until the browser allowed the microphone, all of it is greyed
@@ -774,13 +863,18 @@ export function VoiceSettings({
     (listen: boolean) => setPrefs({ ...prefs, listen }),
     [prefs, setPrefs],
   );
+  const engine = listenEngine(prefs, info ?? null);
+  const setEngine = useCallback(
+    (e: ListenEngine) => setPrefs({ ...prefs, engine: e }),
+    [prefs, setPrefs],
+  );
   const askable = state !== "insecure" && state !== "unsupported";
   const mic = useMicPermission(askable);
   const allowed = askable && mic.permission === "granted";
   return (
     <section class="settings-group" aria-labelledby="settings-voice-h">
       <h3 id="settings-voice-h" class="settings-group-title">
-        {t("Voice")}
+        {t("Voice input")}
       </h3>
       <div class="settings-card" data-testid="voice-setting">
         {askable && mic.permission && !allowed && (
@@ -795,7 +889,14 @@ export function VoiceSettings({
           disabled={!allowed}
           data-testid="voice-locked"
         >
-          {editor && <VoiceGateway {...editor} />}
+          <ListenSource
+            engine={engine}
+            onPick={setEngine}
+            api={api}
+            editor={editor}
+            prefs={prefs}
+            setPrefs={setPrefs}
+          />
           <MicPicker
             usable={allowed}
             deviceId={prefs.deviceId}
@@ -824,14 +925,7 @@ export function VoiceSettings({
             id="settings-listen"
             label={t("Listen for the wake phrase")}
             warning={voiceWarning(hands)}
-            hint={voiceHint(
-              hands,
-              tf(
-                "Only while this tab is open. What you say is sent to the transcription service. Say: {phrases}",
-                { phrases: phrases.map((p) => `“${p}”`).join(", ") },
-              ),
-              canSave,
-            )}
+            hint={voiceHint(hands, listenHint(engine, phrases), canSave)}
           >
             <VoiceSwitch
               id="settings-listen"

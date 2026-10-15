@@ -1241,17 +1241,41 @@ voice:
   max_audio_kb: 10240
 ```
 
-The browser records, the gateway forwards the recording to `POST {base_url}/audio/transcriptions`
-(the OpenAI transcription API, which OpenAI, Groq and a local `whisper-server` answer) and returns
-the text. The audio is held in memory for that one request and never written to disk. There is no
-model and no codec in the binary, so a private setup is a `base_url` away.
+**Who listens** (Settings → Voice) chooses what turns the recording into text:
 
-Hands-free mode detects speech by its level in the page (no model, no WebAssembly: the page's
-content policy allows neither), sends each phrase to the same endpoint, and uses only one that
-opens with a wake phrase; the match ignores case, accents and punctuation, tolerates one wrong
-letter in a long word, and allows two filler words before the phrase. **Everything said while it
-listens goes to the transcription endpoint**, which is why it is off by default and why a local
-`whisper-server` is the private choice.
+- **This browser** (the default): a [Whisper](https://github.com/openai/whisper) model the gateway
+  downloads once and the page runs itself, on WebGPU where the browser has it and on WebAssembly
+  otherwise. Nothing said leaves the device, and no `voice` block is needed. The models come from
+  onnx-community's ONNX exports, at fixed commits, checked by size and SHA-256 like the local voices
+  (see [Local voices](#local-voices)) and served from the gateway's own origin:
+
+  | Model                | Runs on      | Download | Notes                                      |
+  | -------------------- | ------------ | -------- | ------------------------------------------ |
+  | Whisper tiny         | WebAssembly  | 43 MB    | the fastest, the least accurate            |
+  | Whisper base         | WebAssembly  | 79 MB    | recommended without WebGPU                 |
+  | Whisper small        | WebAssembly  | 252 MB   | the most accurate; several seconds a phrase |
+  | Whisper base (GPU)   | WebGPU       | 172 MB   | 4-bit; runs on the processor if WebGPU fails |
+  | Whisper small (GPU)  | WebGPU       | 329 MB   | 4-bit; recommended with WebGPU             |
+
+  The first download also adds the 33 MB engine the local voices share. Each model shows its
+  download, then how far it is from **loaded into memory**, and where it runs. **Language you
+  speak** tells the model the language (Spanish, English, Portuguese, French, German, Italian), or
+  lets it detect it. The model loads while the first phrase is being said, and a recording the
+  model hears as silence writes nothing.
+- **Transcription service**: the gateway forwards the recording to
+  `POST {base_url}/audio/transcriptions` (the OpenAI transcription API, which OpenAI, Groq and a
+  local `whisper-server` answer) and returns the text. The audio is held in memory for that one
+  request and never written to disk.
+
+Before anything is chosen, a browser with a downloaded model listens itself, and one without uses
+the transcription service when it is on.
+
+Hands-free mode detects speech by its level in the page, hands each phrase to whoever listens, and
+uses only one that opens with a wake phrase; the match (on the gateway, `POST /v1/voice/wake` for a
+text heard in the browser) ignores case, accents and punctuation, tolerates one wrong letter in a
+long word, and allows two filler words before the phrase. **With the transcription service,
+everything said while it listens goes to its endpoint**, which is why hands-free is off by default
+and why the browser's own model is the private choice.
 
 The microphone only exists for a page served over **https or from localhost**: opened by a LAN
 address over plain http, the settings show both switches greyed out with that reason. See
@@ -1273,6 +1297,7 @@ once, without a restart. `motita doctor` and `motita gateway setup` say when it 
 | `GET /v1/voice`             | `{"enabled":true,"wake_phrases":["hey motita"],"max_audio_bytes":10485760}`                                                                                                                                                                                                                                       |
 | `PUT /v1/voice`             | `{"enabled":true,"confirm":true,"base_url":"...","model":"...","api_key":"...","wake_phrases":[...]}`; every field but `enabled` is optional. `confirm` is required to turn it on or change `base_url`. Answers `GET` plus `can_save`, `saved` (the file's block, `has_key` instead of the key) and `restart_needed`.                                    |
 | `POST /v1/voice/transcribe` | The raw recording as the body, typed by `Content-Type` (`audio/webm`, `audio/mp4`, `audio/wav`, ...). `{"text":"..."}`; with `?wake=1` also `"wake":{"phrase","rest"}` when one opened it. `415` for another type, `413` over the cap, `501` when voice is off, `502` with the endpoint's answer when it refused. |
+| `POST /v1/voice/wake`      | `{"text":"..."}`, a text the browser transcribed itself. Answers `{"text":"..."}`, with `"wake":{"phrase","rest"}` when a wake phrase opened it. Needs no transcription service. |
 
 The variables are `MOTITA_VOICE_ENABLED`, `MOTITA_VOICE_BASE_URL`, `MOTITA_VOICE_API_KEY`,
 `MOTITA_VOICE_MODEL`, `MOTITA_VOICE_LANGUAGE` and `MOTITA_VOICE_MAX_AUDIO_KB`; the phrases are set

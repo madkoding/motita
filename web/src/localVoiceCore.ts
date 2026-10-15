@@ -494,10 +494,16 @@ export interface TensorLike {
   dims?: readonly number[];
 }
 export interface SessionLike {
+  // inputNames are the model's inputs, which a model with a cache per layer is read from.
+  inputNames?: readonly string[];
   run(feeds: Record<string, TensorLike>): Promise<Record<string, TensorLike>>;
 }
 export interface OrtLike {
-  Tensor: new (type: "int64" | "float32", data: BigInt64Array | Float32Array, dims: number[]) => TensorLike;
+  Tensor: new (
+    type: "int64" | "float32" | "bool",
+    data: BigInt64Array | Float32Array | Uint8Array,
+    dims: number[],
+  ) => TensorLike;
   // weights, when given, is the file the model keeps its weights in, by the name it gives it.
   createSession(model: ArrayBuffer, weights?: { path: string; data: ArrayBuffer }): Promise<SessionLike>;
 }
