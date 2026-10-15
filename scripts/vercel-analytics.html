@@ -9,8 +9,9 @@
     }
     window.va =
       window.va ||
-      function () {
-        (window.vaq = window.vaq || []).push(arguments);
+      function (...args) {
+        window.vaq = window.vaq || [];
+        window.vaq.push(args);
       };
     var script = document.createElement("script");
     script.defer = true;

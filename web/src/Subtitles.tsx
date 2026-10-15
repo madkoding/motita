@@ -3,6 +3,7 @@
 // (SUBTITLE_EVENT), and fades out when the voice ends or is stopped. It sits at the bottom of the
 // conversation, centred above the composer, and never takes a click.
 import { useEffect, useState } from "preact/hooks";
+import { choose } from "./choose";
 import { SUBTITLE_EVENT, type SubtitleSize } from "./speech";
 
 export function Subtitles({ on, size }: { on: boolean; size: SubtitleSize }) {
@@ -32,7 +33,7 @@ export function Subtitles({ on, size }: { on: boolean; size: SubtitleSize }) {
     <div class="subtitles-anchor" data-testid="subtitles">
       <p
         class={"subtitles subtitles-" + size}
-        data-shown={shown ? "1" : undefined}
+        data-shown={choose(shown, "1", undefined)}
         role="status"
         aria-live="polite"
         aria-atomic="true"

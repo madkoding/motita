@@ -69,6 +69,8 @@ export function scrolled(
     s.pinned = false;
   } else if (delta > 0 && gap <= slack) {
     s.pinned = true;
+  } else {
+    // Still, or moving down but not yet near the end: the reader's choice stands as it was.
   }
 }
 

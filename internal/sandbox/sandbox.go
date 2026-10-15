@@ -432,6 +432,8 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		s.confineApproved(&spec)
 	case confine:
 		s.confine(&spec, workDir, tempDir)
+	default:
+		// Not confined: the command writes wherever the sandbox's other rules let it.
 	}
 
 	command := s.executable

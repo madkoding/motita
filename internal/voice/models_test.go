@@ -234,10 +234,9 @@ func TestVerifyNoticesChanges(t *testing.T) {
 // every Piper voice, and Supertonic's and Chatterbox's voices on their shared models, their ids
 // starting as the page reads.
 func TestTheCatalog(t *testing.T) {
-	hexSum := regexp.MustCompile(`^[0-9a-f]{64}$`)
 	seen := map[string]bool{RuntimeID: true, samplesDir: true}
 	check := func(f ModelFile) {
-		if !strings.HasPrefix(f.URL, "https://") || !hexSum.MatchString(f.SHA256) || f.Size <= 0 || f.Name == "" {
+		if !goodCatalogFile(f) {
 			t.Errorf("bad file %+v", f)
 		}
 	}
@@ -245,7 +244,7 @@ func TestTheCatalog(t *testing.T) {
 		check(f)
 	}
 	for _, m := range PiperVoices {
-		if seen[m.ID] || m.Engine != EnginePiper || m.Shared != "" || len(m.Files) != 2 || m.Name == "" || m.Sample == nil {
+		if seen[m.ID] || !goodPiperVoice(m) {
 			t.Errorf("bad voice %+v", m)
 		}
 		seen[m.ID] = true
@@ -258,8 +257,7 @@ func TestTheCatalog(t *testing.T) {
 		check(f)
 	}
 	for _, m := range SupertonicVoices {
-		if seen[m.ID] || m.Engine != EngineSupertonic || m.Shared != SupertonicID || !strings.HasPrefix(m.ID, SupertonicID+"-") ||
-			m.Lang != "mul" || len(m.Files) != 1 || m.Sample == nil || int64(len(m.Sample.Data)) != m.Sample.Size {
+		if seen[m.ID] || !goodSupertonicVoice(m) {
 			t.Errorf("bad voice %+v", m)
 		}
 		seen[m.ID] = true
@@ -270,9 +268,7 @@ func TestTheCatalog(t *testing.T) {
 		check(f)
 	}
 	for _, m := range ChatterboxVoices {
-		f := m.Files[0]
-		if seen[m.ID] || m.Engine != EngineChatterbox || m.Shared != ChatterboxID || !strings.HasPrefix(m.ID, ChatterboxID+"-") ||
-			m.Lang != "mul" || len(m.Files) != 1 || m.Sample == nil || f.Size == 0 || int64(len(f.Data)) != f.Size || !hexSum.MatchString(f.SHA256) {
+		if seen[m.ID] || !goodChatterboxVoice(m) {
 			t.Errorf("bad voice %+v", m)
 		}
 		seen[m.ID] = true
@@ -280,6 +276,51 @@ func TestTheCatalog(t *testing.T) {
 	if embeddedSample("nope") != nil {
 		t.Error("a voice with no sample compiled in has none")
 	}
+}
+
+// catalogSum is what a SHA-256 in the catalog looks like.
+var catalogSum = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// goodCatalogFile says whether a file of the catalog is downloaded over https and named, sized
+// and hashed.
+func goodCatalogFile(f ModelFile) bool {
+	located := strings.HasPrefix(f.URL, "https://") && f.Name != ""
+	return located && catalogSum.MatchString(f.SHA256) && f.Size > 0
+}
+
+// goodPiperVoice says whether a Piper voice stands on its own with a model, its config, a name
+// and a sample.
+func goodPiperVoice(m Model) bool {
+	engine := m.Engine == EnginePiper && m.Shared == ""
+	files := len(m.Files) == 2 && m.Sample != nil
+	return engine && files && m.Name != ""
+}
+
+// goodSharedVoice says whether a voice rides on the shared models of its engine, its id
+// starting with theirs, for every language, with one file of its own and a sample.
+func goodSharedVoice(m Model, engine, shared string) bool {
+	onShared := m.Engine == engine && m.Shared == shared
+	named := strings.HasPrefix(m.ID, shared+"-") && m.Lang == "mul"
+	return onShared && named && len(m.Files) == 1 && m.Sample != nil
+}
+
+// goodSupertonicVoice says whether a Supertonic voice is on the shared model with its sample
+// compiled in.
+func goodSupertonicVoice(m Model) bool {
+	if !goodSharedVoice(m, EngineSupertonic, SupertonicID) {
+		return false
+	}
+	return int64(len(m.Sample.Data)) == m.Sample.Size
+}
+
+// goodChatterboxVoice says whether a Chatterbox voice is on the shared model with its own file
+// compiled in and hashed.
+func goodChatterboxVoice(m Model) bool {
+	if !goodSharedVoice(m, EngineChatterbox, ChatterboxID) {
+		return false
+	}
+	f := m.Files[0]
+	return f.Size != 0 && int64(len(f.Data)) == f.Size && catalogSum.MatchString(f.SHA256)
 }
 
 // A sample compiled in is written where the others are kept, checked like them, and not

@@ -18,6 +18,11 @@ globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.CustomEvent = dom.window.CustomEvent;
 
+// Test fixtures: the id of the newest user message, a long drawer, and slack past a timer.
+const NEWEST_USER_ID = 7;
+const MANY_ENTRIES = 500;
+const TIMER_SLACK_MS = 50;
+
 // A controllable IntersectionObserver: each instance is kept with its margin, so a test can say
 // which elements its observer sees.
 const observers = [];
@@ -74,7 +79,7 @@ test("a turn whose messages and steps did not change is the same turn", () => {
 
 test("the newest input of the user is what makes old suggestions stale", () => {
   assert.equal(TV.lastUserIdOf([]), -1);
-  assert.equal(TV.lastUserIdOf([{ id: 1, role: "user" }, { id: 5, role: "agent" }, { id: 7, role: "user" }, { id: 9, role: "agent" }]), 7);
+  assert.equal(TV.lastUserIdOf([{ id: 1, role: "user" }, { id: 5, role: "agent" }, { id: NEWEST_USER_ID, role: "user" }, { id: 9, role: "agent" }]), NEWEST_USER_ID);
 });
 
 function fakeStore(over = {}) {
@@ -108,7 +113,7 @@ test("the turn view keeps its identity while only a streaming answer changes", (
 
 test("a drawer window shows the newest entries", () => {
   assert.equal(DW.windowStart(10, DW.DRAWER_WINDOW), 0);
-  assert.equal(DW.windowStart(500, DW.DRAWER_WINDOW), 500 - DW.DRAWER_WINDOW);
+  assert.equal(DW.windowStart(MANY_ENTRIES, DW.DRAWER_WINDOW), MANY_ENTRIES - DW.DRAWER_WINDOW);
 });
 
 test("a closed drawer mounts nothing once it has finished closing", async () => {
@@ -123,7 +128,7 @@ test("a closed drawer mounts nothing once it has finished closing", async () => 
   assert.equal(last.shown, 2 * DW.DRAWER_WINDOW, "earlier entries are added on request");
   act(() => render(h(Probe, { open: false }), root));
   assert.equal(last.mounted, true, "kept while the panel slides out");
-  await new Promise((r) => setTimeout(r, DW.DRAWER_LINGER_MS + 50));
+  await new Promise((r) => setTimeout(r, DW.DRAWER_LINGER_MS + TIMER_SLACK_MS));
   act(() => {});
   assert.equal(last.mounted, false, "gone once it has closed");
   assert.equal(last.shown, DW.DRAWER_WINDOW, "and the window is back to its size");

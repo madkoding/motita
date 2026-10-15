@@ -12,6 +12,9 @@ import { JSDOM } from "jsdom";
 const here = dirname(fileURLToPath(import.meta.url));
 const motionCss = readFileSync(join(here, "..", "motion.css"), "utf8");
 const indexCss = readFileSync(join(here, "..", "index.css"), "utf8");
+const GHOST = ".motion-ghost";
+// Longer than the ghost's removal fallback in motion.ts (GHOST_MAX_MS).
+const PAST_GHOST_FALLBACK_MS = 650;
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -50,13 +53,13 @@ test("the motion tokens are defined once, on :root", () => {
     "--motion-shift-lg",
     "--motion-scale",
   ]) {
-    assert.match(motionCss, new RegExp(`:root \\{[^}]*${token}:`), token);
+    assert.match(motionCss, new RegExp(String.raw`:root \{[^}]*${token}:`), token);
   }
 });
 
 test("reduced motion turns every movement into a fade", () => {
-  const reduced = motionCss.match(
-    /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/,
+  const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/.exec(
+    motionCss,
   );
   assert.ok(reduced, "a reduced-motion block redefines the tokens");
   assert.match(reduced[1], /--motion-shift: 0px;/);
@@ -69,8 +72,12 @@ test("the shared keyframes move only transform, scale and opacity", () => {
   const bodies = [...motionCss.matchAll(/@keyframes motion-[\w-]+ \{([\s\S]*?)\n\}/g)];
   assert.ok(bodies.length >= 10);
   for (const [, body] of bodies) {
-    for (const [, prop] of body.matchAll(/^\s*([a-z-]+):/gm)) {
-      assert.ok(["opacity", "transform", "scale"].includes(prop), prop);
+    // Line by line rather than one multiline regex, so no match backtracks across lines.
+    for (const line of body.split("\n")) {
+      const decl = /^([a-z-]+):/.exec(line.trimStart());
+      if (decl) {
+        assert.ok(["opacity", "transform", "scale"].includes(decl[1]), decl[1]);
+      }
     }
   }
 });
@@ -83,14 +90,14 @@ test("a leaving copy is not made outside a real browser", () => {
   const el = document.createElement("div");
   document.body.appendChild(el);
   leaveGhost(el, "fade", "pop");
-  assert.equal(document.querySelectorAll(".motion-ghost").length, 0);
+  assert.equal(document.querySelectorAll(GHOST).length, 0);
   leaveGhost(null, "fade");
 });
 
 test("a leaving copy is inert, has no ids and does not count as a dialog", async () => {
   const el = document.createElement("div");
   el.id = "settings";
-  el.setAttribute("data-modal", "");
+  el.dataset.modal = "";
   el.innerHTML =
     '<dialog open data-dialog-root data-testid="x"><input id="f" value="a"></dialog>';
   document.body.appendChild(el);
@@ -99,16 +106,17 @@ test("a leaving copy is inert, has no ids and does not count as a dialog", async
   el.animate = () => {};
   el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 100, height: 50 });
   leaveGhost(el, "fade", "pop");
-  const ghost = document.querySelector(".motion-ghost");
+  const ghost = document.querySelector(GHOST);
   assert.ok(ghost);
   assert.equal(ghost.getAttribute("aria-hidden"), "true");
-  assert.equal(ghost.querySelectorAll("[id]").length + (ghost.id ? 1 : 0), 0);
+  assert.equal(ghost.id, "");
+  assert.equal(ghost.querySelectorAll("[id]").length, 0);
   assert.equal(ghost.querySelectorAll("[data-modal], [data-dialog-root], [data-testid]").length, 0);
-  assert.equal(ghost.hasAttribute("data-modal"), false);
+  assert.equal("modal" in ghost.dataset, false);
   assert.equal(ghost.querySelector("input").value, "typed");
   assert.ok(ghost.firstElementChild.classList.contains("motion-pop-out"));
-  await new Promise((r) => setTimeout(r, 650));
-  assert.equal(document.querySelectorAll(".motion-ghost").length, 0, "removed by the fallback");
+  await new Promise((r) => setTimeout(r, PAST_GHOST_FALLBACK_MS));
+  assert.equal(document.querySelectorAll(GHOST).length, 0, "removed by the fallback");
   el.remove();
 });
 

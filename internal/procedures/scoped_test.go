@@ -44,7 +44,8 @@ func TestAScopedStoreKeepsTheProjectsTelemetryApart(t *testing.T) {
 	if err := st.Usage.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(shared.Library.Root(), ProjectsDir, projectskills.Key(project), ".usage.json")); err != nil {
+	ledger := filepath.Join(shared.Library.Root(), ProjectsDir, projectskills.Key(project), ".usage.json")
+	if _, err := os.Stat(ledger); err != nil {
 		t.Errorf("the project's ledger is kept in motita's state: %v", err)
 	}
 	if other := Scoped(shared, t.TempDir()); other.Usage.Disabled("build") {

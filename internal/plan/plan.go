@@ -30,6 +30,7 @@ import (
 const (
 	errNoProcedureLibrary = "Error: no procedure library is configured."
 	errParsingArguments   = "Error parsing the arguments: "
+	errPrefix             = "Error: "
 )
 
 //go:embed soul.md
@@ -358,7 +359,8 @@ func (p *Planner) tools() []llm.Tool {
 		llm.NewTool("list_directory", "Lists the contents of a directory (files and subdirectories).",
 			llm.ObjectSchema(map[string]any{
 				"path": llm.StringProperty(
-					"Path of the directory to list, relative to the working directory or absolute. Defaults to the working directory."),
+					"Path of the directory to list, relative to the working directory or absolute. " +
+						"Defaults to the working directory."),
 			})),
 		llm.NewTool("read_file", "Reads the contents of a text file from the local system (maximum 1 MiB).",
 			llm.ObjectSchema(map[string]any{
@@ -374,7 +376,8 @@ func (p *Planner) tools() []llm.Tool {
 		llm.NewTool("search_in_files", "Searches for a pattern inside text files under a directory using grep/ripgrep.",
 			llm.ObjectSchema(map[string]any{
 				"pattern": llm.StringProperty("The regular expression or literal string to search for."),
-				"path":    llm.StringProperty("Directory or file to search in, relative to the working directory. Defaults to the working directory."),
+				"path": llm.StringProperty("Directory or file to search in, relative to the working directory. " +
+					"Defaults to the working directory."),
 				"literal": llm.StringProperty(
 					"Set to true to search for a literal string instead of a regex (default: false)."),
 			}, "pattern")),

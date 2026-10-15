@@ -280,10 +280,7 @@ export function LocalVoices({
   // Chatterbox runs only on the graphics card: it is offered where the browser has one.
   const voices = catalog.models.filter((m) => m.engine !== "chatterbox" || webGPU);
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
-  // The voice in use, and the one downloading, stay in the list whatever the filters say.
-  const visible = byLanguage(voices).filter(
-    (m) => m.id === chosen || m.id === dl?.id || shown(m, choose(languages.includes(language), language, ""), quality),
-  );
+  const visible = listed(voices, languages, filters, [chosen, dl?.id]);
   return (
     <div class="flex flex-col gap-2 w-full" data-testid="local-voices">
       {!catalog.runtime.installed && (
@@ -324,142 +321,241 @@ export function LocalVoices({
         </select>
       </div>
       {visible.length === 0 && <div class="text-xs text-[#7a7a8c]">{t("No voice matches these filters.")}</div>}
-      {visible.map((m) => {
-        const here = dl?.id === m.id;
-        let state;
-        if (here && downloading) {
-          const pct = Math.floor((100 * dl.done) / Math.max(dl.total, 1));
-          state = (
-            <output class="text-xs text-[#a0a0b0]" data-testid={"local-voice-progress-" + m.id}>
-              {tf("Downloading… {pct}%", { pct: String(pct) })}
-            </output>
-          );
-        } else if (m.installed) {
-          const inUse = chosen === m.id;
-          let use = (
-            <button
-              type="button"
-              class={choose(inUse, primaryBtn, smallBtn)}
-              aria-pressed={inUse}
-              data-testid={"local-voice-use-" + m.id}
-              onClick={() => pick(m.id)}
-            >
-              {choose(inUse, t("In use"), t("Use"))}
-            </button>
-          );
-          if (inUse && loading?.error) {
-            use = (
-              <button
-                type="button"
-                class={smallBtn}
-                title={loading.error}
-                data-testid={"local-voice-retry-" + m.id}
-                onClick={() => warmLocal(m.id)}
-              >
-                {t("Try again")}
-              </button>
-            );
-          } else if (inUse && loading && !loading.ready) {
-            use = (
-              <span class="text-xs text-[#a0a0b0]" role="status" data-testid={"local-voice-loading-" + m.id}>
-                {tf("Loading into memory… {pct}%", { pct: String(loading.pct) })}
-              </span>
-            );
-          }
-          state = (
-            <span class="flex items-center gap-2">
-              {use}
-              <button
-                type="button"
-                class={smallBtn}
-                disabled={busy !== ""}
-                data-testid={"local-voice-delete-" + m.id}
-                onClick={() =>
-                  void act(m.id, async () => {
-                    await deleteVoice(api, m.id);
-                    if (chosen === m.id) {
-                      pick("");
-                    }
-                  })
-                }
-              >
-                {t("Delete")}
-              </button>
-            </span>
-          );
-        } else {
-          state = (
-            <button
-              type="button"
-              class={smallBtn}
-              disabled={downloading || busy !== ""}
-              data-testid={"local-voice-get-" + m.id}
-              onClick={() => void act(m.id, () => installVoice(api, m.id))}
-            >
-              {t("Download")}
-            </button>
-          );
-        }
-        const hearing = sample.playing === m.id;
-        return (
-          <div key={m.id} class="flex items-center justify-between gap-3" data-testid={"local-voice-" + m.id}>
-            <div class="flex items-center gap-2 min-w-0">
-              {!m.sample && <span class="w-[32px] shrink-0" aria-hidden="true" />}
-              {m.sample && (
-                <button
-                  type="button"
-                  class={smallBtn + " w-[32px] shrink-0 px-0"}
-                  aria-label={choose(hearing, t("Stop the sample"), tf("Hear {name}", { name: m.name }))}
-                  aria-pressed={hearing}
-                  data-testid={"local-voice-sample-" + m.id}
-                  onClick={() => void sample.play(m.id)}
-                >
-                  {choose(hearing, "■", "▶")}
-                </button>
-              )}
-              <div class="min-w-0">
-                <div class="text-sm text-[#e8e8ea] truncate">
-                  {m.name} ·{" "}
-                  {choose(m.lang === MANY_LANGS, tf("{n} languages", { n: String(LANGUAGES_OF[m.engine] ?? "") }), m.lang)}
-                </div>
-                <div class="text-xs text-[#7a7a8c]">
-                  {ENGINES[m.engine] ?? ""}
-                  {qualityLabel(m.quality)} · {megabytes(m.size)}
-                  {choose(m.id === chosen && !!loading?.gpu, " · WebGPU", "")}
-                </div>
-              </div>
-            </div>
-            {state}
-          </div>
-        );
-      })}
+      {visible.map((m) => (
+        <VoiceRow
+          key={m.id}
+          m={m}
+          chosen={chosen}
+          pick={pick}
+          loading={loading}
+          dl={dl}
+          busy={busy}
+          sample={sample}
+          act={act}
+          api={api}
+        />
+      ))}
       {isSupertonic(chosen) && loading?.gpuError && (
         <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
           {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: loading.gpuError })}
         </div>
       )}
       {isChatterbox(chosen) && <Emotion value={emotion} set={setEmotion} />}
-      {sample.error && (
-        <div class="text-xs text-[#f87171]" role="alert">
-          {sample.error}
-        </div>
-      )}
-      {dl?.error && (
-        <div class="text-xs text-[#f87171]" role="alert">
-          {tf("The download failed: {error}", { error: dl.error })}
-        </div>
-      )}
-      {loading?.error && (
-        <div class="text-xs text-[#f87171]" role="alert">
-          {tf("The voice could not be loaded: {error}", { error: loading.error })}
-        </div>
-      )}
-      {error && (
-        <div class="text-xs text-[#f87171]" role="alert">
-          {error}
-        </div>
-      )}
+      <Failures sample={sample.error} download={dl?.error} load={loading?.error} catalog={error} />
     </div>
+  );
+}
+
+// listed are the voices the list shows, in the order it shows them: those the filters let
+// through, and the ones kept whatever the filters say (the voice in use, the one downloading).
+function listed(voices: LocalModel[], languages: string[], filters: Filters, kept: (string | undefined)[]): LocalModel[] {
+  const language = choose(languages.includes(filters.language), filters.language, "");
+  return byLanguage(voices).filter((m) => kept.includes(m.id) || shown(m, language, filters.quality));
+}
+
+// The download the gateway is busy with, as the catalog reports it.
+type Download = LocalCatalog["download"];
+// act runs one request about a voice, then reads the catalog again.
+type Act = (id: string, run: () => Promise<void>) => Promise<void>;
+
+// VoiceRow is one voice of the list: its sample, its name and details, and what can be done with it.
+function VoiceRow({
+  m,
+  chosen,
+  pick,
+  loading,
+  dl,
+  busy,
+  sample,
+  act,
+  api,
+}: {
+  m: LocalModel;
+  chosen: string;
+  pick: (id: string) => void;
+  loading: LoadState | undefined;
+  dl: Download | undefined;
+  busy: string;
+  sample: ReturnType<typeof useSample>;
+  act: Act;
+  api: Api;
+}) {
+  const hearing = sample.playing === m.id;
+  return (
+    <div class="flex items-center justify-between gap-3" data-testid={"local-voice-" + m.id}>
+      <div class="flex items-center gap-2 min-w-0">
+        {!m.sample && <span class="w-[32px] shrink-0" aria-hidden="true" />}
+        {m.sample && (
+          <button
+            type="button"
+            class={smallBtn + " w-[32px] shrink-0 px-0"}
+            aria-label={choose(hearing, t("Stop the sample"), tf("Hear {name}", { name: m.name }))}
+            aria-pressed={hearing}
+            data-testid={"local-voice-sample-" + m.id}
+            onClick={() => void sample.play(m.id)}
+          >
+            {choose(hearing, "■", "▶")}
+          </button>
+        )}
+        <div class="min-w-0">
+          <div class="text-sm text-[#e8e8ea] truncate">
+            {m.name} ·{" "}
+            {choose(m.lang === MANY_LANGS, tf("{n} languages", { n: String(LANGUAGES_OF[m.engine] ?? "") }), m.lang)}
+          </div>
+          <div class="text-xs text-[#7a7a8c]">
+            {ENGINES[m.engine] ?? ""}
+            {qualityLabel(m.quality)} · {megabytes(m.size)}
+            {choose(m.id === chosen && !!loading?.gpu, " · WebGPU", "")}
+          </div>
+        </div>
+      </div>
+      <VoiceState m={m} chosen={chosen} pick={pick} loading={loading} dl={dl} busy={busy} act={act} api={api} />
+    </div>
+  );
+}
+
+// VoiceState is what can be done with a voice: follow its download, use or delete it once it is
+// downloaded, or download it.
+function VoiceState({
+  m,
+  chosen,
+  pick,
+  loading,
+  dl,
+  busy,
+  act,
+  api,
+}: {
+  m: LocalModel;
+  chosen: string;
+  pick: (id: string) => void;
+  loading: LoadState | undefined;
+  dl: Download | undefined;
+  busy: string;
+  act: Act;
+  api: Api;
+}) {
+  const downloading = !!dl && !dl.error;
+  if (downloading && dl.id === m.id) {
+    const pct = Math.floor((100 * dl.done) / Math.max(dl.total, 1));
+    return (
+      <output class="text-xs text-[#a0a0b0]" data-testid={"local-voice-progress-" + m.id}>
+        {tf("Downloading… {pct}%", { pct: String(pct) })}
+      </output>
+    );
+  }
+  if (!m.installed) {
+    return (
+      <button
+        type="button"
+        class={smallBtn}
+        disabled={downloading || busy !== ""}
+        data-testid={"local-voice-get-" + m.id}
+        onClick={() => void act(m.id, () => installVoice(api, m.id))}
+      >
+        {t("Download")}
+      </button>
+    );
+  }
+  return (
+    <span class="flex items-center gap-2">
+      <UseVoice m={m} inUse={chosen === m.id} pick={pick} loading={loading} />
+      <button
+        type="button"
+        class={smallBtn}
+        disabled={busy !== ""}
+        data-testid={"local-voice-delete-" + m.id}
+        onClick={() =>
+          void act(m.id, async () => {
+            await deleteVoice(api, m.id);
+            if (chosen === m.id) {
+              pick("");
+            }
+          })
+        }
+      >
+        {t("Delete")}
+      </button>
+    </span>
+  );
+}
+
+// UseVoice chooses a downloaded voice; for the voice in use it is how far it is from being loaded
+// into memory, or a way to try again when it could not be.
+function UseVoice({
+  m,
+  inUse,
+  pick,
+  loading,
+}: {
+  m: LocalModel;
+  inUse: boolean;
+  pick: (id: string) => void;
+  loading: LoadState | undefined;
+}) {
+  if (inUse && loading?.error) {
+    return (
+      <button
+        type="button"
+        class={smallBtn}
+        title={loading.error}
+        data-testid={"local-voice-retry-" + m.id}
+        onClick={() => warmLocal(m.id)}
+      >
+        {t("Try again")}
+      </button>
+    );
+  }
+  if (inUse && loading && !loading.ready) {
+    return (
+      <output class="text-xs text-[#a0a0b0]" data-testid={"local-voice-loading-" + m.id}>
+        {tf("Loading into memory… {pct}%", { pct: String(loading.pct) })}
+      </output>
+    );
+  }
+  return (
+    <button
+      type="button"
+      class={choose(inUse, primaryBtn, smallBtn)}
+      aria-pressed={inUse}
+      data-testid={"local-voice-use-" + m.id}
+      onClick={() => pick(m.id)}
+    >
+      {choose(inUse, t("In use"), t("Use"))}
+    </button>
+  );
+}
+
+// Failures are the alerts below the list: why a sample could not play, the download failed, the
+// voice in use could not be loaded, or the catalog could not be read.
+function Failures({
+  sample,
+  download,
+  load,
+  catalog,
+}: {
+  sample: string;
+  download: string | undefined;
+  load: string | undefined;
+  catalog: string;
+}) {
+  const alerts = [
+    sample,
+    choose(download, tf("The download failed: {error}", { error: download ?? "" }), ""),
+    choose(load, tf("The voice could not be loaded: {error}", { error: load ?? "" }), ""),
+    catalog,
+  ];
+  return (
+    <>
+      {alerts.map(
+        (text, i) =>
+          text && (
+            <div key={i} class="text-xs text-[#f87171]" role="alert">
+              {text}
+            </div>
+          ),
+      )}
+    </>
   );
 }
 

@@ -353,7 +353,7 @@ function ActivityTyped({ text, class: cls }: { text: string; class?: string }) {
     <Typed
       key={text}
       as="span"
-      class={`activity-typed${cls ? " " + cls : ""}`}
+      class={`activity-typed${choose(cls, " " + cls, "")}`}
       html={esc(text)}
     />
   );

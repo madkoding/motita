@@ -53,6 +53,8 @@ func searchFiles(ctx context.Context, pattern, path string, literal bool) (strin
 		s.file(path, "")
 	} else if err := s.tree(ctx, path); err != nil {
 		return s.out.String(), 2, err
+	} else {
+		// The whole tree was walked: what it found is reported below.
 	}
 
 	switch {

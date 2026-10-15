@@ -215,6 +215,8 @@ func (a *Agent) ReadPath(p string) (string, error) {
 		return "", fmt.Errorf("%s is outside what this session may read (its working directory is %s)", p, root)
 	case a.sandbox == nil && !inside && !a.fullDisk():
 		return "", fmt.Errorf("%s is outside the working directory %s", p, root)
+	default:
+		// Readable: inside the sandbox's view, the working directory, or a full-disk session.
 	}
 	return realPath, nil
 }

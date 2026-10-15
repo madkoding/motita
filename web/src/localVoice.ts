@@ -195,7 +195,7 @@ function getWorker(n = 0): Worker {
       workers[n] = null;
       // The voices it had loaded went with it: a new worker loads them again.
       if (n === 0) {
-        for (const id of [...loads.keys()]) {
+        for (const id of loads.keys()) {
           setLoad(id, undefined);
         }
       }
@@ -280,8 +280,8 @@ function loaded(m: Extract<FromWorker, { kind: string }>): void {
     setLoad(m.id, {
       pct: 100,
       ready: true,
-      ...(m.gpu ? { gpu: true } : {}),
-      ...(m.gpuError ? { gpuError: m.gpuError } : {}),
+      ...choose(m.gpu, { gpu: true }, {}),
+      ...choose(m.gpuError, { gpuError: m.gpuError }, {}),
     });
     // The helpers load the voice too, once the first worker has it in its copy of the files.
     for (let k = 1; k < lanes(m.id); k++) {

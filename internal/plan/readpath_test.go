@@ -53,8 +53,9 @@ func TestTheReadToolsWorkInTheSessionsDirectory(t *testing.T) {
 	if got := p.toolReadFile(json.RawMessage(`{"path":"notes.txt"}`)); got != "needle here\n" {
 		t.Errorf("read_file takes a relative path against the working directory: %q", got)
 	}
-	if got := p.toolReadFile(json.RawMessage(`{"path":"missing.txt"}`)); !strings.HasPrefix(got, "Error accessing the file") {
-		t.Errorf("a missing file inside the working directory: %q", got)
+	missing := p.toolReadFile(json.RawMessage(`{"path":"missing.txt"}`))
+	if !strings.HasPrefix(missing, "Error accessing the file") {
+		t.Errorf("a missing file inside the working directory: %q", missing)
 	}
 	for name, got := range map[string]string{
 		"list_directory": p.toolListDirectory(json.RawMessage(`{"path":"/etc"}`)),

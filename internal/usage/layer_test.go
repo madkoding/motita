@@ -35,8 +35,10 @@ func TestALayerKeepsItsOwnDocumentsAndRoutesTheShared(t *testing.T) {
 	}
 	for _, n := range []string{"mine", "common"} {
 		e := scope.Get(n)
-		if e.ViewCount != 1 || e.UseCount != 1 || e.PatchCount != 1 || e.State != StateStale || !e.Pinned ||
-			!scope.Disabled(n) || scope.IsCuratorManaged(n) {
+		counted := e.ViewCount == 1 && e.UseCount == 1 && e.PatchCount == 1
+		marked := e.State == StateStale && e.Pinned
+		switched := scope.Disabled(n) && !scope.IsCuratorManaged(n)
+		if !counted || !marked || !switched {
 			t.Errorf("%s: %+v", n, e)
 		}
 	}

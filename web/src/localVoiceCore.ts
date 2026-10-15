@@ -26,8 +26,9 @@ export const SUPERTONIC_LANGS = new Set(
 // Supertonic's sound is made of chunks of SUPERTONIC_CHUNK samples, each SUPERTONIC_LATENT
 // numbers wide (its tts.json: base_chunk_size 512 and latent_dim 24, both times
 // chunk_compress_factor 6).
-const SUPERTONIC_CHUNK = 512 * 6;
-const SUPERTONIC_LATENT = 24 * 6;
+const SUPERTONIC_COMPRESS = 6;
+const SUPERTONIC_CHUNK = 512 * SUPERTONIC_COMPRESS;
+const SUPERTONIC_LATENT = 24 * SUPERTONIC_COMPRESS;
 // SUPERTONIC_SPEED is the pace the model speaks at when none is asked for (its own default):
 // it changes how long each sound lasts, not the pitch, unlike the page's playback rate.
 export const SUPERTONIC_SPEED = 1.05;
@@ -149,7 +150,7 @@ export function supertonicText(text: string, lang: string): string {
     t = t.replace(from, to);
   }
   t = t.trim();
-  if (!/[.!?;:,'"')\]}…。」』】〉》›»]$/.test(t)) {
+  if (!/[.!?;:,'")\]}…。」』】〉》›»]$/.test(t)) {
     t += ".";
   }
   const base = lang.toLowerCase().split("-")[0];
@@ -177,7 +178,7 @@ export function supertonicStyle(text: string): SupertonicStyle {
   const raw = JSON.parse(text) as { style_ttl?: Part; style_dp?: Part };
   const flat = (p?: Part) => {
     if (!Array.isArray(p?.data) || !Array.isArray(p?.dims)) {
-      throw new Error("not a Supertonic voice");
+      throw new TypeError("not a Supertonic voice");
     }
     return Float32Array.from((p.data as unknown[]).flat(Infinity) as number[]);
   };
@@ -194,12 +195,15 @@ export function supertonicLatent(seconds: number): number {
   return Math.max(1, Math.ceil(Math.floor(seconds * SUPERTONIC_RATE) / SUPERTONIC_CHUNK));
 }
 
+// The Box-Muller transform's factor: a radius of sqrt(-2 ln u) for a uniform u.
+const BOX_MULLER_SCALE = -2;
+
 // noise is n numbers drawn from the normal distribution, for the steps to start from.
 export function noise(n: number, random: () => number = Math.random): Float32Array {
   const out = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const u = Math.max(1e-4, random());
-    out[i] = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * random());
+    out[i] = Math.sqrt(BOX_MULLER_SCALE * Math.log(u)) * Math.cos(2 * Math.PI * random());
   }
   return out;
 }
@@ -282,7 +286,7 @@ export function chatterboxTokenizer(text: string): ChatterboxTokenizer {
   const ranks = new Map(raw.model.merges.map((m, i) => [choose(typeof m === "string", m as string, ([] as string[]).concat(m).join(" ")), i]));
   // The longest first, so a tag is never cut by a shorter one inside it; a space is its own.
   const wholes = raw.added_tokens.map((a) => a.content).sort((a, b) => b.length - a.length);
-  const escaped = wholes.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const escaped = wholes.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`));
   return {
     vocab,
     ranks,
@@ -350,13 +354,16 @@ export interface ChatterboxVoice {
 const CHATTERBOX_EMBEDDING = 192;
 const CHATTERBOX_MELS = 80;
 
+// voice.bin opens with three 32-bit counts: its feature frames, its tokens and its speaker frames.
+const CHATTERBOX_HEAD_BYTES = 12;
+
 // chatterboxVoice reads a Chatterbox voice.bin.
 export function chatterboxVoice(buf: ArrayBuffer): ChatterboxVoice {
-  const head = new Int32Array(buf.slice(0, 12));
+  const head = new Int32Array(buf.slice(0, CHATTERBOX_HEAD_BYTES));
   const [featureLen, tokenLen, speakerLen] = [head[0] ?? 0, head[1] ?? 0, head[2] ?? 0];
-  const all = new Float32Array(buf.slice(12));
+  const all = new Float32Array(buf.slice(CHATTERBOX_HEAD_BYTES));
   const sizes = [featureLen * CHATTERBOX_WIDTH, tokenLen, CHATTERBOX_EMBEDDING, speakerLen * CHATTERBOX_MELS];
-  if (buf.byteLength < 12 || all.length !== sizes.reduce((a, b) => a + b, 0) || !featureLen || !tokenLen) {
+  if (buf.byteLength < CHATTERBOX_HEAD_BYTES || all.length !== sizes.reduce((a, b) => a + b, 0) || !featureLen || !tokenLen) {
     throw new Error("not a Chatterbox voice");
   }
   const parts: Float32Array[] = [];
@@ -365,12 +372,13 @@ export function chatterboxVoice(buf: ArrayBuffer): ChatterboxVoice {
     parts.push(all.subarray(at, at + n));
     at += n;
   }
+  const [features, tokens, embedding, speaker] = parts;
   return {
-    features: parts[0],
+    features,
     featureLen,
-    tokens: Array.from(parts[1]),
-    embedding: parts[2],
-    speaker: parts[3],
+    tokens: Array.from(tokens),
+    embedding,
+    speaker,
     speakerLen,
   };
 }
@@ -577,25 +585,7 @@ export class Synth {
   // read make up to LOAD_SHARE, and preparing the model the rest.
   warm(id: string, progress?: (pct: number) => void): Promise<void> {
     const job = this.queue.then(async () => {
-      const files: string[] = [];
-      // Supertonic and Chatterbox read the text itself: they need no phonemizer, nor the
-      // processor's runtime where the graphics card runs them (Chatterbox runs nowhere else).
-      if (!this.ort && !isChatterbox(id) && !(isSupertonic(id) && this.deps.gpu)) {
-        files.push(fileURL(RUNTIME_ID, ORT_WASM));
-      }
-      if (!this.phon && !readsText(id)) {
-        files.push(fileURL(RUNTIME_ID, PHONEMIZE_WASM), fileURL(RUNTIME_ID, PHONEMIZE_DATA));
-      }
-      const supertonic = isSupertonic(id);
-      if (supertonic && !this.supertonic) {
-        files.push(...this.supertonicFiles());
-      }
-      if (isChatterbox(id) && !this.chatterbox) {
-        files.push(...chatterboxFiles());
-      }
-      if (!this.voices.has(id)) {
-        files.push(...this.voiceFiles(id));
-      }
+      const files = this.filesToWarm(id);
       this.watch = {
         files: new Map(files.map((f) => [f, [-1, 0]])),
         // A step already done counts from the start.
@@ -618,6 +608,30 @@ export class Synth {
     return job;
   }
 
+  // filesToWarm are the files warm still has to read for a voice: those of its engine and its
+  // own, less what is loaded already.
+  private filesToWarm(id: string): string[] {
+    const files: string[] = [];
+    // Supertonic and Chatterbox read the text itself: they need no phonemizer, nor the
+    // processor's runtime where the graphics card runs them (Chatterbox runs nowhere else).
+    if (!this.ort && !isChatterbox(id) && !(isSupertonic(id) && this.deps.gpu)) {
+      files.push(fileURL(RUNTIME_ID, ORT_WASM));
+    }
+    if (!this.phon && !readsText(id)) {
+      files.push(fileURL(RUNTIME_ID, PHONEMIZE_WASM), fileURL(RUNTIME_ID, PHONEMIZE_DATA));
+    }
+    if (isSupertonic(id) && !this.supertonic) {
+      files.push(...this.supertonicFiles());
+    }
+    if (isChatterbox(id) && !this.chatterbox) {
+      files.push(...chatterboxFiles());
+    }
+    if (!this.voices.has(id)) {
+      files.push(...this.voiceFiles(id));
+    }
+    return files;
+  }
+
   // forget drops a voice, so the next request loads it again (after it was deleted, say).
   forget(id: string): void {
     this.voices.delete(id);
@@ -636,6 +650,8 @@ export class Synth {
       model = this.supertonic;
     } else if (isChatterbox(id)) {
       model = this.chatterbox;
+    } else {
+      // A Piper voice: it has no model of its own that could run on WebGPU.
     }
     return (await model?.catch(() => null))?.gpu ?? false;
   }
@@ -660,7 +676,7 @@ export class Synth {
     return files;
   }
 
-  private async sayNow(id: string, text: string, tune: Tune = { noise: 1, noiseW: 1 }): Promise<ArrayBuffer> {
+  private async sayNow(id: string, text: string, tune: Tune = DEFAULT_TUNE): Promise<ArrayBuffer> {
     const v = await this.voice(id);
     if (v.kind === "supertonic") {
       return this.saySupertonic(v.style, text, tune);
@@ -749,10 +765,10 @@ export class Synth {
       let embeds = (await m.embed.run(feed)).inputs_embeds;
       if (i === 0) {
         // The voice comes before the text.
-        const text = embeds.data as Float32Array;
-        const both = new Float32Array(voice.features.length + text.length);
+        const textEmbeds = embeds.data as Float32Array;
+        const both = new Float32Array(voice.features.length + textEmbeds.length);
         both.set(voice.features);
-        both.set(text, voice.features.length);
+        both.set(textEmbeds, voice.features.length);
         embeds = new T("float32", both, [1, voice.featureLen + ids.length, CHATTERBOX_WIDTH]);
       }
       seen += (embeds.dims as number[])[1];
@@ -851,6 +867,8 @@ export class Synth {
         load = () => this.loadSupertonic(id);
       } else if (isChatterbox(id)) {
         load = () => this.loadChatterbox(id);
+      } else {
+        // A Piper voice: loadPiper, set above.
       }
       v = load();
       this.voices.set(id, v);
@@ -982,6 +1000,9 @@ export interface Tune {
   speed?: number;
   steps?: number;
 }
+
+// DEFAULT_TUNE is a Piper voice as it was trained, when nothing else is asked for.
+const DEFAULT_TUNE: Tune = { noise: 1, noiseW: 1 };
 
 // The messages between the page and the worker.
 export type ToWorker =

@@ -45,10 +45,17 @@ function fakeRun() {
     finished: 0,
   };
   const apply = (key) => (v) => {
-    st[key] = typeof v === "function" ? v(st[key]) : v;
+    if (typeof v === "function") {
+      st[key] = v(st[key]);
+    } else {
+      st[key] = v;
+    }
   };
   const rs = {
-    nextId: () => ++id,
+    nextId: () => {
+      id += 1;
+      return id;
+    },
     liveTurnRef: { current: 3 },
     setMessages: apply("messages"),
     setStepsByTurn: apply("steps"),
@@ -57,7 +64,12 @@ function fakeRun() {
     setLiveThought: () => {},
     setShellLog: () => {},
   };
-  const ctx = { rs, finish: () => st.finished++ };
+  const ctx = {
+    rs,
+    finish: () => {
+      st.finished += 1;
+    },
+  };
   return { st, send: (name, payload) => handleStreamEvent(ctx, name, payload) };
 }
 

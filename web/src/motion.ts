@@ -6,6 +6,7 @@
 // page underneath is usable at once; it removes itself when the animation ends.
 import { useLayoutEffect } from "preact/hooks";
 import type { RefObject } from "preact";
+import { choose } from "./choose";
 
 // How an element leaves. Each name is a class in motion.css.
 export type Leave = "fade" | "pop" | "sink" | "lift" | "slide-left";
@@ -36,6 +37,8 @@ function copyFieldValues(from: HTMLElement, to: HTMLElement) {
       (copy as HTMLInputElement).checked = (el as HTMLInputElement).checked;
     } else if (el.type !== "file") {
       copy.value = el.value;
+    } else {
+      // A file input's value cannot be set from script, and the copy shows no file either way.
     }
   });
 }
@@ -75,7 +78,7 @@ export function leaveGhost(el: HTMLElement | null, how: Leave, child?: Leave) {
     height: r.height + "px",
     margin: "0",
   });
-  const inner = child ? (ghost.firstElementChild as HTMLElement | null) : null;
+  const inner = choose(child, ghost.firstElementChild as HTMLElement | null, null);
   inner?.classList.add(LEAVE_CLASS[child!]);
   // A <dialog> copy keeps `open` as an attribute, but drawn non-modally: it stays where it is.
   document.body.appendChild(ghost);

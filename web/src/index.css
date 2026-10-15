@@ -483,18 +483,16 @@ body {
 }
 .msg.user {
   transform-origin: bottom right;
+  border-color: rgba(76, 194, 255, 0.3);
+  background: rgba(76, 194, 255, 0.1);
+  backdrop-filter: blur(14px);
+  border-left: 3px solid #4cc2ff;
 }
 @keyframes msg-in {
   from {
     opacity: 0;
     transform: translateY(var(--motion-shift)) scale(calc((1 + var(--motion-scale)) / 2));
   }
-}
-.msg.user {
-  border-color: rgba(76, 194, 255, 0.3);
-  background: rgba(76, 194, 255, 0.1);
-  backdrop-filter: blur(14px);
-  border-left: 3px solid #4cc2ff;
 }
 /* A note on an opaque chip: as bare grey text it sat straight on the background image and could
  * not be read over its bright patches. #c8c8d4 on #101018 is 11.4:1. */
@@ -1901,11 +1899,30 @@ button:disabled {
 /* Settings: the pane is keyed by its tab, so switching tabs mounts it again and it rises in. */
 .settings-pane {
   animation: motion-rise-in var(--motion-base) var(--ease-out) backwards;
+  /* The pane scrolls on its own below the tabs of the settings panel (.settings-panel). */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
 }
 
 /* Count pills (TTY, THINK, AGENTS) pop when a new entry lands: they are keyed by their count. */
 .term-tab-count {
   animation: motion-bump var(--motion-slow) var(--ease-spring);
+  /* A tall pill whose digits are turned a quarter turn, reading the same way as the label. The
+     terminal drawer's tabs (.term-tab-label) are styled further down. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  width: 16px;
+  min-height: 18px;
+  padding: 4px 0;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--tx-tab-bg);
+  background: var(--tx-main);
 }
 
 /* ─── Row dropdown menu (the ⋯ in the sidebar) ──────────────────────
@@ -2576,20 +2593,6 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-tab-label {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
-}
-.term-tab-count {
-  /* A tall pill whose digits are turned a quarter turn, reading the same way as the label. */
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  width: 16px;
-  min-height: 18px;
-  padding: 4px 0;
-  border-radius: 999px;
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
-  color: var(--tx-tab-bg);
-  background: var(--tx-main);
 }
 .term-panel {
   position: absolute;
@@ -3782,13 +3785,6 @@ html[data-keyboard="open"] .app-shell {
 .settings-switch:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-}
-.settings-pane {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 1rem;
 }
 .settings-group + .settings-group {
   margin-top: 1.5rem;

@@ -253,6 +253,8 @@ func projectScopeNote(p *Project, workspace string) string {
 			"checkout at %s. ", workspace, p.Dir)
 	} else if p.Dir != "" {
 		fmt.Fprintf(&b, "Its root is your working directory, %s. ", p.Dir)
+	} else {
+		// A project without a folder has no root to name: the scope sentence below is enough.
 	}
 	b.WriteString("Everything you are asked here is about this project and is resolved inside it: take " +
 		"relative paths against that root, run commands there, and do not read, change or run anything in " +

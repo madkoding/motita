@@ -12,6 +12,10 @@ import { JSDOM } from "jsdom";
 import { build } from "esbuild";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const SECOND_LINE = "Tests pass.";
+const SUBTITLES_TAG = "<Subtitles";
+// How far past its comment the reduced-motion rule for the subtitles is looked for.
+const REDUCED_RULE_SPAN = 200;
 const src = (f) => readFileSync(join(here, "..", f), "utf8");
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -65,17 +69,17 @@ test("on: the sentence the voice starts is shown, and fades out with its words w
   assert.equal(p.getAttribute("role"), "status");
   assert.equal(p.getAttribute("aria-live"), "polite", "a discreet live region");
   assert.equal(p.getAttribute("aria-atomic"), "true");
-  assert.equal(p.hasAttribute("data-shown"), false, "hidden until the voice speaks");
+  assert.equal("shown" in p.dataset, false, "hidden until the voice speaks");
 
   await act(() => showSubtitle("All done."));
   assert.equal(p.textContent, "All done.");
   assert.equal(p.dataset.shown, "1");
-  await act(() => showSubtitle("Tests pass."));
-  assert.equal(p.textContent, "Tests pass.", "it follows the next sentence");
+  await act(() => showSubtitle(SECOND_LINE));
+  assert.equal(p.textContent, SECOND_LINE, "it follows the next sentence");
 
   await act(() => showSubtitle(""));
-  assert.equal(p.hasAttribute("data-shown"), false);
-  assert.equal(p.textContent, "Tests pass.", "the words stay while it fades");
+  assert.equal("shown" in p.dataset, false);
+  assert.equal(p.textContent, SECOND_LINE, "the words stay while it fades");
 
   await s.set({ on: true, size: "small" });
   assert.equal(s.line().className, "subtitles subtitles-small", "the size follows the settings");
@@ -85,7 +89,7 @@ test("on: the sentence the voice starts is shown, and fades out with its words w
   await s.set({ on: false, size: "small" });
   assert.equal(s.line(), null);
   await s.set({ on: true, size: "small" });
-  assert.equal(s.line().hasAttribute("data-shown"), false);
+  assert.equal("shown" in s.line().dataset, false);
   await s.done();
   // Unmounted, it stops listening.
   window.dispatchEvent(new CustomEvent(SUBTITLE_EVENT, { detail: "late" }));
@@ -95,9 +99,9 @@ test("the app draws them above the approval panel and the composer, in the conve
   const app = src("App.tsx");
   const column = app.slice(app.indexOf("function MainColumn"));
   const at = (s) => column.indexOf(s);
-  assert.ok(at("<Subtitles") > at("<Conversation />"));
-  assert.ok(at("<Subtitles") < at("<ApprovalPanel"));
-  assert.ok(at("<Subtitles") < at("<Composer />"));
+  assert.ok(at(SUBTITLES_TAG) > at("<Conversation />"));
+  assert.ok(at(SUBTITLES_TAG) < at("<ApprovalPanel"));
+  assert.ok(at(SUBTITLES_TAG) < at("<Composer />"));
   assert.match(column, /on=\{speech\.prefs\.subtitles\}/);
   assert.match(column, /size=\{speech\.prefs\.subtitleSize\}/);
 });
@@ -126,7 +130,7 @@ test("the CSS keeps them legible on any background, out of the way, and still fo
     assert.match(rule(`.subtitles-${size}`), /font-size/);
   }
   const reduced = css.slice(css.indexOf("/* No slide and no fade"));
-  assert.match(reduced.slice(0, 200), /transition: none/);
+  assert.match(reduced.slice(0, REDUCED_RULE_SPAN), /transition: none/);
   const media = css.lastIndexOf("@media (prefers-reduced-motion: reduce)", css.indexOf("/* No slide and no fade"));
   assert.ok(media > css.indexOf(".subtitles {"), "the reduced-motion rule is the subtitles' own");
 });
