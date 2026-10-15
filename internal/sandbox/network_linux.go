@@ -56,6 +56,7 @@ func relayInNamespace(spec Spec) error {
 	if err != nil {
 		return err
 	}
+	// nosemgrep: dangerous-exec-command -- exe is this very binary, from os.Executable, never user input.
 	cmd := exec.Command(exe, ChildMarker, encoded)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.SysProcAttr = userNamespaceAttributes()
@@ -136,6 +137,7 @@ var networkHooks = struct {
 		return syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, 0)
 	},
 	ioctl: func(fd int, req uintptr, ifr *ifreqFlags) error {
+		// nosemgrep: use-of-unsafe-block -- the ioctl takes a pointer to a struct this function owns.
 		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, uintptr(unsafe.Pointer(ifr)))
 		if errno != 0 {
 			return errno
