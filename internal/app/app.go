@@ -682,6 +682,11 @@ func (op Options) run(fl flags) int {
 	sandboxOptions := SandboxOptions(cfg, log)
 	// The file this run was configured from holds its key too, wherever it is.
 	sandboxOptions.HiddenPaths = config.SecretFiles(resolvedConfigPath(fl))
+	// The gateway's own secrets wherever they were configured to live, in case they were moved
+	// out of the motita home: the bearer token a confined command could use to forge an approved
+	// request, and the TLS private key. SecretFiles already hides them in their default home.
+	sandboxOptions.HiddenPaths = append(sandboxOptions.HiddenPaths,
+		gatewaySecretPaths(cfg)...)
 	box, err := op.newSandbox(sandboxOptions)
 	if err != nil {
 		log.Error("could not prepare the sandbox", "error", err)
@@ -951,6 +956,21 @@ func (op Options) contextWithShutdown(
 }
 
 // SandboxOptions translates the configuration into the sandbox's options.
+// gatewaySecretPaths are the gateway's configured secrets to keep from a confined command: its
+// bearer token file and, when https is configured, its TLS private key. They are resolved against
+// the motita home by the loader, so a default token already lies under the directory SecretFiles
+// hides; naming it again, or naming a key that is not configured, is harmless (an empty or
+// duplicate path is dropped by the sandbox).
+func gatewaySecretPaths(cfg config.Config) []string {
+	var paths []string
+	for _, p := range []string{cfg.Gateway.TokenFile, cfg.Gateway.TLS.Key} {
+		if strings.TrimSpace(p) != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
 func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 	op := sandbox.Options{
 		Dir: cfg.Agent.WorkspaceDir,

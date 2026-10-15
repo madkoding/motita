@@ -594,31 +594,79 @@ func reachesOutside(name string, args []string) bool {
 	if !externalPrograms[name] {
 		return false
 	}
+	// git needs the WHOLE command, not only its subcommand: `git config user.name x` writes
+	// the repository's configuration while `git config --get user.name` only reads it, and the
+	// two differ in their arguments, not their subcommand.
+	if name == "git" {
+		return gitReachesOutside(args)
+	}
 	if sub, ok := subcommandScoped[name]; ok {
 		return sub(firstNonFlag(args))
 	}
 	return true
 }
 
+// gitLocalVerbs are the git subcommands whose effect stays in the working tree the task was
+// given. `init` is NOT among them: it creates a repository, whose .git/config an agent then
+// controls and whose own git this program later runs outside the sandbox, so creating one is a
+// step the user is asked about. `config` is not here either, because reading and writing it are
+// told apart by gitReachesOutside.
+var gitLocalVerbs = map[string]bool{
+	"status": true, "log": true, "diff": true, "show": true, "branch": true, "remote": true,
+	"tag": true, "describe": true, "rev-parse": true, "blame": true, "shortlog": true,
+	"ls-files": true, "cat-file": true, "grep": true, "whatchanged": true, "reflog": true,
+	"show-ref": true, "for-each-ref": true, "count-objects": true, "add": true, "commit": true,
+	"checkout": true, "switch": true, "restore": true, "stash": true, "merge": true,
+	"rebase": true, "clone": true, "worktree": true, "rm": true, "mv": true,
+}
+
+// gitReachesOutside decides git by its subcommand, and - for `config` - by whether that
+// subcommand writes. Setting a config value, or `git init`, changes a repository's own
+// configuration, which can name a command a later git runs as the user and outside the sandbox;
+// both are asked about. Reading config (`--get`, `--list`) changes nothing and is allowed.
+func gitReachesOutside(args []string) bool {
+	sub, rest := gitSubcommand(args)
+	if sub == "config" {
+		return gitConfigWrites(rest)
+	}
+	return !gitLocalVerbs[sub]
+}
+
+// gitConfigWrites reports whether a `git config` sets or removes a value, as opposed to reading
+// one. git reads with one positional argument (the key) and writes with two (the key and the
+// value); the newer subcommand forms (`git config set`, `edit`, `unset`, `rename-section`,
+// `remove-section`) and the writing options (`--add`, `--unset`, `--replace-all`, …) write too.
+func gitConfigWrites(rest []string) bool {
+	positional := 0
+	for _, a := range rest {
+		switch {
+		case a == "--add", a == "--unset", a == "--unset-all", a == "--replace-all",
+			a == "--rename-section", a == "--remove-section", a == "--edit", a == "-e":
+			return true
+		case strings.HasPrefix(a, "-"):
+			// Any other option only selects or formats what is read.
+		case positional == 0 && gitConfigWritingVerbs[a]:
+			return true
+		default:
+			positional++
+		}
+	}
+	return positional >= 2
+}
+
+// gitConfigWritingVerbs are the subcommands of the newer `git config` forms that write or open
+// an editor.
+var gitConfigWritingVerbs = map[string]bool{
+	"set": true, "unset": true, "edit": true, "rename-section": true, "remove-section": true,
+}
+
 // subcommandScoped holds the programs whose verdict depends on their subcommand. A program
 // absent from this map is external whatever its arguments say.
 var subcommandScoped = map[string]func(sub string) bool{
 	// Version control: inspecting and committing locally is work; everything that leaves the
-	// machine, rewrites history, or throws work away is not.
-	"git": func(sub string) bool {
-		switch sub {
-		case "status", "log", "diff", "show", "branch", "remote", "tag", "describe",
-			"rev-parse", "blame", "shortlog", "ls-files", "cat-file", "config", "grep",
-			"whatchanged", "reflog", "show-ref", "for-each-ref", "count-objects",
-			"add", "commit", "checkout", "switch", "restore", "stash", "merge", "rebase",
-			"init", "clone", "worktree", "rm", "mv":
-			return false
-		default:
-			// push, reset, clean, filter-branch, gc, submodule … all reach somewhere the user
-			// cannot see from here.
-			return true
-		}
-	},
+	// machine, rewrites history, or throws work away is not. git is judged by gitReachesOutside
+	// rather than from this table, because `config` needs its whole argument list to tell a read
+	// from a write.
 	"hg":  func(sub string) bool { return sub != "status" && sub != "log" && sub != "diff" },
 	"svn": func(sub string) bool { return sub != "status" && sub != "log" && sub != "diff" },
 

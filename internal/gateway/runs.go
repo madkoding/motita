@@ -240,8 +240,11 @@ func (s *Server) startNotedRun(
 
 	go func() {
 		defer s.drainQueue(c)
-		defer c.releaseRunSlot()
-		defer c.clearCurrentRun()
+		// The slot is normally given back by closeRun, BEFORE the run's last event goes out. This
+		// is the net under it: a run that panics before getting there still frees the slot, or the
+		// conversation would refuse everybody forever. endRun acts only while rn is the live run,
+		// so it cannot free a slot the next run has already taken.
+		defer c.endRun(rn)
 		result, err := s.executeTurn(runCtx, c, rn, task, kind, resumed)
 
 		// A merge run that succeeded may have moved the project's HEAD. We check this AFTER
@@ -267,21 +270,47 @@ func (s *Server) startNotedRun(
 		default:
 			s.reportDone(c, rn, kind, startRev, result, madeArtifacts)
 		}
-		// The record says whether this run was INTERRUPTED or ENDED, and getting that wrong
-		// is what lost sessions. The slot is still held here, so a plain save writes
-		// running=true - which is right when the gateway is closing (the run did not end,
-		// it was cut, and the next start must resume it) and wrong in every other case: this
-		// save used to run before the deferred release, so every run that FINISHED was
-		// persisted as still running and launched again on the next start (measured: one
-		// finished session relaunched 25 times).
 		if s.baseCtx.Err() == nil {
-			s.saveEndedSession(c)
 			go s.followOpenedPR(c)
-		} else {
-			s.saveSession(c)
 		}
 	}()
 	return rn, true
+}
+
+// closeRun ends a run in the order its clients depend on: the session is written, the slot is
+// given back, and only THEN does the run's last event go out and its done channel close.
+//
+// The order is the fix for a refusal every new session met. A client that reads `done` treats the
+// conversation as idle and lets the person send the next message; the slot used to be given back
+// only after the auto-title's model call and the final save, so that message was answered 409 "a
+// run is already in progress". With the slot free before the event, whoever sees the end of a run
+// can start the next one.
+func (s *Server) closeRun(c *conversation, rn *run, end runEnd) {
+	// The record says whether this run was INTERRUPTED or ENDED, and getting that wrong
+	// is what lost sessions. The slot is still held here, so a plain save writes
+	// running=true - which is right when the gateway is closing (the run did not end,
+	// it was cut, and the next start must resume it) and wrong in every other case: this
+	// save used to run before the deferred release, so every run that FINISHED was
+	// persisted as still running and launched again on the next start (measured: one
+	// finished session relaunched 25 times).
+	if s.baseCtx.Err() == nil {
+		s.saveEndedSession(c)
+	} else {
+		s.saveSession(c)
+	}
+	c.endRun(rn)
+	rn.append(end.event, end.payload)
+	rn.finish(end.outcome, end.result, end.errText, end.snap)
+}
+
+// runEnd is how a run ended: the last event its clients get, and what its done channel reports.
+type runEnd struct {
+	event   string
+	payload any
+	outcome string
+	result  string
+	errText string
+	snap    session.Snapshot
 }
 
 // executeTurn runs the turn's task, or plan, in the conversation. The checkpoint is taken BEFORE
@@ -339,17 +368,15 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 		out.Files = done.Changes.Files
 	}
 	c.recordOutcome(rn.turn, out)
-	rn.append(EventDone, done)
-	rn.finish("done", result, "", snap)
-	s.maybeAutoTitle(c)
+	s.closeRun(c, rn, runEnd{event: EventDone, payload: done, outcome: "done", result: result, snap: snap})
+	s.autoTitle(c)
 }
 
 // reportFailed ends a run that did not answer, and keeps the error with its turn so the
 // conversation opened again still says why it stopped.
 func (s *Server) reportFailed(c *conversation, rn *run, outcome, msg string) {
 	c.recordOutcome(rn.turn, turnOutcome{Error: msg})
-	rn.append(EventError, map[string]string{"error": msg})
-	rn.finish(outcome, "", msg, session.Snapshot{})
+	s.closeRun(c, rn, runEnd{event: EventError, payload: map[string]string{"error": msg}, outcome: outcome, errText: msg})
 }
 
 // approverFactory adapts approverFor to the factory startDetachedRun takes.

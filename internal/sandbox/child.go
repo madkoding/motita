@@ -48,6 +48,11 @@ type Spec struct {
 	PrivatePaths []string `json:"private_paths,omitempty"`
 	// ReadRoots, with PrivatePaths, are files and directories the command may read wherever they are.
 	ReadRoots []string `json:"read_roots,omitempty"`
+	// ReadonlyPaths are files and directories the command may READ but not WRITE, even where a
+	// write root (e.g. "/" with full disk access) would otherwise allow it: the tools directory's
+	// bin directories, which come first on every session's PATH, so a command must not be able to
+	// plant a `git` or a `make` there to hijack a later approved command.
+	ReadonlyPaths []string `json:"readonly_paths,omitempty"`
 }
 
 // jsonMarshal is the serialiser used for the sandbox spec and for the isolation

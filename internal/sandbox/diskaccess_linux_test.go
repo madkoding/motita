@@ -277,3 +277,74 @@ func TestAHandBuiltSandboxStartsOnTheWorkspace(t *testing.T) {
 		t.Error("the switch must take")
 	}
 }
+
+// On the whole disk the secrets stay out of reach for WRITING as well as reading - a command could
+// otherwise rewrite motita.yaml to switch off the policy - and the tools bin directories, which
+// come first on every PATH, stay writable to nobody, so no command can plant a program there to
+// hijack a later one. What the tools hold is still readable, so installed tools run.
+func TestAFullDiskCommandCannotWriteSecretsNorTheToolsBin(t *testing.T) {
+	needLandlock(t)
+	home, work := userHome(t)
+	secrets, auth, _ := motitaHome(t)
+	secret := filepath.Join(secrets, "motita.yaml")
+	os.WriteFile(secret, []byte("policy: on\n"), 0o644)
+	tools := t.TempDir()
+	bin := filepath.Join(tools, "bin")
+	os.MkdirAll(bin, 0o755)
+	os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\necho real\n"), 0o755)
+	other := t.TempDir()
+	s, err := New(Options{Dir: work, ConfineWrites: true, GitHome: home, ToolsDir: tools,
+		HiddenPaths: []string{auth, secret}, FullDisk: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "echo rewritten > " + secret + " 2>/dev/null && echo WROTE-SECRET || echo secret-safe; " +
+		"echo evil > " + filepath.Join(bin, "make") + " 2>/dev/null && echo WROTE-BIN || echo bin-safe; " +
+		"echo ok > " + filepath.Join(other, "out.txt") + " && echo WROTE-OTHER; " +
+		"cat " + filepath.Join(bin, "git")
+	out := run(t, s, script)
+	if strings.Contains(out, "WROTE-SECRET") {
+		t.Errorf("a full-disk command rewrote a secret: %q", out)
+	}
+	if strings.Contains(out, "WROTE-BIN") {
+		t.Errorf("a full-disk command planted a program in the tools bin: %q", out)
+	}
+	for _, want := range []string{"secret-safe", "bin-safe", "WROTE-OTHER", "real"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q expected: %q", want, out)
+		}
+	}
+}
+
+// writeGrantRoots keeps a root that holds no protected path, and replaces one that does with what
+// is around the protected paths; when there is nothing to protect the roots come back unchanged.
+func TestWriteGrantRoots(t *testing.T) {
+	if got := writeGrantRoots([]string{"/work"}, nil); len(got) != 1 || got[0] != "/work" {
+		t.Errorf("nothing to protect leaves the roots: %v", got)
+	}
+	home, auth, _ := motitaHome(t)
+	other := t.TempDir()
+	got := writeGrantRoots([]string{other, "/"}, []string{auth})
+	joined := "\n" + strings.Join(got, "\n") + "\n"
+	if !strings.Contains(joined, "\n"+other+"\n") {
+		t.Errorf("a root that holds no secret must be kept: %v", got)
+	}
+	for _, never := range []string{auth, home, "/"} {
+		if strings.Contains(joined, "\n"+never+"\n") {
+			t.Errorf("%s holds or is a secret and must not be a write grant: %v", never, got)
+		}
+	}
+}
+
+// When the directories around a protected path cannot be listed, the root is granted whole rather
+// than leaving a command unable to write - the same fail-open the read side takes.
+func TestWriteGrantRootsFailsOpenWhenAroundIsUnknown(t *testing.T) {
+	_, auth, _ := motitaHome(t)
+	prev := readDir
+	readDir = func(string) ([]os.DirEntry, error) { return nil, os.ErrPermission }
+	defer func() { readDir = prev }()
+	got := writeGrantRoots([]string{"/"}, []string{auth})
+	if len(got) != 1 || got[0] != "/" {
+		t.Errorf("a root that cannot be carved must be granted whole: %v", got)
+	}
+}

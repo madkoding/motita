@@ -166,7 +166,7 @@ func (op Options) attachGateway(
 		// No gateway was started, so there is nothing to shut down.
 	}
 	if srv != nil {
-		shutdown = op.runGatewayLoop(ctx, srv, log)
+		shutdown = op.runGatewayLoop(srv, log, cfg.Agent.ShutdownTimeout)
 	}
 	release := func() {
 		shutdown()

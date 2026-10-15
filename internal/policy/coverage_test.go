@@ -554,14 +554,15 @@ func TestGitLocalVerbs(t *testing.T) {
 		"rev-parse", "blame", "shortlog", "ls-files", "cat-file", "config", "grep",
 		"whatchanged", "reflog", "show-ref", "for-each-ref", "count-objects",
 		"add", "commit", "checkout", "switch", "restore", "stash", "merge", "rebase",
-		"init", "clone", "worktree", "rm", "mv",
+		"clone", "worktree", "rm", "mv",
 	}
 	for _, sub := range local {
 		if reachesOutside("git", []string{sub}) {
 			t.Errorf("git %s is local work", sub)
 		}
 	}
-	for _, sub := range []string{"push", "reset", "clean", "filter-branch", "gc", "submodule"} {
+	// init creates a repository whose config an agent then controls, so it is asked about.
+	for _, sub := range []string{"push", "reset", "clean", "filter-branch", "gc", "submodule", "init"} {
 		if !reachesOutside("git", []string{sub}) {
 			t.Errorf("git %s reaches outside what the user can see from here", sub)
 		}

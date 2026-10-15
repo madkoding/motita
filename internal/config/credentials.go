@@ -146,13 +146,23 @@ func unquoteEscape(b *strings.Builder, s string, i int) int {
 // SecretFiles are the files and directories of motita's that hold secrets, for the sandbox to
 // keep from the commands it confines: the logins, and the configuration with the key file beside
 // it, both the motita home's and, when another one was loaded, that one. A configuration can hold
-// llm.api_key and the gateway's tokens, so it counts as one. A path that cannot be made absolute
-// comes back empty and is ignored by the sandbox.
+// llm.api_key and the gateway's tokens, so it counts as one. Added to them are the gateway's own
+// state under the motita home - its bearer token, the web-push VAPID private key under push/, and
+// the persisted sessions - which a confined command has no reason to read and could use to forge
+// an approved request or recover a conversation. A path that cannot be made absolute comes back
+// empty and is ignored by the sandbox; a path under a directory the command writes is dropped by
+// the sandbox too, so naming one that does not apply is harmless.
 func SecretFiles(loaded string) []string {
 	files := []string{AuthDir(), File(), CredentialsPath(File())}
 	if loaded != "" {
 		abs, _ := filepath.Abs(loaded)
 		files = append(files, abs, CredentialsPath(abs))
+	}
+	if dir := Dir(); dir != "" {
+		files = append(files,
+			filepath.Join(dir, "gateway.token"),
+			filepath.Join(dir, "push"),
+			filepath.Join(dir, "sessions"))
 	}
 	return files
 }

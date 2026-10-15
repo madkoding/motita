@@ -542,6 +542,12 @@ body {
   border-color: rgba(255, 107, 107, 0.4);
   background: rgba(255, 107, 107, 0.08);
 }
+/* Something the run did not do, though the run itself went on (an approval refused with nobody
+ * to ask): amber like the other warnings, not red. */
+.msg.warning {
+  border-color: rgba(255, 176, 32, 0.45);
+  background: rgba(255, 176, 32, 0.08);
+}
 
 /* Activity lines: smaller, monospace, also frosted. */
 .msg.activity {

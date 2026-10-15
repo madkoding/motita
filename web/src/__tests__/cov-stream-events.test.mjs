@@ -317,6 +317,34 @@ test("an error ends the run with its message, and an approval asks the question"
   await hook.unmount();
 });
 
+test("an approval refused with nobody to ask is a warning in the conversation; the run goes on", async () => {
+  const { hook, rs, send, finished } = await run();
+  await send("approval_denied", {
+    command: "rm -rf build",
+    reason: "deletes files",
+    rule: "destructive",
+    error: "set agent.policy.enforce=false to run such actions unattended",
+  });
+  // Without a command the reason says what was refused; without an error there is no detail.
+  await send("approval_denied", { reason: "writes outside the project" });
+  await send("approval_denied", {});
+  assert.deepEqual(
+    rs().messages.map((m) => [m.role, m.kind, m.text]),
+    [
+      [
+        "agent",
+        "warning",
+        "Refused, nobody was there to approve it: rm -rf build — " +
+          "set agent.policy.enforce=false to run such actions unattended",
+      ],
+      ["agent", "warning", "Refused, nobody was there to approve it: writes outside the project"],
+      ["agent", "warning", "Refused, nobody was there to approve it: "],
+    ],
+  );
+  assert.equal(finished(), 0, "the run is not over");
+  await hook.unmount();
+});
+
 test("withoutDraft drops only a trailing draft", () => {
   const list = [{ id: 1 }, { id: 2, draft: true }];
   assert.deepEqual(withoutDraft(list), [{ id: 1 }]);

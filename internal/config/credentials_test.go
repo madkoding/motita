@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,14 +37,41 @@ func TestCredentialsPathIsBesideTheConfiguration(t *testing.T) {
 // key file, and the loaded configuration and its key file, made absolute.
 func TestSecretFilesNameTheLoginsTheConfigurationAndItsKeys(t *testing.T) {
 	t.Setenv("MOTITA_AUTH_DIR", "/auth")
+	t.Setenv("HOME", t.TempDir())
 	home := File()
-	if got := strings.Join(SecretFiles(""), " "); got != "/auth "+home+" "+CredentialsPath(home) {
+	dir := Dir()
+	// Beside the logins and the configuration, the gateway's own state under the motita home: its
+	// token, the web-push key directory, and the sessions store.
+	gatewayState := strings.Join([]string{filepath.Join(dir, "gateway.token"),
+		filepath.Join(dir, "push"), filepath.Join(dir, "sessions")}, " ")
+	if got := strings.Join(SecretFiles(""), " "); got != "/auth "+home+" "+CredentialsPath(home)+" "+gatewayState {
 		t.Errorf("without a loaded file: %s", got)
 	}
 	wd, _ := os.Getwd()
 	got := SecretFiles("conf/x.yaml")
-	if len(got) != 5 || got[3] != filepath.Join(wd, "conf/x.yaml") || got[4] != filepath.Join(wd, "conf/x.env") {
+	if len(got) != 8 || got[3] != filepath.Join(wd, "conf/x.yaml") || got[4] != filepath.Join(wd, "conf/x.env") {
 		t.Errorf("a loaded file is made absolute and its key file named: %v", got)
+	}
+	if got[5] != filepath.Join(dir, "gateway.token") || got[7] != filepath.Join(dir, "sessions") {
+		t.Errorf("the gateway state must be named: %v", got)
+	}
+}
+
+// With no home directory there is no motita home, so the gateway-state paths are left out rather
+// than guessed at: only the logins and the configuration are named.
+func TestSecretFilesWithoutAHomeOmitTheGatewayState(t *testing.T) {
+	t.Setenv("MOTITA_AUTH_DIR", "/auth")
+	t.Setenv("HOME", "")
+	restore := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("$HOME is not defined") }
+	defer func() { osUserHomeDir = restore }()
+	if dir := Dir(); dir != "" {
+		t.Fatalf("with no home there is no motita directory, got %s", dir)
+	}
+	for _, p := range SecretFiles("") {
+		if strings.Contains(p, "gateway.token") || strings.HasSuffix(p, "/sessions") {
+			t.Errorf("no home means no gateway state: %v", SecretFiles(""))
+		}
 	}
 }
 

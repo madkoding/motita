@@ -30,7 +30,8 @@ func wsPair(t *testing.T, svc Service, token string) (*wsClient, net.Conn, chan 
 		_ = server.Close()
 		_ = client.Close()
 	})
-	cl := &wsClient{conn: server, svc: svc, token: token, heartbeat: -1}
+	cl := &wsClient{conn: server, svc: svc, token: token, heartbeat: -1,
+		conv: &conversation{svc: svc}, ctx: context.Background(), afterQuery: func() {}}
 	return cl, client, make(chan struct{}, 1)
 }
 

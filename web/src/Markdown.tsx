@@ -240,13 +240,17 @@ md.renderer.rules.math_block = (tokens: Token[], idx: number): string =>
 /**
  * Inline math: `$...$`.
  *
- * Taken from the TEXT token, because markdown-it has no inline rule for it. The two
- * guards are what keep prose intact: an opening `$` followed by whitespace is money
- * rather than a formula ("$5 and $10"), and a `$` that is never closed stays as it was
- * written. The closing `$` may not be followed by another one, so `$$b$$` is not read
- * as a formula between stray dollars.
+ * Taken from the TEXT token, because markdown-it has no inline rule for it. The guards
+ * follow pandoc's rule, and are what keep prose with prices in it intact:
+ * - the opening `$` may not be followed by whitespace (`$ 5` is not a formula);
+ * - the closing `$` may not follow whitespace, so in "$5 and $10" the text between the
+ *   two dollars ("5 and ") cannot be a formula;
+ * - the closing `$` may not be followed by a digit ("$5 and$10") or by another `$`, so
+ *   `$$b$$` is not read as a formula between stray dollars.
+ * A `$` that is never closed stays as it was written. A one-character formula (`$x$`)
+ * is both its first and its last character.
  */
-const INLINE_MATH = /\$([^\s$][^$\n]*?)\$(?!\$)/g;
+const INLINE_MATH = /\$(?!\s)([^$\n]*?[^\s$])\$(?![\d$])/g;
 const MATH_OPEN = '<span class="math-inline">';
 const MATH_CLOSE = "</span>";
 

@@ -163,20 +163,28 @@ export function useShellApproval({
         await answerShell(approve, all);
         return;
       }
+      // The session is pinned now: the answer is for the question asked in it, and so is the
+      // "allow every command" it may turn on.
+      const sid = sessionRef.current;
       try {
-        await api(SESSIONS_PATH + sessionRef.current + "/runs/approval", {
+        const res = await api(SESSIONS_PATH + sid + "/runs/approval", {
           method: "POST",
           headers: JSON_HEADERS,
           body: JSON.stringify(
             choose(all, { id, approve, scope: "session" }, { id, approve }),
           ),
         });
+        // A refusal (the question was already answered, or the run is gone) is a failure too:
+        // the panel is closed, so the user must hear that the answer did not land.
+        if (!res.ok) {
+          throw new Error(String(res.status));
+        }
         if (all) {
-          const sid = sessionRef.current;
           setSessions((prev) => withSession(prev, sid, { auto_approve: true }));
         }
       } catch {
         setState("could not answer the approval", true);
+        setToast({ message: t("The approval could not be answered"), type: "error" });
       }
     },
     [runShellLine],

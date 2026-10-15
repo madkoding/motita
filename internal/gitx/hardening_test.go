@@ -84,6 +84,127 @@ func TestBranchNamesAreNeverOptions(t *testing.T) {
 	}
 }
 
+// TestSnapshotRunsNoFilterDriver: a repository's local config can name a clean filter and an
+// attributes file can point every file at it, so `git add -A` would run that filter's command -
+// as the user, outside any sandbox. Snapshot runs the add, and it must disarm the filter first.
+// This is the F5 regression: a prompt injection that writes .git/config and .gitattributes must
+// not reach code through the gateway's own snapshot.
+func TestSnapshotRunsNoFilterDriver(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted filter is a shell command")
+	}
+	ctx := context.Background()
+	repo := newRepo(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	// A required filter: with the command emptied but the requirement kept, `git add` would fail
+	// closed; the fix drops the requirement too, so the snapshot still succeeds.
+	git(t, repo, "config", "filter.evil.clean", "touch "+marker+"; cat")
+	git(t, repo, "config", "filter.evil.required", "true")
+	write(t, filepath.Join(repo, ".gitattributes"), "* filter=evil\n")
+	write(t, filepath.Join(repo, "work.txt"), "dirty\n")
+
+	head, snap, err := Snapshot(ctx, repo, testRef)
+	if err != nil {
+		t.Fatalf("Snapshot = %v", err)
+	}
+	if head == "" || snap == "" {
+		t.Fatalf("Snapshot produced no checkpoint: %q %q", head, snap)
+	}
+	if exists(marker) {
+		t.Error("the repository's clean filter ran during Snapshot")
+	}
+}
+
+// TestNeutralizeCoversEveryCommandKey walks the config keys whose value git runs as a command and
+// checks each is disarmed, and that an ordinary key is left alone. It is a table so a new key in
+// the switch is a new row, not a new test.
+func TestNeutralizeCoversEveryCommandKey(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"filter.a.clean", "-c filter.a.clean= -c filter.a.required=false"},
+		{"filter.a.smudge", "-c filter.a.smudge= -c filter.a.required=false"},
+		{"filter.a.process", "-c filter.a.process= -c filter.a.required=false"},
+		{`filter.a.b.clean`, "-c filter.a.b.clean= -c filter.a.b.required=false"},
+		{"diff.a.textconv", "-c diff.a.textconv="},
+		{"diff.a.command", "-c diff.a.command="},
+		{"diff.external", "-c diff.external="},
+		{"merge.a.driver", "-c merge.a.driver="},
+		{"trailer.a.command", "-c trailer.a.command="},
+		{"trailer.a.cmd", "-c trailer.a.cmd="},
+		{"gpg.program", "-c gpg.program="},
+		{"gpg.ssh.program", "-c gpg.ssh.program="},
+		{"gpg.ssh.defaultKeyCommand", "-c gpg.ssh.defaultKeyCommand="},
+		{"credential.helper", "-c credential.helper="},
+		{"credential.https://x.helper", "-c credential.https://x.helper="},
+		{"remote.origin.uploadpack", "-c remote.origin.uploadpack="},
+		{"remote.origin.receivepack", "-c remote.origin.receivepack="},
+		{"uploadpack.packObjectsHook", "-c uploadpack.packObjectsHook="},
+		{"receivepack.shallow", "-c receivepack.shallow="},
+		{"protocol.ext.allow", "-c protocol.ext.allow=never"},
+		{"core.gitProxy", "-c protocol.git.allow=never"},
+		{"core.sshCommand", "-c core.sshCommand="},
+		{"core.editor", "-c core.editor="},
+		{"core.pager", "-c core.pager="},
+		{"core.askPass", "-c core.askPass="},
+		{"core.fsmonitor", "-c core.fsmonitor="},
+		{"core.hooksPath", "-c core.hooksPath="},
+		{"sequence.editor", "-c sequence.editor="},
+		{"commit.gpgSign", "-c commit.gpgSign="},
+		{"tag.gpgSign", "-c tag.gpgSign="},
+		{"sendemail.sendmailCmd", "-c sendemail.sendmailCmd="},
+		{"user.name", ""},
+		{"branch.main.remote", ""},
+		{"core", ""},
+	}
+	for _, c := range cases {
+		if got := strings.Join(neutralize(c.name), " "); got != c.want {
+			t.Errorf("neutralize(%q) = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestSubsectionOfHasNoSubsection: a name with fewer than three parts has no subsection, which
+// neutralize never reaches (it calls subsectionOf only for filter.<x>.<verb>), so it is checked
+// here on its own.
+func TestSubsectionOfHasNoSubsection(t *testing.T) {
+	if got := subsectionOf("core.editor"); got != "" {
+		t.Errorf("subsectionOf(two parts) = %q, want empty", got)
+	}
+	if got := subsectionOf("single"); got != "" {
+		t.Errorf("subsectionOf(one part) = %q, want empty", got)
+	}
+}
+
+// TestNeutralizeLocalConfigReadsEveryKey: the overrides come from the repository's local config,
+// expanded (an include brings its own keys into the listing), and nothing from a dir that is not
+// a repository.
+func TestNeutralizeLocalConfigReadsEveryKey(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	git(t, repo, "config", "filter.a.clean", "x")
+	over := strings.Join(neutralizeLocalConfig(ctx, repo), " ")
+	if !strings.Contains(over, "-c filter.a.clean=") {
+		t.Errorf("local override missing the filter: %q", over)
+	}
+	if got := neutralizeLocalConfig(ctx, t.TempDir()); got != nil {
+		t.Errorf("a non-repository contributes no override, got %q", got)
+	}
+}
+
+// TestHardeningForNeutralizesTheRepository: the exported form for callers outside the package
+// carries the fixed hardening and the repository's own overrides.
+func TestHardeningForNeutralizesTheRepository(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	git(t, repo, "config", "filter.a.clean", "x")
+	got := strings.Join(HardeningFor(ctx, repo), " ")
+	if !strings.Contains(got, "core.hooksPath=/dev/null") || !strings.Contains(got, "-c filter.a.clean=") {
+		t.Errorf("HardeningFor = %q", got)
+	}
+}
+
 // Hardening hands out a copy: a caller that appends to it cannot change what this package runs.
 func TestHardeningIsACopy(t *testing.T) {
 	h := Hardening()

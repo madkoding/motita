@@ -186,7 +186,11 @@ func waitForNoRun(t *testing.T, srv *Server) {
 	for time.Now().Before(deadline) {
 		running := false
 		for _, c := range srv.snapshot() {
-			if c.isRunning() {
+			// A title being generated after the run still writes the session, so it counts.
+			c.stateMu.Lock()
+			titling := c.titling
+			c.stateMu.Unlock()
+			if c.isRunning() || titling {
 				running = true
 			}
 		}

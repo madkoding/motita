@@ -499,12 +499,29 @@ func (s *Sandbox) confine(spec *Spec, workDir, tempDir string) {
 	if s.FullDisk() {
 		spec.WriteRoots = []string{"/"}
 		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
+		// With the whole disk writable, the secrets above are kept unreadable AND unwritable (a
+		// command could otherwise rewrite motita.yaml to disable the policy), and the tools bin
+		// directories are kept unwritable so a PATH hijack cannot be planted. See landlock_linux.go.
+		spec.ReadonlyPaths = s.readonlyToolPaths()
 		return
 	}
 	spec.WriteRoots = s.writeRoots(workDir, tempDir)
 	spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
 	spec.ReadRoots = s.readRoots(workDir)
 	spec.PrivatePaths = s.privatePaths()
+}
+
+// readonlyToolPaths are the tools directory's bin directories: <tools>/bin and <tools>/tools,
+// where the toolchains the agent installs live and which come first on every session's PATH. They
+// stay readable (a command must be able to run what is installed) but, with the whole disk
+// writable, are kept unwritable, so a command cannot plant a program there to hijack a later one.
+// No tools directory (the old layout, or a chroot) means none.
+func (s *Sandbox) readonlyToolPaths() []string {
+	tools := s.toolsDir()
+	if tools == "" {
+		return nil
+	}
+	return []string{filepath.Join(tools, "bin"), filepath.Join(tools, "tools")}
 }
 
 // privateTrees are where a machine keeps people's files: none of it is the workspace's business.

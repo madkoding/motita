@@ -136,6 +136,26 @@ test("inline $...$ is a formula; money and stray dollars stay text", () => {
   assert.equal(text(body(md.renderMessage("no dollars")).querySelector("p")), "no dollars");
 });
 
+test("prices are not formulas; one-character and spaced-inside formulas still are", () => {
+  // Each line is [markdown, the formulas it holds].
+  const cases = [
+    ["It costs $5 and $10 now", []],
+    ["between $5 and$10", []],
+    ["from $5 to $20, or $x$ each", ["x"]],
+    ["$x$", ["x"]],
+    ["let $a + b$ be, and $5$ too", ["a + b", "5"]],
+    ["a $ x$ and $y $ stay", []],
+  ];
+  for (const [src, formulas] of cases) {
+    const d = body(md.renderMessage(src));
+    const got = [...d.querySelectorAll(".math-inline")].map((s) => s.textContent);
+    assert.deepEqual(got, formulas, src);
+    if (formulas.length === 0) {
+      assert.equal(text(d.querySelector("p")), src);
+    }
+  }
+});
+
 test("fences become diagram, formula and code placeholders carrying their source as text", () => {
   const src = [
     "```mermaid",

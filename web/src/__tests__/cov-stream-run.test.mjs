@@ -203,13 +203,12 @@ test("a refused turn says why, and says how to continue an integrated session", 
     "POST /v1/sessions/s1/run": () => res(409, { error: "the session has already been integrated" }),
   });
   const { h, cur, toasts, states } = m;
-  // submit reads the list it was made with: the conversation's loaders are new, so it is made
-  // again over the list that knows the session can be continued.
-  await h.act(() => {
-    m.conv.loadCheckpoints = async (sid) => m.conv.checkpoints.push(sid);
-    cur().lists.setSessions([{ id: "s1", continuable: true }]);
-  });
-  await h.act(() => cur().stream.submit("x"));
+  // submit is made once, on the first render, while the list is still empty. The submit kept from
+  // that render must still see the list as it is now, where the session can be continued.
+  const firstSubmit = cur().stream.submit;
+  await h.act(() => cur().lists.setSessions([{ id: "s1", continuable: true }]));
+  assert.equal(cur().stream.submit, firstSubmit);
+  await h.act(() => firstSubmit("x"));
   assert.equal(toasts[0].message, "This session is already integrated");
   assert.equal(toasts[0].type, "warning");
   assert.match(toasts[0].detail, /Continue in the session menu/);
@@ -217,10 +216,7 @@ test("a refused turn says why, and says how to continue an integrated session", 
   assert.equal(cur().rs.running, false);
 
   // Integrated but not continuable, a refusal without a reason, and one that is not JSON.
-  await h.act(() => {
-    m.conv.loadCheckpoints = async (sid) => m.conv.checkpoints.push(sid);
-    cur().lists.setSessions([{ id: "s1" }]);
-  });
+  await h.act(() => cur().lists.setSessions([{ id: "s1" }]));
   await h.act(() => cur().stream.submit("x"));
   m.routes["POST /v1/sessions/s1/run"] = () => res(500, {});
   await h.act(() => cur().stream.submit("x"));

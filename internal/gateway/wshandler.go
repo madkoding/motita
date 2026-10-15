@@ -71,6 +71,20 @@ type wsClient struct {
 	// heartbeat goroutine reads it too.
 	authMu        sync.Mutex
 	authenticated bool
+
+	// conv is the conversation this connection speaks to. A query takes its run slot, exactly as
+	// a turn started over HTTP does, so the two transports never run at once in one conversation.
+	conv *conversation
+	// ctx is the connection's lifetime: derived from the gateway's, and cancelled when the
+	// connection ends. A query runs on it, because a query has no run object a client could
+	// reattach to - its answer is only ever written to this connection - so a query whose
+	// connection is gone is work nobody can receive, and it is stopped instead of spending tokens.
+	ctx context.Context
+	// afterQuery runs once a query has given its run slot back: the server starts what was queued
+	// behind it, as the end of any other run does.
+	afterQuery func()
+	// queries counts the queries in flight, so the handler can wait for them before it returns.
+	queries sync.WaitGroup
 }
 
 // handleWebSocket upgrades an HTTP request to a WebSocket and runs the flag protocol.
@@ -99,12 +113,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	c := convOf(r)
+	connCtx, connCancel := context.WithCancel(s.baseCtx)
+	defer connCancel()
 	client := &wsClient{
-		conn:      conn,
-		svc:       c.svc,
-		token:     s.opts.Token,
-		log:       s.opts.Log,
-		heartbeat: s.opts.WSHeartbeat,
+		conn:       conn,
+		svc:        c.svc,
+		token:      s.opts.Token,
+		log:        s.opts.Log,
+		heartbeat:  s.opts.WSHeartbeat,
+		conv:       c,
+		ctx:        connCtx,
+		afterQuery: func() { s.drainQueue(c) },
 	}
 
 	// Send the welcome message with IDLE. The client is not yet authenticated — the
@@ -144,6 +163,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer stopOnShutdown()
 
 	client.readLoop(s.baseCtx, ackCh)
+
+	// The connection is over. A query still running for it is cancelled - its answer has nowhere
+	// to go - and waited for, so the conversation's run slot is back before this handler returns.
+	connCancel()
+	client.queries.Wait()
 }
 
 // readLoop reads frames, dispatches them to handlers, and manages the heartbeat ack
@@ -289,9 +313,16 @@ func (cl *wsClient) handleAuth(msg wsMessage) {
 // responds with PROCESSING immediately, then runs the query through the agent's
 // read-only planner (RunPlan) and sends a query_response with COMPLETED.
 //
-// The query is run with the conversation's context, not the connection's, so a client
-// that disconnects mid-query does not cancel the work — the same property the SSE run
-// path has. The one-run-at-a-time guard is enforced by takeRunSlot.
+// The query runs in its OWN goroutine, not in the read loop. It used to run inline, and a
+// query takes as long as a model takes: for all that time nothing read the connection, the
+// client's heartbeat_ack sat unread, and the heartbeat closed a healthy connection after
+// about 40 seconds ("heartbeat ack timed out") while the query went on with nobody left to
+// answer. Frames from the query goroutine, the read loop and the heartbeat all go through
+// writeFrame, whose mutex keeps them whole.
+//
+// The query takes the conversation's run slot, and a query that finds it taken is answered
+// BUSY: it runs the same planner on the same conversation as an HTTP turn, and two of them at
+// once would interleave in one transcript. It runs on the connection's context (see ctx).
 func (cl *wsClient) handleQuery(msg wsMessage) {
 	if !cl.isAuthenticated() {
 		cl.sendError(FlagUnauthorized, "send an auth message before querying")
@@ -315,6 +346,15 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 		return
 	}
 
+	if !cl.conv.takeRunSlot() {
+		cl.send(newMsg(MsgQueryResponse, []string{FlagBusy}, map[string]any{
+			"msg_id": msg.MsgID,
+			"status": "busy",
+			"error":  "a run is already in progress in this session; a conversation is served one run at a time",
+		}))
+		return
+	}
+
 	// Acknowledge with PROCESSING immediately, so the client knows the query was
 	// received and is being worked on. This is the protocol's "ack" step.
 	cl.send(newMsg(MsgQueryResponse, []string{FlagProcessing}, map[string]any{
@@ -322,9 +362,20 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 		"status": "processing",
 	}))
 
+	cl.queries.Add(1)
+	go cl.runQuery(msg, query)
+}
+
+// runQuery runs one accepted query and answers it. It holds the run slot handleQuery took, and
+// gives it back when the query ends, however it ends.
+func (cl *wsClient) runQuery(msg wsMessage, query string) {
+	defer cl.queries.Done()
+	defer cl.afterQuery()
+	defer cl.conv.releaseRunSlot()
+
 	// Run the query through the agent's planner. This is a read-only operation, the
 	// same path the /v1/sessions/{id}/plan endpoint uses.
-	result, err := cl.svc.RunPlan(context.Background(), query, func(format string, args ...any) {
+	result, err := cl.svc.RunPlan(cl.ctx, query, func(format string, args ...any) {
 		// Progress lines are sent as partial responses, so a client watching a long
 		// query sees incremental output rather than a single silent result.
 		line := fmt.Sprintf(format, args...)

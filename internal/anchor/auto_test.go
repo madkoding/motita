@@ -414,3 +414,62 @@ func TestGateFingerprint(t *testing.T) {
 		t.Error("a configured anchor has no fingerprint")
 	}
 }
+
+// TestAutoRunsMakeWithTheFileItRead: the gate names the makefile with `-f`, so the target that
+// runs is the one detection read, not whichever file `make` would otherwise prefer.
+func TestAutoRunsMakeWithTheFileItRead(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Makefile", "check:\n\t@true\n")
+	checks := autoAnchor(dir).detectChecks()
+	if len(checks) != 1 || checks[0].Command != "make" ||
+		strings.Join(checks[0].Args, " ") != "-f Makefile check" {
+		t.Fatalf("make must be run with -f Makefile: %+v", checks)
+	}
+}
+
+// TestAutoPrefersGNUmakefileAndRunsIt: GNU make reads GNUmakefile before Makefile, so a project
+// whose real gate is a GNUmakefile is detected and run from that file - and, conversely, a
+// GNUmakefile planted beside a Makefile is the file the gate reads, which is why detection reads
+// make's own order rather than only Makefile.
+func TestAutoPrefersGNUmakefileAndRunsIt(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Makefile", "check:\n\t@echo real\n")
+	writeFile(t, dir, "GNUmakefile", "check:\n\t@echo planted\n")
+	checks := autoAnchor(dir).detectChecks()
+	if len(checks) != 1 || strings.Join(checks[0].Args, " ") != "-f GNUmakefile check" {
+		t.Fatalf("make must read GNUmakefile first: %+v", checks)
+	}
+	// lower-case makefile sits between the two.
+	only := t.TempDir()
+	writeFile(t, only, "makefile", "test:\n\t@true\n")
+	checks = autoAnchor(only).detectChecks()
+	if len(checks) != 1 || strings.Join(checks[0].Args, " ") != "-f makefile test" {
+		t.Fatalf("a lower-case makefile is a makefile: %+v", checks)
+	}
+}
+
+// TestGateFingerprintCatchesAPlantedMakefile: the F8 regression. A GNUmakefile or a makefile
+// planted beside the detected Makefile, and a .npmrc, each change the fingerprint, so the caller
+// sees the gate is no longer the one the task started with instead of believing a false PASS.
+func TestGateFingerprintCatchesAPlantedMakefile(t *testing.T) {
+	for _, planted := range []struct{ name, body string }{
+		{"GNUmakefile", "check:\n\t@true\n"},
+		{"makefile", "check:\n\t@true\n"},
+	} {
+		dir := t.TempDir()
+		writeFile(t, dir, "Makefile", "check:\n\tgo test ./...\n")
+		before := autoAnchor(dir).GateFingerprint()
+		writeFile(t, dir, planted.name, planted.body)
+		if autoAnchor(dir).GateFingerprint() == before {
+			t.Errorf("a planted %s must change the fingerprint", planted.name)
+		}
+	}
+	// .npmrc is part of an npm project's fingerprint.
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts":{"test":"jest"}}`)
+	before := autoAnchor(dir).GateFingerprint()
+	writeFile(t, dir, ".npmrc", "ignore-scripts=false\n")
+	if autoAnchor(dir).GateFingerprint() == before {
+		t.Error("a planted .npmrc must change the fingerprint")
+	}
+}
