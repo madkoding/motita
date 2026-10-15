@@ -48,3 +48,16 @@ func TestWithConfinementTheAgentRunsProjectCode(t *testing.T) {
 		t.Errorf("python t.py: got %s/%s", p.Verdict, p.Rule)
 	}
 }
+
+// Under cmd.exe the agent reads a line with cmd's own syntax as a shell line, approved as a whole.
+func TestTheCmdShellLineIsApprovedWhole(t *testing.T) {
+	a := agentWith(t, false)
+	a.cfg.Agent.Policy.Enforce = true
+	a.cfg.Agent.Shell = "cmd.exe"
+	if p := a.planRequest(`echo x > %USERPROFILE%\evil.bat`); p.Verdict != policy.Ask || p.Rule != "shell-line" {
+		t.Errorf("got %s/%s, want ask/shell-line", p.Verdict, p.Rule)
+	}
+	if !a.policyMode().Cmd {
+		t.Error("the mode must say the line runs under cmd.exe")
+	}
+}

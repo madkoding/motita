@@ -80,10 +80,12 @@ var confinementAvailable = sandbox.ConfinementAvailable
 
 // policyMode is the operator's policy configuration, as the agent applies it.
 func (a *Agent) policyMode() policy.Mode {
+	shell := shellFor(a.cfg)
 	mode := policy.Mode{
 		Enforce:    a.cfg.Agent.Policy.Enforce,
 		Strict:     a.cfg.Agent.Policy.Strict,
-		PowerShell: execx.IsPowerShell(shellFor(a.cfg)),
+		PowerShell: execx.IsPowerShell(shell),
+		Cmd:        execx.IsCmd(shell),
 		// Where nothing confines a command (Windows, macOS, a kernel without Landlock) the
 		// policy is the only thing between a reader and the user's keys.
 		Unconfined: !confinementAvailable(),

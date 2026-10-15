@@ -604,6 +604,11 @@ a command reaches a path outside the workspace or inside a keys directory
 (`~/.ssh`, `~/.motita/auth`, `.aws`, …). Reading and writing inside the
 workspace stays silent.
 
+Under `cmd.exe` (the Windows fallback when PowerShell is missing) only a line of
+plain words (letters, digits, `.`, `_`, `-` and blanks) is classified. Anything
+else — `%VAR%`, `!VAR!`, `^`, a backslash, a drive, a quote, a redirection — is
+read differently by `cmd.exe`, so the line is approved as a whole.
+
 **The layer you do not own** is the floor. It has two groups, and they are not
 the same shape.
 

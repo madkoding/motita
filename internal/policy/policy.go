@@ -116,6 +116,10 @@ type Mode struct {
 	// user's keys, and the project's own code (a script, a build, a test) is confirmed before it
 	// runs. See unconfinedDecision.
 	Unconfined bool
+	// Cmd says the line runs under cmd.exe, whose expansions (`%VAR%`, `!VAR!`), escape (`^`) and
+	// word division the POSIX reading does not know. Only a line of plain words is classified;
+	// anything else is approved as a whole. See cmdLine.
+	Cmd bool
 }
 
 // DecisionFor decides one command.
@@ -821,7 +825,7 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	if d, hit := MandatoryInLine(line, dir); hit {
 		return d
 	}
-	line, d, hit := m.powerShellLine(line, dir)
+	line, d, hit := m.windowsLine(line, dir)
 	if hit {
 		return d
 	}
@@ -867,11 +871,15 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	return m.Relaxing(worst)
 }
 
-// powerShellLine prepares a line for the POSIX reading when PowerShell will run it: a line
-// PowerShell reads as code is decided here (hit), and what is left comes back with its
-// backslashes turned into slashes, the floor checked again on it. Any other shell's line comes
-// back as it is.
-func (m Mode) powerShellLine(line, dir string) (string, Decision, bool) {
+// windowsLine prepares a line for the POSIX reading when a Windows shell will run it. Under
+// cmd.exe a line of anything but plain words is decided here (hit, see cmdLine). Under PowerShell
+// a line PowerShell reads as code is decided here, and what is left comes back with its
+// backslashes turned into slashes, the floor checked again on it. Any other line comes back as
+// it is.
+func (m Mode) windowsLine(line, dir string) (string, Decision, bool) {
+	if d, hit := m.cmdLine(line); hit {
+		return line, d, true
+	}
 	if !m.PowerShell {
 		return line, Decision{}, false
 	}
