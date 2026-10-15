@@ -19,29 +19,11 @@ func layered(t *testing.T) (scope, shared *Ledger) {
 // shared ones it reads stay on the shared ledger; neither leaks into the other.
 func TestALayerKeepsItsOwnDocumentsAndRoutesTheShared(t *testing.T) {
 	scope, shared := layered(t)
-	for _, n := range []string{"mine", "common"} {
-		scope.BumpView(n)
-		scope.BumpUse(n)
-		scope.BumpPatch(n, ByAgent)
-		if !scope.IsCuratorManaged(n) {
-			t.Errorf("%s: the agent's document is the curator's until it is pinned", n)
-		}
-		scope.SetState(n, StateStale)
-		scope.SetPinned(n, true)
-		scope.SetDisabled(n, true)
-	}
+	touchEach(t, scope, "mine", "common")
 	if shared.Get("mine").ViewCount != 0 || scope.entries["common"].ViewCount != 0 {
 		t.Fatal("a document's telemetry went to the other ledger")
 	}
-	for _, n := range []string{"mine", "common"} {
-		e := scope.Get(n)
-		counted := e.ViewCount == 1 && e.UseCount == 1 && e.PatchCount == 1
-		marked := e.State == StateStale && e.Pinned
-		switched := scope.Disabled(n) && !scope.IsCuratorManaged(n)
-		if !counted || !marked || !switched {
-			t.Errorf("%s: %+v", n, e)
-		}
-	}
+	checkTouched(t, scope, "mine", "common")
 	if all := scope.All(); len(all) != 2 || len(shared.All()) != 1 {
 		t.Errorf("All merges both: %v", all)
 	}
@@ -64,6 +46,36 @@ func TestALayerKeepsItsOwnDocumentsAndRoutesTheShared(t *testing.T) {
 	scope.BumpView("mine")
 	if scope.entries["mine"].ViewCount != 2 {
 		t.Error("an entry of the scope's own answers there")
+	}
+}
+
+// touchEach counts, marks, pins and switches off each document through the layer.
+func touchEach(t *testing.T, scope *Ledger, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		scope.BumpView(n)
+		scope.BumpUse(n)
+		scope.BumpPatch(n, ByAgent)
+		if !scope.IsCuratorManaged(n) {
+			t.Errorf("%s: the agent's document is the curator's until it is pinned", n)
+		}
+		scope.SetState(n, StateStale)
+		scope.SetPinned(n, true)
+		scope.SetDisabled(n, true)
+	}
+}
+
+// checkTouched says whether each document the layer touched once reads back as touched.
+func checkTouched(t *testing.T, scope *Ledger, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		e := scope.Get(n)
+		counted := e.ViewCount == 1 && e.UseCount == 1 && e.PatchCount == 1
+		marked := e.State == StateStale && e.Pinned
+		switched := scope.Disabled(n) && !scope.IsCuratorManaged(n)
+		if !counted || !marked || !switched {
+			t.Errorf("%s: %+v", n, e)
+		}
 	}
 }
 

@@ -234,47 +234,43 @@ func TestVerifyNoticesChanges(t *testing.T) {
 // every Piper voice, and Supertonic's and Chatterbox's voices on their shared models, their ids
 // starting as the page reads.
 func TestTheCatalog(t *testing.T) {
-	seen := map[string]bool{RuntimeID: true, samplesDir: true}
-	check := func(f ModelFile) {
+	seen := map[string]bool{RuntimeID: true, samplesDir: true, SupertonicID: true, ChatterboxID: true}
+	for _, files := range [][]ModelFile{PiperRuntime, SupertonicModel, ChatterboxModel} {
+		checkCatalogFiles(t, files)
+	}
+	checkCatalogVoices(t, seen, PiperVoices, goodPiperVoice, func(m Model) []ModelFile {
+		return append(m.Files, *m.Sample)
+	})
+	checkCatalogVoices(t, seen, SupertonicVoices, goodSupertonicVoice, func(m Model) []ModelFile {
+		return m.Files[:1]
+	})
+	checkCatalogVoices(t, seen, ChatterboxVoices, goodChatterboxVoice, func(Model) []ModelFile { return nil })
+	if embeddedSample("nope") != nil {
+		t.Error("a voice with no sample compiled in has none")
+	}
+}
+
+// checkCatalogFiles reports each file of the catalog that is not well formed.
+func checkCatalogFiles(t *testing.T, files []ModelFile) {
+	t.Helper()
+	for _, f := range files {
 		if !goodCatalogFile(f) {
 			t.Errorf("bad file %+v", f)
 		}
 	}
-	for _, f := range PiperRuntime {
-		check(f)
-	}
-	for _, m := range PiperVoices {
-		if seen[m.ID] || !goodPiperVoice(m) {
+}
+
+// checkCatalogVoices reports each voice whose id is taken or that good refuses, and checks the
+// files of its own that own names.
+func checkCatalogVoices(t *testing.T, seen map[string]bool, voices []Model, good func(Model) bool,
+	own func(Model) []ModelFile) {
+	t.Helper()
+	for _, m := range voices {
+		if seen[m.ID] || !good(m) {
 			t.Errorf("bad voice %+v", m)
 		}
 		seen[m.ID] = true
-		for _, f := range append(m.Files, *m.Sample) {
-			check(f)
-		}
-	}
-	seen[SupertonicID] = true
-	for _, f := range SupertonicModel {
-		check(f)
-	}
-	for _, m := range SupertonicVoices {
-		if seen[m.ID] || !goodSupertonicVoice(m) {
-			t.Errorf("bad voice %+v", m)
-		}
-		seen[m.ID] = true
-		check(m.Files[0])
-	}
-	seen[ChatterboxID] = true
-	for _, f := range ChatterboxModel {
-		check(f)
-	}
-	for _, m := range ChatterboxVoices {
-		if seen[m.ID] || !goodChatterboxVoice(m) {
-			t.Errorf("bad voice %+v", m)
-		}
-		seen[m.ID] = true
-	}
-	if embeddedSample("nope") != nil {
-		t.Error("a voice with no sample compiled in has none")
+		checkCatalogFiles(t, own(m))
 	}
 }
 
