@@ -210,6 +210,14 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		content = msg
 	}
 	if dialect == "openai" && wantsStream(body) {
+		if planWantsCommand(text) {
+			streamCommand(w)
+			return
+		}
+		if strings.Contains(text, `"execute_command"`) {
+			// Plan mode's second round: the command ran, and the answer is plain prose.
+			content = planAnswer
+		}
 		stream(w, f, content)
 		return
 	}
@@ -275,6 +283,48 @@ func stream(w http.ResponseWriter, phaseName, content string) {
 		frame(map[string]string{"content": content[:n]})
 		content = content[n:]
 	}
+	fmt.Fprint(w, "data: [DONE]\n\n")
+}
+
+// planCommand is the command the mock runs when it is asked in plan mode, before it answers.
+const planCommand = "ls -la"
+
+// planAnswer is plan mode's answer once the command has run.
+const planAnswer = "The workspace is a git repository with one empty commit."
+
+// planWantsCommand reports whether a request is plan mode's first round: plan mode offers its tools
+// (execute_command among them) and, until a command has run, there is no tool result in the
+// conversation. Plan mode is the one path that runs commands through tools, so a mock that never
+// called one could not show what plan mode puts in the terminal and thinking drawers.
+func planWantsCommand(text string) bool {
+	return strings.Contains(text, `"execute_command"`) && !strings.Contains(text, `"role":"tool"`)
+}
+
+// streamCommand answers plan mode's first round as a provider that thinks, says what it is about to
+// do and calls execute_command does: reasoning tokens, a sentence, then the tool call.
+func streamCommand(w http.ResponseWriter) {
+	w.Header().Set(headerContentType, "text/event-stream")
+	flusher, _ := w.(http.Flusher)
+	frame := func(delta map[string]any, finish string) {
+		choice := map[string]any{"delta": delta}
+		if finish != "" {
+			choice["finish_reason"] = finish
+		}
+		data, _ := json.Marshal(map[string]any{"choices": []any{choice}})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+		time.Sleep(streamChunk())
+	}
+	frame(map[string]any{"reasoning_content": "The question is about the workspace. "}, "")
+	frame(map[string]any{"reasoning_content": "Listing it is the quickest way to answer."}, "")
+	frame(map[string]any{"content": "Let me look at the workspace first."}, "")
+	args, _ := json.Marshal(map[string]string{"command": planCommand})
+	frame(map[string]any{"tool_calls": []any{map[string]any{
+		"index": 0, "id": "call_1", "type": "function",
+		"function": map[string]string{"name": "execute_command", "arguments": string(args)},
+	}}}, "tool_calls")
 	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
