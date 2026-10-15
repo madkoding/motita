@@ -395,6 +395,8 @@ func TestAnActionThatIsNotAShellCommandStillClosesItsLine(t *testing.T) {
 			running = append(running, l)
 		case strings.HasPrefix(l, "output (exit 0):\n[wrote f.txt"), strings.HasPrefix(l, "output (exit 1):\n[refused"):
 			closed = append(closed, l)
+		default:
+			// Every other line is not about the writes.
 		}
 	}
 	if len(running) != 2 || len(closed) != 2 {

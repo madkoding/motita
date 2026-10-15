@@ -34,9 +34,13 @@ func TestParseSubLineRefusesOtherLines(t *testing.T) {
 func TestARelayPassesCommandsAndThoughtsUp(t *testing.T) {
 	parent := &Agent{}
 	var up []string
-	parent.Progress = func(format string, args ...any) { up = append(up, strings.TrimSpace(fmt.Sprintf(format, args...))) }
+	parent.Progress = func(format string, args ...any) {
+		up = append(up, strings.TrimSpace(fmt.Sprintf(format, args...)))
+	}
 	var own []string
-	relay := parent.relayProgress("a1", "code", func(format string, args ...any) { own = append(own, fmt.Sprintf(format, args...)) })
+	relay := parent.relayProgress("a1", "code", func(format string, args ...any) {
+		own = append(own, fmt.Sprintf(format, args...))
+	})
 	relay("deciding action (round %d/%d)...", 1, 100)
 	relay("running: %s", "ls")
 	relay("output (exit %d):\n%s", 0, "a.txt")
@@ -48,8 +52,9 @@ func TestARelayPassesCommandsAndThoughtsUp(t *testing.T) {
 		t.Fatalf("passed up %d lines, want 2: %q", len(up), up)
 	}
 	cmd, _ := ParseSubLine(up[0])
-	if cmd.Agent != "a1" || cmd.Role != "" || cmd.Kind != SubCommand || cmd.Text != "ls" || cmd.Out != "a.txt" {
-		t.Errorf("command = %+v", cmd)
+	want := SubLine{Agent: "a1", Kind: SubCommand, Text: "ls", Out: "a.txt"}
+	if cmd != want {
+		t.Errorf("command = %+v, want %+v", cmd, want)
 	}
 	thought, _ := ParseSubLine(up[1])
 	if thought.Kind != SubThought || thought.Text != "first I read the tree" {

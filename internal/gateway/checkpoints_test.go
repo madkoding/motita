@@ -460,10 +460,14 @@ func TestBackgroundAgentStepsAreKeptWithTheTurn(t *testing.T) {
 	if len(steps) != 2 {
 		t.Fatalf("steps = %+v", steps)
 	}
-	if s := steps[0]; s.Kind != stepCommand || s.Text != "running: [a1] go test" || s.Exit == nil || *s.Exit != 2 || s.Out != "FAIL" {
+	s := steps[0]
+	if s.Kind != stepCommand || s.Text != "running: [a1] go test" || s.Out != "FAIL" {
 		t.Errorf("command step = %+v", s)
 	}
-	if s := steps[1]; s.Kind != stepThought || s.Text != "thinking: [a2 · review] looks fine" {
+	if s.Exit == nil || *s.Exit != 2 {
+		t.Errorf("command exit = %v, want 2", s.Exit)
+	}
+	if s = steps[1]; s.Kind != stepThought || s.Text != "thinking: [a2 · review] looks fine" {
 		t.Errorf("thought step = %+v", s)
 	}
 }

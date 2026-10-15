@@ -89,6 +89,8 @@ func (a *Agent) relayProgress(id, role string, base func(string, ...any)) func(s
 				Out: strings.TrimPrefix(body, "\n")})
 		case strings.HasPrefix(line, ThinkingPrefix):
 			send(SubLine{Agent: id, Role: role, Kind: SubThought, Text: strings.TrimPrefix(line, ThinkingPrefix)})
+		default:
+			// Phase lines and the like are the agent's own activity, already given to base.
 		}
 	}
 }
