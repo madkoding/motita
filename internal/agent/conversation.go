@@ -385,18 +385,20 @@ const maxOptions = 4
 
 // cleanOptions keeps the options that can actually be picked.
 //
-// The model is asked for short candidate answers; anything empty, multi-line, or absurdly long
-// is dropped rather than shown, because an option is a one-line reply the user selects, not a
-// document. Duplicates go too: two identical choices look like a bug in the interface.
+// The model is asked for short candidate answers, but a long one is still one of the choices it is
+// weighing: it is kept, collapsed to one line, and only an absurdly long one is cut short with an
+// ellipsis. Dropping it hid an alternative from the user, so a question could arrive with fewer
+// choices than the agent meant, or none. Empty options and duplicates go: two identical choices
+// look like a bug in the interface.
 func cleanOptions(in []string) []string {
 	out := make([]string, 0, len(in))
 	seen := map[string]bool{}
 	for _, o := range in {
 		one := collapse(o)
-		if one == "" || seen[one] {
-			continue
+		if r := []rune(one); len(r) > optionMaxRunes {
+			one = strings.TrimSpace(string(r[:optionMaxRunes-1])) + "…"
 		}
-		if len([]rune(one)) > optionMaxRunes {
+		if one == "" || seen[one] {
 			continue
 		}
 		seen[one] = true
@@ -411,5 +413,5 @@ func cleanOptions(in []string) []string {
 	return out
 }
 
-// optionMaxRunes is the longest option worth showing on one row next to its key.
-const optionMaxRunes = 60
+// optionMaxRunes is the longest an option is shown: a couple of lines, which both interfaces wrap.
+const optionMaxRunes = 240
