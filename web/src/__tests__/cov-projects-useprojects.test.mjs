@@ -482,6 +482,55 @@ test("a repository chosen for the other repositories joins them, once", async ()
   await s.m.unmount();
 });
 
+test("a repository chosen while editing a project is added to it at once, unless its name is taken", async () => {
+  const s = await setup({
+    "GET /v1/projects/p1/branches": res(200, { branches: ["develop"] }),
+    "POST /v1/projects/p1/repos": res(200, {
+      ...PROJECT,
+      repos: [...PROJECT.repos, { name: "web", git_url: "u/web" }],
+    }),
+  });
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  assert.equal(
+    callsTo(s, "GET /v1/git/accounts").length,
+    1,
+    "the connected hosts are read when the edit dialog opens",
+  );
+  await run(() => s.p.openOtherRepoPicker());
+  await run(() =>
+    s.p.pickRepo({
+      full_name: "u/web",
+      clone_url: "https://github.com/u/web.git",
+    }),
+  );
+  await flush();
+  const calls = callsTo(s, "POST /v1/projects/p1/repos");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].body, {
+    name: "web",
+    git_url: "https://github.com/u/web.git",
+  });
+  assert.equal(s.p.showRepoPicker, false);
+  assert.equal(
+    s.p.newProjectRepos.length,
+    0,
+    "the New project list is untouched",
+  );
+
+  // The main repository's name and another one's are taken.
+  for (const url of ["https://x.io/o/api", "https://x.io/o/motita"]) {
+    await run(() => s.p.openOtherRepoPicker());
+    await run(() => s.p.pickRepo({ full_name: "o/x", clone_url: url }));
+  }
+  assert.equal(callsTo(s, "POST /v1/projects/p1/repos").length, 1);
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "The project already has a repository with that name.",
+    type: "warning",
+  });
+  await s.m.unmount();
+});
+
 test("the remote's main branch is offered, unless the person chose one", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let answer = () => res(200, { branch: "develop" });

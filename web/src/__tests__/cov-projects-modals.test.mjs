@@ -344,6 +344,18 @@ const DRAFT = {
   repos: [{ name: "api", git_url: "https://x.io/u/api.git" }],
 };
 
+test("the edit dialog offers the person's repositories when a host is connected", async () => {
+  const s = store({ gitAccounts: [{ id: "github", connected: true }] });
+  const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: DRAFT }));
+  await click(m.q("[data-testid=repo-choose]"));
+  assert.deepEqual(s.log, [["pickOther"]]);
+  await m.unmount();
+  const none = store({ gitAccounts: [] });
+  const n = await mount(AppCtx, none.value, h(EditProjectModal, { p: DRAFT }));
+  assert.equal(n.q("[data-testid=repo-choose]"), null);
+  await n.unmount();
+});
+
 test("the edit dialog shows the project's settings", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: DRAFT }));

@@ -64,6 +64,8 @@ async function errorOf(res: Response): Promise<string> {
   return err.error || "";
 }
 
+const nameOf = (r: { name: string }) => r.name;
+
 // addRepoTo clones one more repository into a project, and answers the project as it is now, or
 // the gateway's reason when it was refused.
 async function addRepoTo(
@@ -803,7 +805,12 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const edit = useEditProject(api, fetchProjects, setToast);
   const form = useNewProjectForm();
   const createProjectRef = useRef<() => void>(() => {});
-  const git = useGitHosts(api, form.showNewProject, setToast, createProjectRef);
+  const git = useGitHosts(
+    api,
+    form.showNewProject || !!edit.editProject,
+    setToast,
+    createProjectRef,
+  );
   const remoteMain = useRemoteMain(api, form);
   const runtimes = useRuntimes(api, form.showNewProject);
   const createProject = useCreateProject(
@@ -829,6 +836,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   } = form;
   const { setShowRepoPicker, pickForOthers, setPickForOthers } = git;
   const { newProjectRepos, addNewProjectRepo } = form;
+  const { editProject, addProjectRepo } = edit;
   const pickRepo = useCallback(
     (r: GitRepo) => {
       if (pickForOthers) {
@@ -839,18 +847,20 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
       setPickForOthers(false);
       setShowRepoPicker(false);
     },
-    [pickForOthers, newProjectRepos, form.newProjectGit],
+    [pickForOthers, newProjectRepos, form.newProjectGit, editProject],
   );
   // pickOtherRepo adds a repository the user chose to the project's other repositories, unless
   // the project already has one by that name.
   function pickOtherRepo(r: GitRepo) {
-    const taken = [
-      repoFolderOf(form.newProjectGit),
-      ...newProjectRepos.map((x) => x.name),
-    ];
+    // The edit dialog adds it to the project at once; the New project one, to its list.
+    const taken = choose(
+      editProject,
+      [editProject?.mainRepo.name, ...(editProject?.repos ?? []).map(nameOf)],
+      [repoFolderOf(form.newProjectGit), ...newProjectRepos.map(nameOf)],
+    );
     const draft = repoDraftOf(r.clone_url);
     if (draft && !taken.includes(draft.name)) {
-      addNewProjectRepo(draft);
+      choose(editProject, addProjectRepo, addNewProjectRepo)(draft);
     } else {
       setToast({
         message: t("The project already has a repository with that name."),
