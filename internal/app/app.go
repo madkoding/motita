@@ -504,6 +504,23 @@ func (op Options) continueAfterSetup(fl flags, next onboard.Next) int {
 	}
 }
 
+// firstRunSetup runs the wizard for a first run. It reports done when the run ends here: the
+// setup failed, or the user answered its last question with the gateway or with exit. Otherwise
+// the run goes on to the interface it was asked for, with fl carrying the notice it opens with.
+func (op Options) firstRunSetup(fl *flags) (code int, done bool) {
+	code, written, next := op.initConfig(*fl)
+	if code != Success {
+		return code, true
+	}
+	if written && next != onboard.NextTUI {
+		return op.continueAfterSetup(*fl, next), true
+	}
+	// The interface clears the screen when it opens, and the wizard's summary goes with it:
+	// the first thing it shows is therefore what just happened, in one line.
+	fl.notice = onboardingNotice(written)
+	return Success, false
+}
+
 // resolvedConfigPath answers WHICH configuration file an invocation reads, and the empty string
 // when there is none and the defaults apply.
 //
@@ -624,20 +641,9 @@ func (op Options) run(fl flags) int {
 	// (-task, -p, -version) are excluded: they do not need a provider, and
 	// launching a wizard from a script would hang it.
 	if op.needsOnboarding(fl) {
-		code, written, next := op.initConfig(fl)
-		if code != Success {
+		if code, done := op.firstRunSetup(&fl); done {
 			return code
 		}
-		// The first run goes on to the interface it was asked for; the gateway and the exit
-		// are the other two answers to the wizard's last question.
-		if written && next != onboard.NextTUI {
-			return op.continueAfterSetup(fl, next)
-		}
-		// The interface clears the screen when it opens, and the wizard's summary goes with it:
-		// the first thing it shows is therefore what just happened, in one line.
-		fl.notice = onboardingNotice(written)
-		// The wizard wrote the file, so now it is there to be loaded. Continue
-		// with the normal path.
 	}
 
 	// Which file is read is decided in ONE place, because a second caller needs the same answer:
