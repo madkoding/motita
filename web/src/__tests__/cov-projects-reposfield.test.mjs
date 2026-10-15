@@ -364,3 +364,27 @@ test("a repository other projects share says which ones", async () => {
   assert.equal(also[0].textContent, "Also in Admin, Docs");
   await m.unmount();
 });
+
+test("a shared repository behind its main branch says by how much", async () => {
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      main: null,
+      repos: [
+        {
+          name: "api",
+          git_url: "u/api",
+          branch: "project/shop",
+          behind: 3,
+          main_branch: "develop",
+        },
+        { name: "web", git_url: "u/web", behind: 1 },
+      ],
+    }),
+  );
+  const rows = m.qa("[data-testid=repo-row]");
+  assert.match(rows[0].textContent, /project\/shop · 3 behind develop/);
+  assert.match(rows[1].textContent, /1 behind main/);
+  await m.unmount();
+});

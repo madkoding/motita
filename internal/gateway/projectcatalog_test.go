@@ -269,6 +269,21 @@ func TestAnIntegrationBringsTheProjectFoldersUpToDate(t *testing.T) {
 	if got := mustGit(t, otherDir, "rev-parse", "HEAD"); got == main {
 		t.Error("a folder with work left in it must not move")
 	}
+	// The list says it stayed behind, and the one that moved is not.
+	w := get(t, srv, "/v1/projects", testToken)
+	var list struct {
+		Projects []Project `json:"projects"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &list)
+	behind := map[string]int{}
+	for _, p := range list.Projects {
+		for _, r := range p.Repos {
+			behind[p.Title+"/"+r.Name] = r.Behind
+		}
+	}
+	if behind["other/web-client"] != 1 || behind["proj/web-client"] != 0 {
+		t.Errorf("how far behind main each folder is: %v", behind)
+	}
 	// A folder on another branch is the user's choice: it stays.
 	mine := filepath.Join(projectDir, "web-client")
 	mustGit(t, mine, "checkout", "-q", "-b", "elsewhere")

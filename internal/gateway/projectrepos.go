@@ -44,6 +44,9 @@ type ProjectRepo struct {
 	// Branch and Changes are read live, like the project's own.
 	Branch  string `json:"branch,omitempty"`
 	Changes int    `json:"changes,omitempty"`
+	// Behind, read live for a shared repository, counts the commits of its main branch the
+	// project's folder does not have: it stays behind when it holds work of its own.
+	Behind int `json:"behind,omitempty"`
 }
 
 // repoNamePattern is what a repository's folder may be called: a simple name that is not hidden.
@@ -487,6 +490,11 @@ func liveRepos(ctx context.Context, p *Project) {
 		dir := p.repoPath(p.Repos[i])
 		p.Repos[i].Branch = gitx.Display(ctx, dir)
 		p.Repos[i].Changes, _ = gitx.WorkingTreeChanges(ctx, dir)
+		if p.Repos[i].Shared {
+			mainBranch := cmp.Or(p.Repos[i].MainBranch, defaultMainBranch)
+			_, behind, _ := gitx.CommitsBetween(ctx, dir, mainBranch, "HEAD")
+			p.Repos[i].Behind = len(behind)
+		}
 	}
 }
 

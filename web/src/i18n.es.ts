@@ -594,6 +594,9 @@ const first: Record<string, string> = {
   "Already in your workspace": "Ya en tu espacio de trabajo",
   "Add {name}": "Agregar {name}",
   "Also in {names}": "También en {names}",
+  "{n} behind {branch}": "{n} atrás de {branch}",
+  behind: "atrás",
+  "Behind their main branch: {names}": "Atrás de su rama principal: {names}",
   "Could not delete the repository": "No se pudo eliminar el repositorio",
   "Repositories in your workspace": "Repositorios en tu espacio de trabajo",
   "Each repository is cloned once and shared by the projects that use it. One that no project uses can be deleted.":

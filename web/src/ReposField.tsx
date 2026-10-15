@@ -25,6 +25,8 @@ export interface RepoListItem {
   dir?: string;
   branch?: string;
   changes?: number;
+  main_branch?: string;
+  behind?: number;
 }
 
 // RepoConflict is a removal the gateway refused because the repository holds uncommitted work.
@@ -62,6 +64,14 @@ function stateOf(r: RepoListItem): string {
   const parts = [r.branch || ""];
   if (r.changes) {
     parts.push(tf("{n} changes", { n: r.changes }));
+  }
+  if (r.behind) {
+    parts.push(
+      tf("{n} behind {branch}", {
+        n: r.behind,
+        branch: r.main_branch || "main",
+      }),
+    );
   }
   return parts.filter(Boolean).join(" · ");
 }

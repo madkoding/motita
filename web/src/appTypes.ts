@@ -135,6 +135,8 @@ export interface ProjectRepoInfo {
   changes?: number;
   // shared: dir is the workspace catalog's clone, which other projects may use too.
   shared?: boolean;
+  // behind counts the commits of the main branch the project's folder of a shared one lacks.
+  behind?: number;
 }
 
 // CatalogRepo is one repository of the workspace catalog: cloned once, used by any number of
