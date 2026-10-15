@@ -119,7 +119,7 @@ function settingsTabs(p: Props): TabInfo[] {
     );
   }
   if (p.git) {
-    tabs.push({ id: "git", label: t("Git connections"), icon: <IconBranch /> });
+    tabs.push({ id: "git", label: t("Git"), icon: <IconBranch /> });
   }
   return tabs;
 }
