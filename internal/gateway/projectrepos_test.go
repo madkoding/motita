@@ -365,3 +365,231 @@ func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
 		t.Errorf("a repository over an existing folder: %d", code)
 	}
 }
+
+// bareProject is a project with no session, so nothing holds a copy of its repository.
+func bareProject(t *testing.T) (*Server, string, string) {
+	t.Helper()
+	srv, ws := projectServer(t)
+	if code, _ := createProject(t, srv, `{"title":"proj","dir":"proj"}`); code != http.StatusCreated {
+		t.Fatalf("creating the project: %d", code)
+	}
+	dir := filepath.Join(ws, "proj")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return srv, dir, onlyProjectID(t, srv)
+}
+
+func detachMain(t *testing.T, srv *Server, id string) (int, Project) {
+	t.Helper()
+	w := send(t, srv, http.MethodDelete, "/v1/projects/"+id+"/main", testToken, "")
+	var p Project
+	_ = json.Unmarshal(w.Body.Bytes(), &p)
+	return w.Code, p
+}
+
+func TestTheMainRepositoryMovesToAFolderOfItsOwn(t *testing.T) {
+	srv, projectDir, id := bareProject(t)
+	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
+	}
+	// Uncommitted work travels with the repository.
+	if err := os.WriteFile(filepath.Join(projectDir, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, p := detachMain(t, srv, id)
+	if code != http.StatusOK || p.GitURL != "" || len(p.Repos) != 2 || p.Repos[0].Name != "proj" ||
+		p.Repos[1].Name != "web-client" {
+		t.Fatalf("moving the main repository: %d %+v", code, p)
+	}
+	moved := filepath.Join(projectDir, "proj")
+	if p.Repos[0].Dir != moved || gitx.Repo(context.Background(), moved) != nil {
+		t.Errorf("the repository moved to %q", p.Repos[0].Dir)
+	}
+	if _, err := os.Stat(filepath.Join(moved, "wip.txt")); err != nil {
+		t.Errorf("uncommitted work must move with it: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "README.md")); !os.IsNotExist(err) {
+		t.Errorf("the project's folder holds repositories now, not their files: %v", err)
+	}
+	// The other repository stayed put, and the folder is a repository that ignores them both.
+	if _, err := os.Stat(filepath.Join(projectDir, "web-client", "README.md")); err != nil {
+		t.Errorf("the other repository stays where it was: %v", err)
+	}
+	if n, _ := gitx.WorkingTreeChanges(context.Background(), projectDir); n != 0 {
+		t.Errorf("the folder must ignore the repositories inside it, it has %d changes", n)
+	}
+	// Saved.
+	if saved := srv.projectOf(id); saved == nil || saved.GitURL != "" || len(saved.Repos) != 2 {
+		t.Errorf("the change is saved: %+v", saved)
+	}
+}
+
+func TestTheMainRepositoryTakesTheNameOfItsURL(t *testing.T) {
+	p := &Project{Dir: "/ws/folder", GitURL: "https://x/u/the-app.git"}
+	if got := p.mainRepoFolder(); got != "the-app" {
+		t.Errorf("from the URL: %q", got)
+	}
+	p.GitURL = ""
+	if got := p.mainRepoFolder(); got != "folder" {
+		t.Errorf("from the folder: %q", got)
+	}
+	dir := t.TempDir()
+	q := &Project{Dir: dir, Repos: []ProjectRepo{{Name: "b"}}}
+	if err := os.Mkdir(filepath.Join(dir, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"": "", "free": "free", "a": "a-main", "b": "b-main"} {
+		if got := q.freeRepoFolder(name); got != want {
+			t.Errorf("freeRepoFolder(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "a-main"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.freeRepoFolder("a"); got != "" {
+		t.Errorf("no free name: %q", got)
+	}
+}
+
+func TestTheMainRepositoryStaysWhenItCannotMove(t *testing.T) {
+	if code, _ := detachMain2(t, "nope"); code != http.StatusNotFound {
+		t.Errorf("an unknown project: %d", code)
+	}
+
+	srv, projectDir, sessionID := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+
+	// A running session is in the way.
+	c := convNamed(t, srv, sessionID)
+	c.takeRunSlot()
+	if code, _ := detachMain(t, srv, id); code != http.StatusConflict {
+		t.Errorf("a running session: %d", code)
+	}
+	c.releaseRunSlot()
+
+	// So is a session with a copy of its own.
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("creating a second session: %d %s", created.Code, created.Body)
+	}
+	var second SessionStatus
+	_ = json.Unmarshal(created.Body.Bytes(), &second)
+	if gitx.SamePath(second.Workspace, projectDir) {
+		t.Skip("the second session runs in the project's folder")
+	}
+	if code, _ := detachMain(t, srv, id); code != http.StatusConflict {
+		t.Errorf("a session with its own copy: %d", code)
+	}
+	if saved := srv.projectOf(id); len(saved.Repos) != 0 {
+		t.Errorf("nothing changed: %+v", saved)
+	}
+}
+
+func detachMain2(t *testing.T, id string) (int, Project) {
+	srv, _ := projectServer(t)
+	return detachMain(t, srv, id)
+}
+
+func TestTheMainRepositoryNeedsARepositoryAndAFreeName(t *testing.T) {
+	srv, projectDir, id := bareProject(t)
+	for _, name := range []string{"proj", "proj-main"} {
+		if err := os.Mkdir(filepath.Join(projectDir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code, _ := detachMain(t, srv, id); code != http.StatusConflict {
+		t.Errorf("no free folder name: %d", code)
+	}
+	if err := os.RemoveAll(filepath.Join(projectDir, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := detachMain(t, srv, id); code != http.StatusConflict {
+		t.Errorf("a folder that is not a repository: %d", code)
+	}
+}
+
+func TestMovingTheMainRepositoryFailsCleanly(t *testing.T) {
+	srv, projectDir, id := bareProject(t)
+
+	// A move that fails puts back what it had moved.
+	realRename := renamePath
+	n := 0
+	renamePath = func(from, to string) error {
+		n++
+		if n == 2 {
+			return errors.New("disk says no")
+		}
+		return realRename(from, to)
+	}
+	code, _ := detachMain(t, srv, id)
+	renamePath = realRename
+	if code != http.StatusInternalServerError {
+		t.Errorf("a move that fails: %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err != nil {
+		t.Errorf("the repository must be back where it was: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "proj")); !os.IsNotExist(err) {
+		t.Errorf("the half-made folder is removed: %v", err)
+	}
+
+	// The folder that cannot be made or read, asked of the move itself.
+	p := &Project{Dir: filepath.Join(t.TempDir(), "missing")}
+	if err := moveMainRepo(p, "x"); err == nil {
+		t.Error("a project folder that is not there")
+	}
+	if err := moveMainRepo(&Project{Dir: projectDir}, "README.md"); err == nil {
+		t.Error("a folder name that is taken")
+	}
+
+	// The new folder cannot be made a repository.
+	realInit := initRepo
+	initRepo = func(context.Context, string, string) error { return errors.New("no git") }
+	code, _ = detachMain(t, srv, id)
+	initRepo = realInit
+	if code != http.StatusInternalServerError {
+		t.Errorf("a folder that cannot be initialised: %d", code)
+	}
+}
+
+func TestTheMainRepositoryMoveCannotBeSaved(t *testing.T) {
+	srv, _, id := bareProject(t)
+	if err := os.MkdirAll(filepath.Join(srv.projects.dir, id+".json.tmp", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := detachMain(t, srv, id); code != http.StatusInternalServerError {
+		t.Errorf("a save that fails: %d", code)
+	}
+}
+
+// A project saved without a main branch, with a session that runs in its folder: the move names
+// the branch itself and tells the session about its new repositories.
+func TestTheMainRepositoryMoveNamesTheBranchAndTellsTheSessions(t *testing.T) {
+	srv, projectDir, id := bareProject(t)
+	p := srv.projectOf(id)
+	p.MainBranch = ""
+	if err := srv.projects.save(*p); err != nil {
+		t.Fatal(err)
+	}
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	var st SessionStatus
+	_ = json.Unmarshal(created.Body.Bytes(), &st)
+	c := convNamed(t, srv, st.ID)
+	// The session's own copy is given back, and it goes on in the project's folder.
+	if st.Workspace != projectDir {
+		mustGit(t, projectDir, "worktree", "remove", "--force", st.Workspace)
+		c.stateMu.Lock()
+		c.workspace = projectDir
+		c.stateMu.Unlock()
+	}
+	svc := &noteService{}
+	c.svc = svc
+	code, moved := detachMain(t, srv, id)
+	if code != http.StatusOK || moved.MainBranch != defaultMainBranch {
+		t.Fatalf("moving: %d %+v", code, moved)
+	}
+	if !strings.Contains(svc.note, "- proj (") {
+		t.Errorf("the session must be told about the repositories: %q", svc.note)
+	}
+}

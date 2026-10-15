@@ -21,7 +21,7 @@ import type {
   Toast,
 } from "./appTypes";
 import {
-  mainRepoOf,
+  shownMainOf,
   repoDraftOf,
   repoFolderOf,
   reposOf,
@@ -53,7 +53,7 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     prMaxFixes: p.pr_max_fixes ?? 0,
     autoMerge: p.auto_merge === true,
     autoContinue: p.auto_continue === true,
-    mainRepo: mainRepoOf(p),
+    mainRepo: shownMainOf(p),
     repos: reposOf(p),
   };
 }
@@ -103,7 +103,7 @@ function useProjectRepos(
       if (prev?.id !== p.id) {
         return prev;
       }
-      return { ...prev, repos: reposOf(p) };
+      return { ...prev, repos: reposOf(p), mainRepo: shownMainOf(p) };
     });
     void fetchProjects();
   };
@@ -176,7 +176,40 @@ function useProjectRepos(
     [id],
   );
 
-  return { repoBusy, repoConflict, addProjectRepo, removeProjectRepo };
+  // detachProjectMain moves the main repository into a folder of its own; the project's folder
+  // then only holds repositories. Nothing is deleted, so there is nothing to confirm after the ask.
+  const detachProjectMain = useCallback(async () => {
+    setRepoBusy("*");
+    try {
+      const res = await api(PROJECTS_PATH + encodeURIComponent(id) + "/main", {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setToast({
+          message: t("Could not move the main repository"),
+          type: "error",
+          detail: await errorOf(res),
+        });
+        return;
+      }
+      settle(await res.json());
+    } catch {
+      setToast({
+        message: t("Could not move the main repository"),
+        type: "error",
+      });
+    } finally {
+      setRepoBusy("");
+    }
+  }, [id]);
+
+  return {
+    repoBusy,
+    repoConflict,
+    addProjectRepo,
+    removeProjectRepo,
+    detachProjectMain,
+  };
 }
 
 // withBranches puts what the gateway says about a project's branches into the edit dialog.
@@ -855,7 +888,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     // The edit dialog adds it to the project at once; the New project one, to its list.
     const taken = choose(
       editProject,
-      [editProject?.mainRepo.name, ...(editProject?.repos ?? []).map(nameOf)],
+      [editProject?.mainRepo?.name, ...(editProject?.repos ?? []).map(nameOf)],
       [repoFolderOf(form.newProjectGit), ...newProjectRepos.map(nameOf)],
     );
     const draft = repoDraftOf(r.clone_url);

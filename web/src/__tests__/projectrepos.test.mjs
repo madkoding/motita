@@ -52,6 +52,29 @@ test("the main repository is shown by its repository name, or its folder", () =>
   assert.deepEqual(r.mainRepoOf({ dir: "" }), { name: "", source: "" });
 });
 
+test("the edit dialog lists a main repository only while the folder is one", () => {
+  // Cloned from a URL: it is one, and it can be moved.
+  assert.deepEqual(
+    r.shownMainOf({
+      dir: "/ws/a",
+      git_url: "https://x.io/u/app.git",
+      repos: [{}],
+    }),
+    { name: "app", source: "https://x.io/u/app.git", movable: true },
+  );
+  // A plain folder with nothing inside: it is listed, and there is nothing to move.
+  assert.deepEqual(r.shownMainOf({ dir: "/ws/notes" }), {
+    name: "notes",
+    source: "/ws/notes",
+    movable: false,
+  });
+  // A folder that holds repositories and has no URL of its own is not a repository.
+  assert.equal(
+    r.shownMainOf({ dir: "/ws/suite", repos: [{ name: "api" }] }),
+    null,
+  );
+});
+
 test("a project from before the other repositories has none", () => {
   assert.deepEqual(r.reposOf({}), []);
   const repos = [{ name: "api", git_url: "u", dir: "d" }];

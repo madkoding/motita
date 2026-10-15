@@ -167,9 +167,7 @@ test("adding a repository: refused when not a URL or taken, emptied once added",
   // Refused by the caller: the field keeps the URL.
   await key(input, "Enter");
   await flush();
-  assert.deepEqual(added, [
-    { name: "web", git_url: "https://x.io/u/web.git" },
-  ]);
+  assert.deepEqual(added, [{ name: "web", git_url: "https://x.io/u/web.git" }]);
   assert.equal(input.value, "https://x.io/u/web.git");
 
   // A trailing slash is not part of the name.
@@ -205,4 +203,74 @@ test("in Spanish the block speaks Spanish", async () => {
   } finally {
     await setLang("en");
   }
+});
+
+test("a main repository that can move asks first, then moves", async () => {
+  const moved = [];
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      main: {
+        name: "motita",
+        source: "https://x.io/u/motita.git",
+        movable: true,
+      },
+      onMoveMain: () => moved.push("moved"),
+    }),
+  );
+  assert.equal(m.q("[data-testid=repo-main-ask]"), null);
+  await click(m.q("[data-testid=repo-main-remove]"));
+  assert.match(
+    m.q("[data-testid=repo-main-ask]").textContent,
+    /motita moves into its own folder/,
+  );
+  assert.equal(m.q("[data-testid=repo-main-remove]").disabled, true);
+  // Changing their mind moves nothing.
+  await click(
+    [...m.root.querySelectorAll("button")].find(
+      (b) => b.textContent === "Cancel",
+    ),
+  );
+  assert.equal(m.q("[data-testid=repo-main-ask]"), null);
+  assert.deepEqual(moved, []);
+  await click(m.q("[data-testid=repo-main-remove]"));
+  await click(m.q("[data-testid=repo-main-move]"));
+  assert.deepEqual(moved, ["moved"]);
+  assert.equal(m.q("[data-testid=repo-main-ask]"), null);
+  await m.unmount();
+});
+
+test("the main repository has no button when it cannot move, and spins while it does", async () => {
+  const fixed = await mount(
+    AppCtx,
+    null,
+    section({
+      main: { name: "notes", source: "/ws/notes", movable: false },
+      onMoveMain: () => {},
+    }),
+  );
+  assert.equal(fixed.q("[data-testid=repo-main-remove]"), null);
+  await fixed.unmount();
+
+  const noHandler = await mount(
+    AppCtx,
+    null,
+    section({ main: { name: "a", source: "u", movable: true } }),
+  );
+  assert.equal(noHandler.q("[data-testid=repo-main-remove]"), null);
+  await noHandler.unmount();
+
+  const busy = await mount(
+    AppCtx,
+    null,
+    section({
+      busy: "*",
+      main: { name: "a", source: "u", movable: true },
+      onMoveMain: () => {},
+    }),
+  );
+  assert.equal(busy.q("[data-testid=repo-main-remove]").disabled, true);
+  assert.ok(busy.q("[data-testid=repo-main-remove] svg"));
+  await busy.unmount();
 });

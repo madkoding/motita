@@ -68,6 +68,8 @@ function lastPathPart(path: string): string {
 export interface MainRepo {
   name: string;
   source: string;
+  // The repository can be moved out of the project's folder into one of its own.
+  movable?: boolean;
 }
 
 // mainRepoOf describes a project's main repository: its URL when it was cloned, its folder otherwise.
@@ -75,6 +77,17 @@ export function mainRepoOf(p: Pick<ProjectInfo, "dir" | "git_url">): MainRepo {
   const source = p.git_url || p.dir;
   const folder = lastPathPart(p.dir) || p.dir;
   return { name: repoFolderOf(p.git_url || "") || folder, source };
+}
+
+// shownMainOf is the main repository the edit dialog lists: none once the project's folder only
+// holds repositories (no URL of its own, and others inside it), because then the folder is not one.
+export function shownMainOf(
+  p: Pick<ProjectInfo, "dir" | "git_url" | "repos">,
+): MainRepo | null {
+  if (!p.git_url && reposOf(p).length > 0) {
+    return null;
+  }
+  return { ...mainRepoOf(p), movable: !!p.git_url };
 }
 
 // reposOf is a project's other repositories, never undefined: a project from before they existed

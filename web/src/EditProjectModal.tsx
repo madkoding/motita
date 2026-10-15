@@ -171,6 +171,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
     repoConflict,
     addProjectRepo,
     removeProjectRepo,
+    detachProjectMain,
     gitAccounts,
     openOtherRepoPicker,
   } = useApp().projects;
@@ -187,6 +188,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       conflict={repoConflict}
       onRemove={onRemove}
       onAdd={addProjectRepo}
+      onMoveMain={detachProjectMain}
       onChoose={choose(connected, openOtherRepoPicker, undefined)}
       hint={t(
         "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.",

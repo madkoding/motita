@@ -312,7 +312,7 @@ export interface EditProjectDraft {
   autoMerge: boolean;
   autoContinue: boolean;
   // The repositories, which change at once rather than on Save: adding one clones it.
-  mainRepo: { name: string; source: string };
+  mainRepo: { name: string; source: string; movable?: boolean } | null;
   repos: ProjectRepoInfo[];
 }
 

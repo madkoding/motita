@@ -234,7 +234,7 @@ const first: Record<string, string> = {
   Amber: "Ámbar",
   Rose: "Rosa",
   Graphite: "Grafito",
-  "Preview": "Vista previa",
+  Preview: "Vista previa",
   "{name} theme, {mode}": "Tema {name}, {mode}",
   Notifications: "Notificaciones",
   "Last used {when}": "Último uso {when}",
@@ -586,6 +586,11 @@ const first: Record<string, string> = {
   "{n}y ago": "hace {n} años",
   "Choose from my repositories": "Elegir de mis repositorios",
   "Add from my repositories": "Agregar de mis repositorios",
+  "Could not move the main repository":
+    "No se pudo mover el repositorio principal",
+  "{name} moves into its own folder inside the project, and the project becomes a folder of repositories. Nothing is deleted.":
+    "{name} pasa a su propia carpeta dentro del proyecto, y el proyecto queda como una carpeta de repositorios. No se borra nada.",
+  "Move it": "Moverlo",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",

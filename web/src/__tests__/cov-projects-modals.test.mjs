@@ -73,6 +73,7 @@ function store(state = {}) {
     closeEditProject: rec("closeEdit"),
     saveEditProject: rec("save", Promise.resolve()),
     addProjectRepo: rec("addProjectRepo", Promise.resolve(true)),
+    detachProjectMain: rec("detachMain", Promise.resolve()),
     removeProjectRepo: rec("removeProjectRepo", Promise.resolve()),
     ...state,
   };
@@ -354,6 +355,23 @@ test("the edit dialog offers the person's repositories when a host is connected"
   const n = await mount(AppCtx, none.value, h(EditProjectModal, { p: DRAFT }));
   assert.equal(n.q("[data-testid=repo-choose]"), null);
   await n.unmount();
+});
+
+test("the edit dialog moves the main repository when asked", async () => {
+  const s = store();
+  const draft = {
+    ...DRAFT,
+    mainRepo: {
+      name: "motita",
+      source: "https://x.io/u/motita.git",
+      movable: true,
+    },
+  };
+  const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: draft }));
+  await click(m.q("[data-testid=repo-main-remove]"));
+  await click(m.q("[data-testid=repo-main-move]"));
+  assert.deepEqual(s.log, [["detachMain"]]);
+  await m.unmount();
 });
 
 test("the edit dialog shows the project's settings", async () => {

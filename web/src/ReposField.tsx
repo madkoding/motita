@@ -131,6 +131,94 @@ function OtherRepoRow({
   );
 }
 
+// MainRepoRow is the main repository. When it can be moved, it has a button that first asks, and
+// then moves it into a folder of its own: the project's folder is left holding repositories only.
+function MainRepoRow({
+  main,
+  busy,
+  onMove,
+}: {
+  main: MainRepo;
+  busy: boolean;
+  onMove?: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <li data-testid="repo-main">
+      <div class={ROW}>
+        <GitMark />
+        <span class="flex-1 min-w-0">
+          <span class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-[#e8e8ea] truncate">
+              {main.name}
+            </span>
+            <span class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-accent/15 text-accent">
+              {t("main")}
+            </span>
+          </span>
+          {main.source && (
+            <span
+              class="block text-xs text-[#7a7a8c] font-mono truncate"
+              title={main.source}
+            >
+              {main.source}
+            </span>
+          )}
+        </span>
+        {onMove && (
+          <button
+            type="button"
+            class="flex-none p-1.5 -m-1 rounded-lg text-[#9a9aaa] hover:text-danger hover:bg-white/5 disabled:opacity-30"
+            onClick={() => setAsking(true)}
+            disabled={busy || asking}
+            aria-label={tf("Remove {name}", { name: main.name })}
+            data-testid="repo-main-remove"
+          >
+            {choose(
+              busy,
+              <IconSpinner class="animate-spin" size={16} />,
+              <IconTrash size={16} />,
+            )}
+          </button>
+        )}
+      </div>
+      {onMove && asking && (
+        <div
+          class="px-3 pb-2.5 -mt-1 text-xs text-[#9a9aaa]"
+          data-testid="repo-main-ask"
+        >
+          <p>
+            {tf(
+              "{name} moves into its own folder inside the project, and the project becomes a folder of repositories. Nothing is deleted.",
+              { name: main.name },
+            )}
+          </p>
+          <div class="mt-1.5 flex gap-2">
+            <button
+              type="button"
+              class="px-2.5 min-h-[30px] rounded-lg bg-accent text-white font-semibold"
+              onClick={() => {
+                setAsking(false);
+                onMove();
+              }}
+              data-testid="repo-main-move"
+            >
+              {t("Move it")}
+            </button>
+            <button
+              type="button"
+              class="px-2.5 min-h-[30px] rounded-lg border border-white/10 text-[#e8e8ea]"
+              onClick={() => setAsking(false)}
+            >
+              {t("Cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 // RepoList lists the main repository and the others.
 export function RepoList({
   main,
@@ -138,12 +226,14 @@ export function RepoList({
   busy,
   conflict,
   onRemove,
+  onMoveMain,
 }: {
   main: MainRepo | null;
   repos: RepoListItem[];
   busy: string;
   conflict?: RepoConflict | null;
   onRemove: (name: string, force: boolean) => void;
+  onMoveMain?: () => void;
 }) {
   if (!main && repos.length === 0) {
     return null;
@@ -154,27 +244,11 @@ export function RepoList({
       data-testid="repo-list"
     >
       {main && (
-        <li class={ROW}>
-          <GitMark />
-          <span class="flex-1 min-w-0">
-            <span class="flex items-center gap-2">
-              <span class="text-sm font-semibold text-[#e8e8ea] truncate">
-                {main.name}
-              </span>
-              <span class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-accent/15 text-accent">
-                {t("main")}
-              </span>
-            </span>
-            {main.source && (
-              <span
-                class="block text-xs text-[#7a7a8c] font-mono truncate"
-                title={main.source}
-              >
-                {main.source}
-              </span>
-            )}
-          </span>
-        </li>
+        <MainRepoRow
+          main={main}
+          busy={busy === "*"}
+          onMove={choose(main.movable, onMoveMain, undefined)}
+        />
       )}
       {repos.map((r) => (
         <OtherRepoRow
@@ -270,6 +344,7 @@ export function ReposSection({
   onRemove,
   onAdd,
   onChoose,
+  onMoveMain,
   hint,
 }: {
   main: MainRepo | null;
@@ -280,6 +355,8 @@ export function ReposSection({
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
   // Opens the picker of the person's own repositories, when a git host is connected.
   onChoose?: () => void;
+  // Moves the main repository into a folder of its own (the edit dialog only).
+  onMoveMain?: () => void;
   hint: string;
 }) {
   return (
@@ -292,6 +369,7 @@ export function ReposSection({
           busy={busy}
           conflict={conflict}
           onRemove={onRemove}
+          onMoveMain={onMoveMain}
         />
         <AddRepo
           taken={repos.map((r) => r.name)}

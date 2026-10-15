@@ -531,6 +531,58 @@ test("a repository chosen while editing a project is added to it at once, unless
   await s.m.unmount();
 });
 
+test("the main repository moves into a folder of its own, or says why not", async () => {
+  let n = 0;
+  const s = await setup({
+    "DELETE /v1/projects/p1/main": () => {
+      n++;
+      if (n === 1) {
+        return res(200, {
+          ...PROJECT,
+          git_url: "",
+          repos: [
+            { name: "motita", git_url: PROJECT.git_url },
+            ...PROJECT.repos,
+          ],
+        });
+      }
+      if (n === 2) {
+        return res(409, { error: "a session is running" });
+      }
+      throw new Error("down");
+    },
+  });
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  assert.equal(s.p.editProject.mainRepo.movable, true);
+  await run(() => s.p.detachProjectMain());
+  assert.equal(s.p.repoBusy, "");
+  assert.equal(
+    s.p.editProject.mainRepo,
+    null,
+    "the folder only holds repositories now",
+  );
+  assert.deepEqual(
+    s.p.editProject.repos.map((r) => r.name),
+    ["motita", "api"],
+  );
+  assert.equal(s.counts.projects, 1);
+
+  await run(() => s.p.detachProjectMain());
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not move the main repository",
+    type: "error",
+    detail: "a session is running",
+  });
+  await run(() => s.p.detachProjectMain());
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not move the main repository",
+    type: "error",
+  });
+  assert.equal(s.p.repoBusy, "");
+  await s.m.unmount();
+});
+
 test("the remote's main branch is offered, unless the person chose one", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let answer = () => res(200, { branch: "develop" });
@@ -654,7 +706,11 @@ test("the edit dialog starts from the project's values and the gateway's branche
     prMaxFixes: 3,
     autoMerge: true,
     autoContinue: true,
-    mainRepo: { name: "motita", source: "https://github.com/u/motita.git" },
+    mainRepo: {
+      name: "motita",
+      source: "https://github.com/u/motita.git",
+      movable: true,
+    },
     repos: PROJECT.repos,
   });
   await s.m.unmount();
@@ -679,13 +735,17 @@ test("a project with no settings yet gets the defaults", async () => {
     prMaxFixes: 0,
     autoMerge: false,
     autoContinue: false,
-    mainRepo: { name: "bare", source: "/ws/bare/" },
+    mainRepo: { name: "bare", source: "/ws/bare/", movable: false },
     repos: [],
   });
   // A project at the root folder is shown by that folder.
   await run(() => s.p.openEditProject({ id: "p2", title: "Root", dir: "/" }));
   await flush();
-  assert.deepEqual(s.p.editProject.mainRepo, { name: "/", source: "/" });
+  assert.deepEqual(s.p.editProject.mainRepo, {
+    name: "/",
+    source: "/",
+    movable: false,
+  });
   await s.m.unmount();
 });
 
