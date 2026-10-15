@@ -250,6 +250,14 @@ var esOnboard = map[string]string{
 	"%s%sStart working%s\n":         "%s%sEmpieza a trabajar%s\n",
 	"Open a terminal in your project and run:": "Abre una terminal en " +
 		"tu proyecto y ejecuta:",
+	"What next?":                      "¿Y ahora?",
+	"Continue in the TUI":             "Continuar en el TUI",
+	"Start the gateway (WebUI)":       "Levantar el gateway (WebUI)",
+	"Exit":                            "Salir",
+	"open the terminal interface now": "abrir la interfaz de terminal ahora",
+	"serve the browser interface from this machine": "servir la interfaz web desde esta máquina",
+	"come back any time with: motita":               "vuelve cuando quieras con: motita",
+	"Next [1]:":                                     "Siguiente [1]:",
 	"Change any of this later with /config inside motita, or with: motita config": "Cambia cualquiera de estas " +
 		"opciones después con /config dentro de motita, o con: motita config",
 }

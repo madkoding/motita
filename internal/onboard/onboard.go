@@ -56,7 +56,22 @@ type Result struct {
 	LoggedIn bool
 	// Keyless is true for a provider that takes no key here (a self-hosted Ollama).
 	Keyless bool
+	// Next is what the user chose to do once the setup is saved. The zero value is NextExit, so a
+	// run that never asked (a preset, a script, no terminal) ends as it always has.
+	Next Next
 }
+
+// Next is the final step of the interactive wizard: where to go from the saved setup.
+type Next int
+
+const (
+	// NextExit leaves motita: the setup is saved and nothing else starts.
+	NextExit Next = iota
+	// NextTUI continues in the terminal interface.
+	NextTUI
+	// NextGateway starts the gateway, which serves the browser interface (WebUI).
+	NextGateway
+)
 
 // modelLister is the function the wizard uses to fetch models from hosts that
 // publish them. It is a package-level variable so tests can replace it with a
@@ -163,7 +178,14 @@ func runSetup(
 				continue
 			}
 		}
-		return w.save(s, now)
+		res, err := w.save(s, now)
+		if err != nil || !interactive {
+			return res, err
+		}
+		// The setup is already on disk, so a failure to read the answer is not a cancellation:
+		// it only means nobody is there to choose, and the run ends as it did before this step.
+		res.Next = w.chooseNext(ctx)
+		return res, nil
 	}
 }
 
@@ -799,7 +821,7 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 			// that made this a defect rather than a preference.
 			return anchorChoice{}, nil
 		default:
-			s.say("    Choose 1, 2 or 3.")
+			s.say(chooseOneTwoThree)
 		}
 	}
 	return anchorChoice{}, fmt.Errorf("no valid check after three attempts")
@@ -866,7 +888,7 @@ func (s *session) chooseOllamaHost(ctx context.Context, p Provider) (string, err
 				return u, err
 			}
 		default:
-			s.say("    Choose 1, 2 or 3.")
+			s.say(chooseOneTwoThree)
 		}
 	}
 	return "", fmt.Errorf("no valid Ollama host after three attempts")
