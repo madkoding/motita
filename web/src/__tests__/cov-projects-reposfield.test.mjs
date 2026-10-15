@@ -1,0 +1,208 @@
+// The repositories block of the New project and Edit project dialogs: the main repository first,
+// the others each with a remove button (and the question the gateway asks when one holds work),
+// and the field that adds one more, refusing what is not a repository or a name already taken.
+// Run with: node --test web/src/__tests__/cov-projects-reposfield.test.mjs
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  bundle,
+  h,
+  mount,
+  click,
+  type,
+  key,
+  flush,
+} from "./cov-projects-helpers.mjs";
+
+const { AppCtx, ReposSection, RepoList, setLang } = await bundle({
+  "ReposField.tsx": ["ReposSection", "RepoList", "AddRepo"],
+  "i18n.ts": ["setLang"],
+});
+
+function section(props) {
+  return h(ReposSection, {
+    main: { name: "motita", source: "https://x.io/u/motita.git" },
+    repos: [],
+    busy: "",
+    onRemove: () => {},
+    onAdd: () => true,
+    hint: "the hint",
+    ...props,
+  });
+}
+
+test("nothing is listed when there is no main repository and no other", async () => {
+  const m = await mount(
+    AppCtx,
+    null,
+    h(RepoList, { main: null, repos: [], busy: "", onRemove() {} }),
+  );
+  assert.equal(m.q("[data-testid=repo-list]"), null);
+  await m.unmount();
+});
+
+test("the main repository is shown first, with its source and the main mark", async () => {
+  const m = await mount(AppCtx, null, section({}));
+  const list = m.q("[data-testid=repo-list]");
+  assert.match(list.textContent, /motita/);
+  assert.match(list.textContent, /main/);
+  assert.match(list.textContent, /https:\/\/x\.io\/u\/motita\.git/);
+  assert.equal(m.qa("[data-testid=repo-row]").length, 0);
+  assert.match(m.root.textContent, /the hint/);
+  await m.unmount();
+});
+
+test("a main repository with no source shows only its name", async () => {
+  const m = await mount(
+    AppCtx,
+    null,
+    section({ main: { name: "fresh", source: "" } }),
+  );
+  const list = m.q("[data-testid=repo-list]");
+  assert.equal(list.querySelectorAll("[title]").length, 0);
+  assert.match(list.textContent, /fresh/);
+  await m.unmount();
+});
+
+test("the other repositories show their branch, changes and a remove button", async () => {
+  const removed = [];
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      main: null,
+      repos: [
+        { name: "api", git_url: "u/api", branch: "dev", changes: 3 },
+        { name: "lib", git_url: "u/lib" },
+      ],
+      onRemove: (n, f) => removed.push([n, f]),
+    }),
+  );
+  const rows = m.qa("[data-testid=repo-row]");
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].textContent, /api/);
+  assert.match(rows[0].textContent, /dev · 3 changes/);
+  assert.doesNotMatch(rows[1].textContent, /·|changes/);
+  const btn = rows[1].querySelector("[data-testid=repo-remove]");
+  assert.equal(btn.getAttribute("aria-label"), "Remove lib");
+  await click(btn);
+  assert.deepEqual(removed, [["lib", false]]);
+  await m.unmount();
+});
+
+test("the repository being removed shows a spinner and cannot be removed twice", async () => {
+  const m = await mount(
+    AppCtx,
+    null,
+    section({ repos: [{ name: "api", git_url: "u/api" }], busy: "api" }),
+  );
+  const btn = m.q("[data-testid=repo-remove]");
+  assert.equal(btn.disabled, true);
+  assert.ok(btn.querySelector(".animate-spin"));
+  await m.unmount();
+});
+
+test("a removal refused for uncommitted work asks before discarding it", async () => {
+  const removed = [];
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      repos: [
+        { name: "api", git_url: "u/api" },
+        { name: "lib", git_url: "u/lib" },
+      ],
+      conflict: { name: "lib", message: "lib has 2 changes" },
+      onRemove: (n, f) => removed.push([n, f]),
+    }),
+  );
+  const conflicts = m.qa("[data-testid=repo-conflict]");
+  assert.equal(conflicts.length, 1);
+  assert.match(conflicts[0].textContent, /lib has 2 changes/);
+  await click(conflicts[0].querySelector("button"));
+  assert.deepEqual(removed, [["lib", true]]);
+  await m.unmount();
+});
+
+test("adding a repository: refused when not a URL or taken, emptied once added", async () => {
+  const added = [];
+  let answer = false;
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      repos: [{ name: "api", git_url: "u/api" }],
+      onAdd: async (d) => {
+        added.push(d);
+        return answer;
+      },
+    }),
+  );
+  const input = m.q("[data-testid=repo-add-url]");
+  const add = m.q("[data-testid=repo-add]");
+  assert.equal(add.disabled, true, "nothing typed, nothing to add");
+  assert.equal(add.textContent, "Add");
+
+  await type(input, "nope");
+  await click(add);
+  assert.equal(
+    m.q("[data-testid=repo-add-problem]").textContent,
+    "That is not a repository URL.",
+  );
+  assert.equal(added.length, 0);
+
+  await type(input, "https://x.io/u/api.git");
+  assert.equal(m.q("[data-testid=repo-add-problem]"), null, "typing clears it");
+  await key(input, "Enter");
+  assert.equal(
+    m.q("[data-testid=repo-add-problem]").textContent,
+    "The project already has a repository with that name.",
+  );
+
+  // Another key does nothing.
+  await type(input, "https://x.io/u/web.git");
+  await key(input, "a");
+  assert.equal(added.length, 0);
+
+  // Refused by the caller: the field keeps the URL.
+  await key(input, "Enter");
+  await flush();
+  assert.deepEqual(added, [
+    { name: "web", git_url: "https://x.io/u/web.git" },
+  ]);
+  assert.equal(input.value, "https://x.io/u/web.git");
+
+  // A trailing slash is not part of the name.
+  await type(input, "https://x.io/u/web/");
+  await key(input, "Enter");
+  await flush();
+  assert.deepEqual(added[1], { name: "web", git_url: "https://x.io/u/web/" });
+
+  answer = true;
+  await click(add);
+  await flush();
+  assert.equal(added.length, 3);
+  assert.equal(input.value, "");
+  await m.unmount();
+});
+
+test("while one is being added the field and its button are locked", async () => {
+  const m = await mount(AppCtx, null, section({ busy: "+" }));
+  assert.equal(m.q("[data-testid=repo-add-url]").disabled, true);
+  const add = m.q("[data-testid=repo-add]");
+  assert.equal(add.disabled, true);
+  assert.ok(add.querySelector(".animate-spin"));
+  await m.unmount();
+});
+
+test("in Spanish the block speaks Spanish", async () => {
+  await setLang("es");
+  try {
+    const m = await mount(AppCtx, null, section({}));
+    assert.match(m.root.textContent, /Repositorios/);
+    assert.equal(m.q("[data-testid=repo-add]").textContent, "Agregar");
+    await m.unmount();
+  } finally {
+    await setLang("en");
+  }
+});
