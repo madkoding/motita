@@ -305,6 +305,30 @@ test("a connected host lets the person choose the other repositories from their 
   await n.unmount();
 });
 
+test("several repositories: the folder holds them all, and needs at least one", async () => {
+  const start = store({});
+  const c = await mount(AppCtx, start.value, h(NewProjectModal));
+  await click(c.q("[data-testid=new-project-multi]"));
+  assert.deepEqual(start.log, [["mode", "multi"]]);
+  await c.unmount();
+
+  const empty = store({ newProjectMode: "multi", newProjectTitle: "suite" });
+  const m = await mount(AppCtx, empty.value, h(NewProjectModal));
+  assert.match(m.root.textContent, /Several repositories/);
+  assert.match(m.root.textContent, /Each repository is cloned inside/);
+  assert.equal(buttonByText(m.root, "Create").disabled, true);
+  await m.unmount();
+
+  const ready = store({
+    newProjectMode: "multi",
+    newProjectTitle: "suite",
+    newProjectRepos: [{ name: "api", git_url: "https://x.io/u/api.git" }],
+  });
+  const r = await mount(AppCtx, ready.value, h(NewProjectModal));
+  assert.equal(buttonByText(r.root, "Create").disabled, false);
+  await r.unmount();
+});
+
 const DRAFT = {
   id: "p1",
   title: "Motita",

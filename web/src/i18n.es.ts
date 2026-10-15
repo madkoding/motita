@@ -120,8 +120,13 @@ const first: Record<string, string> = {
   "A new folder to start from scratch":
     "Una carpeta nueva para empezar desde cero",
   "From a Git repository": "Desde un repositorio Git",
-  "Clone one or several repositories from GitHub, GitLab or any URL":
-    "Clona uno o varios repositorios de GitHub, GitLab o de cualquier URL",
+  "Clone a repository from GitHub, GitLab or any URL":
+    "Clona un repositorio de GitHub, GitLab o de cualquier URL",
+  "Several repositories": "Varios repositorios",
+  "A folder that holds all the repositories you clone into it":
+    "Una carpeta que reúne todos los repositorios que clones en ella",
+  "Each repository is cloned inside the project's folder, and every session gets its own copy of each.":
+    "Cada repositorio se clona dentro de la carpeta del proyecto, y cada sesión recibe su propia copia de cada uno.",
   Back: "Atrás",
   Name: "Nombre",
   "Repository URL": "URL del repositorio",

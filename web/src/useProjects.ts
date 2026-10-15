@@ -38,7 +38,7 @@ import {
   PROJECTS_PATH,
 } from "./appConst";
 
-type NewProjectMode = null | "empty" | "git";
+type NewProjectMode = null | "empty" | "git" | "multi";
 
 // draftOf is what the edit dialog starts from: the project's own values.
 function draftOf(p: ProjectInfo): EditProjectDraft {

@@ -26,6 +26,9 @@ function headingOf(mode: string | null): string {
   if (mode === "empty") {
     return t("Empty project");
   }
+  if (mode === "multi") {
+    return t("Several repositories");
+  }
   return t(choose(mode === "git", "From a Git repository", NEW_PROJECT));
 }
 
@@ -80,9 +83,23 @@ function ChooseStart() {
             {t("From a Git repository")}
           </span>
           <span class="block text-xs text-[#7a7a8c] mt-0.5">
-            {t(
-              "Clone one or several repositories from GitHub, GitLab or any URL",
-            )}
+            {t("Clone a repository from GitHub, GitLab or any URL")}
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        class={CHOICE}
+        data-testid="new-project-multi"
+        onClick={() => setNewProjectMode("multi")}
+      >
+        <IconFolder size={22} class="flex-none text-accent" />
+        <span>
+          <span class="block text-sm font-semibold text-[#e8e8ea]">
+            {t("Several repositories")}
+          </span>
+          <span class="block text-xs text-[#7a7a8c] mt-0.5">
+            {t("A folder that holds all the repositories you clone into it")}
           </span>
         </span>
       </button>
@@ -247,6 +264,9 @@ function newMainRepo(
     const url = git.trim();
     return choose(url, { name: repoNameOf(url) || url, source: url }, null);
   }
+  if (mode === "multi") {
+    return null;
+  }
   return {
     name: dir.trim() || folderPlaceholder(mode, git, title),
     source: t("A new folder"),
@@ -277,7 +297,11 @@ function NewProjectRepos() {
       onAdd={p.addNewProjectRepo}
       onChoose={choose(connected, p.openOtherRepoPicker, undefined)}
       hint={t(
-        "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.",
+        choose(
+          p.newProjectMode === "multi",
+          "Each repository is cloned inside the project's folder, and every session gets its own copy of each.",
+          "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.",
+        ),
       )}
     />
   );
@@ -361,7 +385,8 @@ function CreateButtons() {
   const missing = choose(
     git,
     !p.newProjectGit.trim(),
-    !p.newProjectTitle.trim(),
+    !p.newProjectTitle.trim() ||
+      (p.newProjectMode === "multi" && p.newProjectRepos.length === 0),
   );
   return (
     <>
@@ -410,7 +435,7 @@ function ProjectForm() {
         <div>
           <label class={LABEL}>
             {t("Name")}
-            {p.newProjectMode === "empty" && (
+            {p.newProjectMode !== "git" && (
               <>
                 {" "}
                 <span class="text-danger">*</span>
@@ -428,7 +453,7 @@ function ProjectForm() {
               repoNameOf(p.newProjectGit) || t("The repository name"),
               t("My project"),
             )}
-            autoFocus={p.newProjectMode === "empty"}
+            autoFocus={!git}
           />
         </div>
         <MainBranchField />
