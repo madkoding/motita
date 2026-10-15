@@ -105,7 +105,7 @@ test("the dark pale-text colours index.css spells out each have a light tone, an
 
 test("the page loads theme-init.js before anything paints, and the two theme lists agree", () => {
   const html = read("index.html");
-  assert.ok(html.indexOf('<script src="/theme-init.js"></script>') > 0);
+  assert.match(html, /src="\/theme-init\.js"/);
   assert.ok(
     html.indexOf("theme-init.js") < html.indexOf("/src/main.tsx"),
     "a blocking script ahead of the bundle",

@@ -49,11 +49,11 @@ function rule(selector) {
 }
 
 function prop(body, name) {
-  const m = body.match(
-    new RegExp(
-      String.raw`(?:^|[;\s])${name}:\s*(#[0-9a-fA-F]{6}|var\(--[\w-]+\))\s*;`,
-    ),
-  );
+  const decl = body
+    .split(/[;\n]/)
+    .map((d) => d.trim())
+    .find((d) => d.startsWith(`${name}:`));
+  const m = /:\s*(#[0-9a-fA-F]{6}|var\(--[\w-]+\))$/.exec(decl ?? "");
   assert.ok(m, `${name} is a solid #rrggbb colour or a token`);
   const token = /^var\((--[\w-]+)\)$/.exec(m[1]);
   if (!token) {
