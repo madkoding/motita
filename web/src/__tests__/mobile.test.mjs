@@ -224,6 +224,14 @@ test("touch targets are at least 44px, only for a finger", () => {
   assert.doesNotMatch(outsideMedia(COARSE), /min-height: 44px;/);
 });
 
+test("on a phone only the open drawer keeps its tab, so the others do not cover its text", () => {
+  assert.match(
+    mediaBlocks(PHONE_MEDIA),
+    /body:has\(\.term-drawer\.is-open\) \.term-drawer:not\(\.is-open\) \.term-tab \{\s*visibility: hidden;/,
+  );
+  assert.doesNotMatch(outsideMedia(PHONE_MEDIA), /:has\(\.term-drawer\.is-open\)/);
+});
+
 test("fields are 16px on a touch screen, so iOS does not zoom into them", () => {
   assert.match(
     mediaBlocks(COARSE),

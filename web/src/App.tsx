@@ -46,6 +46,7 @@ import {
   ActivityLine,
   ChangesCard,
   RunArtifacts,
+  SubagentsStrip,
   TurnTop,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
@@ -389,6 +390,7 @@ function Conversation() {
           );
         })}
       </TurnCtx.Provider>
+      <SubagentsStrip />
     </div>
   );
 }

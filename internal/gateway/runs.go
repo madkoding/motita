@@ -597,6 +597,8 @@ func (r *run) progress() func(string, ...any) {
 			r.flash(EventAgents, agentsEvent{Agents: agents})
 			return
 		}
+		// A command or a thought of a background agent is a step like any other: it is kept with
+		// the turn (onLine files it as the step it is) and sent as the line it arrived as.
 		if r.onLine != nil {
 			r.onLine(text)
 		}

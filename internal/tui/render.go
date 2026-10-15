@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -585,7 +586,16 @@ func (t *TUI) agentMessageLines(m Message, inner int) []string {
 		}
 		return lines
 	}
-	return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
+	return append([]string{t.cell(head, inner)}, t.railLines(plainInline(m.Text), inner, body, colMuted)...)
+}
+
+// inlineMarks are the Markdown marks a model puts around a word: **bold** and `code`. The terminal
+// cannot draw them and showed them as they are, asterisks and all.
+var inlineMarks = regexp.MustCompile("\\*\\*([^*\\n]+)\\*\\*|`([^`\\n]+)`")
+
+// plainInline is text without the marks around words. The words are kept.
+func plainInline(s string) string {
+	return inlineMarks.ReplaceAllString(s, "$1$2")
 }
 
 // systemMessageLines renders a message of the interface itself, muted.

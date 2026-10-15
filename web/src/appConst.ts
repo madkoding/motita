@@ -96,6 +96,10 @@ export const COPIED_MS = 1500;
 // plain line instead of an `agents` event (agent.AgentsPrefix).
 export const AGENTS_PREFIX = "agents: ";
 
+// SUB_PREFIX marks a progress line that is one command a background agent ran or one thought it
+// finished (agent.SubPrefix in Go).
+export const SUB_PREFIX = "sub: ";
+
 export const STORAGE_KEY = "motita:last-session";
 export const SIDEBAR_KEY = "motita:sidebar-open";
 export const PROJECT_COLLAPSE_KEY = "motita:collapsed-projects";

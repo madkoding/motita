@@ -74,17 +74,31 @@ func (rr *roundRun) kindAction(i int, kind string, action Command) bool {
 // agentAction is a background agent started or waited for (see subagents.go).
 func (rr *roundRun) agentAction(i int, kind string, action Command) bool {
 	a := rr.a
-	handled, out, refusal := a.runAgentAction(rr.ctx, kind, action)
-	if !handled {
+	if kind != "spawn_agent" && kind != "wait_agents" {
 		return false
 	}
-	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
+	// Announced BEFORE it runs: a wait lasts as long as the agents work, and the terminal must show
+	// what the run is waiting for while it waits, not after.
 	a.report("running: %s %s", kind, firstLineOf(action.Command))
+	_, out, refusal := a.runAgentAction(rr.ctx, kind, action)
+	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
+	rr.reportResult(out, refusal)
 	a.log.Info(rr.prefix+"agent action", "kind", kind, "command", truncate(firstLineOf(action.Command), 120))
 	if refusal != nil {
 		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
 	}
 	return true
+}
+
+// reportResult closes the command an action announced with "running:", the way a shell command's
+// output does. Without it the terminal showed the action as still running for ever, and the next
+// command's result landed on the wrong line.
+func (rr *roundRun) reportResult(out string, refusal error) {
+	exit := 0
+	if refusal != nil {
+		exit = 1
+	}
+	rr.a.report("output (exit %d):\n%s", exit, truncateMiddle(strings.TrimSpace(out), terminalOutputChars))
 }
 
 // fileAction is a file written by the program itself (see fileactions.go). It is a write, so
@@ -97,6 +111,7 @@ func (rr *roundRun) fileAction(i int, kind string, action Command) bool {
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
 	a.report("running: %s %s", kind, firstLineOf(action.Command))
+	rr.reportResult(out, refusal)
 	a.log.Info(rr.prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
 	if refusal != nil {
 		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)

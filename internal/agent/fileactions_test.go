@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,5 +362,42 @@ func TestReadPathResolvesAgainstTheWorkspace(t *testing.T) {
 	os.Remove(gone)
 	if _, err := e.agent.ReadPath("x"); err == nil {
 		t.Error("a workspace with no absolute path must be an error")
+	}
+}
+
+// TestAnActionThatIsNotAShellCommandStillClosesItsLine: the terminal opens a command on "running:"
+// and closes it on the output line that follows. A write or an edit used to open one and never
+// close it, so it stayed "running" for ever and the next command's result landed on the wrong line.
+func TestAnActionThatIsNotAShellCommandStillClosesItsLine(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		if round == 1 {
+			return mustJSON(map[string]any{"reasoning": "w", "done": true, "final_action": map[string]string{"command": ""},
+				"actions": []map[string]string{
+					{"kind": "write_file", "description": "w", "command": "f.txt\nv1\n"},
+					{"kind": "write_file", "description": "w", "command": "../escape.txt\nx"},
+				}})
+		}
+		return step(true)
+	}}
+	srv := httptest.NewServer(s.handler(t))
+	t.Cleanup(srv.Close)
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "sh", Args: []string{"-c", "true"},
+		Timeout: 10 * time.Second, ExpectExit: 0}, nil)
+	var lines []string
+	e.agent.Progress = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	if err := e.agent.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var running, closed []string
+	for _, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "running: write_file"):
+			running = append(running, l)
+		case strings.HasPrefix(l, "output (exit 0):\n[wrote f.txt"), strings.HasPrefix(l, "output (exit 1):\n[refused"):
+			closed = append(closed, l)
+		}
+	}
+	if len(running) != 2 || len(closed) != 2 {
+		t.Fatalf("running=%q closed=%q", running, closed)
 	}
 }
