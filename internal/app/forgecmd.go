@@ -66,7 +66,7 @@ or there is no CI.
 var (
 	// forgeGit runs git in dir and returns its trimmed output.
 	forgeGit = func(ctx context.Context, dir string, args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitx.Hardening()...), args...)...)
+		cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...), args...)...)
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
 	}

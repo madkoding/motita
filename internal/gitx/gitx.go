@@ -92,25 +92,164 @@ var removeTimeoutFor = removeTimeout
 // written: a core.fsmonitor command runs on `status`, and a hook runs on `commit`, `merge` and
 // `checkout`. A -c on the command line wins over every config file, so repository config
 // cannot bring code into a git this program starts.
+//
+// Hooks and fsmonitor are only the two config keys with a FIXED name. A repository's config can
+// also name a command through a key whose name it chooses - a filter driver (filter.<x>.clean),
+// a diff driver (diff.<x>.textconv), a merge driver (merge.<x>.driver) - and point a
+// .gitattributes entry at it, so `git add` or `git diff` runs that command. A static -c list
+// cannot neutralize a key whose name is not known in advance; neutralizeLocalConfig reads the
+// repository's local config and emits a -c override for every such key it finds. See gitArgs.
 var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
 
-// Hardening is a copy of the -c options every git of this package runs with, for the few
-// callers outside it that start git themselves: put them before the subcommand.
+// Hardening is a copy of the fixed -c options every git of this package runs with, for the few
+// callers outside it that start git themselves: put them before the subcommand. It carries only
+// the hooks and fsmonitor neutralization; a caller that runs git in a repository an agent may
+// have written must use HardeningFor so the repository's own filter, diff and merge drivers are
+// neutralized too.
 func Hardening() []string {
 	return append([]string(nil), hardening...)
 }
 
-// gitArgs is the argument list of one git run in dir: the hardening, then the command.
-func gitArgs(dir string, args ...string) []string {
+// HardeningFor is Hardening plus the -c overrides that neutralize the command-running config
+// keys found in dir's local config. A caller outside this package that starts git itself in a
+// repository an agent can write (a workspace checkout) passes these before the subcommand, so a
+// planted filter, diff or merge driver runs no command. dir that is not a repository, or a git
+// that cannot be run, contributes no overrides: the fixed hardening is still returned.
+func HardeningFor(ctx context.Context, dir string) []string {
+	return append(Hardening(), neutralizeLocalConfig(ctx, dir)...)
+}
+
+// gitArgs is the argument list of one git run in dir: the fixed hardening, the overrides that
+// neutralize dir's command-running local config, then the command.
+func gitArgs(ctx context.Context, dir string, args ...string) []string {
 	full := append([]string{"-C", dir}, hardening...)
+	full = append(full, neutralizeLocalConfig(ctx, dir)...)
 	return append(full, args...)
+}
+
+// neutralizeLocalConfig reads dir's LOCAL config and returns the -c overrides that disarm every
+// variable whose value git would run as a command. It is local-only on purpose: the system and
+// global scopes are the machine owner's (git-lfs installs filter.lfs.* in the system scope, and
+// that filter must keep working), while the local scope - .git/config - is exactly what an agent
+// or a cloned project can rewrite. A repository that sets no such key gets no override, and a dir
+// that is not a repository, or a machine with no git, reports nothing: the caller still runs with
+// the fixed hardening.
+//
+// Reading the config is itself a git run, and it is made WITHOUT these overrides (reading config
+// does not run a driver), so there is no recursion.
+func neutralizeLocalConfig(ctx context.Context, dir string) []string {
+	var over []string
+	for _, name := range localConfigNames(ctx, dir) {
+		over = append(over, neutralize(name)...)
+	}
+	return over
+}
+
+// localConfigNames lists the names of dir's local config variables, in the order git reports
+// them. A failure (not a repository, no local config, no git) is reported as no names: there is
+// then nothing to neutralize.
+func localConfigNames(ctx context.Context, dir string) []string {
+	c, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	full := append([]string{"-C", dir}, hardening...)
+	full = append(full, "config", "--local", "--list", "--name-only", "-z")
+	out, err := execCommand(c, "git", full...)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, n := range strings.Split(string(out), "\x00") {
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+// dangerousConfigKeys are the fixed-name config variables whose value git runs as a command, or
+// that make git run code on a caller's behalf. An empty value on the command line unsets each,
+// which is all it takes to disarm them (core.fsmonitor and core.hooksPath are already in the
+// fixed hardening, and are left to it, but a repository that re-sets them is overridden here too
+// rather than trusted).
+var dangerousConfigKeys = map[string]bool{
+	"diff.external":         true,
+	"core.sshcommand":       true,
+	"core.editor":           true,
+	"core.pager":            true,
+	"core.askpass":          true,
+	"core.fsmonitor":        true,
+	"core.hookspath":        true,
+	"sequence.editor":       true,
+	"commit.gpgsign":        true,
+	"tag.gpgsign":           true,
+	"sendemail.sendmailcmd": true,
+}
+
+// neutralize returns the -c overrides that disarm one config variable, or nothing when the
+// variable runs no command. git lower-cases a config section and variable but keeps the
+// subsection (the quoted middle of filter."name".clean) as written, so the name is matched
+// case-insensitively on its ends and the override repeats it verbatim.
+func neutralize(name string) []string {
+	lower := strings.ToLower(name)
+	first := lower
+	if i := strings.IndexByte(lower, '.'); i >= 0 {
+		first = lower[:i]
+	}
+	last := lower
+	if i := strings.LastIndexByte(lower, '.'); i >= 0 {
+		last = lower[i+1:]
+	}
+	switch {
+	case first == "filter" && (last == "clean" || last == "smudge" || last == "process"):
+		// A required filter whose command is emptied would make `git add` fail closed rather
+		// than run it; dropping the requirement keeps the snapshot working while the command
+		// is gone.
+		return []string{"-c", name + "=", "-c", "filter." + subsectionOf(name) + ".required=false"}
+	case first == "diff" && (last == "textconv" || last == "command"):
+		return []string{"-c", name + "="}
+	case first == "merge" && last == "driver":
+		return []string{"-c", name + "="}
+	case first == "trailer" && (last == "command" || last == "cmd"):
+		return []string{"-c", name + "="}
+	case first == "gpg" && (last == "program" || last == "defaultkeycommand"):
+		return []string{"-c", name + "="}
+	case first == "credential" && last == "helper":
+		return []string{"-c", name + "="}
+	case first == "remote" && (last == "uploadpack" || last == "receivepack"):
+		return []string{"-c", name + "="}
+	case first == "uploadpack" || first == "receivepack":
+		return []string{"-c", name + "="}
+	case lower == "protocol.ext.allow":
+		// An empty value is not a valid policy; "never" is the one that forbids the transport
+		// that runs a command.
+		return []string{"-c", name + "=never"}
+	case lower == "core.gitproxy":
+		// core.gitProxy is a list in which the first match wins, so a later value cannot
+		// replace the repository's. The git:// transport that would run it is forbidden instead.
+		return []string{"-c", "protocol.git.allow=never"}
+	case dangerousConfigKeys[lower]:
+		return []string{"-c", name + "="}
+	}
+	return nil
+}
+
+// subsectionOf returns the subsection of a three-part config name - the "x" of filter.x.clean,
+// which may itself contain dots (filter."a.b".clean). It is read from the original name, not the
+// lower-cased one, because a subsection keeps its case.
+func subsectionOf(name string) string {
+	first := strings.IndexByte(name, '.')
+	last := strings.LastIndexByte(name, '.')
+	if first < 0 || last <= first {
+		return ""
+	}
+	return name[first+1 : last]
 }
 
 // executeWithin runs git once in dir, killed after limit.
 func executeWithin(ctx context.Context, limit time.Duration, dir string, args ...string) (string, error) {
 	c, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	out, err := execCommand(c, "git", gitArgs(dir, args...)...)
+	out, err := execCommand(c, "git", gitArgs(ctx, dir, args...)...)
 	if err != nil && errors.Is(err, exec.ErrNotFound) {
 		return "", ErrNoGit
 	}

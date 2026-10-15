@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -201,7 +202,7 @@ func (ps *projectStore) delete(id string) error {
 func sameOrigin(dir, gitURL string, env []string) bool {
 	// The folder is the working directory, not a "-C" argument: nothing that came from a
 	// request ends up among git's arguments.
-	cmd := exec.Command("git", append(gitx.Hardening(), "remote", "get-url", "origin")...)
+	cmd := exec.Command("git", append(gitx.HardeningFor(context.Background(), dir), "remote", "get-url", "origin")...)
 	cmd.Dir = dir
 	cmd.Env = env
 	out, err := cmd.Output()
