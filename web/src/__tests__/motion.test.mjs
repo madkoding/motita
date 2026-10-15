@@ -25,6 +25,7 @@ globalThis.window = dom.window;
 const dir = mkdtempSync(join(tmpdir(), "motita-motion-test-"));
 const out = join(dir, "motion.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "motion.ts")],
   bundle: true,
   format: "esm",
@@ -123,6 +124,7 @@ test("a leaving copy is inert, has no ids and does not count as a dialog", async
 // The stream reveal, against a stand-in for the CSS Custom Highlight API (jsdom has none).
 const revealOut = join(mkdtempSync(join(tmpdir(), "motita-reveal-test-")), "reveal.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "streamReveal.ts")],
   bundle: true,
   format: "esm",

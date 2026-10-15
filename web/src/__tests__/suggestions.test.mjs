@@ -35,6 +35,7 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
 const out = mkdtempSync(join(here, ".sg-"));
 await build({
+  sourcemap: "inline",
   stdin: {
     contents: `export { ReportCard } from "./Report";
 export { transcriptMessages } from "./transcript";

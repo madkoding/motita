@@ -37,6 +37,7 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
 const out = mkdtempSync(join(here, ".pv-"));
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "Settings.tsx")],
   outfile: join(out, "pv.mjs"),
   bundle: true,

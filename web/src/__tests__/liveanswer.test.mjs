@@ -24,6 +24,7 @@ globalThis.localStorage = dom.window.localStorage;
 const dir = mkdtempSync(join(tmpdir(), "motita-liveanswer-test-"));
 const out = join(dir, "events.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "streamEvents.ts")],
   bundle: true,
   format: "esm",

@@ -95,6 +95,7 @@ test("a project header's click target is drawn above its title and under its act
 const dir = mkdtempSync(join(tmpdir(), "motita-sessionrow-test-"));
 const out = join(dir, "format.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "appFormat.ts")],
   bundle: true,
   format: "esm",

@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test src/__tests__/*.test.mjs",
+    "test:coverage": "mkdir -p coverage && node --test --enable-source-maps --experimental-test-coverage --test-coverage-exclude='**/node_modules/**' --test-coverage-exclude='src/__tests__/**' --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=dot --test-reporter-destination=stdout src/__tests__/*.test.mjs",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

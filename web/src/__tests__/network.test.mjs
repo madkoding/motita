@@ -36,6 +36,7 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
 const out = mkdtempSync(join(here, ".nw-"));
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "Settings.tsx")],
   outfile: join(out, "nw.mjs"),
   bundle: true,

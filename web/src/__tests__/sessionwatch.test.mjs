@@ -12,6 +12,7 @@ const src = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = mkdtempSync(join(tmpdir(), "motita-watch-test-"));
 const out = join(dir, "watch.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(src, "sessionWatch.ts")],
   bundle: true,
   format: "esm",

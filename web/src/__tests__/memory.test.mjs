@@ -26,6 +26,7 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 const dir = mkdtempSync(join(tmpdir(), "motita-memory-test-"));
 const out = join(dir, "scroll.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "useChatScroll.ts")],
   bundle: true,
   format: "esm",

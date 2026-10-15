@@ -31,6 +31,7 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
 const out = mkdtempSync(join(here, ".lb-"));
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "Lightbox.tsx")],
   outfile: join(out, "lb.mjs"),
   bundle: true,

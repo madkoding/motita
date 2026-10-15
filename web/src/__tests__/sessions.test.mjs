@@ -69,6 +69,7 @@ export function mount(api, onStore) {
 const dir = mkdtempSync(join(tmpdir(), "motita-sessions-test-"));
 const out = join(dir, "harness.mjs");
 await build({
+  sourcemap: "inline",
   stdin: {
     contents: harness,
     resolveDir: src,

@@ -44,6 +44,7 @@ const dir = mkdtempSync(join(src, "..", "node_modules", ".rendercost-"));
 async function load(entry) {
   const out = join(dir, entry.replace(/\W/g, "_") + ".mjs");
   await build({
+    sourcemap: "inline",
     entryPoints: [join(src, entry)],
     bundle: true, format: "esm", platform: "node", outfile: out, logLevel: "silent",
     jsx: "automatic", jsxImportSource: "preact",

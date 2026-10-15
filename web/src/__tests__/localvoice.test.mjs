@@ -23,6 +23,7 @@ const core = await import("../localVoiceCore.ts");
 
 const out = mkdtempSync(join(here, ".lv-"));
 await build({
+  sourcemap: "inline",
   stdin: {
     contents:
       'export * from "./localVoice";\nexport { LocalVoices, DOWNLOAD_POLL_MS, FILTERS_KEY, loadFilters } from "./LocalVoiceSettings";\nexport { SpeechSettings } from "./SpeechSettings";\n',

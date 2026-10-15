@@ -81,6 +81,7 @@ globalThis.SpeechSynthesisUtterance = Utterance;
 
 const out = mkdtempSync(join(here, ".sp-"));
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "useSpeech.ts")],
   outfile: join(out, "sp.mjs"),
   bundle: true,

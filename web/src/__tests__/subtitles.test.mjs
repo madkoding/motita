@@ -26,6 +26,7 @@ for (const k of ["document", "window", "Event", "CustomEvent", "HTMLElement", "N
 
 const out = mkdtempSync(join(here, ".sub-"));
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "Subtitles.tsx")],
   outfile: join(out, "sub.mjs"),
   bundle: true,

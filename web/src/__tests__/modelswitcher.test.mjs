@@ -42,6 +42,7 @@ writeFileSync(
 export { AppCtx } from ${JSON.stringify(join(here, "..", "appStore.ts"))};`,
 );
 await build({
+  sourcemap: "inline",
   entryPoints: [entry],
   outfile: join(out, "ms.mjs"),
   bundle: true,

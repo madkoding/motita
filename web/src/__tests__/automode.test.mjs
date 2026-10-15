@@ -13,6 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "motita-automode-test-"));
 const out = join(dir, "appParse.mjs");
 await build({
+  sourcemap: "inline",
   entryPoints: [join(here, "..", "appParse.ts")],
   bundle: true,
   format: "esm",

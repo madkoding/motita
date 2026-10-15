@@ -73,6 +73,7 @@ globalThis.AudioContext = class {
 
 const out = mkdtempSync(join(here, ".vc-"));
 await build({
+  sourcemap: "inline",
   stdin: {
     contents:
       'export { useVoice } from "./useVoice";\nexport { useVoiceConversation } from "./useVoiceConversation";\n',

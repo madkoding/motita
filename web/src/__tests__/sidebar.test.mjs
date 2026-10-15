@@ -53,6 +53,7 @@ writeFileSync(
   ].join("\n"),
 );
 await build({
+  sourcemap: "inline",
   entryPoints: [entry],
   outfile: join(out, "sb.mjs"),
   bundle: true,
