@@ -1,6 +1,6 @@
 // A run: sending a task, reading the stream of what the agent does, following it again when the
 // connection drops, and the messages sent to a run that is already in flight.
-import { useCallback, useEffect } from "preact/hooks";
+import { useCallback, useEffect, useRef } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { parseFrame } from "./appParse";
@@ -58,15 +58,16 @@ async function refusalOf(
 // The session on screen is read once the answer is in, as it always was.
 async function turnRefused(
   res: Response,
-  sessions: SessionList["sessions"],
+  sessionsRef: { current: SessionList["sessions"] },
   sessionRef: { current: string },
   setToast: SetToast,
   setState: SetStatus,
   finish: () => void,
 ) {
   const { msg, merged } = await refusalOf(res);
-  // Read from the list this run was started with, as it always was.
-  const s = sessions.find((x) => x.id === sessionRef.current);
+  // Read from the list as it is now: submit is made only once, so a list captured when it was
+  // made would be the empty one of the first render, and the session would never be found.
+  const s = sessionsRef.current.find((x) => x.id === sessionRef.current);
   if (merged && s?.continuable) {
     setToast({
       message: t("This session is already integrated"),
@@ -275,6 +276,9 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     linkRef,
   } = rs;
   const { setRunningState, fetchSessions } = lists;
+  // sessionsRef follows the session list on every render, for the callbacks made only once.
+  const sessionsRef = useRef(lists.sessions);
+  sessionsRef.current = lists.sessions;
   const {
     loadCheckpoints,
     loadAgents,
@@ -383,7 +387,7 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
   const detach = useDetach(rs, lists, conv);
 
   const refused = (res: Response) =>
-    turnRefused(res, lists.sessions, sessionRef, setToast, setState, finish);
+    turnRefused(res, sessionsRef, sessionRef, setToast, setState, finish);
 
   // submit sends a message in auto mode and reads the SSE response: the gateway picks plan or task
   // from the wording (or a leading /plan or /task) and says which in the first progress line.
