@@ -19,6 +19,8 @@ import {
 import { choose } from "./choose";
 import type { Api } from "./prApi";
 import type { FetchClip } from "./speech";
+import { WHISPER_FILES, isWhisper } from "./localListenCore";
+import { forgetListener } from "./localListen";
 
 // LocalModel is one voice of the gateway's catalog.
 export interface LocalModel {
@@ -99,7 +101,8 @@ export async function installVoice(api: Api, id: string): Promise<void> {
   }
 }
 
-// deleteVoice removes a voice from the gateway and from this page's copy.
+// deleteVoice removes a voice (or a model speech input listens with) from the gateway and from this
+// page's copy.
 export async function deleteVoice(api: Api, id: string): Promise<void> {
   const res = await api(MODELS_PATH + "/" + encodeURIComponent(id), { method: "DELETE" });
   if (!res.ok) {
@@ -107,11 +110,20 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
   }
   post({ kind: "forget", id });
   setLoad(id, undefined);
+  if (isWhisper(id)) {
+    forgetListener(id);
+  }
   if (typeof caches === "undefined") {
     return;
   }
   const cache = await caches.open(VOICE_CACHE);
-  const gone = ["model.onnx", "model.json", "voice.bin", "voice.json"].map((n) => fileURL(id, n));
+  // A model to listen with keeps all its files apart, its WebGPU runtime too.
+  const own = choose(
+    isWhisper(id),
+    [...Object.values(WHISPER_FILES), ORT_GPU_WASM],
+    ["model.onnx", "model.json", "voice.bin", "voice.json"],
+  );
+  const gone = own.map((n) => fileURL(id, n));
   // An engine's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
   const engines = [
     {

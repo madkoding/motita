@@ -248,3 +248,20 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// handleWake looks for a wake phrase at the start of a text the page transcribed itself (with a
+// model it runs, see voicemodels.go), the way POST /v1/voice/transcribe?wake=1 does with its own:
+// the phrases and how they match stay here, whoever listened. It needs no transcription service.
+func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	out := transcription{Text: body.Text}
+	if wake, ok := voice.Match(body.Text, s.voiceNow().phrases); ok {
+		out.Wake = &wake
+	}
+	writeJSON(w, http.StatusOK, out)
+}

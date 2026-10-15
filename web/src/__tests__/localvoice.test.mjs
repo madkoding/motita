@@ -299,6 +299,16 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
   };
   await lv.deleteVoice(api, "a");
   assert.deepEqual(deleted, ["/v1/voice/models/a/model.onnx", "/v1/voice/models/a/model.json", "/v1/voice/models/a/voice.bin", "/v1/voice/models/a/voice.json"]);
+  // A model to listen with takes its own files, its WebGPU runtime among them.
+  const whisper = apiOf({ "DELETE /v1/voice/models/whisper-base-gpu": () => new Response(null, { status: HTTP_NO_CONTENT }) });
+  deleted.length = 0;
+  await lv.deleteVoice(whisper.api, "whisper-base-gpu");
+  assert.deepEqual(
+    deleted,
+    ["tokenizer.json", "generation_config.json", "encoder.onnx", "decoder.onnx", "ort-wasm-simd-threaded.asyncify.wasm"].map(
+      (n) => "/v1/voice/models/whisper-base-gpu/" + n,
+    ),
+  );
   // An engine's model goes from the page's copy with its last voice, and stays while one is left.
   const k = (id, installed) => ({ id, engine: ENGINE_SUPERTONIC, installed });
   const kept = apiOf({

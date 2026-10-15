@@ -21,6 +21,9 @@ test("the switches: the microphone on and hands-free off by default, and both ar
     mic: true,
     listen: false,
     deviceId: "",
+    engine: "",
+    listener: "",
+    language: "",
   });
   let heard = 0;
   globalThis.window = dom.window;
@@ -28,30 +31,62 @@ test("the switches: the microphone on and hands-free off by default, and both ar
   dom.window.addEventListener(m.VOICE_PREFS_EVENT, () => {
     heard += 1;
   });
-  m.saveVoicePrefs({ mic: false, listen: true, deviceId: "usb-1" });
-  assert.deepEqual(m.loadVoicePrefs(), {
+  const kept = {
     mic: false,
     listen: true,
     deviceId: "usb-1",
-  });
+    engine: "local",
+    listener: "whisper-base",
+    language: "es",
+  };
+  m.saveVoicePrefs(kept);
+  assert.deepEqual(m.loadVoicePrefs(), kept);
   assert.equal(heard, 1, "the page is told the switches changed");
+  m.saveVoicePrefs({ ...kept, engine: "service" });
+  assert.equal(m.loadVoicePrefs().engine, "service");
+  // What another version (or a hand) stored, of the wrong kind, reads as nothing chosen.
+  localStorage.setItem(
+    m.VOICE_KEY,
+    JSON.stringify({ engine: "cloud", listener: 3, language: null, deviceId: 7 }),
+  );
+  const odd = m.loadVoicePrefs();
+  assert.deepEqual(
+    [odd.engine, odd.listener, odd.language, odd.deviceId],
+    ["", "", "", ""],
+  );
   localStorage.setItem(m.VOICE_KEY, "{not json");
   assert.deepEqual(m.loadVoicePrefs(), m.DEFAULT_VOICE_PREFS);
 });
 
 test("why speech input can or cannot be used, in the order a person can fix it", () => {
   const on = { enabled: true, wake_phrases: ["motita"], max_audio_bytes: 1 };
-  assert.equal(m.voiceState(false, true, on), "insecure");
-  assert.equal(m.voiceState(true, false, on), "unsupported");
-  assert.equal(m.voiceState(true, true, null), "off");
-  assert.equal(m.voiceState(true, true, { ...on, enabled: false }), "off");
-  assert.equal(m.voiceState(true, true, on), "ready");
+  const service = { engine: "service", listener: "", runs: true };
+  const local = { engine: "local", listener: "whisper-base", runs: true };
+  assert.equal(m.voiceState(false, true, on, local), "insecure");
+  assert.equal(m.voiceState(true, false, on, local), "unsupported");
+  assert.equal(m.voiceState(true, true, null, service), "off");
+  assert.equal(m.voiceState(true, true, { ...on, enabled: false }, service), "off");
+  assert.equal(m.voiceState(true, true, on, service), "ready");
+  // Listening in the browser needs no service, but a model, and a browser that runs one.
+  assert.equal(m.voiceState(true, true, null, local), "ready");
+  assert.equal(m.voiceState(true, true, on, { ...local, listener: "" }), "no-model");
+  assert.equal(m.voiceState(true, true, on, { ...local, runs: false }), "unsupported");
   assert.equal(m.listenState("ready", on), "ready");
   assert.equal(
     m.listenState("ready", { ...on, wake_phrases: [] }),
     "no-phrases",
   );
   assert.equal(m.listenState("insecure", on), "insecure");
+});
+
+test("who listens: the one chosen, else the browser's model, else a service that is on", () => {
+  const prefs = { ...m.DEFAULT_VOICE_PREFS };
+  const on = { enabled: true, wake_phrases: [], max_audio_bytes: 1 };
+  assert.equal(m.listenEngine(prefs, null), "local", "nothing set up: the model is offered");
+  assert.equal(m.listenEngine(prefs, on), "service", "a service already on keeps working");
+  assert.equal(m.listenEngine({ ...prefs, listener: "whisper-base" }, on), "local");
+  assert.equal(m.listenEngine({ ...prefs, engine: "service" }, null), "service");
+  assert.equal(m.listenEngine({ ...prefs, engine: "local" }, on), "local");
 });
 
 test("the browser support is read from the page", () => {
@@ -186,6 +221,17 @@ test("the requests: the info, the recording as its own type, and the gateway's r
     m.transcribe(reply(HTTP_SERVER_ERROR, "<html>"), audio, false),
     /HTTP 500/,
   );
+
+  // A text heard in the browser is only asked about its wake phrase.
+  const woke = await m.wakeOf(
+    reply(HTTP_OK, { text: "motita hi", wake: { phrase: "motita", rest: "hi" } }),
+    "motita hi",
+  );
+  assert.equal(woke.wake.rest, "hi");
+  assert.equal(calls.at(-1).path, "/v1/voice/wake");
+  assert.equal(calls.at(-1).init.method, "POST");
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { text: "motita hi" });
+  await assert.rejects(m.wakeOf(reply(HTTP_SERVER_ERROR, { error: "down" }), "x"), /down/);
 });
 
 test("the microphone of this device: asked for by id, listed by name, numbered while hidden", () => {

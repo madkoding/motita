@@ -4244,6 +4244,26 @@ html[data-density="compact"] .settings-warn {
 .settings-mic-permission + .settings-voice-lock > :first-child {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+/* How far a model to listen with is downloaded, or loaded into memory. */
+.settings-progress {
+  appearance: none;
+  width: 5rem;
+  height: 0.375rem;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.settings-progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+.settings-progress::-webkit-progress-value {
+  background: var(--color-accent);
+  transition: width var(--motion-fast, 120ms) linear;
+}
+.settings-progress::-moz-progress-bar {
+  background: var(--color-accent);
+}
 
 /* ─── Text that arrives ─────────────────────────────────────────────
  * The activity line is typed in by the terminal's typewriter (Typed in Term.tsx); its cursor

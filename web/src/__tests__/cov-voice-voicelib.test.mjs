@@ -11,9 +11,9 @@ for (const [how, m] of copies) {
 
 test(how + ": the switches are read, kept, and fall back when the storage cannot be used", () => {
   localStorage.removeItem(m.VOICE_KEY);
-  assert.deepEqual(m.loadVoicePrefs(), { mic: true, listen: false, deviceId: "" });
+  assert.deepEqual(m.loadVoicePrefs(), { mic: true, listen: false, deviceId: "", engine: "", listener: "", language: "" });
   localStorage.setItem(m.VOICE_KEY, JSON.stringify({ mic: false, listen: true, deviceId: 7 }));
-  assert.deepEqual(m.loadVoicePrefs(), { mic: false, listen: true, deviceId: "" });
+  assert.deepEqual(m.loadVoicePrefs(), { mic: false, listen: true, deviceId: "", engine: "", listener: "", language: "" });
   let told = 0;
   const onPrefs = () => told++;
   window.addEventListener(m.VOICE_PREFS_EVENT, onPrefs);
@@ -48,10 +48,11 @@ test(how + ": the switches are read, kept, and fall back when the storage cannot
 
 test(how + ": the state says what to fix first, and hands-free needs a phrase", () => {
   const on = { enabled: true, wake_phrases: ["hey"], max_audio_bytes: 1 };
-  assert.equal(m.voiceState(false, true, on), "insecure");
-  assert.equal(m.voiceState(true, false, on), "unsupported");
-  assert.equal(m.voiceState(true, true, null), "off");
-  assert.equal(m.voiceState(true, true, on), "ready");
+  const service = { engine: "service", listener: "", runs: true };
+  assert.equal(m.voiceState(false, true, on, service), "insecure");
+  assert.equal(m.voiceState(true, false, on, service), "unsupported");
+  assert.equal(m.voiceState(true, true, null, service), "off");
+  assert.equal(m.voiceState(true, true, on, service), "ready");
   assert.equal(m.listenState("off", on), "off");
   assert.equal(m.listenState("ready", null), "no-phrases");
   assert.equal(m.listenState("ready", { ...on, wake_phrases: [] }), "no-phrases");

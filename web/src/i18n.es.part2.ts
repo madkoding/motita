@@ -457,6 +457,30 @@ const more: Record<string, string> = {
   "Shows on screen what Motita says aloud, sentence by sentence, like a film's subtitles.":
     "Muestra en pantalla lo que Motita dice en voz alta, frase por frase, como los subtítulos de una película.",
   "Subtitle size": "Tamaño de los subtítulos",
+  "Download a model to listen with above first.":
+    "Primero descarga un modelo para escuchar, más arriba.",
+  "Who listens": "Quién escucha",
+  "A model downloaded once, run in this browser.":
+    "Un modelo que se descarga una vez y corre en este navegador.",
+  "A transcription service, through the gateway.":
+    "Un servicio de transcripción, a través del gateway.",
+  "This browser": "Este navegador",
+  "Only while this tab is open. What you say is heard in this browser. Say: {phrases}":
+    "Solo mientras esta pestaña esté abierta. Lo que dices se escucha en este navegador. Di: {phrases}",
+  "The model could not be loaded: {error}":
+    "No se pudo cargar el modelo: {error}",
+  "Model to listen with": "Modelo para escuchar",
+  "Whisper runs in this browser, on WebGPU where there is one and on WebAssembly otherwise: what you say never leaves this device.":
+    "Whisper corre en este navegador, con WebGPU donde lo hay y con WebAssembly si no: lo que dices nunca sale de este dispositivo.",
+  "The first download adds {size} for the engine.":
+    "La primera descarga suma {size} para el motor.",
+  "WebGPU could not start here ({reason}): the model runs on the processor.":
+    "WebGPU no pudo iniciar aquí ({reason}): el modelo corre en el procesador.",
+  "Language you speak": "Idioma en que hablas",
+  "Detect it": "Detectarlo",
+  Processor: "Procesador",
+  "on the graphics card": "en la tarjeta gráfica",
+  Recommended: "Recomendado",
 };
 
 export default more;

@@ -802,7 +802,7 @@ test("speech input is turned on from the settings, after saying where recordings
       state: "off",
       hands: "off",
       phrases: [],
-      prefs: { mic: true, listen: false, deviceId: "" },
+      prefs: { mic: true, listen: false, deviceId: "", engine: "service" },
       setPrefs: () => {},
       info: off,
       api,

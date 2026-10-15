@@ -16,6 +16,7 @@ import {
   warmLocal,
 } from "./localVoice";
 import { isChatterbox, isSupertonic } from "./localVoiceCore";
+import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
 import { inputCls, primaryBtn, smallBtn } from "./SettingsControls";
 
@@ -23,7 +24,7 @@ import { inputCls, primaryBtn, smallBtn } from "./SettingsControls";
 export const DOWNLOAD_POLL_MS = 1000;
 
 // megabytes writes a size as people read it: 63 MB, and 1 MB for anything smaller.
-function megabytes(n: number): string {
+export function megabytes(n: number): string {
   return Math.max(1, Math.round(n / 1e6)).toLocaleString(lang()) + " MB";
 }
 
@@ -37,7 +38,7 @@ const ENGINES: Record<string, string> = { supertonic: "Supertonic · ", chatterb
 const LANGUAGES_OF: Record<string, number> = { supertonic: 31, chatterbox: 21 };
 
 // qualityLabel names a voice's quality.
-function qualityLabel(q: string): string {
+export function qualityLabel(q: string): string {
   const labels: Record<string, string> = {
     high: t("High quality"),
     medium: t("Medium quality"),
@@ -108,7 +109,7 @@ export function saveFilters(f: Filters): void {
 
 // useWebGPU says whether this browser has WebGPU and a graphics card it can use, which Chatterbox
 // needs: false until the browser answers.
-function useWebGPU(): boolean {
+export function useWebGPU(): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
@@ -170,6 +171,11 @@ function useSample(api: Api) {
   return { playing, play, error };
 }
 
+// voicesOf is the catalog without the models speech input listens with (LocalListenSettings.tsx).
+function voicesOf(catalog: LocalCatalog): LocalCatalog {
+  return { ...catalog, models: catalog.models.filter((m) => !isWhisper(m.id)) };
+}
+
 // useLoadState is how far a voice is from being ready in this browser, kept current.
 function useLoadState(id: string): LoadState | undefined {
   const [, redraw] = useState(0);
@@ -210,7 +216,7 @@ export function LocalVoices({
   const load = useCallback(async (): Promise<string> => {
     let why = "";
     try {
-      setCatalog(await fetchCatalog(api));
+      setCatalog(voicesOf(await fetchCatalog(api)));
     } catch (e) {
       why = errorMessage(e);
     }

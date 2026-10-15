@@ -79,7 +79,8 @@ beforeEach(() => {
   useMic();
 });
 
-const prefs = { mic: true, listen: false, deviceId: "" };
+// These tests are about the transcription service: it is the one chosen to listen.
+const prefs = { mic: true, listen: false, deviceId: "", engine: "service", listener: "", language: "" };
 const savedVoice = (o = {}) => ({
   enabled: true,
   base_url: "",
@@ -347,6 +348,10 @@ test("why a switch cannot be used: no recording, off or without phrases on the g
   m = await mount(view("off", "no-phrases", info));
   assert.match(text(m.root), /Turn on speech input above first\./);
   assert.match(text(m.root), /Add a wake phrase above first\./);
+  await m.done();
+  // The browser listens, and has no model yet: the list above is where to get one.
+  m = await mount(view("no-model", "no-model", null));
+  assert.equal((text(m.root).match(/Download a model to listen with above first\./g) ?? []).length, 2);
   await m.done();
   // A browser that cannot record: nothing is asked of it.
   let asked = 0;
