@@ -96,6 +96,13 @@ func llmServer(t *testing.T, path string) (*Server, *refreshingService) {
 	return srv, svc
 }
 
+func checkBrowserProvider(t *testing.T, p llmProviderView) {
+	t.Helper()
+	if p.Key != config.KeyNotNeeded || p.Login != "" || len(p.Models) != 1 {
+		t.Errorf("browser = %+v", p)
+	}
+}
+
 func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	llmEnv(t, "")
 	svc := &fakeService{}
@@ -106,9 +113,7 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != len(onboard.Providers())+1 {
 		t.Fatalf("view = %+v", v)
 	}
-	if p := providerOf(v, "browser"); p.Key != config.KeyNotNeeded || p.Login != "" || len(p.Models) != 1 {
-		t.Errorf("browser = %+v", p)
-	}
+	checkBrowserProvider(t, providerOf(v, "browser"))
 	if p := providerOf(v, "claude-code"); p.Key != config.KeyNotNeeded || p.Login == "" || len(p.Models) == 0 {
 		t.Errorf("claude-code = %+v", p)
 	}

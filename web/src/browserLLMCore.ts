@@ -38,10 +38,10 @@ export function chatPrompt(messages: ChatMessage[]): string {
   const turns = messages.filter(
     (m) => m.role === "system" || m.role === "user" || m.role === "assistant",
   );
-  const withSystem =
-    turns[0]?.role === "system"
-      ? turns
-      : [{ role: "system", content: DEFAULT_SYSTEM }, ...turns];
+  let withSystem = turns;
+  if (turns[0]?.role !== "system") {
+    withSystem = [{ role: "system", content: DEFAULT_SYSTEM }, ...turns];
+  }
   return (
     withSystem
       .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>\n`)
@@ -50,17 +50,30 @@ export function chatPrompt(messages: ChatMessage[]): string {
 }
 
 // halfToFloat reads a 16-bit float (the bits of one).
+const HALF_SIGN = 0x8000;
+const HALF_EXP_SHIFT = 10;
+const HALF_EXP_ALL = 0x1f;
+const HALF_FRAC_MASK = 0x3ff;
+const HALF_FRAC_SCALE = 1024;
+const HALF_BIAS = 15;
+
 export function halfToFloat(h: number): number {
-  const sign = h & 0x8000 ? -1 : 1;
-  const exp = (h >> 10) & 0x1f;
-  const frac = h & 0x3ff;
+  let sign = 1;
+  if (h & HALF_SIGN) {
+    sign = -1;
+  }
+  const exp = (h >> HALF_EXP_SHIFT) & HALF_EXP_ALL;
+  const frac = h & HALF_FRAC_MASK;
   if (exp === 0) {
-    return sign * 2 ** -14 * (frac / 1024);
+    return sign * 2 ** (1 - HALF_BIAS) * (frac / HALF_FRAC_SCALE);
   }
-  if (exp === 0x1f) {
-    return frac ? NaN : sign * Infinity;
+  if (exp === HALF_EXP_ALL) {
+    if (frac) {
+      return Number.NaN;
+    }
+    return sign * Infinity;
   }
-  return sign * 2 ** (exp - 15) * (1 + frac / 1024);
+  return sign * 2 ** (exp - HALF_BIAS) * (1 + frac / HALF_FRAC_SCALE);
 }
 
 // argmax is the position of the greatest number of the last `width` ones of logits (the scores of
@@ -75,7 +88,10 @@ export function argmax(
   let bestScore = -Infinity;
   for (let i = 0; i < width; i++) {
     const raw = logits[start + i] as number;
-    const score = half ? halfToFloat(raw) : raw;
+    let score = raw;
+    if (half) {
+      score = halfToFloat(raw);
+    }
     if (score > bestScore) {
       best = i;
       bestScore = score;
@@ -179,8 +195,12 @@ export class BrowserModel {
       throw new Error("the browser model is not loaded");
     }
     const { session, ort, tok, half } = m;
-    const kind = half ? "float16" : "float32";
-    const empty = () => (half ? new Uint16Array(0) : new Float32Array(0));
+    let kind = "float32";
+    let empty = (): Uint16Array | Float32Array => new Float32Array(0);
+    if (half) {
+      kind = "float16";
+      empty = () => new Uint16Array(0);
+    }
     let past: Record<string, LLMTensor> = {};
     for (let i = 0; i < LAYERS; i++) {
       for (const part of ["key", "value"]) {
@@ -260,5 +280,8 @@ export function isBrowserLLM(id: string): boolean {
 // buildFor is the catalog id of the build a card runs: the 16-bit one where the card has 16-bit
 // floats in its shaders.
 export function buildFor(f16: boolean): string {
-  return f16 ? LLM_F16 : LLM_F32;
+  if (f16) {
+    return LLM_F16;
+  }
+  return LLM_F32;
 }
