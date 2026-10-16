@@ -14,7 +14,8 @@ const wafPage = `<!DOCTYPE html><html><head><title>Access denied</title>
 
 // TestQwenLoginAnsweredWithAPageExplainsWhy: qwen.ai answers its retired OAuth
 // endpoints with a web page. The login used to fail with "could not decode
-// response: invalid character '<'"; it now says why and quotes the page.
+// response: invalid character '<'"; it now says why and the status, and never
+// quotes the page (a firewall dump is no message for a person).
 func TestQwenLoginAnsweredWithAPageExplainsWhy(t *testing.T) {
 	var requestID string
 	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
@@ -31,12 +32,13 @@ func TestQwenLoginAnsweredWithAPageExplainsWhy(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	msg := err.Error()
-	for _, want := range []string{"HTTP 200", "text/html", "Access denied", "Sorry Your request was blocked & logged."} {
+	for _, want := range []string{"HTTP 200", "text/html", "DashScope"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error %q lacks %q", msg, want)
 		}
 	}
-	for _, unwanted := range []string{"invalid character", "<", "color:red", "var x"} {
+	unwantedBits := []string{"invalid character", "<", "color:red", "var x", "Access denied", "Sorry", "blocked"}
+	for _, unwanted := range unwantedBits {
 		if strings.Contains(msg, unwanted) {
 			t.Errorf("error %q still has %q", msg, unwanted)
 		}
@@ -46,23 +48,29 @@ func TestQwenLoginAnsweredWithAPageExplainsWhy(t *testing.T) {
 	}
 }
 
-// TestNonJSONErrorKeepsStatusAndAShortExcerpt covers a non-2xx page and a long
-// plain-text body: the status is kept and the body is cut to one short line.
-func TestNonJSONErrorKeepsStatusAndAShortExcerpt(t *testing.T) {
+// TestNonJSONErrorNeverQuotesAPage covers a non-2xx page and a long plain-text
+// body: a page keeps only the status, a plain message is cut to one short line.
+func TestNonJSONErrorNeverQuotesAPage(t *testing.T) {
 	long := strings.Repeat("upstream unavailable ", 100)
 	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"page": func(*http.Request) (*http.Response, error) { return errResp(502, wafPage), nil },
-		"text": func(*http.Request) (*http.Response, error) { return errResp(503, long), nil },
+		"page":    func(*http.Request) (*http.Response, error) { return errResp(502, wafPage), nil },
+		"text":    func(*http.Request) (*http.Response, error) { return errResp(503, long), nil },
+		"jsonish": func(*http.Request) (*http.Response, error) { return errResp(400, `{"error":"bad"}`), nil },
 	})
 	var dest map[string]any
 	err := getJSON(context.Background(), client, "https://example.test/page", nil, &dest)
 	var nj *NotJSONError
-	if !errors.As(err, &nj) || nj.Status != 502 || !strings.HasPrefix(nj.Excerpt, "Access denied") {
+	if !errors.As(err, &nj) || nj.Status != 502 || strings.Contains(err.Error(), "Access denied") {
 		t.Fatalf("err = %v", err)
 	}
-	err = getJSON(context.Background(), client, "https://example.test/text", nil, &dest)
-	if !errors.As(err, &nj) || nj.Status != 503 || len([]rune(nj.Excerpt)) != excerptLen+1 {
-		t.Fatalf("err = %v (excerpt %d runes)", err, len([]rune(nj.Excerpt)))
+	// With no destination the body is not decoded, so a page must still stay out.
+	err = getJSON(context.Background(), client, "https://example.test/page", nil, nil)
+	if err == nil || err.Error() != "HTTP 502" {
+		t.Fatalf("page without dest: %v", err)
+	}
+	err = getJSON(context.Background(), client, "https://example.test/text", nil, nil)
+	if err == nil || len([]rune(err.Error())) != len("HTTP 503: ")+excerptLen+3 {
+		t.Fatalf("long text: %v", err)
 	}
 }
 

@@ -246,7 +246,7 @@ the command ends as before.
 | `anthropic`               | `ANTHROPIC_API_KEY`                           | — (see `claude-code`)                                        | `/v1/messages`                                           |
 | `claude-code`             | —                                             | `claude auth login` (Anthropic's own CLI holds it)           | the `claude` CLI                                         |
 | `gemini`                  | `GEMINI_API_KEY`                              | **Google login** with your own OAuth client, or gcloud's ADC | `generateContent`                                        |
-| `qwen`                    | `DASHSCOPE_API_KEY`                           | **qwen.ai device code** (Qwen Code account)                  | `/chat/completions`                                      |
+| `qwen`                    | `DASHSCOPE_API_KEY`                           | a DashScope key only (the qwen.ai login ended 2026-04-15)    | `/chat/completions`                                      |
 
 Logins live in `~/.motita/auth/<provider>.json` (`0600`, override the directory with
 `MOTITA_AUTH_DIR`) together with their refresh token; motita renews the access token
@@ -1063,7 +1063,7 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 43 of 43 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage**    | **100% in every package that ships** — 44 of 44 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 4,824 across 490 files                                                                                                                                                                                    |
 | **Code vs tests**         | 67,801 lines of Go · 118,518 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |

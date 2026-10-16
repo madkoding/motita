@@ -23,7 +23,7 @@ import (
 // the background and stores the login where the wizard stores it (config.AuthDir). Nothing secret
 // travels to the page: it only learns that the login is pending, connected or failed.
 //
-//   - copilot and qwen are device flows: open a link, type a code.
+//   - copilot is a device flow: open a link, type a code.
 //   - codex is a redirect to localhost:1455 on the gateway's machine. A browser on that machine
 //     completes it on its own; any other pastes the address the browser ended on.
 //   - gemini uses gcloud's Application Default Credentials on the gateway's machine, at once.
@@ -44,7 +44,6 @@ const loginTTL = 15 * time.Minute
 // HTTP side with a fake flow.
 var llmLoginStarters = map[string]func(ctx context.Context) (loginFlow, error){
 	"copilot": copilotLogin,
-	"qwen":    qwenLogin,
 	"codex":   codexLogin,
 	"gemini":  geminiLogin,
 }
@@ -71,23 +70,6 @@ func copilotLogin(ctx context.Context) (loginFlow, error) {
 				return oauth.Credential{}, errors.New("GitHub gave no Copilot access: is the Copilot subscription active?")
 			}
 			return oauth.CopilotAuthResult{GitHubToken: gh, CopilotToken: ct}.Credential(), nil
-		}}, nil
-}
-
-func qwenLogin(ctx context.Context) (loginFlow, error) {
-	pkce, err := oauth.NewPKCE()
-	if err != nil {
-		return loginFlow{}, err
-	}
-	dc, err := oauth.QwenRequestDeviceCode(ctx, nil, pkce)
-	if err != nil {
-		return loginFlow{}, err
-	}
-	return loginFlow{Method: "device", URL: dc.VerificationURL, Code: dc.UserCode,
-		Wait: func(ctx context.Context, _ <-chan string) (oauth.Credential, error) {
-			return oauth.PollDevice(ctx, dc.Interval, oauth.PollSleep, func() (oauth.Credential, error) {
-				return oauth.QwenPollToken(ctx, nil, dc, pkce)
-			})
 		}}, nil
 }
 

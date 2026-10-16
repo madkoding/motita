@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/httpbody"
 	"github.com/madkoding/motita/internal/logx"
 )
 
@@ -298,7 +299,10 @@ func (u *Updater) fetchLatestRelease(ctx context.Context) (*Release, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("GitHub answered %d: %s", resp.StatusCode, string(body))
+		if note := httpbody.Note(body, 200); note != "" {
+			return nil, fmt.Errorf("GitHub answered %d: %s", resp.StatusCode, note)
+		}
+		return nil, fmt.Errorf("GitHub answered %d", resp.StatusCode)
 	}
 
 	var release Release

@@ -123,8 +123,8 @@ var ErrQwenLoginUnavailable = errors.New(
 	"the qwen.ai login is not available (Qwen ended its free OAuth login on 2026-04-15): " +
 		"use a DashScope (Alibaba Cloud Model Studio) API key instead")
 
-// qwenLoginError explains a non-JSON answer from qwen.ai, keeping the status and
-// excerpt of the page so the real cause stays visible.
+// qwenLoginError explains a non-JSON answer from qwen.ai, keeping the status (the
+// page itself is never quoted).
 func qwenLoginError(err error) error {
 	if errors.Is(err, ErrNotJSON) {
 		return fmt.Errorf("%w; %w", ErrQwenLoginUnavailable, err)

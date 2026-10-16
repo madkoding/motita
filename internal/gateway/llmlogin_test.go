@@ -100,29 +100,6 @@ func TestCopilotLogin(t *testing.T) {
 	}
 }
 
-func TestQwenLogin(t *testing.T) {
-	useOAuth(t, loginRT{
-		"/api/v1/oauth2/device/code": ok200(
-			`{"device_code":"dc","user_code":"QW","verification_uri_complete":"https://q/a"}`),
-		"/api/v1/oauth2/token": ok200(`{"access_token":"qa","refresh_token":"qr","expires_in":3600}`),
-	})
-	f, err := qwenLogin(context.Background())
-	if err != nil || f.URL != "https://q/a" {
-		t.Fatalf("%+v %v", f, err)
-	}
-	if cred, err := f.Wait(context.Background(), nil); err != nil || cred.RefreshToken != "qr" {
-		t.Errorf("%+v %v", cred, err)
-	}
-	useOAuth(t, loginRT{})
-	if _, err := qwenLogin(context.Background()); err == nil {
-		t.Error("an unreachable provider is an error")
-	}
-	failingRand(t)
-	if _, err := qwenLogin(context.Background()); err == nil {
-		t.Error("no randomness, no login")
-	}
-}
-
 func TestCodexLoginTakesThePastedAddress(t *testing.T) {
 	old := startCodexLoopback
 	startCodexLoopback = func(string, string, string) (*oauth.Loopback, error) { return nil, errors.New("busy") }
@@ -243,7 +220,7 @@ func fakeLoginFlows() map[string]func(context.Context) (loginFlow, error) {
 					return oauth.Credential{}, ctx.Err()
 				}}, nil
 		},
-		"qwen": func(context.Context) (loginFlow, error) { return loginFlow{}, errors.New("qwen.ai is down") },
+		"openai": func(context.Context) (loginFlow, error) { return loginFlow{}, errors.New("the provider is down") },
 		"gemini": func(context.Context) (loginFlow, error) {
 			return loginFlow{Method: "instant", Wait: func(context.Context, <-chan string) (oauth.Credential, error) {
 				return oauth.Credential{RefreshToken: "g", ProjectID: "p"}, nil
@@ -325,7 +302,7 @@ func checkOtherLogins(t *testing.T, srv *Server, codexID string) {
 		t.Errorf("a finished login is pruned by the next one: %d", w.Code)
 	}
 
-	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/providers/qwen/login", ""); w.Code != http.StatusBadGateway {
+	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/providers/openai/login", ""); w.Code != http.StatusBadGateway {
 		t.Errorf("a provider that fails to start: %d", w.Code)
 	}
 	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/providers/anthropic/login", ""); w.Code != http.StatusBadRequest {

@@ -30,8 +30,6 @@ func runDirectAuth(ctx context.Context, out io.Writer, in *bufio.Reader, p Provi
 		cred, err = copilotDirectAuth(ctx, out)
 	case "codex":
 		cred, err = codexDirectAuth(ctx, out, in)
-	case "qwen":
-		cred, err = qwenDirectAuth(ctx, out)
 	case "gemini":
 		cred, err = geminiDirectAuth(ctx, out, in)
 	default:
@@ -104,31 +102,6 @@ func codexDirectAuth(ctx context.Context, out io.Writer, in *bufio.Reader) (oaut
 		return oauth.Credential{}, fmt.Errorf("could not complete the ChatGPT login: %w", err)
 	}
 	printSuccess(out, "Signed in with ChatGPT!")
-	return cred, nil
-}
-
-// qwenDirectAuth runs the qwen.ai device login.
-func qwenDirectAuth(ctx context.Context, out io.Writer) (oauth.Credential, error) {
-	printSection(out, "Connect to Qwen (qwen.ai account)")
-	printInfo(out, "You'll open a link in your browser and approve this device.")
-	fmt.Fprintln(out)
-
-	pkce, err := oauth.NewPKCE()
-	if err != nil {
-		return oauth.Credential{}, err
-	}
-	dc, err := oauth.QwenRequestDeviceCode(ctx, authHTTP, pkce)
-	if err != nil {
-		return oauth.Credential{}, fmt.Errorf("could not start the Qwen login: %w", err)
-	}
-	printDeviceInfo(out, dc)
-	cred, err := oauth.PollDevice(ctx, dc.Interval, sleepFor, func() (oauth.Credential, error) {
-		return oauth.QwenPollToken(ctx, authHTTP, dc, pkce)
-	})
-	if err != nil {
-		return oauth.Credential{}, fmt.Errorf("qwen authentication failed: %w", err)
-	}
-	printSuccess(out, "Connected to Qwen!")
 	return cred, nil
 }
 
