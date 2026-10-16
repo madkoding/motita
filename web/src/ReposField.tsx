@@ -464,7 +464,7 @@ function CatalogPicks({
   );
 }
 
-// ReposSection is the whole block: the title, the list, the field and what the repositories are.
+// ReposSection is the whole block: the list, and one button that opens the way to add another.
 export function ReposSection({
   main,
   repos,
@@ -478,6 +478,7 @@ export function ReposSection({
   catalog = [],
   projectId,
   hint,
+  title = "Repositories",
 }: {
   main: MainRepo | null;
   repos: RepoListItem[];
@@ -495,11 +496,15 @@ export function ReposSection({
   // in the New project one).
   catalog?: CatalogRepo[];
   projectId?: string;
+  // One short line, shown once the way to add one is open.
   hint: string;
+  title?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const listed = !!main || repos.length > 0;
   return (
     <div data-testid="repos-section">
-      <label class={LABEL}>{t("Repositories")}</label>
+      {listed && <label class={LABEL}>{t(title)}</label>}
       <div class="space-y-2">
         <RepoList
           main={main}
@@ -512,30 +517,44 @@ export function ReposSection({
           onMoveMain={onMoveMain}
           onSync={onSync}
         />
-        <AddRepo
-          taken={repos.map((r) => r.name)}
-          busy={busy === "+"}
-          onAdd={onAdd}
-          known={knownRepos(catalog)}
-        />
-        <CatalogPicks
-          catalog={catalog}
-          repos={repos}
-          busy={busy === "+"}
-          onAdd={onAdd}
-        />
-        {onChoose && (
+        {!open && (
           <button
             type="button"
             class="text-sm text-accent underline underline-offset-2"
-            onClick={onChoose}
-            data-testid="repo-choose"
+            onClick={() => setOpen(true)}
+            data-testid="repo-add-open"
           >
-            {t("Add from my repositories")}
+            {t("+ Add another repository")}
           </button>
         )}
+        {open && (
+          <>
+            <AddRepo
+              taken={repos.map((r) => r.name)}
+              busy={busy === "+"}
+              onAdd={onAdd}
+              known={knownRepos(catalog)}
+            />
+            <CatalogPicks
+              catalog={catalog}
+              repos={repos}
+              busy={busy === "+"}
+              onAdd={onAdd}
+            />
+            {onChoose && (
+              <button
+                type="button"
+                class="text-sm text-accent underline underline-offset-2"
+                onClick={onChoose}
+                data-testid="repo-choose"
+              >
+                {t("Add from my repositories")}
+              </button>
+            )}
+            <p class={HINT}>{hint}</p>
+          </>
+        )}
       </div>
-      <p class={HINT}>{hint}</p>
     </div>
   );
 }

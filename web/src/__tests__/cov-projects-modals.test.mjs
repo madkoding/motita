@@ -208,9 +208,8 @@ test("a typed repository names the main repository, the folder and the branch", 
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   assert.equal(fieldByLabel(m.root, "Name").placeholder, "site");
   assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "site");
-  const list = m.q("[data-testid=repo-list]");
-  assert.match(list.textContent, /site/);
-  assert.match(list.textContent, /https:\/\/github\.com\/u\/site\.git/);
+  // The repository is shown once, in its own field, not again as a list row.
+  assert.equal(m.q("[data-testid=repo-list]"), null);
   const options = [...m.q("[data-testid=new-project-main]").options].map(
     (o) => o.value,
   );
@@ -228,7 +227,7 @@ test("a URL that names no repository is shown as typed, and the title names the 
     newProjectTitle: "Bar Baz",
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.match(m.q("[data-testid=repo-list]").textContent, /foo/);
+  assert.equal(m.q("[data-testid=repo-list]"), null);
   assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "bar-baz");
   assert.equal(fieldByLabel(m.root, "Name").placeholder, "The repository name");
   await m.unmount();
@@ -278,6 +277,7 @@ test("the other repositories of a new project are added and removed in the dialo
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   await click(m.q("[data-testid=repo-remove]"));
+  await click(m.q("[data-testid=repo-add-open]"));
   const input = m.q("[data-testid=repo-add-url]");
   await type(input, "https://x.io/u/web.git");
   await key(input, "Enter");
@@ -295,6 +295,7 @@ test("a connected host lets the person choose the other repositories from their 
     gitAccounts: [{ id: "github", connected: true }],
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
+  await click(m.q("[data-testid=repo-add-open]"));
   await click(m.q("[data-testid=repo-choose]"));
   assert.deepEqual(s.log, [["pickOther"]]);
   await m.unmount();
@@ -302,6 +303,7 @@ test("a connected host lets the person choose the other repositories from their 
   // No host connected: the section has no such link.
   const none = store({ newProjectMode: "git", gitAccounts: [] });
   const n = await mount(AppCtx, none.value, h(NewProjectModal));
+  await click(n.q("[data-testid=repo-add-open]"));
   assert.equal(n.q("[data-testid=repo-choose]"), null);
   await n.unmount();
 });
@@ -316,7 +318,7 @@ test("several repositories: the folder holds them all, and needs at least one", 
   const empty = store({ newProjectMode: "multi", newProjectTitle: "suite" });
   const m = await mount(AppCtx, empty.value, h(NewProjectModal));
   assert.match(m.root.textContent, /Several repositories/);
-  assert.match(m.root.textContent, /Each repository is cloned once in your workspace/);
+  assert.match(m.root.textContent, /\+ Add another repository/);
   assert.equal(buttonByText(m.root, "Create").disabled, true);
   await m.unmount();
 
@@ -348,11 +350,13 @@ const DRAFT = {
 test("the edit dialog offers the person's repositories when a host is connected", async () => {
   const s = store({ gitAccounts: [{ id: "github", connected: true }] });
   const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: DRAFT }));
+  await click(m.q("[data-testid=repo-add-open]"));
   await click(m.q("[data-testid=repo-choose]"));
   assert.deepEqual(s.log, [["pickOther"]]);
   await m.unmount();
   const none = store({ gitAccounts: [] });
   const n = await mount(AppCtx, none.value, h(EditProjectModal, { p: DRAFT }));
+  await click(n.q("[data-testid=repo-add-open]"));
   assert.equal(n.q("[data-testid=repo-choose]"), null);
   await n.unmount();
 });
@@ -446,6 +450,7 @@ test("the edit dialog's repositories change at once", async () => {
   const m = await mount(AppCtx, s.value, h(EditProjectModal, { p: DRAFT }));
   await click(m.q("[data-testid=repo-remove]"));
   await click(buttonByText(m.root, "Discard the changes and remove it"));
+  await click(m.q("[data-testid=repo-add-open]"));
   const input = m.q("[data-testid=repo-add-url]");
   await type(input, "https://x.io/u/web.git");
   await click(m.q("[data-testid=repo-add]"));

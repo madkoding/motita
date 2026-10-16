@@ -158,9 +158,7 @@ function RepoField() {
         class={MONO_FIELD}
         value={newProjectGit}
         onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
-        placeholder={t(
-          "https://github.com/user/repo.git  or  git@github.com:user/repo.git",
-        )}
+        placeholder={t("https://github.com/user/repo.git")}
         autoFocus
       />
       <RepoAccounts />
@@ -203,9 +201,7 @@ function MainBranchField() {
           tf("The repository uses {branch}.", { branch: remoteMain }) + " ",
           "",
         )}
-        {t(
-          "The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.",
-        )}
+        {t("The project returns to this branch when it has no sessions.")}
       </p>
     </div>
   );
@@ -252,23 +248,17 @@ function folderPlaceholder(
   return slugOf(name) || "my-project";
 }
 
-// newMainRepo is how the main repository of the project being made is shown: the repository
-// typed above, or the new folder of an empty project.
+// newMainRepo is the new folder of an empty project; a repository is already shown by its field.
 function newMainRepo(
   mode: string | null,
-  git: string,
   title: string,
   dir: string,
 ): MainRepo | null {
-  if (mode === "git") {
-    const url = git.trim();
-    return choose(url, { name: repoNameOf(url) || url, source: url }, null);
-  }
-  if (mode === "multi") {
+  if (mode === "git" || mode === "multi") {
     return null;
   }
   return {
-    name: dir.trim() || folderPlaceholder(mode, git, title),
+    name: dir.trim() || folderPlaceholder(mode, "", title),
     source: t("A new folder"),
   };
 }
@@ -287,7 +277,6 @@ function NewProjectRepos() {
     <ReposSection
       main={newMainRepo(
         p.newProjectMode,
-        p.newProjectGit,
         p.newProjectTitle,
         p.newProjectDir,
       )}
@@ -297,14 +286,46 @@ function NewProjectRepos() {
       onAdd={p.addNewProjectRepo}
       onChoose={choose(connected, p.openOtherRepoPicker, undefined)}
       catalog={p.repoCatalog}
+      title={choose(
+        p.newProjectMode === "git",
+        "Other repositories",
+        "Repositories",
+      )}
       hint={t(
-        choose(
-          p.newProjectMode === "multi",
-          "Each repository is cloned once in your workspace and shared by the projects that use it. Every session gets its own copy of each.",
-          "The first one is the main repository, the project's folder. The others are shared from your workspace, and every session gets its own copy of each.",
-        ),
+        "Each one is cloned once and shared by your projects. Every session gets its own copy.",
       )}
     />
+  );
+}
+
+// NameField is the project's name: required for a new folder, optional (from the URL) for a repository.
+function NameField({ git }: { git: boolean }) {
+  const p = useApp().projects;
+  return (
+    <div>
+      <label class={LABEL}>
+        {t("Name")}
+        {!git && (
+          <>
+            {" "}
+            <span class="text-danger">*</span>
+          </>
+        )}
+      </label>
+      <input
+        class={FIELD}
+        value={p.newProjectTitle}
+        onInput={(e) =>
+          p.setNewProjectTitle((e.target as HTMLInputElement).value)
+        }
+        placeholder={choose(
+          git,
+          repoNameOf(p.newProjectGit) || t("The repository name"),
+          t("My project"),
+        )}
+        autoFocus={!git}
+      />
+    </div>
   );
 }
 
@@ -334,6 +355,8 @@ function MoreOptions() {
         {t("More options")}
       </summary>
       <div class="px-3 pb-3 space-y-4">
+        {p.newProjectMode === "git" && <NameField git />}
+        <MainBranchField />
         <div>
           <label class={LABEL}>{t("Description (optional)")}</label>
           <input
@@ -433,31 +456,7 @@ function ProjectForm() {
     <>
       <div class="space-y-4">
         {git && <RepoField />}
-        <div>
-          <label class={LABEL}>
-            {t("Name")}
-            {p.newProjectMode !== "git" && (
-              <>
-                {" "}
-                <span class="text-danger">*</span>
-              </>
-            )}
-          </label>
-          <input
-            class={FIELD}
-            value={p.newProjectTitle}
-            onInput={(e) =>
-              p.setNewProjectTitle((e.target as HTMLInputElement).value)
-            }
-            placeholder={choose(
-              git,
-              repoNameOf(p.newProjectGit) || t("The repository name"),
-              t("My project"),
-            )}
-            autoFocus={!git}
-          />
-        </div>
-        <MainBranchField />
+        {!git && <NameField git={false} />}
         <NewProjectRepos />
         <MoreOptions />
       </div>

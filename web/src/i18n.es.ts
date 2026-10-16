@@ -125,6 +125,15 @@ const first: Record<string, string> = {
   "Several repositories": "Varios repositorios",
   "A folder that holds all the repositories you clone into it":
     "Una carpeta que reúne todos los repositorios que clones en ella",
+  "+ Add another repository": "+ Agregar otro repositorio",
+  "Other repositories": "Otros repositorios",
+  "https://github.com/user/repo.git": "https://github.com/usuario/repo.git",
+  "The project returns to this branch when it has no sessions.":
+    "El proyecto vuelve a esta rama cuando no tiene sesiones.",
+  "Each one is cloned once and shared by your projects. Every session gets its own copy.":
+    "Cada uno se clona una sola vez y lo comparten tus proyectos. Cada sesión tiene su propia copia.",
+  "Changes here apply right away. Other projects that use a repository keep it.":
+    "Los cambios se aplican al instante. Los otros proyectos que usan un repositorio lo conservan.",
   "Each repository is cloned once in your workspace and shared by the projects that use it. Every session gets its own copy of each.":
     "Cada repositorio se clona una sola vez en tu espacio de trabajo y lo comparten los proyectos que lo usan. Cada sesión recibe su propia copia de cada uno.",
   Back: "Atrás",
@@ -427,8 +436,6 @@ const first: Record<string, string> = {
   high: "alto",
   "how hard the model thinks: off, low, medium, high":
     "cuánto piensa el modelo: apagado, bajo, medio, alto",
-  "https://github.com/user/repo.git  or  git@github.com:user/repo.git":
-    "https://github.com/user/repo.git  o  git@github.com:user/repo.git",
   "in a terminal to print the link, or paste the token here.":
     "en una terminal para mostrar el enlace, o pega el token aquí.",
   "in {branch}": "en {branch}",
