@@ -165,3 +165,53 @@ func TestAProjectDeletedMidOperationStaysDeleted(t *testing.T) {
 		t.Errorf("a detach of a project deleted meanwhile: %d", code)
 	}
 }
+
+// A PATCH of the project settings keeps a repository added while it ran, and a project deleted
+// meanwhile stays deleted (F76): only the fields the request names are written.
+func TestPatchingAProjectKeepsWhatChangedMeanwhile(t *testing.T) {
+	srv, _, _ := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+	beforeProjectUpdate = func(pid string) {
+		_, _ = srv.projects.update(pid, func(p *Project) { p.Repos = append(p.Repos, ProjectRepo{Name: "late"}) })
+	}
+	t.Cleanup(func() { beforeProjectUpdate = func(string) {} })
+	if w := patchProject(t, srv, id, `{"title":"renamed"}`); w.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", w.Code, w.Body)
+	}
+	saved, _ := srv.projects.load(id)
+	if saved.Title != "renamed" || len(saved.Repos) != 1 || saved.Repos[0].Name != "late" {
+		t.Errorf("the repository added meanwhile was lost: %+v", saved)
+	}
+
+	beforeProjectUpdate = func(pid string) { _ = srv.projects.delete(pid) }
+	if w := patchProject(t, srv, id, `{"title":"again"}`); w.Code != http.StatusNotFound {
+		t.Errorf("a patch of a project deleted meanwhile: %d %s", w.Code, w.Body)
+	}
+	if p, _ := srv.projects.load(id); p != nil {
+		t.Errorf("the project came back: %+v", p)
+	}
+}
+
+// Deleting a project stops on commits its own clones hold that no remote has, as removing one
+// repository does (F77); ?force=1 confirms the discard.
+func TestDeletingAProjectStopsOnUnpublishedCommits(t *testing.T) {
+	srv, projectDir, _ := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+	empty := filepath.Join(t.TempDir(), "blank")
+	mustGit(t, t.TempDir(), "init", "-q", "--bare", empty)
+	if code, _ := addRepo(t, srv, id, `{"git_url":"`+empty+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
+	}
+	own := filepath.Join(projectDir, "blank")
+	commitHere(t, own)
+	path := "/v1/projects/" + id
+	if w := send(t, srv, http.MethodDelete, path, testToken, ""); w.Code != http.StatusConflict {
+		t.Fatalf("an unpublished commit must stop the deletion: %d %s", w.Code, w.Body)
+	}
+	if _, err := os.Stat(own); err != nil {
+		t.Errorf("the clone must still be there: %v", err)
+	}
+	if w := send(t, srv, http.MethodDelete, path+"?force=1", testToken, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("a confirmed deletion: %d %s", w.Code, w.Body)
+	}
+}
