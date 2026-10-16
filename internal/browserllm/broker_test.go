@@ -153,3 +153,58 @@ func TestATabWritingAnAnswerIsStillThere(t *testing.T) {
 		t.Error("a tab that answered and stopped asking is gone")
 	}
 }
+
+// A job's id cannot be guessed, so another client holding the token cannot answer it (F79).
+func TestJobIDsCannotBeGuessed(t *testing.T) {
+	b := New()
+	b.seen()
+	go func() { _, _ = b.Ask(context.Background(), nil) }()
+	job, _ := b.Next(context.Background())
+	if len(job.ID) < 32 || job.ID == "1" {
+		t.Errorf("job id %q is guessable", job.ID)
+	}
+	if b.Answer("1", "injected", "") {
+		t.Error("a guessed id must not be accepted")
+	}
+	if !b.Online() {
+		t.Error("a stale answer must not mark the tab that took the job as gone")
+	}
+	b.Answer(job.ID, "ok", "")
+}
+
+// A job whose asker gave up is dropped, not run by the next tab (F78).
+func TestAJobNobodyWaitsForIsSkipped(t *testing.T) {
+	b := New()
+	b.poll = 20 * time.Millisecond
+	b.seen()
+	ctx, cancel := context.WithCancel(context.Background())
+	asked := make(chan struct{})
+	go func() {
+		_, _ = b.Ask(ctx, nil)
+		close(asked)
+	}()
+	for len(b.jobs) == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-asked
+	if _, ok := b.Next(context.Background()); ok {
+		t.Error("a job whose asker left must not be handed out")
+	}
+}
+
+// What a tab hands back is bounded.
+func TestAnAnswerIsBounded(t *testing.T) {
+	b := New()
+	b.seen()
+	errs := make(chan error, 1)
+	go func() {
+		_, err := b.Ask(context.Background(), nil)
+		errs <- err
+	}()
+	job, _ := b.Next(context.Background())
+	b.Answer(job.ID, strings.Repeat("x", maxAnswer+1), "")
+	if err := <-errs; err == nil || !strings.Contains(err.Error(), "too long") {
+		t.Errorf("an oversized answer: %v", err)
+	}
+}
