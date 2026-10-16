@@ -30,6 +30,7 @@ export const PROVIDER_LOGOS: Record<string, Logo> = {
   codex: { color: "#e8e8ea", d: paths.openai },
   copilot: { color: "#e8e8ea", d: paths.githubcopilot },
   ollama: { color: "#e8e8ea", d: paths.ollama },
+  "ollama-cloud": { color: "#e8e8ea", d: paths.ollama },
   anthropic: { color: "#e8e8ea", d: paths.anthropic },
   "claude-code": { color: "#d97757", d: paths.claude },
   gemini: { color: "#a58fd6", d: paths.googlegemini },

@@ -284,7 +284,7 @@ function ProviderForm({
   onNotice,
 }: RowProps) {
   const [key, setKey] = useState("");
-  const [base, setBase] = useState(p.base_url || "");
+  const [base, setBase] = useState(p.base_url || p.default_base_url || "");
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState<TestResult | null>(null);
   const [err, setErr] = useState("");
