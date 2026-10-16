@@ -206,6 +206,29 @@ test("Escape closes only the topmost dialog", async () => {
   await done();
 });
 
+test("Escape in an open listbox closes the list, not the dialog", async () => {
+  const closed = [];
+  const { done } = await mount(
+    h(
+      Dialog,
+      { id: "pick", onClose: () => closed.push(1) },
+      h("button", {
+        id: "trigger",
+        "aria-haspopup": "listbox",
+        "aria-expanded": "true",
+      }),
+    ),
+  );
+  document.getElementById("trigger").focus();
+  const e = key("Escape");
+  assert.deepEqual(closed, [], "the open list keeps the dialog open");
+  assert.equal(e.defaultPrevented, false);
+  document.getElementById("trigger").setAttribute("aria-expanded", "false");
+  key("Escape");
+  assert.deepEqual(closed, [1], "a closed list lets the dialog close");
+  await done();
+});
+
 test("a dialog without data-dialog-root still answers Escape (nothing else claims it)", async () => {
   const closed = [];
   const { done } = await mount(

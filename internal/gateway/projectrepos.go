@@ -161,9 +161,9 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	// The catalog is one folder for every project: a second project asking for the same repository
 	// waits for the clone of the first instead of finding it half made, and a deletion cannot
-	// take the clone between this project's use of it and the save that records it.
-	s.catalogMu.Lock()
-	defer s.catalogMu.Unlock()
+	// take the clone between this project's use of it and the save that records it. Only that
+	// repository is held: others clone and are deleted meanwhile.
+	defer s.lockCatalogRepo(gitURL)()
 	ctx := r.Context()
 	repo, err := s.placeRepo(ctx, p, name, gitURL, dest)
 	if err != nil {
@@ -225,11 +225,49 @@ func (s *Server) catalogClone(gitURL, name string) (dir string, fresh bool, err 
 			return d, false, nil
 		}
 	}
-	dir = freeCloneDir(filepath.Join(root, cmp.Or(repoNameOf("", gitURL), name)), gitURL, env)
+	dir = s.reserveCloneDir(filepath.Join(root, cmp.Or(repoNameOf("", gitURL), name)), gitURL, env)
+	defer s.releaseCloneDir(dir)
 	if _, err := cloneGitRepo(gitURL, dir, env); err != nil {
 		return "", false, err
 	}
 	return dir, true, nil
+}
+
+// reserveCloneDir picks the folder for a clone of gitURL and marks it as being cloned into, in one
+// step: two clones of different repositories with the same name get different folders.
+func (s *Server) reserveCloneDir(base, gitURL string, env []string) string {
+	s.cloningMu.Lock()
+	defer s.cloningMu.Unlock()
+	dir := freeCloneDir(base, gitURL, env, func(d string) bool { return s.cloning[d] })
+	if s.cloning == nil {
+		s.cloning = map[string]bool{}
+	}
+	s.cloning[dir] = true
+	return dir
+}
+
+// releaseCloneDir says no clone is being made in dir any more.
+func (s *Server) releaseCloneDir(dir string) {
+	s.cloningMu.Lock()
+	defer s.cloningMu.Unlock()
+	delete(s.cloning, dir)
+}
+
+// beingCloned reports whether a clone is being made in dir.
+func (s *Server) beingCloned(dir string) bool {
+	s.cloningMu.Lock()
+	defer s.cloningMu.Unlock()
+	return s.cloning[dir]
+}
+
+// lockCatalogRepo holds the catalog's clone of gitURL against anything else that uses or deletes it,
+// whatever way the URL is spelled (a trailing ".git" or slash, the host's case).
+func (s *Server) lockCatalogRepo(gitURL string) func() {
+	key := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(gitURL), "/"), ".git"))
+	m, _ := s.catalogLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // placeRepo puts the repository gitURL in the project's folder, at dest: a worktree of the
@@ -284,6 +322,10 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	repo := p.Repos[i]
+	if repo.Shared {
+		// The clone is the catalog's: a deletion of it waits until this project's worktree is gone.
+		defer s.lockCatalogRepo(repo.GitURL)()
+	}
 	ctx := r.Context()
 	worktrees := s.sessionWorktreesOf(ctx, p, repo)
 	if !isForced(r) {
@@ -468,13 +510,17 @@ var removeAll = os.RemoveAll
 // handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
 // in it stops the deletion, unless the user confirmed the discard with `?force=1`.
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
-	s.catalogMu.Lock()
-	defer s.catalogMu.Unlock()
 	dir := s.catalogRepoDir(r.PathValue("name"))
 	if dir == "" {
 		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
 		return
 	}
+	if s.beingCloned(dir) {
+		writeError(w, http.StatusConflict, "the repository is being cloned: try again when it is done")
+		return
+	}
+	// Held against the projects that are adding or removing this same repository.
+	defer s.lockCatalogRepo(originOf(dir, s.gitCommandEnv()))()
 	if users := catalogUsers(s.allProjects(), dir); len(users) > 0 {
 		titles := make([]string, len(users))
 		for i, u := range users {
