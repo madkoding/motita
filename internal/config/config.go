@@ -191,7 +191,9 @@ type Sandbox struct {
 
 // Providers are the values llm.provider accepts. The LLM client, the wizard and
 // the validation all read this one list.
-var Providers = []string{"openai", "codex", "copilot", "ollama", "anthropic", "claude-code", "gemini", "qwen", "browser"}
+var Providers = []string{
+	"openai", "codex", "copilot", "ollama", "ollama-cloud", "anthropic", "claude-code", "gemini", "qwen", "browser",
+}
 
 // LLM describes the reasoning engine (Layer B).
 type LLM struct {

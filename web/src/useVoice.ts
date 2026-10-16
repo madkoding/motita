@@ -14,7 +14,7 @@ import { t, tf } from "./i18n";
 import type { Api } from "./prApi";
 import type { SetToast } from "./appTypes";
 import { TASK_INPUT_ID } from "./appConst";
-import { errorMessage } from "./errors";
+import { errorMessage, workerError } from "./errors";
 import { choose } from "./choose";
 import {
   type ListenEngine,
@@ -517,7 +517,7 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     (e: unknown) =>
       setToast({
         message: t("Speech input failed"),
-        detail: errorMessage(e),
+        detail: workerError(errorMessage(e)),
         type: "error",
       }),
     [setToast],

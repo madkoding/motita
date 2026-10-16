@@ -887,3 +887,48 @@ func blockStore(t *testing.T, dir string) {
 		t.Fatalf("block the store directory: %v", err)
 	}
 }
+
+// Why "run now" is refused says what is true of the session: busy, integrated or closing.
+func TestRunScheduleNowSaysWhyTheSessionRefuses(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
+	rec, err := srv.schedules.Load(id)
+	if err != nil || rec == nil {
+		t.Fatalf("Load: (%v, %v)", rec, err)
+	}
+	c := convNamed(t, srv, rec.SessionID)
+	for _, tc := range []struct {
+		name string
+		set  func()
+		want string
+	}{
+		{"busy", func() { c.running = true }, "already in progress"},
+		{"closing", func() { c.running, c.closing = false, true }, "being closed"},
+		{"integrated", func() { c.closing, c.merged = false, true }, "already been integrated"},
+	} {
+		c.stateMu.Lock()
+		tc.set()
+		c.stateMu.Unlock()
+		w := postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, "")
+		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), tc.want) {
+			t.Errorf("%s: %d %s, want 409 saying %q", tc.name, w.Code, w.Body.String(), tc.want)
+		}
+	}
+}
+
+// Closing waits for the "run now" runs to be written onto their tasks, as long as the caller waits.
+func TestClosingWaitsForTheRunsStillToBeRecorded(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	release := make(chan struct{})
+	srv.scheduleWG.Go(func() { <-release })
+	short, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_ = srv.Close(short)
+	if time.Since(start) < 40*time.Millisecond {
+		t.Error("closed without waiting for the run to be recorded")
+	}
+	close(release)
+	srv.scheduleWG.Wait()
+}

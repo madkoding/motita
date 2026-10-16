@@ -41,7 +41,7 @@ func DefaultBaseURL(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "openai", "codex":
 		return openAIBaseURL
-	case "ollama":
+	case "ollama", "ollama-cloud":
 		return ollamaBaseURL
 	case "anthropic":
 		return anthropicBaseURL

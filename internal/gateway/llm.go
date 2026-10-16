@@ -158,6 +158,17 @@ func effectiveBase(configured config.LLM, id string) string {
 	return onboard.DefaultBaseURL(id)
 }
 
+// ollamaLocalURL is where a server of one's own usually listens.
+const ollamaLocalURL = "http://localhost:11434/v1"
+
+// effectiveOwnBase is the endpoint the user saved or configured for a provider, or "".
+func effectiveOwnBase(configured config.LLM, id string) string {
+	if strings.EqualFold(configured.Provider, id) && configured.BaseURL != "" {
+		return configured.BaseURL
+	}
+	return config.StoredBaseURL(id)
+}
+
 // effectiveKey is the key a provider runs with.
 func effectiveKey(configured config.LLM, id string) string {
 	if strings.EqualFold(configured.Provider, id) {
@@ -174,7 +185,7 @@ func (s *Server) llmViewOf() llmView {
 	cfg := s.configuredLLM()
 	v := llmView{Provider: cfg.Provider, Model: cfg.Model, Writable: s.opts.ConfigPath != "",
 		Kinds: config.TaskKinds, Tasks: map[string]config.ModelChoice{},
-		PricesChecked: onboard.PricesCheckedOn}
+		PricesChecked: onboard.PricesChecked()}
 	s.llmListedMu.Lock()
 	for _, p := range onboard.Providers() {
 		pv := s.providerView(cfg, p)
@@ -225,6 +236,15 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		DefaultBaseURL: p.DefaultBaseURL, FetchModels: p.FetchModels,
 		Default: strings.EqualFold(cfg.Provider, p.ID),
 		Models:  make([]llmModelView, 0, len(p.Models)),
+	}
+	if p.ID == "ollama" {
+		// Ollama on the user's own server has no endpoint until one is saved; the page offers the
+		// usual local address. (The catalogue's own default is the cloud's, for older configurations.)
+		pv.DefaultBaseURL = ollamaLocalURL
+		pv.BaseURL = ""
+		if b := effectiveOwnBase(cfg, p.ID); b != "" {
+			pv.BaseURL = publicURL(b)
+		}
 	}
 	if pv.Key == config.KeyEnv {
 		// The generic variable is read only for the default provider; the OpenAI pair's other one

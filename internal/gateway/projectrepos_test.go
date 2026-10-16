@@ -557,15 +557,44 @@ func TestMovingTheMainRepositoryFailsCleanly(t *testing.T) {
 	if code != http.StatusInternalServerError {
 		t.Errorf("a folder that cannot be initialised: %d", code)
 	}
+	assertMainRepoBack(t, projectDir)
+}
+
+// assertMainRepoBack: after a move that failed, the repository is where it was and the project
+// folder holds no leftover subfolder for it.
+func assertMainRepoBack(t *testing.T, projectDir string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err != nil {
+		t.Errorf("the repository must be back where it was: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "README.md")); err != nil {
+		t.Errorf("its files must be back too: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "proj")); !os.IsNotExist(err) {
+		t.Errorf("the subfolder it moved into is gone: %v", err)
+	}
 }
 
 func TestTheMainRepositoryMoveCannotBeSaved(t *testing.T) {
-	srv, _, id := bareProject(t)
+	srv, projectDir, id := bareProject(t)
 	if err := os.MkdirAll(filepath.Join(srv.projects.dir, id+".json.tmp", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := detachMain(t, srv, id); code != http.StatusInternalServerError {
 		t.Errorf("a save that fails: %d", code)
+	}
+	assertMainRepoBack(t, projectDir)
+	if saved := srv.projectOf(id); len(saved.Repos) != 0 {
+		t.Errorf("the project declares a move that was undone: %+v", saved.Repos)
+	}
+}
+
+// Undoing a move that never happened touches nothing.
+func TestUndoingAMoveThatNeverHappenedTouchesNothing(t *testing.T) {
+	_, projectDir, _ := bareProject(t)
+	undoMoveMainRepo(&Project{Dir: projectDir}, "proj")
+	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err != nil {
+		t.Errorf("the repository was touched: %v", err)
 	}
 }
 

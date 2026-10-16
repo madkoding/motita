@@ -255,8 +255,10 @@ const more: Record<string, string> = {
     "inicia sesión con ChatGPT, o una clave de API",
   "sign in with GitHub (Copilot plan)":
     "inicia sesión con GitHub (plan de Copilot)",
-  "free on your own machine, or Ollama Cloud":
-    "gratis en tu propia máquina, u Ollama Cloud",
+  "free on your own machine or network":
+    "gratis en tu propia máquina o red",
+  "Ollama's hosted models, billed per token":
+    "modelos alojados de Ollama, de pago por token",
   "API key from console.anthropic.com": "Clave de API de console.anthropic.com",
   "your Claude plan, via the Claude Code CLI":
     "tu plan de Claude, mediante la CLI de Claude Code",
@@ -583,6 +585,11 @@ const more: Record<string, string> = {
     "Este sistema no puede quitarle la red a un comando (necesita Linux), así que aquí no cambia nada.",
   "This system blocks it for programs without permission (Ubuntu 24.04 and later). To allow it, run once on the machine that runs Motita: sudo motita sandbox apparmor install":
     "Este sistema lo bloquea para los programas sin permiso (Ubuntu 24.04 y posteriores). Para permitirlo, ejecuta una vez en la máquina donde corre Motita: sudo motita sandbox apparmor install",
+  "This system cannot give a command a network of its own ({reason}), so this changes nothing here.":
+    "Este sistema no puede dar a un comando una red propia ({reason}), así que aquí esto no cambia nada.",
+  "This browser has no WebGPU for the page's workers.": "Este navegador no ofrece WebGPU a los workers de la página.",
+  "The browser gave no graphics card to use.": "El navegador no dio ninguna tarjeta gráfica para usar.",
+  "The local listener stopped.": "El oyente local se detuvo.",
   "Give Motita's commands the network?": "¿Dar la red a los comandos de Motita?",
   "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.":
     "Esta voz necesita WebGPU, que este dispositivo no usa. Elige otra voz, o activa WebGPU en los ajustes.",

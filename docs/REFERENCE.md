@@ -398,9 +398,12 @@ What the setup does and does not do:
   conversation says what is in use now. Behind a gateway this is
   `POST /v1/sessions/{id}/config/reload`.
 
-The `ollama` provider talks to `http://localhost:11434/v1` (no key) or to Ollama Cloud
-(`https://ollama.com/v1`, a key in `OLLAMA_API_KEY`), and reads the live catalogue from
-the server you chose:
+The `ollama` provider talks to a server of your own (`http://localhost:11434/v1`, no key) and
+`ollama-cloud` to Ollama's hosted service (`https://ollama.com/v1`, a key in `OLLAMA_API_KEY`), so
+both can be connected at once and a different model of each assigned to a kind of work
+(`models.cheap: ollama/qwen3:8b`, `models.strong: ollama-cloud/glm-5.3`). Each reads the live
+catalogue from its server. A configuration that names `provider: ollama` with
+`base_url: https://ollama.com/v1` keeps working as it always did:
 
 ```yaml
 llm:
@@ -528,7 +531,7 @@ honoured. The documented one wins when both are set.
 | `task_source`  | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `anchor`       | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]`                                                                                                                                                                                                                                                                        |
 | `sandbox`      | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network` (default `true`: on Linux every command runs in a network namespace of its own with only a loopback, so it cannot send out what it read while tests on `127.0.0.1` still work; as a non-root user this takes unprivileged user namespaces, and where the kernel refuses them, or on macOS and Windows, it is reported as not applied (Ubuntu 24.04 and later refuse them to programs without an AppArmor profile: `sudo motita sandbox apparmor install` loads one for the motita binary, `print` shows it and `remove` takes it back); a command you approve, and every command with the policy off, keeps the network. Settings → Security in the webui changes it, live, with a confirmation before turning it off; `MOTITA_SANDBOX_ISOLATE_NETWORK` overrides it), `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt), `disk_access` (`workspace`/`full`, default `workspace`: confined to the workspace a command also cannot read nor list your files outside the directories it works in (the home directory, `/home`, `/root`, `/mnt`, `/media`, `/srv`) and `write_file`/`edit_file` refuse a path outside the workspace; `full` lets both reach the whole disk, motita's logins stay hidden. Settings → Security in the webui changes it, live, with a confirmation before `full`; `MOTITA_SANDBOX_DISK_ACCESS` overrides it), `ask_unconfined_runs` (default `true`: where nothing confines a command — Windows, macOS, Linux without Landlock — the agent asks before the project's own code runs (a script, a build, a test); `false` runs it without asking, while a command that reaches outside the workspace and a `cmd.exe` line with cmd's own syntax are still asked about. Settings → Security in the webui changes it, with a confirmation before turning it off; `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` overrides it) |
-| `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
+| `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`ollama-cloud`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
 | `models`       | `plan`, `code`, `review`, `research`, `summary`: one `provider/model` per kind of work (see [Models per kind of work](#models-per-kind-of-work)); empty follows `llm.provider`/`llm.model`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -1254,9 +1257,9 @@ are started by that session's run, and another session never sees them.
 `GET /v1/llm` also answers `task_kinds`, `tasks` and, per provider, `listed_models` (what its
 last connection test listed). Each catalogue model may carry `tier` (`basic`, `mid`,
 `frontier`), `cost` (`local`, `low`, `mid`, `high`) and `price_in` / `price_out` (approximate USD per
-million tokens, from `internal/onboard/providers.go`, revised by hand; absent for subscriptions and
-local models), which Settings → Models shows next to each model. A model a provider lists that the
-catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesCheckedOn`).
+million tokens, from `internal/onboard/prices.json`, revised by hand; absent for subscriptions and
+local models; the `ollama-cloud` provider's are Ollama Cloud's, and `ollama` is local), which Settings → Models shows next to each model. A model a provider lists that the
+catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesChecked()`).
 
 ### Voice input
 
@@ -1365,8 +1368,8 @@ that only motita's own file edits are limited.
 
 | Endpoint            | What it does                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`) |
-| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}` or both; `confirm` is required for `full` and for `ask_unconfined_runs: false`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS` or `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` overrides it |
+| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true,"isolate_network":true,"network_enforced":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`); `network_enforced` is false where a command cannot be given a network of its own, and `network_reason` and `network_hint` then say why and what to do |
+| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false` and for `isolate_network: false`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` or `MOTITA_SANDBOX_ISOLATE_NETWORK` overrides it; a change of several keys is saved whole or not at all |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud
@@ -1530,6 +1533,13 @@ lifecycle, and the maintenance pass that keeps them honest.
 skills:
   dir: ~/.motita/skills # where the documents live
   max_file_bytes: 65536 # a bigger document is refused, not truncated
+
+review:
+  enabled: true # after a long turn, a background pass writes down what was learned as a procedure
+  interval: 15 # tool iterations without a saved procedure before the pass runs
+  timeout: 120s # how long the pass may take
+  max_iterations: 8 # tool iterations the pass itself may use
+  # llm: {...} # a model of its own for the pass; left out, it uses the main one
 
 curator:
   enabled: true # run the maintenance pass on its own

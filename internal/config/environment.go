@@ -448,11 +448,12 @@ func readBool(key string, current bool) (bool, error) {
 // documentation uses. Keeping the table here means the wizard, the loader and the
 // tests all agree on one name per provider.
 var providerKeyAliases = map[string]string{
-	"ollama":    "OLLAMA_API_KEY",
-	"copilot":   "GITHUB_COPILOT_TOKEN",
-	"anthropic": "ANTHROPIC_API_KEY",
-	"gemini":    "GEMINI_API_KEY",
-	"qwen":      "DASHSCOPE_API_KEY",
+	"ollama":       "OLLAMA_API_KEY",
+	"ollama-cloud": "OLLAMA_API_KEY",
+	"copilot":      "GITHUB_COPILOT_TOKEN",
+	"anthropic":    "ANTHROPIC_API_KEY",
+	"gemini":       "GEMINI_API_KEY",
+	"qwen":         "DASHSCOPE_API_KEY",
 }
 
 // speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider.

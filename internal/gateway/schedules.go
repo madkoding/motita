@@ -354,8 +354,8 @@ func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 
 	rn, started := s.startDetachedRun(c, rec.Task, rec.Kind, "", s.unattendedApprover(rec.ID))
 	if !started {
-		writeError(w, http.StatusConflict,
-			fmt.Sprintf("a run is already in progress in session %q, which is where this task fires", rec.SessionID))
+		writeError(w, http.StatusConflict, fmt.Sprintf("%s (session %q, which is where this task fires)",
+			c.refusalOfRun(), rec.SessionID))
 		return
 	}
 	if !body.Wait {
@@ -449,7 +449,7 @@ func (s *Server) schedulerFirer() schedule.Firer {
 		}
 		rn, ok := s.startDetachedRun(c, sc.Task, sc.Kind, "", s.unattendedApprover(sc.ID))
 		if !ok {
-			return "", fmt.Errorf("a run is already in progress in session %q", sc.SessionID)
+			return "", fmt.Errorf("%s (session %q)", c.refusalOfRun(), sc.SessionID)
 		}
 		<-rn.done
 		return describeRun(rn)

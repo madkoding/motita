@@ -42,14 +42,26 @@ func failListings(t *testing.T) {
 	readDir = func(string) ([]os.DirEntry, error) { return nil, syscall.EACCES }
 }
 
-// leftFile writes a list the way the isolation child leaves it for the child in the namespaces.
-func leftFile(t *testing.T, content string) string {
+// leftFD leaves a list the way the isolation child does for the child in the namespaces: in a file
+// with no name, on a descriptor the reader owns and closes.
+func leftFD(t *testing.T, content string) int {
 	t.Helper()
-	name := filepath.Join(t.TempDir(), "readable")
-	if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+	f, err := os.CreateTemp(t.TempDir(), "readable")
+	if err != nil {
 		t.Fatal(err)
 	}
-	return name
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fd
 }
 
 // What the isolation child already worked out is used as it is: the child in the namespaces lists
@@ -60,22 +72,22 @@ func TestConfineUsesWhatWasWorkedOutBeforeTheRelay(t *testing.T) {
 	failListings(t)
 	granted := t.TempDir()
 	spec := Spec{WriteRoots: []string{t.TempDir()}, PrivatePaths: []string{"/home"},
-		ReadableFile: leftFile(t, `["`+granted+`"]`)}
+		ReadableFD: leftFD(t, `["`+granted+`"]`)}
 	if err := confine(spec); err != nil {
 		t.Fatalf("a listing that fails inside the namespace stopped the command: %v", err)
 	}
 	if *rules != 3 { // the workspace (written and read) and the one entry granted around the private tree
 		t.Errorf("rules = %d, want 3", *rules)
 	}
-	if _, err := os.Stat(spec.ReadableFile); !os.IsNotExist(err) {
-		t.Errorf("the file was not removed: %v", err)
+	if _, err := syscall.Dup(spec.ReadableFD); err == nil {
+		t.Error("the descriptor was not closed")
 	}
 	// Nothing left readable is an answer too, not a failure.
-	spec.ReadableFile = leftFile(t, "[]")
+	spec.ReadableFD = leftFD(t, "[]")
 	if err := confine(spec); err != nil {
 		t.Errorf("an empty answer was taken for a failure: %v", err)
 	}
-	spec.ReadableFile = leftFile(t, "null")
+	spec.ReadableFD = leftFD(t, "null")
 	if err := confine(spec); err != nil {
 		t.Errorf("a null answer was taken for a failure: %v", err)
 	}
@@ -86,10 +98,10 @@ func TestConfineListsForItselfWithoutAUsableAnswer(t *testing.T) {
 	needLandlock(t)
 	countRules(t)
 	failListings(t)
-	for _, file := range []string{"", filepath.Join(t.TempDir(), "gone"), leftFile(t, "not json")} {
-		spec := Spec{WriteRoots: []string{t.TempDir()}, PrivatePaths: []string{"/home"}, ReadableFile: file}
+	for _, fd := range []int{0, 1 << 20, leftFD(t, "not json")} {
+		spec := Spec{WriteRoots: []string{t.TempDir()}, PrivatePaths: []string{"/home"}, ReadableFD: fd}
 		if err := confine(spec); err == nil || !strings.Contains(err.Error(), "stays readable") {
-			t.Errorf("file %q: got %v", file, err)
+			t.Errorf("descriptor %d: got %v", fd, err)
 		}
 	}
 }
@@ -105,8 +117,20 @@ func TestWorkOutReadableLeavesTheListForTheRelay(t *testing.T) {
 	var known bool
 	for range 5 {
 		spec := Spec{WriteRoots: []string{work}, PrivatePaths: []string{home}}
-		workOutReadable(&spec)
-		list, known = takeReadableFile(spec.ReadableFile)
+		file := workOutReadable(&spec)
+		if file == nil || spec.ReadableFD != readableFD {
+			t.Fatalf("no list was left: %v, descriptor %d", file, spec.ReadableFD)
+		}
+		if _, err := os.Stat(file.Name()); !os.IsNotExist(err) {
+			t.Errorf("the list has a name in a shared directory: %v", err)
+		}
+		// What the child reads is on the descriptor it inherits: stand in for it with a copy of this one.
+		fd, err := syscall.Dup(int(file.Fd()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = file.Close()
+		list, known = takeReadableFile(fd)
 		want = readableAround([]string{home})
 		if known && strings.Join(list, ",") == strings.Join(want, ",") {
 			break
@@ -116,8 +140,7 @@ func TestWorkOutReadableLeavesTheListForTheRelay(t *testing.T) {
 		t.Errorf("list = %v (known %v), want %v", list, known, want)
 	}
 	noRoots := Spec{PrivatePaths: []string{home}}
-	workOutReadable(&noRoots)
-	if noRoots.ReadableFile != "" {
+	if workOutReadable(&noRoots) != nil || noRoots.ReadableFD != 0 {
 		t.Error("it worked out a list for a command that is not confined")
 	}
 }
@@ -129,9 +152,8 @@ func TestWorkOutReadableGivesUpQuietly(t *testing.T) {
 	t.Run("a listing that fails", func(t *testing.T) {
 		failListings(t)
 		s := spec
-		workOutReadable(&s)
-		if s.ReadableFile != "" {
-			t.Errorf("a failed listing was passed on: %q", s.ReadableFile)
+		if workOutReadable(&s) != nil || s.ReadableFD != 0 {
+			t.Error("a failed listing was passed on")
 		}
 	})
 	t.Run("a list that cannot be written down", func(t *testing.T) {
@@ -139,27 +161,53 @@ func TestWorkOutReadableGivesUpQuietly(t *testing.T) {
 		t.Cleanup(func() { jsonMarshal = prev })
 		jsonMarshal = func(any) ([]byte, error) { return nil, errors.New("no") }
 		s := spec
-		workOutReadable(&s)
-		if s.ReadableFile != "" {
-			t.Errorf("got %q", s.ReadableFile)
+		if workOutReadable(&s) != nil || s.ReadableFD != 0 {
+			t.Error("a list that could not be left was passed on")
 		}
 	})
 	t.Run("nowhere to put it", func(t *testing.T) {
 		t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 		s := spec
-		workOutReadable(&s)
-		if s.ReadableFile != "" {
-			t.Errorf("got %q", s.ReadableFile)
+		if workOutReadable(&s) != nil || s.ReadableFD != 0 {
+			t.Error("a list that could not be left was passed on")
 		}
 	})
 	t.Run("a write that fails", func(t *testing.T) {
 		prev := writeReadable
 		t.Cleanup(func() { writeReadable = prev })
-		writeReadable = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+		writeReadable = func(*os.File, []byte) error { return errors.New("disk full") }
 		s := spec
-		workOutReadable(&s)
-		if s.ReadableFile != "" {
-			t.Errorf("got %q", s.ReadableFile)
+		if workOutReadable(&s) != nil || s.ReadableFD != 0 {
+			t.Error("a list that could not be left was passed on")
 		}
 	})
+}
+
+// The list reaches the child in the namespaces on the descriptor it inherits, and the command runs
+// confined with it.
+func TestRelayHandsTheListOnAnInheritedDescriptor(t *testing.T) {
+	skipWithoutNamespaces(t)
+	needLandlock(t)
+	exits := stubChildExit(t)
+	home, work := userHome(t)
+	spec := Spec{Command: "sh", Args: []string{"-c", "exit 3"}, Limits: Limits{NoNetwork: true},
+		WriteRoots: []string{work}, PrivatePaths: []string{home}}
+	if err := relayInNamespace(spec); err != nil {
+		t.Fatal(err)
+	}
+	if len(*exits) != 1 || (*exits)[0] != 3 {
+		t.Fatalf("exits = %v, want the command's own code", *exits)
+	}
+}
+
+// A list that cannot be written to its file is not passed on.
+func TestWriteReadableReportsAWriteThatFails(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "readable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if err := writeReadable(f, []byte("[]")); err == nil {
+		t.Error("a write to a closed file was taken for done")
+	}
 }

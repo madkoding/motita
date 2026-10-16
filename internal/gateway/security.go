@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -175,43 +176,58 @@ func (s *Server) handlePutSecurity(w http.ResponseWriter, r *http.Request) {
 	s.writeSecurity(w)
 }
 
-// saveSecurity writes what the change names into the file and hands it to every open conversation:
-// the disk access when mode is set, each choice when the change carries it.
+// saveSecurity writes what the change names into the file and then hands it to every open
+// conversation: the disk access when mode is set, each choice when the change carries it. The
+// file takes all of it or none (a later key the environment overrides puts the earlier ones
+// back), and no conversation hears of a change that did not stay.
 func (s *Server) saveSecurity(mode string, change securityChange) error {
-	if mode != "" {
-		if err := setDiskAccess(s.opts.ConfigPath, mode); err != nil {
-			return err
+	before, err := config.SnapshotFile(s.opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if err := s.writeSecurityKeys(mode, change); err != nil {
+		if rerr := before.Restore(); rerr != nil {
+			return fmt.Errorf("%w (and the file could not be restored: %v)", err, rerr)
 		}
+		return err
+	}
+	if mode != "" {
 		for _, c := range s.snapshot() {
 			applyDiskAccess(c.svc, mode)
 		}
 		s.info("the agent's disk access was changed from the settings", "disk_access", mode)
 	}
 	if ask := change.AskUnconfinedRuns; ask != nil {
-		if err := setAskUnconfinedRuns(s.opts.ConfigPath, *ask); err != nil {
-			return err
-		}
 		for _, c := range s.snapshot() {
 			applyAskUnconfinedRuns(c.svc, *ask)
 		}
 		s.info("asking before unconfined runs was changed from the settings", "ask_unconfined_runs", *ask)
 	}
 	if on := change.IsolateNetwork; on != nil {
-		return s.saveIsolateNetwork(*on)
+		for _, c := range s.snapshot() {
+			applyIsolateNetwork(c.svc, *on)
+		}
+		s.info("the network isolation of the commands was changed from the settings", "isolate_network", *on)
 	}
 	return nil
 }
 
-// saveIsolateNetwork writes the network isolation into the file and hands it to every open
-// conversation.
-func (s *Server) saveIsolateNetwork(on bool) error {
-	if err := setIsolateNetwork(s.opts.ConfigPath, on); err != nil {
-		return err
+// writeSecurityKeys writes each key the change names into the file, stopping at the first that
+// fails.
+func (s *Server) writeSecurityKeys(mode string, change securityChange) error {
+	if mode != "" {
+		if err := setDiskAccess(s.opts.ConfigPath, mode); err != nil {
+			return err
+		}
 	}
-	for _, c := range s.snapshot() {
-		applyIsolateNetwork(c.svc, on)
+	if ask := change.AskUnconfinedRuns; ask != nil {
+		if err := setAskUnconfinedRuns(s.opts.ConfigPath, *ask); err != nil {
+			return err
+		}
 	}
-	s.info("the network isolation of the commands was changed from the settings", "isolate_network", on)
+	if on := change.IsolateNetwork; on != nil {
+		return setIsolateNetwork(s.opts.ConfigPath, *on)
+	}
 	return nil
 }
 

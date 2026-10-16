@@ -248,7 +248,7 @@ func TestChooseProviderTakesTheDefault(t *testing.T) {
 // and a number outside the list is refused.
 func TestChooseProviderRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "9", "openai", "", "", "1", "3", ""},
+	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "10", "openai", "", "", "1", "3", ""},
 		Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -259,7 +259,7 @@ func TestChooseProviderRejectsGarbage(t *testing.T) {
 	if !strings.Contains(out, "I do not know") {
 		t.Error("the user must be told the answer was not understood")
 	}
-	if !strings.Contains(out, "There is no option 9") {
+	if !strings.Contains(out, "There is no option 10") {
 		t.Error("an out-of-range number must be refused")
 	}
 }
@@ -288,7 +288,7 @@ func TestChooseModelFallsBackToDefaultBaseURL(t *testing.T) {
 	}
 	defer func() { modelLister = old }()
 
-	p, _ := Lookup("ollama")
+	p, _ := Lookup("ollama-cloud")
 	s := &session{in: bufio.NewReader(strings.NewReader("1\n")), out: io.Discard}
 	model, err := s.chooseModel(context.Background(), p, "", "", "key")
 	if err != nil {
@@ -568,7 +568,7 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 }
 
 func TestNamesAndHelpers(t *testing.T) {
-	if got := Names(); got != "anthropic, claude-code, codex, copilot, gemini, ollama, openai, qwen" {
+	if got := Names(); got != "anthropic, claude-code, codex, copilot, gemini, ollama, ollama-cloud, openai, qwen" {
 		t.Errorf("Names() = %q", got)
 	}
 	if _, ok := Lookup("ANTHROPIC"); !ok {

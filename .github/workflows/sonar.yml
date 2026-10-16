@@ -36,7 +36,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          pip install semgrep
+          # Pinned: a new release brings new rules, and --error would turn an untouched PR red.
+          pip install semgrep==1.181.0
           # On a PR: only the findings the PR introduces, and --error fails the job.
           pr_args=()
           if [ -n "$BASE_SHA" ]; then pr_args=(--baseline-commit "$BASE_SHA" --error); fi

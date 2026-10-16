@@ -84,7 +84,7 @@ function SkillView({ skill }: { skill: SkillInfo }) {
   const { skillBody, setSkillOpen, closeSkillLibrary } = useApp().skills;
   return (
     <div>
-      <div class="flex items-center gap-2 mb-3 text-xs text-[#7a7a8c]">
+      <div class="flex flex-wrap items-center gap-2 mb-3 text-xs text-[#7a7a8c]">
         <span class="font-mono">{skill.name}</span>
         <SkillTags s={skill} />
         <span>{tf("used {n}×", { n: skill.use_count })}</span>
@@ -291,9 +291,9 @@ export function SkillLibraryModal() {
   return (
     <ModalBackdrop onClose={closeSkillLibrary}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-2xl max-h-[80vh] overflow-y-auto p-5 shadow-2xl">
-        <div class="flex items-center gap-2 mb-4">
-          <IconBook size={20} class="text-accent" />
-          <h2 class="text-base font-semibold">{skillHeading(skillOpen)}</h2>
+        <div class="flex flex-wrap items-center gap-2 mb-4">
+          <IconBook size={20} class="text-accent shrink-0" />
+          <h2 class="flex-1 min-w-[10rem] text-sm sm:text-base font-semibold line-clamp-2 break-words">{skillHeading(skillOpen)}</h2>
           {skillOpen && <OpenSkillActions skill={skillOpen} />}
           <button
             class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
