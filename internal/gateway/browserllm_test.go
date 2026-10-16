@@ -13,24 +13,9 @@ import (
 	"github.com/madkoding/motita/internal/llm"
 )
 
-// A tab asks for work, gets the job, and answers it: the agent's side gets the text.
-func TestBrowserLLMRoundTrip(t *testing.T) {
-	b := browserllm.New()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.BrowserLLM = b })
-
-	asked := make(chan string, 1)
-	go func() {
-		// Wait until the tab's poll has marked it as there.
-		for !b.Online() {
-			time.Sleep(time.Millisecond)
-		}
-		text, err := b.Ask(context.Background(), []llm.Message{{Role: "user", Content: "title?"}})
-		if err != nil {
-			text = err.Error()
-		}
-		asked <- text
-	}()
-
+// waitForBrowserJob polls as a tab does until a job comes, and checks it is the one asked for.
+func waitForBrowserJob(t *testing.T, srv *Server) string {
+	t.Helper()
 	var w *httptest.ResponseRecorder
 	for {
 		w = get(t, srv, "/v1/browser-llm/next", testToken)
@@ -50,7 +35,29 @@ func TestBrowserLLMRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &job); err != nil || job.ID == "" {
 		t.Fatalf("job id: %v %s", err, w.Body)
 	}
-	jobPath := "/v1/browser-llm/jobs/" + job.ID
+	return job.ID
+}
+
+// A tab asks for work, gets the job, and answers it: the agent's side gets the text.
+func TestBrowserLLMRoundTrip(t *testing.T) {
+	b := browserllm.New()
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.BrowserLLM = b })
+
+	asked := make(chan string, 1)
+	go func() {
+		// Wait until the tab's poll has marked it as there.
+		for !b.Online() {
+			time.Sleep(time.Millisecond)
+		}
+		text, err := b.Ask(context.Background(), []llm.Message{{Role: "user", Content: "title?"}})
+		if err != nil {
+			text = err.Error()
+		}
+		asked <- text
+	}()
+
+	jobID := waitForBrowserJob(t, srv)
+	jobPath := "/v1/browser-llm/jobs/" + jobID
 	ans := post(t, srv, jobPath, `{"text":"A title"}`, testToken)
 	if ans.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", ans.Code, ans.Body)
