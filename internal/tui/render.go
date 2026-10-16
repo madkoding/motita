@@ -134,15 +134,18 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	bar := t.bottomBar(w)
 	popup := t.popupRows()
 
-	// The composer is always two rows above the end of the frame — the box's bottom border and
-	// the footer — so the cursor is walked back up to it from wherever the frame leaves it.
-	const belowComposer = rowsBelowComposer
-
 	// A terminal too small to hold the interface gets an explanation instead of a broken frame.
 	if h > 0 && h < minHeight {
 		return t.tooSmallLines(w, h), ""
 	}
 
+	lines, prompt := t.arrange(w, h, top, body, bar, popup)
+	return guardRows(lines, w-1), prompt
+}
+
+// arrange puts the parts of the frame in order and fits them to h.
+func (t *TUI) arrange(w, h int, top, body []string, bar string, popup int) ([]string, string) {
+	const belowComposer = rowsBelowComposer
 	if h <= 0 {
 		lines := append([]string{}, top...)
 		lines = append(lines, t.rule(w))

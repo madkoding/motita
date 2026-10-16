@@ -35,9 +35,10 @@ func TestVisibleLenCountsRunesNotBytes(t *testing.T) {
 		{"empty", "", 0},
 		{"accented latin", "café", 4},
 		{"multi-byte, one column each", "áéíóú", 5},
-		{"emoji is one rune", "\U0001F31F", 1},
-		{"mixed", "a\U0001F31Fb", 3},
-		{"a combining accent is its own rune", "e\u0301", 2},
+		{"emoji is two columns", "\U0001F31F", 2},
+		{"mixed", "a\U0001F31Fb", 4},
+		{"a combining accent takes no column", "e\u0301", 1},
+		{"CJK is two columns", "日本", 4},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

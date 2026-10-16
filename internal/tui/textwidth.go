@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -29,8 +30,11 @@ func clipLine(s string, width int) string {
 		return s
 	}
 	// One column is spent on the ellipsis, so the result still fits.
-	runes := []rune(s)
-	return strings.TrimRight(string(runes[:width-1]), " ") + "\u2026"
+	if width == 1 {
+		return "\u2026"
+	}
+	cut, _ := splitAtWidth(s, width-1)
+	return strings.TrimRight(s[:cut], " ") + "\u2026"
 }
 
 // wordWrap breaks text into lines of at most `width` COLUMNS.
@@ -167,12 +171,26 @@ func (wr *wrapper) hardSplit(word string, w int) {
 func splitAtWidth(s string, width int) (int, string) {
 	cols := 0
 	for i := 0; i < len(s); {
-		if cols == width {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rw := runeWidth(r)
+		// A wide rune that would straddle the cut goes to the next piece, but never leaves this
+		// one empty: the caller's loop needs a cut greater than zero to terminate.
+		if cols+rw > width && i > 0 {
 			return i, s[:i]
 		}
-		_, size := utf8.DecodeRuneInString(s[i:])
 		i += size
-		cols++
+		cols += rw
+		if cols >= width {
+			// Zero-width marks that follow belong with the rune they modify.
+			for i < len(s) {
+				nr, nsize := utf8.DecodeRuneInString(s[i:])
+				if runeWidth(nr) != 0 {
+					break
+				}
+				i += nsize
+			}
+			return i, s[:i]
+		}
 	}
 	return len(s), s
 }
@@ -288,6 +306,32 @@ func inOSC(r rune) int {
 	return next
 }
 
+// isWide reports whether r is an East Asian wide or emoji rune, which takes two columns.
+func isWide(r rune) bool {
+	for _, span := range wideSpans {
+		if r >= span[0] && r <= span[1] {
+			return r != 0x303f
+		}
+	}
+	return false
+}
+
+// wideSpans are the ranges of two-column runes.
+var wideSpans = [...][2]rune{
+	{0x1100, 0x115f},   // Hangul Jamo
+	{0x2e80, 0xa4cf},   // CJK radicals .. Yi
+	{0xac00, 0xd7a3},   // Hangul syllables
+	{0xf900, 0xfaff},   // CJK compatibility ideographs
+	{0xfe30, 0xfe6f},   // CJK compatibility forms
+	{0xff00, 0xff60},   // fullwidth forms
+	{0xffe0, 0xffe6},   // fullwidth signs
+	{0x1f300, 0x1f64f}, // pictographs, emoticons
+	{0x1f680, 0x1f6ff}, // transport
+	{0x1f900, 0x1f9ff}, // supplemental pictographs
+	{0x20000, 0x3fffd}, // CJK extensions
+	{0x2705, 0x2705}, {0x274c, 0x274c}, {0x2b50, 0x2b50}, {0x231a, 0x231b},
+}
+
 // visibleLen returns how many COLUMNS a line occupies, escapes excluded.
 //
 // No ESC byte means every rune is text, so the count is taken directly and the closure-per-rune
@@ -296,15 +340,51 @@ func inOSC(r rune) int {
 // profile even when there was nothing to unescape.
 func visibleLen(s string) int {
 	if strings.IndexByte(s, 0x1b) < 0 {
-		return utf8.RuneCountInString(s)
+		return plainWidth(s)
 	}
 	n := 0
-	scanEscapes(s, func(_ rune, isEscape bool) {
+	scanEscapes(s, func(r rune, isEscape bool) {
 		if !isEscape {
-			n++
+			n += runeWidth(r)
 		}
 	})
 	return n
+}
+
+// plainWidth is the columns of a string without escapes. ASCII text, the overwhelming case, is
+// its byte length; anything else is summed rune by rune.
+func plainWidth(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			n = 0
+			for _, r := range s {
+				n += runeWidth(r)
+			}
+			return n
+		}
+	}
+	return len(s)
+}
+
+// runeWidth is how many terminal columns r occupies: 0 for combining marks, joiners and
+// variation selectors, 2 for East Asian wide and emoji, 1 for everything else.
+//
+// Counting every rune as one column is what let a line of CJK text or emoji reach the terminal
+// twice as wide as it was measured: the terminal wrapped it onto an extra row, the frame came
+// out taller than the window and the whole interface scrolled, so the input box landed at a
+// different height after each request.
+func runeWidth(r rune) int {
+	switch {
+	case r < 0x300:
+		return 1
+	case unicode.Is(unicode.Mn, r), unicode.Is(unicode.Me, r), unicode.Is(unicode.Cf, r):
+		return 0
+	case isWide(r):
+		return 2
+	default:
+		return 1
+	}
 }
 
 // needsEscaping reports whether r is shown escaped by EscapeControls: a C0 control but newline
@@ -372,5 +452,52 @@ func stripANSI(s string) string {
 			b.WriteRune(r)
 		}
 	})
+	return b.String()
+}
+
+// guardRows is the last line of defence before a frame is written: no row may hold a tab or
+// reach past `cols` columns.
+//
+// A row wider than the terminal is wrapped by the terminal onto a row of its own, and a tab
+// jumps to the next stop, which the width count cannot know. Either one makes the frame taller
+// than the window, the terminal scrolls, and the input box ends up at a different height after
+// each request. Every producer of rows measures its text, but they measure it separately, so
+// the frame is checked once more here, where it is cheap and nothing can slip past.
+func guardRows(lines []string, cols int) []string {
+	for i, l := range lines {
+		if strings.IndexByte(l, '\t') >= 0 {
+			l = strings.ReplaceAll(l, "\t", "    ")
+		}
+		if visibleLen(l) > cols {
+			l = clipVisible(l, cols)
+		}
+		lines[i] = l
+	}
+	return lines
+}
+
+// clipVisible cuts a line that may hold escape sequences after `cols` columns. Escapes are kept
+// whole and a reset is appended when one was seen, so a cut never leaves a colour switched on.
+func clipVisible(s string, cols int) string {
+	var b strings.Builder
+	state, used, sawEscape := escNone, 0, false
+	for _, r := range s {
+		var isEscape bool
+		state, isEscape = escStep(state, r)
+		if isEscape {
+			sawEscape = true
+			b.WriteRune(r)
+			continue
+		}
+		rw := runeWidth(r)
+		if used+rw > cols {
+			break
+		}
+		used += rw
+		b.WriteRune(r)
+	}
+	if sawEscape {
+		b.WriteString("\x1b[0m")
+	}
 	return b.String()
 }
