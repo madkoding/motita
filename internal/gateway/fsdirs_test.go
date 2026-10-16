@@ -298,7 +298,7 @@ func withDrives(t *testing.T, roots ...string) {
 func TestAMachineWithSeveralDrivesListsThemAboveTheTopOfEach(t *testing.T) {
 	withDrives(t, `C:\`, `D:\`)
 	srv, _ := fullDiskServer(t)
-	code, out, body := listDirs(t, srv, "%40drives")
+	code, out, body := listDirs(t, srv, drivesPath)
 	if code != http.StatusOK || out.Path != "" || len(out.Dirs) != 2 || out.Dirs[0].Name != "C:" || out.Dirs[1].Path != `D:\` {
 		t.Fatalf("drives: %d %s", code, body)
 	}
@@ -317,7 +317,7 @@ func TestRelativeFoldersAndDollarFoldersAreLeftOut(t *testing.T) {
 	if code, _, _ := listDirs(t, srv, "relative/dir"); code != http.StatusBadRequest {
 		t.Errorf("relative: %d", code)
 	}
-	if code, _, _ := listDirs(t, srv, "%40drives"); code != http.StatusBadRequest {
+	if code, _, _ := listDirs(t, srv, drivesPath); code != http.StatusBadRequest {
 		t.Errorf("drives on a machine with one tree: %d", code)
 	}
 	base := t.TempDir()
