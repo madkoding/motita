@@ -193,7 +193,12 @@ function useSample(api: Api) {
 
 // voicesOf is the catalog without the models speech input listens with (LocalListenSettings.tsx).
 function voicesOf(catalog: LocalCatalog): LocalCatalog {
-  return { ...catalog, models: catalog.models.filter((m) => !isWhisper(m.id) && !isBrowserLLM(m.id)) };
+  return {
+    ...catalog,
+    models: catalog.models.filter(
+      (m) => !isWhisper(m.id) && !isBrowserLLM(m.id),
+    ),
+  };
 }
 
 // useCatalog is the gateway's catalog of local models as shape keeps them, read again on its own

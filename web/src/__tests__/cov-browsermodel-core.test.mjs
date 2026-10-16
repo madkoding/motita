@@ -6,7 +6,16 @@ import assert from "node:assert/strict";
 import { source } from "./cov-voice-helpers.mjs";
 
 const core = await source("browserLLMCore.ts");
-const { BrowserModel, LLM_F16, LLM_F32, argmax, buildFor, chatPrompt, halfToFloat, isBrowserLLM } = core;
+const {
+  BrowserModel,
+  LLM_F16,
+  LLM_F32,
+  argmax,
+  buildFor,
+  chatPrompt,
+  halfToFloat,
+  isBrowserLLM,
+} = core;
 
 test("the conversation is written the way the model reads it", () => {
   assert.equal(
@@ -37,10 +46,18 @@ test("16-bit floats are read from their bits", () => {
 });
 
 test("the best of the last scores wins, in either width", () => {
-  assert.equal(argmax([9, 9, 9, 1, 5, 2], 3, false), 1, "only the last token's scores count");
+  assert.equal(
+    argmax([9, 9, 9, 1, 5, 2], 3, false),
+    1,
+    "only the last token's scores count",
+  );
   // 1.0, 2.0, 0.5 as 16-bit floats.
   assert.equal(argmax([0x3c00, 0x4000, 0x3800], 3, true), 1);
-  assert.equal(argmax([0xfc00, 0xfc00], 2, true), 0, "nothing beats minus infinity but the first");
+  assert.equal(
+    argmax([0xfc00, 0xfc00], 2, true),
+    0,
+    "nothing beats minus infinity but the first",
+  );
 });
 
 test("the catalog ids tell the browser model from a voice", () => {
@@ -73,7 +90,9 @@ function fakes({ half = false, says = [7, 8], stop = 151645 } = {}) {
       const scores = new Array(2 * vocab).fill(half ? 0xfc00 : -1);
       scores.fill(half ? 0x3c00 : 99, 0, vocab);
       scores[vocab + next] = half ? 0x3c00 : 5;
-      const out = { logits: new Tensor(half ? "float16" : "float32", scores, [1, 2, vocab]) };
+      const out = {
+        logits: new Tensor(half ? "float16" : "float32", scores, [1, 2, vocab]),
+      };
       for (let i = 0; i < 24; i++) {
         out[`present.${i}.key`] = new Tensor("x", [], [1, 2, step, 64]);
         out[`present.${i}.value`] = new Tensor("x", [], [1, 2, step, 64]);
@@ -107,14 +126,20 @@ test("it loads the build the card runs, and tells how far it is", async () => {
     const { deps, log } = fakes({ half });
     const seen = [];
     const m = new BrowserModel(deps);
-    assert.deepEqual(await m.load((p) => seen.push(p)), { build: half ? LLM_F16 : LLM_F32 });
+    assert.deepEqual(await m.load((p) => seen.push(p)), {
+      build: half ? LLM_F16 : LLM_F32,
+    });
     const id = half ? LLM_F16 : LLM_F32;
     assert.deepEqual(log.urls.filter((u) => !u.includes("runtime")).sort(), [
       `/v1/voice/models/${id}/model.onnx`,
       `/v1/voice/models/${id}/tokenizer.json`,
       `/v1/voice/models/${id}/tokenizer_config.json`,
     ]);
-    assert.ok(log.urls.includes("/v1/voice/models/runtime/ort-wasm-simd-threaded.asyncify.wasm"));
+    assert.ok(
+      log.urls.includes(
+        "/v1/voice/models/runtime/ort-wasm-simd-threaded.asyncify.wasm",
+      ),
+    );
     assert.equal(seen[0], 5);
     assert.equal(seen.at(-1), 100);
     assert.ok(seen.every((p, i) => i === 0 || p >= 5));
@@ -133,7 +158,10 @@ test("it answers greedily until the model ends its turn", async () => {
     assert.equal(first.input_ids.dims[1], 3);
     assert.equal(first.attention_mask.dims[1], 3);
     assert.deepEqual([...first.position_ids.data], [0n, 1n, 2n]);
-    assert.equal(first["past_key_values.0.key"].type, half ? "float16" : "float32");
+    assert.equal(
+      first["past_key_values.0.key"].type,
+      half ? "float16" : "float32",
+    );
     assert.deepEqual(first["past_key_values.23.value"].dims, [1, 2, 0, 64]);
     const second = log.feeds[1];
     assert.deepEqual([...second.input_ids.data], [7n]);

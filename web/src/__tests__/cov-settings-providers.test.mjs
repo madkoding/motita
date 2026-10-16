@@ -188,11 +188,20 @@ test("the list shows every provider with its state, and a refused load says why"
 
   // The model that runs in this browser is turned on in Models, not connected here.
   const withBrowser = fakeApi({
-    "GET /v1/llm": json(200, { ...VIEW, providers: [...VIEW.providers, { ...base, id: "browser", name: "Browser (WebGPU)", key: "not_needed" }] }),
+    "GET /v1/llm": json(200, {
+      ...VIEW,
+      providers: [
+        ...VIEW.providers,
+        { ...base, id: "browser", name: "Browser (WebGPU)", key: "not_needed" },
+      ],
+    }),
   });
   const w = await mount(withBrowser.api);
   assert.equal(w.row("browser"), null);
-  assert.equal(w.root.querySelectorAll("[data-provider]").length, Object.keys(P).length);
+  assert.equal(
+    w.root.querySelectorAll("[data-provider]").length,
+    Object.keys(P).length,
+  );
   await w.unmount();
 
   const bad = fakeApi({ "GET /v1/llm": json(500, { error: "llm down" }) });
