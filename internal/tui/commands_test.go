@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/motita/internal/i18n"
 )
 
 // tuiPopupBody is the popup's rows, stripped of colour: the tests assert on what is read.
@@ -608,6 +610,19 @@ func TestThePopupOnlyDrawsOneHighlightAtATime(t *testing.T) {
 		}
 		if highlighted != 1 {
 			t.Errorf("idx=%d: exactly one row must be highlighted, got %d", i, highlighted)
+		}
+	}
+}
+
+// Every command is explained in Spanish too: a help line left in English shows up in the
+// popup and the help screen of a Spanish session.
+func TestEveryCommandHasSpanishHelp(t *testing.T) {
+	for _, c := range commands {
+		if got := i18n.T(i18n.ES, c.Help); got == c.Help {
+			t.Errorf("%s: no Spanish for the help %q", c.Name, c.Help)
+		}
+		if c.Arg != "" && !strings.HasPrefix(c.Arg, "[") && i18n.T(i18n.ES, c.Arg) == c.Arg {
+			t.Errorf("%s: no Spanish for the argument %q", c.Name, c.Arg)
 		}
 	}
 }
