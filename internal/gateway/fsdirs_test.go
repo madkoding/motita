@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,7 +30,7 @@ func listDirs(t *testing.T, srv *Server, path string) (int, dirListing, string) 
 	t.Helper()
 	url := "/v1/fs/dirs"
 	if path != "" {
-		url += "?path=" + path
+		url += "?path=" + neturl.QueryEscape(path)
 	}
 	w := get(t, srv, url, testToken)
 	var out dirListing
