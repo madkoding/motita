@@ -54,10 +54,11 @@ async function tryIt(api: Api): Promise<string> {
   if (!res.ok) {
     throw new Error(body.error || "HTTP " + res.status);
   }
-  return tf("“{text}” in {seconds} s", {
-    text: body.text ?? "",
-    seconds: ((body.ms ?? 0) / 1000).toFixed(1),
-  });
+  const seconds = ((body.ms ?? 0) / 1000).toFixed(1);
+  if (!body.text?.trim()) {
+    return tf("It ran in {seconds} s but answered nothing.", { seconds });
+  }
+  return tf("“{text}” in {seconds} s", { text: body.text, seconds });
 }
 
 // BrowserModelSettings turns on the small model this tab runs on its own graphics card. Nothing is
@@ -75,13 +76,16 @@ export function BrowserModelSettings({ api }: { api: Api }) {
       stopBrowserModel();
     }
   };
-  const [tried, setTried] = useState("");
+  const [tried, setTried] = useState({ text: "", ok: true });
   const [trying, setTrying] = useState(false);
   const tryOut = () => {
     setTrying(true);
-    setTried("");
+    setTried({ text: "", ok: true });
     tryIt(api)
-      .then(setTried, (e: unknown) => setTried(errorMessage(e)))
+      .then(
+        (text) => setTried({ text, ok: true }),
+        (e: unknown) => setTried({ text: errorMessage(e), ok: false }),
+      )
       .finally(() => setTrying(false));
   };
   const status = statusOf(
@@ -133,10 +137,20 @@ export function BrowserModelSettings({ api }: { api: Api }) {
           <Row
             id="llm-browser-try"
             label={t("Try it")}
-            hint={
-              tried ||
-              t(
-                "Asks it for a title, through the gateway, the way the agent would.",
+            hint={t(
+              "Asks it for a title, through the gateway, the way the agent would.",
+            )}
+            warning={
+              (trying || tried.text) && (
+                <output
+                  class={
+                    "block text-sm mt-1 " +
+                    choose(tried.ok, "text-[#7ee0a0]", "text-[#ff8a8a]")
+                  }
+                  data-testid="llm-browser-try-result"
+                >
+                  {choose(trying, t("Trying it…"), tried.text)}
+                </output>
               )
             }
           >
@@ -146,7 +160,7 @@ export function BrowserModelSettings({ api }: { api: Api }) {
               disabled={trying}
               onClick={tryOut}
             >
-              {t("Try it")}
+              {choose(trying, t("Trying it…"), t("Try it"))}
             </button>
           </Row>
         )}

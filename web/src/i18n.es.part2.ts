@@ -172,6 +172,9 @@ const more: Record<string, string> = {
   "Asks it for a title, through the gateway, the way the agent would.":
     "Le pide un título, a través del gateway, como lo haría el agente.",
   "“{text}” in {seconds} s": "«{text}» en {seconds} s",
+  "Trying it…": "Probando…",
+  "It ran in {seconds} s but answered nothing.":
+    "Corrió en {seconds} s pero no respondió nada.",
   "Model in this browser": "Modelo en este navegador",
   "Run a small model in this tab (WebGPU)":
     "Ejecutar un modelo pequeño en esta pestaña (WebGPU)",
