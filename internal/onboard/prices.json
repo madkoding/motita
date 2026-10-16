@@ -1,0 +1,41 @@
+{
+  "checked": "2026-10-16",
+  "prices": {
+    "anthropic": {
+      "claude-fable-5-1": {"in": 10, "out": 50},
+      "claude-haiku-4-5": {"in": 1, "out": 5},
+      "claude-opus-5": {"in": 5, "out": 25},
+      "claude-opus-5-5": {"in": 4, "out": 20},
+      "claude-sonnet-5-5": {"in": 2, "out": 10}
+    },
+    "gemini": {
+      "gemini-2.5-flash": {"in": 0.3, "out": 2.5},
+      "gemini-2.5-flash-lite": {"in": 0.1, "out": 0.4},
+      "gemini-2.5-pro": {"in": 1.25, "out": 10},
+      "gemini-3.5-flash-lite": {"in": 0.3, "out": 2.5}
+    },
+    "ollama": {
+      "deepseek-v4-pro": {"in": 1.32, "out": 3.96},
+      "deepseek-v4.1-flash": {"in": 0.3, "out": 1.2},
+      "gemma4:31b": {"in": 0.14, "out": 0.4},
+      "glm-5.3": {"in": 1.4, "out": 4.4},
+      "glm-5.3-flash": {"in": 0.15, "out": 0.5},
+      "gpt-oss:120b": {"in": 0.15, "out": 0.6},
+      "gpt-oss:20b": {"in": 0.07, "out": 0.3},
+      "kimi-k2.6": {"in": 0.95, "out": 4},
+      "kimi-k3": {"in": 3, "out": 15},
+      "minimax-m3": {"in": 0.6, "out": 2.4},
+      "muse-spark-open": {"in": 1.25, "out": 4.25},
+      "nemotron-3-nano:30b": {"in": 0.06, "out": 0.24}
+    },
+    "openai": {
+      "gpt-4.1": {"in": 2, "out": 8},
+      "gpt-4o-mini": {"in": 0.15, "out": 0.6},
+      "gpt-5": {"in": 1.25, "out": 10},
+      "gpt-5-mini": {"in": 0.25, "out": 2},
+      "gpt-6-astra": {"in": 10, "out": 50},
+      "gpt-6-luna": {"in": 0.1, "out": 0.5},
+      "gpt-6-sol": {"in": 2, "out": 10}
+    }
+  }
+}

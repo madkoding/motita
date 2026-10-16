@@ -174,7 +174,7 @@ func (s *Server) llmViewOf() llmView {
 	cfg := s.configuredLLM()
 	v := llmView{Provider: cfg.Provider, Model: cfg.Model, Writable: s.opts.ConfigPath != "",
 		Kinds: config.TaskKinds, Tasks: map[string]config.ModelChoice{},
-		PricesChecked: onboard.PricesCheckedOn}
+		PricesChecked: onboard.PricesChecked()}
 	s.llmListedMu.Lock()
 	for _, p := range onboard.Providers() {
 		pv := s.providerView(cfg, p)
@@ -234,11 +234,28 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 	if pv.Key == config.KeyEnv || pv.Key == config.KeyStored || pv.Key == config.KeyConfig {
 		pv.KeyHint = keyHint(effectiveKey(cfg, p.ID))
 	}
+	local := p.ID == "ollama" && !ollamaCloud(effectiveBase(cfg, p.ID))
 	for _, m := range p.Models {
-		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note,
-			Tier: m.Tier, Cost: m.Cost, PriceIn: m.PriceIn, PriceOut: m.PriceOut})
+		v := llmModelView{ID: m.ID, Label: m.Label, Note: m.Note,
+			Tier: m.Tier, Cost: m.Cost, PriceIn: m.PriceIn, PriceOut: m.PriceOut}
+		if local {
+			// The same model on your own machine is free: Ollama Cloud's price does not apply.
+			v.Cost, v.PriceIn, v.PriceOut = "local", 0, 0
+		}
+		pv.Models = append(pv.Models, v)
 	}
 	return pv
+}
+
+// ollamaCloud says whether an Ollama endpoint is Ollama Cloud, whose models are billed, and not a
+// machine of the user's own, where they are free.
+func ollamaCloud(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "ollama.com" || strings.HasSuffix(host, ".ollama.com")
 }
 
 // minHintedKey is the shortest key whose last four characters are shown.
