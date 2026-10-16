@@ -70,6 +70,10 @@ type Model struct {
 	PriceIn, PriceOut float64
 }
 
+// PricesCheckedOn is the day the prices below were last compared with the vendors' own pricing
+// pages (OpenAI, Anthropic, Google, Ollama). Revise it with the prices, by hand.
+const PricesCheckedOn = "2026-10-16"
+
 // Providers returns the supported providers, in the order they are offered.
 func Providers() []Provider {
 	return []Provider{
@@ -104,6 +108,12 @@ func openAIProvider() Provider {
 				Tier: "mid", Cost: "mid", PriceIn: 2, PriceOut: 8},
 			{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest",
 				Tier: "basic", Cost: "low", PriceIn: 0.15, PriceOut: 0.6},
+			{ID: "gpt-6-sol", Label: "GPT-6 sol", Note: "newest generation, balanced",
+				Tier: "frontier", Cost: "mid", PriceIn: 2, PriceOut: 10},
+			{ID: "gpt-6-luna", Label: "GPT-6 luna", Note: "newest generation, cheapest",
+				Tier: "mid", Cost: "low", PriceIn: 0.1, PriceOut: 0.5},
+			{ID: "gpt-6-astra", Label: "GPT-6 astra", Note: "newest generation, strongest",
+				Tier: "frontier", Cost: "high", PriceIn: 10, PriceOut: 50},
 		},
 	}
 }
@@ -219,6 +229,10 @@ func anthropicProvider() Provider {
 				Tier: "frontier", Cost: "high", PriceIn: 4, PriceOut: 20},
 			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast",
 				Tier: "mid", Cost: "low", PriceIn: 1, PriceOut: 5},
+			{ID: "claude-opus-5", Label: "Claude Opus 5", Note: "previous strongest",
+				Tier: "frontier", Cost: "high", PriceIn: 5, PriceOut: 25},
+			{ID: "claude-fable-5-1", Label: "Claude Fable 5.1", Note: "demanding reasoning, the priciest",
+				Tier: "frontier", Cost: "high", PriceIn: 10, PriceOut: 50},
 		},
 	}
 }
@@ -261,6 +275,8 @@ func geminiProvider() Provider {
 				Tier: "frontier", Cost: "mid", PriceIn: 1.25, PriceOut: 10},
 			{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest",
 				Tier: "basic", Cost: "low", PriceIn: 0.1, PriceOut: 0.4},
+			{ID: "gemini-3.5-flash-lite", Label: "Gemini 3.5 Flash-Lite", Note: "newest cheap model",
+				Tier: "basic", Cost: "low", PriceIn: 0.3, PriceOut: 2.5},
 		},
 	}
 }

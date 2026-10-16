@@ -168,6 +168,8 @@ const more: Record<string, string> = {
   Capable: "Capaz",
   "Very capable": "Muy capaz",
   "Free (local)": "Gratis (local)",
+  "Estimated from the model's name": "Estimado a partir del nombre del modelo",
+  "Prices checked on {date}.": "Precios revisados el {date}.",
   Cheap: "Económico",
   Moderate: "Intermedio",
   Expensive: "Caro",

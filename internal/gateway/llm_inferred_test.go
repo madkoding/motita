@@ -10,7 +10,7 @@ func TestWithInferredFacts(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %+v", got)
 	}
-	if want := (llmModelView{ID: "gpt-5-nano", Label: "gpt-5-nano", Tier: "basic", Cost: "low"}); got[1] != want {
+	if want := (llmModelView{ID: "gpt-5-nano", Label: "gpt-5-nano", Tier: "basic", Cost: "low", Estimated: true}); got[1] != want {
 		t.Errorf("got %+v, want %+v", got[1], want)
 	}
 	// A local model with no size in its name is still known to be local.

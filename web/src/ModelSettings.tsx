@@ -79,7 +79,9 @@ export function ModelSettings({ api, onNotice }: ProviderSettingsProps) {
       <p class="text-xs text-[#7a7a8c] mb-3" data-testid="model-legend">
         {t(
           "Each model shows how capable it is and what it costs. Use a cheap one for easy pieces and a very capable one for hard pieces. Prices are approximate.",
-        )}
+        )}{" "}
+        {view?.prices_checked &&
+          tf("Prices checked on {date}.", { date: view.prices_checked })}
       </p>
       {err && (
         <p class="text-xs text-danger mb-2" role="alert">
