@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"errors"
+	"github.com/madkoding/motita/internal/config"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func TestBothSecurityChoicesInOneRequestAndAFailedSave(t *testing.T) {
 		t.Fatalf("PUT both = %+v", v)
 	}
 	old := setAskUnconfinedRuns
-	setAskUnconfinedRuns = func(string, bool) error { return errors.New("read-only filesystem") }
+	setAskUnconfinedRuns = func(config.Tx, bool) error { return errors.New("read-only filesystem") }
 	t.Cleanup(func() { setAskUnconfinedRuns = old })
 	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"ask_unconfined_runs":true}`)
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "read-only") {
@@ -105,7 +106,7 @@ func TestAFailedSecondKeyLeavesTheFirstUnapplied(t *testing.T) {
 	}
 	heard := len(svc.modes)
 	old := setAskUnconfinedRuns
-	setAskUnconfinedRuns = func(string, bool) error { return errors.New("overridden by the environment") }
+	setAskUnconfinedRuns = func(config.Tx, bool) error { return errors.New("overridden by the environment") }
 	t.Cleanup(func() { setAskUnconfinedRuns = old })
 	w := sendNetwork(t, srv, http.MethodPut, "/v1/security",
 		`{"disk_access":"full","ask_unconfined_runs":false,"confirm":true}`)
@@ -130,7 +131,7 @@ func TestAFailedRestoreIsSaid(t *testing.T) {
 	}
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 	old := setAskUnconfinedRuns
-	setAskUnconfinedRuns = func(string, bool) error {
+	setAskUnconfinedRuns = func(config.Tx, bool) error {
 		_ = os.RemoveAll(dir) // nowhere to write the file back
 		return errors.New("overridden by the environment")
 	}

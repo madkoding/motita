@@ -137,7 +137,7 @@ func TestTheDiskAccessNeedsAFileAndReportsWhatFailed(t *testing.T) {
 	path := networkConfig(t, "sandbox:\n  kind: none\n")
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 	oldSet := setDiskAccess
-	setDiskAccess = func(string, string) error { return errors.New("read-only filesystem") }
+	setDiskAccess = func(config.Tx, string) error { return errors.New("read-only filesystem") }
 	w = sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"disk_access":"workspace"}`)
 	setDiskAccess = oldSet
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "read-only") {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"errors"
+	"github.com/madkoding/motita/internal/config"
 	"net/http"
 	"strings"
 	"testing"
@@ -83,7 +84,7 @@ func TestTheNetworkIsolationReportsTheMachineAndAFailedSave(t *testing.T) {
 		t.Fatalf("GET = %+v, want not enforced", v)
 	}
 	old := setIsolateNetwork
-	setIsolateNetwork = func(string, bool) error { return errors.New("read-only filesystem") }
+	setIsolateNetwork = func(config.Tx, bool) error { return errors.New("read-only filesystem") }
 	t.Cleanup(func() { setIsolateNetwork = old })
 	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"isolate_network":true}`)
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "read-only") {
