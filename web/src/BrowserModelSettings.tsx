@@ -133,6 +133,21 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             />
           </label>
         </Row>
+        {on && s.phase === "failed" && (
+          <Row
+            id="llm-browser-retry"
+            label={t("Try again")}
+            hint={t("The switch stays on: this starts the model once more.")}
+          >
+            <button
+              type="button"
+              class={smallBtn}
+              onClick={() => startBrowserModel(api)}
+            >
+              {t("Try again")}
+            </button>
+          </Row>
+        )}
         {s.phase === "ready" && (
           <Row
             id="llm-browser-try"

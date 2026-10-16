@@ -188,6 +188,8 @@ const more: Record<string, string> = {
     "Listo: responde mientras esta pestaña siga abierta.",
   "this gateway does not offer the browser model":
     "este gateway no ofrece el modelo del navegador",
+  "The switch stays on: this starts the model once more.":
+    "El interruptor sigue activado: esto inicia el modelo otra vez.",
   "The model could not start: {error}": "El modelo no pudo iniciar: {error}",
   "This browser or device cannot run it: it needs WebGPU, and a phone is left out.":
     "Este navegador o dispositivo no puede ejecutarlo: necesita WebGPU, y un celular queda fuera.",

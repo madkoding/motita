@@ -520,6 +520,13 @@ test("a failure and a device that cannot run it are said under the switch", asyn
   await click(m.root.querySelector("input[role=switch]"));
   await wait(() => /could not start/.test(m.status()), "the failure");
   assert.match(m.status(), /does not offer the browser model/);
+  // The switch stays on after a failure, and a button starts the model again.
+  assert.equal(m.root.querySelector("input[role=switch]").checked, true);
+  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
+  const retry = m.root.querySelector("#llm-browser-retry");
+  assert.ok(retry, "a failed model offers a retry");
+  await click(retry.closest(".settings-row").querySelector("button"));
+  await wait(() => workers.length === 1, "a worker after the retry");
   await m.done();
 
   noGPU();
