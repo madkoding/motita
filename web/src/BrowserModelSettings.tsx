@@ -150,6 +150,16 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             />
           </label>
         </Row>
+        {s.software && (
+          <output
+            class="block text-xs text-[#e0b46a] px-3 pb-2"
+            data-testid="llm-browser-software"
+          >
+            {t(
+              "This browser runs WebGPU on the processor, not on a graphics card: the model works but is very slow.",
+            )}
+          </output>
+        )}
         {s.phase === "ready" && (
           <Row
             id="llm-browser-try"

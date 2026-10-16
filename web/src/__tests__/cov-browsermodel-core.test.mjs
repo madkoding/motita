@@ -69,7 +69,7 @@ test("the catalog ids tell the browser model from a voice", () => {
 });
 
 // A stand-in model: it says the tokens in `says`, then stops, and keeps what it was fed.
-function fakes({ half = false, says = [7, 8], stop = 151645 } = {}) {
+function fakes({ half = false, says = [7, 8], stop = 151645, declares } = {}) {
   const log = { urls: [], feeds: [], tokenized: "" };
   class Tensor {
     constructor(type, data, dims) {
@@ -82,6 +82,10 @@ function fakes({ half = false, says = [7, 8], stop = 151645 } = {}) {
   const vocab = stop + 1;
   let step = 0;
   const session = {
+    inputMetadata: declares && [
+      { name: "input_ids", isTensor: true, type: "int64" },
+      { name: "past_key_values.0.key", isTensor: true, type: declares },
+    ],
     run: async (feeds) => {
       log.feeds.push(feeds);
       const next = step < says.length ? says[step] : stop;
@@ -168,6 +172,22 @@ test("it answers greedily until the model ends its turn", async () => {
     assert.equal(second.attention_mask.dims[1], 4);
     assert.deepEqual([...second.position_ids.data], [3n]);
     assert.deepEqual(second["past_key_values.5.key"].dims, [1, 2, 1, 64]);
+  }
+});
+
+test("the caches are fed in the type the model declares, float32 when it says nothing", async () => {
+  for (const [declares, kind, data] of [
+    ["float32", "float32", Float32Array],
+    ["float16", "float16", Uint16Array],
+    [undefined, "float32", Float32Array],
+  ]) {
+    const { deps, log } = fakes({ declares });
+    const m = new BrowserModel(deps);
+    await m.load(() => {});
+    await m.generate([{ role: "user", content: "hi" }]);
+    const cache = log.feeds[0]["past_key_values.3.value"];
+    assert.equal(cache.type, kind, String(declares));
+    assert.ok(cache.data instanceof data, String(declares));
   }
 });
 
