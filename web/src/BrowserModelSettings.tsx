@@ -85,7 +85,7 @@ export function BrowserModelSettings({ api }: { api: Api }) {
   const [waited, setWaited] = useState(0);
   useEffect(() => {
     if (!trying) {
-      return;
+      return undefined;
     }
     const began = Date.now();
     setWaited(0);
