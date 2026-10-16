@@ -102,7 +102,7 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
 	srv := newTestServer(t, svc)
 	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
-	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != 8 {
+	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != 9 {
 		t.Fatalf("view = %+v", v)
 	}
 	if p := providerOf(v, "claude-code"); p.Key != config.KeyNotNeeded || p.Login == "" || len(p.Models) == 0 {
@@ -111,8 +111,12 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	if p := providerOf(v, "anthropic"); !p.Default || p.Key != config.KeyMissing || p.AskBaseURL {
 		t.Errorf("anthropic = %+v", p)
 	}
-	if p := providerOf(v, "ollama"); !p.AskBaseURL || p.BaseURL != "https://ollama.com/v1" {
+	if p := providerOf(v, "ollama"); !p.AskBaseURL || p.BaseURL != "" || p.DefaultBaseURL != "http://localhost:11434/v1" {
 		t.Errorf("ollama = %+v", p)
+	}
+	p := providerOf(v, "ollama-cloud")
+	if p.AskBaseURL || p.BaseURL != "https://ollama.com/v1" || p.Key != config.KeyMissing {
+		t.Errorf("ollama-cloud = %+v", p)
 	}
 	for _, w := range []*httptest.ResponseRecorder{
 		llmCall(t, srv, http.MethodPut, "/v1/llm/providers/anthropic", `{"api_key":"k"}`),

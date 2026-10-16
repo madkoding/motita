@@ -158,6 +158,17 @@ func effectiveBase(configured config.LLM, id string) string {
 	return onboard.DefaultBaseURL(id)
 }
 
+// ollamaLocalURL is where a server of one's own usually listens.
+const ollamaLocalURL = "http://localhost:11434/v1"
+
+// effectiveOwnBase is the endpoint the user saved or configured for a provider, or "".
+func effectiveOwnBase(configured config.LLM, id string) string {
+	if strings.EqualFold(configured.Provider, id) && configured.BaseURL != "" {
+		return configured.BaseURL
+	}
+	return config.StoredBaseURL(id)
+}
+
 // effectiveKey is the key a provider runs with.
 func effectiveKey(configured config.LLM, id string) string {
 	if strings.EqualFold(configured.Provider, id) {
@@ -223,6 +234,15 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		Default: strings.EqualFold(cfg.Provider, p.ID),
 		Models:  make([]llmModelView, 0, len(p.Models)),
 	}
+	if p.ID == "ollama" {
+		// Ollama on the user's own server has no endpoint until one is saved; the page offers the
+		// usual local address. (The catalogue's own default is the cloud's, for older configurations.)
+		pv.DefaultBaseURL = ollamaLocalURL
+		pv.BaseURL = ""
+		if b := effectiveOwnBase(cfg, p.ID); b != "" {
+			pv.BaseURL = publicURL(b)
+		}
+	}
 	if pv.Key == config.KeyEnv {
 		// The generic variable is read only for the default provider; the OpenAI pair's other one
 		// is OPENAI_API_KEY.
@@ -234,28 +254,11 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 	if pv.Key == config.KeyEnv || pv.Key == config.KeyStored || pv.Key == config.KeyConfig {
 		pv.KeyHint = keyHint(effectiveKey(cfg, p.ID))
 	}
-	local := p.ID == "ollama" && !ollamaCloud(effectiveBase(cfg, p.ID))
 	for _, m := range p.Models {
-		v := llmModelView{ID: m.ID, Label: m.Label, Note: m.Note,
-			Tier: m.Tier, Cost: m.Cost, PriceIn: m.PriceIn, PriceOut: m.PriceOut}
-		if local {
-			// The same model on your own machine is free: Ollama Cloud's price does not apply.
-			v.Cost, v.PriceIn, v.PriceOut = "local", 0, 0
-		}
-		pv.Models = append(pv.Models, v)
+		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note,
+			Tier: m.Tier, Cost: m.Cost, PriceIn: m.PriceIn, PriceOut: m.PriceOut})
 	}
 	return pv
-}
-
-// ollamaCloud says whether an Ollama endpoint is Ollama Cloud, whose models are billed, and not a
-// machine of the user's own, where they are free.
-func ollamaCloud(base string) bool {
-	u, err := url.Parse(base)
-	if err != nil {
-		return false
-	}
-	host := u.Hostname()
-	return host == "ollama.com" || strings.HasSuffix(host, ".ollama.com")
 }
 
 // minHintedKey is the shortest key whose last four characters are shown.

@@ -83,6 +83,7 @@ func Providers() []Provider {
 		claudeCodeProvider(),
 		geminiProvider(),
 		qwenProvider(),
+		ollamaCloudProvider(),
 	}
 	for _, p := range list {
 		for i, m := range p.Models {
@@ -170,19 +171,47 @@ func copilotProvider() Provider {
 	}
 }
 
-// ollamaProvider is the ollama entry of the catalogue.
+// ollamaProvider is the ollama entry of the catalogue: Ollama on the user's own machine or
+// network, free and keyless. Ollama's hosted service is the ollama-cloud entry, so both can be
+// used at once.
 func ollamaProvider() Provider {
 	return Provider{
-		ID:             "ollama",
-		Name:           "Ollama (local or Ollama Cloud)",
-		Short:          "Ollama",
-		Access:         "free on your own machine, or Ollama Cloud",
+		ID:     "ollama",
+		Name:   "Ollama (your own server)",
+		Short:  "Ollama",
+		Access: "free on your own machine or network",
+		// Kept as Ollama Cloud's address, which a configuration naming this provider with no
+		// base_url has always reached; the settings page offers the local address instead.
+		DefaultBaseURL: "https://ollama.com/v1",
+		EnvKey:         "OLLAMA_API_KEY",
+		ConsoleURL:     "https://ollama.com/download",
+		// Populated at runtime from the models the server has pulled. The list below is what is
+		// offered when it cannot be reached.
+		Models: []Model{
+			{ID: modelGPTOSS20, Label: modelGPTOSS20, Note: "lightest, good on an i386 box",
+				Tier: "basic", Cost: "local"},
+			{ID: modelGemma31, Label: modelGemma31, Note: "small and quick", Tier: "basic", Cost: "local"},
+			{ID: modelNemotronNano, Label: modelNemotronNano, Note: "lightweight",
+				Tier: "basic", Cost: "local"},
+			{ID: "qwen3:8b", Label: "qwen3:8b", Note: "small, runs on a laptop", Tier: "basic", Cost: "local"},
+		},
+		FetchModels: true,
+	}
+}
+
+// ollamaCloudProvider is the ollama-cloud entry of the catalogue: Ollama's hosted service, billed
+// per token and reached with a key. Ollama on the user's own machine is the ollama entry.
+func ollamaCloudProvider() Provider {
+	return Provider{
+		ID:             "ollama-cloud",
+		Name:           "Ollama Cloud (hosted, with a key)",
+		Short:          "Ollama Cloud",
+		Access:         "Ollama's hosted models, billed per token",
 		DefaultBaseURL: "https://ollama.com/v1",
 		EnvKey:         "OLLAMA_API_KEY",
 		ConsoleURL:     "https://ollama.com/settings/keys",
-		// Populated at runtime from the live catalogue. The list below is what
-		// is offered when the API cannot be reached, so the wizard never leaves
-		// the user with an empty menu and no idea what to type.
+		// Populated at runtime from the live catalogue. The list below is what is offered when
+		// the API cannot be reached.
 		Models: []Model{
 			{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model",
 				Tier: "mid", Cost: "low"},
@@ -203,11 +232,11 @@ func ollamaProvider() Provider {
 				Tier: "mid", Cost: "low"},
 			{ID: "muse-spark-open", Label: "muse-spark-open", Note: "multimodal, 1M context",
 				Tier: "frontier", Cost: "mid"},
-			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick",
+			{ID: modelGemma31, Label: modelGemma31, Note: "small and quick",
 				Tier: "basic", Cost: "low"},
-			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight",
+			{ID: modelNemotronNano, Label: modelNemotronNano, Note: "lightweight",
 				Tier: "basic", Cost: "low"},
-			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box",
+			{ID: modelGPTOSS20, Label: modelGPTOSS20, Note: "lightest, good on an i386 box",
 				Tier: "basic", Cost: "low"},
 		},
 		FetchModels: true,
@@ -343,3 +372,10 @@ func DefaultBaseURL(id string) string {
 func (p Provider) String() string {
 	return fmt.Sprintf("%s (%s)", p.Name, p.ID)
 }
+
+// Open models both Ollama providers list.
+const (
+	modelGPTOSS20     = "gpt-oss:20b"
+	modelGemma31      = "gemma4:31b"
+	modelNemotronNano = "nemotron-3-nano:30b"
+)

@@ -35,8 +35,16 @@ const (
 // price is ever inferred.
 func Infer(provider, id string) (tier, cost string) {
 	id = strings.ToLower(id)
-	if provider == "ollama" {
+	switch provider {
+	case "ollama":
 		return inferOpen(id)
+	case "ollama-cloud":
+		// Hosted open models are billed, so the size says how capable one is and nothing about what
+		// it costs.
+		tier, _ = inferOpen(id)
+		return tier, ""
+	default:
+		// Every other provider is told apart by its model's family below.
 	}
 	for _, f := range families {
 		if strings.Contains(id, f.part) {
