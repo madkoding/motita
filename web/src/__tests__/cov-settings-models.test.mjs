@@ -149,6 +149,7 @@ test("ModelPicker: each option carries its capability and cost chips in words, a
       { id: "cost", label: "Cost", cost: "low" },
       { id: "odd", label: "Odd", tier: "weird", cost: "weird" },
       { id: "plain", label: "Plain" },
+      { id: "guess", label: "Guess", tier: "mid", cost: "low", estimated: true },
     ],
   };
   let value = "big";
@@ -159,9 +160,18 @@ test("ModelPicker: each option carries its capability and cost chips in words, a
   assert.equal(text(trigger), "BigVery capableExpensive▾");
   assert.equal(text(m.root.querySelector("[data-testid=model-facts]")), "About $4 / $20.5 per million tokens, read / written");
   assert.deepEqual((await rows(trigger)).map((r) => r[1]), [
-    "BigVery capableExpensive", "SmallBasicFree (local)", "MidCapableModerate", "CostCheap", "Odd", "Plain", "Other…",
+    "BigVery capableExpensive", "SmallBasicFree (local)", "MidCapableModerate", "CostCheap", "Odd", "Plain", "Guess~Capable~Cheap", "Other…",
   ]);
   assert.equal(m.root.querySelectorAll(".llm-chip").length, 2);
+  // A guess from the name is marked with a tilde and says so on hover; a catalogue fact is not.
+  await select(trigger, "guess");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(text(trigger), "Guess~Capable~Cheap▾");
+  assert.equal(trigger.querySelector(".llm-chips").title, "Estimated from the model's name");
+  assert.equal(text(m.root.querySelector("[data-testid=model-facts]") || ""), "");
+  await select(trigger, "big");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(trigger.querySelector(".llm-chips").title, "");
   await select(trigger, "small");
   await m.rerender(h(ModelPicker, props()));
   assert.equal(m.root.querySelector("[data-testid=model-facts]"), null);
@@ -254,7 +264,14 @@ test("the tab loads, and a refused load says why", async () => {
   await settle();
   assert.doesNotMatch(text(s.root), /Loading…/);
   assert.ok(s.root.querySelector("[data-testid=llm-default]"));
+  // Without a date from the gateway the hint stays as it is; with one it says when prices were checked.
+  assert.doesNotMatch(text(s.root.querySelector("[data-testid=model-legend]")), /checked/);
   await s.unmount();
+
+  const dated = fakeApi({ "GET /v1/llm": json(200, { ...VIEW, prices_checked: "2026-10-16" }) });
+  const d = await mount(h(ModelSettings, { api: dated.api, onNotice() {} }));
+  assert.match(text(d.root.querySelector("[data-testid=model-legend]")), /Prices checked on 2026-10-16\.$/);
+  await d.unmount();
 
   const f = fakeApi({ "GET /v1/llm": json(500, { error: "no llm" }) });
   const m = await mount(h(ModelSettings, { api: f.api, onNotice() {} }));

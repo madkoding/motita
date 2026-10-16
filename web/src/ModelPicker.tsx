@@ -22,15 +22,22 @@ const OTHER = "\u0000other";
 function Chips({ option }: { option: ModelOption }) {
   const tier = tierLabel(option.tier);
   const cost = costLabel(option.cost);
+  // A guess from the name is marked with a tilde and says so on hover.
+  const guess = choose(option.estimated === true, "~", "");
   return (
-    <span class="llm-chips">
+    <span
+      class="llm-chips"
+      title={choose(option.estimated === true, t("Estimated from the model's name"), undefined)}
+    >
       {tier && (
         <span class="llm-chip llm-chip-tier" data-level={tierLevel(option.tier)}>
+          {guess}
           {t(tier)}
         </span>
       )}
       {cost && (
         <span class="llm-chip llm-chip-cost" data-level={costLevel(option.cost)}>
+          {guess}
           {t(cost)}
         </span>
       )}
