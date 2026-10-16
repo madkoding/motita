@@ -63,6 +63,14 @@ function set(next: Partial<BrowserState>): void {
   }
 }
 
+// show is set for a run that may have been stopped meanwhile: a stopped run (the person turned the
+// model off while it was downloading or loading) must not paint over the state of the next one.
+function show(signal: AbortSignal, next: Partial<BrowserState>): void {
+  if (!signal.aborted) {
+    set(next);
+  }
+}
+
 export function browserState(): BrowserState {
   return state;
 }
@@ -126,6 +134,8 @@ export function startBrowserModel(api: Api): void {
   };
   void serve(api, ctl.signal).catch((e: unknown) => {
     if (!ctl.signal.aborted) {
+      // Aborting ends the worker a failed load left behind, so a retry does not stack another.
+      ctl.abort();
       set({
         phase: "failed",
         error: messageOf(e),
@@ -163,38 +173,54 @@ async function ensureFiles(
       await installVoice(api, id);
       started = true;
     }
-    const d = catalog.download;
-    set({
-      phase: "downloading",
-      pct: percentOf(d),
-    });
+    show(signal, { phase: "downloading", pct: percentOf(catalog.download) });
     await sleep(1000);
   }
 }
 
 async function serve(api: Api, signal: AbortSignal): Promise<void> {
   const build = buildFor(await cardHasF16());
-  set({ phase: "downloading", pct: 0, error: "", build });
+  show(signal, { phase: "downloading", pct: 0, error: "", build });
   await ensureFiles(api, build, signal);
   if (signal.aborted) {
     return;
   }
-  set({ phase: "loading", pct: 0 });
+  show(signal, { phase: "loading", pct: 0 });
   const worker = new Worker(
     new URL("./browserLLM.worker.ts", import.meta.url),
     { type: "module", name: workerName() },
   );
-  signal.addEventListener("abort", () => worker.terminate());
   const waiting = new Map<
     number,
     { ok: (t: string) => void; fail: (e: Error) => void }
   >();
+  // A request the worker will never answer (it was stopped, or it died) fails at once, so the job
+  // is told to the gateway as failed instead of left to its own timeout.
+  const failAll = (err: Error) => {
+    for (const w of waiting.values()) {
+      w.fail(err);
+    }
+    waiting.clear();
+  };
+  signal.addEventListener("abort", () => {
+    worker.terminate();
+    failAll(new Error("the browser model was turned off"));
+  });
+  // dead settles when the worker script cannot load or throws: nothing else would end the wait.
+  const dead = new Promise<never>((_, died) => {
+    worker.onerror = (e: ErrorEvent) => {
+      const err = new Error(e.message || "the browser model's worker stopped");
+      failAll(err);
+      died(err);
+    };
+  });
+  dead.catch(() => undefined);
   const loaded = new Promise<void>((ok, fail) => {
     worker.onmessage = (e: MessageEvent<FromLLMWorker>) => {
       const m = e.data;
       if ("kind" in m) {
         if (m.kind === "progress") {
-          set({ pct: m.pct });
+          show(signal, { pct: m.pct });
         } else if (m.kind === "ready") {
           ok();
         } else {
@@ -213,8 +239,8 @@ async function serve(api: Api, signal: AbortSignal): Promise<void> {
   });
   const post = (m: ToLLMWorker) => worker.postMessage(m);
   post({ kind: "load" });
-  await loaded;
-  set({ phase: "ready", pct: 100 });
+  await Promise.race([loaded, dead]);
+  show(signal, { phase: "ready", pct: 100 });
   let seq = 0;
   const generate = (messages: ChatMessage[]) =>
     new Promise<string>((ok, fail) => {
@@ -222,7 +248,7 @@ async function serve(api: Api, signal: AbortSignal): Promise<void> {
       waiting.set(seq, { ok, fail });
       post({ kind: "generate", seq, messages });
     });
-  await answerLoop(api, signal, generate);
+  await Promise.race([answerLoop(api, signal, generate), dead]);
 }
 
 // answerLoop asks the gateway for work and answers it, until stopped. A request the gateway
