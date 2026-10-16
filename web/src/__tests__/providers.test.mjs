@@ -479,7 +479,7 @@ test("a sign-in left open is cancelled, and a refused one is reported", async ()
     fakeGateway(view, {
       "POST /v1/llm/providers/gemini/login": [
         HTTP_BAD_GATEWAY,
-        { error: "run gcloud auth application-default login" },
+        { error: "english text", code: "gemini_no_gcloud" },
       ],
     }),
   );
@@ -489,7 +489,8 @@ test("a sign-in left open is cancelled, and a refused one is reported", async ()
   assert.ok(button(form, "Disconnect"), "a login can be forgotten");
   await act(() => button(form, "Sign in again").click());
   await settle();
-  assert.match(form.textContent, /run gcloud auth application-default login/);
+  assert.match(form.textContent, /Paste an AI Studio key instead/);
+  assert.doesNotMatch(form.textContent, /gcloud/);
   await second.done();
 });
 

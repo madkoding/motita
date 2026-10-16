@@ -38,6 +38,19 @@ export const primaryBtn = smallBtn + " bg-accent text-white border-transparent";
 const PROVIDERS_GUIDE =
   "https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#llm-providers-from-the-browser";
 
+// LOGIN_REFUSALS are the sentences for a sign-in that cannot start, by the code the gateway sends.
+// Each names the next step: the key from AI Studio always works.
+const LOGIN_REFUSALS: Record<string, string> = {
+  gemini_no_gcloud:
+    "Google sign-in is not set up on this computer. Paste an AI Studio key instead.",
+  gemini_bad_login:
+    "The Google login on this computer cannot be used. Paste an AI Studio key instead.",
+  gemini_no_project:
+    "The Google login has no Google Cloud project. Paste an AI Studio key instead.",
+  gemini_expired:
+    "The Google login on this computer has expired. Paste an AI Studio key instead.",
+};
+
 // failureText is what a refused request is shown as: the codes the gateway names get a sentence
 // in the reader's language, anything else its own message.
 export function failureText(e: unknown): string {
@@ -56,6 +69,10 @@ export function failureText(e: unknown): string {
       return t(
         "Type the key again to try it on a new address: a saved key is only sent where it was saved for.",
       );
+    }
+    const sentence = LOGIN_REFUSALS[e.code || ""];
+    if (sentence) {
+      return t(sentence);
     }
   }
   return errorMessage(e);

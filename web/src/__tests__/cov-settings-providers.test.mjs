@@ -134,6 +134,18 @@ test("failureText names the refusals the gateway codes, and passes anything else
     failureText(new LLMError("x", 400, "key_for_new_address")),
     /Type the key again/,
   );
+  for (const code of [
+    "gemini_no_gcloud",
+    "gemini_bad_login",
+    "gemini_no_project",
+    "gemini_expired",
+  ]) {
+    assert.match(
+      failureText(new LLMError("english", 502, code)),
+      /Paste an AI Studio key instead/,
+      code,
+    );
+  }
   assert.equal(failureText(new LLMError("bad key", 401, "other")), "bad key");
   assert.equal(failureText(new LLMError("plain", 500)), "plain");
   assert.equal(failureText(new Error("boom")), "boom");

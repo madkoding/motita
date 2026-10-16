@@ -237,6 +237,11 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		Default: strings.EqualFold(cfg.Provider, p.ID),
 		Models:  make([]llmModelView, 0, len(p.Models)),
 	}
+	if p.ID == "gemini" && pv.SupportsLogin {
+		// Google's login is gcloud's, on this machine: without it the button could only fail.
+		_, statErr := os.Stat(oauth.ADCPath(config.HomeDir()))
+		pv.SupportsLogin = statErr == nil
+	}
 	if p.ID == "ollama" {
 		// Ollama on the user's own server has no endpoint until one is saved; the page offers the
 		// usual local address. (The catalogue's own default is the cloud's, for older configurations.)
