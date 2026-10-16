@@ -334,7 +334,7 @@ function enCardinal(n: number): string {
     if (group > 0) {
       words.unshift(
         enBelowThousand(group) +
-          (EN_SCALES[scale] ? " " + EN_SCALES[scale] : ""),
+          choose(!!EN_SCALES[scale], " " + EN_SCALES[scale], ""),
       );
     }
     scale++;
@@ -345,7 +345,7 @@ function enCardinal(n: number): string {
 // digitWords reads digits one at a time: how a decimal part, a long number or one with leading
 // zeros is said.
 function digitWords(digits: string, lang: Words): string {
-  const units = lang === "es" ? ES_UNITS : EN_UNITS;
+  const units = choose(lang === "es", ES_UNITS, EN_UNITS);
   return [...digits].map((d) => units[Number(d)]).join(" ");
 }
 
@@ -384,8 +384,8 @@ function splitNumber(
   const head = groups[0];
   // Thousands are groups of three digits after one of at most three, with no zero in front.
   const grouped = (rest: string[]) =>
-    rest.every((g) => g.length === 3) &&
-    head.length <= 3 &&
+    rest.every((g) => g.length === GROUP_DIGITS) &&
+    head.length <= GROUP_DIGITS &&
     !head.startsWith("0");
   if (marks.length === 0) {
     return { whole: text, decimals: "" };
@@ -431,8 +431,11 @@ const ONE_STAYS = new Set(
   ),
 );
 
+// GROUP_DIGITS is the digits in a group of thousands (1,000 or 1.000).
+const GROUP_DIGITS = 3;
+
 // NUMBER is a number as typed, with an optional minus and percent sign.
-const NUMBER = /(?<![\p{L}\p{N}.,])(-)?(\d+(?:[.,]\d+)*)(%)?(?![\d])/gu;
+const NUMBER = /(?<![\p{L}\p{N}.,])(-)?(\d+(?:[.,]\d+)*)(%)?(?!\d)/gu;
 
 // ORDINALS are the English ordinals that are not the cardinal and "th".
 const ORDINALS: Record<string, string> = {
@@ -572,14 +575,15 @@ function connectorPattern(lang: Words): RegExp {
 // with a full stop when it ends with nothing.
 function setRhythm(text: string, lang: Words | null): string {
   let t = text
-    .replace(/\s*\n+\s*/g, (_, at: number) =>
-      /[.!?…,;:]$/.test(text.slice(0, at)) ? " " : ". ",
+    .replace(/\n+/g, (_, at: number) =>
+      choose(/[.!?…,;:]$/.test(text.slice(0, at).trimEnd()), " ", ". "),
     )
-    .replace(/(?:\s*\.){3,}\s*|\s*…\s*/g, "... ")
-    .replace(/\s[-–—]+\s|\s*[–—]\s*/g, ", ")
-    .replace(/\s*:(?=\s|$)/g, ",")
-    .replace(/\s*[()[\]{}]\s*/g, ", ")
-    .replace(/\s+\/\s+/g, ", ")
+    .replace(/\s+/g, " ")
+    .replace(/(?: ?\.){3,} ?| ?… ?/g, "... ")
+    .replace(/ [-–—]+ | ?[–—] ?/g, ", ")
+    .replace(/ ?:(?= |$)/g, ",")
+    .replace(/ ?[()[\]{}] ?/g, ", ")
+    .replace(/ \/ /g, ", ")
     .replace(/[“”«»"]/g, "")
     .replace(/[‘’]/g, "'");
   if (lang) {
@@ -587,7 +591,7 @@ function setRhythm(text: string, lang: Words | null): string {
   }
   t = t
     .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/ ([,.;:!?])/g, "$1")
     .replace(/,(?:\s*,)+/g, ",")
     .replace(/,\s*([.!?;])/g, "$1")
     .replace(/([;:])\s*,/g, "$1")
@@ -615,8 +619,41 @@ export function speechText(text: string, lang: string): string {
 
 // ENDS_IN_ABBREVIATION is a title or other abbreviation that is followed by what it introduces: a
 // full stop after it is not the end of the sentence.
-const ENDS_IN_ABBREVIATION =
-  /(?:^|[\s("“«¿¡])(?:sr|sra|srta|sres|dr|dra|lic|ing|arq|prof|profa|gral|mr|mrs|ms|jr|st|mt|vs|núm|pág|págs|fig|tel|e\.g|i\.e|p\.\s?ej|ee\.\s?uu|approx|aprox)\.$/iu;
+const ENDS_IN_ABBREVIATION = new RegExp(
+  String.raw`(?:^|[\s("“«¿¡])(?:${[
+    "sr",
+    "sra",
+    "srta",
+    "sres",
+    "dr",
+    "dra",
+    "lic",
+    "ing",
+    "arq",
+    "prof",
+    "profa",
+    "gral",
+    "mr",
+    "mrs",
+    "ms",
+    "jr",
+    "st",
+    "mt",
+    "vs",
+    "núm",
+    "pág",
+    "págs",
+    "fig",
+    "tel",
+    String.raw`e\.g`,
+    String.raw`i\.e`,
+    String.raw`p\.\s?ej`,
+    String.raw`ee\.\s?uu`,
+    "approx",
+    "aprox",
+  ].join("|")})\.$`,
+  "iu",
+);
 
 // endsInAbbreviation says a piece of text ends with an abbreviation the sentence goes on after.
 export function endsInAbbreviation(piece: string): boolean {
