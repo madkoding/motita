@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -104,9 +103,9 @@ type diskAccessSetter interface {
 // setDiskAccess and confinementAvailable are the config and sandbox packages', as variables so a
 // test can make the write fail and choose what the kernel offers.
 var (
-	setDiskAccess        = config.SetDiskAccess
-	setAskUnconfinedRuns = config.SetAskUnconfinedRuns
-	setIsolateNetwork    = config.SetIsolateNetwork
+	setDiskAccess        = config.Tx.SetDiskAccess
+	setAskUnconfinedRuns = config.Tx.SetAskUnconfinedRuns
+	setIsolateNetwork    = config.Tx.SetIsolateNetwork
 	confinementAvailable = sandbox.ConfinementAvailable
 	networkAvailable     = sandbox.NetworkIsolationAvailable
 	networkReason        = sandbox.NetworkIsolationReason
@@ -181,14 +180,9 @@ func (s *Server) handlePutSecurity(w http.ResponseWriter, r *http.Request) {
 // file takes all of it or none (a later key the environment overrides puts the earlier ones
 // back), and no conversation hears of a change that did not stay.
 func (s *Server) saveSecurity(mode string, change securityChange) error {
-	before, err := config.SnapshotFile(s.opts.ConfigPath)
-	if err != nil {
-		return err
-	}
-	if err := s.writeSecurityKeys(mode, change); err != nil {
-		if rerr := before.Restore(); rerr != nil {
-			return fmt.Errorf("%w (and the file could not be restored: %v)", err, rerr)
-		}
+	if err := config.Transaction(s.opts.ConfigPath, func(tx config.Tx) error {
+		return writeSecurityKeys(tx, mode, change)
+	}); err != nil {
 		return err
 	}
 	if mode != "" {
@@ -214,19 +208,19 @@ func (s *Server) saveSecurity(mode string, change securityChange) error {
 
 // writeSecurityKeys writes each key the change names into the file, stopping at the first that
 // fails.
-func (s *Server) writeSecurityKeys(mode string, change securityChange) error {
+func writeSecurityKeys(tx config.Tx, mode string, change securityChange) error {
 	if mode != "" {
-		if err := setDiskAccess(s.opts.ConfigPath, mode); err != nil {
+		if err := setDiskAccess(tx, mode); err != nil {
 			return err
 		}
 	}
 	if ask := change.AskUnconfinedRuns; ask != nil {
-		if err := setAskUnconfinedRuns(s.opts.ConfigPath, *ask); err != nil {
+		if err := setAskUnconfinedRuns(tx, *ask); err != nil {
 			return err
 		}
 	}
 	if on := change.IsolateNetwork; on != nil {
-		return setIsolateNetwork(s.opts.ConfigPath, *on)
+		return setIsolateNetwork(tx, *on)
 	}
 	return nil
 }
