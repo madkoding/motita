@@ -362,16 +362,15 @@ function FolderFields() {
   return (
     <div data-testid="new-project-location">
       <label class={LABEL}>{t("Location")}</label>
-      {p.newProjectPath ? (
+      {p.newProjectPath && (
         <p
           class="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
           data-testid="new-project-path"
         >
           {p.newProjectPath}
         </p>
-      ) : (
-        <FolderNameField />
       )}
+      {!p.newProjectPath && <FolderNameField />}
       <div class="flex gap-2 mt-2">
         <button
           type="button"

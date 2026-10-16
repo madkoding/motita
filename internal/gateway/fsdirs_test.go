@@ -51,9 +51,17 @@ func TestTheFolderBrowserListsOnlyFoldersAndReachesTheWholeDiskWhenAllowed(t *te
 		t.Fatal(err)
 	}
 	code, out, body := listDirs(t, srv, base)
-	if code != http.StatusOK || len(out.Dirs) != 2 || out.Dirs[0].Name != "A-repo" || !out.Dirs[0].Git ||
-		out.Dirs[1].Name != "b-folder" || out.Dirs[1].Git || out.Parent != filepath.Dir(base) || out.Root != "/" {
+	if code != http.StatusOK || len(out.Dirs) != 2 {
 		t.Fatalf("%d %s", code, body)
+	}
+	if got := out.Dirs[0]; got.Name != "A-repo" || !got.Git {
+		t.Errorf("a repository is marked: %+v", got)
+	}
+	if got := out.Dirs[1]; got.Name != "b-folder" || got.Git {
+		t.Errorf("a plain folder is not: %+v", got)
+	}
+	if out.Parent != filepath.Dir(base) || out.Root != "/" {
+		t.Errorf("parent and root: %+v", out)
 	}
 	// With no path it starts at the home folder, when there is one.
 	t.Setenv("HOME", base)
@@ -61,8 +69,12 @@ func TestTheFolderBrowserListsOnlyFoldersAndReachesTheWholeDiskWhenAllowed(t *te
 		t.Errorf("home: %d %s", code, body)
 	}
 	t.Setenv("HOME", "")
-	if code, out, _ = listDirs(t, srv, ""); code != http.StatusOK || out.Path != "/" || out.Parent != "" || out.Home != "" {
+	code, out, _ = listDirs(t, srv, "")
+	if code != http.StatusOK || out.Path != "/" {
 		t.Errorf("no home starts at the root: %d %+v", code, out)
+	}
+	if out.Parent != "" || out.Home != "" {
+		t.Errorf("the top has no parent and there is no home: %+v", out)
 	}
 	if code, _, _ = listDirs(t, srv, filepath.Join(base, "nope")); code != http.StatusNotFound {
 		t.Errorf("a missing folder: %d", code)

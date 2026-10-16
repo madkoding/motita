@@ -63,6 +63,55 @@ function Folders({
   );
 }
 
+// Navigation shows the folder on show, with the ways to leave it: up, and home.
+function Navigation({
+  listing,
+  loading,
+  onOpen,
+}: {
+  listing: DirListing | null;
+  loading: boolean;
+  onOpen: (path: string) => void;
+}) {
+  const parent = listing?.parent ?? "";
+  const home = listing?.home ?? "";
+  return (
+    <>
+      <p
+        class="mb-2 px-3 py-2 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
+        data-testid="folder-path"
+      >
+        {listing?.path ?? "…"}
+      </p>
+      <div class="flex gap-2 mb-2">
+        <button
+          type="button"
+          class={SMALL_BTN}
+          data-testid="folder-up"
+          disabled={!parent || loading}
+          onClick={() => void onOpen(parent)}
+        >
+          {t("Up")}
+        </button>
+        {home && home !== listing?.path && (
+          <button
+            type="button"
+            class={SMALL_BTN}
+            data-testid="folder-home"
+            disabled={loading}
+            onClick={() => void onOpen(home)}
+          >
+            {t("Home")}
+          </button>
+        )}
+        {loading && (
+          <IconSpinner class="animate-spin self-center text-accent" size={16} />
+        )}
+      </div>
+    </>
+  );
+}
+
 export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
@@ -100,8 +149,11 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
     };
   }, []);
 
-  const parent = listing?.parent ?? "";
-  const home = listing?.home ?? "";
+  const pick = () => {
+    if (listing) {
+      onPick(listing.path);
+    }
+  };
   return (
     <div
       ref={backdrop}
@@ -130,40 +182,7 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
             <IconClose size={18} />
           </button>
         </div>
-        <p
-          class="mb-2 px-3 py-2 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
-          data-testid="folder-path"
-        >
-          {listing?.path ?? "…"}
-        </p>
-        <div class="flex gap-2 mb-2">
-          <button
-            type="button"
-            class={SMALL_BTN}
-            data-testid="folder-up"
-            disabled={!parent || loading}
-            onClick={() => void open(parent)}
-          >
-            {t("Up")}
-          </button>
-          {home && home !== listing?.path && (
-            <button
-              type="button"
-              class={SMALL_BTN}
-              data-testid="folder-home"
-              disabled={loading}
-              onClick={() => void open(home)}
-            >
-              {t("Home")}
-            </button>
-          )}
-          {loading && (
-            <IconSpinner
-              class="animate-spin self-center text-accent"
-              size={16}
-            />
-          )}
-        </div>
+        <Navigation listing={listing} loading={loading} onOpen={open} />
         <div class="flex-1 min-h-[160px] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-1">
           {err && (
             <p class="px-3 py-4 text-sm text-danger" role="alert">
@@ -177,7 +196,7 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
             class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
             data-testid="folder-pick"
             disabled={!listing || !!err}
-            onClick={() => listing && onPick(listing.path)}
+            onClick={pick}
           >
             {t("Use this folder")}
           </button>

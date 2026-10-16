@@ -906,7 +906,7 @@ function useFolderPicker(
   const [folderPicker, setFolderPicker] = useState<null | "new" | "edit">(null);
   useEffect(() => {
     if (!open) {
-      return;
+      return undefined;
     }
     let live = true;
     getSecurity(api)

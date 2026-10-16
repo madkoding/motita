@@ -180,6 +180,8 @@ test("an answer that arrives after the browser closed is ignored", async () => {
   await m.unmount();
   pending[0](res(200, HOME));
   await flush();
+  assert.equal(pending.length, 1, "it asked once and nothing came back to it");
+  assert.equal(document.querySelector("[data-testid=folder-browser]"), null);
 });
 
 // store is a projects store for the dialogs; its actions are recorded.
