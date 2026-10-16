@@ -1157,19 +1157,21 @@ export class Synth {
         }
         return { ort, parts, indexer: await indexer, gpu };
       };
-      const gpu = this.deps.gpu;
-      if (gpu && noWebGPU(this.deps)) {
+      const loadGPU = this.deps.gpu;
+      if (loadGPU && noWebGPU(this.deps)) {
         this.failed = NO_WEBGPU;
-      } else if (gpu) {
+      } else if (loadGPU) {
         try {
           const ort = await this.read(fileURL(RUNTIME_ID, ORT_GPU_WASM)).then(
-            (w) => gpu(w),
+            (w) => loadGPU(w),
           );
           return await start(ort, true);
         } catch (e) {
           // The processor's runtime says it instead, and the page is told why.
           this.failed = reasonOf(e);
         }
+      } else {
+        // A browser without a WebGPU runtime to load runs on the CPU.
       }
       return start(await this.runtime(), false);
     })();
