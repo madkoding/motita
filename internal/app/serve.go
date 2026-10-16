@@ -393,11 +393,9 @@ func voiceLibrary() *voice.Library {
 		return nil
 	}
 	lib := &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.OrtRuntime,
-		Shared: map[string][]voice.ModelFile{voice.SupertonicID: voice.SupertonicModel,
-			voice.ChatterboxID: voice.ChatterboxModel},
-		Models: slices.Concat(voice.PiperVoices, voice.SupertonicVoices, voice.ChatterboxVoices,
-			voice.WhisperModels, voice.BrowserLLMModels)}
-	// What earlier catalogs downloaded and this one dropped (Kokoro's voices) is removed; a file
+		Models: slices.Concat(voice.PiperVoices, voice.WhisperModels, voice.BrowserLLMModels)}
+	// What earlier catalogs downloaded and this one dropped (the Kokoro, Supertonic and
+	// Chatterbox voices, the lower Piper tiers) is removed; a file
 	// that cannot be is only left on disk, and the catalog is served all the same.
 	_ = lib.Prune()
 	return lib

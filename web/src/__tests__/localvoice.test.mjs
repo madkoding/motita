@@ -1,7 +1,6 @@
-// Local voices: a Piper, Supertonic or Chatterbox model run in the browser. The synthesis with a stand-in onnxruntime and
+// Local voices: a Piper model run in the browser. The synthesis with a stand-in onnxruntime and
 // phonemizer, the page's side of the worker and of the gateway's catalog, and the settings that
-// download, choose and delete a voice (via tsx-hooks.mjs, since node cannot import TSX). How
-// Supertonic and Chatterbox read and speak a sentence is in localvoiceengines.test.mjs.
+// download, choose and delete a voice (via tsx-hooks.mjs, since node cannot import TSX).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
@@ -10,7 +9,6 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { load } from "./tsx-hooks.mjs";
 import {
-  CHATTERBOX,
   MODEL_OUTPUT,
   PHONEME_IDS,
   SAMPLE_RATE,
@@ -85,18 +83,14 @@ const SECOND_LAST = -2;
 // The bytes of the response read whole.
 const BODY_BYTES = 6;
 // The page's stale copies of what the catalog no longer has.
-const STALE_COPIES = 3;
+const STALE_COPIES = 5;
 // How often a voice's loading state changes while it is warmed, failed and warmed again.
 const LOAD_CHANGES = 5;
-const LAST_TWO = -2;
 const HTTP_BAD_GATEWAY = 502;
 
 const CATALOG = "GET /v1/voice/models";
-const SUPERTONIC = "supertonic-F1";
 const NO_ADAPTER = "no adapter";
-const ENGINE_SUPERTONIC = "supertonic";
 const ARIA_PRESSED = "aria-pressed";
-const ROW_SUPERTONIC = "local-voice-supertonic-F1";
 const SAMPLE_A = "local-voice-sample-a";
 const LOCAL_VOICES = "local-voices";
 const ROW_ES = "local-voice-es";
@@ -104,14 +98,9 @@ const LANGUAGE = "local-voice-language";
 const QUALITY = "local-voice-quality";
 const LOADING_MX = "local-voice-loading-mx";
 const EXPRESSIVENESS_SLIDER = "[data-testid=settings-speech-expressiveness]";
-const SUPERTONIC_STEPS = "settings-speech-supertonic-steps";
 const DOWNLOAD_ES = "POST /v1/voice/models/es";
-// What the sliders are moved to: the intonation, Supertonic's pace and steps, Chatterbox's emotion.
+// What the intonation slider is moved to.
 const EXPRESSIVENESS = 0.4;
-const SUPERTONIC_PACE = 1.05;
-const FASTER = 1.3;
-const MORE_STEPS = 12;
-const EMOTION = 1.25;
 
 test("the WAV header says mono 16-bit at the voice's rate, and the samples are clipped", () => {
   const samples = [0, 1, OVER_FULL_SCALE];
@@ -201,11 +190,17 @@ test("the synthesis loads the runtime, the phonemizer and each voice once, and f
     SCALES_MILLI,
   );
   assert.equal(f.sid, undefined, "one speaker: no speaker id");
-  // The sliders scale the intonation and the rhythm; the speed is left to the page.
+  // The sliders scale the texture and the rhythm of the voice.
   await synth.say("v1", "Tono.", { noise: 0.5, noiseW: TUNED_NOISE_W });
   assert.deepEqual(
     [...log.feeds[2].scales.data].map((x) => Math.round(x * 1000)),
     [TUNED_NOISE_MILLI, LENGTH_SCALE_MILLI, NOISE_W_MILLI * TUNED_NOISE_W],
+  );
+  // The speed is the voice's length scale: twice as fast is half as long.
+  await synth.say("v1", "Rápido.", { noise: 1, noiseW: 1, length: 0.5 });
+  assert.equal(
+    Math.round(log.feeds[3].scales.data[1] * 1000),
+    LENGTH_SCALE_MILLI / 2,
   );
   // Warming a voice loaded already loads nothing more.
   await synth.warm("v1");
@@ -355,7 +350,8 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
     "DELETE /v1/voice/models/b": () =>
       new Response("<html>", { status: HTTP_SERVER_ERROR }),
   });
-  // The first catalog read drops this page's copies of what the catalog no longer has (Kokoro's).
+  // The first catalog read drops this page's copies of what the catalog no longer has (the
+  // Kokoro, Supertonic and Chatterbox voices).
   const page = "http://localhost/v1/voice/models/";
   const cached = [
     "kokoro/model.onnx",
@@ -377,7 +373,8 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(
     pruned,
-    cached.slice(0, STALE_COPIES).map((r) => r.url),
+    [0, 1, 2, 4, 5].map((i) => cached[i].url),
+    "Kokoro's, Supertonic's and Chatterbox's files",
   );
   await lv.fetchCatalog(api);
   await new Promise((r) => setTimeout(r, 0));
@@ -398,8 +395,6 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
   assert.deepEqual(deleted, [
     "/v1/voice/models/a/model.onnx",
     "/v1/voice/models/a/model.json",
-    "/v1/voice/models/a/voice.bin",
-    "/v1/voice/models/a/voice.json",
   ]);
   // A model to listen with takes its own files; WebGPU's runtime is the runtime's, and stays.
   const whisper = apiOf({
@@ -417,39 +412,6 @@ test("the page asks the gateway for the catalog, a download and a removal, and s
       "decoder.onnx",
     ].map((n) => "/v1/voice/models/whisper-base-gpu/" + n),
   );
-  // An engine's model goes from the page's copy with its last voice, and stays while one is left.
-  const k = (id, installed) => ({ id, engine: ENGINE_SUPERTONIC, installed });
-  const kept = apiOf({
-    "DELETE /v1/voice/models/supertonic-F1": () =>
-      new Response(null, { status: HTTP_NO_CONTENT }),
-    [CATALOG]: () =>
-      new Response(
-        JSON.stringify({
-          ...cat,
-          models: [k(SUPERTONIC, false), k("supertonic-F2", true)],
-        }),
-        { status: HTTP_OK },
-      ),
-  });
-  deleted.length = 0;
-  await lv.deleteVoice(kept.api, SUPERTONIC);
-  assert.equal(deleted.length, 4);
-  // Supertonic's, the same.
-  const st = apiOf({
-    "DELETE /v1/voice/models/supertonic-F1": () =>
-      new Response(null, { status: HTTP_NO_CONTENT }),
-    [CATALOG]: () =>
-      new Response(JSON.stringify({ ...cat, models: [] }), { status: HTTP_OK }),
-  });
-  deleted.length = 0;
-  await lv.deleteVoice(st.api, SUPERTONIC);
-  assert.deepEqual(deleted.slice(4), [
-    "/v1/voice/models/supertonic/duration_predictor.onnx",
-    "/v1/voice/models/supertonic/text_encoder.onnx",
-    "/v1/voice/models/supertonic/vector_estimator.onnx",
-    "/v1/voice/models/supertonic/vocoder.onnx",
-    "/v1/voice/models/supertonic/unicode_indexer.json",
-  ]);
   await assert.rejects(lv.deleteVoice(api, "b"), /HTTP 500/);
   await assert.rejects(lv.fetchCatalog(apiOf({}).api), /not found/);
   const first = [
@@ -479,11 +441,11 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
         return;
       }
       queueMicrotask(() => {
-        if (m.text === "boom") {
+        if (m.text === "boom.") {
           this.onmessage({ data: { seq: m.seq, error: "the model failed" } });
           return;
         }
-        if (m.text === "hang") {
+        if (m.text === "hang.") {
           return;
         }
         this.onmessage({ data: { seq: m.seq, wav: enc("RIFF") } });
@@ -549,97 +511,9 @@ test("a local clip is said by the worker; an aborted one is dropped, and a dead 
     text: "Hola.",
     tune: { noise: 0.5, noiseW: 1.5 },
   });
-  assert.equal(say.ahead, 1, "a Piper voice says one sentence at a time");
   delete globalThis.Worker;
 });
 
-test("Supertonic on the CPU says the next sentences at once, in workers of their own", async () => {
-  // The worker of an earlier test goes, so these are made with the stand-in below.
-  globalThis.lastWorker?.onerror();
-  const made = [];
-  globalThis.Worker = class {
-    constructor() {
-      this.posted = [];
-      made.push(this);
-    }
-    postMessage(m) {
-      this.posted.push(m);
-    }
-  };
-  const cores = (n) =>
-    Object.defineProperty(globalThis.navigator, "hardwareConcurrency", {
-      value: n,
-      configurable: true,
-    });
-  cores(8);
-  const id = SUPERTONIC;
-  assert.equal(
-    lv.lanes(id),
-    lv.SUPERTONIC_LANES,
-    "Supertonic's model is large: few copies",
-  );
-  assert.equal(lv.lanes("v1"), 1, "a Piper voice is quick enough alone");
-  assert.equal(lv.lanes(CHATTERBOX), 1, "Chatterbox runs on the graphics card");
-  cores(2);
-  assert.equal(lv.lanes(id), 1, "one core is left to the page");
-  cores(8);
-  lv.warmLocal(id);
-  assert.equal(made.length, 1, "the helpers wait for the first worker");
-  made[0].onmessage({ data: { kind: "ready", id } });
-  assert.equal(made.length, lv.SUPERTONIC_LANES);
-  assert.deepEqual(made[1].posted, [{ kind: "warm", id }]);
-  made[1].onmessage({ data: { kind: "progress", id, pct: 5 } });
-  assert.equal(
-    lv.loadStateOf(id).ready,
-    true,
-    "a helper's loading is not shown",
-  );
-  // Each sentence goes to the worker with the fewest waiting.
-  const say = lv.localClip(id);
-  assert.equal(say.ahead, lv.SUPERTONIC_LANES);
-  const signal = new AbortController().signal;
-  const clips = ["a", "b", "c"].map((text) => say(text, signal));
-  const said = (w) =>
-    w.posted.filter((m) => m.kind === "say").map((m) => m.text);
-  assert.deepEqual(made.map(said), [["a", "c"], ["b"]]);
-  for (const w of made) {
-    for (const m of w.posted.filter((p) => p.kind === "say")) {
-      w.onmessage({ data: { seq: m.seq, wav: enc(m.text) } });
-    }
-  }
-  assert.deepEqual(
-    await Promise.all(clips.map(async (c) => (await c).text())),
-    ["a", "b", "c"],
-  );
-  // A helper that dies fails only its own sentences, and leaves the voice loaded.
-  const lost = say("e", signal);
-  const kept = say("f", signal);
-  made[0].onerror();
-  await assert.rejects(lost, /the local voice stopped/);
-  made[1].onmessage({
-    data: { seq: made[1].posted.at(-1).seq, wav: enc("f") },
-  });
-  assert.equal(await (await kept).text(), "f");
-  made[1].onerror();
-  // On WebGPU one worker says them all; where WebGPU failed, the page is told why.
-  lv.warmLocal(id);
-  made.at(-1).onmessage({ data: { kind: "ready", id, gpu: true } });
-  assert.deepEqual(lv.loadStateOf(id), { pct: 100, ready: true, gpu: true });
-  assert.equal(lv.lanes(id), 1);
-  made.at(-1).onmessage({ data: { kind: "ready", id, gpuError: NO_ADAPTER } });
-  assert.deepEqual(
-    lv.loadStateOf(id),
-    { pct: 100, ready: true, gpuError: NO_ADAPTER },
-    "why WebGPU failed",
-  );
-  for (const w of made.slice(LAST_TWO)) {
-    w.onerror();
-  }
-  delete globalThis.navigator.hardwareConcurrency;
-  delete globalThis.Worker;
-});
-
-// settle lets the requests in flight answer and the page draw what they said.
 async function settle() {
   for (let i = 0; i < SETTLE_ROUNDS; i++) {
     await act(() => new Promise((r) => setTimeout(r, 0)));
@@ -717,10 +591,9 @@ test("the settings download a voice, follow its progress, choose it and delete i
     [...q(LANGUAGE).options].map((o) => o.value),
     ["", "en", "es"],
   );
-  await pick(QUALITY, "high");
-  assert.equal(q("local-voice-en"), null);
-  assert.match(q(LOCAL_VOICES).textContent, /No voice matches these filters/);
-  await pick(QUALITY, "");
+  await pick(LANGUAGE, "en");
+  assert.ok(q("local-voice-en"));
+  assert.equal(q(ROW_ES), null);
   await pick(LANGUAGE, "");
   assert.ok(q(ROW_ES));
   await act(async () => q("local-voice-get-es").click());
@@ -746,6 +619,10 @@ test("the settings download a voice, follow its progress, choose it and delete i
   assert.doesNotMatch(q(LOCAL_VOICES).textContent, /33 MB/);
   await act(async () => render(draw("es"), v.root));
   assert.equal(q("local-voice-use-es").getAttribute(ARIA_PRESSED), "true");
+  // With the only voice of a language in use, the rest of that language is none.
+  await pick(LANGUAGE, "es");
+  assert.match(q(LOCAL_VOICES).textContent, /No voice matches these filters/);
+  await pick(LANGUAGE, "");
   await act(async () => q("local-voice-delete-es").click());
   await settle();
   assert.deepEqual(
@@ -757,7 +634,7 @@ test("the settings download a voice, follow its progress, choose it and delete i
   v.done();
 });
 
-test("a voice is heard before it is downloaded, one sample at a time, and its engine is named", async () => {
+test("a voice is heard before it is downloaded, one sample at a time", async () => {
   const played = [];
   globalThis.Audio = class {
     constructor(src) {
@@ -789,7 +666,7 @@ test("a voice is heard before it is downloaded, one sample at a time, and its en
         models: [
           row("a", { sample: true, engine: "piper" }),
           row("b", { sample: true, engine: "piper", quality: "x-low" }),
-          row(SUPERTONIC, { engine: ENGINE_SUPERTONIC }),
+          row("c", { engine: "piper" }),
         ],
         download: null,
       },
@@ -807,12 +684,8 @@ test("a voice is heard before it is downloaded, one sample at a time, and its en
     h(lv.LocalVoices, { api, chosen: "", choose: () => {} }),
   );
   const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
-  assert.equal(
-    q("local-voice-sample-supertonic-F1"),
-    null,
-    "no sample, no button",
-  );
-  assert.match(q(ROW_SUPERTONIC).textContent, /Supertonic · High quality/);
+  assert.equal(q("local-voice-sample-c"), null, "no sample, no button");
+  assert.match(q("local-voice-c").textContent, /Piper · High quality/);
   assert.match(q("local-voice-b").textContent, /Very low quality/);
   await act(async () => q(SAMPLE_A).click());
   await settle();
@@ -1024,70 +897,7 @@ test("who speaks offers the local voice when the gateway has them, and shows the
   );
   assert.equal(saved.pop().variation, 1);
   v.done();
-  // A Supertonic voice has its pace and its refinement steps instead.
-  const st = {
-    ...prefs,
-    engine: "local",
-    localVoice: SUPERTONIC,
-    supertonicSpeed: SUPERTONIC_PACE,
-    supertonicSteps: 0,
-  };
-  v = await mount(h(lv.SpeechSettings, props(st, { local: true, api })));
-  assert.equal(v.root.querySelector(EXPRESSIVENESS_SLIDER), null);
-  const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
-  assert.equal(
-    q("settings-speech-supertonic-speed-reset").disabled,
-    true,
-    "at its own pace",
-  );
-  assert.match(q(SUPERTONIC_STEPS).parentElement.textContent, /Auto/);
-  const speed = q("settings-speech-supertonic-speed");
-  speed.value = String(FASTER);
-  await act(async () =>
-    speed.dispatchEvent(new window.Event("input", { bubbles: true })),
-  );
-  assert.equal(saved.pop().supertonicSpeed, FASTER);
-  const steps = q(SUPERTONIC_STEPS);
-  steps.value = String(MORE_STEPS);
-  await act(async () =>
-    steps.dispatchEvent(new window.Event("input", { bubbles: true })),
-  );
-  assert.equal(saved.pop().supertonicSteps, MORE_STEPS);
-  v.done();
-  v = await mount(
-    h(
-      lv.SpeechSettings,
-      props(
-        { ...st, supertonicSpeed: 1.4, supertonicSteps: MORE_STEPS },
-        { local: true, api },
-      ),
-    ),
-  );
-  assert.match(
-    q(SUPERTONIC_STEPS).parentElement.textContent,
-    new RegExp(String(MORE_STEPS)),
-  );
-  await act(async () => q("settings-speech-supertonic-speed-reset").click());
-  assert.equal(saved.pop().supertonicSpeed, SUPERTONIC_PACE);
-  await act(async () => q("settings-speech-supertonic-steps-reset").click());
-  assert.equal(saved.pop().supertonicSteps, 0);
-  v.done();
-  // A Chatterbox voice has none here: its emotion is with its voices.
-  v = await mount(
-    h(
-      lv.SpeechSettings,
-      props(
-        { ...prefs, engine: "local", localVoice: CHATTERBOX },
-        { local: true, api },
-      ),
-    ),
-  );
-  assert.equal(v.root.querySelector(EXPRESSIVENESS_SLIDER), null);
-  assert.equal(
-    v.root.querySelector("[data-testid=settings-speech-supertonic-speed]"),
-    null,
-  );
-  v.done();
+  // The gateway's voice has no sliders, and neither has the device's own but the pitch.
 });
 
 test("the runtime the gateway downloads is the one the page is built with", () => {
@@ -1173,10 +983,7 @@ test("the voice in use shows its loading into memory, and says In use only when 
 });
 
 test("the filters chosen are kept for the next visit, and what cannot be read is left out", async () => {
-  localStorage.setItem(
-    lv.FILTERS_KEY,
-    JSON.stringify({ language: "en", quality: "high" }),
-  );
+  localStorage.setItem(lv.FILTERS_KEY, JSON.stringify({ language: "en" }));
   const cat = {
     runtime: { size: 1, installed: true },
     models: [
@@ -1205,238 +1012,56 @@ test("the filters chosen are kept for the next visit, and what cannot be read is
   );
   const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
   assert.equal(q(LANGUAGE).value, "en");
-  assert.equal(q(QUALITY).value, "high");
+  assert.equal(q(QUALITY), null, "every voice is high quality: no filter");
   assert.equal(q(ROW_ES), null);
-  q(QUALITY).value = "medium";
+  q(LANGUAGE).value = "es";
   await act(async () =>
-    q(QUALITY).dispatchEvent(new window.Event("change", { bubbles: true })),
+    q(LANGUAGE).dispatchEvent(new window.Event("change", { bubbles: true })),
   );
   assert.deepEqual(JSON.parse(localStorage.getItem(lv.FILTERS_KEY)), {
-    language: "en",
-    quality: "medium",
+    language: "es",
   });
   v.done();
-  localStorage.setItem(
-    lv.FILTERS_KEY,
-    JSON.stringify({ language: 3, quality: "loud" }),
-  );
+  localStorage.setItem(lv.FILTERS_KEY, JSON.stringify({ language: 3 }));
   assert.deepEqual(
     lv.loadFilters(),
-    { language: "en", quality: "" },
-    "the interface's language, every quality",
+    { language: "en" },
+    "the interface's language",
   );
   localStorage.setItem(lv.FILTERS_KEY, "{not json");
-  assert.deepEqual(lv.loadFilters(), { language: "en", quality: "" });
+  assert.deepEqual(lv.loadFilters(), { language: "en" });
   localStorage.removeItem(lv.FILTERS_KEY);
 });
 
-test("a Supertonic voice says where it runs, and why WebGPU could not start when it failed", async () => {
-  globalThis.lastWorker?.onerror();
-  globalThis.Worker = class {
-    constructor() {
-      globalThis.lastWorker = this;
-    }
-    postMessage() {
-      // Nothing is said here: the voice is told ready by hand below.
-    }
-  };
-  globalThis.caches = {};
-  const cat = {
-    runtime: { size: 1, installed: true },
-    models: [
+test("a chosen voice that is not on this device gives way to a downloaded one", async () => {
+  const model = (id, installed) => ({
+    id,
+    name: id,
+    lang: "en-US",
+    quality: "high",
+    size: 1,
+    installed,
+  });
+  const { api } = apiOf({
+    [CATALOG]: [
+      HTTP_OK,
       {
-        id: SUPERTONIC,
-        name: "F1",
-        lang: "mul",
-        quality: "high",
-        engine: ENGINE_SUPERTONIC,
-        size: 1,
-        installed: true,
+        runtime: { size: 1, installed: true },
+        models: [model("far", false), model("near", true)],
+        download: null,
       },
     ],
-    download: null,
-  };
-  const { api } = apiOf({ [CATALOG]: [HTTP_OK, cat] });
+  });
+  const chosen = [];
   const v = await mount(
-    h(lv.LocalVoices, { api, chosen: SUPERTONIC, choose: () => {} }),
+    h(lv.LocalVoices, { api, chosen: "far", choose: (id) => chosen.push(id) }),
   );
-  const q = (s) => v.root.querySelector(`[data-testid=${s}]`);
-  const tell = (data) =>
-    act(async () => globalThis.lastWorker.onmessage({ data }));
-  await tell({ kind: "ready", id: SUPERTONIC, gpu: true });
-  assert.match(q(ROW_SUPERTONIC).textContent, /WebGPU/);
-  assert.equal(q("local-voice-gpu-note"), null);
-  await tell({
-    kind: "ready",
-    id: SUPERTONIC,
-    gpuError: "the browser gave no graphics card to use",
-  });
-  assert.doesNotMatch(q(ROW_SUPERTONIC).textContent, /WebGPU/);
-  assert.match(
-    q("local-voice-gpu-note").textContent,
-    /could not start here \(The browser gave no graphics card to use\.\)/,
-  );
+  assert.deepEqual(chosen, ["near"]);
   v.done();
-  globalThis.lastWorker.onerror();
-  delete globalThis.Worker;
-  delete globalThis.caches;
-});
-
-test("Supertonic speaks any language of the filter, and Chatterbox is offered on WebGPU with its emotion", async () => {
-  globalThis.lastWorker?.onerror();
-  globalThis.Worker = class {
-    constructor() {
-      globalThis.lastWorker = this;
-    }
-    postMessage() {
-      // Nothing is said here: the voices are only listed.
-    }
-  };
-  globalThis.caches = {};
-  localStorage.setItem(
-    lv.FILTERS_KEY,
-    JSON.stringify({ language: "en", quality: "" }),
+  // One that is downloaded stays; so does the choice when nothing is downloaded.
+  const stay = await mount(
+    h(lv.LocalVoices, { api, chosen: "near", choose: (id) => chosen.push(id) }),
   );
-  const many = (id, engine, installed) => ({
-    id,
-    name: id,
-    lang: "mul",
-    quality: "high",
-    engine,
-    size: 200,
-    installed,
-  });
-  const cat = {
-    runtime: { size: 1, installed: true },
-    models: [
-      many(SUPERTONIC, ENGINE_SUPERTONIC, false),
-      many(CHATTERBOX, "chatterbox", true),
-    ],
-    download: null,
-  };
-  const { api } = apiOf({ [CATALOG]: [HTTP_OK, cat] });
-  const emotions = [];
-  const draw = (chosen) =>
-    h(lv.LocalVoices, {
-      api,
-      chosen,
-      choose: () => {},
-      emotion: 0.5,
-      setEmotion: (n) => emotions.push(n),
-    });
-  let v = await mount(draw(SUPERTONIC));
-  let q = (s) => v.root.querySelector(`[data-testid=${s}]`);
-  assert.match(
-    q(ROW_SUPERTONIC).textContent,
-    /31 languages.*Supertonic · .*1 MB/,
-  );
-  assert.equal(
-    q("local-voice-chatterbox-default"),
-    null,
-    "no WebGPU, no Chatterbox",
-  );
-  assert.equal(q("local-voice-emotion"), null);
-  v.done();
-  Object.defineProperty(globalThis.navigator, "gpu", {
-    value: { requestAdapter: async () => ({}) },
-    configurable: true,
-  });
-  v = await mount(draw(CHATTERBOX));
-  q = (s) => v.root.querySelector(`[data-testid=${s}]`);
-  assert.match(
-    q("local-voice-chatterbox-default").textContent,
-    /21 languages.*Chatterbox · /,
-  );
-  q("local-voice-emotion-amount").value = String(EMOTION);
-  await act(async () =>
-    q("local-voice-emotion-amount").dispatchEvent(
-      new window.Event("input", { bubbles: true }),
-    ),
-  );
-  assert.deepEqual(emotions, [EMOTION]);
-  v.done();
-  delete globalThis.navigator.gpu;
-  localStorage.removeItem(lv.FILTERS_KEY);
-  globalThis.lastWorker.onerror();
-  delete globalThis.Worker;
-  delete globalThis.caches;
-});
-
-test("on a phone Chatterbox is not kept as the voice, and the WebGPU switch is under the voices too", async () => {
-  const ua = Object.getOwnPropertyDescriptor(navigator, "userAgent");
-  Object.defineProperty(navigator, "userAgent", {
-    value: "Mozilla/5.0 (Linux; Android 14) Mobile",
-    configurable: true,
-  });
-  globalThis.lastWorker?.onerror();
-  globalThis.Worker = class {
-    constructor() {
-      globalThis.lastWorker = this;
-    }
-    postMessage() {
-      // Only listed here.
-    }
-  };
-  globalThis.caches = {};
-  const many = (id, engine, installed) => ({
-    id,
-    name: id,
-    lang: "mul",
-    quality: "high",
-    engine,
-    size: 200,
-    installed,
-  });
-  const only = [many(CHATTERBOX, "chatterbox", true)];
-  const both = [many(SUPERTONIC, ENGINE_SUPERTONIC, true), ...only];
-  try {
-    for (const [models, want] of [
-      [both, [SUPERTONIC]],
-      [only, []],
-    ]) {
-      const picked = [];
-      const { api } = apiOf({
-        [CATALOG]: [
-          HTTP_OK,
-          { runtime: { size: 1, installed: true }, models, download: null },
-        ],
-      });
-      const v = await mount(
-        h(lv.SpeechSettings, {
-          supported: true,
-          prefs: {
-            engine: "local",
-            localVoice: CHATTERBOX,
-            pronunciations: [],
-            langVoices: {},
-          },
-          setPrefs: (x) => picked.push(x.localVoice),
-          voices: [],
-          test: () => {},
-          local: true,
-          api,
-          gatewayVoices: [],
-        }),
-      );
-      assert.ok(
-        v.root.querySelector("#settings-gpu-mobile-speech"),
-        "the switch is under the voices",
-      );
-      assert.deepEqual(
-        picked,
-        want,
-        "another voice replaces Chatterbox, when there is one",
-      );
-      v.done();
-    }
-  } finally {
-    globalThis.lastWorker.onerror();
-    delete globalThis.Worker;
-    delete globalThis.caches;
-    if (ua) {
-      Object.defineProperty(navigator, "userAgent", ua);
-    } else {
-      delete navigator.userAgent;
-    }
-  }
+  stay.done();
+  assert.deepEqual(chosen, ["near"]);
 });

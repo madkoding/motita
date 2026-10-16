@@ -472,9 +472,9 @@ const more: Record<string, string> = {
     "Este navegador puede borrar los modelos descargados si se queda sin disco; se descargan de nuevo. Instalar Motita como app ayuda a que los conserve.",
   "The download failed: {error}": "La descarga falló: {error}",
   "In use": "En uso",
-  Expressiveness: "Expresividad",
-  "How much the intonation varies: lower is flatter and steadier, higher livelier.":
-    "Cuánto varía la entonación: menos es más plana y estable, más es más viva.",
+  "Voice texture": "Textura de la voz",
+  "How smooth the voice sounds: lower is cleaner and steadier, higher is rougher.":
+    "Qué tan suave suena la voz: menos es más limpia y estable, más es más áspera.",
   "Rhythm variation": "Variación del ritmo",
   "How much the length of each sound varies: lower is more even, higher more natural.":
     "Cuánto varía la duración de cada sonido: menos es más parejo, más es más natural.",
@@ -486,23 +486,8 @@ const more: Record<string, string> = {
   "Medium quality": "Calidad media",
   "Low quality": "Calidad baja",
   "Very low quality": "Calidad muy baja",
-  Quality: "Calidad",
   "Every language": "Todos los idiomas",
-  "Every quality": "Todas las calidades",
   "No voice matches these filters.": "Ninguna voz coincide con estos filtros.",
-  "WebGPU could not start here ({reason}): Supertonic runs on the processor.":
-    "WebGPU no pudo iniciar aquí ({reason}): Supertonic usa el procesador.",
-  "{n} languages": "{n} idiomas",
-  Emotion: "Emoción",
-  "How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.":
-    "Cuánta emoción pone la voz: 0,5 es la suya; más es más viva y un poco más rápida.",
-  Pace: "Ritmo",
-  Auto: "Automático",
-  "How fast the voice speaks, each sound longer or shorter, without changing its pitch.":
-    "Qué tan rápido habla la voz, cada sonido más largo o más corto, sin cambiar su tono.",
-  "Refinement steps": "Pasos de refinado",
-  "How many times the sound is refined: more is clearer and slower to start. Auto is 8 on the graphics card and 5 on the processor.":
-    "Cuántas veces se refina el sonido: más es más claro y tarda más en empezar. Automático es 8 en la tarjeta gráfica y 5 en el procesador.",
   "Stop the sample": "Detener la muestra",
   "Hear {name}": "Escuchar a {name}",
   "The sample could not be played: {error}":
@@ -639,8 +624,6 @@ const more: Record<string, string> = {
   "The local listener stopped.": "El oyente local se detuvo.",
   "Give Motita's commands the network?":
     "¿Dar la red a los comandos de Motita?",
-  "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.":
-    "Esta voz necesita WebGPU, que este dispositivo no usa. Elige otra voz, o activa WebGPU en los ajustes.",
 };
 
 export default more;

@@ -96,11 +96,12 @@ if (noCache) {
     await new Promise((r) => setTimeout(r, 0));
     assert.deepEqual(dropped, [
       page + "old-voice/model.onnx",
+      page + "supertonic/vocoder.onnx",
       page + "a/ort-wasm-simd-threaded.asyncify.wasm",
     ]);
     await lv.fetchCatalog(api);
     await new Promise((r) => setTimeout(r, 0));
-    assert.equal(dropped.length, 2, "once a page");
+    assert.equal(dropped.length, 3, "once a page");
     assert.equal(lv.localVoicesSupported(), true);
   });
 
@@ -176,52 +177,19 @@ if (noCache) {
     await assert.rejects(lv.deleteVoice(api, "zz"), /not found/);
   });
 
-  test("a removed voice leaves the page's copy, with its engine's model when it was the last", async () => {
+  test("a removed voice leaves the page's copy of its files, and the runtime stays", async () => {
     const deleted = [];
     globalThis.caches = {
       open: async () => ({ delete: async (u) => deleted.push(u) }),
     };
-    const gone = () => new Response(null, { status: 204 });
     const { api, calls } = apiOf({
-      "DELETE /v1/voice/models/es-a": gone,
-      "DELETE /v1/voice/models/chatterbox-a": gone,
-      "DELETE /v1/voice/models/chatterbox-b": gone,
-      [CATALOG]: () =>
-        json(
-          cat([
-            model("chatterbox-b", "chatterbox", true),
-            model("chatterbox-a", "chatterbox", false),
-          ]),
-        ),
+      "DELETE /v1/voice/models/es-a": () => new Response(null, { status: 204 }),
     });
     await lv.deleteVoice(api, "es-a");
-    assert.deepEqual(
-      calls,
-      ["DELETE /v1/voice/models/es-a"],
-      "a Piper voice has no engine model to look up",
-    );
-    assert.equal(deleted.length, 4);
-    deleted.length = 0;
-    await lv.deleteVoice(api, "chatterbox-a");
-    assert.equal(
-      deleted.length,
-      4,
-      "another Chatterbox voice is installed: its model stays",
-    );
-    deleted.length = 0;
-    const last = apiOf({
-      "DELETE /v1/voice/models/chatterbox-b": gone,
-      [CATALOG]: () => json(cat([])),
-    });
-    await lv.deleteVoice(last.api, "chatterbox-b");
-    assert.deepEqual(deleted.slice(4), [
-      "/v1/voice/models/chatterbox/tokenizer.json",
-      "/v1/voice/models/chatterbox/embed_tokens.onnx",
-      "/v1/voice/models/chatterbox/embed_tokens.onnx_data",
-      "/v1/voice/models/chatterbox/language_model_q4.onnx",
-      "/v1/voice/models/chatterbox/language_model_q4.onnx_data",
-      "/v1/voice/models/chatterbox/conditional_decoder.onnx",
-      "/v1/voice/models/chatterbox/conditional_decoder.onnx_data",
+    assert.deepEqual(calls, ["DELETE /v1/voice/models/es-a"]);
+    assert.deepEqual(deleted, [
+      "/v1/voice/models/es-a/model.onnx",
+      "/v1/voice/models/es-a/model.json",
     ]);
   });
 
@@ -243,15 +211,8 @@ if (noCache) {
     });
     lv.warmLocal("v1");
     assert.equal(w.posted.length, 2, "a voice that failed is asked for again");
-    w.onmessage({
-      data: { kind: "ready", id: "v1", gpu: true, gpuError: "slow card" },
-    });
-    assert.deepEqual(lv.loadStateOf("v1"), {
-      pct: 100,
-      ready: true,
-      gpu: true,
-      gpuError: "slow card",
-    });
+    w.onmessage({ data: { kind: "ready", id: "v1" } });
+    assert.deepEqual(lv.loadStateOf("v1"), { pct: 100, ready: true });
     lv.warmLocal("v1");
     assert.equal(w.posted.length, 2, "a ready voice is not loaded again");
     off();
@@ -267,116 +228,69 @@ if (noCache) {
     assert.equal(lv.loadStateOf("v1"), undefined);
   });
 
-  test("a sentence is said by the worker, in its language, and a late or failed one is dropped", async () => {
-    const say = lv.localClip("v2", { noise: 0.5, noiseW: 1.5 });
-    assert.equal(say.ahead, 1);
+  test("a sentence is prepared for the voice's language, said by the worker, and a late or failed one is dropped", async () => {
+    const say = lv.localClip("es_MX-claude-high", { noise: 0.5, noiseW: 1.5 });
     const w = workers[0];
     w.posted.length = 0;
-    const plain = say("Hola.", new AbortController().signal);
-    assert.deepEqual(
-      says(w)[0].tune,
-      { noise: 0.5, noiseW: 1.5 },
-      "no language: the tune as given",
+    const plain = say(
+      "El Sr. López tiene 25 años",
+      new AbortController().signal,
+    );
+    assert.deepEqual(says(w)[0].tune, { noise: 0.5, noiseW: 1.5 });
+    assert.equal(
+      says(w)[0].text,
+      "El Señor López tiene veinticinco años.",
+      "the language of the voice, from its id",
     );
     answer(w, says(w)[0], { wav: enc("RIFF") });
     const blob = await plain;
     assert.equal(blob.type, "audio/wav");
     assert.equal(await blob.text(), "RIFF");
 
-    const english = lv.localClip("v2")(
-      "Hi.",
+    const english = lv.localClip("es_MX-claude-high")(
+      "Mr. Smith is 25",
       new AbortController().signal,
       "en",
     );
-    assert.deepEqual(says(w)[1].tune, { noise: 1, noiseW: 1, lang: "en" });
+    assert.equal(says(w)[1].text, "Mister Smith is twenty-five.");
+    assert.equal(says(w)[1].tune, undefined);
     answer(w, says(w)[1], { error: "the model failed" });
     await assert.rejects(english, /the model failed/);
-
-    const bare = lv.localClip("v2")("Hey.", new AbortController().signal);
-    assert.equal(says(w)[2].tune, undefined);
-    answer(w, says(w)[2], { wav: enc("x") });
-    await bare;
 
     // Aborted: dropped at once, and its audio, when it comes, goes nowhere.
     const ab = new AbortController();
     const late = say("Tarde.", ab.signal);
     ab.abort();
     await assert.rejects(late, { name: "AbortError" });
-    answer(w, says(w)[3], { wav: enc("late") });
+    answer(w, says(w)[2], { wav: enc("late") });
   });
 
-  test("Supertonic on the CPU says sentences in helper workers; a dead one fails only its own", async () => {
-    for (const w of workers) {
-      w.onerror();
-    }
-    workers.length = 0;
-    const cores = (n) =>
-      Object.defineProperty(navigator, "hardwareConcurrency", {
-        value: n,
-        configurable: true,
-      });
-    cores(8);
-    const id = "supertonic-F1";
-    assert.equal(lv.lanes(id), lv.SUPERTONIC_LANES);
-    assert.equal(lv.lanes("v1"), 1);
-    lv.warmLocal(id);
-    assert.equal(workers.length, 1, "the helpers wait for the first worker");
-    workers[0].onmessage({ data: { kind: "ready", id } });
-    assert.equal(workers.length, 2);
-    assert.deepEqual(workers[1].posted, [{ kind: "warm", id }]);
-    workers[1].onmessage({ data: { kind: "progress", id, pct: 5 } });
-    assert.equal(
-      lv.loadStateOf(id).ready,
-      true,
-      "a helper's loading is not shown",
-    );
-
-    const say = lv.localClip(id);
-    assert.equal(say.ahead, 2);
-    const signal = new AbortController().signal;
-    const a = say("a", signal);
-    const b = say("b", signal);
-    assert.deepEqual(
-      workers.map((w) => says(w).map((m) => m.text)),
-      [["a"], ["b"]],
-    );
-    answer(workers[1], says(workers[1])[0], { wav: enc("b") });
-    assert.equal(await (await b).text(), "b");
-    // The helper's own sentences die with it; the first worker's wait.
-    const c = say("c", signal);
-    workers[1].onerror();
-    await assert.rejects(c, /the local voice stopped/);
-    assert.equal(
-      lv.loadStateOf(id).ready,
-      true,
-      "a helper's death leaves the voice loaded",
-    );
-    answer(workers[0], says(workers[0])[0], { wav: enc("a") });
-    assert.equal(await (await a).text(), "a");
-    // A message about a removal goes to the live workers only.
+  test("a worker that dies fails what waits for it, and its voices are loaded again", async () => {
+    lv.warmLocal("v9");
+    const w = workers.at(-1);
+    w.onmessage({ data: { kind: "ready", id: "v9" } });
+    const say = lv.localClip("en_US-lessac-high");
+    const waiting = say("Hello", new AbortController().signal);
+    w.onerror();
+    await assert.rejects(waiting, /the local voice stopped/);
+    assert.equal(lv.loadStateOf("v9"), undefined, "it is loaded again");
+    // The next sentence starts a worker of its own.
+    const before = workers.length;
+    const again = say("Again", new AbortController().signal);
+    assert.equal(workers.length, before + 1);
+    // A message about a removal goes to the live worker only.
     globalThis.caches = { open: async () => ({ delete: async () => true }) };
     const { api } = apiOf({
       "DELETE /v1/voice/models/es-x": () => new Response(null, { status: 204 }),
     });
     await lv.deleteVoice(api, "es-x");
-    assert.deepEqual(workers[0].posted.at(-1), { kind: "forget", id: "es-x" });
-
-    // The first worker dies: every voice it had is to be loaded again.
-    workers[0].onerror();
-    assert.equal(lv.loadStateOf(id), undefined);
-
-    // Where the browser does not say how many cores it has, one worker does it all.
-    Object.defineProperty(navigator, "hardwareConcurrency", {
-      value: undefined,
-      configurable: true,
+    assert.deepEqual(workers.at(-1).posted.at(-1), {
+      kind: "forget",
+      id: "es-x",
     });
-    assert.equal(lv.lanes(id), 1);
-    const nav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
-    Object.defineProperty(globalThis, "navigator", {
-      value: undefined,
-      configurable: true,
-    });
-    assert.equal(lv.lanes(id), 1, "nor without a navigator");
-    Object.defineProperty(globalThis, "navigator", nav);
+    // With no worker, there is nobody to tell.
+    workers.at(-1).onerror();
+    await assert.rejects(again, /the local voice stopped/);
+    await lv.deleteVoice(api, "es-x");
   });
 }

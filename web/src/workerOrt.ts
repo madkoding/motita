@@ -51,16 +51,6 @@ export async function bytes(
   return body;
 }
 
-// external hands onnxruntime a model's weights kept apart from it, under the name the model gives.
-function external(weights?: { path: string; data: ArrayBuffer }) {
-  if (!weights) {
-    return {};
-  }
-  return {
-    externalData: [{ path: weights.path, data: new Uint8Array(weights.data) }],
-  };
-}
-
 // The limits onnxruntime raises to the card's own when it makes its device (larger models need
 // more than the defaults), and the features it turns on when the card has them.
 const DEVICE_LIMITS: (keyof GPUSupportedLimits)[] = [
@@ -103,11 +93,8 @@ export async function cpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
   env.wasm.wasmBinary = wasm;
   return {
     Tensor: Tensor as unknown as OrtLike["Tensor"],
-    createSession: (model, weights) =>
-      InferenceSession.create(model, {
-        executionProviders: ["wasm"],
-        ...external(weights),
-      }),
+    createSession: (model) =>
+      InferenceSession.create(model, { executionProviders: ["wasm"] }),
   } as OrtLike;
 }
 
@@ -159,10 +146,9 @@ export async function gpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
   ortGPU.env.logLevel = "error";
   return {
     Tensor: ortGPU.Tensor as unknown as OrtLike["Tensor"],
-    createSession: (model, weights) =>
+    createSession: (model) =>
       ortGPU.InferenceSession.create(model, {
         executionProviders: [{ name: "webgpu", device }],
-        ...external(weights),
       }),
   } as OrtLike;
 }

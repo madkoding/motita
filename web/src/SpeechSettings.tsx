@@ -6,18 +6,14 @@ import type { Lang } from "./i18n";
 import { choose } from "./choose";
 import type { Api } from "./gitApi";
 import { LocalVoices } from "./LocalVoiceSettings";
-import { MobileGpuRow } from "./VoiceSettings";
-import { isMobileDevice } from "./gpuPolicy";
-import { SUPERTONIC_SPEED, isChatterbox, isSupertonic } from "./localVoiceCore";
 import {
   LENGTHS,
   MEDIUM_CHARS,
   PITCH_RANGE,
+  VARIATION_RANGE,
   RATES,
   SHORT_CHARS,
   TUNE_RANGE,
-  SUPERTONIC_SPEED_RANGE,
-  SUPERTONIC_STEPS_RANGE,
   type SpeakMode,
   type SpeakStyle,
   type SpeechEngine,
@@ -59,7 +55,7 @@ export interface SpeechSettingsProps {
 const SLIDER_STEP = 0.1;
 
 // VoiceSlider is one attribute of the voice on a slider, with its value beside it and a way
-// back to the voice's own (own, 1 unless said; format writes the value, as a speed unless said).
+// back to the voice's own (1).
 function VoiceSlider({
   id,
   label,
@@ -68,9 +64,6 @@ function VoiceSlider({
   value,
   disabled,
   onChange,
-  step = SLIDER_STEP,
-  own = 1,
-  format = rateLabel,
 }: {
   id: string;
   label: string;
@@ -79,9 +72,6 @@ function VoiceSlider({
   value: number;
   disabled?: boolean;
   onChange: (v: number) => void;
-  step?: number;
-  own?: number;
-  format?: (v: number) => string;
 }) {
   return (
     <Row id={id} label={label} hint={hint} stack>
@@ -93,7 +83,7 @@ function VoiceSlider({
           data-testid={id}
           min={range[0]}
           max={range[1]}
-          step={step}
+          step={SLIDER_STEP}
           value={value}
           disabled={disabled}
           onInput={(e) =>
@@ -101,14 +91,14 @@ function VoiceSlider({
           }
         />
         <span class="text-xs text-[#a0a0b0] w-10 text-right tabular-nums">
-          {format(value)}
+          {rateLabel(value)}
         </span>
         <button
           type="button"
           class={smallBtn}
-          disabled={disabled || value === own}
+          disabled={disabled || value === 1}
           data-testid={id + "-reset"}
-          onClick={() => onChange(own)}
+          onClick={() => onChange(1)}
         >
           {t("Reset")}
         </button>
@@ -118,8 +108,7 @@ function VoiceSlider({
 }
 
 // VoiceTuning are the sliders of the voice that speaks: expressiveness and rhythm for a downloaded
-// Piper voice, pace and refinement for a Supertonic one (Chatterbox's emotion is with its voices),
-// the pitch for the device's voices. The gateway's voice has none.
+// Piper voice, the pitch for the device's voices. The gateway's voice has none.
 function VoiceTuning({
   localChosen,
   gateway,
@@ -143,56 +132,14 @@ function VoiceTuning({
     [set],
   );
   const setPitch = useCallback((pitch: number) => set({ pitch }), [set]);
-  const setSpeed = useCallback(
-    (supertonicSpeed: number) => set({ supertonicSpeed }),
-    [set],
-  );
-  const setSteps = useCallback(
-    (supertonicSteps: number) => set({ supertonicSteps }),
-    [set],
-  );
   if (localChosen) {
-    if (isChatterbox(prefs.localVoice)) {
-      return null;
-    }
-    if (isSupertonic(prefs.localVoice)) {
-      return (
-        <>
-          <VoiceSlider
-            id="settings-speech-supertonic-speed"
-            label={t("Pace")}
-            hint={t(
-              "How fast the voice speaks, each sound longer or shorter, without changing its pitch.",
-            )}
-            range={SUPERTONIC_SPEED_RANGE}
-            step={SPEED_STEP}
-            own={SUPERTONIC_SPEED}
-            value={prefs.supertonicSpeed}
-            onChange={setSpeed}
-          />
-          <VoiceSlider
-            id="settings-speech-supertonic-steps"
-            label={t("Refinement steps")}
-            hint={t(
-              "How many times the sound is refined: more is clearer and slower to start. Auto is 8 on the graphics card and 5 on the processor.",
-            )}
-            range={SUPERTONIC_STEPS_RANGE}
-            step={1}
-            own={0}
-            format={stepsLabel}
-            value={prefs.supertonicSteps}
-            onChange={setSteps}
-          />
-        </>
-      );
-    }
     return (
       <>
         <VoiceSlider
           id="settings-speech-expressiveness"
-          label={t("Expressiveness")}
+          label={t("Voice texture")}
           hint={t(
-            "How much the intonation varies: lower is flatter and steadier, higher livelier.",
+            "How smooth the voice sounds: lower is cleaner and steadier, higher is rougher.",
           )}
           range={TUNE_RANGE}
           value={prefs.expressiveness}
@@ -204,7 +151,7 @@ function VoiceTuning({
           hint={t(
             "How much the length of each sound varies: lower is more even, higher more natural.",
           )}
-          range={TUNE_RANGE}
+          range={VARIATION_RANGE}
           value={prefs.variation}
           onChange={setVariation}
         />
@@ -224,14 +171,6 @@ function VoiceTuning({
       onChange={setPitch}
     />
   );
-}
-
-// SPEED_STEP is how far one step of the pace slider moves.
-const SPEED_STEP = 0.05;
-
-// stepsLabel writes a number of refinement steps: Auto for the voice's own.
-function stepsLabel(n: number): string {
-  return choose(n === 0, t("Auto"), String(n));
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -628,27 +567,18 @@ function SpeechVoice({
     (localVoice: string) => set({ localVoice }),
     [set],
   );
-  const setEmotion = useCallback(
-    (chatterboxEmotion: number) => set({ chatterboxEmotion }),
-    [set],
-  );
   if (engine === "local") {
     if (!api) {
       return null;
     }
     return (
-      <>
-        <Row id="settings-speech-local" label={t("Voices to download")} stack>
-          <LocalVoices
-            api={api}
-            chosen={prefs.localVoice}
-            choose={setLocalVoice}
-            emotion={prefs.chatterboxEmotion}
-            setEmotion={setEmotion}
-          />
-        </Row>
-        {isMobileDevice() && <MobileGpuRow id="settings-gpu-mobile-speech" />}
-      </>
+      <Row id="settings-speech-local" label={t("Voices to download")} stack>
+        <LocalVoices
+          api={api}
+          chosen={prefs.localVoice}
+          choose={setLocalVoice}
+        />
+      </Row>
     );
   }
   if (engine === "gateway") {

@@ -272,11 +272,13 @@ function turnStart(
 
 // useSpeechPrefs are the read-aloud settings, read again when the settings screen changes them.
 function useSpeechPrefs() {
-  const [prefs, setPrefsState] = useState<SpeechPrefs>(loadSpeechPrefs);
+  const [prefs, setPrefsState] = useState<SpeechPrefs>(() =>
+    loadSpeechPrefs(lang()),
+  );
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
   useEffect(() => {
-    const reload = () => setPrefsState(loadSpeechPrefs());
+    const reload = () => setPrefsState(loadSpeechPrefs(lang()));
     window.addEventListener(SPEECH_PREFS_EVENT, reload);
     return () => window.removeEventListener(SPEECH_PREFS_EVENT, reload);
   }, []);
@@ -341,9 +343,7 @@ function useClipReader(
           return localClip(p.localVoice, {
             noise: p.expressiveness,
             noiseW: p.variation,
-            speed: p.supertonicSpeed,
-            steps: p.supertonicSteps,
-            exaggeration: p.chatterboxEmotion,
+            length: 1 / p.rate,
           });
         }
         return speakClip(apiRef.current as Api, p.gatewayVoice);
@@ -736,7 +736,9 @@ function useReadText(o: {
         voiceFor: (other) =>
           pickVoice(voicesRef.current, p.langVoices[other] || "", other),
         lang: l,
-        rate: p.rate,
+        // A local voice already speaks at the speed (its length_scale); playing it faster again
+        // would double it.
+        rate: choose(p.engine === "local", 1, p.rate),
         pitch: p.pitch,
         onSentence: (i) => {
           showSubtitle(list[i].shown);
@@ -1009,11 +1011,6 @@ function errorHint(error: string): string {
   }
   if (error === "language-unavailable" || error === "voice-unavailable") {
     return t("This device has no voice for this language.");
-  }
-  if (error.includes("WebGPU")) {
-    return t(
-      "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.",
-    );
   }
   return error;
 }

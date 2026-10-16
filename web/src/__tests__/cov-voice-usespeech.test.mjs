@@ -1018,13 +1018,6 @@ test("errors are said in words a person can act on", async () => {
   await act(() => s.state.current.speak(answer(2)));
   await act(() => synth.said.at(-1).onerror({ error: "language-unavailable" }));
   assert.match(s.state.toasts.at(-1).detail, /no voice for this language/);
-  await act(() => s.state.current.speak(answer(2)));
-  await act(() =>
-    synth.said
-      .at(-1)
-      .onerror({ error: "this browser has no WebGPU in its workers" }),
-  );
-  assert.match(s.state.toasts.at(-1).detail, /needs WebGPU/);
   await s.done();
 });
 

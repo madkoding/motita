@@ -6,23 +6,14 @@
 // catalog and checked its hash; the page keeps its own copy in Cache Storage so a voice loads
 // without the network after the first time. The logic is in localVoiceCore.ts.
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
-import {
-  Synth,
-  isSupertonic,
-  type FromWorker,
-  type ToWorker,
-} from "./localVoiceCore";
-import { bytes, cpuOrt, gpuOrt, messageOf, webGPU } from "./workerOrt";
+import { Synth, type FromWorker, type ToWorker } from "./localVoiceCore";
+import { bytes, cpuOrt, messageOf } from "./workerOrt";
 
 declare const self: DedicatedWorkerGlobalScope;
 
 const synth = new Synth({
   bytes,
   ort: cpuOrt,
-  // WebGPU's build runs Supertonic and Chatterbox on a browser that has WebGPU. Each way it can
-  // fail says so, and the page shows it.
-  gpu: gpuOrt,
-  webGPU,
   phonemizer: (wasm, data, print) =>
     createPiperPhonemize({
       print,
@@ -51,13 +42,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
         } satisfies FromWorker),
       )
       .then(
-        async () =>
-          self.postMessage({
-            kind: "ready",
-            id: m.id,
-            gpu: await synth.onGPU(m.id),
-            gpuError: (isSupertonic(m.id) && synth.gpuError()) || undefined,
-          } satisfies FromWorker),
+        () =>
+          self.postMessage({ kind: "ready", id: m.id } satisfies FromWorker),
         (err: unknown) =>
           self.postMessage({
             kind: "failed",

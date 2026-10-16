@@ -18,10 +18,7 @@ const { act } = await import("preact/test-utils");
 const text = (el) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
 
 test("a voice of a quality and a language the page has no name for shows them as they come", async () => {
-  localStorage.setItem(
-    lv.FILTERS_KEY,
-    JSON.stringify({ language: "", quality: "" }),
-  );
+  localStorage.setItem(lv.FILTERS_KEY, JSON.stringify({ language: "" }));
   const catalog = {
     runtime: { size: 9e6, installed: true },
     models: [
@@ -59,8 +56,8 @@ test("a voice of a quality and a language the page has no name for shows them as
   );
   await settleWith(act, 4);
   const list = root.querySelector("[data-testid=local-voices]");
-  assert.match(text(list), /Odd · x1 ?studio · 2 MB/);
-  assert.match(text(list), /Ana · es-MX ?Very low quality · 1 MB/);
+  assert.match(text(list), /Odd · x1 ?Piper · studio · 2 MB/);
+  assert.match(text(list), /Ana · es-MX ?Piper · Very low quality · 1 MB/);
   const languages = [
     ...root.querySelectorAll("[data-testid=local-voice-language] option"),
   ].map((o) => o.textContent);
@@ -82,12 +79,10 @@ test("filters a browser cannot keep are forgotten, without an error", () => {
     },
   };
   try {
-    assert.doesNotThrow(() =>
-      lv.saveFilters({ language: "es", quality: "high" }),
-    );
+    assert.doesNotThrow(() => lv.saveFilters({ language: "es" }));
   } finally {
     globalThis.localStorage = ls;
   }
-  lv.saveFilters({ language: "es", quality: "high" });
-  assert.deepEqual(lv.loadFilters(), { language: "es", quality: "high" });
+  lv.saveFilters({ language: "es" });
+  assert.deepEqual(lv.loadFilters(), { language: "es" });
 });
