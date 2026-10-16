@@ -676,6 +676,17 @@ func (s *Server) Close(ctx context.Context) error {
 		// the process exit, and a lost race is a lost session.
 		s.saveAllSessions()
 		s.baseCancel()
+		// The "run now" runs just cancelled write their end onto their task's record: that is
+		// done before the process leaves, as far as the caller is willing to wait.
+		finished := make(chan struct{})
+		go func() {
+			s.scheduleWG.Wait()
+			close(finished)
+		}()
+		select {
+		case <-finished:
+		case <-ctx.Done():
+		}
 		s.closeErr = s.server.Shutdown(ctx)
 	})
 	return s.closeErr
