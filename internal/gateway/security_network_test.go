@@ -90,3 +90,24 @@ func TestTheNetworkIsolationReportsTheMachineAndAFailedSave(t *testing.T) {
 		t.Errorf("a failed save = %d %s, want 500", w.Code, w.Body.String())
 	}
 }
+
+// Where the machine cannot isolate, the view says why and what would fix it; where it can, neither
+// is sent.
+func TestTheViewSaysWhyTheNetworkCannotBeIsolated(t *testing.T) {
+	oldReason, oldHint := networkReason, networkHint
+	networkReason = func() string { return "restricted" }
+	networkHint = func() string { return "run sudo motita sandbox apparmor install" }
+	t.Cleanup(func() { networkReason, networkHint = oldReason, oldHint })
+	path := networkConfig(t, "sandbox:\n  kind: none\n")
+	srv := newTestServer(t, &isolatingService{}, func(o *Options) { o.ConfigPath = path })
+
+	withNetworkIsolation(t, false)
+	if v := decodeSecurity(t, get(t, srv, "/v1/security", testToken)); v.NetworkEnforced ||
+		v.NetworkReason != "restricted" || !strings.Contains(v.NetworkHint, "apparmor install") {
+		t.Errorf("unavailable: %+v", v)
+	}
+	withNetworkIsolation(t, true)
+	if v := decodeSecurity(t, get(t, srv, "/v1/security", testToken)); v.NetworkReason != "" || v.NetworkHint != "" {
+		t.Errorf("available: %+v", v)
+	}
+}

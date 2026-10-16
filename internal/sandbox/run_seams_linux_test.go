@@ -352,3 +352,17 @@ func TestTheChildNeverReceivesARelativeWorkingDirectory(t *testing.T) {
 		})
 	}
 }
+
+// TestTempRootFallsBackWhenTheToolsDirectoryCannotBePrepared: a tools directory that cannot hold
+// a tmp folder must not stop the run; it goes back to the working directory.
+func TestTempRootFallsBackWhenTheToolsDirectoryCannotBePrepared(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := runnableSandbox(t, t.TempDir())
+	s.op.ToolsDir = file
+	if got := s.tempRoot(); got != s.base {
+		t.Errorf("tempRoot = %q, want the base %q", got, s.base)
+	}
+}
