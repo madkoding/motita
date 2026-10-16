@@ -283,6 +283,11 @@ test("what stops it is said: a gateway without the model, a failed download, a w
     "the worker's failure",
   );
   assert.equal(page.browserState().phase, "failed");
+  assert.equal(
+    workers.at(-1).terminated,
+    true,
+    "a failed load leaves no worker",
+  );
 
   // A failure that is not an Error is still told.
   gw.catalogs = [
@@ -294,6 +299,55 @@ test("what stops it is said: a gateway without the model, a failed download, a w
   ];
   page.startBrowserModel(api);
   await wait(() => page.browserState().error === "plain", "a plain failure");
+});
+
+test("a worker that dies is a failure, before it is ready and while a job runs", async () => {
+  page.startBrowserModel(api);
+  await wait(() => workers.length === 1, "a worker");
+  workers[0].onerror({ message: "script failed to load" });
+  await wait(() => page.browserState().phase === "failed", "the early crash");
+  assert.equal(page.browserState().error, "script failed to load");
+  assert.equal(workers[0].terminated, true);
+
+  // Dead while a job runs: the job is told as failed, not left to the gateway's timeout.
+  tab.next = [{ id: "9", messages: [{ role: "user", content: "x" }] }, 204];
+  page.startBrowserModel(api);
+  await wait(() => workers.length === 2, "a second worker");
+  tell({ kind: "ready", build: "llm-qwen25-0.5b" });
+  await wait(
+    () => workers[1].sent.some((m) => m.kind === "generate"),
+    "the job",
+  );
+  workers[1].onerror({ message: "" });
+  await wait(() => page.browserState().phase === "failed", "the late crash");
+  assert.match(page.browserState().error, /worker stopped/);
+  await wait(() => tab.told.length === 1, "the failed job told");
+  assert.equal(tab.told[0][0], "/v1/browser-llm/jobs/9");
+  assert.ok(tab.told[0][1].error);
+});
+
+test("turning it off with a job running tells the gateway the job failed", async () => {
+  tab.next = [{ id: "5", messages: [{ role: "user", content: "x" }] }, 204];
+  page.startBrowserModel(api);
+  await wait(() => workers.length === 1, "a worker");
+  tell({ kind: "ready", build: "llm-qwen25-0.5b" });
+  await wait(
+    () => workers[0].sent.some((m) => m.kind === "generate"),
+    "the job",
+  );
+  page.stopBrowserModel();
+  await wait(() => tab.told.length === 1, "the failed job told");
+  assert.equal(tab.told[0][0], "/v1/browser-llm/jobs/5");
+  assert.equal(page.browserState().phase, "off");
+});
+
+test("a run stopped while loading does not paint over the state afterwards", async () => {
+  page.startBrowserModel(api);
+  await wait(() => workers.length === 1, "a worker");
+  page.stopBrowserModel();
+  tell({ kind: "progress", pct: 70 });
+  assert.equal(page.browserState().phase, "off");
+  assert.equal(page.browserState().pct, 0);
 });
 
 test("stopping while the files download ends it quietly", async () => {
