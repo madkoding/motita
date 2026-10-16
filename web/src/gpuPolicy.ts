@@ -2,6 +2,7 @@
 // and the voices both slow down or run the device out of memory), so there they run on the
 // processor, WebAssembly, even when the browser offers WebGPU. Settings → Voice has a switch to
 // force it on anyway.
+import { choose } from "./choose";
 import { isPhone } from "./viewport";
 
 export const GPU_FORCED_KEY = "motita.ui.localGpuForced";
@@ -38,7 +39,7 @@ export function gpuForced(): boolean {
 // setGpuForced keeps the choice; a browser that cannot store it forgets it.
 export function setGpuForced(on: boolean): void {
   try {
-    localStorage.setItem(GPU_FORCED_KEY, on ? "1" : "0");
+    localStorage.setItem(GPU_FORCED_KEY, choose(on, "1", "0"));
   } catch {
     // Nothing to do: the choice is only a convenience.
   }
@@ -51,5 +52,5 @@ export function gpuAllowed(): boolean {
 
 // workerName is the name for a new worker: CPU_ONLY where WebGPU is not allowed.
 export function workerName(): string {
-  return gpuAllowed() ? "" : CPU_ONLY;
+  return choose(gpuAllowed(), "", CPU_ONLY);
 }

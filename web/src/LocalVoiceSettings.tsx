@@ -116,7 +116,7 @@ export function useWebGPU(): boolean {
   useEffect(() => {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
     // A phone does not offer WebGPU to the voices, unless the reader forced it.
-    (gpuAllowed() ? gpu : undefined)
+    choose(gpuAllowed(), gpu, undefined)
       ?.requestAdapter()
       .then((a) => setHas(!!a))
       .catch(() => undefined);

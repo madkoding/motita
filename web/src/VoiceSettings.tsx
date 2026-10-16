@@ -134,6 +134,10 @@ function VoiceSwitch({
 // processor by default; the workers already running keep their way until the page is reloaded.
 function MobileGpuRow() {
   const [on, setOn] = useState(gpuForced);
+  const change = useCallback((v: boolean) => {
+    setGpuForced(v);
+    setOn(v);
+  }, []);
   return (
     <Row
       id="settings-gpu-mobile"
@@ -146,10 +150,7 @@ function MobileGpuRow() {
         id="settings-gpu-mobile"
         usable
         checked={on}
-        onChange={(v) => {
-          setGpuForced(v);
-          setOn(v);
-        }}
+        onChange={change}
       />
     </Row>
   );
