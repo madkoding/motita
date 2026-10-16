@@ -239,13 +239,7 @@ func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest s
 	src, fresh, err := s.catalogClone(gitURL, name)
 	switch {
 	case err == nil && gitx.HasCommits(ctx, src):
-		mainBranch := settleMainBranch(ctx, src, defaultMainBranch)
-		branch := freeProjectBranch(ctx, src, p)
-		if err := gitx.AddWorktree(ctx, src, dest, branch); err != nil {
-			return ProjectRepo{}, err
-		}
-		return ProjectRepo{Name: name, GitURL: gitURL, Dir: src, MainBranch: mainBranch, Shared: true,
-			ProjectBranch: branch}, nil
+		return placeSharedRepo(ctx, p, name, gitURL, src, dest)
 	case fresh:
 		// An empty repository has no commit a worktree could start from: the project takes the clone.
 		err = renamePath(src, dest)
@@ -259,6 +253,18 @@ func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest s
 	}
 	mainBranch := settleMainBranch(ctx, dest, defaultMainBranch)
 	return ProjectRepo{Name: name, GitURL: gitURL, Dir: dest, MainBranch: mainBranch}, nil
+}
+
+// placeSharedRepo adds the project's worktree of the catalog's clone src at dest, on a branch of
+// the project's own.
+func placeSharedRepo(ctx context.Context, p *Project, name, gitURL, src, dest string) (ProjectRepo, error) {
+	mainBranch := settleMainBranch(ctx, src, defaultMainBranch)
+	branch := freeProjectBranch(ctx, src, p)
+	if err := gitx.AddWorktree(ctx, src, dest, branch); err != nil {
+		return ProjectRepo{}, err
+	}
+	return ProjectRepo{Name: name, GitURL: gitURL, Dir: src, MainBranch: mainBranch, Shared: true,
+		ProjectBranch: branch}, nil
 }
 
 // handleRemoveProjectRepo takes a repository out of a project: its worktree in every session, and
