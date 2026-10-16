@@ -306,6 +306,32 @@ func inOSC(r rune) int {
 	return next
 }
 
+// isWide reports whether r is an East Asian wide or emoji rune, which takes two columns.
+func isWide(r rune) bool {
+	for _, span := range wideSpans {
+		if r >= span[0] && r <= span[1] {
+			return r != 0x303f
+		}
+	}
+	return false
+}
+
+// wideSpans are the ranges of two-column runes.
+var wideSpans = [...][2]rune{
+	{0x1100, 0x115f},   // Hangul Jamo
+	{0x2e80, 0xa4cf},   // CJK radicals .. Yi
+	{0xac00, 0xd7a3},   // Hangul syllables
+	{0xf900, 0xfaff},   // CJK compatibility ideographs
+	{0xfe30, 0xfe6f},   // CJK compatibility forms
+	{0xff00, 0xff60},   // fullwidth forms
+	{0xffe0, 0xffe6},   // fullwidth signs
+	{0x1f300, 0x1f64f}, // pictographs, emoticons
+	{0x1f680, 0x1f6ff}, // transport
+	{0x1f900, 0x1f9ff}, // supplemental pictographs
+	{0x20000, 0x3fffd}, // CJK extensions
+	{0x2705, 0x2705}, {0x274c, 0x274c}, {0x2b50, 0x2b50}, {0x231a, 0x231b},
+}
+
 // visibleLen returns how many COLUMNS a line occupies, escapes excluded.
 //
 // No ESC byte means every rune is text, so the count is taken directly and the closure-per-rune
@@ -354,18 +380,7 @@ func runeWidth(r rune) int {
 		return 1
 	case unicode.Is(unicode.Mn, r), unicode.Is(unicode.Me, r), unicode.Is(unicode.Cf, r):
 		return 0
-	case r >= 0x1100 && r <= 0x115f, // Hangul Jamo
-		r >= 0x2e80 && r <= 0xa4cf && r != 0x303f, // CJK radicals .. Yi
-		r >= 0xac00 && r <= 0xd7a3,                // Hangul syllables
-		r >= 0xf900 && r <= 0xfaff,                // CJK compatibility ideographs
-		r >= 0xfe30 && r <= 0xfe6f,                // CJK compatibility forms
-		r >= 0xff00 && r <= 0xff60,                // fullwidth forms
-		r >= 0xffe0 && r <= 0xffe6,
-		r >= 0x1f300 && r <= 0x1f64f, // pictographs, emoticons
-		r >= 0x1f900 && r <= 0x1f9ff,
-		r >= 0x1f680 && r <= 0x1f6ff, // transport
-		r >= 0x20000 && r <= 0x3fffd, // CJK extensions
-		r == 0x2705, r == 0x274c, r == 0x2b50, r == 0x231a, r == 0x231b:
+	case isWide(r):
 		return 2
 	default:
 		return 1

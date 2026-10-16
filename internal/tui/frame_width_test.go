@@ -20,40 +20,58 @@ var awkwardTexts = []string{
 func TestFrameKeepsItsShapeWhateverTheRequestsLookLike(t *testing.T) {
 	for _, w := range []int{minWidth, 60, 80, 120} {
 		for _, h := range []int{16, 24, 40} {
-			tu := newFakeTUI("", &fakeRunner{})
-			tu.Width, tu.Height = w, h
-			boxTop := -1
-			for n, s := range awkwardTexts {
-				tu.addMessage(AuthorUser, s)
-				tu.addMessage(AuthorAgent, s)
-				tu.draft = s
-				tu.busy = n%2 == 0
-				lines, _ := tu.layout(w, h)
-				if len(lines) != h {
-					t.Fatalf("%dx%d request %d: frame has %d rows, want %d", w, h, n, len(lines), h)
-				}
-				for i, l := range lines {
-					if got := visibleLen(l); got > w-1 {
-						t.Fatalf("%dx%d request %d row %d is %d columns wide, limit %d: %q", w, h, n, i, got, w-1, stripANSI(l))
-					}
-					if strings.ContainsAny(l, "\t\n") {
-						t.Fatalf("%dx%d request %d row %d holds a tab or newline: %q", w, h, n, i, l)
-					}
-				}
-				// The box's top border is the row that carries the mode: it must not move.
-				top := -1
-				for i, l := range lines {
-					if strings.Contains(stripANSI(l), glyphTopLeft) {
-						top = i
-					}
-				}
-				if boxTop >= 0 && top != boxTop {
-					t.Fatalf("%dx%d request %d: input box moved from row %d to %d", w, h, n, boxTop, top)
-				}
-				boxTop = top
-			}
+			checkFrameShape(t, w, h)
 		}
 	}
+}
+
+// checkFrameShape feeds every awkward text through a TUI of the given size and checks each frame.
+func checkFrameShape(t *testing.T, w, h int) {
+	t.Helper()
+	tu := newFakeTUI("", &fakeRunner{})
+	tu.Width, tu.Height = w, h
+	boxTop := -1
+	for n, s := range awkwardTexts {
+		tu.addMessage(AuthorUser, s)
+		tu.addMessage(AuthorAgent, s)
+		tu.draft = s
+		tu.busy = n%2 == 0
+		lines, _ := tu.layout(w, h)
+		if len(lines) != h {
+			t.Fatalf("%dx%d request %d: frame has %d rows, want %d", w, h, n, len(lines), h)
+		}
+		checkRows(t, lines, w, n)
+		// The box's top border is the row that carries the mode: it must not move.
+		top := boxTopRow(lines)
+		if boxTop >= 0 && top != boxTop {
+			t.Fatalf("%dx%d request %d: input box moved from row %d to %d", w, h, n, boxTop, top)
+		}
+		boxTop = top
+	}
+}
+
+// checkRows fails on a row that is wider than the terminal or holds a tab or newline.
+func checkRows(t *testing.T, lines []string, w, n int) {
+	t.Helper()
+	for i, l := range lines {
+		if got := visibleLen(l); got > w-1 {
+			t.Fatalf("width %d request %d row %d is %d columns wide, limit %d: %q", w, n, i, got, w-1, stripANSI(l))
+		}
+		if strings.ContainsAny(l, "\t\n") {
+			t.Fatalf("width %d request %d row %d holds a tab or newline: %q", w, n, i, l)
+		}
+	}
+}
+
+// boxTopRow is the row of the input box's top border.
+func boxTopRow(lines []string) int {
+	top := -1
+	for i, l := range lines {
+		if strings.Contains(stripANSI(l), glyphTopLeft) {
+			top = i
+		}
+	}
+	return top
 }
 
 func TestRuneWidth(t *testing.T) {
