@@ -194,8 +194,13 @@ test("a model that never ends stops at its most tokens; one without languages ke
 test("a recording longer than 30 s is written down window by window, silent ones left out", async () => {
   assert.deepEqual(core.windowsOf(new Float32Array(0)).map((w) => w.length), [0], "nothing is one window");
   assert.deepEqual(
+    core.windowsOf(new Float32Array(core.CHUNK_SAMPLES * 2 + 8000)).map((w) => w.length),
+    [core.CHUNK_SAMPLES, core.CHUNK_SAMPLES, 8000],
+  );
+  assert.deepEqual(
     core.windowsOf(new Float32Array(core.CHUNK_SAMPLES * 2 + 5)).map((w) => w.length),
-    [core.CHUNK_SAMPLES, core.CHUNK_SAMPLES, 5],
+    [core.CHUNK_SAMPLES, core.CHUNK_SAMPLES],
+    "a tail under half a second is not a window of its own",
   );
   assert.deepEqual(core.windowsOf(new Float32Array(core.CHUNK_SAMPLES)).map((w) => w.length), [core.CHUNK_SAMPLES]);
 
