@@ -621,10 +621,10 @@ function useGitHosts(
     setShowRepoPicker(false);
     setGitConnect({ service, after: "picker" });
   }, []);
-  const closeGitConnect = useCallback(() => {
-    setGitConnect(null);
-    setPickForOthers(false);
-  }, []);
+  // closeGitConnect leaves pickForOthers alone: a connection made for the picker reopens it
+  // (onGitConnected) and it must still add to the other repositories. A connection given up
+  // leaves it set, which is harmless because openRepoPicker resets it.
+  const closeGitConnect = useCallback(() => setGitConnect(null), []);
 
   return {
     gitConnect,

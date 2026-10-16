@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,31 @@ import (
 	"github.com/madkoding/motita/internal/browserllm"
 	"github.com/madkoding/motita/internal/llm"
 )
+
+// waitForBrowserJob polls as a tab does until a job comes, and checks it is the one asked for.
+func waitForBrowserJob(t *testing.T, srv *Server) string {
+	t.Helper()
+	var w *httptest.ResponseRecorder
+	for {
+		w = get(t, srv, "/v1/browser-llm/next", testToken)
+		if w.Code == http.StatusOK {
+			break
+		}
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("next = %d %s", w.Code, w.Body)
+		}
+	}
+	if !strings.Contains(w.Body.String(), `"content":"title?"`) {
+		t.Fatalf("job = %s", w.Body)
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &job); err != nil || job.ID == "" {
+		t.Fatalf("job id: %v %s", err, w.Body)
+	}
+	return job.ID
+}
 
 // A tab asks for work, gets the job, and answers it: the agent's side gets the text.
 func TestBrowserLLMRoundTrip(t *testing.T) {
@@ -30,30 +56,19 @@ func TestBrowserLLMRoundTrip(t *testing.T) {
 		asked <- text
 	}()
 
-	var w *httptest.ResponseRecorder
-	for {
-		w = get(t, srv, "/v1/browser-llm/next", testToken)
-		if w.Code == http.StatusOK {
-			break
-		}
-		if w.Code != http.StatusNoContent {
-			t.Fatalf("next = %d %s", w.Code, w.Body)
-		}
-	}
-	if !strings.Contains(w.Body.String(), `"content":"title?"`) {
-		t.Fatalf("job = %s", w.Body)
-	}
-	ans := post(t, srv, "/v1/browser-llm/jobs/1", `{"text":"A title"}`, testToken)
+	jobID := waitForBrowserJob(t, srv)
+	jobPath := "/v1/browser-llm/jobs/" + jobID
+	ans := post(t, srv, jobPath, `{"text":"A title"}`, testToken)
 	if ans.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", ans.Code, ans.Body)
 	}
 	if got := <-asked; got != "A title" {
 		t.Errorf("asked got %q", got)
 	}
-	if again := post(t, srv, "/v1/browser-llm/jobs/1", `{"text":"x"}`, testToken); again.Code != http.StatusGone {
+	if again := post(t, srv, jobPath, `{"text":"x"}`, testToken); again.Code != http.StatusGone {
 		t.Errorf("a second answer = %d", again.Code)
 	}
-	if bad := post(t, srv, "/v1/browser-llm/jobs/1", `{`, testToken); bad.Code != http.StatusBadRequest {
+	if bad := post(t, srv, jobPath, `{`, testToken); bad.Code != http.StatusBadRequest {
 		t.Errorf("a broken body = %d", bad.Code)
 	}
 }

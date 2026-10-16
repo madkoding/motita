@@ -8,8 +8,9 @@ package browserllm
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
-	"strconv"
 	"sync"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	AnswerWait = 5 * time.Minute
 	// queueSize is how many requests wait for a tab at once.
 	queueSize = 16
+	// maxAnswer bounds what a tab may hand back: the text becomes a title or a summary the agent
+	// reads, so a tab cannot flood it.
+	maxAnswer = 64 << 10
 )
 
 // ErrNoTab is the failure when no tab with the browser model on is open.
@@ -64,7 +68,6 @@ type Broker struct {
 	// busyUntil is when a tab that took a job is given up on: while it writes the answer it asks
 	// for no work, and is still there.
 	busyUntil time.Time
-	next      int
 	waiting   map[string]chan result
 }
 
@@ -98,9 +101,8 @@ func (b *Broker) Ask(ctx context.Context, messages []llm.Message) (string, error
 		job.Messages = append(job.Messages, Message{Role: m.Role, Content: m.Content})
 	}
 	ch := make(chan result, 1)
+	job.ID = newJobID()
 	b.mu.Lock()
-	b.next++
-	job.ID = strconv.Itoa(b.next)
 	b.waiting[job.ID] = ch
 	b.mu.Unlock()
 	defer func() {
@@ -124,23 +126,45 @@ func (b *Broker) Ask(ctx context.Context, messages []llm.Message) (string, error
 	}
 }
 
+// newJobID is a name nobody can guess: only the tab that was handed the job knows it, and that is
+// what lets that tab, and no other client holding the token, answer it.
+func newJobID() string {
+	var raw [16]byte
+	_, _ = rand.Read(raw[:])
+	return hex.EncodeToString(raw[:])
+}
+
 // Next is the work a tab asked for, held open for up to PollWait; false when there was none.
 func (b *Broker) Next(ctx context.Context) (Job, bool) {
 	b.seen()
 	t := time.NewTimer(b.poll)
 	defer t.Stop()
-	select {
-	case j := <-b.jobs:
-		b.mu.Lock()
-		b.lastSeen = b.now()
-		b.busyUntil = b.lastSeen.Add(AnswerWait)
-		b.mu.Unlock()
-		return j, true
-	case <-t.C:
-		return Job{}, false
-	case <-ctx.Done():
-		return Job{}, false
+	for {
+		select {
+		case j := <-b.jobs:
+			if !b.claim(j.ID) {
+				// Its asker gave up (timed out or cancelled): running it would waste the card.
+				continue
+			}
+			return j, true
+		case <-t.C:
+			return Job{}, false
+		case <-ctx.Done():
+			return Job{}, false
+		}
 	}
+}
+
+// claim marks the tab that took job id as busy, and reports whether anyone still waits for it.
+func (b *Broker) claim(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.waiting[id]; !ok {
+		return false
+	}
+	b.lastSeen = b.now()
+	b.busyUntil = b.lastSeen.Add(AnswerWait)
+	return true
 }
 
 // Answer delivers what a tab wrote for a job: its text, or the reason it could not. False when
@@ -149,12 +173,17 @@ func (b *Broker) Answer(id, text, failure string) bool {
 	b.mu.Lock()
 	ch, ok := b.waiting[id]
 	delete(b.waiting, id)
-	b.busyUntil = time.Time{}
+	if ok {
+		b.busyUntil = time.Time{}
+	}
 	b.mu.Unlock()
 	if !ok {
 		return false
 	}
 	r := result{text: text}
+	if len(text) > maxAnswer {
+		r.text, failure = "", "the answer is too long"
+	}
 	if failure != "" {
 		r.err = errors.New("the browser model failed: " + failure)
 	}
