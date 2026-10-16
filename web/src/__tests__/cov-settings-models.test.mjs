@@ -199,7 +199,7 @@ test("a refused default is shown; a provider that is no longer known is listed a
   assert.equal(form.querySelector("[role=alert]"), null);
   // Without kinds from the gateway, the known ones are listed.
   const tasks = m.root.querySelector("[data-testid=llm-tasks]");
-  assert.deepEqual([...tasks.querySelectorAll("[data-kind]")].map((r) => r.dataset.kind), ["plan", "code", "review", "research", "summary"]);
+  assert.deepEqual([...tasks.querySelectorAll("[data-kind]")].map((r) => r.dataset.kind), ["plan", "code", "review", "research", "summary", "cheap", "strong"]);
   await m.unmount();
 });
 

@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"context"
+	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -97,6 +100,61 @@ func (r *AppRunner) roleEngine(role string) *llm.Client {
 		return nil
 	}
 	return e
+}
+
+// tierEngine is the engine of a model tier (cheap or strong), nil when the models block assigns
+// none: the agents are then not routed by difficulty.
+func (r *AppRunner) tierEngine(tier string) *llm.Client {
+	r.cfgMu.Lock()
+	assigned := !r.Cfg.Models.For(tier).Empty()
+	r.cfgMu.Unlock()
+	if !assigned {
+		return nil
+	}
+	return r.roleEngine(tier)
+}
+
+// manyFiles is how many files a brief may name before the piece is no longer an easy one.
+const manyFiles = 4
+
+var filePath = regexp.MustCompile(`[\w./-]+\.[A-Za-z0-9]{1,5}\b`)
+
+// pieceSignals are what a brief shows without asking a model: how many different files it names
+// and whether tests are part of the piece.
+func pieceSignals(text string) (files int, tests bool) {
+	seen := map[string]bool{}
+	for _, f := range filePath.FindAllString(text, -1) {
+		seen[f] = true
+	}
+	lower := strings.ToLower(text)
+	return len(seen), strings.Contains(lower, "test") || strings.Contains(lower, "prueba")
+}
+
+// classifyPiece asks the summary model (a cheap one when the models block assigns it) whether a
+// piece of work is easy enough for the cheap tier. Any doubt, or any failure, is "strong": a hard
+// piece must never be sent to the weak model because the judge was unreachable.
+func (r *AppRunner) classifyPiece(ctx context.Context, purpose, brief string) string {
+	files, tests := pieceSignals(purpose + "\n" + brief)
+	if files >= manyFiles {
+		return config.TaskStrong
+	}
+	_, own, err := r.engine()
+	if err != nil {
+		return config.TaskStrong
+	}
+	e := r.summaryEngine(own)
+	out, err := e.Complete(ctx, []llm.Message{
+		{Role: "system", Content: "You route programming work to a model. Answer with ONE word: EASY when the " +
+			"piece is small, mechanical and well specified (a rename, a doc or comment edit, a config or " +
+			"test-data change, formatting, a lookup, a single-file change with no design choices), HARD " +
+			"otherwise (design, debugging, several files that interact, anything ambiguous or risky)."},
+		{Role: "user", Content: fmt.Sprintf("Purpose: %s\n\nBrief:\n%s\n\nSignals: the brief names %d different files; "+
+			"tests are part of the piece: %t.", purpose, brief, files, tests)},
+	})
+	if err != nil || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(out)), "EASY") {
+		return config.TaskStrong
+	}
+	return config.TaskCheap
 }
 
 // summaryEngine is the engine a conversation compacts with: the summary model when one is

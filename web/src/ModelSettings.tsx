@@ -43,6 +43,14 @@ const KINDS: Record<string, { label: string; hint: string }> = {
     label: "Summaries",
     hint: "Titles, conversation summaries and auto mode's guess.",
   },
+  cheap: {
+    label: "Easy pieces (cheap)",
+    hint: "A small or local model for easy pieces handed to background agents. Leave empty to send everything to one model.",
+  },
+  strong: {
+    label: "Hard pieces (strong)",
+    hint: "The model for hard pieces, and where a cheap agent that fails tries again. Empty means the coding model.",
+  },
 };
 
 // ModelSettings is the models tab: the model new sessions start with, and the model each kind of
