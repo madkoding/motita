@@ -269,3 +269,39 @@ func TestOriginWithoutThePortBehindAProxy(t *testing.T) {
 		t.Errorf("the refusal does not say what to do next: %q", msg)
 	}
 }
+
+// gateway.origins trusts one named origin and nothing around it.
+func TestAListedOriginIsTrustedExactly(t *testing.T) {
+	trusted := []string{"http://127.0.0.1", "https://motita.example/"}
+	for origin, refused := range map[string]bool{
+		"http://127.0.0.1":         false,
+		"http://127.0.0.1:80":      false,
+		"https://motita.example":   false,
+		"http://127.0.0.1:3000":    true,
+		"http://motita.example":    true,
+		"https://evil.example":     true,
+		"http://127.0.0.1.evil.io": true,
+	} {
+		r := httptest.NewRequest(http.MethodPost, "/v1/sessions", nil)
+		r.Host = "127.0.0.1:8787"
+		r.Header.Set(browserHeader, "1")
+		r.Header.Set("Origin", origin)
+		if got := crossSiteRefusal(r, trusted...) != ""; got != refused {
+			t.Errorf("origin %q: refused = %v, want %v", origin, got, refused)
+		}
+	}
+}
+
+// The listed origins reach the check through the server's options.
+func TestOptionsOriginsReachTheOriginCheck(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Origins = []string{"http://127.0.0.1"} })
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions", strings.NewReader(`{}`))
+	req.Host = "127.0.0.1:8787"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(browserHeader, "1")
+	req.Header.Set("Origin", "http://127.0.0.1")
+	req.AddCookie(&http.Cookie{Name: webuiCookie, Value: cookieValue(testToken)})
+	if w := serve(srv, req); w.Code == http.StatusForbidden {
+		t.Fatalf("a listed origin was refused: %s", w.Body)
+	}
+}

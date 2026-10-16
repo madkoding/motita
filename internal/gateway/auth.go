@@ -3,6 +3,7 @@ package gateway
 import (
 	"crypto/subtle"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ import (
 // It is the second line of defence for the empty token as well: the check lives in authorized,
 // which refuses everything when no token was configured. (Start refuses the empty token
 // outright; this is the same defence, in the place every request passes through.)
-func requireToken(token string, next http.Handler) http.Handler {
+func requireToken(token string, next http.Handler, trusted ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(token, r) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="motita"`)
@@ -22,7 +23,7 @@ func requireToken(token string, next http.Handler) http.Handler {
 		// The bearer token cannot be attached by a page that does not know it, so a bearer client
 		// (the CLI, a script) is not asked for anything more.
 		if !bearerMatches(token, r.Header.Get("Authorization")) {
-			if msg := crossSiteRefusal(r); msg != "" {
+			if msg := crossSiteRefusal(r, trusted...); msg != "" {
 				writeError(w, http.StatusForbidden, msg)
 				return
 			}
@@ -45,7 +46,7 @@ const browserHeader = "X-Motita"
 //
 // Reads (GET, HEAD) are left alone - another origin cannot read the answer - except a WebSocket
 // upgrade, which is not subject to CORS at all and is checked by its Origin.
-func crossSiteRefusal(r *http.Request) string {
+func crossSiteRefusal(r *http.Request, trusted ...string) string {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
@@ -58,11 +59,11 @@ func crossSiteRefusal(r *http.Request) string {
 	}
 	// A browser always names the origin of a cross-origin request; when it is present it must be
 	// this server's own.
-	if origin := r.Header.Get("Origin"); origin != "" && !fromThisPage(origin, r) {
+	if origin := r.Header.Get("Origin"); origin != "" && !fromThisPage(origin, r) && !listedOrigin(origin, trusted) {
 		return "this request was sent by another origin (" + origin + ") and is refused: the page was not served by " +
 			"this gateway (" + requestOrigin(r) + "). Open the address the gateway prints, or, behind a reverse " +
 			"proxy, have the proxy send the host the browser used in X-Forwarded-Host " +
-			"(nginx: proxy_set_header X-Forwarded-Host $http_host)"
+			"(nginx: proxy_set_header X-Forwarded-Host $http_host), or list the origin in gateway.origins"
 	}
 	return ""
 }
@@ -82,6 +83,15 @@ func fromThisPage(origin string, r *http.Request) bool {
 		want = requestScheme(r) + "://" + fwd
 	}
 	return canonicalOrigin(origin) == canonicalOrigin(want)
+}
+
+// listedOrigin reports whether an Origin is one the operator trusts by name (gateway.origins): the
+// escape hatch for a front end that cannot send X-Forwarded-Host. Exact scheme, host and port, so
+// listing one origin never opens its sibling ports.
+func listedOrigin(origin string, trusted []string) bool {
+	return slices.ContainsFunc(trusted, func(t string) bool {
+		return canonicalOrigin(t) == canonicalOrigin(origin)
+	})
 }
 
 // firstValue is the first entry of a comma-separated header such as X-Forwarded-Host.
