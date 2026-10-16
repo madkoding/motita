@@ -21,8 +21,9 @@ func modelFactsProblem(m Model) string {
 		return "a price needs both input and output"
 	case m.Cost == "local" && m.PriceIn != 0:
 		return "a local model has no per-token price"
+	default:
+		return ""
 	}
-	return ""
 }
 
 // The catalogue's tier, cost and price are optional, but a value that is there must be one the page
