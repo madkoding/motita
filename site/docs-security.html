@@ -51,6 +51,7 @@
 <h2>The floor</h2>
 <p>Some commands are refused every time: disk formatting and partition tools, <code>shred</code>, <code>dd</code> to an output, power-state commands, and <code>rm</code>, <code>mv</code>, <code>cp</code> or <code>ln</code> aimed at <code>/</code>, your home, a system path, or the folder that contains your workspace (including after <code>sudo</code>, <code>xargs</code> or <code>find -exec</code>). <strong>No key, variable or flag relaxes the floor.</strong></p>
 <h2>Allow, ask, deny</h2>
+<figure class="diagram"><ol class="flow" aria-label="From a command to its sandbox"><li><b>1</b><strong>A command</strong><span>The agent wants to run it</span></li><li><b>2</b><strong>The floor</strong><span>Formatting, <code>shred</code>, <code>rm /</code>…: refused every time</span></li><li><b>3</b><strong>The verdict</strong><span>Allow, ask you, or deny</span></li><li><b>4</b><strong>The sandbox</strong><span>Runs confined, with limits</span></li></ol><p class="flow-note">The floor never moves. The verdict and the sandbox are yours to tune.</p></figure>
 <table>
 <thead><tr><th>Verdict</th><th>When</th></tr></thead>
 <tbody>
@@ -102,6 +103,26 @@
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copy";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copied";
+            setTimeout(() => {
+              button.textContent = "Copy";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

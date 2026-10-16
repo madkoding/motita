@@ -48,6 +48,7 @@
       <h1>Voice</h1>
       <p class="lead">Dictate to motita and have its answers read aloud.</p>
 <p>The browser interface can listen and speak. Voice is off until you turn it on in <strong>Settings &rarr; Voice</strong>.</p>
+<figure class="diagram"><ol class="flow" aria-label="From speaking to hearing the answer"><li><b>1</b><strong>You speak</strong><span>Mic button, or the wake phrase</span></li><li><b>2</b><strong>It is transcribed</strong><span>In this browser, or by a service</span></li><li><b>3</b><strong>Text lands in the box</strong><span>You read and edit it</span></li><li><b>4</b><strong>You send</strong><span>A normal message</span></li><li><b>5</b><strong>The answer is read aloud</strong><span>If you turned that on</span></li></ol></figure>
 <h2>Speech input</h2>
 <p>A microphone button beside <strong>Send</strong> dictates into the message box. The text always lands in the box to be read and edited; it is never sent on its own. A hands-free mode listens for a wake phrase (by default <em>hey motita</em>) while the tab is open.</p>
 <p><strong>Who listens</strong> is your choice:</p>
@@ -97,6 +98,26 @@
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copy";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copied";
+            setTimeout(() => {
+              button.textContent = "Copy";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>
