@@ -325,6 +325,81 @@ function NameField({ git }: { git: boolean }) {
   );
 }
 
+// FolderNameField is the folder the project gets in the workspace.
+function FolderNameField() {
+  const p = useApp().projects;
+  return (
+    <div>
+      <label class={LABEL}>{t("Folder name")}</label>
+      <input
+        class={MONO_FIELD}
+        value={p.newProjectDir}
+        onInput={(e) =>
+          p.setNewProjectDir((e.target as HTMLInputElement).value)
+        }
+        placeholder={folderPlaceholder(
+          p.newProjectMode,
+          p.newProjectGit,
+          p.newProjectTitle,
+        )}
+      />
+      <p class="text-xs text-[#7a7a8c] mt-1">
+        {t(
+          "Made from the name when empty. A folder under the workspace, a simple name with no paths.",
+        )}
+      </p>
+    </div>
+  );
+}
+
+// FolderFields is where the project lives: a folder in the workspace, or, when Settings → Security
+// allows the whole disk, any folder found with the folder browser.
+function FolderFields() {
+  const p = useApp().projects;
+  if (!p.fullDisk) {
+    return <FolderNameField />;
+  }
+  return (
+    <div data-testid="new-project-location">
+      <label class={LABEL}>{t("Location")}</label>
+      {p.newProjectPath && (
+        <p
+          class="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
+          data-testid="new-project-path"
+        >
+          {p.newProjectPath}
+        </p>
+      )}
+      {!p.newProjectPath && <FolderNameField />}
+      <div class="flex gap-2 mt-2">
+        <button
+          type="button"
+          class="px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5"
+          data-testid="new-project-browse"
+          onClick={() => p.openFolderPicker("new")}
+        >
+          {t("Choose a folder…")}
+        </button>
+        {p.newProjectPath && (
+          <button
+            type="button"
+            class="px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:bg-white/5"
+            data-testid="new-project-path-clear"
+            onClick={() => p.setNewProjectPath("")}
+          >
+            {t("Use the workspace")}
+          </button>
+        )}
+      </div>
+      <p class="text-xs text-[#7a7a8c] mt-1">
+        {t(
+          "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
+        )}
+      </p>
+    </div>
+  );
+}
+
 // MoreOptions is everything with a sensible default, behind one line.
 function MoreOptions() {
   const p = useApp().projects;
@@ -364,26 +439,7 @@ function MoreOptions() {
             placeholder={t("What this project is about")}
           />
         </div>
-        <div>
-          <label class={LABEL}>{t("Folder name")}</label>
-          <input
-            class={MONO_FIELD}
-            value={p.newProjectDir}
-            onInput={(e) =>
-              p.setNewProjectDir((e.target as HTMLInputElement).value)
-            }
-            placeholder={folderPlaceholder(
-              p.newProjectMode,
-              p.newProjectGit,
-              p.newProjectTitle,
-            )}
-          />
-          <p class="text-xs text-[#7a7a8c] mt-1">
-            {t(
-              "Made from the name when empty. A folder under the workspace, a simple name with no paths.",
-            )}
-          </p>
-        </div>
+        <FolderFields />
         {p.hasPodman && <PodmanOffer />}
       </div>
     </details>

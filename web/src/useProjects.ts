@@ -10,6 +10,7 @@ import {
   type GitAccount,
   type GitRepo,
 } from "./gitApi";
+import { getSecurity } from "./securityApi";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
 import type {
@@ -54,6 +55,8 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     prMaxFixes: p.pr_max_fixes ?? 0,
     autoMerge: p.auto_merge === true,
     autoContinue: p.auto_continue === true,
+    dir: p.dir,
+    path: "",
     mainRepo: shownMainOf(p),
     repos: reposOf(p),
   };
@@ -382,6 +385,7 @@ function useEditProject(
             pr_max_fixes: editProject.prMaxFixes,
             auto_merge: editProject.autoMerge,
             auto_continue: editProject.autoContinue,
+            path: editProject.path || undefined,
           }),
         },
       );
@@ -443,6 +447,8 @@ function useNewProjectForm() {
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newProjectDir, setNewProjectDir] = useState("");
+  // A folder outside the workspace picked in the folder browser; "" is a folder in the workspace.
+  const [newProjectPath, setNewProjectPath] = useState("");
   const [newProjectGit, setNewProjectGit] = useState("");
   // The other repositories the new project gets once it exists, after the main one.
   const [newProjectRepos, setNewProjectRepos] = useState<RepoDraft[]>([]);
@@ -466,6 +472,7 @@ function useNewProjectForm() {
     setNewProjectTitle("");
     setNewProjectDesc("");
     setNewProjectDir("");
+    setNewProjectPath("");
     setNewProjectGit("");
     setNewProjectRepos([]);
     setNewProjectMode(null);
@@ -513,6 +520,8 @@ function useNewProjectForm() {
     setNewProjectDesc,
     newProjectDir,
     setNewProjectDir,
+    newProjectPath,
+    setNewProjectPath,
     newProjectGit,
     setNewProjectGit,
     newProjectMain,
@@ -833,6 +842,7 @@ function useCreateProject(
             title,
             description: form.newProjectDesc.trim(),
             dir,
+            path: form.newProjectPath || undefined,
             git_url: gitUrl || undefined,
             use_podman: choose(
               hasPodman && form.newProjectPodman,
@@ -871,6 +881,7 @@ function useCreateProject(
       form.newProjectTitle,
       form.newProjectDesc,
       form.newProjectDir,
+      form.newProjectPath,
       form.newProjectGit,
       form.newProjectMain,
       form.newProjectPodman,
@@ -880,6 +891,50 @@ function useCreateProject(
     ],
   );
   return createProject;
+}
+
+// useFolderPicker is the folder browser of the project dialogs: whether Settings → Security lets
+// a project live outside the workspace (only then is the browser offered), and which dialog it was
+// opened from, so the folder picked goes to that one.
+function useFolderPicker(
+  api: Api,
+  open: boolean,
+  setNewPath: (path: string) => void,
+  patchEdit: (patch: Partial<EditProjectDraft>) => void,
+) {
+  const [fullDisk, setFullDisk] = useState(false);
+  const [folderPicker, setFolderPicker] = useState<null | "new" | "edit">(null);
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    let live = true;
+    getSecurity(api)
+      .then((v) => live && setFullDisk(v?.disk_access === "full"))
+      .catch(() => live && setFullDisk(false));
+    return () => {
+      live = false;
+    };
+  }, [open]);
+  const pickFolder = useCallback(
+    (path: string) => {
+      if (folderPicker === "edit") {
+        patchEdit({ path });
+      } else {
+        setNewPath(path);
+      }
+      setFolderPicker(null);
+    },
+    [folderPicker, patchEdit, setNewPath],
+  );
+  const closeFolderPicker = useCallback(() => setFolderPicker(null), []);
+  return {
+    fullDisk,
+    folderPicker,
+    openFolderPicker: setFolderPicker,
+    pickFolder,
+    closeFolderPicker,
+  };
 }
 
 // useProjectAdmin changes and deletes projects that already exist.
@@ -966,6 +1021,12 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     void createProject();
   };
   const admin = useProjectAdmin(api, lists, setState);
+  const folders = useFolderPicker(
+    api,
+    form.showNewProject || !!edit.editProject,
+    form.setNewProjectPath,
+    edit.patchEditProject,
+  );
 
   // pickRepo fills the New project form from a repository the user chose.
   const {
@@ -1028,6 +1089,9 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectDesc,
     newProjectDir: form.newProjectDir,
     setNewProjectDir: form.setNewProjectDir,
+    newProjectPath: form.newProjectPath,
+    setNewProjectPath: form.setNewProjectPath,
+    ...folders,
     newProjectGit: form.newProjectGit,
     setNewProjectGit,
     newProjectMain: form.newProjectMain,

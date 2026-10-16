@@ -326,6 +326,9 @@ export interface EditProjectDraft {
   prMaxFixes: number;
   autoMerge: boolean;
   autoContinue: boolean;
+  // The folder the project is anchored to, and the one picked to move it to ("" keeps it).
+  dir: string;
+  path: string;
   // The repositories, which change at once rather than on Save: adding one clones it.
   mainRepo: { name: string; source: string; movable?: boolean } | null;
   repos: ProjectRepoInfo[];

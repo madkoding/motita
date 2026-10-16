@@ -781,6 +781,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/projects/{id}/deletion-preview", plain(s.handleProjectDeletionPreview))
 
 	s.gitRoutes(mux, plain)
+	s.routeDisk(mux, plain)
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
@@ -821,8 +822,6 @@ func (s *Server) routes() *http.ServeMux {
 	s.browserLLMRoutes(mux, plain)
 	// How much of the disk the agent reaches: process-wide, every conversation follows it. See
 	// security.go.
-	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))
-	mux.Handle("PUT /v1/security", plain(s.handlePutSecurity))
 	mux.Handle("GET /v1/sessions/{id}/scope", scoped(s.handleSessionScope))
 	// How far the gateway reaches and its Tailscale publication: process-wide. See network.go.
 	mux.Handle("GET /v1/network", plain(s.handleGetNetwork))

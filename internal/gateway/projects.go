@@ -149,8 +149,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Dir         string `json:"dir"`
-		GitURL      string `json:"git_url"`
-		UsePodman   bool   `json:"use_podman"`
+		// Path is an absolute folder outside the workspace, allowed only with the whole disk
+		// reachable (Settings → Security). It replaces Dir.
+		Path      string `json:"path"`
+		GitURL    string `json:"git_url"`
+		UsePodman bool   `json:"use_podman"`
 		// MainBranch is the branch the project treats as its main line: "main" unless the user
 		// picked another (typically "master").
 		MainBranch string `json:"main_branch"`
@@ -167,7 +170,13 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the title cannot be empty")
 		return
 	}
-	dirName, ok := projectFolderName(w, body.Dir)
+	var dirName, external string
+	var ok bool
+	if strings.TrimSpace(body.Path) != "" {
+		external, ok = s.externalProjectFolder(w, body.Path)
+	} else {
+		dirName, ok = projectFolderName(w, body.Dir)
+	}
 	if !ok {
 		return
 	}
@@ -183,6 +192,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	absDir := filepath.Join(workspace, dirName)
+	if external != "" {
+		absDir = external
+	}
 
 	gitURL := strings.TrimSpace(body.GitURL)
 	var cloneLog string
@@ -410,7 +422,8 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if !body.applyPR(w, p) || !body.applyDetails(w, p) || !body.applyMainBranch(w, r, p) {
+	if !body.applyPR(w, p) || !body.applyDetails(w, p) || !s.applyFolder(w, body, p) ||
+		!body.applyMainBranch(w, r, p) {
 		return
 	}
 	// Checking the branch above can take a while; a repository added or removed meanwhile is in
@@ -437,9 +450,12 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 // projectUpdate is the body of handleUpdateProject. Every field is optional: a client changes
 // what it sends and nothing else.
 type projectUpdate struct {
-	Title        *string `json:"title"`
-	Description  *string `json:"description"`
-	Podman       *bool   `json:"podman"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Podman      *bool   `json:"podman"`
+	// Path points the project at another folder, outside the workspace. Nothing is moved: the
+	// project is anchored to the folder, as when it is created there.
+	Path         *string `json:"path"`
 	MainBranch   *string `json:"main_branch"`
 	MergeMethod  *string `json:"merge_method"`
 	PRMaxFixes   *int    `json:"pr_max_fixes"`
@@ -457,6 +473,9 @@ func (u projectUpdate) copyTo(dst, src *Project) {
 	}
 	if u.Podman != nil {
 		dst.Podman = src.Podman
+	}
+	if u.Path != nil {
+		dst.Dir = src.Dir
 	}
 	if u.MainBranch != nil {
 		dst.MainBranch = src.MainBranch
@@ -500,6 +519,33 @@ func (u projectUpdate) applyPR(w http.ResponseWriter, p *Project) bool {
 	if u.AutoContinue != nil {
 		p.AutoContinue = *u.AutoContinue
 	}
+	return true
+}
+
+// applyFolder anchors p to the folder the request names. A project with sessions or with other
+// repositories stays where it is: their worktrees and folders hang from the old one. It answers
+// the request itself, and returns false, when the change is refused.
+func (s *Server) applyFolder(w http.ResponseWriter, u projectUpdate, p *Project) bool {
+	if u.Path == nil {
+		return true
+	}
+	dir, ok := s.externalProjectFolder(w, *u.Path)
+	if !ok {
+		return false
+	}
+	if gitx.SamePath(dir, p.Dir) {
+		return true
+	}
+	if len(s.sessionsOfProject(p.ID)) > 0 || len(p.Repos) > 0 {
+		writeError(w, http.StatusConflict, "the folder of a project with sessions or other repositories "+
+			"cannot change: close its sessions and remove the other repositories first")
+		return false
+	}
+	if other := s.projectInDir(dir, p.ID); other != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("that folder belongs to the project %q", other.Title))
+		return false
+	}
+	p.Dir = dir
 	return true
 }
 
