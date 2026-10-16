@@ -304,11 +304,13 @@ export function useBrowserModelState(): BrowserState {
 // useBrowserModel starts the model once this tab is signed in, when the person turned it on.
 export function useBrowserModel(api: Api, authed: boolean): void {
   useEffect(() => {
-    if (authed && browserModelOn()) {
-      startBrowserModel(api);
-    } else if (!authed) {
+    if (!authed) {
       // Signed out: every request would be a 401, so the loop and the worker stop.
       stopBrowserModel();
+      return;
+    }
+    if (browserModelOn()) {
+      startBrowserModel(api);
     }
   }, [api, authed]);
 }
