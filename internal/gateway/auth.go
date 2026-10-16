@@ -59,9 +59,10 @@ func crossSiteRefusal(r *http.Request) string {
 	// A browser always names the origin of a cross-origin request; when it is present it must be
 	// this server's own.
 	if origin := r.Header.Get("Origin"); origin != "" && !fromThisPage(origin, r) {
-		return "this request was sent by another origin (" + origin + ") and is refused: the page was not served by this " +
-			"gateway (" + requestOrigin(r) + "). Open the address the gateway prints, or, behind a reverse proxy, " +
-			"have the proxy send the host the browser used in X-Forwarded-Host (nginx: proxy_set_header X-Forwarded-Host $http_host)"
+		return "this request was sent by another origin (" + origin + ") and is refused: the page was not served by " +
+			"this gateway (" + requestOrigin(r) + "). Open the address the gateway prints, or, behind a reverse " +
+			"proxy, have the proxy send the host the browser used in X-Forwarded-Host " +
+			"(nginx: proxy_set_header X-Forwarded-Host $http_host)"
 	}
 	return ""
 }
@@ -92,14 +93,19 @@ func firstValue(h string) string {
 // default, so equivalent spellings compare equal.
 func canonicalOrigin(o string) string {
 	o = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(o)), "/")
-	switch {
-	case strings.HasPrefix(o, "http://"):
-		return "http://" + strings.TrimSuffix(o[len("http://"):], ":80")
-	case strings.HasPrefix(o, "https://"):
-		return "https://" + strings.TrimSuffix(o[len("https://"):], ":443")
+	if rest, ok := strings.CutPrefix(o, schemeHTTP); ok {
+		return schemeHTTP + strings.TrimSuffix(rest, ":80")
+	}
+	if rest, ok := strings.CutPrefix(o, schemeHTTPS); ok {
+		return schemeHTTPS + strings.TrimSuffix(rest, ":443")
 	}
 	return o
 }
+
+const (
+	schemeHTTP  = "http://"
+	schemeHTTPS = "https://"
+)
 
 // requestOrigin is the scheme://host the request was addressed to, as a browser would write it in
 // an Origin header for a page served by this server.

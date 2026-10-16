@@ -236,6 +236,8 @@ func TestOriginWithoutThePortBehindAProxy(t *testing.T) {
 		return crossSiteRefusal(r)
 	}
 	fwd := map[string]string{"X-Forwarded-Host": "127.0.0.1"}
+	fwdPort := map[string]string{"X-Forwarded-Host": "127.0.0.1:9000"}
+	fwdTLS := map[string]string{"X-Forwarded-Host": "motita.example", "X-Forwarded-Proto": "https"}
 	for _, c := range []struct {
 		name, host, origin string
 		hdr                map[string]string
@@ -247,8 +249,8 @@ func TestOriginWithoutThePortBehindAProxy(t *testing.T) {
 		{"ipv6 loopback", "[::1]:8787", "http://[::1]:8787", nil, false},
 		{"localhost", "localhost:8787", "http://localhost:8787", nil, false},
 		{"proxy on 80 forwarding the host", "127.0.0.1:8787", "http://127.0.0.1", fwd, false},
-		{"proxy forwarding host with port", "127.0.0.1:8787", "http://127.0.0.1:9000", map[string]string{"X-Forwarded-Host": "127.0.0.1:9000"}, false},
-		{"https proxy", "127.0.0.1:8787", "https://motita.example", map[string]string{"X-Forwarded-Host": "motita.example", "X-Forwarded-Proto": "https"}, false},
+		{"proxy forwarding host with port", "127.0.0.1:8787", "http://127.0.0.1:9000", fwdPort, false},
+		{"https proxy", "127.0.0.1:8787", "https://motita.example", fwdTLS, false},
 		{"proxy without the header", "127.0.0.1:8787", "http://127.0.0.1", nil, true},
 		{"sibling port on the same host", "127.0.0.1:8787", "http://127.0.0.1:3000", nil, true},
 		{"sibling port behind a proxy", "127.0.0.1:8787", "http://127.0.0.1:3000", fwd, true},
