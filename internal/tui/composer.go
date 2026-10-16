@@ -171,20 +171,26 @@ func wrapVisible(s string, width int) []string {
 	var out []string
 	var cur strings.Builder
 	curVis := 0
+	state := escNone
 	for _, r := range s {
 		// An escape sequence is copied whole and costs no columns. It is never split: a
-		// truncated escape would leak colour into the rest of the frame.
-		if r == 0x1b {
+		// truncated escape would leak colour into the rest of the frame. Only its first byte
+		// used to be recognised, so the rest of "ESC[38;5;75m" was counted as text and the
+		// box wrapped earlier than the room it had.
+		var isEscape bool
+		state, isEscape = escStep(state, r)
+		if isEscape {
 			cur.WriteRune(r)
 			continue
 		}
-		if curVis >= width {
+		rw := runeWidth(r)
+		if curVis+rw > width && curVis > 0 {
 			out = append(out, cur.String())
 			cur.Reset()
 			curVis = 0
 		}
 		cur.WriteRune(r)
-		curVis++
+		curVis += rw
 	}
 	// The final line always exists, even when it is empty: the loop above writes every rune it
 	// is given, so the only way to reach here with nothing is an empty input — which is a row of
