@@ -1,6 +1,6 @@
 // A mini folder browser: walk the folders of the machine and pick one for a project. It lists
 // folders only; which part of the disk it reaches is the gateway's call (Settings → Security).
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
@@ -162,33 +162,39 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
   const [err, setErr] = useState("");
   const req = useRef(0);
 
-  async function open(path: string) {
-    req.current += 1;
-    const my = req.current;
-    setLoading(true);
-    setErr("");
-    try {
-      const l = await listDirs(api, path);
-      if (my === req.current) {
-        setListing(l);
+  const open = useCallback(
+    async (path: string) => {
+      req.current += 1;
+      const my = req.current;
+      setLoading(true);
+      setErr("");
+      try {
+        const l = await listDirs(api, path);
+        if (my === req.current) {
+          setListing(l);
+        }
+      } catch (e) {
+        if (my === req.current) {
+          setErr(errorMessage(e));
+        }
       }
-    } catch (e) {
       if (my === req.current) {
+        setLoading(false);
+      }
+    },
+    [api],
+  );
+  const create = useCallback(
+    async (name: string) => {
+      try {
+        const made = await makeDir(api, (listing as DirListing).path, name);
+        await open(made.path);
+      } catch (e) {
         setErr(errorMessage(e));
       }
-    }
-    if (my === req.current) {
-      setLoading(false);
-    }
-  }
-  async function create(name: string) {
-    try {
-      const made = await makeDir(api, (listing as DirListing).path, name);
-      await open(made.path);
-    } catch (e) {
-      setErr(errorMessage(e));
-    }
-  }
+    },
+    [api, listing, open],
+  );
   useEffect(() => {
     void open(start);
     return () => {

@@ -45,42 +45,15 @@ type dirListing struct {
 // Only folders are listed, never files, and hidden folders are left out.
 func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 	full := s.fullDisk()
-	root := s.opts.WorkspaceDir
-	if full {
-		root = "/"
-	}
-	if root == "" {
-		writeError(w, http.StatusNotImplemented, "no workspace directory is configured")
-		return
-	}
 	home, _ := os.UserHomeDir()
-	dir := strings.TrimSpace(r.URL.Query().Get("path"))
-	if full && dir == drivesPath && len(driveRoots()) > 0 {
+	asked := strings.TrimSpace(r.URL.Query().Get("path"))
+	if full && asked == drivesPath && len(driveRoots()) > 0 {
 		writeJSON(w, http.StatusOK, drivesListing(home))
 		return
 	}
-	if dir == "" {
-		dir = root
-		if full && home != "" {
-			dir = home
-		}
-	}
-	if !filepath.IsAbs(dir) {
-		writeError(w, http.StatusBadRequest, "the folder must be an absolute path")
-		return
-	}
-	dir = filepath.Clean(dir)
-	if full {
-		root = volumeRoot(dir)
-	}
-	if !pathWithinOrSame(root, dir) {
-		writeError(w, http.StatusForbidden, "that folder is outside what Motita may reach: "+
-			"allow the whole disk in Settings → Security")
-		return
-	}
-	dir, ok := resolveDir(root, dir)
-	if !ok {
-		writeError(w, http.StatusNotFound, "that folder does not exist")
+	dir, root, status, problem := s.browsableDir(asked, home, full)
+	if problem != "" {
+		writeError(w, status, problem)
 		return
 	}
 	entries, err := os.ReadDir(dir)
@@ -104,6 +77,42 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(out.Dirs[i].Name) < strings.ToLower(out.Dirs[j].Name)
 	})
 	writeJSON(w, http.StatusOK, out)
+}
+
+// browsableDir finds the folder a listing was asked for, and the root it is within: the whole
+// tree of its drive with the whole disk allowed, the workspace otherwise. When the folder cannot
+// be shown it says why, with the status to answer.
+func (s *Server) browsableDir(asked, home string, full bool) (dir, root string, status int, problem string) {
+	root = s.opts.WorkspaceDir
+	if full {
+		root = "/"
+	}
+	if root == "" {
+		return "", "", http.StatusNotImplemented, "no workspace directory is configured"
+	}
+	dir = asked
+	if dir == "" {
+		dir = root
+		if full && home != "" {
+			dir = home
+		}
+	}
+	if !filepath.IsAbs(dir) {
+		return "", "", http.StatusBadRequest, "the folder must be an absolute path"
+	}
+	dir = filepath.Clean(dir)
+	if full {
+		root = volumeRoot(dir)
+	}
+	if !pathWithinOrSame(root, dir) {
+		return "", "", http.StatusForbidden, "that folder is outside what Motita may reach: " +
+			"allow the whole disk in Settings → Security"
+	}
+	dir, ok := resolveDir(root, dir)
+	if !ok {
+		return "", "", http.StatusNotFound, "that folder does not exist"
+	}
+	return dir, root, 0, ""
 }
 
 // resolveDir finds the folder a client named by walking down from root, one name at a time, and
@@ -172,8 +181,11 @@ func parentOf(dir, root string, full bool) string {
 	return ""
 }
 
-// routeFolderBrowser registers the folder browser's two routes.
-func (s *Server) routeFolderBrowser(mux *http.ServeMux, wrap func(http.HandlerFunc) http.Handler) {
+// routeDisk registers what is about how much of the disk Motita reaches: the Security setting
+// and the folder browser that depends on it.
+func (s *Server) routeDisk(mux *http.ServeMux, wrap func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/security", wrap(s.handleGetSecurity))
+	mux.Handle("PUT /v1/security", wrap(s.handlePutSecurity))
 	mux.Handle("GET /v1/fs/dirs", wrap(s.handleListDirs))
 	mux.Handle("POST /v1/fs/dirs", wrap(s.handleMakeDir))
 }
