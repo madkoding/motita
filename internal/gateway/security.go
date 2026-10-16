@@ -46,6 +46,10 @@ type securityView struct {
 	// page says so.
 	IsolateNetwork  bool `json:"isolate_network"`
 	NetworkEnforced bool `json:"network_enforced"`
+	// NetworkReason says why it cannot, and NetworkHint what would make it possible, when there is
+	// one (Ubuntu 24.04: the AppArmor profile motita installs). Both are empty where it can.
+	NetworkReason string `json:"network_reason,omitempty"`
+	NetworkHint   string `json:"network_hint,omitempty"`
 }
 
 // securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, the
@@ -104,6 +108,8 @@ var (
 	setIsolateNetwork    = config.SetIsolateNetwork
 	confinementAvailable = sandbox.ConfinementAvailable
 	networkAvailable     = sandbox.NetworkIsolationAvailable
+	networkReason        = sandbox.NetworkIsolationReason
+	networkHint          = sandbox.NetworkIsolationHint
 )
 
 // securityConfig is the configuration the setting is read from: the file's when there is one, the
@@ -127,7 +133,7 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 	if cfg.Sandbox.FullDisk() {
 		mode = config.DiskFull
 	}
-	writeJSON(w, http.StatusOK, securityView{
+	view := securityView{
 		DiskAccess: mode,
 		CanSave:    canSave,
 		Enforced:   confinementAvailable() && cfg.Sandbox.ConfineWrites && cfg.Sandbox.Kind != "chroot",
@@ -135,7 +141,11 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 		AskUnconfinedRuns: cfg.Sandbox.AskUnconfinedRuns,
 		IsolateNetwork:    cfg.Sandbox.IsolateNetwork,
 		NetworkEnforced:   networkAvailable(),
-	})
+	}
+	if !view.NetworkEnforced {
+		view.NetworkReason, view.NetworkHint = networkReason(), networkHint()
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // handleGetSecurity answers how much of the disk the agent reaches.

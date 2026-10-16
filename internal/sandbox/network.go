@@ -29,6 +29,15 @@ var networkIsolationError = sync.OnceValue(probeNetworkIsolation)
 // NetworkIsolationAvailable reports whether this machine can run a command without a network.
 func NetworkIsolationAvailable() bool { return networkIsolationError() == nil }
 
+// NetworkIsolationReason says why this machine cannot run a command without a network, "" when
+// it can.
+func NetworkIsolationReason() string {
+	if err := networkIsolationError(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // SetIsolateNetwork turns the network isolation of the commands run from now on on or off. A
 // command already running keeps what it started with. Turning it on where the machine cannot
 // isolate leaves it off and returns why.
@@ -56,7 +65,8 @@ func (s *Sandbox) IsolatesNetwork() bool { return s.noNetwork != nil && s.noNetw
 func (s *Sandbox) requestNetwork(on bool) {
 	if err := s.SetIsolateNetwork(on); err != nil {
 		s.notApplied = append(s.notApplied, fmt.Sprintf(
-			"network isolation: this machine cannot give a command a network of its own, so commands keep it: %v", err))
+			"network isolation: this machine cannot give a command a network of its own, so commands keep it: %v%s",
+			err, hintSuffix()))
 	}
 }
 
@@ -66,4 +76,12 @@ func (s *Sandbox) runLimits(p execx.Request) Limits {
 	l := s.op.Limits
 	l.NoNetwork = s.IsolatesNetwork() && !p.Approved && !p.Unconfined
 	return l
+}
+
+// hintSuffix is the hint, ready to follow a reason.
+func hintSuffix() string {
+	if h := NetworkIsolationHint(); h != "" {
+		return "; " + h
+	}
+	return ""
 }

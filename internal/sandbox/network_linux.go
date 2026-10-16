@@ -123,11 +123,17 @@ func exitCodeOf(state *os.ProcessState) int {
 // nobody in it can bring the loopback up, so a command in it could not even reach 127.0.0.1.
 const userNamespaceRestriction = "kernel.apparmor_restrict_unprivileged_userns"
 
-// restricted reports whether userNamespaceRestriction is on. A kernel without it has no such rule.
-func restricted() bool {
+// kernelRestrictsNamespaces reports whether userNamespaceRestriction is on. A kernel without it
+// has no such rule.
+func kernelRestrictsNamespaces() bool {
 	data, err := readRestriction("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
 	return err == nil && strings.TrimSpace(string(data)) == "1"
 }
+
+// restricted reports whether this process's user namespaces lose their capabilities: the
+// restriction is on, and this process is not under the profile `motita sandbox apparmor install`
+// loads, which the kernel exempts.
+func restricted() bool { return kernelRestrictsNamespaces() && !ownProfileAllowsNamespaces() }
 
 // readRestriction is os.ReadFile, a variable so a test can choose what the kernel says.
 var readRestriction = os.ReadFile

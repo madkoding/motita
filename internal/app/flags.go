@@ -119,6 +119,8 @@ func (b *flags) subcommandAt(args []string, i int) ([]string, bool, error) {
 		return withoutArgs(args, i, 1), true, nil
 	case "curator":
 		return b.curatorSubcommand(args, i)
+	case "sandbox":
+		return b.sandboxSubcommand(args, i)
 	default:
 		return args, false, nil
 	}
@@ -146,6 +148,21 @@ func (b *flags) gatewaySubcommand(args []string, i int) ([]string, bool, error) 
 		// typo into something else entirely - `motita gateway strat` starting the
 		// interface.
 		return nil, false, fmt.Errorf("unknown gateway action %q: start, stop, status or setup", args[i+1])
+	}
+}
+
+// sandboxSubcommand reads `sandbox apparmor <print|install|remove>` at args[i].
+func (b *flags) sandboxSubcommand(args []string, i int) ([]string, bool, error) {
+	const usage = "sandbox apparmor <print|install|remove>"
+	if i+2 >= len(args) || args[i+1] != "apparmor" {
+		return nil, false, fmt.Errorf("usage: motita %s", usage)
+	}
+	switch action := strings.ToLower(strings.TrimSpace(args[i+2])); action {
+	case "print", "install", "remove":
+		b.sandboxAction = action
+		return withoutArgs(args, i, 3), true, nil
+	default:
+		return nil, false, fmt.Errorf("unknown sandbox apparmor action %q: usage: motita %s", args[i+2], usage)
 	}
 }
 

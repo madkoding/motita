@@ -148,6 +148,10 @@ type Options struct {
 	// ExePath is the program re-executed for `gateway start`. Injectable because in a test the
 	// program under test is not a motita that can serve.
 	ExePath string
+	// InstallAppArmor and RemoveAppArmor are `motita sandbox apparmor install` and `remove`. They
+	// change /etc and need root, so a test replaces them; nil means the sandbox package's.
+	InstallAppArmor func(exe string) error
+	RemoveAppArmor  func() error
 	// SpawnGateway brings the service up. It is a seam of the same shape as Exit and RunChild: the
 	// real one re-executes the program detached, and a test cannot do that without starting a
 	// second agent.
@@ -218,6 +222,9 @@ Commands:
                      and write a working configuration
   doctor             check this machine: platform, shell, DNS, PATH, the
                      configuration and the sandbox
+  sandbox apparmor   print, install or remove the AppArmor profile that lets commands
+                     run without a network on Ubuntu 24.04 and later
+                     (print | install | remove; install and remove need sudo)
   gateway start      bring the gateway up as a service and leave it running
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
@@ -255,6 +262,8 @@ type flags struct {
 	isolation      bool
 	initConfig     bool
 	doctor         bool
+	// sandboxAction is the action of `motita sandbox apparmor <action>`.
+	sandboxAction string
 	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
 	// curator switches, so neither swallows the word after it.
 	tokenOnly bool
@@ -341,6 +350,10 @@ func Run(op Options) int {
 		return op.runDoctor(fl)
 	}
 
+	if fl.sandboxAction != "" {
+		return op.runSandboxCommand(fl.sandboxAction)
+	}
+
 	// A subcommand is dispatched here, before the main path, because it pays for neither the
 	// reasoning engine nor a sandbox: `gateway start` re-executes the program rather than serving in
 	// this process, and `stop` and `status` only read a file and ask a port a question.
@@ -418,6 +431,12 @@ func (op *Options) completeProcess() {
 	}
 	if op.ServiceFile == "" {
 		op.ServiceFile = gateway.ServiceFilePath()
+	}
+	if op.InstallAppArmor == nil {
+		op.InstallAppArmor = sandbox.InstallAppArmor
+	}
+	if op.RemoveAppArmor == nil {
+		op.RemoveAppArmor = sandbox.RemoveAppArmor
 	}
 	if op.ExePath == "" {
 		if exe, err := executablePath(); err == nil {
