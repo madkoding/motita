@@ -293,6 +293,14 @@ const more: Record<string, string> = {
     "Si la página termina en una dirección que no carga, pega esa dirección aquí.",
   "Address the browser ended on": "Dirección en la que terminó el navegador",
   "Waiting for the provider…": "Esperando al proveedor…",
+  "Google sign-in is not set up on this computer. Paste an AI Studio key instead.":
+    "El inicio de sesión con Google no está configurado en este equipo. Pega una clave de AI Studio.",
+  "The Google login on this computer cannot be used. Paste an AI Studio key instead.":
+    "No se puede usar el inicio de sesión de Google de este equipo. Pega una clave de AI Studio.",
+  "The Google login has no Google Cloud project. Paste an AI Studio key instead.":
+    "El inicio de sesión de Google no tiene un proyecto de Google Cloud. Pega una clave de AI Studio.",
+  "The Google login on this computer has expired. Paste an AI Studio key instead.":
+    "El inicio de sesión de Google de este equipo caducó. Pega una clave de AI Studio.",
   "The sign-in did not finish: {err}": "El inicio de sesión no terminó: {err}",
   Network: "Red",
   Security: "Seguridad",
