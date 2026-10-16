@@ -156,6 +156,21 @@ func TestFetchLatestReleaseNonOK(t *testing.T) {
 	}
 }
 
+// A page in place of a reason (a proxy's or firewall's) is not quoted in the error.
+func TestFetchLatestReleaseNeverQuotesAPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("<html><script>var AC_Opt = {};</script></html>"))
+	}))
+	defer srv.Close()
+
+	u := &Updater{HTTPClient: srv.Client(), APIURL: func() string { return srv.URL }}
+	_, err := u.fetchLatestRelease(context.Background())
+	if err == nil || strings.Contains(err.Error(), "AC_Opt") || !strings.Contains(err.Error(), "403") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 // ---- downloadFile: progress reporting with Content-Length > 0 ----
 
 func TestDownloadFileProgressReporting(t *testing.T) {

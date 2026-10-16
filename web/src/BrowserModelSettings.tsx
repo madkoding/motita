@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { lang, t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
@@ -17,6 +17,9 @@ import { errorMessage } from "./errors";
 // What the lighter build (the one a card with 16-bit floats runs) takes to download, with the
 // graphics runtime, in bytes (the gateway tells it in its catalog).
 export const BROWSER_MODEL_BYTES = 516_825_018;
+
+// After this many seconds the test says a slow answer is not a hang.
+const SLOW_AFTER_S = 20;
 
 // What each phase says under the switch.
 function statusOf(phase: BrowserPhase, pct: number, error: string): string {
@@ -78,6 +81,20 @@ export function BrowserModelSettings({ api }: { api: Api }) {
   };
   const [tried, setTried] = useState({ text: "", ok: true });
   const [trying, setTrying] = useState(false);
+  // waited counts the seconds of a test that is running, so a slow one shows it is alive.
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (!trying) {
+      return undefined;
+    }
+    const began = Date.now();
+    setWaited(0);
+    const timer = setInterval(
+      () => setWaited(Math.floor((Date.now() - began) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [trying]);
   const tryOut = () => {
     setTrying(true);
     setTried({ text: "", ok: true });
@@ -148,6 +165,16 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             </button>
           </Row>
         )}
+        {s.software && (
+          <output
+            class="block text-xs text-[#e0b46a] px-3 pb-2"
+            data-testid="llm-browser-software"
+          >
+            {t(
+              "This browser runs WebGPU on the processor, not on a graphics card: the model works but is very slow.",
+            )}
+          </output>
+        )}
         {s.phase === "ready" && (
           <Row
             id="llm-browser-try"
@@ -164,7 +191,19 @@ export function BrowserModelSettings({ api }: { api: Api }) {
                   }
                   data-testid="llm-browser-try-result"
                 >
-                  {choose(trying, t("Trying it…"), tried.text)}
+                  {choose(
+                    trying,
+                    tf("Trying it… {seconds} s", { seconds: String(waited) }) +
+                      choose(
+                        waited >= SLOW_AFTER_S,
+                        " " +
+                          t(
+                            "Still working: a card that emulates WebGPU on the processor can take minutes.",
+                          ),
+                        "",
+                      ),
+                    tried.text,
+                  )}
                 </output>
               )
             }

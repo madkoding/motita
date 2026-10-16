@@ -318,15 +318,15 @@ func geminiProvider() Provider {
 // qwenProvider is the qwen entry of the catalogue.
 func qwenProvider() Provider {
 	return Provider{
-		// A DashScope (Alibaba Model Studio) key, or a qwen.ai account login.
-		ID:                 "qwen",
-		Name:               "Qwen (qwen.ai login or DashScope key)",
-		Short:              "Qwen",
-		Access:             "sign in with qwen.ai, or a DashScope key",
-		DefaultBaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-		EnvKey:             "DASHSCOPE_API_KEY",
-		ConsoleURL:         "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",
-		SupportsDirectAuth: true,
+		// A DashScope (Alibaba Model Studio) key. The qwen.ai account login is gone:
+		// Qwen ended its free OAuth tier on 2026-04-15, so none is offered.
+		ID:             "qwen",
+		Name:           "Qwen (DashScope key)",
+		Short:          "Qwen",
+		Access:         "a DashScope (Alibaba Cloud Model Studio) key",
+		DefaultBaseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+		EnvKey:         "DASHSCOPE_API_KEY",
+		ConsoleURL:     "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",
 		Models: []Model{
 			{ID: "qwen3-coder-plus", Label: "Qwen3 Coder Plus", Note: "agentic coding, the right default",
 				Tier: "mid", Cost: "mid"},

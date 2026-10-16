@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/httpbody"
 )
 
 // Speaker calls one endpoint that speaks the OpenAI speech API (POST {base}/audio/speech): the
@@ -73,9 +75,9 @@ func (s Speaker) Speak(ctx context.Context, text, voiceName string) ([]byte, str
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody+1))
-		msg := strings.TrimSpace(string(raw))
-		if len(msg) > maxErrorBody {
-			msg = msg[:maxErrorBody] + "..."
+		msg := httpbody.Note(raw, maxErrorBody)
+		if msg == "" {
+			return nil, "", fmt.Errorf("the speech endpoint answered %d", resp.StatusCode)
 		}
 		return nil, "", fmt.Errorf("the speech endpoint answered %d: %s", resp.StatusCode, msg)
 	}

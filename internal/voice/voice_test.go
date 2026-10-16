@@ -93,6 +93,7 @@ func TestTranscribeFailures(t *testing.T) {
 		{"refused", `{"error":"bad key"}`, "audio/webm", "answered 401: {\"error\":\"bad key\"}", 401, []byte("a")},
 		{"long refusal", long, "audio/webm", "...", 500, []byte("a")},
 		{"not json", "<html>", "audio/webm", "not JSON", 200, []byte("a")},
+		{"page", "<html><script>var AC_Opt</script></html>", "audio/webm", "answered 502", 502, []byte("a")},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

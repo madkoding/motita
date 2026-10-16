@@ -25,13 +25,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/httpbody"
 )
 
 // Literals used more than once in this file.
@@ -165,8 +165,8 @@ func getJSON(ctx context.Context, client HTTPClient, url string, headers map[str
 // When the status is not 2xx AND dest did not capture a meaningful error field,
 // a generic error is returned so non-OAuth callers still see the failure.
 // A body that is not JSON at all (an HTML error page, a redirect target, a
-// firewall challenge) is reported as ErrNotJSON with the status and a short
-// readable excerpt, never as a bare decoding error.
+// firewall challenge) is reported as ErrNotJSON with the status and the content
+// type, never as a bare decoding error and never with the page itself.
 func doJSON(client HTTPClient, req *http.Request, dest any) error {
 	resp, err := client.Do(req)
 	if err != nil {
@@ -181,8 +181,7 @@ func doJSON(client HTTPClient, req *http.Request, dest any) error {
 	if dest != nil {
 		if jerr := json.Unmarshal(body, dest); jerr != nil {
 			if !json.Valid(body) {
-				return &NotJSONError{Status: resp.StatusCode, ContentType: resp.Header.Get(headerContentType),
-					Excerpt: excerpt(body)}
+				return &NotJSONError{Status: resp.StatusCode, ContentType: resp.Header.Get(headerContentType)}
 			}
 			if ok {
 				return fmt.Errorf("could not decode response: %w", jerr)
@@ -190,7 +189,10 @@ func doJSON(client HTTPClient, req *http.Request, dest any) error {
 		}
 	}
 	if !ok {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, excerpt(body))
+		if note := httpbody.Note(body, excerptLen); note != "" {
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, note)
+		}
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -199,11 +201,11 @@ func doJSON(client HTTPClient, req *http.Request, dest any) error {
 var ErrNotJSON = errors.New("the server did not answer with JSON")
 
 // NotJSONError is a response that should have been JSON and was not: it keeps
-// what a person needs to tell why (the status and the start of the page).
+// what a person needs to tell why (the status and the content type). The page
+// itself is never kept: it is markup, not a message.
 type NotJSONError struct {
 	Status      int
 	ContentType string
-	Excerpt     string
 }
 
 func (e *NotJSONError) Error() string {
@@ -211,11 +213,7 @@ func (e *NotJSONError) Error() string {
 	if e.ContentType != "" {
 		msg += ", " + e.ContentType
 	}
-	msg += ")"
-	if e.Excerpt != "" {
-		msg += ": " + e.Excerpt
-	}
-	return msg
+	return msg + ")"
 }
 
 // Is makes errors.Is(err, ErrNotJSON) true.
@@ -223,34 +221,6 @@ func (e *NotJSONError) Is(target error) bool { return target == ErrNotJSON }
 
 // excerptLen caps how much of a response body an error quotes.
 const excerptLen = 200
-
-var (
-	htmlTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-	htmlDrop  = regexp.MustCompile(`(?is)<(script|style|head)[^>]*>.*?</(script|style|head)>`)
-	htmlTag   = regexp.MustCompile(`(?s)<[^>]*>`)
-)
-
-// excerpt turns a response body into one short line for an error message: an
-// HTML page gives its title and visible text, without markup, scripts or styles.
-func excerpt(body []byte) string {
-	s := string(body)
-	if strings.HasPrefix(strings.TrimSpace(s), "<") {
-		title := ""
-		if m := htmlTitle.FindStringSubmatch(s); m != nil {
-			title = strings.TrimSpace(html.UnescapeString(m[1]))
-		}
-		s = htmlTag.ReplaceAllString(htmlDrop.ReplaceAllString(s, " "), " ")
-		s = html.UnescapeString(s)
-		if title != "" && !strings.Contains(strings.Join(strings.Fields(s), " "), title) {
-			s = title + " " + s
-		}
-	}
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > excerptLen {
-		s = string(r[:excerptLen]) + "…"
-	}
-	return s
-}
 
 // ErrAuthorizationPending is returned by a device-flow poll when the user has
 // not yet entered the code. The caller should wait and poll again.
