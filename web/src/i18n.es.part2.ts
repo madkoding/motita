@@ -241,8 +241,10 @@ const more: Record<string, string> = {
     "inicia sesión con ChatGPT, o una clave de API",
   "sign in with GitHub (Copilot plan)":
     "inicia sesión con GitHub (plan de Copilot)",
-  "free on your own machine, or Ollama Cloud":
-    "gratis en tu propia máquina, u Ollama Cloud",
+  "free on your own machine or network":
+    "gratis en tu propia máquina o red",
+  "Ollama's hosted models, billed per token":
+    "modelos alojados de Ollama, de pago por token",
   "API key from console.anthropic.com": "Clave de API de console.anthropic.com",
   "your Claude plan, via the Claude Code CLI":
     "tu plan de Claude, mediante la CLI de Claude Code",

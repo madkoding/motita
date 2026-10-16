@@ -708,6 +708,7 @@ test("each known provider has a coloured logo path, and aliases share their bran
     "copilot",
     "gemini",
     "ollama",
+    "ollama-cloud",
     "openai",
     "qwen",
   ]);
@@ -716,6 +717,7 @@ test("each known provider has a coloured logo path, and aliases share their bran
     assert.match(logo.d, /^[Mm]/, name);
   }
   assert.equal(L.codex.d, L.openai.d);
+  assert.equal(L["ollama-cloud"].d, L.ollama.d);
   assert.notEqual(L.qwen.d, L.openai.d);
   assert.equal(L["claude-code"].color, "#d97757");
   assert.equal(L.unknown, undefined, "an unknown provider gets its initial instead");
