@@ -149,3 +149,32 @@ test("whether the browser can listen itself, and which models are for the graphi
   assert.equal(L.forGPU("whisper-small-gpu"), true);
   assert.equal(L.forGPU("whisper-small"), false);
 });
+
+test("recordings are handed over one at a time, each clock starting when its turn comes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const hears = () => worker().sent.filter(({ m }) => m.kind === "hear");
+  const settled = async () => {
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+  };
+  let failed = null;
+  const first = L.hearLocal("whisper-tiny", new Blob(["x"]), "");
+  const second = L.hearLocal("whisper-tiny", new Blob(["y"]), "").catch((e) => {
+    failed = e;
+  });
+  await settled();
+  const ms = L.HEAR_BASE_MS + L.HEAR_PER_SECOND_MS;
+  const sentFirst = hears().at(-1);
+  t.mock.timers.tick(ms - 1);
+  answer({ seq: sentFirst.m.seq, text: "uno", lang: "" });
+  assert.equal(await first, "uno");
+  await settled();
+  assert.equal(hears().at(-1).m.seq, sentFirst.m.seq + 1, "the second goes once the first is answered");
+  t.mock.timers.tick(ms - 1);
+  await settled();
+  assert.equal(failed, null, "its wait behind the first was not counted");
+  t.mock.timers.tick(1);
+  await second;
+  assert.match(String(failed), /took too long/);
+});
