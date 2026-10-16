@@ -5,6 +5,7 @@ package sandbox
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -49,15 +50,16 @@ func userNamespaceAttributes() *syscall.SysProcAttr {
 // deadline reaches both.
 func relayInNamespace(spec Spec) error {
 	spec.InNamespace = true
-	workOutReadable(&spec)
+	readable := workOutReadable(&spec)
+	if readable != nil {
+		defer readable.Close()
+	}
 	encoded, err := spec.Encode()
 	if err != nil {
-		_ = os.Remove(spec.ReadableFile)
 		return err
 	}
 	exe, err := osHooks.executable()
 	if err != nil {
-		_ = os.Remove(spec.ReadableFile)
 		return err
 	}
 	// nosemgrep: dangerous-exec-command -- exe is this very binary, from os.Executable, never user input.
@@ -65,8 +67,10 @@ func relayInNamespace(spec Spec) error {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.SysProcAttr = userNamespaceAttributes()
 	cmd.SysProcAttr.Pdeathsig = syscall.SIGKILL
+	if readable != nil {
+		cmd.ExtraFiles = []*os.File{readable} // descriptor 3 of the child: Spec.ReadableFD
+	}
 	if err := cmd.Start(); err != nil {
-		_ = os.Remove(spec.ReadableFile)
 		fmt.Fprintf(os.Stderr, "motita: could not give the command a network of its own: %v\n", err)
 		childHooks.exit(namespaceFailedCode)
 		return err
@@ -76,38 +80,52 @@ func relayInNamespace(spec Spec) error {
 	return nil
 }
 
+// readableFD is the descriptor the child in the namespaces finds the list on: the first of the
+// files it inherits.
+const readableFD = 3
+
 // workOutReadable lists, here and now, what stays readable around the hidden and private paths, so
 // the child in the namespaces uses the answer instead of listing directories itself: some of them
 // cannot be listed from inside a user namespace on a kernel that restricts them (AppArmor on
 // Ubuntu), and a command that is confined to the workspace does not run when the list is missing.
 // When it cannot be worked out here either, the child tries for itself, as it would have.
-func workOutReadable(spec *Spec) {
+//
+// The list is left in a file that has no name: it is created, unlinked at once and handed to the
+// child as an inherited descriptor (the file returned, to pass as its first extra file), so nothing
+// in a shared directory can be swapped for it between writing and reading.
+func workOutReadable(spec *Spec) *os.File {
 	if len(spec.WriteRoots) == 0 {
-		return
+		return nil
 	}
 	readable := readableAround(hiddenAndPrivate(*spec))
 	if readable == nil {
-		return
+		return nil
 	}
 	data, err := jsonMarshal(readable)
 	if err != nil {
-		return
+		return nil
 	}
 	file, err := os.CreateTemp("", "motita-readable-")
 	if err != nil {
-		return
+		return nil
 	}
-	name := file.Name()
-	_ = file.Close()
-	if err := writeReadable(name, data, 0o600); err != nil {
-		_ = os.Remove(name)
-		return
+	_ = os.Remove(file.Name())
+	if err := writeReadable(file, data); err != nil {
+		_ = file.Close()
+		return nil
 	}
-	spec.ReadableFile = name
+	spec.ReadableFD = readableFD
+	return file
 }
 
-// writeReadable is os.WriteFile, a variable so a test can make the write fail.
-var writeReadable = os.WriteFile
+// writeReadable writes the list and rewinds the file, a variable so a test can make it fail.
+var writeReadable = func(f *os.File, data []byte) error {
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	_, err := f.Seek(0, io.SeekStart)
+	return err
+}
 
 // exitCodeOf is the code a shell would report for the relayed process: its own, or 128 plus the
 // signal that ended it.

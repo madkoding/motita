@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -137,7 +138,7 @@ func confine(spec Spec) error {
 	if private {
 		readAccess |= accessReadDir
 	}
-	readable, known := takeReadableFile(spec.ReadableFile)
+	readable, known := takeReadableFile(spec.ReadableFD)
 	if !known {
 		readable = readableAround(hiddenAndPrivate(spec))
 	}
@@ -341,14 +342,16 @@ func isRealDir(p string) bool {
 // readDir lists a directory, a variable so a test can make a listing fail.
 var readDir = os.ReadDir
 
-// takeReadableFile reads, and removes, the list the isolation child left for this one. known is
-// false when there is none or it cannot be read, and the caller works the list out for itself.
-func takeReadableFile(name string) (readable []string, known bool) {
-	if name == "" {
+// takeReadableFile reads, and closes, the list the isolation child left for this one on the
+// descriptor fd. known is false when there is none or it cannot be read, and the caller works the
+// list out for itself.
+func takeReadableFile(fd int) (readable []string, known bool) {
+	if fd <= 0 {
 		return nil, false
 	}
-	data, err := os.ReadFile(name)
-	_ = os.Remove(name)
+	file := os.NewFile(uintptr(fd), "readable")
+	data, err := io.ReadAll(file)
+	_ = file.Close()
 	if err != nil || json.Unmarshal(data, &readable) != nil {
 		return nil, false
 	}
