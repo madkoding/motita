@@ -23,6 +23,9 @@ func TestUnconfinedReadsOutsideTheWorkspaceAreConfirmed(t *testing.T) {
 		`cp ..\..\secret .`,
 		`git log --output=..\..\x`,
 		`grep x < ..\..\x`,
+		`grep -f../../.ssh/id_rsa .`,
+		`grep -f~/.ssh/id_rsa .`,
+		`grep -f/home/u/.ssh/id_rsa .`,
 	} {
 		d := ps.DecideLine(line, dir)
 		if d.Verdict != Ask {
