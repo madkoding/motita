@@ -65,14 +65,16 @@ type Model struct {
 	// high. On a plan or subscription it ranks the plan's usage, not a per-token price.
 	Cost string
 	// PriceIn and PriceOut are USD per million input and output tokens, as the vendor listed them
-	// when the catalogue was last revised, so approximate. Zero means no per-token price (a
-	// subscription, a local model) and none is ever guessed.
+	// when prices.json was last revised, so approximate. Zero means no per-token price (a
+	// subscription, a local model) and none is ever guessed. They come from prices.json, not from
+	// the entries below.
 	PriceIn, PriceOut float64
 }
 
-// Providers returns the supported providers, in the order they are offered.
+// Providers returns the supported providers, in the order they are offered, with the prices of
+// prices.json put on their models.
 func Providers() []Provider {
-	return []Provider{
+	list := []Provider{
 		openAIProvider(),
 		codexProvider(),
 		copilotProvider(),
@@ -81,7 +83,15 @@ func Providers() []Provider {
 		claudeCodeProvider(),
 		geminiProvider(),
 		qwenProvider(),
+		ollamaCloudProvider(),
 	}
+	for _, p := range list {
+		for i, m := range p.Models {
+			price := catalogPrices.Prices[p.ID][m.ID]
+			p.Models[i].PriceIn, p.Models[i].PriceOut = price.In, price.Out
+		}
+	}
+	return list
 }
 
 // openAIProvider is the openai entry of the catalogue.
@@ -97,13 +107,19 @@ func openAIProvider() Provider {
 		AskBaseURL:     true,
 		Models: []Model{
 			{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "cheap and fast, the right default",
-				Tier: "mid", Cost: "low", PriceIn: 0.25, PriceOut: 2},
+				Tier: "mid", Cost: "low"},
 			{ID: "gpt-5", Label: "GPT-5", Note: "strongest reasoning, more expensive",
-				Tier: "frontier", Cost: "mid", PriceIn: 1.25, PriceOut: 10},
+				Tier: "frontier", Cost: "mid"},
 			{ID: "gpt-4.1", Label: "GPT-4.1", Note: "no reasoning step, honours temperature",
-				Tier: "mid", Cost: "mid", PriceIn: 2, PriceOut: 8},
+				Tier: "mid", Cost: "mid"},
 			{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest",
-				Tier: "basic", Cost: "low", PriceIn: 0.15, PriceOut: 0.6},
+				Tier: "basic", Cost: "low"},
+			{ID: "gpt-6-sol", Label: "GPT-6 sol", Note: "newest generation, balanced",
+				Tier: "frontier", Cost: "mid"},
+			{ID: "gpt-6-luna", Label: "GPT-6 luna", Note: "newest generation, cheapest",
+				Tier: "mid", Cost: "low"},
+			{ID: "gpt-6-astra", Label: "GPT-6 astra", Note: "newest generation, strongest",
+				Tier: "frontier", Cost: "high"},
 		},
 	}
 }
@@ -155,45 +171,73 @@ func copilotProvider() Provider {
 	}
 }
 
-// ollamaProvider is the ollama entry of the catalogue.
+// ollamaProvider is the ollama entry of the catalogue: Ollama on the user's own machine or
+// network, free and keyless. Ollama's hosted service is the ollama-cloud entry, so both can be
+// used at once.
 func ollamaProvider() Provider {
 	return Provider{
-		ID:             "ollama",
-		Name:           "Ollama (local or Ollama Cloud)",
-		Short:          "Ollama",
-		Access:         "free on your own machine, or Ollama Cloud",
+		ID:     "ollama",
+		Name:   "Ollama (your own server)",
+		Short:  "Ollama",
+		Access: "free on your own machine or network",
+		// Kept as Ollama Cloud's address, which a configuration naming this provider with no
+		// base_url has always reached; the settings page offers the local address instead.
+		DefaultBaseURL: "https://ollama.com/v1",
+		EnvKey:         "OLLAMA_API_KEY",
+		ConsoleURL:     "https://ollama.com/download",
+		// Populated at runtime from the models the server has pulled. The list below is what is
+		// offered when it cannot be reached.
+		Models: []Model{
+			{ID: modelGPTOSS20, Label: modelGPTOSS20, Note: "lightest, good on an i386 box",
+				Tier: "basic", Cost: "local"},
+			{ID: modelGemma31, Label: modelGemma31, Note: "small and quick", Tier: "basic", Cost: "local"},
+			{ID: modelNemotronNano, Label: modelNemotronNano, Note: "lightweight",
+				Tier: "basic", Cost: "local"},
+			{ID: "qwen3:8b", Label: "qwen3:8b", Note: "small, runs on a laptop", Tier: "basic", Cost: "local"},
+		},
+		FetchModels: true,
+	}
+}
+
+// ollamaCloudProvider is the ollama-cloud entry of the catalogue: Ollama's hosted service, billed
+// per token and reached with a key. Ollama on the user's own machine is the ollama entry.
+func ollamaCloudProvider() Provider {
+	return Provider{
+		ID:             "ollama-cloud",
+		Name:           "Ollama Cloud (hosted, with a key)",
+		Short:          "Ollama Cloud",
+		Access:         "Ollama's hosted models, billed per token",
 		DefaultBaseURL: "https://ollama.com/v1",
 		EnvKey:         "OLLAMA_API_KEY",
 		ConsoleURL:     "https://ollama.com/settings/keys",
-		// Populated at runtime from the live catalogue. The list below is what
-		// is offered when the API cannot be reached, so the wizard never leaves
-		// the user with an empty menu and no idea what to type.
+		// Populated at runtime from the live catalogue. The list below is what is offered when
+		// the API cannot be reached.
 		Models: []Model{
 			{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model",
-				Tier: "mid", Cost: "low", PriceIn: 0.15, PriceOut: 0.6},
+				Tier: "mid", Cost: "low"},
 			{ID: "qwen3.5:397b", Label: "qwen3.5:397b", Note: "large open model", Tier: "frontier", Cost: "local"},
 			{ID: "deepseek-v4.1-flash", Label: "deepseek-v4.1-flash", Note: "fast and inexpensive",
-				Tier: "mid", Cost: "low", PriceIn: 0.3, PriceOut: 1.2},
+				Tier: "mid", Cost: "low"},
 			{ID: "deepseek-v4-pro", Label: "deepseek-v4-pro", Note: "deep reasoning, long tasks",
-				Tier: "frontier", Cost: "mid", PriceIn: 1.32, PriceOut: 3.96},
+				Tier: "frontier", Cost: "mid"},
 			{ID: "glm-5.3", Label: "glm-5.3", Note: "best open model for coding",
-				Tier: "frontier", Cost: "mid", PriceIn: 1.4, PriceOut: 4.4},
+				Tier: "frontier", Cost: "mid"},
 			{ID: "glm-5.3-flash", Label: "glm-5.3-flash", Note: "multimodal, quick",
-				Tier: "mid", Cost: "low", PriceIn: 0.15, PriceOut: 0.5},
+				Tier: "mid", Cost: "low"},
 			{ID: "kimi-k3", Label: "kimi-k3", Note: "newest Kimi, the priciest here",
-				Tier: "frontier", Cost: "high", PriceIn: 3, PriceOut: 15},
+				Tier: "frontier", Cost: "high"},
 			{ID: "kimi-k2.6", Label: "kimi-k2.6", Note: "long context",
-				Tier: "frontier", Cost: "low", PriceIn: 0.95, PriceOut: 4},
+				Tier: "frontier", Cost: "low"},
 			{ID: "minimax-m3", Label: "minimax-m3", Note: "agentic coding",
-				Tier: "mid", Cost: "low", PriceIn: 0.6, PriceOut: 2.4},
+				Tier: "mid", Cost: "low"},
 			{ID: "muse-spark-open", Label: "muse-spark-open", Note: "multimodal, 1M context",
-				Tier: "frontier", Cost: "mid", PriceIn: 1.25, PriceOut: 4.25},
-			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick",
-				Tier: "basic", Cost: "low", PriceIn: 0.14, PriceOut: 0.4},
-			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight",
-				Tier: "basic", Cost: "low", PriceIn: 0.06, PriceOut: 0.24},
-			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box",
-				Tier: "basic", Cost: "low", PriceIn: 0.07, PriceOut: 0.3},
+				Tier: "frontier", Cost: "mid"},
+			{ID: modelGemma31, Label: modelGemma31, Note: "small and quick",
+				Tier: "basic", Cost: "low"},
+			{ID: modelNemotronNano, Label: modelNemotronNano, Note: "lightweight",
+				Tier: "basic", Cost: "low"},
+			{ID: modelGPTOSS20, Label: modelGPTOSS20, Note: "lightest, good on an i386 box",
+				Tier: "basic", Cost: "low"},
 		},
 		FetchModels: true,
 	}
@@ -214,11 +258,15 @@ func anthropicProvider() Provider {
 		ConsoleURL:     "https://console.anthropic.com/settings/keys",
 		Models: []Model{
 			{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Note: "the right default",
-				Tier: "frontier", Cost: "mid", PriceIn: 2, PriceOut: 10},
+				Tier: "frontier", Cost: "mid"},
 			{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Note: "strongest, more expensive",
-				Tier: "frontier", Cost: "high", PriceIn: 4, PriceOut: 20},
+				Tier: "frontier", Cost: "high"},
 			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast",
-				Tier: "mid", Cost: "low", PriceIn: 1, PriceOut: 5},
+				Tier: "mid", Cost: "low"},
+			{ID: "claude-opus-5", Label: "Claude Opus 5", Note: "previous strongest",
+				Tier: "frontier", Cost: "high"},
+			{ID: "claude-fable-5-1", Label: "Claude Fable 5.1", Note: "demanding reasoning, the priciest",
+				Tier: "frontier", Cost: "high"},
 		},
 	}
 }
@@ -256,11 +304,13 @@ func geminiProvider() Provider {
 		SupportsDirectAuth: true,
 		Models: []Model{
 			{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "cheap and fast",
-				Tier: "mid", Cost: "low", PriceIn: 0.3, PriceOut: 2.5},
+				Tier: "mid", Cost: "low"},
 			{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning",
-				Tier: "frontier", Cost: "mid", PriceIn: 1.25, PriceOut: 10},
+				Tier: "frontier", Cost: "mid"},
 			{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest",
-				Tier: "basic", Cost: "low", PriceIn: 0.1, PriceOut: 0.4},
+				Tier: "basic", Cost: "low"},
+			{ID: "gemini-3.5-flash-lite", Label: "Gemini 3.5 Flash-Lite", Note: "newest cheap model",
+				Tier: "basic", Cost: "low"},
 		},
 	}
 }
@@ -322,3 +372,10 @@ func DefaultBaseURL(id string) string {
 func (p Provider) String() string {
 	return fmt.Sprintf("%s (%s)", p.Name, p.ID)
 }
+
+// Open models both Ollama providers list.
+const (
+	modelGPTOSS20     = "gpt-oss:20b"
+	modelGemma31      = "gemma4:31b"
+	modelNemotronNano = "nemotron-3-nano:30b"
+)

@@ -19,6 +19,9 @@ func TestInferFromTheNameOfTheModel(t *testing.T) {
 		{"ollama", "gemma4:7b", "basic", "local"},
 		{"ollama", "gemma4:2.5b-q4", "basic", "local"},
 		{"ollama", "mystery", "", "local"},
+		// Hosted open models are billed: the size gives the tier and the cost stays unknown.
+		{"ollama-cloud", "gpt-oss:120b", "frontier", ""},
+		{"ollama-cloud", "mystery", "", ""},
 	}
 	for _, c := range cases {
 		tier, cost := Infer(c.provider, c.id)
