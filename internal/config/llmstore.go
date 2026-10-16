@@ -263,6 +263,8 @@ func yamlQuoted(s string) string {
 // SetLLMDefault writes the provider, the model and the endpoint into the llm block of the
 // configuration at path, in place and atomically, keeping the file's mode and every other line.
 func SetLLMDefault(path, provider, model, baseURL string) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)

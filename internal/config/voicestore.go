@@ -35,6 +35,8 @@ var (
 // required) is undone before the error is answered: a setting that broke the next start is the one
 // outcome worse than an error.
 func SetVoice(path string, ch VoiceChange) (Config, error) {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	info, err := os.Stat(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("the configuration file cannot be read: %w", err)

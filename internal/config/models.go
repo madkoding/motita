@@ -136,6 +136,8 @@ func (c *Config) validateModels() error {
 // SetTaskModels writes the models block into the configuration at path, in place and atomically:
 // one line per kind, empty for the default, every other line of the file as it was.
 func SetTaskModels(path string, choices map[string]ModelChoice) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	kv := make([][2]string, 0, len(TaskKinds))
 	for _, kind := range TaskKinds {
 		c := choices[kind]

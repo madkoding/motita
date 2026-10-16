@@ -1537,6 +1537,7 @@ curator:
   stale_after_days: 14 # unused for this long, and it is marked stale
   archive_after_days: 30 # stale for this long, and it moves to the archive
   consolidate: false # let the model merge overlapping documents
+  state_file: ~/.motita/curator-state.json # when the last pass ran, so a restart does not repeat it
 ```
 
 | Endpoint                                 | What it does                                                                                |

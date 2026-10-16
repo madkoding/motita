@@ -523,6 +523,7 @@ func Default() Config {
 			StaleAfterDays:   14,
 			ArchiveAfterDays: 30,
 			Consolidate:      false,
+			StateFile:        defaultCuratorState(),
 		},
 		Schedule: Schedule{
 			Enabled:  true,
@@ -669,6 +670,15 @@ func defaultSkillsDir() string {
 		return filepath.Join(d, "skills")
 	}
 	return "skills"
+}
+
+// defaultCuratorState is where the curator remembers when it last ran: inside Dir, so a restart
+// does not make every session start run a pass. With no home it is empty and the state is not kept.
+func defaultCuratorState() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "curator-state.json")
+	}
+	return ""
 }
 
 // File is the configuration file inside Dir, and the empty string when there is no home.

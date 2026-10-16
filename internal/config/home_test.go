@@ -278,6 +278,21 @@ func TestNoHomeKeepsTheWorkingDirectoryDefaults(t *testing.T) {
 	if got := File(); got != "" {
 		t.Errorf("File() = %q, want empty", got)
 	}
+	if got := defaultCuratorState(); got != "" {
+		t.Errorf("curator state = %q, want empty", got)
+	}
+}
+
+// A cold start keeps the curator's last pass beside the configuration, so a restart is not a
+// reason to run the pass again.
+func TestCuratorStateDefaultsInsideTheProgramDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	want := filepath.Join(home, ".motita", "curator-state.json")
+	if got := Default().Curator.StateFile; got != want {
+		t.Errorf("curator.state_file = %q, want %q", got, want)
+	}
 }
 
 // A relative path with neither a file nor a home keeps the relative form: there is no anchor to
