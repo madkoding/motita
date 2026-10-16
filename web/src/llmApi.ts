@@ -295,29 +295,41 @@ export function modelOptions(p: LLMProvider | undefined): ModelOption[] {
   });
 }
 
-const COST_MARK: Record<string, string> = {
-  local: "local",
-  low: "$",
-  mid: "$$",
-  high: "$$$",
+// Cost and capability in plain words, with the number of marks (out of 3) that draw them. The
+// words are English here; the page translates them.
+const COST: Record<string, [string, number]> = {
+  local: ["Free (local)", 0],
+  low: ["Cheap", 1],
+  mid: ["Moderate", 2],
+  high: ["Expensive", 3],
 };
-const TIER_NAME: Record<string, string> = {
-  basic: "Basic",
-  mid: "Mid",
-  frontier: "Frontier",
+const TIER: Record<string, [string, number]> = {
+  basic: ["Basic", 1],
+  mid: ["Capable", 2],
+  frontier: ["Very capable", 3],
 };
 
-// costMark is the short badge for a cost ("$", "$$", "$$$", "local"), or "" when unknown.
-export function costMark(cost: string | undefined): string {
-  return COST_MARK[cost || ""] || "";
+// costLabel is how much a model costs in a word ("Cheap"), or "" when unknown.
+export function costLabel(cost: string | undefined): string {
+  return COST[cost || ""]?.[0] || "";
 }
 
-// tierName is the English name of a capability tier (the page translates it), or "".
-export function tierName(tier: string | undefined): string {
-  return TIER_NAME[tier || ""] || "";
+// costLevel is 0 (free) to 3 (expensive), for a cost costLabel named.
+export function costLevel(cost: string | undefined): number {
+  return COST[cost as string][1];
 }
 
-// priceText is "$1.25 in / $10 out" per million tokens, or "" without a per-token price.
+// tierLabel is how capable a model is in a word ("Very capable"), or "" when unknown.
+export function tierLabel(tier: string | undefined): string {
+  return TIER[tier || ""]?.[0] || "";
+}
+
+// tierLevel is 1 (basic) to 3 (very capable), for a tier tierLabel named.
+export function tierLevel(tier: string | undefined): number {
+  return TIER[tier as string][1];
+}
+
+// priceText is "$1.25 / $10" (read / written, per million tokens), or "" without a per-token price.
 export function priceText(o: ModelOption): string {
   if (!o.price_in || !o.price_out) {
     return "";

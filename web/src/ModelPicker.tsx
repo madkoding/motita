@@ -4,40 +4,78 @@ import { choose } from "./choose";
 import {
   type LLMProvider,
   type ModelOption,
-  costMark,
+  costLabel,
+  costLevel,
   modelOptions,
   priceText,
-  tierName,
+  tierLabel,
+  tierLevel,
 } from "./llmApi";
 import { inputCls } from "./ProviderSettings";
 
 // The value of the option that opens the field for a model the list does not offer.
 const OTHER = "\u0000other";
 
-// optionText is a model's name followed by its cost and capability badges, so two can be compared
-// in the list itself. A model the catalogue knows nothing about is its name alone.
+// optionText is a model's name followed by how capable it is and what it costs, in words, so two
+// can be compared in the list itself. A model the catalogue knows nothing about is its name alone.
 function optionText(o: ModelOption): string {
-  const badges = [costMark(o.cost), tierName(o.tier) && t(tierName(o.tier))];
-  return [o.label, ...badges.filter(Boolean)].join(" · ");
+  const words = [tierLabel(o.tier), costLabel(o.cost)].filter(Boolean);
+  return [o.label, ...words.map((w) => t(w))].join(" · ");
 }
 
-// Facts says, under the picker, what the chosen model costs and how capable it is.
+// Meter is a label, three dots filled up to a level, and the word for it.
+function Meter({
+  name,
+  word,
+  level,
+}: {
+  name: string;
+  word: string;
+  level: number;
+}) {
+  return (
+    <div class="llm-meter" role="img" aria-label={`${name}: ${word}`}>
+      <span class="llm-meter-name">{name}</span>
+      <span class="llm-meter-dots" aria-hidden="true">
+        {[1, 2, 3].map((n) => (
+          <i key={n} class={choose(n <= level, "on", "")} />
+        ))}
+      </span>
+      <span class="llm-meter-word">{word}</span>
+    </div>
+  );
+}
+
+// Facts says, under the picker, how capable the chosen model is and what it costs.
 function Facts({ option }: { option: ModelOption | undefined }) {
-  const tier = tierName(option?.tier);
-  const mark = costMark(option?.cost);
-  if (!option || (!tier && !mark)) {
+  const tier = tierLabel(option?.tier);
+  const cost = costLabel(option?.cost);
+  if (!option || (!tier && !cost)) {
     return null;
   }
   const price = priceText(option);
-  const parts = [
-    mark && tf("Cost: {cost}", { cost: mark }),
-    tier && tf("Capability: {tier}", { tier: t(tier) }),
-    price && tf("{price} per million tokens, in / out (approximate)", { price }),
-  ].filter(Boolean);
   return (
-    <p class="text-xs text-[#7a7a8c] llm-model-facts" data-testid="model-facts">
-      {parts.join(" · ")}
-    </p>
+    <div class="llm-model-facts" data-testid="model-facts">
+      {tier && (
+        <Meter
+          name={t("Capability")}
+          word={t(tier)}
+          level={tierLevel(option.tier)}
+        />
+      )}
+      {cost && (
+        <Meter
+          name={t("Cost")}
+          word={t(cost)}
+          level={costLevel(option.cost)}
+        />
+      )}
+      {price && (
+        <p class="text-xs text-[#7a7a8c]">
+          {tf("About {price} per million tokens, read / written", { price })}
+        </p>
+      )}
+    </div>
   );
 }
 

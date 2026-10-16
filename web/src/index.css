@@ -4550,3 +4550,37 @@ html[data-density="compact"] .settings-warn {
     inset: -10px -8px;
   }
 }
+
+/* What a model costs and how capable it is, under its picker: a label, three dots, a word. */
+.llm-model-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.llm-meter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--t2);
+}
+.llm-meter-name {
+  flex: 0 0 5.5rem;
+  color: #7a7a8c;
+}
+.llm-meter-dots {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+.llm-meter-dots i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: rgb(var(--ov-rgb) / 0.18);
+}
+.llm-meter-dots i.on {
+  background: rgb(var(--accent-rgb));
+}
+.llm-meter-word {
+  color: var(--t1);
+}

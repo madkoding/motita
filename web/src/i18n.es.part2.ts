@@ -165,14 +165,18 @@ const more: Record<string, string> = {
   "Model per kind of work": "Modelo por tipo de trabajo",
   "Same as default": "Igual que el por defecto",
   Basic: "Básico",
-  Mid: "Medio",
-  Frontier: "Frontera",
-  "Cost: {cost}": "Costo: {cost}",
-  "Capability: {tier}": "Capacidad: {tier}",
-  "{price} per million tokens, in / out (approximate)":
-    "{price} por millón de tokens, entrada / salida (aproximado)",
-  "$ cheap, $$ moderate, $$$ expensive, local runs free on your machine. Capability (basic, mid, frontier) guides what to put in cheap and in strong. Prices are approximate and come from the catalogue, not from your bill.":
-    "$ barato, $$ medio, $$$ caro, local corre gratis en tu máquina. La capacidad (básico, medio, frontera) orienta qué poner en barato y en fuerte. Los precios son aproximados y vienen del catálogo, no de tu factura.",
+  Capable: "Capaz",
+  "Very capable": "Muy capaz",
+  "Free (local)": "Gratis (local)",
+  Cheap: "Económico",
+  Moderate: "Intermedio",
+  Expensive: "Caro",
+  Capability: "Capacidad",
+  Cost: "Costo",
+  "About {price} per million tokens, read / written":
+    "Unos {price} por millón de tokens, leídos / escritos",
+  "Each model shows how capable it is and what it costs. Use a cheap one for easy pieces and a very capable one for hard pieces. Prices are approximate.":
+    "Cada modelo indica qué tan capaz es y cuánto cuesta. Usa uno económico para las piezas fáciles y uno muy capaz para las difíciles. Los precios son aproximados.",
   "Model for {kind}": "Modelo para {kind}",
   "Other…": "Otro…",
   "Model name, as the provider writes it":

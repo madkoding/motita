@@ -78,7 +78,7 @@ export function ModelSettings({ api, onNotice }: ProviderSettingsProps) {
       </p>
       <p class="text-xs text-[#7a7a8c] mb-3" data-testid="model-legend">
         {t(
-          "$ cheap, $$ moderate, $$$ expensive, local runs free on your machine. Capability (basic, mid, frontier) guides what to put in cheap and in strong. Prices are approximate and come from the catalogue, not from your bill.",
+          "Each model shows how capable it is and what it costs. Use a cheap one for easy pieces and a very capable one for hard pieces. Prices are approximate.",
         )}
       </p>
       {err && (
