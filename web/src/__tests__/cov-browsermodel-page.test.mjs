@@ -426,31 +426,6 @@ test("the settings warn when the WebGPU is emulated on the processor", async (ct
   assert.match(text(m.box()), /\(google swiftshader\)/);
 });
 
-test("a card that hides its name is shown as unnamed", async (ctx) => {
-  page.stopBrowserModel();
-  workers.length = 0;
-  tab.next = [204];
-  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
-  withGPU(card());
-  const m = await mount();
-  ctx.after(m.done);
-  await click(m.root.querySelector("input[role=switch]"));
-  await wait(() => workers.length === 1, "a worker");
-  await act(() =>
-    tell({
-      kind: "ready",
-      build: "llm-qwen25-0.5b",
-      name: "",
-      software: false,
-    }),
-  );
-  await wait(
-    () => m.root.querySelector("[data-testid=llm-browser-card]"),
-    "the card line",
-  );
-  assert.match(text(m.box()), /Running on the graphics card: unnamed/);
-});
-
 test("it starts by itself in a signed-in tab where it was turned on", async () => {
   const root = document.createElement("div");
   document.body.appendChild(root);
@@ -632,4 +607,32 @@ test("a failure and a device that cannot run it are said under the switch", asyn
     "and it says why before anything is tried",
   );
   await m.done();
+});
+
+test("a card that hides its name is shown as unnamed", async (ctx) => {
+  page.stopBrowserModel();
+  workers.length = 0;
+  tab.next = [204];
+  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
+  withGPU(card());
+  const m = await mount();
+  ctx.after(() => {
+    m.done();
+    page.stopBrowserModel();
+  });
+  await click(m.root.querySelector("input[role=switch]"));
+  await wait(() => workers.length === 1, "a worker");
+  await act(() =>
+    tell({
+      kind: "ready",
+      build: "llm-qwen25-0.5b",
+      name: "",
+      software: false,
+    }),
+  );
+  await wait(
+    () => m.root.querySelector("[data-testid=llm-browser-card]"),
+    "the card line",
+  );
+  assert.match(text(m.box()), /Running on the graphics card: unnamed/);
 });
