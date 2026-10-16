@@ -272,7 +272,7 @@ func commitMessageDecision(name string, args []string) (Decision, bool) {
 
 // gitValueOptions are git's global options that take the next argument as their value.
 var gitValueOptions = map[string]bool{
-	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true, "--exec-path": true,
+	"-C": true, "-c": true, gitDirOption: true, gitWorkTreeOption: true, "--namespace": true, "--exec-path": true,
 }
 
 // gitSubcommand splits git's arguments into its subcommand and what follows it, skipping the
@@ -377,7 +377,7 @@ const longDirectoryFlag = "--directory"
 // one it is started in. Each takes a value as the next argument (`-C dir`, `--directory dir`) or
 // after "=" (`--directory=dir`); a short one also attached (`-Cdir`).
 var dirFlags = map[string][]string{
-	"git":   {"-C", "--git-dir", "--work-tree"},
+	"git":   {"-C", gitDirOption, gitWorkTreeOption},
 	"make":  {"-C", longDirectoryFlag, "-f", "--file", "--makefile"},
 	"gmake": {"-C", longDirectoryFlag, "-f", "--file", "--makefile"},
 	"go":    {"-C"},
@@ -651,56 +651,6 @@ func gitReachesOutside(args []string) bool {
 		return true
 	}
 	return gitVerbRunsCode(sub, rest)
-}
-
-// gitGlobalRunsCode reports whether an option BEFORE the subcommand makes git run a command, or
-// move the repository it reads its configuration from: `-c core.fsmonitor=…` and
-// `-c core.pager=…` name a program git then starts, `--exec-path` swaps the directory its
-// helpers come from, `--config-env` is `-c` taking the value from the environment, and
-// `--git-dir` / `--work-tree` point it at a repository the workspace does not own. `-C dir` is
-// left alone: it only changes where the (workspace) command runs.
-func gitGlobalRunsCode(args []string) bool {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "-C" || a == "--namespace":
-			i++
-		case !strings.HasPrefix(a, "-"):
-			return false
-		case a == "-c" || strings.HasPrefix(a, "-c"), strings.HasPrefix(a, "--config-env"),
-			strings.HasPrefix(a, "--exec-path"), strings.HasPrefix(a, "--git-dir"),
-			strings.HasPrefix(a, "--work-tree"):
-			return true
-		}
-	}
-	return false
-}
-
-// gitVerbRunsCode reports whether an argument of an otherwise local verb makes git run a program
-// or write outside the workspace: `--ext-diff` / `--textconv` run the drivers a configuration
-// names, `--output` writes a file anywhere, `rebase -x` runs a command per commit, `grep -O`
-// opens the matches in a pager, and `clone` runs the program a `ext::` URL, `--upload-pack` or
-// `-c` names.
-func gitVerbRunsCode(sub string, rest []string) bool {
-	for _, a := range rest {
-		name, _, _ := strings.Cut(a, "=")
-		switch {
-		case name == "--output", name == "--ext-diff", name == "--textconv":
-			return true
-		case len(name) >= len("--ext") && strings.HasPrefix("--ext-diff", name),
-			len(name) >= len("--textc") && strings.HasPrefix("--textconv", name),
-			len(name) >= len("--out") && strings.HasPrefix("--output", name):
-			return true
-		case sub == "rebase" && (strings.HasPrefix(a, "-x") || len(name) >= len("--ex") && strings.HasPrefix("--exec", name)):
-			return true
-		case sub == "grep" && (strings.HasPrefix(a, "-O") || len(name) >= len("--op") && strings.HasPrefix("--open-files-in-pager", name)):
-			return true
-		case sub == "clone" && (strings.Contains(a, "::") || a == "-u" || a == "-c" || strings.HasPrefix(name, "--upload-pack") ||
-			strings.HasPrefix(name, "--config")):
-			return true
-		}
-	}
-	return false
 }
 
 // gitConfigWrites reports whether a `git config` sets or removes a value, as opposed to reading

@@ -150,7 +150,8 @@ func neutralizeLocalConfig(ctx context.Context, dir string) []string {
 // purpose: --local turns include resolution off and skips config.worktree, so a
 // [include] path = ... or extensions.worktreeConfig in .git/config would hide a filter driver
 // from the list while git still applies it. With --show-scope each name is preceded by its scope
-// (NUL-separated), and the included files report the scope of the file that includes them. A failure (not a repository, no local config, no git) is
+// (NUL-separated), and the included files report the scope of the file that includes them. A
+// failure (not a repository, no local config, no git) is
 // reported as no names: there is then nothing to neutralize.
 func localConfigNames(ctx context.Context, dir string) []string {
 	c, cancel := context.WithTimeout(ctx, gitTimeout)
