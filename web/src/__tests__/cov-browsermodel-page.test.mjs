@@ -225,6 +225,35 @@ test("a build the card cannot run in 16 bits is the larger one", async () => {
   page.stopBrowserModel();
 });
 
+test("an emulated WebGPU adapter is told apart from a card", async () => {
+  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
+  const named = (info, extra = {}) => ({
+    features: new Set(["shader-f16"]),
+    info,
+    ...extra,
+  });
+  for (const [adapter, software] of [
+    [named({ vendor: "google", architecture: "swiftshader" }), true],
+    [named({ description: "llvmpipe (LLVM 15)" }), true],
+    [named(undefined, { isFallbackAdapter: true }), true],
+    [named({ vendor: "nvidia", architecture: "ada" }), false],
+    [named(undefined), false],
+  ]) {
+    page.stopBrowserModel();
+    workers.length = 0;
+    withGPU(adapter);
+    page.startBrowserModel(api);
+    await wait(() => workers.length === 1, "a worker");
+    assert.equal(
+      page.browserState().software,
+      software,
+      JSON.stringify(adapter),
+    );
+  }
+  page.stopBrowserModel();
+  assert.equal(page.browserState().software, false);
+});
+
 test("the gateway downloads the files first, and the page follows", async () => {
   gw.catalogs = [
     catalogOf([model("llm-qwen25-0.5b")]),
@@ -375,6 +404,27 @@ test("stopping while the files download ends it quietly", async () => {
   release?.();
 });
 
+test("the settings warn when the WebGPU is emulated on the processor", async (ctx) => {
+  tab.next = [204];
+  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
+  withGPU({
+    features: new Set(["shader-f16"]),
+    info: { vendor: "google", architecture: "swiftshader" },
+  });
+  const m = await mount();
+  ctx.after(m.done);
+  assert.equal(
+    m.root.querySelector("[data-testid=llm-browser-software]"),
+    null,
+  );
+  await click(m.root.querySelector("input[role=switch]"));
+  await wait(
+    () => m.root.querySelector("[data-testid=llm-browser-software]"),
+    "the warning",
+  );
+  assert.match(text(m.box()), /runs WebGPU on the processor.*very slow/);
+});
+
 test("it starts by itself in a signed-in tab where it was turned on", async () => {
   const root = document.createElement("div");
   document.body.appendChild(root);
@@ -502,8 +552,14 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   tab.test = () =>
     new Promise((r) => (release = () => r(json({ text: "ok", ms: 1 }))));
   await act(() => tryButton(m).click());
-  assert.equal(text(result()), "Trying it…");
+  assert.equal(text(result()), "Trying it… 0 s");
   assert.equal(tryButton(m).disabled, true);
+  // A slow test counts its seconds and, past twenty, says it is not stuck.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 25_000;
+  await act(() => new Promise((r) => realTimeout(r, 1100)));
+  Date.now = realNow;
+  assert.match(text(result()), /Trying it… 2\d s Still working: .*minutes/);
   release();
   await settle();
   assert.match(text(m.box()), /“ok” in 0\.0 s/);

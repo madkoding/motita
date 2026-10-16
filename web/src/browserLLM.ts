@@ -51,9 +51,17 @@ export interface BrowserState {
   error: string;
   // build is the catalog id of the build in use, once known.
   build: string;
+  // software says the browser's WebGPU is emulated on the processor, which is very slow.
+  software: boolean;
 }
 
-const IDLE: BrowserState = { phase: "off", pct: 0, error: "", build: "" };
+const IDLE: BrowserState = {
+  phase: "off",
+  pct: 0,
+  error: "",
+  build: "",
+  software: false,
+};
 let state: BrowserState = IDLE;
 const listeners = new Set<(s: BrowserState) => void>();
 
@@ -103,14 +111,26 @@ export function browserGPU(): boolean {
   return gpuAllowed() && "gpu" in navigator;
 }
 
-// cardHasF16 says the graphics card has 16-bit floats in its shaders, so the lighter build runs.
-async function cardHasF16(): Promise<boolean> {
+// The adapters that emulate WebGPU on the processor (SwiftShader, llvmpipe, Microsoft's WARP).
+const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|lavapipe|software|\bwarp\b/i;
+
+// inspectCard says what the graphics card has: 16-bit floats in its shaders (so the lighter build
+// runs) and whether it is only WebGPU emulated on the processor.
+async function inspectCard(): Promise<{ f16: boolean; software: boolean }> {
   const gpu = (
     navigator as Navigator & {
       gpu: { requestAdapter(): Promise<GPUAdapter | null> };
     }
   ).gpu;
-  return (await gpu.requestAdapter())?.features.has("shader-f16") === true;
+  const card = await gpu.requestAdapter();
+  const info = card?.info;
+  const named = [info?.vendor, info?.architecture, info?.description].join(" ");
+  return {
+    f16: card?.features.has("shader-f16") === true,
+    software:
+      (card as { isFallbackAdapter?: boolean } | null)?.isFallbackAdapter ===
+        true || SOFTWARE_ADAPTER.test(named),
+  };
 }
 
 // A running model: its worker, and the loop that serves the gateway's requests.
@@ -180,8 +200,9 @@ async function ensureFiles(
 }
 
 async function serve(api: Api, signal: AbortSignal): Promise<void> {
-  const build = buildFor(await cardHasF16());
-  show(signal, { phase: "downloading", pct: 0, error: "", build });
+  const { f16, software } = await inspectCard();
+  const build = buildFor(f16);
+  show(signal, { phase: "downloading", pct: 0, error: "", build, software });
   await ensureFiles(api, build, signal);
   if (signal.aborted) {
     return;
