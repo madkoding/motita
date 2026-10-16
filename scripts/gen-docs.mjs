@@ -131,7 +131,6 @@ motita -connect 127.0.0.1:7477 -tui</pre>
       ["Guide: the browser interface", guide("the-browser-interface-from-the-same-port")],
       ["Guide: more than one conversation", guide("more-than-one-conversation-at-a-time")],
       ["Guide: WebSocket protocol", guide("websocket-a-bidirectional-flag-protocol")],
-      ["Reference: the gateway", reference("the-gateway")],
     ],
   },
   {
@@ -342,7 +341,7 @@ motita curator pin build-firmware</pre>`,
     slug: "websocket",
     title: "The WebSocket",
     blurb: "A two-way connection with flags and a heartbeat, for programs that talk to the gateway.",
-    body: String.raw`
+    body: `
 <p>The browser and <code>POST /task</code> follow a run over SSE. The gateway also speaks <strong>WebSocket</strong> at <code>GET /v1/sessions/{id}/ws</code>: a persistent, two-way connection with flags, a heartbeat and a structured message format, for programs that want more than a one-shot HTTP request. It is a second transport, not a second agent: same conversation, same token, same run slot.</p>
 <h2>Who may connect</h2>
 <p>The endpoint sits behind the same token as the rest of the API, in two layers, and both are required:</p>
@@ -448,7 +447,6 @@ while True:
 <p>Off loopback the gateway speaks plain HTTP, so use <code>wss://</code> behind one of the options in <a href="docs-network.html">Network and remote access</a> rather than sending the token in the clear.</p>`,
     more: [
       ["Guide: WebSocket, a bidirectional flag protocol", guide("websocket-a-bidirectional-flag-protocol")],
-      ["Reference: the gateway", reference("the-gateway")],
     ],
   },
   {

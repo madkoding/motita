@@ -299,8 +299,8 @@ motita curator pin build-firmware</pre>`,
   websocket: {
     title: "El WebSocket",
     blurb: "Una conexión bidireccional con banderas y latido, para programas que hablan con el gateway.",
-    more: ["Guía: WebSocket, un protocolo bidireccional de banderas", "Referencia: el gateway"],
-    body: String.raw`
+    more: ["Guía: WebSocket, un protocolo bidireccional de banderas"],
+    body: `
 <p>El navegador y <code>POST /task</code> siguen una ejecución por SSE. El gateway también habla <strong>WebSocket</strong> en <code>GET /v1/sessions/{id}/ws</code>: una conexión persistente y bidireccional con banderas, latido y un formato de mensaje estructurado, para programas que quieren más que una petición HTTP puntual. Es un segundo transporte, no un segundo agente: misma conversación, mismo token, mismo turno de ejecución.</p>
 <h2>Quién puede conectarse</h2>
 <p>El endpoint está detrás del mismo token que el resto de la API, en dos capas, y se exigen ambas:</p>
