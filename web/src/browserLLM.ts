@@ -305,6 +305,9 @@ export function useBrowserModel(api: Api, authed: boolean): void {
   useEffect(() => {
     if (authed && browserModelOn()) {
       startBrowserModel(api);
+    } else if (!authed) {
+      // Signed out: every request would be a 401, so the loop and the worker stop.
+      stopBrowserModel();
     }
   }, [api, authed]);
 }

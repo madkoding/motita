@@ -396,9 +396,11 @@ test("it starts by itself in a signed-in tab where it was turned on", async () =
   await wait(() => workers.length === 1, "a worker");
   await settle();
   assert.equal(root.querySelector("span").dataset.phase, "loading");
-  page.stopBrowserModel();
+  // Signing out stops it: no worker and no requests are left running for a 401.
+  await act(() => render(h(Probe, { authed: false }), root));
   await settle();
   assert.equal(root.querySelector("span").dataset.phase, "off");
+  page.stopBrowserModel();
   await act(() => render(null, root));
   root.remove();
 });
