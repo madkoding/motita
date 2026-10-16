@@ -1368,8 +1368,8 @@ that only motita's own file edits are limited.
 
 | Endpoint            | What it does                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`) |
-| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}` or both; `confirm` is required for `full` and for `ask_unconfined_runs: false`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS` or `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` overrides it |
+| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true,"isolate_network":true,"network_enforced":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`); `network_enforced` is false where a command cannot be given a network of its own, and `network_reason` and `network_hint` then say why and what to do |
+| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false` and for `isolate_network: false`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` or `MOTITA_SANDBOX_ISOLATE_NETWORK` overrides it; a change of several keys is saved whole or not at all |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud
@@ -1533,6 +1533,13 @@ lifecycle, and the maintenance pass that keeps them honest.
 skills:
   dir: ~/.motita/skills # where the documents live
   max_file_bytes: 65536 # a bigger document is refused, not truncated
+
+review:
+  enabled: true # after a long turn, a background pass writes down what was learned as a procedure
+  interval: 15 # tool iterations without a saved procedure before the pass runs
+  timeout: 120s # how long the pass may take
+  max_iterations: 8 # tool iterations the pass itself may use
+  # llm: {...} # a model of its own for the pass; left out, it uses the main one
 
 curator:
   enabled: true # run the maintenance pass on its own
