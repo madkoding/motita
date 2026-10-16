@@ -167,6 +167,21 @@ func TestAProjectBranchInUseStopsTheWorktree(t *testing.T) {
 	}
 }
 
+// Both names taken by branches checked out elsewhere: there is nothing left to try, and it says so.
+func TestAProjectWithNoFreeBranchStopsTheWorktree(t *testing.T) {
+	srv, _, _ := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+	src := sourceRepo(t)
+	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "web-client")
+	mustGit(t, t.TempDir(), "clone", "-q", src, clone)
+	for _, branch := range []string{"project/proj", "project/proj-" + id[:8]} {
+		mustGit(t, clone, "worktree", "add", "-q", "-b", branch, filepath.Join(t.TempDir(), "elsewhere"))
+	}
+	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`"}`); code < 400 {
+		t.Errorf("every branch checked out elsewhere: %d", code)
+	}
+}
+
 func TestTheCatalogSkipsWhatIsNotAClone(t *testing.T) {
 	srv, _ := projectServer(t)
 	root := filepath.Join(srv.opts.WorkspaceDir, catalogFolder)
