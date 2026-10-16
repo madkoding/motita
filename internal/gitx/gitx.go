@@ -219,6 +219,22 @@ var specialOverrides = map[string]string{
 // subsection (the quoted middle of filter."name".clean) as written, so the name is matched
 // case-insensitively on its ends and the override repeats it verbatim.
 func neutralize(name string) []string {
+	over := neutralizeKey(name)
+	if over != nil && strings.ContainsAny(name, "=\n") {
+		// git splits `-c name=value` at the FIRST "=", so a key whose subsection holds one
+		// (filter."a=b".clean) cannot be named, and so cannot be emptied. The only safe answer is
+		// to refuse to run git in a repository that arms a command that way.
+		return []string{"--git-dir=" + unsafeConfigGitDir}
+	}
+	return over
+}
+
+// unsafeConfigGitDir is a repository that does not exist: pointing git at it makes every command
+// fail instead of running a driver neutralize cannot disarm.
+const unsafeConfigGitDir = "/nonexistent/motita-unsafe-git-config"
+
+// neutralizeKey is neutralize for a name that can be written as a -c override.
+func neutralizeKey(name string) []string {
 	lower := strings.ToLower(name)
 	first := lower
 	if i := strings.IndexByte(lower, '.'); i >= 0 {

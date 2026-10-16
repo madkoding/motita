@@ -235,3 +235,38 @@ func TestNeutralizeSeesIncludesAndWorktreeConfig(t *testing.T) {
 		}
 	}
 }
+
+// TestAFilterNamedWithAnEqualsSignRunsNoCode: git splits `-c name=value` at the first "=", so
+// filter."a=b".clean cannot be emptied with an override. Git must refuse to run in such a
+// repository instead of running the planted command.
+func TestAFilterNamedWithAnEqualsSignRunsNoCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted command is a shell script")
+	}
+	ctx := context.Background()
+	repo := newRepo(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	write(t, filepath.Join(repo, ".gitattributes"), "* filter=a=b\n")
+	write(t, filepath.Join(repo, ".git", "config"), readFile(t, filepath.Join(repo, ".git", "config"))+
+		"[filter \"a=b\"]\n\tclean = touch "+marker+"; cat\n")
+	write(t, filepath.Join(repo, "f.txt"), "x\n")
+	_, _ = executeWithin(ctx, gitTimeout, repo, "add", "f.txt")
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the planted filter ran")
+	}
+	if got := neutralize("filter.a=b.clean"); len(got) != 1 || !strings.HasPrefix(got[0], "--git-dir=") {
+		t.Errorf("neutralize = %q, want the fail-closed override", got)
+	}
+	if got := neutralize("user.name=x"); got != nil {
+		t.Errorf("a harmless key got an override: %q", got)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
