@@ -299,8 +299,11 @@ func TestAMachineWithSeveralDrivesListsThemAboveTheTopOfEach(t *testing.T) {
 	withDrives(t, `C:\`, `D:\`)
 	srv, _ := fullDiskServer(t)
 	code, out, body := listDirs(t, srv, drivesPath)
-	if code != http.StatusOK || out.Path != "" || len(out.Dirs) != 2 || out.Dirs[0].Name != "C:" || out.Dirs[1].Path != `D:\` {
+	if code != http.StatusOK || out.Path != "" || len(out.Dirs) != 2 {
 		t.Fatalf("drives: %d %s", code, body)
+	}
+	if out.Dirs[0].Name != "C:" || out.Dirs[1].Path != `D:\` {
+		t.Errorf("the drives, in order: %+v", out.Dirs)
 	}
 	if _, out, _ = listDirs(t, srv, "/"); out.Parent != drivesPath {
 		t.Errorf("above the top of a drive: %+v", out)
