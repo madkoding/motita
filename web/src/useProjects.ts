@@ -99,6 +99,21 @@ function useProjectRepos(
   // repoBusy is '+' while one is being added, or the name of the one being removed.
   const [repoBusy, setRepoBusy] = useState("");
   const [repoConflict, setRepoConflict] = useState<RepoConflict | null>(null);
+  // One operation on the repositories at a time: moving the main repository changes every path,
+  // and the end of the first of two must not enable the buttons while the second still runs.
+  const working = useRef(false);
+  const begin = (busy: string): boolean => {
+    if (working.current) {
+      return false;
+    }
+    working.current = true;
+    setRepoBusy(busy);
+    return true;
+  };
+  const end = () => {
+    working.current = false;
+    setRepoBusy("");
+  };
   const settle = (p: ProjectInfo) => {
     setEditProject((prev) => {
       if (prev?.id !== p.id) {
@@ -111,7 +126,9 @@ function useProjectRepos(
 
   const addProjectRepo = useCallback(
     async (repo: RepoDraft) => {
-      setRepoBusy("+");
+      if (!begin("+")) {
+        return false;
+      }
       try {
         const out = await addRepoTo(api, id, repo);
         if (!out.project) {
@@ -130,7 +147,7 @@ function useProjectRepos(
           type: "error",
         });
       } finally {
-        setRepoBusy("");
+        end();
       }
       return false;
     },
@@ -141,7 +158,9 @@ function useProjectRepos(
   // only the person's own answer sends it again with force.
   const removeProjectRepo = useCallback(
     async (name: string, force: boolean) => {
-      setRepoBusy(name);
+      if (!begin(name)) {
+        return;
+      }
       setRepoConflict(null);
       try {
         const res = await api(
@@ -171,7 +190,7 @@ function useProjectRepos(
           type: "error",
         });
       } finally {
-        setRepoBusy("");
+        end();
       }
     },
     [id],
@@ -180,7 +199,9 @@ function useProjectRepos(
   // detachProjectMain moves the main repository into a folder of its own; the project's folder
   // then only holds repositories. Nothing is deleted, so there is nothing to confirm after the ask.
   const detachProjectMain = useCallback(async () => {
-    setRepoBusy("*");
+    if (!begin("*")) {
+      return;
+    }
     try {
       const res = await api(PROJECTS_PATH + encodeURIComponent(id) + "/main", {
         method: "DELETE",
@@ -200,7 +221,7 @@ function useProjectRepos(
         type: "error",
       });
     } finally {
-      setRepoBusy("");
+      end();
     }
   }, [id]);
 
@@ -208,7 +229,9 @@ function useProjectRepos(
   // integrate into. A folder with work of its own is refused, with the gateway's reason.
   const syncProjectRepo = useCallback(
     async (name: string) => {
-      setRepoBusy(name);
+      if (!begin(name)) {
+        return;
+      }
       try {
         const res = await api(
           PROJECTS_PATH +
@@ -233,7 +256,7 @@ function useProjectRepos(
           type: "error",
         });
       } finally {
-        setRepoBusy("");
+        end();
       }
     },
     [id],
@@ -256,18 +279,27 @@ function useRepoCatalog(api: Api, open: boolean, version: unknown) {
   const [repoCatalog, setRepoCatalog] = useState<CatalogRepo[]>([]);
   useEffect(() => {
     if (!open) {
-      return;
+      // What was listed belongs to the dialog that closed: the next one reads it again.
+      setRepoCatalog([]);
+      return undefined;
     }
+    // An answer that arrives after the dialog closed, or after a newer read began, is not shown.
+    let live = true;
     api("/v1/repos")
       .then(async (res) => {
         if (res.ok) {
           const d: { repos?: CatalogRepo[] } = await res.json();
-          setRepoCatalog(d.repos ?? []);
+          if (live) {
+            setRepoCatalog(d.repos ?? []);
+          }
         }
       })
       .catch(() => {
         /* without the catalog, a repository is added by its URL */
       });
+    return () => {
+      live = false;
+    };
   }, [open, version]);
   return { repoCatalog };
 }

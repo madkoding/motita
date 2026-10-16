@@ -5,6 +5,7 @@ import { gpuAllowed } from "./gpuPolicy";
 import { type LocalCatalog, type LocalModel, type LoadState, deleteVoice, installVoice } from "./localVoice";
 import { isWhisper } from "./localListenCore";
 import { forGPU, listenStateOf, onListenState, warmListener } from "./localListen";
+import { workerError } from "./errors";
 import { KeptNote, megabytes, qualityLabel, useCatalog, useWebGPU } from "./LocalVoiceSettings";
 import type { VoicePrefs } from "./voice";
 import type { Api } from "./prApi";
@@ -139,7 +140,7 @@ export function LocalListening({
           {forGPU(chosen) && loading.gpuError && (
             <div class="text-xs text-[#7a7a8c]" data-testid="local-listener-gpu-note">
               {tf("WebGPU could not start here ({reason}): the model runs on the processor.", {
-                reason: loading.gpuError,
+                reason: workerError(loading.gpuError),
               })}
             </div>
           )}
@@ -178,7 +179,10 @@ export function LocalListening({
 function alertsOf(download: string | undefined, load: string | undefined, catalog: string) {
   return [
     { kind: "download", text: choose(download, tf("The download failed: {error}", { error: download ?? "" }), "") },
-    { kind: "load", text: choose(load, tf("The model could not be loaded: {error}", { error: load ?? "" }), "") },
+    {
+      kind: "load",
+      text: choose(load, tf("The model could not be loaded: {error}", { error: workerError(load ?? "") }), ""),
+    },
     { kind: "catalog", text: catalog },
   ];
 }

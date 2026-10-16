@@ -344,14 +344,23 @@ export function maxTokens(samples: number): number {
 }
 
 // windowsOf cuts a recording into the 30-second windows Whisper reads, one after the other; a
-// recording with nothing in it is still one window, so it is answered like any other.
+// recording with nothing in it is still one window, so it is answered like any other. What is left
+// after the last whole window, when it is under MIN_TAIL_SAMPLES (half a second: a breath, or the
+// end of a button press), is not a window of its own: it would cost a full pass of the encoder and
+// the decoder to hear nothing.
 export function windowsOf(samples: Float32Array): Float32Array[] {
   const out: Float32Array[] = [];
   for (let at = 0; at === 0 || at < samples.length; at += CHUNK_SAMPLES) {
-    out.push(samples.subarray(at, at + CHUNK_SAMPLES));
+    const part = samples.subarray(at, at + CHUNK_SAMPLES);
+    if (at > 0 && part.length < MIN_TAIL_SAMPLES) {
+      break;
+    }
+    out.push(part);
   }
   return out;
 }
+
+const MIN_TAIL_SAMPLES = WHISPER_RATE / 2;
 
 // lastLogits is the row of a [1, n, vocab] output for its last position.
 function lastLogits(t: TensorLike): Float32Array {
@@ -464,6 +473,8 @@ export class Listener {
       } catch (e) {
         gpuError = reasonOf(e);
       }
+    } else {
+      // A model that does not run on WebGPU has no runtime of it to fetch.
     }
     const gpu = ort !== null;
     ort ??= await this.deps.ort(await read(fileURL(RUNTIME_ID, ORT_WASM), choose(tried, 0, SHARES.runtime)));

@@ -126,6 +126,14 @@ test("where the machine cannot isolate the choice says it changes nothing", asyn
   await m.unmount();
 });
 
+test("where the machine says why it cannot, the choice shows its words", async () => {
+  const reason = "unprivileged user namespaces are refused";
+  const m = await mount(gateway({ ...SEC, network_enforced: false, network_reason: reason }).api);
+  assert.match(text(m.root), /cannot give a command a network of its own \(unprivileged user namespaces are refused\)/);
+  assert.doesNotMatch(text(m.root), /it needs Linux/);
+  await m.unmount();
+});
+
 test("where the profile would fix it the choice says which command to run", async () => {
   const hint = "to allow it, run once: sudo motita sandbox apparmor install";
   const m = await mount(gateway({ ...SEC, network_enforced: false, network_hint: hint }).api);

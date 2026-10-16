@@ -334,6 +334,29 @@ test("the repositories the workspace already has are offered, except the ones th
     null,
     "nothing left to offer",
   );
+  // The main repository is one the project has: neither its address nor its name is offered.
+  const main = { name: "web", source: "host:" };
+  await m.rerender(null, section({ ...props, main }));
+  assert.equal(
+    m.q("[data-testid=repo-catalog]"),
+    null,
+    "the main repository's address and name are taken",
+  );
+  await m.rerender(
+    null,
+    section({ ...props, main: { name: "web", source: "" } }),
+  );
+  assert.deepEqual(
+    m.qa("[data-testid=repo-catalog-pick]").map((b) => b.textContent),
+    ["+ odd"],
+    "a main repository with no address still holds its name",
+  );
+  await type(m.q("[data-testid=repo-add-url]"), "https://x.io/other/web.git");
+  await key(m.q("[data-testid=repo-add-url]"), "Enter");
+  assert.equal(
+    m.q("[data-testid=repo-add-problem]").textContent,
+    "The project already has a repository with that name.",
+  );
   await m.unmount();
 });
 

@@ -1072,13 +1072,14 @@ test("the workspace catalog is read when a dialog with repositories opens", asyn
   await flush();
   assert.deepEqual(s.p.repoCatalog, CATALOG);
 
-  // A refused answer keeps what the dialog had.
+  // Closing the dialog empties the list, and a refused answer leaves it empty.
   await run(() => s.p.closeNewProject());
+  assert.deepEqual(s.p.repoCatalog, []);
   answer = res(500, { error: "x" });
   await run(() => s.p.openNewProject());
   await flush();
   assert.equal(callsTo(s, "GET /v1/repos").length, 2);
-  assert.deepEqual(s.p.repoCatalog, CATALOG);
+  assert.deepEqual(s.p.repoCatalog, []);
 
   // An answer with no list is an empty catalog.
   await run(() => s.p.closeNewProject());
@@ -1086,6 +1087,30 @@ test("the workspace catalog is read when a dialog with repositories opens", asyn
   await run(() => s.p.openEditProject(PROJECT));
   await flush();
   assert.deepEqual(s.p.repoCatalog, []);
+  await s.m.unmount();
+});
+
+test("a catalog answer that arrives after the dialog closed is not shown", async () => {
+  const CATALOG = [
+    { name: "web", git_url: "u/web", dir: "/w/repos/web", projects: [] },
+  ];
+  let release;
+  const s = await setup({
+    "GET /v1/repos": () =>
+      new Promise((ok) => {
+        release = () => ok(res(200, { repos: CATALOG }));
+      }),
+  });
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.closeNewProject());
+  release();
+  await flush();
+  await flush();
+  assert.deepEqual(
+    s.p.repoCatalog,
+    [],
+    "the answer was for a dialog that is gone",
+  );
   await s.m.unmount();
 });
 
@@ -1144,5 +1169,39 @@ test("a picker for the other repositories does not outlive a connection that was
   await run(() => s.p.openRepoPicker());
   assert.equal(s.p.showRepoPicker, true);
   assert.equal(s.p.pickForOthers, false);
+  await s.m.unmount();
+});
+
+test("one operation on the repositories at a time: a second is ignored while the first runs", async () => {
+  let release;
+  const s = await setup({
+    "DELETE /v1/projects/p1/main": () =>
+      new Promise((ok) => {
+        release = () => ok(res(200, { ...PROJECT, git_url: "" }));
+      }),
+    "POST /v1/projects/p1/repos/api/sync": res(200, PROJECT),
+    "POST /v1/projects/p1/repos": res(201, PROJECT),
+    "DELETE /v1/projects/p1/repos/api": res(200, PROJECT),
+  });
+  await run(() => s.p.openEditProject(PROJECT));
+  await flush();
+  let first;
+  await act(async () => {
+    first = s.p.detachProjectMain();
+    await flush();
+  });
+  assert.equal(s.p.repoBusy, "*");
+  await run(() => s.p.syncProjectRepo("api"));
+  await run(() => s.p.removeProjectRepo("api", false));
+  assert.equal(await s.p.addProjectRepo({ name: "x", git_url: "u/x" }), false);
+  await run(() => s.p.detachProjectMain());
+  assert.equal(s.p.repoBusy, "*", "the ignored ones did not free the field");
+  assert.equal(callsTo(s, "POST").length, 0);
+  assert.equal(callsTo(s, "DELETE /v1/projects/p1/repos").length, 0);
+  await act(async () => {
+    release();
+    await first;
+  });
+  assert.equal(s.p.repoBusy, "");
   await s.m.unmount();
 });
