@@ -294,6 +294,8 @@ type Server struct {
 	// projects persists project definitions to disk. nil when no project
 	// directory was configured.
 	projects *projectStore
+	// repoLocks holds one mutex per project id: see lockProjectRepos.
+	repoLocks sync.Map
 	// schedules persists the tasks that fire on their own. nil when no directory was
 	// configured, which means scheduling is off.
 	schedules *schedule.Store

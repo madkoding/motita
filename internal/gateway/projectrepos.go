@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/madkoding/motita/internal/gitx"
 )
@@ -102,6 +103,7 @@ func sessionRepoPath(workspace string, p *Project, repo ProjectRepo) string {
 // (required) and name (optional: the URL's last element). The sessions the project already has
 // get a worktree of it at once, so the next turn can use it.
 func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
+	defer s.lockProjectRepos(r.PathValue("id"))()
 	p := s.projectOf(r.PathValue("id"))
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
@@ -144,11 +146,18 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	// The project's own repository must not see the folder as a change of its own. Advisory, as it
 	// is for a worktree: a folder that is not a repository has nothing to ignore it in.
 	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
-	p.Repos = append(p.Repos, repo)
-	if err := s.projects.save(*p); err != nil {
+	updated, err := s.projects.update(p.ID, func(cur *Project) { cur.Repos = append(cur.Repos, repo) })
+	if errors.Is(err, errProjectGone) {
+		// Deleted while the clone ran: the folder it went into is no longer anyone's.
+		s.discardRepoFolder(ctx, p, repo)
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	p = updated
 	for _, c := range s.sessionsOfProject(p.ID) {
 		s.attachProjectRepos(ctx, p, c.workspaceDir(), c.id)
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
@@ -228,6 +237,7 @@ func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest s
 // for the others, or its own clone). Uncommitted work in any of them stops it, unless the user
 // confirmed the discard with `?force=1` - the same rule a session's own checkout follows.
 func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request) {
+	defer s.lockProjectRepos(r.PathValue("id"))()
 	p := s.projectOf(r.PathValue("id"))
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
@@ -248,30 +258,74 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 					"commit them, or confirm the discard", repo.Name, dir))
 			return
 		}
+		if s.deletesClone(repo) && s.refuseUnpublished(w, ctx, repo.Dir) {
+			return
+		}
 	}
 	for _, path := range worktrees {
 		// Best effort: the clone goes below, and a registration left behind is pruned with it.
 		_ = worktreeRemove(ctx, repo.Dir, path, true)
 	}
-	p.Repos = slices.Delete(p.Repos, i, i+1)
-	if err := s.projects.save(*p); err != nil {
+	updated, err := s.projects.update(p.ID, func(cur *Project) {
+		cur.Repos = slices.DeleteFunc(cur.Repos, func(x ProjectRepo) bool { return x.Name == repo.Name })
+	})
+	if errors.Is(err, errProjectGone) {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if repo.Shared {
-		// Best effort, like the sessions' above. The branch goes only when it holds nothing that
-		// is not merged: what was committed there is work.
-		_ = worktreeRemove(ctx, repo.Dir, p.repoPath(repo), true)
-		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
-	} else if s.ownsProjectDir(repo.Dir) {
-		_ = os.RemoveAll(repo.Dir)
-	} else {
-		// A clone registered from outside the workspace is the user's: it stays where it is.
-	}
+	p = updated
+	s.discardRepoFolder(ctx, p, repo)
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// deletesClone reports whether taking repo out of its project deletes a clone: its own, in the
+// workspace. A shared repository stays in the catalog, and one registered from outside the
+// workspace is the user's and stays where it is.
+func (s *Server) deletesClone(repo ProjectRepo) bool {
+	return !repo.Shared && s.ownsProjectDir(repo.Dir)
+}
+
+// discardRepoFolder is what a repository leaves behind when it goes: the project's worktree of a
+// shared one (its branch only when nothing on it is unmerged: what was committed there is work), or
+// the project's own clone.
+func (s *Server) discardRepoFolder(ctx context.Context, p *Project, repo ProjectRepo) {
+	if repo.Shared {
+		// Best effort, like the sessions' worktrees.
+		_ = worktreeRemove(ctx, repo.Dir, p.repoPath(repo), true)
+		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
+	} else if s.deletesClone(repo) {
+		_ = os.RemoveAll(repo.Dir)
+	}
+}
+
+// refuseUnpublished answers 409, and returns true, when dir holds commits no remote has: the
+// working tree being clean says nothing about them, and deleting the clone loses them. The user
+// confirms the discard with `?force=1`, as for uncommitted work.
+func (s *Server) refuseUnpublished(w http.ResponseWriter, ctx context.Context, dir string) bool {
+	n, err := gitx.UnpublishedCommits(ctx, dir)
+	if err == nil && n == 0 {
+		return false
+	}
+	writeError(w, http.StatusConflict, fmt.Sprintf("the repository has commits that exist nowhere else "+
+		"(or they could not be counted): push them, or confirm the discard (%s)", dir))
+	return true
+}
+
+// lockProjectRepos serialises the repository operations of one project and returns the unlock. A
+// clone takes minutes: two adds to the same project would each decide from the project as it was
+// before the other, and the second to finish would leave the first one's folder orphaned.
+func (s *Server) lockProjectRepos(id string) func() {
+	m, _ := s.repoLocks.LoadOrStore(id, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // releaseSharedRepos is what a deleted project leaves in the catalog: its folder is gone, so the
@@ -382,6 +436,9 @@ func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 	if _, dirty := firstDirtyDir(r.Context(), []string{dir}); dirty && !isForced(r) {
 		writeError(w, http.StatusConflict, "the repository has uncommitted changes (or they could not be read): "+
 			"commit them, or confirm the discard")
+		return
+	}
+	if !isForced(r) && s.refuseUnpublished(w, r.Context(), dir) {
 		return
 	}
 	if err := removeAll(dir); err != nil {
@@ -638,6 +695,7 @@ func (p *Project) freeRepoFolder(name string) string {
 // repository: that copy belongs to the repository that is moving, so the session has to be merged
 // or deleted first.
 func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request) {
+	defer s.lockProjectRepos(r.PathValue("id"))()
 	p := s.projectOf(r.PathValue("id"))
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
@@ -665,14 +723,21 @@ func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	moved := ProjectRepo{Name: name, GitURL: p.GitURL, Dir: filepath.Join(p.Dir, name), MainBranch: mainBranch}
-	p.Repos = append([]ProjectRepo{moved}, p.Repos...)
-	p.GitURL = ""
-	p.MainBranch = mainBranch
 	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
-	if err := s.projects.save(*p); err != nil {
+	updated, err := s.projects.update(p.ID, func(cur *Project) {
+		cur.Repos = append([]ProjectRepo{moved}, cur.Repos...)
+		cur.GitURL = ""
+		cur.MainBranch = mainBranch
+	})
+	if errors.Is(err, errProjectGone) {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	p = updated
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}

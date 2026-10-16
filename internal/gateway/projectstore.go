@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -107,11 +108,48 @@ func (ps *projectStore) file(id string) (string, error) {
 	return filepath.Join(ps.dir, id+".json"), nil
 }
 
+// errProjectGone is update's answer for a project that was deleted while the caller worked.
+var errProjectGone = errors.New("the project no longer exists")
+
 // save writes one project to disk.
 func (ps *projectStore) save(p Project) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	return ps.saveLocked(p)
+}
 
+// update loads the project, applies change to that fresh copy and saves it, all under the store's
+// lock. A handler that works for minutes (a clone) holds a copy that was current when it started;
+// saving that copy whole would undo an edit made meanwhile, or bring back a project deleted
+// meanwhile. update touches only what change touches, and answers errProjectGone for a project
+// that is no longer there.
+func (ps *projectStore) update(id string, change func(*Project)) (*Project, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	file, err := ps.file(id)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		return nil, errProjectGone
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not read the project %q: %w", id, err)
+	}
+	var p Project
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, fmt.Errorf("could not parse the project %q: %w", id, err)
+	}
+	change(&p)
+	if err := ps.saveLocked(p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// saveLocked is save for a caller that holds ps.mu.
+func (ps *projectStore) saveLocked(p Project) error {
 	file, err := ps.file(p.ID)
 	if err != nil {
 		return err
