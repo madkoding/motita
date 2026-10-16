@@ -164,6 +164,15 @@ const more: Record<string, string> = {
     "Elige el modelo con el que empiezan las sesiones nuevas y, si quieres, un modelo para cada tipo de trabajo.",
   "Model per kind of work": "Modelo por tipo de trabajo",
   "Same as default": "Igual que el por defecto",
+  Basic: "Básico",
+  Mid: "Medio",
+  Frontier: "Frontera",
+  "Cost: {cost}": "Costo: {cost}",
+  "Capability: {tier}": "Capacidad: {tier}",
+  "{price} per million tokens, in / out (approximate)":
+    "{price} por millón de tokens, entrada / salida (aproximado)",
+  "$ cheap, $$ moderate, $$$ expensive, local runs free on your machine. Capability (basic, mid, frontier) guides what to put in cheap and in strong. Prices are approximate and come from the catalogue, not from your bill.":
+    "$ barato, $$ medio, $$$ caro, local corre gratis en tu máquina. La capacidad (básico, medio, frontera) orienta qué poner en barato y en fuerte. Los precios son aproximados y vienen del catálogo, no de tu factura.",
   "Model for {kind}": "Modelo para {kind}",
   "Other…": "Otro…",
   "Model name, as the provider writes it":

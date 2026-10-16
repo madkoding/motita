@@ -30,6 +30,12 @@ type llmModelView struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Note  string `json:"note,omitempty"`
+	// Tier, Cost and the prices (USD per million tokens, approximate) are the catalogue's, so the
+	// page can compare models; absent when unknown.
+	Tier     string  `json:"tier,omitempty"`
+	Cost     string  `json:"cost,omitempty"`
+	PriceIn  float64 `json:"price_in,omitempty"`
+	PriceOut float64 `json:"price_out,omitempty"`
 }
 
 // llmProviderView is one provider as the settings draw it.
@@ -203,7 +209,8 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		pv.KeyHint = keyHint(effectiveKey(cfg, p.ID))
 	}
 	for _, m := range p.Models {
-		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note})
+		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note,
+			Tier: m.Tier, Cost: m.Cost, PriceIn: m.PriceIn, PriceOut: m.PriceOut})
 	}
 	return pv
 }

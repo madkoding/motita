@@ -19,6 +19,13 @@ export interface LLMModel {
   id: string;
   label: string;
   note?: string;
+  // How capable it is (basic, mid, frontier), what it costs relative to the others (local, low,
+  // mid, high) and its approximate USD price per million input and output tokens. All optional:
+  // a model the catalogue does not know carries none, and none is ever guessed.
+  tier?: string;
+  cost?: string;
+  price_in?: number;
+  price_out?: number;
 }
 
 export interface LLMProvider {
@@ -256,18 +263,65 @@ export function trialOf(
   return out;
 }
 
+export interface ModelOption {
+  id: string;
+  label: string;
+  tier?: string;
+  cost?: string;
+  price_in?: number;
+  price_out?: number;
+}
+
 // modelOptions are the models a provider offers, by name where its catalogue gives one: the ones
-// its last test listed, else its catalogue.
-export function modelOptions(
-  p: LLMProvider | undefined,
-): { id: string; label: string }[] {
+// its last test listed, else its catalogue. The catalogue's tier, cost and prices ride along.
+export function modelOptions(p: LLMProvider | undefined): ModelOption[] {
   if (!p) {
     return [];
   }
-  const label = (id: string) => p.models.find((m) => m.id === id)?.label || id;
+  const known = (id: string) => p.models.find((m) => m.id === id);
   let ids = p.models.map((m) => m.id);
   if (p.listed_models?.length) {
     ids = p.listed_models;
   }
-  return ids.map((id) => ({ id, label: label(id) }));
+  return ids.map((id) => {
+    const m = known(id);
+    const facts: Partial<ModelOption> = {};
+    for (const k of ["tier", "cost", "price_in", "price_out"] as const) {
+      if (m?.[k] !== undefined) {
+        Object.assign(facts, { [k]: m[k] });
+      }
+    }
+    return { id, label: m?.label || id, ...facts };
+  });
+}
+
+const COST_MARK: Record<string, string> = {
+  local: "local",
+  low: "$",
+  mid: "$$",
+  high: "$$$",
+};
+const TIER_NAME: Record<string, string> = {
+  basic: "Basic",
+  mid: "Mid",
+  frontier: "Frontier",
+};
+
+// costMark is the short badge for a cost ("$", "$$", "$$$", "local"), or "" when unknown.
+export function costMark(cost: string | undefined): string {
+  return COST_MARK[cost || ""] || "";
+}
+
+// tierName is the English name of a capability tier (the page translates it), or "".
+export function tierName(tier: string | undefined): string {
+  return TIER_NAME[tier || ""] || "";
+}
+
+// priceText is "$1.25 in / $10 out" per million tokens, or "" without a per-token price.
+export function priceText(o: ModelOption): string {
+  if (!o.price_in || !o.price_out) {
+    return "";
+  }
+  const n = (v: number) => `$${Number(v.toFixed(2))}`;
+  return `${n(o.price_in)} / ${n(o.price_out)}`;
 }

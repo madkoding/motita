@@ -120,6 +120,34 @@ test("ModelPicker: a listed model is picked; Other… opens a field; an unlisted
   await n.unmount();
 });
 
+test("ModelPicker: options and the line under it show cost, capability and approximate price", async () => {
+  const rich = {
+    ...base, id: "rich", name: "Rich", key: "stored",
+    models: [
+      { id: "big", label: "Big", tier: "frontier", cost: "high", price_in: 4, price_out: 20.5 },
+      { id: "small", label: "Small", tier: "basic", cost: "local" },
+      { id: "odd", label: "Odd", tier: "weird", cost: "weird" },
+      { id: "plain", label: "Plain" },
+    ],
+  };
+  let value = "big";
+  const props = () => ({ id: "r", provider: rich, value, disabled: false, onChange: (v) => (value = v) });
+  const m = await mount(h(ModelPicker, props()));
+  const sel = m.root.querySelector("select#r");
+  assert.deepEqual([...sel.options].map((o) => o.textContent), ["Big · $$$ · Frontier", "Small · local · Basic", "Odd", "Plain", "Other…"]);
+  assert.equal(text(m.root.querySelector("[data-testid=model-facts]")), "Cost: $$$ · Capability: Frontier · $4 / $20.5 per million tokens, in / out (approximate)");
+  await select(sel, "small");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(text(m.root.querySelector("[data-testid=model-facts]")), "Cost: local · Capability: Basic");
+  await select(sel, "plain");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(m.root.querySelector("[data-testid=model-facts]"), null);
+  await select(sel, "odd");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(m.root.querySelector("[data-testid=model-facts]"), null);
+  await m.unmount();
+});
+
 // ── ModelSettings ───────────────────────────────────────────────────────────
 
 test("the tab loads, and a refused load says why", async () => {
