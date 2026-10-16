@@ -255,6 +255,7 @@ func TestOriginWithoutThePortBehindAProxy(t *testing.T) {
 		{"rebinding name", "127.0.0.1:8787", "http://evil.example", nil, true},
 		{"rebinding name behind a proxy", "127.0.0.1:8787", "http://evil.example", fwd, true},
 		{"other scheme", "127.0.0.1:80", "https://127.0.0.1", nil, true},
+		{"opaque origin", "127.0.0.1:8787", "null", nil, true},
 	} {
 		msg := post(c.host, c.origin, c.hdr)
 		if (msg != "") != c.refused {
