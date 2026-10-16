@@ -4,7 +4,12 @@
 // is asked of them.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, settle as settleWith, json } from "./cov-voice-helpers.mjs";
+import {
+  setupDom,
+  source,
+  settle as settleWith,
+  json,
+} from "./cov-voice-helpers.mjs";
 
 const dom = setupDom("https://localhost/");
 const { NotifySetting, unblockSteps } = await source("NotifySettings.tsx");
@@ -40,7 +45,9 @@ async function mount(vnode) {
 }
 const change = async (input, checked) => {
   input.checked = checked;
-  await act(() => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+  await act(() =>
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true })),
+  );
   await settle();
 };
 const click = async (el) => {
@@ -49,12 +56,21 @@ const click = async (el) => {
 };
 
 // The browser's notifications: the permission now, and what asking answers.
-const perm = { permission: "default", answer: "granted", asked: 0, throws: false, noPromise: false };
+const perm = {
+  permission: "default",
+  answer: "granted",
+  asked: 0,
+  throws: false,
+  noPromise: false,
+};
 function installNotification() {
   globalThis.Notification = function (title, o) {
     perm.made = [title, o];
   };
-  Object.defineProperty(globalThis.Notification, "permission", { get: () => perm.permission, configurable: true });
+  Object.defineProperty(globalThis.Notification, "permission", {
+    get: () => perm.permission,
+    configurable: true,
+  });
   globalThis.Notification.requestPermission = () => {
     perm.asked++;
     if (perm.throws) {
@@ -70,17 +86,27 @@ function installNotification() {
 installNotification();
 // A user agent per platform.
 const UA = {
-  chrome: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+  chrome:
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
   ios: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-  android: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
-  firefox: "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
-  safari: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+  android:
+    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
+  firefox:
+    "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
+  safari:
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
   edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 Edg/126.0",
   other: "SomeBrowser/1.0",
 };
 const useUA = (ua, touch = 0) => {
-  Object.defineProperty(navigator, "userAgent", { value: ua, configurable: true });
-  Object.defineProperty(navigator, "maxTouchPoints", { value: touch, configurable: true });
+  Object.defineProperty(navigator, "userAgent", {
+    value: ua,
+    configurable: true,
+  });
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    value: touch,
+    configurable: true,
+  });
 };
 useUA(UA.chrome);
 window.isSecureContext = true;
@@ -93,13 +119,27 @@ beforeEach(() => {
 });
 
 test("the insecure pill: the reason folded under Why?, or the one a setting gives", async () => {
-  const m = await mount(h(InsecureWarning, { text: "Blocked here.", guide: "https://guide" }));
-  assert.equal(m.q("[data-testid=insecure-warning]").getAttribute("role"), "note");
+  const m = await mount(
+    h(InsecureWarning, { text: "Blocked here.", guide: "https://guide" }),
+  );
+  assert.equal(
+    m.q("[data-testid=insecure-warning]").getAttribute("role"),
+    "note",
+  );
   assert.match(text(m.root), /Connection not secure/);
   assert.match(text(m.q("details")), /secure address/);
   assert.equal(m.q("a").getAttribute("href"), "https://guide");
-  await m.set(h(InsecureWarning, { text: "x", guide: "g", why: "Your key would travel in the clear." }));
-  assert.match(text(m.q("details")), /^Why\? ?Your key would travel in the clear\. How to set it up$/);
+  await m.set(
+    h(InsecureWarning, {
+      text: "x",
+      guide: "g",
+      why: "Your key would travel in the clear.",
+    }),
+  );
+  assert.match(
+    text(m.q("details")),
+    /^Why\? ?Your key would travel in the clear\. How to set it up$/,
+  );
   await m.done();
 });
 
@@ -126,7 +166,10 @@ test("the browser's side: installed or not, the permission, a secure page, the p
   window.matchMedia = () => ({ matches: true });
   assert.equal(nb.isInstalled(), true);
   window.matchMedia = () => ({ matches: false });
-  Object.defineProperty(navigator, "standalone", { value: true, configurable: true });
+  Object.defineProperty(navigator, "standalone", {
+    value: true,
+    configurable: true,
+  });
   assert.equal(nb.isInstalled(), true, "Safari's own flag");
   delete navigator.standalone;
   assert.equal(nb.isInstalled(), false);
@@ -155,7 +198,10 @@ test("the browser's side: installed or not, the permission, a secure page, the p
 
   useUA(UA.ios, 5);
   assert.equal(nb.currentPlatform(), "ios");
-  Object.defineProperty(navigator, "maxTouchPoints", { value: undefined, configurable: true });
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    value: undefined,
+    configurable: true,
+  });
   useUA(UA.chrome);
   assert.equal(nb.currentPlatform(), "chrome");
   assert.match(nb.NOTIFY_GUIDE, /^https:\/\/github\.com\//);
@@ -178,7 +224,11 @@ test("desktop notifications: asked, allowed, switched, tested, and the CI toast'
   perm.answer = "granted";
   const shown = [];
   Object.defineProperty(navigator, "serviceWorker", {
-    value: { getRegistration: async () => ({ showNotification: async (t, o) => shown.push([t, o.tag]) }) },
+    value: {
+      getRegistration: async () => ({
+        showNotification: async (t, o) => shown.push([t, o.tag]),
+      }),
+    },
     configurable: true,
   });
   const m = await mount(h(NotifySetting, {}));
@@ -189,7 +239,9 @@ test("desktop notifications: asked, allowed, switched, tested, and the CI toast'
   const sw = () => card().querySelector("input[role=switch]");
   assert.equal(sw().checked, true, "allowing turns the switch on");
   assert.match(text(card()), /Only while this tab is in the background\./);
-  await click([...card().querySelectorAll("button")].find((b) => text(b) === "Send"));
+  await click(
+    [...card().querySelectorAll("button")].find((b) => text(b) === "Send"),
+  );
   assert.deepEqual(shown, [["Motita notifications work", "motita-test"]]);
   assert.match(text(card()), /check the system's do-not-disturb/);
   await change(sw(), false);
@@ -202,8 +254,13 @@ test("desktop notifications: asked, allowed, switched, tested, and the CI toast'
   globalThis.Notification = function () {
     throw new TypeError("Illegal constructor");
   };
-  Object.defineProperty(globalThis.Notification, "permission", { get: () => perm.permission, configurable: true });
-  await click([...card().querySelectorAll("button")].find((b) => text(b) === "Send"));
+  Object.defineProperty(globalThis.Notification, "permission", {
+    get: () => perm.permission,
+    configurable: true,
+  });
+  await click(
+    [...card().querySelectorAll("button")].find((b) => text(b) === "Send"),
+  );
   assert.match(text(card()), /The browser did not show it\./);
   installNotification();
 
@@ -223,7 +280,10 @@ test("desktop notifications: refused, ignored, or a browser that answers no prom
   const m = await mount(h(NotifySetting, {}));
   const card = () => m.q("[data-testid=notifications-setting]");
   await click(card().querySelector("button"));
-  assert.match(text(card()), /The browser did not ask\. To allow them by hand:/);
+  assert.match(
+    text(card()),
+    /The browser did not ask\. To allow them by hand:/,
+  );
   assert.match(text(m.q("[data-testid=notify-steps]")), /clear the block/);
   await m.done();
 
@@ -231,7 +291,10 @@ test("desktop notifications: refused, ignored, or a browser that answers no prom
   perm.throws = true;
   const t = await mount(h(NotifySetting, {}));
   await click(t.q("[data-testid=notifications-setting] button"));
-  assert.ok(t.q("[data-testid=notify-steps]"), "a request that threw counts as asked");
+  assert.ok(
+    t.q("[data-testid=notify-steps]"),
+    "a request that threw counts as asked",
+  );
   perm.throws = false;
   await t.done();
 
@@ -239,7 +302,11 @@ test("desktop notifications: refused, ignored, or a browser that answers no prom
   perm.noPromise = true;
   const n = await mount(h(NotifySetting, {}));
   await click(n.q("[data-testid=notifications-setting] button"));
-  assert.equal(n.q("[data-testid=notify-steps]"), null, "Safari before 15 answers through focus");
+  assert.equal(
+    n.q("[data-testid=notify-steps]"),
+    null,
+    "Safari before 15 answers through focus",
+  );
   perm.noPromise = false;
   await n.done();
 
@@ -271,8 +338,13 @@ test("desktop notifications: an iPhone outside the app, a browser without them, 
   globalThis.Notification = N;
   window.isSecureContext = false;
   m = await mount(h(NotifySetting, {}));
-  assert.ok(m.q("[data-testid=notifications-setting] [data-testid=insecure-warning]"));
-  assert.equal(m.q("[data-testid=notifications-setting] input[role=switch]"), null);
+  assert.ok(
+    m.q("[data-testid=notifications-setting] [data-testid=insecure-warning]"),
+  );
+  assert.equal(
+    m.q("[data-testid=notifications-setting] input[role=switch]"),
+    null,
+  );
   await m.done();
   window.isSecureContext = true;
 });
@@ -305,7 +377,9 @@ test("the permission is read again on focus, on coming back, and when the browse
   await act(() => window.dispatchEvent(new dom.window.Event("focus")));
   assert.equal(button(), "Check again");
   perm.permission = "default";
-  await act(() => document.dispatchEvent(new dom.window.Event("visibilitychange")));
+  await act(() =>
+    document.dispatchEvent(new dom.window.Event("visibilitychange")),
+  );
   assert.equal(button(), "Allow notifications");
   perm.permission = "denied";
   await act(() => [...status.listeners][0]());
@@ -322,7 +396,13 @@ test("the permission is read again on focus, on coming back, and when the browse
 });
 
 // PUSH: a service worker with a push manager, and the gateway's answers.
-const push = { sub: null, subscribed: [], unsubscribed: 0, regFails: false, noReg: false };
+const push = {
+  sub: null,
+  subscribed: [],
+  unsubscribed: 0,
+  regFails: false,
+  noReg: false,
+};
 function subscription(endpoint) {
   return {
     endpoint,
@@ -348,23 +428,30 @@ const pushManager = {
   },
 };
 const pushWorker = {
-    async getRegistration() {
-      if (push.regFails) {
-        throw new Error("no worker");
-      }
-      return push.noReg ? undefined : { pushManager };
-    },
-    ready: Promise.resolve({ pushManager }),
+  async getRegistration() {
+    if (push.regFails) {
+      throw new Error("no worker");
+    }
+    return push.noReg ? undefined : { pushManager };
+  },
+  ready: Promise.resolve({ pushManager }),
 };
 // Each phone test starts from this worker (the desktop ones put their own).
 const usePushWorker = () =>
-  Object.defineProperty(navigator, "serviceWorker", { value: pushWorker, configurable: true });
+  Object.defineProperty(navigator, "serviceWorker", {
+    value: pushWorker,
+    configurable: true,
+  });
 window.PushManager = function () {};
 
 function gateway(view, overrides = {}) {
   const calls = [];
   const api = async (path, init) => {
-    calls.push([init?.method ?? "GET", path, init?.body ? JSON.parse(init.body) : undefined]);
+    calls.push([
+      init?.method ?? "GET",
+      path,
+      init?.body ? JSON.parse(init.body) : undefined,
+    ]);
     const key = (init?.method ?? "GET") + " " + path.split("?")[0];
     if (overrides[key]) {
       return overrides[key]();
@@ -386,32 +473,44 @@ test("phone notifications: turned on and off, and tested through the gateway", a
   perm.answer = "granted";
   push.sub = null;
   let known = false;
-  const g = gateway(() => ({ available: true, public_key: "AQID", subscribed: known }), {
-    "POST /v1/push/subscriptions": () => {
-      known = true;
-      return new Response(null, { status: 204 });
+  const g = gateway(
+    () => ({ available: true, public_key: "AQID", subscribed: known }),
+    {
+      "POST /v1/push/subscriptions": () => {
+        known = true;
+        return new Response(null, { status: 204 });
+      },
+      "DELETE /v1/push/subscriptions": () => {
+        known = false;
+        return new Response(null, { status: 204 });
+      },
+      "POST /v1/push/test": () => json({ error: "push service said 410" }, 502),
     },
-    "DELETE /v1/push/subscriptions": () => {
-      known = false;
-      return new Response(null, { status: 204 });
-    },
-    "POST /v1/push/test": () => json({ error: "push service said 410" }, 502),
-  });
+  );
   // NotifySetting with push draws the phone row under the desktop one.
   const m = await mount(h(NotifySetting, { push: { api: g.api } }));
   assert.match(text(pushCard(m)), /Even with Motita closed/);
   assert.equal(pushSwitch(m).checked, false);
   await change(pushSwitch(m), true);
-  assert.deepEqual(Array.from(push.subscribed[0].applicationServerKey), [1, 2, 3]);
+  assert.deepEqual(
+    Array.from(push.subscribed[0].applicationServerKey),
+    [1, 2, 3],
+  );
   assert.equal(push.subscribed[0].userVisibleOnly, true);
-  const saved = g.calls.find((c) => c[0] === "POST" && c[1] === "/v1/push/subscriptions");
+  const saved = g.calls.find(
+    (c) => c[0] === "POST" && c[1] === "/v1/push/subscriptions",
+  );
   assert.equal(saved[2].endpoint, "https://push/new");
   assert.equal(saved[2].lang, "en");
   assert.equal(localStorage.getItem(PUSH_KEY), "on");
   assert.equal(pushSwitch(m).checked, true);
-  assert.equal(g.calls.at(-1)[1], "/v1/push?endpoint=" + encodeURIComponent("https://push/new"));
+  assert.equal(
+    g.calls.at(-1)[1],
+    "/v1/push?endpoint=" + encodeURIComponent("https://push/new"),
+  );
 
-  const send = () => [...pushCard(m).querySelectorAll("button")].find((b) => text(b) === "Send");
+  const send = () =>
+    [...pushCard(m).querySelectorAll("button")].find((b) => text(b) === "Send");
   await click(send());
   assert.match(text(pushCard(m)), /push service said 410/);
 
@@ -430,15 +529,19 @@ test("phone notifications: a test that goes, a subscription the browser kept, on
   push.sub = subscription("https://push/kept");
   localStorage.setItem(PUSH_KEY, "on");
   let known = false;
-  const g = gateway(() => ({ available: true, public_key: "AQID", subscribed: known }), {
-    "POST /v1/push/subscriptions": () => {
-      known = true;
-      return new Response(null, { status: 204 });
+  const g = gateway(
+    () => ({ available: true, public_key: "AQID", subscribed: known }),
+    {
+      "POST /v1/push/subscriptions": () => {
+        known = true;
+        return new Response(null, { status: 204 });
+      },
     },
-  });
+  );
   const m = await mount(h(PushSetting, { api: g.api }));
   assert.equal(pushSwitch(m).checked, true, "handed over again, it stays on");
-  const send = () => [...pushCard(m).querySelectorAll("button")].find((b) => text(b) === "Send");
+  const send = () =>
+    [...pushCard(m).querySelectorAll("button")].find((b) => text(b) === "Send");
   await act(() => send().click());
   assert.match(text(pushCard(m)), /Sending…/);
   await settle();
@@ -450,9 +553,17 @@ test("phone notifications: a test that goes, a subscription the browser kept, on
   push.subscribed = [];
   known = false;
   const again = await mount(h(PushSetting, { api: g.api }));
-  assert.equal(pushSwitch(again).checked, false, "the gateway does not know it and it was not on");
+  assert.equal(
+    pushSwitch(again).checked,
+    false,
+    "the gateway does not know it and it was not on",
+  );
   await change(pushSwitch(again), true);
-  assert.deepEqual(push.subscribed, [], "the browser's own subscription is handed over");
+  assert.deepEqual(
+    push.subscribed,
+    [],
+    "the browser's own subscription is handed over",
+  );
   assert.equal(pushSwitch(again).checked, true);
   await again.done();
 });
@@ -463,14 +574,22 @@ test("phone notifications: turning off survives a gateway and a browser that can
   perm.permission = "granted";
   push.sub = subscription("https://push/x");
   push.unsubscribeFails = true;
-  const g = gateway(() => ({ available: true, public_key: "AQID", subscribed: true }), {
-    "DELETE /v1/push/subscriptions": () => new Response("<html>", { status: 500 }),
-  });
+  const g = gateway(
+    () => ({ available: true, public_key: "AQID", subscribed: true }),
+    {
+      "DELETE /v1/push/subscriptions": () =>
+        new Response("<html>", { status: 500 }),
+    },
+  );
   const m = await mount(h(PushSetting, { api: g.api }));
   assert.equal(pushSwitch(m).checked, true);
   await change(pushSwitch(m), false);
   assert.equal(localStorage.getItem(PUSH_KEY), null);
-  assert.equal(pushCard(m).querySelector("[role=alert]"), null, "no error to show");
+  assert.equal(
+    pushCard(m).querySelector("[role=alert]"),
+    null,
+    "no error to show",
+  );
   push.unsubscribeFails = false;
   push.sub = null;
   await m.done();
@@ -488,8 +607,15 @@ test("phone notifications: refused permission, a failed hand-over, and what bloc
   });
   let m = await mount(h(PushSetting, { api: g.api }));
   await change(pushSwitch(m), true);
-  assert.equal(text(pushCard(m).querySelector("[role=alert]")), "The browser did not allow notifications.");
-  assert.match(text(pushCard(m)), /blocked for this site/, "denied now: the switch gives way to the hint");
+  assert.equal(
+    text(pushCard(m).querySelector("[role=alert]")),
+    "The browser did not allow notifications.",
+  );
+  assert.match(
+    text(pushCard(m)),
+    /blocked for this site/,
+    "denied now: the switch gives way to the hint",
+  );
   await m.done();
 
   // A request that throws, on a browser that already allowed them: it goes ahead.
@@ -502,11 +628,17 @@ test("phone notifications: refused permission, a failed hand-over, and what bloc
   await m.done();
 
   // The gateway cannot push, or does not answer.
-  m = await mount(h(PushSetting, { api: gateway(() => ({ available: false, subscribed: false })).api }));
+  m = await mount(
+    h(PushSetting, {
+      api: gateway(() => ({ available: false, subscribed: false })).api,
+    }),
+  );
   assert.match(text(pushCard(m)), /This gateway cannot send them/);
   assert.equal(pushSwitch(m), null);
   await m.done();
-  m = await mount(h(PushSetting, { api: async () => Promise.reject(new Error("offline")) }));
+  m = await mount(
+    h(PushSetting, { api: async () => Promise.reject(new Error("offline")) }),
+  );
   assert.match(text(pushCard(m)), /This gateway cannot send them/);
   await m.done();
 
@@ -547,11 +679,17 @@ test("phone notifications: a kept subscription the gateway will not take back, a
   localStorage.setItem(PUSH_KEY, "on");
   perm.permission = "granted";
   push.sub = subscription("https://push/kept");
-  const g = gateway(() => ({ available: true, public_key: "AQID", subscribed: false }), {
-    "POST /v1/push/subscriptions": () => json({ error: "disk full" }, 507),
-  });
+  const g = gateway(
+    () => ({ available: true, public_key: "AQID", subscribed: false }),
+    {
+      "POST /v1/push/subscriptions": () => json({ error: "disk full" }, 507),
+    },
+  );
   let m = await mount(h(PushSetting, { api: g.api }));
-  assert.ok(g.calls.some((c) => c[0] === "POST"), "it tried to hand it over");
+  assert.ok(
+    g.calls.some((c) => c[0] === "POST"),
+    "it tried to hand it over",
+  );
   assert.equal(pushSwitch(m).checked, false, "shown as off");
   await m.done();
 
@@ -560,7 +698,11 @@ test("phone notifications: a kept subscription the gateway will not take back, a
   perm.answer = "granted";
   push.sub = null;
   push.subscribed = [];
-  m = await mount(h(PushSetting, { api: gateway(() => ({ available: true, subscribed: false })).api }));
+  m = await mount(
+    h(PushSetting, {
+      api: gateway(() => ({ available: true, subscribed: false })).api,
+    }),
+  );
   await change(pushSwitch(m), true);
   assert.equal(push.subscribed[0].applicationServerKey.length, 0);
   push.sub = null;

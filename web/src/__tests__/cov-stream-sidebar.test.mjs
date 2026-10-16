@@ -7,7 +7,11 @@ import { installDom, source, text } from "./cov-stream-helpers.mjs";
 
 installDom();
 let phone = false;
-window.matchMedia = () => ({ matches: phone, addEventListener() {}, removeEventListener() {} });
+window.matchMedia = () => ({
+  matches: phone,
+  addEventListener() {},
+  removeEventListener() {},
+});
 const { AppCtx } = await source("appStore.ts");
 const { SessionRow, RowMenu, DeleteItem } = await source("SessionRow.tsx");
 const { Sidebar } = await source("Sidebar.tsx");
@@ -52,7 +56,8 @@ function store(over = {}) {
       rowMenuClosing: false,
       rowMenuPos: null,
       setContextMenu: rec("setContextMenu"),
-      toggleRowMenu: (el, item) => calls.push(["toggleRowMenu", el.tagName, item]),
+      toggleRowMenu: (el, item) =>
+        calls.push(["toggleRowMenu", el.tagName, item]),
       closeRowMenu: rec("closeRowMenu"),
     },
     deletion: { setConfirmDelete: rec("setConfirmDelete") },
@@ -65,7 +70,8 @@ function store(over = {}) {
     openSettings: on("openSettings"),
   };
   for (const [k, v] of Object.entries(over)) {
-    s[k] = typeof v === "object" && v && !Array.isArray(v) ? { ...s[k], ...v } : v;
+    s[k] =
+      typeof v === "object" && v && !Array.isArray(v) ? { ...s[k], ...v } : v;
   }
   return s;
 }
@@ -76,7 +82,8 @@ async function mount(node, value) {
   await act(() => render(h(AppCtx.Provider, { value }, node), root));
   return {
     root,
-    rerender: (v) => act(() => render(h(AppCtx.Provider, { value: v }, node), root)),
+    rerender: (v) =>
+      act(() => render(h(AppCtx.Provider, { value: v }, node), root)),
     done: async () => {
       await act(() => render(null, root));
       root.remove();
@@ -84,7 +91,8 @@ async function mount(node, value) {
   };
 }
 const row = (s, value) => mount(h(SessionRow, { s }), value);
-const click = (el) => act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+const click = (el) =>
+  act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 const byTitle = (root, title) => root.querySelector(`[title="${title}"]`);
 const buttonNamed = (root, name) =>
   [...root.querySelectorAll("button")].find((b) => text(b) === name);
@@ -110,7 +118,10 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   assert.match(root.querySelector(".session-spinner").className, /is-running/);
   assert.equal(text(root.querySelector(".truncate")), "Fix the build");
   assert.match(root.querySelector(".truncate").className, /text-accent/);
-  assert.equal(text(root.querySelector(".session-when")), "06/05/2024 :: 07:08:09⧉ 2");
+  assert.equal(
+    text(root.querySelector(".session-when")),
+    "06/05/2024 :: 07:08:09⧉ 2",
+  );
   const facts = (r) =>
     [...r.querySelectorAll(".session-facts > span")].map((f) =>
       [...f.children].map(text).join(" "),
@@ -123,7 +134,10 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   ]);
   const hit = root.querySelector(".row-hit");
   assert.equal(hit.getAttribute("aria-label"), "Fix the build");
-  assert.match(hit.getAttribute("title"), /^Last used .*\n2 background agents running\nBranch: motita\/s1abcdefghij\nWorktree: s9zzzzzzzzz\nModel: p \/ gpt-x\n1 uncommitted change/);
+  assert.match(
+    hit.getAttribute("title"),
+    /^Last used .*\n2 background agents running\nBranch: motita\/s1abcdefghij\nWorktree: s9zzzzzzzzz\nModel: p \/ gpt-x\n1 uncommitted change/,
+  );
   await click(hit);
   assert.deepEqual(v.calls, [["switchSession", "s1abcdefghij"]]);
 
@@ -131,15 +145,27 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   // is open. Two changes, no other facts.
   const v2 = store({ lists: { answeredHere: (id) => id === "s1abcdefghij" } });
   await rerender(v2);
-  assert.doesNotMatch(root.querySelector(".session-spinner").className, /is-running/);
-  assert.match(root.querySelector(".session-row").className, /border-transparent/);
+  assert.doesNotMatch(
+    root.querySelector(".session-spinner").className,
+    /is-running/,
+  );
+  assert.match(
+    root.querySelector(".session-row").className,
+    /border-transparent/,
+  );
   await done();
   const plain = await row({ id: "s2", title: "", changes: 2 }, store());
   assert.equal(text(plain.root.querySelector(".truncate")), "s2");
-  assert.match(plain.root.querySelector(".truncate").className, /text-\[#e8e8ea\]/);
+  assert.match(
+    plain.root.querySelector(".truncate").className,
+    /text-\[#e8e8ea\]/,
+  );
   assert.equal(text(plain.root.querySelector(".session-when")), "");
   assert.deepEqual(facts(plain.root), ["changes 2"]);
-  assert.equal(plain.root.querySelector(".row-hit").getAttribute("title"), "2 uncommitted changes in this working tree");
+  assert.equal(
+    plain.root.querySelector(".row-hit").getAttribute("title"),
+    "2 uncommitted changes in this working tree",
+  );
   await plain.done();
   const bare = await row({ id: "s3", title: "T" }, store());
   assert.equal(text(bare.root.querySelector(".session-facts")), "");
@@ -152,17 +178,33 @@ test("the ⋯ button opens the row's menu, and the menu offers rename and delete
   const v = store();
   const { root, rerender, done } = await row(s, v);
   await click(byTitle(root, "More actions"));
-  assert.deepEqual(v.calls, [["toggleRowMenu", "BUTTON", { type: "session", id: "s1", title: "Alpha" }]]);
-  assert.equal(root.querySelector(".row-menu"), null, "drawn only when it is the open menu");
+  assert.deepEqual(v.calls, [
+    ["toggleRowMenu", "BUTTON", { type: "session", id: "s1", title: "Alpha" }],
+  ]);
+  assert.equal(
+    root.querySelector(".row-menu"),
+    null,
+    "drawn only when it is the open menu",
+  );
 
-  const open = store({ menus: { rowMenu: { id: "s1" }, rowMenuAbove: true, rowMenuClosing: true, rowMenuPos: { top: 10, left: 20 } } });
+  const open = store({
+    menus: {
+      rowMenu: { id: "s1" },
+      rowMenuAbove: true,
+      rowMenuClosing: true,
+      rowMenuPos: { top: 10, left: 20 },
+    },
+  });
   await rerender(open);
   const menu = root.querySelector(".row-menu");
   assert.match(menu.className, / row-menu-above/);
   assert.match(menu.className, / row-menu-closing/);
   assert.equal(menu.style.top, "10px");
   assert.equal(menu.style.left, "20px");
-  assert.match(root.querySelector(".row-actions").className, /row-actions-open/);
+  assert.match(
+    root.querySelector(".row-actions").className,
+    /row-actions-open/,
+  );
   assert.deepEqual(
     [...menu.querySelectorAll("button")].map(text),
     ["Rename", "Delete"],
@@ -202,15 +244,24 @@ test("the ⋯ button opens the row's menu, and the menu offers rename and delete
 
 test("a project session can be integrated once it has work to integrate", async () => {
   const v = store({ menus: { rowMenu: { id: "p-s" } } });
-  const { root, rerender, done } = await row({ id: "p-s", title: "W", project_id: "p1", mergeable: true }, v);
+  const { root, rerender, done } = await row(
+    { id: "p-s", title: "W", project_id: "p1", mergeable: true },
+    v,
+  );
   const integrate = buttonNamed(root, "Integrate");
   assert.equal(integrate.disabled, false);
-  assert.equal(integrate.title, "Integrate this session's work back into the project");
+  assert.equal(
+    integrate.title,
+    "Integrate this session's work back into the project",
+  );
   await act(async () => {
     integrate.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await Promise.resolve();
   });
-  assert.deepEqual(v.calls, [["closeRowMenu"], ["submit", "Integrate", "/v1/sessions/p-s/merge"]]);
+  assert.deepEqual(v.calls, [
+    ["closeRowMenu"],
+    ["submit", "Integrate", "/v1/sessions/p-s/merge"],
+  ]);
 
   const idle = store({ menus: { rowMenu: { id: "p-s" } } });
   await rerender(idle);
@@ -223,7 +274,9 @@ test("a project session can be integrated once it has work to integrate", async 
   // A click that still reaches it (a script, an old browser) does nothing and goes no further.
   let reached = 0;
   r2.root.addEventListener("click", () => reached++);
-  await act(() => off.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await act(() =>
+    off.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
   assert.deepEqual(idle.calls, []);
   assert.equal(reached, 0);
   await r2.done();
@@ -231,17 +284,32 @@ test("a project session can be integrated once it has work to integrate", async 
 
 test("a merged session offers to continue in a new one and names its commit", async () => {
   const v = store({ menus: { rowMenu: { id: "m" } } });
-  const s = { id: "m", title: "Done", project_id: "p1", merged: true, continuable: true, merged_sha: "abcdef1234567" };
+  const s = {
+    id: "m",
+    title: "Done",
+    project_id: "p1",
+    merged: true,
+    continuable: true,
+    merged_sha: "abcdef1234567",
+  };
   const { root, done } = await row(s, v);
   assert.equal(buttonNamed(root, "Integrate"), undefined);
-  assert.equal(text(root.querySelector(".row-menu div.row-menu-item")), "merged abcdef1");
+  assert.equal(
+    text(root.querySelector(".row-menu div.row-menu-item")),
+    "merged abcdef1",
+  );
   await act(async () => {
-    buttonNamed(root, "Continue").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    buttonNamed(root, "Continue").dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
     await Promise.resolve();
   });
   assert.deepEqual(v.calls, [["closeRowMenu"], ["continueSession", "m"]]);
   await done();
-  const plain = await row({ id: "m", title: "Done", project_id: "p1", merged: true }, store({ menus: { rowMenu: { id: "m" } } }));
+  const plain = await row(
+    { id: "m", title: "Done", project_id: "p1", merged: true },
+    store({ menus: { rowMenu: { id: "m" } } }),
+  );
   assert.equal(buttonNamed(plain.root, "Continue"), undefined);
   assert.equal(plain.root.querySelector(".row-menu div.row-menu-item"), null);
   await plain.done();
@@ -256,7 +324,12 @@ test("a row being renamed is a field: Enter or ✓ saves, Escape or ✕ cancels"
   assert.equal(input.value, "New name");
   input.value = "Newer";
   await act(() => input.dispatchEvent(new Event("input", { bubbles: true })));
-  const key = (k) => act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })));
+  const key = (k) =>
+    act(() =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k, bubbles: true }),
+      ),
+    );
   await key("a");
   await key("Enter");
   await key("Escape");
@@ -294,7 +367,12 @@ test("a long press on a row opens its menu where the finger rests", async () => 
     mock.timers.tick(499);
     assert.deepEqual(v.calls, []);
     mock.timers.tick(1);
-    assert.deepEqual(v.calls, [["setContextMenu", { type: "session", id: "s1", title: "Alpha", x: 30, y: 40 }]]);
+    assert.deepEqual(v.calls, [
+      [
+        "setContextMenu",
+        { type: "session", id: "s1", title: "Alpha", x: 30, y: 40 },
+      ],
+    ]);
   } finally {
     mock.timers.reset();
   }
@@ -310,18 +388,30 @@ test("a long press on a row opens its menu where the finger rests", async () => 
   } finally {
     mock.timers.reset();
   }
-  assert.deepEqual(untitled.calls, [["setContextMenu", { type: "session", id: "s7", title: "s7", x: 1, y: 2 }]]);
+  assert.deepEqual(untitled.calls, [
+    ["setContextMenu", { type: "session", id: "s7", title: "s7", x: 1, y: 2 }],
+  ]);
   await u.done();
 });
 
 test("RowMenu and DeleteItem work for a project too", async () => {
   const v = store();
-  const { root, done } = await mount(h(RowMenu, null, h(DeleteItem, { type: "project", id: "p1", title: "Proj" })), v);
+  const { root, done } = await mount(
+    h(
+      RowMenu,
+      null,
+      h(DeleteItem, { type: "project", id: "p1", title: "Proj" }),
+    ),
+    v,
+  );
   const menu = root.querySelector(".row-menu");
   assert.equal(menu.className.includes("row-menu-above"), false);
   assert.equal(menu.getAttribute("style"), null);
   await click(buttonNamed(root, "Delete"));
-  assert.deepEqual(v.calls, [["setConfirmDelete", { type: "project", id: "p1", title: "Proj" }], ["closeRowMenu"]]);
+  assert.deepEqual(v.calls, [
+    ["setConfirmDelete", { type: "project", id: "p1", title: "Proj" }],
+    ["closeRowMenu"],
+  ]);
   await done();
 });
 
@@ -329,24 +419,54 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   phone = false;
   const v = store({
     rs: { sessionId: "" },
-    lists: { sessions: [{ id: "a", title: "Loose" }, { id: "b", title: "In project", project_id: "p1" }], projects: [{ id: "p1", title: "Proj" }] },
-    updates: { updateInfo: { current_version: "v1.2.3", latest_version: "v1.3.0", update_available: true } },
+    lists: {
+      sessions: [
+        { id: "a", title: "Loose" },
+        { id: "b", title: "In project", project_id: "p1" },
+      ],
+      projects: [{ id: "p1", title: "Proj" }],
+    },
+    updates: {
+      updateInfo: {
+        current_version: "v1.2.3",
+        latest_version: "v1.3.0",
+        update_available: true,
+      },
+    },
     actions: { creatingSession: "" },
   });
   const { root, rerender, done } = await mount(h(Sidebar), v);
   assert.equal(text(root.querySelector("h1")), "Motita");
   assert.equal(text(root.querySelector("h1").nextElementSibling), "v1.2.3");
-  assert.equal(text(root.querySelector("[data-testid=sidebar-sessions] .truncate")), "Loose");
+  assert.equal(
+    text(root.querySelector("[data-testid=sidebar-sessions] .truncate")),
+    "Loose",
+  );
   assert.equal(root.querySelectorAll("[data-testid=sidebar-empty]").length, 0);
   // Each section title carries its own "+", named for what it adds, and nothing sits above them.
   const addSession = root.querySelector("[data-testid=sidebar-new-session]");
   const addProject = root.querySelector("[data-testid=sidebar-new-project]");
   assert.equal(addSession.getAttribute("aria-label"), "New session");
   assert.equal(addProject.getAttribute("aria-label"), "New project");
-  assert.ok(root.querySelector("[data-testid=sidebar-sessions] h2").parentElement.contains(addSession));
-  assert.ok(root.querySelector("[data-testid=sidebar-projects] h2").parentElement.contains(addProject));
-  assert.equal(root.querySelector(".btn-cut"), null, "the big New session button is gone");
-  assert.ok(addSession.querySelector(".btn-spinner"), "the new session button shows it is busy");
+  assert.ok(
+    root
+      .querySelector("[data-testid=sidebar-sessions] h2")
+      .parentElement.contains(addSession),
+  );
+  assert.ok(
+    root
+      .querySelector("[data-testid=sidebar-projects] h2")
+      .parentElement.contains(addProject),
+  );
+  assert.equal(
+    root.querySelector(".btn-cut"),
+    null,
+    "the big New session button is gone",
+  );
+  assert.ok(
+    addSession.querySelector(".btn-spinner"),
+    "the new session button shows it is busy",
+  );
   assert.equal(addSession.disabled, true);
 
   await click(root.querySelector('[aria-label="Close sidebar"]'));
@@ -369,9 +489,16 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   ]);
 
   // Up to date, no version known, a session open, nothing being created.
-  const v2 = store({ rs: { sessionId: "a" }, updates: { updateInfo: { update_available: false } } });
+  const v2 = store({
+    rs: { sessionId: "a" },
+    updates: { updateInfo: { update_available: false } },
+  });
   await rerender(v2);
-  assert.equal(root.querySelector("h1").nextElementSibling.tagName, "BUTTON", "no version shown");
+  assert.equal(
+    root.querySelector("h1").nextElementSibling.tagName,
+    "BUTTON",
+    "no version shown",
+  );
   assert.equal(buttonNamed(root, "Upgrade Motitav1.3.0"), undefined);
   assert.equal(root.querySelector(".btn-spinner"), null);
   await click(root.querySelector("[data-testid=artifacts-button]"));
@@ -379,7 +506,11 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   // A click on the dimmed layer closes the sidebar; one inside it does not.
   const overlay = root.querySelector(".bg-black\\/50");
   await click(overlay);
-  assert.deepEqual(v2.calls, [["openArtifacts"], ["createSession"], ["closeSidebar"]]);
+  assert.deepEqual(v2.calls, [
+    ["openArtifacts"],
+    ["createSession"],
+    ["closeSidebar"],
+  ]);
   await done();
 });
 
@@ -397,7 +528,11 @@ test("on a phone, picking a session in the sidebar closes it", async () => {
   const { root, done } = await mount(h(Sidebar), v);
   phone = false;
   await click(root.querySelector(".row-hit"));
-  assert.deepEqual(v.calls, [["switchSession", "a"]], "a wide screen keeps it open");
+  assert.deepEqual(
+    v.calls,
+    [["switchSession", "a"]],
+    "a wide screen keeps it open",
+  );
   phone = true;
   v.calls.length = 0;
   await click(root.querySelector(".row-hit"));

@@ -4,7 +4,15 @@
 // Run with: node --test web/src/__tests__/cov-chat-scroll.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { act, copies, frames, h, mount, renderHook, tick } from "./cov-chat-helpers.mjs";
+import {
+  act,
+  copies,
+  frames,
+  h,
+  mount,
+  renderHook,
+  tick,
+} from "./cov-chat-helpers.mjs";
 
 const forms = await copies("scroll", [
   ["useChatScroll, observeChildren", "useChatScroll.ts"],
@@ -49,8 +57,14 @@ function scrollable(el, size) {
   el.__size = size;
   let top = 0;
   const max = () => Math.max(0, size.height - size.client);
-  Object.defineProperty(el, "scrollHeight", { get: () => size.height, configurable: true });
-  Object.defineProperty(el, "clientHeight", { get: () => size.client, configurable: true });
+  Object.defineProperty(el, "scrollHeight", {
+    get: () => size.height,
+    configurable: true,
+  });
+  Object.defineProperty(el, "clientHeight", {
+    get: () => size.client,
+    configurable: true,
+  });
   Object.defineProperty(el, "scrollTop", {
     get: () => top,
     set: (v) => {
@@ -87,7 +101,11 @@ for (const M of forms) {
       "div",
       { ref: attach ? ref : undefined, "data-testid": "box" },
       v.messages.map((m) =>
-        h("p", { key: m.id, "data-hydrating": hydrating ? "" : undefined }, m.text),
+        h(
+          "p",
+          { key: m.id, "data-hydrating": hydrating ? "" : undefined },
+          m.text,
+        ),
       ),
     );
   }
@@ -112,7 +130,12 @@ for (const M of forms) {
     };
   }
 
-  const msgs = (n) => Array.from({ length: n }, (_, i) => ({ id: i + 1, role: "agent", text: "m" + i }));
+  const msgs = (n) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: i + 1,
+      role: "agent",
+      text: "m" + i,
+    }));
   const glide = () => {
     let guard = 0;
     while (frames.pending && guard++ < 400) {
@@ -165,7 +188,9 @@ for (const M of forms) {
     const c = await chat(msgs(2));
     glide();
     clock += 5000;
-    c.box.dispatchEvent(new window.KeyboardEvent("keydown", { key: "PageDown" }));
+    c.box.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "PageDown" }),
+    );
     c.size.height = 2500;
     await c.set(msgs(3));
     glide();
@@ -184,17 +209,25 @@ for (const M of forms) {
     glide();
     // A press on a message is not a drag of the bar.
     clock += 5000;
-    c.box.querySelector("p").dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true }));
+    c.box
+      .querySelector("p")
+      .dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true }));
     c.box.scrollTop = 1000;
     c.box.dispatchEvent(new window.Event("scroll"));
     c.size.height = 2100;
     await c.set(msgs(3));
     glide();
-    assert.equal(c.box.scrollTop, 1600, "content moving the view is not the reader: still pinned");
+    assert.equal(
+      c.box.scrollTop,
+      1600,
+      "content moving the view is not the reader: still pinned",
+    );
     c.box.dispatchEvent(new window.Event("scroll"));
     // A press on the box itself is: held, a move up lets go.
     clock += 5000;
-    c.box.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true }));
+    c.box.dispatchEvent(
+      new window.PointerEvent("pointerdown", { bubbles: true }),
+    );
     clock += 5000;
     c.box.scrollTop = 1200;
     c.box.dispatchEvent(new window.Event("scroll"));
@@ -226,7 +259,11 @@ for (const M of forms) {
     const before = c.box.scrolledTo;
     c.size.height = 2200;
     frames.flush((clock += 16));
-    assert.equal(c.box.scrollTop, 1700, "the second pass lands on what grew since");
+    assert.equal(
+      c.box.scrollTop,
+      1700,
+      "the second pass lands on what grew since",
+    );
     assert.ok(c.box.scrolledTo > before);
     // Unpinned: nothing moves, now or on the next frame.
     clock += 5000;
@@ -242,14 +279,22 @@ for (const M of forms) {
     c.box.dispatchEvent(new window.WheelEvent("wheel", { deltaY: -40 }));
     c.size.height = 3300;
     frames.flush((clock += 16));
-    assert.equal(c.box.scrollTop, 2500, "the second pass sees the reader has left");
+    assert.equal(
+      c.box.scrollTop,
+      2500,
+      "the second pass sees the reader has left",
+    );
     await c.unmount();
   });
 
   test(`the gate's log reads the hydration state`, async () => {
     const c = await chat(msgs(1));
     const log = window.__chatLoadingLog();
-    assert.deepEqual(Object.keys(log).sort(), ["registered", "transitions", "visiblePending"]);
+    assert.deepEqual(Object.keys(log).sort(), [
+      "registered",
+      "transitions",
+      "visiblePending",
+    ]);
     assert.equal(log.visiblePending, false);
     assert.ok(Array.isArray(window.__modalLog), "the modal log is kept");
     assert.ok(window.__modalLog.length > 0, "and has entries");
@@ -272,7 +317,11 @@ for (const M of forms) {
     // Once nothing hydrates, the next frame closes it: the exit class two frames on, then gone.
     await c.set(msgs(3), { hydrating: false });
     await act(() => frames.flush((clock += 16)));
-    assert.equal(c.out.current.modalLeaving, false, "the first frame mounts the scrim as it is");
+    assert.equal(
+      c.out.current.modalLeaving,
+      false,
+      "the first frame mounts the scrim as it is",
+    );
     await act(() => frames.flush((clock += 16)));
     await act(() => frames.flush((clock += 16)));
     assert.equal(c.out.current.modalLeaving, true);
@@ -291,7 +340,11 @@ for (const M of forms) {
     const c = await chat([]);
     await act(() => c.out.current.requestModal(true));
     frames.flush((clock += 16));
-    assert.equal(c.out.current.chatLoading, true, "nothing to wait for is not the end of loading");
+    assert.equal(
+      c.out.current.chatLoading,
+      true,
+      "nothing to wait for is not the end of loading",
+    );
     await act(() => c.out.current.requestModal(false));
     assert.ok(frames.pending > 0);
     // Back up before the exit frames ran: their frame is cancelled and so is the timer.
@@ -312,17 +365,23 @@ for (const M of forms) {
     frames.clear();
     const p = c.box.querySelector("p");
     c.size.height = 2400;
-    p.dispatchEvent(new window.CustomEvent("motita:hydrated", { bubbles: true }));
+    p.dispatchEvent(
+      new window.CustomEvent("motita:hydrated", { bubbles: true }),
+    );
     assert.equal(c.box.scrollTop, 1900);
     c.size.height = 2450;
-    p.dispatchEvent(new window.CustomEvent("motita:hydrated", { bubbles: true }));
+    p.dispatchEvent(
+      new window.CustomEvent("motita:hydrated", { bubbles: true }),
+    );
     c.size.height = 2500;
     frames.flush((clock += 16));
     assert.equal(c.box.scrollTop, 2000, "the frame after catches late layout");
     clock += 5000;
     c.box.dispatchEvent(new window.WheelEvent("wheel", { deltaY: -40 }));
     c.size.height = 2900;
-    p.dispatchEvent(new window.CustomEvent("motita:hydrated", { bubbles: true }));
+    p.dispatchEvent(
+      new window.CustomEvent("motita:hydrated", { bubbles: true }),
+    );
     frames.flush((clock += 16));
     assert.equal(c.box.scrollTop, 2000);
     await c.unmount();
@@ -376,7 +435,10 @@ for (const M of forms) {
     const a = document.createElement("div");
     box.append(a, document.createTextNode("text"));
     const held = new Set();
-    const ro = { observe: (el) => held.add(el), unobserve: (el) => held.delete(el) };
+    const ro = {
+      observe: (el) => held.add(el),
+      unobserve: (el) => held.delete(el),
+    };
     const mo = M.observeChildren(box, ro);
     assert.deepEqual([...held], [a]);
     const b = document.createElement("div");
@@ -406,7 +468,11 @@ for (const M of forms) {
       }
       f.ref.current = node;
     };
-    return h("div", { ref: attach ? ref : undefined, ...f.handlers, "data-testid": "drawer" }, h("span", {}, "x"));
+    return h(
+      "div",
+      { ref: attach ? ref : undefined, ...f.handlers, "data-testid": "drawer" },
+      h("span", {}, "x"),
+    );
   }
 
   async function drawer(open, attach = true) {
@@ -443,7 +509,8 @@ for (const M of forms) {
     frames.clear();
     const d = await drawer(false);
     assert.equal(d.el.scrollTop, 0, "closed: not moved");
-    const fire = (type) => d.el.dispatchEvent(new window.Event(type, { bubbles: true }));
+    const fire = (type) =>
+      d.el.dispatchEvent(new window.Event(type, { bubbles: true }));
     // The wheel marks the reader; a scroll far from the end lets go and stops a glide.
     d.out.current.stick();
     fire("wheel");

@@ -2,14 +2,37 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { lang, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { gpuAllowed } from "./gpuPolicy";
-import { type LocalCatalog, type LocalModel, type LoadState, deleteVoice, installVoice } from "./localVoice";
+import {
+  type LocalCatalog,
+  type LocalModel,
+  type LoadState,
+  deleteVoice,
+  installVoice,
+} from "./localVoice";
 import { isWhisper } from "./localListenCore";
-import { forGPU, listenStateOf, onListenState, warmListener } from "./localListen";
+import {
+  forGPU,
+  listenStateOf,
+  onListenState,
+  warmListener,
+} from "./localListen";
 import { workerError } from "./errors";
-import { KeptNote, megabytes, qualityLabel, useCatalog, useWebGPU } from "./LocalVoiceSettings";
+import {
+  KeptNote,
+  megabytes,
+  qualityLabel,
+  useCatalog,
+  useWebGPU,
+} from "./LocalVoiceSettings";
 import type { VoicePrefs } from "./voice";
 import type { Api } from "./prApi";
-import { Collapsed, Row, primaryBtn, selectCls, smallBtn } from "./SettingsControls";
+import {
+  Collapsed,
+  Row,
+  primaryBtn,
+  selectCls,
+  smallBtn,
+} from "./SettingsControls";
 
 // LISTEN_LANGUAGES are the languages the settings offer to say which one is spoken; Whisper
 // knows many more, and tells them apart itself with "".
@@ -18,7 +41,9 @@ export const LISTEN_LANGUAGES = ["es", "en", "pt", "fr", "de", "it"];
 // langName is a language's name in the interface's, or its code where the browser has none.
 function langName(code: string): string {
   try {
-    const name = new Intl.DisplayNames([lang()], { type: "language" }).of(code) as string;
+    const name = new Intl.DisplayNames([lang()], { type: "language" }).of(
+      code,
+    ) as string;
     return name.charAt(0).toLocaleUpperCase(lang()) + name.slice(1);
   } catch {
     return code;
@@ -60,7 +85,10 @@ export function LocalListening({
   const { catalog, error, busy, downloading, act } = useCatalog(api, whisperOf);
   const webGPU = useWebGPU();
   const chosen = prefs.listener;
-  const pick = useCallback((listener: string) => setPrefs({ ...prefs, listener }), [prefs, setPrefs]);
+  const pick = useCallback(
+    (listener: string) => setPrefs({ ...prefs, listener }),
+    [prefs, setPrefs],
+  );
 
   const dl = catalog?.download;
   const models = byPreference(catalog?.models ?? [], webGPU);
@@ -70,7 +98,9 @@ export function LocalListening({
   // deletion that failed keeps the choice, and from every model, those for a graphics card this
   // browser lacks too.
   const firstReady = models.find((m) => m.installed)?.id ?? "";
-  const chosenReady = !!catalog?.models.some((m) => m.id === chosen && m.installed);
+  const chosenReady = !!catalog?.models.some(
+    (m) => m.id === chosen && m.installed,
+  );
   useEffect(() => {
     if (catalog && !chosenReady && chosen !== firstReady) {
       pick(firstReady);
@@ -88,13 +118,17 @@ export function LocalListening({
 
   if (!catalog) {
     return (
-      <div class="settings-card-note text-xs text-[#7a7a8c]" data-testid="local-listeners">
+      <div
+        class="settings-card-note text-xs text-[#7a7a8c]"
+        data-testid="local-listeners"
+      >
         {choose(error !== "", error, t("Loading…"))}
       </div>
     );
   }
   // The model in use and the one downloading stay in sight; the rest wait folded.
-  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
+  const inSight = (m: LocalModel) =>
+    (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
   const pinned = models.filter(inSight);
   const rest = models.filter((m) => !inSight(m));
   const row = (m: LocalModel) => (
@@ -123,25 +157,38 @@ export function LocalListening({
           t(
             "Whisper runs in this browser, on WebGPU where there is one and on WebAssembly otherwise: what you say never leaves this device.",
           ),
-          t("Whisper runs in this browser, on the processor: what you say never leaves this device."),
+          t(
+            "Whisper runs in this browser, on the processor: what you say never leaves this device.",
+          ),
         )}
       >
         <div class="flex flex-col gap-2 w-full" data-testid="local-listeners">
           {!catalog.runtime.installed && (
             <div class="text-xs text-[#7a7a8c]">
-              {tf("The first download adds {size} for the engine.", { size: megabytes(catalog.runtime.size) })}
+              {tf("The first download adds {size} for the engine.", {
+                size: megabytes(catalog.runtime.size),
+              })}
             </div>
           )}
           {pinned.map(row)}
           <KeptNote catalog={catalog} />
-          <Collapsed label={tf("Every model ({n})", { n: String(rest.length) })} testid="local-listener-list">
+          <Collapsed
+            label={tf("Every model ({n})", { n: String(rest.length) })}
+            testid="local-listener-list"
+          >
             {rest.map(row)}
           </Collapsed>
           {forGPU(chosen) && loading.gpuError && (
-            <div class="text-xs text-[#7a7a8c]" data-testid="local-listener-gpu-note">
-              {tf("WebGPU could not start here ({reason}): the model runs on the processor.", {
-                reason: workerError(loading.gpuError),
-              })}
+            <div
+              class="text-xs text-[#7a7a8c]"
+              data-testid="local-listener-gpu-note"
+            >
+              {tf(
+                "WebGPU could not start here ({reason}): the model runs on the processor.",
+                {
+                  reason: workerError(loading.gpuError),
+                },
+              )}
             </div>
           )}
           {alerts.map(
@@ -160,7 +207,12 @@ export function LocalListening({
           aria-labelledby="settings-listen-language"
           data-testid="listen-language"
           value={prefs.language}
-          onChange={(e) => setPrefs({ ...prefs, language: (e.target as HTMLSelectElement).value })}
+          onChange={(e) =>
+            setPrefs({
+              ...prefs,
+              language: (e.target as HTMLSelectElement).value,
+            })
+          }
         >
           <option value="">{t("Detect it")}</option>
           {LISTEN_LANGUAGES.map((code) => (
@@ -176,12 +228,29 @@ export function LocalListening({
 
 // alertsOf are the failures the list says: the download's, loading the model in use, and reading
 // the catalog; "" for each that did not fail.
-function alertsOf(download: string | undefined, load: string | undefined, catalog: string) {
+function alertsOf(
+  download: string | undefined,
+  load: string | undefined,
+  catalog: string,
+) {
   return [
-    { kind: "download", text: choose(download, tf("The download failed: {error}", { error: download ?? "" }), "") },
+    {
+      kind: "download",
+      text: choose(
+        download,
+        tf("The download failed: {error}", { error: download ?? "" }),
+        "",
+      ),
+    },
     {
       kind: "load",
-      text: choose(load, tf("The model could not be loaded: {error}", { error: workerError(load ?? "") }), ""),
+      text: choose(
+        load,
+        tf("The model could not be loaded: {error}", {
+          error: workerError(load ?? ""),
+        }),
+        "",
+      ),
     },
     { kind: "catalog", text: catalog },
   ];
@@ -220,7 +289,10 @@ function ListenerRow({
   const where = choose(forGPU(m.id), "WebGPU", t("Processor"));
   const onGPU = m.id === chosen && !!loading.gpu;
   return (
-    <div class="flex items-center justify-between gap-3" data-testid={"local-listener-" + m.id}>
+    <div
+      class="flex items-center justify-between gap-3"
+      data-testid={"local-listener-" + m.id}
+    >
       <div class="min-w-0">
         <div class="text-sm text-[#e8e8ea] truncate">{m.name}</div>
         <div class="text-xs text-[#7a7a8c]">
@@ -229,7 +301,16 @@ function ListenerRow({
           {choose(recommended, " · " + t("Recommended"), "")}
         </div>
       </div>
-      <ListenerState m={m} chosen={chosen} pick={pick} loading={loading} dl={dl} busy={busy} act={act} api={api} />
+      <ListenerState
+        m={m}
+        chosen={chosen}
+        pick={pick}
+        loading={loading}
+        dl={dl}
+        busy={busy}
+        act={act}
+        api={api}
+      />
     </div>
   );
 }
@@ -257,14 +338,22 @@ function ListenerState({
 }) {
   // Deleting the model in use needs nothing more here: the catalog read again after it no longer
   // has it, and the choice moves on (see LocalListening).
-  const remove = useCallback(() => void act(m.id, () => deleteVoice(api, m.id)), [act, api, m.id]);
+  const remove = useCallback(
+    () => void act(m.id, () => deleteVoice(api, m.id)),
+    [act, api, m.id],
+  );
   const downloading = !!dl && !dl.error;
   if (downloading && dl.id === m.id) {
     const pct = Math.floor((100 * dl.done) / Math.max(dl.total, 1));
     return (
-      <span class="flex items-center gap-2 shrink-0" data-testid={"local-listener-progress-" + m.id}>
+      <span
+        class="flex items-center gap-2 shrink-0"
+        data-testid={"local-listener-progress-" + m.id}
+      >
         <progress class="settings-progress" max={100} value={pct} />
-        <output class="text-xs text-[#a0a0b0]">{tf("Downloading… {pct}%", { pct: String(pct) })}</output>
+        <output class="text-xs text-[#a0a0b0]">
+          {tf("Downloading… {pct}%", { pct: String(pct) })}
+        </output>
       </span>
     );
   }
@@ -326,7 +415,10 @@ function UseListener({
   }
   if (inUse && !loading.ready) {
     return (
-      <span class="flex items-center gap-2" data-testid={"local-listener-loading-" + m.id}>
+      <span
+        class="flex items-center gap-2"
+        data-testid={"local-listener-loading-" + m.id}
+      >
         <progress class="settings-progress" max={100} value={loading.pct} />
         <output class="text-xs text-[#a0a0b0]">
           {tf("Loading into memory… {pct}%", { pct: String(loading.pct) })}

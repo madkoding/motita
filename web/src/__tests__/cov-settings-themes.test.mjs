@@ -7,7 +7,10 @@ import { installDom, load, text, settle } from "./cov-settings-helpers.mjs";
 
 installDom();
 const root = document.documentElement;
-for (const [name, content] of [["color-scheme", "dark"], ["theme-color", "#0a0a0f"]]) {
+for (const [name, content] of [
+  ["color-scheme", "dark"],
+  ["theme-color", "#0a0a0f"],
+]) {
   const m = document.createElement("meta");
   m.setAttribute("name", name);
   m.setAttribute("content", content);
@@ -16,7 +19,8 @@ for (const [name, content] of [["color-scheme", "dark"], ["theme-color", "#0a0a0
 const T = await load("theme.ts");
 const { ThemeSettings } = await load("ThemeSettings.tsx");
 const { h, render } = await import("preact");
-const meta = (name) => document.querySelector(`meta[name="${name}"]`).getAttribute("content");
+const meta = (name) =>
+  document.querySelector(`meta[name="${name}"]`).getAttribute("content");
 
 // A matchMedia whose answer, and whose listeners, the tests drive.
 function fakeSystem(light) {
@@ -40,13 +44,23 @@ function fakeSystem(light) {
 test("the default theme follows the system with the Motita scheme; a saved choice is read back, bad values are not", () => {
   localStorage.clear();
   assert.deepEqual(T.loadTheme(), { mode: "system", scheme: "motita" });
-  localStorage.setItem(T.THEME_KEY, JSON.stringify({ mode: "light", scheme: "rose" }));
+  localStorage.setItem(
+    T.THEME_KEY,
+    JSON.stringify({ mode: "light", scheme: "rose" }),
+  );
   assert.deepEqual(T.loadTheme(), { mode: "light", scheme: "rose" });
-  localStorage.setItem(T.THEME_KEY, JSON.stringify({ mode: "sepia", scheme: "neon" }));
+  localStorage.setItem(
+    T.THEME_KEY,
+    JSON.stringify({ mode: "sepia", scheme: "neon" }),
+  );
   assert.deepEqual(T.loadTheme(), T.DEFAULT_THEME);
   localStorage.setItem(T.THEME_KEY, "{not json");
   assert.deepEqual(T.loadTheme(), T.DEFAULT_THEME);
-  assert.notEqual(T.loadTheme(), T.DEFAULT_THEME, "a copy, so nobody edits the default");
+  assert.notEqual(
+    T.loadTheme(),
+    T.DEFAULT_THEME,
+    "a copy, so nobody edits the default",
+  );
 });
 
 test("the mode that is drawn: system follows the page's preference, light and dark are themselves", () => {
@@ -86,7 +100,10 @@ test("applying a theme sets the attributes, the colour-scheme hint and the brows
 test("saving keeps the choice and applies it; a storage that refuses still applies it", () => {
   localStorage.clear();
   T.saveTheme({ mode: "dark", scheme: "violet" });
-  assert.deepEqual(JSON.parse(localStorage.getItem(T.THEME_KEY)), { mode: "dark", scheme: "violet" });
+  assert.deepEqual(JSON.parse(localStorage.getItem(T.THEME_KEY)), {
+    mode: "dark",
+    scheme: "violet",
+  });
   assert.equal(root.dataset.scheme, "violet");
   const real = window.Storage.prototype.setItem;
   window.Storage.prototype.setItem = () => {
@@ -108,7 +125,11 @@ test("starting applies the saved theme, follows the system while the mode says s
   T.saveTheme({ mode: "dark", scheme: "motita" });
   sys.flip(false);
   sys.flip(true);
-  assert.equal(root.dataset.mode, "dark", "an explicit mode ignores the system");
+  assert.equal(
+    root.dataset.mode,
+    "dark",
+    "an explicit mode ignores the system",
+  );
   stop();
   assert.equal(sys.listeners.size, 0);
   // No matchMedia at all: applied once, nothing to listen to or stop.
@@ -134,19 +155,33 @@ async function mount() {
 }
 
 test("the Themes tab shows the three modes and every scheme as a card, the saved ones checked", async () => {
-  localStorage.setItem(T.THEME_KEY, JSON.stringify({ mode: "light", scheme: "forest" }));
+  localStorage.setItem(
+    T.THEME_KEY,
+    JSON.stringify({ mode: "light", scheme: "forest" }),
+  );
   const m = await mount();
   assert.deepEqual(
-    [...m.host.querySelectorAll("input[name=settings-mode]")].map((r) => text(r.parentElement)),
+    [...m.host.querySelectorAll("input[name=settings-mode]")].map((r) =>
+      text(r.parentElement),
+    ),
     ["Follow the system", "Light", "Dark"],
   );
   assert.equal(m.radio("settings-mode", "light").checked, true);
   const cards = [...m.host.querySelectorAll(".theme-card")];
-  assert.deepEqual(cards.map((c) => c.dataset.scheme), T.SCHEMES);
-  assert.deepEqual(cards.map((c) => text(c)), ["Motita", "Violet", "Forest", "Amber", "Rose", "Graphite"]);
+  assert.deepEqual(
+    cards.map((c) => c.dataset.scheme),
+    T.SCHEMES,
+  );
+  assert.deepEqual(
+    cards.map((c) => text(c)),
+    ["Motita", "Violet", "Forest", "Amber", "Rose", "Graphite"],
+  );
   assert.equal(m.radio("settings-scheme", "forest").checked, true);
   assert.equal(m.radio("settings-scheme", "motita").checked, false);
-  assert.ok(cards.every((c) => c.querySelector(".theme-preview")), "each card previews its colours");
+  assert.ok(
+    cards.every((c) => c.querySelector(".theme-preview")),
+    "each card previews its colours",
+  );
   await m.unmount();
 });
 
@@ -159,10 +194,16 @@ test("picking a mode or a scheme saves it and re-themes the page at once", async
   m.radio("settings-scheme", "rose").click();
   await settle();
   assert.equal(root.dataset.scheme, "rose");
-  assert.deepEqual(JSON.parse(localStorage.getItem(T.THEME_KEY)), { mode: "dark", scheme: "rose" });
+  assert.deepEqual(JSON.parse(localStorage.getItem(T.THEME_KEY)), {
+    mode: "dark",
+    scheme: "rose",
+  });
   m.radio("settings-mode", "system").click();
   await settle();
-  assert.deepEqual(JSON.parse(localStorage.getItem(T.THEME_KEY)), { mode: "system", scheme: "rose" });
+  assert.deepEqual(JSON.parse(localStorage.getItem(T.THEME_KEY)), {
+    mode: "system",
+    scheme: "rose",
+  });
   assert.equal(m.radio("settings-mode", "system").checked, true);
   await m.unmount();
 });

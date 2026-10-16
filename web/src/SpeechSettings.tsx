@@ -475,7 +475,12 @@ export function SpeechSettings({
           voices={voices}
           gatewayVoices={gatewayVoices}
         />
-        <Row id="settings-speech-rate" label={t("Speed")} stack hint={rateHint(prefs)}>
+        <Row
+          id="settings-speech-rate"
+          label={t("Speed")}
+          stack
+          hint={rateHint(prefs)}
+        >
           <Segmented<string>
             name="settings-speech-rate"
             labelledBy="settings-speech-rate"
@@ -499,7 +504,10 @@ export function SpeechSettings({
           id="settings-speech-length"
           label={t("Length")}
           stack
-          hint={answersHint(prefs.mode, t("A longer answer is read up to its first paragraph."))}
+          hint={answersHint(
+            prefs.mode,
+            t("A longer answer is read up to its first paragraph."),
+          )}
         >
           <Segmented<string>
             name="settings-speech-length"
@@ -736,7 +744,11 @@ function styleHint(style: SpeakStyle): string {
 // answersHint is the hint of a setting about answers read aloud: what it does, or, while answers
 // are never read, that it waits for them.
 function answersHint(mode: SpeakMode, hint: string): string {
-  return choose(mode === "off", t("Needs answers read aloud: choose when above."), hint);
+  return choose(
+    mode === "off",
+    t("Needs answers read aloud: choose when above."),
+    hint,
+  );
 }
 
 // speaksNothing says nothing is said aloud at all: no answers, and no voice notices.
@@ -746,7 +758,11 @@ function speaksNothing(prefs: SpeechPrefs): boolean {
 
 // rateHint is why the speed waits, or nothing while something is said aloud.
 function rateHint(prefs: SpeechPrefs): string | undefined {
-  return choose(speaksNothing(prefs), t("Needs answers read aloud or voice notices on."), undefined);
+  return choose(
+    speaksNothing(prefs),
+    t("Needs answers read aloud or voice notices on."),
+    undefined,
+  );
 }
 
 // conversationHint says what conversation mode does, or what it waits on: speech input working
@@ -764,11 +780,18 @@ function conversationHint(canListen: boolean, mode: SpeakMode): string {
 }
 
 // otherVoiceHint is why the voice for the other language cannot be picked yet, or "" when it can.
-function otherVoiceHint(byLanguage: boolean, voices: number): string | undefined {
+function otherVoiceHint(
+  byLanguage: boolean,
+  voices: number,
+): string | undefined {
   if (!byLanguage) {
     return t("Needs a voice per language on.");
   }
-  return choose(voices === 0, t("This device has no voice for that language."), undefined);
+  return choose(
+    voices === 0,
+    t("This device has no voice for that language."),
+    undefined,
+  );
 }
 
 // otherLang is the language an answer mixes in besides the interface's.

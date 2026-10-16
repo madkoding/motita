@@ -34,7 +34,10 @@ export function megabytes(n: number): string {
 const MANY_LANGS = "mul";
 
 // ENGINES name the engines besides Piper, as a voice's details start.
-const ENGINES: Record<string, string> = { supertonic: "Supertonic · ", chatterbox: "Chatterbox · " };
+const ENGINES: Record<string, string> = {
+  supertonic: "Supertonic · ",
+  chatterbox: "Chatterbox · ",
+};
 
 // LANGUAGES_OF is how many languages a voice that speaks many speaks here, by its engine.
 const LANGUAGES_OF: Record<string, number> = { supertonic: 31, chatterbox: 21 };
@@ -60,7 +63,9 @@ function baseLang(m: LocalModel): string {
 function langName(code: string): string {
   try {
     // With its default fallback, of() answers the code itself for a language it cannot name.
-    const name = new Intl.DisplayNames([lang()], { type: "language" }).of(code) as string;
+    const name = new Intl.DisplayNames([lang()], { type: "language" }).of(
+      code,
+    ) as string;
     return name.charAt(0).toLocaleUpperCase(lang()) + name.slice(1);
   } catch {
     return code;
@@ -92,7 +97,11 @@ export function loadFilters(): Filters {
   try {
     const raw = JSON.parse(localStorage.getItem(FILTERS_KEY) || "{}");
     return {
-      language: choose(typeof raw.language === "string", raw.language, none.language),
+      language: choose(
+        typeof raw.language === "string",
+        raw.language,
+        none.language,
+      ),
       quality: choose(QUALITY_FILTERS.includes(raw.quality), raw.quality, ""),
     };
   } catch {
@@ -114,7 +123,9 @@ export function saveFilters(f: Filters): void {
 export function useWebGPU(): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
-    const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    const gpu = (
+      navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }
+    ).gpu;
     // A phone does not offer WebGPU to the voices, unless the reader forced it.
     choose(gpuAllowed(), gpu, undefined)
       ?.requestAdapter()
@@ -128,7 +139,8 @@ export function useWebGPU(): boolean {
 function shown(m: LocalModel, language: string, quality: string): boolean {
   const q = choose(m.quality === "x-low", "low", m.quality);
   // A voice that speaks many languages speaks the one chosen too.
-  const speaks = language === "" || baseLang(m) === language || m.lang === MANY_LANGS;
+  const speaks =
+    language === "" || baseLang(m) === language || m.lang === MANY_LANGS;
   return speaks && (quality === "" || q === quality);
 }
 
@@ -166,7 +178,11 @@ function useSample(api: Api) {
         await a.play();
       } catch (e) {
         setPlaying("");
-        setError(tf("The sample could not be played: {error}", { error: errorMessage(e) }));
+        setError(
+          tf("The sample could not be played: {error}", {
+            error: errorMessage(e),
+          }),
+        );
       }
     },
     [api, playing, stop],
@@ -256,8 +272,12 @@ export function KeptNote({ catalog }: { catalog: LocalCatalog }) {
     <div class="text-xs text-[#7a7a8c]" data-testid="local-kept-note">
       {choose(
         kept,
-        t("This browser keeps the downloaded models, also when you update Motita."),
-        t("This browser may delete the downloaded models if the disk runs short; they download again. Installing Motita as an app helps it keep them."),
+        t(
+          "This browser keeps the downloaded models, also when you update Motita.",
+        ),
+        t(
+          "This browser may delete the downloaded models if the disk runs short; they download again. Installing Motita as an app helps it keep them.",
+        ),
       )}
     </div>
   );
@@ -298,7 +318,9 @@ export function LocalVoices({
     if (chosen && !(isChatterbox(chosen) && !gpuAllowed())) {
       return;
     }
-    const ready = catalog?.models.find((m) => m.installed && !isChatterbox(m.id));
+    const ready = catalog?.models.find(
+      (m) => m.installed && !isChatterbox(m.id),
+    );
     if (ready) {
       pick(ready.id);
     }
@@ -306,9 +328,15 @@ export function LocalVoices({
 
   // The voice in use is loaded into memory as soon as it is downloaded, and how far that is shows
   // in place of "In use" until it is ready.
-  const chosenReady = !!catalog?.models.some((m) => m.id === chosen && m.installed);
+  const chosenReady = !!catalog?.models.some(
+    (m) => m.id === chosen && m.installed,
+  );
   // Before the first word from the worker, a voice that will load counts as loading.
-  const pending: LoadState | undefined = choose(localVoicesSupported(), { pct: 0, ready: false }, undefined);
+  const pending: LoadState | undefined = choose(
+    localVoicesSupported(),
+    { pct: 0, ready: false },
+    undefined,
+  );
   const loading = useLoadState(chosen) ?? pending;
   const webGPU = useWebGPU();
   useEffect(() => {
@@ -325,11 +353,14 @@ export function LocalVoices({
     );
   }
   // Chatterbox runs only on the graphics card: it is offered where the browser has one.
-  const voices = catalog.models.filter((m) => m.engine !== "chatterbox" || webGPU);
+  const voices = catalog.models.filter(
+    (m) => m.engine !== "chatterbox" || webGPU,
+  );
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   const visible = listed(voices, languages, filters, [chosen, dl?.id]);
   // The voice in use and the one downloading stay in sight; the rest wait folded, with the filters.
-  const inSight = (m: LocalModel) => (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
+  const inSight = (m: LocalModel) =>
+    (m.id === chosen && m.installed) || (downloading && dl?.id === m.id);
   const pinned = visible.filter(inSight);
   const rest = visible.filter((m) => !inSight(m));
   const row = (m: LocalModel) => (
@@ -357,14 +388,19 @@ export function LocalVoices({
       )}
       {pinned.map(row)}
       <KeptNote catalog={catalog} />
-      <Collapsed label={tf("Every voice ({n})", { n: String(voices.length) })} testid="local-voice-list">
+      <Collapsed
+        label={tf("Every voice ({n})", { n: String(voices.length) })}
+        testid="local-voice-list"
+      >
         <div class="flex flex-wrap gap-2" data-testid="local-voice-filters">
           <select
             class={inputCls}
             aria-label={t("Language")}
             data-testid="local-voice-language"
             value={language}
-            onChange={(e) => filter({ language: (e.target as HTMLSelectElement).value })}
+            onChange={(e) =>
+              filter({ language: (e.target as HTMLSelectElement).value })
+            }
           >
             <option value="">{t("Every language")}</option>
             {languages.map((code) => (
@@ -378,7 +414,9 @@ export function LocalVoices({
             aria-label={t("Quality")}
             data-testid="local-voice-quality"
             value={quality}
-            onChange={(e) => filter({ quality: (e.target as HTMLSelectElement).value })}
+            onChange={(e) =>
+              filter({ quality: (e.target as HTMLSelectElement).value })
+            }
           >
             <option value="">{t("Every quality")}</option>
             {QUALITY_FILTERS.map((q) => (
@@ -388,25 +426,48 @@ export function LocalVoices({
             ))}
           </select>
         </div>
-        {rest.length === 0 && <div class="text-xs text-[#7a7a8c]">{t("No voice matches these filters.")}</div>}
+        {rest.length === 0 && (
+          <div class="text-xs text-[#7a7a8c]">
+            {t("No voice matches these filters.")}
+          </div>
+        )}
         {rest.map(row)}
       </Collapsed>
       {isSupertonic(chosen) && loading?.gpuError && (
         <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
-          {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: workerError(loading.gpuError) })}
+          {tf(
+            "WebGPU could not start here ({reason}): Supertonic runs on the processor.",
+            { reason: workerError(loading.gpuError) },
+          )}
         </div>
       )}
       {isChatterbox(chosen) && <Emotion value={emotion} set={setEmotion} />}
-      <Failures sample={sample.error} download={dl?.error} load={loading?.error} catalog={error} />
+      <Failures
+        sample={sample.error}
+        download={dl?.error}
+        load={loading?.error}
+        catalog={error}
+      />
     </div>
   );
 }
 
 // listed are the voices the list shows, in the order it shows them: those the filters let
 // through, and the ones kept whatever the filters say (the voice in use, the one downloading).
-function listed(voices: LocalModel[], languages: string[], filters: Filters, kept: (string | undefined)[]): LocalModel[] {
-  const language = choose(languages.includes(filters.language), filters.language, "");
-  return byLanguage(voices).filter((m) => kept.includes(m.id) || shown(m, language, filters.quality));
+function listed(
+  voices: LocalModel[],
+  languages: string[],
+  filters: Filters,
+  kept: (string | undefined)[],
+): LocalModel[] {
+  const language = choose(
+    languages.includes(filters.language),
+    filters.language,
+    "",
+  );
+  return byLanguage(voices).filter(
+    (m) => kept.includes(m.id) || shown(m, language, filters.quality),
+  );
 }
 
 // The download the gateway is busy with, as the catalog reports it.
@@ -438,14 +499,21 @@ function VoiceRow({
 }) {
   const hearing = sample.playing === m.id;
   return (
-    <div class="flex items-center justify-between gap-3" data-testid={"local-voice-" + m.id}>
+    <div
+      class="flex items-center justify-between gap-3"
+      data-testid={"local-voice-" + m.id}
+    >
       <div class="flex items-center gap-2 min-w-0">
         {!m.sample && <span class="w-[32px] shrink-0" aria-hidden="true" />}
         {m.sample && (
           <button
             type="button"
             class={smallBtn + " w-[32px] shrink-0 px-0"}
-            aria-label={choose(hearing, t("Stop the sample"), tf("Hear {name}", { name: m.name }))}
+            aria-label={choose(
+              hearing,
+              t("Stop the sample"),
+              tf("Hear {name}", { name: m.name }),
+            )}
             aria-pressed={hearing}
             data-testid={"local-voice-sample-" + m.id}
             onClick={() => void sample.play(m.id)}
@@ -456,7 +524,11 @@ function VoiceRow({
         <div class="min-w-0">
           <div class="text-sm text-[#e8e8ea] truncate">
             {m.name} ·{" "}
-            {choose(m.lang === MANY_LANGS, tf("{n} languages", { n: String(LANGUAGES_OF[m.engine] ?? "") }), m.lang)}
+            {choose(
+              m.lang === MANY_LANGS,
+              tf("{n} languages", { n: String(LANGUAGES_OF[m.engine] ?? "") }),
+              m.lang,
+            )}
           </div>
           <div class="text-xs text-[#7a7a8c]">
             {ENGINES[m.engine] ?? ""}
@@ -465,7 +537,16 @@ function VoiceRow({
           </div>
         </div>
       </div>
-      <VoiceState m={m} chosen={chosen} pick={pick} loading={loading} dl={dl} busy={busy} act={act} api={api} />
+      <VoiceState
+        m={m}
+        chosen={chosen}
+        pick={pick}
+        loading={loading}
+        dl={dl}
+        busy={busy}
+        act={act}
+        api={api}
+      />
     </div>
   );
 }
@@ -495,7 +576,10 @@ function VoiceState({
   if (downloading && dl.id === m.id) {
     const pct = Math.floor((100 * dl.done) / Math.max(dl.total, 1));
     return (
-      <output class="text-xs text-[#a0a0b0]" data-testid={"local-voice-progress-" + m.id}>
+      <output
+        class="text-xs text-[#a0a0b0]"
+        data-testid={"local-voice-progress-" + m.id}
+      >
         {tf("Downloading… {pct}%", { pct: String(pct) })}
       </output>
     );
@@ -564,7 +648,10 @@ function UseVoice({
   }
   if (inUse && loading && !loading.ready) {
     return (
-      <output class="text-xs text-[#a0a0b0]" data-testid={"local-voice-loading-" + m.id}>
+      <output
+        class="text-xs text-[#a0a0b0]"
+        data-testid={"local-voice-loading-" + m.id}
+      >
         {tf("Loading into memory… {pct}%", { pct: String(loading.pct) })}
       </output>
     );
@@ -597,10 +684,23 @@ function Failures({
 }) {
   const alerts = [
     { kind: "sample", text: sample },
-    { kind: "download", text: choose(download, tf("The download failed: {error}", { error: download ?? "" }), "") },
+    {
+      kind: "download",
+      text: choose(
+        download,
+        tf("The download failed: {error}", { error: download ?? "" }),
+        "",
+      ),
+    },
     {
       kind: "load",
-      text: choose(load, tf("The voice could not be loaded: {error}", { error: workerError(load ?? "") }), ""),
+      text: choose(
+        load,
+        tf("The voice could not be loaded: {error}", {
+          error: workerError(load ?? ""),
+        }),
+        "",
+      ),
     },
     { kind: "catalog", text: catalog },
   ];
@@ -638,10 +738,14 @@ function Emotion({ value, set }: { value: number; set: (n: number) => void }) {
           value={value}
           onInput={(e) => set(Number((e.target as HTMLInputElement).value))}
         />
-        <span class="w-10 text-right text-xs text-[#a0a0b0] tabular-nums">{value.toLocaleString(lang())}</span>
+        <span class="w-10 text-right text-xs text-[#a0a0b0] tabular-nums">
+          {value.toLocaleString(lang())}
+        </span>
       </label>
       <div class="text-xs text-[#7a7a8c]">
-        {t("How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.")}
+        {t(
+          "How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.",
+        )}
       </div>
     </div>
   );

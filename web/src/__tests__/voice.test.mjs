@@ -47,7 +47,12 @@ test("the switches: the microphone on and hands-free off by default, and both ar
   // What another version (or a hand) stored, of the wrong kind, reads as nothing chosen.
   localStorage.setItem(
     m.VOICE_KEY,
-    JSON.stringify({ engine: "cloud", listener: 3, language: null, deviceId: 7 }),
+    JSON.stringify({
+      engine: "cloud",
+      listener: 3,
+      language: null,
+      deviceId: 7,
+    }),
   );
   const odd = m.loadVoicePrefs();
   assert.deepEqual(
@@ -65,12 +70,21 @@ test("why speech input can or cannot be used, in the order a person can fix it",
   assert.equal(m.voiceState(false, true, on, local), "insecure");
   assert.equal(m.voiceState(true, false, on, local), "unsupported");
   assert.equal(m.voiceState(true, true, null, service), "off");
-  assert.equal(m.voiceState(true, true, { ...on, enabled: false }, service), "off");
+  assert.equal(
+    m.voiceState(true, true, { ...on, enabled: false }, service),
+    "off",
+  );
   assert.equal(m.voiceState(true, true, on, service), "ready");
   // Listening in the browser needs no service, but a model, and a browser that runs one.
   assert.equal(m.voiceState(true, true, null, local), "ready");
-  assert.equal(m.voiceState(true, true, on, { ...local, listener: "" }), "no-model");
-  assert.equal(m.voiceState(true, true, on, { ...local, runs: false }), "unsupported");
+  assert.equal(
+    m.voiceState(true, true, on, { ...local, listener: "" }),
+    "no-model",
+  );
+  assert.equal(
+    m.voiceState(true, true, on, { ...local, runs: false }),
+    "unsupported",
+  );
   assert.equal(m.listenState("ready", on), "ready");
   assert.equal(
     m.listenState("ready", { ...on, wake_phrases: [] }),
@@ -82,10 +96,24 @@ test("why speech input can or cannot be used, in the order a person can fix it",
 test("who listens: the one chosen, else the browser's model, else a service that is on", () => {
   const prefs = { ...m.DEFAULT_VOICE_PREFS };
   const on = { enabled: true, wake_phrases: [], max_audio_bytes: 1 };
-  assert.equal(m.listenEngine(prefs, null), "local", "nothing set up: the model is offered");
-  assert.equal(m.listenEngine(prefs, on), "service", "a service already on keeps working");
-  assert.equal(m.listenEngine({ ...prefs, listener: "whisper-base" }, on), "local");
-  assert.equal(m.listenEngine({ ...prefs, engine: "service" }, null), "service");
+  assert.equal(
+    m.listenEngine(prefs, null),
+    "local",
+    "nothing set up: the model is offered",
+  );
+  assert.equal(
+    m.listenEngine(prefs, on),
+    "service",
+    "a service already on keeps working",
+  );
+  assert.equal(
+    m.listenEngine({ ...prefs, listener: "whisper-base" }, on),
+    "local",
+  );
+  assert.equal(
+    m.listenEngine({ ...prefs, engine: "service" }, null),
+    "service",
+  );
   assert.equal(m.listenEngine({ ...prefs, engine: "local" }, on), "local");
 });
 

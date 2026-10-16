@@ -22,10 +22,33 @@ const { h, render } = await import("preact");
 
 const base = { access: "", default: false, models: [] };
 const P = {
-  anthropic: { ...base, id: "anthropic", name: "Anthropic", key: "stored", models: [{ id: "claude-a", label: "Claude A" }, { id: "claude-b", label: "Claude B" }], default: true },
-  openai: { ...base, id: "openai", name: "OpenAI", key: "env", models: [{ id: "gpt-x", label: "GPT X" }], listed_models: ["gpt-live", "gpt-x"] },
+  anthropic: {
+    ...base,
+    id: "anthropic",
+    name: "Anthropic",
+    key: "stored",
+    models: [
+      { id: "claude-a", label: "Claude A" },
+      { id: "claude-b", label: "Claude B" },
+    ],
+    default: true,
+  },
+  openai: {
+    ...base,
+    id: "openai",
+    name: "OpenAI",
+    key: "env",
+    models: [{ id: "gpt-x", label: "GPT X" }],
+    listed_models: ["gpt-live", "gpt-x"],
+  },
   ollama: { ...base, id: "ollama", name: "Ollama", key: "not_needed" },
-  gone: { ...base, id: "gone", name: "Gone", key: "missing", models: [{ id: "g1", label: "G1" }] },
+  gone: {
+    ...base,
+    id: "gone",
+    name: "Gone",
+    key: "missing",
+    models: [{ id: "g1", label: "G1" }],
+  },
 };
 const VIEW = {
   provider: "anthropic",
@@ -59,7 +82,9 @@ async function select(el, value) {
   if (el.tagName === "BUTTON") {
     click(el);
     await settle();
-    const li = [...document.querySelectorAll(`#${el.id}-list li`)].find((x) => x.dataset.value === value);
+    const li = [...document.querySelectorAll(`#${el.id}-list li`)].find(
+      (x) => x.dataset.value === value,
+    );
     click(li);
     await settle();
     return;
@@ -89,7 +114,16 @@ const OTHER = "\u0000other";
 
 test("ModelPicker: a field alone for a provider with no list", async () => {
   const got = [];
-  const m = await mount(h(ModelPicker, { id: "mp", provider: P.ollama, value: "llama3", disabled: false, ariaLabel: "Model", onChange: (v) => got.push(v) }));
+  const m = await mount(
+    h(ModelPicker, {
+      id: "mp",
+      provider: P.ollama,
+      value: "llama3",
+      disabled: false,
+      ariaLabel: "Model",
+      onChange: (v) => got.push(v),
+    }),
+  );
   assert.equal(m.root.querySelector("select"), null);
   const input = m.root.querySelector("input");
   assert.equal(input.id, "mp");
@@ -97,7 +131,15 @@ test("ModelPicker: a field alone for a provider with no list", async () => {
   assert.equal(input.getAttribute("aria-label"), "Model");
   type(input, "qwen");
   assert.deepEqual(got, ["qwen"]);
-  await m.rerender(h(ModelPicker, { id: "mp", provider: undefined, value: "", disabled: true, onChange() {} }));
+  await m.rerender(
+    h(ModelPicker, {
+      id: "mp",
+      provider: undefined,
+      value: "",
+      disabled: true,
+      onChange() {},
+    }),
+  );
   assert.equal(m.root.querySelector("input").disabled, true);
   await m.unmount();
 });
@@ -105,10 +147,19 @@ test("ModelPicker: a field alone for a provider with no list", async () => {
 test("ModelPicker: a listed model is picked; Other… opens a field; an unlisted value shows in it", async () => {
   let value = "claude-a";
   const got = [];
-  const props = () => ({ id: "mp", provider: P.anthropic, value, disabled: false, onChange: (v) => (got.push(v), (value = v)) });
+  const props = () => ({
+    id: "mp",
+    provider: P.anthropic,
+    value,
+    disabled: false,
+    onChange: (v) => (got.push(v), (value = v)),
+  });
   const m = await mount(h(ModelPicker, props()));
   const sel = m.root.querySelector("button#mp");
-  assert.deepEqual((await rows(sel)).map((r) => r[1]), ["Claude A", "Claude B", "Other…"]);
+  assert.deepEqual(
+    (await rows(sel)).map((r) => r[1]),
+    ["Claude A", "Claude B", "Other…"],
+  );
   assert.equal(sel.value, "claude-a");
   assert.equal(m.root.querySelector("input"), null);
 
@@ -132,8 +183,19 @@ test("ModelPicker: a listed model is picked; Other… opens a field; an unlisted
   await m.unmount();
 
   // An unlisted value from the start is shown in the field.
-  const n = await mount(h(ModelPicker, { id: "x", provider: P.openai, value: "custom-1", disabled: false, onChange() {} }));
-  assert.deepEqual((await rows(n.root.querySelector("button"))).map((r) => r[0]), ["gpt-live", "gpt-x", OTHER]);
+  const n = await mount(
+    h(ModelPicker, {
+      id: "x",
+      provider: P.openai,
+      value: "custom-1",
+      disabled: false,
+      onChange() {},
+    }),
+  );
+  assert.deepEqual(
+    (await rows(n.root.querySelector("button"))).map((r) => r[0]),
+    ["gpt-live", "gpt-x", OTHER],
+  );
   assert.equal(n.root.querySelector("button").value, OTHER);
   assert.equal(n.root.querySelector("input").value, "custom-1");
   await n.unmount();
@@ -141,34 +203,75 @@ test("ModelPicker: a listed model is picked; Other… opens a field; an unlisted
 
 test("ModelPicker: each option carries its capability and cost chips in words, and the price shows once under it", async () => {
   const rich = {
-    ...base, id: "rich", name: "Rich", key: "stored",
+    ...base,
+    id: "rich",
+    name: "Rich",
+    key: "stored",
     models: [
-      { id: "big", label: "Big", tier: "frontier", cost: "high", price_in: 4, price_out: 20.5 },
+      {
+        id: "big",
+        label: "Big",
+        tier: "frontier",
+        cost: "high",
+        price_in: 4,
+        price_out: 20.5,
+      },
       { id: "small", label: "Small", tier: "basic", cost: "local" },
       { id: "mid", label: "Mid", tier: "mid", cost: "mid" },
       { id: "cost", label: "Cost", cost: "low" },
       { id: "odd", label: "Odd", tier: "weird", cost: "weird" },
       { id: "plain", label: "Plain" },
-      { id: "guess", label: "Guess", tier: "mid", cost: "low", estimated: true },
+      {
+        id: "guess",
+        label: "Guess",
+        tier: "mid",
+        cost: "low",
+        estimated: true,
+      },
     ],
   };
   let value = "big";
-  const props = () => ({ id: "r", provider: rich, value, disabled: false, onChange: (v) => (value = v) });
+  const props = () => ({
+    id: "r",
+    provider: rich,
+    value,
+    disabled: false,
+    onChange: (v) => (value = v),
+  });
   const m = await mount(h(ModelPicker, props()));
   const trigger = m.root.querySelector("button#r");
   // The closed picker names the model with its chips, and nothing else repeats them.
   assert.equal(text(trigger), "BigVery capableExpensive▾");
-  assert.equal(text(m.root.querySelector("[data-testid=model-facts]")), "About $4 / $20.5 per million tokens, read / written");
-  assert.deepEqual((await rows(trigger)).map((r) => r[1]), [
-    "BigVery capableExpensive", "SmallBasicFree (local)", "MidCapableModerate", "CostCheap", "Odd", "Plain", "Guess~Capable~Cheap", "Other…",
-  ]);
+  assert.equal(
+    text(m.root.querySelector("[data-testid=model-facts]")),
+    "About $4 / $20.5 per million tokens, read / written",
+  );
+  assert.deepEqual(
+    (await rows(trigger)).map((r) => r[1]),
+    [
+      "BigVery capableExpensive",
+      "SmallBasicFree (local)",
+      "MidCapableModerate",
+      "CostCheap",
+      "Odd",
+      "Plain",
+      "Guess~Capable~Cheap",
+      "Other…",
+    ],
+  );
   assert.equal(m.root.querySelectorAll(".llm-chip").length, 2);
   // A guess from the name is marked with a tilde and says so on hover; a catalogue fact is not.
   await select(trigger, "guess");
   await m.rerender(h(ModelPicker, props()));
   assert.equal(text(trigger), "Guess~Capable~Cheap▾");
-  assert.equal(trigger.querySelector(".llm-chips").title, "Estimated from the model's name");
-  assert.equal(text(m.root.querySelector("[data-testid=model-facts]") || ""), "");
+  assert.equal(
+    trigger.querySelector(".llm-chips").title,
+    "Estimated from the model's name",
+  );
+  assert.equal(
+    text(m.root.querySelector("[data-testid=model-facts]") || ""),
+    "",
+  );
   await select(trigger, "big");
   await m.rerender(h(ModelPicker, props()));
   assert.equal(trigger.querySelector(".llm-chips").title, "");
@@ -189,11 +292,21 @@ test("ModelPicker: each option carries its capability and cost chips in words, a
 
 test("ModelPicker: the list opens and closes, and the keyboard walks it", async () => {
   const got = [];
-  const props = (value) => ({ id: "k", provider: P.anthropic, value, disabled: false, onChange: (v) => got.push(v) });
+  const props = (value) => ({
+    id: "k",
+    provider: P.anthropic,
+    value,
+    disabled: false,
+    onChange: (v) => got.push(v),
+  });
   const m = await mount(h(ModelPicker, props("claude-a")));
   const trigger = m.root.querySelector("button#k");
   const key = async (k) => {
-    const e = new window.KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+    const e = new window.KeyboardEvent("keydown", {
+      key: k,
+      bubbles: true,
+      cancelable: true,
+    });
     trigger.dispatchEvent(e);
     await settle();
     return e.defaultPrevented;
@@ -208,7 +321,10 @@ test("ModelPicker: the list opens and closes, and the keyboard walks it", async 
   // The arrows open it, move the active row and stop at the ends.
   assert.equal(await key("ArrowDown"), true);
   assert.ok(list());
-  const active = () => [...list().querySelectorAll("li")].findIndex((li) => li.className === "active");
+  const active = () =>
+    [...list().querySelectorAll("li")].findIndex(
+      (li) => li.className === "active",
+    );
   assert.equal(active(), 1);
   await key("ArrowDown");
   await key("ArrowDown");
@@ -235,7 +351,10 @@ test("ModelPicker: the list opens and closes, and the keyboard walks it", async 
   click(trigger);
   await settle();
   assert.ok(list());
-  const press = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  const press = new window.MouseEvent("mousedown", {
+    bubbles: true,
+    cancelable: true,
+  });
   list().querySelector("li").dispatchEvent(press);
   assert.equal(press.defaultPrevented, true);
   click(trigger);
@@ -248,7 +367,9 @@ test("ModelPicker: the list opens and closes, and the keyboard walks it", async 
   assert.equal(list(), null);
   await m.unmount();
   // A disabled picker cannot open.
-  const d = await mount(h(ModelPicker, { ...props("claude-a"), disabled: true }));
+  const d = await mount(
+    h(ModelPicker, { ...props("claude-a"), disabled: true }),
+  );
   assert.equal(d.root.querySelector("button#k").disabled, true);
   await d.unmount();
 });
@@ -257,7 +378,9 @@ test("ModelPicker: the list opens and closes, and the keyboard walks it", async 
 
 test("the tab loads, and a refused load says why", async () => {
   let answer;
-  const slow = fakeApi({ "GET /v1/llm": () => new Promise((r) => (answer = r)) });
+  const slow = fakeApi({
+    "GET /v1/llm": () => new Promise((r) => (answer = r)),
+  });
   const s = await mount(h(ModelSettings, { api: slow.api, onNotice() {} }));
   assert.match(text(s.root), /Loading…/);
   answer(json(200, VIEW));
@@ -265,12 +388,20 @@ test("the tab loads, and a refused load says why", async () => {
   assert.doesNotMatch(text(s.root), /Loading…/);
   assert.ok(s.root.querySelector("[data-testid=llm-default]"));
   // Without a date from the gateway the hint stays as it is; with one it says when prices were checked.
-  assert.doesNotMatch(text(s.root.querySelector("[data-testid=model-legend]")), /checked/);
+  assert.doesNotMatch(
+    text(s.root.querySelector("[data-testid=model-legend]")),
+    /checked/,
+  );
   await s.unmount();
 
-  const dated = fakeApi({ "GET /v1/llm": json(200, { ...VIEW, prices_checked: "2026-10-16" }) });
+  const dated = fakeApi({
+    "GET /v1/llm": json(200, { ...VIEW, prices_checked: "2026-10-16" }),
+  });
   const d = await mount(h(ModelSettings, { api: dated.api, onNotice() {} }));
-  assert.match(text(d.root.querySelector("[data-testid=model-legend]")), /Prices checked on 2026-10-16\.$/);
+  assert.match(
+    text(d.root.querySelector("[data-testid=model-legend]")),
+    /Prices checked on 2026-10-16\.$/,
+  );
   await d.unmount();
 
   const f = fakeApi({ "GET /v1/llm": json(500, { error: "no llm" }) });
@@ -284,13 +415,19 @@ test("the default model: connected providers, a new pick, and a save", async () 
   const notices = [];
   const f = fakeApi({
     "GET /v1/llm": json(200, VIEW),
-    "PUT /v1/llm/default": (_p, init) => json(200, { ...VIEW, ...JSON.parse(init.body) }),
+    "PUT /v1/llm/default": (_p, init) =>
+      json(200, { ...VIEW, ...JSON.parse(init.body) }),
   });
-  const m = await mount(h(ModelSettings, { api: f.api, onNotice: (x) => notices.push(x) }));
+  const m = await mount(
+    h(ModelSettings, { api: f.api, onNotice: (x) => notices.push(x) }),
+  );
   const form = m.root.querySelector("[data-testid=llm-default]");
   const prov = form.querySelector("#llm-default-provider");
   // The provider without a key is not offered.
-  assert.deepEqual([...prov.options].map((o) => o.value), ["anthropic", "openai", "ollama"]);
+  assert.deepEqual(
+    [...prov.options].map((o) => o.value),
+    ["anthropic", "openai", "ollama"],
+  );
   assert.match(text(form), /Sessions already open keep their own model\./);
   const save = btn(form, "Save");
   assert.equal(save.disabled, true);
@@ -312,7 +449,11 @@ test("the default model: connected providers, a new pick, and a save", async () 
   assert.equal(btn(form, "Save").disabled, true);
   await select(form.querySelector("#llm-default-model"), "claude-b");
   await press(btn(form, "Save"));
-  assert.deepEqual(f.calls.at(-1), { method: "PUT", path: "/v1/llm/default", body: { provider: "anthropic", model: "claude-b" } });
+  assert.deepEqual(f.calls.at(-1), {
+    method: "PUT",
+    path: "/v1/llm/default",
+    body: { provider: "anthropic", model: "claude-b" },
+  });
   assert.deepEqual(notices, ["New sessions will start with claude-b"]);
   assert.equal(btn(form, "Save").disabled, true);
   await m.unmount();
@@ -320,14 +461,23 @@ test("the default model: connected providers, a new pick, and a save", async () 
 
 test("a refused default is shown; a provider that is no longer known is listed and offers nothing", async () => {
   const f = fakeApi({
-    "GET /v1/llm": json(200, { ...VIEW, provider: "gone", model: "g1", tasks: undefined, task_kinds: undefined }),
+    "GET /v1/llm": json(200, {
+      ...VIEW,
+      provider: "gone",
+      model: "g1",
+      tasks: undefined,
+      task_kinds: undefined,
+    }),
     "PUT /v1/llm/default": json(400, { error: "unknown model" }),
   });
   const m = await mount(h(ModelSettings, { api: f.api, onNotice() {} }));
   const form = m.root.querySelector("[data-testid=llm-default]");
   const prov = form.querySelector("#llm-default-provider");
   // The provider in force stays listed even without its key.
-  assert.deepEqual([...prov.options].map((o) => o.value), ["anthropic", "openai", "ollama", "gone"]);
+  assert.deepEqual(
+    [...prov.options].map((o) => o.value),
+    ["anthropic", "openai", "ollama", "gone"],
+  );
   // A value no option has (the select empties): no provider, no model.
   await select(prov, "nowhere");
   assert.equal(form.querySelector("input#llm-default-model").value, "");
@@ -339,19 +489,31 @@ test("a refused default is shown; a provider that is no longer known is listed a
   assert.equal(form.querySelector("[role=alert]"), null);
   // Without kinds from the gateway, the known ones are listed.
   const tasks = m.root.querySelector("[data-testid=llm-tasks]");
-  assert.deepEqual([...tasks.querySelectorAll("[data-kind]")].map((r) => r.dataset.kind), ["plan", "code", "review", "research", "summary", "cheap", "strong"]);
+  assert.deepEqual(
+    [...tasks.querySelectorAll("[data-kind]")].map((r) => r.dataset.kind),
+    ["plan", "code", "review", "research", "summary", "cheap", "strong"],
+  );
   await m.unmount();
 });
 
 test("a read-only gateway, and one with no provider connected", async () => {
   const f = fakeApi({
-    "GET /v1/llm": json(200, { ...VIEW, writable: false, providers: [P.gone], provider: "gone", model: "g1" }),
+    "GET /v1/llm": json(200, {
+      ...VIEW,
+      writable: false,
+      providers: [P.gone],
+      provider: "gone",
+      model: "g1",
+    }),
   });
   const m = await mount(h(ModelSettings, { api: f.api, onNotice() {} }));
   assert.ok(m.root.querySelector("[data-testid=llm-readonly]"));
   assert.equal(m.root.querySelector("#llm-default-provider").disabled, true);
   const tips = [...m.root.querySelectorAll(".llm-actions p")].map(text);
-  assert.deepEqual(tips, ["Connect a provider in Providers first.", "Connect a provider in Providers first."]);
+  assert.deepEqual(tips, [
+    "Connect a provider in Providers first.",
+    "Connect a provider in Providers first.",
+  ]);
   for (const b of m.root.querySelectorAll("button[type=submit]")) {
     assert.equal(b.disabled, true);
   }
@@ -366,11 +528,19 @@ test("each kind of work can follow the default or get its own model", async () =
     "GET /v1/llm": json(200, VIEW),
     "PUT /v1/llm/tasks": () => new Promise((r) => (saving = r)),
   });
-  const m = await mount(h(ModelSettings, { api: f.api, onNotice: (x) => notices.push(x) }));
+  const m = await mount(
+    h(ModelSettings, { api: f.api, onNotice: (x) => notices.push(x) }),
+  );
   const form = m.root.querySelector("[data-testid=llm-tasks]");
   const row = (k) => form.querySelector(`[data-kind=${k}]`);
-  assert.deepEqual([...form.querySelectorAll("[data-kind]")].map((r) => r.dataset.kind), VIEW.task_kinds);
-  assert.match(text(row("plan")), /^PlanningPlan mode: explores and proposes, changes nothing\.Same as default/);
+  assert.deepEqual(
+    [...form.querySelectorAll("[data-kind]")].map((r) => r.dataset.kind),
+    VIEW.task_kinds,
+  );
+  assert.match(
+    text(row("plan")),
+    /^PlanningPlan mode: explores and proposes, changes nothing\.Same as default/,
+  );
   // A kind the page does not know shows under the gateway's name, with no hint.
   assert.equal(text(row("triage").querySelector("label")), "triage");
   assert.equal(row("triage").querySelector("p"), null);
@@ -381,7 +551,10 @@ test("each kind of work can follow the default or get its own model", async () =
   // The assigned kind shows its provider and model.
   assert.equal(form.querySelector("#llm-task-code-provider").value, "openai");
   assert.equal(form.querySelector("#llm-task-code-model").value, "gpt-x");
-  assert.equal(form.querySelector("#llm-task-code-model").getAttribute("aria-label"), "Model for Coding");
+  assert.equal(
+    form.querySelector("#llm-task-code-model").getAttribute("aria-label"),
+    "Model for Coding",
+  );
   // Picking its saved provider again brings its saved model back.
   await select(form.querySelector("#llm-task-code-provider"), "anthropic");
   assert.equal(form.querySelector("#llm-task-code-model").value, "claude-a");
@@ -405,9 +578,20 @@ test("each kind of work can follow the default or get its own model", async () =
   await press(btn(form, "Save"));
   assert.equal(btn(form, "Saving…").disabled, true);
   assert.deepEqual(f.calls.at(-1).body, {
-    tasks: { code: { provider: "openai", model: "gpt-x" }, plan: { provider: "openai", model: "gpt-live" } },
+    tasks: {
+      code: { provider: "openai", model: "gpt-x" },
+      plan: { provider: "openai", model: "gpt-live" },
+    },
   });
-  saving(json(200, { ...VIEW, tasks: { code: { provider: "openai", model: "gpt-x" }, plan: { provider: "openai", model: "gpt-live" } } }));
+  saving(
+    json(200, {
+      ...VIEW,
+      tasks: {
+        code: { provider: "openai", model: "gpt-x" },
+        plan: { provider: "openai", model: "gpt-live" },
+      },
+    }),
+  );
   await settle();
   assert.deepEqual(notices, ["Models per kind of work saved"]);
   assert.equal(btn(form, "Save").disabled, true);
@@ -416,13 +600,23 @@ test("each kind of work can follow the default or get its own model", async () =
 
 test("a kind whose saved model is empty, a provider no option has, and a refused save", async () => {
   const f = fakeApi({
-    "GET /v1/llm": json(200, { ...VIEW, tasks: { code: { provider: "openai", model: "" }, plan: { provider: "gone", model: "g1" } } }),
+    "GET /v1/llm": json(200, {
+      ...VIEW,
+      tasks: {
+        code: { provider: "openai", model: "" },
+        plan: { provider: "gone", model: "g1" },
+      },
+    }),
     "PUT /v1/llm/tasks": json(500, { error: "tasks refused" }),
   });
   const m = await mount(h(ModelSettings, { api: f.api, onNotice() {} }));
   const form = m.root.querySelector("[data-testid=llm-tasks]");
   // The saved provider of a kind stays listed even without its key.
-  assert.ok([...form.querySelector("#llm-task-plan-provider").options].some((o) => o.value === "gone"));
+  assert.ok(
+    [...form.querySelector("#llm-task-plan-provider").options].some(
+      (o) => o.value === "gone",
+    ),
+  );
   // Picking the saved provider of a kind with no saved model: empty.
   await select(form.querySelector("#llm-task-code-provider"), "anthropic");
   await select(form.querySelector("#llm-task-code-provider"), "openai");

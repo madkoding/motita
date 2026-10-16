@@ -85,7 +85,11 @@ test("zoom, fit, pair navigation and close work", async () => {
   await act(() => key("Escape"));
   assert.equal(closed, 1);
   await act(() => render(null, root));
-  assert.equal(document.querySelector(".lb"), null, "unmounting takes the portal down");
+  assert.equal(
+    document.querySelector(".lb"),
+    null,
+    "unmounting takes the portal down",
+  );
 });
 
 test("a single image has no navigation", async () => {

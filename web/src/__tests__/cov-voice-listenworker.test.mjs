@@ -22,8 +22,16 @@ class Tensor {
   }
 }
 globalThis.__covListenFake = {
-  cpu: { env: { wasm: {} }, Tensor, InferenceSession: { create: session("cpu") } },
-  gpu: { env: { wasm: {} }, Tensor, InferenceSession: { create: session("gpu") } },
+  cpu: {
+    env: { wasm: {} },
+    Tensor,
+    InferenceSession: { create: session("cpu") },
+  },
+  gpu: {
+    env: { wasm: {} },
+    Tensor,
+    InferenceSession: { create: session("gpu") },
+  },
 };
 const fakeOrt = (kind) =>
   `const f = globalThis.__covListenFake.${kind};\nexport const env = f.env, Tensor = f.Tensor, InferenceSession = f.InferenceSession;\n`;
@@ -72,7 +80,8 @@ async function next(match, from) {
   }
   throw new Error("no message came: " + JSON.stringify(posted));
 }
-const outcome = (id) => (m) => m.id === id && (m.kind === "ready" || m.kind === "failed");
+const outcome = (id) => (m) =>
+  m.id === id && (m.kind === "ready" || m.kind === "failed");
 
 test("a model loads with its progress, writes down a recording, and is forgotten", async () => {
   let from = posted.length;
@@ -83,12 +92,25 @@ test("a model loads with its progress, writes down a recording, and is forgotten
     gpu: false,
     gpuError: undefined,
   });
-  assert.ok(posted.slice(from).some((m) => m.kind === "progress"), "its progress is told");
+  assert.ok(
+    posted.slice(from).some((m) => m.kind === "progress"),
+    "its progress is told",
+  );
   assert.deepEqual(made.at(-1).opts, { executionProviders: ["wasm"] });
 
   from = posted.length;
-  send({ kind: "hear", seq: 1, id: "whisper-base", samples: new Float32Array(1600), lang: "" });
-  assert.deepEqual(await next((m) => m.seq === 1, from), { seq: 1, text: "mundo hola!", lang: "es" });
+  send({
+    kind: "hear",
+    seq: 1,
+    id: "whisper-base",
+    samples: new Float32Array(1600),
+    lang: "",
+  });
+  assert.deepEqual(await next((m) => m.seq === 1, from), {
+    seq: 1,
+    text: "mundo hola!",
+    lang: "es",
+  });
 
   send({ kind: "forget", id: "whisper-base" });
   const before = made.length;
@@ -108,8 +130,17 @@ test("a model that cannot be had says why, and so does a recording it cannot wri
     error: "HTTP 404 /v1/voice/models/whisper-gone/encoder.onnx",
   });
   from = posted.length;
-  send({ kind: "hear", seq: 2, id: "whisper-broken", samples: new Float32Array(10), lang: "es" });
-  assert.deepEqual(await next((m) => m.seq === 2, from), { seq: 2, error: "bad model" });
+  send({
+    kind: "hear",
+    seq: 2,
+    id: "whisper-broken",
+    samples: new Float32Array(10),
+    lang: "es",
+  });
+  assert.deepEqual(await next((m) => m.seq === 2, from), {
+    seq: 2,
+    error: "bad model",
+  });
 });
 
 test("the model for the graphics card runs there, or says why it could not", async () => {
@@ -121,7 +152,10 @@ test("the model for the graphics card runs there, or says why it could not", asy
     gpu: false,
     gpuError: "this browser has no WebGPU in its workers",
   });
-  assert.ok(!fetched.some((u) => u.endsWith(".asyncify.wasm")), "without WebGPU its runtime is not fetched");
+  assert.ok(
+    !fetched.some((u) => u.endsWith(".asyncify.wasm")),
+    "without WebGPU its runtime is not fetched",
+  );
   // Asked to load WebGPU's runtime anyway, it says the same.
   const { gpuOrt } = await source("workerOrt.ts");
   await assert.rejects(gpuOrt(new ArrayBuffer(0)), /no WebGPU in its workers/);

@@ -4,7 +4,13 @@
 // Run with: node --test web/src/__tests__/cov-git-connect.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { installDom, loadSources, fakeApi, json, text } from "./cov-git-helpers.mjs";
+import {
+  installDom,
+  loadSources,
+  fakeApi,
+  json,
+  text,
+} from "./cov-git-helpers.mjs";
 
 installDom();
 const { GitConnectModal, Spinner } = await loadSources({
@@ -75,7 +81,9 @@ const ACCOUNTS = [
   },
 ];
 
-const accountsRoute = { "GET /v1/git/accounts": json(200, { accounts: ACCOUNTS }) };
+const accountsRoute = {
+  "GET /v1/git/accounts": json(200, { accounts: ACCOUNTS }),
+};
 
 async function mount(routes, props = {}) {
   const f = fakeApi({ ...accountsRoute, ...routes });
@@ -270,7 +278,11 @@ test("Bitbucket needs the account name and an app password; a refusal is shown; 
   const form = m.root.querySelector("form");
   const [userIn, tokenIn] = form.querySelectorAll("input");
   await type(tokenIn, "apppass");
-  assert.equal(button(form, "Connect").disabled, true, "the user is still missing");
+  assert.equal(
+    button(form, "Connect").disabled,
+    true,
+    "the user is still missing",
+  );
   await type(userIn, " bob ");
   assert.equal(button(form, "Connect").disabled, false);
 
@@ -308,7 +320,12 @@ test("Bitbucket needs the account name and an app password; a refusal is shown; 
 
 test("a self-hosted server not connected yet: the token form, sent by kind and host", async () => {
   const m = await mount(
-    { "POST /v1/git/connect": json(200, { account: "ann", service: "gitea@git.example.com" }) },
+    {
+      "POST /v1/git/connect": json(200, {
+        account: "ann",
+        service: "gitea@git.example.com",
+      }),
+    },
     { selfHosted: { kind: "gitea", host: "git.example.com" } },
   );
   assert.equal(title(m.root), "Connect git.example.com");
@@ -342,7 +359,10 @@ test("a known self-hosted server can switch between the token and the browser lo
   assert.equal(m.root.querySelector("form"), null);
   await click(button(m.root, "Connect lab.corp.io"));
   const post = m.f.calls.find((c) => c.method === "POST");
-  assert.deepEqual(post.body, { service: "gitlab@lab.corp.io", method: "code" });
+  assert.deepEqual(post.body, {
+    service: "gitlab@lab.corp.io",
+    method: "code",
+  });
   // The gateway connected it at once (no flow) and named no service.
   assert.deepEqual(m.connected, [["gitlab@lab.corp.io", "ann"]]);
   assert.equal(m.closed.length, 1);
@@ -351,7 +371,9 @@ test("a known self-hosted server can switch between the token and the browser lo
 
 test("a host the gateway connects at once is reported under the service it names", async () => {
   const m = await mount(
-    { "POST /v1/git/connect": json(200, { account: "lab", service: "gitlab" }) },
+    {
+      "POST /v1/git/connect": json(200, { account: "lab", service: "gitlab" }),
+    },
     { service: "gitlab" },
   );
   await click(button(m.root, "Connect GitLab"));
@@ -401,8 +423,14 @@ test("device login: contacting, the code to enter, copying it, then connected by
     });
   await act(() => releaseConnect());
   await settle();
-  assert.equal(text(m.root.querySelector("[data-testid=device-code]")), "ABCD-1234");
-  assert.match(text(m.root), /Open GitHub, enter this code and approve the access\./);
+  assert.equal(
+    text(m.root.querySelector("[data-testid=device-code]")),
+    "ABCD-1234",
+  );
+  assert.match(
+    text(m.root),
+    /Open GitHub, enter this code and approve the access\./,
+  );
   assert.match(text(m.root), /Waiting for you to approve in GitHub…/);
   assert.equal(
     m.root.querySelector("a[href]").href,
@@ -480,7 +508,10 @@ test("browser login: the redirect link, a code pasted by hand, and Cancel", asyn
     { service: "gitlab" },
   );
   await click(button(m.root, "Connect GitLab"));
-  assert.match(text(m.root), /Authorize motita in GitLab\. This page notices when you are done\./);
+  assert.match(
+    text(m.root),
+    /Authorize motita in GitLab\. This page notices when you are done\./,
+  );
   const a = m.root.querySelector("a[href]");
   assert.equal(a.href, "https://gitlab.com/oauth/authorize?x=1");
   assert.match(text(a), /Open GitLab to authorize/);
@@ -509,7 +540,9 @@ test("browser login: the redirect link, a code pasted by hand, and Cancel", asyn
 
   await click(button(m.root, "Cancel"));
   assert.ok(
-    m.f.calls.some((c) => c.method === "DELETE" && c.path === "/v1/git/flows/c1"),
+    m.f.calls.some(
+      (c) => c.method === "DELETE" && c.path === "/v1/git/flows/c1",
+    ),
   );
   // Back to the start: the one-click login is offered again.
   assert.ok(button(m.root, "Connect GitLab"));
@@ -589,7 +622,10 @@ test("a login the host refused ends in the error, and closing then cancels nothi
         url: "u",
         code: "C",
       }),
-      "GET /v1/git/flows/": json(200, { status: "failed", error: "access_denied" }),
+      "GET /v1/git/flows/": json(200, {
+        status: "failed",
+        error: "access_denied",
+      }),
       "DELETE /v1/git/flows/": json(204),
     },
     { service: "github" },
@@ -673,7 +709,9 @@ test("whenever the modal closes during the last answer, that answer connects not
 });
 
 test("a malformed accounts answer is an empty list", async () => {
-  const m = await mount({ "GET /v1/git/accounts": json(200, { accounts: null }) });
+  const m = await mount({
+    "GET /v1/git/accounts": json(200, { accounts: null }),
+  });
   assert.match(text(m.root), /Which git host do you want to connect\?/);
   assert.equal(m.root.querySelectorAll("li").length, 0);
   assert.equal(m.root.querySelector("[role=alert]"), null);
@@ -704,7 +742,10 @@ test("an answer that names neither account nor service is passed on as empty nam
 
 test("the poll rides out a failing gateway, and a login it no longer knows has expired", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const answers = [json(500, { error: "blip" }), json(404, { error: "no such flow" })];
+  const answers = [
+    json(500, { error: "blip" }),
+    json(404, { error: "no such flow" }),
+  ];
   const m = await mount(
     {
       "POST /v1/git/connect": json(202, {
@@ -754,7 +795,11 @@ test("closing the modal between two questions stops the poll", async (t) => {
   await act(() => t.mock.timers.tick(2000));
   await settle();
   assert.equal(polls, 1, "not asked again once closed");
-  assert.ok(m.f.calls.some((c) => c.method === "DELETE" && c.path === "/v1/git/flows/s1"));
+  assert.ok(
+    m.f.calls.some(
+      (c) => c.method === "DELETE" && c.path === "/v1/git/flows/s1",
+    ),
+  );
 });
 
 for (const [last, shown] of [
@@ -788,7 +833,11 @@ for (const [last, shown] of [
     );
     await click(button(m.root, "Connect GitHub"));
     for (let i = 1; i < 5; i++) {
-      assert.equal(m.root.querySelector("[role=alert]"), null, `still waiting after ${i}`);
+      assert.equal(
+        m.root.querySelector("[role=alert]"),
+        null,
+        `still waiting after ${i}`,
+      );
       await act(() => t.mock.timers.tick(2000));
       await settle();
     }
@@ -822,7 +871,9 @@ test("a failing answer that arrives after the modal closed changes nothing", asy
   release();
   await flush();
   await flush();
-  const gets = m.f.calls.filter((c) => c.path === "/v1/git/flows/q1" && c.method === "GET");
+  const gets = m.f.calls.filter(
+    (c) => c.path === "/v1/git/flows/q1" && c.method === "GET",
+  );
   assert.equal(gets.length, 1, "no second question");
   assert.equal(m.root.querySelector("[role=alert]"), null);
   assert.deepEqual(m.connected, []);

@@ -111,9 +111,15 @@ test("the check runs only once signed in, and offers a version not dismissed bef
 
   const m = mount(f.api);
   await settle();
-  assert.deepEqual(f.calls.map((c) => c.path), ["/v1/update/check"]);
+  assert.deepEqual(
+    f.calls.map((c) => c.path),
+    ["/v1/update/check"],
+  );
   assert.equal(m.toasts.length, 1);
-  assert.equal(m.toasts[0].message, "New version 2.0.0 available — click to upgrade");
+  assert.equal(
+    m.toasts[0].message,
+    "New version 2.0.0 available — click to upgrade",
+  );
   assert.equal(m.toasts[0].type, "success");
   assert.equal(m.toasts[0].update, true);
   assert.equal(m.ref.u.updateInfo.latest_version, "2.0.0");
@@ -175,7 +181,10 @@ test("no toast for an up-to-date gateway, a refusal, a network failure or unread
     assert.deepEqual(m.toasts, [null]);
     await m.unmount();
   } finally {
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: real });
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: real,
+    });
   }
 });
 
@@ -183,7 +192,9 @@ test("the check repeats every ten minutes and stops when unmounted", async () =>
   localStorage.clear();
   mock.timers.enable({ apis: ["setInterval"] });
   try {
-    const f = fakeApi({ "GET /v1/update/check": json(200, { ...INFO, update_available: false }) });
+    const f = fakeApi({
+      "GET /v1/update/check": json(200, { ...INFO, update_available: false }),
+    });
     const m = mount(f.api);
     await settle();
     assert.equal(f.calls.length, 1);
@@ -270,7 +281,11 @@ test("a refused start shows the gateway's reason, or a generic one", async () =>
     await settle();
     click(button(m.root, "Download & Install"));
     await settle();
-    assert.deepEqual(f.calls.at(-1), { method: "POST", path: "/v1/update/run", body: undefined });
+    assert.deepEqual(f.calls.at(-1), {
+      method: "POST",
+      path: "/v1/update/run",
+      body: undefined,
+    });
     assert.equal(m.ref.u.upgradeBusy, false);
     assert.match(text(m.root), /The upgrade did not finish/);
     // The raw reason is folded behind Details.
@@ -306,7 +321,12 @@ test("the progress stream moves the bar, ignores noise, and ends without a resta
   await settle();
   assert.equal(m.ref.u.showUpgrade, true);
 
-  s.send({ stage: "downloading", percent: 40, message: "Downloaded 40%", version: "2.0.0" });
+  s.send({
+    stage: "downloading",
+    percent: 40,
+    message: "Downloaded 40%",
+    version: "2.0.0",
+  });
   await settle();
   assert.match(text(m.root), /40%/);
   assert.match(text(m.root), /→ 2\.0\.0/);
@@ -331,7 +351,10 @@ test("the progress stream moves the bar, ignores noise, and ends without a resta
   assert.match(text(m.root), /Complete/);
   assert.equal(m.ref.u.upgradeBusy, false);
   assert.equal(m.ref.u.awaitingReload, false);
-  assert.match(bar.getAttribute("style"), /width: 100%.*rgb\(76, 194, 255\).*box-shadow: none/);
+  assert.match(
+    bar.getAttribute("style"),
+    /width: 100%.*rgb\(76, 194, 255\).*box-shadow: none/,
+  );
   // No confirm view comes back while the result is shown; Close forgets it.
   assert.equal(button(m.root, "Download & Install"), undefined);
   click(button(m.root, "Close"));
@@ -343,7 +366,10 @@ test("the progress stream moves the bar, ignores noise, and ends without a resta
 
 test("an error stage shows the failure, with a default message when the gateway gave none", async () => {
   for (const [evt, want] of [
-    [{ stage: "error", percent: 30, message: "checksum mismatch" }, "checksum mismatch"],
+    [
+      { stage: "error", percent: 30, message: "checksum mismatch" },
+      "checksum mismatch",
+    ],
     [{ stage: "error" }, "upgrade failed"],
   ]) {
     const s = streamResponse();
@@ -362,7 +388,10 @@ test("an error stage shows the failure, with a default message when the gateway 
     await settle();
     assert.match(text(m.root), /Failed/);
     assert.match(text(m.root), /The upgrade did not finish/);
-    assert.match(m.root.querySelector("[style*='width']").getAttribute("style"), /rgb\(255, 107, 107\)/);
+    assert.match(
+      m.root.querySelector("[style*='width']").getAttribute("style"),
+      /rgb\(255, 107, 107\)/,
+    );
     click(button(m.root, "Details"));
     await settle();
     assert.equal(text(m.root.querySelector("pre")), want);
@@ -429,7 +458,11 @@ test("after a restart the page waits for the gateway and reloads once it answers
   mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   try {
     const health = [];
-    const answers = [new Error("down"), new Response("", { status: 502 }), new Response("ok", { status: 200 })];
+    const answers = [
+      new Error("down"),
+      new Response("", { status: 502 }),
+      new Response("ok", { status: 200 }),
+    ];
     const m = await restartRun(async (url) => {
       health.push(url);
       const a = answers.shift();

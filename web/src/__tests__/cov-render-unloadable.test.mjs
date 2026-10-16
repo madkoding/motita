@@ -14,7 +14,8 @@ setupDom({
     "./emoji": FAIL,
   },
 });
-globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now() + 1e6), 0);
+globalThis.requestAnimationFrame = (cb) =>
+  setTimeout(() => cb(performance.now() + 1e6), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
 const md = await load("Markdown.tsx");
@@ -40,7 +41,7 @@ async function mount(vnode) {
 test("an answer whose renderers cannot be loaded shows its source and the reason", async () => {
   const info = mock.method(console, "info", () => {});
   const content = [
-    "Hi 😀 $x^2$ and <span class=\"math-inline\" data-math=\"y^3\">y</span>",
+    'Hi 😀 $x^2$ and <span class="math-inline" data-math="y^3">y</span>',
     "",
     "```go",
     "a := 1 // -->",
@@ -55,22 +56,42 @@ test("an answer whose renderers cannot be loaded shows its source and the reason
 
   const pre = el.querySelector("pre.code-block");
   assert.equal(pre.dataset.done, "plain");
-  assert.equal(pre.querySelector("code").textContent, "a := 1 // -->", "uncoloured, but intact");
-  assert.equal(pre.querySelector(".copy-btn").dataset.copyText, "a := 1 // -->");
+  assert.equal(
+    pre.querySelector("code").textContent,
+    "a := 1 // -->",
+    "uncoloured, but intact",
+  );
+  assert.equal(
+    pre.querySelector(".copy-btn").dataset.copyText,
+    "a := 1 // -->",
+  );
 
   const [plainMath, givenMath] = el.querySelectorAll(".math-inline");
   for (const m of [plainMath, givenMath]) {
     assert.equal(m.dataset.done, "failed");
     assert.ok(m.classList.contains("render-error"));
-    assert.equal(m.querySelector("p").textContent, "the math renderer could not be loaded.");
-    assert.equal(m.querySelector(".render-error-reason").textContent, "the module could not be loaded");
+    assert.equal(
+      m.querySelector("p").textContent,
+      "the math renderer could not be loaded.",
+    );
+    assert.equal(
+      m.querySelector(".render-error-reason").textContent,
+      "the module could not be loaded",
+    );
   }
   assert.equal(plainMath.querySelector("pre").textContent, "");
-  assert.equal(givenMath.querySelector("pre").textContent, "y^3", "a formula that carries its TeX shows it");
+  assert.equal(
+    givenMath.querySelector("pre").textContent,
+    "y^3",
+    "a formula that carries its TeX shows it",
+  );
 
   const diagram = el.querySelector(".mermaid-block");
   assert.equal(diagram.dataset.done, "failed");
-  assert.equal(diagram.querySelector("p").textContent, "the diagram renderer could not be loaded.");
+  assert.equal(
+    diagram.querySelector("p").textContent,
+    "the diagram renderer could not be loaded.",
+  );
 
   assert.equal(el.dataset.emoji, "plain");
   assert.match(el.textContent, /😀/);

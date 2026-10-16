@@ -102,15 +102,24 @@ test("text that grows is hidden and revealed letter by letter, with a fading edg
   reg.set("stream-fade-2", existing);
   const el = message('Hel<b>lo</b><span class="copy-msg-btn">Copy</span>');
   const r = streamReveal(el, "Hello");
-  assert.deepEqual(
-    [...reg.keys()].sort(),
-    ["stream-fade-1", "stream-fade-2", "stream-fade-3", "stream-hidden"],
+  assert.deepEqual([...reg.keys()].sort(), [
+    "stream-fade-1",
+    "stream-fade-2",
+    "stream-fade-3",
+    "stream-hidden",
+  ]);
+  assert.equal(
+    reg.get("stream-fade-2"),
+    existing,
+    "a highlight already there is reused",
   );
-  assert.equal(reg.get("stream-fade-2"), existing, "a highlight already there is reused");
-  assert.equal(reg.get("stream-hidden").ranges.size, 0, "what mounted shows at once");
+  assert.equal(
+    reg.get("stream-hidden").ranges.size,
+    0,
+    "what mounted shows at once",
+  );
 
-  el.innerHTML =
-    'Hel<b>lo</b> big world<span class="copy-msg-btn">Copy</span>';
+  el.innerHTML = 'Hel<b>lo</b> big world<span class="copy-msg-btn">Copy</span>';
   r.update("Hello big world");
   // Hello (5) is shown; " big world" (10 more) is hidden, the copy button's label is not counted.
   assert.deepEqual(spans(reg, "stream-hidden", el), [[5, 15]]);

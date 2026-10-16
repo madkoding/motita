@@ -56,11 +56,20 @@ const LIST = [
 test("the settings fall back on what cannot be read, and a refused storage is not an error", () => {
   localStorage.setItem(
     speech.SPEECH_KEY,
-    JSON.stringify({ mode: "always", gatewayVoice: 5, pronunciations: "x", langVoices: null }),
+    JSON.stringify({
+      mode: "always",
+      gatewayVoice: 5,
+      pronunciations: "x",
+      langVoices: null,
+    }),
   );
   const p = speech.loadSpeechPrefs();
   assert.equal(p.mode, "always");
-  assert.equal(p.gatewayVoice, speech.DEFAULT_SPEECH_PREFS.gatewayVoice, "a number is no voice");
+  assert.equal(
+    p.gatewayVoice,
+    speech.DEFAULT_SPEECH_PREFS.gatewayVoice,
+    "a number is no voice",
+  );
   assert.deepEqual(p.pronunciations, []);
   assert.deepEqual(p.langVoices, {});
 
@@ -103,12 +112,17 @@ test("a sentence is found when the whole document is searched", () => {
 
 test("the gateway's voice: its refusal without a message, and audio the browser cannot play", async () => {
   const api = async () => new Response(JSON.stringify({}), { status: 429 });
-  await assert.rejects(speech.speakClip(api, "nova")("Hi.", new AbortController().signal), /HTTP 429/);
+  await assert.rejects(
+    speech.speakClip(api, "nova")("Hi.", new AbortController().signal),
+    /HTTP 429/,
+  );
 
   const made = [];
   const r = new speech.ClipReader(
     () => async (t) => new Blob([t]),
-    audioFactory(made, { refuse: Object.assign(new Error("decode"), { name: "NotSupportedError" }) }),
+    audioFactory(made, {
+      refuse: Object.assign(new Error("decode"), { name: "NotSupportedError" }),
+    }),
     urls(),
   );
   let ended;
@@ -144,9 +158,18 @@ test("a clip that arrives after a stop is not played, nor is a late end of an ol
 
   // An audio element that reports its end a second time, once the reading was stopped.
   const made2 = [];
-  const r2 = new speech.ClipReader(() => async (t) => new Blob([t]), audioFactory(made2), urls());
+  const r2 = new speech.ClipReader(
+    () => async (t) => new Blob([t]),
+    audioFactory(made2),
+    urls(),
+  );
   const seen = [];
-  r2.read(LIST, { voice: null, lang: "es", rate: 1, onSentence: (i) => seen.push(i) });
+  r2.read(LIST, {
+    voice: null,
+    lang: "es",
+    rate: 1,
+    onSentence: (i) => seen.push(i),
+  });
   await settle();
   const first = made2[0];
   const endedFirst = first.onended;
@@ -162,7 +185,10 @@ test("a clip that arrives after a stop is not played, nor is a late end of an ol
 
 test("what is read: a bare slash, an unclosed bracket and a heading's closing hashes", () => {
   assert.equal(speakable.toSpeakable("Run `/` now."), "Run / now.");
-  assert.equal(speakable.toSpeakable("See [the note and more"), "See [the note and more");
+  assert.equal(
+    speakable.toSpeakable("See [the note and more"),
+    "See [the note and more",
+  );
   assert.equal(speakable.toSpeakable("## Title ##"), "Title.");
 });
 
@@ -190,16 +216,25 @@ test("phone notifications: the switch kept on this browser, and whether it can r
   const nav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   const win = globalThis.window;
   try {
-    Object.defineProperty(globalThis, "navigator", { value: { serviceWorker: {} }, configurable: true });
+    Object.defineProperty(globalThis, "navigator", {
+      value: { serviceWorker: {} },
+      configurable: true,
+    });
     globalThis.window = { PushManager: function () {} };
     assert.equal(push.pushSupported(), true);
     globalThis.window = {};
     assert.equal(push.pushSupported(), false, "no PushManager");
     delete globalThis.window;
     assert.equal(push.pushSupported(), false, "no window");
-    Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true });
+    Object.defineProperty(globalThis, "navigator", {
+      value: {},
+      configurable: true,
+    });
     assert.equal(push.pushSupported(), false, "no service worker");
-    Object.defineProperty(globalThis, "navigator", { value: undefined, configurable: true });
+    Object.defineProperty(globalThis, "navigator", {
+      value: undefined,
+      configurable: true,
+    });
     assert.equal(push.pushSupported(), false, "no navigator");
   } finally {
     Object.defineProperty(globalThis, "navigator", nav);

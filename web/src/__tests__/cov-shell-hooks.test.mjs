@@ -3,7 +3,13 @@
 // Run with: node --test web/src/__tests__/cov-shell-hooks.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, load, mounter, flush, jsonResponse } from "./cov-shell-helpers.mjs";
+import {
+  setupDom,
+  load,
+  mounter,
+  flush,
+  jsonResponse,
+} from "./cov-shell-helpers.mjs";
 
 setupDom("http://localhost/");
 
@@ -66,7 +72,11 @@ test("a failure is toasted once and the pill only says error", async () => {
   assert.equal(s.v.stateText, "error");
   assert.equal(s.v.stateClass, "bad");
   await act(() => s.v.setState("", true));
-  assert.deepEqual(s.v.toast, { message: "", type: "error" }, "an empty failure still says so");
+  assert.deepEqual(
+    s.v.toast,
+    { message: "", type: "error" },
+    "an empty failure still says so",
+  );
   await s.done();
 });
 
@@ -100,11 +110,17 @@ test("each kind of toast stays its own time, and details fold again on a new toa
       await act(() => s.v.setToast(toast));
       assert.equal(s.v.toast, toast);
       await act(() => mock.timers.tick(ms - 1));
-      assert.equal(s.v.toast, toast, `${toast.message} is still up before ${ms}ms`);
+      assert.equal(
+        s.v.toast,
+        toast,
+        `${toast.message} is still up before ${ms}ms`,
+      );
       await act(() => mock.timers.tick(1));
       assert.equal(s.v.toast, null, `${toast.message} is gone at ${ms}ms`);
     }
-    await act(() => s.v.setToast({ message: "a", type: "error", technical: "trace" }));
+    await act(() =>
+      s.v.setToast({ message: "a", type: "error", technical: "trace" }),
+    );
     assert.equal(s.v.toastDetailsOpen, false);
     await act(() => s.v.toggleToastDetails());
     assert.equal(s.v.toastDetailsOpen, true);
@@ -161,7 +177,11 @@ test("the drawers share the edge: opening one closes the others", async () => {
   await act(() => ctl.d.showAgents());
   assert.deepEqual(open(ctl.d), [false, false, true]);
   await act(() => ctl.d.toggleAgents());
-  assert.deepEqual(open(ctl.d), [false, false, false], "a toggle closes its own drawer");
+  assert.deepEqual(
+    open(ctl.d),
+    [false, false, false],
+    "a toggle closes its own drawer",
+  );
   await act(() => ctl.d.toggleThink());
   await act(() => ctl.d.closeThink());
   assert.deepEqual(open(ctl.d), [false, false, false]);
@@ -199,7 +219,12 @@ test("a running agent's clock ticks only while the agents drawer is open", async
 
 test("an open terminal far behind skips to the last few entries", async () => {
   const entries = (n) =>
-    Array.from({ length: n }, (_, i) => ({ id: i + 1, cmd: "c" + i, exit: 0, out: "" }));
+    Array.from({ length: n }, (_, i) => ({
+      id: i + 1,
+      cmd: "c" + i,
+      exit: 0,
+      out: "",
+    }));
   const { ctl, done } = await drawerHarness({ shellLog: entries(40) });
   assert.equal(ctl.termSeenId, 0, "closed: nothing is skipped");
   await act(() => ctl.d.showTerm());
@@ -335,14 +360,23 @@ function authDeps({
   return { deps, log };
 }
 
-const S = (id, last_used) => ({ id, title: id, created: last_used, last_used, running: false });
+const S = (id, last_used) => ({
+  id,
+  title: id,
+  created: last_used,
+  last_used,
+  running: false,
+});
 
 test("with a credential the page loads everything and opens the last session", async () => {
   history.replaceState(null, "", "/");
   localStorage.setItem("motita:last-session", "s1");
   gateway();
   const { deps, log } = authDeps({
-    sessions: [S("s1", "2024-01-01T00:00:00Z"), S("s2", "2024-02-01T00:00:00Z")],
+    sessions: [
+      S("s1", "2024-01-01T00:00:00Z"),
+      S("s2", "2024-02-01T00:00:00Z"),
+    ],
   });
   const a = await probe(() => useAuth(deps));
   assert.equal(a.v.authState, "checking");
@@ -363,20 +397,35 @@ test("with a credential the page loads everything and opens the last session", a
 test("without a remembered session the newest is opened, and with none the chat waits", async () => {
   gateway();
   let { deps, log } = authDeps({
-    sessions: [S("old", "2024-01-01T00:00:00Z"), S("new", "2024-03-01T00:00:00Z")],
+    sessions: [
+      S("old", "2024-01-01T00:00:00Z"),
+      S("new", "2024-03-01T00:00:00Z"),
+    ],
     commands: {},
   });
   let a = await probe(() => useAuth(deps));
   await act(() => flush());
-  assert.deepEqual(log.find((e) => e[0] === "switchSession"), ["switchSession", "new", "replace"]);
-  assert.deepEqual(log.find((e) => e[0] === "setSlashCommands"), ["setSlashCommands", []]);
+  assert.deepEqual(
+    log.find((e) => e[0] === "switchSession"),
+    ["switchSession", "new", "replace"],
+  );
+  assert.deepEqual(
+    log.find((e) => e[0] === "setSlashCommands"),
+    ["setSlashCommands", []],
+  );
   await a.done();
 
-  ({ deps, log } = authDeps({ sessions: [], commands: new Error("no commands") }));
+  ({ deps, log } = authDeps({
+    sessions: [],
+    commands: new Error("no commands"),
+  }));
   a = await probe(() => useAuth(deps));
   await act(() => flush());
   assert.ok(log.some((e) => e[0] === "showNoSession"));
-  assert.ok(!log.some((e) => e[0] === "setSlashCommands"), "a failed command list is not fatal");
+  assert.ok(
+    !log.some((e) => e[0] === "setSlashCommands"),
+    "a failed command list is not fatal",
+  );
   assert.deepEqual(log.at(-1), ["setState", "ready", undefined]);
   await a.done();
 });
@@ -401,7 +450,11 @@ test("without a credential the token is asked for; a rejected one says so", asyn
   assert.equal(log.length, 0, "nothing is loaded without a credential");
 
   await act(() => a.v.submitAuth());
-  assert.equal(gw.calls.filter((c) => c.method === "POST").length, 0, "an empty token is not sent");
+  assert.equal(
+    gw.calls.filter((c) => c.method === "POST").length,
+    0,
+    "an empty token is not sent",
+  );
 
   await act(() => a.v.setAuthInput("  wrong  "));
   let pending;
@@ -414,7 +467,11 @@ test("without a credential the token is asked for; a rejected one says so", asyn
   await act(() => flush());
   const posts = gw.calls.filter((c) => c.method === "POST");
   assert.equal(posts.length, 1, "one request while busy");
-  assert.equal(posts[0].init.headers.Authorization, "Bearer wrong", "the token is trimmed");
+  assert.equal(
+    posts[0].init.headers.Authorization,
+    "Bearer wrong",
+    "the token is trimmed",
+  );
   assert.equal(a.v.authError, "That token was rejected. Try again.");
   assert.equal(a.v.authBusy, false);
   assert.equal(a.v.authState, "needed");
@@ -424,7 +481,12 @@ test("without a credential the token is asked for; a rejected one says so", asyn
 test("an accepted token opens the page, erases the fragment and loads everything", async () => {
   history.replaceState(null, "", "/?session=s2#junk");
   gateway({ authed: false, accept: "good" });
-  const { deps, log } = authDeps({ sessions: [S("s1", "2024-01-01T00:00:00Z"), S("s2", "2023-01-01T00:00:00Z")] });
+  const { deps, log } = authDeps({
+    sessions: [
+      S("s1", "2024-01-01T00:00:00Z"),
+      S("s2", "2023-01-01T00:00:00Z"),
+    ],
+  });
   const a = await probe(() => useAuth(deps));
   await act(() => flush());
   assert.equal(a.v.authState, "needed");
@@ -513,9 +575,17 @@ test("lastSessionOf: the address, then the remembered one, then the newest, else
   localStorage.setItem("motita:last-session", "b");
   assert.equal(lastSessionOf(list), "a");
   history.replaceState(null, "", "/?session=gone");
-  assert.equal(lastSessionOf(list), "b", "an address naming no session is ignored");
+  assert.equal(
+    lastSessionOf(list),
+    "b",
+    "an address naming no session is ignored",
+  );
   localStorage.setItem("motita:last-session", "deleted");
-  assert.equal(lastSessionOf(list), "b", "the newest when the remembered one is gone");
+  assert.equal(
+    lastSessionOf(list),
+    "b",
+    "the newest when the remembered one is gone",
+  );
   assert.equal(lastSessionOf([]), "");
   history.replaceState(null, "", "/");
   const proto = Object.getPrototypeOf(localStorage);
@@ -524,7 +594,11 @@ test("lastSessionOf: the address, then the remembered one, then the newest, else
     throw new Error("blocked");
   };
   try {
-    assert.equal(lastSessionOf(list), "b", "storage that cannot be read is skipped");
+    assert.equal(
+      lastSessionOf(list),
+      "b",
+      "storage that cannot be read is skipped",
+    );
   } finally {
     proto.getItem = getItem;
   }
@@ -578,7 +652,11 @@ test("the language follows the browser until the gateway's setting is read", asy
 });
 
 test("an unknown language is the browser's, and an older gateway leaves it hidden", async () => {
-  let l = await langProbe(uiApi(() => jsonResponse({ language: "fr" })).api, "ok", []);
+  let l = await langProbe(
+    uiApi(() => jsonResponse({ language: "fr" })).api,
+    "ok",
+    [],
+  );
   await act(() => flush());
   assert.equal(l.v.uiLangSetting, "auto");
   assert.equal(l.v.uiLangAvailable, true);

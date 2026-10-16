@@ -88,13 +88,20 @@ test("asking is the default, and turning it off waits for a confirmation", async
   assert.doesNotMatch(text(m.root), /changes nothing here/);
 
   await pick(m.root, "ask");
-  assert.equal(m.root.querySelector(CONFIRM), null, "the current choice asks nothing");
+  assert.equal(
+    m.root.querySelector(CONFIRM),
+    null,
+    "the current choice asks nothing",
+  );
 
   await pick(m.root, "run");
   const c = m.root.querySelector(CONFIRM);
   assert.match(text(c), /Run the project's code without asking\?/);
   assert.match(text(c), /read your keys/);
-  assert.match(text(m.root), /Reads outside the workspace are still asked about/);
+  assert.match(
+    text(m.root),
+    /Reads outside the workspace are still asked about/,
+  );
   assert.equal(puts(f).length, 0, "nothing is saved before the confirmation");
 
   await press(m.root, "Cancel");
@@ -103,16 +110,26 @@ test("asking is the default, and turning it off waits for a confirmation", async
 
   await pick(m.root, "run");
   await pick(m.root, "ask");
-  assert.equal(m.root.querySelector(CONFIRM), null, "picking the current choice drops the question");
+  assert.equal(
+    m.root.querySelector(CONFIRM),
+    null,
+    "picking the current choice drops the question",
+  );
   assert.equal(puts(f).length, 0);
 
   await pick(m.root, "run");
   await press(m.root, "Run without asking");
-  assert.deepEqual(puts(f)[0].body, { ask_unconfined_runs: false, confirm: true });
+  assert.deepEqual(puts(f)[0].body, {
+    ask_unconfined_runs: false,
+    confirm: true,
+  });
   assert.equal(radio(m.root, "run").checked, true);
 
   await pick(m.root, "ask");
-  assert.deepEqual(puts(f)[1].body, { ask_unconfined_runs: true, confirm: false });
+  assert.deepEqual(puts(f)[1].body, {
+    ask_unconfined_runs: true,
+    confirm: false,
+  });
   assert.equal(radio(m.root, "ask").checked, true);
   await m.unmount();
 });
@@ -137,15 +154,24 @@ test("an older gateway without the setting draws no choice, and no file means no
 test("a save the gateway refuses shows its error and keeps the choice", async () => {
   const f = fakeApi({
     "GET /v1/security": json(200, SEC),
-    "PUT /v1/security": json(500, { error: "MOTITA_SANDBOX_ASK_UNCONFINED_RUNS overrides it" }),
+    "PUT /v1/security": json(500, {
+      error: "MOTITA_SANDBOX_ASK_UNCONFINED_RUNS overrides it",
+    }),
   });
   const m = await mount(f.api);
   await pick(m.root, "run");
   await press(m.root, "Run without asking");
-  assert.match(text(m.root.querySelector("[data-testid=security-runs-error]")), /overrides it/);
+  assert.match(
+    text(m.root.querySelector("[data-testid=security-runs-error]")),
+    /overrides it/,
+  );
   assert.equal(radio(m.root, "ask").checked, true);
   await pick(m.root, "run");
-  assert.equal(m.root.querySelector("[data-testid=security-runs-error]"), null, "a new pick clears it");
+  assert.equal(
+    m.root.querySelector("[data-testid=security-runs-error]"),
+    null,
+    "a new pick clears it",
+  );
   await m.unmount();
 });
 
@@ -153,14 +179,25 @@ test("the client confirms only turning the question off", async () => {
   const f = fakeApi({ "PUT /v1/security": json(200, SEC) });
   assert.deepEqual(await sec.setAskUnconfinedRuns(f.api, false), SEC);
   await sec.setAskUnconfinedRuns(f.api, true);
-  assert.deepEqual(f.calls[0].body, { ask_unconfined_runs: false, confirm: true });
-  assert.deepEqual(f.calls[1].body, { ask_unconfined_runs: true, confirm: false });
+  assert.deepEqual(f.calls[0].body, {
+    ask_unconfined_runs: false,
+    confirm: true,
+  });
+  assert.deepEqual(f.calls[1].body, {
+    ask_unconfined_runs: true,
+    confirm: false,
+  });
 });
 
 test("every string of the choice has a Spanish translation", () => {
-  const source = readFileSync(join(here, "..", "UnconfinedRunsSetting.tsx"), "utf8");
+  const source = readFileSync(
+    join(here, "..", "UnconfinedRunsSetting.tsx"),
+    "utf8",
+  );
   const keys = new Set();
-  for (const m of source.matchAll(/\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g)) {
+  for (const m of source.matchAll(
+    /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,
+  )) {
     keys.add(m[2]);
   }
   const MIN_STRINGS = 8;

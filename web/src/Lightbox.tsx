@@ -25,7 +25,10 @@ type Listeners = {
 
 // useNativeEvents listens on an element directly, always with the listeners of the latest render,
 // the way Preact attaches an on* prop.
-function useNativeEvents(ref: RefObject<HTMLElement | null>, listeners: Listeners) {
+function useNativeEvents(
+  ref: RefObject<HTMLElement | null>,
+  listeners: Listeners,
+) {
   const latest = useRef(listeners);
   latest.current = listeners;
   useEffect(() => {
@@ -35,7 +38,8 @@ function useNativeEvents(ref: RefObject<HTMLElement | null>, listeners: Listener
       const proxy = (e: Event) => {
         (
           latest.current[name as keyof Listeners] as
-            ((e: Event) => void) | undefined
+            | ((e: Event) => void)
+            | undefined
         )?.(e);
       };
       el.addEventListener(name, proxy);

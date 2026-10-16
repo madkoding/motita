@@ -26,8 +26,12 @@ const GHOST_MAX_MS = 600;
 // copyFieldValues carries what was typed into the copy: cloneNode copies the attributes, not the
 // live value, so a filled-in field would visibly empty itself while fading.
 function copyFieldValues(from: HTMLElement, to: HTMLElement) {
-  const src = from.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
-  const dst = to.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
+  const src = from.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    "input, textarea",
+  );
+  const dst = to.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    "input, textarea",
+  );
   // The copy is a deep clone made just before, so it holds the same fields in the same order.
   src.forEach((el, i) => {
     const copy = dst[i];
@@ -76,7 +80,11 @@ export function leaveGhost(el: HTMLElement | null, how: Leave, child?: Leave) {
     height: r.height + "px",
     margin: "0",
   });
-  const inner = choose(child, ghost.firstElementChild as HTMLElement | null, null);
+  const inner = choose(
+    child,
+    ghost.firstElementChild as HTMLElement | null,
+    null,
+  );
   inner?.classList.add(LEAVE_CLASS[child!]);
   // A <dialog> copy keeps `open` as an attribute, but drawn non-modally: it stays where it is.
   document.body.appendChild(ghost);

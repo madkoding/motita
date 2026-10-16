@@ -146,12 +146,7 @@ export function MobileGpuRow({ id = "settings-gpu-mobile" }: { id?: string }) {
         "On a phone the models that listen and speak run on the processor, as its graphics card is too weak for them. Turn this on to try WebGPU anyway; reload the page to apply it.",
       )}
     >
-      <VoiceSwitch
-        id={id}
-        usable
-        checked={on}
-        onChange={change}
-      />
+      <VoiceSwitch id={id} usable checked={on} onChange={change} />
     </Row>
   );
 }

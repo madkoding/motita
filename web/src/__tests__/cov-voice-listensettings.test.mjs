@@ -3,7 +3,12 @@
 // against a stand-in gateway and a stand-in worker.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, settle as settleWith, json } from "./cov-voice-helpers.mjs";
+import {
+  setupDom,
+  source,
+  settle as settleWith,
+  json,
+} from "./cov-voice-helpers.mjs";
 
 setupDom("https://localhost/");
 // The listening worker: what it is sent, and a way to answer as it.
@@ -20,11 +25,21 @@ globalThis.Worker = class {
 globalThis.caches = {};
 // The microphone is allowed: the settings are unlocked.
 Object.defineProperty(navigator, "permissions", {
-  value: { query: async () => ({ state: "granted", addEventListener() {}, removeEventListener() {} }) },
+  value: {
+    query: async () => ({
+      state: "granted",
+      addEventListener() {},
+      removeEventListener() {},
+    }),
+  },
   configurable: true,
 });
 Object.defineProperty(navigator, "mediaDevices", {
-  value: { enumerateDevices: async () => [], addEventListener() {}, removeEventListener() {} },
+  value: {
+    enumerateDevices: async () => [],
+    addEventListener() {},
+    removeEventListener() {},
+  },
   configurable: true,
 });
 
@@ -52,7 +67,13 @@ const model = (id, o = {}) => ({
   sample: false,
   ...o,
 });
-const MODELS = ["whisper-tiny", "whisper-base", "whisper-small", "whisper-base-gpu", "whisper-small-gpu"];
+const MODELS = [
+  "whisper-tiny",
+  "whisper-base",
+  "whisper-small",
+  "whisper-base-gpu",
+  "whisper-small-gpu",
+];
 
 // The gateway: the catalog as each test sets it, the requests it got, and a refusal on demand.
 const gw = { catalog: null, calls: [], refuse: "", down: "" };
@@ -60,7 +81,16 @@ beforeEach(() => {
   gw.catalog = {
     runtime: { size: 33e6, installed: false },
     models: [
-      { id: "es_MX-x", name: "X", lang: "es-MX", quality: "high", engine: "piper", size: 1, installed: true, sample: false },
+      {
+        id: "es_MX-x",
+        name: "X",
+        lang: "es-MX",
+        quality: "high",
+        engine: "piper",
+        size: 1,
+        installed: true,
+        sample: false,
+      },
       ...MODELS.map((id) => model(id)),
     ],
     download: null,
@@ -86,7 +116,17 @@ const api = async (path, init) => {
 
 // mount draws the voice settings with prefs it keeps, as the app does.
 async function mount(prefs = {}, info = null) {
-  const box = { prefs: { mic: true, listen: false, deviceId: "", engine: "", listener: "", language: "", ...prefs } };
+  const box = {
+    prefs: {
+      mic: true,
+      listen: false,
+      deviceId: "",
+      engine: "",
+      listener: "",
+      language: "",
+      ...prefs,
+    },
+  };
   const root = document.createElement("div");
   document.body.appendChild(root);
   const draw = () =>
@@ -131,21 +171,44 @@ const pick = async (select, value) => {
 };
 
 test("the browser listens by default; the service is the other choice, with its own hints", async () => {
-  const info = { enabled: false, wake_phrases: ["oye motita"], max_audio_bytes: 1, can_save: true,
-    saved: { enabled: false, base_url: "", endpoint: "", inherits: false, provider: "openai", model: "whisper-1",
-      has_key: false, wake_phrases: ["oye motita"] } };
+  const info = {
+    enabled: false,
+    wake_phrases: ["oye motita"],
+    max_audio_bytes: 1,
+    can_save: true,
+    saved: {
+      enabled: false,
+      base_url: "",
+      endpoint: "",
+      inherits: false,
+      provider: "openai",
+      model: "whisper-1",
+      has_key: false,
+      wake_phrases: ["oye motita"],
+    },
+  };
   const m = await mount({}, info);
   assert.equal(m.tid("voice-engine").value, "local");
   assert.match(text(m.root), /A model downloaded once, run in this browser\./);
-  assert.match(text(m.root), /What you say is heard in this browser\. Say: “oye motita”/);
-  assert.equal(m.tid("voice-gateway-switch"), null, "the service's switch is not shown");
+  assert.match(
+    text(m.root),
+    /What you say is heard in this browser\. Say: “oye motita”/,
+  );
+  assert.equal(
+    m.tid("voice-gateway-switch"),
+    null,
+    "the service's switch is not shown",
+  );
   assert.ok(m.tid("voice-phrases"), "the wake phrases are, whoever listens");
   await pick(m.tid("voice-engine"), "service");
   assert.equal(m.box.prefs.engine, "service");
   assert.ok(m.tid("voice-gateway-switch"));
   assert.equal(m.tid("local-listeners"), null);
   assert.match(text(m.root), /A transcription service, through the gateway\./);
-  assert.match(text(m.root), /What you say is sent to the transcription service/);
+  assert.match(
+    text(m.root),
+    /What you say is sent to the transcription service/,
+  );
   await m.done();
 });
 
@@ -154,8 +217,15 @@ test("a model is downloaded with its progress, chosen, loaded into memory, and d
   const list = () => text(m.tid("local-listeners"));
   assert.match(list(), /The first download adds 33 MB for the engine\./);
   assert.doesNotMatch(list(), /X/, "the voices are not listed");
-  assert.doesNotMatch(list(), /WebGPU/, "without WebGPU the models for the card are not offered");
-  assert.match(text(m.tid("local-listener-whisper-base")), /Whisper base ?Processor · Medium quality · 80 MB · Recommended/);
+  assert.doesNotMatch(
+    list(),
+    /WebGPU/,
+    "without WebGPU the models for the card are not offered",
+  );
+  assert.match(
+    text(m.tid("local-listener-whisper-base")),
+    /Whisper base ?Processor · Medium quality · 80 MB · Recommended/,
+  );
   assert.match(text(m.root), /Language you speak/);
 
   // Downloading: its progress, and no second download meanwhile.
@@ -163,25 +233,46 @@ test("a model is downloaded with its progress, chosen, loaded into memory, and d
   assert.ok(gw.calls.includes("POST /v1/voice/models/whisper-base"));
   gw.catalog.download = { id: "whisper-base", done: 40e6, total: 80e6 };
   await click(m.tid("local-listener-get-whisper-tiny"));
-  assert.match(text(m.tid("local-listener-progress-whisper-base")), /Downloading… 50%/);
-  assert.equal(m.tid("local-listener-progress-whisper-base").querySelector("progress").value, 50);
+  assert.match(
+    text(m.tid("local-listener-progress-whisper-base")),
+    /Downloading… 50%/,
+  );
+  assert.equal(
+    m.tid("local-listener-progress-whisper-base").querySelector("progress")
+      .value,
+    50,
+  );
   assert.equal(m.tid("local-listener-get-whisper-tiny").disabled, true);
 
   // Done: the catalog is read again on its own, and the first model downloaded is the one used.
   gw.catalog.download = null;
-  gw.catalog.models = gw.catalog.models.map((x) => (x.id === "whisper-base" ? { ...x, installed: true } : x));
+  gw.catalog.models = gw.catalog.models.map((x) =>
+    x.id === "whisper-base" ? { ...x, installed: true } : x,
+  );
   await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_MS + 100));
   await settle();
   assert.equal(m.box.prefs.listener, "whisper-base");
-  assert.deepEqual(workers.at(-1).sent.at(-1), { kind: "warm", id: "whisper-base" });
-  assert.match(text(m.tid("local-listener-loading-whisper-base")), /Loading into memory… 0%/);
+  assert.deepEqual(workers.at(-1).sent.at(-1), {
+    kind: "warm",
+    id: "whisper-base",
+  });
+  assert.match(
+    text(m.tid("local-listener-loading-whisper-base")),
+    /Loading into memory… 0%/,
+  );
   await tell({ kind: "progress", id: "whisper-base", pct: 60 });
-  assert.equal(m.tid("local-listener-loading-whisper-base").querySelector("progress").value, 60);
+  assert.equal(
+    m.tid("local-listener-loading-whisper-base").querySelector("progress")
+      .value,
+    60,
+  );
   await tell({ kind: "ready", id: "whisper-base", gpu: false });
   assert.equal(text(m.tid("local-listener-use-whisper-base")), "In use");
 
   // Another one downloaded is chosen with Use; one that cannot load is tried again.
-  gw.catalog.models = gw.catalog.models.map((x) => (x.id === "whisper-tiny" ? { ...x, installed: true } : x));
+  gw.catalog.models = gw.catalog.models.map((x) =>
+    x.id === "whisper-tiny" ? { ...x, installed: true } : x,
+  );
   await pick(m.tid("listen-language"), "es");
   assert.equal(m.box.prefs.language, "es");
   await click(m.tid("local-listener-get-whisper-small"));
@@ -198,7 +289,10 @@ test("a model is downloaded with its progress, chosen, loaded into memory, and d
   await click(m.tid("local-listener-delete-whisper-base"));
   assert.ok(gw.calls.includes("DELETE /v1/voice/models/whisper-base"));
   assert.equal(m.box.prefs.listener, "whisper-tiny");
-  gw.catalog.models = gw.catalog.models.map((x) => ({ ...x, installed: x.engine === "piper" }));
+  gw.catalog.models = gw.catalog.models.map((x) => ({
+    ...x,
+    installed: x.engine === "piper",
+  }));
   await click(m.tid("local-listener-delete-whisper-tiny"));
   assert.equal(m.box.prefs.listener, "");
   await m.done();
@@ -206,14 +300,25 @@ test("a model is downloaded with its progress, chosen, loaded into memory, and d
 
 test("a refused deletion keeps the model in use, and a choice the catalog lost moves on", async () => {
   const installed = (...ids) => {
-    gw.catalog.models = gw.catalog.models.map((x) => ({ ...x, installed: x.engine === "piper" || ids.includes(x.id) }));
+    gw.catalog.models = gw.catalog.models.map((x) => ({
+      ...x,
+      installed: x.engine === "piper" || ids.includes(x.id),
+    }));
   };
   installed("whisper-base");
   gw.refuse = "the model is in use";
-  let m = await mount({ listener: "whisper-base", engine: "local", language: "es" });
+  let m = await mount({
+    listener: "whisper-base",
+    engine: "local",
+    language: "es",
+  });
   await click(m.tid("local-listener-delete-whisper-base"));
   assert.match(text(m.root), /the model is in use/);
-  assert.equal(m.box.prefs.listener, "whisper-base", "a deletion that failed keeps the choice");
+  assert.equal(
+    m.box.prefs.listener,
+    "whisper-base",
+    "a deletion that failed keeps the choice",
+  );
   await m.done();
 
   // Deleted while the language was changed: the language stays, the next model downloaded is used.
@@ -239,7 +344,12 @@ test("what the gateway refuses, a failed download, and a catalog that cannot be 
   const m = await mount();
   await click(m.tid("local-listener-get-whisper-small"));
   assert.match(text(m.root), /another voice is downloading/);
-  gw.catalog.download = { id: "whisper-small", done: 1, total: 2, error: "checksum" };
+  gw.catalog.download = {
+    id: "whisper-small",
+    done: 1,
+    total: 2,
+    error: "checksum",
+  };
   gw.refuse = "";
   await click(m.tid("local-listener-get-whisper-tiny"));
   assert.match(text(m.root), /The download failed: checksum/);
@@ -247,27 +357,56 @@ test("what the gateway refuses, a failed download, and a catalog that cannot be 
 
   gw.down = "the gateway keeps no local voices";
   const n = await mount();
-  assert.equal(text(n.tid("local-listeners")), "the gateway keeps no local voices");
+  assert.equal(
+    text(n.tid("local-listeners")),
+    "the gateway keeps no local voices",
+  );
   await n.done();
 });
 
 test("with WebGPU the models for the card come first, and say where they run", async () => {
-  Object.defineProperty(navigator, "gpu", { value: { requestAdapter: async () => ({}) }, configurable: true });
+  Object.defineProperty(navigator, "gpu", {
+    value: { requestAdapter: async () => ({}) },
+    configurable: true,
+  });
   gw.catalog.runtime.installed = true;
-  gw.catalog.models = gw.catalog.models.map((x) => (x.id === "whisper-small-gpu" ? { ...x, installed: true } : x));
+  gw.catalog.models = gw.catalog.models.map((x) =>
+    x.id === "whisper-small-gpu" ? { ...x, installed: true } : x,
+  );
   const m = await mount({ listener: "whisper-small-gpu", engine: "local" });
   // The one in use stays in sight; the rest are folded, the ones for the card first.
-  const rows = [...m.root.querySelectorAll("[data-testid^=local-listener-whisper]")].map((r) => r.dataset.testid);
-  assert.deepEqual(rows.slice(0, 2), ["local-listener-whisper-small-gpu", "local-listener-whisper-base-gpu"]);
+  const rows = [
+    ...m.root.querySelectorAll("[data-testid^=local-listener-whisper]"),
+  ].map((r) => r.dataset.testid);
+  assert.deepEqual(rows.slice(0, 2), [
+    "local-listener-whisper-small-gpu",
+    "local-listener-whisper-base-gpu",
+  ]);
   const list = m.tid("local-listener-list");
   assert.equal(list.open, false, "the list starts folded");
   assert.equal(text(list.querySelector("summary")), "Every model (4)");
-  assert.equal(list.querySelector("[data-testid=local-listener-whisper-small-gpu]"), null);
-  assert.match(text(m.tid("local-listener-whisper-small-gpu")), /Whisper small ?WebGPU · High quality · 80 MB · Recommended/);
+  assert.equal(
+    list.querySelector("[data-testid=local-listener-whisper-small-gpu]"),
+    null,
+  );
+  assert.match(
+    text(m.tid("local-listener-whisper-small-gpu")),
+    /Whisper small ?WebGPU · High quality · 80 MB · Recommended/,
+  );
   await tell({ kind: "ready", id: "whisper-small-gpu", gpu: true });
-  assert.match(text(m.tid("local-listener-whisper-small-gpu")), /on the graphics card/);
-  await tell({ kind: "ready", id: "whisper-small-gpu", gpuError: "no adapter" });
-  assert.match(text(m.tid("local-listener-gpu-note")), /WebGPU could not start here \(no adapter\)/);
+  assert.match(
+    text(m.tid("local-listener-whisper-small-gpu")),
+    /on the graphics card/,
+  );
+  await tell({
+    kind: "ready",
+    id: "whisper-small-gpu",
+    gpuError: "no adapter",
+  });
+  assert.match(
+    text(m.tid("local-listener-gpu-note")),
+    /WebGPU could not start here \(no adapter\)/,
+  );
   await m.done();
   delete navigator.gpu;
 });
@@ -281,7 +420,9 @@ test("a language the browser cannot name is shown by its code", async () => {
   };
   try {
     const m = await mount({ engine: "local" });
-    const names = [...m.tid("listen-language").querySelectorAll("option")].map((o) => o.textContent);
+    const names = [...m.tid("listen-language").querySelectorAll("option")].map(
+      (o) => o.textContent,
+    );
     assert.deepEqual(names, ["Detect it", ...listenSettings.LISTEN_LANGUAGES]);
     await m.done();
   } finally {
@@ -292,14 +433,26 @@ test("a language the browser cannot name is shown by its code", async () => {
 
 test("on a phone the models run on the processor, with a switch to force WebGPU", async () => {
   const ua = Object.getOwnPropertyDescriptor(navigator, "userAgent");
-  Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Linux; Android 14) Mobile", configurable: true });
+  Object.defineProperty(navigator, "userAgent", {
+    value: "Mozilla/5.0 (Linux; Android 14) Mobile",
+    configurable: true,
+  });
   navigator.gpu = { requestAdapter: async () => ({}) };
   localStorage.clear();
   try {
     const m = await mount();
-    assert.match(text(m.root), /Whisper runs in this browser, on the processor/);
-    assert.doesNotMatch(text(m.tid("local-listeners")), /WebGPU/, "no model for the card is offered");
-    const sw = m.root.querySelector("#settings-gpu-mobile input, [aria-labelledby=settings-gpu-mobile]");
+    assert.match(
+      text(m.root),
+      /Whisper runs in this browser, on the processor/,
+    );
+    assert.doesNotMatch(
+      text(m.tid("local-listeners")),
+      /WebGPU/,
+      "no model for the card is offered",
+    );
+    const sw = m.root.querySelector(
+      "#settings-gpu-mobile input, [aria-labelledby=settings-gpu-mobile]",
+    );
     assert.ok(sw, "the switch is there");
     assert.equal(sw.checked, false);
     sw.checked = true;

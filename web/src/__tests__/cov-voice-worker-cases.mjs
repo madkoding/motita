@@ -38,20 +38,35 @@ const session = (kind) => async (model, opts) => {
 };
 const phonemizerCalls = [];
 globalThis.__covVoiceFake = {
-  cpu: { env: { wasm: {} }, Tensor: ort.Tensor, InferenceSession: { create: session("cpu") } },
-  gpu: { env: { wasm: {} }, Tensor: ort.Tensor, InferenceSession: { create: session("gpu") } },
+  cpu: {
+    env: { wasm: {} },
+    Tensor: ort.Tensor,
+    InferenceSession: { create: session("cpu") },
+  },
+  gpu: {
+    env: { wasm: {} },
+    Tensor: ort.Tensor,
+    InferenceSession: { create: session("gpu") },
+  },
   // The phonemizer module asks for its files the way Emscripten's does, then prints its answer.
   piper: async (o) => {
     phonemizerCalls.push({
       located: o.locateFile("piper_phonemize.wasm"),
-      data: new TextDecoder().decode(o.getPreloadedPackage("piper_phonemize.data", 0)),
+      data: new TextDecoder().decode(
+        o.getPreloadedPackage("piper_phonemize.data", 0),
+      ),
       wasm: new TextDecoder().decode(o.wasmBinary),
     });
     o.printErr("espeak: a warning nobody reads");
     return {
       callMain() {
         o.print("[espeak] ready");
-        o.print(JSON.stringify({ phoneme_ids: PHONEME_IDS, phonemes: ["o", "l", "a"] }));
+        o.print(
+          JSON.stringify({
+            phoneme_ids: PHONEME_IDS,
+            phonemes: ["o", "l", "a"],
+          }),
+        );
       },
     };
   },
@@ -146,7 +161,8 @@ async function next(match, from = 0) {
   }
   throw new Error("no message came: " + JSON.stringify(posted.map((p) => p.m)));
 }
-const outcome = (id) => (m) => m.id === id && (m.kind === "ready" || m.kind === "failed");
+const outcome = (id) => (m) =>
+  m.id === id && (m.kind === "ready" || m.kind === "failed");
 const PIPER = "es_MX-test-high";
 
 // adapter is a graphics card with the features given.
@@ -166,12 +182,30 @@ if (!cpuRun) {
     let from = posted.length;
     send({ kind: "warm", id: PIPER });
     const ready = await next(outcome(PIPER), from);
-    assert.deepEqual(ready.m, { kind: "ready", id: PIPER, gpu: false, gpuError: undefined });
-    const pcts = posted.slice(from).filter(({ m }) => m.kind === "progress").map(({ m }) => m.pct);
+    assert.deepEqual(ready.m, {
+      kind: "ready",
+      id: PIPER,
+      gpu: false,
+      gpuError: undefined,
+    });
+    const pcts = posted
+      .slice(from)
+      .filter(({ m }) => m.kind === "progress")
+      .map(({ m }) => m.pct);
     assert.ok(pcts.length > 0, "its progress is told");
-    assert.ok(pcts.every((p) => p >= 0), `no progress below 0: ${pcts}`);
-    assert.ok(pcts.every((p) => p <= 100), `no progress above 100: ${pcts}`);
-    assert.deepEqual(made.cpu.at(-1), { executionProviders: ["wasm"] }, "no weights apart");
+    assert.ok(
+      pcts.every((p) => p >= 0),
+      `no progress below 0: ${pcts}`,
+    );
+    assert.ok(
+      pcts.every((p) => p <= 100),
+      `no progress above 100: ${pcts}`,
+    );
+    assert.deepEqual(
+      made.cpu.at(-1),
+      { executionProviders: ["wasm"] },
+      "no weights apart",
+    );
     assert.deepEqual(phonemizerCalls, [
       {
         located: "piper_phonemize.wasm",
@@ -179,14 +213,24 @@ if (!cpuRun) {
         wasm: "/v1/voice/models/runtime/piper_phonemize.wasm",
       },
     ]);
-    assert.ok(cached.has("/v1/voice/models/es_MX-test-high/model.json"), "the copy is kept");
-    assert.ok(!cached.has("/v1/voice/models/es_MX-test-high/model.onnx"), "one that does not fit is not");
+    assert.ok(
+      cached.has("/v1/voice/models/es_MX-test-high/model.json"),
+      "the copy is kept",
+    );
+    assert.ok(
+      !cached.has("/v1/voice/models/es_MX-test-high/model.onnx"),
+      "one that does not fit is not",
+    );
 
     from = posted.length;
     send({ kind: "say", seq: 1, id: PIPER, text: "hola" });
     const said = await next((m) => m.seq === 1, from);
     assert.ok(said.m.wav instanceof ArrayBuffer);
-    assert.deepEqual(said.transfer, [said.m.wav], "the audio is handed over, not copied");
+    assert.deepEqual(
+      said.transfer,
+      [said.m.wav],
+      "the audio is handed over, not copied",
+    );
     const samples = new Int16Array(said.m.wav.slice(44));
     assert.equal(samples.length, MODEL_OUTPUT.length);
 
@@ -197,7 +241,10 @@ if (!cpuRun) {
     send({ kind: "warm", id: PIPER });
     assert.equal((await next(outcome(PIPER), from)).m.kind, "ready");
     assert.deepEqual(fetched, ["/v1/voice/models/es_MX-test-high/model.onnx"]);
-    assert.ok(revalidated.includes("/v1/voice/models/es_MX-test-high/model.json"), "the copy is asked for with its tag");
+    assert.ok(
+      revalidated.includes("/v1/voice/models/es_MX-test-high/model.json"),
+      "the copy is asked for with its tag",
+    );
   });
 
   test("the page's copy outlives an update: kept while the gateway pins it, fetched anew when it does not", async () => {
@@ -210,7 +257,11 @@ if (!cpuRun) {
     send({ kind: "warm", id: PIPER });
     assert.equal((await next(outcome(PIPER), from)).m.kind, "ready");
     assert.ok(fetched.includes(json), "a file pinned anew is fetched again");
-    assert.equal(cached.get(json).headers.get("ETag"), '"newer"', "and kept with its new tag");
+    assert.equal(
+      cached.get(json).headers.get("ETag"),
+      '"newer"',
+      "and kept with its new tag",
+    );
 
     // Without the gateway (offline, or it restarts), the copy is read as it is.
     gatewayDown = true;
@@ -219,7 +270,11 @@ if (!cpuRun) {
     send({ kind: "warm", id: PIPER });
     const offline = (await next(outcome(PIPER), from)).m;
     gatewayDown = false;
-    assert.equal(offline.kind, "failed", "the file that never fit has no copy to fall back to");
+    assert.equal(
+      offline.kind,
+      "failed",
+      "the file that never fit has no copy to fall back to",
+    );
     assert.match(offline.error, /Failed to fetch/);
     putRefused.clear();
     send({ kind: "forget", id: PIPER });
@@ -256,7 +311,10 @@ if (!cpuRun) {
 
     from = posted.length;
     send({ kind: "say", seq: 2, id: "es_MX-broken-low", text: "hola" });
-    assert.deepEqual((await next((m) => m.seq === 2, from)).m, { seq: 2, error: "bad model" });
+    assert.deepEqual((await next((m) => m.seq === 2, from)).m, {
+      seq: 2,
+      error: "bad model",
+    });
   });
 
   test("Chatterbox needs WebGPU: none, no card, then a card the browser gives on a second ask", async () => {
@@ -283,7 +341,11 @@ if (!cpuRun) {
       id: CB,
       error: "the browser gave no graphics card to use",
     });
-    assert.deepEqual(asked, [{ powerPreference: "high-performance" }, undefined], "the fast card, then any");
+    assert.deepEqual(
+      asked,
+      [{ powerPreference: "high-performance" }, undefined],
+      "the fast card, then any",
+    );
 
     // The fast card is refused, any card is given: one without timestamps or half floats.
     const card = adapter([]);
@@ -294,7 +356,12 @@ if (!cpuRun) {
     };
     from = posted.length;
     send({ kind: "warm", id: CB });
-    assert.deepEqual((await next(outcome(CB), from)).m, { kind: "ready", id: CB, gpu: true, gpuError: undefined });
+    assert.deepEqual((await next(outcome(CB), from)).m, {
+      kind: "ready",
+      id: CB,
+      gpu: true,
+      gpuError: undefined,
+    });
     const opts = made.gpu.at(-1);
     assert.equal(opts.executionProviders[0].name, "webgpu");
     assert.deepEqual(opts.executionProviders[0].device.asked, {
@@ -311,14 +378,26 @@ if (!cpuRun) {
       },
       requiredFeatures: [],
     });
-    assert.equal(opts.externalData[0].path, "conditional_decoder.onnx_data", "each part with its weights");
+    assert.equal(
+      opts.externalData[0].path,
+      "conditional_decoder.onnx_data",
+      "each part with its weights",
+    );
     assert.ok(opts.externalData[0].data instanceof Uint8Array);
     assert.equal(globalThis.__covVoiceFake.gpu.env.logLevel, "error");
     assert.equal(globalThis.__covVoiceFake.gpu.env.wasm.numThreads, 1);
 
     from = posted.length;
-    send({ kind: "say", seq: 3, id: CB, text: "Hola", tune: { noise: 1, noiseW: 1, lang: "es" } });
-    assert.ok((await next((m) => m.seq === 3, from)).m.wav instanceof ArrayBuffer);
+    send({
+      kind: "say",
+      seq: 3,
+      id: CB,
+      text: "Hola",
+      tune: { noise: 1, noiseW: 1, lang: "es" },
+    });
+    assert.ok(
+      (await next((m) => m.seq === 3, from)).m.wav instanceof ArrayBuffer,
+    );
   });
 
   test("Supertonic runs on the fast card with its timestamps and half floats", async () => {
@@ -332,12 +411,16 @@ if (!cpuRun) {
     const ST = "supertonic-F1";
     const from = posted.length;
     send({ kind: "warm", id: ST });
-    assert.deepEqual((await next(outcome(ST), from)).m, { kind: "ready", id: ST, gpu: true, gpuError: undefined });
-    assert.deepEqual(made.gpu.at(-1).executionProviders[0].device.asked.requiredFeatures, [
-      "shader-f16",
-      "subgroups",
-      "timestamp-query",
-    ]);
+    assert.deepEqual((await next(outcome(ST), from)).m, {
+      kind: "ready",
+      id: ST,
+      gpu: true,
+      gpuError: undefined,
+    });
+    assert.deepEqual(
+      made.gpu.at(-1).executionProviders[0].device.asked.requiredFeatures,
+      ["shader-f16", "subgroups", "timestamp-query"],
+    );
     assert.equal(made.gpu.at(-1).externalData, undefined, "no weights apart");
   });
 } else {

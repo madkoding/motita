@@ -4,7 +4,12 @@
 // The models are downloaded, listed and deleted like the local voices (localVoice.ts): they are
 // part of the same catalog, with engine "whisper".
 import { workerName } from "./gpuPolicy";
-import { WHISPER_GPU, WHISPER_RATE, type FromListener, type ToListener } from "./localListenCore";
+import {
+  WHISPER_GPU,
+  WHISPER_RATE,
+  type FromListener,
+  type ToListener,
+} from "./localListenCore";
 import { choose } from "./choose";
 import type { LoadState } from "./localVoice";
 import { t } from "./i18n";
@@ -64,7 +69,10 @@ function arm(n: number, p: Pending): void {
 
 function getWorker(): Worker {
   if (!worker) {
-    const w = new Worker(new URL("./speechListen.worker.ts", import.meta.url), { type: "module", name: workerName() });
+    const w = new Worker(new URL("./speechListen.worker.ts", import.meta.url), {
+      type: "module",
+      name: workerName(),
+    });
     worker = w;
     w.onmessage = (e: MessageEvent<FromListener>) => {
       const m = e.data;
@@ -172,10 +180,16 @@ export async function samplesOf(audio: Blob): Promise<Float32Array> {
 // lang is the language spoken, or "" to let the model tell. It fails, and the worker is stopped,
 // when no answer comes in time (HEAR_BASE_MS, and HEAR_PER_SECOND_MS for each second recorded),
 // counted from the moment the worker is given the recording, not from the wait behind another.
-export async function hearLocal(id: string, audio: Blob, lang: string): Promise<string> {
+export async function hearLocal(
+  id: string,
+  audio: Blob,
+  lang: string,
+): Promise<string> {
   const samples = await samplesOf(audio);
   warmListener(id);
-  const ms = HEAR_BASE_MS + Math.ceil(samples.length / WHISPER_RATE) * HEAR_PER_SECOND_MS;
+  const ms =
+    HEAR_BASE_MS +
+    Math.ceil(samples.length / WHISPER_RATE) * HEAR_PER_SECOND_MS;
   // One recording at a time: the worker writes them down in order anyway, and a clock that started
   // while the recording waited its turn would stop the worker (and every model loaded) for a wait.
   const turn = hearing.then(
@@ -183,7 +197,10 @@ export async function hearLocal(id: string, audio: Blob, lang: string): Promise<
       new Promise<string>((ok, fail) => {
         seq++;
         arm(seq, { ok, fail, id, ms });
-        getWorker().postMessage({ kind: "hear", seq, id, samples, lang } satisfies ToListener, [samples.buffer]);
+        getWorker().postMessage(
+          { kind: "hear", seq, id, samples, lang } satisfies ToListener,
+          [samples.buffer],
+        );
       }),
   );
   hearing = turn.catch(() => undefined);

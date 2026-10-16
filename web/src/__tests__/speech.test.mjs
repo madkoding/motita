@@ -35,7 +35,11 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     "literal",
     "word for word unless asked",
   );
-  assert.equal(m.DEFAULT_SPEECH_PREFS.subtitles, false, "no subtitles unless asked");
+  assert.equal(
+    m.DEFAULT_SPEECH_PREFS.subtitles,
+    false,
+    "no subtitles unless asked",
+  );
   assert.equal(m.DEFAULT_SPEECH_PREFS.subtitleSize, "medium");
   let heard = 0;
   globalThis.window = dom.window;
@@ -102,7 +106,14 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     ["accel-kokoro", ""],
     ["supertonic-F1", "supertonic-F1"],
   ]) {
-    localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ engine: "local", localVoice: saved, supertonicSteps: 7.6 }));
+    localStorage.setItem(
+      m.SPEECH_KEY,
+      JSON.stringify({
+        engine: "local",
+        localVoice: saved,
+        supertonicSteps: 7.6,
+      }),
+    );
     assert.equal(m.loadSpeechPrefs().localVoice, kept);
     assert.equal(m.loadSpeechPrefs().supertonicSteps, 8);
   }
@@ -584,13 +595,24 @@ test("a voice that says several sentences at once is asked for as many ahead", a
   };
   said.ahead = 3;
   const r = new m.ClipReader(() => said, audioFactory(made), urls());
-  const list = ["1.", "2.", "3.", "4.", "5."].map((t) => ({ said: t, shown: t }));
+  const list = ["1.", "2.", "3.", "4.", "5."].map((t) => ({
+    said: t,
+    shown: t,
+  }));
   r.read(list, { voice: null, lang: "es", rate: 1 });
   await settle();
-  assert.deepEqual(asked, ["1.", "2.", "3.", "4."], "three ahead of the one playing");
+  assert.deepEqual(
+    asked,
+    ["1.", "2.", "3.", "4."],
+    "three ahead of the one playing",
+  );
   made[0].onended();
   await settle();
-  assert.deepEqual(asked, ["1.", "2.", "3.", "4.", "5."], "nothing past the end, nothing twice");
+  assert.deepEqual(
+    asked,
+    ["1.", "2.", "3.", "4.", "5."],
+    "nothing past the end, nothing twice",
+  );
   for (let i = 1; i < list.length; i++) {
     made[i].onended();
     await settle();

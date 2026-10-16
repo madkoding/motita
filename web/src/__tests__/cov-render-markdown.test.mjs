@@ -93,7 +93,11 @@ async function mount(content) {
 // ── the parse ─────────────────────────────────────────────────────────────────
 
 test("a message has the interface's copy button and CommonMark's own rules", () => {
-  const d = body(md.renderMessage("# Title\n\nline one  \nline two\n\n\\*not italic\\* <https://x.test>"));
+  const d = body(
+    md.renderMessage(
+      "# Title\n\nline one  \nline two\n\n\\*not italic\\* <https://x.test>",
+    ),
+  );
   const wrap = d.querySelector(".markdown-body");
   assert.equal(wrap.firstElementChild.className, "copy-msg-btn");
   assert.equal(wrap.firstElementChild.textContent, "copy");
@@ -128,12 +132,20 @@ test("an unclosed $$ stays as the reader wrote it", () => {
 });
 
 test("inline $...$ is a formula; money and stray dollars stay text", () => {
-  const d = body(md.renderMessage("Area $a<b$ costs $ 5, $$b$$ too, plain end"));
+  const d = body(
+    md.renderMessage("Area $a<b$ costs $ 5, $$b$$ too, plain end"),
+  );
   const spans = d.querySelectorAll(".math-inline");
   assert.equal(spans.length, 1);
   assert.equal(spans[0].textContent, "a<b");
-  assert.match(text(d.querySelector("p")), /costs \$ 5, \$\$b\$\$ too, plain end$/);
-  assert.equal(text(body(md.renderMessage("no dollars")).querySelector("p")), "no dollars");
+  assert.match(
+    text(d.querySelector("p")),
+    /costs \$ 5, \$\$b\$\$ too, plain end$/,
+  );
+  assert.equal(
+    text(body(md.renderMessage("no dollars")).querySelector("p")),
+    "no dollars",
+  );
 });
 
 test("prices are not formulas; one-character and spaced-inside formulas still are", () => {
@@ -148,7 +160,9 @@ test("prices are not formulas; one-character and spaced-inside formulas still ar
   ];
   for (const [src, formulas] of cases) {
     const d = body(md.renderMessage(src));
-    const got = [...d.querySelectorAll(".math-inline")].map((s) => s.textContent);
+    const got = [...d.querySelectorAll(".math-inline")].map(
+      (s) => s.textContent,
+    );
     assert.deepEqual(got, formulas, src);
     if (formulas.length === 0) {
       assert.equal(text(d.querySelector("p")), src);
@@ -172,13 +186,20 @@ test("fences become diagram, formula and code placeholders carrying their source
     "```",
   ].join("\n");
   const d = body(md.renderMessage(src));
-  assert.equal(d.querySelector(".mermaid-block").textContent, "graph LR; A --> B");
+  assert.equal(
+    d.querySelector(".mermaid-block").textContent,
+    "graph LR; A --> B",
+  );
   assert.equal(d.querySelector("div.math-block").textContent, "\\frac{1}{2}");
   const [js, plain] = d.querySelectorAll("pre.code-block");
   assert.equal(js.dataset.codeLang, "js");
   assert.equal(js.querySelector("code").className, "lang-js hljs");
   assert.equal(js.querySelector("code").textContent, 'const a = "<b>";');
-  assert.equal(js.firstElementChild.className, "copy-btn", "the interface adds the copy button");
+  assert.equal(
+    js.firstElementChild.className,
+    "copy-btn",
+    "the interface adds the copy button",
+  );
   assert.equal(plain.dataset.codeLang, "");
   assert.equal(plain.querySelector("code").className, "hljs");
 });
@@ -196,7 +217,7 @@ test("a message keeps table alignment, task ticks and harmless HTML, but no styl
     "",
     '<p style="text-align: center;">centred</p>',
     "",
-    "<kbd>Ctrl</kbd> <button>click</button> <input type=\"text\" value=\"x\"> <input type=\"checkbox\">",
+    '<kbd>Ctrl</kbd> <button>click</button> <input type="text" value="x"> <input type="checkbox">',
     "",
     '<form action="/x"><textarea>t</textarea><select><option>o</option></select></form>',
     "",
@@ -207,15 +228,23 @@ test("a message keeps table alignment, task ticks and harmless HTML, but no styl
   assert.equal(ths[0].getAttribute("style"), "text-align:left");
   assert.equal(ths[1].getAttribute("style"), "text-align:right");
   const ticks = d.querySelectorAll("input");
-  assert.equal(ticks.length, 2, "only the two disabled task checkboxes survive");
+  assert.equal(
+    ticks.length,
+    2,
+    "only the two disabled task checkboxes survive",
+  );
   for (const tick of ticks) {
     assert.equal(tick.type, "checkbox");
     assert.ok(tick.disabled);
   }
   assert.ok(ticks[0].checked);
-  const fake = [...d.querySelectorAll("div")].find((x) => x.textContent === "fake dialog");
+  const fake = [...d.querySelectorAll("div")].find(
+    (x) => x.textContent === "fake dialog",
+  );
   assert.equal(fake.hasAttribute("style"), false);
-  const centred = [...d.querySelectorAll("p")].find((x) => x.textContent === "centred");
+  const centred = [...d.querySelectorAll("p")].find(
+    (x) => x.textContent === "centred",
+  );
   assert.equal(centred.getAttribute("style"), "text-align: center;");
   assert.equal(d.querySelector("kbd").textContent, "Ctrl");
   assert.equal(d.querySelectorAll("button:not(.copy-msg-btn)").length, 0);
@@ -230,8 +259,14 @@ test("sanitize keeps a renderer's styles and diagram labels, and nothing executa
         '<script>alert(1)</script></svg><button>b</button><img src=x onerror="alert(1)">',
     ),
   );
-  assert.equal(out.querySelector("svg").getAttribute("style"), "stroke-dasharray: 3");
-  assert.equal(out.querySelector("foreignObject, foreignobject").textContent, "A");
+  assert.equal(
+    out.querySelector("svg").getAttribute("style"),
+    "stroke-dasharray: 3",
+  );
+  assert.equal(
+    out.querySelector("foreignObject, foreignobject").textContent,
+    "A",
+  );
   assert.equal(out.querySelector("script"), null);
   assert.equal(out.querySelector("button"), null);
   assert.equal(out.querySelector("img").hasAttribute("onerror"), false);
@@ -246,7 +281,23 @@ test("highlight escapes once, colours a known language and falls back for the re
   assert.match(js, /<span class="hljs-keyword">const<\/span>/);
   assert.match(js, /--&gt;/);
   assert.doesNotMatch(js, /&amp;gt;/, "never escaped twice");
-  for (const lang of ["go", "python", "ts", "sh", "yaml", "json", "sql", "css", "html", "xml", "yml", "shell", "typescript", "javascript", "bash"]) {
+  for (const lang of [
+    "go",
+    "python",
+    "ts",
+    "sh",
+    "yaml",
+    "json",
+    "sql",
+    "css",
+    "html",
+    "xml",
+    "yml",
+    "shell",
+    "typescript",
+    "javascript",
+    "bash",
+  ]) {
     assert.ok(hljs.getLanguage(lang), lang);
   }
 });
@@ -270,7 +321,11 @@ test("renderMath typesets MathML without the TeX fallback text, and survives a b
   assert.doesNotMatch(inline, /display="block"/);
   assert.match(renderMath("\\sum_i i", true), /display="block"/);
   const bad = renderMath("\\frac{", false);
-  assert.match(bad, /katex-error|\\frac/, "the source is shown with the reason, not thrown");
+  assert.match(
+    bad,
+    /katex-error|\\frac/,
+    "the source is shown with the reason, not thrown",
+  );
 });
 
 test("renderMermaid initialises mermaid once, strictly, and gives each diagram its own id", async () => {
@@ -310,7 +365,10 @@ test("the asset list is the generated codepoint set", () => {
 test("emoji with an asset become images; the text around them stays", () => {
   const { n, d, imgs } = emojiIn("<p>hi 😀 and ❤️ end</p>");
   assert.equal(n, 2);
-  assert.deepEqual(imgs.map((i) => i.getAttribute("src")), ["/emoji/1f600.webp", "/emoji/2764.webp"]);
+  assert.deepEqual(
+    imgs.map((i) => i.getAttribute("src")),
+    ["/emoji/1f600.webp", "/emoji/2764.webp"],
+  );
   assert.equal(imgs[0].alt, "😀");
   assert.equal(imgs[0].getAttribute("loading"), "lazy");
   assert.equal(imgs[0].getAttribute("draggable"), "false");
@@ -319,11 +377,14 @@ test("emoji with an asset become images; the text around them stays", () => {
 
 test("whole sequences are matched as one picture, keycaps included", () => {
   const { imgs } = emojiIn("<p>🏳️‍🌈🐈‍⬛1️⃣</p>");
-  assert.deepEqual(imgs.map((i) => i.getAttribute("src")), [
-    "/emoji/1f3f3-200d-1f308.webp",
-    "/emoji/1f408-200d-2b1b.webp",
-    "/emoji/31-20e3.webp",
-  ]);
+  assert.deepEqual(
+    imgs.map((i) => i.getAttribute("src")),
+    [
+      "/emoji/1f3f3-200d-1f308.webp",
+      "/emoji/1f408-200d-2b1b.webp",
+      "/emoji/31-20e3.webp",
+    ],
+  );
 });
 
 test("emoji without an asset, and lone selectors, stay characters", () => {
@@ -332,7 +393,11 @@ test("emoji without an asset, and lone selectors, stay characters", () => {
   assert.equal(d.querySelector("p").textContent, "flag 🇨🇱 sel ️ joiner ‍");
   const mixed = emojiIn("<p>🇨🇱😀</p>");
   assert.equal(mixed.n, 1);
-  assert.equal(mixed.d.querySelector("p").textContent, "🇨🇱", "the flag is left whole");
+  assert.equal(
+    mixed.d.querySelector("p").textContent,
+    "🇨🇱",
+    "the flag is left whole",
+  );
 });
 
 test("code, diagrams, formulas and SVG keep their characters", () => {
@@ -372,18 +437,31 @@ test("a mounted message builds its code, formulas, diagrams and emoji once it co
   ].join("\n");
   const m = await mount(content);
   const { el, hydrated } = m;
-  assert.equal(el.querySelector(".markdown-body").dataset.raw, content, "the copy payload survives -->");
+  assert.equal(
+    el.querySelector(".markdown-body").dataset.raw,
+    content,
+    "the copy payload survives -->",
+  );
 
   const pre = el.querySelector("pre.code-block");
   assert.equal(pre.dataset.done, "ok");
-  assert.equal(pre.querySelector(".copy-btn").dataset.copyText, "const a = 1; // -->");
+  assert.equal(
+    pre.querySelector(".copy-btn").dataset.copyText,
+    "const a = 1; // -->",
+  );
   assert.match(pre.querySelector("code").innerHTML, /hljs-keyword/);
 
   const inline = el.querySelector(".math-inline");
   assert.equal(inline.dataset.done, "ok");
   assert.equal(inline.dataset.math, "x^2");
   assert.ok(inline.querySelector("math"));
-  assert.equal(el.querySelector(".math-block").querySelector("math").getAttribute("display"), "block");
+  assert.equal(
+    el
+      .querySelector(".math-block")
+      .querySelector("math")
+      .getAttribute("display"),
+    "block",
+  );
 
   const [good, bad] = el.querySelectorAll(".mermaid-block");
   assert.equal(good.dataset.done, "ok");
@@ -392,9 +470,15 @@ test("a mounted message builds its code, formulas, diagrams and emoji once it co
   assert.equal(good.querySelector("script"), null);
   assert.equal(bad.dataset.done, "failed");
   assert.ok(bad.classList.contains("render-error"));
-  assert.equal(bad.querySelector("p").textContent, "this diagram could not be drawn.");
+  assert.equal(
+    bad.querySelector("p").textContent,
+    "this diagram could not be drawn.",
+  );
   assert.equal(bad.querySelector("pre").textContent, "bad diagram");
-  assert.equal(bad.querySelector(".render-error-reason").textContent, "Parse error on line 2");
+  assert.equal(
+    bad.querySelector(".render-error-reason").textContent,
+    "Parse error on line 2",
+  );
 
   assert.equal(el.dataset.emoji, "ok");
   assert.equal(el.dataset.emojiCount, "1");
@@ -411,9 +495,16 @@ test("a message far out of view goes back to its placeholders, and builds again 
   el.getBoundingClientRect = () => ({ height: 120 });
   report(near(), el, false);
   report(far(), el, false);
-  assert.equal(el.querySelector("pre").dataset.done, undefined, "the colours are dropped");
+  assert.equal(
+    el.querySelector("pre").dataset.done,
+    undefined,
+    "the colours are dropped",
+  );
   assert.equal(el.dataset.emoji, undefined);
-  assert.equal(el.querySelector(".markdown-body").dataset.raw, "```js\nlet x\n```");
+  assert.equal(
+    el.querySelector(".markdown-body").dataset.raw,
+    "```js\nlet x\n```",
+  );
   assert.equal(el.style.minHeight, "120px");
   report(near(), el, true);
   await flush(10);
@@ -447,9 +538,16 @@ test("a model-written placeholder is filled from what it carries", async () => {
   assert.equal(given.dataset.done, "ok");
   assert.equal(empty.dataset.math, "");
   const [raw, coded] = m.el.querySelectorAll("pre.code-block");
-  assert.equal(raw.dataset.done, "pending", "nothing to colour in a block with no code element");
+  assert.equal(
+    raw.dataset.done,
+    "pending",
+    "nothing to colour in a block with no code element",
+  );
   // With no code element the block's whole text is the payload, the button's label included.
-  assert.equal(raw.querySelector(".copy-btn").dataset.copyText, "copyno code element");
+  assert.equal(
+    raw.querySelector(".copy-btn").dataset.copyText,
+    "copyno code element",
+  );
   // One without a language is shown escaped and uncoloured.
   assert.equal(coded.dataset.done, "ok");
   assert.equal(coded.querySelector("code").innerHTML, "raw()");

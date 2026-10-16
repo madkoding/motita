@@ -216,9 +216,7 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
             <p class="text-sm text-[#9a9aaa] truncate">{target.title}</p>
           </div>
         </div>
-        <p class="text-sm text-[#9a9aaa] mb-5">
-          {deleteWarning(target.type)}
-        </p>
+        <p class="text-sm text-[#9a9aaa] mb-5">{deleteWarning(target.type)}</p>
 
         {target.type === "session" && target.id !== "default" && (
           <SessionPreview preview={deletionPreview} loading={previewLoading} />

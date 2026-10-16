@@ -39,48 +39,51 @@ function useSkillToggles(
 ) {
   // pinSkill changes the exemption. The row is patched locally rather than refetched: the
   // answer is one boolean and the list is already on screen.
-  const pinSkill = useCallback(async (name: string, pinned: boolean) => {
-    try {
-      const res = await api(base + encodeURIComponent(name) + "/pin", {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ pinned }),
-      });
-      if (!res.ok) {
+  const pinSkill = useCallback(
+    async (name: string, pinned: boolean) => {
+      try {
+        const res = await api(base + encodeURIComponent(name) + "/pin", {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ pinned }),
+        });
+        if (!res.ok) {
+          setState("could not change the pin", true);
+          return;
+        }
+        setSkills((prev) => prev.map((s) => patchNamed(s, name, { pinned })));
+        // The open document's own copy has to follow, or the button would flip the pin and
+        // keep painting the state it had when the document was opened.
+        setSkillOpen((prev) => prev && patchNamed(prev, name, { pinned }));
+      } catch {
         setState("could not change the pin", true);
-        return;
       }
-      setSkills((prev) => prev.map((s) => patchNamed(s, name, { pinned })));
-      // The open document's own copy has to follow, or the button would flip the pin and
-      // keep painting the state it had when the document was opened.
-      setSkillOpen((prev) => prev && patchNamed(prev, name, { pinned }));
-    } catch {
-      setState("could not change the pin", true);
-    }
-  }, [base]);
+    },
+    [base],
+  );
 
   // disableSkill turns a skill off or back on. The list is patched locally: the answer is
   // one boolean and the row is already on screen, exactly like the pin.
-  const disableSkill = useCallback(async (name: string, disabled: boolean) => {
-    try {
-      const res = await api(
-        base + encodeURIComponent(name) + "/disable",
-        {
+  const disableSkill = useCallback(
+    async (name: string, disabled: boolean) => {
+      try {
+        const res = await api(base + encodeURIComponent(name) + "/disable", {
           method: "POST",
           headers: JSON_HEADERS,
           body: JSON.stringify({ disabled }),
-        },
-      );
-      if (!res.ok) {
-        setState((await errorOf(res)) || "could not change the skill", true);
-        return;
+        });
+        if (!res.ok) {
+          setState((await errorOf(res)) || "could not change the skill", true);
+          return;
+        }
+        setSkills((prev) => prev.map((s) => patchNamed(s, name, { disabled })));
+        setSkillOpen((prev) => prev && patchNamed(prev, name, { disabled }));
+      } catch {
+        setState("could not change the skill", true);
       }
-      setSkills((prev) => prev.map((s) => patchNamed(s, name, { disabled })));
-      setSkillOpen((prev) => prev && patchNamed(prev, name, { disabled }));
-    } catch {
-      setState("could not change the skill", true);
-    }
-  }, [base]);
+    },
+    [base],
+  );
 
   return { pinSkill, disableSkill };
 }
@@ -137,10 +140,9 @@ function useProposals(
       try {
         let res: Response;
         if (accept) {
-          res = await api(
-            proposed + encodeURIComponent(name) + "/accept",
-            { method: "POST" },
-          );
+          res = await api(proposed + encodeURIComponent(name) + "/accept", {
+            method: "POST",
+          });
         } else {
           res = await api(proposed + encodeURIComponent(name), {
             method: "DELETE",
@@ -213,20 +215,23 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
   }, [base]);
 
   // openSkill fetches one document's body. The index deliberately does not carry it.
-  const openSkill = useCallback(async (skill: SkillInfo) => {
-    try {
-      const res = await api(base + encodeURIComponent(skill.name));
-      if (!res.ok) {
-        setState((await errorOf(res)) || "could not open the skill", true);
-        return;
+  const openSkill = useCallback(
+    async (skill: SkillInfo) => {
+      try {
+        const res = await api(base + encodeURIComponent(skill.name));
+        if (!res.ok) {
+          setState((await errorOf(res)) || "could not open the skill", true);
+          return;
+        }
+        const data = await res.json();
+        setSkillBody(data.body || "");
+        setSkillOpen(skill);
+      } catch {
+        setState("could not open the skill", true);
       }
-      const data = await res.json();
-      setSkillBody(data.body || "");
-      setSkillOpen(skill);
-    } catch {
-      setState("could not open the skill", true);
-    }
-  }, [base]);
+    },
+    [base],
+  );
 
   const { pinSkill, disableSkill } = useSkillToggles(
     api,
@@ -247,10 +252,9 @@ export function useSkills(api: Api, sessionId: string, setState: SetStatus) {
   const restoreSkill = useCallback(
     async (name: string) => {
       try {
-        const res = await api(
-          base + encodeURIComponent(name) + "/restore",
-          { method: "POST" },
-        );
+        const res = await api(base + encodeURIComponent(name) + "/restore", {
+          method: "POST",
+        });
         if (!res.ok) {
           setState((await errorOf(res)) || "could not restore the skill", true);
           return;

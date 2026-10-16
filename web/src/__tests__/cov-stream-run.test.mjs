@@ -121,7 +121,11 @@ test("a task is sent and its stream is drawn until the answer", async () => {
     // no event name, and data that is not JSON.
     b.push(ev("attached", { turn: 1 }, "1") + "id: 2\nevent: progr");
     b.push("ess\ndata: " + JSON.stringify({ text: "running: ls" }) + "\n\n");
-    b.push("id: x\nevent: progress\ndata: " + JSON.stringify({ text: "planning..." }) + "\n\n");
+    b.push(
+      "id: x\nevent: progress\ndata: " +
+        JSON.stringify({ text: "planning..." }) +
+        "\n\n",
+    );
     b.push("event: ping\n\n");
     b.push(ev("progress", { text: "running: pwd" }));
     b.push(ev("progress", { text: "output (exit 0):\n/" }));
@@ -157,7 +161,10 @@ test("a task is sent and its stream is drawn until the answer", async () => {
   assert.deepEqual(states, [["working"], ["ready"]]);
   // The list read after the answer no longer has the run in flight: nothing stays masked.
   assert.equal(cur().lists.answeredHere("s1"), false);
-  assert.ok(m.calls.some((c) => c.key === "GET /v1/sessions"), "the list is read again");
+  assert.ok(
+    m.calls.some((c) => c.key === "GET /v1/sessions"),
+    "the list is read again",
+  );
   await h.unmount();
 });
 
@@ -176,7 +183,11 @@ test("a stream that ends without its last blank line, or without a terminal even
     b.end();
     await done;
   });
-  assert.equal(cur().rs.activity, null, "finish clears the activity the tail set");
+  assert.equal(
+    cur().rs.activity,
+    null,
+    "finish clears the activity the tail set",
+  );
   assert.equal(cur().rs.messages.length, 1, "the unfinished draft is dropped");
   assert.equal(cur().rs.running, false);
   assert.deepEqual(states.at(-1), ["ready"]);
@@ -200,7 +211,8 @@ test("a stream that ends without its last blank line, or without a terminal even
 
 test("a refused turn says why, and says how to continue an integrated session", async () => {
   const m = await mount({
-    "POST /v1/sessions/s1/run": () => res(409, { error: "the session has already been integrated" }),
+    "POST /v1/sessions/s1/run": () =>
+      res(409, { error: "the session has already been integrated" }),
   });
   const { h, cur, toasts, states } = m;
   // submit is made once, on the first render, while the list is still empty. The submit kept from
@@ -212,7 +224,10 @@ test("a refused turn says why, and says how to continue an integrated session", 
   assert.equal(toasts[0].message, "This session is already integrated");
   assert.equal(toasts[0].type, "warning");
   assert.match(toasts[0].detail, /Continue in the session menu/);
-  assert.deepEqual(states.at(-2), ["the session has already been integrated", true]);
+  assert.deepEqual(states.at(-2), [
+    "the session has already been integrated",
+    true,
+  ]);
   assert.equal(cur().rs.running, false);
 
   // Integrated but not continuable, a refusal without a reason, and one that is not JSON.
@@ -246,7 +261,9 @@ test("leaving a session lets go of its run, which keeps going in the gateway", a
     "POST /v1/sessions/s1/run": (init) =>
       new Promise((resolve, reject) => {
         answer = resolve;
-        init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+        init.signal.addEventListener("abort", () =>
+          reject(new Error("aborted")),
+        );
       }),
   });
   const { h, cur, states } = m;
@@ -256,7 +273,10 @@ test("leaving a session lets go of its run, which keeps going in the gateway", a
     await tick();
   });
   await h.act(async () => {
-    cur().rs.reconnectTimer.current = setTimeout(() => assert.fail("must not fire"), 50);
+    cur().rs.reconnectTimer.current = setTimeout(
+      () => assert.fail("must not fire"),
+      50,
+    );
     cur().rs.setActivity("busy");
     cur().stream.detach();
     await done;
@@ -265,7 +285,11 @@ test("leaving a session lets go of its run, which keeps going in the gateway", a
   assert.equal(cur().rs.running, false);
   assert.equal(cur().rs.activity, null);
   assert.equal(cur().rs.runSessionRef.current, "");
-  assert.equal(cur().lists.sessions[0].running, true, "its row keeps the spinner");
+  assert.equal(
+    cur().lists.sessions[0].running,
+    true,
+    "its row keeps the spinner",
+  );
   assert.deepEqual(states, [["working"]], "nothing failed");
   // Detaching with nothing running does nothing more.
   await h.act(() => cur().stream.detach());
@@ -353,7 +377,10 @@ test("events of a stream that is no longer the one on screen are dropped", async
     b2.push(ev("answer", { text: "late" }));
     await done;
   });
-  assert.equal(cur().rs.messages.some((x) => x.text === "late"), false);
+  assert.equal(
+    cur().rs.messages.some((x) => x.text === "late"),
+    false,
+  );
   await h.unmount();
 });
 
@@ -467,12 +494,17 @@ test("a run the gateway no longer has is finished and the transcript is read", a
     throw new Error("offline");
   };
   await h.act(() => cur().stream.followReconnect());
-  assert.equal(cur().rs.reconnectTimer.current, null, "a stale stream is not retried");
+  assert.equal(
+    cur().rs.reconnectTimer.current,
+    null,
+    "a stale stream is not retried",
+  );
 
   // A body that cannot be read counts as a broken stream, and is retried.
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    m.routes["GET /v1/sessions/s1/events?from=0"] = () => res(200, null, { body: null });
+    m.routes["GET /v1/sessions/s1/events?from=0"] = () =>
+      res(200, null, { body: null });
     const states = m.states.length;
     await h.act(() => cur().stream.followReconnect());
     assert.deepEqual(m.states.slice(states), [["reconnecting", true]]);
@@ -496,14 +528,18 @@ test("a reconnection names the run it follows, and a run that is over is not ret
       await tick();
     });
     await h.act(async () => {
-      b.push(ev("attached", { run_id: "r 1", turn: 1 }, null) + ev("progress", { text: "a" }, "4"));
+      b.push(
+        ev("attached", { run_id: "r 1", turn: 1 }, null) +
+          ev("progress", { text: "a" }, "4"),
+      );
       b.fail(new Error("reset"));
       await done;
     });
     assert.equal(cur().rs.runIdRef.current, "r 1");
     // The gateway kept the run, and it is over now: the rest of it arrives.
     const b2 = body();
-    m.routes["GET /v1/sessions/s1/events?from=4&run=r%201"] = () => streamRes(b2);
+    m.routes["GET /v1/sessions/s1/events?from=4&run=r%201"] = () =>
+      streamRes(b2);
     await h.act(async () => {
       mock.timers.tick(1000);
       await tick();
@@ -516,14 +552,16 @@ test("a reconnection names the run it follows, and a run that is over is not ret
     assert.equal(cur().rs.running, false);
     assert.equal(cur().rs.messages.at(-1).text, "fine");
 
-    const eventCalls = () => m.calls.filter((c) => c.key.includes("/events")).length;
+    const eventCalls = () =>
+      m.calls.filter((c) => c.key.includes("/events")).length;
     let before;
     // 410: the run is gone and nothing replaced it. The history is read; nothing retries.
     await h.act(() => {
       cur().rs.runningRef.current = true;
       cur().rs.setRunning(true);
     });
-    m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () => res(410, {});
+    m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () =>
+      res(410, {});
     await h.act(() => cur().stream.followReconnect());
     before = eventCalls();
     assert.equal(cur().rs.running, false);
@@ -540,7 +578,8 @@ test("a reconnection names the run it follows, and a run that is over is not ret
       cur().rs.runningRef.current = true;
       cur().rs.setRunning(true);
     });
-    m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () => res(409, {});
+    m.routes["GET /v1/sessions/s1/events?from=5&run=r%201"] = () =>
+      res(409, {});
     await h.act(() => cur().stream.followReconnect());
     before = eventCalls();
     assert.equal(cur().rs.running, false);
@@ -664,8 +703,13 @@ test("messages sent to a run in flight are queued, or interrupt it, and the next
 
     // Stop sends an interrupt with nothing queued; a failure to reach the gateway is silent.
     await h.act(() => cur().stream.stopRun());
-    assert.deepEqual(m.calls.at(-1), { ...m.calls.at(-1), key: "POST /v1/sessions/s1/interrupt", body: "{}" });
-    m.routes["POST /v1/sessions/s1/interrupt"] = () => Promise.reject(new Error("offline"));
+    assert.deepEqual(m.calls.at(-1), {
+      ...m.calls.at(-1),
+      key: "POST /v1/sessions/s1/interrupt",
+      body: "{}",
+    });
+    m.routes["POST /v1/sessions/s1/interrupt"] = () =>
+      Promise.reject(new Error("offline"));
     await h.act(() => cur().stream.stopRun());
     assert.equal(toasts.length, 2);
     await h.unmount();

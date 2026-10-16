@@ -90,13 +90,19 @@ function agentMessages(
 // shownOf is the label a user turn is drawn under when it carries what was answered on the turn
 // before it (`prev`): the accepted suggestions, or the answers to its questions. The prompt it
 // carries is for the agent, not for the reader.
-function shownOf(prev: Checkpoint | undefined, text: string): string | undefined {
+function shownOf(
+  prev: Checkpoint | undefined,
+  text: string,
+): string | undefined {
   if (isApplying(prev?.answers, text)) {
     return t("Applying suggestions");
   }
   const qa = prev?.question_answers;
   if (isAnswering(qa, text)) {
-    return answersLabel(prev?.outcome?.questions ?? [], (qa as QuestionAnswers).answers);
+    return answersLabel(
+      prev?.outcome?.questions ?? [],
+      (qa as QuestionAnswers).answers,
+    );
   }
   return undefined;
 }

@@ -161,4 +161,3 @@ export function key(el, k, extra = {}) {
 export function byText(root, sel, t) {
   return [...root.querySelectorAll(sel)].find((e) => text(e).includes(t));
 }
-

@@ -4,7 +4,13 @@
 // Run with: node --test web/src/__tests__/cov-git-prbar.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { installDom, loadSources, fakeApi, json, text } from "./cov-git-helpers.mjs";
+import {
+  installDom,
+  loadSources,
+  fakeApi,
+  json,
+  text,
+} from "./cov-git-helpers.mjs";
 
 installDom();
 const { PRBar, usePullRequest, AppCtx } = await loadSources({
@@ -152,7 +158,10 @@ const view = (o = {}) => ({
 // ── when the bar is drawn ────────────────────────────────────────────────────
 
 test("no bar and no question for a session outside a project, or none at all", async () => {
-  for (const session of [sess({ project_id: undefined, mergeable: true }), undefined]) {
+  for (const session of [
+    sess({ project_id: undefined, mergeable: true }),
+    undefined,
+  ]) {
     const m = await mount({}, { session });
     assert.equal(m.root.innerHTML, "");
     assert.equal(m.f.calls.length, 0);
@@ -162,7 +171,9 @@ test("no bar and no question for a session outside a project, or none at all", a
 });
 
 test("a project session with nothing to propose has no bar; with work in it, Create PR", async () => {
-  const routes = { "GET /v1/sessions/": json(200, { state: "none", branch: "b" }) };
+  const routes = {
+    "GET /v1/sessions/": json(200, { state: "none", branch: "b" }),
+  };
   let m = await mount(routes, { session: sess() });
   assert.equal(m.f.calls[0].path, "/v1/sessions/s1/pr");
   assert.equal(m.root.innerHTML, "");
@@ -240,11 +251,18 @@ test("Create PR on a host that is not connected opens the connect dialog instead
     { "GET /v1/sessions/": () => answer },
     { session: sess({ mergeable: true }) },
   );
-  answer = json(409, { error: "login", code: "git_auth_required", service: "gitlab" });
+  answer = json(409, {
+    error: "login",
+    code: "git_auth_required",
+    service: "gitlab",
+  });
   await click(button(m.root, "Create PR"));
   answer = json(409, { error: "login", code: "git_auth_required" });
   await click(button(m.root, "Create PR"));
-  assert.deepEqual(m.log.gitConnect, [{ service: "gitlab" }, { service: undefined }]);
+  assert.deepEqual(m.log.gitConnect, [
+    { service: "gitlab" },
+    { service: undefined },
+  ]);
   delete globalThis.Notification;
 
   // Without the Notification API at all, any other refusal is a toast.
@@ -387,12 +405,22 @@ test("a red CI names the failed checks and what Motita does about it", async () 
     { name: "e2e", state: "failure" },
   ];
   const m = await mount(
-    { "GET /v1/sessions/": json(200, view({ ci: { state: "failure", checks } })) },
-    { session: sess({ pr_watch: { status: "base_red", attempts: 1, max: 3 } }) },
+    {
+      "GET /v1/sessions/": json(
+        200,
+        view({ ci: { state: "failure", checks } }),
+      ),
+    },
+    {
+      session: sess({ pr_watch: { status: "base_red", attempts: 1, max: 3 } }),
+    },
   );
   const red = m.root.querySelector("[title='lint, e2e']");
   assert.equal(text(red), "CI failed");
-  assert.match(text(m.root), /Also failing on the base branch — not caused by this change/);
+  assert.match(
+    text(m.root),
+    /Also failing on the base branch — not caused by this change/,
+  );
   assert.equal(button(m.root, "Try again"), undefined);
   await m.done();
 
@@ -410,7 +438,10 @@ test("after Motita gave up, Try again sends it back and follows the run it start
   const gaveUp = sess({ pr_watch: { status: "gave_up", attempts: 3, max: 3 } });
   const m = await mount(
     {
-      "GET /v1/sessions/": json(200, view({ ci: { state: "failure", checks: [] } })),
+      "GET /v1/sessions/": json(
+        200,
+        view({ ci: { state: "failure", checks: [] } }),
+      ),
       "POST /v1/sessions/": () => fix,
     },
     { session: gaveUp },
@@ -488,7 +519,10 @@ test("a merged pull request offers the session opened from it, or to continue in
 
   m = await mount({}, { session: { ...merged({}), continuable: true } });
   const cont = button(m.root, "Continue in a new session");
-  assert.equal(cont.title, "Open a new session from the updated project branch");
+  assert.equal(
+    cont.title,
+    "Open a new session from the updated project branch",
+  );
   await click(cont);
   assert.deepEqual(m.log.continues, ["s1"]);
   await m.done();
@@ -536,15 +570,24 @@ test("answers for a session the user already left are dropped", async () => {
     { session: sess({ mergeable: true }) },
   );
   // The user moves to s2 before s1's answer comes.
-  await m.draw(m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }));
-  assert.deepEqual(pending.map(([p]) => p), ["/v1/sessions/s1/pr", "/v1/sessions/s2/pr"]);
-  await act(() => pending[0][1](json(200, view({ pr: { number: 99, url: "u" } }))));
+  await m.draw(
+    m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }),
+  );
+  assert.deepEqual(
+    pending.map(([p]) => p),
+    ["/v1/sessions/s1/pr", "/v1/sessions/s2/pr"],
+  );
+  await act(() =>
+    pending[0][1](json(200, view({ pr: { number: 99, url: "u" } }))),
+  );
   await settle();
   assert.equal(pr.prView, null);
   assert.ok(button(m.root, "Create PR"));
 
   // And on to s3 before s2's refusal comes: s3 is not blocked by it.
-  await m.draw(m.next({ sessionId: "s3", session: sess({ id: "s3", mergeable: true }) }));
+  await m.draw(
+    m.next({ sessionId: "s3", session: sess({ id: "s3", mergeable: true }) }),
+  );
   await act(() => pending[1][1](json(409, { code: "pr_no_remote" })));
   await settle();
   assert.equal(pr.prBlocked, false);
@@ -552,7 +595,9 @@ test("answers for a session the user already left are dropped", async () => {
 
   // s3's own answer is drawn.
   assert.equal(pending[2][0], "/v1/sessions/s3/pr");
-  await act(() => pending[2][1](json(200, view({ pr: { number: 3, url: "u3" } }))));
+  await act(() =>
+    pending[2][1](json(200, view({ pr: { number: 3, url: "u3" } }))),
+  );
   await settle();
   assert.equal(text(m.root.querySelector("a")), "Pull request #3");
   await m.done();
@@ -568,15 +613,24 @@ test("moving straight from one project session to another asks about the new one
   );
   assert.equal(text(m.root.querySelector("a")), "Pull request #12");
   // s1's view is on screen when s2 is opened: s2 is still asked, and its own pull request drawn.
-  await m.draw(m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }));
+  await m.draw(
+    m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }),
+  );
   assert.deepEqual(
     m.f.calls.map((c) => c.path),
     ["/v1/sessions/s1/pr", "/v1/sessions/s2/pr"],
   );
   assert.equal(text(m.root.querySelector("a")), "Pull request #7");
   // Out to a session outside a project and back to s2: it is asked again.
-  await m.draw(m.next({ sessionId: "s9", session: sess({ id: "s9", project_id: undefined }) }));
-  await m.draw(m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }));
+  await m.draw(
+    m.next({
+      sessionId: "s9",
+      session: sess({ id: "s9", project_id: undefined }),
+    }),
+  );
+  await m.draw(
+    m.next({ sessionId: "s2", session: sess({ id: "s2", mergeable: true }) }),
+  );
   assert.equal(m.f.calls.at(-1).path, "/v1/sessions/s2/pr");
   assert.equal(m.f.calls.length, 3);
   assert.equal(text(m.root.querySelector("a")), "Pull request #7");
@@ -585,9 +639,16 @@ test("moving straight from one project session to another asks about the new one
 
 test("while the gateway follows the CI the bar asks every 20 seconds, and stops after", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
-  const following = sess({ pr_watch: { status: "following", attempts: 0, max: 3 } });
+  const following = sess({
+    pr_watch: { status: "following", attempts: 0, max: 3 },
+  });
   const m = await mount(
-    { "GET /v1/sessions/": json(200, view({ ci: { state: "pending", checks: [] } })) },
+    {
+      "GET /v1/sessions/": json(
+        200,
+        view({ ci: { state: "pending", checks: [] } }),
+      ),
+    },
     { session: following },
   );
   const first = gets(m.f);
@@ -599,7 +660,9 @@ test("while the gateway follows the CI the bar asks every 20 seconds, and stops 
   assert.equal(gets(m.f), first + 2);
 
   await m.draw(
-    m.next({ session: sess({ pr_watch: { status: "passed", attempts: 0, max: 3 } }) }),
+    m.next({
+      session: sess({ pr_watch: { status: "passed", attempts: 0, max: 3 } }),
+    }),
   );
   const after = gets(m.f);
   await act(() => t.mock.timers.tick(60000));
@@ -610,17 +673,37 @@ test("while the gateway follows the CI the bar asks every 20 seconds, and stops 
 
 // ── toasts ───────────────────────────────────────────────────────────────────
 
-const W = (status, o = {}) => ({ status, attempts: 1, max: 3, number: 5, ...o });
+const W = (status, o = {}) => ({
+  status,
+  attempts: 1,
+  max: 3,
+  number: 5,
+  ...o,
+});
 
 test("each step of the watch is told once, with the session's name when it is not on screen", async () => {
   said.length = 0;
   const other = (w) => ({ id: "s2", title: "Other work", pr_watch: w });
   const m = await mount({}, { sessions: [other(W("following"))] });
-  assert.deepEqual(m.log.toasts, [], "what happened before the tab looked is not news");
+  assert.deepEqual(
+    m.log.toasts,
+    [],
+    "what happened before the tab looked is not news",
+  );
 
   const steps = [
-    [W("passed"), "CI passed", "success", "Pull request #5 is green: you can go and merge it."],
-    [W("fixing", { attempts: 2 }), "CI failed", "error", "Motita is fixing it — attempt 2 of 3."],
+    [
+      W("passed"),
+      "CI passed",
+      "success",
+      "Pull request #5 is green: you can go and merge it.",
+    ],
+    [
+      W("fixing", { attempts: 2 }),
+      "CI failed",
+      "error",
+      "Motita is fixing it — attempt 2 of 3.",
+    ],
     [
       W("reviewing", { attempts: 2 }),
       "New review comments",
@@ -639,14 +722,24 @@ test("each step of the watch is told once, with the session's name when it is no
       "error",
       "It tried 3 times. Look at pull request #5 and try again when you are ready.",
     ],
-    [W("no_ci"), "This repository has no CI", "warning", "Pull request #5 has no checks to wait for."],
+    [
+      W("no_ci"),
+      "This repository has no CI",
+      "warning",
+      "Pull request #5 has no checks to wait for.",
+    ],
     [
       W("base_red"),
       "The CI is red on the base branch too",
       "warning",
       "Pull request #5 fails the same checks as the branch it merges into: this change did not cause it.",
     ],
-    [W("closed"), "Pull request closed", "warning", "Pull request #5 was closed without being merged."],
+    [
+      W("closed"),
+      "Pull request closed",
+      "warning",
+      "Pull request #5 was closed without being merged.",
+    ],
     [
       W("merged"),
       "Pull request merged",
@@ -684,7 +777,11 @@ test("the session on screen is not named; one without a title is named by its id
   await m.draw(
     m.next({
       sessions: [
-        { id: "s1", title: "Here", pr_watch: W("merged", { next: "s3", number: undefined }) },
+        {
+          id: "s1",
+          title: "Here",
+          pr_watch: W("merged", { next: "s3", number: undefined }),
+        },
         { id: "s8", title: "Quiet" },
       ],
     }),
@@ -693,18 +790,35 @@ test("the session on screen is not named; one without a title is named by its id
     {
       message: "Pull request merged",
       type: "success",
-      detail: "Pull request  was merged. A new session was opened from the updated branch.",
+      detail:
+        "Pull request  was merged. A new session was opened from the updated branch.",
     },
   ]);
-  await m.draw(m.next({ sessions: [{ id: "s7", title: "", pr_watch: W("no_ci") }] }));
+  await m.draw(
+    m.next({ sessions: [{ id: "s7", title: "", pr_watch: W("no_ci") }] }),
+  );
   assert.equal(m.log.toasts.at(-1).message, "This repository has no CI — s7");
   // The agent sent again is news at each new attempt, not when the same attempt is seen again.
-  await m.draw(m.next({ sessions: [{ id: "s7", title: "", pr_watch: W("fixing", { attempts: 2 }) }] }));
-  await m.draw(m.next({ sessions: [{ id: "s7", title: "", pr_watch: W("fixing", { attempts: 2 }) }] }));
+  await m.draw(
+    m.next({
+      sessions: [
+        { id: "s7", title: "", pr_watch: W("fixing", { attempts: 2 }) },
+      ],
+    }),
+  );
+  await m.draw(
+    m.next({
+      sessions: [
+        { id: "s7", title: "", pr_watch: W("fixing", { attempts: 2 }) },
+      ],
+    }),
+  );
   assert.equal(m.log.toasts.length, 3);
   assert.equal(m.log.toasts.at(-1).message, "CI failed — s7");
   // A status this page does not know is no toast.
-  await m.draw(m.next({ sessions: [{ id: "s7", title: "", pr_watch: W("paused") }] }));
+  await m.draw(
+    m.next({ sessions: [{ id: "s7", title: "", pr_watch: W("paused") }] }),
+  );
   assert.equal(m.log.toasts.length, 3);
   await m.done();
 });
@@ -723,11 +837,19 @@ test("several pull requests moving at once are one toast, as loud as the loudest
     type: "warning",
     detail: "CI passed — A · This repository has no CI — B",
   });
-  await m.draw(m.next({ sessions: list(W("passed"), W("no_ci"), W("gave_up")) }));
+  await m.draw(
+    m.next({ sessions: list(W("passed"), W("no_ci"), W("gave_up")) }),
+  );
   assert.equal(m.log.toasts.at(-1).message, "Motita could not fix the CI — C");
-  await m.draw(m.next({ sessions: list(W("closed"), W("merged"), W("fixing", { attempts: 2 })) }));
+  await m.draw(
+    m.next({
+      sessions: list(W("closed"), W("merged"), W("fixing", { attempts: 2 })),
+    }),
+  );
   assert.equal(m.log.toasts.at(-1).type, "error");
-  await m.draw(m.next({ sessions: list(W("passed"), W("passed"), W("passed")) }));
+  await m.draw(
+    m.next({ sessions: list(W("passed"), W("passed"), W("passed")) }),
+  );
   assert.deepEqual(m.log.toasts.at(-1), {
     message: "3 pull requests moved",
     type: "success",
@@ -744,7 +866,10 @@ test("toasts can be turned off; a hidden tab gets a browser notification unless 
       shown.push([title, options]);
     }
   };
-  Object.defineProperty(document, "hidden", { value: true, configurable: true });
+  Object.defineProperty(document, "hidden", {
+    value: true,
+    configurable: true,
+  });
   localStorage.setItem("motita.ui.ciToast", "off");
   said.length = 0;
   const one = (w) => [{ id: "s2", title: "T", pr_watch: w }];
@@ -756,7 +881,10 @@ test("toasts can be turned off; a hidden tab gets a browser notification unless 
   assert.deepEqual(shown, [
     [
       "CI passed — T",
-      { body: "Pull request #5 is green: you can go and merge it.", tag: "motita-pr" },
+      {
+        body: "Pull request #5 is green: you can go and merge it.",
+        tag: "motita-pr",
+      },
     ],
   ]);
 

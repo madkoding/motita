@@ -30,7 +30,11 @@ globalThis.OfflineAudioContext = class {
     decoded.push({ rate: this.rate, bytes: buf.byteLength });
     const left = Float32Array.from([1, 0.5, 0]);
     const right = Float32Array.from([0, 0.5, 1]);
-    return { length: 3, numberOfChannels: 2, getChannelData: (c) => (c === 0 ? left : right) };
+    return {
+      length: 3,
+      numberOfChannels: 2,
+      getChannelData: (c) => (c === 0 ? left : right),
+    };
   }
 };
 globalThis.caches = {};
@@ -60,15 +64,31 @@ test("a model is loaded once, and its loading is followed until ready or failed"
   answer({ kind: "ready", id: "whisper-base", gpu: false });
   assert.deepEqual(L.listenStateOf("whisper-base"), { pct: 100, ready: true });
   answer({ kind: "ready", id: "whisper-base-gpu", gpu: true, gpuError: "x" });
-  assert.deepEqual(L.listenStateOf("whisper-base-gpu"), { pct: 100, ready: true, gpu: true, gpuError: "x" });
+  assert.deepEqual(L.listenStateOf("whisper-base-gpu"), {
+    pct: 100,
+    ready: true,
+    gpu: true,
+    gpuError: "x",
+  });
 
   answer({ kind: "failed", id: "whisper-small", error: "HTTP 404" });
-  assert.deepEqual(L.listenStateOf("whisper-small"), { pct: 0, ready: false, error: "HTTP 404" });
+  assert.deepEqual(L.listenStateOf("whisper-small"), {
+    pct: 0,
+    ready: false,
+    error: "HTTP 404",
+  });
   L.warmListener("whisper-small");
-  assert.deepEqual(worker().sent.at(-1).m, { kind: "warm", id: "whisper-small" }, "a failed one is tried again");
+  assert.deepEqual(
+    worker().sent.at(-1).m,
+    { kind: "warm", id: "whisper-small" },
+    "a failed one is tried again",
+  );
 
   L.forgetListener("whisper-base");
-  assert.deepEqual(worker().sent.at(-1).m, { kind: "forget", id: "whisper-base" });
+  assert.deepEqual(worker().sent.at(-1).m, {
+    kind: "forget",
+    id: "whisper-base",
+  });
   assert.equal(L.listenStateOf("whisper-base"), undefined);
   assert.ok(told >= 6);
   off();
@@ -80,15 +100,26 @@ test("a model is loaded once, and its loading is followed until ready or failed"
 test("a recording is decoded at 16 kHz, its channels mixed, and handed over to be written down", async () => {
   const blob = new Blob(["abcd"]);
   const p = L.hearLocal("whisper-tiny", blob, "es");
-  for (let i = 0; i < 5 && !worker().sent.some(({ m }) => m.kind === "hear"); i++) {
+  for (
+    let i = 0;
+    i < 5 && !worker().sent.some(({ m }) => m.kind === "hear");
+    i++
+  ) {
     await new Promise((r) => setImmediate(r));
   }
   assert.deepEqual(decoded.at(-1), { rate: 16000, bytes: 4 });
   const hear = worker().sent.find(({ m }) => m.kind === "hear");
   assert.deepEqual([...hear.m.samples], [0.5, 0.5, 0.5]);
-  assert.deepEqual(hear.transfer, [hear.m.samples.buffer], "the samples are handed over, not copied");
+  assert.deepEqual(
+    hear.transfer,
+    [hear.m.samples.buffer],
+    "the samples are handed over, not copied",
+  );
   assert.equal(hear.m.lang, "es");
-  assert.ok(worker().sent.some(({ m }) => m.kind === "warm" && m.id === "whisper-tiny"), "loaded first");
+  assert.ok(
+    worker().sent.some(({ m }) => m.kind === "warm" && m.id === "whisper-tiny"),
+    "loaded first",
+  );
   answer({ seq: 999, text: "nobody asked" });
   answer({ seq: hear.m.seq, text: "hola", lang: "es" });
   assert.equal(await p, "hola");
@@ -118,7 +149,11 @@ test("a worker that never answers is stopped in time, the clock restarting while
   const p = L.hearLocal("whisper-tiny", new Blob(["x"]), "").catch((e) => {
     failed = e;
   });
-  for (let i = 0; i < 5 && !worker().sent.some(({ m }) => m.kind === "hear"); i++) {
+  for (
+    let i = 0;
+    i < 5 && !worker().sent.some(({ m }) => m.kind === "hear");
+    i++
+  ) {
     await new Promise((r) => setImmediate(r));
   }
   const stuck = worker();
@@ -133,9 +168,16 @@ test("a worker that never answers is stopped in time, the clock restarting while
   assert.equal(stuck.terminated, undefined);
   t.mock.timers.tick(1);
   await p;
-  assert.match(String(failed), /The local listener took too long and was stopped\./);
+  assert.match(
+    String(failed),
+    /The local listener took too long and was stopped\./,
+  );
   assert.equal(stuck.terminated, true);
-  assert.equal(L.listenStateOf("whisper-tiny"), undefined, "what it loaded went with it");
+  assert.equal(
+    L.listenStateOf("whisper-tiny"),
+    undefined,
+    "what it loaded went with it",
+  );
   L.warmListener("whisper-tiny");
   assert.notEqual(worker(), stuck, "a new worker");
 });
@@ -170,7 +212,11 @@ test("recordings are handed over one at a time, each clock starting when its tur
   answer({ seq: sentFirst.m.seq, text: "uno", lang: "" });
   assert.equal(await first, "uno");
   await settled();
-  assert.equal(hears().at(-1).m.seq, sentFirst.m.seq + 1, "the second goes once the first is answered");
+  assert.equal(
+    hears().at(-1).m.seq,
+    sentFirst.m.seq + 1,
+    "the second goes once the first is answered",
+  );
   t.mock.timers.tick(ms - 1);
   await settled();
   assert.equal(failed, null, "its wait behind the first was not counted");

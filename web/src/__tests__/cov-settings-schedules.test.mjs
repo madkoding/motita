@@ -24,11 +24,68 @@ const { h, render } = await import("preact");
 const NOW = Date.parse("2026-05-01T12:00:00Z");
 const iso = (ms) => new Date(ms).toISOString();
 const TASKS = [
-  { id: "a", title: "Daily digest", task: "sum up", kind: "task", session_id: "s1", every: "1h0m0s", enabled: true, created: iso(NOW - 86400000), run_count: 3, next_run: iso(NOW + 90_000), last_outcome: "ok: 3 files" },
-  { id: "b", title: "Late one", task: "x", kind: "plan", session_id: "s2", every: "24h", enabled: true, created: iso(NOW), run_count: 0, next_run: iso(NOW - 5_000) },
-  { id: "c", title: "Paused", task: "x", kind: "task", session_id: "s3", every: "30m", enabled: false, created: iso(NOW - 3600000), last_run: iso(NOW - 60000), run_count: 1, next_run: iso(NOW + 1000) },
-  { id: "d", title: "Paused new", task: "x", kind: "task", session_id: "s4", every: "2h", enabled: false, created: iso(NOW - 7200000), run_count: 0, next_run: "" },
-  { id: "e", title: "No next", task: "x", kind: "task", session_id: "s5", every: "2h", enabled: true, created: iso(NOW), run_count: 0, next_run: "soon" },
+  {
+    id: "a",
+    title: "Daily digest",
+    task: "sum up",
+    kind: "task",
+    session_id: "s1",
+    every: "1h0m0s",
+    enabled: true,
+    created: iso(NOW - 86400000),
+    run_count: 3,
+    next_run: iso(NOW + 90_000),
+    last_outcome: "ok: 3 files",
+  },
+  {
+    id: "b",
+    title: "Late one",
+    task: "x",
+    kind: "plan",
+    session_id: "s2",
+    every: "24h",
+    enabled: true,
+    created: iso(NOW),
+    run_count: 0,
+    next_run: iso(NOW - 5_000),
+  },
+  {
+    id: "c",
+    title: "Paused",
+    task: "x",
+    kind: "task",
+    session_id: "s3",
+    every: "30m",
+    enabled: false,
+    created: iso(NOW - 3600000),
+    last_run: iso(NOW - 60000),
+    run_count: 1,
+    next_run: iso(NOW + 1000),
+  },
+  {
+    id: "d",
+    title: "Paused new",
+    task: "x",
+    kind: "task",
+    session_id: "s4",
+    every: "2h",
+    enabled: false,
+    created: iso(NOW - 7200000),
+    run_count: 0,
+    next_run: "",
+  },
+  {
+    id: "e",
+    title: "No next",
+    task: "x",
+    kind: "task",
+    session_id: "s5",
+    every: "2h",
+    enabled: true,
+    created: iso(NOW),
+    run_count: 0,
+    next_run: "soon",
+  },
 ];
 
 function mount(api) {
@@ -37,7 +94,11 @@ function mount(api) {
   function Harness() {
     const schedules = useSchedules(api, (t) => toasts.push(t));
     ref.s = schedules;
-    return h(AppCtx.Provider, { value: { schedules } }, schedules.showScheduledTasks ? h(ScheduledTasksModal, null) : null);
+    return h(
+      AppCtx.Provider,
+      { value: { schedules } },
+      schedules.showScheduledTasks ? h(ScheduledTasksModal, null) : null,
+    );
   }
   const root = document.createElement("div");
   document.body.appendChild(root);
@@ -51,7 +112,10 @@ function mount(api) {
       ref.s.openScheduledTasks();
       await settle();
     },
-    row: (title) => [...root.querySelectorAll(".rounded-xl.border.p-3")].find((r) => text(r).startsWith(title)),
+    row: (title) =>
+      [...root.querySelectorAll(".rounded-xl.border.p-3")].find((r) =>
+        text(r).startsWith(title),
+      ),
     async unmount() {
       render(null, root);
       root.remove();
@@ -73,7 +137,10 @@ test("the panel lists the tasks with their countdown, which ticks only while it 
     await settle();
     assert.equal(f.calls.length, 0);
     await m.open();
-    assert.deepEqual(f.calls.map((c) => c.path), ["/v1/schedules"]);
+    assert.deepEqual(
+      f.calls.map((c) => c.path),
+      ["/v1/schedules"],
+    );
     assert.match(text(m.root), /Scheduled tasks/);
     assert.match(text(m.root), /Scheduled \(5\)/);
     const a = m.row("Daily digest");
@@ -92,11 +159,19 @@ test("the panel lists the tasks with their countdown, which ticks only while it 
     assert.match(text(b), /every 24h/);
 
     const c = m.row("Paused");
-    assert.ok(text(c).includes("Paused — last " + new Date(NOW - 60000).toLocaleString()));
+    assert.ok(
+      text(c).includes(
+        "Paused — last " + new Date(NOW - 60000).toLocaleString(),
+      ),
+    );
     assert.equal(c.querySelector(".task-countdown"), null);
     assert.ok(btn(c, "Resume"));
     const d = m.row("Paused new");
-    assert.ok(text(d).includes("Paused — last " + new Date(NOW - 7200000).toLocaleString()));
+    assert.ok(
+      text(d).includes(
+        "Paused — last " + new Date(NOW - 7200000).toLocaleString(),
+      ),
+    );
     const e = m.row("No next");
     assert.doesNotMatch(text(e), /fires in|due now|Paused/);
 
@@ -161,10 +236,18 @@ test("run now, pause and delete each call the gateway and say how it went", asyn
   const row = () => m.row("Daily digest");
 
   await press(btn(row(), "Run now"));
-  assert.deepEqual(m.toasts.at(-1), { message: "Task started", type: "success", detail: "It is running in s1." });
+  assert.deepEqual(m.toasts.at(-1), {
+    message: "Task started",
+    type: "success",
+    detail: "It is running in s1.",
+  });
   runAnswer = json(409, { error: "already running" });
   await press(btn(row(), "Run now"));
-  assert.deepEqual(m.toasts.at(-1), { message: "That task could not start", type: "error", detail: "already running" });
+  assert.deepEqual(m.toasts.at(-1), {
+    message: "That task could not start",
+    type: "error",
+    detail: "already running",
+  });
   runAnswer = new Response("x", { status: 409 });
   await press(btn(row(), "Run now"));
   assert.equal(m.toasts.at(-1).detail, undefined);
@@ -174,10 +257,14 @@ test("run now, pause and delete each call the gateway and say how it went", asyn
   assert.equal(m.toasts.length, 3);
 
   await press(btn(row(), "Pause"));
-  assert.deepEqual(f.calls.find((c) => c.method === "PATCH").body, { enabled: false });
+  assert.deepEqual(f.calls.find((c) => c.method === "PATCH").body, {
+    enabled: false,
+  });
   assert.ok(btn(row(), "Resume"));
   await press(btn(row(), "Resume"));
-  assert.deepEqual(f.calls.filter((c) => c.method === "PATCH")[1].body, { enabled: true });
+  assert.deepEqual(f.calls.filter((c) => c.method === "PATCH")[1].body, {
+    enabled: true,
+  });
 
   await press(btn(row(), "Delete"));
   assert.equal(row(), undefined);
@@ -204,7 +291,8 @@ test("refused pause and delete leave the list as it was", async () => {
 test("the form creates a task only with a title and an instruction, and clears itself", async () => {
   let created;
   const f = fakeApi({
-    "GET /v1/schedules": () => json(200, { schedules: created ? [created] : [] }),
+    "GET /v1/schedules": () =>
+      json(200, { schedules: created ? [created] : [] }),
     "POST /v1/schedules": (_p, init) => {
       const b = JSON.parse(init.body);
       created = { ...TASKS[0], id: "n", title: b.title, every: b.every };
@@ -252,7 +340,10 @@ test("the form creates a task only with a title and an instruction, and clears i
 });
 
 test("a refused task is reported with the gateway's reason, and the form keeps its text", async () => {
-  const answers = [json(400, { error: "bad cadence" }), new Response("x", { status: 500 })];
+  const answers = [
+    json(400, { error: "bad cadence" }),
+    new Response("x", { status: 500 }),
+  ];
   const f = fakeApi({
     "GET /v1/schedules": json(200, { schedules: [] }),
     "POST /v1/schedules": () => answers.shift(),
@@ -265,7 +356,11 @@ test("a refused task is reported with the gateway's reason, and the form keeps i
   type(every, "often");
   await settle();
   await press(btn(m.root, "Create"));
-  assert.deepEqual(m.toasts.at(-1), { message: "The task could not be created", type: "error", detail: "bad cadence" });
+  assert.deepEqual(m.toasts.at(-1), {
+    message: "The task could not be created",
+    type: "error",
+    detail: "bad cadence",
+  });
   assert.equal(title.value, "T");
   assert.equal(btn(m.root, "Create").disabled, false);
   await press(btn(m.root, "Create"));

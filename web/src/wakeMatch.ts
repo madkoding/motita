@@ -14,12 +14,30 @@ const MIN_FUZZY = 4;
 
 // FOLDS maps the accented Latin letters a recogniser writes to the plain ones a person types.
 const FOLDS: Record<string, string> = {
-  à: "a", á: "a", â: "a", ã: "a", ä: "a",
-  è: "e", é: "e", ê: "e", ë: "e",
-  ì: "i", í: "i", î: "i", ï: "i",
-  ò: "o", ó: "o", ô: "o", õ: "o", ö: "o",
-  ù: "u", ú: "u", û: "u", ü: "u",
-  ñ: "n", ç: "c",
+  à: "a",
+  á: "a",
+  â: "a",
+  ã: "a",
+  ä: "a",
+  è: "e",
+  é: "e",
+  ê: "e",
+  ë: "e",
+  ì: "i",
+  í: "i",
+  î: "i",
+  ï: "i",
+  ò: "o",
+  ó: "o",
+  ô: "o",
+  õ: "o",
+  ö: "o",
+  ù: "u",
+  ú: "u",
+  û: "u",
+  ü: "u",
+  ñ: "n",
+  ç: "c",
 };
 
 // A letter or a digit (Go's unicode.IsLetter and unicode.IsDigit); anything else separates words.
@@ -86,7 +104,11 @@ function near(heard: string, want: string): boolean {
 
 // find is where want starts in words, looking no further than MAX_LEAD words in; -1 when nowhere.
 function find(words: Token[], want: Token[]): number {
-  for (let start = 0; start <= MAX_LEAD && start + want.length <= words.length; start++) {
+  for (
+    let start = 0;
+    start <= MAX_LEAD && start + want.length <= words.length;
+    start++
+  ) {
     if (want.every((t, i) => near(words[start + i].word, t.word))) {
       return start;
     }
@@ -97,7 +119,10 @@ function find(words: Token[], want: Token[]): number {
 // matchWake finds the first phrase at the start of text (after at most MAX_LEAD words) and returns
 // it with what followed; undefined when none is there. When two phrases match at the same place,
 // the longer one wins.
-export function matchWake(text: string, phrases: readonly string[]): { phrase: string; rest: string } | undefined {
+export function matchWake(
+  text: string,
+  phrases: readonly string[],
+): { phrase: string; rest: string } | undefined {
   const words = tokenize(text);
   let best = -1;
   let bestStart = 0;
@@ -112,7 +137,11 @@ export function matchWake(text: string, phrases: readonly string[]): { phrase: s
     if (start < 0) {
       return;
     }
-    if (best < 0 || start < bestStart || (start === bestStart && want.length > bestLen)) {
+    if (
+      best < 0 ||
+      start < bestStart ||
+      (start === bestStart && want.length > bestLen)
+    ) {
       best = i;
       bestStart = start;
       bestLen = want.length;

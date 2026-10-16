@@ -13,7 +13,15 @@ const test = (...args) => cases.push(args);
 const bare = globalThis.COV_VOICE_SW_BARE === true;
 
 // The stand-in scope: the listeners the worker adds, and what it asks of the browser.
-const log = { skipped: 0, claimed: 0, shown: [], opened: [], posted: [], focused: 0, subscribed: [] };
+const log = {
+  skipped: 0,
+  claimed: 0,
+  shown: [],
+  opened: [],
+  posted: [],
+  focused: 0,
+  subscribed: [],
+};
 const listeners = {};
 const scope = {
   navigator: { language: "es-CL" },
@@ -133,12 +141,21 @@ test("install precaches the assets but never the document, and a missing one doe
   listeners.install(e);
   await settled(e);
   assert.equal(log.skipped, 1);
-  const shell = [...store.entries()].find(([n]) => n.startsWith("motita-shell"));
+  const shell = [...store.entries()].find(([n]) =>
+    n.startsWith("motita-shell"),
+  );
   assert.ok(shell, "the shell cache is opened");
   if (bare) {
-    assert.deepEqual([...shell[1].keys()], [], "nothing to precache without a manifest");
+    assert.deepEqual(
+      [...shell[1].keys()],
+      [],
+      "nothing to precache without a manifest",
+    );
   } else {
-    assert.deepEqual([...shell[1].keys()], ["assets/index-1.js", "icon-192.png"]);
+    assert.deepEqual(
+      [...shell[1].keys()],
+      ["assets/index-1.js", "icon-192.png"],
+    );
   }
 });
 
@@ -149,57 +166,102 @@ test("activate retires every other shell cache, keeps the voices, and takes the 
   listeners.activate(e);
   await settled(e);
   assert.equal(store.has("motita-shell-v1"), false);
-  assert.equal(store.has("motita-voices-v1"), true, "the downloaded models survive an update");
-  assert.equal([...store.keys()].some((n) => n.startsWith("motita-shell")), true);
+  assert.equal(
+    store.has("motita-voices-v1"),
+    true,
+    "the downloaded models survive an update",
+  );
+  assert.equal(
+    [...store.keys()].some((n) => n.startsWith("motita-shell")),
+    true,
+  );
   assert.equal(log.claimed, 1);
 });
 
 test("the API is left to the network, the document comes from it, and assets from the cache", async () => {
-  const api = event({ request: { url: "https://h/v1/sessions", mode: "cors" } });
+  const api = event({
+    request: { url: "https://h/v1/sessions", mode: "cors" },
+  });
   listeners.fetch(api);
-  assert.equal(api.response, undefined, "an API call is not answered by the worker");
+  assert.equal(
+    api.response,
+    undefined,
+    "an API call is not answered by the worker",
+  );
 
   network = async () => new Response("<html>new", { status: 200 });
-  const nav = event({ request: { url: "https://h/?session=1", mode: "navigate" } });
+  const nav = event({
+    request: { url: "https://h/?session=1", mode: "navigate" },
+  });
   listeners.fetch(nav);
   assert.equal(await (await nav.response).text(), "<html>new");
   await new Promise((r) => setImmediate(r));
-  assert.equal(await (await caches.match("/")).text(), "<html>new", "the offline copy is refreshed");
+  assert.equal(
+    await (await caches.match("/")).text(),
+    "<html>new",
+    "the offline copy is refreshed",
+  );
 
   network = async () => new Response("oops", { status: 500 });
   const bad = event({ request: { url: "https://h/", mode: "navigate" } });
   listeners.fetch(bad);
   assert.equal((await bad.response).status, 500);
-  assert.equal(await (await caches.match("/")).text(), "<html>new", "an error page is not kept");
+  assert.equal(
+    await (await caches.match("/")).text(),
+    "<html>new",
+    "an error page is not kept",
+  );
 
   network = async () => {
     throw new TypeError("offline");
   };
   const offline = event({ request: { url: "https://h/", mode: "navigate" } });
   listeners.fetch(offline);
-  assert.equal(await (await offline.response).text(), "<html>new", "offline, the copy is shown");
+  assert.equal(
+    await (await offline.response).text(),
+    "<html>new",
+    "offline, the copy is shown",
+  );
   for (const entries of store.values()) {
     entries.delete("/");
   }
   const none = event({ request: { url: "https://h/", mode: "navigate" } });
   listeners.fetch(none);
-  assert.equal((await none.response).type, "error", "offline with no copy: a network error");
+  assert.equal(
+    (await none.response).type,
+    "error",
+    "offline with no copy: a network error",
+  );
 
   network = async () => new Response("js", { status: 200 });
-  const asset = event({ request: { url: "https://h/assets/a.js", mode: "no-cors" } });
+  const asset = event({
+    request: { url: "https://h/assets/a.js", mode: "no-cors" },
+  });
   listeners.fetch(asset);
   assert.equal(await (await asset.response).text(), "js");
   await new Promise((r) => setImmediate(r));
   fetched.length = 0;
   network = async () => new Response("gone", { status: 404 });
-  const again = event({ request: { url: "https://h/assets/a.js", mode: "no-cors" } });
+  const again = event({
+    request: { url: "https://h/assets/a.js", mode: "no-cors" },
+  });
   listeners.fetch(again);
-  assert.equal(await (await again.response).text(), "js", "the second time from the cache");
+  assert.equal(
+    await (await again.response).text(),
+    "js",
+    "the second time from the cache",
+  );
   assert.deepEqual(fetched, []);
-  const missing = event({ request: { url: "https://h/assets/b.js", mode: "no-cors" } });
+  const missing = event({
+    request: { url: "https://h/assets/b.js", mode: "no-cors" },
+  });
   listeners.fetch(missing);
   assert.equal((await missing.response).status, 404);
-  assert.equal(await caches.match({ url: "https://h/assets/b.js" }), undefined, "a 404 is not kept");
+  assert.equal(
+    await caches.match({ url: "https://h/assets/b.js" }),
+    undefined,
+    "a 404 is not kept",
+  );
 });
 
 test("a push shows its notification unless a window is in front; the test always shows", async () => {
@@ -209,7 +271,9 @@ test("a push shows its notification unless a window is in front; the test always
     listeners.push(e);
     await settled(e);
   };
-  await push(data({ title: "CI passed", body: "PR 1", tag: "ci-1", url: "/?session=a" }));
+  await push(
+    data({ title: "CI passed", body: "PR 1", tag: "ci-1", url: "/?session=a" }),
+  );
   assert.deepEqual(log.shown.at(-1), {
     title: "CI passed",
     body: "PR 1",
@@ -219,7 +283,11 @@ test("a push shows its notification unless a window is in front; the test always
     data: { url: "/?session=a" },
   });
   await push(undefined);
-  assert.equal(log.shown.at(-1).title, "Motita", "an empty push still says who sent it");
+  assert.equal(
+    log.shown.at(-1).title,
+    "Motita",
+    "an empty push still says who sent it",
+  );
   assert.deepEqual(log.shown.at(-1).data, { url: "/" });
   await push({
     json() {
@@ -231,7 +299,10 @@ test("a push shows its notification unless a window is in front; the test always
   await push(data(null));
   assert.equal(log.shown.at(-1).title, "Motita");
 
-  scope.clients.windows = [{ visibilityState: "hidden" }, { visibilityState: "visible" }];
+  scope.clients.windows = [
+    { visibilityState: "hidden" },
+    { visibilityState: "visible" },
+  ];
   const before = log.shown.length;
   await push(data({ title: "CI failed", tag: "ci-2" }));
   assert.equal(log.shown.length, before, "the page on screen tells it itself");
@@ -274,18 +345,30 @@ test("a renewed subscription is handed to the gateway, in the device's language"
     listeners.pushsubscriptionchange(e);
     await settled(e);
   };
-  await change({ newSubscription: { toJSON: () => ({ endpoint: "https://push/new" }) } });
+  await change({
+    newSubscription: { toJSON: () => ({ endpoint: "https://push/new" }) },
+  });
   assert.equal(fetched.length, 1);
   assert.equal(fetched[0][0], "/v1/push/subscriptions");
   assert.equal(fetched[0][1].credentials, "same-origin");
-  assert.deepEqual(JSON.parse(fetched[0][1].body), { endpoint: "https://push/new", lang: "es" });
+  assert.deepEqual(JSON.parse(fetched[0][1].body), {
+    endpoint: "https://push/new",
+    lang: "es",
+  });
 
   scope.navigator.language = "en-US";
   await change({ oldSubscription: { options: { userVisibleOnly: true } } });
   assert.deepEqual(log.subscribed, [{ userVisibleOnly: true }]);
-  assert.deepEqual(JSON.parse(fetched[1][1].body), { endpoint: "https://push/renewed", lang: "en" });
+  assert.deepEqual(JSON.parse(fetched[1][1].body), {
+    endpoint: "https://push/renewed",
+    lang: "en",
+  });
 
   await change({ oldSubscription: null });
   await change({ oldSubscription: { options: null } });
-  assert.equal(fetched.length, 2, "nothing to hand over without a subscription");
+  assert.equal(
+    fetched.length,
+    2,
+    "nothing to hand over without a subscription",
+  );
 });

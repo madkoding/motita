@@ -40,7 +40,12 @@ test("token counts are added up and humanised", () => {
   assert.equal(m.formatTokens(1_234_567), "1.2M");
   assert.equal(m.tokenBreakdown({}), "in 0 · out 0");
   assert.equal(
-    m.tokenBreakdown({ input: 1500, output: 20, cache_read: 7, cache_write: 9 }),
+    m.tokenBreakdown({
+      input: 1500,
+      output: 20,
+      cache_read: 7,
+      cache_write: 9,
+    }),
     "in 1.5k · out 20 · cache read 7 · cache write 9",
   );
   assert.deepEqual(
@@ -63,7 +68,10 @@ test("elapsed times read as a chronometer", () => {
   assert.equal(m.agentElapsed({ started: "bad", elapsed_ms: 7 }, 0), 7);
   assert.equal(m.agentElapsed({ started: "bad" }, 0), 0);
   assert.equal(
-    m.agentElapsed({ started: start, state: "running", elapsed_ms: 1 }, t0 + 5000),
+    m.agentElapsed(
+      { started: start, state: "running", elapsed_ms: 1 },
+      t0 + 5000,
+    ),
     5000,
   );
   assert.equal(
@@ -101,8 +109,14 @@ test("agents are sorted main first, then by start, and marked by how they ended"
   // An agent whose start cannot be read counts as started first.
   const ok = { id: "ok", parent: "a", started: "2024-01-01T00:00:01Z" };
   const odd = { id: "odd", parent: "a", started: "?" };
-  assert.deepEqual(m.sortAgents([ok, odd]).map((a) => a.id), ["odd", "ok"]);
-  assert.deepEqual(m.sortAgents([odd, ok]).map((a) => a.id), ["odd", "ok"]);
+  assert.deepEqual(
+    m.sortAgents([ok, odd]).map((a) => a.id),
+    ["odd", "ok"],
+  );
+  assert.deepEqual(
+    m.sortAgents([odd, ok]).map((a) => a.id),
+    ["odd", "ok"],
+  );
   assert.equal(m.agentMark("running"), null);
   assert.equal(m.agentMark("passed"), "✓");
   assert.equal(m.agentMark("failed"), "✗");
@@ -127,7 +141,10 @@ test("ids, branches and worktrees are shortened the way git does", () => {
   assert.equal(m.sessionWorktreeChip({}), "");
   assert.equal(m.sessionWorktreeChip({ worktree: "w" }), "");
   assert.equal(
-    m.sessionWorktreeChip({ worktree: "s63bb92aa", branch: "motita/s63bb92aa" }),
+    m.sessionWorktreeChip({
+      worktree: "s63bb92aa",
+      branch: "motita/s63bb92aa",
+    }),
     "",
   );
   assert.equal(
@@ -268,10 +285,13 @@ test("scheduled tasks count down against the gateway's clock", () => {
       text: "1:02:05",
       overdue: false,
     });
-    assert.deepEqual(m.taskCountdown(at(2 * 86_400_000 + 3 * 3_600_000), now, 0), {
-      text: "2d 3h",
-      overdue: false,
-    });
+    assert.deepEqual(
+      m.taskCountdown(at(2 * 86_400_000 + 3 * 3_600_000), now, 0),
+      {
+        text: "2d 3h",
+        overdue: false,
+      },
+    );
     assert.deepEqual(m.taskCountdown(at(65_000), now, 60_000), {
       text: "0:05",
       overdue: false,
@@ -288,10 +308,16 @@ test("small lookups: reasoning, titles, models, statuses, skills", () => {
     m.reasoningOf({ reasoning_enabled: true, reasoning: "high" }),
     "high",
   );
-  assert.equal(m.reasoningOf({ reasoning_enabled: false, reasoning: "high" }), "off");
+  assert.equal(
+    m.reasoningOf({ reasoning_enabled: false, reasoning: "high" }),
+    "off",
+  );
 
   assert.equal(m.sessionTitle({ id: "s1" }), "s1");
-  assert.equal(m.sessionTitle({ id: "s1", title: "New session" }), "New session");
+  assert.equal(
+    m.sessionTitle({ id: "s1", title: "New session" }),
+    "New session",
+  );
   assert.equal(m.sessionTitle({ id: "s1", title: "Fix it" }), "Fix it");
   assert.equal(m.chatTitle(null), "Motita");
   assert.equal(m.chatTitle({ id: "s1", title: "T" }), "T");
@@ -321,7 +347,10 @@ test("small lookups: reasoning, titles, models, statuses, skills", () => {
 
   const item = { name: "a", on: false };
   assert.equal(m.patchNamed(item, "b", { on: true }), item);
-  assert.deepEqual(m.patchNamed(item, "a", { on: true }), { name: "a", on: true });
+  assert.deepEqual(m.patchNamed(item, "a", { on: true }), {
+    name: "a",
+    on: true,
+  });
 
   const skills = [
     { name: "deploy", title: "Ship", summary: "push it" },
@@ -329,9 +358,18 @@ test("small lookups: reasoning, titles, models, statuses, skills", () => {
     { name: "y", title: "Z", summary: "Write TESTS" },
   ];
   assert.equal(m.filterSkills(skills, ""), skills);
-  assert.deepEqual(m.filterSkills(skills, "deploy").map((s) => s.name), ["deploy"]);
-  assert.deepEqual(m.filterSkills(skills, "review").map((s) => s.name), ["x"]);
-  assert.deepEqual(m.filterSkills(skills, "tests").map((s) => s.name), ["y"]);
+  assert.deepEqual(
+    m.filterSkills(skills, "deploy").map((s) => s.name),
+    ["deploy"],
+  );
+  assert.deepEqual(
+    m.filterSkills(skills, "review").map((s) => s.name),
+    ["x"],
+  );
+  assert.deepEqual(
+    m.filterSkills(skills, "tests").map((s) => s.name),
+    ["y"],
+  );
   assert.deepEqual(m.filterSkills(skills, "nothing"), []);
 
   assert.equal(m.lastExit([]), null);
@@ -342,7 +380,10 @@ test("small lookups: reasoning, titles, models, statuses, skills", () => {
 
 test("small lookups: previews, pull requests, toasts, artifacts, tags, notes", () => {
   assert.equal(m.previewKind(true, null), "loading");
-  assert.equal(m.previewKind(false, { count: 0, inspection_failed: true }), "failed");
+  assert.equal(
+    m.previewKind(false, { count: 0, inspection_failed: true }),
+    "failed",
+  );
   assert.equal(m.previewKind(false, null), "none");
   assert.equal(m.previewKind(false, { count: 2 }), "changes");
   assert.equal(m.previewKind(false, { count: 0 }), "clean");
@@ -365,7 +406,10 @@ test("small lookups: previews, pull requests, toasts, artifacts, tags, notes", (
 
   assert.equal(m.artifactShape({ type: "application/pdf", url: "/a" }), "pdf");
   assert.equal(m.artifactShape({ type: "image/png", url: "/a" }), "image");
-  assert.equal(m.artifactShape({ type: "text/markdown; charset=utf-8" }), "markdown");
+  assert.equal(
+    m.artifactShape({ type: "text/markdown; charset=utf-8" }),
+    "markdown",
+  );
   assert.equal(m.artifactShape({ type: "text/html" }), "html");
   assert.equal(m.artifactShape({ type: "text/plain" }), "text");
 
@@ -390,7 +434,10 @@ test("small lookups: previews, pull requests, toasts, artifacts, tags, notes", (
   assert.equal(m.toastTone("info", 1, 2, 3), 3);
 
   assert.equal(m.rowMenuStyle(null), undefined);
-  assert.deepEqual(m.rowMenuStyle({ top: 4, left: 9 }), { top: "4px", left: "9px" });
+  assert.deepEqual(m.rowMenuStyle({ top: 4, left: 9 }), {
+    top: "4px",
+    left: "9px",
+  });
 
   assert.equal(m.skillHeading(null), "Skill library");
   assert.equal(m.skillHeading({ name: "n", title: "T" }), "T");
@@ -408,10 +455,19 @@ test("small lookups: previews, pull requests, toasts, artifacts, tags, notes", (
   );
   assert.equal(m.ciFailedLabel(undefined), "CI failed");
 
-  assert.equal(m.mergeBlockedLabel("blocked"), "Waiting for approvals or required checks");
-  assert.equal(m.mergeBlockedLabel("conflict"), "Conflicts with the base branch");
+  assert.equal(
+    m.mergeBlockedLabel("blocked"),
+    "Waiting for approvals or required checks",
+  );
+  assert.equal(
+    m.mergeBlockedLabel("conflict"),
+    "Conflicts with the base branch",
+  );
   assert.equal(m.mergeBlockedLabel("draft"), "Still a draft");
-  assert.equal(m.mergeBlockedLabel("behind"), "Out of date with the base branch");
+  assert.equal(
+    m.mergeBlockedLabel("behind"),
+    "Out of date with the base branch",
+  );
 });
 
 test("durations are read in milliseconds and in their short form", () => {
@@ -466,7 +522,7 @@ test("repository names, slugs and shell lines are read", () => {
     "https://github.com/user/.git": ".git",
     "git@host:repo": "",
     "host:a/repo": "repo",
-    "repo": "",
+    repo: "",
     "https://github.com/": "",
     "/repo": "",
     "x:/repo": "",
@@ -481,7 +537,10 @@ test("repository names, slugs and shell lines are read", () => {
   assert.equal(m.shellCommandOf("!ls -la "), "ls -la");
   assert.equal(m.shellCommandOf("/shell   pwd"), "pwd");
   assert.equal(m.shellCommandOf("hello"), null);
-  assert.deepEqual(m.splitOutput("output (exit 2):\nboom"), { exit: 2, body: "boom" });
+  assert.deepEqual(m.splitOutput("output (exit 2):\nboom"), {
+    exit: 2,
+    body: "boom",
+  });
   assert.deepEqual(m.splitOutput("output (exit -1):"), { exit: -1, body: "" });
   assert.deepEqual(m.splitOutput("other"), { exit: null, body: "other" });
   assert.equal(m.commandOf("running:   ls"), "ls");
@@ -495,7 +554,10 @@ test("the agent's phase lines and upgrade stages are worded", () => {
     m.progressText("subtask 1/2: write it"),
     "subtask 1/2: write it",
   );
-  assert.equal(m.progressText("analysing the task..."), "analysing the task...");
+  assert.equal(
+    m.progressText("analysing the task..."),
+    "analysing the task...",
+  );
   assert.equal(m.progressText("free text"), "free text");
   assert.equal(
     m.progressText("waiting for 3 background agent(s)..."),
@@ -511,11 +573,14 @@ test("the agent's phase lines and upgrade stages are worded", () => {
 test("server-sent event frames are read", () => {
   assert.equal(m.sseData("event: x\ndata: 1\ndata: 2"), "2");
   assert.equal(m.sseData("event: x"), "");
-  assert.deepEqual(m.parseFrame("id: 7 \nevent: progress\ndata: {}\n: comment"), {
-    id: "7",
-    event: "progress",
-    data: "{}",
-  });
+  assert.deepEqual(
+    m.parseFrame("id: 7 \nevent: progress\ndata: {}\n: comment"),
+    {
+      id: "7",
+      event: "progress",
+      data: "{}",
+    },
+  );
   assert.deepEqual(m.parseFrame(""), { id: null, event: null, data: null });
 });
 
@@ -582,7 +647,10 @@ test("Spanish is loaded on demand and English stays the fallback", async () => {
   assert.equal(i18n.tf("{a} and {b}", { a: 1 }), "1 and {b}");
   assert.equal(i18n.plural(1, "{n} file", "{n} files"), "1 file");
   assert.equal(i18n.plural(2, "{n} file", "{n} files", { x: 1 }), "2 files");
-  assert.equal(m.sessionTitle({ id: "s", title: "New session" }), "Sesión nueva");
+  assert.equal(
+    m.sessionTitle({ id: "s", title: "New session" }),
+    "Sesión nueva",
+  );
 
   // The dictionary is loaded once; switching back and forth keeps it.
   await act(() => i18n.setLang("en"));
@@ -602,15 +670,20 @@ test("Spanish is loaded on demand and English stays the fallback", async () => {
   await act(() => render(null, root));
 });
 
-
 test("a background agent's step is read from its line, and named by its tag", () => {
-  const cmd = m.parseSub('{"agent":"a2","role":"review","kind":"command","text":"ls","exit":1}');
+  const cmd = m.parseSub(
+    '{"agent":"a2","role":"review","kind":"command","text":"ls","exit":1}',
+  );
   assert.equal(cmd.text, "ls");
   assert.equal(m.subTag(cmd), "a2 · review");
   assert.equal(m.subTag({ agent: "a1" }), "a1");
   assert.equal(m.parseSub("{not json"), null);
   assert.equal(m.parseSub("null"), null);
-  assert.equal(m.parseSub('{"kind":"command"}'), null, "a step without its agent is nothing");
+  assert.equal(
+    m.parseSub('{"kind":"command"}'),
+    null,
+    "a step without its agent is nothing",
+  );
 });
 
 test("workerError puts the few messages a worker can send in the reader's language", () => {
@@ -620,7 +693,15 @@ test("workerError puts the few messages a worker can send in the reader's langua
     "the browser gave no graphics card to use",
     "the local listener stopped",
   ]) {
-    assert.notEqual(m.workerError(said), said, said + " is worded for the reader");
+    assert.notEqual(
+      m.workerError(said),
+      said,
+      said + " is worded for the reader",
+    );
   }
-  assert.equal(m.workerError("HTTP 404 https://x"), "HTTP 404 https://x", "anything else as it came");
+  assert.equal(
+    m.workerError("HTTP 404 https://x"),
+    "HTTP 404 https://x",
+    "anything else as it came",
+  );
 });

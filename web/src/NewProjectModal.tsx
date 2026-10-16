@@ -275,11 +275,7 @@ function NewProjectRepos() {
   );
   return (
     <ReposSection
-      main={newMainRepo(
-        p.newProjectMode,
-        p.newProjectTitle,
-        p.newProjectDir,
-      )}
+      main={newMainRepo(p.newProjectMode, p.newProjectTitle, p.newProjectDir)}
       repos={p.newProjectRepos}
       busy=""
       onRemove={onRemove}

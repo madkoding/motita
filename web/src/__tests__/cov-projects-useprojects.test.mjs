@@ -1164,7 +1164,11 @@ test("a picker for the other repositories does not outlive a connection that was
   assert.equal(s.p.pickForOthers, true);
   await run(() => s.p.pickerAuthRequired("bitbucket"));
   await run(() => s.p.closeGitConnect());
-  assert.equal(s.p.pickForOthers, false, "the next picker is for the main repository");
+  assert.equal(
+    s.p.pickForOthers,
+    false,
+    "the next picker is for the main repository",
+  );
   await run(() => s.p.openOtherRepoPicker());
   await run(() => s.p.openRepoPicker());
   assert.equal(s.p.showRepoPicker, true);
