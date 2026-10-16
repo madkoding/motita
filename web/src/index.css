@@ -383,9 +383,78 @@ body {
  * is set solid; a card needs its own measure, so the block is bounded and the
  * overflow scrolls rather than pushing the modal's buttons off-screen. */
 .skill-body {
-  max-height: 52vh;
+  /* What is left of the modal's 80vh once the header, the meta line and the two
+   * buttons are counted, so the buttons stay on screen and the text scrolls. */
+  max-height: max(12rem, calc(80vh - 17rem));
+  max-height: max(12rem, calc(80dvh - 17rem));
   overflow-y: auto;
   background: rgb(0 0 0 / calc(var(--well-k) * 0.22));
+  /* A reading size, not the transcript's: a skill is a long document, and at the
+   * page's 16px in this wide face the headings and the code read as shouting. */
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+/* The headings are scaled for a document: the biggest is only a little over the
+ * text, and the bars are slimmer than the transcript's so a skill with many
+ * sections is not mostly decoration. */
+.skill-body .markdown-body h1,
+.skill-body .markdown-body h2,
+.skill-body .markdown-body h3,
+.skill-body .markdown-body h4,
+.skill-body .markdown-body h5,
+.skill-body .markdown-body h6 {
+  padding: 3px 8px;
+  margin: 10px 0 4px;
+  letter-spacing: 0;
+  line-height: 1.35;
+  border-left-width: 3px;
+}
+.skill-body .markdown-body h1:first-child {
+  margin-top: 0;
+}
+.skill-body .markdown-body h1 {
+  font-size: 1.15em;
+}
+.skill-body .markdown-body h2 {
+  font-size: 1.07em;
+}
+.skill-body .markdown-body h3 {
+  font-size: 1em;
+}
+.skill-body .markdown-body h4,
+.skill-body .markdown-body h5,
+.skill-body .markdown-body h6 {
+  font-size: 0.93em;
+}
+.skill-body .markdown-body p {
+  margin: 0 0 6px;
+  line-height: 1.6;
+}
+.skill-body .markdown-body li {
+  line-height: 1.6;
+}
+.skill-body .markdown-body ul,
+.skill-body .markdown-body ol {
+  margin: 2px 0 6px;
+}
+/* Inline code follows the sentence; a block scrolls sideways instead of
+ * wrapping, and is a notch smaller than the prose around it. */
+.skill-body .markdown-body code {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+.skill-body .markdown-body pre {
+  margin: 6px 0;
+  font-size: 0.85em;
+}
+.skill-body .markdown-body pre code {
+  font-size: 1em;
+  overflow-wrap: normal;
+}
+.skill-body .markdown-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* The countdown: the figure a person opens this panel to read, so it is the

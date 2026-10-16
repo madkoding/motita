@@ -293,3 +293,21 @@ test("full-window previews opened from a chat bubble are drawn in a portal", () 
     assert.match(src(f), /<BodyPortal>/, f);
   }
 });
+
+// The skill viewer: a skill is a long document, so it is set at a reading size, with headings
+// scaled for it, code that scrolls sideways, and a header that wraps instead of squeezing.
+test("the skill body is set at a reading size with bounded headings", () => {
+  const rule = (sel) => {
+    const m = css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`));
+    assert.ok(m, `${sel} has a rule`);
+    return m[1];
+  };
+  assert.match(rule(".skill-body"), /font-size:\s*0\.875rem/);
+  assert.match(rule(".skill-body"), /max-height:[^;]*80d?vh/);
+  assert.match(rule(".skill-body .markdown-body h1"), /font-size:\s*1\.15em/);
+  assert.match(rule(".skill-body .markdown-body pre"), /font-size:\s*0\.85em/);
+  assert.match(rule(".skill-body .markdown-body table"), /overflow-x:\s*auto/);
+  const modal = src("SkillLibraryModal.tsx");
+  assert.match(modal, /flex flex-wrap items-center gap-2 mb-4/);
+  assert.match(modal, /line-clamp-2/);
+});
