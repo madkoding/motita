@@ -47,7 +47,10 @@ const stubUrl = (spec) =>
       STUB_DIR,
       spec.replace(/[^\w.-]/g, "_") +
         "-" +
-        createHash("sha256").update(stubs.get(spec)).digest("hex").slice(0, 12) +
+        createHash("sha256")
+          .update(stubs.get(spec))
+          .digest("hex")
+          .slice(0, 12) +
         ".tsx",
     ),
   ).href;
@@ -95,7 +98,11 @@ registerHooks({
     }
     if (url.startsWith(STUB_HREF)) {
       const spec = [...stubs.keys()].find((s) => stubUrl(s) === url);
-      return { format: "module", source: compile(stubs.get(spec), url), shortCircuit: true };
+      return {
+        format: "module",
+        source: compile(stubs.get(spec), url),
+        shortCircuit: true,
+      };
     }
     if (isSource(url)) {
       if (url.endsWith(".css")) {
@@ -131,7 +138,12 @@ function compile(code, url) {
   const origLast = code.split(/(?<=\n)/).length - 1;
   map.mappings = spanWholeFile(map.mappings, genLines, origLast);
   const b64 = Buffer.from(JSON.stringify(map)).toString("base64");
-  return genCode + "\n//# sourceMappingURL=data:application/json;base64," + b64 + "\n";
+  return (
+    genCode +
+    "\n//# sourceMappingURL=data:application/json;base64," +
+    b64 +
+    "\n"
+  );
 }
 
 // spanWholeFile makes the start of the module map to the first line of its file and its end (the
@@ -218,7 +230,10 @@ function encodeMappings(lines) {
           let r = encodeVlq(s[0] - gen);
           gen = s[0];
           if (s.length === 4) {
-            r += encodeVlq(s[1] - src) + encodeVlq(s[2] - line) + encodeVlq(s[3] - col);
+            r +=
+              encodeVlq(s[1] - src) +
+              encodeVlq(s[2] - line) +
+              encodeVlq(s[3] - col);
             [src, line, col] = [s[1], s[2], s[3]];
           }
           return r;

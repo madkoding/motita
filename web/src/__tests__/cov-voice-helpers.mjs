@@ -32,7 +32,8 @@ export function setupDom(url = "https://localhost/") {
     configurable: true,
     writable: true,
   });
-  globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
+  globalThis.requestAnimationFrame = (cb) =>
+    setTimeout(() => cb(Date.now()), 0);
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
   return dom;
 }

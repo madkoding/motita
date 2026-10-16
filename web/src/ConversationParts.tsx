@@ -189,7 +189,9 @@ function TurnMenu({
             >
               {t("Stop the agent")}
               <small>
-                {t("Enter sends a message that interrupts; Alt+Enter queues it")}
+                {t(
+                  "Enter sends a message that interrupts; Alt+Enter queues it",
+                )}
               </small>
             </button>
           )}
@@ -287,7 +289,11 @@ export function TurnTop({
 }) {
   const [open, setOpen] = useState(false);
   if (!head) {
-    return choose(steps.length > 0, <Trail steps={steps} liveHere={liveHere} />, null);
+    return choose(
+      steps.length > 0,
+      <Trail steps={steps} liveHere={liveHere} />,
+      null,
+    );
   }
   const actions = choose(
     steps.length > 0,
@@ -363,7 +369,11 @@ export function TurnHead({
 // in the input's menu.
 export function ModeBadge({ mode }: { mode: "plan" | "task" }) {
   return (
-    <span class="mode-badge" data-mode={mode} title={t("The mode auto mode picked")}>
+    <span
+      class="mode-badge"
+      data-mode={mode}
+      title={t("The mode auto mode picked")}
+    >
       {choose(mode === "plan", t("Plan"), t("Task"))}
     </span>
   );

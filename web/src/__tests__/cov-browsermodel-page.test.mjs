@@ -3,7 +3,13 @@
 // gateway's requests answered, against a stand-in gateway and a stand-in worker.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, stub, settle as settleWith, json } from "./cov-voice-helpers.mjs";
+import {
+  setupDom,
+  source,
+  stub,
+  settle as settleWith,
+  json,
+} from "./cov-voice-helpers.mjs";
 
 setupDom("https://localhost/");
 
@@ -63,11 +69,28 @@ const tell = (m) => workers.at(-1).onmessage({ data: m });
 
 const card = (features = ["shader-f16"]) => ({ features: new Set(features) });
 const withGPU = (adapter) =>
-  Object.defineProperty(navigator, "gpu", { value: { requestAdapter: async () => adapter }, configurable: true });
+  Object.defineProperty(navigator, "gpu", {
+    value: { requestAdapter: async () => adapter },
+    configurable: true,
+  });
 const noGPU = () => delete navigator.gpu;
 
-const model = (id, o = {}) => ({ id, name: id, lang: "mul", quality: "low", engine: "llm", size: 1, installed: false, sample: false, ...o });
-const catalogOf = (models, download = null) => ({ runtime: { size: 1, installed: false }, models, download });
+const model = (id, o = {}) => ({
+  id,
+  name: id,
+  lang: "mul",
+  quality: "low",
+  engine: "llm",
+  size: 1,
+  installed: false,
+  sample: false,
+  ...o,
+});
+const catalogOf = (models, download = null) => ({
+  runtime: { size: 1, installed: false },
+  models,
+  download,
+});
 
 // The gateway's answers to the tab: a queue of what /v1/browser-llm/next says, and what it was told.
 const tab = { next: [], told: [], calls: [] };
@@ -84,7 +107,9 @@ const api = async (path, init) => {
       page.stopBrowserModel();
       return new Response(null, { status: 204 });
     }
-    return step === 204 || step === 500 ? new Response(null, { status: step }) : json(step);
+    return step === 204 || step === 500
+      ? new Response(null, { status: step })
+      : json(step);
   }
   if (path.startsWith("/v1/browser-llm/jobs/")) {
     tab.told.push([path, JSON.parse(init.body)]);
@@ -159,26 +184,40 @@ test("with the files there it loads in a worker and answers the gateway's reques
   assert.equal(page.browserState().pct, 40);
   tell({ kind: "ready", build: "llm-qwen25-0.5b" });
 
-  await wait(() => workers[0].sent.some((m) => m.kind === "generate"), "the first job");
+  await wait(
+    () => workers[0].sent.some((m) => m.kind === "generate"),
+    "the first job",
+  );
   const first = workers[0].sent.find((m) => m.kind === "generate");
   assert.deepEqual(first.messages, [{ role: "user", content: "title?" }]);
   assert.equal(page.browserState().phase, "ready");
   tell({ seq: first.seq, text: "A title" });
   await wait(() => tab.told.length === 1, "the answer");
-  assert.deepEqual(tab.told[0], ["/v1/browser-llm/jobs/7", { text: "A title" }]);
+  assert.deepEqual(tab.told[0], [
+    "/v1/browser-llm/jobs/7",
+    { text: "A title" },
+  ]);
 
   // A job the model cannot run is answered with why; then the tab is stopped from the gateway's side.
-  await wait(() => workers[0].sent.filter((m) => m.kind === "generate").length === 2, "the second job");
+  await wait(
+    () => workers[0].sent.filter((m) => m.kind === "generate").length === 2,
+    "the second job",
+  );
   tell({ seq: 2, error: "out of memory" });
   await wait(() => tab.told.length === 2, "the failure");
-  assert.deepEqual(tab.told[1], ["/v1/browser-llm/jobs/8", { error: "out of memory" }]);
+  assert.deepEqual(tab.told[1], [
+    "/v1/browser-llm/jobs/8",
+    { error: "out of memory" },
+  ]);
   await wait(() => page.browserState().phase === "off", "stopped");
   assert.equal(workers[0].terminated, true);
 });
 
 test("a build the card cannot run in 16 bits is the larger one", async () => {
   withGPU(card([]));
-  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b-f32", { installed: true })])];
+  gw.catalogs = [
+    catalogOf([model("llm-qwen25-0.5b-f32", { installed: true })]),
+  ];
   page.startBrowserModel(api);
   await wait(() => workers.length === 1, "a worker");
   assert.equal(page.browserState().build, "llm-qwen25-0.5b-f32");
@@ -189,8 +228,16 @@ test("a build the card cannot run in 16 bits is the larger one", async () => {
 test("the gateway downloads the files first, and the page follows", async () => {
   gw.catalogs = [
     catalogOf([model("llm-qwen25-0.5b")]),
-    catalogOf([model("llm-qwen25-0.5b")], { id: "llm-qwen25-0.5b", done: 0, total: 0 }),
-    catalogOf([model("llm-qwen25-0.5b")], { id: "llm-qwen25-0.5b", done: 25, total: 100 }),
+    catalogOf([model("llm-qwen25-0.5b")], {
+      id: "llm-qwen25-0.5b",
+      done: 0,
+      total: 0,
+    }),
+    catalogOf([model("llm-qwen25-0.5b")], {
+      id: "llm-qwen25-0.5b",
+      done: 25,
+      total: 100,
+    }),
     catalogOf([model("llm-qwen25-0.5b", { installed: true })]),
   ];
   page.startBrowserModel(api);
@@ -206,23 +253,45 @@ test("what stops it is said: a gateway without the model, a failed download, a w
   assert.match(page.browserState().error, /does not offer/);
   assert.equal(workers.length, 0);
 
-  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b")], { id: "llm-qwen25-0.5b", done: 1, total: 2, error: "disk full" })];
+  gw.catalogs = [
+    catalogOf([model("llm-qwen25-0.5b")], {
+      id: "llm-qwen25-0.5b",
+      done: 1,
+      total: 2,
+      error: "disk full",
+    }),
+  ];
   page.startBrowserModel(api);
-  await wait(() => page.browserState().error === "disk full", "the download's failure");
+  await wait(
+    () => page.browserState().error === "disk full",
+    "the download's failure",
+  );
 
   gw.catalogs = [new Error("gateway down")];
   page.startBrowserModel(api);
-  await wait(() => page.browserState().error === "gateway down", "the catalog's failure");
+  await wait(
+    () => page.browserState().error === "gateway down",
+    "the catalog's failure",
+  );
 
   gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
   page.startBrowserModel(api);
   await wait(() => workers.length === 1, "a worker");
   tell({ kind: "failed", error: "no adapter" });
-  await wait(() => page.browserState().error === "no adapter", "the worker's failure");
+  await wait(
+    () => page.browserState().error === "no adapter",
+    "the worker's failure",
+  );
   assert.equal(page.browserState().phase, "failed");
 
   // A failure that is not an Error is still told.
-  gw.catalogs = [{ get models() { throw "plain"; } }];
+  gw.catalogs = [
+    {
+      get models() {
+        throw "plain";
+      },
+    },
+  ];
   page.startBrowserModel(api);
   await wait(() => page.browserState().error === "plain", "a plain failure");
 });
@@ -240,7 +309,11 @@ test("stopping while the files download ends it quietly", async () => {
   // Stopped as the files arrive: the worker is never made.
   let release;
   gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
-  withGPU({ get features() { return new Set(["shader-f16"]); } });
+  withGPU({
+    get features() {
+      return new Set(["shader-f16"]);
+    },
+  });
   page.startBrowserModel(api);
   page.stopBrowserModel();
   await settle();
@@ -258,7 +331,11 @@ test("it starts by itself in a signed-in tab where it was turned on", async () =
   await act(() => render(h(Probe, { authed: false }), root));
   assert.equal(workers.length, 0, "signed out: nothing starts");
   await act(() => render(h(Probe, { authed: true }), root));
-  assert.equal(workers.length, 0, "signed in but never turned on: nothing starts");
+  assert.equal(
+    workers.length,
+    0,
+    "signed in but never turned on: nothing starts",
+  );
   page.setBrowserModelOn(true);
   await act(() => render(h(Probe, { authed: false }), root));
   await act(() => render(h(Probe, { authed: true }), root));
@@ -289,7 +366,11 @@ async function mount() {
     },
   };
 }
-const tryButton = (m) => m.root.querySelector("#llm-browser-try").closest(".settings-row").querySelector("button");
+const tryButton = (m) =>
+  m.root
+    .querySelector("#llm-browser-try")
+    .closest(".settings-row")
+    .querySelector("button");
 const click = async (el) => {
   await act(() => el.click());
   await settle();
@@ -303,10 +384,24 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   assert.equal(sw.checked, false);
   assert.equal(sw.disabled, false);
   assert.equal(m.status(), "");
-  assert.match(text(m.box()), /Qwen2\.5 0\.5B, free\. Downloads about 517 MB once/);
-  assert.equal(m.root.querySelector("#llm-browser-try"), null, "nothing to try before it is ready");
+  assert.match(
+    text(m.box()),
+    /Qwen2\.5 0\.5B, free\. Downloads about 517 MB once/,
+  );
+  assert.equal(
+    m.root.querySelector("#llm-browser-try"),
+    null,
+    "nothing to try before it is ready",
+  );
 
-  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b")]), catalogOf([model("llm-qwen25-0.5b")], { id: "llm-qwen25-0.5b", done: 50, total: 100 })];
+  gw.catalogs = [
+    catalogOf([model("llm-qwen25-0.5b")]),
+    catalogOf([model("llm-qwen25-0.5b")], {
+      id: "llm-qwen25-0.5b",
+      done: 50,
+      total: 100,
+    }),
+  ];
   await click(sw);
   assert.equal(page.browserModelOn(), true);
   await wait(() => /downloading the model/.test(m.status()), "downloading");
@@ -351,6 +446,10 @@ test("a failure and a device that cannot run it are said under the switch", asyn
   m = await mount();
   const sw = m.root.querySelector("input[role=switch]");
   assert.equal(sw.disabled, true, "no WebGPU: it cannot be turned on");
-  assert.match(m.status(), /needs WebGPU, and a phone is left out/, "and it says why before anything is tried");
+  assert.match(
+    m.status(),
+    /needs WebGPU, and a phone is left out/,
+    "and it says why before anything is tried",
+  );
   await m.done();
 });

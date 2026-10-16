@@ -117,8 +117,14 @@ test("compact density tightens the Tailwind spacing and keeps the fixed sizes", 
     "a compact session row puts the timestamp and the facts on one line",
   );
   const row = readFileSync(join(here, "..", "SessionRow.tsx"), "utf8");
-  assert.ok(row.includes('class="session-when '), "the timestamp line carries its hook");
-  assert.ok(row.includes('class="session-facts '), "the facts line carries its hook");
+  assert.ok(
+    row.includes('class="session-when '),
+    "the timestamp line carries its hook",
+  );
+  assert.ok(
+    row.includes('class="session-facts '),
+    "the facts line carries its hook",
+  );
   const sizeUtil = /^(?:[a-z]+:)*(?:min-|max-)?(?:w|h|size)-(\d+(?:\.\d+)?)$/;
   const used = new Set();
   for (const f of readdirSync(join(here, ".."))) {
@@ -152,7 +158,11 @@ test("compact lowers the touch floor on phones and the composer grows with its d
   Object.defineProperty(el, "scrollHeight", { value: 60 });
   el.style.height = "34px";
   fitToContent(el);
-  assert.equal(el.style.height, "60px", "a wrapped draft gets every line it needs");
+  assert.equal(
+    el.style.height,
+    "60px",
+    "a wrapped draft gets every line it needs",
+  );
 });
 
 test("every button carries the design system diagonal corners", () => {

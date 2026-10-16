@@ -60,7 +60,10 @@ async function mount(vnode) {
 // ── colouring ─────────────────────────────────────────────────────────────────
 
 test("esc escapes the four characters HTML cares about", () => {
-  assert.equal(T.esc(`<a href="x">&</a>`), "&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;");
+  assert.equal(
+    T.esc(`<a href="x">&</a>`),
+    "&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;",
+  );
 });
 
 test("each output line takes the colour of what it says", () => {
@@ -101,7 +104,9 @@ test("a file:line location is underlined; things that only look like one are not
   const out = T.colorizeOutput(
     "at src/app/main.go:42:7 and lib.ts:3, not .go:12, not file.go:x, not a.b, <tag>",
   );
-  const locs = [...out.matchAll(/<span class="to-loc">([^<]*)<\/span>/g)].map((m) => m[1]);
+  const locs = [...out.matchAll(/<span class="to-loc">([^<]*)<\/span>/g)].map(
+    (m) => m[1],
+  );
   assert.deepEqual(locs, ["src/app/main.go:42:7", "lib.ts:3"]);
   assert.match(out, /&lt;tag&gt;$/);
 });
@@ -147,7 +152,10 @@ test("text is typed at the asked speed, keeping its colours, then finishes once"
   assert.ok(el.classList.contains("is-typing"));
   frame(30); // 3 characters at 100 per second
   assert.equal(el.textContent, "abc");
-  assert.ok(el.querySelector("span.c"), "the colour span is there from the first letter");
+  assert.ok(
+    el.querySelector("span.c"),
+    "the colour span is there from the first letter",
+  );
   const before = ticks.length;
   frame(30); // the same time again: nothing new, no tick
   assert.equal(ticks.length, before);
@@ -212,7 +220,9 @@ test("without a speed the typing takes about a second, faster with a boost", asy
 });
 
 test("the typing never cuts a character in two", async () => {
-  const { root, done } = await mount(h(T.Typed, { html: "a😀b\uD800c！d", cps: 1000 }));
+  const { root, done } = await mount(
+    h(T.Typed, { html: "a😀b\uD800c！d", cps: 1000 }),
+  );
   const el = root.querySelector("span");
   frame(2); // 2 code units: the cut falls inside the emoji's surrogate pair
   assert.equal(el.textContent, "a");
@@ -236,11 +246,16 @@ test("unmounting stops the typing", async () => {
 // ── the pieces ───────────────────────────────────────────────────────────────
 
 test("a command is shown escaped at once, then coloured as bash", async () => {
-  const { root, done } = await mount(h(T.TermCommand, { cmd: "ls -la <dir>", instant: true }));
+  const { root, done } = await mount(
+    h(T.TermCommand, { cmd: "ls -la <dir>", instant: true }),
+  );
   assert.equal(root.querySelector(".term-prompt").textContent, "$");
   const code = root.querySelector(".term-code");
   assert.equal(code.textContent, "ls -la <dir>");
-  await waitFor(() => code.querySelector("span[class^=hljs]"), "the bash colours");
+  await waitFor(
+    () => code.querySelector("span[class^=hljs]"),
+    "the bash colours",
+  );
   assert.equal(code.textContent, "ls -la <dir>");
   await done();
 });
@@ -261,12 +276,18 @@ test("a command or an output unmounted before the grammar arrives is left alone"
   assert.equal(root.querySelector(".term-code").textContent, "echo late");
   act(() => render(null, root));
   await flush(10);
-  assert.equal(root.innerHTML, "", "nothing is drawn back into the unmounted place");
+  assert.equal(
+    root.innerHTML,
+    "",
+    "nothing is drawn back into the unmounted place",
+  );
   root.remove();
 });
 
 test("JSON output goes through the JSON grammar; other output keeps its line colours", async () => {
-  const json = await mount(h(T.TermOutput, { text: '{"a": [1, "b"]}', instant: true }));
+  const json = await mount(
+    h(T.TermOutput, { text: '{"a": [1, "b"]}', instant: true }),
+  );
   const pre = json.root.querySelector("pre.term-output");
   await waitFor(() => pre.querySelector(".hljs-attr"), "the JSON colours");
   assert.equal(pre.textContent, '{"a": [1, "b"]}');
@@ -274,7 +295,10 @@ test("JSON output goes through the JSON grammar; other output keeps its line col
   await json.done();
 
   const arr = await mount(h(T.TermOutput, { text: '["x"]', instant: true }));
-  await waitFor(() => arr.root.querySelector(".hljs-string"), "the JSON colours");
+  await waitFor(
+    () => arr.root.querySelector(".hljs-string"),
+    "the JSON colours",
+  );
   await arr.done();
 
   for (const text of ["[ok] built", "[1, 2]"]) {
@@ -284,10 +308,11 @@ test("JSON output goes through the JSON grammar; other output keeps its line col
     await log.done();
   }
 
-  const failed = await mount(h(T.TermOutput, { text: "FAIL x", instant: true }));
+  const failed = await mount(
+    h(T.TermOutput, { text: "FAIL x", instant: true }),
+  );
   assert.ok(failed.root.querySelector(".to-err"));
   await failed.done();
-
 });
 
 test("an entry waits its turn, then types command, output and status one after the other", async () => {
@@ -305,12 +330,20 @@ test("an entry waits its turn, then types command, output and status one after t
   startClock();
   await rerender(h(T.TermEntry, { ...props, phase: "live" }));
   assert.ok(root.querySelector(".term-code"));
-  assert.equal(root.querySelector(".term-output"), null, "the output waits for the command");
+  assert.equal(
+    root.querySelector(".term-output"),
+    null,
+    "the output waits for the command",
+  );
   assert.equal(root.querySelector(".term-status"), null);
   frame(5000);
   await flush(2);
   assert.ok(root.querySelector(".term-output"));
-  assert.equal(root.querySelector(".term-status"), null, "the status waits for the output");
+  assert.equal(
+    root.querySelector(".term-status"),
+    null,
+    "the status waits for the output",
+  );
   startClock();
   frame(5000);
   await flush(2);
@@ -366,7 +399,12 @@ test("a command with no output goes straight to its status; a running one keeps 
   await done();
 
   const quiet = await mount(
-    h(T.TermEntry, { cmd: "true", out: "", status: { label: "ok", kind: "" }, phase: "done" }),
+    h(T.TermEntry, {
+      cmd: "true",
+      out: "",
+      status: { label: "ok", kind: "" },
+      phase: "done",
+    }),
   );
   assert.equal(quiet.root.querySelector(".term-status").textContent, "ok");
   await quiet.done();
@@ -374,9 +412,14 @@ test("a command with no output goes straight to its status; a running one keeps 
 
 test("the empty terminal types its placeholder with a caret", async () => {
   const ticks = [];
-  const { root, done } = await mount(h(T.TermEmpty, { onTick: () => ticks.push(1) }));
+  const { root, done } = await mount(
+    h(T.TermEmpty, { onTick: () => ticks.push(1) }),
+  );
   frame(5000);
-  assert.equal(root.querySelector(".term-empty").textContent, "no commands yet");
+  assert.equal(
+    root.querySelector(".term-empty").textContent,
+    "no commands yet",
+  );
   assert.ok(root.querySelector(".term-caret"));
   assert.ok(ticks.length >= 2);
   await done();

@@ -2,7 +2,18 @@
 // settings, and onnxruntime sessions that write a scripted transcript.
 
 // A tokenizer the size of a test: ten words, then Whisper's special tokens.
-export const WORDS = ["Ġhola", "Ġmundo", "Ã±", "€", "!", "Ġthe", "Ġend", "a", "b", "c"];
+export const WORDS = [
+  "Ġhola",
+  "Ġmundo",
+  "Ã±",
+  "€",
+  "!",
+  "Ġthe",
+  "Ġend",
+  "a",
+  "b",
+  "c",
+];
 const SPECIAL = [
   "<|endoftext|>",
   "<|startoftranscript|>",
@@ -13,7 +24,9 @@ const SPECIAL = [
   "<|notimestamps|>",
   "<|nospeech|>",
 ];
-export const ID = Object.fromEntries(SPECIAL.map((s, i) => [s, WORDS.length + i]));
+export const ID = Object.fromEntries(
+  SPECIAL.map((s, i) => [s, WORDS.length + i]),
+);
 export const VOCAB = WORDS.length + SPECIAL.length;
 export function tokenizer({ drop = [], extra = [] } = {}) {
   return JSON.stringify({
@@ -23,7 +36,10 @@ export function tokenizer({ drop = [], extra = [] } = {}) {
       .map((content) => ({ id: ID[content] ?? 99, content })),
   });
 }
-export const GEN = JSON.stringify({ suppress_tokens: [8], begin_suppress_tokens: [0, ID["<|endoftext|>"]] });
+export const GEN = JSON.stringify({
+  suppress_tokens: [8],
+  begin_suppress_tokens: [0, ID["<|endoftext|>"]],
+});
 
 // The stand-in onnxruntime: tensors that keep what they were made with, an encoder that answers
 // a hidden state 128 wide (two heads), and a decoder that writes `script` then ends the text. Each
@@ -49,7 +65,10 @@ export function decoder({
     runs,
     inputNames: [
       "input_ids",
-      ...Array.from({ length: layers }, (_, l) => `past_key_values.${l}.decoder.key`),
+      ...Array.from(
+        { length: layers },
+        (_, l) => `past_key_values.${l}.decoder.key`,
+      ),
     ],
     async run(feeds) {
       runs.push(feeds);
@@ -92,7 +111,12 @@ export const encoder = {
   runs: [],
   async run(feeds) {
     this.runs.push(feeds);
-    return { last_hidden_state: new Tensor("float32", new Float32Array(1500 * 128), [1, 1500, 128]) };
+    return {
+      last_hidden_state: new Tensor(
+        "float32",
+        new Float32Array(1500 * 128),
+        [1, 1500, 128],
+      ),
+    };
   },
 };
-

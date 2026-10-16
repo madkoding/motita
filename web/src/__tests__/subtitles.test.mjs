@@ -20,7 +20,14 @@ const src = (f) => readFileSync(join(here, "..", f), "utf8");
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
 });
-for (const k of ["document", "window", "Event", "CustomEvent", "HTMLElement", "Node"]) {
+for (const k of [
+  "document",
+  "window",
+  "Event",
+  "CustomEvent",
+  "HTMLElement",
+  "Node",
+]) {
   globalThis[k] = dom.window[k];
 }
 
@@ -69,7 +76,11 @@ test("on: the sentence the voice starts is shown, and fades out with its words w
   assert.equal(p.textContent, SECOND_LINE, "the words stay while it fades");
 
   await s.set({ on: true, size: "small" });
-  assert.equal(s.line().className, "subtitles subtitles-small", "the size follows the settings");
+  assert.equal(
+    s.line().className,
+    "subtitles subtitles-small",
+    "the size follows the settings",
+  );
 
   // Turned off while something is shown: it goes, and comes back hidden.
   await act(() => showSubtitle("Again."));
@@ -103,21 +114,39 @@ test("the CSS keeps them legible on any background, out of the way, and still fo
   assert.match(rule(".subtitles-anchor"), /pointer-events: none/);
   assert.match(rule(".subtitles-anchor"), /height: 0/);
   const box = rule(".subtitles");
-  assert.match(box, /background: rgba\(8, 8, 12, 0\.78\)/, "a dark translucent box");
+  assert.match(
+    box,
+    /background: rgba\(8, 8, 12, 0\.78\)/,
+    "a dark translucent box",
+  );
   assert.match(box, /color: #fff/);
   assert.match(box, /text-shadow/);
-  assert.match(box, /line-clamp: 3/, "a long sentence does not cover the conversation");
+  assert.match(
+    box,
+    /line-clamp: 3/,
+    "a long sentence does not cover the conversation",
+  );
   assert.match(
     box,
     /visibility 0s linear var\(--motion-base, 180ms\)/,
     "hidden only after it fades",
   );
-  assert.match(box, /opacity var\(--motion-base, 180ms\) var\(--ease-out, ease-out\)/, "the shared motion tokens, with a fallback");
+  assert.match(
+    box,
+    /opacity var\(--motion-base, 180ms\) var\(--ease-out, ease-out\)/,
+    "the shared motion tokens, with a fallback",
+  );
   for (const size of ["small", "medium", "large"]) {
     assert.match(rule(`.subtitles-${size}`), /font-size/);
   }
   const reduced = css.slice(css.indexOf("/* No slide and no fade"));
   assert.match(reduced.slice(0, REDUCED_RULE_SPAN), /transition: none/);
-  const media = css.lastIndexOf("@media (prefers-reduced-motion: reduce)", css.indexOf("/* No slide and no fade"));
-  assert.ok(media > css.indexOf(".subtitles {"), "the reduced-motion rule is the subtitles' own");
+  const media = css.lastIndexOf(
+    "@media (prefers-reduced-motion: reduce)",
+    css.indexOf("/* No slide and no fade"),
+  );
+  assert.ok(
+    media > css.indexOf(".subtitles {"),
+    "the reduced-motion rule is the subtitles' own",
+  );
 });

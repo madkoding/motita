@@ -45,11 +45,18 @@ function statusOf(phase: BrowserPhase, pct: number, error: string): string {
 // tryIt asks the gateway to have the model write a title, and says what came back.
 async function tryIt(api: Api): Promise<string> {
   const res = await api("/v1/browser-llm/test", { method: "POST" });
-  const body = (await res.json()) as { text?: string; ms?: number; error?: string };
+  const body = (await res.json()) as {
+    text?: string;
+    ms?: number;
+    error?: string;
+  };
   if (!res.ok) {
     throw new Error(body.error || "HTTP " + res.status);
   }
-  return tf("“{text}” in {seconds} s", { text: body.text ?? "", seconds: ((body.ms ?? 0) / 1000).toFixed(1) });
+  return tf("“{text}” in {seconds} s", {
+    text: body.text ?? "",
+    seconds: ((body.ms ?? 0) / 1000).toFixed(1),
+  });
 }
 
 // BrowserModelSettings turns on the small model this tab runs on its own graphics card. Nothing is
@@ -76,7 +83,11 @@ export function BrowserModelSettings({ api }: { api: Api }) {
       .then(setTried, (e: unknown) => setTried(errorMessage(e)))
       .finally(() => setTrying(false));
   };
-  const status = statusOf(choose(supported, s.phase, "unsupported"), s.pct, s.error);
+  const status = statusOf(
+    choose(supported, s.phase, "unsupported"),
+    s.pct,
+    s.error,
+  );
   return (
     <section class="settings-group" aria-labelledby="llm-browser-h">
       <h4 id="llm-browser-h" class="settings-group-title">
@@ -88,7 +99,11 @@ export function BrowserModelSettings({ api }: { api: Api }) {
           label={t("Run a small model in this tab (WebGPU)")}
           hint={tf(
             "Qwen2.5 0.5B, free. Downloads about {size} once. Then choose it under Summaries below: titles and summaries use it while this tab is open.",
-            { size: Math.round(BROWSER_MODEL_BYTES / 1e6).toLocaleString(lang()) + " MB" },
+            {
+              size:
+                Math.round(BROWSER_MODEL_BYTES / 1e6).toLocaleString(lang()) +
+                " MB",
+            },
           )}
           warning={
             status && (
@@ -117,9 +132,19 @@ export function BrowserModelSettings({ api }: { api: Api }) {
           <Row
             id="llm-browser-try"
             label={t("Try it")}
-            hint={tried || t("Asks it for a title, through the gateway, the way the agent would.")}
+            hint={
+              tried ||
+              t(
+                "Asks it for a title, through the gateway, the way the agent would.",
+              )
+            }
           >
-            <button type="button" class={smallBtn} disabled={trying} onClick={tryOut}>
+            <button
+              type="button"
+              class={smallBtn}
+              disabled={trying}
+              onClick={tryOut}
+            >
               {t("Try it")}
             </button>
           </Row>

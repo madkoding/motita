@@ -301,7 +301,11 @@ test("subtitles: each sentence as the voice starts it, gone when it ends, is sto
   assert.deepEqual(sub.seen, [ALL_DONE]);
   await act(() => synth.said.at(-1).onend({}));
   await act(() => synth.said.at(-1).onstart({}));
-  assert.deepEqual(sub.seen, [ALL_DONE, TESTS_PASS], "no gap between sentences");
+  assert.deepEqual(
+    sub.seen,
+    [ALL_DONE, TESTS_PASS],
+    "no gap between sentences",
+  );
   await act(() => synth.said.at(-1).onend({}));
   assert.deepEqual(sub.seen, [ALL_DONE, TESTS_PASS, ""], "gone at the end");
 
@@ -522,7 +526,11 @@ test("gateway: chosen and on, the gateway says each sentence with the voice chos
     ],
   );
   assert.equal(synth.said.length, 0, "the device says nothing");
-  assert.deepEqual(sub.seen, [ALL_DONE], "the subtitle waits for the clip to play");
+  assert.deepEqual(
+    sub.seen,
+    [ALL_DONE],
+    "the subtitle waits for the clip to play",
+  );
   sub.off();
   assert.equal(s.state.current.speakingId, 2);
   await act(async () => {
@@ -567,7 +575,9 @@ test("local voice: chosen, on and downloaded, the worker says each sentence; wit
         return;
       }
       asked.push([m.id, m.text]);
-      queueMicrotask(() => this.onmessage({ data: { seq: m.seq, wav: new ArrayBuffer(4) } }));
+      queueMicrotask(() =>
+        this.onmessage({ data: { seq: m.seq, wav: new ArrayBuffer(4) } }),
+      );
     }
   };
   globalThis.caches = {};
@@ -596,7 +606,10 @@ test("local voice: chosen, on and downloaded, the worker says each sentence; wit
   await act(() => s.state.current.speak(answer(2)));
   await flush();
   assert.equal(asked.length, 2);
-  assert.deepEqual(synth.said.map((u) => u.text), [ALL_DONE]);
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    [ALL_DONE],
+  );
   await s.done();
   delete globalThis.Worker;
   delete globalThis.caches;
@@ -680,7 +693,10 @@ const startNext = async () => {
 test("the sentence read is highlighted and brought into view, until the person scrolls by hand", async () => {
   const marks = new Map();
   globalThis.CSS = {
-    highlights: { set: (n, v) => marks.set(n, v), delete: (n) => marks.delete(n) },
+    highlights: {
+      set: (n, v) => marks.set(n, v),
+      delete: (n) => marks.delete(n),
+    },
   };
   globalThis.Highlight = class {
     constructor(r) {
@@ -703,7 +719,11 @@ test("the sentence read is highlighted and brought into view, until the person s
   await act(() => s.state.current.speak(answer(2, SIX)));
   await act(() => synth.said.at(-1).onstart({}));
   assert.equal(marks.get("motita-reading").range.toString(), "One.");
-  assert.deepEqual(scrolls, [{ top: 86, behavior: "auto" }], "below the view: down, at once for less motion");
+  assert.deepEqual(
+    scrolls,
+    [{ top: 86, behavior: "auto" }],
+    "below the view: down, at once for less motion",
+  );
 
   box = { top: -50, bottom: -30, height: 20 };
   window.matchMedia = () => {
@@ -711,7 +731,11 @@ test("the sentence read is highlighted and brought into view, until the person s
   };
   await startNext();
   assert.equal(marks.get("motita-reading").range.toString(), "Two.");
-  assert.deepEqual(scrolls[1], { top: -66, behavior: "smooth" }, "above the view: up");
+  assert.deepEqual(
+    scrolls[1],
+    { top: -66, behavior: "smooth" },
+    "above the view: up",
+  );
 
   box = { top: 10, bottom: 30, height: 20 };
   await startNext();
@@ -720,30 +744,58 @@ test("the sentence read is highlighted and brought into view, until the person s
   // A key typed in a field is not a scroll; a scroll key on the page is.
   box = { top: 150, bottom: 170, height: 20 };
   await act(() =>
-    document.getElementById("field").dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown", bubbles: true })),
+    document
+      .getElementById("field")
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { key: "PageDown", bubbles: true }),
+      ),
   );
-  await act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" })));
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" })),
+  );
   await startNext();
   assert.equal(scrolls.length, 3, "still following");
-  await act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown" })));
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown" })),
+  );
   await startNext();
   assert.equal(marks.get("motita-reading").range.toString(), "Five.");
-  assert.equal(scrolls.length, 3, "the person scrolled: the view stays where they put it");
+  assert.equal(
+    scrolls.length,
+    3,
+    "the person scrolled: the view stays where they put it",
+  );
   await act(() => s.state.current.stop());
-  assert.equal(marks.has("motita-reading"), false, "the highlight goes with the voice");
+  assert.equal(
+    marks.has("motita-reading"),
+    false,
+    "the highlight goes with the voice",
+  );
 
   // A press on the conversation's own bar stops the following; one on a message does not.
   const pointer = (target) =>
-    act(() => target.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })));
+    act(() =>
+      target.dispatchEvent(
+        new dom.window.Event("pointerdown", { bubbles: true }),
+      ),
+    );
   await act(() => s.state.current.speak(answer(2, SIX)));
   await act(() => synth.said.at(-1).onstart({}));
   const before = scrolls.length;
   await pointer(holder.querySelector("p"));
   await startNext();
-  assert.equal(scrolls.length, before + 1, "a press on a message is not a scroll");
+  assert.equal(
+    scrolls.length,
+    before + 1,
+    "a press on a message is not a scroll",
+  );
   await pointer(log);
   await startNext();
-  assert.equal(scrolls.length, before + 1, "a press on the conversation's bar is");
+  assert.equal(
+    scrolls.length,
+    before + 1,
+    "a press on the conversation's bar is",
+  );
   await act(() => s.state.current.stop());
 
   // A finger or the wheel stop it too, and an editable element is a field.
@@ -762,7 +814,11 @@ test("the sentence read is highlighted and brought into view, until the person s
   await act(() => s.state.current.speak(answer(2, SIX)));
   await act(() => synth.said.at(-1).onstart({}));
   const n = scrolls.length;
-  await act(() => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  await act(() =>
+    editor.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+    ),
+  );
   await startNext();
   assert.equal(scrolls.length, n + 1, "End typed in an editor is not a scroll");
   await act(() => s.state.current.stop());
@@ -821,7 +877,9 @@ test("the first tap or key unlocks the voice once; the settings change and are k
   };
   const s = await mount("always");
   await act(() => window.dispatchEvent(new dom.window.Event("pointerdown")));
-  await act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" })));
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" })),
+  );
   assert.equal(unlocks, 1, "one empty utterance, then the listeners go");
   synth.speak = speak;
   delete synth.addEventListener;
@@ -830,7 +888,10 @@ test("the first tap or key unlocks the voice once; the settings change and are k
   const voices = synth.voices;
   synth.voices = [...voices, { voiceURI: "bob", name: "Bob", lang: "en-GB" }];
   await act(() => changed());
-  assert.deepEqual(s.state.current.allVoices.map((v) => v.voiceURI), ["ana", "bob"]);
+  assert.deepEqual(
+    s.state.current.allVoices.map((v) => v.voiceURI),
+    ["ana", "bob"],
+  );
   synth.voices = voices;
 
   const p = { ...s.state.current.prefs, rate: 1.5 };
@@ -839,7 +900,11 @@ test("the first tap or key unlocks the voice once; the settings change and are k
   assert.equal(JSON.parse(localStorage.getItem(SPEECH_KEY)).rate, 1.5);
   localStorage.setItem(SPEECH_KEY, JSON.stringify({ ...p, rate: 2 }));
   await act(() => window.dispatchEvent(new CustomEvent(SPEECH_PREFS_EVENT)));
-  assert.equal(s.state.current.prefs.rate, 2, "a change made in the settings is read again");
+  assert.equal(
+    s.state.current.prefs.rate,
+    2,
+    "a change made in the settings is read again",
+  );
   await s.done();
 
   // Off, the voice is not unlocked at all.
@@ -857,10 +922,16 @@ test("the first tap or key unlocks the voice once; the settings change and are k
 });
 
 test("a device without a voice: nothing is read, and a question with no words is still announced", async () => {
-  const saved = [globalThis.speechSynthesis, globalThis.SpeechSynthesisUtterance];
+  const saved = [
+    globalThis.speechSynthesis,
+    globalThis.SpeechSynthesisUtterance,
+  ];
   delete globalThis.speechSynthesis;
   delete globalThis.SpeechSynthesisUtterance;
-  Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  Object.defineProperty(document, "hidden", {
+    value: false,
+    configurable: true,
+  });
   const s = await mount("always", false, { prefs: { notices: true } });
   assert.equal(s.state.current.supported, false);
   assert.equal(s.state.current.device, false);
@@ -869,7 +940,13 @@ test("a device without a voice: nothing is read, and a question with no words is
   await act(() => s.state.current.test());
   await act(() => sayNotice("CI passed."));
   await act(() =>
-    document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyL", altKey: true, bubbles: true })),
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "KeyL",
+        altKey: true,
+        bubbles: true,
+      }),
+    ),
   );
   assert.equal(s.state.current.speakingId, null, "nothing is read");
   assert.equal(s.state.toasts.length, 0);
@@ -886,12 +963,19 @@ test("a device without a voice: nothing is read, and a question with no words is
 });
 
 test("a device without a voice reads with the gateway's; one without audio has none", async () => {
-  const saved = [globalThis.speechSynthesis, globalThis.SpeechSynthesisUtterance];
+  const saved = [
+    globalThis.speechSynthesis,
+    globalThis.SpeechSynthesisUtterance,
+  ];
   delete globalThis.speechSynthesis;
   delete globalThis.SpeechSynthesisUtterance;
   played.length = 0;
   const g = gatewayApi();
-  let s = await mount("off", false, { engine: "gateway", api: g.api, tts: TTS });
+  let s = await mount("off", false, {
+    engine: "gateway",
+    api: g.api,
+    tts: TTS,
+  });
   assert.equal(s.state.current.supported, true);
   await act(() => s.state.current.speak(answer(2)));
   await flush();
@@ -899,7 +983,13 @@ test("a device without a voice reads with the gateway's; one without audio has n
   assert.equal(s.state.current.speakingId, 2);
   // Alt+L stops what plays.
   await act(() =>
-    document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyL", altKey: true, bubbles: true })),
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "KeyL",
+        altKey: true,
+        bubbles: true,
+      }),
+    ),
   );
   assert.equal(s.state.current.speakingId, null);
   await s.done();
@@ -910,7 +1000,12 @@ test("a device without a voice reads with the gateway's; one without audio has n
   await s.done();
   const audio = globalThis.Audio;
   delete globalThis.Audio;
-  s = await mount("off", false, { engine: "gateway", api: g.api, tts: TTS, local: true });
+  s = await mount("off", false, {
+    engine: "gateway",
+    api: g.api,
+    tts: TTS,
+    local: true,
+  });
   assert.equal(s.state.current.supported, false);
   assert.deepEqual(s.state.current.gatewayVoices, []);
   await s.done();
@@ -924,7 +1019,11 @@ test("errors are said in words a person can act on", async () => {
   await act(() => synth.said.at(-1).onerror({ error: "language-unavailable" }));
   assert.match(s.state.toasts.at(-1).detail, /no voice for this language/);
   await act(() => s.state.current.speak(answer(2)));
-  await act(() => synth.said.at(-1).onerror({ error: "this browser has no WebGPU in its workers" }));
+  await act(() =>
+    synth.said
+      .at(-1)
+      .onerror({ error: "this browser has no WebGPU in its workers" }),
+  );
   assert.match(s.state.toasts.at(-1).detail, /needs WebGPU/);
   await s.done();
 });
@@ -933,12 +1032,20 @@ test("natural without an api reads word for word, and a turn that starts on an e
   let s = await mount("always", false, { style: "natural" });
   await turn(s, answer(2));
   await flush();
-  assert.deepEqual(synth.said.map((u) => u.text), [ALL_DONE], "no opening line, the answer as it is");
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    [ALL_DONE],
+    "no opening line, the answer as it is",
+  );
   await s.done();
   s = await mount("always");
   await s.set({ running: true, messages: [] });
   await s.set({ running: false, messages: [answer(2)] });
-  assert.deepEqual(synth.said.map((u) => u.text), [ALL_DONE], "the first message is the answer");
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    [ALL_DONE],
+    "the first message is the answer",
+  );
   await s.done();
 });
 
@@ -956,11 +1063,19 @@ test("natural: progress waits while the agent has done nothing new, the voice ta
     return new Response(JSON.stringify({ text: "" }), { status: 200 });
   };
   const s = await mount("always", false, { style: "natural", api });
-  await s.set({ running: true, messages: [user(1)], stepsByTurn: { 1: undefined } });
+  await s.set({
+    running: true,
+    messages: [user(1)],
+    stepsByTurn: { 1: undefined },
+  });
   await flush();
   t.mock.timers.tick(PAST_THE_GAP_MS);
   await flush();
-  assert.deepEqual(asked, ["start"], "a turn with no steps has nothing to tell");
+  assert.deepEqual(
+    asked,
+    ["start"],
+    "a turn with no steps has nothing to tell",
+  );
   await s.set({ stepsByTurn: { 1: [{ kind: "", text: "edit" }] } });
   t.mock.timers.tick(PAST_THE_GAP_MS);
   await flush();
@@ -980,18 +1095,30 @@ test("natural: progress waits while the agent has done nothing new, the voice ta
   // While the voice talks, progress waits.
   const n = fakeNarrator({ start: OPENING, progress: "Más." });
   const v = await mount("always", false, { style: "natural", api: n.api });
-  await v.set({ running: true, messages: [user(1)], stepsByTurn: { 1: [{ kind: "", text: "a" }] } });
+  await v.set({
+    running: true,
+    messages: [user(1)],
+    stepsByTurn: { 1: [{ kind: "", text: "a" }] },
+  });
   await flush();
   assert.equal(synth.said.at(-1).text, OPENING);
   t.mock.timers.tick(PAST_THE_GAP_MS);
   await flush();
-  assert.deepEqual(n.asked.map((a) => a.stage), ["start"], "the opening is still being said");
+  assert.deepEqual(
+    n.asked.map((a) => a.stage),
+    ["start"],
+    "the opening is still being said",
+  );
   await v.done();
 
   // A typed turn in "when I spoke" mode says no progress at all.
   const quiet = fakeNarrator({ progress: "Nope." });
   const w = await mount("voice", false, { style: "natural", api: quiet.api });
-  await w.set({ running: true, messages: [user(1)], stepsByTurn: { 1: [{ kind: "", text: "a" }] } });
+  await w.set({
+    running: true,
+    messages: [user(1)],
+    stepsByTurn: { 1: [{ kind: "", text: "a" }] },
+  });
   t.mock.timers.tick(PAST_THE_GAP_MS);
   await flush();
   assert.deepEqual(quiet.asked, []);

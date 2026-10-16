@@ -4,7 +4,15 @@
 // Run with: node --test web/src/__tests__/cov-chat-conversation.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { act, fakeApi, fakeRunState, json, load, renderHook, tick } from "./cov-chat-helpers.mjs";
+import {
+  act,
+  fakeApi,
+  fakeRunState,
+  json,
+  load,
+  renderHook,
+  tick,
+} from "./cov-chat-helpers.mjs";
 
 const { useConversation } = await load("useConversation.ts");
 
@@ -128,9 +136,16 @@ test("opening a conversation draws its transcript, steps, terminal, agents and c
     ],
   );
   assert.deepEqual(Object.keys(v.rs.stepsByTurn), ["0", "1", "2"]);
-  assert.ok(v.rs.stepsByTurn[0].every((st) => typeof st.key === "number"), "steps are keyed");
+  assert.ok(
+    v.rs.stepsByTurn[0].every((st) => typeof st.key === "number"),
+    "steps are keyed",
+  );
   assert.deepEqual(v.rs.stepsByTurn[2], []);
-  assert.deepEqual(v.rs.cpInfo, { 0: { files: true }, 1: { files: false }, 2: { files: false } });
+  assert.deepEqual(v.rs.cpInfo, {
+    0: { files: true },
+    1: { files: false },
+    2: { files: false },
+  });
   assert.deepEqual(
     v.rs.shellLog.map((e) => [e.cmd, e.exit, e.out]),
     [
@@ -138,21 +153,25 @@ test("opening a conversation draws its transcript, steps, terminal, agents and c
       ["pwd", -999, ""],
     ],
   );
-  assert.equal(v.rs.termSeenId, v.rs.shellLog[1].id, "what was there is drawn whole");
-  assert.deepEqual(v.rs.agents.map((a) => a.id), ["a", "b"]);
+  assert.equal(
+    v.rs.termSeenId,
+    v.rs.shellLog[1].id,
+    "what was there is drawn whole",
+  );
+  assert.deepEqual(
+    v.rs.agents.map((a) => a.id),
+    ["a", "b"],
+  );
   assert.deepEqual(v.states, [["ready"]]);
   assert.deepEqual(v.configs, [{ model: "m-s 1" }]);
   assert.equal(v.followed(), 0, "no run to follow");
-  assert.deepEqual(
-    api.calls.map((c) => c.path).sort(),
-    [
-      "/v1/sessions/s%201/agents",
-      "/v1/sessions/s%201/checkpoints",
-      "/v1/sessions/s%201/config",
-      "/v1/sessions/s%201/messages",
-      "/v1/sessions/s%201/run",
-    ],
-  );
+  assert.deepEqual(api.calls.map((c) => c.path).sort(), [
+    "/v1/sessions/s%201/agents",
+    "/v1/sessions/s%201/checkpoints",
+    "/v1/sessions/s%201/config",
+    "/v1/sessions/s%201/messages",
+    "/v1/sessions/s%201/run",
+  ]);
   await v.hook.unmount();
 });
 
@@ -174,11 +193,16 @@ test("a run already working in the conversation is followed; one this tab runs i
   assert.equal(v.rs.lastIdRef.current, 0);
   await v.hook.unmount();
   // A run that has an outcome is over; a tab already running does not take it again.
-  const ended = await conversation(gateway({ x: { messages: turns, run: { outcome: "done" } } }));
+  const ended = await conversation(
+    gateway({ x: { messages: turns, run: { outcome: "done" } } }),
+  );
   await act(() => ended.c().switchSession("x"));
   assert.equal(ended.followed(), 0);
   await ended.hook.unmount();
-  const busy = await conversation(gateway({ live: { messages: [], run: {} } }), { running: true });
+  const busy = await conversation(
+    gateway({ live: { messages: [], run: {} } }),
+    { running: true },
+  );
   await act(() => busy.c().switchSession("live"));
   assert.equal(busy.followed(), 0);
   await busy.hook.unmount();
@@ -186,7 +210,9 @@ test("a run already working in the conversation is followed; one this tab runs i
 
 test("a soft re-read keeps the conversation, its run and its screen", async () => {
   history.replaceState(null, "", "/?session=s1");
-  const v = await conversation(gateway({ s1: { messages: turns, checkpoints: [] } }));
+  const v = await conversation(
+    gateway({ s1: { messages: turns, checkpoints: [] } }),
+  );
   await act(() => v.c().switchSession("s1", "none", true));
   assert.equal(v.detached(), 0);
   assert.equal(v.rs.cleared, 0);
@@ -233,11 +259,18 @@ test("the gateway failing parts of a conversation leaves the rest on screen", as
   );
   const w = await conversation(worse);
   await act(() => w.c().switchSession("g"));
-  assert.deepEqual(w.rs.messages.map((m) => m.text), [NOTHING_YET]);
+  assert.deepEqual(
+    w.rs.messages.map((m) => m.text),
+    [NOTHING_YET],
+  );
   await w.hook.unmount();
   const blank = await conversation(gateway({ h: {} }));
   await act(() => blank.c().switchSession("h"));
-  assert.deepEqual(blank.rs.messages.map((m) => m.text), [NOTHING_YET], "no messages field");
+  assert.deepEqual(
+    blank.rs.messages.map((m) => m.text),
+    [NOTHING_YET],
+    "no messages field",
+  );
   assert.deepEqual(blank.rs.stepsByTurn, {}, "no checkpoints field");
   await blank.hook.unmount();
 });
@@ -351,9 +384,17 @@ test("steps refreshed at the end of a run keep the live turn's and leave the ter
   v.rs.liveTurnRef.current = 1;
   v.rs.shellLog = [{ id: 1, cmd: "old" }];
   await v.c().loadCheckpoints("s");
-  assert.equal(v.rs.stepsByTurn[1], live, "the live turn keeps what the stream drew");
+  assert.equal(
+    v.rs.stepsByTurn[1],
+    live,
+    "the live turn keeps what the stream drew",
+  );
   assert.equal(v.rs.stepsByTurn[0][0].text, "running: ls");
-  assert.equal(v.rs.stepsByTurn[5][0].text, "kept", "not rebuilt: the others stay");
+  assert.equal(
+    v.rs.stepsByTurn[5][0].text,
+    "kept",
+    "not rebuilt: the others stay",
+  );
   assert.deepEqual(v.rs.shellLog, [{ id: 1, cmd: "old" }]);
   // A live turn the screen has no steps for yet takes the gateway's.
   v.rs.liveTurnRef.current = 7;
@@ -379,10 +420,16 @@ test("the terminal rebuilt from a long history keeps the last 500 commands", asy
     {
       turn: 0,
       files: false,
-      steps: Array.from({ length: 520 }, (_, i) => ({ kind: "command", text: "running: c" + i, exit: 0 })),
+      steps: Array.from({ length: 520 }, (_, i) => ({
+        kind: "command",
+        text: "running: c" + i,
+        exit: 0,
+      })),
     },
   ];
-  const v = await conversation(gateway({ s: { messages: turns, checkpoints: many } }));
+  const v = await conversation(
+    gateway({ s: { messages: turns, checkpoints: many } }),
+  );
   await act(() => v.c().switchSession("s"));
   assert.equal(v.rs.shellLog.length, 500);
   assert.equal(v.rs.shellLog[0].cmd, "c20");
@@ -396,7 +443,10 @@ test("repainting the conversation on screen", async () => {
       {},
       {
         messages: () => json({ messages: reply.messages }),
-        checkpoints: () => (reply.checkpoints ? json({ checkpoints: reply.checkpoints }) : json({}, 500)),
+        checkpoints: () =>
+          reply.checkpoints
+            ? json({ checkpoints: reply.checkpoints })
+            : json({}, 500),
       },
     ),
   );
@@ -411,7 +461,10 @@ test("repainting the conversation on screen", async () => {
   assert.deepEqual(v.rs.shellLog, [], "no steps: nothing rebuilt");
   reply = { checkpoints: [] };
   await v.c().transcript();
-  assert.deepEqual(v.rs.messages.map((m) => m.text), [NOTHING_YET]);
+  assert.deepEqual(
+    v.rs.messages.map((m) => m.text),
+    [NOTHING_YET],
+  );
   // Moved on while it loaded.
   const before = v.rs.messages;
   reply = {
@@ -450,7 +503,10 @@ test("back and forward open the conversation the address names", async () => {
 test("a tap on a phone notification opens its conversation", async () => {
   history.replaceState(null, "", "/");
   const sw = new window.EventTarget();
-  Object.defineProperty(navigator, "serviceWorker", { value: sw, configurable: true });
+  Object.defineProperty(navigator, "serviceWorker", {
+    value: sw,
+    configurable: true,
+  });
   const api = gateway({ s1: { messages: turns }, s9: { messages: turns } });
   const v = await conversation(api);
   await act(() => v.c().switchSession("s1"));

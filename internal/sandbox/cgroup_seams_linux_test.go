@@ -63,6 +63,9 @@ func TestNewCgroupWithoutPermissionToCreateTheGroup(t *testing.T) {
 // limit cannot be written; that is fatal (the memory limit is the reason the
 // group exists).
 func TestNewCgroupMemoryLimitCannotBeWritten(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root a read-only directory can still be written")
+	}
 	root := t.TempDir()
 	base := filepath.Join(root, "memory", "motita")
 	if err := os.MkdirAll(base, 0o755); err != nil {
@@ -86,6 +89,9 @@ func TestNewCgroupMemoryLimitCannotBeWritten(t *testing.T) {
 // to write it must not fail the whole group: it is dropped and the memory limit
 // stays.
 func TestNewCgroupPidsLimitCannotBeWritten(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root a read-only directory can still be written")
+	}
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "memory"), 0o755); err != nil {
 		t.Fatal(err)
@@ -413,6 +419,9 @@ func fakeCgroupTree(t *testing.T) string {
 // created it is kept and declared, and if the process cannot be added to it that
 // is recorded as isolation that was not applied.
 func TestNewWithCgroupsAssignsTheGroupAndReportsTheAddFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root a read-only directory can still be written")
+	}
 	root := fakeCgroupTree(t)
 	// The memory group exists but is not writable, so newCgroup succeeds (no
 	// limit to write) and adding the process fails.

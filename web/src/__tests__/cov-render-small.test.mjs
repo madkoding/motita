@@ -48,7 +48,9 @@ async function mount(vnode) {
 }
 
 const click = (el) =>
-  el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  el.dispatchEvent(
+    new MouseEvent("click", { bubbles: true, cancelable: true }),
+  );
 const key = (k, opts = {}) => {
   const e = new KeyboardEvent("keydown", {
     key: k,
@@ -64,7 +66,11 @@ const key = (k, opts = {}) => {
 
 test("BodyPortal draws its children at the end of the body, not where it is rendered", async () => {
   const { root, done } = await mount(
-    h("section", { id: "bubble" }, h(m.BodyPortal, {}, h("p", { id: "layer" }, "over all"))),
+    h(
+      "section",
+      { id: "bubble" },
+      h(m.BodyPortal, {}, h("p", { id: "layer" }, "over all")),
+    ),
   );
   const layer = document.getElementById("layer");
   assert.equal(layer.textContent, "over all");
@@ -82,7 +88,11 @@ test("a click on the backdrop closes the dialog; a click inside stays inside", a
   const onDoc = () => outside.push(1);
   document.addEventListener("click", onDoc);
   const { root, done } = await mount(
-    h(m.ModalBackdrop, { onClose: () => closed.push(1) }, h("button", { id: "in" }, "ok")),
+    h(
+      m.ModalBackdrop,
+      { onClose: () => closed.push(1) },
+      h("button", { id: "in" }, "ok"),
+    ),
   );
   const backdrop = root.firstElementChild;
   assert.equal(backdrop.className, m.BACKDROP_CLASS);
@@ -136,7 +146,11 @@ function Dialog({ id, onClose, children, rootAttr = true, attach = true }) {
   m.useDialog(ref, onClose);
   return h(
     "div",
-    { ref: attach ? ref : undefined, id, "data-dialog-root": rootAttr || undefined },
+    {
+      ref: attach ? ref : undefined,
+      id,
+      "data-dialog-root": rootAttr || undefined,
+    },
     children,
   );
 }
@@ -172,8 +186,16 @@ test("Escape closes only the topmost dialog", async () => {
   const closed = [];
   const { done } = await mount(
     h("div", {}, [
-      h(Dialog, { id: "under", onClose: () => closed.push("under") }, h("button", {}, "a")),
-      h(Dialog, { id: "over", onClose: () => closed.push("over") }, h("button", {}, "b")),
+      h(
+        Dialog,
+        { id: "under", onClose: () => closed.push("under") },
+        h("button", {}, "a"),
+      ),
+      h(
+        Dialog,
+        { id: "over", onClose: () => closed.push("over") },
+        h("button", {}, "b"),
+      ),
     ]),
   );
   const e = key("Escape");
@@ -187,7 +209,11 @@ test("Escape closes only the topmost dialog", async () => {
 test("a dialog without data-dialog-root still answers Escape (nothing else claims it)", async () => {
   const closed = [];
   const { done } = await mount(
-    h(Dialog, { id: "plain", rootAttr: false, onClose: () => closed.push(1) }, "text only"),
+    h(
+      Dialog,
+      { id: "plain", rootAttr: false, onClose: () => closed.push(1) },
+      "text only",
+    ),
   );
   key("Escape");
   assert.deepEqual(closed, [1]);
@@ -197,7 +223,11 @@ test("a dialog without data-dialog-root still answers Escape (nothing else claim
 test("a dialog whose element is not attached ignores the keyboard", async () => {
   const closed = [];
   const { done } = await mount(
-    h(Dialog, { id: "ghost", attach: false, onClose: () => closed.push(1) }, h("button", {}, "x")),
+    h(
+      Dialog,
+      { id: "ghost", attach: false, onClose: () => closed.push(1) },
+      h("button", {}, "x"),
+    ),
   );
   key("Escape");
   assert.deepEqual(closed, []);
@@ -244,7 +274,9 @@ test("Tab and Shift+Tab wrap around inside the dialog", async () => {
 });
 
 test("Tab in a dialog with nothing to focus is left alone", async () => {
-  const { done } = await mount(h(Dialog, { id: "d", onClose() {} }, "only text"));
+  const { done } = await mount(
+    h(Dialog, { id: "d", onClose() {} }, "only text"),
+  );
   const e = key("Tab");
   assert.equal(e.defaultPrevented, false);
   await done();
@@ -257,7 +289,9 @@ test("closing a dialog whose opener cannot take focus any more does not throw", 
   opener.focus = () => {
     throw new Error("gone");
   };
-  const { done } = await mount(h(Dialog, { id: "d", onClose() {} }, h("button", {}, "x")));
+  const { done } = await mount(
+    h(Dialog, { id: "d", onClose() {} }, h("button", {}, "x")),
+  );
   assert.ok(document.getElementById("d"), "the dialog is open");
   await assert.doesNotReject(done(), "unmounted without throwing");
   assert.equal(document.getElementById("d"), null, "and it is gone");
@@ -402,7 +436,10 @@ test("without a visual viewport the shell keeps the CSS height", async () => {
 
 test("the shell follows the visual viewport, marks the keyboard and drops it while zoomed", async () => {
   const root = document.documentElement;
-  Object.defineProperty(root, "clientHeight", { value: 800, configurable: true });
+  Object.defineProperty(root, "clientHeight", {
+    value: 800,
+    configurable: true,
+  });
   const vv = new dom.window.EventTarget();
   vv.scale = 1;
   vv.height = 799.6;
@@ -432,7 +469,11 @@ test("the shell follows the visual viewport, marks the keyboard and drops it whi
 
   await done();
   resize({ height: 300 });
-  assert.equal(root.style.getPropertyValue("--app-h"), "760px", "no longer listening");
+  assert.equal(
+    root.style.getPropertyValue("--app-h"),
+    "760px",
+    "no longer listening",
+  );
   delete window.visualViewport;
 });
 
@@ -453,10 +494,20 @@ test("leaveGhost does nothing for a missing, detached, unanimatable or empty ele
   const plain = document.createElement("div");
   document.body.appendChild(plain);
   m.leaveGhost(plain, "fade");
-  const empty = laidOut(document.createElement("div"), { top: 0, left: 0, width: 0, height: 5 });
+  const empty = laidOut(document.createElement("div"), {
+    top: 0,
+    left: 0,
+    width: 0,
+    height: 5,
+  });
   document.body.appendChild(empty);
   m.leaveGhost(empty, "fade");
-  const flat = laidOut(document.createElement("div"), { top: 0, left: 0, width: 5, height: 0 });
+  const flat = laidOut(document.createElement("div"), {
+    top: 0,
+    left: 0,
+    width: 5,
+    height: 0,
+  });
   document.body.appendChild(flat);
   m.leaveGhost(flat, "fade");
   assert.equal(document.querySelectorAll(".motion-ghost").length, 0);
@@ -492,7 +543,12 @@ test("leaveGhost pins an inert copy with the typed values, then removes it", () 
     assert.equal(ghost.getAttribute("aria-hidden"), "true");
     assert.equal(ghost.inert, true);
     assert.equal(ghost.id, "");
-    assert.equal(ghost.querySelectorAll("[id],[data-modal],[data-dialog-root],[data-testid]").length, 0);
+    assert.equal(
+      ghost.querySelectorAll(
+        "[id],[data-modal],[data-dialog-root],[data-testid]",
+      ).length,
+      0,
+    );
     assert.equal(ghost.hasAttribute("data-modal"), false);
     assert.equal(ghost.style.position, "fixed");
     assert.equal(ghost.style.top, "10px");
@@ -507,7 +563,9 @@ test("leaveGhost pins an inert copy with the typed values, then removes it", () 
     assert.equal(ga.value, "notes");
 
     // A child's animation ending does not remove the copy; its own does.
-    ghost.firstElementChild.dispatchEvent(new Event("animationend", { bubbles: true }));
+    ghost.firstElementChild.dispatchEvent(
+      new Event("animationend", { bubbles: true }),
+    );
     assert.ok(ghost.isConnected);
     ghost.dispatchEvent(new Event("animationend"));
     assert.equal(ghost.isConnected, false);
@@ -529,7 +587,11 @@ test("leaveGhost removes the copy after the fallback when no animation ends", ()
     m.leaveGhost(el, "slide-left");
     const ghost = document.querySelector(".motion-ghost");
     assert.ok(ghost.classList.contains("motion-slide-out-left"));
-    assert.equal(ghost.firstElementChild.className, "", "no child animation was asked for");
+    assert.equal(
+      ghost.firstElementChild.className,
+      "",
+      "no child animation was asked for",
+    );
     mock.timers.tick(599);
     assert.ok(ghost.isConnected);
     mock.timers.tick(1);
@@ -545,12 +607,16 @@ test("useLeave copies the element as the component unmounts", async () => {
   function Toast() {
     const ref = useRef(null);
     m.useLeave(ref, "lift");
-    return h("div", {
-      ref: (n) => {
-        ref.current = n && laidOut(n);
+    return h(
+      "div",
+      {
+        ref: (n) => {
+          ref.current = n && laidOut(n);
+        },
+        class: "toast",
       },
-      class: "toast",
-    }, "saved");
+      "saved",
+    );
   }
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
@@ -588,15 +654,21 @@ test("copyText falls back to the selection copy without the Clipboard API, or wh
   };
   setClipboard(undefined);
   assert.equal(await m.copyText("plain http"), true);
-  setClipboard({ writeText: async () => {
-    throw new Error("denied");
-  } });
+  setClipboard({
+    writeText: async () => {
+      throw new Error("denied");
+    },
+  });
   assert.equal(await m.copyText("denied"), true);
   assert.deepEqual(copies, [
     ["copy", "plain http", "0"],
     ["copy", "denied", "0"],
   ]);
-  assert.equal(document.querySelector("textarea[readonly]"), null, "the helper is removed");
+  assert.equal(
+    document.querySelector("textarea[readonly]"),
+    null,
+    "the helper is removed",
+  );
 });
 
 test("copyText reports false when even the legacy copy fails", async () => {
@@ -646,7 +718,11 @@ test("every shared icon draws a 24-unit line drawing at the size asked for", asy
   ];
   const drawn = new Set();
   for (const name of names) {
-    const s = await svgOf(m[name], { size: 16, class: "ic", style: "color: red" });
+    const s = await svgOf(m[name], {
+      size: 16,
+      class: "ic",
+      style: "color: red",
+    });
     assert.equal(s.width, "16", name);
     assert.equal(s.cls, "ic", name);
     assert.match(s.style, /red/, name);
@@ -659,9 +735,15 @@ test("every shared icon draws a 24-unit line drawing at the size asked for", asy
 
 test("icons take the default stroke unless one is given; the spinner and tick are bolder", async () => {
   assert.equal((await svgOf(m.IconClose, { size: 18 })).stroke, "2");
-  assert.equal((await svgOf(m.IconClose, { size: 18, stroke: 1.5 })).stroke, "1.5");
+  assert.equal(
+    (await svgOf(m.IconClose, { size: 18, stroke: 1.5 })).stroke,
+    "1.5",
+  );
   assert.equal((await svgOf(m.IconSpinner, { size: 18 })).stroke, "2.5");
-  assert.equal((await svgOf(m.IconSpinner, { size: 18, stroke: "3" })).stroke, "3");
+  assert.equal(
+    (await svgOf(m.IconSpinner, { size: 18, stroke: "3" })).stroke,
+    "3",
+  );
   assert.equal((await svgOf(m.IconCheck, { size: 18 })).stroke, "2.5");
   assert.equal((await svgOf(m.IconCheck, { size: 18, stroke: 1 })).stroke, "1");
 });
@@ -672,7 +754,10 @@ test("the new-project folder is hidden from assistive technology only when asked
   assert.equal(shown.cls, "fp");
   assert.equal(shown.width, "20");
   assert.equal(shown.shapes, 3);
-  assert.equal((await svgOf(m.IconFolderPlus, { size: 20, hidden: true })).hidden, "true");
+  assert.equal(
+    (await svgOf(m.IconFolderPlus, { size: 20, hidden: true })).hidden,
+    "true",
+  );
 });
 
 test("the settings tab icons are decorative 18px drawings, each its own", async () => {
@@ -720,5 +805,9 @@ test("each known provider has a coloured logo path, and aliases share their bran
   assert.equal(L["ollama-cloud"].d, L.ollama.d);
   assert.notEqual(L.qwen.d, L.openai.d);
   assert.equal(L["claude-code"].color, "#d97757");
-  assert.equal(L.unknown, undefined, "an unknown provider gets its initial instead");
+  assert.equal(
+    L.unknown,
+    undefined,
+    "an unknown provider gets its initial instead",
+  );
 });

@@ -28,7 +28,12 @@ const VIEW = {
   restart_needed: false,
   can_save: true,
   can_restart: true,
-  tailscale: { installed: true, running: true, state: "Running", serving: false },
+  tailscale: {
+    installed: true,
+    running: true,
+    state: "Running",
+    serving: false,
+  },
 };
 
 async function mount(vnode) {
@@ -76,7 +81,9 @@ test("nothing shows on a gateway without the network API, or before it answers",
 
   // An answer that arrives after the section closed is dropped.
   let answer;
-  const slow = fakeApi({ "GET /v1/network": () => new Promise((r) => (answer = r)) });
+  const slow = fakeApi({
+    "GET /v1/network": () => new Promise((r) => (answer = r)),
+  });
   const s = await mount(h(NetworkSettings, { api: slow.api }));
   assert.equal(s.root.innerHTML, "");
   await s.unmount();
@@ -86,14 +93,18 @@ test("nothing shows on a gateway without the network API, or before it answers",
 });
 
 test("a failed read says why, unless the section closed meanwhile", async () => {
-  const f = fakeApi({ "GET /v1/network": json(500, { error: "network api down" }) });
+  const f = fakeApi({
+    "GET /v1/network": json(500, { error: "network api down" }),
+  });
   const m = await mount(h(NetworkSettings, { api: f.api }));
   assert.equal(text(m.root.querySelector("[role=alert]")), "network api down");
   assert.equal(m.root.querySelector("input[name=settings-network]"), null);
   await m.unmount();
 
   let fail;
-  const slow = fakeApi({ "GET /v1/network": () => new Promise((_, r) => (fail = r)) });
+  const slow = fakeApi({
+    "GET /v1/network": () => new Promise((_, r) => (fail = r)),
+  });
   const s = await mount(h(NetworkSettings, { api: slow.api }));
   await s.unmount();
   fail(new Error("late"));
@@ -105,7 +116,11 @@ test("each mode explains itself, and a change asks first with what it implies", 
   const f = fakeApi({
     "GET /v1/network": json(200, VIEW),
     "PUT /v1/network": (_p, init) =>
-      json(200, { ...VIEW, mode: JSON.parse(init.body).mode, restart_needed: true }),
+      json(200, {
+        ...VIEW,
+        mode: JSON.parse(init.body).mode,
+        restart_needed: true,
+      }),
   });
   const m = await mount(h(NetworkSettings, { api: f.api }));
   assert.match(text(m.root), /Safest: only this machine can open Motita/);
@@ -115,9 +130,15 @@ test("each mode explains itself, and a change asks first with what it implies", 
   await pick(m.root, "settings-network", "lan");
   let c = confirmBox(m.root);
   assert.match(text(c), /Switch to “Local network”\?/);
-  assert.match(text(c), /Devices on your local network will be able to reach the gateway/);
+  assert.match(
+    text(c),
+    /Devices on your local network will be able to reach the gateway/,
+  );
   assert.match(text(c), /plain HTTP/);
-  assert.match(text(m.root), /only private \(local network\) addresses may connect/);
+  assert.match(
+    text(m.root),
+    /only private \(local network\) addresses may connect/,
+  );
   assert.match(btn(c, "Confirm").className, /text-danger/);
   // Cancel has the focus, so Enter right away does not apply it.
   assert.equal(document.activeElement, btn(c, "Cancel"));
@@ -150,7 +171,10 @@ test("each mode explains itself, and a change asks first with what it implies", 
   assert.equal(confirmBox(m.root), null);
   const notice = m.root.querySelector("[data-testid=network-restart]");
   assert.match(text(notice), /Saved\. Applies when the gateway restarts/);
-  assert.match(text(notice), /Running now: This machine only \(127\.0\.0\.1:7777\)\./);
+  assert.match(
+    text(notice),
+    /Running now: This machine only \(127\.0\.0\.1:7777\)\./,
+  );
   assert.equal(radio(m.root, "settings-network", "all").checked, true);
   await m.unmount();
 });
@@ -166,7 +190,10 @@ test("going back to this machine only says other devices lose access; a refusal 
   assert.match(text(c), /Other devices will lose access/);
   assert.doesNotMatch(btn(c, "Confirm").className, /text-danger/);
   await press(btn(c, "Confirm"));
-  assert.equal(text(m.root.querySelector("[data-testid=network-error]")), "config is read-only");
+  assert.equal(
+    text(m.root.querySelector("[data-testid=network-error]")),
+    "config is read-only",
+  );
   assert.equal(confirmBox(m.root), null);
   // A new pick clears the error.
   await pick(m.root, "settings-network", "all");
@@ -189,13 +216,22 @@ test("a custom address, a gateway without a configuration file, and one that can
   const f = fakeApi({ "GET /v1/network": json(200, view) });
   const m = await mount(h(NetworkSettings, { api: f.api }));
   const t = text(m.root);
-  assert.match(t, /Set by hand in the configuration: 10\.1\.2\.3:9\. Choosing an option replaces it\./);
-  assert.match(t, /without a configuration file, so this cannot be changed here/);
+  assert.match(
+    t,
+    /Set by hand in the configuration: 10\.1\.2\.3:9\. Choosing an option replaces it\./,
+  );
+  assert.match(
+    t,
+    /without a configuration file, so this cannot be changed here/,
+  );
   for (const v of ["local", "lan", "all"]) {
     assert.equal(radio(m.root, "settings-network", v).disabled, true);
     assert.equal(radio(m.root, "settings-network", v).checked, false);
   }
-  assert.match(t, /Running now: Custom address \(10\.1\.2\.3:9\)\. Restart it with motita gateway stop/);
+  assert.match(
+    t,
+    /Running now: Custom address \(10\.1\.2\.3:9\)\. Restart it with motita gateway stop/,
+  );
   assert.equal(m.root.querySelector("[data-testid=network-restart-now]"), null);
   // Without Tailscale: where to get it.
   const get = byText(m.root, "a", "Get Tailscale");
@@ -204,7 +240,9 @@ test("a custom address, a gateway without a configuration file, and one that can
   await m.unmount();
 
   // A view without a mode at all is shown as a custom one.
-  const g = fakeApi({ "GET /v1/network": json(200, { ...VIEW, mode: undefined, listen: "x:1" }) });
+  const g = fakeApi({
+    "GET /v1/network": json(200, { ...VIEW, mode: undefined, listen: "x:1" }),
+  });
   const n = await mount(h(NetworkSettings, { api: g.api }));
   assert.match(text(n.root), /Set by hand in the configuration: x:1/);
   await n.unmount();
@@ -236,7 +274,11 @@ test("publishing in the tailnet asks first; turning it off does not; the address
       serving = JSON.parse(init.body).enable;
       return json(200, {
         ...VIEW,
-        tailscale: { ...VIEW.tailscale, serving, url: "https://box.tail.ts.net/" },
+        tailscale: {
+          ...VIEW.tailscale,
+          serving,
+          url: "https://box.tail.ts.net/",
+        },
       });
     },
   });
@@ -292,7 +334,10 @@ test("publishing in the tailnet asks first; turning it off does not; the address
 });
 
 test("tailscale's own errors are shown, and the operator command can be copied", async () => {
-  const realClip = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
+  const realClip = Object.getOwnPropertyDescriptor(
+    window.navigator,
+    "clipboard",
+  );
   const copied = [];
   Object.defineProperty(window.navigator, "clipboard", {
     configurable: true,
@@ -345,7 +390,10 @@ test("tailscale's own errors are shown, and the operator command can be copied",
 });
 
 test("an operator error without the command spelled out keeps its text; a failed copy stays Copy", async () => {
-  const realClip = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
+  const realClip = Object.getOwnPropertyDescriptor(
+    window.navigator,
+    "clipboard",
+  );
   Object.defineProperty(window.navigator, "clipboard", {
     configurable: true,
     value: {
@@ -365,7 +413,10 @@ test("an operator error without the command spelled out keeps its text; a failed
     const m = await mount(h(NetworkSettings, { api: f.api }));
     const note = byText(m.root, "p", "Tailscale:");
     // The whole message stays, and the command follows it.
-    assert.equal(note.firstChild.textContent, "Tailscale: use --operator to allow it");
+    assert.equal(
+      note.firstChild.textContent,
+      "Tailscale: use --operator to allow it",
+    );
     assert.equal(
       text(note.querySelector("[data-testid=operator-command]")),
       "sudo tailscale set --operator=$USER",
@@ -443,7 +494,10 @@ test("restart now asks, then waits for the gateway and reloads once it answers",
       path: "/v1/network/restart",
       body: { confirm: true },
     });
-    assert.equal(text(m.root.querySelector("[data-testid=network-restarting]")), "Restarting the gateway…");
+    assert.equal(
+      text(m.root.querySelector("[data-testid=network-restarting]")),
+      "Restarting the gateway…",
+    );
     assert.equal(now.disabled, true);
 
     mock.timers.tick(1500);
@@ -490,10 +544,16 @@ test("a gateway that does not come back says so and frees the controls", async (
     mock.timers.tick(5000);
     await settle();
     assert.equal(hz.asked.length, asked);
-    assert.equal(m.root.querySelector("[data-testid=network-restart-now]").disabled, false);
+    assert.equal(
+      m.root.querySelector("[data-testid=network-restart-now]").disabled,
+      false,
+    );
     // Asking again clears the note.
     await press(m.root.querySelector("[data-testid=network-restart-now]"));
-    assert.equal(m.root.querySelector("[data-testid=network-restarting]"), null);
+    assert.equal(
+      m.root.querySelector("[data-testid=network-restarting]"),
+      null,
+    );
     await m.unmount();
   } finally {
     hz.restore();
@@ -553,10 +613,16 @@ test("a refused restart is shown and nothing waits", async () => {
   const m = await mount(h(NetworkSettings, { api: f.api }));
   await press(m.root.querySelector("[data-testid=network-restart-now]"));
   await press(btn(confirmBox(m.root), "Restart"));
-  assert.equal(text(m.root.querySelector("[data-testid=network-error]")), "not a service");
+  assert.equal(
+    text(m.root.querySelector("[data-testid=network-error]")),
+    "not a service",
+  );
   assert.equal(m.root.querySelector("[data-testid=network-restarting]"), null);
   assert.equal(confirmBox(m.root), null);
-  assert.equal(m.root.querySelector("[data-testid=network-restart-now]").disabled, false);
+  assert.equal(
+    m.root.querySelector("[data-testid=network-restart-now]").disabled,
+    false,
+  );
   await m.unmount();
 });
 
@@ -570,7 +636,9 @@ test("the default health check and reload use the page's own fetch and location"
   try {
     const r = await restartTiming.health();
     assert.equal(r.ok, true);
-    assert.deepEqual(calls, [["/v1/health", { credentials: "same-origin", cache: "no-store" }]]);
+    assert.deepEqual(calls, [
+      ["/v1/health", { credentials: "same-origin", cache: "no-store" }],
+    ]);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -587,7 +655,10 @@ test("disk access: hidden without the API, and a failed read says why", async ()
   let m = await mount(h(SecuritySettings, { api: f.api }));
   assert.equal(m.root.innerHTML, "");
   // No session: its scope is not asked for.
-  assert.deepEqual(f.calls.map((c) => c.path), ["/v1/security"]);
+  assert.deepEqual(
+    f.calls.map((c) => c.path),
+    ["/v1/security"],
+  );
   await m.unmount();
 
   f = fakeApi({ "GET /v1/security": json(500, { error: "security down" }) });
@@ -607,7 +678,14 @@ test("disk access: hidden without the API, and a failed read says why", async ()
   m = await mount(h(SecuritySettings, { api: slow.api, sessionId: "s1" }));
   await m.unmount();
   ok(json(200, SEC));
-  scope(json(200, { workspace: "/w", project_dir: "", home: "", private_roots: [] }));
+  scope(
+    json(200, {
+      workspace: "/w",
+      project_dir: "",
+      home: "",
+      private_roots: [],
+    }),
+  );
   await settle();
   assert.equal(m.root.innerHTML, "");
   m = await mount(h(SecuritySettings, { api: slow.api, sessionId: "s1" }));
@@ -624,15 +702,24 @@ test("the whole disk is given only after a confirmation; the workspace comes bac
       json(200, { ...SEC, disk_access: JSON.parse(init.body).disk_access }),
   });
   const m = await mount(h(SecuritySettings, { api: f.api }));
-  assert.match(text(m.root), /Safest: Motita reads and writes only inside the folder/);
+  assert.match(
+    text(m.root),
+    /Safest: Motita reads and writes only inside the folder/,
+  );
   assert.match(text(m.root), /logins and keys stay hidden from its commands/);
-  assert.equal(m.root.querySelector("[data-testid=security-not-enforced]"), null);
+  assert.equal(
+    m.root.querySelector("[data-testid=security-not-enforced]"),
+    null,
+  );
 
   await pick(m.root, "settings-disk", "full");
   const c = confirmBox(m.root, "security-confirm");
   assert.match(text(c), /Give Motita access to the whole disk\?/);
   assert.match(text(c), /could damage or leak your files/);
-  assert.match(text(m.root), /can read and write any file your user account can/);
+  assert.match(
+    text(m.root),
+    /can read and write any file your user account can/,
+  );
   assert.equal(f.calls.length, 1);
   // Cancel, or the workspace picked again, drops the question.
   await press(btn(c, "Cancel"));
@@ -644,28 +731,40 @@ test("the whole disk is given only after a confirmation; the workspace comes bac
   assert.equal(f.calls.length, 1);
 
   await pick(m.root, "settings-disk", "full");
-  await press(btn(confirmBox(m.root, "security-confirm"), "Allow the whole disk"));
+  await press(
+    btn(confirmBox(m.root, "security-confirm"), "Allow the whole disk"),
+  );
   assert.deepEqual(f.calls.at(-1).body, { disk_access: "full", confirm: true });
   assert.equal(radio(m.root, "settings-disk", "full").checked, true);
   assert.equal(confirmBox(m.root, "security-confirm"), null);
 
   // Back to the workspace: saved at once.
   await pick(m.root, "settings-disk", "workspace");
-  assert.deepEqual(f.calls.at(-1).body, { disk_access: "workspace", confirm: false });
+  assert.deepEqual(f.calls.at(-1).body, {
+    disk_access: "workspace",
+    confirm: false,
+  });
   assert.equal(radio(m.root, "settings-disk", "workspace").checked, true);
   await m.unmount();
 });
 
 test("a refused change is shown; a gateway without a file or Landlock says what holds", async () => {
   const f = fakeApi({
-    "GET /v1/security": json(200, { ...SEC, disk_access: "full", enforced: false }),
+    "GET /v1/security": json(200, {
+      ...SEC,
+      disk_access: "full",
+      enforced: false,
+    }),
     "PUT /v1/security": json(409, { error: "no config file" }),
   });
   const m = await mount(h(SecuritySettings, { api: f.api }));
   assert.ok(m.root.querySelector("[data-testid=security-not-enforced]"));
   assert.doesNotMatch(text(m.root), /logins and keys stay hidden/);
   await pick(m.root, "settings-disk", "workspace");
-  assert.equal(text(m.root.querySelector("[data-testid=security-error]")), "no config file");
+  assert.equal(
+    text(m.root.querySelector("[data-testid=security-error]")),
+    "no config file",
+  );
   assert.equal(radio(m.root, "settings-disk", "full").checked, true);
   await m.unmount();
 
@@ -676,13 +775,21 @@ test("a refused change is shown; a gateway without a file or Landlock says what 
   // A view without a value is shown as the workspace.
   assert.equal(radio(n.root, "settings-disk", "workspace").checked, true);
   assert.equal(radio(n.root, "settings-disk", "full").disabled, true);
-  assert.match(text(n.root), /without a configuration file, so this cannot be changed here/);
+  assert.match(
+    text(n.root),
+    /without a configuration file, so this cannot be changed here/,
+  );
   await n.unmount();
 });
 
 test("the open session's scope is listed, and follows the session", async () => {
   const scopes = {
-    s1: { workspace: "/w/s1", project_dir: "/p/app", home: "/tools/home", private_roots: ["/home/me/.ssh", "/home/me/.motita"] },
+    s1: {
+      workspace: "/w/s1",
+      project_dir: "/p/app",
+      home: "/tools/home",
+      private_roots: ["/home/me/.ssh", "/home/me/.motita"],
+    },
     s2: { workspace: "/w/s2", project_dir: "", home: "", private_roots: [] },
   };
   const f = fakeApi({
@@ -692,22 +799,24 @@ test("the open session's scope is listed, and follows the session", async () => 
   });
   const m = await mount(h(SecuritySettings, { api: f.api, sessionId: "s1" }));
   let note = m.root.querySelector("[data-testid=security-session-scope]");
-  assert.deepEqual(
-    [...note.querySelectorAll("li")].map(text),
-    [
-      "This session works in /w/s1",
-      "Its project is /p/app",
-      "Its commands' HOME is /tools/home",
-      "Kept from its commands: /home/me/.ssh",
-      "Kept from its commands: /home/me/.motita",
-    ],
-  );
+  assert.deepEqual([...note.querySelectorAll("li")].map(text), [
+    "This session works in /w/s1",
+    "Its project is /p/app",
+    "Its commands' HOME is /tools/home",
+    "Kept from its commands: /home/me/.ssh",
+    "Kept from its commands: /home/me/.motita",
+  ]);
   await m.rerender(h(SecuritySettings, { api: f.api, sessionId: "s2" }));
   note = m.root.querySelector("[data-testid=security-session-scope]");
-  assert.deepEqual([...note.querySelectorAll("li")].map(text), ["This session works in /w/s2"]);
+  assert.deepEqual([...note.querySelectorAll("li")].map(text), [
+    "This session works in /w/s2",
+  ]);
   // A scope that cannot be read is left out.
   await m.rerender(h(SecuritySettings, { api: f.api, sessionId: "s3" }));
-  assert.equal(m.root.querySelector("[data-testid=security-session-scope]"), null);
+  assert.equal(
+    m.root.querySelector("[data-testid=security-session-scope]"),
+    null,
+  );
   assert.ok(m.root.querySelector("[data-testid=security-setting]"));
   await m.unmount();
 });

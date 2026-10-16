@@ -67,7 +67,9 @@ test("saveSettings stores and applies the look, and still applies it when storag
   assert.equal(document.documentElement.dataset.fontSize, "small");
   assert.equal(document.documentElement.dataset.density, "compact");
 
-  brokenStorage(() => s.saveSettings({ fontSize: "large", density: "comfortable" }));
+  brokenStorage(() =>
+    s.saveSettings({ fontSize: "large", density: "comfortable" }),
+  );
   assert.equal(document.documentElement.dataset.fontSize, "large");
   assert.equal(document.documentElement.dataset.density, "comfortable");
   // The saved value did not change.
@@ -156,13 +158,21 @@ test("setDiskAccess confirms only the widening to the whole disk", async () => {
   assert.deepEqual(await sec.setDiskAccess(f.api, "full"), v);
   await sec.setDiskAccess(f.api, "workspace");
   assert.deepEqual(f.calls[0].body, { disk_access: "full", confirm: true });
-  assert.deepEqual(f.calls[1].body, { disk_access: "workspace", confirm: false });
+  assert.deepEqual(f.calls[1].body, {
+    disk_access: "workspace",
+    confirm: false,
+  });
   const r = fakeApi({ "PUT /v1/security": json(409, { error: "no file" }) });
   await assert.rejects(sec.setDiskAccess(r.api, "full"), /no file/);
 });
 
 test("getSessionScope asks for an escaped session id and is null without one or on a refusal", async () => {
-  const scope = { workspace: "/w", project_dir: "", home: "", private_roots: ["/a"] };
+  const scope = {
+    workspace: "/w",
+    project_dir: "",
+    home: "",
+    private_roots: ["/a"],
+  };
   let f = fakeApi({ "GET /v1/sessions/": json(200, scope) });
   assert.equal(await sec.getSessionScope(f.api, ""), null);
   assert.equal(f.calls.length, 0);
@@ -175,7 +185,14 @@ test("getSessionScope asks for an escaped session id and is null without one or 
 // ── networkApi.ts ───────────────────────────────────────────────────────────
 
 test("the network client sends each change and reports refusals with their status", async () => {
-  const v = { mode: "lan", listen: "0.0.0.0:1", active_mode: "local", active_listen: "x", restart_needed: true, can_save: true };
+  const v = {
+    mode: "lan",
+    listen: "0.0.0.0:1",
+    active_mode: "local",
+    active_listen: "x",
+    restart_needed: true,
+    can_save: true,
+  };
   let f = fakeApi({
     "GET /v1/network": json(200, v),
     "PUT /v1/network": json(200, v),
@@ -208,7 +225,9 @@ test("the network client sends each change and reports refusals with their statu
   });
   f = fakeApi({ "POST /v1/network/tailscale": json(500, null) });
   await assert.rejects(net.setTailscale(f.api, false), /HTTP 500/);
-  f = fakeApi({ "POST /v1/network/restart": new Response("x", { status: 503 }) });
+  f = fakeApi({
+    "POST /v1/network/restart": new Response("x", { status: 503 }),
+  });
   await assert.rejects(net.restartGateway(f.api), (e) => e.status === 503);
 });
 
@@ -230,12 +249,17 @@ test("the LLM client sends each request to its path and throws refusals with sta
   await llm.loadLLM(f.api);
   await llm.saveProvider(f.api, "a b", { api_key: "k" });
   await llm.forgetProvider(f.api, "a b");
-  assert.deepEqual(await llm.testProvider(f.api, "a b", { base_url: "u" }), { ok: true });
+  assert.deepEqual(await llm.testProvider(f.api, "a b", { base_url: "u" }), {
+    ok: true,
+  });
   await llm.saveDefault(f.api, "x", "m");
   await llm.saveTasks(f.api, { chat: { provider: "x", model: "m" } });
   assert.deepEqual(await llm.startLogin(f.api, "a b"), { id: "f1" });
   assert.equal((await llm.loginStatus(f.api, "f/1")).status, "pending");
-  assert.equal(await llm.pasteLogin(f.api, "f/1", "http://cb?code=1"), undefined);
+  assert.equal(
+    await llm.pasteLogin(f.api, "f/1", "http://cb?code=1"),
+    undefined,
+  );
   await llm.cancelLogin(f.api, "f/1");
   assert.deepEqual(
     f.calls.map((c) => [c.method, c.path, c.body]),
@@ -245,7 +269,11 @@ test("the LLM client sends each request to its path and throws refusals with sta
       ["DELETE", "/v1/llm/providers/a%20b", undefined],
       ["POST", "/v1/llm/providers/a%20b/test", { base_url: "u" }],
       ["PUT", "/v1/llm/default", { provider: "x", model: "m" }],
-      ["PUT", "/v1/llm/tasks", { tasks: { chat: { provider: "x", model: "m" } } }],
+      [
+        "PUT",
+        "/v1/llm/tasks",
+        { tasks: { chat: { provider: "x", model: "m" } } },
+      ],
       ["POST", "/v1/llm/providers/a%20b/login", undefined],
       ["GET", "/v1/llm/logins/f%2F1", undefined],
       ["POST", "/v1/llm/logins/f%2F1/paste", { code: "http://cb?code=1" }],
@@ -255,7 +283,9 @@ test("the LLM client sends each request to its path and throws refusals with sta
 });
 
 test("LLM refusals carry the message, status and code, or the status alone", async () => {
-  let f = fakeApi({ "GET /v1/llm": json(403, { error: "nope", code: "read_only" }) });
+  let f = fakeApi({
+    "GET /v1/llm": json(403, { error: "nope", code: "read_only" }),
+  });
   await assert.rejects(llm.loadLLM(f.api), (e) => {
     assert.ok(e instanceof llm.LLMError);
     assert.equal(e.message, "nope");
@@ -281,17 +311,36 @@ test("taskChoices keeps complete trimmed choices and sameTasks ignores the empty
     title: { provider: "", model: "m2" },
     code: { provider: "b", model: "  " },
   };
-  assert.deepEqual(llm.taskChoices(draft), { chat: { provider: "a", model: "m1" } });
-  assert.equal(llm.sameTasks(draft, { chat: { provider: "a", model: "m1" } }), true);
+  assert.deepEqual(llm.taskChoices(draft), {
+    chat: { provider: "a", model: "m1" },
+  });
+  assert.equal(
+    llm.sameTasks(draft, { chat: { provider: "a", model: "m1" } }),
+    true,
+  );
   assert.equal(llm.sameTasks({}, {}), true);
-  assert.equal(llm.sameTasks(draft, { chat: { provider: "b", model: "m1" } }), false);
-  assert.equal(llm.sameTasks(draft, { chat: { provider: "a", model: "m2" } }), false);
+  assert.equal(
+    llm.sameTasks(draft, { chat: { provider: "b", model: "m1" } }),
+    false,
+  );
+  assert.equal(
+    llm.sameTasks(draft, { chat: { provider: "a", model: "m2" } }),
+    false,
+  );
   assert.equal(llm.sameTasks(draft, {}), false);
   assert.equal(llm.sameTasks({}, draft), false);
 });
 
 test("isConnected, canTypeKey, trialOf and modelOptions", () => {
-  const p = (extra) => ({ id: "x", name: "X", access: "", key: "missing", models: [], default: false, ...extra });
+  const p = (extra) => ({
+    id: "x",
+    name: "X",
+    access: "",
+    key: "missing",
+    models: [],
+    default: false,
+    ...extra,
+  });
   assert.equal(llm.isConnected(p()), false);
   assert.equal(llm.isConnected(p({ key: "stored" })), true);
   for (const [key, can] of [
@@ -306,18 +355,38 @@ test("isConnected, canTypeKey, trialOf and modelOptions", () => {
   }
 
   assert.deepEqual(llm.trialOf(p(), "  k ", " http://x "), { api_key: "k" });
-  assert.deepEqual(llm.trialOf(p({ ask_base_url: true }), "", " http://x "), { base_url: "http://x" });
-  assert.deepEqual(llm.trialOf(p({ ask_base_url: true, base_url: "http://x" }), "", "http://x"), {});
+  assert.deepEqual(llm.trialOf(p({ ask_base_url: true }), "", " http://x "), {
+    base_url: "http://x",
+  });
+  assert.deepEqual(
+    llm.trialOf(
+      p({ ask_base_url: true, base_url: "http://x" }),
+      "",
+      "http://x",
+    ),
+    {},
+  );
   assert.deepEqual(llm.trialOf(p({ ask_base_url: true }), "", ""), {});
-  assert.deepEqual(llm.trialOf(p({ ask_base_url: true, base_url: "http://x" }), "", ""), { base_url: "" });
+  assert.deepEqual(
+    llm.trialOf(p({ ask_base_url: true, base_url: "http://x" }), "", ""),
+    { base_url: "" },
+  );
 
   assert.deepEqual(llm.modelOptions(undefined), []);
-  const q = p({ models: [{ id: "a", label: "Alpha" }, { id: "b", label: "" }] });
+  const q = p({
+    models: [
+      { id: "a", label: "Alpha" },
+      { id: "b", label: "" },
+    ],
+  });
   assert.deepEqual(llm.modelOptions(q), [
     { id: "a", label: "Alpha" },
     { id: "b", label: "b" },
   ]);
-  assert.deepEqual(llm.modelOptions({ ...q, listed_models: [] }), llm.modelOptions(q));
+  assert.deepEqual(
+    llm.modelOptions({ ...q, listed_models: [] }),
+    llm.modelOptions(q),
+  );
   assert.deepEqual(llm.modelOptions({ ...q, listed_models: ["a", "z"] }), [
     { id: "a", label: "Alpha" },
     { id: "z", label: "z" },

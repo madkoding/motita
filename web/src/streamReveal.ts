@@ -33,27 +33,35 @@ interface HighlightLike {
 
 // highlights returns the registry's highlights, created on first use; null without the API.
 function highlights(): HighlightLike[] | null {
-  const reg = (globalThis as { CSS?: { highlights?: Map<string, HighlightLike> } }).CSS
-    ?.highlights;
-  const Ctor = (globalThis as { Highlight?: new () => HighlightLike }).Highlight;
+  const reg = (
+    globalThis as { CSS?: { highlights?: Map<string, HighlightLike> } }
+  ).CSS?.highlights;
+  const Ctor = (globalThis as { Highlight?: new () => HighlightLike })
+    .Highlight;
   if (!reg || !Ctor) {
     return null;
   }
-  return [HIDDEN, ...Array.from({ length: FADE_BANDS }, (_, i) => FADE(i))].map((name) => {
-    let h = reg.get(name);
-    if (!h) {
-      h = new Ctor();
-      reg.set(name, h);
-    }
-    return h;
-  });
+  return [HIDDEN, ...Array.from({ length: FADE_BANDS }, (_, i) => FADE(i))].map(
+    (name) => {
+      let h = reg.get(name);
+      if (!h) {
+        h = new Ctor();
+        reg.set(name, h);
+      }
+      return h;
+    },
+  );
 }
 
 // textNodes lists the answer's text, in order, without the copy button's label.
 function textNodes(root: HTMLElement): { nodes: Text[]; total: number } {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) =>
-      choose(n.parentElement?.closest(".copy-msg-btn"), NodeFilter.FILTER_REJECT, NodeFilter.FILTER_ACCEPT),
+      choose(
+        n.parentElement?.closest(".copy-msg-btn"),
+        NodeFilter.FILTER_REJECT,
+        NodeFilter.FILTER_ACCEPT,
+      ),
   });
   const nodes: Text[] = [];
   let total = 0;
@@ -105,7 +113,11 @@ export function streamReveal(el: HTMLElement, content: string): StreamReveal {
       stale = true;
     });
   }
-  observer?.observe(el, { childList: true, subtree: true, characterData: true });
+  observer?.observe(el, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
 
   const clear = () => {
     ranges.forEach((r, i) => hl[i].delete(r));
@@ -131,7 +143,12 @@ export function streamReveal(el: HTMLElement, content: string): StreamReveal {
     const make = (from: number, to: number) => {
       const [sn, so] = point(nodes, from);
       const [en, eo] = point(nodes, to);
-      return new StaticRange({ startContainer: sn, startOffset: so, endContainer: en, endOffset: eo });
+      return new StaticRange({
+        startContainer: sn,
+        startOffset: so,
+        endContainer: en,
+        endOffset: eo,
+      });
     };
     ranges.push(make(shown, total));
     for (let i = 0; i < FADE_BANDS; i++) {

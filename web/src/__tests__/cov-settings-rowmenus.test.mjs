@@ -26,16 +26,26 @@ function mount() {
       "div",
       null,
       ROWS.map((r) =>
-        h("div", { key: r.id, class: "row", id: "row-" + r.id },
-          h("button", {
-            "data-row-menu-trigger": "",
-            id: "btn-" + r.id,
-            onClick: (e) => menus.toggleRowMenu(e.currentTarget, r),
-          }, "⋯"),
+        h(
+          "div",
+          { key: r.id, class: "row", id: "row-" + r.id },
+          h(
+            "button",
+            {
+              "data-row-menu-trigger": "",
+              id: "btn-" + r.id,
+              onClick: (e) => menus.toggleRowMenu(e.currentTarget, r),
+            },
+            "⋯",
+          ),
         ),
       ),
       menus.rowMenu &&
-        h("div", { class: "row-menu" + (menus.rowMenuClosing ? " closing" : "") }, h("span", { id: "inside" }, menus.rowMenu.title)),
+        h(
+          "div",
+          { class: "row-menu" + (menus.rowMenuClosing ? " closing" : "") },
+          h("span", { id: "inside" }, menus.rowMenu.title),
+        ),
     );
   }
   const root = document.createElement("div");
@@ -54,13 +64,24 @@ function mount() {
 
 // place gives a trigger the box the layout would.
 function place(el, { top, bottom, right }) {
-  el.getBoundingClientRect = () => ({ top, bottom, right, left: right - 20, width: 20, height: bottom - top });
+  el.getBoundingClientRect = () => ({
+    top,
+    bottom,
+    right,
+    left: right - 20,
+    width: 20,
+    height: bottom - top,
+  });
 }
 function setWindow(w, hgt) {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: w });
-  Object.defineProperty(window, "innerHeight", { configurable: true, value: hgt });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: hgt,
+  });
 }
-const fire = (el, type) => el.dispatchEvent(new window.Event(type, { bubbles: true }));
+const fire = (el, type) =>
+  el.dispatchEvent(new window.Event(type, { bubbles: true }));
 
 test("the menu opens below its button, flush with its right edge, and toggles shut", async () => {
   mock.timers.enable({ apis: ["setTimeout"] });
@@ -173,7 +194,9 @@ test("a press outside, a touch outside and Escape close it; presses on the menu 
 
     fire(m.root.querySelector("#inside"), "mousedown");
     fire(m.root.querySelector("#btn-p1"), "mousedown");
-    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter" }));
+    document.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter" }),
+    );
     await settle();
     assert.equal(m.ref.m.rowMenuClosing, false);
 
@@ -185,7 +208,9 @@ test("a press outside, a touch outside and Escape close it; presses on the menu 
     await settle();
     assert.equal(m.ref.m.rowMenuClosing, true);
     await reopen();
-    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape" }),
+    );
     await settle();
     assert.equal(m.ref.m.rowMenuClosing, true);
     mock.timers.tick(EXIT);

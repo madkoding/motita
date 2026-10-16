@@ -147,7 +147,11 @@ export const json = jsonResponse;
 export function fakeApi(route) {
   const calls = [];
   const api = async (path, init) => {
-    calls.push({ path, init, body: init?.body ? JSON.parse(init.body) : undefined });
+    calls.push({
+      path,
+      init,
+      body: init?.body ? JSON.parse(init.body) : undefined,
+    });
     const r = await route(path, init);
     return r ?? json({ error: "not found" }, 404);
   };

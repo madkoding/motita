@@ -26,7 +26,9 @@ function messageOf(e: unknown): string {
 }
 
 // percentOf is how much of the download is done, 0 while its size is not known.
-function percentOf(d: { done: number; total: number } | null | undefined): number {
+function percentOf(
+  d: { done: number; total: number } | null | undefined,
+): number {
   if (d?.total) {
     return Math.round((100 * d.done) / d.total);
   }

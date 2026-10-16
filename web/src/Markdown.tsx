@@ -255,7 +255,9 @@ const MATH_OPEN = '<span class="math-inline">';
 const MATH_CLOSE = "</span>";
 
 // markdown-it ships a text rule of its own; it is kept for the text that holds no `$`.
-const defaultText = md.renderer.rules.text as NonNullable<typeof md.renderer.rules.text>;
+const defaultText = md.renderer.rules.text as NonNullable<
+  typeof md.renderer.rules.text
+>;
 md.renderer.rules.text = (
   tokens: Token[],
   idx: number,
@@ -402,7 +404,10 @@ export function sanitizeMessage(html: string): string {
 /** The source a placeholder was left carrying, as TEXT. */
 function sourceOf(el: HTMLElement): string {
   // An element's textContent is never null.
-  return ((el.querySelector("code") ?? el).textContent as string).replace(/\n$/, "");
+  return ((el.querySelector("code") ?? el).textContent as string).replace(
+    /\n$/,
+    "",
+  );
 }
 
 /**

@@ -387,8 +387,14 @@ test("a browser known to have no WebGPU never fetches its runtime: Supertonic ru
   await synth.warm(SUPERTONIC);
   assert.equal(await synth.onGPU(SUPERTONIC), false);
   assert.equal(synth.gpuError(), "this browser has no WebGPU in its workers");
-  assert.ok(log.bytes.some((u) => u.endsWith(CPU_RUNTIME)), "the CPU's runtime is read");
-  assert.ok(!log.bytes.some((u) => u.endsWith(".asyncify.wasm")), "WebGPU's is not");
+  assert.ok(
+    log.bytes.some((u) => u.endsWith(CPU_RUNTIME)),
+    "the CPU's runtime is read",
+  );
+  assert.ok(
+    !log.bytes.some((u) => u.endsWith(".asyncify.wasm")),
+    "WebGPU's is not",
+  );
   await assert.rejects(synth.say(CHATTERBOX, "a"), /no WebGPU in its workers/);
   assert.ok(!log.bytes.some((u) => u.endsWith(".asyncify.wasm")));
 });

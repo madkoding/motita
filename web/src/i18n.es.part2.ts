@@ -173,12 +173,16 @@ const more: Record<string, string> = {
     "Le pide un título, a través del gateway, como lo haría el agente.",
   "“{text}” in {seconds} s": "«{text}» en {seconds} s",
   "Model in this browser": "Modelo en este navegador",
-  "Run a small model in this tab (WebGPU)": "Ejecutar un modelo pequeño en esta pestaña (WebGPU)",
+  "Run a small model in this tab (WebGPU)":
+    "Ejecutar un modelo pequeño en esta pestaña (WebGPU)",
   "Qwen2.5 0.5B, free. Downloads about {size} once. Then choose it under Summaries below: titles and summaries use it while this tab is open.":
     "Qwen2.5 0.5B, gratis. Descarga unos {size} una sola vez. Luego elígelo en Resúmenes, más abajo: los títulos y resúmenes lo usan mientras esta pestaña esté abierta.",
-  "The gateway is downloading the model: {pct}%": "El gateway está descargando el modelo: {pct}%",
-  "Loading the model into the graphics card: {pct}%": "Cargando el modelo en la tarjeta gráfica: {pct}%",
-  "Ready: it answers while this tab stays open.": "Listo: responde mientras esta pestaña siga abierta.",
+  "The gateway is downloading the model: {pct}%":
+    "El gateway está descargando el modelo: {pct}%",
+  "Loading the model into the graphics card: {pct}%":
+    "Cargando el modelo en la tarjeta gráfica: {pct}%",
+  "Ready: it answers while this tab stays open.":
+    "Listo: responde mientras esta pestaña siga abierta.",
   "The model could not start: {error}": "El modelo no pudo iniciar: {error}",
   "This browser or device cannot run it: it needs WebGPU, and a phone is left out.":
     "Este navegador o dispositivo no puede ejecutarlo: necesita WebGPU, y un celular queda fuera.",
@@ -255,8 +259,7 @@ const more: Record<string, string> = {
     "inicia sesión con ChatGPT, o una clave de API",
   "sign in with GitHub (Copilot plan)":
     "inicia sesión con GitHub (plan de Copilot)",
-  "free on your own machine or network":
-    "gratis en tu propia máquina o red",
+  "free on your own machine or network": "gratis en tu propia máquina o red",
   "Ollama's hosted models, billed per token":
     "modelos alojados de Ollama, de pago por token",
   "API key from console.anthropic.com": "Clave de API de console.anthropic.com",
@@ -587,10 +590,13 @@ const more: Record<string, string> = {
     "Este sistema lo bloquea para los programas sin permiso (Ubuntu 24.04 y posteriores). Para permitirlo, ejecuta una vez en la máquina donde corre Motita: sudo motita sandbox apparmor install",
   "This system cannot give a command a network of its own ({reason}), so this changes nothing here.":
     "Este sistema no puede dar a un comando una red propia ({reason}), así que aquí esto no cambia nada.",
-  "This browser has no WebGPU for the page's workers.": "Este navegador no ofrece WebGPU a los workers de la página.",
-  "The browser gave no graphics card to use.": "El navegador no dio ninguna tarjeta gráfica para usar.",
+  "This browser has no WebGPU for the page's workers.":
+    "Este navegador no ofrece WebGPU a los workers de la página.",
+  "The browser gave no graphics card to use.":
+    "El navegador no dio ninguna tarjeta gráfica para usar.",
   "The local listener stopped.": "El oyente local se detuvo.",
-  "Give Motita's commands the network?": "¿Dar la red a los comandos de Motita?",
+  "Give Motita's commands the network?":
+    "¿Dar la red a los comandos de Motita?",
   "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.":
     "Esta voz necesita WebGPU, que este dispositivo no usa. Elige otra voz, o activa WebGPU en los ajustes.",
 };

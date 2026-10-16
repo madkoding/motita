@@ -18,7 +18,10 @@ const settle = async (n = 8) => {
 };
 
 const json = (body, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 
 const A = { name: "a.md", size: 1, type: "text/markdown", modified: "" };
 const B = { name: "b.md", size: 2, type: "text/markdown", modified: "" };
@@ -73,7 +76,13 @@ test("moving to another session drops the old list and file, and reloads an open
   const m = await switchable(g.api, "s1");
   await act(() => m.hook.current.openArtifacts());
   await settle();
-  await act(() => m.hook.current.setArtifactView({ name: "x", type: "text/plain", body: "x" }));
+  await act(() =>
+    m.hook.current.setArtifactView({
+      name: "x",
+      type: "text/plain",
+      body: "x",
+    }),
+  );
   assert.deepEqual(m.hook.current.artifacts, [A]);
   await m.show("s2");
   await settle();
@@ -89,7 +98,12 @@ test("moving to another session drops the old list and file, and reloads an open
 });
 
 test("an answer for a session the person already left is dropped", async () => {
-  const late = { list: deferred(), fail: deferred(), text: deferred(), image: deferred() };
+  const late = {
+    list: deferred(),
+    fail: deferred(),
+    text: deferred(),
+    image: deferred(),
+  };
   const g = gateway((url) => {
     if (url.endsWith("/s1/artifacts")) {
       return late.list.promise;

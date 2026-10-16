@@ -59,7 +59,9 @@ function prop(body, name) {
   if (!token) {
     return m[1];
   }
-  const line = root.split("\n").find((l) => l.trim().startsWith(`${token[1]}:`));
+  const line = root
+    .split("\n")
+    .find((l) => l.trim().startsWith(`${token[1]}:`));
   const value = /(#[0-9a-fA-F]{6});/.exec(line ?? "");
   assert.ok(value, `${token[1]} is a solid colour in :root`);
   return value[1];

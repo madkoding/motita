@@ -87,7 +87,10 @@ export function UnconfinedRunsSetting({
   const shown: RunsChoice = choose(asking, "run", current);
   const confined = choose(
     view.enforced,
-    " " + t("This system confines Motita's commands, so this changes nothing here."),
+    " " +
+      t(
+        "This system confines Motita's commands, so this changes nothing here.",
+      ),
     "",
   );
 

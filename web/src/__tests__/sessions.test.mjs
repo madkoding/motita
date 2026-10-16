@@ -49,9 +49,30 @@ const H = {
     function Hooks() {
       const rs = useRunState();
       const lists = useSessionList(api, rs);
-      const conv = useConversation({ api, rs, lists, setState: noop, setConfig: noop, requestModal: noop });
-      const stream = useStream({ api, rs, lists, conv, setState: noop, setToast: noop });
-      const actions = useSessionActions({ api, rs, lists, conv, setState: noop, setToast: noop });
+      const conv = useConversation({
+        api,
+        rs,
+        lists,
+        setState: noop,
+        setConfig: noop,
+        requestModal: noop,
+      });
+      const stream = useStream({
+        api,
+        rs,
+        lists,
+        conv,
+        setState: noop,
+        setToast: noop,
+      });
+      const actions = useSessionActions({
+        api,
+        rs,
+        lists,
+        conv,
+        setState: noop,
+        setToast: noop,
+      });
       onStore({ rs, lists, conv, stream, actions });
       return null;
     }
@@ -432,7 +453,11 @@ test("a session opened again shows each answer as it was shown live", async () =
   ]);
   const answer = store.rs.messages[1];
   assert.equal(answer.report?.status, "done", "the report comes back");
-  assert.equal(answer.changes?.files?.[0]?.path, "a.go", "the changed files come back");
+  assert.equal(
+    answer.changes?.files?.[0]?.path,
+    "a.go",
+    "the changed files come back",
+  );
   assert.equal(store.rs.messages[4].kind, "error");
   unmount();
 });

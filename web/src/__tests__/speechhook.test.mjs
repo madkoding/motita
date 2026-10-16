@@ -314,7 +314,11 @@ test("subtitles: each sentence as the voice starts it, gone when it ends, is sto
   assert.deepEqual(sub.seen, [ALL_DONE]);
   await act(() => synth.said.at(-1).onend({}));
   await act(() => synth.said.at(-1).onstart({}));
-  assert.deepEqual(sub.seen, [ALL_DONE, TESTS_PASS], "no gap between sentences");
+  assert.deepEqual(
+    sub.seen,
+    [ALL_DONE, TESTS_PASS],
+    "no gap between sentences",
+  );
   await act(() => synth.said.at(-1).onend({}));
   assert.deepEqual(sub.seen, [ALL_DONE, TESTS_PASS, ""], "gone at the end");
 
@@ -535,7 +539,11 @@ test("gateway: chosen and on, the gateway says each sentence with the voice chos
     ],
   );
   assert.equal(synth.said.length, 0, "the device says nothing");
-  assert.deepEqual(sub.seen, [ALL_DONE], "the subtitle waits for the clip to play");
+  assert.deepEqual(
+    sub.seen,
+    [ALL_DONE],
+    "the subtitle waits for the clip to play",
+  );
   sub.off();
   assert.equal(s.state.current.speakingId, 2);
   await act(async () => {
@@ -580,7 +588,9 @@ test("local voice: chosen, on and downloaded, the worker says each sentence; wit
         return;
       }
       asked.push([m.id, m.text]);
-      queueMicrotask(() => this.onmessage({ data: { seq: m.seq, wav: new ArrayBuffer(4) } }));
+      queueMicrotask(() =>
+        this.onmessage({ data: { seq: m.seq, wav: new ArrayBuffer(4) } }),
+      );
     }
   };
   globalThis.caches = {};
@@ -609,7 +619,10 @@ test("local voice: chosen, on and downloaded, the worker says each sentence; wit
   await act(() => s.state.current.speak(answer(2)));
   await flush();
   assert.equal(asked.length, 2);
-  assert.deepEqual(synth.said.map((u) => u.text), [ALL_DONE]);
+  assert.deepEqual(
+    synth.said.map((u) => u.text),
+    [ALL_DONE],
+  );
   await s.done();
   delete globalThis.Worker;
   delete globalThis.caches;

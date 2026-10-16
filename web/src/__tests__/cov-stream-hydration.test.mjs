@@ -25,7 +25,9 @@ class FakeIO {
   }
   disconnect() {}
   see(...records) {
-    this.cb(records.map(([target, isIntersecting]) => ({ target, isIntersecting })));
+    this.cb(
+      records.map(([target, isIntersecting]) => ({ target, isIntersecting })),
+    );
   }
 }
 globalThis.IntersectionObserver = FakeIO;
@@ -54,7 +56,11 @@ test("a message is built once it comes near the viewport, and only once", async 
   assert.equal(el.dataset.inview, "0");
   assert.equal(near().options.threshold, 0);
   assert.ok(near().watched.has(el));
-  assert.equal(far(), undefined, "no far observer for work that cannot be undone");
+  assert.equal(
+    far(),
+    undefined,
+    "no far observer for work that cannot be undone",
+  );
   assert.deepEqual(h.hydrationState(), {
     registered: 1,
     pending: 1,
@@ -99,7 +105,11 @@ test("without IntersectionObserver for the far margin, a message is only built",
   try {
     // The near observer exists already; the far one cannot be made here, and is not needed.
     const el = msg();
-    const stop = h.watchForHydration(el, () => {}, () => true);
+    const stop = h.watchForHydration(
+      el,
+      () => {},
+      () => true,
+    );
     assert.equal(far(), undefined);
     near().see([el, true]);
     await settle();
@@ -247,4 +257,3 @@ test("the transition log keeps only changes, and its last sixty", () => {
   els.forEach((e) => e.remove());
   h.cancelQuiet();
 });
-

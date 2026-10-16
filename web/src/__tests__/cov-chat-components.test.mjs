@@ -4,7 +4,15 @@
 // Run with: node --test web/src/__tests__/cov-chat-components.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { act, frames, h, load, mount, text, tick } from "./cov-chat-helpers.mjs";
+import {
+  act,
+  frames,
+  h,
+  load,
+  mount,
+  text,
+  tick,
+} from "./cov-chat-helpers.mjs";
 
 const { Composer } = await load("Composer.tsx");
 const { AppCtx } = await load("appStore.ts");
@@ -67,7 +75,9 @@ function store(over = {}) {
 
 async function composer(over) {
   const s = store(over);
-  const m = await mount(h(AppCtx.Provider, { value: s.value }, h(Composer, {})));
+  const m = await mount(
+    h(AppCtx.Provider, { value: s.value }, h(Composer, {})),
+  );
   const q = (sel) => m.root.querySelector(sel);
   return { ...s, m, q, root: m.root };
 }
@@ -89,9 +99,17 @@ test("an empty composer asks for something and sends", async () => {
   // Typing, keys and the form go to the composer's handlers.
   field.value = "hi";
   field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  c.q("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
-  assert.deepEqual(c.calls, [["onInput", "hi"], ["keydown", "Enter"], ["submit"]]);
+  field.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+  );
+  c.q("form").dispatchEvent(
+    new window.Event("submit", { bubbles: true, cancelable: true }),
+  );
+  assert.deepEqual(c.calls, [
+    ["onInput", "hi"],
+    ["keydown", "Enter"],
+    ["submit"],
+  ]);
   await c.m.unmount();
 });
 
@@ -99,11 +117,17 @@ test("a running conversation cannot send; a merged one is read-only", async () =
   const running = await composer({ top: { rs: { running: true } } });
   assert.equal(running.q("button[type=submit]").disabled, true);
   await running.m.unmount();
-  const merged = await composer({ top: { isMerged: true }, voice: { showMic: true } });
+  const merged = await composer({
+    top: { isMerged: true },
+    voice: { showMic: true },
+  });
   assert.match(text(merged.root), /Merged — Read Only/);
   const field = merged.q("textarea");
   assert.equal(field.disabled, true);
-  assert.equal(field.placeholder, "This session is read-only after integration");
+  assert.equal(
+    field.placeholder,
+    "This session is read-only after integration",
+  );
   assert.equal(merged.q("button[type=submit]").disabled, true);
   assert.equal(merged.q("[data-testid=composer-mic]").disabled, true);
   await merged.m.unmount();
@@ -126,17 +150,29 @@ test("active commands are pills before the text, each with its own remove button
 
 test("the slash popup lists the commands, highlights one, and picks on click", async () => {
   const items = [
-    { name: "/plan", group: "mode", help: "Plan first", aliases: ["/p", "/pl"] },
+    {
+      name: "/plan",
+      group: "mode",
+      help: "Plan first",
+      aliases: ["/p", "/pl"],
+    },
     { name: "/clear", group: "session", help: "Start over" },
     { name: "/odd", group: "other", help: "x", aliases: [] },
   ];
   const c = await composer({ composer: { slashPopup: { items, index: 1 } } });
   const rows = [...c.root.querySelectorAll("form > div.absolute button")];
-  assert.deepEqual(rows.map(text), ["/plan/p, /plPlan first", "/clearStart over", "/oddx"]);
+  assert.deepEqual(rows.map(text), [
+    "/plan/p, /plPlan first",
+    "/clearStart over",
+    "/oddx",
+  ]);
   assert.ok(rows[1].className.includes("bg-white/10"), "the highlighted row");
   assert.ok(!rows[0].className.includes("bg-white/10"));
   assert.ok(rows[0].querySelector("span").className.includes("text-accent"));
-  assert.ok(rows[2].querySelector("span").className.includes("text-[#e8e8ea]"), "an unknown group");
+  assert.ok(
+    rows[2].querySelector("span").className.includes("text-[#e8e8ea]"),
+    "an unknown group",
+  );
   rows[0].click();
   rows[2].dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
   rows[2].dispatchEvent(new window.MouseEvent("mouseenter"));
@@ -163,13 +199,18 @@ test("the mic button dictates, says what it does, and the wake-phrase badge show
     ["recording", "Stop and transcribe", "true", false],
     ["transcribing", "Transcribing…", "false", true],
   ]) {
-    const c = await composer({ voice: { showMic: true, phase, listening: phase === "idle" } });
+    const c = await composer({
+      voice: { showMic: true, phase, listening: phase === "idle" },
+    });
     const mic = c.q("[data-testid=composer-mic]");
     assert.equal(mic.getAttribute("aria-label"), label);
     assert.equal(mic.getAttribute("title"), label);
     assert.equal(mic.getAttribute("aria-pressed"), pressed);
     assert.equal(mic.disabled, disabled);
-    assert.equal(mic.className.includes("animate-pulse"), phase === "recording");
+    assert.equal(
+      mic.className.includes("animate-pulse"),
+      phase === "recording",
+    );
     mic.click();
     assert.deepEqual(c.calls, disabled ? [] : [["dictate"]]);
     assert.equal(
@@ -185,11 +226,19 @@ test("the field grows with its text, and again when its width changes", async ()
   try {
     let scroll = 40;
     const proto = window.HTMLTextAreaElement.prototype;
-    Object.defineProperty(proto, "scrollHeight", { get: () => scroll, configurable: true });
+    Object.defineProperty(proto, "scrollHeight", {
+      get: () => scroll,
+      configurable: true,
+    });
     let width = 300;
-    Object.defineProperty(proto, "clientWidth", { get: () => width, configurable: true });
+    Object.defineProperty(proto, "clientWidth", {
+      get: () => width,
+      configurable: true,
+    });
     const s = store({ composer: { input: "one" } });
-    const m = await mount(h(AppCtx.Provider, { value: s.value }, h(Composer, {})));
+    const m = await mount(
+      h(AppCtx.Provider, { value: s.value }, h(Composer, {})),
+    );
     const field = m.root.querySelector("textarea");
     assert.equal(field.style.height, "40px");
     scroll = 80;
@@ -200,7 +249,11 @@ test("the field grows with its text, and again when its width changes", async ()
     assert.deepEqual(ro.observed, [field]);
     scroll = 120;
     ro.cb([]);
-    assert.equal(field.style.height, "80px", "same width: the fit's own resize is ignored");
+    assert.equal(
+      field.style.height,
+      "80px",
+      "same width: the fit's own resize is ignored",
+    );
     width = 200;
     ro.cb([]);
     assert.equal(field.style.height, "120px", "rewrapped at the new width");
@@ -209,7 +262,9 @@ test("the field grows with its text, and again when its width changes", async ()
     // No ResizeObserver: the field still fits its text.
     globalThis.ResizeObserver = undefined;
     const n = observers.length;
-    const m2 = await mount(h(AppCtx.Provider, { value: store().value }, h(Composer, {})));
+    const m2 = await mount(
+      h(AppCtx.Provider, { value: store().value }, h(Composer, {})),
+    );
     assert.equal(observers.length, n);
     assert.equal(m2.root.querySelector("textarea").style.height, "120px");
     await m2.unmount();
@@ -251,7 +306,13 @@ function turnView(over = {}) {
 async function inTurn(vnode, over) {
   const { view, calls } = turnView(over);
   const m = await mount(h(TurnCtx.Provider, { value: view }, vnode));
-  return { m, root: m.root, calls, q: (s) => m.root.querySelector(s), qa: (s) => [...m.root.querySelectorAll(s)] };
+  return {
+    m,
+    root: m.root,
+    calls,
+    q: (s) => m.root.querySelector(s),
+    qa: (s) => [...m.root.querySelectorAll(s)],
+  };
 }
 
 test("a command's status: running, ok, failed with its code, or cut off", async () => {
@@ -283,17 +344,31 @@ test("the changes card shows the previews, zooms one, and folds the files under 
   };
   const m = await mount(h(P.ChangesCard, { changes }));
   const shots = [...m.root.querySelectorAll("figure")];
-  assert.deepEqual(shots.map((f) => text(f.querySelector("figcaption"))), ["home.png", "menu.png"]);
+  assert.deepEqual(
+    shots.map((f) => text(f.querySelector("figcaption"))),
+    ["home.png", "menu.png"],
+  );
   const summary = m.root.querySelector("summary");
   assert.equal(text(summary), "3 files changed +3 −3");
   const rows = [...m.root.querySelectorAll("li")];
-  assert.deepEqual(rows.map(text), ["editeda.go+3 −1", "movedb.bin", "weirdc.txt+0 −2"]);
+  assert.deepEqual(rows.map(text), [
+    "editeda.go+3 −1",
+    "movedb.bin",
+    "weirdc.txt+0 −2",
+  ]);
   // A preview opens full size over the page; Escape closes it.
   await act(() => shots[1].querySelector("button").click());
   let zoom = document.querySelector("dialog.changes-zoom");
-  assert.equal(zoom.querySelector("img").getAttribute("src"), "data:image/png;base64,BB");
+  assert.equal(
+    zoom.querySelector("img").getAttribute("src"),
+    "data:image/png;base64,BB",
+  );
   assert.equal(zoom.getAttribute("aria-label"), "preview");
-  await act(() => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" })));
+  await act(() =>
+    document.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape" }),
+    ),
+  );
   assert.equal(document.querySelector("dialog.changes-zoom"), null);
   // A click on it closes it too.
   await act(() => shots[0].querySelector("button").click());
@@ -303,7 +378,11 @@ test("the changes card shows the previews, zooms one, and folds the files under 
   await m.unmount();
   // One file, no pictures; and a card with neither.
   const one = await mount(
-    h(P.ChangesCard, { changes: { files: [{ path: "x", status: "added", added: 1, deleted: 0 }] } }),
+    h(P.ChangesCard, {
+      changes: {
+        files: [{ path: "x", status: "added", added: 1, deleted: 0 }],
+      },
+    }),
   );
   assert.equal(text(one.root.querySelector("summary")), "1 file changed +1 −0");
   assert.equal(one.root.querySelector(".changes-previews"), null);
@@ -314,20 +393,30 @@ test("the changes card shows the previews, zooms one, and folds the files under 
 });
 
 test("a user's message is its text, or a label with the prompt folded under it", async () => {
-  const plain = await mount(h(P.UserText, { m: { id: 1, role: "user", text: "hello" } }));
+  const plain = await mount(
+    h(P.UserText, { m: { id: 1, role: "user", text: "hello" } }),
+  );
   assert.equal(plain.root.innerHTML, "<span>hello</span>");
   await plain.unmount();
   const shown = await mount(
-    h(P.UserText, { m: { id: 2, role: "user", text: "- do x", shown: "Applying suggestions" } }),
+    h(P.UserText, {
+      m: { id: 2, role: "user", text: "- do x", shown: "Applying suggestions" },
+    }),
   );
-  assert.equal(text(shown.root.querySelector("summary")), "Applying suggestions");
+  assert.equal(
+    text(shown.root.querySelector("summary")),
+    "Applying suggestions",
+  );
   assert.equal(text(shown.root.querySelector("pre")), "- do x");
   await shown.unmount();
 });
 
 test("the input being worked on has one menu that stops the agent, under a bar that says who wrote it", async () => {
   const head = { id: 1, role: "user", text: "go" };
-  const closed = await inTurn(h(P.TurnHead, { head, turn: 0, liveHere: true }), { running: true });
+  const closed = await inTurn(
+    h(P.TurnHead, { head, turn: 0, liveHere: true }),
+    { running: true },
+  );
   assert.equal(text(closed.q(".turn-who")), "You");
   assert.equal(text(closed.q(".turn-text")), "go");
   assert.equal(closed.q(".mode-badge"), null, "no mode, no badge");
@@ -338,10 +427,13 @@ test("the input being worked on has one menu that stops the agent, under a bar t
   btn.click();
   assert.deepEqual(closed.calls, [["toggleCpMenu", -1]]);
   await closed.m.unmount();
-  const open = await inTurn(h(P.TurnHead, { head, liveHere: true, mode: "task" }), {
-    cpMenu: -1,
-    running: true,
-  });
+  const open = await inTurn(
+    h(P.TurnHead, { head, liveHere: true, mode: "task" }),
+    {
+      cpMenu: -1,
+      running: true,
+    },
+  );
   assert.equal(open.q("button.cp-btn").getAttribute("aria-expanded"), "true");
   const items = open.qa("[role=menuitem]");
   assert.equal(items.length, 1, "while it runs, stopping is all there is");
@@ -355,17 +447,25 @@ test("an input with a checkpoint can go back to it, and asks twice before puttin
   const head = { id: 1, role: "user", text: "change it" };
   // No checkpoint, or a run working: no menu.
   for (const over of [{}, { cpInfo: { 3: { files: true } }, running: true }]) {
-    const t = await inTurn(h(P.TurnHead, { head, turn: 3, liveHere: false }), over);
+    const t = await inTurn(
+      h(P.TurnHead, { head, turn: 3, liveHere: false }),
+      over,
+    );
     assert.equal(t.q("button.cp-btn"), null);
     await t.m.unmount();
   }
-  const noTurn = await inTurn(h(P.TurnHead, { head, liveHere: false }), { cpInfo: { 3: { files: true } } });
+  const noTurn = await inTurn(h(P.TurnHead, { head, liveHere: false }), {
+    cpInfo: { 3: { files: true } },
+  });
   assert.equal(noTurn.q("button.cp-btn"), null);
   await noTurn.m.unmount();
   // Closed menu.
-  const closed = await inTurn(h(P.TurnHead, { head, turn: 3, liveHere: false }), {
-    cpInfo: { 3: { files: true } },
-  });
+  const closed = await inTurn(
+    h(P.TurnHead, { head, turn: 3, liveHere: false }),
+    {
+      cpInfo: { 3: { files: true } },
+    },
+  );
   const btn = closed.q("button.cp-btn");
   assert.equal(btn.getAttribute("aria-label"), "Message menu");
   assert.equal(btn.getAttribute("aria-expanded"), "false");
@@ -386,16 +486,26 @@ test("an input with a checkpoint can go back to it, and asks twice before puttin
   let outside = 0;
   document.addEventListener("click", () => (outside += 1));
   files.click();
-  assert.equal(outside, 0, "arming does not reach the page (which would close the menu)");
+  assert.equal(
+    outside,
+    0,
+    "arming does not reach the page (which would close the menu)",
+  );
   convo.click();
-  assert.deepEqual(open.calls, [["setCpArmed", true], ["restore", 3, false]]);
+  assert.deepEqual(open.calls, [
+    ["setCpArmed", true],
+    ["restore", 3, false],
+  ]);
   await open.m.unmount();
   // Armed: the second press puts the files back.
-  const armed = await inTurn(h(P.TurnHead, { head, turn: 3, liveHere: false }), {
-    cpInfo: { 3: { files: true } },
-    cpMenu: 3,
-    cpArmed: true,
-  });
+  const armed = await inTurn(
+    h(P.TurnHead, { head, turn: 3, liveHere: false }),
+    {
+      cpInfo: { 3: { files: true } },
+      cpMenu: 3,
+      cpArmed: true,
+    },
+  );
   const second = armed.qa("[role=menuitem]")[1];
   assert.match(text(second), /^Click again: discard changes since/);
   assert.equal(second.className, "is-armed");
@@ -409,32 +519,51 @@ test("an input with a checkpoint can go back to it, and asks twice before puttin
   });
   const nope = bare.qa("[role=menuitem]")[1];
   assert.equal(nope.disabled, true);
-  assert.equal(nope.getAttribute("title"), "This checkpoint did not keep the files");
+  assert.equal(
+    nope.getAttribute("title"),
+    "This checkpoint did not keep the files",
+  );
   await bare.m.unmount();
 });
 
 test("the mode badge says what auto mode picked, and the menu sends the message again in the other mode", async () => {
   const head = { id: 1, role: "user", text: "/plan sketch it" };
   // No checkpoint: the menu is the switch alone, keyed by the input itself.
-  const plan = await inTurn(h(P.TurnHead, { head, liveHere: false, mode: "plan" }));
+  const plan = await inTurn(
+    h(P.TurnHead, { head, liveHere: false, mode: "plan" }),
+  );
   const badge = plan.q(".turn-bar .mode-badge");
   assert.equal(text(badge), "Plan");
   assert.equal(badge.dataset.mode, "plan");
   plan.q("button.cp-btn").click();
   assert.deepEqual(plan.calls, [["toggleCpMenu", -3]]);
   await plan.m.unmount();
-  const open = await inTurn(h(P.TurnHead, { head, liveHere: false, mode: "plan" }), { cpMenu: -3 });
+  const open = await inTurn(
+    h(P.TurnHead, { head, liveHere: false, mode: "plan" }),
+    { cpMenu: -3 },
+  );
   const items = open.qa("[role=menuitem]");
   assert.equal(items.length, 1);
   assert.match(text(items[0]), /^Run as task/);
   items[0].click();
-  assert.deepEqual(open.calls, [["setCpMenu", null], ["submit", "/task sketch it"]]);
+  assert.deepEqual(open.calls, [
+    ["setCpMenu", null],
+    ["submit", "/task sketch it"],
+  ]);
   await open.m.unmount();
   // With a checkpoint the switch comes first, then going back.
-  const both = await inTurn(h(P.TurnHead, { head: { ...head, text: "build it" }, turn: 2, liveHere: false, mode: "task" }), {
-    cpInfo: { 2: { files: true } },
-    cpMenu: 2,
-  });
+  const both = await inTurn(
+    h(P.TurnHead, {
+      head: { ...head, text: "build it" },
+      turn: 2,
+      liveHere: false,
+      mode: "task",
+    }),
+    {
+      cpInfo: { 2: { files: true } },
+      cpMenu: 2,
+    },
+  );
   assert.equal(text(both.q(".mode-badge")), "Task");
   const [sw, back] = both.qa("[role=menuitem]");
   assert.match(text(sw), /^Run as plan/);
@@ -442,10 +571,13 @@ test("the mode badge says what auto mode picked, and the menu sends the message 
   assert.match(text(back), /^Go back to this checkpoint/);
   await both.m.unmount();
   // While a run works the badge stays and the switch is gone.
-  const busy = await inTurn(h(P.TurnHead, { head, turn: 2, liveHere: false, mode: "task" }), {
-    cpInfo: { 2: { files: true } },
-    running: true,
-  });
+  const busy = await inTurn(
+    h(P.TurnHead, { head, turn: 2, liveHere: false, mode: "task" }),
+    {
+      cpInfo: { 2: { files: true } },
+      running: true,
+    },
+  );
   assert.ok(busy.q(".mode-badge"));
   assert.equal(busy.q("button.cp-btn"), null);
   await busy.m.unmount();
@@ -457,7 +589,9 @@ test("the top of a turn counts its actions in the input's bar and opens them und
     { key: 1, kind: "command", text: "running: ls", exit: 0 },
     { key: 2, kind: "progress", text: "thinking: about it" },
   ];
-  const top = await inTurn(h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps }));
+  const top = await inTurn(
+    h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps }),
+  );
   const count = top.q(".turn-bar button.action-trail-toggle");
   assert.equal(text(count), "▸2 actions");
   assert.equal(top.q(".turn-steps"), null, "folded at first");
@@ -469,16 +603,22 @@ test("the top of a turn counts its actions in the input's bar and opens them und
   assert.equal(top.q(".turn-steps"), null);
   await top.m.unmount();
   // No steps: no counter.
-  const bare = await inTurn(h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps: [] }));
+  const bare = await inTurn(
+    h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps: [] }),
+  );
   assert.equal(bare.q(".action-trail-toggle"), null);
   assert.equal(text(bare.q(".turn-text")), "go");
   await bare.m.unmount();
   // No input: the counter stands on its own line, and with no steps there is nothing.
-  const lone = await inTurn(h(P.TurnTop, { head: null, liveHere: true, mode: null, steps }));
+  const lone = await inTurn(
+    h(P.TurnTop, { head: null, liveHere: true, mode: null, steps }),
+  );
   assert.equal(lone.q(".turn-card"), null);
   assert.ok(lone.q(".action-trail > button.action-trail-toggle"));
   await lone.m.unmount();
-  const none = await inTurn(h(P.TurnTop, { head: null, liveHere: false, mode: null, steps: [] }));
+  const none = await inTurn(
+    h(P.TurnTop, { head: null, liveHere: false, mode: null, steps: [] }),
+  );
   assert.equal(none.q(".action-trail"), null);
   await none.m.unmount();
 });
@@ -498,12 +638,18 @@ test("the trail folds the steps behind a count and draws commands and progress",
   assert.equal(rows.length, 4);
   assert.equal(rows[0].getAttribute("title"), "ls -la");
   assert.equal(text(rows[0]), "ls -laok");
-  assert.equal(text(rows[1]), "makeno result", "a finished turn's command with no result was cut off");
+  assert.equal(
+    text(rows[1]),
+    "makeno result",
+    "a finished turn's command with no result was cut off",
+  );
   assert.equal(rows[2].className, "trail-step thought");
   assert.equal(rows[3].className, "trail-step ");
   assert.equal(text(rows[3]), "plain words");
   await t.m.unmount();
-  const live = await inTurn(h(P.Trail, { steps: steps.slice(1, 2), liveHere: true }));
+  const live = await inTurn(
+    h(P.Trail, { steps: steps.slice(1, 2), liveHere: true }),
+  );
   await act(() => live.q(".action-trail-toggle").click());
   assert.equal(text(live.q(".trail-step")), "makerunning");
   await live.m.unmount();
@@ -512,7 +658,10 @@ test("the trail folds the steps behind a count and draws commands and progress",
 test("the activity line types what the agent is doing, with a command's status", async () => {
   frames.clear();
   const cmd = await inTurn(
-    h(P.ActivityLine, { activity: "running: npm test", shown: [{ key: 1, kind: "command", exit: 1 }] }),
+    h(P.ActivityLine, {
+      activity: "running: npm test",
+      shown: [{ key: 1, kind: "command", exit: 1 }],
+    }),
     { activityKind: "command" },
   );
   const line = cmd.q(".msg.activity");
@@ -523,7 +672,9 @@ test("the activity line types what the agent is doing, with a command's status",
   assert.equal(text(cmd.q(".activity-typed.term-cmd-text")), "npm test");
   assert.equal(text(cmd.q(".term-exit")), "failed · exit 1");
   await cmd.m.unmount();
-  const idle = await inTurn(h(P.ActivityLine, { activity: "reading   the\nfiles", shown: [] }));
+  const idle = await inTurn(
+    h(P.ActivityLine, { activity: "reading   the\nfiles", shown: [] }),
+  );
   assert.ok(idle.q(".spin-default"));
   await act(() => frames.flush(performance.now() + 60_000));
   const typed = idle.q(".activity-typed");
@@ -531,9 +682,12 @@ test("the activity line types what the agent is doing, with a command's status",
   assert.equal(text(typed), "reading the files");
   await idle.m.unmount();
   // A command with no steps yet is still running.
-  const first = await inTurn(h(P.ActivityLine, { activity: "running: ls", shown: [] }), {
-    activityKind: "command",
-  });
+  const first = await inTurn(
+    h(P.ActivityLine, { activity: "running: ls", shown: [] }),
+    {
+      activityKind: "command",
+    },
+  );
   assert.equal(text(first.q(".term-exit")), "running");
   await first.m.unmount();
   frames.clear();

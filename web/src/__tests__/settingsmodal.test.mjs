@@ -412,7 +412,11 @@ test("a tab whose API is absent is not offered", async () => {
   const { root, done } = await open({ git: undefined, langAvailable: false });
   assert.deepEqual(
     [...root.querySelectorAll("[role=tab]")].map((t) => t.id),
-    ["settings-tab-appearance", "settings-tab-themes", "settings-tab-notifications"],
+    [
+      "settings-tab-appearance",
+      "settings-tab-themes",
+      "settings-tab-notifications",
+    ],
   );
   assert.equal(root.querySelectorAll("[role=radiogroup]").length, 2);
   await done();
@@ -608,15 +612,26 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
   let v = await open({ tab: "speech", speech: speech(base) });
   let card = v.root.querySelector(SPEECH_CARD);
   assert.equal(radio(card, "settings-speech-engine", "device").checked, true);
-  assert.match(card.textContent, /System voices: The voices this device or browser already has. Nothing leaves the browser./);
+  assert.match(
+    card.textContent,
+    /System voices: The voices this device or browser already has. Nothing leaves the browser./,
+  );
   // The device's voice has a pitch, back to normal with one button.
   const pitch = card.querySelector("[data-testid=settings-speech-pitch]");
-  const pitchReset = card.querySelector("[data-testid=settings-speech-pitch-reset]");
+  const pitchReset = card.querySelector(
+    "[data-testid=settings-speech-pitch-reset]",
+  );
   assert.equal(pitchReset.disabled, true, "already normal");
   pitch.value = "1.5";
-  await act(() => pitch.dispatchEvent(new window.Event("input", { bubbles: true })));
+  await act(() =>
+    pitch.dispatchEvent(new window.Event("input", { bubbles: true })),
+  );
   assert.deepEqual(saved.pop(), { ...base, pitch: 1.5 });
-  assert.equal(card.querySelector("[data-testid=settings-speech-expressiveness]"), null, "only for a downloaded voice");
+  assert.equal(
+    card.querySelector("[data-testid=settings-speech-expressiveness]"),
+    null,
+    "only for a downloaded voice",
+  );
   await act(() => radio(card, "settings-speech-engine", "gateway").click());
   assert.deepEqual(saved.pop(), { ...base, engine: "gateway" });
   await v.done();
@@ -694,8 +709,14 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
   const sw = (name) => card.querySelector(`input[name=${name}]`);
   assert.equal(sw(CONVERSATION_SWITCH).disabled, true);
   assert.match(card.textContent, /Needs speech input/);
-  const otherOff = card.querySelector("[aria-labelledby=settings-speech-other-voice]");
-  assert.equal(otherOff.disabled, true, "shown, but waits for a voice per language");
+  const otherOff = card.querySelector(
+    "[aria-labelledby=settings-speech-other-voice]",
+  );
+  assert.equal(
+    otherOff.disabled,
+    true,
+    "shown, but waits for a voice per language",
+  );
   assert.match(card.textContent, /Needs a voice per language on/);
   await act(() => sw("settings-speech-notices").click());
   assert.deepEqual(saved.pop(), { ...base, notices: true });
@@ -746,22 +767,41 @@ test("read aloud: conversation, voice notices, a voice per language and the pers
   await v.done();
 
   // Nothing read aloud, nothing to answer: conversation waits for it.
-  v = await open({ tab: "speech", speech: speech({ ...base, mode: "off" }, true) });
+  v = await open({
+    tab: "speech",
+    speech: speech({ ...base, mode: "off" }, true),
+  });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(sw(CONVERSATION_SWITCH).disabled, true);
   assert.match(card.textContent, /Needs answers read aloud: choose when above/);
   // Nor is how answers are said, nor how fast while nothing at all is said.
-  for (const group of ["settings-speak-style", "settings-speech-length", "settings-speech-rate"]) {
+  for (const group of [
+    "settings-speak-style",
+    "settings-speech-length",
+    "settings-speech-rate",
+  ]) {
     assert.equal(card.querySelector(`[name=${group}]`).disabled, true, group);
   }
-  assert.match(card.textContent, /Needs answers read aloud or voice notices on/);
+  assert.match(
+    card.textContent,
+    /Needs answers read aloud or voice notices on/,
+  );
   await v.done();
 
   // Voice notices are still said: their speed can be chosen.
-  v = await open({ tab: "speech", speech: speech({ ...base, mode: "off", notices: true }, true) });
+  v = await open({
+    tab: "speech",
+    speech: speech({ ...base, mode: "off", notices: true }, true),
+  });
   card = v.root.querySelector(SPEECH_CARD);
-  assert.equal(card.querySelector("[name=settings-speech-rate]").disabled, false);
-  assert.equal(card.querySelector("[name=settings-speech-length]").disabled, true);
+  assert.equal(
+    card.querySelector("[name=settings-speech-rate]").disabled,
+    false,
+  );
+  assert.equal(
+    card.querySelector("[name=settings-speech-length]").disabled,
+    true,
+  );
   await v.done();
 });
 
@@ -775,7 +815,10 @@ test("the insecure-connection pill is translated, amber, and tighter in compact 
     "Your browser blocks notifications because Motita was opened without a secure connection.",
   ]) {
     // As a quoted key, or a bare one.
-    assert.ok([JSON.stringify(k), `${k}:`].some((form) => es.includes(form)), k);
+    assert.ok(
+      [JSON.stringify(k), `${k}:`].some((form) => es.includes(form)),
+      k,
+    );
   }
   const css = src("index.css");
   assert.match(css, /\.settings-warn \{[^}]*rgba\(237, 181, 88/);
@@ -1022,7 +1065,9 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
   const sw = card.querySelector(SUBTITLES_SWITCH);
   assert.equal(sw.checked, false, "off unless asked");
   assert.match(card.textContent, /like a film's subtitles/);
-  for (const r of card.querySelectorAll("[name=settings-speech-subtitle-size]")) {
+  for (const r of card.querySelectorAll(
+    "[name=settings-speech-subtitle-size]",
+  )) {
     assert.equal(r.disabled, true, "no size while they are off");
   }
   assert.match(card.textContent, /Needs subtitles on/);
@@ -1030,21 +1075,36 @@ test("read aloud: subtitles turn on with a switch, and then their size can be ch
   assert.deepEqual(saved.pop(), { ...base, subtitles: true });
   await v.done();
 
-  v = await open({ tab: "speech", speech: speech({ ...base, subtitles: true }) });
+  v = await open({
+    tab: "speech",
+    speech: speech({ ...base, subtitles: true }),
+  });
   card = v.root.querySelector(SPEECH_CARD);
+  assert.equal(card.querySelector(SUBTITLES_SWITCH).checked, true);
   assert.equal(
-    card.querySelector(SUBTITLES_SWITCH).checked,
+    radio(card, "settings-speech-subtitle-size", `"medium"`).checked,
     true,
   );
-  assert.equal(radio(card, "settings-speech-subtitle-size", `"medium"`).checked, true);
-  await act(() => radio(card, "settings-speech-subtitle-size", `"large"`).click());
-  assert.deepEqual(saved.pop(), { ...base, subtitles: true, subtitleSize: "large" });
+  await act(() =>
+    radio(card, "settings-speech-subtitle-size", `"large"`).click(),
+  );
+  assert.deepEqual(saved.pop(), {
+    ...base,
+    subtitles: true,
+    subtitleSize: "large",
+  });
   await v.done();
 
   // A browser that cannot speak has nothing to subtitle.
-  v = await open({ tab: "speech", speech: speech({ ...base, subtitles: true }, false) });
+  v = await open({
+    tab: "speech",
+    speech: speech({ ...base, subtitles: true }, false),
+  });
   card = v.root.querySelector(SPEECH_CARD);
   assert.equal(card.querySelector(SUBTITLES_SWITCH).disabled, true);
-  assert.equal(card.querySelector("[name=settings-speech-subtitle-size]").disabled, true);
+  assert.equal(
+    card.querySelector("[name=settings-speech-subtitle-size]").disabled,
+    true,
+  );
   await v.done();
 });

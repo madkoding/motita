@@ -41,14 +41,19 @@ test("the motion tokens are defined once, on :root", () => {
     "--motion-shift-lg",
     "--motion-scale",
   ]) {
-    assert.match(motionCss, new RegExp(String.raw`:root \{[^}]*${token}:`), token);
+    assert.match(
+      motionCss,
+      new RegExp(String.raw`:root \{[^}]*${token}:`),
+      token,
+    );
   }
 });
 
 test("reduced motion turns every movement into a fade", () => {
-  const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/.exec(
-    motionCss,
-  );
+  const reduced =
+    /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/.exec(
+      motionCss,
+    );
   assert.ok(reduced, "a reduced-motion block redefines the tokens");
   assert.match(reduced[1], /--motion-shift: 0px;/);
   assert.match(reduced[1], /--motion-shift-lg: 0px;/);
@@ -57,7 +62,9 @@ test("reduced motion turns every movement into a fade", () => {
 });
 
 test("the shared keyframes move only transform, scale and opacity", () => {
-  const bodies = [...motionCss.matchAll(/@keyframes motion-[\w-]+ \{([\s\S]*?)\n\}/g)];
+  const bodies = [
+    ...motionCss.matchAll(/@keyframes motion-[\w-]+ \{([\s\S]*?)\n\}/g),
+  ];
   assert.ok(bodies.length >= 10);
   for (const [, body] of bodies) {
     // Line by line rather than one multiline regex, so no match backtracks across lines.
@@ -92,19 +99,32 @@ test("a leaving copy is inert, has no ids and does not count as a dialog", async
   el.querySelector("input").value = "typed";
   // jsdom has no Web Animations API and no layout: stand them in for this one element.
   el.animate = () => {};
-  el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 100, height: 50 });
+  el.getBoundingClientRect = () => ({
+    top: 0,
+    left: 0,
+    width: 100,
+    height: 50,
+  });
   leaveGhost(el, "fade", "pop");
   const ghost = document.querySelector(GHOST);
   assert.ok(ghost);
   assert.equal(ghost.getAttribute("aria-hidden"), "true");
   assert.equal(ghost.id, "");
   assert.equal(ghost.querySelectorAll("[id]").length, 0);
-  assert.equal(ghost.querySelectorAll("[data-modal], [data-dialog-root], [data-testid]").length, 0);
+  assert.equal(
+    ghost.querySelectorAll("[data-modal], [data-dialog-root], [data-testid]")
+      .length,
+    0,
+  );
   assert.equal("modal" in ghost.dataset, false);
   assert.equal(ghost.querySelector("input").value, "typed");
   assert.ok(ghost.firstElementChild.classList.contains("motion-pop-out"));
   await new Promise((r) => setTimeout(r, PAST_GHOST_FALLBACK_MS));
-  assert.equal(document.querySelectorAll(GHOST).length, 0, "removed by the fallback");
+  assert.equal(
+    document.querySelectorAll(GHOST).length,
+    0,
+    "removed by the fallback",
+  );
   el.remove();
 });
 
@@ -135,7 +155,8 @@ const hiddenText = (reg) =>
 test("an answer read from the history shows at once", () => {
   const reg = fakeHighlights();
   const el = document.createElement("div");
-  el.innerHTML = '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola mundo</p></div>';
+  el.innerHTML =
+    '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola mundo</p></div>';
   const r = streamReveal(el, "Hola mundo");
   assert.equal(hiddenText(reg), "");
   r.dispose();
@@ -144,7 +165,8 @@ test("an answer read from the history shows at once", () => {
 test("the text a stream adds is hidden until revealed, and nothing else is", () => {
   const reg = fakeHighlights();
   const el = document.createElement("div");
-  el.innerHTML = '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola</p></div>';
+  el.innerHTML =
+    '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola</p></div>';
   const r = streamReveal(el, "Hola");
   el.innerHTML =
     '<div class="markdown-body"><button class="copy-msg-btn">copy</button><p>Hola mundo</p></div>';
