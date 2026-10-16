@@ -297,16 +297,18 @@ export function modelOptions(p: LLMProvider | undefined): ModelOption[] {
 
 // Cost and capability in plain words, with the number of marks (out of 3) that draw them. The
 // words are English here; the page translates them.
+// The most marks a meter draws.
+const TOP = 3;
 const COST: Record<string, [string, number]> = {
   local: ["Free (local)", 0],
   low: ["Cheap", 1],
   mid: ["Moderate", 2],
-  high: ["Expensive", 3],
+  high: ["Expensive", TOP],
 };
 const TIER: Record<string, [string, number]> = {
   basic: ["Basic", 1],
   mid: ["Capable", 2],
-  frontier: ["Very capable", 3],
+  frontier: ["Very capable", TOP],
 };
 
 // costLabel is how much a model costs in a word ("Cheap"), or "" when unknown.
