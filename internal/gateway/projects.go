@@ -317,7 +317,7 @@ func (s *Server) cloneProject(
 ) (dir, branch, cloneLog string, ok bool) {
 	// A folder that holds something else is not overwritten or refused: the clone goes to
 	// the next free "<name>-2", "<name>-3"... and the project records that path.
-	absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv())
+	absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv(), nil)
 	// freeCloneDir reuses a folder that already holds a clone of the same repository, and that
 	// folder may be another project's.
 	if !s.refuseSharedDir(w, absDir) {

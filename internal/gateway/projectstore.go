@@ -265,9 +265,13 @@ func originOf(dir string, env []string) string {
 }
 
 // freeCloneDir returns dir when a clone of gitURL can go there (it is missing, empty, or already
-// that repository), and otherwise the first "<dir>-N" that can.
-func freeCloneDir(dir, gitURL string, env []string) string {
+// that repository), and otherwise the first "<dir>-N" that can. A folder taken(d) says another clone
+// is being made in is never offered.
+func freeCloneDir(dir, gitURL string, env []string, taken func(string) bool) string {
 	usable := func(d string) bool {
+		if taken != nil && taken(d) {
+			return false
+		}
 		entries, err := os.ReadDir(d)
 		return err != nil || len(entries) == 0 || sameOrigin(d, gitURL, env)
 	}
