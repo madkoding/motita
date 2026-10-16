@@ -58,10 +58,47 @@ func crossSiteRefusal(r *http.Request) string {
 	}
 	// A browser always names the origin of a cross-origin request; when it is present it must be
 	// this server's own.
-	if origin := r.Header.Get("Origin"); origin != "" && !strings.EqualFold(origin, requestOrigin(r)) {
-		return "this request was sent by another origin (" + origin + ") and is refused"
+	if origin := r.Header.Get("Origin"); origin != "" && !fromThisPage(origin, r) {
+		return "this request was sent by another origin (" + origin + ") and is refused: the page was not served by this " +
+			"gateway (" + requestOrigin(r) + "). Open the address the gateway prints, or, behind a reverse proxy, " +
+			"have the proxy send the host the browser used in X-Forwarded-Host (nginx: proxy_set_header X-Forwarded-Host $http_host)"
 	}
 	return ""
+}
+
+// fromThisPage reports whether an Origin header names the page this server serves.
+//
+// A browser omits the default port (80 for http, 443 for https), and a proxy or port forward that
+// listens on it usually rewrites Host to the gateway's own port ("127.0.0.1:8787"). Both the
+// spelling of the port and X-Forwarded-Host are therefore taken into account: the Origin
+// "http://127.0.0.1" is the same page as "http://127.0.0.1:80". A different port is still another
+// origin, which is the case this check exists for.
+func fromThisPage(origin string, r *http.Request) bool {
+	want := requestOrigin(r)
+	if fwd := firstValue(r.Header.Get("X-Forwarded-Host")); fwd != "" {
+		// A page cannot add this header to a cross-origin request (it would need a preflight this
+		// server never answers), so it can only have been written by the proxy in front of us.
+		want = requestScheme(r) + "://" + fwd
+	}
+	return canonicalOrigin(origin) == canonicalOrigin(want)
+}
+
+// firstValue is the first entry of a comma-separated header such as X-Forwarded-Host.
+func firstValue(h string) string {
+	return strings.TrimSpace(strings.SplitN(h, ",", 2)[0])
+}
+
+// canonicalOrigin lower-cases an origin, drops a trailing slash and the port that is the scheme's
+// default, so equivalent spellings compare equal.
+func canonicalOrigin(o string) string {
+	o = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(o)), "/")
+	switch {
+	case strings.HasPrefix(o, "http://"):
+		return "http://" + strings.TrimSuffix(o[len("http://"):], ":80")
+	case strings.HasPrefix(o, "https://"):
+		return "https://" + strings.TrimSuffix(o[len("https://"):], ":443")
+	}
+	return o
 }
 
 // requestOrigin is the scheme://host the request was addressed to, as a browser would write it in
@@ -73,11 +110,15 @@ func crossSiteRefusal(r *http.Request) string {
 // browser can use: a page cannot add that header to a cross-origin request, and the host part must
 // still be this server's.
 func requestOrigin(r *http.Request) string {
-	scheme := "http"
+	return requestScheme(r) + "://" + r.Host
+}
+
+// requestScheme is https when the page was, directly or behind a proxy that terminates TLS.
+func requestScheme(r *http.Request) string {
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "https"
+		return "https"
 	}
-	return scheme + "://" + r.Host
+	return "http"
 }
 
 // authorized accepts either of two credentials, and nothing else.

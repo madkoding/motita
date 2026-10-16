@@ -220,3 +220,49 @@ func TestKnownHostsWithoutAMachineName(t *testing.T) {
 		t.Error("an unsplittable listen added a host")
 	}
 }
+
+// A proxy or port forward on port 80 makes the browser write "http://127.0.0.1" while the gateway
+// sees Host "127.0.0.1:8787": that is the same page, and must not be refused. A different port, or
+// another host, still is (DNS rebinding and a dev server on a sibling port stay blocked).
+func TestOriginWithoutThePortBehindAProxy(t *testing.T) {
+	post := func(host, origin string, hdr map[string]string) string {
+		r := httptest.NewRequest(http.MethodPost, "/v1/sessions", nil)
+		r.Host = host
+		r.Header.Set(browserHeader, "1")
+		r.Header.Set("Origin", origin)
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		return crossSiteRefusal(r)
+	}
+	fwd := map[string]string{"X-Forwarded-Host": "127.0.0.1"}
+	for _, c := range []struct {
+		name, host, origin string
+		hdr                map[string]string
+		refused            bool
+	}{
+		{"direct, same port", "127.0.0.1:8787", "http://127.0.0.1:8787", nil, false},
+		{"direct, default port spelled out", "127.0.0.1:80", "http://127.0.0.1", nil, false},
+		{"direct, trailing slash", "127.0.0.1:8787", "http://127.0.0.1:8787/", nil, false},
+		{"ipv6 loopback", "[::1]:8787", "http://[::1]:8787", nil, false},
+		{"localhost", "localhost:8787", "http://localhost:8787", nil, false},
+		{"proxy on 80 forwarding the host", "127.0.0.1:8787", "http://127.0.0.1", fwd, false},
+		{"proxy forwarding host with port", "127.0.0.1:8787", "http://127.0.0.1:9000", map[string]string{"X-Forwarded-Host": "127.0.0.1:9000"}, false},
+		{"https proxy", "127.0.0.1:8787", "https://motita.example", map[string]string{"X-Forwarded-Host": "motita.example", "X-Forwarded-Proto": "https"}, false},
+		{"proxy without the header", "127.0.0.1:8787", "http://127.0.0.1", nil, true},
+		{"sibling port on the same host", "127.0.0.1:8787", "http://127.0.0.1:3000", nil, true},
+		{"sibling port behind a proxy", "127.0.0.1:8787", "http://127.0.0.1:3000", fwd, true},
+		{"rebinding name", "127.0.0.1:8787", "http://evil.example", nil, true},
+		{"rebinding name behind a proxy", "127.0.0.1:8787", "http://evil.example", fwd, true},
+		{"other scheme", "127.0.0.1:80", "https://127.0.0.1", nil, true},
+	} {
+		msg := post(c.host, c.origin, c.hdr)
+		if (msg != "") != c.refused {
+			t.Errorf("%s: refusal = %q, want refused=%v", c.name, msg, c.refused)
+		}
+	}
+	msg := post("127.0.0.1:8787", "http://127.0.0.1", nil)
+	if !strings.Contains(msg, "X-Forwarded-Host") || !strings.Contains(msg, "http://127.0.0.1:8787") {
+		t.Errorf("the refusal does not say what to do next: %q", msg)
+	}
+}
