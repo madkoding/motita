@@ -1158,18 +1158,19 @@ test("a shared repository behind its main branch is brought up to date, or says 
   await s.m.unmount();
 });
 
-test("a picker for the other repositories does not outlive a connection that was given up", async () => {
+test("a connection made for the other repositories' picker keeps adding to them; one given up leaves the main picker alone", async () => {
   const s = await setup();
   await run(() => s.p.openOtherRepoPicker());
   assert.equal(s.p.pickForOthers, true);
   await run(() => s.p.pickerAuthRequired("bitbucket"));
+  // Connected: the picker comes back and still picks for the others.
+  await run(() => s.p.onGitConnected("bitbucket", "ada"));
   await run(() => s.p.closeGitConnect());
-  assert.equal(
-    s.p.pickForOthers,
-    false,
-    "the next picker is for the main repository",
-  );
-  await run(() => s.p.openOtherRepoPicker());
+  assert.equal(s.p.showRepoPicker, true);
+  assert.equal(s.p.pickForOthers, true);
+  // Given up halfway: the next picker opened for the main repository is for the main repository.
+  await run(() => s.p.pickerAuthRequired("bitbucket"));
+  await run(() => s.p.closeGitConnect());
   await run(() => s.p.openRepoPicker());
   assert.equal(s.p.showRepoPicker, true);
   assert.equal(s.p.pickForOthers, false);
