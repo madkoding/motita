@@ -6,7 +6,8 @@ import (
 )
 
 func TestNoteDropsPagesAndKeepsMessages(t *testing.T) {
-	waf := `<!doctype html><html><head><script>var AC_Opt = {appkey: "CF_APP_WAF"}</script></head><body>blocked</body></html>`
+	waf := `<!doctype html><html><head><script>var AC_Opt = {appkey: "CF_APP_WAF"}</script></head>` +
+		`<body>blocked</body></html>`
 	cases := map[string]string{
 		waf:                           "",
 		"  <?xml version='1.0'?><e/>": "",

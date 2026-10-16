@@ -37,7 +37,8 @@ func TestQwenLoginAnsweredWithAPageExplainsWhy(t *testing.T) {
 			t.Errorf("error %q lacks %q", msg, want)
 		}
 	}
-	for _, unwanted := range []string{"invalid character", "<", "color:red", "var x", "Access denied", "Sorry", "blocked"} {
+	unwantedBits := []string{"invalid character", "<", "color:red", "var x", "Access denied", "Sorry", "blocked"}
+	for _, unwanted := range unwantedBits {
 		if strings.Contains(msg, unwanted) {
 			t.Errorf("error %q still has %q", msg, unwanted)
 		}
