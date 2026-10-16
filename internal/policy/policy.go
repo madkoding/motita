@@ -272,7 +272,7 @@ func commitMessageDecision(name string, args []string) (Decision, bool) {
 
 // gitValueOptions are git's global options that take the next argument as their value.
 var gitValueOptions = map[string]bool{
-	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true, "--exec-path": true,
+	"-C": true, "-c": true, gitDirOption: true, gitWorkTreeOption: true, "--namespace": true, "--exec-path": true,
 }
 
 // gitSubcommand splits git's arguments into its subcommand and what follows it, skipping the
@@ -377,7 +377,7 @@ const longDirectoryFlag = "--directory"
 // one it is started in. Each takes a value as the next argument (`-C dir`, `--directory dir`) or
 // after "=" (`--directory=dir`); a short one also attached (`-Cdir`).
 var dirFlags = map[string][]string{
-	"git":   {"-C", "--git-dir", "--work-tree"},
+	"git":   {"-C", gitDirOption, gitWorkTreeOption},
 	"make":  {"-C", longDirectoryFlag, "-f", "--file", "--makefile"},
 	"gmake": {"-C", longDirectoryFlag, "-f", "--file", "--makefile"},
 	"go":    {"-C"},
@@ -647,7 +647,10 @@ func gitReachesOutside(args []string) bool {
 	if sub == "config" {
 		return gitConfigWrites(rest)
 	}
-	return !gitLocalVerbs[sub]
+	if !gitLocalVerbs[sub] || gitGlobalRunsCode(args) {
+		return true
+	}
+	return gitVerbRunsCode(sub, rest)
 }
 
 // gitConfigWrites reports whether a `git config` sets or removes a value, as opposed to reading
