@@ -4550,3 +4550,86 @@ html[data-density="compact"] .settings-warn {
     inset: -10px -8px;
   }
 }
+
+/* The model picker: a select drawn by hand so each option can carry its chips. */
+.llm-listbox {
+  position: relative;
+}
+.llm-listbox-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+.llm-listbox-caret {
+  flex: none;
+  opacity: 0.6;
+}
+.llm-listbox-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.llm-listbox-trigger .llm-chips {
+  margin-left: auto;
+}
+.llm-listbox-list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  margin-top: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+  list-style: none;
+  border-radius: 0.625rem;
+  border: 1px solid rgb(var(--ov-rgb) / 0.14);
+  background: var(--color-surface-opaque);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+.llm-listbox-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.llm-listbox-list li.active,
+.llm-listbox-list li:hover {
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+.llm-listbox-list li[aria-selected="true"] .llm-listbox-name {
+  font-weight: 600;
+}
+.llm-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+/* A chip is tinted by its level: capability in the accent, cost from green (cheap) to red. */
+.llm-chip {
+  --chip: var(--color-accent);
+  padding: 0 0.4rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  line-height: 1.1rem;
+  white-space: nowrap;
+  color: var(--chip);
+  background: color-mix(in srgb, var(--chip) 16%, transparent);
+}
+.llm-chip-cost[data-level="0"],
+.llm-chip-cost[data-level="1"] {
+  --chip: #46c28a;
+}
+.llm-chip-cost[data-level="2"] {
+  --chip: var(--color-warning);
+}
+.llm-chip-cost[data-level="3"] {
+  --chip: var(--color-danger);
+}

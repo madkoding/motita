@@ -54,7 +54,16 @@ async function mount(vnode) {
     },
   };
 }
+// A model picker is a button that opens a list; a provider picker is still a native select.
 async function select(el, value) {
+  if (el.tagName === "BUTTON") {
+    click(el);
+    await settle();
+    const li = [...document.querySelectorAll(`#${el.id}-list li`)].find((x) => x.dataset.value === value);
+    click(li);
+    await settle();
+    return;
+  }
   el.value = value;
   el.dispatchEvent(new window.Event("change", { bubbles: true }));
   await settle();
@@ -62,6 +71,16 @@ async function select(el, value) {
 async function press(el) {
   click(el);
   await settle();
+}
+// The rows of a model picker's list, opened for the look and closed again.
+async function rows(trigger) {
+  click(trigger);
+  await settle();
+  const got = [...document.querySelectorAll(`#${trigger.id}-list li`)];
+  const out = got.map((li) => [li.dataset.value, li.textContent]);
+  trigger.dispatchEvent(new window.Event("blur"));
+  await settle();
+  return out;
 }
 const btn = (root, label) => byText(root, "button", label);
 const OTHER = "\u0000other";
@@ -88,8 +107,8 @@ test("ModelPicker: a listed model is picked; Other… opens a field; an unlisted
   const got = [];
   const props = () => ({ id: "mp", provider: P.anthropic, value, disabled: false, onChange: (v) => (got.push(v), (value = v)) });
   const m = await mount(h(ModelPicker, props()));
-  const sel = m.root.querySelector("select#mp");
-  assert.deepEqual([...sel.options].map((o) => o.textContent), ["Claude A", "Claude B", "Other…"]);
+  const sel = m.root.querySelector("button#mp");
+  assert.deepEqual((await rows(sel)).map((r) => r[1]), ["Claude A", "Claude B", "Other…"]);
   assert.equal(sel.value, "claude-a");
   assert.equal(m.root.querySelector("input"), null);
 
@@ -114,10 +133,114 @@ test("ModelPicker: a listed model is picked; Other… opens a field; an unlisted
 
   // An unlisted value from the start is shown in the field.
   const n = await mount(h(ModelPicker, { id: "x", provider: P.openai, value: "custom-1", disabled: false, onChange() {} }));
-  assert.deepEqual([...n.root.querySelectorAll("option")].map((o) => o.value), ["gpt-live", "gpt-x", OTHER]);
-  assert.equal(n.root.querySelector("select").value, OTHER);
+  assert.deepEqual((await rows(n.root.querySelector("button"))).map((r) => r[0]), ["gpt-live", "gpt-x", OTHER]);
+  assert.equal(n.root.querySelector("button").value, OTHER);
   assert.equal(n.root.querySelector("input").value, "custom-1");
   await n.unmount();
+});
+
+test("ModelPicker: each option carries its capability and cost chips in words, and the price shows once under it", async () => {
+  const rich = {
+    ...base, id: "rich", name: "Rich", key: "stored",
+    models: [
+      { id: "big", label: "Big", tier: "frontier", cost: "high", price_in: 4, price_out: 20.5 },
+      { id: "small", label: "Small", tier: "basic", cost: "local" },
+      { id: "mid", label: "Mid", tier: "mid", cost: "mid" },
+      { id: "cost", label: "Cost", cost: "low" },
+      { id: "odd", label: "Odd", tier: "weird", cost: "weird" },
+      { id: "plain", label: "Plain" },
+    ],
+  };
+  let value = "big";
+  const props = () => ({ id: "r", provider: rich, value, disabled: false, onChange: (v) => (value = v) });
+  const m = await mount(h(ModelPicker, props()));
+  const trigger = m.root.querySelector("button#r");
+  // The closed picker names the model with its chips, and nothing else repeats them.
+  assert.equal(text(trigger), "BigVery capableExpensive▾");
+  assert.equal(text(m.root.querySelector("[data-testid=model-facts]")), "About $4 / $20.5 per million tokens, read / written");
+  assert.deepEqual((await rows(trigger)).map((r) => r[1]), [
+    "BigVery capableExpensive", "SmallBasicFree (local)", "MidCapableModerate", "CostCheap", "Odd", "Plain", "Other…",
+  ]);
+  assert.equal(m.root.querySelectorAll(".llm-chip").length, 2);
+  await select(trigger, "small");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(m.root.querySelector("[data-testid=model-facts]"), null);
+  assert.equal(text(trigger), "SmallBasicFree (local)▾");
+  assert.equal(m.root.querySelector(".llm-chip-cost").dataset.level, "0");
+  await select(trigger, "cost");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(text(trigger), "CostCheap▾");
+  await select(trigger, "plain");
+  await m.rerender(h(ModelPicker, props()));
+  assert.equal(text(trigger), "Plain▾");
+  assert.equal(m.root.querySelector("[data-testid=model-facts]"), null);
+  await m.unmount();
+});
+
+test("ModelPicker: the list opens and closes, and the keyboard walks it", async () => {
+  const got = [];
+  const props = (value) => ({ id: "k", provider: P.anthropic, value, disabled: false, onChange: (v) => got.push(v) });
+  const m = await mount(h(ModelPicker, props("claude-a")));
+  const trigger = m.root.querySelector("button#k");
+  const key = async (k) => {
+    const e = new window.KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+    trigger.dispatchEvent(e);
+    await settle();
+    return e.defaultPrevented;
+  };
+  const list = () => document.querySelector("#k-list");
+  assert.equal(list(), null);
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
+  // Enter on a closed list is the button's own click; Escape on it does nothing.
+  assert.equal(await key("Enter"), false);
+  assert.equal(await key("Escape"), false);
+  assert.equal(await key("a"), false);
+  // The arrows open it, move the active row and stop at the ends.
+  assert.equal(await key("ArrowDown"), true);
+  assert.ok(list());
+  const active = () => [...list().querySelectorAll("li")].findIndex((li) => li.className === "active");
+  assert.equal(active(), 1);
+  await key("ArrowDown");
+  await key("ArrowDown");
+  assert.equal(active(), 2);
+  await key("ArrowUp");
+  assert.equal(active(), 1);
+  await key("Home");
+  assert.equal(active(), 0);
+  await key("End");
+  assert.equal(active(), 2);
+  await key("ArrowUp");
+  await key("Home");
+  await key("ArrowUp");
+  assert.equal(active(), 0);
+  // Escape closes without picking; Enter picks the active row.
+  await key("Escape");
+  assert.equal(list(), null);
+  await key("ArrowDown");
+  assert.equal(await key("Enter"), true);
+  assert.deepEqual(got, ["claude-b"]);
+  assert.equal(list(), null);
+  // A click opens it, a second one closes it, a press on a row does not blur the button, and so does the mouse
+  // hover; leaving the button closes it.
+  click(trigger);
+  await settle();
+  assert.ok(list());
+  const press = new window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  list().querySelector("li").dispatchEvent(press);
+  assert.equal(press.defaultPrevented, true);
+  click(trigger);
+  await settle();
+  assert.equal(list(), null);
+  click(trigger);
+  await settle();
+  trigger.dispatchEvent(new window.Event("blur"));
+  await settle();
+  assert.equal(list(), null);
+  await m.unmount();
+  // A disabled picker cannot open.
+  const d = await mount(h(ModelPicker, { ...props("claude-a"), disabled: true }));
+  assert.equal(d.root.querySelector("button#k").disabled, true);
+  await d.unmount();
 });
 
 // ── ModelSettings ───────────────────────────────────────────────────────────
