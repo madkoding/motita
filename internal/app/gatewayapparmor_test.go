@@ -62,7 +62,10 @@ func TestTheNetworkQuestionEndsWithTheAppArmorOffer(t *testing.T) {
 	path := netConfig(t, "gateway:\n  enabled: true\n")
 	op, out, _ := netOptions("1\nn\n")
 	op.AppArmorHint = func() string { return "hint" }
-	op.SudoAppArmor = func(string) error { t.Error("installed without being asked"); return nil }
+	op.SudoAppArmor = func(string) error {
+		t.Error("installed without being asked")
+		return nil
+	}
 	if err := op.askExposure(context.Background(), bufio.NewReader(op.Stdin), path); err != nil {
 		t.Fatal(err)
 	}
