@@ -114,6 +114,25 @@
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copiar";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copiado";
+            setTimeout(() => {
+              button.textContent = "Copiar";
+            }, 1600);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

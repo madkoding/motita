@@ -99,7 +99,7 @@
 </table>
 <p><strong>Reserved.</strong> The type <code>notification</code> and the flags <code>FATAL_ERROR</code>, <code>LOW_MEMORY</code>, <code>RATE_LIMITED</code>, <code>CACHE_HIT</code>, <code>CACHE_MISS</code> and <code>ENCRYPTED</code> are part of the vocabulary but nothing emits them. A client should accept them and must not wait for them.</p>
 <h2>The conversation</h2>
-<figure class="diagram" role="img" aria-label="The WebSocket conversation"><div class="dg-scroll"><svg viewBox="0 0 720 476" width="720" height="476" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah6d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-life" x1="192" y1="46" x2="192" y2="470"/><line class="dg-life" x1="528" y1="46" x2="528" y2="470"/><rect class="dg-box" x="107" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="192" y="26" text-anchor="middle">Client</text><rect class="dg-box" x="443" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="528" y="21" text-anchor="middle">Gateway</text><text class="dg-sub" x="528" y="32" text-anchor="middle">/v1/sessions/{id}/ws</text><text class="dg-label" x="360" y="80" text-anchor="middle">auth_response [IDLE]</text><line class="dg-arrow dg-dash" x1="525" y1="89" x2="195" y2="89" marker-end="url(#ah6d)"/><text class="dg-label" x="360" y="130" text-anchor="middle">auth { token }</text><line class="dg-arrow" x1="195" y1="139" x2="525" y2="139" marker-end="url(#ah6)"/><text class="dg-label" x="360" y="180" text-anchor="middle">auth_response [AUTHENTICATED, IDLE]</text><line class="dg-arrow dg-dash" x1="525" y1="189" x2="195" y2="189" marker-end="url(#ah6d)"/><text class="dg-label" x="360" y="230" text-anchor="middle">query { query }</text><line class="dg-arrow" x1="195" y1="239" x2="525" y2="239" marker-end="url(#ah6)"/><text class="dg-label" x="360" y="280" text-anchor="middle">query_response [PROCESSING]</text><line class="dg-arrow dg-dash" x1="525" y1="289" x2="195" y2="289" marker-end="url(#ah6d)"/><text class="dg-label" x="360" y="330" text-anchor="middle">query_response [PARTIAL, PROCESSING]</text><line class="dg-arrow dg-dash" x1="525" y1="339" x2="195" y2="339" marker-end="url(#ah6d)"/><text class="dg-label" x="360" y="380" text-anchor="middle">query_response [COMPLETED] { result }</text><line class="dg-arrow dg-dash" x1="525" y1="389" x2="195" y2="389" marker-end="url(#ah6d)"/><rect class="dg-note" x="96" y="422" width="528" height="34" rx="6"/><text class="dg-label" x="360" y="443" text-anchor="middle">every 30 s: heartbeat, answered with heartbeat_ack within 10 s</text></svg></div></figure>
+<figure class="diagram" role="img" aria-label="The WebSocket conversation"><div class="dg-scroll"><svg viewBox="0 0 720 476" width="720" height="476" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah8d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-life" x1="192" y1="46" x2="192" y2="470"/><line class="dg-life" x1="528" y1="46" x2="528" y2="470"/><rect class="dg-box" x="107" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="192" y="26" text-anchor="middle">Client</text><rect class="dg-box" x="443" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="528" y="21" text-anchor="middle">Gateway</text><text class="dg-sub" x="528" y="32" text-anchor="middle">/v1/sessions/{id}/ws</text><text class="dg-label" x="360" y="80" text-anchor="middle">auth_response [IDLE]</text><line class="dg-arrow dg-dash" x1="525" y1="89" x2="195" y2="89" marker-end="url(#ah8d)"/><text class="dg-label" x="360" y="130" text-anchor="middle">auth { token }</text><line class="dg-arrow" x1="195" y1="139" x2="525" y2="139" marker-end="url(#ah8)"/><text class="dg-label" x="360" y="180" text-anchor="middle">auth_response [AUTHENTICATED, IDLE]</text><line class="dg-arrow dg-dash" x1="525" y1="189" x2="195" y2="189" marker-end="url(#ah8d)"/><text class="dg-label" x="360" y="230" text-anchor="middle">query { query }</text><line class="dg-arrow" x1="195" y1="239" x2="525" y2="239" marker-end="url(#ah8)"/><text class="dg-label" x="360" y="280" text-anchor="middle">query_response [PROCESSING]</text><line class="dg-arrow dg-dash" x1="525" y1="289" x2="195" y2="289" marker-end="url(#ah8d)"/><text class="dg-label" x="360" y="330" text-anchor="middle">query_response [PARTIAL, PROCESSING]</text><line class="dg-arrow dg-dash" x1="525" y1="339" x2="195" y2="339" marker-end="url(#ah8d)"/><text class="dg-label" x="360" y="380" text-anchor="middle">query_response [COMPLETED] { result }</text><line class="dg-arrow dg-dash" x1="525" y1="389" x2="195" y2="389" marker-end="url(#ah8d)"/><rect class="dg-note" x="96" y="422" width="528" height="34" rx="6"/><text class="dg-label" x="360" y="443" text-anchor="middle">every 30 s: heartbeat, answered with heartbeat_ack within 10 s</text></svg></div></figure>
 <p>The acknowledgement comes at once, progress lines stream as they happen, and the last message carries the result. A failed query ends in an <code>error</code> with <code>ERROR_RECOVERABLE</code> instead.</p>
 <p>Malformed JSON and unknown types get an <code>ERROR_RECOVERABLE</code> error. Several clients may connect at once, but the conversation runs one task at a time: a second client that starts a run while one is going gets <code>BUSY</code>.</p>
 <h2>What a client must follow</h2>
@@ -320,7 +320,7 @@ json.<span class="f">loads(</span>ws.<span class="f">recv(</span>))  <span class
         } <span class="k">else</span> <span class="k">if</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;heartbeat&quot;</span> {
             socket.<span class="f">send(</span><span class="f">envelope(</span><span class="s">&quot;heartbeat_ack&quot;</span>, <span class="f">json!(</span>{})))?; <span class="c">// answer the keep-alive within 10 s</span>
         } <span class="k">else</span> <span class="k">if</span> <span class="f">has(</span><span class="s">&quot;COMPLETED&quot;</span>) {
-            <span class="f">println!(</span><span class="s">&quot;{}&quot;</span>, msg[<span class="s">&quot;payload&quot;</span>][<span class="s">&quot;result&quot;</span>]); <span class="c">// the final answer</span>
+            <span class="f">println!(</span><span class="s">&quot;{}&quot;</span>, msg[<span class="s">&quot;payload&quot;</span>][<span class="s">&quot;result&quot;</span>].<span class="f">as_str(</span>).<span class="f">unwrap_or_default(</span>)); <span class="c">// the final answer</span>
             <span class="k">return</span> <span class="f">Ok(</span>());
         } <span class="k">else</span> <span class="k">if</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;error&quot;</span> || <span class="f">has(</span><span class="s">&quot;BUSY&quot;</span>) || <span class="f">has(</span><span class="s">&quot;UNAUTHORIZED&quot;</span>) {
             <span class="k">return</span> <span class="f">Err(</span>msg[<span class="s">&quot;payload&quot;</span>].<span class="f">to_string(</span>).<span class="f">into(</span>)); <span class="c">// an error, or another client is already running a task</span>
@@ -359,6 +359,25 @@ json.<span class="f">loads(</span>ws.<span class="f">recv(</span>))  <span class
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copy";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copied";
+            setTimeout(() => {
+              button.textContent = "Copy";
+            }, 1600);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

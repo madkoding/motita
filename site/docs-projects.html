@@ -66,7 +66,7 @@
 <li>From then on the <em>gateway</em> follows the CI, the reviews and the merge state without the model, so waiting costs no tokens. When a job fails or a reviewer comments, the agent is sent back to fix it, up to a limit you set (5 by default).</li>
 <li>A project can merge by itself (<code>auto_merge</code>) and open the next session by itself (<code>auto_continue</code>).</li>
 </ul>
-<figure class="diagram" role="img" aria-label="A pull request followed by the gateway"><div class="dg-scroll"><svg viewBox="0 0 720 376" width="720" height="376" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah5d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-life" x1="136" y1="46" x2="136" y2="370"/><line class="dg-life" x1="360" y1="46" x2="360" y2="370"/><line class="dg-life" x1="584" y1="46" x2="584" y2="370"/><rect class="dg-box" x="51" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="136" y="21" text-anchor="middle">Session</text><text class="dg-sub" x="136" y="32" text-anchor="middle">its own branch</text><rect class="dg-box" x="275" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="360" y="21" text-anchor="middle">Gateway</text><text class="dg-sub" x="360" y="32" text-anchor="middle">no model needed</text><rect class="dg-box" x="499" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="584" y="21" text-anchor="middle">Git host</text><text class="dg-sub" x="584" y="32" text-anchor="middle">GitHub, GitLab…</text><text class="dg-label" x="360" y="80" text-anchor="middle">pushes and opens the pull request</text><line class="dg-arrow" x1="139" y1="89" x2="581" y2="89" marker-end="url(#ah5)"/><rect class="dg-note" x="168" y="122" width="384" height="34" rx="6"/><text class="dg-label" x="360" y="143" text-anchor="middle">From here the gateway follows CI and reviews</text><text class="dg-label" x="472" y="180" text-anchor="middle">a job fails, or a reviewer comments</text><line class="dg-arrow dg-dash" x1="581" y1="189" x2="363" y2="189" marker-end="url(#ah5d)"/><text class="dg-label" x="248" y="230" text-anchor="middle">sends the agent back to fix it</text><line class="dg-arrow" x1="357" y1="239" x2="139" y2="239" marker-end="url(#ah5)"/><text class="dg-label" x="360" y="280" text-anchor="middle">pushes the fix</text><line class="dg-arrow" x1="139" y1="289" x2="581" y2="289" marker-end="url(#ah5)"/><text class="dg-label" x="472" y="330" text-anchor="middle">CI green, approved, merged</text><line class="dg-arrow dg-dash" x1="581" y1="339" x2="363" y2="339" marker-end="url(#ah5d)"/></svg></div></figure>
+<figure class="diagram" role="img" aria-label="A pull request followed by the gateway"><div class="dg-scroll"><svg viewBox="0 0 720 376" width="720" height="376" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah7d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-life" x1="136" y1="46" x2="136" y2="370"/><line class="dg-life" x1="360" y1="46" x2="360" y2="370"/><line class="dg-life" x1="584" y1="46" x2="584" y2="370"/><rect class="dg-box" x="51" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="136" y="21" text-anchor="middle">Session</text><text class="dg-sub" x="136" y="32" text-anchor="middle">its own branch</text><rect class="dg-box" x="275" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="360" y="21" text-anchor="middle">Gateway</text><text class="dg-sub" x="360" y="32" text-anchor="middle">no model needed</text><rect class="dg-box" x="499" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="584" y="21" text-anchor="middle">Git host</text><text class="dg-sub" x="584" y="32" text-anchor="middle">GitHub, GitLab…</text><text class="dg-label" x="360" y="80" text-anchor="middle">pushes and opens the pull request</text><line class="dg-arrow" x1="139" y1="89" x2="581" y2="89" marker-end="url(#ah7)"/><rect class="dg-note" x="168" y="122" width="384" height="34" rx="6"/><text class="dg-label" x="360" y="143" text-anchor="middle">From here the gateway follows CI and reviews</text><text class="dg-label" x="472" y="180" text-anchor="middle">a job fails, or a reviewer comments</text><line class="dg-arrow dg-dash" x1="581" y1="189" x2="363" y2="189" marker-end="url(#ah7d)"/><text class="dg-label" x="248" y="230" text-anchor="middle">sends the agent back to fix it</text><line class="dg-arrow" x1="357" y1="239" x2="139" y2="239" marker-end="url(#ah7)"/><text class="dg-label" x="360" y="280" text-anchor="middle">pushes the fix</text><line class="dg-arrow" x1="139" y1="289" x2="581" y2="289" marker-end="url(#ah7)"/><text class="dg-label" x="472" y="330" text-anchor="middle">CI green, approved, merged</text><line class="dg-arrow dg-dash" x1="581" y1="339" x2="363" y2="339" marker-end="url(#ah7d)"/></svg></div></figure>
 <h2>Background agents</h2>
 <p>A job with independent pieces does not have to run one piece at a time. The agent can start background agents, each on its own branch, up to <code>agent.max_parallel</code> (3 by default). Each one has a role: <code>code</code> writes, <code>review</code> and <code>research</code> read and change nothing. You see each one's purpose, state, time and token cost in the terminal (<kbd>Ctrl+G</kbd>) and in the browser's agents drawer.</p>
       <h2>Go deeper</h2>
@@ -102,6 +102,25 @@
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copy";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copied";
+            setTimeout(() => {
+              button.textContent = "Copy";
+            }, 1600);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

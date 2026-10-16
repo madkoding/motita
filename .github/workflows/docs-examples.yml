@@ -1,0 +1,46 @@
+name: docs examples
+
+# The Documentation pages print client examples in several languages. They are run here against
+# a real gateway and the simulated LLM, so an example cannot go stale when the wire format or a
+# client library moves. scripts/verify-doc-examples.sh does the work; the examples live in
+# scripts/docs-examples.mjs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/docs-examples.mjs"
+      - "scripts/verify-doc-examples.sh"
+      - "internal/gateway/**"
+      - "tools/mockllm/**"
+      - ".github/workflows/docs-examples.yml"
+  pull_request:
+    paths:
+      - "scripts/docs-examples.mjs"
+      - "scripts/verify-doc-examples.sh"
+      - "internal/gateway/**"
+      - "tools/mockllm/**"
+      - ".github/workflows/docs-examples.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-examples-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  examples:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run every documentation example
+        run: sh scripts/verify-doc-examples.sh

@@ -3,7 +3,7 @@
 // holds only the link labels, in the same order as the English page, because
 // the URLs are shared and must not be maintained twice.
 import { code, flow, hub, sequence, tabs } from "./docs-kit.mjs";
-import { scheduleExamples, wsExamples } from "./docs-examples.mjs";
+import { scheduleExamples, sseExamples, wsExamples } from "./docs-examples.mjs";
 
 export const es = {
   install: {
@@ -109,6 +109,17 @@ motita -serve -gateway 127.0.0.1:7477
 # en cualquier otro lugar: sin sandbox, sin agente en este proceso
 motita -connect 127.0.0.1:7477 -tui`)}
 <p>Un cliente <code>-connect</code> es solo una interfaz, así que corre en un portátil, una tableta o un teléfono a través de un túnel. Cómo llegar desde otras máquinas de forma segura está en <a href="docs-es-network.html">Red y acceso remoto</a>.</p>
+<h2>Seguir una ejecución desde código</h2>
+<p>Además del WebSocket, <code>POST /v1/sessions/{id}/task</code> inicia una tarea y responde con un flujo de server-sent events: líneas <code>progress</code> mientras trabaja y luego <code>done</code> con el resultado, o <code>error</code>. La ejecución pertenece al gateway, no a la conexión, así que un cliente que se cae puede volver a engancharse con <code>GET /v1/sessions/{id}/events?from=N</code>.</p>
+${sequence("Seguir una tarea con server-sent events", [{ name: "Cliente" }, { name: "Gateway", sub: "/v1/sessions/{id}/task" }], [
+  { from: "Cliente", to: "Gateway", label: "POST { task }" },
+  { from: "Gateway", to: "Cliente", label: "event: attached", dash: true },
+  { from: "Gateway", to: "Cliente", label: "event: progress { text }", dash: true },
+  { from: "Gateway", to: "Cliente", label: "event: done { result }", dash: true },
+  { note: "si la conexión se cae: GET /events?from=N", over: ["Cliente", "Gateway"] },
+])}
+<p><code>EventSource</code> del navegador solo envía GET, así que lee el flujo con <code>fetch</code>, como aquí (primero define <code>MOTITA_TOKEN</code>):</p>
+${tabs("sse", sseExamples("es"))}
 <h2>Más de una conversación</h2>
 <p>Un gateway mantiene muchas sesiones a la vez. El modelo pertenece a la sesión: cambiarlo afecta solo a esa conversación y sobrevive a un reinicio. Otros programas pueden manejar las mismas sesiones por HTTP, eventos del servidor o un protocolo WebSocket; la referencia lista todos los endpoints.</p>`,
   },

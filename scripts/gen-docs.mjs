@@ -19,7 +19,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { es } from "./docs-es.mjs";
 import { code, flow, hub, sequence, tabs } from "./docs-kit.mjs";
-import { scheduleExamples, wsExamples } from "./docs-examples.mjs";
+import { scheduleExamples, sseExamples, wsExamples } from "./docs-examples.mjs";
 
 const REPO = "https://github.com/madkoding/motita/blob/main/docs";
 const guide = (anchor) => `${REPO}/GUIDE.md#${anchor}`;
@@ -132,6 +132,17 @@ motita -serve -gateway 127.0.0.1:7477
 # anywhere else: no sandbox, no agent in this process
 motita -connect 127.0.0.1:7477 -tui`)}
 <p>A <code>-connect</code> client is only an interface, so it runs on a laptop, a tablet or a phone through a tunnel. Reaching it from other machines safely is covered in <a href="docs-network.html">Network and remote access</a>.</p>
+<h2>Follow a run from code</h2>
+<p>Besides the WebSocket, <code>POST /v1/sessions/{id}/task</code> starts a task and answers with a stream of server-sent events: <code>progress</code> lines while it works, then <code>done</code> with the result, or <code>error</code>. The run belongs to the gateway, not to the connection, so a client that drops can attach again with <code>GET /v1/sessions/{id}/events?from=N</code>.</p>
+${sequence("Following a task over server-sent events", [{ name: "Client" }, { name: "Gateway", sub: "/v1/sessions/{id}/task" }], [
+  { from: "Client", to: "Gateway", label: "POST { task }" },
+  { from: "Gateway", to: "Client", label: "event: attached", dash: true },
+  { from: "Gateway", to: "Client", label: "event: progress { text }", dash: true },
+  { from: "Gateway", to: "Client", label: "event: done { result }", dash: true },
+  { note: "if the connection drops: GET /events?from=N", over: ["Client", "Gateway"] },
+])}
+<p>A browser's <code>EventSource</code> can only send GET, so read the stream with <code>fetch</code>, as here (set <code>MOTITA_TOKEN</code> first):</p>
+${tabs("sse", sseExamples("en"))}
 <h2>More than one conversation</h2>
 <p>A gateway holds many sessions at once. The model belongs to the session, so changing it affects that conversation only, and survives a restart. Other programs can drive the same sessions over HTTP, server-sent events or a WebSocket protocol; the reference lists every endpoint.</p>`,
     more: [
@@ -499,6 +510,8 @@ const ui = {
     prev: "Previous",
     next: "Next",
     deeper: "Go deeper",
+    copy: "Copy",
+    copied: "Copied",
     license: "GPL-3.0-or-later licensed.",
     other: "Español",
     otherLabel: "Leer en español",
@@ -521,6 +534,8 @@ const ui = {
     prev: "Anterior",
     next: "Siguiente",
     deeper: "Profundizar",
+    copy: "Copiar",
+    copied: "Copiado",
     license: "Licencia GPL-3.0-or-later.",
     other: "English",
     otherLabel: "Read in English",
@@ -679,6 +694,25 @@ ${main}
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "${t.copy}";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "${t.copied}";
+            setTimeout(() => {
+              button.textContent = "${t.copy}";
+            }, 1600);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>
