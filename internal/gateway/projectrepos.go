@@ -885,6 +885,11 @@ func (s *Server) handleSyncProjectRepo(w http.ResponseWriter, r *http.Request) {
 	repo := p.Repos[i]
 	ctx := r.Context()
 	dir := p.repoPath(repo)
+	if on := gitx.Display(ctx, dir); on != projectBranch(p) {
+		writeError(w, http.StatusConflict, fmt.Sprintf("the folder is on %s, not on the project's branch %s: "+
+			"switch it back first", on, projectBranch(p)))
+		return
+	}
 	if _, dirty := firstDirtyDir(ctx, []string{dir}); dirty {
 		writeError(w, http.StatusConflict, "the folder has uncommitted changes: commit them first")
 		return

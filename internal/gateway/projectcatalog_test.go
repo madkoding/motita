@@ -354,6 +354,12 @@ func TestAFolderLeftBehindIsBroughtUpToDateOnRequest(t *testing.T) {
 	if code, _ := sync(base + "web-client/sync"); code != http.StatusConflict {
 		t.Errorf("diverged: %d", code)
 	}
+	// A folder left on another branch is not moved forward: that branch is not the project's.
+	mustGit(t, folder, "checkout", "-q", "-b", "somebody-elses")
+	w := send(t, srv, http.MethodPost, base+"web-client/sync", testToken, "")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "not on the project's branch") {
+		t.Errorf("another branch: %d %s", w.Code, w.Body)
+	}
 }
 
 func TestACloneOfTheCatalogIsUpdatedFromItsOrigin(t *testing.T) {
