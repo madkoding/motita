@@ -356,6 +356,29 @@ test("answers kept while the user moved to another conversation start the turn w
   await x.hook.unmount();
 });
 
+test("a turn the gateway refused after the user left is told, and the card unlocks if they came back", async () => {
+  let back = false;
+  const x = await answering(async (path, init, rs) => {
+    if (init.method === "PUT") {
+      rs.sessionRef.current = "other";
+      return json({});
+    }
+    if (back) {
+      rs.sessionRef.current = "s"; // the user returned while the turn was refused
+    }
+    return json({ error: "busy" }, 409);
+  });
+  const qa = { answers: ["x"], request: "r" };
+  await x.answerQuestions(byTurn(x.rs, 3), qa, "x");
+  assert.equal(byTurn(x.rs, 3).questionAnswers, qa, "the card on screen belongs to another conversation");
+  back = true;
+  x.rs.sessionRef.current = "s";
+  await x.answerQuestions(byTurn(x.rs, 4), qa, "x");
+  assert.equal(byTurn(x.rs, 4).questionAnswers, undefined, "unlocked to be answered again");
+  assert.deepEqual(x.toasts.map((t) => t.message), ["Could not send the answers", "Could not send the answers"]);
+  await x.hook.unmount();
+});
+
 test("answering suggestions keeps the answers, stores them, and sends the accepted ones", async () => {
   assert.equal(answersPath("a b", 3), "/v1/sessions/a%20b/checkpoints/3/answers");
   const api = fakeApi(async (path) => {

@@ -84,11 +84,16 @@ export function useSuggestions(
   // sent through the stream like any turn. When they moved to another conversation while the
   // answers were being kept, the turn still belongs to the session that asked: it is started there
   // without being followed, since the stream draws into the conversation on screen, and the run
-  // goes on in the gateway as any run left behind does.
-  const sendTask = async (sid: string, text: string, shown?: string) => {
+  // goes on in the gateway as any run left behind does. It says whether the gateway took the turn:
+  // one that answered 409 or a failure did not, and the user is told.
+  const sendTask = async (
+    sid: string,
+    text: string,
+    shown?: string,
+  ): Promise<boolean> => {
     if (rs.sessionRef.current === sid) {
       await stream.submit(text, taskPath(sid), shown);
-      return;
+      return true;
     }
     try {
       const res = await api(taskPath(sid), {
@@ -97,9 +102,14 @@ export function useSuggestions(
         body: JSON.stringify({ task: text }),
       });
       void res.body?.cancel();
+      if (res.ok) {
+        return true;
+      }
     } catch {
-      notSent();
+      /* told below, like a refusal */
     }
+    notSent();
+    return false;
   };
 
   const answerSuggestions = useCallback(
@@ -185,7 +195,17 @@ export function useSuggestions(
         return;
       }
       // Sent as a task: the agent asked before doing work, so the answers are that work's request.
-      await sendTask(sid, answers.request, choose(shown, shown, undefined));
+      const sent = await sendTask(
+        sid,
+        answers.request,
+        choose(shown, shown, undefined),
+      );
+      if (!sent && rs.sessionRef.current === sid) {
+        // The card is unlocked, to be answered once more.
+        rs.setMessages((prev) =>
+          prev.map((x) => withQuestionAnswers(x, m, undefined)),
+        );
+      }
     },
     [api, stream.submit],
   );
