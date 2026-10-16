@@ -55,16 +55,23 @@ const wsHeartbeatTimeout = 10 * time.Second
 // chatty client never times out — only a silent one does.
 const wsReadTimeout = 90 * time.Second
 
+// wsWriteTimeout is how long one frame write may take. A client that stops reading without closing
+// the connection (a phone that lost signal) fills the TCP buffer; without a deadline the write
+// would block forever, and with it the query that sent it and the conversation's run slot.
+const wsWriteTimeout = 10 * time.Second
+
 // wsClient is one connected WebSocket client. It is the state the read loop and the
 // heartbeat goroutine share, and the mutex is what keeps the two writers from
 // interleaving frames on the same connection.
 type wsClient struct {
-	conn      net.Conn
-	writeMu   sync.Mutex
-	svc       Service
-	token     string
-	log       *logx.Logger
-	heartbeat time.Duration
+	conn    net.Conn
+	writeMu sync.Mutex
+	// writeLimit overrides wsWriteTimeout when set; a test shortens it.
+	writeLimit time.Duration
+	svc        Service
+	token      string
+	log        *logx.Logger
+	heartbeat  time.Duration
 
 	// authenticated is set by the auth handler and read by every other handler. It is
 	// guarded by its own mutex because the read loop is single-threaded but the
@@ -167,6 +174,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// The connection is over. A query still running for it is cancelled - its answer has nowhere
 	// to go - and waited for, so the conversation's run slot is back before this handler returns.
 	connCancel()
+	// A query blocked writing to a client that stopped reading is freed by closing the connection:
+	// its write fails, it returns, and Wait below does not hang on it.
+	conn.Close()
 	client.queries.Wait()
 }
 
@@ -465,11 +475,20 @@ func (cl *wsClient) sendError(flag string, message string) {
 	}))
 }
 
+// writeTimeout is the deadline of one frame write.
+func (cl *wsClient) writeTimeout() time.Duration {
+	if cl.writeLimit > 0 {
+		return cl.writeLimit
+	}
+	return wsWriteTimeout
+}
+
 // writeFrame serialises a frame write behind the mutex. Returns false when the write
 // failed.
 func (cl *wsClient) writeFrame(opcode byte, payload []byte) bool {
 	cl.writeMu.Lock()
 	defer cl.writeMu.Unlock()
+	_ = cl.conn.SetWriteDeadline(time.Now().Add(cl.writeTimeout()))
 	if err := wsWriteFrame(cl.conn, opcode, payload); err != nil {
 		if cl.log != nil && !isClosedConnErr(err) {
 			cl.log.Warn("websocket write failed", "error", err.Error())
@@ -484,6 +503,7 @@ func (cl *wsClient) writeFrame(opcode byte, payload []byte) bool {
 // swallowed.
 func (cl *wsClient) close(code uint16, reason string) {
 	cl.writeMu.Lock()
+	_ = cl.conn.SetWriteDeadline(time.Now().Add(cl.writeTimeout()))
 	_ = wsWriteClose(cl.conn, code, reason)
 	cl.writeMu.Unlock()
 	cl.conn.Close()
