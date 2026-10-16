@@ -575,6 +575,246 @@
   --on-accent: #ffffff;
 }
 
+/* coffee, dark */
+:is(html[data-mode="dark"][data-scheme="coffee"], html[data-mode="dark"] .theme-card[data-scheme="coffee"]) {
+  --color-accent: #e0a370;
+  --accent-rgb: 224 163 112;
+  --neon-cyan: #ecbd94;
+  --neon-rgb: 236 189 148;
+  --s0: #2a221d;
+  --s1: #332a24;
+  --s2: #3d332c;
+  --s3: #4a3f37;
+  --bg-rgb: 51 42 36;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #3d332c;
+  --color-surface-opaque: #3d332c;
+  --veil: rgb(42 34 29 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* coffee, light */
+:is(html[data-mode="light"][data-scheme="coffee"], html[data-mode="light"] .theme-card[data-scheme="coffee"]) {
+  --color-accent: #8a4a14;
+  --accent-rgb: 138 74 20;
+  --neon-cyan: #8a4a14;
+  --neon-rgb: 138 74 20;
+  --s0: #f7f2ec;
+  --s1: #ffffff;
+  --s2: #efe6dc;
+  --s3: #e0d8cf;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #efe6dc;
+  --color-surface-opaque: #efe6dc;
+  --veil: rgb(247 242 236 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* ember, dark */
+:is(html[data-mode="dark"][data-scheme="ember"], html[data-mode="dark"] .theme-card[data-scheme="ember"]) {
+  --color-accent: #ff8f6b;
+  --accent-rgb: 255 143 107;
+  --neon-cyan: #ffaa8f;
+  --neon-rgb: 255 170 143;
+  --s0: #2c1f1e;
+  --s1: #352725;
+  --s2: #40302d;
+  --s3: #4d3b37;
+  --bg-rgb: 53 39 37;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #40302d;
+  --color-surface-opaque: #40302d;
+  --veil: rgb(44 31 30 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* ember, light */
+:is(html[data-mode="light"][data-scheme="ember"], html[data-mode="light"] .theme-card[data-scheme="ember"]) {
+  --color-accent: #a8341a;
+  --accent-rgb: 168 52 26;
+  --neon-cyan: #a8341a;
+  --neon-rgb: 168 52 26;
+  --s0: #f9f1ee;
+  --s1: #ffffff;
+  --s2: #f2e5e0;
+  --s3: #e4dad6;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #f2e5e0;
+  --color-surface-opaque: #f2e5e0;
+  --veil: rgb(249 241 238 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* olive, dark */
+:is(html[data-mode="dark"][data-scheme="olive"], html[data-mode="dark"] .theme-card[data-scheme="olive"]) {
+  --color-accent: #b9c46a;
+  --accent-rgb: 185 196 106;
+  --neon-cyan: #cdd68c;
+  --neon-rgb: 205 214 140;
+  --s0: #25271c;
+  --s1: #2d3023;
+  --s2: #37392b;
+  --s3: #454839;
+  --bg-rgb: 45 48 35;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #37392b;
+  --color-surface-opaque: #37392b;
+  --veil: rgb(37 39 28 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* olive, light */
+:is(html[data-mode="light"][data-scheme="olive"], html[data-mode="light"] .theme-card[data-scheme="olive"]) {
+  --color-accent: #52660d;
+  --accent-rgb: 82 102 13;
+  --neon-cyan: #52660d;
+  --neon-rgb: 82 102 13;
+  --s0: #f5f6ec;
+  --s1: #ffffff;
+  --s2: #eaedda;
+  --s3: #dcdfd0;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #eaedda;
+  --color-surface-opaque: #eaedda;
+  --veil: rgb(245 246 236 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* sand, dark */
+:is(html[data-mode="dark"][data-scheme="sand"], html[data-mode="dark"] .theme-card[data-scheme="sand"]) {
+  --color-accent: #e6c36a;
+  --accent-rgb: 230 195 106;
+  --neon-cyan: #f0d58f;
+  --neon-rgb: 240 213 143;
+  --s0: #2b261b;
+  --s1: #342e22;
+  --s2: #3e372a;
+  --s3: #4b4437;
+  --bg-rgb: 52 46 34;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #3e372a;
+  --color-surface-opaque: #3e372a;
+  --veil: rgb(43 38 27 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* sand, light */
+:is(html[data-mode="light"][data-scheme="sand"], html[data-mode="light"] .theme-card[data-scheme="sand"]) {
+  --color-accent: #7a5c00;
+  --accent-rgb: 122 92 0;
+  --neon-cyan: #7a5c00;
+  --neon-rgb: 122 92 0;
+  --s0: #f8f4e8;
+  --s1: #ffffff;
+  --s2: #f0e9d3;
+  --s3: #e2dcca;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #f0e9d3;
+  --color-surface-opaque: #f0e9d3;
+  --veil: rgb(248 244 232 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
 /* ─── What follows the tokens ─────────────────────────────────────────────────────────────────── */
 
 /* The photograph behind the page, under a veil of the scheme's own surface colour: none for the

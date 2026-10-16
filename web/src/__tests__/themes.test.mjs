@@ -54,6 +54,10 @@ const SCHEMES = [
   "slate",
   "midnight",
   "dusk",
+  "coffee",
+  "ember",
+  "olive",
+  "sand",
 ];
 
 // palettes returns, per "mode/scheme", the declarations of its block.
@@ -142,7 +146,7 @@ test("light palettes are light and dark ones are dark", () => {
       assert.equal(d["--ov-rgb"], "0 0 0");
     } else {
       assert.ok(l < 0.05, name);
-      if (/\/(slate|midnight|dusk)$/.test(name)) {
+      if (/\/(slate|midnight|dusk|coffee|ember|olive|sand)$/.test(name)) {
         assert.ok(
           l > 0.015,
           `${name} is a mid-dark, lighter than the dark default`,
@@ -295,6 +299,10 @@ test("the names the picker shows are translated", () => {
     "Slate",
     "Midnight",
     "Dusk",
+    "Coffee",
+    "Ember",
+    "Olive",
+    "Sand",
   ]) {
     assert.ok(es.includes(`  ${key}: "`) || es.includes(`  "${key}": "`), key);
   }

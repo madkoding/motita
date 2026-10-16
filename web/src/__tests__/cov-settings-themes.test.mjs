@@ -184,6 +184,10 @@ test("the Themes tab shows the three modes and every scheme as a card, the saved
       "Slate",
       "Midnight",
       "Dusk",
+      "Coffee",
+      "Ember",
+      "Olive",
+      "Sand",
     ],
   );
   assert.equal(m.radio("settings-scheme", "forest").checked, true);
