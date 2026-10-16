@@ -9,6 +9,7 @@ import {
   stopBrowserModel,
   useBrowserModelState,
   type BrowserPhase,
+  type BrowserState,
 } from "./browserLLM";
 import type { Api } from "./prApi";
 import { Row, smallBtn } from "./SettingsControls";
@@ -66,6 +67,23 @@ async function tryIt(api: Api): Promise<string> {
 
 // BrowserModelSettings turns on the small model this tab runs on its own graphics card. Nothing is
 // downloaded until the switch is on, and it works only while a tab with it on stays open.
+// CardLine says which graphics card the ready model runs on; the emulation warning covers the rest.
+function CardLine({ s }: { s: BrowserState }) {
+  if (s.phase !== "ready" || s.software) {
+    return null;
+  }
+  return (
+    <output
+      class="block text-xs text-[#9a9aaa] px-3 pb-2"
+      data-testid="llm-browser-card"
+    >
+      {tf("Running on the graphics card: {card}", {
+        card: s.card || t("unnamed"),
+      })}
+    </output>
+  );
+}
+
 export function BrowserModelSettings({ api }: { api: Api }) {
   const [on, setOn] = useState(browserModelOn());
   const s = useBrowserModelState();
@@ -165,6 +183,7 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             </button>
           </Row>
         )}
+        <CardLine s={s} />
         {s.software && (
           <output
             class="block text-xs text-[#e0b46a] px-3 pb-2"
@@ -173,6 +192,7 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             {t(
               "This browser runs WebGPU on the processor, not on a graphics card: the model works but is very slow.",
             )}
+            {s.card && " (" + s.card + ")"}
           </output>
         )}
         {s.phase === "ready" && (

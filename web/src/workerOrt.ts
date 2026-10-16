@@ -5,7 +5,7 @@
 // and onnxruntime on the processor or on the graphics card.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import { choose } from "./choose";
-import { CPU_ONLY } from "./gpuPolicy";
+import { CPU_ONLY, pickCard } from "./gpuPolicy";
 import {
   NO_WEBGPU,
   VOICE_CACHE,
@@ -111,11 +111,7 @@ export async function cpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
   } as OrtLike;
 }
 
-type GPU = {
-  requestAdapter(o?: {
-    powerPreference?: GPUPowerPreference;
-  }): Promise<GPUAdapter | null>;
-};
+type GPU = Parameters<typeof pickCard>[0];
 
 // workerGPU is the worker's WebGPU, undefined in a browser that has none.
 function workerGPU(): GPU | undefined {
@@ -124,6 +120,15 @@ function workerGPU(): GPU | undefined {
     return undefined;
   }
   return (self.navigator as Navigator & { gpu?: GPU }).gpu;
+}
+
+// workerCard is the card this worker's models run on, null where there is none.
+export async function workerCard(): Promise<GPUAdapter | null> {
+  const gpu = workerGPU();
+  if (!gpu) {
+    return null;
+  }
+  return pickCard(gpu);
 }
 
 // webGPU says whether this worker has WebGPU at all: where it does not, onnxruntime's WebGPU
@@ -139,10 +144,7 @@ export async function gpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
   if (!gpu) {
     throw new Error(NO_WEBGPU);
   }
-  // The fast card first, as a laptop with two would otherwise give the slow one; then any.
-  const adapter =
-    (await gpu.requestAdapter({ powerPreference: "high-performance" })) ??
-    (await gpu.requestAdapter());
+  const adapter = await pickCard(gpu);
   if (!adapter) {
     throw new Error("the browser gave no graphics card to use");
   }
