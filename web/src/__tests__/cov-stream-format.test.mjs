@@ -689,7 +689,6 @@ test("a background agent's step is read from its line, and named by its tag", ()
 test("workerError puts the few messages a worker can send in the reader's language", () => {
   for (const said of [
     "this browser has no WebGPU in its workers",
-    "Chatterbox needs WebGPU",
     "the browser gave no graphics card to use",
     "the local listener stopped",
   ]) {

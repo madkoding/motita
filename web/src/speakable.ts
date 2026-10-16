@@ -2,6 +2,8 @@
 // by one. It needs neither a voice nor a page, so it is tested as it is; speech.ts re-exports it.
 // The words said in place of what is not read. The page passes them translated; this module does
 // not import the translations, so it runs in a test as it is.
+import { endsInAbbreviation } from "./speechText.ts";
+
 export interface SpeechWords {
   link: string;
   code: string;
@@ -302,12 +304,29 @@ function splitLong(s: string): string[] {
 export function sentences(text: string): string[] {
   const out: string[] = [];
   for (const para of text.split(/\n{2,}/)) {
-    const parts = para.trim().split(/(?<=[.!?…])\s+/);
-    for (const p of parts) {
+    for (const p of joinAbbreviations(para.trim().split(/(?<=[.!?…])\s+/))) {
       if (p.trim()) {
         out.push(...splitLong(p.trim()));
       }
     }
   }
   return out;
+}
+
+// joinAbbreviations puts back together what the full stop of an abbreviation cut: "Sr." and
+// "García" are one sentence.
+function joinAbbreviations(parts: string[]): string[] {
+  const out: string[] = [];
+  let carry = "";
+  for (const p of parts) {
+    const piece = carry + p;
+    carry = "";
+    if (endsInAbbreviation(piece)) {
+      carry = piece + " ";
+    } else {
+      out.push(piece);
+    }
+  }
+  // A text that ends with the abbreviation keeps it.
+  return out.concat(carry.trim() === "" ? [] : [carry.trim()]);
 }
