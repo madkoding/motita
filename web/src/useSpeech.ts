@@ -1010,6 +1010,11 @@ function errorHint(error: string): string {
   if (error === "language-unavailable" || error === "voice-unavailable") {
     return t("This device has no voice for this language.");
   }
+  if (error.includes("WebGPU")) {
+    return t(
+      "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.",
+    );
+  }
   return error;
 }
 

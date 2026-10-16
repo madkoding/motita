@@ -6,6 +6,8 @@ import type { Lang } from "./i18n";
 import { choose } from "./choose";
 import type { Api } from "./gitApi";
 import { LocalVoices } from "./LocalVoiceSettings";
+import { MobileGpuRow } from "./VoiceSettings";
+import { isMobileDevice } from "./gpuPolicy";
 import { SUPERTONIC_SPEED, isChatterbox, isSupertonic } from "./localVoiceCore";
 import {
   LENGTHS,
@@ -627,15 +629,18 @@ function SpeechVoice({
       return null;
     }
     return (
-      <Row id="settings-speech-local" label={t("Voices to download")} stack>
-        <LocalVoices
-          api={api}
-          chosen={prefs.localVoice}
-          choose={setLocalVoice}
-          emotion={prefs.chatterboxEmotion}
-          setEmotion={setEmotion}
-        />
-      </Row>
+      <>
+        <Row id="settings-speech-local" label={t("Voices to download")} stack>
+          <LocalVoices
+            api={api}
+            chosen={prefs.localVoice}
+            choose={setLocalVoice}
+            emotion={prefs.chatterboxEmotion}
+            setEmotion={setEmotion}
+          />
+        </Row>
+        {isMobileDevice() && <MobileGpuRow id="settings-gpu-mobile-speech" />}
+      </>
     );
   }
   if (engine === "gateway") {
