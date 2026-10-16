@@ -152,6 +152,12 @@ type Options struct {
 	// change /etc and need root, so a test replaces them; nil means the sandbox package's.
 	InstallAppArmor func(exe string) error
 	RemoveAppArmor  func() error
+	// AppArmorHint says how to let this binary make user namespaces, or "" when nothing is needed
+	// (not Linux, no restriction, already allowed). SudoAppArmor runs the install through sudo, at
+	// the person's request in `gateway setup`. Nil means the profile is never offered, which is what
+	// a test wants: the machine running it may be an Ubuntu 24.04.
+	AppArmorHint func() string
+	SudoAppArmor func(exe string) error
 	// SpawnGateway brings the service up. It is a seam of the same shape as Exit and RunChild: the
 	// real one re-executes the program detached, and a test cannot do that without starting a
 	// second agent.
@@ -437,6 +443,12 @@ func (op *Options) completeProcess() {
 	}
 	if op.RemoveAppArmor == nil {
 		op.RemoveAppArmor = sandbox.RemoveAppArmor
+	}
+	if op.AppArmorHint == nil {
+		op.AppArmorHint = sandbox.NetworkIsolationHint
+	}
+	if op.SudoAppArmor == nil {
+		op.SudoAppArmor = op.sudoAppArmor
 	}
 	if op.ExePath == "" {
 		if exe, err := executablePath(); err == nil {
