@@ -770,7 +770,7 @@ against a binary whose ceiling is a runaway-growth guard, not a per-feature budg
 **Connection flow:**
 
 ```
-1. Client connects to /v1/sessions/{id}/ws (bearer token in the upgrade request)
+1. Client connects to /v1/sessions/{id}/ws (bearer token, or the web interface's cookie, in the upgrade request)
 2. Server sends a welcome:  { type: "auth_response", flags: ["IDLE"] }
 3. Client sends auth:       { type: "auth", payload: { "token": "..." } }
 4. Server responds:         { type: "auth_response", flags: ["AUTHENTICATED","IDLE"] }
@@ -790,6 +790,76 @@ against a binary whose ceiling is a runaway-growth guard, not a per-feature budg
 Multiple clients may connect simultaneously — each runs in its own goroutine and is
 independent. The conversation's one-run-at-a-time guard still applies: a second client
 that tries to start a run while one is in flight gets a `query_response` with `BUSY`.
+
+**Who may connect.** The endpoint is behind the same token as the rest of the API: an
+upgrade with no credential is refused with `401` before any WebSocket exists. There are
+two layers, and both are required:
+
+1. **The upgrade request** carries the gateway token as `Authorization: Bearer <token>`.
+   A browser cannot add that header to a WebSocket handshake, so the web interface's own
+   session cookie is accepted instead, and a request authorised by the cookie must also
+   come from this server's own origin (a page on another origin is refused with `403`).
+2. **The `auth` message** repeats the token inside the protocol. Until it succeeds, a
+   `query` is answered with `UNAUTHORIZED`; a wrong token gets `UNAUTHORIZED` and the
+   connection stays open so the client can retry.
+
+There is no switch to turn the endpoint off: it exposes nothing the authenticated HTTP API
+does not already expose (`query` runs the same read-only planner as `POST /plan`).
+
+**What the server sends today.** `auth_response`, `query_response`, `heartbeat`,
+`heartbeat_ack` and `error`. The `notification` type, and the flags `FATAL_ERROR`,
+`LOW_MEMORY`, `RATE_LIMITED`, `CACHE_HIT`, `CACHE_MISS` and `ENCRYPTED`, are **reserved**:
+they are part of the vocabulary but nothing emits them yet, so a client should accept
+them and must not wait for them.
+
+**Transport details a client has to follow:**
+
+- Only **text** frames carrying JSON. A binary frame, or a fragmented message, is answered
+  with `error` / `ERROR_RECOVERABLE` and the connection stays open.
+- Every client-to-server frame must be **masked** (RFC 6455 §5.1); an unmasked frame closes
+  the connection with code 1002. Any WebSocket client library does this for you.
+- **Ping** frames are answered with a pong. A client **pong** also counts as the answer to
+  a heartbeat.
+- A connection that sends nothing for **90 seconds** is dropped; the heartbeat (every 30 s,
+  ack within 10 s) is what keeps an idle one alive.
+- Closing: code 1000 when the client closes, 1001 when the gateway shuts down or the
+  heartbeat is not answered. A client should reconnect after a 1001.
+- A `query` is **read-only** and runs on the connection: if the client disconnects, the
+  query is cancelled.
+
+**A minimal client** (Python, with `pip install websocket-client`, which masks the frames
+and sends the header for you):
+
+```python
+import json, uuid, datetime, websocket
+
+TOKEN = "…"  # the gateway token (`motita gateway start -token-only` prints it)
+
+def send(ws, type_, payload):
+    ws.send(json.dumps({
+        "msg_id": str(uuid.uuid4()), "type": type_, "flags": [],
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "payload": payload,
+    }))
+
+ws = websocket.create_connection(
+    "ws://127.0.0.1:7477/v1/sessions/default/ws",
+    header=[f"Authorization: Bearer {TOKEN}"],
+)
+json.loads(ws.recv())                       # welcome: auth_response / IDLE
+send(ws, "auth", {"token": TOKEN})
+json.loads(ws.recv())                       # auth_response / AUTHENTICATED
+send(ws, "query", {"query": "what does this project do?"})
+while True:
+    msg = json.loads(ws.recv())
+    if msg["type"] == "heartbeat":          # answer the keep-alive within 10 s
+        send(ws, "heartbeat_ack", {})
+    elif "COMPLETED" in msg["flags"]:
+        print(msg["payload"]["result"])
+        break
+    elif msg["type"] == "error" or "BUSY" in msg["flags"]:
+        raise SystemExit(msg["payload"])
+```
 
 It is a **fixed** port rather than an ephemeral one because the gateway can now be a
 service that outlives the process that started it, and a later process has to be able to
