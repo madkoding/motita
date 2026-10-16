@@ -57,13 +57,13 @@
 <div class="note">No hay interruptor para apagar el endpoint: no expone nada que la API HTTP autenticada no exponga ya. Un <code>query</code> ejecuta el mismo planificador de solo lectura que <code>POST /plan</code>.</div>
 <h2>El sobre del mensaje</h2>
 <p>Cada mensaje, en ambos sentidos, es un objeto JSON:</p>
-<pre>{
-  "msg_id": "550e8400-e29b-41d4-a716-446655440000",
-  "type": "query",
-  "flags": ["PROCESSING"],
-  "timestamp": "2026-09-25T12:00:00.000Z",
-  "payload": {}
-}</pre>
+<pre class="code" data-lang="JSON"><code>{
+  <span class="s">&quot;msg_id&quot;</span>: <span class="s">&quot;550e8400-e29b-41d4-a716-446655440000&quot;</span>,
+  <span class="s">&quot;type&quot;</span>: <span class="s">&quot;query&quot;</span>,
+  <span class="s">&quot;flags&quot;</span>: [<span class="s">&quot;PROCESSING&quot;</span>],
+  <span class="s">&quot;timestamp&quot;</span>: <span class="s">&quot;2026-09-25T12:00:00.000Z&quot;</span>,
+  <span class="s">&quot;payload&quot;</span>: {}
+}</code></pre>
 <table>
 <thead><tr><th>Campo</th><th>Significado</th></tr></thead>
 <tbody>
@@ -99,16 +99,8 @@
 </table>
 <p><strong>Reservadas.</strong> El tipo <code>notification</code> y las banderas <code>FATAL_ERROR</code>, <code>LOW_MEMORY</code>, <code>RATE_LIMITED</code>, <code>CACHE_HIT</code>, <code>CACHE_MISS</code> y <code>ENCRYPTED</code> forman parte del vocabulario, pero nada las emite. Un cliente debe aceptarlas y no esperarlas.</p>
 <h2>La conversación</h2>
-<pre>1. conectar a /v1/sessions/{id}/ws (token o cookie web en el upgrade)
-2. servidor: auth_response  [IDLE]
-3. cliente:  auth           { "token": "..." }
-4. servidor: auth_response  [AUTHENTICATED, IDLE]    o  [UNAUTHORIZED]
-5. cliente:  query          { "query": "..." }
-6. servidor: query_response [PROCESSING]             acuse inmediato
-             query_response [PARTIAL, PROCESSING]   líneas de avance, según ocurren
-             query_response [COMPLETED]             { "result": "..." }
-             error          [ERROR_RECOVERABLE]     { "error": "..." }
-7. cada 30 s el servidor envía heartbeat; responde con heartbeat_ack en 10 s</pre>
+<figure class="diagram" role="img" aria-label="La conversación por WebSocket"><div class="dg-scroll"><svg viewBox="0 0 720 476" width="720" height="476" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah3d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-life" x1="192" y1="46" x2="192" y2="470"/><line class="dg-life" x1="528" y1="46" x2="528" y2="470"/><rect class="dg-box" x="107" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="192" y="26" text-anchor="middle">Cliente</text><rect class="dg-box" x="443" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="528" y="21" text-anchor="middle">Gateway</text><text class="dg-sub" x="528" y="32" text-anchor="middle">/v1/sessions/{id}/ws</text><text class="dg-label" x="360" y="80" text-anchor="middle">auth_response [IDLE]</text><line class="dg-arrow dg-dash" x1="525" y1="89" x2="195" y2="89" marker-end="url(#ah3d)"/><text class="dg-label" x="360" y="130" text-anchor="middle">auth { token }</text><line class="dg-arrow" x1="195" y1="139" x2="525" y2="139" marker-end="url(#ah3)"/><text class="dg-label" x="360" y="180" text-anchor="middle">auth_response [AUTHENTICATED, IDLE]</text><line class="dg-arrow dg-dash" x1="525" y1="189" x2="195" y2="189" marker-end="url(#ah3d)"/><text class="dg-label" x="360" y="230" text-anchor="middle">query { query }</text><line class="dg-arrow" x1="195" y1="239" x2="525" y2="239" marker-end="url(#ah3)"/><text class="dg-label" x="360" y="280" text-anchor="middle">query_response [PROCESSING]</text><line class="dg-arrow dg-dash" x1="525" y1="289" x2="195" y2="289" marker-end="url(#ah3d)"/><text class="dg-label" x="360" y="330" text-anchor="middle">query_response [PARTIAL, PROCESSING]</text><line class="dg-arrow dg-dash" x1="525" y1="339" x2="195" y2="339" marker-end="url(#ah3d)"/><text class="dg-label" x="360" y="380" text-anchor="middle">query_response [COMPLETED] { result }</text><line class="dg-arrow dg-dash" x1="525" y1="389" x2="195" y2="389" marker-end="url(#ah3d)"/><rect class="dg-note" x="92" y="422" width="536" height="34" rx="6"/><text class="dg-label" x="360" y="443" text-anchor="middle">cada 30 s: heartbeat, que se responde con heartbeat_ack en 10 s</text></svg></div></figure>
+<p>El acuse llega de inmediato, las líneas de avance fluyen según ocurren y el último mensaje trae el resultado. Una consulta fallida termina en un <code>error</code> con <code>ERROR_RECOVERABLE</code>.</p>
 <p>JSON mal formado y tipos desconocidos reciben un error <code>ERROR_RECOVERABLE</code>. Pueden conectarse varios clientes a la vez, pero la conversación ejecuta una tarea a la vez: un segundo cliente que inicie una ejecución mientras otra corre recibe <code>BUSY</code>.</p>
 <h2>Lo que un cliente debe cumplir</h2>
 <ul>
@@ -119,36 +111,223 @@
 <li>El código 1000 indica que el cliente cerró; 1001 que el gateway se apaga o que el latido quedó sin respuesta, así que reconecta.</li>
 <li>Un <code>query</code> es de <strong>solo lectura</strong> y va atado a la conexión: si el cliente se desconecta, la consulta se cancela.</li>
 </ul>
-<h2>Un cliente mínimo</h2>
-<p>En Python, con <code>pip install websocket-client</code>, que enmascara las tramas y envía la cabecera por ti:</p>
-<pre>import json, uuid, datetime, websocket
+<h2>Clientes de ejemplo</h2>
+<p>El mismo cliente en los lenguajes más usados. Cada uno se autentica, hace una pregunta, responde el latido e imprime el resultado. Primero define <code>MOTITA_TOKEN</code> con el token del gateway.</p>
+<div class="tabs"><input type="radio" name="ws" id="ws-js" aria-label="JavaScript" checked /><input type="radio" name="ws" id="ws-ts" aria-label="TypeScript" /><input type="radio" name="ws" id="ws-py" aria-label="Python" /><input type="radio" name="ws" id="ws-go" aria-label="Go" /><input type="radio" name="ws" id="ws-rust" aria-label="Rust" /><div class="tab-bar"><label for="ws-js">JavaScript</label><label for="ws-ts">TypeScript</label><label for="ws-py">Python</label><label for="ws-go">Go</label><label for="ws-rust">Rust</label></div><section><pre class="code" data-lang="JavaScript"><code><span class="c">// npm install ws</span>
+<span class="k">import</span> <span class="t">WebSocket</span> <span class="k">from</span> <span class="s">&quot;ws&quot;</span>;
+<span class="k">import</span> { randomUUID } <span class="k">from</span> <span class="s">&quot;node:crypto&quot;</span>;
 
-TOKEN = "..."  # lo imprime: motita gateway start -token-only
+<span class="k">const</span> <span class="t">TOKEN</span> = process.env.<span class="t">MOTITA_TOKEN</span>; <span class="c">// el token del gateway: motita gateway start -token-only</span>
+<span class="k">const</span> ws = <span class="k">new</span> <span class="f">WebSocket(</span><span class="s">&quot;ws://127.0.0.1:7477/v1/sessions/default/ws&quot;</span>, {
+  headers: { <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + <span class="t">TOKEN</span> },
+});
 
-def send(ws, type_, payload):
-    ws.send(json.dumps({
-        "msg_id": str(uuid.uuid4()), "type": type_, "flags": [],
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "payload": payload,
+<span class="k">const</span> send = (type, payload) =&gt;
+  ws.<span class="f">send(</span><span class="t">JSON</span>.<span class="f">stringify(</span>{
+    msg_id: <span class="f">randomUUID(</span>), type, flags: [],
+    timestamp: <span class="k">new</span> <span class="f">Date(</span>).<span class="f">toISOString(</span>), payload,
+  }));
+
+ws.<span class="f">on(</span><span class="s">&quot;open&quot;</span>, () =&gt; <span class="f">send(</span><span class="s">&quot;auth&quot;</span>, { token: <span class="t">TOKEN</span> })); <span class="c">// el servidor saluda primero; responde con el token</span>
+
+ws.<span class="f">on(</span><span class="s">&quot;message&quot;</span>, (data) =&gt; {
+  <span class="k">const</span> msg = <span class="t">JSON</span>.<span class="f">parse(</span>data.<span class="f">toString(</span>));
+  <span class="k">const</span> has = (flag) =&gt; msg.flags.<span class="f">includes(</span>flag);
+
+  <span class="k">if (</span>msg.type === <span class="s">&quot;auth_response&quot;</span> &amp;&amp; <span class="f">has(</span><span class="s">&quot;AUTHENTICATED&quot;</span>)) {
+    <span class="f">send(</span><span class="s">&quot;query&quot;</span>, { query: <span class="s">&quot;what does this project do?&quot;</span> }); <span class="c">// autenticado: ahora pregunta algo</span>
+  } <span class="k">else</span> <span class="k">if (</span>msg.type === <span class="s">&quot;auth_response&quot;</span> &amp;&amp; <span class="f">has(</span><span class="s">&quot;UNAUTHORIZED&quot;</span>)) {
+    console.<span class="f">error(</span><span class="s">&quot;unauthorized&quot;</span>); <span class="c">// token incorrecto (la conexión sigue abierta)</span>
+    ws.<span class="f">close(</span>);
+  } <span class="k">else</span> <span class="k">if (</span>msg.type === <span class="s">&quot;heartbeat&quot;</span>) {
+    <span class="f">send(</span><span class="s">&quot;heartbeat_ack&quot;</span>, {}); <span class="c">// responde el keep-alive en menos de 10 s</span>
+  } <span class="k">else</span> <span class="k">if (</span><span class="f">has(</span><span class="s">&quot;COMPLETED&quot;</span>)) {
+    console.<span class="f">log(</span>msg.payload.result); <span class="c">// la respuesta final</span>
+    ws.<span class="f">close(</span>);
+  } <span class="k">else</span> <span class="k">if (</span>msg.type === <span class="s">&quot;error&quot;</span> || <span class="f">has(</span><span class="s">&quot;BUSY&quot;</span>)) {
+    console.<span class="f">error(</span>msg.payload); <span class="c">// un error, o otro cliente ya está ejecutando una tarea</span>
+    ws.<span class="f">close(</span>);
+  }
+});</code></pre></section><section><pre class="code" data-lang="TypeScript"><code><span class="c">// npm install ws @types/ws</span>
+<span class="k">import</span> <span class="t">WebSocket</span> <span class="k">from</span> <span class="s">&quot;ws&quot;</span>;
+<span class="k">import</span> { randomUUID } <span class="k">from</span> <span class="s">&quot;node:crypto&quot;</span>;
+
+<span class="k">interface</span> <span class="t">Envelope</span>&lt;<span class="t">P</span> = <span class="t">Record</span>&lt;string, <span class="k">unknown</span>&gt;&gt; {
+  msg_id: string;
+  <span class="k">type</span>: string;
+  flags: string[];
+  timestamp: string;
+  payload: <span class="t">P</span>;
+}
+
+<span class="k">const</span> <span class="t">TOKEN</span> = process.env.<span class="t">MOTITA_TOKEN</span> ?? <span class="s">&quot;&quot;</span>; <span class="c">// el token del gateway: motita gateway start -token-only</span>
+<span class="k">const</span> ws = <span class="k">new</span> <span class="f">WebSocket(</span><span class="s">&quot;ws://127.0.0.1:7477/v1/sessions/default/ws&quot;</span>, {
+  headers: { <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + <span class="t">TOKEN</span> },
+});
+
+<span class="k">function</span> <span class="f">send(</span><span class="k">type</span>: string, payload: object): <span class="k">void</span> {
+  <span class="k">const</span> msg: <span class="t">Envelope</span>&lt;object&gt; = {
+    msg_id: <span class="f">randomUUID(</span>), <span class="k">type</span>, flags: [],
+    timestamp: <span class="k">new</span> <span class="f">Date(</span>).<span class="f">toISOString(</span>), payload,
+  };
+  ws.<span class="f">send(</span><span class="t">JSON</span>.<span class="f">stringify(</span>msg));
+}
+
+ws.<span class="f">on(</span><span class="s">&quot;open&quot;</span>, () =&gt; <span class="f">send(</span><span class="s">&quot;auth&quot;</span>, { token: <span class="t">TOKEN</span> })); <span class="c">// el servidor saluda primero; responde con el token</span>
+
+ws.<span class="f">on(</span><span class="s">&quot;message&quot;</span>, (data) =&gt; {
+  <span class="k">const</span> msg = <span class="t">JSON</span>.<span class="f">parse(</span>data.<span class="f">toString(</span>)) <span class="k">as</span> <span class="t">Envelope</span>&lt;{ result?: string }&gt;;
+  <span class="k">const</span> has = (flag: string): boolean =&gt; msg.flags.<span class="f">includes(</span>flag);
+
+  <span class="k">if (</span>msg.<span class="k">type</span> === <span class="s">&quot;auth_response&quot;</span> &amp;&amp; <span class="f">has(</span><span class="s">&quot;AUTHENTICATED&quot;</span>)) {
+    <span class="f">send(</span><span class="s">&quot;query&quot;</span>, { query: <span class="s">&quot;what does this project do?&quot;</span> }); <span class="c">// autenticado: ahora pregunta algo</span>
+  } <span class="k">else</span> <span class="k">if (</span>msg.<span class="k">type</span> === <span class="s">&quot;heartbeat&quot;</span>) {
+    <span class="f">send(</span><span class="s">&quot;heartbeat_ack&quot;</span>, {}); <span class="c">// responde el keep-alive en menos de 10 s</span>
+  } <span class="k">else</span> <span class="k">if (</span><span class="f">has(</span><span class="s">&quot;COMPLETED&quot;</span>)) {
+    console.<span class="f">log(</span>msg.payload.result); <span class="c">// la respuesta final</span>
+    ws.<span class="f">close(</span>);
+  } <span class="k">else</span> <span class="k">if (</span>msg.<span class="k">type</span> === <span class="s">&quot;error&quot;</span> || <span class="f">has(</span><span class="s">&quot;BUSY&quot;</span>) || <span class="f">has(</span><span class="s">&quot;UNAUTHORIZED&quot;</span>)) {
+    console.<span class="f">error(</span>msg.payload); <span class="c">// un error, o otro cliente ya está ejecutando una tarea</span>
+    ws.<span class="f">close(</span>);
+  }
+});</code></pre></section><section><pre class="code" data-lang="Python"><code><span class="c"># pip install websocket-client</span>
+<span class="k">import</span> datetime
+<span class="k">import</span> json
+<span class="k">import</span> os
+<span class="k">import</span> uuid
+
+<span class="k">import</span> websocket
+
+<span class="t">TOKEN</span> = os.environ[<span class="s">&quot;MOTITA_TOKEN&quot;</span>]  <span class="c"># el token del gateway: motita gateway start -token-only</span>
+
+
+<span class="k">def</span> <span class="f">send(</span>ws, type_, payload):
+    ws.<span class="f">send(</span>json.<span class="f">dumps(</span>{
+        <span class="s">&quot;msg_id&quot;</span>: <span class="f">str(</span>uuid.<span class="f">uuid4(</span>)), <span class="s">&quot;type&quot;</span>: type_, <span class="s">&quot;flags&quot;</span>: [],
+        <span class="s">&quot;timestamp&quot;</span>: datetime.datetime.<span class="f">now(</span>datetime.timezone.utc).<span class="f">isoformat(</span>),
+        <span class="s">&quot;payload&quot;</span>: payload,
     }))
 
-ws = websocket.create_connection(
-    "ws://127.0.0.1:7477/v1/sessions/default/ws",
-    header=[f"Authorization: Bearer {TOKEN}"],
+
+ws = websocket.<span class="f">create_connection(</span>
+    <span class="s">&quot;ws://127.0.0.1:7477/v1/sessions/default/ws&quot;</span>,
+    header=[<span class="s">&quot;Authorization: Bearer &quot;</span> + <span class="t">TOKEN</span>],
 )
-json.loads(ws.recv())                       # bienvenida: auth_response / IDLE
-send(ws, "auth", {"token": TOKEN})
-json.loads(ws.recv())                       # auth_response / AUTHENTICATED
-send(ws, "query", {"query": "¿qué hace este proyecto?"})
-while True:
-    msg = json.loads(ws.recv())
-    if msg["type"] == "heartbeat":          # responde el keep-alive en 10 s
-        send(ws, "heartbeat_ack", {})
-    elif "COMPLETED" in msg["flags"]:
-        print(msg["payload"]["result"])
-        break
-    elif msg["type"] == "error" or "BUSY" in msg["flags"]:
-        raise SystemExit(msg["payload"])</pre>
+json.<span class="f">loads(</span>ws.<span class="f">recv(</span>))  <span class="c"># el servidor saluda primero; responde con el token</span>
+<span class="f">send(</span>ws, <span class="s">&quot;auth&quot;</span>, {<span class="s">&quot;token&quot;</span>: <span class="t">TOKEN</span>})
+json.<span class="f">loads(</span>ws.<span class="f">recv(</span>))  <span class="c"># auth_response / AUTHENTICATED</span>
+<span class="f">send(</span>ws, <span class="s">&quot;query&quot;</span>, {<span class="s">&quot;query&quot;</span>: <span class="s">&quot;what does this project do?&quot;</span>})  <span class="c"># autenticado: ahora pregunta algo</span>
+
+<span class="k">while</span> <span class="k">True</span>:
+    msg = json.<span class="f">loads(</span>ws.<span class="f">recv(</span>))
+    <span class="k">if</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;heartbeat&quot;</span>:
+        <span class="f">send(</span>ws, <span class="s">&quot;heartbeat_ack&quot;</span>, {})  <span class="c"># responde el keep-alive en menos de 10 s</span>
+    <span class="k">elif</span> <span class="s">&quot;COMPLETED&quot;</span> <span class="k">in</span> msg[<span class="s">&quot;flags&quot;</span>]:
+        <span class="f">print(</span>msg[<span class="s">&quot;payload&quot;</span>][<span class="s">&quot;result&quot;</span>])  <span class="c"># la respuesta final</span>
+        <span class="k">break</span>
+    <span class="k">elif</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;error&quot;</span> <span class="k">or</span> <span class="s">&quot;BUSY&quot;</span> <span class="k">in</span> msg[<span class="s">&quot;flags&quot;</span>]:
+        <span class="k">raise</span> <span class="f">SystemExit(</span>msg[<span class="s">&quot;payload&quot;</span>])  <span class="c"># un error, o otro cliente ya está ejecutando una tarea</span></code></pre></section><section><pre class="code" data-lang="Go"><code><span class="c">// go get github.com/gorilla/websocket github.com/google/uuid</span>
+<span class="k">package</span> main
+
+<span class="k">import (</span>
+	<span class="s">&quot;encoding/json&quot;</span>
+	<span class="s">&quot;fmt&quot;</span>
+	<span class="s">&quot;log&quot;</span>
+	<span class="s">&quot;net/http&quot;</span>
+	<span class="s">&quot;os&quot;</span>
+	<span class="s">&quot;slices&quot;</span>
+	<span class="s">&quot;time&quot;</span>
+
+	<span class="s">&quot;github.com/google/uuid&quot;</span>
+	<span class="s">&quot;github.com/gorilla/websocket&quot;</span>
+)
+
+<span class="k">type</span> <span class="t">Envelope</span> <span class="k">struct</span> {
+	<span class="t">MsgID</span>     string          <span class="s">`json:&quot;msg_id&quot;`</span>
+	<span class="t">Type</span>      string          <span class="s">`json:&quot;type&quot;`</span>
+	<span class="t">Flags</span>     []string        <span class="s">`json:&quot;flags&quot;`</span>
+	<span class="t">Timestamp</span> string          <span class="s">`json:&quot;timestamp&quot;`</span>
+	<span class="t">Payload</span>   json.<span class="t">RawMessage</span> <span class="s">`json:&quot;payload&quot;`</span>
+}
+
+<span class="k">func</span> <span class="f">send(</span>c *websocket.<span class="t">Conn</span>, typ string, payload any) {
+	body, _ := json.<span class="f">Marshal(</span>payload)
+	err := c.<span class="f">WriteJSON(</span><span class="t">Envelope</span>{
+		<span class="t">MsgID</span>: uuid.<span class="f">NewString(</span>), <span class="t">Type</span>: typ, <span class="t">Flags</span>: []string{},
+		<span class="t">Timestamp</span>: time.<span class="f">Now(</span>).<span class="f">UTC(</span>).<span class="f">Format(</span>time.<span class="t">RFC3339Nano</span>), <span class="t">Payload</span>: body,
+	})
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+}
+
+<span class="k">func</span> <span class="f">main(</span>) {
+	token := os.<span class="f">Getenv(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>) <span class="c">// el token del gateway: motita gateway start -token-only</span>
+	header := http.<span class="t">Header</span>{<span class="s">&quot;Authorization&quot;</span>: {<span class="s">&quot;Bearer &quot;</span> + token}}
+	c, _, err := websocket.<span class="t">DefaultDialer</span>.<span class="f">Dial(</span><span class="s">&quot;ws://127.0.0.1:7477/v1/sessions/default/ws&quot;</span>, header)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	<span class="k">defer</span> c.<span class="f">Close(</span>)
+
+	<span class="f">send(</span>c, <span class="s">&quot;auth&quot;</span>, <span class="k">map</span>[string]string{<span class="s">&quot;token&quot;</span>: token}) <span class="c">// el servidor saluda primero; responde con el token</span>
+	<span class="k">for</span> {
+		<span class="k">var</span> msg <span class="t">Envelope</span>
+		<span class="k">if</span> err := c.<span class="f">ReadJSON(</span>&amp;msg); err != <span class="k">nil</span> {
+			log.<span class="f">Fatal(</span>err)
+		}
+		has := <span class="k">func(</span>flag string) bool { <span class="k">return</span> slices.<span class="f">Contains(</span>msg.<span class="t">Flags</span>, flag) }
+		<span class="k">switch</span> {
+		<span class="k">case</span> msg.<span class="t">Type</span> == <span class="s">&quot;auth_response&quot;</span> &amp;&amp; <span class="f">has(</span><span class="s">&quot;AUTHENTICATED&quot;</span>):
+			<span class="f">send(</span>c, <span class="s">&quot;query&quot;</span>, <span class="k">map</span>[string]string{<span class="s">&quot;query&quot;</span>: <span class="s">&quot;what does this project do?&quot;</span>}) <span class="c">// autenticado: ahora pregunta algo</span>
+		<span class="k">case</span> msg.<span class="t">Type</span> == <span class="s">&quot;heartbeat&quot;</span>:
+			<span class="f">send(</span>c, <span class="s">&quot;heartbeat_ack&quot;</span>, <span class="k">map</span>[string]string{}) <span class="c">// responde el keep-alive en menos de 10 s</span>
+		<span class="k">case</span> <span class="f">has(</span><span class="s">&quot;COMPLETED&quot;</span>):
+			fmt.<span class="f">Println(</span><span class="f">string(</span>msg.<span class="t">Payload</span>)) <span class="c">// la respuesta final</span>
+			<span class="k">return</span>
+		<span class="k">case</span> msg.<span class="t">Type</span> == <span class="s">&quot;error&quot;</span> || <span class="f">has(</span><span class="s">&quot;BUSY&quot;</span>) || <span class="f">has(</span><span class="s">&quot;UNAUTHORIZED&quot;</span>):
+			log.<span class="f">Fatalf(</span><span class="s">&quot;%s&quot;</span>, msg.<span class="t">Payload</span>) <span class="c">// un error, o otro cliente ya está ejecutando una tarea</span>
+		}
+	}
+}</code></pre></section><section><pre class="code" data-lang="Rust"><code><span class="c">// Cargo.toml: tungstenite = &quot;0.26&quot;, serde_json = &quot;1&quot;, uuid = { version = &quot;1&quot;, features = [&quot;v4&quot;] }, chrono = &quot;0.4&quot;</span>
+<span class="k">use</span> serde_json::{json, <span class="t">Value</span>};
+<span class="k">use</span> tungstenite::{client::<span class="t">IntoClientRequest</span>, connect, <span class="t">Message</span>};
+
+<span class="k">fn</span> <span class="f">envelope(</span>kind: &amp;str, payload: <span class="t">Value</span>) -&gt; <span class="t">Message</span> {
+    <span class="t">Message</span>::<span class="f">text(</span>
+        <span class="f">json!(</span>{
+            <span class="s">&quot;msg_id&quot;</span>: uuid::<span class="t">Uuid</span>::<span class="f">new_v4(</span>).<span class="f">to_string(</span>), <span class="s">&quot;type&quot;</span>: kind, <span class="s">&quot;flags&quot;</span>: [],
+            <span class="s">&quot;timestamp&quot;</span>: chrono::<span class="t">Utc</span>::<span class="f">now(</span>).<span class="f">to_rfc3339(</span>), <span class="s">&quot;payload&quot;</span>: payload,
+        })
+        .<span class="f">to_string(</span>),
+    )
+}
+
+<span class="k">fn</span> <span class="f">main(</span>) -&gt; <span class="t">Result</span>&lt;(), <span class="t">Box</span>&lt;<span class="k">dyn</span> std::error::<span class="t">Error</span>&gt;&gt; {
+    <span class="k">let</span> token = std::env::<span class="f">var(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)?; <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="k">let</span> <span class="k">mut</span> request = <span class="s">&quot;ws://127.0.0.1:7477/v1/sessions/default/ws&quot;</span>.<span class="f">into_client_request(</span>)?;
+    request.<span class="f">headers_mut(</span>).<span class="f">insert(</span><span class="s">&quot;Authorization&quot;</span>, <span class="f">format!(</span><span class="s">&quot;Bearer {token}&quot;</span>).<span class="f">parse(</span>)?);
+    <span class="k">let (</span><span class="k">mut</span> socket, _) = <span class="f">connect(</span>request)?;
+
+    socket.<span class="f">send(</span><span class="f">envelope(</span><span class="s">&quot;auth&quot;</span>, <span class="f">json!(</span>{ <span class="s">&quot;token&quot;</span>: token })))?; <span class="c">// el servidor saluda primero; responde con el token</span>
+    <span class="k">loop</span> {
+        <span class="k">let</span> text = socket.<span class="f">read(</span>)?.<span class="f">into_text(</span>)?;
+        <span class="k">let</span> msg: <span class="t">Value</span> = serde_json::<span class="f">from_str(</span>text.<span class="f">as_str(</span>))?;
+        <span class="k">let</span> has = |flag: &amp;str| msg[<span class="s">&quot;flags&quot;</span>].<span class="f">as_array(</span>).<span class="f">is_some_and(</span>|f| f.<span class="f">iter(</span>).<span class="f">any(</span>|x| x == flag));
+
+        <span class="k">if</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;auth_response&quot;</span> &amp;&amp; <span class="f">has(</span><span class="s">&quot;AUTHENTICATED&quot;</span>) {
+            socket.<span class="f">send(</span><span class="f">envelope(</span><span class="s">&quot;query&quot;</span>, <span class="f">json!(</span>{ <span class="s">&quot;query&quot;</span>: <span class="s">&quot;what does this project do?&quot;</span> })))?; <span class="c">// autenticado: ahora pregunta algo</span>
+        } <span class="k">else</span> <span class="k">if</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;heartbeat&quot;</span> {
+            socket.<span class="f">send(</span><span class="f">envelope(</span><span class="s">&quot;heartbeat_ack&quot;</span>, <span class="f">json!(</span>{})))?; <span class="c">// responde el keep-alive en menos de 10 s</span>
+        } <span class="k">else</span> <span class="k">if</span> <span class="f">has(</span><span class="s">&quot;COMPLETED&quot;</span>) {
+            <span class="f">println!(</span><span class="s">&quot;{}&quot;</span>, msg[<span class="s">&quot;payload&quot;</span>][<span class="s">&quot;result&quot;</span>]); <span class="c">// la respuesta final</span>
+            <span class="k">return</span> <span class="f">Ok(</span>());
+        } <span class="k">else</span> <span class="k">if</span> msg[<span class="s">&quot;type&quot;</span>] == <span class="s">&quot;error&quot;</span> || <span class="f">has(</span><span class="s">&quot;BUSY&quot;</span>) || <span class="f">has(</span><span class="s">&quot;UNAUTHORIZED&quot;</span>) {
+            <span class="k">return</span> <span class="f">Err(</span>msg[<span class="s">&quot;payload&quot;</span>].<span class="f">to_string(</span>).<span class="f">into(</span>)); <span class="c">// un error, o otro cliente ya está ejecutando una tarea</span>
+        }
+    }
+}</code></pre></section></div>
+<div class="note">Una página del navegador no puede añadir la cabecera <code>Authorization</code> a un WebSocket, así que usa la cookie de la interfaz web y debe ser servida por el propio gateway.</div>
 <p>Fuera de loopback el gateway habla http plano, así que usa <code>wss://</code> detrás de una de las opciones de <a href="docs-es-network.html">Red y acceso remoto</a> en lugar de enviar el token en claro.</p>
       <h2>Profundizar</h2>
       <ul class="more">

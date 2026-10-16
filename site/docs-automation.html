@@ -48,21 +48,124 @@
       <h1>Updates and scheduled tasks</h1>
       <p class="lead">Stay on the newest verified release, and run tasks on a cadence.</p>
 <h2>Updating</h2>
+<figure class="diagram" role="group" aria-label="How an update is installed"><ol class="flow"><li><b>1</b><strong><code>/update</code></strong><span>Finds the newest release</span></li><li><b>2</b><strong>Download</strong><span>From the release itself</span></li><li><b>3</b><strong>Check</strong><span>Must match <code>SHA256SUMS</code></span></li><li><b>4</b><strong>Install</strong><span>Nothing is installed on a mismatch</span></li><li><b>5</b><strong>Restart</strong><span>A gateway started with <code>-serve</code> does it alone</span></li></ol></figure>
 <p><code>/update</code> installs the newest release. The welcome screen and the browser's sidebar tell you when one exists. The download must match the release's <code>SHA256SUMS</code> or nothing is installed. A gateway started with <code>-serve</code> restarts itself on the new binary; an interface tells you to restart it.</p>
 <p>The gateway reports its own build through <code>motita gateway status</code>, so after installing over an old binary you can tell whether the process still running is the previous one.</p>
 <p>Releases are cut automatically from semantic commits: <code>feat</code> bumps the minor version, <code>fix</code> the patch, and a breaking change the major. The newest version is always shown on the <a href="index.html">home page</a>.</p>
 <h2>Scheduled tasks</h2>
 <p>A <strong>scheduled task</strong> is a task or a plan the gateway submits on its own, on a cadence, with nobody at the keyboard. Each one is a small JSON file in <code>~/.motita/schedules/</code> that you can read and edit by hand.</p>
+<figure class="diagram" role="group" aria-label="How a scheduled task runs"><ol class="flow"><li><b>1</b><strong>The time comes</strong><span><code>every 24h</code> after the last run</span></li><li><b>2</b><strong>The gateway submits it</strong><span>As a plan or a task, nobody at the keyboard</span></li><li><b>3</b><strong>It runs</strong><span>In the session it is pinned to</span></li><li><b>4</b><strong>You see the result</strong><span>In the interface</span></li></ol></figure>
 <ul>
 <li>The cadence is a duration (<code>30m</code>, <code>6h</code>, <code>24h</code>), not cron syntax. <code>every 6h</code> means six hours after the last run.</li>
 <li>The shortest allowed cadence is one minute (<code>schedule.min_every</code>).</li>
 <li>A task can be a <code>plan</code> (read-only) or a <code>task</code>, and can be pinned to a session.</li>
 <li>Create, change, run-now and delete them through <code>/v1/schedules</code>, or from the interface.</li>
 </ul>
-<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"nightly audit","task":"check the logs and report","kind":"plan","every":"24h"}' \
-  http://127.0.0.1:7477/v1/schedules</pre>
+<p>The same call from code, in the most used languages (set <code>MOTITA_TOKEN</code> first):</p>
+<div class="tabs"><input type="radio" name="schedule" id="schedule-sh" aria-label="Shell" checked /><input type="radio" name="schedule" id="schedule-js" aria-label="JavaScript" /><input type="radio" name="schedule" id="schedule-ts" aria-label="TypeScript" /><input type="radio" name="schedule" id="schedule-py" aria-label="Python" /><input type="radio" name="schedule" id="schedule-go" aria-label="Go" /><input type="radio" name="schedule" id="schedule-rust" aria-label="Rust" /><div class="tab-bar"><label for="schedule-sh">Shell</label><label for="schedule-js">JavaScript</label><label for="schedule-ts">TypeScript</label><label for="schedule-py">Python</label><label for="schedule-go">Go</label><label for="schedule-rust">Rust</label></div><section><pre class="code" data-lang="Shell"><code><span class="c"># create a plan that runs every 24 hours</span>
+curl <span class="o">-s</span> <span class="o">-X</span> POST <span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span> \
+  <span class="o">-H</span> <span class="s">&quot;Authorization: Bearer $MOTITA_TOKEN&quot;</span> \
+  <span class="o">-H</span> <span class="s">&quot;Content-Type: application/json&quot;</span> \
+  <span class="o">-d</span> <span class="s">'{&quot;title&quot;:&quot;nightly audit&quot;,&quot;task&quot;:&quot;check the logs and report&quot;,&quot;kind&quot;:&quot;plan&quot;,&quot;every&quot;:&quot;24h&quot;}'</span></code></pre></section><section><pre class="code" data-lang="JavaScript"><code><span class="k">const</span> res = <span class="k">await</span> <span class="f">fetch(</span><span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>, {
+  method: <span class="s">&quot;POST&quot;</span>,
+  headers: {
+    <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + process.env.<span class="t">MOTITA_TOKEN</span>, <span class="c">// the gateway token: motita gateway start -token-only</span>
+    <span class="s">&quot;Content-Type&quot;</span>: <span class="s">&quot;application/json&quot;</span>,
+  },
+  body: <span class="t">JSON</span>.<span class="f">stringify(</span>{
+    title: <span class="s">&quot;nightly audit&quot;</span>,
+    task: <span class="s">&quot;check the logs and report&quot;</span>,
+    kind: <span class="s">&quot;plan&quot;</span>, <span class="c">// create a plan that runs every 24 hours</span>
+    every: <span class="s">&quot;24h&quot;</span>,
+  }),
+});
+console.<span class="f">log(</span><span class="k">await</span> res.<span class="f">json(</span>)); <span class="c">// the schedule, as stored</span></code></pre></section><section><pre class="code" data-lang="TypeScript"><code><span class="k">import</span> { env } <span class="k">from</span> <span class="s">&quot;node:process&quot;</span>;
+
+<span class="k">interface</span> <span class="t">Schedule</span> {
+  title: string;
+  task: string;
+  kind: <span class="s">&quot;plan&quot;</span> | <span class="s">&quot;task&quot;</span>;
+  every: string;
+}
+
+<span class="k">const</span> schedule: <span class="t">Schedule</span> = {
+  title: <span class="s">&quot;nightly audit&quot;</span>,
+  task: <span class="s">&quot;check the logs and report&quot;</span>,
+  kind: <span class="s">&quot;plan&quot;</span>, <span class="c">// create a plan that runs every 24 hours</span>
+  every: <span class="s">&quot;24h&quot;</span>,
+};
+
+<span class="k">const</span> res = <span class="k">await</span> <span class="f">fetch(</span><span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>, {
+  method: <span class="s">&quot;POST&quot;</span>,
+  headers: {
+    <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + env.<span class="t">MOTITA_TOKEN</span>, <span class="c">// the gateway token: motita gateway start -token-only</span>
+    <span class="s">&quot;Content-Type&quot;</span>: <span class="s">&quot;application/json&quot;</span>,
+  },
+  body: <span class="t">JSON</span>.<span class="f">stringify(</span>schedule),
+});
+console.<span class="f">log(</span><span class="k">await</span> res.<span class="f">json(</span>)); <span class="c">// the schedule, as stored</span></code></pre></section><section><pre class="code" data-lang="Python"><code><span class="c"># pip install requests</span>
+<span class="k">import</span> os
+
+<span class="k">import</span> requests
+
+res = requests.<span class="f">post(</span>
+    <span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>,
+    headers={<span class="s">&quot;Authorization&quot;</span>: <span class="s">&quot;Bearer &quot;</span> + os.environ[<span class="s">&quot;MOTITA_TOKEN&quot;</span>]},  <span class="c"># the gateway token: motita gateway start -token-only</span>
+    json={
+        <span class="s">&quot;title&quot;</span>: <span class="s">&quot;nightly audit&quot;</span>,
+        <span class="s">&quot;task&quot;</span>: <span class="s">&quot;check the logs and report&quot;</span>,
+        <span class="s">&quot;kind&quot;</span>: <span class="s">&quot;plan&quot;</span>,  <span class="c"># create a plan that runs every 24 hours</span>
+        <span class="s">&quot;every&quot;</span>: <span class="s">&quot;24h&quot;</span>,
+    },
+)
+<span class="f">print(</span>res.<span class="f">json(</span>))  <span class="c"># the schedule, as stored</span></code></pre></section><section><pre class="code" data-lang="Go"><code><span class="k">package</span> main
+
+<span class="k">import (</span>
+	<span class="s">&quot;fmt&quot;</span>
+	<span class="s">&quot;io&quot;</span>
+	<span class="s">&quot;log&quot;</span>
+	<span class="s">&quot;net/http&quot;</span>
+	<span class="s">&quot;os&quot;</span>
+	<span class="s">&quot;strings&quot;</span>
+)
+
+<span class="k">func</span> <span class="f">main(</span>) {
+	body := strings.<span class="f">NewReader(</span>
+		<span class="s">`{&quot;title&quot;:&quot;nightly audit&quot;,&quot;task&quot;:&quot;check the logs and report&quot;,&quot;kind&quot;:&quot;plan&quot;,&quot;every&quot;:&quot;24h&quot;}`</span>,
+	) <span class="c">// create a plan that runs every 24 hours</span>
+	req, err := http.<span class="f">NewRequest(</span>http.<span class="t">MethodPost</span>, <span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>, body)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	req.<span class="t">Header</span>.<span class="f">Set(</span><span class="s">&quot;Authorization&quot;</span>, <span class="s">&quot;Bearer &quot;</span>+os.<span class="f">Getenv(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)) <span class="c">// the gateway token: motita gateway start -token-only</span>
+	req.<span class="t">Header</span>.<span class="f">Set(</span><span class="s">&quot;Content-Type&quot;</span>, <span class="s">&quot;application/json&quot;</span>)
+
+	res, err := http.<span class="t">DefaultClient</span>.<span class="f">Do(</span>req)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	<span class="k">defer</span> res.<span class="t">Body</span>.<span class="f">Close(</span>)
+	out, _ := io.<span class="f">ReadAll(</span>res.<span class="t">Body</span>)
+	fmt.<span class="f">Println(</span><span class="f">string(</span>out)) <span class="c">// the schedule, as stored</span>
+}</code></pre></section><section><pre class="code" data-lang="Rust"><code><span class="c">// Cargo.toml: reqwest = { version = &quot;0.12&quot;, features = [&quot;blocking&quot;, &quot;json&quot;] }, serde_json = &quot;1&quot;</span>
+<span class="k">use</span> serde_json::{json, <span class="t">Value</span>};
+
+<span class="k">fn</span> <span class="f">main(</span>) -&gt; <span class="t">Result</span>&lt;(), <span class="t">Box</span>&lt;<span class="k">dyn</span> std::error::<span class="t">Error</span>&gt;&gt; {
+    <span class="k">let</span> token = std::env::<span class="f">var(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)?; <span class="c">// the gateway token: motita gateway start -token-only</span>
+    <span class="k">let</span> created: <span class="t">Value</span> = reqwest::blocking::<span class="t">Client</span>::<span class="f">new(</span>)
+        .<span class="f">post(</span><span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>)
+        .<span class="f">bearer_auth(</span>token)
+        .<span class="f">json(</span>&amp;<span class="f">json!(</span>{
+            <span class="s">&quot;title&quot;</span>: <span class="s">&quot;nightly audit&quot;</span>,
+            <span class="s">&quot;task&quot;</span>: <span class="s">&quot;check the logs and report&quot;</span>,
+            <span class="s">&quot;kind&quot;</span>: <span class="s">&quot;plan&quot;</span>, <span class="c">// create a plan that runs every 24 hours</span>
+            <span class="s">&quot;every&quot;</span>: <span class="s">&quot;24h&quot;</span>,
+        }))
+        .<span class="f">send(</span>)?
+        .<span class="f">json(</span>)?;
+    <span class="f">println!(</span><span class="s">&quot;{created}&quot;</span>); <span class="c">// the schedule, as stored</span>
+    <span class="f">Ok(</span>())
+}</code></pre></section></div>
       <h2>Go deeper</h2>
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#scheduled-tasks">Reference: scheduled tasks</a></li>

@@ -49,21 +49,23 @@
       <p class="lead">The same agent from a browser or a phone, served from one port.</p>
 <p>Every motita process is also a <strong>gateway</strong>: it listens on <code>127.0.0.1:7477</code> behind a token, and the terminal you are looking at is just one of its clients. A web page or a phone can join the same conversation, with the same skills and the same history.</p>
 <img src="shots/webui-phone.webp" alt="The browser interface on a phone" class="phone" width="600" height="1298" loading="lazy" />
+<h2>How the pieces connect</h2>
+<figure class="diagram" role="img" aria-label="The terminal, browser, phone and scripts all talk to one gateway, which runs the sessions"><div class="dg-scroll"><svg viewBox="0 0 560 300" width="560" height="300" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah4d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-arrow" x1="79" y1="64" x2="137.5" y2="136" marker-end="url(#ah4)"/><rect class="dg-box" x="20" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="79" y="30" text-anchor="middle">Terminal</text><text class="dg-sub" x="79" y="48" text-anchor="middle">-connect</text><line class="dg-arrow" x1="213" y1="64" x2="232.5" y2="136" marker-end="url(#ah4)"/><rect class="dg-box" x="154" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="213" y="30" text-anchor="middle">Browser</text><text class="dg-sub" x="213" y="48" text-anchor="middle">same port</text><line class="dg-arrow" x1="347" y1="64" x2="327.5" y2="136" marker-end="url(#ah4)"/><rect class="dg-box" x="288" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="347" y="30" text-anchor="middle">Phone</text><text class="dg-sub" x="347" y="48" text-anchor="middle">installed PWA</text><line class="dg-arrow" x1="481" y1="64" x2="422.5" y2="136" marker-end="url(#ah4)"/><rect class="dg-box" x="422" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="481" y="30" text-anchor="middle">Scripts</text><text class="dg-sub" x="481" y="48" text-anchor="middle">HTTP · SSE · WS</text><rect class="dg-box dg-hot" x="90" y="138" width="380" height="52" rx="10"/><text class="dg-title" x="280" y="160" text-anchor="middle">Gateway</text><text class="dg-sub" x="280" y="178" text-anchor="middle">127.0.0.1:7477 · one token</text><line class="dg-arrow" x1="280" y1="190" x2="280" y2="236" marker-end="url(#ah4)"/><rect class="dg-box" x="90" y="238" width="380" height="52" rx="10"/><text class="dg-title" x="280" y="260" text-anchor="middle">Sessions and the agent</text><text class="dg-sub" x="280" y="278" text-anchor="middle">each with its own worktree and sandbox</text></svg></div></figure>
 <h2>The browser interface</h2>
 <p>It is served from the gateway's own port, so there is no second server and no cross-origin setup. Open <code>http://127.0.0.1:7477</code>, paste the token once, and you have chat, projects, settings and the skill library. It installs as an app (PWA) and is compiled into the binary.</p>
 <p>The token is read from <code>~/.motita/gateway.token</code> and printed by <code>motita gateway start</code>.</p>
 <h2>Running the gateway</h2>
-<pre>motita gateway start    <span class="c"># start the service and wait until it answers</span>
+<pre class="code" data-lang="Shell"><code>motita gateway start    <span class="c"># start the service and wait until it answers</span>
 motita gateway status   <span class="c"># is one running, where, and which build</span>
 motita gateway stop
-motita gateway setup    <span class="c"># where it answers: this machine, the LAN, everywhere</span></pre>
+motita gateway setup    <span class="c"># where it answers: this machine, the LAN, everywhere</span></code></pre>
 <p>If a gateway is already running, <code>motita</code> attaches to it and never shuts it down. If none is running, it brings one up for itself and stops it when you leave.</p>
 <h2>The two halves apart</h2>
-<pre><span class="c"># on the machine that runs the commands</span>
-motita -serve -gateway 127.0.0.1:7477
+<pre class="code" data-lang="Shell"><code><span class="c"># on the machine that runs the commands</span>
+motita <span class="o">-serve</span> <span class="o">-gateway</span> <span class="n">127.0</span>.<span class="n">0.1</span>:<span class="n">7477</span>
 
 <span class="c"># anywhere else: no sandbox, no agent in this process</span>
-motita -connect 127.0.0.1:7477 -tui</pre>
+motita <span class="o">-connect</span> <span class="n">127.0</span>.<span class="n">0.1</span>:<span class="n">7477</span> <span class="o">-tui</span></code></pre>
 <p>A <code>-connect</code> client is only an interface, so it runs on a laptop, a tablet or a phone through a tunnel. Reaching it from other machines safely is covered in <a href="docs-network.html">Network and remote access</a>.</p>
 <h2>More than one conversation</h2>
 <p>A gateway holds many sessions at once. The model belongs to the session, so changing it affects that conversation only, and survives a restart. Other programs can drive the same sessions over HTTP, server-sent events or a WebSocket protocol; the reference lists every endpoint.</p>

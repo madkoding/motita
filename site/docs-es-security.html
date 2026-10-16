@@ -51,6 +51,7 @@
 <h2>El piso</h2>
 <p>Algunos comandos se rechazan siempre: formatear discos y editores de particiones, <code>shred</code>, <code>dd</code> hacia una salida, comandos de estado de energía, y <code>rm</code>, <code>mv</code>, <code>cp</code> o <code>ln</code> dirigidos a <code>/</code>, tu home, una ruta del sistema o la carpeta que contiene tu workspace (también tras <code>sudo</code>, <code>xargs</code> o <code>find -exec</code>). <strong>Ninguna clave, variable o flag relaja el piso.</strong></p>
 <h2>Permitir, preguntar, denegar</h2>
+<figure class="diagram" role="group" aria-label="De un comando a su sandbox"><ol class="flow"><li><b>1</b><strong>Un comando</strong><span>El agente quiere ejecutarlo</span></li><li><b>2</b><strong>El piso</strong><span>Formatear, <code>shred</code>, <code>rm /</code>…: se rechaza siempre</span></li><li><b>3</b><strong>El veredicto</strong><span>Permitir, preguntarte o denegar</span></li><li><b>4</b><strong>El sandbox</strong><span>Corre confinado, con límites</span></li></ol><p class="flow-note">El piso nunca se mueve. El veredicto y el sandbox los ajustas tú.</p></figure>
 <table>
 <thead><tr><th>Veredicto</th><th>Cuándo</th></tr></thead>
 <tbody>
