@@ -100,14 +100,15 @@ func (e *loginRefusal) Error() string { return e.msg }
 
 func geminiLogin(ctx context.Context) (loginFlow, error) {
 	cred, err := oauth.GeminiFromADC(oauth.ADCPath(config.HomeDir()), "")
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	if errors.Is(err, fs.ErrNotExist) {
 		return loginFlow{}, &loginRefusal{"gemini_no_gcloud",
 			"Google sign-in is not set up on this computer: paste an AI Studio key instead"}
-	case err != nil:
+	}
+	if err != nil {
 		return loginFlow{}, &loginRefusal{"gemini_bad_login",
 			"The Google login on this computer cannot be used: paste an AI Studio key instead"}
-	case cred.ProjectID == "":
+	}
+	if cred.ProjectID == "" {
 		return loginFlow{}, &loginRefusal{"gemini_no_project",
 			"The Google login has no Google Cloud project: paste an AI Studio key instead"}
 	}
