@@ -24,20 +24,22 @@ function modeLabel(m: Mode): string {
 }
 
 function schemeLabel(s: Scheme): string {
-  switch (s) {
-    case "violet":
-      return t("Violet");
-    case "forest":
-      return t("Forest");
-    case "amber":
-      return t("Amber");
-    case "rose":
-      return t("Rose");
-    case "graphite":
-      return t("Graphite");
-    default:
-      return "Motita";
-  }
+  const labels: Record<Scheme, string> = {
+    motita: "Motita",
+    violet: t("Violet"),
+    forest: t("Forest"),
+    amber: t("Amber"),
+    rose: t("Rose"),
+    graphite: t("Graphite"),
+    slate: t("Slate"),
+    midnight: t("Midnight"),
+    dusk: t("Dusk"),
+    coffee: t("Coffee"),
+    ember: t("Ember"),
+    olive: t("Olive"),
+    sand: t("Sand"),
+  };
+  return labels[s];
 }
 
 // ThemeSettings is the Themes tab: light, dark or the system's choice, and the colour scheme. Each

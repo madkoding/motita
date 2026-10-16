@@ -9,7 +9,7 @@
     if (raw.mode === "light" || raw.mode === "dark") {
       mode = raw.mode;
     }
-    if (/^(motita|violet|forest|amber|rose|graphite)$/.test(raw.scheme)) {
+    if (/^(motita|violet|forest|amber|rose|graphite|slate|midnight|dusk|coffee|ember|olive|sand)$/.test(raw.scheme)) {
       scheme = raw.scheme;
     }
   } catch (e) {

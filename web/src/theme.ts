@@ -10,7 +10,14 @@ export type Scheme =
   | "forest"
   | "amber"
   | "rose"
-  | "graphite";
+  | "graphite"
+  | "slate"
+  | "midnight"
+  | "dusk"
+  | "coffee"
+  | "ember"
+  | "olive"
+  | "sand";
 export interface Theme {
   mode: Mode;
   scheme: Scheme;
@@ -28,6 +35,13 @@ export const SCHEMES: Scheme[] = [
   "amber",
   "rose",
   "graphite",
+  "slate",
+  "midnight",
+  "dusk",
+  "coffee",
+  "ember",
+  "olive",
+  "sand",
 ];
 
 function pick<T extends string>(allowed: readonly T[], v: unknown, d: T): T {
