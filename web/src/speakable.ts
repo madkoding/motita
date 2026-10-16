@@ -328,5 +328,9 @@ function joinAbbreviations(parts: string[]): string[] {
     }
   }
   // A text that ends with the abbreviation keeps it.
-  return out.concat(carry.trim() === "" ? [] : [carry.trim()]);
+  const left = carry.trim();
+  if (left !== "") {
+    out.push(left);
+  }
+  return out;
 }

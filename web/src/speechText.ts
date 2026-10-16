@@ -104,7 +104,7 @@ function writeAbbreviations(text: string, lang: Words): string {
   const table = ABBREVIATIONS[lang];
   return text.replace(ABBREVIATION_PATTERNS[lang], (found, at: number) => {
     const entry = table[found.toLowerCase().replace(/\s+/g, "")];
-    const capital = found.charAt(0) !== found.charAt(0).toLowerCase();
+    const capital = /^\p{Lu}/u.test(found);
     let word = entry.said;
     if (capital) {
       word = word.charAt(0).toUpperCase() + word.slice(1);
@@ -213,6 +213,24 @@ const EN_SCALES = ["", "thousand", "million", "billion"];
 // with a zero, is read digit by digit.
 const MAX_DIGITS = 12;
 
+// ES_TENS_FROM is where Spanish stops having one word per number (veintinueve, then treinta).
+const ES_TENS_FROM = 30;
+
+// esBelowHundred is 0 to 99 in Spanish, as the words that say it (none for 0).
+function esBelowHundred(n: number): string[] {
+  if (n === 0) {
+    return [];
+  }
+  if (n < ES_TENS_FROM) {
+    return [ES_UNITS[n]];
+  }
+  const words = [ES_TENS[Math.floor(n / 10)]];
+  if (n % 10 > 0) {
+    words.push("y", ES_UNITS[n % 10]);
+  }
+  return words;
+}
+
 // esBelowThousand is 1 to 999 in Spanish. before says it stands before a noun or mil, where the
 // one is "un" (veintiún, treinta y un).
 function esBelowThousand(n: number, before: boolean): string {
@@ -225,14 +243,7 @@ function esBelowThousand(n: number, before: boolean): string {
   if (hundreds > 0) {
     words.push(ES_HUNDREDS[hundreds]);
   }
-  if (rest > 0 && rest < 30) {
-    words.push(ES_UNITS[rest]);
-  } else if (rest >= 30) {
-    words.push(ES_TENS[Math.floor(rest / 10)]);
-    if (rest % 10 > 0) {
-      words.push("y", ES_UNITS[rest % 10]);
-    }
-  }
+  words.push(...esBelowHundred(rest));
   const said = words.join(" ");
   if (!before) {
     return said;
@@ -248,10 +259,14 @@ function esCardinal(n: number, before: boolean): string {
   const millions = Math.floor(n / 1e6);
   const rest = n % 1e6;
   const words: string[] = [];
-  if (millions === 1) {
-    words.push("un millón");
-  } else if (millions > 1) {
-    words.push(esThousands(millions, true), "millones");
+  if (millions > 0) {
+    words.push(
+      ...choose(
+        millions === 1,
+        ["un millón"],
+        [esThousands(millions, true), "millones"],
+      ),
+    );
   }
   if (rest > 0) {
     words.push(esThousands(rest, before));
@@ -264,15 +279,33 @@ function esThousands(n: number, before: boolean): string {
   const thousands = Math.floor(n / 1000);
   const rest = n % 1000;
   const words: string[] = [];
-  if (thousands === 1) {
-    words.push("mil");
-  } else if (thousands > 1) {
-    words.push(esBelowThousand(thousands, true), "mil");
+  if (thousands > 0) {
+    words.push(
+      ...choose(
+        thousands === 1,
+        ["mil"],
+        [esBelowThousand(thousands, true), "mil"],
+      ),
+    );
   }
   if (rest > 0) {
     words.push(esBelowThousand(rest, before));
   }
   return words.join(" ");
+}
+
+// EN_TENS_FROM is where English stops having one word per number (nineteen, then twenty).
+const EN_TENS_FROM = 20;
+
+// enBelowHundred is 1 to 99 in English.
+function enBelowHundred(n: number): string {
+  if (n < EN_TENS_FROM) {
+    return EN_UNITS[n];
+  }
+  const unit = n % 10;
+  return (
+    EN_TENS[Math.floor(n / 10)] + choose(unit > 0, "-" + EN_UNITS[unit], "")
+  );
 }
 
 // enBelowThousand is 1 to 999 in English.
@@ -283,13 +316,8 @@ function enBelowThousand(n: number): string {
   if (hundreds > 0) {
     words.push(EN_UNITS[hundreds], "hundred");
   }
-  if (rest > 0 && rest < 20) {
-    words.push(EN_UNITS[rest]);
-  } else if (rest >= 20) {
-    words.push(
-      EN_TENS[Math.floor(rest / 10)] +
-        (rest % 10 > 0 ? "-" + EN_UNITS[rest % 10] : ""),
-    );
+  if (rest > 0) {
+    words.push(enBelowHundred(rest));
   }
   return words.join(" ");
 }
@@ -459,12 +487,8 @@ function writeNumbers(text: string, lang: Words): string {
         return found;
       }
       const next = /^\s+(\p{L}+)/u.exec(text.slice(at + found.length))?.[1];
-      const before =
-        lang === "es" &&
-        !percent &&
-        !parts.decimals &&
-        next !== undefined &&
-        !ONE_STAYS.has(next.toLowerCase());
+      const noun = next !== undefined && !ONE_STAYS.has(next.toLowerCase());
+      const before = lang === "es" && noun && !(percent || parts.decimals);
       const said = [numberWords(parts.whole, lang, before)];
       if (parts.decimals) {
         said.push(
@@ -570,11 +594,9 @@ function setRhythm(text: string, lang: Words | null): string {
     .replace(/^[\s,;:]+/, "")
     .trim();
   if (/[,;:]$/.test(t)) {
-    t = t.slice(0, -1) + ".";
-  } else if (!/[.!?…]$/.test(t)) {
-    t += ".";
+    return t.slice(0, -1) + ".";
   }
-  return t;
+  return t + choose(/[.!?…]$/.test(t), "", ".");
 }
 
 // speechText is a sentence as a Piper voice is given it, in the language it is said in: its

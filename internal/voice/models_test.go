@@ -352,7 +352,8 @@ func TestPrune(t *testing.T) {
 	lib, _ := testLibrary(t)
 	s := ModelFile{Name: "sample.mp3"}
 	lib.Models[0].Sample = &s
-	for _, d := range []string{RuntimeID, "v1", "kokoro", "kokoro-ef_dora", "accel-kokoro", "supertonic", "chatterbox-default", samplesDir} {
+	removed := []string{"kokoro", "kokoro-ef_dora", "accel-kokoro", "supertonic", "chatterbox-default"}
+	for _, d := range append([]string{RuntimeID, "v1", samplesDir}, removed...) {
 		_ = os.MkdirAll(filepath.Join(lib.Dir, d), 0o700)
 	}
 	for _, f := range []string{"v1.mp3", "kokoro-ef_dora.mp3"} {

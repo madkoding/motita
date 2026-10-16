@@ -376,8 +376,9 @@ func (l Library) File(id, name string) (string, bool) {
 	return "", false
 }
 
-// Sum is the SHA-256 the catalog pins for one file of a voice (or of RuntimeID), empty for a name it does not list. The page keeps its own copy of each file and asks
-// again with it, so a file a newer catalog pins anew is fetched again and an unchanged one is not.
+// Sum is the SHA-256 the catalog pins for one file of a voice (or of RuntimeID), empty for a
+// name it does not list. The page keeps its own copy of each file and asks again with it, so a
+// file a newer catalog pins anew is fetched again and an unchanged one is not.
 func (l Library) Sum(id, name string) string {
 	files, _ := l.files(id)
 	for _, f := range files {
@@ -524,8 +525,9 @@ func (l Library) Prune() error {
 	return errors.Join(errs...)
 }
 
-// adopt moves into RuntimeID the runtime files an earlier catalog kept in a voice's own directory (onnxruntime's WebGPU build, once one copy per model that used it), so a
-// voice downloaded then stays downloaded. Its hash was checked when it was kept, as for any file
+// adopt moves into RuntimeID the runtime files an earlier catalog kept in a voice's own
+// directory (onnxruntime's WebGPU build, once one copy per model that used it), so a voice
+// downloaded then stays downloaded. Its hash was checked when it was kept, as for any file
 // on disk; a copy RuntimeID already has, or one of another size, is removed.
 func (l Library) adopt(id string) error {
 	own, _ := l.files(id)
