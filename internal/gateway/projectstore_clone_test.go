@@ -35,10 +35,10 @@ func TestFreeCloneDirPicksNextFreeName(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "x"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := freeCloneDir(dir, "https://example.com/a/b.git", nil); got != dir+"-2" {
+	if got := freeCloneDir(dir, "https://example.com/a/b.git", nil, nil); got != dir+"-2" {
 		t.Fatalf("got %q, want %q", got, dir+"-2")
 	}
-	if got := freeCloneDir(filepath.Join(root, "new"), "https://example.com/a/b.git", nil); got != filepath.Join(
+	if got := freeCloneDir(filepath.Join(root, "new"), "https://example.com/a/b.git", nil, nil); got != filepath.Join(
 		root,
 		"new",
 	) {
