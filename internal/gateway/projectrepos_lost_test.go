@@ -11,7 +11,8 @@ import (
 
 func commitHere(t *testing.T, dir string) {
 	t.Helper()
-	mustGit(t, dir, "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-q", "--allow-empty", "-m", "local work")
+	mustGit(t, dir, "-c", "user.name=t", "-c", "user.email=t@localhost",
+		"commit", "-q", "--allow-empty", "-m", "local work")
 }
 
 // update changes only what the change touches, on the project as it is NOW: a copy taken before a
@@ -117,7 +118,8 @@ func TestADeletedCloneWithUnpublishedCommitsNeedsConfirmation(t *testing.T) {
 	if w := send(t, srv, http.MethodDelete, "/v1/repos/web-client", testToken, ""); w.Code != http.StatusConflict {
 		t.Fatalf("an unpublished commit must stop the deletion: %d %s", w.Code, w.Body)
 	}
-	if w := send(t, srv, http.MethodDelete, "/v1/repos/web-client?force=1", testToken, ""); w.Code != http.StatusNoContent {
+	w := send(t, srv, http.MethodDelete, "/v1/repos/web-client?force=1", testToken, "")
+	if w.Code != http.StatusNoContent {
 		t.Fatalf("a confirmed deletion: %d %s", w.Code, w.Body)
 	}
 }
@@ -153,7 +155,8 @@ func TestAProjectDeletedMidOperationStaysDeleted(t *testing.T) {
 		t.Fatalf("adding: %d", code)
 	}
 	beforeProjectUpdate = func(pid string) { _ = srv2.projects.delete(pid) }
-	if w := send(t, srv2, http.MethodDelete, "/v1/projects/"+id2+"/repos/keep", testToken, ""); w.Code != http.StatusNotFound {
+	w := send(t, srv2, http.MethodDelete, "/v1/projects/"+id2+"/repos/keep", testToken, "")
+	if w.Code != http.StatusNotFound {
 		t.Errorf("a removal from a project deleted meanwhile: %d %s", w.Code, w.Body)
 	}
 	srv3, _, id3 := bareProject(t)

@@ -26,7 +26,10 @@ func TestWsWriteFrameGivesUpOnAClientThatStopsReading(t *testing.T) {
 	}
 
 	closed := make(chan struct{})
-	go func() { cl.close(CloseGoingAway, "bye"); close(closed) }()
+	go func() {
+		cl.close(CloseGoingAway, "bye")
+		close(closed)
+	}()
 	select {
 	case <-closed:
 	case <-time.After(3 * time.Second):

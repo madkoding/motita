@@ -312,6 +312,8 @@ func (s *Server) discardRepoFolder(ctx context.Context, p *Project, repo Project
 		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
 	} else if s.deletesClone(repo) {
 		_ = os.RemoveAll(repo.Dir)
+	} else {
+		// A clone registered from outside the workspace is the user's: it stays where it is.
 	}
 }
 
