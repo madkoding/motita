@@ -571,6 +571,12 @@ function useGitHosts(
     setShowRepoPicker(false);
     setPickForOthers(false);
   }, []);
+  // openRepoPicker opens the picker for the project's main repository, whatever a picker left
+  // unfinished before (a connection cancelled halfway) asked for.
+  const openRepoPicker = useCallback(() => {
+    setPickForOthers(false);
+    setShowRepoPicker(true);
+  }, []);
   const openOtherRepoPicker = useCallback(() => {
     setPickForOthers(true);
     setShowRepoPicker(true);
@@ -583,7 +589,10 @@ function useGitHosts(
     setShowRepoPicker(false);
     setGitConnect({ service, after: "picker" });
   }, []);
-  const closeGitConnect = useCallback(() => setGitConnect(null), []);
+  const closeGitConnect = useCallback(() => {
+    setGitConnect(null);
+    setPickForOthers(false);
+  }, []);
 
   return {
     gitConnect,
@@ -595,6 +604,7 @@ function useGitHosts(
     closeRepoPicker,
     pickForOthers,
     setPickForOthers,
+    openRepoPicker,
     openOtherRepoPicker,
     connectAnother,
     pickerAuthRequired,

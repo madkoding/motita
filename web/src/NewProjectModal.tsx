@@ -110,7 +110,7 @@ function ChooseStart() {
 // RepoAccounts offers the person's own repositories when a git host is connected, and connecting
 // one when none is.
 function RepoAccounts() {
-  const { gitAccounts, setShowRepoPicker, setGitConnect } = useApp().projects;
+  const { gitAccounts, openRepoPicker, setGitConnect } = useApp().projects;
   if (!gitAccounts) {
     return null;
   }
@@ -119,7 +119,7 @@ function RepoAccounts() {
       <button
         type="button"
         class="mt-2 text-sm text-accent underline underline-offset-2"
-        onClick={() => setShowRepoPicker(true)}
+        onClick={() => openRepoPicker()}
       >
         {t("Choose from my repositories")}
       </button>
