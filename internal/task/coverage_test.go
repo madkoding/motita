@@ -318,6 +318,16 @@ func TestQueueSourceSkipsEmptyAndUnreadableClaims(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "a.txt.done")); err != nil {
 		t.Errorf("the empty file must be consumed: %v", err)
 	}
+	// What could not be read was not consumed: it is back under its name, and no longer listed.
+	if _, err := os.Stat(filepath.Join(dir, "b")); err != nil {
+		t.Errorf("an unreadable entry must stay in the queue: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b.done")); !os.IsNotExist(err) {
+		t.Errorf("an unreadable entry must not be marked consumed: %v", err)
+	}
+	if !src.unclaimable[filepath.Join(dir, "b")] {
+		t.Error("an unreadable entry must be left out of later listings")
+	}
 }
 
 // --- API --------------------------------------------------------------------
