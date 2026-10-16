@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/madkoding/motita/internal/browserllm"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/logx"
@@ -214,6 +215,9 @@ type Options struct {
 	// downloaded files are kept. Nil means there are none, and their endpoints answer 501. See
 	// voicemodels.go.
 	VoiceModels *voice.Library
+	// BrowserLLM carries the requests of the browser provider to the tab that runs its model.
+	// Nil means there is none. See browserllm.go.
+	BrowserLLM *browserllm.Broker
 	// TLSListen is a SECOND listener that speaks https, with the PEM pair in TLSCert and
 	// TLSKey. Empty means there is none. It is a second socket, not a mode of the first, so the
 	// local clients keep speaking plain HTTP to loopback and never have to trust a certificate;
@@ -805,6 +809,7 @@ func (s *Server) routes() *http.ServeMux {
 	s.llmLoginRoutes(mux, plain)
 	// Speech input and output, and the local voices: process-wide too. See voiceRoutes.
 	s.voiceRoutes(mux, plain)
+	s.browserLLMRoutes(mux, plain)
 	// How much of the disk the agent reaches: process-wide, every conversation follows it. See
 	// security.go.
 	mux.Handle("GET /v1/security", plain(s.handleGetSecurity))

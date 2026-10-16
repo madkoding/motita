@@ -993,7 +993,7 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 42 of 42 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage**    | **100% in every package that ships** — 43 of 43 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 4,824 across 490 files                                                                                                                                                                                    |
 | **Code vs tests**         | 67,801 lines of Go · 118,518 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |

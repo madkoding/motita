@@ -155,7 +155,9 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
             {t("Providers")}
           </h4>
           <ul class="settings-card" data-testid="llm-providers">
-            {view.providers.map((p) => (
+            {view.providers
+              .filter((p) => p.id !== "browser")
+              .map((p) => (
               <ProviderRow
                 key={p.id}
                 api={api}

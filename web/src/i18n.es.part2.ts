@@ -168,6 +168,20 @@ const more: Record<string, string> = {
   Capable: "Capaz",
   "Very capable": "Muy capaz",
   "Free (local)": "Gratis (local)",
+  "Try it": "Probar",
+  "Asks it for a title, through the gateway, the way the agent would.":
+    "Le pide un título, a través del gateway, como lo haría el agente.",
+  "“{text}” in {seconds} s": "«{text}» en {seconds} s",
+  "Model in this browser": "Modelo en este navegador",
+  "Run a small model in this tab (WebGPU)": "Ejecutar un modelo pequeño en esta pestaña (WebGPU)",
+  "Qwen2.5 0.5B, free. Downloads about {size} once. Then choose it under Summaries below: titles and summaries use it while this tab is open.":
+    "Qwen2.5 0.5B, gratis. Descarga unos {size} una sola vez. Luego elígelo en Resúmenes, más abajo: los títulos y resúmenes lo usan mientras esta pestaña esté abierta.",
+  "The gateway is downloading the model: {pct}%": "El gateway está descargando el modelo: {pct}%",
+  "Loading the model into the graphics card: {pct}%": "Cargando el modelo en la tarjeta gráfica: {pct}%",
+  "Ready: it answers while this tab stays open.": "Listo: responde mientras esta pestaña siga abierta.",
+  "The model could not start: {error}": "El modelo no pudo iniciar: {error}",
+  "This browser or device cannot run it: it needs WebGPU, and a phone is left out.":
+    "Este navegador o dispositivo no puede ejecutarlo: necesita WebGPU, y un celular queda fuera.",
   "Estimated from the model's name": "Estimado a partir del nombre del modelo",
   "Prices checked on {date}.": "Precios revisados el {date}.",
   Cheap: "Económico",

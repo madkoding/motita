@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/onboard"
 )
 
 // refreshingService is the fake that also takes a provider's new key, like the production runner.
@@ -95,6 +96,13 @@ func llmServer(t *testing.T, path string) (*Server, *refreshingService) {
 	return srv, svc
 }
 
+func checkBrowserProvider(t *testing.T, p llmProviderView) {
+	t.Helper()
+	if p.Key != config.KeyNotNeeded || p.Login != "" || len(p.Models) != 1 {
+		t.Errorf("browser = %+v", p)
+	}
+}
+
 func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	llmEnv(t, "")
 	svc := &fakeService{}
@@ -102,9 +110,10 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
 	srv := newTestServer(t, svc)
 	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
-	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != 9 {
+	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != len(onboard.Providers())+1 {
 		t.Fatalf("view = %+v", v)
 	}
+	checkBrowserProvider(t, providerOf(v, "browser"))
 	if p := providerOf(v, "claude-code"); p.Key != config.KeyNotNeeded || p.Login == "" || len(p.Models) == 0 {
 		t.Errorf("claude-code = %+v", p)
 	}

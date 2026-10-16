@@ -642,3 +642,23 @@ test("a kind whose saved model is empty, a provider no option has, and a refused
   assert.equal(form.querySelector("[role=alert]"), null);
   await m.unmount();
 });
+
+test("the model in this browser is offered for summaries only, and never as the default", async () => {
+  const browser = {
+    ...base,
+    id: "browser",
+    name: "Browser (WebGPU)",
+    key: "not_needed",
+    models: [{ id: "qwen2.5-0.5b-instruct", label: "Qwen2.5 0.5B", tier: "basic", cost: "local" }],
+  };
+  const f = fakeApi({ "GET /v1/llm": json(200, { ...VIEW, providers: [...VIEW.providers, browser] }) });
+  const m = await mount(h(ModelSettings, { api: f.api, onNotice() {} }));
+  const options = (id) => [...m.root.querySelector(id).options].map((o) => o.value);
+  assert.deepEqual(options("#llm-default-provider"), ["anthropic", "openai", "ollama"]);
+  assert.deepEqual(options("#llm-task-summary-provider"), ["", "anthropic", "openai", "ollama", "browser"]);
+  assert.deepEqual(options("#llm-task-code-provider"), ["", "anthropic", "openai", "ollama"]);
+  // Its own section above them turns it on; with no WebGPU in this page the switch is off.
+  const box = m.root.querySelector("[data-testid=llm-browser]");
+  assert.equal(box.querySelector("input[role=switch]").disabled, true);
+  await m.unmount();
+});
