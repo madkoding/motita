@@ -85,13 +85,19 @@ function ModelListbox({
       e.preventDefault();
       setOpen(true);
       setActive(step);
-    } else if (e.key === "Escape") {
+      return;
+    }
+    if (e.key === "Escape") {
       setOpen(false);
-    } else if (e.key === "Enter" && open) {
+      return;
+    }
+    if (e.key === "Enter" && open) {
       e.preventDefault();
       pick(active);
     }
   };
+  const close = () => setOpen(false);
+  const keepFocus = (e: MouseEvent) => e.preventDefault();
   const current = options[selected];
   return (
     <div class="llm-listbox">
@@ -108,7 +114,7 @@ function ModelListbox({
         disabled={disabled}
         onClick={toggle}
         onKeyDown={onKey}
-        onBlur={() => setOpen(false)}
+        onBlur={close}
       >
         <span class="llm-listbox-name">{current.label}</span>
         {current.option && <Chips option={current.option} />}
@@ -132,8 +138,9 @@ function ModelListbox({
               aria-selected={i === selected}
               class={choose(i === active, "active", "")}
               // A press must not blur the trigger first, or the list would close before it is read.
-              onMouseDown={(e) => e.preventDefault()}
+              onMouseDown={keepFocus}
               onClick={() => pick(i)}
+              onKeyDown={onKey}
             >
               <span class="llm-listbox-name">{o.label}</span>
               {o.option && <Chips option={o.option} />}
@@ -195,6 +202,10 @@ export function ModelPicker({
   if (options.length === 0) {
     return field;
   }
+  const onPick = (v: string) => {
+    setOther(v === OTHER);
+    onChange(choose(v === OTHER, choose(offered, "", value), v));
+  };
   const choices = [
     ...options.map((o) => ({ id: o.id, label: o.label, option: o })),
     { id: OTHER, label: t("Other…"), option: undefined },
@@ -207,10 +218,7 @@ export function ModelPicker({
         options={choices}
         value={choose(typing, OTHER, value)}
         disabled={disabled}
-        onPick={(v) => {
-          setOther(v === OTHER);
-          onChange(choose(v === OTHER, choose(offered, "", value), v));
-        }}
+        onPick={onPick}
       />
       {typing && field}
       {!typing && <Price option={options.find((o) => o.id === value)} />}
