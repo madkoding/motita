@@ -486,7 +486,27 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   assert.match(text(m.box()), /HTTP 502/);
   tab.test = async () => json({});
   await click(tryButton(m));
-  assert.match(text(m.box()), /“” in 0\.0 s/);
+  assert.match(text(m.box()), /ran in 0\.0 s but answered nothing/);
+  // The result sits in its own visible line, green when it worked and red when not.
+  const result = () =>
+    m.root.querySelector("[data-testid=llm-browser-try-result]");
+  assert.match(result().className, /ff8a8a|7ee0a0/);
+  tab.test = async () => json({ text: "Fix the test", ms: 4200 });
+  await click(tryButton(m));
+  assert.match(result().className, /7ee0a0/);
+  tab.test = async () => json({ error: "no tab" }, 502);
+  await click(tryButton(m));
+  assert.match(result().className, /ff8a8a/);
+  // While it runs, the button and the line say so.
+  let release;
+  tab.test = () =>
+    new Promise((r) => (release = () => r(json({ text: "ok", ms: 1 }))));
+  await act(() => tryButton(m).click());
+  assert.equal(text(result()), "Trying it…");
+  assert.equal(tryButton(m).disabled, true);
+  release();
+  await settle();
+  assert.match(text(m.box()), /“ok” in 0\.0 s/);
 
   await click(sw);
   assert.equal(page.browserModelOn(), false);
