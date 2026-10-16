@@ -60,6 +60,9 @@ func TestGitCodeRunningFormsAreAsked(t *testing.T) {
 		{"diff", "--output=../../.bashrc"},
 		{"log", "-p", "--ext-diff"},
 		{"show", "--textconv", "HEAD:f"},
+		{"diff", "--ext", "a", "b"},
+		{"show", "--textc", "HEAD:f"},
+		{"log", "--out=x"},
 	}
 	for _, args := range asked {
 		if !reachesOutside("git", args) {
@@ -78,5 +81,12 @@ func TestGitCodeRunningFormsAreAsked(t *testing.T) {
 		if reachesOutside("git", args) {
 			t.Errorf("git %v is ordinary local work", args)
 		}
+	}
+}
+
+// TestGitGlobalOptionsWithoutASubcommand: options with no subcommand after them run nothing.
+func TestGitGlobalOptionsWithoutASubcommand(t *testing.T) {
+	if gitGlobalRunsCode([]string{"--no-pager"}) {
+		t.Error("a harmless option alone runs no code")
 	}
 }
