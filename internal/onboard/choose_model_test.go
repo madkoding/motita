@@ -48,10 +48,15 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 // authenticate) before the key prompt.
 func modelAnswers(t *testing.T, p Provider) []string {
 	switch {
-	case p.FetchModels:
+	case p.FetchModels && p.ID == "ollama":
 		stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 		// provider, host (cloud), key, model, anchor, save
 		return []string{p.ID, "2", "dummy-key", "", "3", ""}
+	case p.FetchModels:
+		// Ollama Cloud is only the cloud: no host to ask, then the key and the live catalogue.
+		stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+		// provider, key, model, anchor, save
+		return []string{p.ID, "dummy-key", "", "3", ""}
 	case p.SupportsDirectAuth:
 		// provider, auth (direct), model, anchor (no check), save
 		return []string{p.ID, "1", "", "3", ""}
