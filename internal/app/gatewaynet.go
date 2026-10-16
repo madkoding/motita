@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -141,7 +142,43 @@ func (op Options) askExposure(ctx context.Context, in *bufio.Reader, path string
 		fmt.Fprintln(op.Out, "  and it is all that stands between it and a program that runs commands here.")
 	}
 	fmt.Fprintln(op.Out, "  change it with `motita gateway setup` or in the settings of the web interface.")
-	return op.offerTailscale(ctx, in, listen)
+	if err := op.offerTailscale(ctx, in, listen); err != nil {
+		return err
+	}
+	op.offerAppArmor(in)
+	return nil
+}
+
+// offerAppArmor offers the AppArmor profile that lets commands run without a network, when this
+// machine needs it (Ubuntu 24.04 takes user namespaces from every program), and installs it through
+// sudo when the person says yes. A refusal or a failure is not an error: the choice made above is
+// already saved, and the command to run by hand is printed.
+func (op Options) offerAppArmor(in *bufio.Reader) {
+	if op.AppArmorHint == nil || op.SudoAppArmor == nil || op.AppArmorHint() == "" {
+		return
+	}
+	fmt.Fprintln(op.Out, "\nSANDBOX: this system does not let programs make user namespaces, so commands the")
+	fmt.Fprintln(op.Out, "  agent runs cannot be cut off from the network. A small AppArmor profile for this")
+	fmt.Fprintln(op.Out, "  binary fixes that; nothing else is confined (`motita sandbox apparmor print` shows it).")
+	fmt.Fprint(op.Out, "install it now with sudo [y/N]: ")
+	line, _ := in.ReadString('\n')
+	if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+		fmt.Fprintln(op.Out, "not installed; later: sudo motita sandbox apparmor install")
+		return
+	}
+	if err := op.SudoAppArmor(op.ExePath); err != nil {
+		fmt.Fprintf(op.Err, "the profile was not installed: %v\n  run by hand: sudo motita sandbox apparmor install\n", err)
+		return
+	}
+	fmt.Fprintln(op.Out, "profile installed: restart the gateway to use it.")
+}
+
+// sudoAppArmor is `sudo <this binary> sandbox apparmor install`, with the terminal handed to sudo
+// so it can ask for the password.
+func (op Options) sudoAppArmor(exe string) error {
+	cmd := exec.Command("sudo", exe, "sandbox", "apparmor", "install")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, op.Out, op.Err
+	return cmd.Run()
 }
 
 // readExposure reads the answer, asking again until it is one of the choices.
