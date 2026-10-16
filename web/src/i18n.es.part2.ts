@@ -164,6 +164,17 @@ const more: Record<string, string> = {
     "Elige el modelo con el que empiezan las sesiones nuevas y, si quieres, un modelo para cada tipo de trabajo.",
   "Model per kind of work": "Modelo por tipo de trabajo",
   "Same as default": "Igual que el por defecto",
+  Basic: "Básico",
+  Capable: "Capaz",
+  "Very capable": "Muy capaz",
+  "Free (local)": "Gratis (local)",
+  Cheap: "Económico",
+  Moderate: "Intermedio",
+  Expensive: "Caro",
+  "About {price} per million tokens, read / written":
+    "Unos {price} por millón de tokens, leídos / escritos",
+  "Each model shows how capable it is and what it costs. Use a cheap one for easy pieces and a very capable one for hard pieces. Prices are approximate.":
+    "Cada modelo indica qué tan capaz es y cuánto cuesta. Usa uno económico para las piezas fáciles y uno muy capaz para las difíciles. Los precios son aproximados.",
   "Model for {kind}": "Modelo para {kind}",
   "Other…": "Otro…",
   "Model name, as the provider writes it":

@@ -30,6 +30,12 @@ type llmModelView struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Note  string `json:"note,omitempty"`
+	// Tier, Cost and the prices (USD per million tokens, approximate) are the catalogue's, so the
+	// page can compare models; absent when unknown.
+	Tier     string  `json:"tier,omitempty"`
+	Cost     string  `json:"cost,omitempty"`
+	PriceIn  float64 `json:"price_in,omitempty"`
+	PriceOut float64 `json:"price_out,omitempty"`
 }
 
 // llmProviderView is one provider as the settings draw it.
@@ -168,6 +174,7 @@ func (s *Server) llmViewOf() llmView {
 	for _, p := range onboard.Providers() {
 		pv := s.providerView(cfg, p)
 		pv.Listed = append([]string(nil), s.llmListed[p.ID]...)
+		pv.Models = withInferredFacts(p.ID, pv.Models, pv.Listed)
 		v.Providers = append(v.Providers, pv)
 	}
 	s.llmListedMu.Unlock()
@@ -178,6 +185,26 @@ func (s *Server) llmViewOf() llmView {
 		}
 	}
 	return v
+}
+
+// withInferredFacts adds, for each model the provider listed that the catalogue does not know, an
+// entry with the tier and cost its name supports, so the page can show them. A name that says
+// nothing adds nothing, and no price is ever inferred.
+func withInferredFacts(provider string, models []llmModelView, listed []string) []llmModelView {
+	known := map[string]bool{}
+	for _, m := range models {
+		known[m.ID] = true
+	}
+	for _, id := range listed {
+		if known[id] {
+			continue
+		}
+		known[id] = true
+		if tier, cost := onboard.Infer(provider, id); tier != "" || cost != "" {
+			models = append(models, llmModelView{ID: id, Label: id, Tier: tier, Cost: cost})
+		}
+	}
+	return models
 }
 
 // providerView is one provider of the list.
@@ -203,7 +230,8 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		pv.KeyHint = keyHint(effectiveKey(cfg, p.ID))
 	}
 	for _, m := range p.Models {
-		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note})
+		pv.Models = append(pv.Models, llmModelView{ID: m.ID, Label: m.Label, Note: m.Note,
+			Tier: m.Tier, Cost: m.Cost, PriceIn: m.PriceIn, PriceOut: m.PriceOut})
 	}
 	return pv
 }

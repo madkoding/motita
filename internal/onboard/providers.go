@@ -58,6 +58,16 @@ type Model struct {
 	Label string
 	// Note is a short reason to pick it, shown next to the label.
 	Note string
+	// Tier is how capable it is, to place it in the cheap or the strong slot: basic, mid or
+	// frontier. Empty when unknown.
+	Tier string
+	// Cost is what it costs relative to the others: local (free on your own machine), low, mid or
+	// high. On a plan or subscription it ranks the plan's usage, not a per-token price.
+	Cost string
+	// PriceIn and PriceOut are USD per million input and output tokens, as the vendor listed them
+	// when the catalogue was last revised, so approximate. Zero means no per-token price (a
+	// subscription, a local model) and none is ever guessed.
+	PriceIn, PriceOut float64
 }
 
 // Providers returns the supported providers, in the order they are offered.
@@ -86,10 +96,14 @@ func openAIProvider() Provider {
 		ConsoleURL:     "https://platform.openai.com/api-keys",
 		AskBaseURL:     true,
 		Models: []Model{
-			{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "cheap and fast, the right default"},
-			{ID: "gpt-5", Label: "GPT-5", Note: "strongest reasoning, more expensive"},
-			{ID: "gpt-4.1", Label: "GPT-4.1", Note: "no reasoning step, honours temperature"},
-			{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest"},
+			{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "cheap and fast, the right default",
+				Tier: "mid", Cost: "low", PriceIn: 0.25, PriceOut: 2},
+			{ID: "gpt-5", Label: "GPT-5", Note: "strongest reasoning, more expensive",
+				Tier: "frontier", Cost: "mid", PriceIn: 1.25, PriceOut: 10},
+			{ID: "gpt-4.1", Label: "GPT-4.1", Note: "no reasoning step, honours temperature",
+				Tier: "mid", Cost: "mid", PriceIn: 2, PriceOut: 8},
+			{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest",
+				Tier: "basic", Cost: "low", PriceIn: 0.15, PriceOut: 0.6},
 		},
 	}
 }
@@ -108,9 +122,11 @@ func codexProvider() Provider {
 		ConsoleURL:         "https://platform.openai.com/api-keys",
 		SupportsDirectAuth: true,
 		Models: []Model{
-			{ID: "gpt-5.2-codex", Label: "GPT-5.2 Codex", Note: "agentic coding, strongest"},
-			{ID: "gpt-5.1-codex", Label: "GPT-5.1 Codex", Note: "agentic coding, previous gen"},
-			{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, first gen"},
+			{ID: "gpt-5.2-codex", Label: "GPT-5.2 Codex", Note: "agentic coding, strongest",
+				Tier: "frontier", Cost: "high"},
+			{ID: "gpt-5.1-codex", Label: "GPT-5.1 Codex", Note: "agentic coding, previous gen",
+				Tier: "frontier", Cost: "mid"},
+			{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, first gen", Tier: "frontier", Cost: "mid"},
 		},
 	}
 }
@@ -129,10 +145,12 @@ func copilotProvider() Provider {
 		// The ids the Copilot API uses, which are NOT the vendors' own: Copilot
 		// answers "claude-sonnet-4", and refuses "claude-sonnet-4-20250514".
 		Models: []Model{
-			{ID: "gpt-4.1", Label: "Copilot: GPT-4.1", Note: "included in every plan"},
-			{ID: "gpt-5-mini", Label: "Copilot: GPT-5 mini", Note: "included in every plan"},
-			{ID: "claude-sonnet-4", Label: "Copilot: Claude Sonnet 4", Note: "premium requests"},
-			{ID: "gemini-2.5-pro", Label: "Copilot: Gemini 2.5 Pro", Note: "premium requests"},
+			{ID: "gpt-4.1", Label: "Copilot: GPT-4.1", Note: "included in every plan", Tier: "mid", Cost: "low"},
+			{ID: "gpt-5-mini", Label: "Copilot: GPT-5 mini", Note: "included in every plan", Tier: "mid", Cost: "low"},
+			{ID: "claude-sonnet-4", Label: "Copilot: Claude Sonnet 4", Note: "premium requests",
+				Tier: "frontier", Cost: "mid"},
+			{ID: "gemini-2.5-pro", Label: "Copilot: Gemini 2.5 Pro", Note: "premium requests",
+				Tier: "frontier", Cost: "mid"},
 		},
 	}
 }
@@ -151,14 +169,18 @@ func ollamaProvider() Provider {
 		// is offered when the API cannot be reached, so the wizard never leaves
 		// the user with an empty menu and no idea what to type.
 		Models: []Model{
-			{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model"},
-			{ID: "qwen3.5:397b", Label: "qwen3.5:397b", Note: "large open model"},
-			{ID: "deepseek-v4.1-flash", Label: "deepseek-v4.1-flash", Note: "fast and inexpensive"},
-			{ID: "glm-5.3", Label: "glm-5.3", Note: "strong reasoning"},
-			{ID: "kimi-k2.6", Label: "kimi-k2.6", Note: "long context"},
-			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick"},
-			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight"},
-			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box"},
+			{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model",
+				Tier: "mid", Cost: "local"},
+			{ID: "qwen3.5:397b", Label: "qwen3.5:397b", Note: "large open model", Tier: "frontier", Cost: "local"},
+			{ID: "deepseek-v4.1-flash", Label: "deepseek-v4.1-flash", Note: "fast and inexpensive",
+				Tier: "mid", Cost: "local"},
+			{ID: "glm-5.3", Label: "glm-5.3", Note: "strong reasoning", Tier: "frontier", Cost: "local"},
+			{ID: "kimi-k2.6", Label: "kimi-k2.6", Note: "long context", Tier: "frontier", Cost: "local"},
+			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick", Tier: "basic", Cost: "local"},
+			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight",
+				Tier: "basic", Cost: "local"},
+			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box",
+				Tier: "basic", Cost: "local"},
 		},
 		FetchModels: true,
 	}
@@ -178,9 +200,12 @@ func anthropicProvider() Provider {
 		EnvKey:         "ANTHROPIC_API_KEY",
 		ConsoleURL:     "https://console.anthropic.com/settings/keys",
 		Models: []Model{
-			{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Note: "the right default"},
-			{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Note: "strongest, more expensive"},
-			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast"},
+			{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Note: "the right default",
+				Tier: "frontier", Cost: "mid", PriceIn: 2, PriceOut: 10},
+			{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Note: "strongest, more expensive",
+				Tier: "frontier", Cost: "high", PriceIn: 4, PriceOut: 20},
+			{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast",
+				Tier: "mid", Cost: "low", PriceIn: 1, PriceOut: 5},
 		},
 	}
 }
@@ -197,10 +222,10 @@ func claudeCodeProvider() Provider {
 		ConsoleURL: "https://code.claude.com/docs/en/setup",
 		Login:      "claude auth login",
 		Models: []Model{
-			{ID: "sonnet", Label: "Sonnet", Note: "the right default"},
-			{ID: "opus", Label: "Opus"},
-			{ID: "haiku", Label: "Haiku"},
-			{ID: "fable", Label: "Fable"},
+			{ID: "sonnet", Label: "Sonnet", Note: "the right default", Tier: "frontier", Cost: "mid"},
+			{ID: "opus", Label: "Opus", Tier: "frontier", Cost: "high"},
+			{ID: "haiku", Label: "Haiku", Tier: "mid", Cost: "low"},
+			{ID: "fable", Label: "Fable", Tier: "frontier", Cost: "high"},
 		},
 	}
 }
@@ -217,9 +242,12 @@ func geminiProvider() Provider {
 		ConsoleURL:         "https://aistudio.google.com/apikey",
 		SupportsDirectAuth: true,
 		Models: []Model{
-			{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "cheap and fast"},
-			{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning"},
-			{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest"},
+			{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "cheap and fast",
+				Tier: "mid", Cost: "low", PriceIn: 0.3, PriceOut: 2.5},
+			{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning",
+				Tier: "frontier", Cost: "mid", PriceIn: 1.25, PriceOut: 10},
+			{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest",
+				Tier: "basic", Cost: "low", PriceIn: 0.1, PriceOut: 0.4},
 		},
 	}
 }
@@ -237,9 +265,12 @@ func qwenProvider() Provider {
 		ConsoleURL:         "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",
 		SupportsDirectAuth: true,
 		Models: []Model{
-			{ID: "qwen3-coder-plus", Label: "Qwen3 Coder Plus", Note: "agentic coding, the right default"},
-			{ID: "qwen3-coder-flash", Label: "Qwen3 Coder Flash", Note: "faster and cheaper"},
-			{ID: "qwen-max", Label: "Qwen Max", Note: "general reasoning (DashScope key)"},
+			{ID: "qwen3-coder-plus", Label: "Qwen3 Coder Plus", Note: "agentic coding, the right default",
+				Tier: "mid", Cost: "mid"},
+			{ID: "qwen3-coder-flash", Label: "Qwen3 Coder Flash", Note: "faster and cheaper",
+				Tier: "basic", Cost: "low"},
+			{ID: "qwen-max", Label: "Qwen Max", Note: "general reasoning (DashScope key)",
+				Tier: "frontier", Cost: "mid"},
 		},
 	}
 }

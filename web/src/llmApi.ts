@@ -19,6 +19,13 @@ export interface LLMModel {
   id: string;
   label: string;
   note?: string;
+  // How capable it is (basic, mid, frontier), what it costs relative to the others (local, low,
+  // mid, high) and its approximate USD price per million input and output tokens. All optional:
+  // a model the catalogue does not know carries none, and none is ever guessed.
+  tier?: string;
+  cost?: string;
+  price_in?: number;
+  price_out?: number;
 }
 
 export interface LLMProvider {
@@ -256,18 +263,79 @@ export function trialOf(
   return out;
 }
 
+export interface ModelOption {
+  id: string;
+  label: string;
+  tier?: string;
+  cost?: string;
+  price_in?: number;
+  price_out?: number;
+}
+
 // modelOptions are the models a provider offers, by name where its catalogue gives one: the ones
-// its last test listed, else its catalogue.
-export function modelOptions(
-  p: LLMProvider | undefined,
-): { id: string; label: string }[] {
+// its last test listed, else its catalogue. The catalogue's tier, cost and prices ride along.
+export function modelOptions(p: LLMProvider | undefined): ModelOption[] {
   if (!p) {
     return [];
   }
-  const label = (id: string) => p.models.find((m) => m.id === id)?.label || id;
+  const known = (id: string) => p.models.find((m) => m.id === id);
   let ids = p.models.map((m) => m.id);
   if (p.listed_models?.length) {
     ids = p.listed_models;
   }
-  return ids.map((id) => ({ id, label: label(id) }));
+  return ids.map((id) => {
+    const m = known(id);
+    const facts: Partial<ModelOption> = {};
+    for (const k of ["tier", "cost", "price_in", "price_out"] as const) {
+      if (m?.[k] !== undefined) {
+        Object.assign(facts, { [k]: m[k] });
+      }
+    }
+    return { id, label: m?.label || id, ...facts };
+  });
+}
+
+// Cost and capability in plain words, with the number of marks (out of 3) that draw them. The
+// words are English here; the page translates them.
+// The most marks a meter draws.
+const TOP = 3;
+const COST: Record<string, [string, number]> = {
+  local: ["Free (local)", 0],
+  low: ["Cheap", 1],
+  mid: ["Moderate", 2],
+  high: ["Expensive", TOP],
+};
+const TIER: Record<string, [string, number]> = {
+  basic: ["Basic", 1],
+  mid: ["Capable", 2],
+  frontier: ["Very capable", TOP],
+};
+
+// costLabel is how much a model costs in a word ("Cheap"), or "" when unknown.
+export function costLabel(cost: string | undefined): string {
+  return COST[cost || ""]?.[0] || "";
+}
+
+// costLevel is 0 (free) to 3 (expensive), for a cost costLabel named.
+export function costLevel(cost: string | undefined): number {
+  return COST[cost as string][1];
+}
+
+// tierLabel is how capable a model is in a word ("Very capable"), or "" when unknown.
+export function tierLabel(tier: string | undefined): string {
+  return TIER[tier || ""]?.[0] || "";
+}
+
+// tierLevel is 1 (basic) to 3 (very capable), for a tier tierLabel named.
+export function tierLevel(tier: string | undefined): number {
+  return TIER[tier as string][1];
+}
+
+// priceText is "$1.25 / $10" (read / written, per million tokens), or "" without a per-token price.
+export function priceText(o: ModelOption): string {
+  if (!o.price_in || !o.price_out) {
+    return "";
+  }
+  const n = (v: number) => `$${Number(v.toFixed(2))}`;
+  return `${n(o.price_in)} / ${n(o.price_out)}`;
 }

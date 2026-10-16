@@ -1252,7 +1252,11 @@ are started by that session's run, and another session never sees them.
 | `PUT /v1/llm/tasks`  | `{"tasks":{"plan":{"provider":"anthropic","model":"…"}}}` replaces the whole set (a kind left out follows the default); `409` when a provider has no key |
 
 `GET /v1/llm` also answers `task_kinds`, `tasks` and, per provider, `listed_models` (what its
-last connection test listed).
+last connection test listed). Each catalogue model may carry `tier` (`basic`, `mid`,
+`frontier`), `cost` (`local`, `low`, `mid`, `high`) and `price_in` / `price_out` (approximate USD per
+million tokens, from `internal/onboard/providers.go`, revised by hand; absent for subscriptions and
+local models), which Settings → Models shows next to each model. A model a provider lists that the
+catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price).
 
 ### Voice input
 
