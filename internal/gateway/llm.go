@@ -174,6 +174,7 @@ func (s *Server) llmViewOf() llmView {
 	for _, p := range onboard.Providers() {
 		pv := s.providerView(cfg, p)
 		pv.Listed = append([]string(nil), s.llmListed[p.ID]...)
+		pv.Models = withInferredFacts(p.ID, pv.Models, pv.Listed)
 		v.Providers = append(v.Providers, pv)
 	}
 	s.llmListedMu.Unlock()
@@ -184,6 +185,26 @@ func (s *Server) llmViewOf() llmView {
 		}
 	}
 	return v
+}
+
+// withInferredFacts adds, for each model the provider listed that the catalogue does not know, an
+// entry with the tier and cost its name supports, so the page can show them. A name that says
+// nothing adds nothing, and no price is ever inferred.
+func withInferredFacts(provider string, models []llmModelView, listed []string) []llmModelView {
+	known := map[string]bool{}
+	for _, m := range models {
+		known[m.ID] = true
+	}
+	for _, id := range listed {
+		if known[id] {
+			continue
+		}
+		known[id] = true
+		if tier, cost := onboard.Infer(provider, id); tier != "" || cost != "" {
+			models = append(models, llmModelView{ID: id, Label: id, Tier: tier, Cost: cost})
+		}
+	}
+	return models
 }
 
 // providerView is one provider of the list.
