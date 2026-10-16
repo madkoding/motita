@@ -19,6 +19,7 @@ import { t, useLang, type LangSetting } from "./i18n";
 import { SettingsModal } from "./Settings";
 import { GitConnectModal } from "./GitConnect";
 import { RepoPicker } from "./RepoPicker";
+import { FolderBrowser } from "./FolderBrowser";
 import { knownRepos } from "./projectRepos";
 import { connectedAccounts } from "./gitApi";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
@@ -615,12 +616,25 @@ function ProjectModals() {
     showRepoPicker,
     gitAccounts,
     gitConnect,
+    folderPicker,
   } = projects;
   return (
     <>
       {editProject && <EditProjectModal p={editProject} />}
       {showNewProject && <NewProjectModal />}
       {showGitIdentity && <GitIdentityModal />}
+      {folderPicker && (
+        <FolderBrowser
+          api={request}
+          start={choose(
+            folderPicker === "edit",
+            projects.editProject?.path || projects.editProject?.dir,
+            projects.newProjectPath,
+          )}
+          onPick={projects.pickFolder}
+          onClose={projects.closeFolderPicker}
+        />
+      )}
       {showRepoPicker && gitAccounts && (
         <RepoPicker
           api={request}

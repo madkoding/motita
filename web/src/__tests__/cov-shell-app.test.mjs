@@ -53,6 +53,7 @@ component("./Composer", ["Composer"]);
 component("./Settings", ["SettingsModal"]);
 component("./GitConnect", ["GitConnectModal"]);
 component("./RepoPicker", ["RepoPicker"]);
+component("./FolderBrowser", ["FolderBrowser"]);
 component("./EditProjectModal", ["EditProjectModal"]);
 component("./NewProjectModal", ["NewProjectModal"]);
 component("./GitIdentityModal", ["GitIdentityModal"]);
@@ -157,6 +158,10 @@ function makeStore(log) {
       showNewProject: false,
       showGitIdentity: false,
       showRepoPicker: false,
+      folderPicker: null,
+      newProjectPath: "",
+      pickFolder: fn("pickFolder"),
+      closeFolderPicker: fn("closeFolderPicker"),
       repoCatalog: [],
       gitAccounts: null,
       gitConnect: null,
@@ -415,6 +420,7 @@ test("with a session the chat column has the header, the conversation, the drawe
     "NewProjectModal",
     "GitIdentityModal",
     "RepoPicker",
+    "FolderBrowser",
     "GitConnectModal",
     "ModelSwitcherModal",
     "ConfirmDeleteModal",
@@ -595,6 +601,39 @@ test("the project dialogs open from the store, and the repo picker only with acc
       "pickerAuthRequired",
     ],
   );
+  await ctl.done();
+});
+
+test("the folder browser opens on the folder of the dialog that asked for it", async () => {
+  const ctl = await mountApp((s) => {
+    s.projects.folderPicker = "new";
+    s.projects.newProjectPath = "/srv/app";
+  });
+  const { root } = ctl;
+  assert.ok(stubEl(root, "FolderBrowser"));
+  assert.equal(lastProps("FolderBrowser").start, "/srv/app");
+  assert.equal(lastProps("FolderBrowser").api, ctl.api);
+  lastProps("FolderBrowser").onPick("/srv/app");
+  lastProps("FolderBrowser").onClose();
+  assert.deepEqual(
+    ctl.log.map((e) => e[0]),
+    ["pickFolder", "closeFolderPicker"],
+  );
+  await ctl.set((s) => {
+    s.projects = {
+      ...s.projects,
+      folderPicker: "edit",
+      editProject: { id: "p1", dir: "/ws/a", path: "/mnt/b" },
+    };
+  });
+  assert.equal(lastProps("FolderBrowser").start, "/mnt/b");
+  await ctl.set((s) => {
+    s.projects = {
+      ...s.projects,
+      editProject: { id: "p1", dir: "/ws/a", path: "" },
+    };
+  });
+  assert.equal(lastProps("FolderBrowser").start, "/ws/a");
   await ctl.done();
 });
 

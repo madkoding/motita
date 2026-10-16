@@ -706,6 +706,8 @@ test("the edit dialog starts from the project's values and the gateway's branche
     prMaxFixes: 3,
     autoMerge: true,
     autoContinue: true,
+    dir: "/ws/motita",
+    path: "",
     mainRepo: {
       name: "motita",
       source: "https://github.com/u/motita.git",
@@ -735,6 +737,8 @@ test("a project with no settings yet gets the defaults", async () => {
     prMaxFixes: 0,
     autoMerge: false,
     autoContinue: false,
+    dir: "/ws/bare/",
+    path: "",
     mainRepo: { name: "bare", source: "/ws/bare/", movable: false },
     repos: [],
   });

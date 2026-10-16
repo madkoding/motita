@@ -261,6 +261,9 @@ jobs:
       - name: the Windows procedures are served
         run: go test -count=1 -run 'Variant|Windows' ./internal/skills/
 
+      - name: the folder browser reaches Windows drives
+        run: go test -count=1 -run 'OnWindowsDrives|WindowsSystemFolders' ./internal/gateway/
+
   # The name branch protection requires. The checks it stood for are now three jobs that run
   # in parallel, so this job carries the old name and passes only when all three passed.
   # `always()` plus the explicit check matter: a required job that is SKIPPED counts as

@@ -1,6 +1,25 @@
 // The second half of the Spanish dictionary; i18n.es.ts has the first and merges the two.
 
 const more: Record<string, string> = {
+  "This computer": "Este equipo",
+  "New folder name": "Nombre de la carpeta nueva",
+  "This folder holds the system's own files. A project here puts the agent among them.":
+    "Esta carpeta guarda los archivos del propio sistema. Un proyecto aquí deja al agente entre ellos.",
+  "Choose a folder": "Elige una carpeta",
+  "Choose a folder…": "Elegir una carpeta…",
+  "Choose another folder…": "Elegir otra carpeta…",
+  "Use this folder": "Usar esta carpeta",
+  "No folders in here": "No hay carpetas aquí",
+  Up: "Subir",
+  Home: "Inicio",
+  Location: "Ubicación",
+  Folder: "Carpeta",
+  "Use the workspace": "Usar el workspace",
+  "Keep the current one": "Dejar la actual",
+  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.":
+    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual y nunca se borra junto con el proyecto.",
+  "Nothing is moved: the project points at that folder. Not possible while it has sessions or other repositories.":
+    "No se mueve nada: el proyecto apunta a esa carpeta. No se puede mientras tenga sesiones u otros repositorios.",
   "This browser cannot record audio.": "Este navegador no puede grabar audio.",
   "Off on the gateway: set voice.enabled in the configuration.":
     "Desactivado en el gateway: activa voice.enabled en la configuración.",
