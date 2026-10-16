@@ -288,6 +288,7 @@ var esTUI = map[string]string{
 	"deciding action (round %s/%s)...":      "decidiendo la acción (ronda %s/%s)...",
 	"waiting for %s background agent(s)...": "esperando a %s agente(s) en segundo plano...",
 	"plan ready: %s steps":                  "plan listo: %s pasos",
+	"plan ready: %s step":                   "plan listo: %s paso",
 
 	// The input box's title.
 	"Approve":                              "Aprobar",

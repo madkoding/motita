@@ -241,6 +241,7 @@ var activityForms = []struct {
 }{
 	{regexp.MustCompile(`^deciding action \(round (\d+)/(\d+)\)\.\.\.$`), "deciding action (round %s/%s)..."},
 	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`), "waiting for %s background agent(s)..."},
+	{regexp.MustCompile(`^plan ready: (1) steps?$`), "plan ready: %s step"},
 	{regexp.MustCompile(`^plan ready: (\d+) steps?$`), "plan ready: %s steps"},
 }
 
