@@ -147,7 +147,7 @@ func TestGeminiLoginUsesGcloud(t *testing.T) {
 	adc := filepath.Join(t.TempDir(), "adc.json")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
 	_, err := geminiLogin(context.Background())
-	if c := refusalCode(err); c != "gemini_no_gcloud" {
+	if c := refusalCode(err); c != "gemini_no_gcloud" || !strings.Contains(err.Error(), "AI Studio key") {
 		t.Errorf("no gcloud login: %q %v", c, err)
 	}
 	_ = os.WriteFile(adc, []byte(`not json`), 0o600)
