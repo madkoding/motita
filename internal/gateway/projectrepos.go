@@ -137,6 +137,11 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 			"choose another name for the repository", name))
 		return
 	}
+	// The catalog is one folder for every project: a second project asking for the same repository
+	// waits for the clone of the first instead of finding it half made, and a deletion cannot
+	// take the clone between this project's use of it and the save that records it.
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
 	ctx := r.Context()
 	repo, err := s.placeRepo(ctx, p, name, gitURL, dest)
 	if err != nil {
@@ -433,6 +438,8 @@ var removeAll = os.RemoveAll
 // handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
 // in it stops the deletion, unless the user confirmed the discard with `?force=1`.
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
 	dir := s.catalogRepoDir(r.PathValue("name"))
 	if dir == "" {
 		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")

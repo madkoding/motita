@@ -296,6 +296,8 @@ type Server struct {
 	projects *projectStore
 	// repoLocks holds one mutex per project id: see lockProjectRepos.
 	repoLocks sync.Map
+	// catalogMu serialises what adds a repository to the catalog and what deletes one from it.
+	catalogMu sync.Mutex
 	// schedules persists the tasks that fire on their own. nil when no directory was
 	// configured, which means scheduling is off.
 	schedules *schedule.Store
