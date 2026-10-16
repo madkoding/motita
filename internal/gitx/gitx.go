@@ -127,9 +127,9 @@ func gitArgs(ctx context.Context, dir string, args ...string) []string {
 	return append(full, args...)
 }
 
-// neutralizeLocalConfig reads dir's LOCAL config and returns the -c overrides that disarm every
-// variable whose value git would run as a command. It is local-only on purpose: the system and
-// global scopes are the machine owner's (git-lfs installs filter.lfs.* in the system scope, and
+// neutralizeLocalConfig reads dir's repository-controlled config and returns the -c overrides that disarm every
+// variable whose value git would run as a command. It skips the system and global scopes on purpose: those are
+// the machine owner's (git-lfs installs filter.lfs.* in the system scope, and
 // that filter must keep working), while the local scope - .git/config - is exactly what an agent
 // or a cloned project can rewrite. A repository that sets no such key gets no override, and a dir
 // that is not a repository, or a machine with no git, reports nothing: the caller still runs with
@@ -145,22 +145,28 @@ func neutralizeLocalConfig(ctx context.Context, dir string) []string {
 	return over
 }
 
-// localConfigNames lists the names of dir's local config variables, in the order git reports
-// them. A failure (not a repository, no local config, no git) is reported as no names: there is
-// then nothing to neutralize.
+// localConfigNames lists the names of dir's repository-controlled config variables (the local and
+// worktree scopes), in the order git reports them. It is listed WITHOUT --local on
+// purpose: --local turns include resolution off and skips config.worktree, so a
+// [include] path = ... or extensions.worktreeConfig in .git/config would hide a filter driver
+// from the list while git still applies it. With --show-scope each name is preceded by its scope
+// (NUL-separated), and the included files report the scope of the file that includes them. A
+// failure (not a repository, no local config, no git) is
+// reported as no names: there is then nothing to neutralize.
 func localConfigNames(ctx context.Context, dir string) []string {
 	c, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	full := append([]string{"-C", dir}, hardening...)
-	full = append(full, "config", "--local", "--list", "--name-only", "-z")
+	full = append(full, "config", "--list", "--name-only", "--show-scope", "-z")
 	out, err := execCommand(c, "git", full...)
 	if err != nil {
 		return nil
 	}
+	fields := strings.Split(string(out), "\x00")
 	var names []string
-	for _, n := range strings.Split(string(out), "\x00") {
-		if n != "" {
-			names = append(names, n)
+	for i := 0; i+1 < len(fields); i += 2 {
+		if scope := fields[i]; scope == "local" || scope == "worktree" {
+			names = append(names, fields[i+1])
 		}
 	}
 	return names

@@ -216,3 +216,22 @@ func TestHardeningIsACopy(t *testing.T) {
 		t.Error("the package's hardening changed through a copy")
 	}
 }
+
+// TestNeutralizeSeesIncludesAndWorktreeConfig: --local would hide a driver that .git/config pulls
+// in through [include] or that config.worktree defines, while git still applies it. Both must be
+// neutralized, and a machine-owner scope must not be.
+func TestNeutralizeSeesIncludesAndWorktreeConfig(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	extra := filepath.Join(t.TempDir(), "x.cfg")
+	write(t, extra, "[filter \"inc\"]\n\tclean = true\n")
+	git(t, repo, "config", "include.path", extra)
+	git(t, repo, "config", "extensions.worktreeConfig", "true")
+	git(t, repo, "config", "--worktree", "diff.wt.textconv", "true")
+	over := strings.Join(neutralizeLocalConfig(ctx, repo), " ")
+	for _, want := range []string{"-c filter.inc.clean=", "-c diff.wt.textconv="} {
+		if !strings.Contains(over, want) {
+			t.Errorf("override %q missing from %q", want, over)
+		}
+	}
+}
