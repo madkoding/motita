@@ -225,6 +225,10 @@ func TestClassifyPieceDefaultsToStrong(t *testing.T) {
 	if got := classifierRunner(t, "HARD").classifyPiece(context.Background(), "p", "b"); got != config.TaskStrong {
 		t.Errorf("HARD = %q, want strong", got)
 	}
+	many := "touch a.go b.go c.go d.go and keep the files in step"
+	if got := classifierRunner(t, "EASY").classifyPiece(context.Background(), "p", many); got != config.TaskStrong {
+		t.Errorf("a brief naming many files = %q, want strong without asking", got)
+	}
 	ctx, stop := context.WithCancel(context.Background())
 	stop()
 	if got := classifierRunner(t, "EASY").classifyPiece(ctx, "p", "b"); got != config.TaskStrong {
@@ -262,5 +266,18 @@ func TestRunTaskHandsTheAgentTheTiers(t *testing.T) {
 	}
 	if ag.engine == nil || ag.classify == nil || ag.engine(config.TaskCheap) != nil {
 		t.Error("the agent was not handed the session's tiers")
+	}
+}
+
+// pieceSignals counts the different files a brief names and notices tests.
+func TestPieceSignals(t *testing.T) {
+	if f, tests := pieceSignals("edit main.go and main.go, then util/x.ts"); f != 2 || tests {
+		t.Errorf("files=%d tests=%v, want 2 false", f, tests)
+	}
+	if _, tests := pieceSignals("Añade la prueba"); !tests { // spanish-fixture: a brief in Spanish
+		t.Error("a Spanish brief that asks for a test")
+	}
+	if _, tests := pieceSignals("add a Test"); !tests {
+		t.Error("an English one")
 	}
 }

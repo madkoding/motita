@@ -1225,11 +1225,15 @@ models:
 ```
 
 **Tiers (cheap / strong).** With `cheap` assigned, every `spawn_agent` that writes is judged by
-the summary model (a one-word EASY/HARD call; any doubt or failure means strong) and routed to
+the summary model (a one-word EASY/HARD call that also sees how many different files the brief names and whether it
+involves tests; a brief naming four or more files is strong without asking; any doubt or failure
+means strong) and routed to
 `cheap` or `strong`; the main agent can also say `"tier": "cheap"` or `"strong"` itself. A cheap
 agent that ends without passing is run again on `strong` (the coding model when `strong` is
 empty) in the same worktree, told what the first attempt left. Its report names the tier(s) and
 the tokens of the last attempt, and the agents panel shows the tier and tokens of every agent.
+Every tiered agent also logs one `background agent tier outcome` line (tier, whether it escalated,
+how it ended, tokens), the data to judge how often the cheap tier is enough.
 With `cheap` empty nothing is routed. `MOTITA_MODELS_CHEAP` and `MOTITA_MODELS_STRONG` override
 the entries.
 

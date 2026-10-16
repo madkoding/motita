@@ -540,6 +540,14 @@ func (a *Agent) finishChild(c *subagent, child *Agent, place childPlace, r TaskR
 		b.WriteString(summary + "\n")
 	}
 	a.fleet.finish(child.member, state, summary)
+	if c.tier != "" {
+		a.subs.mu.Lock()
+		escalated := c.escalated
+		a.subs.mu.Unlock()
+		u := child.member.meter.Usage()
+		a.log.Info("background agent tier outcome", "id", c.id, "tier", c.tier, "escalated", escalated,
+			"state", state, "input_tokens", u.Input, "output_tokens", u.Output)
+	}
 	a.log.Info("background agent finished", "id", c.id, "state", state)
 	a.queueReport(c, b.String())
 }
