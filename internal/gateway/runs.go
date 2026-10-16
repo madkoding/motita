@@ -110,8 +110,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	rn, started := s.startNotedRun(c, d.Prompt, d.Kind, "", d.Note(), s.approverFactory(c))
 	if !started {
-		writeError(w, http.StatusConflict,
-			"a run is already in progress in this session; a conversation is served one run at a time")
+		writeError(w, http.StatusConflict, c.refusalOfRun())
 		return
 	}
 	s.attach(w, r, c, rn, 0)
@@ -146,6 +145,28 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversatio
 	s.startRunWithIntent(w, r, c, task, kind, "")
 }
 
+// msgRunBusy is the refusal of a run while another is going: clients recognise it by its words.
+const msgRunBusy = "a run is already in progress in this session; a conversation is served one run at a time"
+
+// msgSessionClosing is the refusal of a run in a session that is being closed.
+const msgSessionClosing = "this session is being closed: nothing can start in it"
+
+// refusalOfRun says why a run could not start here: the session was integrated or is closing, or,
+// the usual case, another run holds it.
+func (c *conversation) refusalOfRun() string {
+	c.stateMu.Lock()
+	closing := c.closing
+	c.stateMu.Unlock()
+	switch {
+	case c.isMerged():
+		return msgSessionIntegrated
+	case closing:
+		return msgSessionClosing
+	default:
+		return msgRunBusy
+	}
+}
+
 // msgSessionIntegrated is the refusal of new work in a session already integrated into its project.
 const msgSessionIntegrated = "this session has already been integrated into the project; " +
 	"continue in a new session to keep working"
@@ -157,8 +178,7 @@ func (s *Server) startRunWithIntent(
 ) {
 	rn, started := s.startDetachedRun(c, task, kind, intent, s.approverFactory(c))
 	if !started {
-		writeError(w, http.StatusConflict,
-			"a run is already in progress in this session; a conversation is served one run at a time")
+		writeError(w, http.StatusConflict, c.refusalOfRun())
 		return
 	}
 	s.attach(w, r, c, rn, 0)

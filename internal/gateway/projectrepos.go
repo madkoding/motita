@@ -43,6 +43,9 @@ type ProjectRepo struct {
 	// Shared marks a repository of the catalog: Dir is the clone every project that uses it
 	// shares, and the project's folder holds a worktree of it.
 	Shared bool `json:"shared,omitempty"`
+	// ProjectBranch is the branch the project's worktree of a shared repository was made on. Empty
+	// in a project saved before it was recorded: that one is on projectBranch's older name.
+	ProjectBranch string `json:"project_branch,omitempty"`
 	// Branch and Changes are read live, like the project's own.
 	Branch  string `json:"branch,omitempty"`
 	Changes int    `json:"changes,omitempty"`
@@ -90,8 +93,27 @@ func (p *Project) repoPath(repo ProjectRepo) string {
 
 // projectBranch is the branch a project's worktree of a shared repository is on: one of its own,
 // because git checks a branch out in one worktree only, and the catalog's clone has the main one.
-func projectBranch(p *Project) string {
+func projectBranch(p *Project, repo ProjectRepo) string {
+	return cmp.Or(repo.ProjectBranch, legacyProjectBranch(p))
+}
+
+// legacyProjectBranch is the name every project's branch had before it was recorded: project/ and
+// the folder's name.
+func legacyProjectBranch(p *Project) string {
 	return "project/" + filepath.Base(p.Dir)
+}
+
+// freeProjectBranch is the branch a new worktree of the project in the catalog's clone src takes:
+// the usual name, or that name and the start of the project's id when the clone already has a
+// branch by it. Two projects whose folders share a name, or a project made after another of the
+// same name was deleted, would otherwise share a branch, and the new one would start on the work
+// the other left on it.
+func freeProjectBranch(ctx context.Context, src string, p *Project) string {
+	branch := legacyProjectBranch(p)
+	if !gitx.BranchExists(ctx, src, branch) {
+		return branch
+	}
+	return branch + "-" + p.ID[:min(len(p.ID), 8)]
 }
 
 // sessionRepoPath is where a session that runs in workspace finds the project's repository repo.
@@ -137,6 +159,11 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 			"choose another name for the repository", name))
 		return
 	}
+	// The catalog is one folder for every project: a second project asking for the same repository
+	// waits for the clone of the first instead of finding it half made, and a deletion cannot
+	// take the clone between this project's use of it and the save that records it.
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
 	ctx := r.Context()
 	repo, err := s.placeRepo(ctx, p, name, gitURL, dest)
 	if err != nil {
@@ -212,11 +239,7 @@ func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest s
 	src, fresh, err := s.catalogClone(gitURL, name)
 	switch {
 	case err == nil && gitx.HasCommits(ctx, src):
-		mainBranch := settleMainBranch(ctx, src, defaultMainBranch)
-		if err := gitx.AddWorktree(ctx, src, dest, projectBranch(p)); err != nil {
-			return ProjectRepo{}, err
-		}
-		return ProjectRepo{Name: name, GitURL: gitURL, Dir: src, MainBranch: mainBranch, Shared: true}, nil
+		return placeSharedRepo(ctx, p, name, gitURL, src, dest)
 	case fresh:
 		// An empty repository has no commit a worktree could start from: the project takes the clone.
 		err = renamePath(src, dest)
@@ -230,6 +253,18 @@ func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest s
 	}
 	mainBranch := settleMainBranch(ctx, dest, defaultMainBranch)
 	return ProjectRepo{Name: name, GitURL: gitURL, Dir: dest, MainBranch: mainBranch}, nil
+}
+
+// placeSharedRepo adds the project's worktree of the catalog's clone src at dest, on a branch of
+// the project's own.
+func placeSharedRepo(ctx context.Context, p *Project, name, gitURL, src, dest string) (ProjectRepo, error) {
+	mainBranch := settleMainBranch(ctx, src, defaultMainBranch)
+	branch := freeProjectBranch(ctx, src, p)
+	if err := gitx.AddWorktree(ctx, src, dest, branch); err != nil {
+		return ProjectRepo{}, err
+	}
+	return ProjectRepo{Name: name, GitURL: gitURL, Dir: src, MainBranch: mainBranch, Shared: true,
+		ProjectBranch: branch}, nil
 }
 
 // handleRemoveProjectRepo takes a repository out of a project: its worktree in every session, and
@@ -311,7 +346,7 @@ func (s *Server) discardRepoFolder(ctx context.Context, p *Project, repo Project
 	if repo.Shared {
 		// Best effort, like the sessions' worktrees.
 		_ = worktreeRemove(ctx, repo.Dir, p.repoPath(repo), true)
-		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
+		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p, repo))
 	} else if s.deletesClone(repo) {
 		_ = os.RemoveAll(repo.Dir)
 	} else {
@@ -348,7 +383,7 @@ func releaseSharedRepos(ctx context.Context, p *Project) {
 	for _, repo := range p.Repos {
 		if repo.Shared {
 			_ = gitx.PruneWorktrees(ctx, repo.Dir)
-			_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p))
+			_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p, repo))
 		}
 	}
 }
@@ -433,6 +468,8 @@ var removeAll = os.RemoveAll
 // handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
 // in it stops the deletion, unless the user confirmed the discard with `?force=1`.
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
 	dir := s.catalogRepoDir(r.PathValue("name"))
 	if dir == "" {
 		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
@@ -505,7 +542,7 @@ func syncUsersOf(ctx context.Context, all []Project, dir string) {
 // left there is never touched.
 func syncProjectFolder(ctx context.Context, p *Project, repo ProjectRepo) {
 	dir := p.repoPath(repo)
-	if gitx.Display(ctx, dir) != projectBranch(p) {
+	if gitx.Display(ctx, dir) != projectBranch(p, repo) {
 		return
 	}
 	if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n == 0 {
@@ -733,6 +770,7 @@ func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request)
 		mainBranch = defaultMainBranch
 	}
 	if err := initRepo(ctx, p.Dir, mainBranch); err != nil {
+		undoMoveMainRepo(p, name)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -743,6 +781,10 @@ func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request)
 		cur.GitURL = ""
 		cur.MainBranch = mainBranch
 	})
+	if err != nil {
+		// The project does not declare the move, so the disk must not show it either.
+		undoMoveMainRepo(p, name)
+	}
 	if errors.Is(err, errProjectGone) {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
@@ -821,6 +863,22 @@ func moveMainRepo(p *Project, name string) error {
 	return nil
 }
 
+// undoMoveMainRepo puts back what moveMainRepo moved into the subfolder name, after a step that
+// came later failed: the repository this folder was initialised as is dropped, and the original
+// (which is in the subfolder) takes its place. Nothing is touched unless the original is there.
+func undoMoveMainRepo(p *Project, name string) {
+	dest := filepath.Join(p.Dir, name)
+	if !pathExists(filepath.Join(dest, ".git")) {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(p.Dir, ".git"))
+	entries, _ := os.ReadDir(dest)
+	for _, e := range entries {
+		_ = renamePath(filepath.Join(dest, e.Name()), filepath.Join(p.Dir, e.Name()))
+	}
+	_ = os.Remove(dest)
+}
+
 // catalogRepoDir is the folder of the catalog's clone called name, "" when there is none.
 func (s *Server) catalogRepoDir(name string) string {
 	root := s.catalogDir()
@@ -864,6 +922,11 @@ func (s *Server) handleSyncProjectRepo(w http.ResponseWriter, r *http.Request) {
 	repo := p.Repos[i]
 	ctx := r.Context()
 	dir := p.repoPath(repo)
+	if on := gitx.Display(ctx, dir); on != projectBranch(p, repo) {
+		writeError(w, http.StatusConflict, fmt.Sprintf("the folder is on %s, not on the project's branch %s: "+
+			"switch it back first", on, projectBranch(p, repo)))
+		return
+	}
 	if _, dirty := firstDirtyDir(ctx, []string{dir}); dirty {
 		writeError(w, http.StatusConflict, "the folder has uncommitted changes: commit them first")
 		return

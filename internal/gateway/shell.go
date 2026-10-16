@@ -65,8 +65,11 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	// let a scheduled run, a pull request fix or a queued message start in the same workspace while
 	// the command was still writing to it. What was queued meanwhile starts when it lets go.
 	if !c.takeRunSlot() {
-		writeError(w, http.StatusConflict,
-			"the agent is working in this session: stop it or wait for it to finish before running a command")
+		reason := c.refusalOfRun()
+		if reason == msgRunBusy {
+			reason = "the agent is working in this session: stop it or wait for it to finish before running a command"
+		}
+		writeError(w, http.StatusConflict, reason)
 		return
 	}
 	defer s.releaseAndDrain(c)

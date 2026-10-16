@@ -296,6 +296,8 @@ type Server struct {
 	projects *projectStore
 	// repoLocks holds one mutex per project id: see lockProjectRepos.
 	repoLocks sync.Map
+	// catalogMu serialises what adds a repository to the catalog and what deletes one from it.
+	catalogMu sync.Mutex
 	// schedules persists the tasks that fire on their own. nil when no directory was
 	// configured, which means scheduling is off.
 	schedules *schedule.Store
@@ -401,9 +403,13 @@ func Start(opts Options) (*Server, error) {
 	// registered every conversation and wired its service, because starting a run needs a fully
 	// constructed conversation - and after the default session has its own folder and the
 	// projects are open, or its resumed run would work in the workspace root.
-	s.resumeInterruptedSessions()
+	//
+	// And after the schedule store and the push sender are open: a resumed run that finishes
+	// records itself in the former and notifies through the latter, and both are read without a
+	// lock once the gateway serves.
 	s.openScheduleStore()
 	s.openPush()
+	resumeInterrupted(s)
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
@@ -440,6 +446,10 @@ func Start(opts Options) (*Server, error) {
 	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
 }
+
+// resumeInterrupted is what the start does about sessions that were mid-run; a variable so a test
+// can see what is open by then.
+var resumeInterrupted = (*Server).resumeInterruptedSessions
 
 // listenTLS binds the https listener, or returns nil when none is configured. The key pair is
 // loaded HERE, at start, so a missing or mismatched certificate is a startup error that names the
@@ -666,6 +676,17 @@ func (s *Server) Close(ctx context.Context) error {
 		// the process exit, and a lost race is a lost session.
 		s.saveAllSessions()
 		s.baseCancel()
+		// The "run now" runs just cancelled write their end onto their task's record: that is
+		// done before the process leaves, as far as the caller is willing to wait.
+		finished := make(chan struct{})
+		go func() {
+			s.scheduleWG.Wait()
+			close(finished)
+		}()
+		select {
+		case <-finished:
+		case <-ctx.Done():
+		}
 		s.closeErr = s.server.Shutdown(ctx)
 	})
 	return s.closeErr

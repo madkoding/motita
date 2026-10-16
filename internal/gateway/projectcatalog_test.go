@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/madkoding/motita/internal/gitx"
@@ -159,8 +160,25 @@ func TestAProjectBranchInUseStopsTheWorktree(t *testing.T) {
 	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "web-client")
 	mustGit(t, t.TempDir(), "clone", "-q", src, clone)
 	mustGit(t, clone, "worktree", "add", "-q", "-b", "project/proj", filepath.Join(t.TempDir(), "elsewhere"))
+	// The name is taken by a branch checked out elsewhere: the project's worktree takes another.
+	code, p := addRepo(t, srv, id, `{"git_url":"`+src+`"}`)
+	if code != http.StatusCreated || !strings.HasPrefix(p.Repos[0].ProjectBranch, "project/proj-") {
+		t.Errorf("a branch checked out elsewhere: %d %+v", code, p.Repos)
+	}
+}
+
+// Both names taken by branches checked out elsewhere: there is nothing left to try, and it says so.
+func TestAProjectWithNoFreeBranchStopsTheWorktree(t *testing.T) {
+	srv, _, _ := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+	src := sourceRepo(t)
+	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "web-client")
+	mustGit(t, t.TempDir(), "clone", "-q", src, clone)
+	for _, branch := range []string{"project/proj", "project/proj-" + id[:8]} {
+		mustGit(t, clone, "worktree", "add", "-q", "-b", branch, filepath.Join(t.TempDir(), "elsewhere"))
+	}
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`"}`); code < 400 {
-		t.Errorf("a branch checked out elsewhere: %d", code)
+		t.Errorf("every branch checked out elsewhere: %d", code)
 	}
 }
 
@@ -354,6 +372,12 @@ func TestAFolderLeftBehindIsBroughtUpToDateOnRequest(t *testing.T) {
 	if code, _ := sync(base + "web-client/sync"); code != http.StatusConflict {
 		t.Errorf("diverged: %d", code)
 	}
+	// A folder left on another branch is not moved forward: that branch is not the project's.
+	mustGit(t, folder, "checkout", "-q", "-b", "somebody-elses")
+	w := send(t, srv, http.MethodPost, base+"web-client/sync", testToken, "")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "not on the project's branch") {
+		t.Errorf("another branch: %d %s", w.Code, w.Body)
+	}
 }
 
 func TestACloneOfTheCatalogIsUpdatedFromItsOrigin(t *testing.T) {
@@ -395,5 +419,93 @@ func TestTheAgentIsToldWhichRepositoriesAreShared(t *testing.T) {
 	note := projectReposNote(&Project{Repos: []ProjectRepo{{Name: "api", GitURL: "u/api", Shared: true}}})
 	if !strings.Contains(note, "- api (u/api): shared with other projects") {
 		t.Errorf("the note must say the repository is shared: %q", note)
+	}
+}
+
+// Two projects asking for the same repository at once end up with one clone in the catalog and a
+// working folder each, not one of them on a clone the other is still making.
+func TestTwoProjectsAddingTheSameRepositoryShareOneCompleteClone(t *testing.T) {
+	srv, ws := projectServer(t)
+	for _, dir := range []string{"a", "b"} {
+		if code, _ := createProject(t, srv, `{"title":"`+dir+`","dir":"`+dir+`"}`); code != http.StatusCreated {
+			t.Fatalf("creating %s: %d", dir, code)
+		}
+	}
+	all, err := srv.projects.loadAll()
+	if err != nil || len(all) != 2 {
+		t.Fatalf("projects: %v %v", all, err)
+	}
+	src := sourceRepo(t)
+	codes := make([]int, len(all))
+	var wg sync.WaitGroup
+	for i := range all {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes[i], _ = addRepo(t, srv, all[i].ID, `{"git_url":"`+src+`"}`)
+		}()
+	}
+	wg.Wait()
+	for i, code := range codes {
+		if code != http.StatusCreated {
+			t.Errorf("project %d: %d", i, code)
+		}
+	}
+	if list := catalogList(t, srv); len(list) != 1 || len(list[0].Projects) != 2 {
+		t.Errorf("one clone, used by both: %+v", list)
+	}
+	for _, dir := range []string{"a", "b"} {
+		if out := mustGit(t, filepath.Join(ws, dir, "web-client"), "status", "--short"); out != "" {
+			t.Errorf("%s: its folder is not a clean worktree: %q", dir, out)
+		}
+	}
+}
+
+// A project whose folder is called like another's, or like one that was deleted and left work on
+// its branch, gets a branch of its own instead of starting on that work.
+func TestAProjectBranchIsNeverSharedWithAnotherProject(t *testing.T) {
+	srv, ws := projectServer(t)
+	src := sourceRepo(t)
+	mk := func(title, dir string) string {
+		if code, _ := createProject(t, srv, `{"title":"`+title+`","dir":"`+dir+`"}`); code != http.StatusCreated {
+			t.Fatalf("creating %s: %d", dir, code)
+		}
+		all, _ := srv.projects.loadAll()
+		for _, p := range all {
+			if p.Title == title {
+				return p.ID
+			}
+		}
+		t.Fatalf("no project %s", title)
+		return ""
+	}
+	first, second := mk("one", "same"), mk("two", "twin")
+	if code, _ := addRepo(t, srv, first, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding to the first: %d", code)
+	}
+	// Work left on the name the second project would take, by one that was deleted.
+	clone := filepath.Join(ws, catalogFolder, "web-client")
+	mustGit(t, clone, "branch", "project/twin")
+	if code, _ := addRepo(t, srv, second, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding to the second: %d", code)
+	}
+	ctx := context.Background()
+	a := gitx.Display(ctx, filepath.Join(ws, "same", "web-client"))
+	b := gitx.Display(ctx, filepath.Join(ws, "twin", "web-client"))
+	if a != "project/same" || !strings.HasPrefix(b, "project/twin-") {
+		t.Errorf("branches %q and %q: the second project needs one of its own", a, b)
+	}
+	if got := srv.projectOf(second).Repos[0].ProjectBranch; got != b {
+		t.Errorf("the project records %q, the folder is on %q", got, b)
+	}
+	// A project saved before the branch was recorded is still on the older name.
+	if got := projectBranch(&Project{Dir: "/w/old"}, ProjectRepo{}); got != "project/old" {
+		t.Errorf("older project: %q", got)
+	}
+	if got := freeProjectBranch(ctx, src, &Project{ID: "abc", Dir: "/w/none"}); got != "project/none" {
+		t.Errorf("a free name is kept: %q", got)
+	}
+	if got := freeProjectBranch(ctx, src, &Project{ID: "abc", Dir: "/w/master"}); strings.Contains(got, "abc") {
+		t.Errorf("a free name is kept: %q", got)
 	}
 }

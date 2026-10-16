@@ -261,7 +261,15 @@ func (f *queueSource) claim(path string) (Task, bool) {
 	}
 	data, err := os.ReadFile(claimed)
 	if err != nil {
-		f.log.Warn("could not read the queue file", "path", claimed, "error", err)
+		// Not consumed: the file goes back under its name, so the task is not lost, and out of the
+		// listings so the failure is not logged on every poll.
+		if rerr := os.Rename(claimed, path); rerr == nil {
+			if f.unclaimable == nil {
+				f.unclaimable = map[string]bool{}
+			}
+			f.unclaimable[path] = true
+		}
+		f.log.Warn("could not read the queue file; leaving it in the queue", "path", path, "error", err)
 		return Task{}, false
 	}
 	description := strings.TrimSpace(string(data))

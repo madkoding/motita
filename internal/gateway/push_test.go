@@ -293,3 +293,22 @@ func TestAStepOfTheWatchReachesEverySubscribedBrowser(t *testing.T) {
 		t.Fatalf("closed sent %d", tr.count())
 	}
 }
+
+// Interrupted runs are resumed once the schedule store and the push sender are open: a resumed run
+// that ends records itself and notifies through them.
+func TestInterruptedRunsResumeAfterTheStoresAreOpen(t *testing.T) {
+	var scheduleOpen, pushOpen bool
+	old := resumeInterrupted
+	resumeInterrupted = func(s *Server) {
+		scheduleOpen, pushOpen = s.schedules != nil, s.push != nil
+		old(s)
+	}
+	t.Cleanup(func() { resumeInterrupted = old })
+	newTestServer(t, &fakeService{}, func(o *Options) {
+		o.PushDir = t.TempDir()
+		o.ScheduleDir = t.TempDir()
+	})
+	if !scheduleOpen || !pushOpen {
+		t.Errorf("at the resume: schedules open = %v, push open = %v", scheduleOpen, pushOpen)
+	}
+}

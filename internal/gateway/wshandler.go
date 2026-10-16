@@ -360,7 +360,7 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 		cl.send(newMsg(MsgQueryResponse, []string{FlagBusy}, map[string]any{
 			"msg_id": msg.MsgID,
 			"status": "busy",
-			"error":  "a run is already in progress in this session; a conversation is served one run at a time",
+			"error":  cl.conv.refusalOfRun(),
 		}))
 		return
 	}
