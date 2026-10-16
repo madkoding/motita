@@ -61,9 +61,14 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	dir, err := filepath.Abs(dir)
-	if err != nil || !filepath.IsAbs(dir) || !pathWithinOrSame(root, dir) {
+	if err != nil || !pathWithinOrSame(root, dir) {
 		writeError(w, http.StatusForbidden, "that folder is outside what Motita may reach: "+
 			"allow the whole disk in Settings → Security")
+		return
+	}
+	dir, ok := resolveDir(root, dir)
+	if !ok {
+		writeError(w, http.StatusNotFound, "that folder does not exist")
 		return
 	}
 	entries, err := os.ReadDir(dir)
@@ -91,8 +96,58 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// resolveDir finds the folder a client named by walking down from root, one name at a time, and
+// answers the path built from the names the disk itself lists, never from the client's text. So a
+// request can only ever name a folder that exists under root: no "..", no link that leads out, no
+// byte the file system would read differently.
+func resolveDir(root, raw string) (string, bool) {
+	rel, err := filepath.Rel(root, filepath.Clean(raw))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	cur := root
+	if rel == "." {
+		return cur, isDir(cur)
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		next, ok := childDir(cur, part)
+		if !ok {
+			return "", false
+		}
+		cur = next
+	}
+	return cur, true
+}
+
+// childDir is the folder of dir that is called name, as the disk spells it.
+func childDir(dir, name string) (string, bool) {
+	entries, _ := os.ReadDir(dir) // an unreadable folder lists nothing, so nothing is found in it
+	for _, e := range entries {
+		if e.Name() == name && isDir(filepath.Join(dir, e.Name())) {
+			return filepath.Join(dir, e.Name()), true
+		}
+	}
+	return "", false
+}
+
 // systemTrees are where the system keeps its own files.
-var systemTrees = []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/var", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/run"}
+var systemTrees = []string{
+	"/etc", "/proc", "/sys", "/dev", "/boot", "/var", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/run",
+}
+
+// routeFolderBrowser registers the folder browser's two routes.
+func (s *Server) routeFolderBrowser(mux *http.ServeMux, wrap func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/fs/dirs", wrap(s.handleListDirs))
+	mux.Handle("POST /v1/fs/dirs", wrap(s.handleMakeDir))
+}
+
+// simpleFolderName reports whether name is one folder's name: not empty, not a path, not "..".
+func simpleFolderName(name string) bool {
+	if name == "" || name == "." || strings.Contains(name, "..") {
+		return false
+	}
+	return !strings.ContainsAny(name, "/\\\x00")
+}
 
 // systemFolder reports whether dir is one of the system's trees or inside one.
 func systemFolder(dir string) bool {
@@ -121,22 +176,31 @@ func (s *Server) handleMakeDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(body.Name)
-	if name == "" || name == "." || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
-		strings.ContainsRune(name, 0) {
+	if !simpleFolderName(name) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return
 	}
-	parent := filepath.Clean(strings.TrimSpace(body.Path))
-	if !filepath.IsAbs(parent) || !isDir(parent) {
+	parent, ok := resolveDir("/", strings.TrimSpace(body.Path))
+	if !ok || !filepath.IsAbs(body.Path) {
 		writeError(w, http.StatusBadRequest, "the folder to create it in must be an existing absolute path")
 		return
 	}
-	dir := filepath.Join(parent, name)
-	if err := os.Mkdir(dir, 0o755); err != nil {
+	if err := makeChild(parent, name); err != nil {
 		writeError(w, http.StatusConflict, "could not create the folder: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, dirEntry{Name: name, Path: dir})
+	writeJSON(w, http.StatusCreated, dirEntry{Name: name, Path: filepath.Join(parent, name)})
+}
+
+// makeChild creates the folder name inside parent, through a handle on parent that cannot be led
+// out of it.
+func makeChild(parent, name string) error {
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.Mkdir(name, 0o755)
 }
 
 // isDir reports whether path is a folder, following a symbolic link.
@@ -166,12 +230,14 @@ func (s *Server) externalProjectFolder(w http.ResponseWriter, raw string) (strin
 		writeError(w, http.StatusBadRequest, "the folder must be an absolute path")
 		return "", false
 	}
-	dir := filepath.Clean(raw)
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = real
+	dir, found := resolveDir("/", raw)
+	if found {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = real
+		}
 	}
 	switch {
-	case !isDir(dir):
+	case !found:
 		writeError(w, http.StatusBadRequest, "that folder does not exist")
 	case filepath.Dir(dir) == dir:
 		writeError(w, http.StatusBadRequest, "the root of the disk cannot be a project")

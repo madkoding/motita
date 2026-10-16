@@ -63,13 +63,19 @@ func TestTheFolderBrowserListsOnlyFoldersAndReachesTheWholeDiskWhenAllowed(t *te
 	if out.Parent != filepath.Dir(base) || out.Root != "/" {
 		t.Errorf("parent and root: %+v", out)
 	}
-	// With no path it starts at the home folder, when there is one.
+}
+
+// TestTheFolderBrowserStartsAtTheHomeFolderWhenThereIsOne: with no path it opens on the user's home,
+// and on the top of the disk when there is none.
+func TestTheFolderBrowserStartsAtTheHomeFolderWhenThereIsOne(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	base := t.TempDir()
 	t.Setenv("HOME", base)
-	if code, out, body = listDirs(t, srv, ""); code != http.StatusOK || out.Path != base || out.Home != base {
+	if code, out, body := listDirs(t, srv, ""); code != http.StatusOK || out.Path != base || out.Home != base {
 		t.Errorf("home: %d %s", code, body)
 	}
 	t.Setenv("HOME", "")
-	code, out, _ = listDirs(t, srv, "")
+	code, out, _ := listDirs(t, srv, "")
 	if code != http.StatusOK || out.Path != "/" {
 		t.Errorf("no home starts at the root: %d %+v", code, out)
 	}
@@ -255,5 +261,25 @@ func TestAFolderCanBeCreatedFromTheBrowser(t *testing.T) {
 	}
 	if c := makeDir(t, srv, `{bad`); c != http.StatusBadRequest {
 		t.Errorf("a malformed body: %d", c)
+	}
+}
+
+// TestAFolderThatCannotBeOpenedIsReportedNotListedEmpty: as a user who may not read it. The root
+// user reads everything, so there the test has nothing to show.
+func TestAFolderThatCannotBeOpenedIsReportedNotListedEmpty(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read any folder")
+	}
+	srv, _ := fullDiskServer(t)
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if code, _, _ := listDirs(t, srv, locked); code != http.StatusNotFound {
+		t.Errorf("listing: %d", code)
+	}
+	if c := makeDir(t, srv, `{"path":"`+locked+`","name":"x"}`); c != http.StatusConflict {
+		t.Errorf("creating inside: %d", c)
 	}
 }

@@ -103,10 +103,16 @@ function Navigation({
 }: {
   listing: DirListing | null;
   loading: boolean;
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => unknown;
 }) {
   const parent = listing?.parent ?? "";
   const home = listing?.home ?? "";
+  function up() {
+    onOpen(parent);
+  }
+  function goHome() {
+    onOpen(home);
+  }
   return (
     <>
       <p
@@ -121,7 +127,7 @@ function Navigation({
           class={SMALL_BTN}
           data-testid="folder-up"
           disabled={!parent || loading}
-          onClick={() => void onOpen(parent)}
+          onClick={up}
         >
           {t("Up")}
         </button>
@@ -131,7 +137,7 @@ function Navigation({
             class={SMALL_BTN}
             data-testid="folder-home"
             disabled={loading}
-            onClick={() => void onOpen(home)}
+            onClick={goHome}
           >
             {t("Home")}
           </button>
@@ -155,7 +161,7 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
   const [err, setErr] = useState("");
   const req = useRef(0);
 
-  const open = async (path: string) => {
+  async function open(path: string) {
     req.current += 1;
     const my = req.current;
     setLoading(true);
@@ -173,15 +179,15 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
     if (my === req.current) {
       setLoading(false);
     }
-  };
-  const create = async (name: string) => {
+  }
+  async function create(name: string) {
     try {
       const made = await makeDir(api, (listing as DirListing).path, name);
       await open(made.path);
     } catch (e) {
       setErr(errorMessage(e));
     }
-  };
+  }
   useEffect(() => {
     void open(start);
     return () => {
