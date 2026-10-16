@@ -14,7 +14,10 @@ import (
 // folder, all through the paths Windows spells.
 func TestTheFolderBrowserWorksOnWindowsDrives(t *testing.T) {
 	srv, _ := fullDiskServer(t)
-	base := t.TempDir()
+	base, err := filepath.EvalSymlinks(t.TempDir()) // the runner's temp folder is spelled with 8.3 names
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(filepath.Join(base, "Mis Proyectos"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ package gateway
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // badNameChars cannot be in the name of a folder on Windows.
@@ -35,3 +36,6 @@ func platformSystemTrees() []string {
 	}
 	return out
 }
+
+// sameName reports whether two names are the same folder name: Windows ignores the case.
+func sameName(a, b string) bool { return strings.EqualFold(a, b) }

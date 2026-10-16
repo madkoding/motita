@@ -142,7 +142,7 @@ func resolveDir(root, raw string) (string, bool) {
 func childDir(dir, name string) (string, bool) {
 	entries, _ := os.ReadDir(dir) // an unreadable folder lists nothing, so nothing is found in it
 	for _, e := range entries {
-		if e.Name() == name && isDir(filepath.Join(dir, e.Name())) {
+		if sameName(e.Name(), name) && isDir(filepath.Join(dir, e.Name())) {
 			return filepath.Join(dir, e.Name()), true
 		}
 	}

@@ -18,3 +18,6 @@ func platformSystemTrees() []string {
 		"/System", "/Library", "/private", "/cores",
 	}
 }
+
+// sameName reports whether two names are the same folder name: exactly, on these systems.
+func sameName(a, b string) bool { return a == b }
