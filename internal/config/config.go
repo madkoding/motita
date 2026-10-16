@@ -75,7 +75,11 @@ type Gateway struct {
 	// front of it. Without them it answers to an IP address, to localhost, to this machine's
 	// own host name and to the host in Listen; any other name in a request's Host header is
 	// refused, which is what stops a DNS-rebinding page from talking to it under its own name.
-	Hosts     []string `yaml:"hosts"`
+	Hosts []string `yaml:"hosts"`
+	// Origins are page origins (scheme://host[:port], e.g. "http://127.0.0.1") whose requests the
+	// gateway accepts as its own web interface, for a proxy or port forward that rewrites Host
+	// and does not send X-Forwarded-Host. Exact match: a sibling port stays another origin.
+	Origins   []string `yaml:"origins"`
 	MaxBodyKB int      `yaml:"max_body_kb"`
 	// MaxSessions caps how many conversations one process holds. Zero means the built-in
 	// default, which is what most setups want: the ceiling exists so a client that forgets to

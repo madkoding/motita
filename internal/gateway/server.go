@@ -72,6 +72,9 @@ type Options struct {
 	// Hosts are extra host names a request's Host header may carry (gateway.hosts). See
 	// hostPolicy for the names that are always accepted.
 	Hosts []string
+	// Origins are page origins (scheme://host[:port]) trusted besides the gateway's own
+	// (gateway.origins): for a front end that rewrites Host and cannot send X-Forwarded-Host.
+	Origins []string
 	// MaxBodyKB caps a request body. Zero means defaultMaxBodyKB.
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
@@ -763,10 +766,10 @@ func (s *Server) routes() *http.ServeMux {
 
 	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
 	// forcing it through a HandlerFunc would be a cast that says nothing.
-	auth := func(h http.Handler) http.Handler { return requireToken(s.opts.Token, h) }
+	auth := func(h http.Handler) http.Handler { return requireToken(s.opts.Token, h, s.opts.Origins...) }
 	// plain is the same check for a bare handler function, so the session-list endpoints do not
 	// have to be cast to satisfy a signature.
-	plain := func(h http.HandlerFunc) http.Handler { return requireToken(s.opts.Token, h) }
+	plain := func(h http.HandlerFunc) http.Handler { return requireToken(s.opts.Token, h, s.opts.Origins...) }
 	// scoped is every handler that speaks ABOUT a conversation: the token is checked, then the
 	// session is resolved, then the handler runs with it in the request context.
 	scoped := func(h http.HandlerFunc) http.Handler { return auth(s.withConversation(h)) }
