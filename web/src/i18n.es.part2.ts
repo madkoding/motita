@@ -1,6 +1,9 @@
 // The second half of the Spanish dictionary; i18n.es.ts has the first and merges the two.
 
 const more: Record<string, string> = {
+  "New folder name": "Nombre de la carpeta nueva",
+  "This folder holds the system's own files. A project here puts the agent among them.":
+    "Esta carpeta guarda los archivos del propio sistema. Un proyecto aquí deja al agente entre ellos.",
   "Choose a folder": "Elige una carpeta",
   "Choose a folder…": "Elegir una carpeta…",
   "Choose another folder…": "Elegir otra carpeta…",

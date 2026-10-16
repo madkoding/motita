@@ -29,11 +29,14 @@ type dirEntry struct {
 // dirListing is the answer of GET /v1/fs/dirs: the folder asked for, the one above it (empty at
 // the top of what the browser may reach), and its sub-folders.
 type dirListing struct {
-	Path   string     `json:"path"`
-	Parent string     `json:"parent,omitempty"`
-	Home   string     `json:"home,omitempty"`
-	Root   string     `json:"root"`
-	Dirs   []dirEntry `json:"dirs"`
+	Path   string `json:"path"`
+	Parent string `json:"parent,omitempty"`
+	Home   string `json:"home,omitempty"`
+	Root   string `json:"root"`
+	// Sensitive marks a folder that holds the system's own files, where a project would put an
+	// agent among them: the browser warns before it is chosen.
+	Sensitive bool       `json:"sensitive,omitempty"`
+	Dirs      []dirEntry `json:"dirs"`
 }
 
 // handleListDirs lists the folders inside a folder, so the project dialogs can browse the disk for
@@ -68,7 +71,7 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "the folder could not be read: "+err.Error())
 		return
 	}
-	out := dirListing{Path: dir, Root: root, Dirs: []dirEntry{}}
+	out := dirListing{Path: dir, Root: root, Sensitive: systemFolder(dir), Dirs: []dirEntry{}}
 	if !gitx.SamePath(dir, root) {
 		out.Parent = filepath.Dir(dir)
 	}
@@ -86,6 +89,54 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(out.Dirs[i].Name) < strings.ToLower(out.Dirs[j].Name)
 	})
 	writeJSON(w, http.StatusOK, out)
+}
+
+// systemTrees are where the system keeps its own files.
+var systemTrees = []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/var", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/run"}
+
+// systemFolder reports whether dir is one of the system's trees or inside one.
+func systemFolder(dir string) bool {
+	for _, tree := range systemTrees {
+		if pathWithinOrSame(tree, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleMakeDir creates a folder inside the one the browser is on, so a project can get a folder
+// of its own without leaving the page. Same reach as the listing: the whole disk only when
+// Settings → Security allows it. The name is a simple one, never a path.
+func (s *Server) handleMakeDir(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if !s.fullDisk() {
+		writeError(w, http.StatusForbidden, "creating folders outside the workspace needs the whole disk "+
+			"allowed in Settings → Security")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" || name == "." || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") ||
+		strings.ContainsRune(name, 0) {
+		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
+		return
+	}
+	parent := filepath.Clean(strings.TrimSpace(body.Path))
+	if !filepath.IsAbs(parent) || !isDir(parent) {
+		writeError(w, http.StatusBadRequest, "the folder to create it in must be an existing absolute path")
+		return
+	}
+	dir := filepath.Join(parent, name)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		writeError(w, http.StatusConflict, "could not create the folder: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, dirEntry{Name: name, Path: dir})
 }
 
 // isDir reports whether path is a folder, following a symbolic link.

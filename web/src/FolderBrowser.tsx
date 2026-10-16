@@ -6,7 +6,7 @@ import { errorMessage } from "./errors";
 import { useDialog } from "./useDialog";
 import { useBackdropClose } from "./useBackdropClose";
 import { useLeave } from "./motion";
-import { listDirs, type DirListing } from "./fsApi";
+import { listDirs, makeDir, type DirListing } from "./fsApi";
 import { IconClose, IconFolder, IconSpinner } from "./icons";
 import type { Api } from "./gitApi";
 import "./dialog.css";
@@ -60,6 +60,38 @@ function Folders({
         </li>
       ))}
     </ul>
+  );
+}
+
+// NewFolder is the row that makes a folder inside the one on show.
+function NewFolder({ onCreate }: { onCreate: (name: string) => void }) {
+  const [name, setName] = useState("");
+  const create = () => {
+    if (name.trim()) {
+      onCreate(name.trim());
+      setName("");
+    }
+  };
+  return (
+    <div class="flex gap-2 mt-2">
+      <input
+        class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/30 border border-white/10 text-sm font-mono text-[#e8e8ea] focus:outline-hidden focus:border-accent"
+        data-testid="folder-new-name"
+        value={name}
+        placeholder={t("New folder name")}
+        aria-label={t("New folder name")}
+        onInput={(e) => setName((e.target as HTMLInputElement).value)}
+      />
+      <button
+        type="button"
+        class={SMALL_BTN}
+        data-testid="folder-new"
+        disabled={!name.trim()}
+        onClick={create}
+      >
+        {t("Create")}
+      </button>
+    </div>
   );
 }
 
@@ -142,6 +174,14 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
       setLoading(false);
     }
   };
+  const create = async (name: string) => {
+    try {
+      const made = await makeDir(api, (listing as DirListing).path, name);
+      await open(made.path);
+    } catch (e) {
+      setErr(errorMessage(e));
+    }
+  };
   useEffect(() => {
     void open(start);
     return () => {
@@ -191,6 +231,18 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
           )}
           {!err && listing && <Folders listing={listing} onOpen={open} />}
         </div>
+        {listing?.sensitive && (
+          <p
+            class="mt-2 text-xs text-warning"
+            role="note"
+            data-testid="folder-sensitive"
+          >
+            {t(
+              "This folder holds the system's own files. A project here puts the agent among them.",
+            )}
+          </p>
+        )}
+        {listing && <NewFolder onCreate={create} />}
         <div class="flex gap-2 mt-4">
           <button
             class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"

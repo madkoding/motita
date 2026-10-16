@@ -210,3 +210,50 @@ func TestTheWorkspaceOnlySettingRefusesToMoveAProject(t *testing.T) {
 		t.Errorf("%d", c)
 	}
 }
+
+func TestTheListingMarksTheSystemsOwnFolders(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	if _, out, _ := listDirs(t, srv, "/etc"); !out.Sensitive {
+		t.Errorf("/etc is the system's: %+v", out)
+	}
+	if _, out, _ := listDirs(t, srv, t.TempDir()); out.Sensitive {
+		t.Errorf("a temp folder is not: %+v", out)
+	}
+}
+
+func makeDir(t *testing.T, srv *Server, body string) int {
+	t.Helper()
+	return post(t, srv, "/v1/fs/dirs", body, testToken).Code
+}
+
+// TestAFolderCanBeCreatedFromTheBrowser: a simple name inside an existing folder, with the whole
+// disk allowed; paths, repeats and the default setting are refused.
+func TestAFolderCanBeCreatedFromTheBrowser(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	base := t.TempDir()
+	if c := makeDir(t, srv, `{"path":"`+base+`","name":"fresh"}`); c != http.StatusCreated {
+		t.Fatalf("create: %d", c)
+	}
+	if !isDir(filepath.Join(base, "fresh")) {
+		t.Error("the folder exists")
+	}
+	if c := makeDir(t, srv, `{"path":"`+base+`","name":"fresh"}`); c != http.StatusConflict {
+		t.Errorf("a repeat: %d", c)
+	}
+	for _, body := range []string{
+		`{"path":"` + base + `","name":"a/b"}`, `{"path":"` + base + `","name":".."}`,
+		`{"path":"` + base + `","name":"  "}`, `{"path":"rel","name":"x"}`,
+		`{"path":"` + base + `/nope","name":"x"}`,
+	} {
+		if c := makeDir(t, srv, body); c != http.StatusBadRequest {
+			t.Errorf("%s: %d", body, c)
+		}
+	}
+	plain, _ := projectServer(t)
+	if c := makeDir(t, plain, `{"path":"`+base+`","name":"x"}`); c != http.StatusForbidden {
+		t.Errorf("workspace-only: %d", c)
+	}
+	if c := makeDir(t, srv, `{bad`); c != http.StatusBadRequest {
+		t.Errorf("a malformed body: %d", c)
+	}
+}

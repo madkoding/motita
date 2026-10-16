@@ -18,6 +18,8 @@ export interface DirListing {
   parent?: string;
   home?: string;
   root: string;
+  // The folder holds the system's own files: a project there needs a second thought.
+  sensitive?: boolean;
   dirs: DirEntry[];
 }
 
@@ -33,4 +35,22 @@ export async function listDirs(api: Api, path = ""): Promise<DirListing> {
     throw new Error(body?.error || "HTTP " + res.status);
   }
   return (await res.json()) as DirListing;
+}
+
+// makeDir creates a folder called name inside path, and answers it.
+export async function makeDir(
+  api: Api,
+  path: string,
+  name: string,
+): Promise<DirEntry> {
+  const res = await api(DIRS_PATH, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, name }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "HTTP " + res.status);
+  }
+  return (await res.json()) as DirEntry;
 }

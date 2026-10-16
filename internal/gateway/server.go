@@ -773,6 +773,7 @@ func (s *Server) routes() *http.ServeMux {
 
 	s.gitRoutes(mux, plain)
 	mux.Handle("GET /v1/fs/dirs", plain(s.handleListDirs))
+	mux.Handle("POST /v1/fs/dirs", plain(s.handleMakeDir))
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))

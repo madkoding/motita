@@ -10,6 +10,7 @@ import {
   mount,
   click,
   flush,
+  type,
   res,
   fakeApi,
 } from "./cov-projects-helpers.mjs";
@@ -182,6 +183,71 @@ test("an answer that arrives after the browser closed is ignored", async () => {
   await flush();
   assert.equal(pending.length, 1, "it asked once and nothing came back to it");
   assert.equal(document.querySelector("[data-testid=folder-browser]"), null);
+});
+
+test("a system folder carries a warning, and a new folder is made inside the one on show", async () => {
+  const etc = {
+    path: "/etc",
+    parent: "/",
+    root: "/",
+    sensitive: true,
+    dirs: [],
+  };
+  const made = { path: "/tmp/new", parent: "/tmp", root: "/", dirs: [] };
+  const posts = [];
+  const api = fakeApi({
+    "GET /v1/fs/dirs": (path) =>
+      res(
+        200,
+        new URL(path, "http://x").searchParams.get("path") === "/tmp/new"
+          ? made
+          : etc,
+      ),
+    "POST /v1/fs/dirs": (path, init) => {
+      posts.push(JSON.parse(init.body));
+      return posts.length === 1
+        ? res(201, { name: "new", path: "/tmp/new" })
+        : res(409, { error: "exists" });
+    },
+  });
+  const m = await mount(
+    AppCtx,
+    null,
+    h(FolderBrowser, { api, onPick() {}, onClose() {} }),
+  );
+  await flush();
+  assert.ok(m.q("[data-testid=folder-sensitive]"));
+  const create = m.q("[data-testid=folder-new]");
+  assert.equal(create.disabled, true, "needs a name");
+  await click(create);
+  const input = m.q("[data-testid=folder-new-name]");
+  await type(input, "  new ");
+  await click(m.q("[data-testid=folder-new]"));
+  await flush();
+  assert.deepEqual(posts[0], { path: "/etc", name: "new" });
+  assert.equal(m.q("[data-testid=folder-path]").textContent, "/tmp/new");
+  assert.equal(m.q("[data-testid=folder-sensitive]"), null);
+  assert.equal(m.q("[data-testid=folder-new-name]").value, "", "emptied");
+  await type(m.q("[data-testid=folder-new-name]"), "again");
+  await click(m.q("[data-testid=folder-new]"));
+  await flush();
+  assert.match(m.q("[role=alert]").textContent, /exists/);
+  await m.unmount();
+  const bare = fakeApi({
+    "GET /v1/fs/dirs": res(200, made),
+    "POST /v1/fs/dirs": res(500, new Error("x")),
+  });
+  const n = await mount(
+    AppCtx,
+    null,
+    h(FolderBrowser, { api: bare, onPick() {}, onClose() {} }),
+  );
+  await flush();
+  await type(n.q("[data-testid=folder-new-name]"), "x");
+  await click(n.q("[data-testid=folder-new]"));
+  await flush();
+  assert.match(n.q("[role=alert]").textContent, /HTTP 500/);
+  await n.unmount();
 });
 
 // store is a projects store for the dialogs; its actions are recorded.
