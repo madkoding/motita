@@ -1506,10 +1506,11 @@ deleted from `~/.motita/voices` when the gateway starts, and from the page's cop
 reads the catalog; a saved voice that is no longer offered becomes the default one of the
 interface language (*Claude* in Spanish, *Lessac* in English), to be downloaded again.
 
-The voice is tuned with sliders, each with a **Reset**: **Expressiveness** (how much the intonation
-varies) and **Rhythm variation** (how much the length of each sound varies) for a Piper voice,
-from 0 to 2× the voice's own; **Pitch** for a system voice, from 0.5 to 2. The speed applies to
-all of them.
+The voice is tuned with sliders, each with a **Reset**: **Voice texture** (how smooth the voice
+sounds, 0 to 2× the voice's own) and **Rhythm variation** (how much the length of each sound
+varies, 0 to 1.25×: past that Piper's rhythm runs away) for a Piper voice; **Pitch** for a system
+voice, from 0.5 to 2. The speed applies to all of them; a Piper voice speaks at it by itself
+(its length scale), so the sound is not stretched afterwards.
 
 The page cannot download anything itself. The gateway fetches each file once, from an address in
 a catalog compiled into the binary (the voices and their samples from `rhasspy/piper-voices` at

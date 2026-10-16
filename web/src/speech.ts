@@ -132,6 +132,8 @@ function oneOf<T>(v: unknown, list: T[], fallback: T): T {
 // variation.
 export const PITCH_RANGE: [number, number] = [0.5, 2];
 export const TUNE_RANGE: [number, number] = [0, 2];
+// Past this the rhythm of a Piper voice runs away: one sentence in three came out minutes long.
+export const VARIATION_RANGE: [number, number] = [0, 1.25];
 // numberIn is v when it is a number within range, fallback otherwise.
 function numberIn(
   v: unknown,
@@ -257,7 +259,7 @@ export function loadSpeechPrefs(ui: Lang = "en"): SpeechPrefs {
         TUNE_RANGE,
         d.expressiveness,
       ),
-      variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
+      variation: numberIn(raw.variation, VARIATION_RANGE, d.variation),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,

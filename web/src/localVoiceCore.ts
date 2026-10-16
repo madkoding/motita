@@ -296,7 +296,11 @@ export class Synth {
     const ort = await this.runtime();
     const { ids } = await this.phonemize(v.config.espeak.voice, text);
     const inf = v.config.inference;
-    const scales = [inf.noise_scale * tune.noise, inf.length_scale, inf.noise_w * tune.noiseW];
+    const scales = [
+      inf.noise_scale * tune.noise,
+      inf.length_scale * (tune.length ?? 1),
+      inf.noise_w * tune.noiseW,
+    ];
     const feeds: Record<string, TensorLike> = {
       input: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
       input_lengths: new ort.Tensor("int64", BigInt64Array.from([BigInt(ids.length)]), [1]),
@@ -416,11 +420,13 @@ export class Synth {
   }
 }
 
-// Tune scales a Piper voice's noise settings: noise its intonation (noise_scale), noiseW its
-// rhythm (noise_w). 1 and 1 are the voice as it was trained.
+// Tune scales a Piper voice's own settings: noise the texture of the voice (noise_scale), noiseW
+// how much the length of each sound varies (noise_w) and length how long it takes to say a text
+// (length_scale, so 0.5 is twice as fast). 1 is the voice as it was trained.
 export interface Tune {
   noise: number;
   noiseW: number;
+  length?: number;
 }
 
 // DEFAULT_TUNE is a Piper voice as it was trained, when nothing else is asked for.

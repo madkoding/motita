@@ -190,11 +190,17 @@ test("the synthesis loads the runtime, the phonemizer and each voice once, and f
     SCALES_MILLI,
   );
   assert.equal(f.sid, undefined, "one speaker: no speaker id");
-  // The sliders scale the intonation and the rhythm; the speed is left to the page.
+  // The sliders scale the texture and the rhythm of the voice.
   await synth.say("v1", "Tono.", { noise: 0.5, noiseW: TUNED_NOISE_W });
   assert.deepEqual(
     [...log.feeds[2].scales.data].map((x) => Math.round(x * 1000)),
     [TUNED_NOISE_MILLI, LENGTH_SCALE_MILLI, NOISE_W_MILLI * TUNED_NOISE_W],
+  );
+  // The speed is the voice's length scale: twice as fast is half as long.
+  await synth.say("v1", "Rápido.", { noise: 1, noiseW: 1, length: 0.5 });
+  assert.equal(
+    Math.round(log.feeds[3].scales.data[1] * 1000),
+    LENGTH_SCALE_MILLI / 2,
   );
   // Warming a voice loaded already loads nothing more.
   await synth.warm("v1");

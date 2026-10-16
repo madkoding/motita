@@ -450,9 +450,9 @@ const more: Record<string, string> = {
     "Este navegador puede borrar los modelos descargados si se queda sin disco; se descargan de nuevo. Instalar Motita como app ayuda a que los conserve.",
   "The download failed: {error}": "La descarga falló: {error}",
   "In use": "En uso",
-  Expressiveness: "Expresividad",
-  "How much the intonation varies: lower is flatter and steadier, higher livelier.":
-    "Cuánto varía la entonación: menos es más plana y estable, más es más viva.",
+  "Voice texture": "Textura de la voz",
+  "How smooth the voice sounds: lower is cleaner and steadier, higher is rougher.":
+    "Qué tan suave suena la voz: menos es más limpia y estable, más es más áspera.",
   "Rhythm variation": "Variación del ritmo",
   "How much the length of each sound varies: lower is more even, higher more natural.":
     "Cuánto varía la duración de cada sonido: menos es más parejo, más es más natural.",

@@ -343,6 +343,7 @@ function useClipReader(
           return localClip(p.localVoice, {
             noise: p.expressiveness,
             noiseW: p.variation,
+            length: 1 / p.rate,
           });
         }
         return speakClip(apiRef.current as Api, p.gatewayVoice);
@@ -735,7 +736,9 @@ function useReadText(o: {
         voiceFor: (other) =>
           pickVoice(voicesRef.current, p.langVoices[other] || "", other),
         lang: l,
-        rate: p.rate,
+        // A local voice already speaks at the speed (its length_scale); playing it faster again
+        // would double it.
+        rate: choose(p.engine === "local", 1, p.rate),
         pitch: p.pitch,
         onSentence: (i) => {
           showSubtitle(list[i].shown);

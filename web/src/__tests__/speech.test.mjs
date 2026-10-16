@@ -86,7 +86,7 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     maxChars: 0,
     pitch: 1.5,
     expressiveness: 0.4,
-    variation: 2,
+    variation: 1.25,
     conversation: true,
     notices: true,
     byLanguage: true,
@@ -121,6 +121,9 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     ...m.DEFAULT_SPEECH_PREFS,
     maxChars: 600,
   });
+  // A rhythm variation past the range (it made Piper run on for minutes) is the default.
+  localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ variation: 2 }));
+  assert.equal(m.loadSpeechPrefs().variation, m.DEFAULT_SPEECH_PREFS.variation);
   // A voice taken out of the catalog (Kokoro's, Supertonic's, Chatterbox's, a lower quality of
   // Piper's) becomes the default Piper voice of the interface language; a catalog voice and no
   // voice at all stay as they are.

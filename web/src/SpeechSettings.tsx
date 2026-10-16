@@ -10,6 +10,7 @@ import {
   LENGTHS,
   MEDIUM_CHARS,
   PITCH_RANGE,
+  VARIATION_RANGE,
   RATES,
   SHORT_CHARS,
   TUNE_RANGE,
@@ -136,9 +137,9 @@ function VoiceTuning({
       <>
         <VoiceSlider
           id="settings-speech-expressiveness"
-          label={t("Expressiveness")}
+          label={t("Voice texture")}
           hint={t(
-            "How much the intonation varies: lower is flatter and steadier, higher livelier.",
+            "How smooth the voice sounds: lower is cleaner and steadier, higher is rougher.",
           )}
           range={TUNE_RANGE}
           value={prefs.expressiveness}
@@ -150,7 +151,7 @@ function VoiceTuning({
           hint={t(
             "How much the length of each sound varies: lower is more even, higher more natural.",
           )}
-          range={TUNE_RANGE}
+          range={VARIATION_RANGE}
           value={prefs.variation}
           onChange={setVariation}
         />
