@@ -50,6 +50,9 @@ func abbreviates(name, option string, minLen int) bool {
 	return len(name) >= minLen && strings.HasPrefix(option, name)
 }
 
+// gitCloneRunsCode are the long options of `clone` that name a program or set configuration.
+var gitCloneRunsCode = []string{"--upload-pack", "--config"}
+
 // gitVerbRunsCode reports whether an argument of an otherwise local verb makes git run a program
 // or write outside the workspace: `--ext-diff` / `--textconv` run the drivers a configuration
 // names, `--output` writes a file anywhere, `rebase -x` runs a command per commit, `grep -O`
@@ -81,8 +84,7 @@ func gitOneVerbRunsCode(sub, a, name string) bool {
 	case "grep":
 		return strings.HasPrefix(a, "-O") || abbreviates(name, "--open-files-in-pager", len("--op"))
 	case "clone":
-		return strings.Contains(a, "::") || a == "-u" || a == "-c" ||
-			strings.HasPrefix(name, "--upload-pack") || strings.HasPrefix(name, "--config")
+		return strings.Contains(a, "::") || a == "-u" || a == "-c" || hasAnyPrefix(name, gitCloneRunsCode)
 	default:
 		return false
 	}
