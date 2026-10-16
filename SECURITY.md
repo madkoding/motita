@@ -48,6 +48,10 @@ is signed with the project's ed25519 release key once one is configured, and
 each binary carries a build provenance attestation
 (`gh attestation verify <binary> --repo madkoding/motita`).
 
+**Known limit.** The Linux sandbox does not stop a command from using a
+Unix socket reachable by path until the kernel offers Landlock ABI 9; see
+`docs/REFERENCE.md` ("Known limit of the Landlock confinement").
+
 **Out of scope.** An attacker who already controls the user's account or
 machine, a model provider that is itself malicious, and commands the user
 explicitly approves.
