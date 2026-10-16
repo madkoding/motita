@@ -49,7 +49,7 @@ test("a model is loaded once, and its loading is followed until ready or failed"
   L.warmListener("whisper-base");
   assert.equal(workers.length, 1);
   assert.match(worker().url, /speechListen\.worker\.ts$/);
-  assert.deepEqual(worker().opts, { type: "module" });
+  assert.deepEqual(worker().opts, { type: "module", name: "" });
   assert.deepEqual(worker().sent[0].m, { kind: "warm", id: "whisper-base" });
   assert.deepEqual(L.listenStateOf("whisper-base"), { pct: 0, ready: false });
   L.warmListener("whisper-base");

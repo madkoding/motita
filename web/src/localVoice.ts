@@ -1,5 +1,6 @@
 // LOCAL VOICES on the page's side: the catalog the gateway offers, its downloads, and a FetchClip
 // that asks the worker (speechModel.worker.ts) to say a sentence.
+import { workerName } from "./gpuPolicy";
 import {
   ORT_GPU_WASM,
   MODELS_PATH,
@@ -216,7 +217,7 @@ function post(m: ToWorker): void {
 function getWorker(n = 0): Worker {
   let w = workers[n];
   if (!w) {
-    w = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module" });
+    w = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module", name: workerName() });
     workers[n] = w;
     busy[n] = 0;
     w.onmessage = (e: MessageEvent<FromWorker>) => {
