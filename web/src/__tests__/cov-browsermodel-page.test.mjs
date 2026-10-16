@@ -478,6 +478,10 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   tab.test = async () => json({}, 500);
   await click(tryButton(m));
   assert.match(text(m.box()), /HTTP 500/);
+  tab.test = async () =>
+    new Response("<html>Bad Gateway</html>", { status: 502 });
+  await click(tryButton(m));
+  assert.match(text(m.box()), /HTTP 502/);
   tab.test = async () => json({});
   await click(tryButton(m));
   assert.match(text(m.box()), /“” in 0\.0 s/);
