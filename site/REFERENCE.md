@@ -1469,57 +1469,55 @@ The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
 
 A third choice in **Who speaks**, **Downloaded voice**, runs a voice in the browser itself: once
 it is downloaded, the text of the answers never leaves the device and no speech service is needed.
-**Settings → Voice → Voices to download** lists three engines:
+**Settings → Voice → Voices to download** lists [Piper](https://github.com/rhasspy/piper)'s
+high-quality voices in Spanish and English, the ones that run best on WebAssembly:
 
-- [Piper](https://github.com/rhasspy/piper): 24 Spanish (Mexico, Argentina, Spain) and English
-  (US, UK) voices, from 14 to 114 MB each, plus 33 MB of engine the first time. **▶** plays a
-  short sample before downloading one.
-- [Supertonic 3](https://huggingface.co/Supertone/supertonic-3): 10 voices (F1 to F5, M1 to M5)
-  that each speak 31 languages, Spanish and English among them; every sentence is read in its own
-  language. They share one 398 MB model (plus 27 MB of onnxruntime's WebGPU build), downloaded with
-  the first; each voice is 0.3 MB more. It reads the text itself, with no phonemizer. Where the
-  browser has WebGPU it runs on the graphics card (8 refinement steps); otherwise on the processor
-  (5 steps, about 1.2 s of work per second of speech, with up to 2 Workers at once). The graphics
-  card asked for is the high-performance one, else any the browser offers; where WebGPU fails to
-  start, a note under the list says why (the browser has no WebGPU in its Workers, it gave no
-  graphics card, or onnxruntime's own error).
-- [Chatterbox Multilingual](https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX):
-  one expressive voice that speaks 21 languages, offered only where the browser has WebGPU (on the
-  processor a sentence would take minutes). Its model is 990 MB (the language model at 4 bits).
-  **Emotion**, from 0.25 to 2 (0.5 is its own), sets how much emotion the voice puts in; more is
-  livelier and a little faster. The voice is what the model's speech encoder made of the
-  repository's recording, compiled into the binary, so the 590 MB encoder is never downloaded.
+| Voice    | Language          | Size   |
+| -------- | ----------------- | ------ |
+| Claude   | Spanish (Mexico)  | 63 MB  |
+| Daniela  | Spanish (Argentina) | 114 MB |
+| Lessac   | English (US)      | 114 MB |
+| Ryan     | English (US)      | 121 MB |
+| Cori     | English (UK)      | 114 MB |
 
-The Supertonic and Chatterbox samples are generated with the voices themselves and compiled into
-the binary.
+The first download adds 33 MB of engine. **▶** plays a short sample before downloading one. The
+list opens on the language chosen last time (the interface language the first time); the voice in
+use always stays in it. **Download** asks the gateway to fetch one, **Use** chooses it and
+**Delete** removes it.
 
-The list opens on the language and quality chosen last time (the interface language the first
-time) and can be narrowed by both; the voice in use always stays in it. **Download** asks the gateway to fetch one, **Use** chooses it and
-**Delete** removes it (Supertonic's and Chatterbox's models go with their last voice).
+Piper reads exactly what it is given, so the page prepares each sentence before it is spoken
+(`web/src/speechText.ts`, for Spanish and English; any other language gets the punctuation only):
 
-Kokoro's voices were removed from the catalog. What an earlier version downloaded for them (its
-model, its voices, its WebGPU files and their samples) is deleted from `~/.motita/voices` when the
-gateway starts, and from the page's copy the first time it reads the catalog; a Kokoro voice still
-chosen gives way to the system voice until another is chosen.
+- **Abbreviations are written out**: `Sr.` is *Señor*, `Dr.` *doctor*, `Mr.` *Mister*, `etc.`
+  *etcétera* or *et cetera*, `p. ej.` *por ejemplo*, `e.g.` *for example*. A full stop after a
+  title does not cut the sentence in two.
+- **Numbers are written in words**: `25` is *veinticinco* or *twenty-five*, with decimals
+  (`3,14` is *tres coma uno cuatro*), thousands (`1.234` or `1,234`), negatives, percentages,
+  English ordinals (`3rd`) and times (`10:30`). Before a noun a one is *un* (*veintiún años*). A
+  number with leading zeros, or of more than twelve digits, is read digit by digit.
+- **Pauses are made explicit**: a comma is a short pause, a semicolon a medium one, a full stop a
+  long one and an ellipsis a dramatic one. Dashes, colons, brackets and slashes become commas,
+  quotes go, a sentence that ends with nothing gets a full stop, and an opening connector
+  (*Sin embargo*, *However*) gets its comma.
+
+An earlier version also offered Kokoro, Supertonic 3 and Chatterbox, and Piper's lower qualities
+(x-low, low and medium). They were removed from the catalog. What was downloaded for them is
+deleted from `~/.motita/voices` when the gateway starts, and from the page's copy the first time it
+reads the catalog; a saved voice that is no longer offered becomes the default one of the
+interface language (*Claude* in Spanish, *Lessac* in English), to be downloaded again.
 
 The voice is tuned with sliders, each with a **Reset**: **Expressiveness** (how much the intonation
 varies) and **Rhythm variation** (how much the length of each sound varies) for a Piper voice,
-from 0 to 2× the voice's own; **Pace** (from 0.7 to 1.6, 1.05 its own: each sound longer or
-shorter, the pitch unchanged) and **Refinement steps** (from 1 to 16; **Auto** is 8 on the
-graphics card and 5 on the processor: more is clearer and slower to start) for a Supertonic voice;
-**Pitch** for a system voice, from 0.5 to 2. Supertonic has no setting for intonation or emotion:
-its model takes only the pace and the steps. The speed applies to all of them.
+from 0 to 2× the voice's own; **Pitch** for a system voice, from 0.5 to 2. The speed applies to
+all of them.
 
 The page cannot download anything itself. The gateway fetches each file once, from an address in
 a catalog compiled into the binary (the voices and their samples from `rhasspy/piper-voices` at
-`v1.0.0` on Hugging Face, Supertonic from
-`Supertone/supertonic-3` and Chatterbox from `onnx-community/chatterbox-multilingual-ONNX`, each at
-a fixed commit,
-the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm` packages on
-npm), checks its size and SHA-256 before keeping it in `~/.motita/voices`, and serves it from its
-own origin. The page keeps a copy in Cache Storage and runs the voice in a Worker, on WebAssembly;
-the page policy allows `'wasm-unsafe-eval'` for that and nothing more (JavaScript `eval` stays
-refused). `motita doctor` hashes the downloaded voices again.
+`v1.0.0` on Hugging Face, the engine from the `onnxruntime-web` and `@diffusionstudio/piper-wasm`
+packages on npm), checks its size and SHA-256 before keeping it in `~/.motita/voices`, and serves
+it from its own origin. The page keeps a copy in Cache Storage and runs the voice in a Worker, on
+WebAssembly; the page policy allows `'wasm-unsafe-eval'` for that and nothing more (JavaScript
+`eval` stays refused). `motita doctor` hashes the downloaded voices again.
 
 | Endpoint                                 | What it does                                                                                                         |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -1527,7 +1525,7 @@ refused). `motita doctor` hashes the downloaded voices again.
 | `POST /v1/voice/models/{id}`             | Starts downloading a voice (and the engine, when missing): `202`; `200` when it is there already; `409` while another downloads. |
 | `DELETE /v1/voice/models/{id}`           | Removes a voice; the engine stays. `409` while it downloads.                                                         |
 | `GET /v1/voice/models/{id}/sample`       | A voice's sample (MP3), downloaded and checked the first time it is asked for; `404` for a voice with none. |
-| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`, `voice.bin`), of the engine with `{id}` = `runtime`, or of Supertonic's and Chatterbox's with `{id}` = `supertonic` or `chatterbox`. |
+| `GET /v1/voice/models/{id}/{name}`       | One downloaded file of a voice (`model.onnx`, `model.json`), or of the engine with `{id}` = `runtime`. |
 
 `GET /v1/voice` also answers `"local":true`. Loading a voice into the browser's memory takes a few
 seconds; the page starts it when it opens, and the voice in use shows **Loading into memory… N%**
