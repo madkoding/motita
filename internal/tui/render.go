@@ -590,12 +590,26 @@ func (t *TUI) agentMessageLines(m Message, inner int) []string {
 }
 
 // inlineMarks are the Markdown marks a model puts around a word: **bold** and `code`. The terminal
-// cannot draw them and showed them as they are, asterisks and all.
-var inlineMarks = regexp.MustCompile("\\*\\*([^*\\n]+)\\*\\*|`([^`\\n]+)`")
+// cannot draw them and showed them as they are, asterisks and all. A bold mark opens after a
+// non-word character and wraps text that neither starts nor ends in a space, so the operator in
+// x**2 + y**2 and the unpacking in f(**a, **b) are not taken for it.
+var inlineMarks = regexp.MustCompile("(^|[^\\p{L}\\p{N}_*])\\*\\*([^*\\s](?:[^*\\n]*[^*\\s])?)\\*\\*|`([^`\\n]+)`")
 
-// plainInline is text without the marks around words. The words are kept.
+// plainInline is text without the marks around words. The words are kept, and so is every line
+// inside a fenced code block: code is shown as it was written.
 func plainInline(s string) string {
-	return inlineMarks.ReplaceAllString(s, "$1$2")
+	lines := strings.Split(s, "\n")
+	fenced := false
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+			fenced = !fenced
+			continue
+		}
+		if !fenced {
+			lines[i] = inlineMarks.ReplaceAllString(l, "$1$2$3")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // systemMessageLines renders a message of the interface itself, muted.

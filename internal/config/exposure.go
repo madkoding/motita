@@ -115,6 +115,8 @@ func ListenChosen(path string) bool {
 // a YAML round trip would lose every comment to change two values. The running gateway is not
 // touched; the new address is bound when it next starts.
 func SetGatewayExposure(path, mode string) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	if !ValidExposure(mode) {
 		return fmt.Errorf("the exposure %q is not one of local, lan, all", mode)
 	}

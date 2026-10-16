@@ -73,9 +73,14 @@ var esTUI = map[string]string{
 	"how hard the model thinks: off, low, medium, high": "cuánto piensa el modelo: off, low, medium, high",
 	"the interface's language: en, es or auto":          "el idioma de la interfaz: en, es o auto",
 	"filter the conversation":                           "filtra la conversación",
-	"context used, and what was carried over":           "contexto usado, y lo que se conservó",
-	"list the conversations the gateway holds":          "lista las conversaciones que tiene el gateway",
-	"switch to another conversation":                    "cambia a otra conversación",
+	"Goal: decides alone, never asks":                   "Objetivo: decide solo, nunca pregunta",
+	"goal":                                              "objetivo",
+	"write an AGENTS.md for this project, which later sessions load": "escribe un AGENTS.md para este proyecto, " +
+		"que cargan las sesiones siguientes",
+	"what /goal decided; undo n removes one":   "lo que /goal decidió; undo n quita una",
+	"context used, and what was carried over":  "contexto usado, y lo que se conservó",
+	"list the conversations the gateway holds": "lista las conversaciones que tiene el gateway",
+	"switch to another conversation":           "cambia a otra conversación",
 	"show or hide the run's agents: purpose, time, tokens": "muestra u oculta los agentes de la ejecución: propósito, " +
 		"tiempo, tokens",
 	"rate the last answer as good": "califica la última respuesta como buena",

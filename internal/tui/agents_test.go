@@ -280,3 +280,18 @@ func TestMarksAroundWordsAreDroppedFromTheAnswer(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Code keeps its asterisks: a fenced block is left alone, and so are the operators and unpackings
+// of an expression that is not wrapped in backticks.
+func TestCodeKeepsItsAsterisksInTheAnswer(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"```py\nx = **a, **b\nprint(**k**)\n```", "```py\nx = **a, **b\nprint(**k**)\n```"},
+		{"x**2 + y**2 y f(**a, **b)", "x**2 + y**2 y f(**a, **b)"},
+		{"usa **negrita** y `x**2` ya", "usa negrita y x**2 ya"},
+		{"**inicio** y (**dos**)", "inicio y (dos)"},
+	} {
+		if got := plainInline(c.in); got != c.want {
+			t.Errorf("%q -> %q, want %q", c.in, got, c.want)
+		}
+	}
+}
