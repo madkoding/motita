@@ -49,7 +49,7 @@
       <p class="lead">Keep it on this machine, share it on your LAN, or reach it from a phone.</p>
 <p>By default the gateway answers only on <code>127.0.0.1:7477</code>, so only the machine it runs on can reach it. Everything below is a deliberate step away from that.</p>
 <h2>Who can reach it</h2>
-<figure class="diagram" role="group" aria-label="Who can reach the gateway, from narrowest to widest"><ol class="flow"><li><b>1</b><strong>This machine only</strong><span>The default: loopback</span></li><li><b>2</b><strong>The local network</strong><span>All interfaces, with <code>allow</code> rules</span></li><li><b>3</b><strong>Everywhere</strong><span>All interfaces, no origin rules</span></li></ol><p class="flow-note">Each step outward is deliberate, and the token is always required. Past loopback, put https in front.</p></figure>
+<figure class="diagram"><ol class="flow" aria-label="Who can reach the gateway, from narrowest to widest"><li><b>1</b><strong>This machine only</strong><span>The default: loopback</span></li><li><b>2</b><strong>The local network</strong><span>All interfaces, with <code>allow</code> rules</span></li><li><b>3</b><strong>Everywhere</strong><span>All interfaces, no origin rules</span></li></ol><p class="flow-note">Each step outward is deliberate, and the token is always required. Past loopback, put https in front.</p></figure>
 <p>The first <code>gateway start</code> asks once, and <strong>Settings &rarr; Network</strong> or <code>motita gateway setup</code> changes it later:</p>
 <table>
 <thead><tr><th>Answer</th><th>Result</th></tr></thead>
@@ -103,6 +103,7 @@
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -114,7 +115,7 @@
             button.textContent = "Copied";
             setTimeout(() => {
               button.textContent = "Copy";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

@@ -89,6 +89,7 @@
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -100,7 +101,7 @@
             button.textContent = "Copied";
             setTimeout(() => {
               button.textContent = "Copy";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

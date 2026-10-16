@@ -288,10 +288,10 @@ export function wsExamples(lang) {
 const SCHEDULES = "http://127.0.0.1:7477/v1/schedules";
 
 function schedSh(c) {
-  return `# ${c.create}
-curl -s -X POST "${SCHEDULES}" \\
-  -H "Authorization: Bearer $MOTITA_TOKEN" \\
-  -H "Content-Type: application/json" \\
+  return String.raw`# ${c.create}
+curl -s -X POST "${SCHEDULES}" \
+  -H "Authorization: Bearer $MOTITA_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"title":"nightly audit","task":"check the logs and report","kind":"plan","every":"24h"}'`;
 }
 
@@ -430,7 +430,7 @@ const TASK_URL = "http://127.0.0.1:7477/v1/sessions/default/task";
 const TASK = "run the tests and fix what fails";
 
 function sseJs(c) {
-  return `const res = await fetch("${TASK_URL}", {
+  return String.raw`const res = await fetch("${TASK_URL}", {
   method: "POST",
   headers: {
     Authorization: "Bearer " + process.env.MOTITA_TOKEN, // ${c.token}
@@ -444,7 +444,7 @@ let event = "";
 let buffer = "";
 for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) {
   buffer += chunk;
-  const lines = buffer.split("\\n");
+  const lines = buffer.split("\n");
   buffer = lines.pop() ?? "";
   for (const line of lines) { // ${c.stream}
     if (line.startsWith("event: ")) {
@@ -460,7 +460,7 @@ for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) {
 }
 
 function sseTs(c) {
-  return `import { env } from "node:process";
+  return String.raw`import { env } from "node:process";
 
 interface Data {
   text?: string;
@@ -483,7 +483,7 @@ let buffer = "";
 const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
 for (let part = await reader.read(); !part.done; part = await reader.read()) {
   buffer += part.value;
-  const lines = buffer.split("\\n");
+  const lines = buffer.split("\n");
   buffer = lines.pop() ?? "";
   for (const line of lines) { // ${c.stream}
     if (line.startsWith("event: ")) {

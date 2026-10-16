@@ -64,7 +64,7 @@
 <li>Stale for 30 more days: <strong>archived</strong>, never deleted, one command brings it back.</li>
 <li><strong>Pinned</strong> documents are exempt from every automatic step. Nothing automatic ever deletes.</li>
 </ul>
-<figure class="diagram" role="group" aria-label="The life of a skill"><ol class="flow"><li><b>1</b><strong>A skill is used</strong><span>Nothing to do</span></li><li><b>2</b><strong>Unused for 14 days</strong><span>Marked stale, still searchable</span></li><li><b>3</b><strong>Stale for 30 more days</strong><span>Archived, never deleted</span></li><li><b>4</b><strong>One command</strong><span><code>curator restore</code> brings it back</span></li></ol><p class="flow-note">Pinned skills skip every step.</p></figure>
+<figure class="diagram"><ol class="flow" aria-label="The life of a skill"><li><b>1</b><strong>A skill is used</strong><span>Nothing to do</span></li><li><b>2</b><strong>Unused for 14 days</strong><span>Marked stale, still searchable</span></li><li><b>3</b><strong>Stale for 30 more days</strong><span>Archived, never deleted</span></li><li><b>4</b><strong>One command</strong><span><code>curator restore</code> brings it back</span></li></ol><p class="flow-note">Pinned skills skip every step.</p></figure>
 <pre class="code" data-lang="Shell"><code>motita curator status
 motita curator run <span class="o">--dry-run</span>
 motita curator pin build-firmware</code></pre>
@@ -101,6 +101,7 @@ motita curator pin build-firmware</code></pre>
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -112,7 +113,7 @@ motita curator pin build-firmware</code></pre>
             button.textContent = "Copied";
             setTimeout(() => {
               button.textContent = "Copy";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

@@ -64,7 +64,7 @@
 <li>Obsoleto por 30 días más: se <strong>archiva</strong>, nunca se borra, un comando lo recupera.</li>
 <li>Los documentos <strong>fijados</strong> quedan fuera de todo paso automático. Nada automático borra jamás.</li>
 </ul>
-<figure class="diagram" role="group" aria-label="La vida de una skill"><ol class="flow"><li><b>1</b><strong>Se usa una skill</strong><span>Nada que hacer</span></li><li><b>2</b><strong>14 días sin uso</strong><span>Se marca como obsoleta, sigue buscable</span></li><li><b>3</b><strong>30 días más obsoleta</strong><span>Se archiva, nunca se borra</span></li><li><b>4</b><strong>Un comando</strong><span><code>curator restore</code> la trae de vuelta</span></li></ol><p class="flow-note">Las skills ancladas se saltan todos los pasos.</p></figure>
+<figure class="diagram"><ol class="flow" aria-label="La vida de una skill"><li><b>1</b><strong>Se usa una skill</strong><span>Nada que hacer</span></li><li><b>2</b><strong>14 días sin uso</strong><span>Se marca como obsoleta, sigue buscable</span></li><li><b>3</b><strong>30 días más obsoleta</strong><span>Se archiva, nunca se borra</span></li><li><b>4</b><strong>Un comando</strong><span><code>curator restore</code> la trae de vuelta</span></li></ol><p class="flow-note">Las skills ancladas se saltan todos los pasos.</p></figure>
 <pre class="code" data-lang="Shell"><code>motita curator status
 motita curator run <span class="o">--dry-run</span>
 motita curator pin build-firmware</code></pre>
@@ -101,6 +101,7 @@ motita curator pin build-firmware</code></pre>
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -112,7 +113,7 @@ motita curator pin build-firmware</code></pre>
             button.textContent = "Copiado";
             setTimeout(() => {
               button.textContent = "Copiar";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

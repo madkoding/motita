@@ -289,9 +289,7 @@ ${flow("From speaking to hearing the answer", [["You speak", "Mic button, or the
 <li><strong>Pinned</strong> documents are exempt from every automatic step. Nothing automatic ever deletes.</li>
 </ul>
 ${flow("The life of a skill", [["A skill is used", "Nothing to do"], ["Unused for 14 days", "Marked stale, still searchable"], ["Stale for 30 more days", "Archived, never deleted"], ["One command", "<code>curator restore</code> brings it back"]], "Pinned skills skip every step.")}
-${code("sh", `motita curator status
-motita curator run --dry-run
-motita curator pin build-firmware`)}`,
+${code("sh", "motita curator status\nmotita curator run --dry-run\nmotita curator pin build-firmware")}`,
     more: [
       ["Guide: it learns from you", guide("it-learns-from-you-not-from-a-retraining-pipeline")],
       ["Guide: the shelf keeps itself tidy", guide("you-can-see-the-shelf-and-the-shelf-keeps-itself-tidy")],
@@ -458,7 +456,7 @@ ${tabs("ws", wsExamples("en"))}
     slug: "automation",
     title: "Updates and scheduled tasks",
     blurb: "Stay on the newest verified release, and run tasks on a cadence.",
-    body: String.raw`
+    body: `
 <h2>Updating</h2>
 ${flow("How an update is installed", [["<code>/update</code>", "Finds the newest release"], ["Download", "From the release itself"], ["Check", "Must match <code>SHA256SUMS</code>"], ["Install", "Nothing is installed on a mismatch"], ["Restart", "A gateway started with <code>-serve</code> does it alone"]])}
 <p><code>/update</code> installs the newest release. The welcome screen and the browser's sidebar tell you when one exists. The download must match the release's <code>SHA256SUMS</code> or nothing is installed. A gateway started with <code>-serve</code> restarts itself on the new binary; an interface tells you to restart it.</p>
@@ -695,6 +693,7 @@ ${main}
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -706,7 +705,7 @@ ${main}
             button.textContent = "${t.copied}";
             setTimeout(() => {
               button.textContent = "${t.copy}";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

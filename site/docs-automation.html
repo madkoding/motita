@@ -48,13 +48,13 @@
       <h1>Updates and scheduled tasks</h1>
       <p class="lead">Stay on the newest verified release, and run tasks on a cadence.</p>
 <h2>Updating</h2>
-<figure class="diagram" role="group" aria-label="How an update is installed"><ol class="flow"><li><b>1</b><strong><code>/update</code></strong><span>Finds the newest release</span></li><li><b>2</b><strong>Download</strong><span>From the release itself</span></li><li><b>3</b><strong>Check</strong><span>Must match <code>SHA256SUMS</code></span></li><li><b>4</b><strong>Install</strong><span>Nothing is installed on a mismatch</span></li><li><b>5</b><strong>Restart</strong><span>A gateway started with <code>-serve</code> does it alone</span></li></ol></figure>
+<figure class="diagram"><ol class="flow" aria-label="How an update is installed"><li><b>1</b><strong><code>/update</code></strong><span>Finds the newest release</span></li><li><b>2</b><strong>Download</strong><span>From the release itself</span></li><li><b>3</b><strong>Check</strong><span>Must match <code>SHA256SUMS</code></span></li><li><b>4</b><strong>Install</strong><span>Nothing is installed on a mismatch</span></li><li><b>5</b><strong>Restart</strong><span>A gateway started with <code>-serve</code> does it alone</span></li></ol></figure>
 <p><code>/update</code> installs the newest release. The welcome screen and the browser's sidebar tell you when one exists. The download must match the release's <code>SHA256SUMS</code> or nothing is installed. A gateway started with <code>-serve</code> restarts itself on the new binary; an interface tells you to restart it.</p>
 <p>The gateway reports its own build through <code>motita gateway status</code>, so after installing over an old binary you can tell whether the process still running is the previous one.</p>
 <p>Releases are cut automatically from semantic commits: <code>feat</code> bumps the minor version, <code>fix</code> the patch, and a breaking change the major. The newest version is always shown on the <a href="index.html">home page</a>.</p>
 <h2>Scheduled tasks</h2>
 <p>A <strong>scheduled task</strong> is a task or a plan the gateway submits on its own, on a cadence, with nobody at the keyboard. Each one is a small JSON file in <code>~/.motita/schedules/</code> that you can read and edit by hand.</p>
-<figure class="diagram" role="group" aria-label="How a scheduled task runs"><ol class="flow"><li><b>1</b><strong>The time comes</strong><span><code>every 24h</code> after the last run</span></li><li><b>2</b><strong>The gateway submits it</strong><span>As a plan or a task, nobody at the keyboard</span></li><li><b>3</b><strong>It runs</strong><span>In the session it is pinned to</span></li><li><b>4</b><strong>You see the result</strong><span>In the interface</span></li></ol></figure>
+<figure class="diagram"><ol class="flow" aria-label="How a scheduled task runs"><li><b>1</b><strong>The time comes</strong><span><code>every 24h</code> after the last run</span></li><li><b>2</b><strong>The gateway submits it</strong><span>As a plan or a task, nobody at the keyboard</span></li><li><b>3</b><strong>It runs</strong><span>In the session it is pinned to</span></li><li><b>4</b><strong>You see the result</strong><span>In the interface</span></li></ol></figure>
 <ul>
 <li>The cadence is a duration (<code>30m</code>, <code>6h</code>, <code>24h</code>), not cron syntax. <code>every 6h</code> means six hours after the last run.</li>
 <li>The shortest allowed cadence is one minute (<code>schedule.min_every</code>).</li>
@@ -198,6 +198,7 @@ res = requests.<span class="f">post(</span>
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -209,7 +210,7 @@ res = requests.<span class="f">post(</span>
             button.textContent = "Copied";
             setTimeout(() => {
               button.textContent = "Copy";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

@@ -48,13 +48,13 @@
       <h1>Actualizaciones y tareas programadas</h1>
       <p class="lead">Mantente en la última versión verificada y ejecuta tareas con una cadencia.</p>
 <h2>Actualizar</h2>
-<figure class="diagram" role="group" aria-label="Cómo se instala una actualización"><ol class="flow"><li><b>1</b><strong><code>/update</code></strong><span>Busca la versión más nueva</span></li><li><b>2</b><strong>Descarga</strong><span>De la propia versión</span></li><li><b>3</b><strong>Verificación</strong><span>Debe coincidir con <code>SHA256SUMS</code></span></li><li><b>4</b><strong>Instalación</strong><span>Si no coincide, no se instala nada</span></li><li><b>5</b><strong>Reinicio</strong><span>Un gateway iniciado con <code>-serve</code> lo hace solo</span></li></ol></figure>
+<figure class="diagram"><ol class="flow" aria-label="Cómo se instala una actualización"><li><b>1</b><strong><code>/update</code></strong><span>Busca la versión más nueva</span></li><li><b>2</b><strong>Descarga</strong><span>De la propia versión</span></li><li><b>3</b><strong>Verificación</strong><span>Debe coincidir con <code>SHA256SUMS</code></span></li><li><b>4</b><strong>Instalación</strong><span>Si no coincide, no se instala nada</span></li><li><b>5</b><strong>Reinicio</strong><span>Un gateway iniciado con <code>-serve</code> lo hace solo</span></li></ol></figure>
 <p><code>/update</code> instala la versión más nueva. La pantalla de bienvenida y la barra lateral del navegador avisan cuando existe una. La descarga debe coincidir con el <code>SHA256SUMS</code> de la versión o no se instala nada. Un gateway iniciado con <code>-serve</code> se reinicia solo con el nuevo binario; una interfaz te dice que la reinicies.</p>
 <p>El gateway informa su propia compilación en <code>motita gateway status</code>, así que tras instalar sobre un binario viejo puedes saber si el proceso que sigue corriendo es el anterior.</p>
 <p>Las versiones se crean automáticamente a partir de commits semánticos: <code>feat</code> sube la versión menor, <code>fix</code> el parche y un cambio incompatible la mayor. La versión más nueva siempre aparece en la <a href="index.html">página de inicio</a>.</p>
 <h2>Tareas programadas</h2>
 <p>Una <strong>tarea programada</strong> es una tarea o un plan que el gateway envía por sí solo, con una cadencia, sin nadie frente al teclado. Cada una es un pequeño archivo JSON en <code>~/.motita/schedules/</code> que puedes leer y editar a mano.</p>
-<figure class="diagram" role="group" aria-label="Cómo corre una tarea programada"><ol class="flow"><li><b>1</b><strong>Llega la hora</strong><span><code>every 24h</code> tras la última ejecución</span></li><li><b>2</b><strong>El gateway la envía</strong><span>Como plan o tarea, sin nadie frente al teclado</span></li><li><b>3</b><strong>Se ejecuta</strong><span>En la sesión a la que está fijada</span></li><li><b>4</b><strong>Ves el resultado</strong><span>En la interfaz</span></li></ol></figure>
+<figure class="diagram"><ol class="flow" aria-label="Cómo corre una tarea programada"><li><b>1</b><strong>Llega la hora</strong><span><code>every 24h</code> tras la última ejecución</span></li><li><b>2</b><strong>El gateway la envía</strong><span>Como plan o tarea, sin nadie frente al teclado</span></li><li><b>3</b><strong>Se ejecuta</strong><span>En la sesión a la que está fijada</span></li><li><b>4</b><strong>Ves el resultado</strong><span>En la interfaz</span></li></ol></figure>
 <ul>
 <li>La cadencia es una duración (<code>30m</code>, <code>6h</code>, <code>24h</code>), no sintaxis cron. <code>every 6h</code> significa seis horas después de la última ejecución.</li>
 <li>La cadencia más corta permitida es un minuto (<code>schedule.min_every</code>).</li>
@@ -198,6 +198,7 @@ res = requests.<span class="f">post(</span>
         }
       });
       // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
       for (const pre of document.querySelectorAll("pre.code")) {
         const button = document.createElement("button");
         button.type = "button";
@@ -209,7 +210,7 @@ res = requests.<span class="f">post(</span>
             button.textContent = "Copiado";
             setTimeout(() => {
               button.textContent = "Copiar";
-            }, 1600);
+            }, RESET_MS);
           } catch (e) {
             // no clipboard on a plain-http page: the text stays selectable by hand
           }

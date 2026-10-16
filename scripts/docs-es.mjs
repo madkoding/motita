@@ -259,9 +259,7 @@ ${flow("De hablar a escuchar la respuesta", [["Hablas", "Botón del micrófono, 
 <li>Los documentos <strong>fijados</strong> quedan fuera de todo paso automático. Nada automático borra jamás.</li>
 </ul>
 ${flow("La vida de una skill", [["Se usa una skill", "Nada que hacer"], ["14 días sin uso", "Se marca como obsoleta, sigue buscable"], ["30 días más obsoleta", "Se archiva, nunca se borra"], ["Un comando", "<code>curator restore</code> la trae de vuelta"]], "Las skills ancladas se saltan todos los pasos.")}
-${code("sh", `motita curator status
-motita curator run --dry-run
-motita curator pin build-firmware`)}`,
+${code("sh", "motita curator status\nmotita curator run --dry-run\nmotita curator pin build-firmware")}`,
   },
   security: {
     title: "Seguridad y sandbox",
@@ -415,7 +413,7 @@ ${tabs("ws", wsExamples("es"))}
     title: "Actualizaciones y tareas programadas",
     blurb: "Mantente en la última versión verificada y ejecuta tareas con una cadencia.",
     more: ["Referencia: tareas programadas", "Guía: versiones automáticas"],
-    body: String.raw`
+    body: `
 <h2>Actualizar</h2>
 ${flow("Cómo se instala una actualización", [["<code>/update</code>", "Busca la versión más nueva"], ["Descarga", "De la propia versión"], ["Verificación", "Debe coincidir con <code>SHA256SUMS</code>"], ["Instalación", "Si no coincide, no se instala nada"], ["Reinicio", "Un gateway iniciado con <code>-serve</code> lo hace solo"]])}
 <p><code>/update</code> instala la versión más nueva. La pantalla de bienvenida y la barra lateral del navegador avisan cuando existe una. La descarga debe coincidir con el <code>SHA256SUMS</code> de la versión o no se instala nada. Un gateway iniciado con <code>-serve</code> se reinicia solo con el nuevo binario; una interfaz te dice que la reinicies.</p>
