@@ -13,6 +13,7 @@ import (
 	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/task"
 )
 
@@ -61,6 +62,8 @@ type subagents struct {
 type subagent struct {
 	id, purpose string
 	role        string // config.TaskCode, TaskReview or TaskResearch
+	tier        string // TierCheap, TierStrong or "" (not routed)
+	escalated   bool   // a cheap agent that did not pass was run again on the strong model
 	branch      string // "" for a read-only agent
 	cancel      context.CancelFunc
 	done        chan struct{}
@@ -171,6 +174,48 @@ func roleOf(action Command) (string, bool) {
 	return role, agentRoles[role]
 }
 
+// The tiers of model a background agent can run on, named as the models block names them.
+const (
+	TierCheap  = config.TaskCheap
+	TierStrong = config.TaskStrong
+)
+
+// tierFor is the tier a new agent runs on: "" when the run routes nothing (no cheap model is
+// assigned), the one the action names, or else what the classifier makes of the piece. Only an
+// agent that writes is classified; a reviewer or researcher follows its role unless told a tier.
+func (a *Agent) tierFor(ctx context.Context, action Command, role, purpose, brief string) (string, bool) {
+	tier := strings.ToLower(strings.TrimSpace(action.Tier))
+	if tier != "" && tier != TierCheap && tier != TierStrong {
+		return "", false
+	}
+	if a.tierEngines == nil || a.tierEngines(TierCheap) == nil {
+		return "", true
+	}
+	if tier == "" && writes(role) && a.classify != nil {
+		tier = a.classify(ctx, purpose, brief)
+		if tier != TierCheap {
+			tier = TierStrong
+		}
+	}
+	return tier, true
+}
+
+// engineOf is the engine a background agent of a role and tier runs on: the tier's model when one
+// is assigned, else the role's, else this agent's own.
+func (a *Agent) engineOf(role, tier string) *llm.Client {
+	if tier != "" && a.tierEngines != nil {
+		if e := a.tierEngines(tier); e != nil {
+			return e
+		}
+	}
+	if a.roleEngines != nil {
+		if e := a.roleEngines(role); e != nil {
+			return e
+		}
+	}
+	return a.engine
+}
+
 // roleTag is how a role is named beside an agent's id: nothing for code, the default.
 func roleTag(role string) string {
 	if role == config.TaskCode {
@@ -208,6 +253,10 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 	if brief == "" {
 		brief = purpose
 	}
+	tier, ok := a.tierFor(ctx, action, role, purpose, brief)
+	if !ok {
+		return refused("spawn_agent tier %q is not one of cheap, strong", action.Tier)
+	}
 	if n := a.subs.running(); n >= limit {
 		return refused("%d background agents are already running, the most this run allows (agent.max_parallel); "+
 			"use wait_agents before starting another, or do this piece yourself", n)
@@ -223,25 +272,18 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 		return refused("the background agent could not be given a place to work: %v", err)
 	}
 	team := a.teamRoster()
-	child := a.newChild(place, role)
+	child := a.newChild(place, role, tier)
 	label := truncate(collapse(purpose), 120)
 	if role != config.TaskCode {
 		label = role + ": " + label
 	}
-	child.member = a.fleet.add(a.member.id, id, label, place.branch)
-	child.Progress = a.relayProgress(id, role, child.Progress)
-	// The main agent's approver, marked: a session where the user allowed every command lets a
-	// background agent run what the main agent could, and any other question is refused instead of
-	// being asked about a run nobody is watching. With no approver at all, a child has none either.
-	if parent := a.approver; parent != nil {
-		child.approver = func(ctx context.Context, req ApprovalRequest) (bool, error) {
-			req.Background, req.Agent = true, id
-			return parent(ctx, req)
-		}
+	if tier != "" {
+		label = tier + " · " + label
 	}
+	a.armChild(child, id, role, label, place.branch)
 
 	cctx, cancel := context.WithCancel(ctx)
-	c := &subagent{id: id, purpose: purpose, role: role, branch: place.branch, cancel: cancel, done: make(chan struct{})}
+	c := &subagent{id: id, purpose: purpose, role: role, tier: tier, branch: place.branch, cancel: cancel, done: make(chan struct{})}
 	a.subs.mu.Lock()
 	a.subs.children = append(a.subs.children, c)
 	a.subs.mu.Unlock()
@@ -249,10 +291,26 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 	go func() {
 		defer a.subs.wg.Done()
 		defer cancel()
-		r := child.processTask(cctx, task.Task{
-			Description: childBrief(purpose, brief, role, place, team),
-			Origin:      "spawn_agent " + id,
-		}, 1)
+		desc := childBrief(purpose, brief, role, place, team)
+		r := child.processTask(cctx, task.Task{Description: desc, Origin: "spawn_agent " + id}, 1)
+		// A cheap agent that did not pass is not the end of the piece: the strong model takes it
+		// over in the same place, told what the first attempt left and why it stopped.
+		if tier == TierCheap && !r.Pass && cctx.Err() == nil && a.tierEngines != nil {
+			a.log.Info("a cheap background agent did not pass; escalating to the strong model", "id", id)
+			a.fleet.finish(child.member, AgentFailed, "did not pass on the cheap model; escalated")
+			a.subs.mu.Lock()
+			c.escalated = true
+			a.subs.mu.Unlock()
+			child = a.newChild(place, role, TierStrong)
+			a.armChild(child, id, role, TierStrong+" · "+label, place.branch)
+			note := strings.TrimSpace(r.Reason)
+			if note == "" {
+				note = strings.TrimSpace(r.Summary)
+			}
+			r = child.processTask(cctx, task.Task{Description: desc + "\n\nA cheaper model already tried this piece " +
+				"and did not finish it (" + truncate(collapse(note), 300) + "). What it left is in your directory; " +
+				"check it before building on it.", Origin: "spawn_agent " + id}, 1)
+		}
 		a.finishChild(c, child, place, r, cctx.Err() != nil)
 	}()
 	a.log.Info("background agent started", "id", id, "role", role, "purpose", truncate(purpose, 120),
@@ -270,6 +328,21 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 	}
 	return fmt.Sprintf("[started background agent %s%s: %s]\n%s\nIts report arrives in the round after it "+
 		"finishes; use wait_agents to wait for it.", id, roleTag(role), purpose, where), nil
+}
+
+// armChild gives a new background agent its row in the fleet, its progress relay and the main
+// agent's approver, marked: a session where the user allowed every command lets a background
+// agent run what the main agent could, and any other question is refused instead of being asked
+// about a run nobody is watching. With no approver at all, a child has none either.
+func (a *Agent) armChild(child *Agent, id, role, label, branch string) {
+	child.member = a.fleet.add(a.member.id, id, label, branch)
+	child.Progress = a.relayProgress(id, role, child.Progress)
+	if parent := a.approver; parent != nil {
+		child.approver = func(ctx context.Context, req ApprovalRequest) (bool, error) {
+			req.Background, req.Agent = true, id
+			return parent(ctx, req)
+		}
+	}
 }
 
 // childPlace is where a background agent works and what it may do there.
@@ -325,7 +398,7 @@ func (a *Agent) childPlace(ctx context.Context, id string, write bool) (childPla
 
 // newChild builds the background agent: the main agent's configuration, engine, sandbox rules and
 // library, in its own directory, with nobody to ask and no final action of its own.
-func (a *Agent) newChild(place childPlace, role string) *Agent {
+func (a *Agent) newChild(place childPlace, role, tier string) *Agent {
 	cfg := a.cfg
 	cfg.Agent.WorkspaceDir = place.dir
 	cfg.Agent.ReadOnly = a.cfg.Agent.ReadOnly || place.branch == "" || !writes(role)
@@ -344,12 +417,7 @@ func (a *Agent) newChild(place childPlace, role string) *Agent {
 		box = box.WithDir(place.dir)
 	}
 	// The engine of its role, from the session that runs this agent; this agent's own otherwise.
-	engine := a.engine
-	if a.roleEngines != nil {
-		if e := a.roleEngines(role); e != nil {
-			engine = e
-		}
-	}
+	engine := a.engineOf(role, tier)
 	child := New(cfg, a.log, engine, box, nil)
 	if box == nil {
 		child.ExecCommand = a.ExecCommand
@@ -432,6 +500,17 @@ func (a *Agent) finishChild(c *subagent, child *Agent, place childPlace, r TaskR
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "[agent %s%s finished: %s] %s\n", c.id, roleTag(c.role), state, c.purpose)
+	if c.tier != "" {
+		a.subs.mu.Lock()
+		escalated := c.escalated
+		a.subs.mu.Unlock()
+		ran := c.tier
+		if escalated {
+			ran = TierCheap + " → " + TierStrong
+		}
+		u := child.member.meter.Usage()
+		fmt.Fprintf(&b, "model tier: %s; tokens of the last attempt: %d in, %d out\n", ran, u.Input, u.Output)
+	}
 	if place.branch != "" {
 		// What it did not commit itself would go with the worktree.
 		if _, err := subagentCommit(ctx, place.dir, "motita: work of background agent "+c.id+": "+

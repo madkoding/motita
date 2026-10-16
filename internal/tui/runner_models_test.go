@@ -178,3 +178,22 @@ func TestRunTaskHandsTheAgentTheProject(t *testing.T) {
 		t.Errorf("the agent was not told about its project: %q", ag.note)
 	}
 }
+
+// A tier engine exists only when the tier is assigned; the classifier answers strong when its
+// call fails, so a hard piece is never sent to the weak model because the judge was unreachable.
+func TestTierEngineAndClassifier(t *testing.T) {
+	r, _ := modelsRunner(t, config.Models{})
+	if r.tierEngine(config.TaskCheap) != nil {
+		t.Error("an unassigned tier has no engine")
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
+	r.SetTaskModels(config.Models{Cheap: "anthropic/claude-haiku-4-5"})
+	if r.tierEngine(config.TaskCheap) == nil || r.tierEngine(config.TaskStrong) != nil {
+		t.Error("the assigned tier has an engine, the other does not")
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	stop()
+	if got := r.classifyPiece(ctx, "p", "b"); got != config.TaskStrong {
+		t.Errorf("a failed judge answers %q, want strong", got)
+	}
+}

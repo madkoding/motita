@@ -1220,7 +1220,18 @@ models:
   review: openai/gpt-5               # background agents with "role": "review"
   research: ollama/qwen3:8b          # background agents with "role": "research"
   summary: openai/gpt-5-nano         # titles, compaction summaries, auto mode's guess
+  cheap: ollama/qwen3:8b             # tier: easy pieces handed to background agents
+  strong: ""                         # tier: hard pieces; empty = the coding model
 ```
+
+**Tiers (cheap / strong).** With `cheap` assigned, every `spawn_agent` that writes is judged by
+the summary model (a one-word EASY/HARD call; any doubt or failure means strong) and routed to
+`cheap` or `strong`; the main agent can also say `"tier": "cheap"` or `"strong"` itself. A cheap
+agent that ends without passing is run again on `strong` (the coding model when `strong` is
+empty) in the same worktree, told what the first attempt left. Its report names the tier(s) and
+the tokens of the last attempt, and the agents panel shows the tier and tokens of every agent.
+With `cheap` empty nothing is routed. `MOTITA_MODELS_CHEAP` and `MOTITA_MODELS_STRONG` override
+the entries.
 
 The provider comes before the first slash; the model after it may hold its own. Each provider
 runs with its own key and endpoint. A model whose provider cannot run (no key) falls back to the

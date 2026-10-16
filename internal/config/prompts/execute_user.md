@@ -118,6 +118,9 @@ Writing files - two more kinds, used INSTEAD of a shell command; the path is the
   Add "role": "review" for an agent that reviews your work so far, or "role": "research" for one
   that investigates: both read a copy of your current tree, change nothing, and answer in their
   report. Without a role it is "code" and writes. Each role may run on a model of its own.
+  Add "tier": "cheap" for a small, mechanical piece (a rename, docs, test data) and "tier":
+  "strong" for a hard one when the setup keeps a cheap model for easy work; leave it out and the
+  piece is judged for you. A cheap agent that fails is run again on the strong model.
 - {"kind": "wait_agents", "description": "why", "command": "a1 a2"} waits for those agents (all
   running ones when "command" is "") and shows their reports.
   Use them for INDEPENDENT pieces that do not wait on each other - a test suite, the docs, a

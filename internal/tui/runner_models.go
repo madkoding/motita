@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -97,6 +98,43 @@ func (r *AppRunner) roleEngine(role string) *llm.Client {
 		return nil
 	}
 	return e
+}
+
+// tierEngine is the engine of a model tier (cheap or strong), nil when the models block assigns
+// none: the agents are then not routed by difficulty.
+func (r *AppRunner) tierEngine(tier string) *llm.Client {
+	r.cfgMu.Lock()
+	assigned := !r.Cfg.Models.For(tier).Empty()
+	r.cfgMu.Unlock()
+	if !assigned {
+		return nil
+	}
+	return r.roleEngine(tier)
+}
+
+// classifyPiece asks the summary model (a cheap one when the models block assigns it) whether a
+// piece of work is easy enough for the cheap tier. Any doubt, or any failure, is "strong": a hard
+// piece must never be sent to the weak model because the judge was unreachable.
+func (r *AppRunner) classifyPiece(ctx context.Context, purpose, brief string) string {
+	e := r.summaryEngine(nil)
+	if e == nil {
+		_, session, err := r.engine()
+		if err != nil || session == nil {
+			return config.TaskStrong
+		}
+		e = session
+	}
+	out, err := e.Complete(ctx, []llm.Message{
+		{Role: "system", Content: "You route programming work to a model. Answer with ONE word: EASY when the " +
+			"piece is small, mechanical and well specified (a rename, a doc or comment edit, a config or " +
+			"test-data change, formatting, a lookup, a single-file change with no design choices), HARD " +
+			"otherwise (design, debugging, several files that interact, anything ambiguous or risky)."},
+		{Role: "user", Content: "Purpose: " + purpose + "\n\nBrief:\n" + brief},
+	})
+	if err != nil || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(out)), "EASY") {
+		return config.TaskStrong
+	}
+	return config.TaskCheap
 }
 
 // summaryEngine is the engine a conversation compacts with: the summary model when one is

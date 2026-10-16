@@ -133,6 +133,10 @@ type Agent struct {
 	// roleEngines is the engine a background agent of a role runs on, handed by the session that
 	// runs this agent; nil (or a nil answer) means this agent's own engine. See SetRoleEngines.
 	roleEngines func(role string) *llm.Client
+	// tierEngines is the engine of a tier (cheap or strong), nil when the tier has no model
+	// assigned; classify says how hard a piece of work is. See SetTiers.
+	tierEngines func(tier string) *llm.Client
+	classify    func(ctx context.Context, purpose, brief string) string
 
 	// projectNote is what the session tells the agent about where it works: the project it
 	// belongs to, its root, how it is run and its other repositories. "" for a session that
@@ -156,6 +160,12 @@ func (a *Agent) SetObserver(fn func(TaskResult)) {
 // SetRoleEngines installs how a background agent's engine is chosen from its role. The front end
 // that owns the session hands it, so the agents of a run only ever use that session's engines.
 func (a *Agent) SetRoleEngines(fn func(role string) *llm.Client) { a.roleEngines = fn }
+
+// SetTiers installs the cheap/strong routing of background agents: engine returns the engine of a
+// tier (nil when none is assigned), classify answers TierCheap or TierStrong for a piece of work.
+func (a *Agent) SetTiers(engine func(tier string) *llm.Client, classify func(ctx context.Context, purpose, brief string) string) {
+	a.tierEngines, a.classify = engine, classify
+}
 
 // SetLibrary installs the procedure library.
 //
@@ -469,6 +479,9 @@ type Command struct {
 	// Role is what a spawn_agent's agent is for: code (the default), review or research. It
 	// picks the model the agent runs on (the models block) and whether it may write.
 	Role string `json:"role,omitempty"`
+	// Tier is how strong a model a spawn_agent's agent needs: cheap, strong, or empty to let the
+	// run judge the piece. It only matters when the models block assigns the tier.
+	Tier string `json:"tier,omitempty"`
 }
 
 // TaskResult is the final verdict of one task.

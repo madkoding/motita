@@ -422,7 +422,7 @@ func TestANewChildInheritsTheParentsRules(t *testing.T) {
 		ran = true
 		return "", false, 0, nil
 	}
-	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode)
+	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode, "")
 	if !child.cfg.Agent.ReadOnly || child.research || !child.isChild || child.cfg.FinalAction.Kind != "none" {
 		t.Fatalf(
 			"child = readonly %v research %v child %v final %q",
@@ -441,7 +441,7 @@ func TestANewChildInheritsTheParentsRules(t *testing.T) {
 		t.Errorf("child anchor = %+v, want the project's gate", child.cfg.Anchor)
 	}
 	a.cfg.Anchor = config.Anchor{Kind: "auto", Timeout: time.Minute}
-	got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode).cfg.Anchor
+	got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode, "").cfg.Anchor
 	if got.Timeout != time.Minute {
 		t.Errorf("a project gate must be kept as configured: %+v", got)
 	}
@@ -707,7 +707,7 @@ func TestRolesRefusalsAndEngines(t *testing.T) {
 	}
 
 	place := childPlace{dir: a.cfg.Agent.WorkspaceDir}
-	if child := a.newChild(place, config.TaskReview); !child.cfg.Agent.ReadOnly || !child.research || child.engine != nil {
+	if child := a.newChild(place, config.TaskReview, ""); !child.cfg.Agent.ReadOnly || !child.research || child.engine != nil {
 		t.Errorf("a reviewer reads only, on the agent's engine without a session's")
 	}
 	session := &llm.Client{}
@@ -717,7 +717,7 @@ func TestRolesRefusalsAndEngines(t *testing.T) {
 		}
 		return nil
 	})
-	if a.newChild(place, config.TaskReview).engine != session || a.newChild(place, config.TaskCode).engine != nil {
+	if a.newChild(place, config.TaskReview, "").engine != session || a.newChild(place, config.TaskCode, "").engine != nil {
 		t.Error("the session's engine for the role, the agent's own otherwise")
 	}
 	if roleTag(config.TaskCode) != "" || !writes(config.TaskCode) || writes(config.TaskResearch) {
@@ -746,7 +746,7 @@ func TestTheProjectReachesThePromptsAndTheTeam(t *testing.T) {
 	if got := a.baseVariables(taskOf("x"))["project"]; got != `This session belongs to the project "Shop".` {
 		t.Errorf("project = %q", got)
 	}
-	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode)
+	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}, config.TaskCode, "")
 	if child.projectNote != a.projectNote {
 		t.Errorf("the background agent must inherit the project: %q", child.projectNote)
 	}

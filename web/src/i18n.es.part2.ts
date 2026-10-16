@@ -186,6 +186,12 @@ const more: Record<string, string> = {
   Summaries: "Resúmenes",
   "Titles, conversation summaries and auto mode's guess.":
     "Títulos, resúmenes de la conversación y la elección del modo auto.",
+  "Easy pieces (cheap)": "Piezas fáciles (barato)",
+  "A small or local model for easy pieces handed to background agents. Leave empty to send everything to one model.":
+    "Un modelo pequeño o local para las piezas fáciles que van a los agentes en segundo plano. Déjalo vacío para mandar todo a un solo modelo.",
+  "Hard pieces (strong)": "Piezas difíciles (fuerte)",
+  "The model for hard pieces, and where a cheap agent that fails tries again. Empty means the coding model.":
+    "El modelo para las piezas difíciles, y donde reintenta un agente barato que falla. Vacío usa el modelo de código.",
   "New sessions will start with {model}":
     "Las sesiones nuevas empezarán con {model}",
   "Connected · key saved": "Conectado · clave guardada",
