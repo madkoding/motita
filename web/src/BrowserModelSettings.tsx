@@ -165,6 +165,16 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             </button>
           </Row>
         )}
+        {s.phase === "ready" && !s.software && (
+          <output
+            class="block text-xs text-[#9a9aaa] px-3 pb-2"
+            data-testid="llm-browser-card"
+          >
+            {tf("Running on the graphics card: {card}", {
+              card: s.card || t("unnamed"),
+            })}
+          </output>
+        )}
         {s.software && (
           <output
             class="block text-xs text-[#e0b46a] px-3 pb-2"
@@ -173,6 +183,7 @@ export function BrowserModelSettings({ api }: { api: Api }) {
             {t(
               "This browser runs WebGPU on the processor, not on a graphics card: the model works but is very slow.",
             )}
+            {s.card && " (" + s.card + ")"}
           </output>
         )}
         {s.phase === "ready" && (

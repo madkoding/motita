@@ -274,7 +274,7 @@ export type ToLLMWorker =
   | { kind: "generate"; seq: number; messages: ChatMessage[] };
 export type FromLLMWorker =
   | { kind: "progress"; pct: number }
-  | { kind: "ready"; build: string }
+  | { kind: "ready"; build: string; name: string; software: boolean }
   | { kind: "failed"; error: string }
   | { seq: number; text: string }
   | { seq: number; error: string };

@@ -423,6 +423,32 @@ test("the settings warn when the WebGPU is emulated on the processor", async (ct
     "the warning",
   );
   assert.match(text(m.box()), /runs WebGPU on the processor.*very slow/);
+  assert.match(text(m.box()), /\(google swiftshader\)/);
+});
+
+test("a card that hides its name is shown as unnamed", async (ctx) => {
+  page.stopBrowserModel();
+  workers.length = 0;
+  tab.next = [204];
+  gw.catalogs = [catalogOf([model("llm-qwen25-0.5b", { installed: true })])];
+  withGPU(card());
+  const m = await mount();
+  ctx.after(m.done);
+  await click(m.root.querySelector("input[role=switch]"));
+  await wait(() => workers.length === 1, "a worker");
+  await act(() =>
+    tell({
+      kind: "ready",
+      build: "llm-qwen25-0.5b",
+      name: "",
+      software: false,
+    }),
+  );
+  await wait(
+    () => m.root.querySelector("[data-testid=llm-browser-card]"),
+    "the card line",
+  );
+  assert.match(text(m.box()), /Running on the graphics card: unnamed/);
 });
 
 test("it starts by itself in a signed-in tab where it was turned on", async () => {
@@ -515,10 +541,21 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   await wait(() => workers.length === 1, "a worker");
   await settle();
   assert.match(m.status(), /Loading the model into the graphics card/);
-  await act(() => tell({ kind: "ready", build: "llm-qwen25-0.5b" }));
+  await act(() =>
+    tell({
+      kind: "ready",
+      build: "llm-qwen25-0.5b",
+      name: "nvidia ada",
+      software: false,
+    }),
+  );
   await wait(() => page.browserState().phase === "ready", "ready");
   await settle();
   assert.equal(m.status(), "Ready: it answers while this tab stays open.");
+  assert.match(
+    text(m.root.querySelector("[data-testid=llm-browser-card]")),
+    /Running on the graphics card: nvidia ada/,
+  );
 
   // Try it: the title and how long it took, or why not.
   tab.test = async () => json({ text: "Fix the test", ms: 4200 });

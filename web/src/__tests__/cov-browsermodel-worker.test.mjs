@@ -73,13 +73,19 @@ globalThis.fetch = async (url) => {
 };
 
 const posted = [];
-const card = (features) => ({
+const card = (features, info) => ({
+  info,
   limits: { maxBindGroups: 4 },
   features: new Set(features),
   requestDevice: async () => ({}),
 });
 globalThis.self = {
-  navigator: { gpu: { requestAdapter: async () => card(["shader-f16"]) } },
+  navigator: {
+    gpu: {
+      requestAdapter: async () =>
+        card(["shader-f16"], { vendor: "nvidia", architecture: "ada" }),
+    },
+  },
   postMessage(m) {
     posted.push(m);
   },
@@ -105,6 +111,8 @@ test("it loads the build the card runs, with its progress, and writes an answer"
   assert.deepEqual(await next(outcome, from), {
     kind: "ready",
     build: "llm-qwen25-0.5b",
+    name: "nvidia ada",
+    software: false,
   });
   assert.ok(
     posted.slice(from).some((m) => m.kind === "progress"),
@@ -148,6 +156,8 @@ test("a card without 16-bit floats runs the larger build", async () => {
   assert.deepEqual(await next(outcome, from), {
     kind: "ready",
     build: "llm-qwen25-0.5b-f32",
+    name: "",
+    software: false,
   });
 });
 

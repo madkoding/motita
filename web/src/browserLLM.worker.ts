@@ -10,21 +10,21 @@ import {
   type LLMOrt,
   type ToLLMWorker,
 } from "./browserLLMCore";
-import { bytes, gpuOrt, messageOf, webGPU } from "./workerOrt";
+import { cardOf } from "./gpuPolicy";
+import { bytes, gpuOrt, messageOf, workerCard } from "./workerOrt";
 
 declare const self: DedicatedWorkerGlobalScope;
 
+// The card the model runs on, found once: the build is chosen on it and the page is told its name.
+let found: Promise<GPUAdapter | null> | undefined;
+function card(): Promise<GPUAdapter | null> {
+  found ??= workerCard();
+  return found;
+}
+
 // hasF16 says the card has 16-bit floats in its shaders, which the lighter build needs.
 async function hasF16(): Promise<boolean> {
-  if (!webGPU()) {
-    return false;
-  }
-  const gpu = (
-    self.navigator as Navigator & {
-      gpu: { requestAdapter(): Promise<GPUAdapter | null> };
-    }
-  ).gpu;
-  return (await gpu.requestAdapter())?.features.has("shader-f16") === true;
+  return (await card())?.features.has("shader-f16") === true;
 }
 
 const model = new BrowserModel({
@@ -39,10 +39,12 @@ const send = (m: FromLLMWorker) => self.postMessage(m);
 self.onmessage = (e: MessageEvent<ToLLMWorker>) => {
   const m = e.data;
   if (m.kind === "load") {
+    found = undefined;
     model
       .load((pct) => send({ kind: "progress", pct }))
       .then(
-        (r) => send({ kind: "ready", build: r.build }),
+        async (r) =>
+          send({ kind: "ready", build: r.build, ...cardOf(await card()) }),
         (err: unknown) => send({ kind: "failed", error: messageOf(err) }),
       );
     return;
