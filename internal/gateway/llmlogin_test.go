@@ -132,20 +132,39 @@ func TestCodexLoginTakesThePastedAddress(t *testing.T) {
 	}
 }
 
+func refusalCode(err error) string {
+	var r *loginRefusal
+	if errors.As(err, &r) {
+		if strings.ContainsAny(r.msg, "/`") || strings.Contains(r.msg, "gcloud") {
+			return "leaks:" + r.msg
+		}
+		return r.code
+	}
+	return ""
+}
+
 func TestGeminiLoginUsesGcloud(t *testing.T) {
 	adc := filepath.Join(t.TempDir(), "adc.json")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
-	if _, err := geminiLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "gcloud") {
-		t.Errorf("no gcloud login: %v", err)
+	_, err := geminiLogin(context.Background())
+	if c := refusalCode(err); c != "gemini_no_gcloud" {
+		t.Errorf("no gcloud login: %q %v", c, err)
+	}
+	_ = os.WriteFile(adc, []byte(`not json`), 0o600)
+	_, err = geminiLogin(context.Background())
+	if c := refusalCode(err); c != "gemini_bad_login" {
+		t.Errorf("unreadable login: %q %v", c, err)
 	}
 	_ = os.WriteFile(adc, []byte(`{"type":"authorized_user","refresh_token":"r"}`), 0o600)
-	if _, err := geminiLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "project") {
-		t.Errorf("no project: %v", err)
+	_, err = geminiLogin(context.Background())
+	if c := refusalCode(err); c != "gemini_no_project" {
+		t.Errorf("no project: %q %v", c, err)
 	}
 	_ = os.WriteFile(adc, []byte(`{"type":"authorized_user","refresh_token":"r","quota_project_id":"qp"}`), 0o600)
 	useOAuth(t, loginRT{})
-	if _, err := geminiLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "renewed") {
-		t.Errorf("a refresh that fails: %v", err)
+	_, err = geminiLogin(context.Background())
+	if c := refusalCode(err); c != "gemini_expired" {
+		t.Errorf("a refresh that fails: %q %v", c, err)
 	}
 	useOAuth(t, loginRT{"/token": ok200(`{"access_token":"ya29","expires_in":3600}`)})
 	f, err := geminiLogin(context.Background())
@@ -154,6 +173,29 @@ func TestGeminiLoginUsesGcloud(t *testing.T) {
 	}
 	if cred, _ := f.Wait(context.Background(), nil); cred.ProjectID != "qp" {
 		t.Errorf("%+v", cred)
+	}
+}
+
+// The gemini login is only offered where gcloud's login exists, and a refusal reaches the page
+// with its code and no path.
+func TestGeminiLoginOfferedOnlyWithGcloud(t *testing.T) {
+	adc := filepath.Join(t.TempDir(), "adc.json")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
+	srv, _ := llmServer(t, filepath.Join(t.TempDir(), "c.yaml"))
+	offered := func() bool {
+		return providerOf(decodeLLM(t, llmCall(t, srv, http.MethodGet, "/v1/llm", "")), "gemini").SupportsLogin
+	}
+	if offered() {
+		t.Error("no gcloud login, no sign-in button")
+	}
+	w := llmCall(t, srv, http.MethodPost, "/v1/llm/providers/gemini/login", "")
+	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), `"code":"gemini_no_gcloud"`) ||
+		strings.Contains(w.Body.String(), "gcloud ") {
+		t.Errorf("%d %s", w.Code, w.Body)
+	}
+	_ = os.WriteFile(adc, []byte(`{}`), 0o600)
+	if !offered() {
+		t.Error("a gcloud login offers the sign-in button")
 	}
 }
 

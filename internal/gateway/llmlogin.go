@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 	"sync"
@@ -91,18 +91,30 @@ func codexLogin(context.Context) (loginFlow, error) {
 		}}, nil
 }
 
+// loginRefusal is a login that cannot start, with a code the page turns into a sentence in the
+// user's language and the English text for any other client. It never carries a path or a command
+// output: those are for the gateway's log, not for the person at the page.
+type loginRefusal struct{ code, msg string }
+
+func (e *loginRefusal) Error() string { return e.msg }
+
 func geminiLogin(ctx context.Context) (loginFlow, error) {
 	cred, err := oauth.GeminiFromADC(oauth.ADCPath(config.HomeDir()), "")
-	if err == nil && cred.ProjectID == "" {
-		err = errors.New("no Google Cloud project is known")
-	}
-	if err != nil {
-		return loginFlow{}, fmt.Errorf("%w: on the gateway's machine run `gcloud auth application-default login` "+
-			"and `gcloud auth application-default set-quota-project <project>`, or paste an AI Studio key", err)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return loginFlow{}, &loginRefusal{"gemini_no_gcloud",
+			"Google sign-in is not set up on this computer: paste an AI Studio key instead"}
+	case err != nil:
+		return loginFlow{}, &loginRefusal{"gemini_bad_login",
+			"The Google login on this computer cannot be used: paste an AI Studio key instead"}
+	case cred.ProjectID == "":
+		return loginFlow{}, &loginRefusal{"gemini_no_project",
+			"The Google login has no Google Cloud project: paste an AI Studio key instead"}
 	}
 	cred, err = oauth.GeminiRefresh(ctx, nil, cred)
 	if err != nil {
-		return loginFlow{}, fmt.Errorf("the gcloud login could not be renewed: %w", err)
+		return loginFlow{}, &loginRefusal{"gemini_expired",
+			"The Google login on this computer has expired: paste an AI Studio key instead"}
 	}
 	return loginFlow{Method: "instant",
 		Wait: func(context.Context, <-chan string) (oauth.Credential, error) { return cred, nil }}, nil
@@ -167,6 +179,11 @@ func (s *Server) handleLLMLogin(w http.ResponseWriter, r *http.Request) {
 	flow, err := start(ctx)
 	if err != nil {
 		cancel()
+		var refusal *loginRefusal
+		if errors.As(err, &refusal) {
+			writeRefusal(w, http.StatusBadGateway, refusal.code, refusal.msg)
+			return
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
