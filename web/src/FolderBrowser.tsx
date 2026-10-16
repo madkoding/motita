@@ -2,6 +2,7 @@
 // folders only; which part of the disk it reaches is the gateway's call (Settings → Security).
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "./i18n";
+import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import { useDialog } from "./useDialog";
 import { useBackdropClose } from "./useBackdropClose";
@@ -119,7 +120,7 @@ function Navigation({
         class="mb-2 px-3 py-2 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
         data-testid="folder-path"
       >
-        {listing?.path ?? "…"}
+        {choose(listing, listing?.path || t("This computer"), "…")}
       </p>
       <div class="flex gap-2 mb-2">
         <button
@@ -248,12 +249,12 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
             )}
           </p>
         )}
-        {listing && <NewFolder onCreate={create} />}
+        {listing?.path && <NewFolder onCreate={create} />}
         <div class="flex gap-2 mt-4">
           <button
             class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
             data-testid="folder-pick"
-            disabled={!listing || !!err}
+            disabled={!listing?.path || !!err}
             onClick={pick}
           >
             {t("Use this folder")}

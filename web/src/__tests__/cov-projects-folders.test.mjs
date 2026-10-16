@@ -250,6 +250,21 @@ test("a system folder carries a warning, and a new folder is made inside the one
   await n.unmount();
 });
 
+test("the list of drives has no folder to choose and nothing to create in", async () => {
+  const drives = {
+    path: "",
+    root: "",
+    home: "C:\\Users\\ada",
+    dirs: [{ name: "C:", path: "C:\\" }],
+  };
+  const { m } = await browser({ "": drives });
+  assert.equal(m.q("[data-testid=folder-path]").textContent, "This computer");
+  assert.equal(m.q("[data-testid=folder-pick]").disabled, true);
+  assert.equal(m.q("[data-testid=folder-new-name]"), null);
+  assert.ok(m.q("[data-testid=folder-home]"));
+  await m.unmount();
+});
+
 // store is a projects store for the dialogs; its actions are recorded.
 function store(state = {}) {
   const log = [];

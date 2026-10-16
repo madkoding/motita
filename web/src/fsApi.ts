@@ -14,6 +14,7 @@ export interface DirEntry {
 // DirListing is a folder, the one above it ("" at the top of what may be browsed), the user's
 // home when it can be reached, and the folders inside.
 export interface DirListing {
+  // Empty for the list of the machine's drives, where nothing can be chosen.
   path: string;
   parent?: string;
   home?: string;

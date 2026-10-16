@@ -283,3 +283,47 @@ func TestAFolderThatCannotBeOpenedIsReportedNotListedEmpty(t *testing.T) {
 		t.Errorf("creating inside: %d", c)
 	}
 }
+
+// withDrives makes the gateway think the machine has several drives, as a Windows one does.
+func withDrives(t *testing.T, roots ...string) {
+	t.Helper()
+	old := driveRoots
+	driveRoots = func() []string { return roots }
+	t.Cleanup(func() { driveRoots = old })
+}
+
+// TestAMachineWithSeveralDrivesListsThemAboveTheTopOfEach: the top of a drive has the list of
+// drives above it, and the list has nothing to choose or to create in.
+func TestAMachineWithSeveralDrivesListsThemAboveTheTopOfEach(t *testing.T) {
+	withDrives(t, `C:\`, `D:\`)
+	srv, _ := fullDiskServer(t)
+	code, out, body := listDirs(t, srv, "%40drives")
+	if code != http.StatusOK || out.Path != "" || len(out.Dirs) != 2 || out.Dirs[0].Name != "C:" || out.Dirs[1].Path != `D:\` {
+		t.Fatalf("drives: %d %s", code, body)
+	}
+	if _, out, _ = listDirs(t, srv, "/"); out.Parent != drivesPath {
+		t.Errorf("above the top of a drive: %+v", out)
+	}
+	if _, out, _ = listDirs(t, srv, "/usr"); out.Parent != "/" {
+		t.Errorf("an ordinary parent: %+v", out)
+	}
+}
+
+// TestRelativeFoldersAndDollarFoldersAreLeftOut: a relative path is refused, not read from wherever
+// the gateway runs, and system folders that start with $ are not offered.
+func TestRelativeFoldersAndDollarFoldersAreLeftOut(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	if code, _, _ := listDirs(t, srv, "relative/dir"); code != http.StatusBadRequest {
+		t.Errorf("relative: %d", code)
+	}
+	if code, _, _ := listDirs(t, srv, "%40drives"); code != http.StatusBadRequest {
+		t.Errorf("drives on a machine with one tree: %d", code)
+	}
+	base := t.TempDir()
+	if err := os.Mkdir(filepath.Join(base, "$Recycle.Bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, out, _ := listDirs(t, srv, base); len(out.Dirs) != 0 {
+		t.Errorf("hidden: %+v", out.Dirs)
+	}
+}

@@ -44,9 +44,10 @@ type dirListing struct {
 // anywhere; otherwise it only shows the workspace, which is where a project folder goes anyway.
 // Only folders are listed, never files, and hidden folders are left out.
 func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
-	root := "/"
-	if !s.fullDisk() {
-		root = s.opts.WorkspaceDir
+	full := s.fullDisk()
+	root := s.opts.WorkspaceDir
+	if full {
+		root = "/"
 	}
 	if root == "" {
 		writeError(w, http.StatusNotImplemented, "no workspace directory is configured")
@@ -54,14 +55,25 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 	}
 	home, _ := os.UserHomeDir()
 	dir := strings.TrimSpace(r.URL.Query().Get("path"))
+	if full && dir == drivesPath && len(driveRoots()) > 0 {
+		writeJSON(w, http.StatusOK, drivesListing(home))
+		return
+	}
 	if dir == "" {
 		dir = root
-		if root == "/" && home != "" {
+		if full && home != "" {
 			dir = home
 		}
 	}
-	dir, err := filepath.Abs(dir)
-	if err != nil || !pathWithinOrSame(root, dir) {
+	if !filepath.IsAbs(dir) {
+		writeError(w, http.StatusBadRequest, "the folder must be an absolute path")
+		return
+	}
+	dir = filepath.Clean(dir)
+	if full {
+		root = volumeRoot(dir)
+	}
+	if !pathWithinOrSame(root, dir) {
 		writeError(w, http.StatusForbidden, "that folder is outside what Motita may reach: "+
 			"allow the whole disk in Settings → Security")
 		return
@@ -77,18 +89,16 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := dirListing{Path: dir, Root: root, Sensitive: systemFolder(dir), Dirs: []dirEntry{}}
-	if !gitx.SamePath(dir, root) {
-		out.Parent = filepath.Dir(dir)
-	}
-	if home != "" && pathWithinOrSame(root, home) {
+	out.Parent = parentOf(dir, root, full)
+	if home != "" && (full || pathWithinOrSame(root, home)) {
 		out.Home = home
 	}
 	for _, e := range entries {
-		full := filepath.Join(dir, e.Name())
-		if strings.HasPrefix(e.Name(), ".") || !isDir(full) {
+		sub := filepath.Join(dir, e.Name())
+		if strings.HasPrefix(e.Name(), ".") || strings.HasPrefix(e.Name(), "$") || !isDir(sub) {
 			continue
 		}
-		out.Dirs = append(out.Dirs, dirEntry{Name: e.Name(), Path: full, Git: isDir(filepath.Join(full, ".git"))})
+		out.Dirs = append(out.Dirs, dirEntry{Name: e.Name(), Path: sub, Git: isDir(filepath.Join(sub, ".git"))})
 	}
 	sort.Slice(out.Dirs, func(i, j int) bool {
 		return strings.ToLower(out.Dirs[i].Name) < strings.ToLower(out.Dirs[j].Name)
@@ -130,9 +140,36 @@ func childDir(dir, name string) (string, bool) {
 	return "", false
 }
 
-// systemTrees are where the system keeps its own files.
-var systemTrees = []string{
-	"/etc", "/proc", "/sys", "/dev", "/boot", "/var", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/run",
+// drivesPath is what a client asks for to see the machine's drives, on a system that has several
+// (Windows). The list it answers has no path of its own: nothing can be chosen there.
+const drivesPath = "@drives"
+
+// driveRoots, and the system's trees, are the platform's; variables so a test can stand in for
+// a machine with drives.
+var (
+	driveRoots  = platformDriveRoots
+	systemTrees = platformSystemTrees
+)
+
+// drivesListing is the list of the machine's drives.
+func drivesListing(home string) dirListing {
+	out := dirListing{Dirs: []dirEntry{}, Home: home}
+	for _, root := range driveRoots() {
+		out.Dirs = append(out.Dirs, dirEntry{Name: strings.TrimSuffix(root, `\`), Path: root})
+	}
+	return out
+}
+
+// parentOf is the folder above dir. At the top of a drive it is the list of drives when the
+// machine has several; at the top of the one tree, or of the workspace, there is nothing above.
+func parentOf(dir, root string, full bool) string {
+	if !gitx.SamePath(dir, root) {
+		return filepath.Dir(dir)
+	}
+	if full && len(driveRoots()) > 0 {
+		return drivesPath
+	}
+	return ""
 }
 
 // routeFolderBrowser registers the folder browser's two routes.
@@ -146,12 +183,12 @@ func simpleFolderName(name string) bool {
 	if name == "" || name == "." || strings.Contains(name, "..") {
 		return false
 	}
-	return !strings.ContainsAny(name, "/\\\x00")
+	return !strings.ContainsAny(name, badNameChars)
 }
 
 // systemFolder reports whether dir is one of the system's trees or inside one.
 func systemFolder(dir string) bool {
-	for _, tree := range systemTrees {
+	for _, tree := range systemTrees() {
 		if pathWithinOrSame(tree, dir) {
 			return true
 		}
@@ -180,7 +217,7 @@ func (s *Server) handleMakeDir(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return
 	}
-	parent, ok := resolveDir("/", strings.TrimSpace(body.Path))
+	parent, ok := resolveDir(volumeRoot(body.Path), strings.TrimSpace(body.Path))
 	if !ok || !filepath.IsAbs(body.Path) {
 		writeError(w, http.StatusBadRequest, "the folder to create it in must be an existing absolute path")
 		return
@@ -230,7 +267,7 @@ func (s *Server) externalProjectFolder(w http.ResponseWriter, raw string) (strin
 		writeError(w, http.StatusBadRequest, "the folder must be an absolute path")
 		return "", false
 	}
-	dir, found := resolveDir("/", raw)
+	dir, found := resolveDir(volumeRoot(raw), raw)
 	if found {
 		if real, err := filepath.EvalSymlinks(dir); err == nil {
 			dir = real
