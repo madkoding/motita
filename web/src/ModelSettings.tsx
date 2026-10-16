@@ -76,6 +76,11 @@ export function ModelSettings({ api, onNotice }: ProviderSettingsProps) {
           "Pick the model new sessions start with, and a model for each kind of work if you want one.",
         )}
       </p>
+      <p class="text-xs text-[#7a7a8c] mb-3" data-testid="model-legend">
+        {t(
+          "Each model shows how capable it is and what it costs. Use a cheap one for easy pieces and a very capable one for hard pieces. Prices are approximate.",
+        )}
+      </p>
       {err && (
         <p class="text-xs text-danger mb-2" role="alert">
           {err}

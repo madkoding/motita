@@ -185,6 +185,12 @@ const row = (root, id) => root.querySelector(`li[data-provider="${id}"]`);
 const button = (el, text) =>
   [...el.querySelectorAll("button")].find((b) => b.textContent === text);
 const choose = async (select, value) => {
+  if (select.tagName === "BUTTON") {
+    await act(() => select.click());
+    const li = [...document.querySelectorAll(`#${select.id}-list li`)].find((x) => x.dataset.value === value);
+    await act(() => li.click());
+    return;
+  }
   select.value = value;
   await act(() =>
     select.dispatchEvent(new window.Event("change", { bubbles: true })),
@@ -699,10 +705,12 @@ test("each kind of work can get its own model, and the rest follow the default",
   );
   const model = form.querySelector("#llm-task-plan-model");
   assert.equal(model.value, "gpt-x", "the models the provider listed come first");
-  const listed = [...model.querySelectorAll("option")].map((o) => o.textContent);
+  await act(() => model.click());
+  const listed = [...document.querySelectorAll("#llm-task-plan-model-list li")].map((o) => o.textContent);
   assert.deepEqual(listed, ["gpt-x", "gpt-y", "Other…"]);
+  await act(() => model.click());
   assert.equal(form.querySelector(PLAN_MODEL_OTHER), null, "no field until Other…");
-  await choose(model, model.querySelector("option:last-child").value);
+  await choose(model, "\u0000other");
   const other = form.querySelector(PLAN_MODEL_OTHER);
   assert.equal(other.value, "", "Other… starts empty");
   assert.equal(button(form, "Save").disabled, true, "a provider without a model cannot be saved");
@@ -732,7 +740,7 @@ test("a model the list leaves out is typed under Other…, and a provider with n
   const { root, done } = await open(fakeGateway(view), "models");
   const form = root.querySelector(DEFAULT_FORM);
   const select = form.querySelector(DEFAULT_MODEL_INPUT);
-  assert.equal(select.selectedOptions[0].textContent, "Other…");
+  assert.equal(select.textContent, "Other…▾");
   assert.equal(form.querySelector("#llm-default-model-other").value, "my-tune");
   await choose(select, "gpt-5");
   assert.equal(form.querySelector("#llm-default-model-other"), null, "a listed model hides the field");
