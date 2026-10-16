@@ -557,9 +557,13 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 			t.Errorf("%q offers no model and does not fetch them", p.ID)
 		}
 	}
-	if len(Providers()) != len(implemented) {
+	// The browser model is the one provider the wizard leaves out: only the web UI turns it on.
+	if len(Providers())+1 != len(implemented) || !implemented[BrowserProvider().ID] {
 		t.Errorf("the client implements %d providers and the wizard offers %d",
 			len(implemented), len(Providers()))
+	}
+	if b := BrowserProvider(); len(b.Models) == 0 || b.Models[0].Cost != "local" || b.Name == "" || b.Access == "" {
+		t.Errorf("the browser provider is incomplete: %+v", b)
 	}
 }
 

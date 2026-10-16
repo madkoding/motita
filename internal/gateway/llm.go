@@ -182,6 +182,9 @@ func (s *Server) llmViewOf() llmView {
 		pv.Models = withInferredFacts(p.ID, pv.Models, pv.Listed)
 		v.Providers = append(v.Providers, pv)
 	}
+	// The browser model is listed after the others: only the web UI offers it.
+	bp := onboard.BrowserProvider()
+	v.Providers = append(v.Providers, s.providerView(cfg, bp))
 	s.llmListedMu.Unlock()
 	models := s.configuredModels()
 	for _, kind := range config.TaskKinds {

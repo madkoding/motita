@@ -102,8 +102,11 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
 	srv := newTestServer(t, svc)
 	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
-	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != 8 {
+	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != 9 {
 		t.Fatalf("view = %+v", v)
+	}
+	if p := providerOf(v, "browser"); p.Key != config.KeyNotNeeded || p.Login != "" || len(p.Models) != 1 {
+		t.Errorf("browser = %+v", p)
 	}
 	if p := providerOf(v, "claude-code"); p.Key != config.KeyNotNeeded || p.Login == "" || len(p.Models) == 0 {
 		t.Errorf("claude-code = %+v", p)
