@@ -292,12 +292,13 @@ export function LocalVoices({
 
   const dl = catalog?.download;
 
-  // The first voice downloaded is the one used, when none was chosen.
+  // The first voice downloaded is the one used, when none was chosen, or when the one chosen
+  // is Chatterbox on a device that does not give it WebGPU (a phone, say): it would only fail.
   useEffect(() => {
-    if (chosen) {
+    if (chosen && !(isChatterbox(chosen) && !gpuAllowed())) {
       return;
     }
-    const ready = catalog?.models.find((m) => m.installed);
+    const ready = catalog?.models.find((m) => m.installed && !isChatterbox(m.id));
     if (ready) {
       pick(ready.id);
     }

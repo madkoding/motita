@@ -27,6 +27,7 @@ interface Pending {
 
 let worker: Worker | null = null;
 let seq = 0;
+let hearing: Promise<unknown> = Promise.resolve();
 const pending = new Map<number, Pending>();
 
 // settle takes a request out of the waiting ones, its clock stopped.
@@ -169,16 +170,24 @@ export async function samplesOf(audio: Blob): Promise<Float32Array> {
 
 // hearLocal writes down what a recording says, with a model of the catalog run in this browser.
 // lang is the language spoken, or "" to let the model tell. It fails, and the worker is stopped,
-// when no answer comes in time (HEAR_BASE_MS, and HEAR_PER_SECOND_MS for each second recorded).
+// when no answer comes in time (HEAR_BASE_MS, and HEAR_PER_SECOND_MS for each second recorded),
+// counted from the moment the worker is given the recording, not from the wait behind another.
 export async function hearLocal(id: string, audio: Blob, lang: string): Promise<string> {
   const samples = await samplesOf(audio);
   warmListener(id);
   const ms = HEAR_BASE_MS + Math.ceil(samples.length / WHISPER_RATE) * HEAR_PER_SECOND_MS;
-  return new Promise<string>((ok, fail) => {
-    seq++;
-    arm(seq, { ok, fail, id, ms });
-    getWorker().postMessage({ kind: "hear", seq, id, samples, lang } satisfies ToListener, [samples.buffer]);
-  });
+  // One recording at a time: the worker writes them down in order anyway, and a clock that started
+  // while the recording waited its turn would stop the worker (and every model loaded) for a wait.
+  const turn = hearing.then(
+    () =>
+      new Promise<string>((ok, fail) => {
+        seq++;
+        arm(seq, { ok, fail, id, ms });
+        getWorker().postMessage({ kind: "hear", seq, id, samples, lang } satisfies ToListener, [samples.buffer]);
+      }),
+  );
+  hearing = turn.catch(() => undefined);
+  return turn;
 }
 
 // localListenSupported says this browser can run a model to listen with at all.

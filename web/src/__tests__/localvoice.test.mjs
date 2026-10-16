@@ -893,3 +893,54 @@ test("Supertonic speaks any language of the filter, and Chatterbox is offered on
   delete globalThis.Worker;
   delete globalThis.caches;
 });
+
+test("on a phone Chatterbox is not kept as the voice, and the WebGPU switch is under the voices too", async () => {
+  const ua = Object.getOwnPropertyDescriptor(navigator, "userAgent");
+  Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Linux; Android 14) Mobile", configurable: true });
+  globalThis.lastWorker?.onerror();
+  globalThis.Worker = class {
+    constructor() {
+      globalThis.lastWorker = this;
+    }
+    postMessage() {
+      // Only listed here.
+    }
+  };
+  globalThis.caches = {};
+  const many = (id, engine, installed) => ({ id, name: id, lang: "mul", quality: "high", engine, size: 200, installed });
+  const only = [many(CHATTERBOX, "chatterbox", true)];
+  const both = [many(SUPERTONIC, ENGINE_SUPERTONIC, true), ...only];
+  try {
+    for (const [models, want] of [
+      [both, [SUPERTONIC]],
+      [only, []],
+    ]) {
+      const picked = [];
+      const { api } = apiOf({ [CATALOG]: [HTTP_OK, { runtime: { size: 1, installed: true }, models, download: null }] });
+      const v = await mount(
+        h(lv.SpeechSettings, {
+          supported: true,
+          prefs: { engine: "local", localVoice: CHATTERBOX, pronunciations: [], langVoices: {} },
+          setPrefs: (x) => picked.push(x.localVoice),
+          voices: [],
+          test: () => {},
+          local: true,
+          api,
+          gatewayVoices: [],
+        }),
+      );
+      assert.ok(v.root.querySelector("#settings-gpu-mobile-speech"), "the switch is under the voices");
+      assert.deepEqual(picked, want, "another voice replaces Chatterbox, when there is one");
+      v.done();
+    }
+  } finally {
+    globalThis.lastWorker.onerror();
+    delete globalThis.Worker;
+    delete globalThis.caches;
+    if (ua) {
+      Object.defineProperty(navigator, "userAgent", ua);
+    } else {
+      delete navigator.userAgent;
+    }
+  }
+});

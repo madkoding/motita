@@ -61,7 +61,7 @@ function store(state = {}) {
     chooseMain: rec("main"),
     addNewProjectRepo: rec("addRepo", true),
     removeNewProjectRepo: rec("removeRepo"),
-    setShowRepoPicker: rec("picker"),
+    openRepoPicker: rec("picker"),
     openOtherRepoPicker: rec("pickOther"),
     setGitConnect: rec("connect"),
     createProject: rec("create"),
@@ -255,7 +255,7 @@ test("a connected host offers the person's repositories; none offers connecting 
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   await click(buttonByText(m.root, "Choose from my repositories"));
-  assert.deepEqual(s.log, [["picker", true]]);
+  assert.deepEqual(s.log, [["picker"]]);
 
   const none = store({
     newProjectMode: "git",

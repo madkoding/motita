@@ -132,7 +132,7 @@ function VoiceSwitch({
 
 // MobileGpuRow is the switch to run the local models on WebGPU on a phone, where they use the
 // processor by default; the workers already running keep their way until the page is reloaded.
-function MobileGpuRow() {
+export function MobileGpuRow({ id = "settings-gpu-mobile" }: { id?: string }) {
   const [on, setOn] = useState(gpuForced);
   const change = useCallback((v: boolean) => {
     setGpuForced(v);
@@ -140,14 +140,14 @@ function MobileGpuRow() {
   }, []);
   return (
     <Row
-      id="settings-gpu-mobile"
+      id={id}
       label={t("Use WebGPU on this device")}
       hint={t(
         "On a phone the models that listen and speak run on the processor, as its graphics card is too weak for them. Turn this on to try WebGPU anyway; reload the page to apply it.",
       )}
     >
       <VoiceSwitch
-        id="settings-gpu-mobile"
+        id={id}
         usable
         checked={on}
         onChange={change}

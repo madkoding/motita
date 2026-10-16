@@ -570,6 +570,8 @@ const more: Record<string, string> = {
   "This system blocks it for programs without permission (Ubuntu 24.04 and later). To allow it, run once on the machine that runs Motita: sudo motita sandbox apparmor install":
     "Este sistema lo bloquea para los programas sin permiso (Ubuntu 24.04 y posteriores). Para permitirlo, ejecuta una vez en la máquina donde corre Motita: sudo motita sandbox apparmor install",
   "Give Motita's commands the network?": "¿Dar la red a los comandos de Motita?",
+  "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.":
+    "Esta voz necesita WebGPU, que este dispositivo no usa. Elige otra voz, o activa WebGPU en los ajustes.",
 };
 
 export default more;

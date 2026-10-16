@@ -1132,3 +1132,17 @@ test("a shared repository behind its main branch is brought up to date, or says 
   assert.equal(s.p.repoBusy, "");
   await s.m.unmount();
 });
+
+test("a picker for the other repositories does not outlive a connection that was given up", async () => {
+  const s = await setup();
+  await run(() => s.p.openOtherRepoPicker());
+  assert.equal(s.p.pickForOthers, true);
+  await run(() => s.p.pickerAuthRequired("bitbucket"));
+  await run(() => s.p.closeGitConnect());
+  assert.equal(s.p.pickForOthers, false, "the next picker is for the main repository");
+  await run(() => s.p.openOtherRepoPicker());
+  await run(() => s.p.openRepoPicker());
+  assert.equal(s.p.showRepoPicker, true);
+  assert.equal(s.p.pickForOthers, false);
+  await s.m.unmount();
+});
