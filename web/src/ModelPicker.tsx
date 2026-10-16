@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useCallback, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import {
@@ -185,6 +185,13 @@ export function ModelPicker({
   const options = modelOptions(provider);
   const offered = options.some((o) => o.id === value);
   const [other, setOther] = useState(false);
+  const onPick = useCallback(
+    (v: string) => {
+      setOther(v === OTHER);
+      onChange(choose(v === OTHER, choose(offered, "", value), v));
+    },
+    [offered, value, onChange],
+  );
   const typing = options.length === 0 || other || (value !== "" && !offered);
   const field = (
     <input
@@ -202,10 +209,6 @@ export function ModelPicker({
   if (options.length === 0) {
     return field;
   }
-  const onPick = (v: string) => {
-    setOther(v === OTHER);
-    onChange(choose(v === OTHER, choose(offered, "", value), v));
-  };
   const choices = [
     ...options.map((o) => ({ id: o.id, label: o.label, option: o })),
     { id: OTHER, label: t("Other…"), option: undefined },
