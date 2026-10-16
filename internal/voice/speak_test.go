@@ -80,6 +80,10 @@ func TestSpeakReportsWhatWentWrong(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(strings.Repeat("e", 600)))
 		}, "answered 401: eeee"},
+		"page": {func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte("<html><script>var AC_Opt</script></html>"))
+		}, "answered 502"},
 		"empty": {func(w http.ResponseWriter, _ *http.Request) {}, "no audio"},
 		"too big": {func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte("0123456789"))

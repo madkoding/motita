@@ -210,7 +210,7 @@ func TestTheCurrentSignInIsOfferedBack(t *testing.T) {
 	authDir = func() string { return dir }
 	t.Cleanup(func() { authDir = old })
 	if err := oauth.SaveCredential(dir,
-		oauth.Credential{Provider: "qwen", AccessToken: "a", RefreshToken: "r"}); err != nil {
+		oauth.Credential{Provider: "codex", AccessToken: "a", RefreshToken: "r"}); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -221,7 +221,7 @@ func TestTheCurrentSignInIsOfferedBack(t *testing.T) {
 	}
 	t.Cleanup(func() { directAuthRunner = oldRunner })
 
-	out, res, err := run(context.Background(), t, t.TempDir(), []string{"qwen", "", "", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, t.TempDir(), []string{"codex", "", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

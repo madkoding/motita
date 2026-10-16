@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/httpbody"
 )
 
 // Transcriber calls one transcription endpoint.
@@ -104,9 +106,9 @@ func (t Transcriber) Transcribe(ctx context.Context, audio []byte, contentType s
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode/100 != 2 {
-		msg := strings.TrimSpace(string(raw))
-		if len(msg) > maxErrorBody {
-			msg = msg[:maxErrorBody] + "..."
+		msg := httpbody.Note(raw, maxErrorBody)
+		if msg == "" {
+			return "", fmt.Errorf("the transcription endpoint answered %d", resp.StatusCode)
 		}
 		return "", fmt.Errorf("the transcription endpoint answered %d: %s", resp.StatusCode, msg)
 	}

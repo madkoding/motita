@@ -756,7 +756,7 @@ func TestOllamaLocalAsksForNoKey(t *testing.T) {
 func TestALoginIsNotWrittenAsAKey(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "")
-	out, res, err := run(context.Background(), t, dir, []string{"qwen", "1", "", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"codex", "1", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

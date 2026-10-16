@@ -372,6 +372,16 @@ func TestSendToFailures(t *testing.T) {
 	if err := s.SendTo(ctx, b.sub, Message{}); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Errorf("refused: %v", err)
 	}
+	// A page in place of a reason (a firewall's) is not quoted: the status is enough.
+	s, _ = newSender(t, func(*http.Request) (*http.Response, error) {
+		r := answer(http.StatusForbidden)
+		r.Body = io.NopCloser(strings.NewReader("<html><body>blocked by WAF</body></html>"))
+		return r, nil
+	})
+	if err := s.SendTo(ctx, b.sub, Message{}); err == nil || strings.Contains(err.Error(), "WAF") ||
+		!strings.Contains(err.Error(), "refused the message: Forbidden") {
+		t.Errorf("refused with a page: %v", err)
+	}
 	s, _ = newSender(t, func(*http.Request) (*http.Response, error) { return answer(http.StatusGone), nil })
 	if err := s.SendTo(ctx, b.sub, Message{}); !errors.Is(err, ErrGone) {
 		t.Errorf("gone: %v", err)

@@ -215,7 +215,7 @@ ${sequence("A pull request followed by the gateway", [{ name: "Session", sub: "i
 <p>An API key always wins over a stored login. Keys you paste go to a separate owner-only file beside the configuration (<code>~/.motita/motita.env</code>), so the configuration itself can be committed and shared. A key is never sent back to the browser.</p>
 <img src="shots/webui-ask.webp" alt="The browser interface answering a question" width="1600" height="1000" loading="lazy" />
 <h2>From the browser</h2>
-<p><strong>Settings &rarr; Providers</strong> lists every provider, where its key comes from, a field for a key and endpoint, and a button that tests the connection by listing the provider's models. Copilot, Qwen, Codex and Gemini can sign in with an account from the same page.</p>
+<p><strong>Settings &rarr; Providers</strong> lists every provider, where its key comes from, a field for a key and endpoint, and a button that tests the connection by listing the provider's models. Copilot, Codex and Gemini can sign in with an account from the same page (Qwen takes a DashScope key: its free account login ended on 2026-04-15).</p>
 <h2>A model for each kind of work</h2>
 <p>The <strong>Models</strong> tab sets the default model and, under it, one for each kind of work. A kind left on <em>Same as default</em> follows the session.</p>
 <table>
