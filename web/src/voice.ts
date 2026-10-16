@@ -110,7 +110,10 @@ export const DEFAULT_VOICE_PREFS: VoicePrefs = {
 // listenEngine is who listens: the one chosen, or before anything was, the model of this browser
 // where there is one, the transcription service where only it is on, and the model otherwise
 // (the settings then offer to download one).
-export function listenEngine(prefs: VoicePrefs, info: VoiceInfo | null): ListenEngine {
+export function listenEngine(
+  prefs: VoicePrefs,
+  info: VoiceInfo | null,
+): ListenEngine {
   if (prefs.engine) {
     return prefs.engine;
   }
@@ -169,7 +172,12 @@ export function saveVoicePrefs(p: VoicePrefs): void {
 //                is no longer downloaded)
 //   off          the transcription service listens, and the gateway has it off (voice.enabled)
 //   ready        it can be used
-export type VoiceState = "insecure" | "unsupported" | "no-model" | "off" | "ready";
+export type VoiceState =
+  | "insecure"
+  | "unsupported"
+  | "no-model"
+  | "off"
+  | "ready";
 
 // Listening is who listens and with what: see listenEngine.
 export interface Listening {

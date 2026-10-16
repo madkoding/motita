@@ -30,10 +30,16 @@ globalThis.__covLLM = {
           const first = feeds["past_key_values.0.key"].dims[2] === 0;
           const scores = new Array(STOP + 1).fill(0);
           scores[first ? 5 : STOP] = 1;
-          const out = { logits: new Tensor("float32", scores, [1, 1, STOP + 1]) };
+          const out = {
+            logits: new Tensor("float32", scores, [1, 1, STOP + 1]),
+          };
           for (let i = 0; i < 24; i++) {
             out[`present.${i}.key`] = new Tensor("float32", [], [1, 2, 1, 64]);
-            out[`present.${i}.value`] = new Tensor("float32", [], [1, 2, 1, 64]);
+            out[`present.${i}.value`] = new Tensor(
+              "float32",
+              [],
+              [1, 2, 1, 64],
+            );
           }
           return out;
         },
@@ -96,27 +102,53 @@ const outcome = (m) => m.kind === "ready" || m.kind === "failed";
 test("it loads the build the card runs, with its progress, and writes an answer", async () => {
   let from = posted.length;
   send({ kind: "load" });
-  assert.deepEqual(await next(outcome, from), { kind: "ready", build: "llm-qwen25-0.5b" });
-  assert.ok(posted.slice(from).some((m) => m.kind === "progress"), "its progress is told");
-  assert.equal(made.at(-1).model, "/v1/voice/models/llm-qwen25-0.5b/model.onnx");
+  assert.deepEqual(await next(outcome, from), {
+    kind: "ready",
+    build: "llm-qwen25-0.5b",
+  });
+  assert.ok(
+    posted.slice(from).some((m) => m.kind === "progress"),
+    "its progress is told",
+  );
+  assert.equal(
+    made.at(-1).model,
+    "/v1/voice/models/llm-qwen25-0.5b/model.onnx",
+  );
   assert.deepEqual(made.at(-1).opts.executionProviders[0].name, "webgpu");
 
   from = posted.length;
-  send({ kind: "generate", seq: 1, messages: [{ role: "user", content: "hi" }] });
-  assert.deepEqual(await next((m) => m.seq === 1, from), { seq: 1, text: "title 5" });
+  send({
+    kind: "generate",
+    seq: 1,
+    messages: [{ role: "user", content: "hi" }],
+  });
+  assert.deepEqual(await next((m) => m.seq === 1, from), {
+    seq: 1,
+    text: "title 5",
+  });
 });
 
 test("a request the model cannot run is answered with why", async () => {
   const from = posted.length;
-  send({ kind: "generate", seq: 2, messages: [{ role: "user", content: "boom" }] });
-  assert.deepEqual(await next((m) => m.seq === 2, from), { seq: 2, error: "out of memory" });
+  send({
+    kind: "generate",
+    seq: 2,
+    messages: [{ role: "user", content: "boom" }],
+  });
+  assert.deepEqual(await next((m) => m.seq === 2, from), {
+    seq: 2,
+    error: "out of memory",
+  });
 });
 
 test("a card without 16-bit floats runs the larger build", async () => {
   self.navigator.gpu.requestAdapter = async () => card([]);
   const from = posted.length;
   send({ kind: "load" });
-  assert.deepEqual(await next(outcome, from), { kind: "ready", build: "llm-qwen25-0.5b-f32" });
+  assert.deepEqual(await next(outcome, from), {
+    kind: "ready",
+    build: "llm-qwen25-0.5b-f32",
+  });
 });
 
 test("a file the gateway lacks, or a browser without WebGPU, says why", async () => {

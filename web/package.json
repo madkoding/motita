@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "node --test src/__tests__/*.test.mjs",
     "test:coverage": "mkdir -p coverage && node --test --enable-source-maps --experimental-test-coverage --test-coverage-exclude='**/node_modules/**' --test-coverage-exclude='src/__tests__/**' --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=dot --test-reporter-destination=stdout src/__tests__/*.test.mjs",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
   },
   "dependencies": {
     "@diffusionstudio/piper-wasm": "1.0.0",
@@ -36,6 +38,7 @@
     "esbuild": "^0.28.2",
     "jsdom": "^30.1.2",
     "postcss": "^8.5.29",
+    "prettier": "3.8.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.2",

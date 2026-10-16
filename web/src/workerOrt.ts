@@ -6,7 +6,12 @@
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import { choose } from "./choose";
 import { CPU_ONLY } from "./gpuPolicy";
-import { NO_WEBGPU, VOICE_CACHE, readAll, type OrtLike } from "./localVoiceCore";
+import {
+  NO_WEBGPU,
+  VOICE_CACHE,
+  readAll,
+  type OrtLike,
+} from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -15,7 +20,10 @@ declare const self: DedicatedWorkerGlobalScope;
 // 304 while its catalog pins the same file, and the new bytes once it pins another (a newer
 // onnxruntime under the same name). Without the gateway, or without the file there, the copy is
 // read as it is.
-export async function bytes(url: string, progress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
+export async function bytes(
+  url: string,
+  progress?: (loaded: number, total: number) => void,
+): Promise<ArrayBuffer> {
   const cache = await caches.open(VOICE_CACHE);
   const hit = await cache.match(url);
   const tag = hit?.headers.get("ETag");
@@ -36,7 +44,10 @@ export async function bytes(url: string, progress?: (loaded: number, total: numb
   }
   // A copy the browser cannot keep (out of room for a large model) is read from the gateway
   // again next time; the voice still loads.
-  const [, body] = await Promise.all([cache.put(url, got.clone()).catch(() => undefined), readAll(got, progress)]);
+  const [, body] = await Promise.all([
+    cache.put(url, got.clone()).catch(() => undefined),
+    readAll(got, progress),
+  ]);
   return body;
 }
 
@@ -45,7 +56,9 @@ function external(weights?: { path: string; data: ArrayBuffer }) {
   if (!weights) {
     return {};
   }
-  return { externalData: [{ path: weights.path, data: new Uint8Array(weights.data) }] };
+  return {
+    externalData: [{ path: weights.path, data: new Uint8Array(weights.data) }],
+  };
 }
 
 // The limits onnxruntime raises to the card's own when it makes its device (larger models need
@@ -63,7 +76,10 @@ const DEVICE_LIMITS: (keyof GPUSupportedLimits)[] = [
 ];
 const DEVICE_FEATURES: GPUFeatureName[] = ["shader-f16", "subgroups"];
 // Timing inside passes when the browser offers it, plain timestamps otherwise.
-const TIMESTAMP_FEATURES = ["chromium-experimental-timestamp-query-inside-passes", "timestamp-query"] as GPUFeatureName[];
+const TIMESTAMP_FEATURES = [
+  "chromium-experimental-timestamp-query-inside-passes",
+  "timestamp-query",
+] as GPUFeatureName[];
 
 // cardDevice makes the GPU device onnxruntime runs on, on the card given.
 function cardDevice(card: GPUAdapter): Promise<GPUDevice> {
@@ -87,11 +103,19 @@ export async function cpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
   env.wasm.wasmBinary = wasm;
   return {
     Tensor: Tensor as unknown as OrtLike["Tensor"],
-    createSession: (model, weights) => InferenceSession.create(model, { executionProviders: ["wasm"], ...external(weights) }),
+    createSession: (model, weights) =>
+      InferenceSession.create(model, {
+        executionProviders: ["wasm"],
+        ...external(weights),
+      }),
   } as OrtLike;
 }
 
-type GPU = { requestAdapter(o?: { powerPreference?: GPUPowerPreference }): Promise<GPUAdapter | null> };
+type GPU = {
+  requestAdapter(o?: {
+    powerPreference?: GPUPowerPreference;
+  }): Promise<GPUAdapter | null>;
+};
 
 // workerGPU is the worker's WebGPU, undefined in a browser that has none.
 function workerGPU(): GPU | undefined {
@@ -116,7 +140,9 @@ export async function gpuOrt(wasm: ArrayBuffer): Promise<OrtLike> {
     throw new Error(NO_WEBGPU);
   }
   // The fast card first, as a laptop with two would otherwise give the slow one; then any.
-  const adapter = (await gpu.requestAdapter({ powerPreference: "high-performance" })) ?? (await gpu.requestAdapter());
+  const adapter =
+    (await gpu.requestAdapter({ powerPreference: "high-performance" })) ??
+    (await gpu.requestAdapter());
   if (!adapter) {
     throw new Error("the browser gave no graphics card to use");
   }

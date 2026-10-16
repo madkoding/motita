@@ -9,12 +9,7 @@ import { useLeave } from "./motion";
 import { buttonIcon } from "./NewSessionButton";
 import { SessionRow } from "./SessionRow";
 import { ProjectGroup } from "./ProjectGroup";
-import {
-  IconBook,
-  IconClock,
-  IconClose,
-  IconDownload,
-} from "./icons";
+import { IconBook, IconClock, IconClose, IconDownload } from "./icons";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 

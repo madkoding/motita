@@ -38,7 +38,11 @@ const component = (spec, names, extra = "") =>
   stub(
     spec,
     recordSrc +
-      names.map((n) => `export function ${n}(props) { return mark("${n}", props); }`).join("\n") +
+      names
+        .map(
+          (n) => `export function ${n}(props) { return mark("${n}", props); }`,
+        )
+        .join("\n") +
       "\n" +
       extra,
   );
@@ -106,7 +110,10 @@ const noop = () => {};
 
 // makeStore is a store with everything closed, logging the actions it is asked for.
 function makeStore(log) {
-  const fn = (name) => (...args) => log.push([name, ...args]);
+  const fn =
+    (name) =>
+    (...args) =>
+      log.push([name, ...args]);
   return {
     api: null,
     rs: {
@@ -138,7 +145,11 @@ function makeStore(log) {
       setToast: fn("setToast"),
     },
     lists: { sidebarOpen: false, openSidebar: fn("openSidebar") },
-    scroll: { scrollRef: { current: null }, chatLoading: false, modalLeaving: false },
+    scroll: {
+      scrollRef: { current: null },
+      chatLoading: false,
+      modalLeaving: false,
+    },
     model: { config: null, showModelSwitcher: false, openModelSwitcher: noop },
     skills: { showSkillLibrary: false },
     projects: {
@@ -185,7 +196,11 @@ function makeStore(log) {
       copyMerge: noop,
       termEntryDone: noop,
     },
-    shell: { stopAutoApprove: noop, answerApproval: fn("answerApproval"), onApprovalKey: noop },
+    shell: {
+      stopAutoApprove: noop,
+      answerApproval: fn("answerApproval"),
+      onApprovalKey: noop,
+    },
     stream: { stopRun: fn("stopRun"), submit: fn("submit") },
     answerSuggestions: fn("answerSuggestions"),
     answerQuestions: fn("answerQuestions"),
@@ -298,8 +313,16 @@ test("every request carries the page's header and the cookie, and keeps its own 
   assert.equal(init.headers.get("X-Motita"), "1");
   assert.equal(init.headers.get("Content-Type"), "application/json");
   await ctl.api("/v1/sessions");
-  assert.equal(calls[1].init.headers.get("X-Motita"), "1", "a request without options too");
-  assert.deepEqual(lastProps("usePullRequest").api, ctl.api, "the PR bar gets the same api");
+  assert.equal(
+    calls[1].init.headers.get("X-Motita"),
+    "1",
+    "a request without options too",
+  );
+  assert.deepEqual(
+    lastProps("usePullRequest").api,
+    ctl.api,
+    "the PR bar gets the same api",
+  );
   await ctl.done();
 });
 
@@ -308,7 +331,9 @@ test("a 401 drops the credential and brings the token prompt back", async () => 
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url, method: init.method });
-    return new Response(null, { status: url === "/v1/webui/session" ? 204 : 401 });
+    return new Response(null, {
+      status: url === "/v1/webui/session" ? 204 : 401,
+    });
   };
   let needed = 0;
   const onNeeded = () => needed++;
@@ -331,7 +356,10 @@ test("without a credential the token prompt covers the page; the sidebar shows w
   const ctl = await mountApp((s) => {
     s.auth.authState = "needed";
   });
-  assert.equal(text(ctl.root.querySelector("[data-modal] h2")), "Authentication required");
+  assert.equal(
+    text(ctl.root.querySelector("[data-modal] h2")),
+    "Authentication required",
+  );
   assert.ok(ctl.root.querySelector("#auth-token"));
   assert.equal(stubEl(ctl.root, "Sidebar"), null);
   assert.ok(props("viewport").length > 0, "the visual viewport is followed");
@@ -347,7 +375,17 @@ test("without a credential the token prompt covers the page; the sidebar shows w
 test("with a session the chat column has the header, the conversation, the drawers and the composer", async () => {
   const ctl = await mountApp((s) => {
     s.rs.shellLog = [{ id: 1, cmd: "ls", exit: 0, out: "" }];
-    s.rs.agents = [{ id: "m", purpose: "main", state: "running", started: "", elapsed_ms: 0, tokens: { input: 5, output: 1 }, calls: 0 }];
+    s.rs.agents = [
+      {
+        id: "m",
+        purpose: "main",
+        state: "running",
+        started: "",
+        elapsed_ms: 0,
+        tokens: { input: 5, output: 1 },
+        calls: 0,
+      },
+    ];
   });
   const { root } = ctl;
   assert.equal(text(root.querySelector("header h1")), "Motita");
@@ -355,7 +393,10 @@ test("with a session the chat column has the header, the conversation, the drawe
   assert.equal(log.getAttribute("aria-label"), "conversation");
   assert.equal(log.getAttribute("data-chat-loading"), "0");
   assert.ok(!log.classList.contains("chat-loading"));
-  assert.ok(root.querySelector(".term-drawer:not(.is-think):not(.is-agents)"), "the terminal");
+  assert.ok(
+    root.querySelector(".term-drawer:not(.is-think):not(.is-agents)"),
+    "the terminal",
+  );
   assert.ok(root.querySelector(".term-drawer.is-think"), "the thinking");
   assert.ok(root.querySelector(".term-drawer.is-agents"), "the agents");
   assert.ok(stubEl(root, "Composer"));
@@ -392,14 +433,24 @@ test("with a session the chat column has the header, the conversation, the drawe
 test("while a session loads the modal shows, and a waiting command brings the approval panel", async () => {
   const ctl = await mountApp((s) => {
     s.scroll.chatLoading = true;
-    s.rs.approval = { id: "ap", question: "Delete the build dir?", command: "rm -rf build" };
+    s.rs.approval = {
+      id: "ap",
+      question: "Delete the build dir?",
+      command: "rm -rf build",
+    };
   });
   const { root } = ctl;
   const log = root.querySelector("[role=log]");
   assert.ok(log.classList.contains("chat-loading"));
   assert.equal(log.getAttribute("data-chat-loading"), "1");
-  assert.equal(text(root.querySelector(".chat-modal-label")), "Loading session");
-  assert.equal(text(root.querySelector(".approval-panel h2")), "Delete the build dir?");
+  assert.equal(
+    text(root.querySelector(".chat-modal-label")),
+    "Loading session",
+  );
+  assert.equal(
+    text(root.querySelector(".approval-panel h2")),
+    "Delete the build dir?",
+  );
   root.querySelector(".approval-panel button").click();
   assert.deepEqual(ctl.log.at(-1), ["answerApproval", "ap", true]);
   await ctl.done();
@@ -420,7 +471,11 @@ test("with no session the chat waits for one, and the button creates it", async 
   assert.equal(text(btn), "New session");
   assert.equal(btn.disabled, false);
   btn.click();
-  assert.deepEqual(ctl.log.at(-1), ["createSession"], "called without an event");
+  assert.deepEqual(
+    ctl.log.at(-1),
+    ["createSession"],
+    "called without an event",
+  );
   await ctl.set((s) => {
     s.actions = { ...s.actions, creatingSession: "" };
   });
@@ -432,7 +487,11 @@ test("with no session the chat waits for one, and the button creates it", async 
 test("the settings dialog is wired to the language, the voice, the speech and the git hosts", async () => {
   const ctl = await mountApp((s) => {
     s.showSettings = true;
-    s.voice = { ...s.voice, state: "ready", info: { wake_phrases: ["hey motita"] } };
+    s.voice = {
+      ...s.voice,
+      state: "ready",
+      info: { wake_phrases: ["hey motita"] },
+    };
   });
   const p = lastProps("SettingsModal");
   assert.equal(p.langSetting, "auto");
@@ -440,7 +499,15 @@ test("the settings dialog is wired to the language, the voice, the speech and th
   assert.deepEqual(p.voice.phrases, ["hey motita"]);
   assert.equal(p.speech.canListen, true);
   assert.equal(p.security.sessionId, "s1");
-  for (const part of [p.voice, p.speech, p.llm, p.security, p.network, p.push, p.git]) {
+  for (const part of [
+    p.voice,
+    p.speech,
+    p.llm,
+    p.security,
+    p.network,
+    p.push,
+    p.git,
+  ]) {
     assert.equal(part.api, ctl.api);
   }
   assert.equal(p.git.rev, 3);
@@ -464,7 +531,11 @@ test("the settings dialog is wired to the language, the voice, the speech and th
   await ctl.set((s) => {
     s.voice = { ...s.voice, state: "off", info: null };
   });
-  assert.deepEqual(lastProps("SettingsModal").voice.phrases, [], "no voice info, no phrases");
+  assert.deepEqual(
+    lastProps("SettingsModal").voice.phrases,
+    [],
+    "no voice info, no phrases",
+  );
   assert.equal(lastProps("SettingsModal").speech.canListen, false);
   await ctl.done();
 });
@@ -475,10 +546,16 @@ test("the project dialogs open from the store, and the repo picker only with acc
     s.projects.showNewProject = true;
     s.projects.showGitIdentity = true;
     s.projects.showRepoPicker = true;
-    s.projects.gitConnect = { service: "gitlab", selfHosted: { url: "https://git.example" } };
+    s.projects.gitConnect = {
+      service: "gitlab",
+      selfHosted: { url: "https://git.example" },
+    };
   });
   const { root } = ctl;
-  assert.deepEqual(lastProps("EditProjectModal").p, { id: "p1", title: "Motita" });
+  assert.deepEqual(lastProps("EditProjectModal").p, {
+    id: "p1",
+    title: "Motita",
+  });
   assert.ok(stubEl(root, "NewProjectModal"));
   assert.ok(stubEl(root, "GitIdentityModal"));
   assert.equal(stubEl(root, "RepoPicker"), null, "no accounts loaded yet");
@@ -497,7 +574,11 @@ test("the project dialogs open from the store, and the repo picker only with acc
     };
   });
   const rp = lastProps("RepoPicker");
-  assert.deepEqual(rp.accounts, [{ service: "github", connected: true }], "only the connected ones");
+  assert.deepEqual(
+    rp.accounts,
+    [{ service: "github", connected: true }],
+    "only the connected ones",
+  );
   assert.equal(rp.api, ctl.api);
   rp.onPick();
   rp.onClose();
@@ -505,7 +586,14 @@ test("the project dialogs open from the store, and the repo picker only with acc
   rp.onAuthRequired();
   assert.deepEqual(
     ctl.log.map((e) => e[0]),
-    ["closeGitConnect", "onGitConnected", "pickRepo", "closeRepoPicker", "connectAnother", "pickerAuthRequired"],
+    [
+      "closeGitConnect",
+      "onGitConnected",
+      "pickRepo",
+      "closeRepoPicker",
+      "connectAnother",
+      "pickerAuthRequired",
+    ],
   );
   await ctl.done();
 });
@@ -521,10 +609,20 @@ test("the dialogs, the toast and the libraries open from the store", async () =>
     s.schedules.showScheduledTasks = true;
   });
   const { root } = ctl;
-  for (const name of ["ModelSwitcherModal", "UpgradeModal", "SkillLibraryModal", "ArtifactsModal", "ScheduledTasksModal"]) {
+  for (const name of [
+    "ModelSwitcherModal",
+    "UpgradeModal",
+    "SkillLibraryModal",
+    "ArtifactsModal",
+    "ScheduledTasksModal",
+  ]) {
     assert.ok(stubEl(root, name), `${name} is open`);
   }
-  assert.deepEqual(lastProps("ConfirmDeleteModal").target, { type: "session", id: "s9", title: "Old" });
+  assert.deepEqual(lastProps("ConfirmDeleteModal").target, {
+    type: "session",
+    id: "s9",
+    title: "Old",
+  });
   const card = root.querySelector(".toast-card");
   assert.equal(text(card.querySelector("p")), "Saved");
   // A different toast is a new card.
@@ -550,7 +648,10 @@ test("the conversation is one turn per input, with its steps, its answer and the
     s.rs.messages = [
       msg(1, "agent", "Welcome back"),
       msg(2, "user", "Fix the build", { turn: 1 }),
-      msg(3, "agent", "Done, the build is green.", { changes: { files: [] }, artifacts: [{ name: "a.log", type: "text/plain", size: 3 }] }),
+      msg(3, "agent", "Done, the build is green.", {
+        changes: { files: [] },
+        artifacts: [{ name: "a.log", type: "text/plain", size: 3 }],
+      }),
       msg(4, "user", "And the tests?", { turn: 2 }),
       msg(5, "activity", "agents: 2 running", { kind: "agents" }),
     ];
@@ -567,27 +668,46 @@ test("the conversation is one turn per input, with its steps, its answer and the
   });
   const { root } = ctl;
   const turns = [...root.querySelectorAll(".turn")];
-  assert.equal(turns.length, 3, "a group before the first input, then one per input");
+  assert.equal(
+    turns.length,
+    3,
+    "a group before the first input, then one per input",
+  );
   // The first group has no input: its agent line is drawn as a message.
   assert.equal(stubEl(turns[0], "TurnHead"), null);
   assert.equal(text(turns[0].querySelector(".msg.agent")), "Welcome back");
   // The first input's turn: the head, the steps without thoughts, the answer.
   assert.equal(text(stubEl(turns[1], "TurnHead")), "Fix the build");
-  assert.equal(text(stubEl(turns[1], "Trail")), "ran make", "thoughts live in the drawer");
+  assert.equal(
+    text(stubEl(turns[1], "Trail")),
+    "ran make",
+    "thoughts live in the drawer",
+  );
   const answer = turns[1].querySelector(".msg.agent");
   assert.equal(answer.getAttribute("data-who"), "Agent");
   assert.equal(answer.getAttribute("data-msg-id"), "3");
   assert.equal(text(stubEl(answer, "Markdown")), "Done, the build is green.");
   assert.ok(stubEl(answer, "ChangesCard"));
   assert.ok(stubEl(answer, "RunArtifacts"));
-  assert.equal(answer.querySelector(".speak-msg-btn"), null, "no speech, no read-aloud button");
+  assert.equal(
+    answer.querySelector(".speak-msg-btn"),
+    null,
+    "no speech, no read-aloud button",
+  );
   // The live turn: its last step is the activity line, not drawn twice.
   const heads = props("TurnHead");
   const liveHead = heads.filter((p) => p.head.id === 4).at(-1);
   assert.equal(liveHead.liveHere, true);
   assert.equal(liveHead.turn, 2);
-  assert.equal(liveHead.mode, "plan", "auto mode's pick is read from the first step");
-  assert.equal(text(stubEl(turns[2], "Trail")), "mode: plan (asked for a plan)");
+  assert.equal(
+    liveHead.mode,
+    "plan",
+    "auto mode's pick is read from the first step",
+  );
+  assert.equal(
+    text(stubEl(turns[2], "Trail")),
+    "mode: plan (asked for a plan)",
+  );
   assert.equal(text(stubEl(turns[2], "ActivityLine")), "running tests");
   assert.equal(lastProps("ActivityLine").shown.length, 2);
   const note = turns[2].querySelector(".msg.activity");
@@ -600,21 +720,40 @@ test("the conversation is one turn per input, with its steps, its answer and the
 test("an idle turn draws all its steps and no activity; a turn without steps has no trail", async () => {
   const ctl = await mountApp((s) => {
     s.rs.activity = "stale";
-    s.rs.messages = [msg(1, "user", "Hi", { turn: 1 }), msg(2, "user", "Again")];
-    s.rs.stepsByTurn = { 1: [{ kind: "step", text: "a" }, { kind: "step", text: "b" }] };
+    s.rs.messages = [
+      msg(1, "user", "Hi", { turn: 1 }),
+      msg(2, "user", "Again"),
+    ];
+    s.rs.stepsByTurn = {
+      1: [
+        { kind: "step", text: "a" },
+        { kind: "step", text: "b" },
+      ],
+    };
   });
   const turns = [...ctl.root.querySelectorAll(".turn")];
   assert.equal(text(stubEl(turns[0], "Trail")), "a|b");
   assert.equal(stubEl(turns[0], "ActivityLine"), null);
-  assert.equal(stubEl(turns[1], "Trail"), null, "a turn with no turn number has no steps");
-  assert.equal(props("TurnHead").filter((p) => p.head.id === 2).at(-1).mode, null);
+  assert.equal(
+    stubEl(turns[1], "Trail"),
+    null,
+    "a turn with no turn number has no steps",
+  );
+  assert.equal(
+    props("TurnHead")
+      .filter((p) => p.head.id === 2)
+      .at(-1).mode,
+    null,
+  );
   await ctl.done();
 });
 
 test("notes: the empty conversation is a card, a kind note is translated, other notes are as given", async () => {
   const ctl = await mountApp((s) => {
     s.rs.messages = [
-      msg(1, "activity", "Nothing yet. Ask for something below.", { kind: "kind" }),
+      msg(1, "activity", "Nothing yet. Ask for something below.", {
+        kind: "kind",
+      }),
       msg(2, "activity", "Stopped", { kind: "kind" }),
       msg(3, "activity", "raw progress", { kind: "progress" }),
     ];
@@ -645,18 +784,37 @@ test("an answer that asked is a questions card, answerable only while idle and w
   });
   const cards = props("QuestionsCard");
   const stale = cards.find((c) => c.expired && c.origin === "Do it");
-  assert.ok(stale, "unanswered questions older than the last input are expired");
-  assert.ok(cards.some((c) => c.expired && c.origin === ""), "a missing origin is empty");
-  assert.equal(cards.find((c) => c.answers === qa).expired, false, "answered ones never expire");
+  assert.ok(
+    stale,
+    "unanswered questions older than the last input are expired",
+  );
+  assert.ok(
+    cards.some((c) => c.expired && c.origin === ""),
+    "a missing origin is empty",
+  );
+  assert.equal(
+    cards.find((c) => c.answers === qa).expired,
+    false,
+    "answered ones never expire",
+  );
   const current = cards.filter((c) => c.origin === "Next").at(-1);
   assert.equal(current.expired, false);
   assert.equal(current.items, questions);
   current.onAnswer(qa, "a");
-  assert.deepEqual(ctl.log.at(-1), ["answerQuestions", ctl.store.rs.messages[5], qa, "a"]);
+  assert.deepEqual(ctl.log.at(-1), [
+    "answerQuestions",
+    ctl.store.rs.messages[5],
+    qa,
+    "a",
+  ]);
   await ctl.set((s) => {
     s.rs = { ...s.rs, running: true };
   });
-  assert.equal(props("QuestionsCard").at(-1).onAnswer, undefined, "answering is a turn: not while one runs");
+  assert.equal(
+    props("QuestionsCard").at(-1).onAnswer,
+    undefined,
+    "answering is a turn: not while one runs",
+  );
   await ctl.done();
 });
 
@@ -678,19 +836,31 @@ test("a report answer is a report card; its suggestions are answerable only whil
   const stale = byAnswers(undefined, true);
   assert.ok(stale, "an unanswered report older than the last input is expired");
   assert.equal(stale.auto, false);
-  assert.equal(byAnswers(cards.find((c) => c.answers)?.answers, false).expired, false, "an answered one never expires");
+  assert.equal(
+    byAnswers(cards.find((c) => c.answers)?.answers, false).expired,
+    false,
+    "an answered one never expires",
+  );
   const current = cards.filter((c) => c.expired === false && !c.answers).at(-1);
   assert.equal(current.auto, true, "the turn went through auto mode");
   assert.equal(current.report, report);
   assert.equal(typeof current.onAnswer, "function");
   current.onAnswer({ x: 1 });
-  assert.deepEqual(ctl.log.at(-1), ["answerSuggestions", ctl.store.rs.messages[4], { x: 1 }]);
+  assert.deepEqual(ctl.log.at(-1), [
+    "answerSuggestions",
+    ctl.store.rs.messages[4],
+    { x: 1 },
+  ]);
 
   await ctl.set((s) => {
     s.rs = { ...s.rs, running: true };
   });
   const whileRunning = props("ReportCard").at(-1);
-  assert.equal(whileRunning.onAnswer, undefined, "applying suggestions is a turn: not while one runs");
+  assert.equal(
+    whileRunning.onAnswer,
+    undefined,
+    "applying suggestions is a turn: not while one runs",
+  );
   await ctl.done();
 });
 
@@ -715,10 +885,17 @@ test("screenshots a report names are fetched once from the session's artifacts",
     return "blob:shot-" + made.length;
   };
   const loadImage = lastProps("ReportCard").loadImage;
-  const [a, b] = await Promise.all([loadImage("my shot.png"), loadImage("my shot.png")]);
+  const [a, b] = await Promise.all([
+    loadImage("my shot.png"),
+    loadImage("my shot.png"),
+  ]);
   assert.equal(a, "blob:shot-1");
   assert.equal(b, "blob:shot-1");
-  assert.deepEqual(fetched, ["/v1/sessions/s1/artifacts/my%20shot.png"], "fetched once");
+  assert.deepEqual(
+    fetched,
+    ["/v1/sessions/s1/artifacts/my%20shot.png"],
+    "fetched once",
+  );
   assert.equal(await loadImage("missing.png"), null);
   assert.equal(await loadImage("offline.png"), null);
   assert.equal(fetched.length, 3);
@@ -750,7 +927,11 @@ test("an answer can be read aloud, or stopped while it is the one being read", a
     s.speech = { ...s.speech, speakingId: 2 };
     s.rs = { ...s.rs, running: true };
   });
-  assert.equal(btns().length, 1, "the answer still streaming has no button yet");
+  assert.equal(
+    btns().length,
+    1,
+    "the answer still streaming has no button yet",
+  );
   const reading = btns()[0];
   assert.equal(reading.className, "speak-msg-btn is-reading");
   assert.equal(reading.getAttribute("aria-label"), "Stop reading");
@@ -777,23 +958,33 @@ test("a picture in an answer opens the preview; a linked one stays a link", asyn
   try {
     await act(() => host.querySelector("#i1").click());
     let lb = lastProps("Lightbox");
-    assert.deepEqual(lb.images, [{ src: "http://localhost/a.png", label: "Diagram" }]);
+    assert.deepEqual(lb.images, [
+      { src: "http://localhost/a.png", label: "Diagram" },
+    ]);
     assert.equal(lb.start, 0);
     await act(() => lb.onClose());
     assert.equal(stubEl(ctl.root, "Lightbox"), null);
 
     const i2 = host.querySelector("#i2");
-    Object.defineProperty(i2, "currentSrc", { value: "http://localhost/b@2x.png" });
+    Object.defineProperty(i2, "currentSrc", {
+      value: "http://localhost/b@2x.png",
+    });
     await act(() => i2.click());
     lb = lastProps("Lightbox");
-    assert.deepEqual(lb.images, [{ src: "http://localhost/b@2x.png", label: "Image" }]);
+    assert.deepEqual(lb.images, [
+      { src: "http://localhost/b@2x.png", label: "Image" },
+    ]);
     await act(() => lb.onClose());
 
     const before = props("Lightbox").length;
     await act(() => host.querySelector("#i3").click());
     await act(() => host.querySelector("#i4").click());
     await act(() => outside.click());
-    assert.equal(props("Lightbox").length, before, "no source, a link, or outside an answer");
+    assert.equal(
+      props("Lightbox").length,
+      before,
+      "no source, a link, or outside an answer",
+    );
     assert.equal(stubEl(ctl.root, "Lightbox"), null);
   } finally {
     host.remove();
@@ -825,7 +1016,8 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
     '<button class="copy-msg-btn">copy</button>' +
     '<button class="other">other</button>';
   document.body.appendChild(host);
-  const [code, codeEmpty, message, messageEmpty, other] = host.querySelectorAll("button");
+  const [code, codeEmpty, message, messageEmpty, other] =
+    host.querySelectorAll("button");
   const settle = async () => {
     for (let i = 0; i < 10; i++) {
       await Promise.resolve();
@@ -840,9 +1032,15 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
     other.click();
     await settle();
     assert.deepEqual(writes, ["go test ./...", "", "**raw** answer", ""]);
-    assert.deepEqual([code, codeEmpty, message, messageEmpty, other].map((b) => b.textContent), ["✓", "✓", "✓", "✓", "other"]);
+    assert.deepEqual(
+      [code, codeEmpty, message, messageEmpty, other].map((b) => b.textContent),
+      ["✓", "✓", "✓", "✓", "other"],
+    );
     mock.timers.tick(1500);
-    assert.deepEqual([code, message].map((b) => b.textContent), ["copy", "copy"]);
+    assert.deepEqual(
+      [code, message].map((b) => b.textContent),
+      ["copy", "copy"],
+    );
     fail = true; // and jsdom has no legacy copy command either
     code.click();
     await settle();

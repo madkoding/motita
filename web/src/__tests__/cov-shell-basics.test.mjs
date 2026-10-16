@@ -3,7 +3,13 @@
 // Run with: node --test web/src/__tests__/cov-shell-basics.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, load, mounter, text, jsonResponse } from "./cov-shell-helpers.mjs";
+import {
+  setupDom,
+  load,
+  mounter,
+  text,
+  jsonResponse,
+} from "./cov-shell-helpers.mjs";
 
 setupDom("http://localhost/chat?x=1");
 
@@ -108,7 +114,11 @@ test("clearCredential deletes the cookie and the remembered session, whatever fa
   } finally {
     Object.getPrototypeOf(localStorage).removeItem = removeItem;
   }
-  assert.equal(tried, 1, "the storage was still asked after the request failed");
+  assert.equal(
+    tried,
+    1,
+    "the storage was still asked after the request failed",
+  );
 });
 
 test("submitToken trades the token as a bearer and reports the answer", async () => {
@@ -184,7 +194,11 @@ test("appTypes is declarations only: nothing of it exists at run time", async ()
 test("the full button shows a plus and its label, and a spinner while creating", async () => {
   let clicks = 0;
   const v = (loading) =>
-    h(m.NewSessionButton, { loading, onClick: () => clicks++, label: "New session" });
+    h(m.NewSessionButton, {
+      loading,
+      onClick: () => clicks++,
+      label: "New session",
+    });
   const { root, rerender, done } = await mount(v(false));
   const btn = root.querySelector("button");
   assert.equal(text(btn), "New session");
@@ -203,7 +217,12 @@ test("the full button shows a plus and its label, and a spinner while creating",
 
 test("the compact button is icon-only, smaller and bolder, with its title", async () => {
   const v = (loading) =>
-    h(m.NewSessionButton, { loading, onClick() {}, compact: true, title: "New in project" });
+    h(m.NewSessionButton, {
+      loading,
+      onClick() {},
+      compact: true,
+      title: "New in project",
+    });
   const { root, rerender, done } = await mount(v(false));
   const btn = root.querySelector("button");
   assert.ok(btn.classList.contains("project-new-session"));
@@ -234,7 +253,10 @@ test("the action trail is a folded counter that opens and closes its detail", as
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   assert.equal(text(root.querySelector(".action-trail-caret")), "▾");
   assert.equal(text(root.querySelector(".activity-trail")), "ran ls");
-  assert.equal(root.querySelector(".activity-trail").getAttribute("aria-label"), "steps");
+  assert.equal(
+    root.querySelector(".activity-trail").getAttribute("aria-label"),
+    "steps",
+  );
   await act(() => toggle.click());
   assert.equal(root.querySelector(".activity-trail"), null);
   await done();

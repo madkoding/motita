@@ -71,21 +71,35 @@ test("the button pressed stays marked, and the answer is handed over once all ar
   await act(() => buttons(rows(root)[0])[0].click()); // apply this one
   let [first, second] = rows(root);
   assert.deepEqual(pressed(first), ["✓ Apply this one"]);
-  assert.ok(buttons(first).every((b) => b.disabled), "an answered row cannot be answered again");
-  assert.equal(got.length, 0, "nothing is sent while a suggestion is still open");
+  assert.ok(
+    buttons(first).every((b) => b.disabled),
+    "an answered row cannot be answered again",
+  );
+  assert.equal(
+    got.length,
+    0,
+    "nothing is sent while a suggestion is still open",
+  );
 
   await act(() => buttons(second)[2].click()); // apply none
   [first, second] = rows(root);
   const third = rows(root)[2];
   assert.deepEqual(pressed(first), ["✓ Apply this one"]);
   assert.deepEqual(pressed(second), ["✓ Apply none"]);
-  assert.equal(buttons(third).length, 0, "a row settled by an earlier answer has no buttons");
+  assert.equal(
+    buttons(third).length,
+    0,
+    "a row settled by an earlier answer has no buttons",
+  );
   assert.match(third.textContent, /not applied/);
 
   assert.equal(got.length, 1);
   assert.deepEqual(got[0].picks, ["this", "none", ""]);
   assert.deepEqual(got[0].verdicts, ["apply", "skip", "skip"]);
-  assert.match(got[0].request, /^Apply these suggestions you made, and nothing else:\n- test the empty header$/);
+  assert.match(
+    got[0].request,
+    /^Apply these suggestions you made, and nothing else:\n- test the empty header$/,
+  );
   root.remove();
 });
 
@@ -100,7 +114,11 @@ test("answering none still hands the answer over, with nothing to send", async (
 
 test("answers read back draw the same pressed buttons and offer nothing to press", () => {
   const root = mount({
-    answers: { picks: ["rest", "", ""], verdicts: ["apply", "apply", "apply"], request: "x" },
+    answers: {
+      picks: ["rest", "", ""],
+      verdicts: ["apply", "apply", "apply"],
+      request: "x",
+    },
     onAnswer: () => assert.fail("an answered card must not answer again"),
   });
   const [first, second] = rows(root);
@@ -117,7 +135,8 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
     id += 1;
     return id;
   };
-  const request = "Apply these suggestions you made, and nothing else:\n- test the empty header";
+  const request =
+    "Apply these suggestions you made, and nothing else:\n- test the empty header";
   const msgs = transcriptMessages(
     [
       { User: "fix the parser", Agent: "fixed" },
@@ -130,7 +149,11 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
         files: false,
         steps: [],
         outcome: { result: "fixed", report },
-        answers: { picks: ["this", "none", ""], verdicts: ["apply", "skip", "skip"], request },
+        answers: {
+          picks: ["this", "none", ""],
+          verdicts: ["apply", "skip", "skip"],
+          request,
+        },
       },
       { turn: 1, files: false, steps: [], outcome: { result: "applied" } },
     ],
@@ -139,8 +162,16 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
   const users = msgs.filter((m) => m.role === "user");
   assert.equal(users[0].shown, undefined);
   assert.equal(users[1].shown, APPLYING);
-  assert.equal(users[1].text, request, "the text sent is kept, only the label changes");
-  assert.equal(users[2].shown, undefined, "only the turn right after the answered report is labelled");
+  assert.equal(
+    users[1].text,
+    request,
+    "the text sent is kept, only the label changes",
+  );
+  assert.equal(
+    users[2].shown,
+    undefined,
+    "only the turn right after the answered report is labelled",
+  );
   const answer = msgs.find((m) => m.report);
   assert.equal(answer.turn, 0);
   assert.deepEqual(answer.answers.picks, ["this", "none", ""]);
@@ -150,7 +181,10 @@ test("suggestions left unanswered when the conversation moved on are no longer o
   const root = mount({ expired: true, onAnswer: () => assert.fail("expired") });
   assert.equal(root.querySelectorAll(".rpt-suggest button").length, 0);
   assert.ok(root.querySelector(".rpt-suggest.expired"));
-  assert.match(root.querySelector(".rpt-expired").textContent, /no longer offered/);
+  assert.match(
+    root.querySelector(".rpt-expired").textContent,
+    /no longer offered/,
+  );
   root.remove();
 });
 
@@ -167,7 +201,12 @@ test("an answered card keeps its marks even when the conversation moved on", () 
 test("the label folds the prompt it sent, to open on request", () => {
   const root = document.createElement("div");
   document.body.appendChild(root);
-  render(h(UserText, { m: { id: 1, role: "user", text: "the whole prompt", shown: APPLYING } }), root);
+  render(
+    h(UserText, {
+      m: { id: 1, role: "user", text: "the whole prompt", shown: APPLYING },
+    }),
+    root,
+  );
   const det = root.querySelector("details.msg-shown");
   assert.ok(det, "a label is drawn as a fold");
   assert.equal(det.open, false, "closed until asked");
@@ -187,6 +226,10 @@ test("the conversation draws the label, the stream keeps the turn of the answer,
   const hook = src("useSuggestions.ts");
   assert.match(hook, /t\("Applying suggestions"\)/);
   assert.match(hook, /method: "PUT"/);
-  assert.match(hook, /"\/task"/, "applying is a task, never routed to the planner");
+  assert.match(
+    hook,
+    /"\/task"/,
+    "applying is a task, never routed to the planner",
+  );
   assert.match(hook, /\/checkpoints\//);
 });

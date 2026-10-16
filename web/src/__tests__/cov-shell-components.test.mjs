@@ -33,13 +33,17 @@ const mount = await mounter();
 function recorder() {
   const calls = [];
   // Event arguments (a click handed straight to the handler) are left out of the log.
-  const fn = (name) => (...args) =>
-    calls.push([name, ...args.filter((a) => !(a instanceof window.Event))]);
+  const fn =
+    (name) =>
+    (...args) =>
+      calls.push([name, ...args.filter((a) => !(a instanceof window.Event))]);
   return { calls, fn };
 }
 
 async function show(Component, store, props = {}) {
-  const m = await mount(h(AppCtx.Provider, { value: store }, h(Component, props)));
+  const m = await mount(
+    h(AppCtx.Provider, { value: store }, h(Component, props)),
+  );
   return {
     ...m,
     update: (s, p = props) =>
@@ -53,7 +57,11 @@ function headerStore(over = {}) {
   const { calls, fn } = recorder();
   const store = {
     rs: { noSession: false, ...over.rs },
-    lists: { sidebarOpen: false, openSidebar: fn("openSidebar"), ...over.lists },
+    lists: {
+      sidebarOpen: false,
+      openSidebar: fn("openSidebar"),
+      ...over.lists,
+    },
     status: { stateText: "ready", stateClass: "", ...over.status },
     model: {
       config: {
@@ -82,11 +90,15 @@ test("the header names the session, shows the state and the model, and opens the
   const pill = root.querySelector(".state-pill");
   assert.ok(pill.classList.contains("state-working"));
   assert.equal(text(pill), "working");
-  const model = [...root.querySelectorAll("button")].find((b) => /gpt-5/.test(text(b)));
+  const model = [...root.querySelectorAll("button")].find((b) =>
+    /gpt-5/.test(text(b)),
+  );
   assert.equal(text(model), "openai / gpt-5high");
   assert.equal(model.title, "openai / gpt-5 — reasoning: high");
   assert.equal(text(model.querySelector(".header-reasoning")), "high");
-  assert.ok(model.querySelector(".header-reasoning").classList.contains("is-high"));
+  assert.ok(
+    model.querySelector(".header-reasoning").classList.contains("is-high"),
+  );
   model.click();
   root.querySelector("[aria-label='Open sidebar']").click();
   assert.deepEqual(calls, [["openModelSwitcher"], ["openSidebar"]]);
@@ -95,11 +107,18 @@ test("the header names the session, shows the state and the model, and opens the
 });
 
 test("with the sidebar open and no session the header is the bare title and state", async () => {
-  const { store } = headerStore({ lists: { sidebarOpen: true }, rs: { noSession: true } });
+  const { store } = headerStore({
+    lists: { sidebarOpen: true },
+    rs: { noSession: true },
+  });
   const { root, done } = await show(ChatHeader, store);
   assert.equal(root.querySelector("[aria-label='Open sidebar']"), null);
   assert.equal(text(root.querySelector("h1")), "Motita");
-  assert.equal(root.querySelectorAll("button").length, 0, "no model pill without a session");
+  assert.equal(
+    root.querySelectorAll("button").length,
+    0,
+    "no model pill without a session",
+  );
   await done();
 });
 
@@ -122,10 +141,15 @@ test("without a config there is no model pill; an all-allowed session offers to 
 // ── ChatPanels ───────────────────────────────────────────────────────────────
 
 test("the session modal says it is loading, and fades while it leaves", async () => {
-  const { root, update, done } = await show(ChatLoadingModal, { scroll: { modalLeaving: false } });
+  const { root, update, done } = await show(ChatLoadingModal, {
+    scroll: { modalLeaving: false },
+  });
   const scrim = root.querySelector(".chat-modal-scrim");
   assert.equal(scrim.className, "chat-modal-scrim");
-  assert.equal(text(root.querySelector(".chat-modal-label")), "Loading session");
+  assert.equal(
+    text(root.querySelector(".chat-modal-label")),
+    "Loading session",
+  );
   await update({ scroll: { modalLeaving: true } });
   assert.equal(scrim.className, "chat-modal-scrim chat-modal-leaving");
   await done();
@@ -134,22 +158,37 @@ test("the session modal says it is loading, and fades while it leaves", async ()
 function approvalStore(sel = 0) {
   const { calls, fn } = recorder();
   const store = {
-    rs: { approvalSel: sel, setApprovalSel: fn("setApprovalSel"), approvalRef: { current: null } },
-    shell: { answerApproval: fn("answerApproval"), onApprovalKey: (e) => calls.push(["key", e.key]) },
+    rs: {
+      approvalSel: sel,
+      setApprovalSel: fn("setApprovalSel"),
+      approvalRef: { current: null },
+    },
+    shell: {
+      answerApproval: fn("answerApproval"),
+      onApprovalKey: (e) => calls.push(["key", e.key]),
+    },
   };
   return { store, calls };
 }
 
 test("the approval panel asks the question, shows the command and takes the three answers", async () => {
   const { store, calls } = approvalStore(1);
-  const approval = { id: "ap1", question: "Run the migration?", reason: "writes", command: "make migrate" };
+  const approval = {
+    id: "ap1",
+    question: "Run the migration?",
+    reason: "writes",
+    command: "make migrate",
+  };
   const { root, done } = await show(ApprovalPanel, store, { approval });
   const panel = root.querySelector("fieldset");
   assert.equal(panel.getAttribute("aria-label"), "This needs your approval");
   assert.equal(text(root.querySelector("h2")), "Run the migration?");
   assert.equal(text(root.querySelector("pre")), "make migrate");
   const [run, all, no] = root.querySelectorAll("button");
-  assert.deepEqual([text(run), text(all), text(no)], ["Run it", "Allow all this session", "No"]);
+  assert.deepEqual(
+    [text(run), text(all), text(no)],
+    ["Run it", "Allow all this session", "No"],
+  );
   assert.deepEqual(
     [run, all, no].map((b) => b.getAttribute("aria-pressed")),
     ["false", "true", "false"],
@@ -172,7 +211,11 @@ test("the approval panel asks the question, shows the command and takes the thre
     ],
   );
   assert.deepEqual(
-    [...new Set(calls.filter((c) => c[0] === "setApprovalSel").map((c) => c[1]))],
+    [
+      ...new Set(
+        calls.filter((c) => c[0] === "setApprovalSel").map((c) => c[1]),
+      ),
+    ],
     [0, 1, 2],
   );
   await done();
@@ -180,11 +223,15 @@ test("the approval panel asks the question, shows the command and takes the thre
 
 test("an approval without a question uses its reason, and without either the default", async () => {
   const { store } = approvalStore();
-  let { root, done } = await show(ApprovalPanel, store, { approval: { id: "a", reason: "Touches /etc" } });
+  let { root, done } = await show(ApprovalPanel, store, {
+    approval: { id: "a", reason: "Touches /etc" },
+  });
   assert.equal(text(root.querySelector("h2")), "Touches /etc");
   assert.equal(text(root.querySelector("pre")), "");
   await done();
-  ({ root, done } = await show(ApprovalPanel, approvalStore().store, { approval: { id: "b" } }));
+  ({ root, done } = await show(ApprovalPanel, approvalStore().store, {
+    approval: { id: "b" },
+  }));
   assert.equal(text(root.querySelector("h2")), "This needs your approval");
   await done();
 });
@@ -237,11 +284,21 @@ test("a closed terminal drawer mounts nothing and offers to open", async () => {
   assert.equal(tab.title, "Open the terminal history");
   assert.equal(tab.getAttribute("aria-expanded"), "false");
   assert.equal(root.querySelector(".term-tab-count"), null);
-  assert.equal(root.querySelector(".term-panel").getAttribute("aria-hidden"), "true");
+  assert.equal(
+    root.querySelector(".term-panel").getAttribute("aria-hidden"),
+    "true",
+  );
   assert.equal(root.querySelector(".term-close").tabIndex, -1);
-  assert.equal(text(root.querySelector(".term-titlebar span")), "motita@shell — 0 commands");
+  assert.equal(
+    text(root.querySelector(".term-titlebar span")),
+    "motita@shell — 0 commands",
+  );
   assert.equal(root.querySelector(".term-screen").children.length, 0);
-  assert.equal(root.querySelectorAll(".term-fx").length, 4, "the full CRT effects");
+  assert.equal(
+    root.querySelectorAll(".term-fx").length,
+    4,
+    "the full CRT effects",
+  );
   tab.click();
   root.querySelector(".term-close").click();
   assert.deepEqual(calls, [["toggleTerm"], ["closeTerm"]]);
@@ -265,16 +322,32 @@ test("the terminal draws what was seen whole, types the next and holds the rest"
     drawers: { termOpen: true },
     rs: {
       termSeenId: 3,
-      shellLog: [entry(1, 0, "fine"), entry(2, 2), entry(3, NO_RESULT), entry(4, null), entry(5, 0)],
+      shellLog: [
+        entry(1, 0, "fine"),
+        entry(2, 2),
+        entry(3, NO_RESULT),
+        entry(4, null),
+        entry(5, 0),
+      ],
     },
   });
   const { root, done } = await show(TermDrawer, store);
   await act(() => flush(5));
   assert.equal(text(root.querySelector(".term-tab-count")), "5");
-  assert.equal(text(root.querySelector(".term-titlebar span")), "motita@shell — 5 commands");
+  assert.equal(
+    text(root.querySelector(".term-titlebar span")),
+    "motita@shell — 5 commands",
+  );
   const entries = root.querySelectorAll(".term-entry");
-  assert.equal(entries.length, 4, "the one after the live entry waits, undrawn");
-  const statuses = [...root.querySelectorAll(".term-status")].map((s) => [text(s), s.className]);
+  assert.equal(
+    entries.length,
+    4,
+    "the one after the live entry waits, undrawn",
+  );
+  const statuses = [...root.querySelectorAll(".term-status")].map((s) => [
+    text(s),
+    s.className,
+  ]);
   assert.deepEqual(statuses.slice(0, 3), [
     ["[ok]", "term-status"],
     ["[exit 2]", "term-status bad"],
@@ -285,9 +358,16 @@ test("the terminal draws what was seen whole, types the next and holds the rest"
   // The seen entries report they are finished; the running one never does.
   const done1 = calls.filter((c) => c[0] === "termEntryDone").map((c) => c[1]);
   assert.deepEqual([...new Set(done1)].sort(), [1, 2, 3]);
-  assert.ok(calls.some((c) => c[0] === "stickTerm"), "typing keeps the screen at the end");
+  assert.ok(
+    calls.some((c) => c[0] === "stickTerm"),
+    "typing keeps the screen at the end",
+  );
   // The live one is typed until its command is in, then shows it is still running.
-  for (let i = 0; i < 20 && !text(root.querySelector(".term-status.running")); i++) {
+  for (
+    let i = 0;
+    i < 20 && !text(root.querySelector(".term-status.running"));
+    i++
+  ) {
     await act(() => new Promise((r) => setTimeout(r, 20)));
   }
   assert.equal(text(root.querySelector(".term-status.running")), "running…");
@@ -296,7 +376,10 @@ test("the terminal draws what was seen whole, types the next and holds the rest"
 
 test("a long history shows its newest window, and the earlier ones on demand", async () => {
   const log = Array.from({ length: 51 }, (_, i) => entry(i + 1, 0));
-  const { store } = drawerStore({ drawers: { termOpen: true }, rs: { shellLog: log, termSeenId: 51 } });
+  const { store } = drawerStore({
+    drawers: { termOpen: true },
+    rs: { shellLog: log, termSeenId: 51 },
+  });
   const { root, done } = await show(TermDrawer, store);
   const earlier = root.querySelector(".term-earlier");
   assert.equal(text(earlier), "Show 1 earlier");
@@ -307,7 +390,10 @@ test("a long history shows its newest window, and the earlier ones on demand", a
   await done();
 
   const many = Array.from({ length: 70 }, (_, i) => entry(i + 1, 0));
-  const big = drawerStore({ drawers: { termOpen: true }, rs: { shellLog: many, termSeenId: 70 } });
+  const big = drawerStore({
+    drawers: { termOpen: true },
+    rs: { shellLog: many, termSeenId: 70 },
+  });
   const m2 = await show(TermDrawer, big.store);
   assert.equal(text(m2.root.querySelector(".term-earlier")), "Show 20 earlier");
   await m2.done();
@@ -316,12 +402,17 @@ test("a long history shows its newest window, and the earlier ones on demand", a
 test("the window never starts after the entry waiting to be typed", async () => {
   const log = Array.from({ length: 60 }, (_, i) => entry(i + 1, 0));
   // Entry 3 is the first not yet played: it and everything after stay on screen.
-  const { store } = drawerStore({ rs: { shellLog: log, termSeenId: 2 }, drawers: { termOpen: true } });
+  const { store } = drawerStore({
+    rs: { shellLog: log, termSeenId: 2 },
+    drawers: { termOpen: true },
+  });
   const { root, done } = await show(TermDrawer, store);
   assert.equal(text(root.querySelector(".term-earlier")), "Show 2 earlier");
   await done();
   // Closed, nothing is live: entries not yet seen wait.
-  const closed = drawerStore({ rs: { shellLog: [entry(1, 0)], termSeenId: 0 } });
+  const closed = drawerStore({
+    rs: { shellLog: [entry(1, 0)], termSeenId: 0 },
+  });
   const m2 = await show(TermDrawer, closed.store);
   assert.equal(m2.root.querySelectorAll(".term-entry").length, 0);
   await m2.done();
@@ -347,10 +438,19 @@ test("the thinking drawer lists the thoughts in turn order, the live one last", 
   assert.equal(tab.className, "term-tab is-live");
   assert.equal(tab.title, "Close the thinking");
   assert.equal(text(tab.querySelector(".term-tab-count")), "3");
-  assert.equal(text(root.querySelector(".term-titlebar span")), "motita@mind — 3 thoughts");
+  assert.equal(
+    text(root.querySelector(".term-titlebar span")),
+    "motita@mind — 3 thoughts",
+  );
   const thoughts = [...root.querySelectorAll(".think-entry")];
-  assert.deepEqual(thoughts.map((t) => text(t)), ["first", "second", "weighing options"]);
-  assert.deepEqual(thoughts.map((t) => t.className), ["think-entry", "think-entry", "think-entry is-live"]);
+  assert.deepEqual(
+    thoughts.map((t) => text(t)),
+    ["first", "second", "weighing options"],
+  );
+  assert.deepEqual(
+    thoughts.map((t) => t.className),
+    ["think-entry", "think-entry", "think-entry is-live"],
+  );
   tab.click();
   root.querySelector(".term-close").click();
   assert.deepEqual(calls, [["toggleThink"], ["closeThink"]]);
@@ -358,11 +458,23 @@ test("the thinking drawer lists the thoughts in turn order, the live one last", 
 });
 
 test("a closed thinking drawer mounts nothing; an open empty one says so; a long one folds", async () => {
-  let s = drawerStore({ rs: { liveThought: "ignored while idle", stepsByTurn: { 1: [{ kind: "thought", text: "one" }] } } });
+  let s = drawerStore({
+    rs: {
+      liveThought: "ignored while idle",
+      stepsByTurn: { 1: [{ kind: "thought", text: "one" }] },
+    },
+  });
   let m = await show(ThinkDrawer, s.store);
-  assert.equal(m.root.querySelector(".term-tab").className, "term-tab", "a thought without a run is not live");
+  assert.equal(
+    m.root.querySelector(".term-tab").className,
+    "term-tab",
+    "a thought without a run is not live",
+  );
   assert.equal(m.root.querySelector(".term-tab").title, "Open the thinking");
-  assert.equal(text(m.root.querySelector(".term-titlebar span")), "motita@mind — 1 thought");
+  assert.equal(
+    text(m.root.querySelector(".term-titlebar span")),
+    "motita@mind — 1 thought",
+  );
   assert.equal(m.root.querySelector(".term-screen").children.length, 0);
   assert.equal(m.root.querySelector(".term-close").tabIndex, -1);
   await m.done();
@@ -373,7 +485,12 @@ test("a closed thinking drawer mounts nothing; an open empty one says so; a long
   assert.equal(text(m.root.querySelector(".term-empty")), "no thoughts yet");
   await m.done();
 
-  const steps = { 1: Array.from({ length: 55 }, (_, i) => ({ kind: "thought", text: "t" + i })) };
+  const steps = {
+    1: Array.from({ length: 55 }, (_, i) => ({
+      kind: "thought",
+      text: "t" + i,
+    })),
+  };
   s = drawerStore({ drawers: { thinkOpen: true }, rs: { stepsByTurn: steps } });
   m = await show(ThinkDrawer, s.store);
   assert.equal(m.root.querySelectorAll(".think-entry").length, 50);
@@ -394,22 +511,37 @@ const agent = (over) => ({
 });
 
 test("the agents drawer is not there until a run has something to show", async () => {
-  let { root, done } = await show(AgentsDrawer, drawerStore({ rs: { agents: [] } }).store);
+  let { root, done } = await show(
+    AgentsDrawer,
+    drawerStore({ rs: { agents: [] } }).store,
+  );
   assert.equal(root.innerHTML, "");
   await done();
   ({ root, done } = await show(
     AgentsDrawer,
-    drawerStore({ rs: { agents: [agent({ tokens: { input: 0, output: 0 } })] } }).store,
+    drawerStore({
+      rs: { agents: [agent({ tokens: { input: 0, output: 0 } })] },
+    }).store,
   ));
   assert.equal(root.innerHTML, "", "a main agent that spent nothing yet");
   await done();
-  ({ root, done } = await show(AgentsDrawer, drawerStore({ rs: { agents: [agent({ state: "passed" })] } }).store));
-  assert.ok(root.querySelector(".is-agents"), "a main agent that spent tokens is shown");
+  ({ root, done } = await show(
+    AgentsDrawer,
+    drawerStore({ rs: { agents: [agent({ state: "passed" })] } }).store,
+  ));
+  assert.ok(
+    root.querySelector(".is-agents"),
+    "a main agent that spent tokens is shown",
+  );
   assert.equal(root.querySelector(".term-tab").className, "term-tab");
   assert.equal(root.querySelector(".term-tab-count"), null);
   assert.equal(root.querySelector(".term-tab").title, "Open the agents");
   assert.equal(root.querySelector(".term-close").tabIndex, -1);
-  assert.equal(root.querySelectorAll(".term-fx").length, 2, "the light CRT effects");
+  assert.equal(
+    root.querySelectorAll(".term-fx").length,
+    2,
+    "the light CRT effects",
+  );
   await done();
 });
 
@@ -418,9 +550,28 @@ test("the agents drawer lists the fleet with time, tokens and state", async () =
     drawers: { agentsOpen: true },
     rs: {
       agents: [
-        agent({ id: "main", purpose: "", tokens: undefined, round: 2, activity: "planning" }),
-        agent({ id: "sub1", parent: "main", purpose: "write docs", activity: "editing README", tokens: { input: 12000, output: 345, cache_read: 7 } }),
-        agent({ id: "sub2", parent: "main", purpose: "", state: "failed", finished: "2024-01-01T00:00:30Z", activity: "gave up" }),
+        agent({
+          id: "main",
+          purpose: "",
+          tokens: undefined,
+          round: 2,
+          activity: "planning",
+        }),
+        agent({
+          id: "sub1",
+          parent: "main",
+          purpose: "write docs",
+          activity: "editing README",
+          tokens: { input: 12000, output: 345, cache_read: 7 },
+        }),
+        agent({
+          id: "sub2",
+          parent: "main",
+          purpose: "",
+          state: "failed",
+          finished: "2024-01-01T00:00:30Z",
+          activity: "gave up",
+        }),
       ],
     },
   });
@@ -428,46 +579,93 @@ test("the agents drawer lists the fleet with time, tokens and state", async () =
   const tab = root.querySelector(".term-tab");
   assert.equal(tab.className, "term-tab is-live");
   assert.equal(tab.title, "Close the agents");
-  assert.equal(text(tab.querySelector(".term-tab-count")), "1", "one sub-agent running");
+  assert.equal(
+    text(tab.querySelector(".term-tab-count")),
+    "1",
+    "one sub-agent running",
+  );
   const title = root.querySelector(".term-titlebar span");
   assert.equal(text(title), "motita@fleet — 2 subagents · 14k tok");
   assert.equal(title.title, "in 13k · out 845 · cache read 7");
   const rows = [...root.querySelectorAll(".agent-row")];
-  assert.deepEqual(rows.map((r) => r.className), [
-    "agent-row is-running",
-    "agent-row is-running",
-    "agent-row is-failed is-done",
-  ]);
+  assert.deepEqual(
+    rows.map((r) => r.className),
+    [
+      "agent-row is-running",
+      "agent-row is-running",
+      "agent-row is-failed is-done",
+    ],
+  );
   // The main agent: tagged, named by its id when it has no purpose, its round shown.
   assert.equal(text(rows[0].querySelector(".agent-purpose")), "mainmain");
-  assert.equal(text(rows[0].querySelector(".agent-meta")), "1m 00s · 0 tok · r2");
+  assert.equal(
+    text(rows[0].querySelector(".agent-meta")),
+    "1m 00s · 0 tok · r2",
+  );
   assert.equal(rows[0].querySelector(".agent-meta").title, "in 0 · out 0");
   assert.ok(rows[0].querySelector(".agent-spin"));
-  assert.equal(rows[0].querySelector(".row-hit"), null, "a running agent does not fold");
+  assert.equal(
+    rows[0].querySelector(".row-hit"),
+    null,
+    "a running agent does not fold",
+  );
   assert.equal(text(rows[1].querySelector(".agent-purpose")), "write docs");
   assert.equal(text(rows[1].querySelector(".agent-meta")), "1m 00s · 12k tok");
-  assert.equal(text(rows[1].querySelector(".agent-activity")), "editing README");
+  assert.equal(
+    text(rows[1].querySelector(".agent-activity")),
+    "editing README",
+  );
   assert.equal(text(rows[2].querySelector(".agent-state")), "✗");
-  assert.equal(rows[2].querySelector(".agent-state").getAttribute("aria-label"), "failed");
+  assert.equal(
+    rows[2].querySelector(".agent-state").getAttribute("aria-label"),
+    "failed",
+  );
   assert.equal(text(rows[2].querySelector(".agent-meta")), "30s · 1.5k tok");
   const hit = rows[2].querySelector(".row-hit");
   assert.equal(hit.getAttribute("aria-expanded"), "false");
-  assert.equal(hit.getAttribute("aria-label"), "sub2", "named by its id without a purpose");
+  assert.equal(
+    hit.getAttribute("aria-label"),
+    "sub2",
+    "named by its id without a purpose",
+  );
   hit.click();
   tab.click();
   root.querySelector(".term-close").click();
-  assert.deepEqual(calls, [["toggleAgent", "sub2"], ["toggleAgents"], ["closeAgents"]]);
+  assert.deepEqual(calls, [
+    ["toggleAgent", "sub2"],
+    ["toggleAgents"],
+    ["closeAgents"],
+  ]);
   await done();
 });
 
 test("a finished agent shows how it ended instead of the phase it was in, and a running one is worded", async () => {
-  const done = agent({ id: "e1", parent: "m", state: "passed", summary: "Docs written.\nsecond", activity: "" });
+  const done = agent({
+    id: "e1",
+    parent: "m",
+    state: "passed",
+    summary: "Docs written.\nsecond",
+    activity: "",
+  });
   const none = agent({ id: "e2", parent: "m", state: "failed", activity: "" });
-  const busy = agent({ id: "e3", parent: "m", activity: "waiting for 2 background agent(s)..." });
-  const { store } = drawerStore({ drawers: { agentsOpen: true }, rs: { agents: [done, none, busy] } });
+  const busy = agent({
+    id: "e3",
+    parent: "m",
+    activity: "waiting for 2 background agent(s)...",
+  });
+  const { store } = drawerStore({
+    drawers: { agentsOpen: true },
+    rs: { agents: [done, none, busy] },
+  });
   const { root, done: close } = await show(AgentsDrawer, store);
-  const lines = [...root.querySelectorAll(".agent-row")].map((r) => text(r.querySelector(".agent-activity")));
-  assert.deepEqual(lines, ["Docs written. second", "", "waiting for 2 background agent(s)..."]);
+  const lines = [...root.querySelectorAll(".agent-row")].map((r) =>
+    text(r.querySelector(".agent-activity")),
+  );
+  assert.deepEqual(lines, [
+    "Docs written. second",
+    "",
+    "waiting for 2 background agent(s)...",
+  ]);
   await close();
 });
 
@@ -478,14 +676,24 @@ test("the conversation counts the background agents at work and opens their list
   const main = agent({ id: "m", state: "running" });
   const { store, calls } = drawerStore({ rs: { agents: [main, a, b, c] } });
   const { root, update, done } = await show(SubagentsStrip, store);
-  assert.equal(text(root.querySelector(".subagents-count")), "2 background agents running");
+  assert.equal(
+    text(root.querySelector(".subagents-count")),
+    "2 background agents running",
+  );
   const chips = [...root.querySelectorAll(".subagents-chip")];
-  assert.deepEqual(chips.map(text), ["write the docs", "s3"], "named by the id without a purpose");
+  assert.deepEqual(
+    chips.map(text),
+    ["write the docs", "s3"],
+    "named by the id without a purpose",
+  );
   assert.equal(chips[0].title, "write the docs");
   root.querySelector(".subagents-strip").click();
   assert.deepEqual(calls, [["toggleAgents"]]);
   await update({ ...store, rs: { ...store.rs, agents: [main, a] } });
-  assert.equal(text(root.querySelector(".subagents-count")), "1 background agent running");
+  assert.equal(
+    text(root.querySelector(".subagents-count")),
+    "1 background agent running",
+  );
   await update({ ...store, drawers: { ...store.drawers, agentsOpen: true } });
   assert.equal(root.innerHTML, "", "not drawn while the list is open");
   await update({ ...store, rs: { ...store.rs, agents: [main, b] } });
@@ -494,19 +702,41 @@ test("the conversation counts the background agents at work and opens their list
 });
 
 test("an unfolded agent shows its summary and the merge command, which copies", async () => {
-  const a = agent({ id: "b1", parent: "m", state: "passed", summary: "Docs written.", branch: "agent/docs", activity: "hidden while open" });
-  const { store, calls } = drawerStore({ drawers: { agentsOpen: true }, rs: { agents: [a], agentOpenId: "b1" } });
+  const a = agent({
+    id: "b1",
+    parent: "m",
+    state: "passed",
+    summary: "Docs written.",
+    branch: "agent/docs",
+    activity: "hidden while open",
+  });
+  const { store, calls } = drawerStore({
+    drawers: { agentsOpen: true },
+    rs: { agents: [a], agentOpenId: "b1" },
+  });
   const outside = [];
   document.addEventListener("click", () => outside.push(1));
   const { root, update, done } = await show(AgentsDrawer, store);
-  assert.equal(root.querySelector(".row-hit").getAttribute("aria-expanded"), "true");
-  assert.equal(root.querySelector(".agent-activity"), null, "the activity gives way to the detail");
+  assert.equal(
+    root.querySelector(".row-hit").getAttribute("aria-expanded"),
+    "true",
+  );
+  assert.equal(
+    root.querySelector(".agent-activity"),
+    null,
+    "the activity gives way to the detail",
+  );
   assert.equal(text(root.querySelector(".agent-summary")), "Docs written.");
-  assert.equal(text(root.querySelector(".agent-branch code")), "git merge --no-edit agent/docs");
+  assert.equal(
+    text(root.querySelector(".agent-branch code")),
+    "git merge --no-edit agent/docs",
+  );
   const copy = root.querySelector(".agent-copy");
   assert.equal(text(copy), "copy");
   copy.click();
-  assert.deepEqual(calls, [["copyMerge", "b1", "git merge --no-edit agent/docs"]]);
+  assert.deepEqual(calls, [
+    ["copyMerge", "b1", "git merge --no-edit agent/docs"],
+  ]);
   assert.equal(outside.length, 0, "clicks inside the detail stay there");
   await update({ ...store, drawers: { ...store.drawers, agentCopied: "b1" } });
   assert.equal(text(root.querySelector(".agent-copy")), "copied");
@@ -515,7 +745,10 @@ test("an unfolded agent shows its summary and the merge command, which copies", 
 
 test("an unfolded agent without summary or branch says so, and offers nothing to copy", async () => {
   const a = agent({ id: "c1", parent: "m", state: "cancelled" });
-  const { store } = drawerStore({ drawers: { agentsOpen: true }, rs: { agents: [a], agentOpenId: "c1" } });
+  const { store } = drawerStore({
+    drawers: { agentsOpen: true },
+    rs: { agents: [a], agentOpenId: "c1" },
+  });
   const { root, done } = await show(AgentsDrawer, store);
   assert.equal(text(root.querySelector(".agent-state")), "⊘");
   assert.equal(text(root.querySelector(".agent-detail")), "no summary");
@@ -524,8 +757,17 @@ test("an unfolded agent without summary or branch says so, and offers nothing to
 });
 
 test("drawn where there is no document to copy from, the merge command is shown without a copy button", async () => {
-  const a = agent({ id: "d1", parent: "m", state: "passed", summary: "ok", branch: "agent/x" });
-  const { store } = drawerStore({ drawers: { agentsOpen: true }, rs: { agents: [a], agentOpenId: "d1" } });
+  const a = agent({
+    id: "d1",
+    parent: "m",
+    state: "passed",
+    summary: "ok",
+    branch: "agent/x",
+  });
+  const { store } = drawerStore({
+    drawers: { agentsOpen: true },
+    rs: { agents: [a], agentOpenId: "d1" },
+  });
   const root = document.createElement("div");
   document.body.appendChild(root);
   const { render } = await import("preact");
@@ -537,7 +779,10 @@ test("drawn where there is no document to copy from, the merge command is shown 
   } finally {
     globalThis.document = doc;
   }
-  assert.equal(text(root.querySelector(".agent-branch code")), "git merge --no-edit agent/x");
+  assert.equal(
+    text(root.querySelector(".agent-branch code")),
+    "git merge --no-edit agent/x",
+  );
   assert.equal(root.querySelector(".agent-copy"), null);
   render(null, root);
   root.remove();
@@ -564,7 +809,12 @@ function toastStore({ detailsOpen = false, updateInfo = null } = {}) {
 
 test("an error toast is red, says what failed and folds the technical text", async () => {
   const { store, calls } = toastStore();
-  const toast = { message: "Merge failed", type: "error", detail: "Nothing changed.", technical: "exit 128" };
+  const toast = {
+    message: "Merge failed",
+    type: "error",
+    detail: "Nothing changed.",
+    technical: "exit 128",
+  };
   const { root, update, done } = await show(ToastCard, store, { toast });
   const card = root.querySelector(".toast-card");
   assert.match(card.getAttribute("style"), /rgba\(239, ?68, ?68, ?0.35\)/);
@@ -573,12 +823,18 @@ test("an error toast is red, says what failed and folds the technical text", asy
   assert.equal(text(title), "Merge failed");
   assert.ok(title.classList.contains("text-danger"));
   assert.equal(text(detail), "Nothing changed.");
-  const details = [...card.querySelectorAll("button")].find((b) => text(b) === "Details");
+  const details = [...card.querySelectorAll("button")].find(
+    (b) => text(b) === "Details",
+  );
   assert.equal(card.querySelector("pre"), null);
   details.click();
   await update(toastStore({ detailsOpen: true }).store, { toast });
   assert.equal(text(card.querySelector("pre")), "exit 128");
-  assert.ok([...card.querySelectorAll("button")].some((b) => text(b) === "Hide details"));
+  assert.ok(
+    [...card.querySelectorAll("button")].some(
+      (b) => text(b) === "Hide details",
+    ),
+  );
   card.querySelector("[aria-label='Dismiss']").click();
   assert.deepEqual(calls, [["toggleToastDetails"]]);
   await done();
@@ -586,7 +842,9 @@ test("an error toast is red, says what failed and folds the technical text", asy
 
 test("a warning has its triangle and amber, a success its tick, and both just go away", async () => {
   let { store, calls } = toastStore();
-  let { root, done } = await show(ToastCard, store, { toast: { message: "Retrying", type: "warning" } });
+  let { root, done } = await show(ToastCard, store, {
+    toast: { message: "Retrying", type: "warning" },
+  });
   let card = root.querySelector(".toast-card");
   assert.match(card.getAttribute("style"), /rgba\(237, ?181, ?88, ?0.35\)/);
   assert.ok(card.querySelector("svg").classList.contains("text-[#edc06a]"));
@@ -597,24 +855,39 @@ test("a warning has its triangle and amber, a success its tick, and both just go
   await done();
 
   ({ store, calls } = toastStore({ updateInfo: { update_available: false } }));
-  ({ root, done } = await show(ToastCard, store, { toast: { message: "Saved", type: "success", update: true } }));
+  ({ root, done } = await show(ToastCard, store, {
+    toast: { message: "Saved", type: "success", update: true },
+  }));
   card = root.querySelector(".toast-card");
   assert.match(card.getAttribute("style"), /rgba\(76, ?194, ?255, ?0.35\)/);
   assert.ok(card.querySelector("svg").classList.contains("text-accent"));
   assert.ok(!card.querySelector("svg").classList.contains("animate-pulse"));
   assert.ok(card.querySelector("p").classList.contains("text-[#e8e8ea]"));
-  assert.equal(card.querySelectorAll("button").length, 1, "no upgrade without a new version");
+  assert.equal(
+    card.querySelectorAll("button").length,
+    1,
+    "no upgrade without a new version",
+  );
   card.querySelector("[aria-label='Dismiss']").click();
   assert.deepEqual(calls, [["dismissToast"]]);
   await done();
 });
 
 test("a new-version toast offers the upgrade, and dismissing it remembers", async () => {
-  const { store, calls } = toastStore({ updateInfo: { update_available: true } });
-  const { root, done } = await show(ToastCard, store, { toast: { message: "v2 is out", type: "success", update: true } });
+  const { store, calls } = toastStore({
+    updateInfo: { update_available: true },
+  });
+  const { root, done } = await show(ToastCard, store, {
+    toast: { message: "v2 is out", type: "success", update: true },
+  });
   const card = root.querySelector(".toast-card");
-  assert.ok(card.querySelector("svg").classList.contains("animate-pulse"), "the download icon");
-  const upgrade = [...card.querySelectorAll("button")].find((b) => text(b) === "Upgrade now");
+  assert.ok(
+    card.querySelector("svg").classList.contains("animate-pulse"),
+    "the download icon",
+  );
+  const upgrade = [...card.querySelectorAll("button")].find(
+    (b) => text(b) === "Upgrade now",
+  );
   upgrade.click();
   card.querySelector("[aria-label='Dismiss']").click();
   assert.deepEqual(calls, [["openUpgrade"], ["dismissUpgradeToast"]]);
@@ -670,10 +943,16 @@ test("the token prompt takes the token and submits it, and keeps its clicks", as
   await done();
   assert.deepEqual(calls, [["setAuthInput", "tok"]]);
 
-  ({ store, calls } = authStore({ authInput: "tok", authError: "That token was rejected. Try again." }));
+  ({ store, calls } = authStore({
+    authInput: "tok",
+    authError: "That token was rejected. Try again.",
+  }));
   ({ root, done } = await show(AuthModal, store));
   assert.equal(root.querySelector("button[type=submit]").disabled, false);
-  assert.match(text(root.querySelector("p.text-danger")), /That token was rejected/);
+  assert.match(
+    text(root.querySelector("p.text-danger")),
+    /That token was rejected/,
+  );
   const form = root.querySelector("form");
   const ev = new Event("submit", { bubbles: true, cancelable: true });
   form.dispatchEvent(ev);

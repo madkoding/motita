@@ -91,7 +91,11 @@ test("isolating is the default, and giving the network waits for a confirmation"
   assert.doesNotMatch(text(m.root), /cannot take the network away/);
 
   await pick(m.root, "isolate");
-  assert.equal(m.root.querySelector(CONFIRM), null, "the current choice asks nothing");
+  assert.equal(
+    m.root.querySelector(CONFIRM),
+    null,
+    "the current choice asks nothing",
+  );
 
   await pick(m.root, "open");
   const c = m.root.querySelector(CONFIRM);
@@ -106,7 +110,11 @@ test("isolating is the default, and giving the network waits for a confirmation"
 
   await pick(m.root, "open");
   await pick(m.root, "isolate");
-  assert.equal(m.root.querySelector(CONFIRM), null, "picking the current choice drops the question");
+  assert.equal(
+    m.root.querySelector(CONFIRM),
+    null,
+    "picking the current choice drops the question",
+  );
   assert.equal(puts(f).length, 0);
 
   await pick(m.root, "open");
@@ -128,15 +136,22 @@ test("where the machine cannot isolate the choice says it changes nothing", asyn
 
 test("where the machine says why it cannot, the choice shows its words", async () => {
   const reason = "unprivileged user namespaces are refused";
-  const m = await mount(gateway({ ...SEC, network_enforced: false, network_reason: reason }).api);
-  assert.match(text(m.root), /cannot give a command a network of its own \(unprivileged user namespaces are refused\)/);
+  const m = await mount(
+    gateway({ ...SEC, network_enforced: false, network_reason: reason }).api,
+  );
+  assert.match(
+    text(m.root),
+    /cannot give a command a network of its own \(unprivileged user namespaces are refused\)/,
+  );
   assert.doesNotMatch(text(m.root), /it needs Linux/);
   await m.unmount();
 });
 
 test("where the profile would fix it the choice says which command to run", async () => {
   const hint = "to allow it, run once: sudo motita sandbox apparmor install";
-  const m = await mount(gateway({ ...SEC, network_enforced: false, network_hint: hint }).api);
+  const m = await mount(
+    gateway({ ...SEC, network_enforced: false, network_hint: hint }).api,
+  );
   assert.match(text(m.root), /sudo motita sandbox apparmor install/);
   assert.doesNotMatch(text(m.root), /it needs Linux/);
   await m.unmount();
@@ -156,7 +171,9 @@ test("an older gateway without the setting draws no choice, and no file means no
 test("a save the gateway refuses shows its error and keeps the choice", async () => {
   const f = fakeApi({
     "GET /v1/security": json(200, SEC),
-    "PUT /v1/security": json(500, { error: "MOTITA_SANDBOX_ISOLATE_NETWORK overrides it" }),
+    "PUT /v1/security": json(500, {
+      error: "MOTITA_SANDBOX_ISOLATE_NETWORK overrides it",
+    }),
   });
   const m = await mount(f.api);
   await pick(m.root, "open");
@@ -177,9 +194,14 @@ test("the client confirms only giving the network", async () => {
 });
 
 test("every string of the choice has a Spanish translation", () => {
-  const source = readFileSync(join(here, "..", "NetworkIsolationSetting.tsx"), "utf8");
+  const source = readFileSync(
+    join(here, "..", "NetworkIsolationSetting.tsx"),
+    "utf8",
+  );
   const keys = new Set();
-  for (const m of source.matchAll(/\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g)) {
+  for (const m of source.matchAll(
+    /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,
+  )) {
     keys.add(m[2]);
   }
   const MIN_STRINGS = 8;

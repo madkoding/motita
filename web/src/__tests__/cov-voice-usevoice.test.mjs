@@ -3,14 +3,25 @@
 // what each one does when the microphone, the gateway or the person does not cooperate.
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, source, settle as settleWith } from "./cov-voice-helpers.mjs";
+import {
+  setupDom,
+  source,
+  settle as settleWith,
+} from "./cov-voice-helpers.mjs";
 
 setupDom();
 globalThis.isSecureContext = true;
 
 // The stand-in microphone. loud says whether the person speaks now; refuse holds errors the next
 // getUserMedia calls throw; mime is the one type the recorder supports ("" none).
-const mic = { loud: false, refuse: [], asked: [], stopped: 0, recorders: [], mime: "audio/webm" };
+const mic = {
+  loud: false,
+  refuse: [],
+  asked: [],
+  stopped: 0,
+  recorders: [],
+  mime: "audio/webm",
+};
 const mediaDevices = {
   async getUserMedia(c) {
     mic.asked.push(c);
@@ -21,7 +32,10 @@ const mediaDevices = {
     return { getTracks: () => [{ stop: () => mic.stopped++ }] };
   },
 };
-Object.defineProperty(navigator, "mediaDevices", { value: mediaDevices, configurable: true });
+Object.defineProperty(navigator, "mediaDevices", {
+  value: mediaDevices,
+  configurable: true,
+});
 class FakeRecorder {
   static isTypeSupported(t) {
     return t === mic.mime;
@@ -79,13 +93,21 @@ globalThis.Worker = class {
   postMessage(m) {
     heard.sent.push(m);
     if (m.kind === "hear") {
-      void Promise.resolve().then(() => this.onmessage({ data: { seq: m.seq, text: heard.texts.shift() ?? "", lang: "es" } }));
+      void Promise.resolve().then(() =>
+        this.onmessage({
+          data: { seq: m.seq, text: heard.texts.shift() ?? "", lang: "es" },
+        }),
+      );
     }
   }
 };
 globalThis.OfflineAudioContext = class {
   async decodeAudioData() {
-    return { length: 1, numberOfChannels: 1, getChannelData: () => Float32Array.of(0) };
+    return {
+      length: 1,
+      numberOfChannels: 1,
+      getChannelData: () => Float32Array.of(0),
+    };
   }
 };
 globalThis.caches = {};
@@ -94,15 +116,22 @@ globalThis.speechSynthesis = { speaking: false };
 
 const { useVoice } = await source("useVoice.ts");
 const { useVoiceConversation } = await source("useVoiceConversation.ts");
-const { SPEECH_TURN_READ_EVENT, SPEECH_STOP_EVENT } = await import("../speech.ts");
+const { SPEECH_TURN_READ_EVENT, SPEECH_STOP_EVENT } =
+  await import("../speech.ts");
 const { VOICE_KEY, VOICE_PREFS_EVENT } = await import("../voice.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 
 const settle = () => settleWith(act, 4);
 // The clock: timers and Date are mocked, and performance.now follows Date.
-mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"], now: 1_000_000 });
-Object.defineProperty(performance, "now", { value: () => Date.now(), configurable: true });
+mock.timers.enable({
+  apis: ["setInterval", "setTimeout", "Date"],
+  now: 1_000_000,
+});
+Object.defineProperty(performance, "now", {
+  value: () => Date.now(),
+  configurable: true,
+});
 async function advance(ms, step = 50) {
   for (let t = 0; t < ms; t += step) {
     await act(() => mock.timers.tick(step));
@@ -110,13 +139,23 @@ async function advance(ms, step = 50) {
   }
 }
 
-const INFO = { enabled: true, wake_phrases: ["hey motita"], max_audio_bytes: 1e6 };
+const INFO = {
+  enabled: true,
+  wake_phrases: ["hey motita"],
+  max_audio_bytes: 1e6,
+};
 
 // mount renders both hooks. replies are the gateway's answers to transcriptions, in order (an
 // Error rejects); info is GET /v1/voice's answer (or an Error to throw); models is the catalog's
 // list of models (or an Error for a catalog that cannot be read).
 const WHISPER_BASE = [{ id: "whisper-base", installed: true }];
-async function mount({ info = INFO, replies = [], authed = true, conversation = false, models = WHISPER_BASE } = {}) {
+async function mount({
+  info = INFO,
+  replies = [],
+  authed = true,
+  conversation = false,
+  models = WHISPER_BASE,
+} = {}) {
   const s = { input: "", toasts: [], sent: [], asked: [], voice: null };
   const api = async (path, init) => {
     s.asked.push([path, init?.headers?.["Content-Type"]]);
@@ -133,11 +172,16 @@ async function mount({ info = INFO, replies = [], authed = true, conversation = 
       if (models instanceof Error) {
         throw models;
       }
-      return new Response(JSON.stringify({ runtime: {}, models, download: null }), { status: 200 });
+      return new Response(
+        JSON.stringify({ runtime: {}, models, download: null }),
+        { status: 200 },
+      );
     }
     const r = await replies.shift();
     if (r instanceof Error) {
-      return new Response(JSON.stringify({ error: r.message }), { status: 502 });
+      return new Response(JSON.stringify({ error: r.message }), {
+        status: 502,
+      });
     }
     return new Response(JSON.stringify(r ?? { text: "" }), { status: 200 });
   };
@@ -234,16 +278,32 @@ test("the switches are saved, and the page follows a change made elsewhere", asy
   reset();
   localStorage.setItem(VOICE_KEY, JSON.stringify({ mic: false, deviceId: 3 }));
   const v = await mount();
-  assert.deepEqual(v.s.voice.prefs, { mic: false, listen: false, deviceId: "", engine: "", listener: "", language: "" });
+  assert.deepEqual(v.s.voice.prefs, {
+    mic: false,
+    listen: false,
+    deviceId: "",
+    engine: "",
+    listener: "",
+    language: "",
+  });
   assert.equal(v.s.voice.showMic, false);
-  await act(() => v.s.voice.setPrefs({ mic: true, listen: false, deviceId: "usb" }));
+  await act(() =>
+    v.s.voice.setPrefs({ mic: true, listen: false, deviceId: "usb" }),
+  );
   assert.equal(v.s.voice.prefs.deviceId, "usb");
   assert.equal(JSON.parse(localStorage.getItem(VOICE_KEY)).deviceId, "usb");
-  localStorage.setItem(VOICE_KEY, JSON.stringify({ mic: true, deviceId: "other" }));
+  localStorage.setItem(
+    VOICE_KEY,
+    JSON.stringify({ mic: true, deviceId: "other" }),
+  );
   await act(() => window.dispatchEvent(new CustomEvent(VOICE_PREFS_EVENT)));
   assert.equal(v.s.voice.prefs.deviceId, "other");
   await act(() => v.s.voice.setInfo({ ...INFO, enabled: false }));
-  assert.equal(v.s.voice.state, "no-model", "the settings' answer applies at once: the browser listens now");
+  assert.equal(
+    v.s.voice.state,
+    "no-model",
+    "the settings' answer applies at once: the browser listens now",
+  );
   await v.done();
 });
 
@@ -252,7 +312,9 @@ test("dictation: a tap records, the next one transcribes into the composer and f
   const box = document.createElement("textarea");
   box.id = "task";
   document.body.appendChild(box);
-  const v = await mount({ replies: [{ text: "fix the tests" }, { text: "  " }] });
+  const v = await mount({
+    replies: [{ text: "fix the tests" }, { text: "  " }],
+  });
   let stops = 0;
   const onStop = () => stops++;
   window.addEventListener(SPEECH_STOP_EVENT, onStop);
@@ -277,12 +339,20 @@ test("dictation: a tap records, the next one transcribes into the composer and f
   mic.mime = "";
   await tap(v);
   await settle();
-  assert.equal(mic.recorders.at(-1).opts, undefined, "the recorder chooses its own type");
+  assert.equal(
+    mic.recorders.at(-1).opts,
+    undefined,
+    "the recorder chooses its own type",
+  );
   await tap(v);
   await settle();
   assert.equal(v.s.input, "please fix the tests");
   assert.equal(v.s.voice.takeHeard(), false);
-  assert.deepEqual(v.s.asked.at(-1), ["/v1/voice/transcribe", "audio/webm"], "a recording with no type");
+  assert.deepEqual(
+    v.s.asked.at(-1),
+    ["/v1/voice/transcribe", "audio/webm"],
+    "a recording with no type",
+  );
   window.removeEventListener(SPEECH_STOP_EVENT, onStop);
   await v.done();
 });
@@ -295,7 +365,11 @@ test("dictation stops on its own after two minutes", async () => {
   assert.equal(v.s.voice.phase, "recording");
   await act(() => mock.timers.tick(120_000));
   await settle();
-  assert.equal(v.s.voice.phase, "idle", "the recording was cut and transcribed");
+  assert.equal(
+    v.s.voice.phase,
+    "idle",
+    "the recording was cut and transcribed",
+  );
   assert.equal(v.s.input, "a long one");
   await v.done();
 });
@@ -307,7 +381,10 @@ test("dictation: the chosen microphone, the default one when it is gone, and the
   mic.refuse = [named("OverconstrainedError")];
   await tap(v);
   await settle();
-  assert.deepEqual(mic.asked.slice(-2), [{ audio: { deviceId: { exact: "usb-1" } } }, { audio: true }]);
+  assert.deepEqual(mic.asked.slice(-2), [
+    { audio: { deviceId: { exact: "usb-1" } } },
+    { audio: true },
+  ]);
   assert.equal(v.s.voice.phase, "recording");
   await tap(v);
   await settle();
@@ -321,7 +398,11 @@ test("dictation: the chosen microphone, the default one when it is gone, and the
   mic.refuse = [named("NotAllowedError")];
   await tap(v);
   await settle();
-  assert.equal(v.s.toasts.at(-1).detail, "NotAllowedError", "a refusal is not a missing microphone");
+  assert.equal(
+    v.s.toasts.at(-1).detail,
+    "NotAllowedError",
+    "a refusal is not a missing microphone",
+  );
   assert.equal(v.s.voice.phase, "idle");
   await v.done();
 
@@ -358,8 +439,13 @@ test("a tap while the transcription runs is ignored", async () => {
 
 test("conversation: after a spoken answer was read, one phrase is heard and sent", async () => {
   reset();
-  const v = await mount({ conversation: true, replies: [{ text: "run the tests" }] });
-  await act(() => window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT)));
+  const v = await mount({
+    conversation: true,
+    replies: [{ text: "run the tests" }],
+  });
+  await act(() =>
+    window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT)),
+  );
   await settle();
   assert.equal(v.s.voice.phase, "recording");
   await speak();
@@ -377,13 +463,18 @@ test("conversation: an exit phrase ends it, silence ends it, and nothing heard i
     replies: [{ text: "Basta, Motita." }, { text: "  " }, new Error("down")],
   });
   const read = async () => {
-    await act(() => window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT)));
+    await act(() =>
+      window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT)),
+    );
     await settle();
   };
   await read();
   await speak();
   assert.deepEqual(v.s.sent, []);
-  assert.deepEqual(v.s.toasts.at(-1), { message: "Conversation ended", type: "success" });
+  assert.deepEqual(v.s.toasts.at(-1), {
+    message: "Conversation ended",
+    type: "success",
+  });
   assert.equal(v.s.voice.takeHeard(), true, "the exit phrase was heard");
 
   await read();
@@ -398,7 +489,11 @@ test("conversation: an exit phrase ends it, silence ends it, and nothing heard i
 
   await read();
   await advance(8200);
-  assert.equal(v.s.voice.phase, "idle", "nobody started speaking: it stops listening");
+  assert.equal(
+    v.s.voice.phase,
+    "idle",
+    "nobody started speaking: it stops listening",
+  );
   assert.deepEqual(v.s.sent, []);
 
   // An analyser that gives no samples is silence too.
@@ -418,7 +513,9 @@ test("conversation: a tap or leaving ends the listening, and a busy microphone i
   reset();
   const v = await mount({ conversation: true });
   const read = async () => {
-    await act(() => window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT)));
+    await act(() =>
+      window.dispatchEvent(new CustomEvent(SPEECH_TURN_READ_EVENT)),
+    );
     await settle();
   };
   await read();
@@ -427,7 +524,11 @@ test("conversation: a tap or leaving ends the listening, and a busy microphone i
   assert.equal(await v.s.voice.listenOnce(), null);
   await tap(v);
   await settle();
-  assert.equal(v.s.voice.phase, "idle", "the tap ended the conversation, not a dictation");
+  assert.equal(
+    v.s.voice.phase,
+    "idle",
+    "the tap ended the conversation, not a dictation",
+  );
   assert.deepEqual(v.s.sent, []);
 
   // While a dictation records, conversation mode does not listen.
@@ -467,7 +568,10 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
   document.body.appendChild(box);
   const v = await mount({
     replies: [
-      { text: "hey motita open a pr", wake: { phrase: "hey motita", rest: "open a pr" } },
+      {
+        text: "hey motita open a pr",
+        wake: { phrase: "hey motita", rest: "open a pr" },
+      },
       { text: "just talking" },
       { text: "hey motita", wake: { phrase: "hey motita", rest: "" } },
       new Error("gateway down"),
@@ -476,13 +580,23 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
   assert.equal(v.s.voice.listening, true);
   await speak();
   assert.equal(v.s.input, "open a pr");
-  assert.deepEqual(v.s.toasts.at(-1), { message: "Heard “hey motita”", type: "success" });
+  assert.deepEqual(v.s.toasts.at(-1), {
+    message: "Heard “hey motita”",
+    type: "success",
+  });
   assert.equal(document.activeElement, box);
-  assert.deepEqual(v.s.asked.at(-1), ["/v1/voice/transcribe?wake=1", "audio/webm"]);
+  assert.deepEqual(v.s.asked.at(-1), [
+    "/v1/voice/transcribe?wake=1",
+    "audio/webm",
+  ]);
   assert.equal(v.s.voice.takeHeard(), true);
 
   await speak();
-  assert.equal(v.s.input, "open a pr", "without the wake phrase nothing is written");
+  assert.equal(
+    v.s.input,
+    "open a pr",
+    "without the wake phrase nothing is written",
+  );
   await speak();
   assert.equal(v.s.input, "open a pr", "the wake phrase alone adds nothing");
   await speak();
@@ -494,7 +608,10 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
   await advance(100);
   mic.loud = false;
   await advance(1000);
-  assert.ok(mic.recorders.length > before, "the short sound was dropped for a new recording");
+  assert.ok(
+    mic.recorders.length > before,
+    "the short sound was dropped for a new recording",
+  );
   const quiet = mic.recorders.length;
   await advance(4200);
   assert.ok(mic.recorders.length > quiet, "silence starts over");
@@ -507,7 +624,11 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
   speechSynthesis.speaking = false;
   mic.loud = false;
   await advance(1200);
-  assert.equal(v.s.asked.length, sentBefore, "what was recorded while it spoke is not sent");
+  assert.equal(
+    v.s.asked.length,
+    sentBefore,
+    "what was recorded while it spoke is not sent",
+  );
 
   // A phrase that ends while a dictation records is not sent.
   await tap(v);
@@ -529,21 +650,35 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
 
 test("listening in the browser: neither dictation nor the wake phrase leaves it", async () => {
   reset();
-  localStorage.setItem(VOICE_KEY, JSON.stringify({ engine: "local", listener: "whisper-base", language: "es" }));
+  localStorage.setItem(
+    VOICE_KEY,
+    JSON.stringify({
+      engine: "local",
+      listener: "whisper-base",
+      language: "es",
+    }),
+  );
   heard.texts = ["arregla los tests"];
   heard.sent.length = 0;
   let v = await mount({ info: null });
   assert.equal(v.s.voice.state, "ready");
   await tap(v);
   await settle();
-  assert.deepEqual(heard.sent[0], { kind: "warm", id: "whisper-base" }, "the model loads while the person speaks");
+  assert.deepEqual(
+    heard.sent[0],
+    { kind: "warm", id: "whisper-base" },
+    "the model loads while the person speaks",
+  );
   await tap(v);
   await settle();
   assert.equal(v.s.input, "arregla los tests");
   const hear = heard.sent.find((m) => m.kind === "hear");
   assert.equal(hear.id, "whisper-base");
   assert.equal(hear.lang, "es");
-  assert.ok(!v.s.asked.some(([p]) => p.startsWith("/v1/voice/transcribe")), "no recording reaches the gateway");
+  assert.ok(
+    !v.s.asked.some(([p]) => p.startsWith("/v1/voice/transcribe")),
+    "no recording reaches the gateway",
+  );
   await v.done();
 
   // Hands-free: the wake phrase is looked for here, among the ones the gateway listed; what it
@@ -560,7 +695,11 @@ test("listening in the browser: neither dictation nor the wake phrase leaves it"
   assert.equal(v.s.toasts.at(-1).message, "Heard “hey motita”");
   await speak();
   await speak();
-  assert.equal(v.s.input, "abre un pr", "nothing heard, or no wake phrase: nothing written");
+  assert.equal(
+    v.s.input,
+    "abre un pr",
+    "nothing heard, or no wake phrase: nothing written",
+  );
   assert.deepEqual(
     v.s.asked.map(([p]) => p).sort(),
     ["/v1/voice", "/v1/voice/models"],
@@ -578,15 +717,25 @@ test("listening in the browser: neither dictation nor the wake phrase leaves it"
 
 test("a chosen model the gateway no longer has is no model at all", async () => {
   reset();
-  localStorage.setItem(VOICE_KEY, JSON.stringify({ engine: "local", listener: "whisper-base" }));
-  let v = await mount({ models: [{ id: "whisper-base", installed: false }, { id: "whisper-tiny", installed: true }] });
+  localStorage.setItem(
+    VOICE_KEY,
+    JSON.stringify({ engine: "local", listener: "whisper-base" }),
+  );
+  let v = await mount({
+    models: [
+      { id: "whisper-base", installed: false },
+      { id: "whisper-tiny", installed: true },
+    ],
+  });
   assert.equal(v.s.voice.state, "no-model");
   await v.done();
   // A catalog that cannot be read blocks nothing: dictation says why if it fails.
   v = await mount({ models: new Error("offline") });
   assert.equal(v.s.voice.state, "ready");
   // Another model chosen while the gateway is asked: the answer about the old one is dropped.
-  await act(() => v.s.voice.setPrefs({ ...v.s.voice.prefs, listener: "whisper-tiny" }));
+  await act(() =>
+    v.s.voice.setPrefs({ ...v.s.voice.prefs, listener: "whisper-tiny" }),
+  );
   assert.equal(v.s.voice.state, "ready");
   await v.done();
 });
@@ -594,7 +743,11 @@ test("a chosen model the gateway no longer has is no model at all", async () => 
 test("hands-free: an answer that comes after it was turned off is dropped", async () => {
   reset();
   localStorage.setItem(VOICE_KEY, JSON.stringify({ listen: true }));
-  const v = await mount({ replies: [{ text: "hey motita go", wake: { phrase: "hey motita", rest: "go" } }] });
+  const v = await mount({
+    replies: [
+      { text: "hey motita go", wake: { phrase: "hey motita", rest: "go" } },
+    ],
+  });
   mic.loud = true;
   await advance(600);
   mic.loud = false;
@@ -624,7 +777,12 @@ test("hands-free: a microphone that cannot open, and one that opens after leavin
   const root = document.createElement("div");
   const { h: hh } = await import("preact");
   function Host() {
-    useVoice({ api: async () => new Response(JSON.stringify(INFO)), authed: true, setInput() {}, setToast() {} });
+    useVoice({
+      api: async () => new Response(JSON.stringify(INFO)),
+      authed: true,
+      setInput() {},
+      setToast() {},
+    });
     return null;
   }
   await act(() => render(hh(Host, {}), root));

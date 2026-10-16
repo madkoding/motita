@@ -35,9 +35,7 @@ export function initialSidebarOpen(
 // the reader leaving the list for it. Picking a DIFFERENT session already closes the sheet (see
 // useSessionList); this covers tapping the one that is already open.
 export function closesOnPhone(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element && !!target.closest(".session-row .row-hit")
-  );
+  return target instanceof Element && !!target.closest(".session-row .row-hit");
 }
 
 // keyboardOpen says whether the on-screen keyboard is covering part of the page, from the two

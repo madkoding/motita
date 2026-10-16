@@ -42,7 +42,10 @@ function trapTab(e: KeyboardEvent, el: HTMLElement) {
   }
 }
 
-export function useDialog(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+export function useDialog(
+  ref: RefObject<HTMLElement | null>,
+  onClose: () => void,
+) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {

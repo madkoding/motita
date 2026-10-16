@@ -65,7 +65,11 @@ const SLANEY_LOG_MELS = 27;
 
 // melFilters is the mel filter bank Whisper was trained with (librosa's, Slaney's scale and
 // normalisation): nMels rows of nFft / 2 + 1 weights, one per frequency of the transform.
-export function melFilters(nMels = N_MELS, nFft = N_FFT, rate = WHISPER_RATE): Float32Array[] {
+export function melFilters(
+  nMels = N_MELS,
+  nFft = N_FFT,
+  rate = WHISPER_RATE,
+): Float32Array[] {
   const fSp = SLANEY_HZ / SLANEY_MELS;
   const minLogHz = SLANEY_LOG_HZ;
   const minLogMel = minLogHz / fSp;
@@ -79,7 +83,9 @@ export function melFilters(nMels = N_MELS, nFft = N_FFT, rate = WHISPER_RATE): F
   const bins = nFft / 2 + 1;
   // The highest frequency is far above 1 kHz, on the scale's logarithmic part.
   const top = minLogMel + Math.log(rate / 2 / minLogHz) / logStep;
-  const hz = Array.from({ length: nMels + 2 }, (_, i) => toHz((top * i) / (nMels + 1)));
+  const hz = Array.from({ length: nMels + 2 }, (_, i) =>
+    toHz((top * i) / (nMels + 1)),
+  );
   const out: Float32Array[] = [];
   for (let m = 0; m < nMels; m++) {
     const row = new Float32Array(bins);
@@ -96,7 +102,12 @@ export function melFilters(nMels = N_MELS, nFft = N_FFT, rate = WHISPER_RATE): F
 }
 
 // The tables of the transform, made once: the window, and the cosines and sines of every bin.
-let tables: { win: Float32Array; cos: Float32Array; sin: Float32Array; mel: Float32Array[] } | null = null;
+let tables: {
+  win: Float32Array;
+  cos: Float32Array;
+  sin: Float32Array;
+  mel: Float32Array[];
+} | null = null;
 function transformTables() {
   if (!tables) {
     const bins = N_FFT / 2 + 1;
@@ -139,7 +150,10 @@ export function logMel(samples: Float32Array): Float32Array {
   audio.set(samples.subarray(0, CHUNK_SAMPLES));
   const out = new Float32Array(N_MELS * N_FRAMES);
   // Past the sound everything is silence: those frames are all the same floor.
-  const heard = Math.min(N_FRAMES, Math.ceil((Math.min(samples.length, CHUNK_SAMPLES) + N_FFT / 2) / HOP) + 1);
+  const heard = Math.min(
+    N_FRAMES,
+    Math.ceil((Math.min(samples.length, CHUNK_SAMPLES) + N_FFT / 2) / HOP) + 1,
+  );
   const power = new Float32Array(N_FFT / 2 + 1);
   let loudest = -Infinity;
   for (let t = 0; t < N_FRAMES; t++) {
@@ -190,8 +204,12 @@ function dot(a: Float32Array, b: Float32Array, at = 0): number {
 // for: printable bytes stand for themselves, the rest were moved past 255.
 function byteDecoder(): Map<string, number> {
   // GPT-2's printable bytes: "!" to "~", "¡" to "¬", and "®" to "ÿ".
-  const ranges = ["!~", "¡¬", "®ÿ"].map((r) => [r.codePointAt(0) as number, r.codePointAt(1) as number]);
-  const printable = (b: number) => ranges.some(([lo, hi]) => b >= lo && b <= hi);
+  const ranges = ["!~", "¡¬", "®ÿ"].map((r) => [
+    r.codePointAt(0) as number,
+    r.codePointAt(1) as number,
+  ]);
+  const printable = (b: number) =>
+    ranges.some(([lo, hi]) => b >= lo && b <= hi);
   const map = new Map<string, number>();
   let moved = 0;
   for (let b = 0; b < 256; b++) {
@@ -283,8 +301,14 @@ export interface Generation {
 }
 
 export function generation(json: string): Generation {
-  const g = JSON.parse(json) as { suppress_tokens?: number[]; begin_suppress_tokens?: number[] };
-  return { suppress: g.suppress_tokens ?? [], beginSuppress: g.begin_suppress_tokens ?? [] };
+  const g = JSON.parse(json) as {
+    suppress_tokens?: number[];
+    begin_suppress_tokens?: number[];
+  };
+  return {
+    suppress: g.suppress_tokens ?? [],
+    beginSuppress: g.begin_suppress_tokens ?? [],
+  };
 }
 
 // NO_SPEECH is how sure the model must be that nothing was said to answer nothing: it writes
@@ -318,7 +342,12 @@ export function languageOf(logits: Float32Array, v: Vocabulary): number {
 // nextOf is the token the model writes next: the likeliest it may write. Only the end of text
 // and words may be written (no timestamps or other steering tokens); first never ends the text
 // nor opens with a bare space.
-export function nextOf(logits: Float32Array, v: Vocabulary, g: Generation, first: boolean): number {
+export function nextOf(
+  logits: Float32Array,
+  v: Vocabulary,
+  g: Generation,
+  first: boolean,
+): number {
   const banned = new Set(g.suppress);
   if (first) {
     for (const id of g.beginSuppress) {
@@ -377,7 +406,10 @@ export interface Hearing {
 
 // ListenerDeps are what a Listener reads files with and runs them on: as SynthDeps.
 export interface ListenerDeps {
-  bytes(url: string, progress?: (loaded: number, total: number) => void): Promise<ArrayBuffer>;
+  bytes(
+    url: string,
+    progress?: (loaded: number, total: number) => void,
+  ): Promise<ArrayBuffer>;
   ort(wasm: ArrayBuffer): Promise<OrtLike>;
   gpu?(wasm: ArrayBuffer): Promise<OrtLike>;
   webGPU?(): boolean;
@@ -397,7 +429,9 @@ interface LoadedModel {
 
 // layersOf is how many decoder layers a merged decoder has, from the cache inputs it names.
 export function layersOf(inputNames: readonly string[]): number {
-  return inputNames.filter((n) => /^past_key_values\.\d+\.decoder\.key$/.test(n)).length;
+  return inputNames.filter((n) =>
+    /^past_key_values\.\d+\.decoder\.key$/.test(n),
+  ).length;
 }
 
 // Listener turns recordings into text with the Whisper models of the catalog: each is loaded the
@@ -412,8 +446,14 @@ export class Listener {
   }
 
   // warm loads a model, telling progress how far it is (0 to 100).
-  warm(id: string, progress?: (pct: number) => void): Promise<{ gpu: boolean; gpuError: string }> {
-    return this.model(id, progress).then((m) => ({ gpu: m.gpu, gpuError: m.gpuError }));
+  warm(
+    id: string,
+    progress?: (pct: number) => void,
+  ): Promise<{ gpu: boolean; gpuError: string }> {
+    return this.model(id, progress).then((m) => ({
+      gpu: m.gpu,
+      gpuError: m.gpuError,
+    }));
   }
 
   // forget drops a model, so the next request loads it again (after it was deleted, say).
@@ -429,7 +469,10 @@ export class Listener {
     return job;
   }
 
-  private model(id: string, progress?: (pct: number) => void): Promise<LoadedModel> {
+  private model(
+    id: string,
+    progress?: (pct: number) => void,
+  ): Promise<LoadedModel> {
     let m = this.models.get(id);
     if (!m) {
       m = this.load(id, progress ?? (() => undefined));
@@ -441,7 +484,10 @@ export class Listener {
 
   // load reads a model's files and starts its sessions: on the graphics card for the model built
   // for it, where the browser has one, and on the processor otherwise or when that failed.
-  private async load(id: string, progress: (pct: number) => void): Promise<LoadedModel> {
+  private async load(
+    id: string,
+    progress: (pct: number) => void,
+  ): Promise<LoadedModel> {
     let done = 0;
     const read = (url: string, share: number) => {
       let last = 0;
@@ -469,7 +515,9 @@ export class Listener {
     } else if (loadGPU) {
       tried = true;
       try {
-        ort = await loadGPU(await read(fileURL(RUNTIME_ID, ORT_GPU_WASM), SHARES.runtime));
+        ort = await loadGPU(
+          await read(fileURL(RUNTIME_ID, ORT_GPU_WASM), SHARES.runtime),
+        );
       } catch (e) {
         gpuError = reasonOf(e);
       }
@@ -477,10 +525,19 @@ export class Listener {
       // A model that does not run on WebGPU has no runtime of it to fetch.
     }
     const gpu = ort !== null;
-    ort ??= await this.deps.ort(await read(fileURL(RUNTIME_ID, ORT_WASM), choose(tried, 0, SHARES.runtime)));
+    ort ??= await this.deps.ort(
+      await read(
+        fileURL(RUNTIME_ID, ORT_WASM),
+        choose(tried, 0, SHARES.runtime),
+      ),
+    );
     // One at a time, so only one model is ever held twice in memory.
-    const encoder = await ort.createSession(await read(fileURL(id, WHISPER_FILES.encoder), SHARES.encoder));
-    const decoder = await ort.createSession(await read(fileURL(id, WHISPER_FILES.decoder), SHARES.decoder));
+    const encoder = await ort.createSession(
+      await read(fileURL(id, WHISPER_FILES.encoder), SHARES.encoder),
+    );
+    const decoder = await ort.createSession(
+      await read(fileURL(id, WHISPER_FILES.decoder), SHARES.decoder),
+    );
     const [tok, gen] = await text;
     const dec = new TextDecoder();
     const loaded: LoadedModel = {
@@ -500,7 +557,11 @@ export class Listener {
   // hearNow writes a recording down window by window: Whisper reads 30 seconds at a time, and a
   // dictation may last longer. The language heard in the first window that said anything is the
   // one the rest are written in.
-  private async hearNow(id: string, samples: Float32Array, lang: string): Promise<Hearing> {
+  private async hearNow(
+    id: string,
+    samples: Float32Array,
+    lang: string,
+  ): Promise<Hearing> {
     const m = await this.model(id);
     const said: string[] = [];
     let heard = lang;
@@ -515,7 +576,11 @@ export class Listener {
   }
 
   // hearWindow writes down one window of up to 30 seconds.
-  private async hearWindow(m: LoadedModel, samples: Float32Array, lang: string): Promise<Hearing> {
+  private async hearWindow(
+    m: LoadedModel,
+    samples: Float32Array,
+    lang: string,
+  ): Promise<Hearing> {
     const T = m.ort.Tensor;
     const v = m.vocab;
     const enc = await m.encoder.run({
@@ -526,7 +591,12 @@ export class Listener {
     const heads = width / HEAD_DIM;
     // The first pass reads only the start of the transcript, with nothing in the cache: it says
     // whether anything was said, and in what language.
-    const empty = new T("float32", new Float32Array(0), [1, heads, 0, HEAD_DIM]);
+    const empty = new T("float32", new Float32Array(0), [
+      1,
+      heads,
+      0,
+      HEAD_DIM,
+    ]);
     const past: Record<string, TensorLike> = {};
     for (let l = 0; l < m.layers; l++) {
       for (const part of ["decoder", "encoder"]) {
@@ -536,14 +606,24 @@ export class Listener {
     }
     const step = async (ids: number[], cached: boolean) => {
       const out = await m.decoder.run({
-        input_ids: new T("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
+        input_ids: new T("int64", BigInt64Array.from(ids.map(BigInt)), [
+          1,
+          ids.length,
+        ]),
         encoder_hidden_states: hidden,
-        use_cache_branch: new T("bool", Uint8Array.from([choose(cached, 1, 0)]), [1]),
+        use_cache_branch: new T(
+          "bool",
+          Uint8Array.from([choose(cached, 1, 0)]),
+          [1],
+        ),
         ...past,
       });
       for (const [name, t] of Object.entries(out)) {
         // The encoder's keys and values are made once, by the first pass.
-        if (name.startsWith("present.") && !(cached && name.includes(".encoder."))) {
+        if (
+          name.startsWith("present.") &&
+          !(cached && name.includes(".encoder."))
+        ) {
           past["past_key_values." + name.slice("present.".length)] = t;
         }
       }
@@ -555,7 +635,9 @@ export class Listener {
     }
     const langId = v.langs.get(lang) ?? languageOf(first, v);
     const heard = [...v.langs].find(([, n]) => n === langId)?.[0] ?? lang;
-    let logits = lastLogits(await step([langId, v.transcribe, v.noTimestamps], true));
+    let logits = lastLogits(
+      await step([langId, v.transcribe, v.noTimestamps], true),
+    );
     const said: number[] = [];
     const most = maxTokens(samples.length);
     for (;;) {
@@ -574,7 +656,13 @@ export class Listener {
 export type ToListener =
   | { kind: "warm"; id: string }
   | { kind: "forget"; id: string }
-  | { kind: "hear"; seq: number; id: string; samples: Float32Array; lang: string };
+  | {
+      kind: "hear";
+      seq: number;
+      id: string;
+      samples: Float32Array;
+      lang: string;
+    };
 export type FromListener =
   | { seq: number; text: string; lang: string }
   | { seq: number; error: string }

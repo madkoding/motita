@@ -31,18 +31,30 @@ test("a wake phrase matches as the gateway's does", () => {
 
 test("the earliest phrase wins, then the longest, whatever order they are listed in", () => {
   // Listed longest first: the shorter one at the same place does not replace it.
-  assert.deepEqual(matchWake("motita new task go", ["motita new task", "motita"]), {
-    phrase: "motita new task",
-    rest: "go",
-  });
+  assert.deepEqual(
+    matchWake("motita new task go", ["motita new task", "motita"]),
+    {
+      phrase: "motita new task",
+      rest: "go",
+    },
+  );
   // One that starts earlier wins over one listed before it.
-  assert.deepEqual(matchWake("motita, hey motita go", ["hey motita", "motita"]), {
-    phrase: "motita",
-    rest: "hey motita go",
-  });
+  assert.deepEqual(
+    matchWake("motita, hey motita go", ["hey motita", "motita"]),
+    {
+      phrase: "motita",
+      rest: "hey motita go",
+    },
+  );
   // At most two words before it; accents and ñ fold, in the phrase too.
-  assert.deepEqual(matchWake("eh ok Señor Ñandú: hola", ["senor ñandu"]), { phrase: "senor ñandu", rest: "hola" });
+  assert.deepEqual(matchWake("eh ok Señor Ñandú: hola", ["senor ñandu"]), {
+    phrase: "senor ñandu",
+    rest: "hola",
+  });
   assert.equal(matchWake("eh ok um motita", ["motita"]), undefined);
   // Digits are words; a letter outside the Basic Plane keeps the rest where it was.
-  assert.deepEqual(matchWake("𝒜 r2d2 · ve", ["r2d2"]), { phrase: "r2d2", rest: "ve" });
+  assert.deepEqual(matchWake("𝒜 r2d2 · ve", ["r2d2"]), {
+    phrase: "r2d2",
+    rest: "ve",
+  });
 });

@@ -64,17 +64,15 @@ self.addEventListener("install", (event: ExtendableEvent) => {
 
 self.addEventListener("activate", (event: ExtendableEvent) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          // Only the shell's: the local voices and listening models the page keeps (hundreds of
-          // MB, see localVoiceCore's VOICE_CACHE) outlive every update of the page.
-          keys
-            .filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL_CACHE)
-            .map((k) => caches.delete(k)),
-        ),
+    caches.keys().then((keys) =>
+      Promise.all(
+        // Only the shell's: the local voices and listening models the page keeps (hundreds of
+        // MB, see localVoiceCore's VOICE_CACHE) outlive every update of the page.
+        keys
+          .filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL_CACHE)
+          .map((k) => caches.delete(k)),
       ),
+    ),
   );
   self.clients.claim();
 });

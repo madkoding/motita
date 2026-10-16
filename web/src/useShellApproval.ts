@@ -184,7 +184,10 @@ export function useShellApproval({
         }
       } catch {
         setState("could not answer the approval", true);
-        setToast({ message: t("The approval could not be answered"), type: "error" });
+        setToast({
+          message: t("The approval could not be answered"),
+          type: "error",
+        });
       }
     },
     [runShellLine],

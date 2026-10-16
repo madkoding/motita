@@ -29,7 +29,11 @@ function apiOf(routes) {
   return { api, calls };
 }
 const model = (id, engine, installed = true) => ({ id, engine, installed });
-const cat = (models) => ({ runtime: { size: 1, installed: true }, models, download: null });
+const cat = (models) => ({
+  runtime: { size: 1, installed: true },
+  models,
+  download: null,
+});
 
 // A stand-in worker: it records what it was asked, and the test answers for it.
 const workers = [];
@@ -54,7 +58,10 @@ if (noCache) {
       [CATALOG]: () => json(cat([model("a", "piper")])),
       "DELETE /v1/voice/models/a": () => new Response(null, { status: 204 }),
     });
-    assert.deepEqual((await lv.fetchCatalog(api)).models.map((m) => m.id), ["a"]);
+    assert.deepEqual(
+      (await lv.fetchCatalog(api)).models.map((m) => m.id),
+      ["a"],
+    );
     await lv.deleteVoice(api, "a");
     assert.deepEqual(calls, [CATALOG, "DELETE /v1/voice/models/a"]);
     assert.equal(lv.localVoicesSupported(), false);
@@ -62,21 +69,35 @@ if (noCache) {
 } else {
   test("the first catalog read drops the copies no voice of it uses, once", async () => {
     const page = "http://localhost/v1/voice/models/";
-    const keys = ["old-voice/model.onnx", "runtime/ort.wasm", "a/model.onnx", "supertonic/vocoder.onnx",
-      "a/ort-wasm-simd-threaded.asyncify.wasm", "runtime/ort-wasm-simd-threaded.asyncify.wasm"]
+    const keys = [
+      "old-voice/model.onnx",
+      "runtime/ort.wasm",
+      "a/model.onnx",
+      "supertonic/vocoder.onnx",
+      "a/ort-wasm-simd-threaded.asyncify.wasm",
+      "runtime/ort-wasm-simd-threaded.asyncify.wasm",
+    ]
       .map((f) => ({ url: page + f }))
       .concat([{ url: "http://localhost/elsewhere" }]);
     const dropped = [];
     globalThis.caches = {
       open: async (name) => {
         assert.equal(name, "motita-voices-v1");
-        return { keys: async () => keys, delete: async (r) => dropped.push(r.url) };
+        return {
+          keys: async () => keys,
+          delete: async (r) => dropped.push(r.url),
+        };
       },
     };
-    const { api } = apiOf({ [CATALOG]: () => json(cat([model("a", "piper")])) });
+    const { api } = apiOf({
+      [CATALOG]: () => json(cat([model("a", "piper")])),
+    });
     await lv.fetchCatalog(api);
     await new Promise((r) => setTimeout(r, 0));
-    assert.deepEqual(dropped, [page + "old-voice/model.onnx", page + "a/ort-wasm-simd-threaded.asyncify.wasm"]);
+    assert.deepEqual(dropped, [
+      page + "old-voice/model.onnx",
+      page + "a/ort-wasm-simd-threaded.asyncify.wasm",
+    ]);
     await lv.fetchCatalog(api);
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(dropped.length, 2, "once a page");
@@ -97,10 +118,18 @@ if (noCache) {
         return grant;
       },
     });
-    assert.equal(await lv.askToKeep(storage(true, false)), true, "already kept: not asked again");
+    assert.equal(
+      await lv.askToKeep(storage(true, false)),
+      true,
+      "already kept: not asked again",
+    );
     assert.equal(await lv.askToKeep(storage(false, true)), true, "granted");
     assert.equal(await lv.askToKeep(storage(false, false)), false, "refused");
-    assert.equal(await lv.askToKeep(storage(false, new Error("no"))), false, "a failure is a refusal");
+    assert.equal(
+      await lv.askToKeep(storage(false, new Error("no"))),
+      false,
+      "a failure is a refusal",
+    );
     assert.deepEqual(asked.length, 3);
     assert.equal(lv.keepOnDisk(), lv.keepOnDisk(), "asked once a page");
   });
@@ -110,20 +139,35 @@ if (noCache) {
     assert.equal(await lv.storageKept({}), false, "one that cannot say");
     assert.equal(await lv.storageKept({ persisted: async () => true }), true);
     assert.equal(await lv.storageKept({ persisted: async () => false }), false);
-    assert.equal(await lv.storageKept({ persisted: async () => { throw new Error("no"); } }), false);
-    assert.equal(typeof (await lv.storageKept()), "boolean", "the browser's own, by default");
+    assert.equal(
+      await lv.storageKept({
+        persisted: async () => {
+          throw new Error("no");
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      typeof (await lv.storageKept()),
+      "boolean",
+      "the browser's own, by default",
+    );
   });
 
   test("the gateway's refusals are told in its words, or by their status", async () => {
     const { api } = apiOf({
       "POST /v1/voice/models/a": () => json({}, 202),
-      "POST /v1/voice/models/b": () => json({ error: "another voice is downloading" }, 409),
+      "POST /v1/voice/models/b": () =>
+        json({ error: "another voice is downloading" }, 409),
       "POST /v1/voice/models/c": () => json({}, 503),
       "POST /v1/voice/models/d": () => new Response("<html>", { status: 500 }),
       "/v1/voice/models/a/sample": () => new Response("RIFF", { status: 200 }),
     });
     await lv.installVoice(api, "a");
-    await assert.rejects(lv.installVoice(api, "b"), /another voice is downloading/);
+    await assert.rejects(
+      lv.installVoice(api, "b"),
+      /another voice is downloading/,
+    );
     await assert.rejects(lv.installVoice(api, "c"), /HTTP 503/);
     await assert.rejects(lv.installVoice(api, "d"), /HTTP 500/);
     assert.equal(await (await lv.sampleOf(api, "a")).text(), "RIFF");
@@ -134,20 +178,36 @@ if (noCache) {
 
   test("a removed voice leaves the page's copy, with its engine's model when it was the last", async () => {
     const deleted = [];
-    globalThis.caches = { open: async () => ({ delete: async (u) => deleted.push(u) }) };
+    globalThis.caches = {
+      open: async () => ({ delete: async (u) => deleted.push(u) }),
+    };
     const gone = () => new Response(null, { status: 204 });
     const { api, calls } = apiOf({
       "DELETE /v1/voice/models/es-a": gone,
       "DELETE /v1/voice/models/chatterbox-a": gone,
       "DELETE /v1/voice/models/chatterbox-b": gone,
-      [CATALOG]: () => json(cat([model("chatterbox-b", "chatterbox", true), model("chatterbox-a", "chatterbox", false)])),
+      [CATALOG]: () =>
+        json(
+          cat([
+            model("chatterbox-b", "chatterbox", true),
+            model("chatterbox-a", "chatterbox", false),
+          ]),
+        ),
     });
     await lv.deleteVoice(api, "es-a");
-    assert.deepEqual(calls, ["DELETE /v1/voice/models/es-a"], "a Piper voice has no engine model to look up");
+    assert.deepEqual(
+      calls,
+      ["DELETE /v1/voice/models/es-a"],
+      "a Piper voice has no engine model to look up",
+    );
     assert.equal(deleted.length, 4);
     deleted.length = 0;
     await lv.deleteVoice(api, "chatterbox-a");
-    assert.equal(deleted.length, 4, "another Chatterbox voice is installed: its model stays");
+    assert.equal(
+      deleted.length,
+      4,
+      "another Chatterbox voice is installed: its model stays",
+    );
     deleted.length = 0;
     const last = apiOf({
       "DELETE /v1/voice/models/chatterbox-b": gone,
@@ -176,11 +236,22 @@ if (noCache) {
     w.onmessage({ data: { kind: "progress", id: "v1", pct: 40 } });
     assert.deepEqual(lv.loadStateOf("v1"), { pct: 40, ready: false });
     w.onmessage({ data: { kind: "failed", id: "v1", error: "no memory" } });
-    assert.deepEqual(lv.loadStateOf("v1"), { pct: 0, ready: false, error: "no memory" });
+    assert.deepEqual(lv.loadStateOf("v1"), {
+      pct: 0,
+      ready: false,
+      error: "no memory",
+    });
     lv.warmLocal("v1");
     assert.equal(w.posted.length, 2, "a voice that failed is asked for again");
-    w.onmessage({ data: { kind: "ready", id: "v1", gpu: true, gpuError: "slow card" } });
-    assert.deepEqual(lv.loadStateOf("v1"), { pct: 100, ready: true, gpu: true, gpuError: "slow card" });
+    w.onmessage({
+      data: { kind: "ready", id: "v1", gpu: true, gpuError: "slow card" },
+    });
+    assert.deepEqual(lv.loadStateOf("v1"), {
+      pct: 100,
+      ready: true,
+      gpu: true,
+      gpuError: "slow card",
+    });
     lv.warmLocal("v1");
     assert.equal(w.posted.length, 2, "a ready voice is not loaded again");
     off();
@@ -188,7 +259,9 @@ if (noCache) {
 
     // Removing it tells the worker to forget it, and its state goes.
     globalThis.caches = { open: async () => ({ delete: async () => true }) };
-    const { api } = apiOf({ "DELETE /v1/voice/models/v1": () => new Response(null, { status: 204 }) });
+    const { api } = apiOf({
+      "DELETE /v1/voice/models/v1": () => new Response(null, { status: 204 }),
+    });
     await lv.deleteVoice(api, "v1");
     assert.deepEqual(w.posted.at(-1), { kind: "forget", id: "v1" });
     assert.equal(lv.loadStateOf("v1"), undefined);
@@ -200,13 +273,21 @@ if (noCache) {
     const w = workers[0];
     w.posted.length = 0;
     const plain = say("Hola.", new AbortController().signal);
-    assert.deepEqual(says(w)[0].tune, { noise: 0.5, noiseW: 1.5 }, "no language: the tune as given");
+    assert.deepEqual(
+      says(w)[0].tune,
+      { noise: 0.5, noiseW: 1.5 },
+      "no language: the tune as given",
+    );
     answer(w, says(w)[0], { wav: enc("RIFF") });
     const blob = await plain;
     assert.equal(blob.type, "audio/wav");
     assert.equal(await blob.text(), "RIFF");
 
-    const english = lv.localClip("v2")("Hi.", new AbortController().signal, "en");
+    const english = lv.localClip("v2")(
+      "Hi.",
+      new AbortController().signal,
+      "en",
+    );
     assert.deepEqual(says(w)[1].tune, { noise: 1, noiseW: 1, lang: "en" });
     answer(w, says(w)[1], { error: "the model failed" });
     await assert.rejects(english, /the model failed/);
@@ -229,7 +310,11 @@ if (noCache) {
       w.onerror();
     }
     workers.length = 0;
-    const cores = (n) => Object.defineProperty(navigator, "hardwareConcurrency", { value: n, configurable: true });
+    const cores = (n) =>
+      Object.defineProperty(navigator, "hardwareConcurrency", {
+        value: n,
+        configurable: true,
+      });
     cores(8);
     const id = "supertonic-F1";
     assert.equal(lv.lanes(id), lv.SUPERTONIC_LANES);
@@ -240,21 +325,32 @@ if (noCache) {
     assert.equal(workers.length, 2);
     assert.deepEqual(workers[1].posted, [{ kind: "warm", id }]);
     workers[1].onmessage({ data: { kind: "progress", id, pct: 5 } });
-    assert.equal(lv.loadStateOf(id).ready, true, "a helper's loading is not shown");
+    assert.equal(
+      lv.loadStateOf(id).ready,
+      true,
+      "a helper's loading is not shown",
+    );
 
     const say = lv.localClip(id);
     assert.equal(say.ahead, 2);
     const signal = new AbortController().signal;
     const a = say("a", signal);
     const b = say("b", signal);
-    assert.deepEqual(workers.map((w) => says(w).map((m) => m.text)), [["a"], ["b"]]);
+    assert.deepEqual(
+      workers.map((w) => says(w).map((m) => m.text)),
+      [["a"], ["b"]],
+    );
     answer(workers[1], says(workers[1])[0], { wav: enc("b") });
     assert.equal(await (await b).text(), "b");
     // The helper's own sentences die with it; the first worker's wait.
     const c = say("c", signal);
     workers[1].onerror();
     await assert.rejects(c, /the local voice stopped/);
-    assert.equal(lv.loadStateOf(id).ready, true, "a helper's death leaves the voice loaded");
+    assert.equal(
+      lv.loadStateOf(id).ready,
+      true,
+      "a helper's death leaves the voice loaded",
+    );
     answer(workers[0], says(workers[0])[0], { wav: enc("a") });
     assert.equal(await (await a).text(), "a");
     // A message about a removal goes to the live workers only.
@@ -270,10 +366,16 @@ if (noCache) {
     assert.equal(lv.loadStateOf(id), undefined);
 
     // Where the browser does not say how many cores it has, one worker does it all.
-    Object.defineProperty(navigator, "hardwareConcurrency", { value: undefined, configurable: true });
+    Object.defineProperty(navigator, "hardwareConcurrency", {
+      value: undefined,
+      configurable: true,
+    });
     assert.equal(lv.lanes(id), 1);
     const nav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
-    Object.defineProperty(globalThis, "navigator", { value: undefined, configurable: true });
+    Object.defineProperty(globalThis, "navigator", {
+      value: undefined,
+      configurable: true,
+    });
     assert.equal(lv.lanes(id), 1, "nor without a navigator");
     Object.defineProperty(globalThis, "navigator", nav);
   });

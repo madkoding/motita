@@ -13,7 +13,9 @@ import {
 } from "./cov-git-helpers.mjs";
 
 installDom();
-const { GitConnections } = await loadSources({ GitConnections: "GitConnections.tsx" });
+const { GitConnections } = await loadSources({
+  GitConnections: "GitConnections.tsx",
+});
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 
@@ -116,12 +118,24 @@ test("it says it is loading, then lists each host with its logo and state", asyn
   assert.match(text(rowOf(m.root, "git.corp.io")), /Not connected/);
   // Known hosts draw their own logo; Gitea gets the generic branch icon.
   const icon = (name) => rowOf(m.root, name).querySelector(".git-account-icon");
-  assert.equal(icon("GitHub").querySelector("svg").getAttribute("fill"), "#e8e8ea");
-  assert.equal(icon("GitLab").querySelector("svg").getAttribute("fill"), "#fc6d26");
-  assert.equal(icon("Bitbucket").querySelector("svg").getAttribute("fill"), "#2684ff");
+  assert.equal(
+    icon("GitHub").querySelector("svg").getAttribute("fill"),
+    "#e8e8ea",
+  );
+  assert.equal(
+    icon("GitLab").querySelector("svg").getAttribute("fill"),
+    "#fc6d26",
+  );
+  assert.equal(
+    icon("Bitbucket").querySelector("svg").getAttribute("fill"),
+    "#2684ff",
+  );
   assert.equal(icon("git.corp.io").dataset.kind, "gitea");
   assert.ok(icon("git.corp.io").querySelector("svg"));
-  assert.equal(icon("git.corp.io").querySelector("svg").getAttribute("fill"), "none");
+  assert.equal(
+    icon("git.corp.io").querySelector("svg").getAttribute("fill"),
+    "none",
+  );
   await m.done();
 });
 
@@ -174,7 +188,9 @@ test("an answer that arrives after the section closed is dropped", async () => {
 });
 
 test("Connect and Reconnect ask the app to connect that host", async () => {
-  const f = fakeApi({ "GET /v1/git/accounts": json(200, { accounts: ACCOUNTS }) });
+  const f = fakeApi({
+    "GET /v1/git/accounts": json(200, { accounts: ACCOUNTS }),
+  });
   const m = await mount(f.api);
   await click(button(m.root, "Reconnect GitHub"));
   await click(button(m.root, "Connect git.corp.io"));
@@ -209,7 +225,11 @@ test("Disconnect asks first; Cancel keeps the account, Confirm removes it and re
   await click(button(row(), "Confirm"));
   await act(flush);
   assert.deepEqual(m.notices, [["Disconnected from GitHub"]]);
-  assert.ok(f.calls.some((c) => c.method === "DELETE" && c.path === "/v1/git/accounts/github"));
+  assert.ok(
+    f.calls.some(
+      (c) => c.method === "DELETE" && c.path === "/v1/git/accounts/github",
+    ),
+  );
   assert.match(text(row()), /Not connected/);
   assert.ok(button(row(), "Connect GitHub"));
   await m.done();
@@ -251,7 +271,9 @@ test("adding a self-hosted server: kind and cleaned-up address go to the app", a
 
   // An empty address is not sent even if the form is submitted.
   await act(() => {
-    form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(
+      new window.Event("submit", { bubbles: true, cancelable: true }),
+    );
   });
   assert.deepEqual(m.connects, []);
 
@@ -265,9 +287,13 @@ test("adding a self-hosted server: kind and cleaned-up address go to the app", a
   });
   assert.equal(button(form, "Continue").disabled, false);
   await act(() => {
-    form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(
+      new window.Event("submit", { bubbles: true, cancelable: true }),
+    );
   });
-  assert.deepEqual(m.connects, [[undefined, { kind: "gitea", host: "git.example.com" }]]);
+  assert.deepEqual(m.connects, [
+    [undefined, { kind: "gitea", host: "git.example.com" }],
+  ]);
   assert.equal(m.root.querySelector("form"), null);
 
   // Opened again, the address is empty; Cancel closes it without connecting.

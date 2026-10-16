@@ -249,7 +249,10 @@ test("a clean project and one that could not be inspected", async () => {
   body = { count: 0, changes: [], inspection_failed: true, error: "boom" };
   await open(state, { type: "project", id: "p2", title: "Proj" });
   await flush();
-  assert.match(m.root.textContent, /A session's checkout could not be inspected/);
+  assert.match(
+    m.root.textContent,
+    /A session's checkout could not be inspected/,
+  );
   assert.match(m.root.textContent, /boom/);
   await m.unmount();
 });
@@ -318,7 +321,10 @@ test("a failed deletion still closes and unlocks the modal", async () => {
   const m = await mount(AppCtx, null, h(Harness));
   await open(state, { type: "project", id: "p", title: "t" });
   await flush();
-  await assert.rejects(act(() => state.d.confirmDeletion()), /refused/);
+  await assert.rejects(
+    act(() => state.d.confirmDeletion()),
+    /refused/,
+  );
   await flush();
   assert.equal(state.d.confirmDelete, null);
   assert.equal(state.d.deleting, false);
@@ -358,7 +364,13 @@ test("the long-press menu draws nothing until a row opens it", async () => {
 });
 
 test("the long-press menu of a session renames it or asks to delete it, inside the window", async () => {
-  const s = menuStore({ type: "session", id: "s1", title: "Chat", x: 5000, y: 10 });
+  const s = menuStore({
+    type: "session",
+    id: "s1",
+    title: "Chat",
+    x: 5000,
+    y: 10,
+  });
   const m = await mount(AppCtx, s.value, h(ContextMenu));
   const box = m.root.querySelector(".frosted");
   assert.equal(box.style.left, window.innerWidth - 180 + "px");

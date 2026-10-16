@@ -73,7 +73,9 @@ export function QuestionsCard({
       </div>
       {stale && (
         <p class="qcard-note">
-          {t("Not answered before the conversation moved on; no longer offered.")}
+          {t(
+            "Not answered before the conversation moved on; no longer offered.",
+          )}
         </p>
       )}
       <ol class="qcard-list">

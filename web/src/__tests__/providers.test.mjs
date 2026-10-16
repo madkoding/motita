@@ -187,7 +187,9 @@ const button = (el, text) =>
 const choose = async (select, value) => {
   if (select.tagName === "BUTTON") {
     await act(() => select.click());
-    const li = [...document.querySelectorAll(`#${select.id}-list li`)].find((x) => x.dataset.value === value);
+    const li = [...document.querySelectorAll(`#${select.id}-list li`)].find(
+      (x) => x.dataset.value === value,
+    );
     await act(() => li.click());
     return;
   }
@@ -596,10 +598,7 @@ test("a refused default and a gateway with no file say so", async () => {
   const model = second.root.querySelector(DEFAULT_MODEL_INPUT);
   await choose(model, "gpt-5");
   await act(() =>
-    button(
-      second.root.querySelector(DEFAULT_FORM),
-      "Save",
-    ).click(),
+    button(second.root.querySelector(DEFAULT_FORM), "Save").click(),
   );
   await settle();
   assert.match(second.root.textContent, /connect Gemini first/);
@@ -692,9 +691,17 @@ test("each kind of work can get its own model, and the rest follow the default",
   const { root, notices, done } = await open(gw, "models");
   const form = root.querySelector("[data-testid=llm-tasks]");
   assert.equal(form.querySelectorAll(".settings-row").length, TASK_ROWS);
-  assert.match(form.textContent, /later/, "a kind the page does not know is shown by its name");
+  assert.match(
+    form.textContent,
+    /later/,
+    "a kind the page does not know is shown by its name",
+  );
   assert.equal(form.querySelector("#llm-task-review-model").value, "gemini-1");
-  assert.equal(form.querySelector("#llm-task-plan-model"), null, "plan follows the default");
+  assert.equal(
+    form.querySelector("#llm-task-plan-model"),
+    null,
+    "plan follows the default",
+  );
   const save = button(form, "Save");
   assert.equal(save.disabled, true, "nothing changed yet");
 
@@ -704,18 +711,36 @@ test("each kind of work can get its own model, and the rest follow the default",
     plan.dispatchEvent(new window.Event("change", { bubbles: true })),
   );
   const model = form.querySelector("#llm-task-plan-model");
-  assert.equal(model.value, "gpt-x", "the models the provider listed come first");
+  assert.equal(
+    model.value,
+    "gpt-x",
+    "the models the provider listed come first",
+  );
   await act(() => model.click());
-  const listed = [...document.querySelectorAll("#llm-task-plan-model-list li")].map((o) => o.textContent);
+  const listed = [
+    ...document.querySelectorAll("#llm-task-plan-model-list li"),
+  ].map((o) => o.textContent);
   assert.deepEqual(listed, ["gpt-x", "gpt-y", "Other…"]);
   await act(() => model.click());
-  assert.equal(form.querySelector(PLAN_MODEL_OTHER), null, "no field until Other…");
+  assert.equal(
+    form.querySelector(PLAN_MODEL_OTHER),
+    null,
+    "no field until Other…",
+  );
   await choose(model, "\u0000other");
   const other = form.querySelector(PLAN_MODEL_OTHER);
   assert.equal(other.value, "", "Other… starts empty");
-  assert.equal(button(form, "Save").disabled, true, "a provider without a model cannot be saved");
+  assert.equal(
+    button(form, "Save").disabled,
+    true,
+    "a provider without a model cannot be saved",
+  );
   await type(other, "gpt-5");
-  assert.equal(form.querySelector(PLAN_MODEL_OTHER).value, "gpt-5", "the field stays while typing");
+  assert.equal(
+    form.querySelector(PLAN_MODEL_OTHER).value,
+    "gpt-5",
+    "the field stays while typing",
+  );
 
   const review = form.querySelector("#llm-task-review-provider");
   review.value = "";
@@ -736,14 +761,20 @@ test("each kind of work can get its own model, and the rest follow the default",
 test("a model the list leaves out is typed under Other…, and a provider with no list gets the field", async () => {
   const view = VIEW();
   view.model = "my-tune";
-  view.providers.push(provider("ollama", "Ollama", { key: "not_needed", models: [] }));
+  view.providers.push(
+    provider("ollama", "Ollama", { key: "not_needed", models: [] }),
+  );
   const { root, done } = await open(fakeGateway(view), "models");
   const form = root.querySelector(DEFAULT_FORM);
   const select = form.querySelector(DEFAULT_MODEL_INPUT);
   assert.equal(select.textContent, "Other…▾");
   assert.equal(form.querySelector("#llm-default-model-other").value, "my-tune");
   await choose(select, "gpt-5");
-  assert.equal(form.querySelector("#llm-default-model-other"), null, "a listed model hides the field");
+  assert.equal(
+    form.querySelector("#llm-default-model-other"),
+    null,
+    "a listed model hides the field",
+  );
   assert.equal(button(form, "Save").disabled, false);
 
   await choose(form.querySelector(DEFAULT_PROVIDER_SELECT), "ollama");
@@ -758,7 +789,10 @@ test("a refused set of models says why", async () => {
   const view = VIEW();
   view.tasks = {};
   const gw = fakeGateway(view, {
-    "PUT /v1/llm/tasks": [HTTP_CONFLICT, { error: "connect Gemini first", code: "no_key" }],
+    "PUT /v1/llm/tasks": [
+      HTTP_CONFLICT,
+      { error: "connect Gemini first", code: "no_key" },
+    ],
   });
   const { root, done } = await open(gw, "models");
   const form = root.querySelector("[data-testid=llm-tasks]");
@@ -784,7 +818,13 @@ test("taskChoices keeps the complete assignments and sameTasks compares them", (
     { plan: { provider: "openai", model: "gpt-5" } },
   );
   const a = { plan: { provider: "openai", model: "gpt-5" } };
-  assert.equal(llm.sameTasks(a, { ...a, code: { provider: "", model: "" } }), true);
-  assert.equal(llm.sameTasks(a, { plan: { provider: "openai", model: "gpt-4" } }), false);
+  assert.equal(
+    llm.sameTasks(a, { ...a, code: { provider: "", model: "" } }),
+    true,
+  );
+  assert.equal(
+    llm.sameTasks(a, { plan: { provider: "openai", model: "gpt-4" } }),
+    false,
+  );
   assert.equal(llm.sameTasks(a, {}), false);
 });

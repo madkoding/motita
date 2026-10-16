@@ -92,9 +92,17 @@ test("on a phone the sidebar starts closed, is not remembered and closes on a pi
   assert.equal(cur().lists.sidebarOpen, false);
   await h.act(() => cur().lists.openSidebar());
   assert.equal(cur().lists.sidebarOpen, true);
-  assert.equal(localStorage.getItem(SIDEBAR_KEY), null, "a phone's choice is not kept");
+  assert.equal(
+    localStorage.getItem(SIDEBAR_KEY),
+    null,
+    "a phone's choice is not kept",
+  );
   await h.act(() => cur().rs.setSessionId("s1"));
-  assert.equal(cur().lists.sidebarOpen, false, "picking a session closes the sheet");
+  assert.equal(
+    cur().lists.sidebarOpen,
+    false,
+    "picking a session closes the sheet",
+  );
   await h.unmount();
 
   // On a wide screen picking a session leaves the sidebar as it is.
@@ -170,10 +178,18 @@ test("the session list is read from the gateway, and the answered session stays 
   assert.equal(cur().lists.answeredHere("s1"), true);
   assert.equal(cur().lists.answeredHere("s2"), false);
   await h.act(() => cur().lists.fetchSessions());
-  assert.equal(cur().lists.answeredHere("s1"), true, "a stale read keeps the mask");
+  assert.equal(
+    cur().lists.answeredHere("s1"),
+    true,
+    "a stale read keeps the mask",
+  );
   sessions = [{ id: "s1", running: false }];
   await h.act(() => cur().lists.fetchSessions());
-  assert.equal(cur().lists.answeredHere("s1"), false, "the gateway's own word clears it");
+  assert.equal(
+    cur().lists.answeredHere("s1"),
+    false,
+    "the gateway's own word clears it",
+  );
   // Another session named explicitly.
   await h.act(() => cur().lists.setRunningState(false, "s2"));
   assert.equal(cur().lists.answeredHere("s2"), true);
@@ -303,7 +319,10 @@ test("a new session is created, listed and opened; a refusal says why", async ()
   const { h, conv, states, cur } = await actions(gw);
   await h.act(() => cur().actions.createSession());
   assert.deepEqual(conv.switched, ["new1"]);
-  assert.deepEqual(gw.calls.map((c) => c.key), ["POST /v1/sessions", "GET /v1/sessions"]);
+  assert.deepEqual(
+    gw.calls.map((c) => c.key),
+    ["POST /v1/sessions", "GET /v1/sessions"],
+  );
   assert.equal(cur().actions.creatingSession, null);
   assert.deepEqual(cur().lists.sessions, [{ id: "new1" }]);
 
@@ -311,7 +330,8 @@ test("a new session is created, listed and opened; a refusal says why", async ()
   let release;
   gw.routes["POST /v1/sessions"] = (init) =>
     new Promise((r) => {
-      release = () => r(res(200, { id: JSON.parse(init.body).project_id + "-s" }));
+      release = () =>
+        r(res(200, { id: JSON.parse(init.body).project_id + "-s" }));
     });
   let creating;
   await h.act(async () => {
@@ -352,10 +372,14 @@ test("a project created elsewhere asks for its first session through an event", 
   });
   const { h, conv } = await actions(gw);
   await h.act(async () => {
-    window.dispatchEvent(new CustomEvent("motita:create-session", { detail: {} }));
+    window.dispatchEvent(
+      new CustomEvent("motita:create-session", { detail: {} }),
+    );
     window.dispatchEvent(new window.CustomEvent("motita:create-session"));
     window.dispatchEvent(
-      new window.CustomEvent("motita:create-session", { detail: { project_id: "p9" } }),
+      new window.CustomEvent("motita:create-session", {
+        detail: { project_id: "p9" },
+      }),
     );
     await new Promise((r) => setTimeout(r, 0));
   });
@@ -363,7 +387,9 @@ test("a project created elsewhere asks for its first session through an event", 
   assert.equal(gw.calls[0].body, '{"project_id":"p9"}');
   await h.unmount();
   window.dispatchEvent(
-    new window.CustomEvent("motita:create-session", { detail: { project_id: "p9" } }),
+    new window.CustomEvent("motita:create-session", {
+      detail: { project_id: "p9" },
+    }),
   );
   assert.equal(gw.calls.length, 2, "an unmounted sidebar no longer listens");
 });
@@ -412,7 +438,11 @@ test("deleting a session removes it at once and opens the next one, or none", as
   await h.act(() => cur().actions.deleteSession("d"));
   await h.act(() => cur().actions.deleteSession("e"));
   await h.act(() => cur().actions.deleteSession("f"));
-  assert.deepEqual(cur().lists.sessions, [{ id: "d" }], "a refused session stays");
+  assert.deepEqual(
+    cur().lists.sessions,
+    [{ id: "d" }],
+    "a refused session stays",
+  );
   assert.deepEqual(states, [
     ["has changes", true],
     ["could not delete the session", true],
@@ -454,7 +484,9 @@ test("a session is renamed in place", async () => {
       res(200, { id: "a", title: JSON.parse(init.body).title }),
   });
   const { h, states, cur } = await actions(gw);
-  await h.act(() => cur().lists.setSessions([{ id: "a", title: "old" }, { id: "b" }]));
+  await h.act(() =>
+    cur().lists.setSessions([{ id: "a", title: "old" }, { id: "b" }]),
+  );
   await h.act(() => cur().actions.startRename("a", "old"));
   assert.equal(cur().actions.renamingId, "a");
   assert.equal(cur().actions.renameValue, "old");
@@ -463,9 +495,14 @@ test("a session is renamed in place", async () => {
   await h.act(() => cur().actions.renameSession("a", "   "));
   assert.equal(gw.calls.length, 0);
   assert.equal(cur().actions.renamingId, "a");
-  await h.act(() => cur().actions.renameSession("a", cur().actions.renameValue));
+  await h.act(() =>
+    cur().actions.renameSession("a", cur().actions.renameValue),
+  );
   assert.equal(gw.calls[0].body, '{"title":"new"}');
-  assert.deepEqual(cur().lists.sessions, [{ id: "a", title: "new" }, { id: "b" }]);
+  assert.deepEqual(cur().lists.sessions, [
+    { id: "a", title: "new" },
+    { id: "b" },
+  ]);
   assert.equal(cur().actions.renamingId, null);
 
   gw.routes["PATCH /v1/sessions/b"] = () => res(400, { error: "too long" });
@@ -499,7 +536,8 @@ test("a merged session is continued in a new one", async () => {
   assert.deepEqual(toasts, [
     { message: "Continued in a new session", type: "success", detail: "Next" },
   ]);
-  gw.routes["POST /v1/sessions/x/continue"] = () => res(409, { error: "not merged" });
+  gw.routes["POST /v1/sessions/x/continue"] = () =>
+    res(409, { error: "not merged" });
   gw.routes["POST /v1/sessions/y/continue"] = () => res(502, new Error("x"));
   gw.routes["POST /v1/sessions/z/continue"] = () => {
     throw new Error("offline");
@@ -508,9 +546,21 @@ test("a merged session is continued in a new one", async () => {
   await h.act(() => cur().actions.continueSession({ id: "y" }));
   await h.act(() => cur().actions.continueSession({ id: "z" }));
   assert.deepEqual(toasts.slice(1), [
-    { message: "Could not continue this session", type: "error", detail: "not merged" },
-    { message: "Could not continue this session", type: "error", detail: "HTTP 502" },
-    { message: "Could not reach the gateway", type: "error", detail: "Error: offline" },
+    {
+      message: "Could not continue this session",
+      type: "error",
+      detail: "not merged",
+    },
+    {
+      message: "Could not continue this session",
+      type: "error",
+      detail: "HTTP 502",
+    },
+    {
+      message: "Could not reach the gateway",
+      type: "error",
+      detail: "Error: offline",
+    },
   ]);
   await h.unmount();
 });

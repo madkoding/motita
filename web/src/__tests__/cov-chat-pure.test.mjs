@@ -6,7 +6,10 @@ import assert from "node:assert/strict";
 import { copies, frames, renderHook, mount, h } from "./cov-chat-helpers.mjs";
 
 const proposalCopies = await copies("proposals", [
-  ["settle, initialVerdicts, proposalRequest, pickAt, isApplying", "proposals.ts"],
+  [
+    "settle, initialVerdicts, proposalRequest, pickAt, isApplying",
+    "proposals.ts",
+  ],
 ]);
 const intentCopies = await copies("intent", [
   ["newIntent, readerActs, scrolled, scrollKey", "scrollIntent.ts"],
@@ -28,12 +31,10 @@ test("settle answers one, the rest, or none, keeping decided ones", () => {
       undefined,
       "skip",
     ]);
-    assert.deepEqual(M.settle([undefined, undefined, "skip", undefined], 1, "rest"), [
-      undefined,
-      "apply",
-      "skip",
-      "apply",
-    ]);
+    assert.deepEqual(
+      M.settle([undefined, undefined, "skip", undefined], 1, "rest"),
+      [undefined, "apply", "skip", "apply"],
+    );
     assert.deepEqual(M.settle(["apply", undefined, undefined], 1, "none"), [
       "apply",
       "skip",
@@ -66,7 +67,12 @@ test("proposalRequest lists the accepted suggestions under the lead, or nothing"
       { title: "skipped" },
     ];
     assert.equal(
-      M.proposalRequest("  Apply these:  ", s, ["apply", "apply", "apply", "skip"]),
+      M.proposalRequest("  Apply these:  ", s, [
+        "apply",
+        "apply",
+        "apply",
+        "skip",
+      ]),
       "Apply these:\n- a: do a\n- b\n- : untitled",
     );
     assert.equal(M.proposalRequest("Apply", s, ["skip", undefined]), "");
@@ -138,7 +144,11 @@ test("the follower glides to the end, frame by frame, and stops there", () => {
     frames.clear();
     const el = box(1100);
     let on = true;
-    const f = create(() => el, () => on, 130);
+    const f = create(
+      () => el,
+      () => on,
+      130,
+    );
     f.kick();
     assert.equal(frames.pending, 1);
     f.kick();
@@ -157,11 +167,18 @@ test("the follower glides to the end, frame by frame, and stops there", () => {
     f.kick();
     frames.flush((t += 16));
     assert.ok(el.scrollTop > 1000, `scrolled to ${el.scrollTop}, past 1000`);
-    assert.ok(el.scrollTop < 2000, `scrolled to ${el.scrollTop}, short of 2000`);
+    assert.ok(
+      el.scrollTop < 2000,
+      `scrolled to ${el.scrollTop}, short of 2000`,
+    );
     const at = el.scrollTop;
     on = false;
     frames.flush((t += 16));
-    assert.equal(el.scrollTop, at, "no last nudge once the reader has the scroll");
+    assert.equal(
+      el.scrollTop,
+      at,
+      "no last nudge once the reader has the scroll",
+    );
     assert.equal(frames.pending, 0);
     // Not active: a kick does not start.
     f.kick();
@@ -173,7 +190,10 @@ test("the follower's jump and stop", () => {
   for (const create of followerCopies) {
     frames.clear();
     const el = box(600, 100, 0);
-    const f = create(() => el, () => true);
+    const f = create(
+      () => el,
+      () => true,
+    );
     f.kick();
     assert.equal(frames.pending, 1);
     f.jump();
@@ -187,14 +207,20 @@ test("the follower's jump and stop", () => {
     f.stop();
     assert.equal(frames.pending, 0);
     // No element: nothing moves and nothing throws.
-    const none = create(() => null, () => true);
+    const none = create(
+      () => null,
+      () => true,
+    );
     none.jump();
     none.kick();
     frames.flush();
     assert.equal(frames.pending, 0);
     // A box smaller than its view has its end at 0.
     const small = box(50, 100, 0);
-    const g = create(() => small, () => true);
+    const g = create(
+      () => small,
+      () => true,
+    );
     g.kick();
     frames.flush();
     assert.equal(small.scrollTop, 0);
@@ -202,211 +228,233 @@ test("the follower's jump and stop", () => {
 });
 
 for (const B of transcriptCopies) {
-test(`transcriptMessages draws answers, errors, the applying turn and a failed last run`, () => {
-  let id = 0;
-  const nextId = () => ++id;
-  const report = { status: "done", changes: ["x"] };
-  const files = [{ path: "a.go", status: "modified", added: 1, deleted: 0 }];
-  const answers = { picks: ["this"], verdicts: ["apply"], request: "apply it" };
-  const turns = [
-    { User: "do a thing", Agent: "did it" },
-    { User: "apply it", Agent: "applied" },
-    { User: "broken", Agent: "" },
-    { Agent: "said only" },
-    { User: "plain", Agent: "plain answer" },
-  ];
-  const cps = [
-    {
-      turn: 0,
-      files: true,
-      steps: [],
-      answers,
-      outcome: {
-        result: "the full answer",
-        report,
-        files,
-        artifacts: [{ name: "a.png", type: "image/png", size: 3 }],
+  test(`transcriptMessages draws answers, errors, the applying turn and a failed last run`, () => {
+    let id = 0;
+    const nextId = () => ++id;
+    const report = { status: "done", changes: ["x"] };
+    const files = [{ path: "a.go", status: "modified", added: 1, deleted: 0 }];
+    const answers = {
+      picks: ["this"],
+      verdicts: ["apply"],
+      request: "apply it",
+    };
+    const turns = [
+      { User: "do a thing", Agent: "did it" },
+      { User: "apply it", Agent: "applied" },
+      { User: "broken", Agent: "" },
+      { Agent: "said only" },
+      { User: "plain", Agent: "plain answer" },
+    ];
+    const cps = [
+      {
+        turn: 0,
+        files: true,
+        steps: [],
+        answers,
+        outcome: {
+          result: "the full answer",
+          report,
+          files,
+          artifacts: [{ name: "a.png", type: "image/png", size: 3 }],
+        },
       },
-    },
-    { turn: 1, files: false, steps: [], outcome: { result: "", error: "" } },
-    { turn: 2, files: false, steps: [], outcome: { error: "it failed" } },
-    { turn: 4, files: false, steps: [], outcome: { result: "full", report: {} } },
-    {
-      turn: 5,
-      task: "the last input",
-      files: false,
-      steps: [],
-      outcome: { error: "crashed" },
-    },
-  ];
-  const msgs = B.transcriptMessages(turns, cps, nextId);
-  const view = msgs.map((m) => [m.role, m.text, m.kind ?? "", m.shown ?? ""]);
-  assert.deepEqual(view, [
-    ["user", "do a thing", "", ""],
-    ["agent", "the full answer", "", ""],
-    ["user", "apply it", "", "Applying suggestions"],
-    ["agent", "applied", "", ""],
-    ["user", "broken", "", ""],
-    ["agent", "it failed", "error", ""],
-    ["agent", "said only", "", ""],
-    ["user", "plain", "", ""],
-    ["agent", "full", "", ""],
-    ["user", "the last input", "", ""],
-    ["agent", "crashed", "error", ""],
-  ]);
-  const first = msgs[1];
-  assert.equal(first.turn, 0);
-  assert.equal(first.answers, answers);
-  assert.deepEqual(first.changes, { files });
-  assert.equal(first.report, report);
-  assert.equal(first.artifacts.length, 1);
-  const bare = msgs[8];
-  assert.equal(bare.changes, undefined);
-  assert.equal(bare.report, undefined, "an empty report is not drawn");
-  assert.equal(bare.artifacts, undefined);
-  assert.equal(msgs[9].turn, 5);
-  // A result with nothing said keeps the result; a failed run with no task is not drawn.
-  const only = B.transcriptMessages(
-    [{ User: "q" }],
-    [
-      { turn: 0, files: false, steps: [], outcome: { result: "r" } },
-      { turn: 1, files: false, steps: [], outcome: { error: "e" } },
-    ],
-    nextId,
-  );
-  assert.deepEqual(
-    only.map((m) => m.text),
-    ["q", "r"],
-  );
-  assert.deepEqual(B.transcriptMessages([], [], nextId), []);
-});
+      { turn: 1, files: false, steps: [], outcome: { result: "", error: "" } },
+      { turn: 2, files: false, steps: [], outcome: { error: "it failed" } },
+      {
+        turn: 4,
+        files: false,
+        steps: [],
+        outcome: { result: "full", report: {} },
+      },
+      {
+        turn: 5,
+        task: "the last input",
+        files: false,
+        steps: [],
+        outcome: { error: "crashed" },
+      },
+    ];
+    const msgs = B.transcriptMessages(turns, cps, nextId);
+    const view = msgs.map((m) => [m.role, m.text, m.kind ?? "", m.shown ?? ""]);
+    assert.deepEqual(view, [
+      ["user", "do a thing", "", ""],
+      ["agent", "the full answer", "", ""],
+      ["user", "apply it", "", "Applying suggestions"],
+      ["agent", "applied", "", ""],
+      ["user", "broken", "", ""],
+      ["agent", "it failed", "error", ""],
+      ["agent", "said only", "", ""],
+      ["user", "plain", "", ""],
+      ["agent", "full", "", ""],
+      ["user", "the last input", "", ""],
+      ["agent", "crashed", "error", ""],
+    ]);
+    const first = msgs[1];
+    assert.equal(first.turn, 0);
+    assert.equal(first.answers, answers);
+    assert.deepEqual(first.changes, { files });
+    assert.equal(first.report, report);
+    assert.equal(first.artifacts.length, 1);
+    const bare = msgs[8];
+    assert.equal(bare.changes, undefined);
+    assert.equal(bare.report, undefined, "an empty report is not drawn");
+    assert.equal(bare.artifacts, undefined);
+    assert.equal(msgs[9].turn, 5);
+    // A result with nothing said keeps the result; a failed run with no task is not drawn.
+    const only = B.transcriptMessages(
+      [{ User: "q" }],
+      [
+        { turn: 0, files: false, steps: [], outcome: { result: "r" } },
+        { turn: 1, files: false, steps: [], outcome: { error: "e" } },
+      ],
+      nextId,
+    );
+    assert.deepEqual(
+      only.map((m) => m.text),
+      ["q", "r"],
+    );
+    assert.deepEqual(B.transcriptMessages([], [], nextId), []);
+  });
 }
 
 for (const B of turnCopies) {
-test(`lastUserIdOf and sameTurn`, () => {
-  assert.equal(B.lastUserIdOf([]), -1);
-  assert.equal(
-    B.lastUserIdOf([
+  test(`lastUserIdOf and sameTurn`, () => {
+    assert.equal(B.lastUserIdOf([]), -1);
+    assert.equal(
+      B.lastUserIdOf([
+        { id: 1, role: "user" },
+        { id: 2, role: "agent" },
+        { id: 3, role: "user" },
+        { id: 4, role: "agent" },
+      ]),
+      3,
+    );
+    assert.equal(B.lastUserIdOf([{ id: 2, role: "agent" }]), -1);
+    const m1 = { id: 1 };
+    const m2 = { id: 2 };
+    const steps = [];
+    const base = {
+      g: { key: 1, turn: 0, items: [m1, m2] },
+      steps,
+      liveHere: false,
+      activity: null,
+    };
+    const same = { ...base, g: { key: 1, turn: 0, items: [m1, m2] } };
+    assert.equal(B.sameTurn(base, same), true);
+    assert.equal(B.sameTurn(base, { ...same, steps: [] }), false);
+    assert.equal(B.sameTurn(base, { ...same, liveHere: true }), false);
+    assert.equal(B.sameTurn(base, { ...same, activity: "x" }), false);
+    assert.equal(
+      B.sameTurn(base, { ...same, g: { ...same.g, key: 2 } }),
+      false,
+    );
+    assert.equal(
+      B.sameTurn(base, { ...same, g: { ...same.g, turn: 1 } }),
+      false,
+    );
+    assert.equal(
+      B.sameTurn(base, { ...same, g: { ...same.g, items: [m1] } }),
+      false,
+    );
+    assert.equal(
+      B.sameTurn(base, { ...same, g: { ...same.g, items: [m1, { id: 2 }] } }),
+      false,
+    );
+  });
+
+  test(`useTurnView keeps stable actions that reach the latest store`, async () => {
+    const calls = [];
+    const cpInfo = {};
+    const messages = [
       { id: 1, role: "user" },
       { id: 2, role: "agent" },
-      { id: 3, role: "user" },
-      { id: 4, role: "agent" },
-    ]),
-    3,
-  );
-  assert.equal(B.lastUserIdOf([{ id: 2, role: "agent" }]), -1);
-  const m1 = { id: 1 };
-  const m2 = { id: 2 };
-  const steps = [];
-  const base = {
-    g: { key: 1, turn: 0, items: [m1, m2] },
-    steps,
-    liveHere: false,
-    activity: null,
-  };
-  const same = { ...base, g: { key: 1, turn: 0, items: [m1, m2] } };
-  assert.equal(B.sameTurn(base, same), true);
-  assert.equal(B.sameTurn(base, { ...same, steps: [] }), false);
-  assert.equal(B.sameTurn(base, { ...same, liveHere: true }), false);
-  assert.equal(B.sameTurn(base, { ...same, activity: "x" }), false);
-  assert.equal(B.sameTurn(base, { ...same, g: { ...same.g, key: 2 } }), false);
-  assert.equal(B.sameTurn(base, { ...same, g: { ...same.g, turn: 1 } }), false);
-  assert.equal(B.sameTurn(base, { ...same, g: { ...same.g, items: [m1] } }), false);
-  assert.equal(
-    B.sameTurn(base, { ...same, g: { ...same.g, items: [m1, { id: 2 }] } }),
-    false,
-  );
-});
-
-test(`useTurnView keeps stable actions that reach the latest store`, async () => {
-  const calls = [];
-  const cpInfo = {};
-  const messages = [
-    { id: 1, role: "user" },
-    { id: 2, role: "agent" },
-  ];
-  const store = (over = {}) => ({
-    rs: { messages, running: false, activityKind: "", cpInfo },
-    checkpoints: {
-      cpMenu: null,
-      cpArmed: false,
-      setCpMenu: (m) => calls.push(["setCpMenu", m, over.tag]),
-      setCpArmed: (a) => calls.push(["setCpArmed", a, over.tag]),
-      toggleCpMenu: (t) => calls.push(["toggleCpMenu", t, over.tag]),
-      restoreCheckpoint: async (t, f) => calls.push(["restore", t, f, over.tag]),
-    },
-    stream: {
-      stopRun: () => calls.push(["stopRun", over.tag]),
-      submit: async (x) => calls.push(["submit", x, over.tag]),
-    },
-    answerSuggestions: async (m, a) => calls.push(["answer", m.id, a, over.tag]),
-    speech: {
-      speakingId: null,
-      supported: true,
-      speak: (m) => calls.push(["speak", m.id, over.tag]),
-    },
-    artifacts: {
-      showRunArtifact: (a) => calls.push(["artifact", a.name, over.tag]),
-    },
-    ...over,
+    ];
+    const store = (over = {}) => ({
+      rs: { messages, running: false, activityKind: "", cpInfo },
+      checkpoints: {
+        cpMenu: null,
+        cpArmed: false,
+        setCpMenu: (m) => calls.push(["setCpMenu", m, over.tag]),
+        setCpArmed: (a) => calls.push(["setCpArmed", a, over.tag]),
+        toggleCpMenu: (t) => calls.push(["toggleCpMenu", t, over.tag]),
+        restoreCheckpoint: async (t, f) =>
+          calls.push(["restore", t, f, over.tag]),
+      },
+      stream: {
+        stopRun: () => calls.push(["stopRun", over.tag]),
+        submit: async (x) => calls.push(["submit", x, over.tag]),
+      },
+      answerSuggestions: async (m, a) =>
+        calls.push(["answer", m.id, a, over.tag]),
+      speech: {
+        speakingId: null,
+        supported: true,
+        speak: (m) => calls.push(["speak", m.id, over.tag]),
+      },
+      artifacts: {
+        showRunArtifact: (a) => calls.push(["artifact", a.name, over.tag]),
+      },
+      ...over,
+    });
+    const s1 = store({ tag: 1 });
+    const hook = await renderHook((p) => B.useTurnView(p.store), { store: s1 });
+    const v1 = hook.result.current;
+    assert.equal(v1.lastMsgId, 2);
+    assert.equal(v1.lastUserId, 1);
+    assert.equal(v1.running, false);
+    assert.equal(v1.speechSupported, true);
+    // Same inputs, new store object: the same view.
+    const s2 = store({ tag: 2 });
+    await hook.rerender({ store: s2 });
+    assert.equal(hook.result.current, v1, "nothing a turn draws changed");
+    // The actions act on the latest store.
+    v1.setCpMenu(3);
+    v1.setCpArmed(true);
+    v1.toggleCpMenu(4);
+    v1.restoreCheckpoint(5, true);
+    v1.stopRun();
+    v1.submit("again");
+    v1.answerSuggestions({ id: 9 }, { picks: [] });
+    v1.speak({ id: 8 });
+    v1.showRunArtifact({ name: "f.txt", type: "text/plain" });
+    assert.deepEqual(calls, [
+      ["setCpMenu", 3, 2],
+      ["setCpArmed", true, 2],
+      ["toggleCpMenu", 4, 2],
+      ["restore", 5, true, 2],
+      ["stopRun", 2],
+      ["submit", "again", 2],
+      ["answer", 9, { picks: [] }, 2],
+      ["speak", 8, 2],
+      ["artifact", "f.txt", 2],
+    ]);
+    // A run starting changes the view; an empty conversation has no last message.
+    const s3 = store({ tag: 3 });
+    s3.rs = { ...s3.rs, running: true, messages: [] };
+    await hook.rerender({ store: s3 });
+    const v3 = hook.result.current;
+    assert.notEqual(v3, v1);
+    assert.equal(v3.running, true);
+    assert.equal(v3.lastMsgId, null);
+    assert.equal(v3.lastUserId, -1);
+    assert.equal(v3.stopRun, v1.stopRun, "the actions keep their identity");
+    await hook.unmount();
   });
-  const s1 = store({ tag: 1 });
-  const hook = await renderHook((p) => B.useTurnView(p.store), { store: s1 });
-  const v1 = hook.result.current;
-  assert.equal(v1.lastMsgId, 2);
-  assert.equal(v1.lastUserId, 1);
-  assert.equal(v1.running, false);
-  assert.equal(v1.speechSupported, true);
-  // Same inputs, new store object: the same view.
-  const s2 = store({ tag: 2 });
-  await hook.rerender({ store: s2 });
-  assert.equal(hook.result.current, v1, "nothing a turn draws changed");
-  // The actions act on the latest store.
-  v1.setCpMenu(3);
-  v1.setCpArmed(true);
-  v1.toggleCpMenu(4);
-  v1.restoreCheckpoint(5, true);
-  v1.stopRun();
-  v1.submit("again");
-  v1.answerSuggestions({ id: 9 }, { picks: [] });
-  v1.speak({ id: 8 });
-  v1.showRunArtifact({ name: "f.txt", type: "text/plain" });
-  assert.deepEqual(calls, [
-    ["setCpMenu", 3, 2],
-    ["setCpArmed", true, 2],
-    ["toggleCpMenu", 4, 2],
-    ["restore", 5, true, 2],
-    ["stopRun", 2],
-    ["submit", "again", 2],
-    ["answer", 9, { picks: [] }, 2],
-    ["speak", 8, 2],
-    ["artifact", "f.txt", 2],
-  ]);
-  // A run starting changes the view; an empty conversation has no last message.
-  const s3 = store({ tag: 3 });
-  s3.rs = { ...s3.rs, running: true, messages: [] };
-  await hook.rerender({ store: s3 });
-  const v3 = hook.result.current;
-  assert.notEqual(v3, v1);
-  assert.equal(v3.running, true);
-  assert.equal(v3.lastMsgId, null);
-  assert.equal(v3.lastUserId, -1);
-  assert.equal(v3.stopRun, v1.stopRun, "the actions keep their identity");
-  await hook.unmount();
-});
 
-test(`useTurn reads the turn view from its context`, async () => {
-  const view = { running: true };
-  const seen = [];
-  const hook = await renderHook(() => B.useTurn());
-  assert.equal(hook.result.current, null, "no provider: no view");
-  await hook.unmount();
-  function Reader() {
-    seen.push(B.useTurn());
-    return null;
-  }
-  const m = await mount(h(B.TurnCtx.Provider, { value: view }, h(Reader, {})));
-  assert.equal(seen[0], view);
-  await m.unmount();
-});
+  test(`useTurn reads the turn view from its context`, async () => {
+    const view = { running: true };
+    const seen = [];
+    const hook = await renderHook(() => B.useTurn());
+    assert.equal(hook.result.current, null, "no provider: no view");
+    await hook.unmount();
+    function Reader() {
+      seen.push(B.useTurn());
+      return null;
+    }
+    const m = await mount(
+      h(B.TurnCtx.Provider, { value: view }, h(Reader, {})),
+    );
+    assert.equal(seen[0], view);
+    await m.unmount();
+  });
 }

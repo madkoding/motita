@@ -533,9 +533,7 @@ function CiSuccess({ pr, view }: { pr: PullRequest; view: PRView }) {
         {t("CI passed — ready to merge")}
       </span>
       {blocked && (
-        <span class="ml-auto text-[#f0a040]">
-          {mergeBlockedLabel(code)}
-        </span>
+        <span class="ml-auto text-[#f0a040]">{mergeBlockedLabel(code)}</span>
       )}
       {!refused && (
         <button

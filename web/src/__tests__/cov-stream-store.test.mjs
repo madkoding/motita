@@ -6,7 +6,11 @@ import assert from "node:assert/strict";
 import { installDom, source, stub, flush, res } from "./cov-stream-helpers.mjs";
 
 installDom();
-window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.matchMedia = () => ({
+  matches: false,
+  addEventListener() {},
+  removeEventListener() {},
+});
 stub(
   "./useVoiceConversation",
   "export function useVoiceConversation(o) { globalThis.covStreamConversation = o; }",
@@ -41,7 +45,19 @@ test("the store gathers the page's state and hands it down", async () => {
   await act(() => flush());
   assert.equal(seen, store, "a component under the app reads the same store");
   assert.equal(store.api, api);
-  for (const k of ["rs", "lists", "conv", "actions", "stream", "composer", "auth", "updates", "voice", "speech", "menus"]) {
+  for (const k of [
+    "rs",
+    "lists",
+    "conv",
+    "actions",
+    "stream",
+    "composer",
+    "auth",
+    "updates",
+    "voice",
+    "speech",
+    "menus",
+  ]) {
     assert.ok(store[k], k);
   }
   assert.equal(store.selectedSession, undefined);
@@ -83,7 +99,10 @@ test("the store gathers the page's state and hands it down", async () => {
     globalThis.covStreamConversation.send("what next");
     await flush();
   });
-  assert.deepEqual(calls[0], ["POST /v1/sessions/s1/run", '{"task":"what next"}']);
+  assert.deepEqual(calls[0], [
+    "POST /v1/sessions/s1/run",
+    '{"task":"what next"}',
+  ]);
   assert.deepEqual(
     store.rs.messages.slice(0, 2).map((m) => m.text),
     ["answer", "what next"],

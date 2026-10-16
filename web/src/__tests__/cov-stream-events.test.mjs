@@ -55,7 +55,10 @@ test("the run state starts empty and clearConversation empties it again", async 
     [s.messages, s.activity, s.stepsByTurn, s.cpInfo, s.shellLog, s.termSeenId],
     [[], null, {}, {}, [], 0],
   );
-  assert.deepEqual([s.liveThought, s.approval, s.agents, s.agentOpenId], [null, null, [], null]);
+  assert.deepEqual(
+    [s.liveThought, s.approval, s.agents, s.agentOpenId],
+    [null, null, [], null],
+  );
   assert.equal(s.liveTurnRef.current, null);
   await hook.unmount();
 });
@@ -92,7 +95,10 @@ test("attached marks the user's message with its turn and resets a replayed turn
     "(3 event(s) were not kept while nothing was listening)",
   );
   assert.equal(s.approval.id, "ap");
-  assert.deepEqual(s.agents.map((a) => a.id), ["main", "bg"]);
+  assert.deepEqual(
+    s.agents.map((a) => a.id),
+    ["main", "bg"],
+  );
 
   // A reconnection (events already read) keeps the steps; a turn already marked stays as it is.
   await hook.act(() => {
@@ -111,14 +117,21 @@ test("attached marks the user's message with its turn and resets a replayed turn
   assert.equal(rs().messages[0].turn, undefined);
   await send("attached", { dropped: 0 });
   assert.equal(rs().liveTurnRef.current, 7);
-  assert.equal(rs().runIdRef.current, "run-2", "a preamble with no run id keeps the one known");
+  assert.equal(
+    rs().runIdRef.current,
+    "run-2",
+    "a preamble with no run id keeps the one known",
+  );
   await hook.unmount();
 });
 
 test("agents and thinking snapshots replace the ones before them", async () => {
   const { hook, rs, send } = await run();
   await send("agents", { agents: [{ id: "a", started: "x" }] });
-  assert.deepEqual(rs().agents.map((a) => a.id), ["a"]);
+  assert.deepEqual(
+    rs().agents.map((a) => a.id),
+    ["a"],
+  );
   await send("agents", { agents: "nonsense" });
   assert.deepEqual(rs().agents, []);
   await send("thinking", { text: "pondering" });
@@ -144,7 +157,11 @@ test("progress lines become the turn's steps, its commands and the terminal log"
     rs().setLiveThought("live");
   });
   await send("progress", { text: "thinking: the plan is sound" });
-  assert.equal(rs().activity, "planning...", "a thought does not change the activity");
+  assert.equal(
+    rs().activity,
+    "planning...",
+    "a thought does not change the activity",
+  );
   assert.equal(rs().liveThought, null);
   await send("progress", { text: "running: ls -la" });
   await send("progress", { text: "some phase" });
@@ -237,7 +254,9 @@ test("progress lines become the turn's steps, its commands and the terminal log"
     ],
   );
   assert.deepEqual(
-    rs().shellLog.slice(-3).map((e) => [e.cmd, e.exit, e.out]),
+    rs()
+      .shellLog.slice(-3)
+      .map((e) => [e.cmd, e.exit, e.out]),
     [
       ["sleep 5", null, ""],
       ["[a1] go test", 2, "FAIL"],
@@ -246,7 +265,9 @@ test("progress lines become the turn's steps, its commands and the terminal log"
   );
   await send("progress", { text: "output (exit 0):\ndone" });
   assert.deepEqual(
-    rs().shellLog.map((e) => [e.cmd, e.exit]).filter(([c]) => c === "sleep 5"),
+    rs()
+      .shellLog.map((e) => [e.cmd, e.exit])
+      .filter(([c]) => c === "sleep 5"),
     [["sleep 5", 0]],
     "the output settled the main agent's command",
   );
@@ -254,20 +275,34 @@ test("progress lines become the turn's steps, its commands and the terminal log"
     rs().liveTurnRef.current = null;
   });
   const logLen = rs().shellLog.length;
-  await send("progress", { text: 'sub: {"agent":"a1","kind":"command","text":"x"}' });
-  assert.equal(rs().shellLog.length, logLen, "with no turn in flight there is nowhere to file it");
+  await send("progress", {
+    text: 'sub: {"agent":"a1","kind":"command","text":"x"}',
+  });
+  assert.equal(
+    rs().shellLog.length,
+    logLen,
+    "with no turn in flight there is nowhere to file it",
+  );
   // A turn with no steps yet takes a background agent's first one.
   await hook.act(() => {
     rs().liveTurnRef.current = 9;
   });
-  await send("progress", { text: 'sub: {"agent":"a1","kind":"thought","text":"first"}' });
+  await send("progress", {
+    text: 'sub: {"agent":"a1","kind":"thought","text":"first"}',
+  });
   assert.equal(rs().stepsByTurn[9][0].text, "thinking: [a1] first");
 
   // The agent list as a plain line is a snapshot, never a step.
   await send("progress", { text: 'agents: [{"id":"z","started":"x"}]' });
-  assert.deepEqual(rs().agents.map((a) => a.id), ["z"]);
+  assert.deepEqual(
+    rs().agents.map((a) => a.id),
+    ["z"],
+  );
   await send("progress", { text: "agents: not json" });
-  assert.deepEqual(rs().agents.map((a) => a.id), ["z"]);
+  assert.deepEqual(
+    rs().agents.map((a) => a.id),
+    ["z"],
+  );
   await hook.unmount();
 });
 
@@ -338,7 +373,10 @@ test("an answer that asked carries its questions and the request they are about"
   const { hook, rs, send } = await run();
   const questions = [{ text: "which?", options: ["a"] }];
   await send("done", { result: "which?", questions });
-  assert.deepEqual([rs().messages[0].questions, rs().messages[0].origin], [questions, ""]);
+  assert.deepEqual(
+    [rs().messages[0].questions, rs().messages[0].origin],
+    [questions, ""],
+  );
   await hook.act(() => {
     rs().setMessages([
       { id: 1, role: "user", text: "first" },
@@ -346,7 +384,11 @@ test("an answer that asked carries its questions and the request they are about"
     ]);
   });
   await send("done", { result: "which?", questions });
-  assert.equal(rs().messages[2].origin, "add login", "the newest input is the request asked about");
+  assert.equal(
+    rs().messages[2].origin,
+    "add login",
+    "the newest input is the request asked about",
+  );
   // Typed with a mode, the request is what the gateway kept for the turn, as a reload reads it.
   await hook.act(() => {
     rs().setMessages([{ id: 1, role: "user", text: "  /task add login " }]);
@@ -400,7 +442,11 @@ test("an approval refused with nobody to ask is a warning in the conversation; t
         "Refused, nobody was there to approve it: rm -rf build — " +
           "set agent.policy.enforce=false to run such actions unattended",
       ],
-      ["agent", "warning", "Refused, nobody was there to approve it: writes outside the project"],
+      [
+        "agent",
+        "warning",
+        "Refused, nobody was there to approve it: writes outside the project",
+      ],
       ["agent", "warning", "Refused, nobody was there to approve it: "],
     ],
   );
@@ -423,7 +469,8 @@ test("a session that finished while another was on screen is announced", async (
   const b = { id: "b", title: "", running: true };
   const c = { id: "c", title: "Gamma", running: true };
   const hook = await renderHook(
-    (p) => watch.useFinishedElsewhere(p.sessions, p.onScreen, (t) => toasts.push(t)),
+    (p) =>
+      watch.useFinishedElsewhere(p.sessions, p.onScreen, (t) => toasts.push(t)),
     { sessions: [a, b, c], onScreen: "c" },
   );
   assert.deepEqual(toasts, [], "the first list announces nothing");
@@ -433,7 +480,10 @@ test("a session that finished while another was on screen is announced", async (
   });
   assert.deepEqual(toasts, [{ message: "“Alpha” finished", type: "success" }]);
   await hook.rerender({
-    sessions: [{ ...a, running: false }, { ...b, running: false }],
+    sessions: [
+      { ...a, running: false },
+      { ...b, running: false },
+    ],
     onScreen: "c",
   });
   assert.equal(toasts.length, 2);
@@ -446,7 +496,11 @@ test("a session that finished while another was on screen is announced", async (
       { id: "x", title: "X" },
       { id: "y", title: "New session" },
     ]),
-    { message: "2 sessions finished", type: "success", detail: "X\nNew session" },
+    {
+      message: "2 sessions finished",
+      type: "success",
+      detail: "X\nNew session",
+    },
   );
   assert.deepEqual(
     watch
@@ -494,6 +548,9 @@ test("a model switch warns about the history and the turn in progress", () => {
   );
   assert.equal(watch.switchWarning(false, true, true), "");
   assert.match(watch.switchWarning(true, true, true), /^A turn is running/);
-  assert.match(watch.switchWarning(true, true, false), /^This conversation already/);
+  assert.match(
+    watch.switchWarning(true, true, false),
+    /^This conversation already/,
+  );
   assert.equal(watch.switchWarning(true, false, false), "");
 });

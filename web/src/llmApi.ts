@@ -291,7 +291,13 @@ export function modelOptions(p: LLMProvider | undefined): ModelOption[] {
   return ids.map((id) => {
     const m = known(id);
     const facts: Partial<ModelOption> = {};
-    for (const k of ["tier", "cost", "price_in", "price_out", "estimated"] as const) {
+    for (const k of [
+      "tier",
+      "cost",
+      "price_in",
+      "price_out",
+      "estimated",
+    ] as const) {
       if (m?.[k] !== undefined) {
         Object.assign(facts, { [k]: m[k] });
       }

@@ -86,7 +86,9 @@ export function keepOnDisk(): Promise<boolean> {
 
 // askToKeep asks storage to keep this page's data, unless it already does; false where it cannot
 // be asked or refuses.
-export async function askToKeep(storage: StorageManager | undefined): Promise<boolean> {
+export async function askToKeep(
+  storage: StorageManager | undefined,
+): Promise<boolean> {
   if (!storage?.persist) {
     return false;
   }
@@ -98,7 +100,9 @@ export async function askToKeep(storage: StorageManager | undefined): Promise<bo
 }
 
 // storageKept says whether the browser promised to keep this page's data, without asking it.
-export async function storageKept(storage: StorageManager | undefined = globalThis.navigator?.storage): Promise<boolean> {
+export async function storageKept(
+  storage: StorageManager | undefined = globalThis.navigator?.storage,
+): Promise<boolean> {
   try {
     return (await storage?.persisted?.()) === true;
   } catch {
@@ -122,7 +126,9 @@ async function pruneCache(catalog: LocalCatalog): Promise<void> {
   const cache = await caches.open(VOICE_CACHE);
   for (const req of await cache.keys()) {
     const at = req.url.indexOf(prefix);
-    const id = decodeURIComponent(req.url.slice(at + prefix.length).split("/")[0]);
+    const id = decodeURIComponent(
+      req.url.slice(at + prefix.length).split("/")[0],
+    );
     if (at >= 0 && (!keep.has(id) || ownGPURuntime(req.url, id))) {
       await cache.delete(req);
     }
@@ -139,7 +145,9 @@ function ownGPURuntime(url: string, id: string): boolean {
 export async function installVoice(api: Api, id: string): Promise<void> {
   // Asked here, on the click that downloads it, where a browser that asks has a gesture to ask on.
   void keepOnDisk();
-  const res = await api(MODELS_PATH + "/" + encodeURIComponent(id), { method: "POST" });
+  const res = await api(MODELS_PATH + "/" + encodeURIComponent(id), {
+    method: "POST",
+  });
   if (!res.ok) {
     throw await failure(res);
   }
@@ -148,7 +156,9 @@ export async function installVoice(api: Api, id: string): Promise<void> {
 // deleteVoice removes a voice (or a model speech input listens with) from the gateway and from this
 // page's copy.
 export async function deleteVoice(api: Api, id: string): Promise<void> {
-  const res = await api(MODELS_PATH + "/" + encodeURIComponent(id), { method: "DELETE" });
+  const res = await api(MODELS_PATH + "/" + encodeURIComponent(id), {
+    method: "DELETE",
+  });
   if (!res.ok) {
     throw await failure(res);
   }
@@ -162,27 +172,36 @@ export async function deleteVoice(api: Api, id: string): Promise<void> {
   }
   const cache = await caches.open(VOICE_CACHE);
   // A model to listen with keeps all its files apart; the runtime, WebGPU's too, stays.
-  const own = choose(
-    isWhisper(id),
-    Object.values(WHISPER_FILES),
-    ["model.onnx", "model.json", "voice.bin", "voice.json"],
-  );
+  const own = choose(isWhisper(id), Object.values(WHISPER_FILES), [
+    "model.onnx",
+    "model.json",
+    "voice.bin",
+    "voice.json",
+  ]);
   const gone = own.map((n) => fileURL(id, n));
   // An engine's model goes with its last voice, on the gateway (see voice.Library.Remove) and here.
   const engines = [
     {
       of: isSupertonic,
-      files: [...SUPERTONIC_PARTS, "unicode_indexer.json"].map((n) => fileURL(SUPERTONIC_ID, n)),
+      files: [...SUPERTONIC_PARTS, "unicode_indexer.json"].map((n) =>
+        fileURL(SUPERTONIC_ID, n),
+      ),
     },
     {
       of: isChatterbox,
-      files: ["tokenizer.json", ...CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"])].map((n) =>
-        fileURL(CHATTERBOX_ID, n),
-      ),
+      files: [
+        "tokenizer.json",
+        ...CHATTERBOX_PARTS.flatMap((p) => [p, p + "_data"]),
+      ].map((n) => fileURL(CHATTERBOX_ID, n)),
     },
   ];
   const engine = engines.find((e) => e.of(id));
-  if (engine && !(await fetchCatalog(api)).models.some((m) => engine.of(m.id) && m.installed)) {
+  if (
+    engine &&
+    !(await fetchCatalog(api)).models.some(
+      (m) => engine.of(m.id) && m.installed,
+    )
+  ) {
     gone.push(...engine.files);
   }
   await Promise.all(gone.map((u) => cache.delete(u)));
@@ -206,7 +225,10 @@ const workers: (Worker | null)[] = [];
 // busy counts the sentences each worker has been asked for and not answered yet.
 const busy: number[] = [];
 let seq = 0;
-const pending = new Map<number, { ok: (b: Blob) => void; fail: (e: Error) => void; w: number }>();
+const pending = new Map<
+  number,
+  { ok: (b: Blob) => void; fail: (e: Error) => void; w: number }
+>();
 
 function post(m: ToWorker): void {
   for (const w of workers) {
@@ -217,7 +239,10 @@ function post(m: ToWorker): void {
 function getWorker(n = 0): Worker {
   let w = workers[n];
   if (!w) {
-    w = new Worker(new URL("./speechModel.worker.ts", import.meta.url), { type: "module", name: workerName() });
+    w = new Worker(new URL("./speechModel.worker.ts", import.meta.url), {
+      type: "module",
+      name: workerName(),
+    });
     workers[n] = w;
     busy[n] = 0;
     w.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -266,8 +291,13 @@ export const SUPERTONIC_LANES = 2;
 // lanes is how many workers say a voice's sentences at once: one, but for Supertonic on the CPU
 // (it runs on the graphics card wherever the browser lets it).
 export function lanes(id: string): number {
-  const most = choose(isSupertonic(id) && !loads.get(id)?.gpu, SUPERTONIC_LANES, 1);
-  const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 1;
+  const most = choose(
+    isSupertonic(id) && !loads.get(id)?.gpu,
+    SUPERTONIC_LANES,
+    1,
+  );
+  const cores =
+    (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 1;
   return Math.max(1, Math.min(most, cores - 1));
 }
 
@@ -294,8 +324,19 @@ export function localClip(id: string, tune?: Tune): FetchClip {
       });
       busy[w]++;
       // The sentence's language goes with it, for a voice that speaks several.
-      const told = choose(lang === undefined, tune, { noise: 1, noiseW: 1, ...tune, lang });
-      getWorker(w).postMessage({ kind: "say", seq: s, id, text, tune: told } satisfies ToWorker);
+      const told = choose(lang === undefined, tune, {
+        noise: 1,
+        noiseW: 1,
+        ...tune,
+        lang,
+      });
+      getWorker(w).postMessage({
+        kind: "say",
+        seq: s,
+        id,
+        text,
+        tune: told,
+      } satisfies ToWorker);
     });
   say.ahead = n;
   return say;
@@ -372,5 +413,9 @@ export function warmLocal(id: string): void {
 
 // localVoicesSupported says this browser can run a local voice at all.
 export function localVoicesSupported(): boolean {
-  return typeof Worker !== "undefined" && typeof WebAssembly !== "undefined" && typeof caches !== "undefined";
+  return (
+    typeof Worker !== "undefined" &&
+    typeof WebAssembly !== "undefined" &&
+    typeof caches !== "undefined"
+  );
 }

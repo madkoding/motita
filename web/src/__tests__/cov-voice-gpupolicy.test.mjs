@@ -5,7 +5,11 @@ import { setupDom, source } from "./cov-voice-helpers.mjs";
 
 setupDom("https://localhost/");
 const P = await source("gpuPolicy.ts");
-const ua = (v) => Object.defineProperty(navigator, "userAgent", { value: v, configurable: true });
+const ua = (v) =>
+  Object.defineProperty(navigator, "userAgent", {
+    value: v,
+    configurable: true,
+  });
 const media = (fn) => (window.matchMedia = fn);
 
 test("a desktop may use WebGPU; a phone, by viewport, touch or user agent, may not", () => {
@@ -61,5 +65,8 @@ test("a worker named for the processor has no WebGPU", async () => {
   assert.equal(O.webGPU(), true);
   self.name = P.CPU_ONLY;
   assert.equal(O.webGPU(), false);
-  await assert.rejects(O.gpuOrt(new ArrayBuffer(0)), /no WebGPU in its workers/);
+  await assert.rejects(
+    O.gpuOrt(new ArrayBuffer(0)),
+    /no WebGPU in its workers/,
+  );
 });

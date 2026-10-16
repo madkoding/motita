@@ -419,9 +419,12 @@ function useHear(
 ): Hear {
   return useMemo(() => {
     if (engine !== "local") {
-      return Object.assign((audio: Blob, wake: boolean) => transcribe(api, audio, wake), {
-        ready: () => undefined,
-      });
+      return Object.assign(
+        (audio: Blob, wake: boolean) => transcribe(api, audio, wake),
+        {
+          ready: () => undefined,
+        },
+      );
     }
     const local = async (audio: Blob, wake: boolean): Promise<Transcript> => {
       const text = await hearLocal(listener, audio, language);
@@ -528,7 +531,13 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     null,
   );
   const deviceId = prefs.deviceId;
-  const hear = useHear(api, engine, prefs.listener, prefs.language, info?.wake_phrases ?? NO_PHRASES);
+  const hear = useHear(
+    api,
+    engine,
+    prefs.listener,
+    prefs.language,
+    info?.wake_phrases ?? NO_PHRASES,
+  );
   // listening ends the one phrase conversation mode is listening for, when there is one.
   const listening1 = useRef<(() => void) | null>(null);
   const toggleDictation = useDictation({

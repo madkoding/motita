@@ -3,7 +3,15 @@
 // Run with: node --test web/src/__tests__/cov-chat-run.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { act, fakeApi, fakeRunState, json, load, renderHook, tick } from "./cov-chat-helpers.mjs";
+import {
+  act,
+  fakeApi,
+  fakeRunState,
+  json,
+  load,
+  renderHook,
+  tick,
+} from "./cov-chat-helpers.mjs";
 
 const { useCheckpoints, RUN_MENU } = await load("useCheckpoints.ts");
 const { useShellApproval } = await load("useShellApproval.ts");
@@ -12,7 +20,10 @@ const badJson = (status) => new Response("not json", { status });
 
 // ── Checkpoints ──────────────────────────────────────────────────────────────
 
-async function checkpoints(route, { running = false, sid = "s1", switchTo } = {}) {
+async function checkpoints(
+  route,
+  { running = false, sid = "s1", switchTo } = {},
+) {
   const api = fakeApi(route);
   const rs = fakeRunState();
   rs.sessionRef.current = sid;
@@ -39,7 +50,15 @@ async function checkpoints(route, { running = false, sid = "s1", switchTo } = {}
       setToast: (t) => toasts.push(t),
     }),
   );
-  return { hook, api, rs, toasts, inputs, switched, c: () => hook.result.current };
+  return {
+    hook,
+    api,
+    rs,
+    toasts,
+    inputs,
+    switched,
+    c: () => hook.result.current,
+  };
 }
 
 test("a checkpoint menu opens, closes on a second press or a click elsewhere, and disarms", async () => {
@@ -68,19 +87,27 @@ test("a checkpoint menu opens, closes on a second press or a click elsewhere, an
 });
 
 test("going back to a checkpoint restores it, refills the composer and says what was put back", async () => {
-  const { hook, c, api, toasts, inputs, switched } = await checkpoints((path, init) => {
-    const { files } = JSON.parse(init.body);
-    if (path.includes("/checkpoints/1/")) {
-      return json({ task: "first input", files_restored: files, undo_kept: files });
-    }
-    return json({ files_restored: true, undo_kept: false });
-  }, { sid: "a b" });
+  const { hook, c, api, toasts, inputs, switched } = await checkpoints(
+    (path, init) => {
+      const { files } = JSON.parse(init.body);
+      if (path.includes("/checkpoints/1/")) {
+        return json({
+          task: "first input",
+          files_restored: files,
+          undo_kept: files,
+        });
+      }
+      return json({ files_restored: true, undo_kept: false });
+    },
+    { sid: "a b" },
+  );
   await act(() => c().toggleCpMenu(1));
   await act(() => c().restoreCheckpoint(1, true));
   assert.equal(c().cpMenu, null);
-  assert.deepEqual(api.calls.map((x) => [x.path, x.init.method, x.body]), [
-    ["/v1/sessions/a%20b/checkpoints/1/restore", "POST", { files: true }],
-  ]);
+  assert.deepEqual(
+    api.calls.map((x) => [x.path, x.init.method, x.body]),
+    [["/v1/sessions/a%20b/checkpoints/1/restore", "POST", { files: true }]],
+  );
   assert.deepEqual(inputs, ["first input"]);
   assert.deepEqual(switched, [["a b", "none"]]);
   assert.deepEqual(toasts.pop(), {
@@ -120,10 +147,17 @@ test("a checkpoint that cannot be restored says so, and nothing happens during a
   });
   mode = "garbled";
   await act(() => c().restoreCheckpoint(1, true));
-  assert.equal(toasts.pop().detail, undefined, "an unreadable answer has no detail");
+  assert.equal(
+    toasts.pop().detail,
+    undefined,
+    "an unreadable answer has no detail",
+  );
   mode = "offline";
   await act(() => c().restoreCheckpoint(1, true));
-  assert.deepEqual(toasts.pop(), { message: "Could not go back to that checkpoint", type: "error" });
+  assert.deepEqual(toasts.pop(), {
+    message: "Could not go back to that checkpoint",
+    type: "error",
+  });
   assert.equal(inputs.length, 0);
   await hook.unmount();
   const busy = await checkpoints(() => json({}), { running: true });
@@ -227,7 +261,10 @@ test("a typed command runs in the shell and its result lands in the terminal", a
     throw new TypeError("offline");
   };
   await s.c().runShellLine("ping");
-  assert.deepEqual(s.toasts.pop(), { message: "The command could not be run", type: "error" });
+  assert.deepEqual(s.toasts.pop(), {
+    message: "The command could not be run",
+    type: "error",
+  });
   assert.deepEqual(log(s.rs).slice(4), [
     ["rm -rf /", -999, "forbidden"],
     ["odd", -999, ""],
@@ -237,7 +274,12 @@ test("a typed command runs in the shell and its result lands in the terminal", a
 });
 
 test("the terminal keeps the last 500 commands", async () => {
-  const old = Array.from({ length: 500 }, (_, i) => ({ id: 10_000 + i, cmd: "c" + i, exit: 0, out: "" }));
+  const old = Array.from({ length: 500 }, (_, i) => ({
+    id: 10_000 + i,
+    cmd: "c" + i,
+    exit: 0,
+    out: "",
+  }));
   const s = await shell(() => json({ output: "x" }), { shellLog: old });
   await s.c().runShellLine("new");
   assert.equal(s.rs.shellLog.length, 500);
@@ -247,7 +289,8 @@ test("the terminal keeps the last 500 commands", async () => {
 });
 
 test("a command the policy asks about waits for a yes, then runs approved", async () => {
-  let reply = () => json({ needs_approval: true, reason: "writes outside the workspace" });
+  let reply = () =>
+    json({ needs_approval: true, reason: "writes outside the workspace" });
   const s = await shell((path, init) => {
     if (path.endsWith("/auto-approve")) {
       return json({});
@@ -255,7 +298,11 @@ test("a command the policy asks about waits for a yes, then runs approved", asyn
     return reply(path, init);
   });
   await s.c().runShellLine("touch /x");
-  assert.deepEqual(s.rs.shellLog, [], "nothing ran, nothing is in the terminal");
+  assert.deepEqual(
+    s.rs.shellLog,
+    [],
+    "nothing ran, nothing is in the terminal",
+  );
   assert.equal(s.rs.approval.question, "writes outside the workspace");
   assert.equal(s.rs.approval.command, "touch /x");
   assert.match(s.rs.approval.id, /^shell:\d+$/);
@@ -315,7 +362,11 @@ test("a yes to a typed command still runs it when allowing all fails", async () 
   await s.c().runShellLine("c");
   await s.c().answerApproval(s.rs.approval.id, true);
   await tick();
-  assert.deepEqual(log(s.rs), [["a", 0, "ok"], ["b", 0, "ok"], ["c", 0, "ok"]]);
+  assert.deepEqual(log(s.rs), [
+    ["a", 0, "ok"],
+    ["b", 0, "ok"],
+    ["c", 0, "ok"],
+  ]);
   assert.equal(s.lists.sessions[0].auto_approve, false, "never allowed");
   await s.hook.unmount();
 });
@@ -352,7 +403,10 @@ test("the agent's questions are answered once, or for the whole session", async 
     [
       ["/v1/sessions/s1/runs/approval", { id: "q1", approve: true }],
       ["/v1/sessions/s1/runs/approval", { id: "q2", approve: false }],
-      ["/v1/sessions/s1/runs/approval", { id: "q3", approve: true, scope: "session" }],
+      [
+        "/v1/sessions/s1/runs/approval",
+        { id: "q3", approve: true, scope: "session" },
+      ],
     ],
   );
   assert.equal(s.lists.sessions[0].auto_approve, true);
@@ -365,7 +419,12 @@ test("the agent's questions are answered once, or for the whole session", async 
 test("the approval panel takes focus, and the keyboard moves and answers it", async () => {
   const s = await shell(() => json({}));
   // No question: the keys are not the panel's.
-  const e0 = { key: "Enter", preventDefault() { this.prevented = true; } };
+  const e0 = {
+    key: "Enter",
+    preventDefault() {
+      this.prevented = true;
+    },
+  };
   s.c().onApprovalKey(e0);
   assert.equal(e0.prevented, undefined);
   // A question arrives: the highlight resets to the first option and the panel is focused.
@@ -379,21 +438,41 @@ test("the approval panel takes focus, and the keyboard moves and answers it", as
   assert.equal(s.rs.approvalSel, 0);
   assert.equal(document.activeElement, panel);
   const press = async (k) => {
-    const e = { key: k, prevented: false, preventDefault() { this.prevented = true; } };
+    const e = {
+      key: k,
+      prevented: false,
+      preventDefault() {
+        this.prevented = true;
+      },
+    };
     await act(() => s.c().onApprovalKey(e));
     await s.rerender();
     return e;
   };
-  for (const [k, sel] of [["ArrowRight", 1], ["ArrowDown", 2], ["ArrowDown", 0], ["ArrowLeft", 2], ["ArrowUp", 1]]) {
+  for (const [k, sel] of [
+    ["ArrowRight", 1],
+    ["ArrowDown", 2],
+    ["ArrowDown", 0],
+    ["ArrowLeft", 2],
+    ["ArrowUp", 1],
+  ]) {
     const e = await press(k);
     assert.equal(e.prevented, true);
     assert.equal(s.rs.approvalSel, sel, k);
   }
-  assert.equal((await press("x")).prevented, false, "any other key is the browser's");
+  assert.equal(
+    (await press("x")).prevented,
+    false,
+    "any other key is the browser's",
+  );
   // Enter on "allow all" answers yes for the session.
   await press("Enter");
   await tick();
-  assert.deepEqual(s.api.calls.at(-1).body, { id: "q1", approve: true, scope: "session" });
+  assert.deepEqual(s.api.calls.at(-1).body, {
+    id: "q1",
+    approve: true,
+    scope: "session",
+  });
   // Enter on "no".
   s.rs.approval = { id: "q2", question: "?" };
   s.rs.approvalRef.current = null;
@@ -406,7 +485,11 @@ test("the approval panel takes focus, and the keyboard moves and answers it", as
   // Enter on "run".
   s.rs.approval = { id: "q3", question: "?" };
   await s.rerender();
-  assert.equal(s.rs.approvalSel, 0, "a new question starts on the first option");
+  assert.equal(
+    s.rs.approvalSel,
+    0,
+    "a new question starts on the first option",
+  );
   await s.rerender();
   await press("Enter");
   await tick();

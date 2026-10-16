@@ -229,7 +229,10 @@ test("on a phone only the open drawer keeps its tab, so the others do not cover 
     mediaBlocks(PHONE_MEDIA),
     /body:has\(\.term-drawer\.is-open\) \.term-drawer:not\(\.is-open\) \.term-tab \{\s*visibility: hidden;/,
   );
-  assert.doesNotMatch(outsideMedia(PHONE_MEDIA), /:has\(\.term-drawer\.is-open\)/);
+  assert.doesNotMatch(
+    outsideMedia(PHONE_MEDIA),
+    /:has\(\.term-drawer\.is-open\)/,
+  );
 });
 
 test("fields are 16px on a touch screen, so iOS does not zoom into them", () => {
@@ -298,7 +301,11 @@ test("full-window previews opened from a chat bubble are drawn in a portal", () 
 // scaled for it, code that scrolls sideways, and a header that wraps instead of squeezing.
 test("the skill body is set at a reading size with bounded headings", () => {
   const rule = (sel) => {
-    const m = css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`));
+    const m = css.match(
+      new RegExp(
+        `${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`,
+      ),
+    );
     assert.ok(m, `${sel} has a rule`);
     return m[1];
   };

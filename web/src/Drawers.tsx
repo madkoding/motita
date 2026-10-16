@@ -87,7 +87,13 @@ function TermRow({
 }
 
 // EarlierButton reveals the entries above the window, when there are any.
-function EarlierButton({ hidden, onClick }: { hidden: number; onClick: () => void }) {
+function EarlierButton({
+  hidden,
+  onClick,
+}: {
+  hidden: number;
+  onClick: () => void;
+}) {
   if (hidden <= 0) {
     return null;
   }
@@ -100,7 +106,13 @@ function EarlierButton({ hidden, onClick }: { hidden: number; onClick: () => voi
 
 // TermHistory is what the terminal drawer plays: one entry at a time, faster when it is behind.
 // Only the newest `shown` entries are on screen.
-function TermHistory({ shown, showEarlier }: { shown: number; showEarlier: () => void }) {
+function TermHistory({
+  shown,
+  showEarlier,
+}: {
+  shown: number;
+  showEarlier: () => void;
+}) {
   const { rs, drawers } = useApp();
   const { shellLog, termSeenId } = rs;
   const firstPending = shellLog.find((e) => e.id > termSeenId);
@@ -108,7 +120,11 @@ function TermHistory({ shown, showEarlier }: { shown: number; showEarlier: () =>
   // 1x when caught up, 3x with one waiting, 5x with two, and so on up to 9x.
   const termBoost = Math.min(TERM_BOOST_MAX, 1 + 2 * Math.max(0, behind));
   // The window never starts after the entry being typed: the queue must stay on screen.
-  const pendingAt = choose(firstPending, shellLog.indexOf(firstPending!), shellLog.length);
+  const pendingAt = choose(
+    firstPending,
+    shellLog.indexOf(firstPending!),
+    shellLog.length,
+  );
   const from = Math.min(windowStart(shellLog.length, shown), pendingAt);
   const phaseOf = (e: ShellEntry): EntryPhase => {
     if (e.id <= termSeenId) {
@@ -148,7 +164,11 @@ export function TermDrawer() {
         onClick={drawers.toggleTerm}
       >
         <span class="term-tab-label">TTY</span>
-        {count > 0 && <span key={count} class="term-tab-count">{count}</span>}
+        {count > 0 && (
+          <span key={count} class="term-tab-count">
+            {count}
+          </span>
+        )}
       </button>
       <section
         class="term-panel"
@@ -173,7 +193,10 @@ export function TermDrawer() {
         <div class="term-viewport">
           <div class="term-screen" ref={term.ref} {...term.handlers}>
             {content.mounted && (
-              <TermHistory shown={content.shown} showEarlier={content.showEarlier} />
+              <TermHistory
+                shown={content.shown}
+                showEarlier={content.showEarlier}
+              />
             )}
           </div>
           <CrtFx full />

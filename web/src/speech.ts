@@ -10,7 +10,12 @@
 import type { Lang } from "./i18n";
 import type { Api } from "./prApi";
 import type { SpeechWords } from "./speakable.ts";
-import { ENGLISH_WORDS, limitLength, sentences, toSpeakable } from "./speakable.ts";
+import {
+  ENGLISH_WORDS,
+  limitLength,
+  sentences,
+  toSpeakable,
+} from "./speakable.ts";
 
 export type { SpeechWords };
 export { ENGLISH_WORDS, limitLength, sentences, toSpeakable };
@@ -140,13 +145,20 @@ export const TUNE_RANGE: [number, number] = [0, 2];
 // SUPERTONIC_STEPS_RANGE how many times its sound is refined (0 is its own for where it runs).
 const SUPERTONIC_MIN_SPEED = 0.7;
 const SUPERTONIC_MAX_SPEED = 1.6;
-export const SUPERTONIC_SPEED_RANGE: [number, number] = [SUPERTONIC_MIN_SPEED, SUPERTONIC_MAX_SPEED];
+export const SUPERTONIC_SPEED_RANGE: [number, number] = [
+  SUPERTONIC_MIN_SPEED,
+  SUPERTONIC_MAX_SPEED,
+];
 export const SUPERTONIC_STEPS_RANGE: [number, number] = [0, 16];
 // EMOTION_RANGE is how much emotion a Chatterbox voice can be asked for.
 export const EMOTION_RANGE: [number, number] = [0.25, 2];
 
 // numberIn is v when it is a number within range, fallback otherwise.
-function numberIn(v: unknown, range: [number, number], fallback: number): number {
+function numberIn(
+  v: unknown,
+  range: [number, number],
+  fallback: number,
+): number {
   if (typeof v === "number" && v >= range[0] && v <= range[1]) {
     return v;
   }
@@ -250,11 +262,29 @@ export function loadSpeechPrefs(): SpeechPrefs {
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
-      expressiveness: numberIn(raw.expressiveness, TUNE_RANGE, d.expressiveness),
+      expressiveness: numberIn(
+        raw.expressiveness,
+        TUNE_RANGE,
+        d.expressiveness,
+      ),
       variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
-      supertonicSpeed: numberIn(raw.supertonicSpeed, SUPERTONIC_SPEED_RANGE, d.supertonicSpeed),
-      supertonicSteps: Math.round(numberIn(raw.supertonicSteps, SUPERTONIC_STEPS_RANGE, d.supertonicSteps)),
-      chatterboxEmotion: numberIn(raw.chatterboxEmotion, EMOTION_RANGE, d.chatterboxEmotion),
+      supertonicSpeed: numberIn(
+        raw.supertonicSpeed,
+        SUPERTONIC_SPEED_RANGE,
+        d.supertonicSpeed,
+      ),
+      supertonicSteps: Math.round(
+        numberIn(
+          raw.supertonicSteps,
+          SUPERTONIC_STEPS_RANGE,
+          d.supertonicSteps,
+        ),
+      ),
+      chatterboxEmotion: numberIn(
+        raw.chatterboxEmotion,
+        EMOTION_RANGE,
+        d.chatterboxEmotion,
+      ),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,
@@ -595,7 +625,11 @@ export interface AudioLike {
 // ahead, when more than 1, is how many sentences it can say at once, and so how many the reader
 // asks for beyond the one playing (1 when absent).
 // lang is the sentence's language, for a voice that speaks several.
-export type FetchClip = ((text: string, signal: AbortSignal, lang?: string) => Promise<Blob>) & { ahead?: number };
+export type FetchClip = ((
+  text: string,
+  signal: AbortSignal,
+  lang?: string,
+) => Promise<Blob>) & { ahead?: number };
 
 // reasonOf is why a clip could not be had: the gateway's message, or "error".
 function reasonOf(e: unknown): string {
@@ -682,7 +716,11 @@ export class ClipReader {
     const clips: Promise<string>[] = [];
     // clip asks for sentence i once; the answer is kept until it is played.
     const clip = (i: number): Promise<string> => {
-      clips[i] ??= fetchClip(list[i].said, abort.signal, list[i].lang ?? opts.lang).then((b) => {
+      clips[i] ??= fetchClip(
+        list[i].said,
+        abort.signal,
+        list[i].lang ?? opts.lang,
+      ).then((b) => {
         const u = this.url.create(b);
         this.urls.push(u);
         return u;

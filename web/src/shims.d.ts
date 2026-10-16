@@ -40,6 +40,8 @@ declare module "@diffusionstudio/piper-wasm/build/piper_phonemize.js" {
     getPreloadedPackage?: (name: string, size: number) => ArrayBuffer;
     locateFile?: (name: string) => string;
   }
-  const createPiperPhonemize: (opts: PiperModuleOptions) => Promise<{ callMain(args: string[]): number }>;
+  const createPiperPhonemize: (
+    opts: PiperModuleOptions,
+  ) => Promise<{ callMain(args: string[]): number }>;
   export default createPiperPhonemize;
 }

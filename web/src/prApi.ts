@@ -15,7 +15,12 @@ export interface CICheck {
 
 // What the host says about a merge: possible now, refused for a reason, or not known.
 export type MergeCode =
-  "ok" | "blocked" | "conflict" | "draft" | "behind" | "unknown";
+  | "ok"
+  | "blocked"
+  | "conflict"
+  | "draft"
+  | "behind"
+  | "unknown";
 
 export interface PRView {
   // 'none' while the branch has no open pull request, 'open' once it has.

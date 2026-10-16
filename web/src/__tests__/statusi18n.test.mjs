@@ -20,7 +20,9 @@ function failures() {
       continue;
     }
     const code = readFileSync(join(src, name), "utf8");
-    for (const m of code.matchAll(/setState\(\s*(?:[\w.]+\s*\|\|\s*)?"([^"]+)",\s*true\s*\)/g)) {
+    for (const m of code.matchAll(
+      /setState\(\s*(?:[\w.]+\s*\|\|\s*)?"([^"]+)",\s*true\s*\)/g,
+    )) {
       keys.add(m[1]);
     }
   }

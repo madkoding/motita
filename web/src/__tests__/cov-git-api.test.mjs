@@ -12,9 +12,15 @@ const rl = await import("../runLink.ts");
 // ── gitApi ──────────────────────────────────────────────────────────────────
 
 test("GitError.authRequired is only a 409 with git_auth_required", () => {
-  assert.equal(new g.GitError("x", 409, "git_auth_required").authRequired, true);
+  assert.equal(
+    new g.GitError("x", 409, "git_auth_required").authRequired,
+    true,
+  );
   assert.equal(new g.GitError("x", 409, "other").authRequired, false);
-  assert.equal(new g.GitError("x", 500, "git_auth_required").authRequired, false);
+  assert.equal(
+    new g.GitError("x", 500, "git_auth_required").authRequired,
+    false,
+  );
   const e = new g.GitError("m", 409, "c", "github");
   assert.equal(e.message, "m");
   assert.equal(e.service, "github");
@@ -188,7 +194,10 @@ test("gitApi basics: the flow's normal path, an Error's message, repo names and 
   assert.deepEqual(s, { phase: "starting" });
   s = g.reduceFlow(s, { type: "started", flow });
   assert.deepEqual(s, { phase: "pending", flow });
-  assert.equal(g.reduceFlow(s, { type: "poll", status: { status: "pending" } }), s);
+  assert.equal(
+    g.reduceFlow(s, { type: "poll", status: { status: "pending" } }),
+    s,
+  );
   assert.deepEqual(
     g.reduceFlow(s, { type: "poll", status: { status: "failed" } }),
     { phase: "failed", error: "The host did not authorize the login." },
@@ -313,13 +322,18 @@ test("pollFlow: a 410 is an expired login; a thrown non-Error is reported as tex
 test("helpers: trimTrailingSlashes, repoShortName fallbacks, connectedAccounts, primaryMethod", () => {
   assert.equal(g.trimTrailingSlashes("a///"), "a");
   assert.equal(g.trimTrailingSlashes("///"), "");
-  assert.equal(g.repoShortName({ full_name: "o/name", clone_url: "nourl" }), "name");
+  assert.equal(
+    g.repoShortName({ full_name: "o/name", clone_url: "nourl" }),
+    "name",
+  );
   assert.equal(g.repoShortName({ full_name: "", clone_url: "" }), "");
   assert.deepEqual(
-    g.connectedAccounts([
-      { id: "a", connected: true },
-      { id: "b", connected: false },
-    ]).map((a) => a.id),
+    g
+      .connectedAccounts([
+        { id: "a", connected: true },
+        { id: "b", connected: false },
+      ])
+      .map((a) => a.id),
     ["a"],
   );
   assert.equal(
@@ -330,7 +344,10 @@ test("helpers: trimTrailingSlashes, repoShortName fallbacks, connectedAccounts, 
     g.primaryMethod({ methods: ["device"], oauth_ready: false }),
     "token",
   );
-  assert.equal(g.primaryMethod({ methods: ["token"], oauth_ready: true }), "token");
+  assert.equal(
+    g.primaryMethod({ methods: ["token"], oauth_ready: true }),
+    "token",
+  );
 });
 
 test("relativeTime buckets an age into now, minutes, hours, days, months and years", () => {
@@ -342,8 +359,14 @@ test("relativeTime buckets an age into now, minutes, hours, days, months and yea
   assert.deepEqual(g.relativeTime(ago(120), now), { unit: "minute", n: 2 });
   assert.deepEqual(g.relativeTime(ago(7200), now), { unit: "hour", n: 2 });
   assert.deepEqual(g.relativeTime(ago(86400 * 3), now), { unit: "day", n: 3 });
-  assert.deepEqual(g.relativeTime(ago(86400 * 65), now), { unit: "month", n: 2 });
-  assert.deepEqual(g.relativeTime(ago(86400 * 800), now), { unit: "year", n: 2 });
+  assert.deepEqual(g.relativeTime(ago(86400 * 65), now), {
+    unit: "month",
+    n: 2,
+  });
+  assert.deepEqual(g.relativeTime(ago(86400 * 800), now), {
+    unit: "year",
+    n: 2,
+  });
   assert.ok(g.relativeTime(new Date().toISOString()));
 });
 

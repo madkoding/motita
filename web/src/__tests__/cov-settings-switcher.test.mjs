@@ -22,13 +22,47 @@ const { AppCtx } = await load("appStore.ts");
 const { h, render } = await import("preact");
 
 const PROVIDERS = [
-  { id: "anthropic", name: "Anthropic", models: ["claude-a", "claude-b"], fetch_models: false, key_present: true, is_current: true },
-  { id: "ollama", name: "Ollama", models: ["llama3"], fetch_models: true, key_present: false, is_current: false },
-  { id: "empty", name: "Empty", models: [], fetch_models: false, key_present: true, is_current: false },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    models: ["claude-a", "claude-b"],
+    fetch_models: false,
+    key_present: true,
+    is_current: true,
+  },
+  {
+    id: "ollama",
+    name: "Ollama",
+    models: ["llama3"],
+    fetch_models: true,
+    key_present: false,
+    is_current: false,
+  },
+  {
+    id: "empty",
+    name: "Empty",
+    models: [],
+    fetch_models: false,
+    key_present: true,
+    is_current: false,
+  },
 ];
-const CONFIG = { provider: "anthropic", model: "claude-a", reasoning: "high", reasoning_enabled: true, api_key_present: true };
+const CONFIG = {
+  provider: "anthropic",
+  model: "claude-a",
+  reasoning: "high",
+  reasoning_enabled: true,
+  api_key_present: true,
+};
 
-function mount(api, { sessionId = "s1", rs = { messages: [], running: false }, config = CONFIG } = {}) {
+function mount(
+  api,
+  {
+    sessionId = "s1",
+    rs = { messages: [], running: false },
+    config = CONFIG,
+  } = {},
+) {
   const log = { states: [], toasts: [], saved: 0 };
   const ref = {};
   function Harness({ rs }) {
@@ -40,7 +74,11 @@ function mount(api, { sessionId = "s1", rs = { messages: [], running: false }, c
       () => log.saved++,
     );
     ref.m = model;
-    return h(AppCtx.Provider, { value: { model, rs } }, model.showModelSwitcher ? h(ModelSwitcherModal, null) : null);
+    return h(
+      AppCtx.Provider,
+      { value: { model, rs } },
+      model.showModelSwitcher ? h(ModelSwitcherModal, null) : null,
+    );
   }
   const root = document.createElement("div");
   document.body.appendChild(root);
@@ -77,7 +115,8 @@ async function press(el) {
 }
 const done = (root) => byText(root, "button", "Done");
 const modelSel = (root) => root.querySelector("#model-switcher-model");
-const choice = (root, name) => byText(root, "[role=radio].provider-choice", name);
+const choice = (root, name) =>
+  byText(root, "[role=radio].provider-choice", name);
 const level = (root, l) => byText(root, ".reasoning-level", l);
 
 test("opening loads the session's providers and live models, seeded from the saved choice", async () => {
@@ -89,13 +128,19 @@ test("opening loads the session's providers and live models, seeded from the sav
   const m = mount(f.api);
   await m.init();
   await m.open();
-  assert.deepEqual(f.calls.map((c) => c.path), ["/v1/sessions/s1/providers", "/v1/sessions/s1/model-list"]);
+  assert.deepEqual(
+    f.calls.map((c) => c.path),
+    ["/v1/sessions/s1/providers", "/v1/sessions/s1/model-list"],
+  );
   // The saved provider's models are loading.
   assert.match(text(m.root), /Loading models\.\.\./);
   assert.equal(modelSel(m.root), null);
   list(json(200, { models: ["claude-live", "claude-a"] }));
   await settle();
-  assert.deepEqual([...modelSel(m.root).options].map((o) => o.value), ["claude-live", "claude-a", "claude-b"]);
+  assert.deepEqual(
+    [...modelSel(m.root).options].map((o) => o.value),
+    ["claude-live", "claude-a", "claude-b"],
+  );
   assert.equal(modelSel(m.root).value, "claude-a");
   // The providers, with their logo or initial, the active one marked.
   const a = choice(m.root, "Anthropic");
@@ -106,7 +151,10 @@ test("opening loads the session's providers and live models, seeded from the sav
   const o = choice(m.root, "Ollama");
   assert.equal(o.title, "Ollama — no key needed");
   assert.equal(o.getAttribute("aria-checked"), "false");
-  assert.equal(text(choice(m.root, "Empty").querySelector("[data-logo=empty]")), "E");
+  assert.equal(
+    text(choice(m.root, "Empty").querySelector("[data-logo=empty]")),
+    "E",
+  );
   assert.equal(level(m.root, "high").getAttribute("aria-checked"), "true");
   assert.match(text(m.root), /API key: ✓ set/);
   // Nothing changed: Done is off.
@@ -175,7 +223,10 @@ test("before Done the switcher warns about a conversation that talked or a runni
   await m.open();
   assert.equal(m.root.querySelector("[role=note]"), null);
   await press(choice(m.root, "Ollama"));
-  assert.match(text(m.root.querySelector("[role=note]")), /already has messages/);
+  assert.match(
+    text(m.root.querySelector("[role=note]")),
+    /already has messages/,
+  );
   await m.rerender({ messages: [{}], running: true });
   assert.match(text(m.root.querySelector("[role=note]")), /A turn is running/);
   await m.rerender({ messages: [], running: false });
@@ -210,7 +261,17 @@ test("Done sends the draft, closes, warns about the switch and refreshes the lis
   // While it saves, Done waits with a spinner.
   assert.equal(done(m.root).disabled, true);
   assert.ok(done(m.root).querySelector("svg"));
-  answer(json(200, { provider: "ollama", model: "llama3", reasoning: "", reasoning_enabled: false, api_key_present: false, warnings: ["history", "running"], previous_model: "claude-a" }));
+  answer(
+    json(200, {
+      provider: "ollama",
+      model: "llama3",
+      reasoning: "",
+      reasoning_enabled: false,
+      api_key_present: false,
+      warnings: ["history", "running"],
+      previous_model: "claude-a",
+    }),
+  );
   await settle();
   assert.equal(m.ref.m.showModelSwitcher, false);
   assert.equal(m.ref.m.config.provider, "ollama");
@@ -232,7 +293,11 @@ test("Done sends the draft, closes, warns about the switch and refreshes the lis
 });
 
 test("a refused or failed save keeps the modal open and says why", async () => {
-  const answers = [json(409, { error: "provider has no key" }), new Response("x", { status: 500 }), new Error("offline")];
+  const answers = [
+    json(409, { error: "provider has no key" }),
+    new Response("x", { status: 500 }),
+    new Error("offline"),
+  ];
   const f = fakeApi({
     "GET /v1/sessions/s1/providers": json(200, { providers: PROVIDERS }),
     "GET /v1/sessions/s1/model-list": json(200, { models: [] }),
@@ -267,7 +332,10 @@ test("lists that cannot be read leave the modal usable on the catalogue", async 
   assert.deepEqual(m.ref.m.providers, []);
   assert.deepEqual(m.ref.m.modelList, []);
   assert.equal(m.ref.m.fetchingModels, false);
-  assert.deepEqual([...modelSel(m.root).options].map((o) => o.value), ["claude-a"]);
+  assert.deepEqual(
+    [...modelSel(m.root).options].map((o) => o.value),
+    ["claude-a"],
+  );
   await m.unmount();
 
   const g = fakeApi({
