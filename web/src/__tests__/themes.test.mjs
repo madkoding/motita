@@ -44,7 +44,17 @@ const TOKENS = [
   "--well-k",
   "--on-accent",
 ];
-const SCHEMES = ["motita", "violet", "forest", "amber", "rose", "graphite"];
+const SCHEMES = [
+  "motita",
+  "violet",
+  "forest",
+  "amber",
+  "rose",
+  "graphite",
+  "slate",
+  "midnight",
+  "dusk",
+];
 
 // palettes returns, per "mode/scheme", the declarations of its block.
 function palettes() {
@@ -132,6 +142,12 @@ test("light palettes are light and dark ones are dark", () => {
       assert.equal(d["--ov-rgb"], "0 0 0");
     } else {
       assert.ok(l < 0.05, name);
+      if (/\/(slate|midnight|dusk)$/.test(name)) {
+        assert.ok(
+          l > 0.015,
+          `${name} is a mid-dark, lighter than the dark default`,
+        );
+      }
       assert.equal(d["--ov-rgb"], "255 255 255");
     }
   }
@@ -276,6 +292,9 @@ test("the names the picker shows are translated", () => {
     "Amber",
     "Rose",
     "Graphite",
+    "Slate",
+    "Midnight",
+    "Dusk",
   ]) {
     assert.ok(es.includes(`  ${key}: "`) || es.includes(`  "${key}": "`), key);
   }

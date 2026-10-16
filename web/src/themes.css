@@ -395,6 +395,186 @@
   --on-accent: #ffffff;
 }
 
+/* slate, dark */
+:is(html[data-mode="dark"][data-scheme="slate"], html[data-mode="dark"] .theme-card[data-scheme="slate"]) {
+  --color-accent: #7cc4f2;
+  --accent-rgb: 124 196 242;
+  --neon-cyan: #a4d8f7;
+  --neon-rgb: 164 216 247;
+  --s0: #1f2630;
+  --s1: #272f3b;
+  --s2: #303947;
+  --s3: #394353;
+  --bg-rgb: 39 47 59;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #303947;
+  --color-surface-opaque: #303947;
+  --veil: rgb(31 38 48 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* slate, light */
+:is(html[data-mode="light"][data-scheme="slate"], html[data-mode="light"] .theme-card[data-scheme="slate"]) {
+  --color-accent: #2a5f8f;
+  --accent-rgb: 42 95 143;
+  --neon-cyan: #2a5f8f;
+  --neon-rgb: 42 95 143;
+  --s0: #f1f4f8;
+  --s1: #ffffff;
+  --s2: #e6ebf2;
+  --s3: #d6dce5;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #e6ebf2;
+  --color-surface-opaque: #e6ebf2;
+  --veil: rgb(241 244 248 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* midnight, dark */
+:is(html[data-mode="dark"][data-scheme="midnight"], html[data-mode="dark"] .theme-card[data-scheme="midnight"]) {
+  --color-accent: #98b0ff;
+  --accent-rgb: 152 176 255;
+  --neon-cyan: #b0c2ff;
+  --neon-rgb: 176 194 255;
+  --s0: #1b2033;
+  --s1: #232942;
+  --s2: #2c3350;
+  --s3: #343b5a;
+  --bg-rgb: 35 41 66;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #2c3350;
+  --color-surface-opaque: #2c3350;
+  --veil: rgb(27 32 51 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* midnight, light */
+:is(html[data-mode="light"][data-scheme="midnight"], html[data-mode="light"] .theme-card[data-scheme="midnight"]) {
+  --color-accent: #3b4ab5;
+  --accent-rgb: 59 74 181;
+  --neon-cyan: #3b4ab5;
+  --neon-rgb: 59 74 181;
+  --s0: #f2f3fa;
+  --s1: #ffffff;
+  --s2: #e7e9f6;
+  --s3: #d8dae8;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #e7e9f6;
+  --color-surface-opaque: #e7e9f6;
+  --veil: rgb(242 243 250 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
+/* dusk, dark */
+:is(html[data-mode="dark"][data-scheme="dusk"], html[data-mode="dark"] .theme-card[data-scheme="dusk"]) {
+  --color-accent: #c3a6ff;
+  --accent-rgb: 195 166 255;
+  --neon-cyan: #d6c0ff;
+  --neon-rgb: 214 192 255;
+  --s0: #241f33;
+  --s1: #2d2740;
+  --s2: #372f4d;
+  --s3: #463e5d;
+  --bg-rgb: 45 39 64;
+  --ov-rgb: 255 255 255;
+  --t1: #f0f3f8;
+  --t2: #d6dce7;
+  --t3: #b9c2d1;
+  --t4: #aeb8c9;
+  --c-red: #ff9a9a;
+  --c-green: #8ef0a6;
+  --c-amber: #ffc24d;
+  --c-violet: #cfaaff;
+  --c-sky: #9fe6ff;
+  --color-danger: #ff9a9a;
+  --color-warning: #ffc24d;
+  --color-surface-solid: #372f4d;
+  --color-surface-opaque: #372f4d;
+  --veil: rgb(36 31 51 / 0.7);
+  --well-k: 0.8;
+  --on-accent: #0b0f14;
+}
+
+/* dusk, light */
+:is(html[data-mode="light"][data-scheme="dusk"], html[data-mode="light"] .theme-card[data-scheme="dusk"]) {
+  --color-accent: #6a3fb0;
+  --accent-rgb: 106 63 176;
+  --neon-cyan: #6a3fb0;
+  --neon-rgb: 106 63 176;
+  --s0: #f5f2fa;
+  --s1: #ffffff;
+  --s2: #ece7f5;
+  --s3: #dcd7e6;
+  --bg-rgb: 255 255 255;
+  --ov-rgb: 0 0 0;
+  --t1: #1a1a24;
+  --t2: #34344a;
+  --t3: #4a4a60;
+  --t4: #5c5c72;
+  --c-red: #b72525;
+  --c-green: #166e2e;
+  --c-amber: #8a5200;
+  --c-violet: #6b32c9;
+  --c-sky: #00608f;
+  --color-danger: #b72525;
+  --color-warning: #8a5200;
+  --color-surface-solid: #ece7f5;
+  --color-surface-opaque: #ece7f5;
+  --veil: rgb(245 242 250 / 0.9);
+  --well-k: 0.2;
+  --on-accent: #ffffff;
+}
+
 /* ─── What follows the tokens ─────────────────────────────────────────────────────────────────── */
 
 /* The photograph behind the page, under a veil of the scheme's own surface colour: none for the

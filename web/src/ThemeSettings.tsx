@@ -35,6 +35,12 @@ function schemeLabel(s: Scheme): string {
       return t("Rose");
     case "graphite":
       return t("Graphite");
+    case "slate":
+      return t("Slate");
+    case "midnight":
+      return t("Midnight");
+    case "dusk":
+      return t("Dusk");
     default:
       return "Motita";
   }

@@ -174,7 +174,17 @@ test("the Themes tab shows the three modes and every scheme as a card, the saved
   );
   assert.deepEqual(
     cards.map((c) => text(c)),
-    ["Motita", "Violet", "Forest", "Amber", "Rose", "Graphite"],
+    [
+      "Motita",
+      "Violet",
+      "Forest",
+      "Amber",
+      "Rose",
+      "Graphite",
+      "Slate",
+      "Midnight",
+      "Dusk",
+    ],
   );
   assert.equal(m.radio("settings-scheme", "forest").checked, true);
   assert.equal(m.radio("settings-scheme", "motita").checked, false);
