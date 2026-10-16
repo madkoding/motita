@@ -2,8 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
@@ -179,9 +183,8 @@ func TestRunTaskHandsTheAgentTheProject(t *testing.T) {
 	}
 }
 
-// A tier engine exists only when the tier is assigned; the classifier answers strong when its
-// call fails, so a hard piece is never sent to the weak model because the judge was unreachable.
-func TestTierEngineAndClassifier(t *testing.T) {
+// A tier engine exists only when the tier is assigned.
+func TestTierEngineExistsOnlyWhenAssigned(t *testing.T) {
 	r, _ := modelsRunner(t, config.Models{})
 	if r.tierEngine(config.TaskCheap) != nil {
 		t.Error("an unassigned tier has no engine")
@@ -191,9 +194,73 @@ func TestTierEngineAndClassifier(t *testing.T) {
 	if r.tierEngine(config.TaskCheap) == nil || r.tierEngine(config.TaskStrong) != nil {
 		t.Error("the assigned tier has an engine, the other does not")
 	}
+}
+
+// classifierRunner is a runner whose session model answers every call with reply.
+func classifierRunner(t *testing.T, reply string) *AppRunner {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, reply)
+	}))
+	t.Cleanup(srv.Close)
+	r, _ := modelsRunner(t, config.Models{})
+	r.Cfg.LLM.BaseURL = srv.URL
+	r.Cfg.LLM.MaxAttempts = 1
+	r.Cfg.LLM.Timeout = 5 * time.Second
+	engine, err := llm.New(r.Cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+	return r
+}
+
+// The classifier sends EASY to the cheap tier and everything else, a failed call and an engine
+// that cannot be built included, to the strong one: a hard piece never goes to the weak model
+// because the judge was unreachable.
+func TestClassifyPieceDefaultsToStrong(t *testing.T) {
+	if got := classifierRunner(t, " easy ").classifyPiece(context.Background(), "p", "b"); got != config.TaskCheap {
+		t.Errorf("EASY = %q, want cheap", got)
+	}
+	if got := classifierRunner(t, "HARD").classifyPiece(context.Background(), "p", "b"); got != config.TaskStrong {
+		t.Errorf("HARD = %q, want strong", got)
+	}
 	ctx, stop := context.WithCancel(context.Background())
 	stop()
-	if got := r.classifyPiece(ctx, "p", "b"); got != config.TaskStrong {
-		t.Errorf("a failed judge answers %q, want strong", got)
+	if got := classifierRunner(t, "EASY").classifyPiece(ctx, "p", "b"); got != config.TaskStrong {
+		t.Errorf("a failed judge = %q, want strong", got)
+	}
+	broken, _ := modelsRunner(t, config.Models{})
+	broken.cfgMu.Lock()
+	broken.Engine, broken.Cfg.LLM.Provider = nil, "nope"
+	broken.cfgMu.Unlock()
+	if got := broken.classifyPiece(context.Background(), "p", "b"); got != config.TaskStrong {
+		t.Errorf("no engine = %q, want strong", got)
+	}
+}
+
+// tierAgent records the tier routing a turn hands it.
+type tierAgent struct {
+	askingAgent
+	engine   func(string) *llm.Client
+	classify func(context.Context, string, string) string
+}
+
+func (a *tierAgent) SetTiers(e func(string) *llm.Client, c func(context.Context, string, string) string) {
+	a.engine, a.classify = e, c
+}
+
+// A task turn hands its agent the session's tiers, like its role engines.
+func TestRunTaskHandsTheAgentTheTiers(t *testing.T) {
+	r, _ := modelsRunner(t, config.Models{})
+	ag := &tierAgent{askingAgent: askingAgent{res: agent.TaskResult{Pass: true, Summary: "done"}}}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
+		return ag
+	}
+	if _, err := r.RunTask(context.Background(), "do it", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if ag.engine == nil || ag.classify == nil || ag.engine(config.TaskCheap) != nil {
+		t.Error("the agent was not handed the session's tiers")
 	}
 }

@@ -707,7 +707,8 @@ func TestRolesRefusalsAndEngines(t *testing.T) {
 	}
 
 	place := childPlace{dir: a.cfg.Agent.WorkspaceDir}
-	if child := a.newChild(place, config.TaskReview, ""); !child.cfg.Agent.ReadOnly || !child.research || child.engine != nil {
+	child := a.newChild(place, config.TaskReview, "")
+	if !child.cfg.Agent.ReadOnly || !child.research || child.engine != nil {
 		t.Errorf("a reviewer reads only, on the agent's engine without a session's")
 	}
 	session := &llm.Client{}

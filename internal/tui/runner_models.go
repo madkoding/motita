@@ -116,14 +116,11 @@ func (r *AppRunner) tierEngine(tier string) *llm.Client {
 // piece of work is easy enough for the cheap tier. Any doubt, or any failure, is "strong": a hard
 // piece must never be sent to the weak model because the judge was unreachable.
 func (r *AppRunner) classifyPiece(ctx context.Context, purpose, brief string) string {
-	e := r.summaryEngine(nil)
-	if e == nil {
-		_, session, err := r.engine()
-		if err != nil || session == nil {
-			return config.TaskStrong
-		}
-		e = session
+	_, own, err := r.engine()
+	if err != nil {
+		return config.TaskStrong
 	}
+	e := r.summaryEngine(own)
 	out, err := e.Complete(ctx, []llm.Message{
 		{Role: "system", Content: "You route programming work to a model. Answer with ONE word: EASY when the " +
 			"piece is small, mechanical and well specified (a rename, a doc or comment edit, a config or " +

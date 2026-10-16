@@ -283,7 +283,8 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 	a.armChild(child, id, role, label, place.branch)
 
 	cctx, cancel := context.WithCancel(ctx)
-	c := &subagent{id: id, purpose: purpose, role: role, tier: tier, branch: place.branch, cancel: cancel, done: make(chan struct{})}
+	c := &subagent{id: id, purpose: purpose, role: role, tier: tier, branch: place.branch,
+		cancel: cancel, done: make(chan struct{})}
 	a.subs.mu.Lock()
 	a.subs.children = append(a.subs.children, c)
 	a.subs.mu.Unlock()
@@ -292,25 +293,7 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 		defer a.subs.wg.Done()
 		defer cancel()
 		desc := childBrief(purpose, brief, role, place, team)
-		r := child.processTask(cctx, task.Task{Description: desc, Origin: "spawn_agent " + id}, 1)
-		// A cheap agent that did not pass is not the end of the piece: the strong model takes it
-		// over in the same place, told what the first attempt left and why it stopped.
-		if tier == TierCheap && !r.Pass && cctx.Err() == nil && a.tierEngines != nil {
-			a.log.Info("a cheap background agent did not pass; escalating to the strong model", "id", id)
-			a.fleet.finish(child.member, AgentFailed, "did not pass on the cheap model; escalated")
-			a.subs.mu.Lock()
-			c.escalated = true
-			a.subs.mu.Unlock()
-			child = a.newChild(place, role, TierStrong)
-			a.armChild(child, id, role, TierStrong+" · "+label, place.branch)
-			note := strings.TrimSpace(r.Reason)
-			if note == "" {
-				note = strings.TrimSpace(r.Summary)
-			}
-			r = child.processTask(cctx, task.Task{Description: desc + "\n\nA cheaper model already tried this piece " +
-				"and did not finish it (" + truncate(collapse(note), 300) + "). What it left is in your directory; " +
-				"check it before building on it.", Origin: "spawn_agent " + id}, 1)
-		}
+		child, r := a.runChild(cctx, c, child, place, desc)
 		a.finishChild(c, child, place, r, cctx.Err() != nil)
 	}()
 	a.log.Info("background agent started", "id", id, "role", role, "purpose", truncate(purpose, 120),
@@ -328,6 +311,29 @@ func (a *Agent) spawnAgent(ctx context.Context, action Command) (string, error) 
 	}
 	return fmt.Sprintf("[started background agent %s%s: %s]\n%s\nIts report arrives in the round after it "+
 		"finishes; use wait_agents to wait for it.", id, roleTag(role), purpose, where), nil
+}
+
+// runChild runs a background agent's piece. A cheap agent that did not pass is not the end of the
+// piece: the strong model takes it over in the same place, told what the first attempt left and why
+// it stopped. It returns the agent that ended it and its result.
+func (a *Agent) runChild(ctx context.Context, c *subagent, child *Agent, place childPlace,
+	desc string) (*Agent, TaskResult) {
+	origin := "spawn_agent " + c.id
+	r := child.processTask(ctx, task.Task{Description: desc, Origin: origin}, 1)
+	if c.tier != TierCheap || r.Pass || ctx.Err() != nil {
+		return child, r
+	}
+	a.log.Info("a cheap background agent did not pass; escalating to the strong model", "id", c.id)
+	a.fleet.finish(child.member, AgentFailed, "did not pass on the cheap model; escalated")
+	a.subs.mu.Lock()
+	c.escalated = true
+	a.subs.mu.Unlock()
+	strong := a.newChild(place, c.role, TierStrong)
+	a.armChild(strong, c.id, c.role, TierStrong+" · "+truncate(collapse(c.purpose), 120), place.branch)
+	why := truncate(collapse(r.Reason+" "+r.Summary), 300)
+	desc += "\n\nA cheaper model already tried this piece and did not finish it (" + why + "). " +
+		"What it left is in your directory; check it before building on it."
+	return strong, strong.processTask(ctx, task.Task{Description: desc, Origin: origin}, 1)
 }
 
 // armChild gives a new background agent its row in the fleet, its progress relay and the main

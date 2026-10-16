@@ -163,7 +163,8 @@ func (a *Agent) SetRoleEngines(fn func(role string) *llm.Client) { a.roleEngines
 
 // SetTiers installs the cheap/strong routing of background agents: engine returns the engine of a
 // tier (nil when none is assigned), classify answers TierCheap or TierStrong for a piece of work.
-func (a *Agent) SetTiers(engine func(tier string) *llm.Client, classify func(ctx context.Context, purpose, brief string) string) {
+func (a *Agent) SetTiers(engine func(tier string) *llm.Client,
+	classify func(ctx context.Context, purpose, brief string) string) {
 	a.tierEngines, a.classify = engine, classify
 }
 
