@@ -182,3 +182,34 @@ test("the model for the graphics card runs there, or says why it could not", asy
   assert.equal(made.at(-1).kind, "gpu");
   assert.equal(made.at(-1).opts.executionProviders[0].name, "webgpu");
 });
+
+test("the card's own features are asked for: half floats, subgroups and the best timestamps", async () => {
+  const { gpuOrt } = await source("workerOrt.ts");
+  const asks = [];
+  const card = (features) => ({
+    limits: {},
+    features: new Set(features),
+    async requestDevice(o) {
+      asks.push(o.requiredFeatures);
+      return {};
+    },
+  });
+  const cards = [
+    [],
+    ["shader-f16", "subgroups", "timestamp-query"],
+    ["chromium-experimental-timestamp-query-inside-passes", "timestamp-query"],
+  ];
+  for (const features of cards) {
+    self.navigator.gpu = {
+      async requestAdapter() {
+        return card(features);
+      },
+    };
+    await gpuOrt(new ArrayBuffer(0));
+  }
+  assert.deepEqual(asks, [
+    [],
+    ["shader-f16", "subgroups", "timestamp-query"],
+    ["chromium-experimental-timestamp-query-inside-passes"],
+  ]);
+});

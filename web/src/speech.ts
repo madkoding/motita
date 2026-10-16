@@ -51,12 +51,6 @@ export interface SpeechPrefs {
   pitch: number;
   expressiveness: number;
   variation: number;
-  // supertonicSpeed is the pace a Supertonic voice speaks at (1.05 is its own), and
-  // supertonicSteps how many times its sound is refined (0 leaves it to where it runs).
-  supertonicSpeed: number;
-  supertonicSteps: number;
-  // chatterboxEmotion is how much emotion a Chatterbox voice puts in (its exaggeration).
-  chatterboxEmotion: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
   // Zero reads everything.
   maxChars: number;
@@ -108,9 +102,6 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   pitch: 1,
   expressiveness: 1,
   variation: 1,
-  supertonicSpeed: 1.05,
-  supertonicSteps: 0,
-  chatterboxEmotion: 0.5,
   maxChars: MEDIUM_CHARS,
   conversation: false,
   notices: false,
@@ -141,18 +132,6 @@ function oneOf<T>(v: unknown, list: T[], fallback: T): T {
 // variation.
 export const PITCH_RANGE: [number, number] = [0.5, 2];
 export const TUNE_RANGE: [number, number] = [0, 2];
-// SUPERTONIC_SPEED_RANGE is the pace a Supertonic voice can be asked for, and
-// SUPERTONIC_STEPS_RANGE how many times its sound is refined (0 is its own for where it runs).
-const SUPERTONIC_MIN_SPEED = 0.7;
-const SUPERTONIC_MAX_SPEED = 1.6;
-export const SUPERTONIC_SPEED_RANGE: [number, number] = [
-  SUPERTONIC_MIN_SPEED,
-  SUPERTONIC_MAX_SPEED,
-];
-export const SUPERTONIC_STEPS_RANGE: [number, number] = [0, 16];
-// EMOTION_RANGE is how much emotion a Chatterbox voice can be asked for.
-export const EMOTION_RANGE: [number, number] = [0.25, 2];
-
 // numberIn is v when it is a number within range, fallback otherwise.
 function numberIn(
   v: unknown,
@@ -176,18 +155,29 @@ function stringOr(v: unknown, fallback: string): string {
 const MAX_PRONUNCIATIONS = 200;
 const MAX_TERM = 80;
 
-// langVoicesOf keeps the voices of the languages this page knows.
-// RETIRED_VOICES start the ids of local voices taken out of the catalog (Kokoro's, and the files
-// that ran it on WebGPU).
-const RETIRED_VOICES = ["kokoro-", "accel-kokoro"];
+// PIPER_VOICES are the local voices the catalog offers (internal/voice/models.go): Piper's
+// high-quality ones in Spanish and English. DEFAULT_PIPER_VOICE is the one each interface language
+// starts with.
+export const PIPER_VOICES = [
+  "es_MX-claude-high",
+  "es_AR-daniela-high",
+  "en_US-lessac-high",
+  "en_GB-cori-high",
+  "en_US-ryan-high",
+];
+export const DEFAULT_PIPER_VOICE: Record<Lang, string> = {
+  es: "es_MX-claude-high",
+  en: "en_US-lessac-high",
+};
 
-// currentVoice is a saved local voice, or none when it was taken out of the catalog: the page
-// then reads with the device's voice until another is chosen.
-function currentVoice(id: string): string {
-  if (RETIRED_VOICES.some((p) => id.startsWith(p))) {
-    return "";
+// currentVoice is a saved local voice, or the default one for the interface language when it was
+// taken out of the catalog (Kokoro's, Supertonic's, Chatterbox's, Piper's lower qualities); none
+// stays none.
+function currentVoice(id: string, ui: Lang): string {
+  if (id === "" || PIPER_VOICES.includes(id)) {
+    return id;
   }
-  return id;
+  return DEFAULT_PIPER_VOICE[ui];
 }
 
 function langVoicesOf(v: unknown): Partial<Record<Lang, string>> {
@@ -249,7 +239,7 @@ export function formatPronunciations(list: Pronunciation[]): string {
   return list.map((p) => p.term + " = " + p.say).join("\n");
 }
 
-export function loadSpeechPrefs(): SpeechPrefs {
+export function loadSpeechPrefs(ui: Lang = "en"): SpeechPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(SPEECH_KEY) || "{}");
     const d = DEFAULT_SPEECH_PREFS;
@@ -258,7 +248,7 @@ export function loadSpeechPrefs(): SpeechPrefs {
       style: oneOf(raw.style, STYLES, d.style),
       engine: oneOf(raw.engine, ENGINES, d.engine),
       gatewayVoice: stringOr(raw.gatewayVoice, d.gatewayVoice),
-      localVoice: currentVoice(stringOr(raw.localVoice, d.localVoice)),
+      localVoice: currentVoice(stringOr(raw.localVoice, d.localVoice), ui),
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
@@ -268,23 +258,6 @@ export function loadSpeechPrefs(): SpeechPrefs {
         d.expressiveness,
       ),
       variation: numberIn(raw.variation, TUNE_RANGE, d.variation),
-      supertonicSpeed: numberIn(
-        raw.supertonicSpeed,
-        SUPERTONIC_SPEED_RANGE,
-        d.supertonicSpeed,
-      ),
-      supertonicSteps: Math.round(
-        numberIn(
-          raw.supertonicSteps,
-          SUPERTONIC_STEPS_RANGE,
-          d.supertonicSteps,
-        ),
-      ),
-      chatterboxEmotion: numberIn(
-        raw.chatterboxEmotion,
-        EMOTION_RANGE,
-        d.chatterboxEmotion,
-      ),
       maxChars: oneOf(raw.maxChars, LENGTHS, d.maxChars),
       conversation: raw.conversation === true,
       notices: raw.notices === true,

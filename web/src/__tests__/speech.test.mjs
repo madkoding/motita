@@ -4,6 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -25,6 +28,31 @@ const FAST = 1.5;
 const HIGH_PITCH = 1.5;
 const MAX_TERM = 80; // speech.ts: the longest term or saying a pronunciation keeps
 const NOT_ALLOWED = "not-allowed";
+
+test("the voices the page knows are the ones of the gateway's catalog: Piper's high quality, in Spanish and English", () => {
+  const catalog = readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "internal",
+      "voice",
+      "models.go",
+    ),
+    "utf8",
+  );
+  const ids = [...catalog.matchAll(/piperVoice\("[^"]*\/([^"/]+)",/g)].map(
+    (found) => found[1],
+  );
+  assert.deepEqual(m.PIPER_VOICES, ids);
+  for (const id of ids) {
+    assert.match(id, /^(es|en)_[A-Z]{2}-[a-z_]+-high$/);
+  }
+  for (const voice of Object.values(m.DEFAULT_PIPER_VOICE)) {
+    assert.ok(ids.includes(voice), voice + " is in the catalog");
+  }
+});
 
 test("the settings: read when I spoke, the device's voice, normal speed, and they are kept", () => {
   localStorage.clear();
@@ -59,9 +87,6 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     pitch: 1.5,
     expressiveness: 0.4,
     variation: 2,
-    supertonicSpeed: 1.3,
-    supertonicSteps: 12,
-    chatterboxEmotion: 1.2,
     conversation: true,
     notices: true,
     byLanguage: true,
@@ -88,9 +113,6 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       pitch: 9,
       expressiveness: -1,
       variation: "x",
-      supertonicSpeed: 3,
-      supertonicSteps: "many",
-      chatterboxEmotion: 0.1,
       subtitles: "yes",
       subtitleSize: "huge",
     }),
@@ -99,24 +121,27 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     ...m.DEFAULT_SPEECH_PREFS,
     maxChars: 600,
   });
-  // A voice taken out of the catalog (Kokoro's) is none, so the device's voice reads until
-  // another is chosen; steps are whole.
-  for (const [saved, kept] of [
-    ["kokoro-ef_dora", ""],
-    ["accel-kokoro", ""],
-    ["supertonic-F1", "supertonic-F1"],
+  // A voice taken out of the catalog (Kokoro's, Supertonic's, Chatterbox's, a lower quality of
+  // Piper's) becomes the default Piper voice of the interface language; a catalog voice and no
+  // voice at all stay as they are.
+  for (const [saved, ui, kept] of [
+    ["kokoro-ef_dora", "es", "es_MX-claude-high"],
+    ["accel-kokoro", "en", "en_US-lessac-high"],
+    ["supertonic-F1", "es", "es_MX-claude-high"],
+    ["chatterbox-default", "en", "en_US-lessac-high"],
+    ["es_ES-davefx-medium", "es", "es_MX-claude-high"],
+    ["en_US-ryan-high", "es", "en_US-ryan-high"],
+    ["", "es", ""],
   ]) {
     localStorage.setItem(
       m.SPEECH_KEY,
-      JSON.stringify({
-        engine: "local",
-        localVoice: saved,
-        supertonicSteps: 7.6,
-      }),
+      JSON.stringify({ engine: "local", localVoice: saved }),
     );
-    assert.equal(m.loadSpeechPrefs().localVoice, kept);
-    assert.equal(m.loadSpeechPrefs().supertonicSteps, 8);
+    assert.equal(m.loadSpeechPrefs(ui).localVoice, kept);
   }
+  // With no language told, the interface is taken as English.
+  localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ localVoice: "x" }));
+  assert.equal(m.loadSpeechPrefs().localVoice, "en_US-lessac-high");
   localStorage.setItem(m.SPEECH_KEY, "{not json");
   assert.deepEqual(m.loadSpeechPrefs(), m.DEFAULT_SPEECH_PREFS);
 });

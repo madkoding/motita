@@ -10,7 +10,7 @@ import (
 	"github.com/madkoding/motita/internal/voice"
 )
 
-// LOCAL VOICES: Piper, Supertonic and Chatterbox models the page runs itself (see voice.Library).
+// LOCAL VOICES: Piper voices the page runs itself (see voice.Library).
 //
 // The page lists the catalog, asks for one voice by id, and fetches the files from here. The
 // gateway downloads from the catalog's own addresses only, checks every file's hash, and serves
@@ -24,8 +24,7 @@ type localModelView struct {
 	Lang    string `json:"lang"`
 	Quality string `json:"quality"`
 	Engine  string `json:"engine"`
-	// Size is what downloading it takes now: its files, and its engine's model while that is
-	// not on disk.
+	// Size is what downloading it takes now: its files and the runtime it lacks.
 	Size      int64 `json:"size"`
 	Installed bool  `json:"installed"`
 	// Sample says GET /v1/voice/models/{id}/sample plays it before it is downloaded.

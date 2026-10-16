@@ -16,10 +16,6 @@ export function workerError(message: string): string {
   switch (message) {
     case NO_WEBGPU:
       return t("This browser has no WebGPU for the page's workers.");
-    case "Chatterbox needs WebGPU":
-      return t(
-        "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.",
-      );
     case "the browser gave no graphics card to use":
       return t("The browser gave no graphics card to use.");
     case "the local listener stopped":

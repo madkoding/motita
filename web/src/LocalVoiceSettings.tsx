@@ -17,7 +17,6 @@ import {
   warmLocal,
 } from "./localVoice";
 import { gpuAllowed } from "./gpuPolicy";
-import { isChatterbox, isSupertonic } from "./localVoiceCore";
 import { isBrowserLLM } from "./browserLLMCore";
 import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
@@ -30,18 +29,6 @@ export const DOWNLOAD_POLL_MS = 1000;
 export function megabytes(n: number): string {
   return Math.max(1, Math.round(n / 1e6)).toLocaleString(lang()) + " MB";
 }
-
-// MANY_LANGS is the language of a voice that speaks many (Supertonic's).
-const MANY_LANGS = "mul";
-
-// ENGINES name the engines besides Piper, as a voice's details start.
-const ENGINES: Record<string, string> = {
-  supertonic: "Supertonic · ",
-  chatterbox: "Chatterbox · ",
-};
-
-// LANGUAGES_OF is how many languages a voice that speaks many speaks here, by its engine.
-const LANGUAGES_OF: Record<string, number> = { supertonic: 31, chatterbox: 21 };
 
 // qualityLabel names a voice's quality.
 export function qualityLabel(q: string): string {
@@ -79,22 +66,18 @@ function byLanguage(models: LocalModel[]): LocalModel[] {
   return [...models.filter(mine), ...models.filter((m) => !mine(m))];
 }
 
-// QUALITY_FILTERS are the qualities the list can be narrowed to; low counts the very low too.
-const QUALITY_FILTERS = ["high", "medium", "low"];
-
 // FILTERS_KEY keeps the list's filters from one visit to the next.
 export const FILTERS_KEY = "motita.ui.localVoiceFilters";
 
-// Filters narrow the list: "" is every language, or every quality.
+// Filters narrow the list: "" is every language.
 export interface Filters {
   language: string;
-  quality: string;
 }
 
 // loadFilters reads the filters kept last time; the list opens on the interface's language
 // when there are none.
 export function loadFilters(): Filters {
-  const none = { language: lang(), quality: "" };
+  const none = { language: lang() };
   try {
     const raw = JSON.parse(localStorage.getItem(FILTERS_KEY) || "{}");
     return {
@@ -103,7 +86,6 @@ export function loadFilters(): Filters {
         raw.language,
         none.language,
       ),
-      quality: choose(QUALITY_FILTERS.includes(raw.quality), raw.quality, ""),
     };
   } catch {
     return none;
@@ -119,8 +101,8 @@ export function saveFilters(f: Filters): void {
   }
 }
 
-// useWebGPU says whether this browser has WebGPU and a graphics card it can use, which Chatterbox
-// needs: false until the browser answers.
+// useWebGPU says whether this browser has WebGPU and a graphics card it can use, which the models
+// that listen use when they can: false until the browser answers.
 export function useWebGPU(): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
@@ -136,13 +118,9 @@ export function useWebGPU(): boolean {
   return has;
 }
 
-// shown says whether a voice passes the filters ("" lets every one through).
-function shown(m: LocalModel, language: string, quality: string): boolean {
-  const q = choose(m.quality === "x-low", "low", m.quality);
-  // A voice that speaks many languages speaks the one chosen too.
-  const speaks =
-    language === "" || baseLang(m) === language || m.lang === MANY_LANGS;
-  return speaks && (quality === "" || q === quality);
+// shown says whether a voice passes the language filter ("" lets every one through).
+function shown(m: LocalModel, language: string): boolean {
+  return language === "" || baseLang(m) === language;
 }
 
 // useSample plays one voice's sample at a time: play starts one (stopping any other), or stops
@@ -290,25 +268,20 @@ export function KeptNote({ catalog }: { catalog: LocalCatalog }) {
 }
 
 // LocalVoices lists the voices the gateway can download to run in this browser: download one,
-// follow its progress, choose it, or delete it. A Chatterbox voice in use has its emotion setting.
+// follow its progress, choose it, or delete it.
 export function LocalVoices({
   api,
   chosen,
   choose: pick,
-  emotion = 0.5,
-  setEmotion = () => undefined,
 }: {
   api: Api;
   chosen: string;
   choose: (id: string) => void;
-  // emotion is how much emotion a Chatterbox voice puts in.
-  emotion?: number;
-  setEmotion?: (n: number) => void;
 }) {
   const { catalog, error, busy, downloading, act } = useCatalog(api, voicesOf);
   // The list opens on the filters chosen last time.
   const [filters, setFilters] = useState<Filters>(loadFilters);
-  const { language, quality } = filters;
+  const { language } = filters;
   const filter = (f: Partial<Filters>) => {
     const next = { ...filters, ...f };
     setFilters(next);
@@ -318,15 +291,13 @@ export function LocalVoices({
 
   const dl = catalog?.download;
 
-  // The first voice downloaded is the one used, when none was chosen, or when the one chosen
-  // is Chatterbox on a device that does not give it WebGPU (a phone, say): it would only fail.
+  // The first voice downloaded is the one used, when none was chosen or the one chosen is not on
+  // this device (the default a saved voice that left the catalog was moved to, say).
   useEffect(() => {
-    if (chosen && !(isChatterbox(chosen) && !gpuAllowed())) {
+    if (catalog?.models.some((m) => m.id === chosen && m.installed)) {
       return;
     }
-    const ready = catalog?.models.find(
-      (m) => m.installed && !isChatterbox(m.id),
-    );
+    const ready = catalog?.models.find((m) => m.installed);
     if (ready) {
       pick(ready.id);
     }
@@ -344,7 +315,6 @@ export function LocalVoices({
     undefined,
   );
   const loading = useLoadState(chosen) ?? pending;
-  const webGPU = useWebGPU();
   useEffect(() => {
     if (chosenReady && localVoicesSupported()) {
       warmLocal(chosen);
@@ -358,10 +328,7 @@ export function LocalVoices({
       </div>
     );
   }
-  // Chatterbox runs only on the graphics card: it is offered where the browser has one.
-  const voices = catalog.models.filter(
-    (m) => m.engine !== "chatterbox" || webGPU,
-  );
+  const voices = catalog.models;
   const languages = [...new Set(byLanguage(voices).map(baseLang))];
   const visible = listed(voices, languages, filters, [chosen, dl?.id]);
   // The voice in use and the one downloading stay in sight; the rest wait folded, with the filters.
@@ -415,22 +382,6 @@ export function LocalVoices({
               </option>
             ))}
           </select>
-          <select
-            class={inputCls}
-            aria-label={t("Quality")}
-            data-testid="local-voice-quality"
-            value={quality}
-            onChange={(e) =>
-              filter({ quality: (e.target as HTMLSelectElement).value })
-            }
-          >
-            <option value="">{t("Every quality")}</option>
-            {QUALITY_FILTERS.map((q) => (
-              <option key={q} value={q}>
-                {qualityLabel(q)}
-              </option>
-            ))}
-          </select>
         </div>
         {rest.length === 0 && (
           <div class="text-xs text-[#7a7a8c]">
@@ -439,15 +390,6 @@ export function LocalVoices({
         )}
         {rest.map(row)}
       </Collapsed>
-      {isSupertonic(chosen) && loading?.gpuError && (
-        <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
-          {tf(
-            "WebGPU could not start here ({reason}): Supertonic runs on the processor.",
-            { reason: workerError(loading.gpuError) },
-          )}
-        </div>
-      )}
-      {isChatterbox(chosen) && <Emotion value={emotion} set={setEmotion} />}
       <Failures
         sample={sample.error}
         download={dl?.error}
@@ -472,7 +414,7 @@ function listed(
     "",
   );
   return byLanguage(voices).filter(
-    (m) => kept.includes(m.id) || shown(m, language, filters.quality),
+    (m) => kept.includes(m.id) || shown(m, language),
   );
 }
 
@@ -529,17 +471,10 @@ function VoiceRow({
         )}
         <div class="min-w-0">
           <div class="text-sm text-[#e8e8ea] truncate">
-            {m.name} ·{" "}
-            {choose(
-              m.lang === MANY_LANGS,
-              tf("{n} languages", { n: String(LANGUAGES_OF[m.engine] ?? "") }),
-              m.lang,
-            )}
+            {m.name} · {m.lang}
           </div>
           <div class="text-xs text-[#7a7a8c]">
-            {ENGINES[m.engine] ?? ""}
-            {qualityLabel(m.quality)} · {megabytes(m.size)}
-            {choose(m.id === chosen && !!loading?.gpu, " · WebGPU", "")}
+            Piper · {qualityLabel(m.quality)} · {megabytes(m.size)}
           </div>
         </div>
       </div>
@@ -721,38 +656,5 @@ function Failures({
           ),
       )}
     </>
-  );
-}
-
-// EMOTION_STEP is how far one step of the emotion slider moves.
-const EMOTION_STEP = 0.05;
-
-// Emotion sets how much emotion a Chatterbox voice puts in: its own default is 0.5; more is more
-// expressive (and a little faster).
-function Emotion({ value, set }: { value: number; set: (n: number) => void }) {
-  return (
-    <div class="flex flex-col gap-1" data-testid="local-voice-emotion">
-      <label class="flex items-center gap-3 text-sm text-[#e8e8ea]">
-        {t("Emotion")}
-        <input
-          type="range"
-          class="flex-1 accent-[var(--color-accent,#4cc2ff)]"
-          data-testid="local-voice-emotion-amount"
-          min={0.25}
-          max={2}
-          step={EMOTION_STEP}
-          value={value}
-          onInput={(e) => set(Number((e.target as HTMLInputElement).value))}
-        />
-        <span class="w-10 text-right text-xs text-[#a0a0b0] tabular-nums">
-          {value.toLocaleString(lang())}
-        </span>
-      </label>
-      <div class="text-xs text-[#7a7a8c]">
-        {t(
-          "How much emotion the voice puts in: 0.5 is its own; more is livelier and a little faster.",
-        )}
-      </div>
-    </div>
   );
 }
