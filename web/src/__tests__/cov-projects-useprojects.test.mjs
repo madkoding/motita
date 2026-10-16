@@ -1072,13 +1072,14 @@ test("the workspace catalog is read when a dialog with repositories opens", asyn
   await flush();
   assert.deepEqual(s.p.repoCatalog, CATALOG);
 
-  // A refused answer keeps what the dialog had.
+  // Closing the dialog empties the list, and a refused answer leaves it empty.
   await run(() => s.p.closeNewProject());
+  assert.deepEqual(s.p.repoCatalog, []);
   answer = res(500, { error: "x" });
   await run(() => s.p.openNewProject());
   await flush();
   assert.equal(callsTo(s, "GET /v1/repos").length, 2);
-  assert.deepEqual(s.p.repoCatalog, CATALOG);
+  assert.deepEqual(s.p.repoCatalog, []);
 
   // An answer with no list is an empty catalog.
   await run(() => s.p.closeNewProject());
@@ -1086,6 +1087,24 @@ test("the workspace catalog is read when a dialog with repositories opens", asyn
   await run(() => s.p.openEditProject(PROJECT));
   await flush();
   assert.deepEqual(s.p.repoCatalog, []);
+  await s.m.unmount();
+});
+
+test("a catalog answer that arrives after the dialog closed is not shown", async () => {
+  const CATALOG = [{ name: "web", git_url: "u/web", dir: "/w/repos/web", projects: [] }];
+  let release;
+  const s = await setup({
+    "GET /v1/repos": () =>
+      new Promise((ok) => {
+        release = () => ok(res(200, { repos: CATALOG }));
+      }),
+  });
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.closeNewProject());
+  release();
+  await flush();
+  await flush();
+  assert.deepEqual(s.p.repoCatalog, [], "the answer was for a dialog that is gone");
   await s.m.unmount();
 });
 

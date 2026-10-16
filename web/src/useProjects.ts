@@ -256,18 +256,27 @@ function useRepoCatalog(api: Api, open: boolean, version: unknown) {
   const [repoCatalog, setRepoCatalog] = useState<CatalogRepo[]>([]);
   useEffect(() => {
     if (!open) {
-      return;
+      // What was listed belongs to the dialog that closed: the next one reads it again.
+      setRepoCatalog([]);
+      return undefined;
     }
+    // An answer that arrives after the dialog closed, or after a newer read began, is not shown.
+    let live = true;
     api("/v1/repos")
       .then(async (res) => {
         if (res.ok) {
           const d: { repos?: CatalogRepo[] } = await res.json();
-          setRepoCatalog(d.repos ?? []);
+          if (live) {
+            setRepoCatalog(d.repos ?? []);
+          }
         }
       })
       .catch(() => {
         /* without the catalog, a repository is added by its URL */
       });
+    return () => {
+      live = false;
+    };
   }, [open, version]);
   return { repoCatalog };
 }
