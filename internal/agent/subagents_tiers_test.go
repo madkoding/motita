@@ -148,8 +148,13 @@ func TestACheapAgentThatFailsEscalatesToTheStrongModel(t *testing.T) {
 		t.Errorf("the report names both tiers:\n%s", all)
 	}
 	var seen string
+	ids := map[string]bool{}
 	for _, ag := range sink.lastAgents(t) {
 		seen += ag.Purpose + "|"
+		if ids[ag.ID] {
+			t.Errorf("two fleet rows share the id %q", ag.ID)
+		}
+		ids[ag.ID] = true
 	}
 	if !strings.Contains(seen, "cheap") {
 		t.Errorf("the fleet names the tier: %s", seen)
