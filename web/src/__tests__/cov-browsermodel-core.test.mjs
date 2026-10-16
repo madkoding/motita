@@ -158,10 +158,10 @@ test("it answers greedily until the model ends its turn", async () => {
     assert.equal(first.input_ids.dims[1], 3);
     assert.equal(first.attention_mask.dims[1], 3);
     assert.deepEqual([...first.position_ids.data], [0n, 1n, 2n]);
-    assert.equal(
-      first["past_key_values.0.key"].type,
-      half ? "float16" : "float32",
-    );
+    // Regression: both builds take 32-bit caches (float16 failed OrtRun with "Unexpected input data type").
+    for (const name of Object.keys(first).filter((k) => k.startsWith("past_")))
+      assert.equal(first[name].type, "float32", name);
+    assert.ok(first["past_key_values.0.key"].data instanceof Float32Array);
     assert.deepEqual(first["past_key_values.23.value"].dims, [1, 2, 0, 64]);
     const second = log.feeds[1];
     assert.deepEqual([...second.input_ids.data], [7n]);
