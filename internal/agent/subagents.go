@@ -330,17 +330,18 @@ func (a *Agent) runChild(ctx context.Context, c *subagent, child *Agent, place c
 	a.subs.mu.Unlock()
 	strong := a.newChild(place, c.role, TierStrong)
 	// Its own row id: the cheap attempt keeps its row (failed), and no two rows share an id.
-	a.armChild(strong, c.id, c.id+"/"+TierStrong, c.role, TierStrong+" · "+truncate(collapse(c.purpose), 120), place.branch)
+	label := TierStrong + " · " + truncate(collapse(c.purpose), 120)
+	a.armChild(strong, c.id, c.id+"/"+TierStrong, c.role, label, place.branch)
 	why := truncate(collapse(r.Reason+" "+r.Summary), 300)
 	desc += "\n\nA cheaper model already tried this piece and did not finish it (" + why + "). " +
 		"What it left is in your directory; check it before building on it."
 	return strong, strong.processTask(ctx, task.Task{Description: desc, Origin: origin}, 1)
 }
 
-// armChild gives a new background agent (id, shown on its own fleet row) its row in the fleet, its progress relay and the main
-// agent's approver, marked: a session where the user allowed every command lets a background
-// agent run what the main agent could, and any other question is refused instead of being asked
-// about a run nobody is watching. With no approver at all, a child has none either.
+// armChild gives a new background agent (id, on its own fleet row) its row in the fleet, its
+// progress relay and the main agent's approver, marked: a session where the user allowed every
+// command lets a background agent run what the main agent could, and any other question is refused
+// instead of being asked about a run nobody is watching. With no approver at all, a child has none either.
 func (a *Agent) armChild(child *Agent, id, row, role, label, branch string) {
 	child.member = a.fleet.add(a.member.id, row, label, branch)
 	child.Progress = a.relayProgress(id, role, child.Progress)

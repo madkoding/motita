@@ -15,7 +15,10 @@ func TestTheCatalogLocksOneRepositoryAtATime(t *testing.T) {
 	release := srv.lockCatalogRepo("https://Example.com/a/b.git")
 
 	other := make(chan struct{})
-	go func() { srv.lockCatalogRepo("https://example.com/a/c")(); close(other) }()
+	go func() {
+		srv.lockCatalogRepo("https://example.com/a/c")()
+		close(other)
+	}()
 	select {
 	case <-other:
 	case <-time.After(3 * time.Second):
@@ -23,7 +26,10 @@ func TestTheCatalogLocksOneRepositoryAtATime(t *testing.T) {
 	}
 
 	same := make(chan struct{})
-	go func() { srv.lockCatalogRepo("https://example.com/a/b/")(); close(same) }()
+	go func() {
+		srv.lockCatalogRepo("https://example.com/a/b/")()
+		close(same)
+	}()
 	select {
 	case <-same:
 		t.Fatal("the same repository, spelled another way, did not wait")
