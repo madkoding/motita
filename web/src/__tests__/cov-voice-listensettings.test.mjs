@@ -289,3 +289,36 @@ test("a language the browser cannot name is shown by its code", async () => {
   }
   assert.equal(listenSettings.recommendedFor(false), "whisper-base");
 });
+
+test("on a phone the models run on the processor, with a switch to force WebGPU", async () => {
+  const ua = Object.getOwnPropertyDescriptor(navigator, "userAgent");
+  Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Linux; Android 14) Mobile", configurable: true });
+  navigator.gpu = { requestAdapter: async () => ({}) };
+  localStorage.clear();
+  try {
+    const m = await mount();
+    assert.match(text(m.root), /Whisper runs in this browser, on the processor/);
+    assert.doesNotMatch(text(m.tid("local-listeners")), /WebGPU/, "no model for the card is offered");
+    const sw = m.root.querySelector("#settings-gpu-mobile input, [aria-labelledby=settings-gpu-mobile]");
+    assert.ok(sw, "the switch is there");
+    assert.equal(sw.checked, false);
+    sw.checked = true;
+    await act(() => sw.dispatchEvent(new Event("change", { bubbles: true })));
+    await settle();
+    assert.equal(localStorage.getItem("motita.ui.localGpuForced"), "1");
+    await m.done();
+    // Forced: WebGPU is offered again.
+    const f = await mount();
+    assert.match(text(f.root), /on WebGPU where there is one/);
+    assert.match(text(f.tid("local-listeners")), /WebGPU/);
+    await f.done();
+  } finally {
+    delete navigator.gpu;
+    localStorage.clear();
+    if (ua) {
+      Object.defineProperty(navigator, "userAgent", ua);
+    } else {
+      delete navigator.userAgent;
+    }
+  }
+});

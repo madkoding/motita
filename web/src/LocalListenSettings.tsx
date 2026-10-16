@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { lang, t, tf } from "./i18n";
 import { choose } from "./choose";
+import { gpuAllowed } from "./gpuPolicy";
 import { type LocalCatalog, type LocalModel, type LoadState, deleteVoice, installVoice } from "./localVoice";
 import { isWhisper } from "./localListenCore";
 import { forGPU, listenStateOf, onListenState, warmListener } from "./localListen";
@@ -116,8 +117,12 @@ export function LocalListening({
         id="settings-listen-models"
         label={t("Model to listen with")}
         stack
-        hint={t(
-          "Whisper runs in this browser, on WebGPU where there is one and on WebAssembly otherwise: what you say never leaves this device.",
+        hint={choose(
+          gpuAllowed(),
+          t(
+            "Whisper runs in this browser, on WebGPU where there is one and on WebAssembly otherwise: what you say never leaves this device.",
+          ),
+          t("Whisper runs in this browser, on the processor: what you say never leaves this device."),
         )}
       >
         <div class="flex flex-col gap-2 w-full" data-testid="local-listeners">

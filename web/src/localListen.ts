@@ -3,6 +3,7 @@
 //
 // The models are downloaded, listed and deleted like the local voices (localVoice.ts): they are
 // part of the same catalog, with engine "whisper".
+import { workerName } from "./gpuPolicy";
 import { WHISPER_GPU, WHISPER_RATE, type FromListener, type ToListener } from "./localListenCore";
 import { choose } from "./choose";
 import type { LoadState } from "./localVoice";
@@ -62,7 +63,7 @@ function arm(n: number, p: Pending): void {
 
 function getWorker(): Worker {
   if (!worker) {
-    const w = new Worker(new URL("./speechListen.worker.ts", import.meta.url), { type: "module" });
+    const w = new Worker(new URL("./speechListen.worker.ts", import.meta.url), { type: "module", name: workerName() });
     worker = w;
     w.onmessage = (e: MessageEvent<FromListener>) => {
       const m = e.data;
