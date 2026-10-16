@@ -1256,7 +1256,7 @@ last connection test listed). Each catalogue model may carry `tier` (`basic`, `m
 `frontier`), `cost` (`local`, `low`, `mid`, `high`) and `price_in` / `price_out` (approximate USD per
 million tokens, from `internal/onboard/providers.go`, revised by hand; absent for subscriptions and
 local models), which Settings → Models shows next to each model. A model a provider lists that the
-catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price).
+catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesCheckedOn`).
 
 ### Voice input
 

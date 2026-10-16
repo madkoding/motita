@@ -26,6 +26,8 @@ export interface LLMModel {
   cost?: string;
   price_in?: number;
   price_out?: number;
+  // True when tier and cost were guessed from the model's name, not read from the catalogue.
+  estimated?: boolean;
 }
 
 export interface LLMProvider {
@@ -62,6 +64,8 @@ export interface LLMView {
   // The kinds of work a model can be assigned to, in the order to show them, and the assignments.
   task_kinds?: string[];
   tasks?: Record<string, ModelChoice>;
+  // The day the catalogue's prices were last compared with the vendors' pages.
+  prices_checked?: string;
 }
 
 export interface TestResult {
@@ -270,6 +274,7 @@ export interface ModelOption {
   cost?: string;
   price_in?: number;
   price_out?: number;
+  estimated?: boolean;
 }
 
 // modelOptions are the models a provider offers, by name where its catalogue gives one: the ones
@@ -286,7 +291,7 @@ export function modelOptions(p: LLMProvider | undefined): ModelOption[] {
   return ids.map((id) => {
     const m = known(id);
     const facts: Partial<ModelOption> = {};
-    for (const k of ["tier", "cost", "price_in", "price_out"] as const) {
+    for (const k of ["tier", "cost", "price_in", "price_out", "estimated"] as const) {
       if (m?.[k] !== undefined) {
         Object.assign(facts, { [k]: m[k] });
       }
