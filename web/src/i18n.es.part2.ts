@@ -173,6 +173,9 @@ const more: Record<string, string> = {
     "Le pide un título, a través del gateway, como lo haría el agente.",
   "“{text}” in {seconds} s": "«{text}» en {seconds} s",
   "Trying it…": "Probando…",
+  "Trying it… {seconds} s": "Probando… {seconds} s",
+  "Still working: a card that emulates WebGPU on the processor can take minutes.":
+    "Sigue trabajando: una tarjeta que emula WebGPU con el procesador puede tardar minutos.",
   "It ran in {seconds} s but answered nothing.":
     "Corrió en {seconds} s pero no respondió nada.",
   "Model in this browser": "Modelo en este navegador",

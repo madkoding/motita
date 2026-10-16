@@ -502,8 +502,14 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   tab.test = () =>
     new Promise((r) => (release = () => r(json({ text: "ok", ms: 1 }))));
   await act(() => tryButton(m).click());
-  assert.equal(text(result()), "Trying it…");
+  assert.equal(text(result()), "Trying it… 0 s");
   assert.equal(tryButton(m).disabled, true);
+  // A slow test counts its seconds and, past twenty, says it is not stuck.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 25_000;
+  await act(() => new Promise((r) => realTimeout(r, 1100)));
+  Date.now = realNow;
+  assert.match(text(result()), /Trying it… 2\d s Still working: .*minutes/);
   release();
   await settle();
   assert.match(text(m.box()), /“ok” in 0\.0 s/);
