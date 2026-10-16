@@ -80,12 +80,24 @@ func gitAnyVerbRunsCode(name string) bool {
 func gitOneVerbRunsCode(sub, a, name string) bool {
 	switch sub {
 	case "rebase":
-		return strings.HasPrefix(a, "-x") || abbreviates(name, "--exec", len("--ex"))
+		return shortBundleHas(a, "x") || abbreviates(name, "--exec", len("--ex"))
 	case "grep":
-		return strings.HasPrefix(a, "-O") || abbreviates(name, "--open-files-in-pager", len("--op"))
+		return shortBundleHas(a, "O") || abbreviates(name, "--open-files-in-pager", len("--op"))
 	case "clone":
-		return strings.Contains(a, "::") || a == "-u" || a == "-c" || hasAnyPrefix(name, gitCloneRunsCode)
+		return strings.Contains(a, "::") || shortBundleHas(a, "uc") || hasAnyPrefix(name, gitCloneRunsCode) ||
+			abbreviates(name, "--template", len("--tem"))
 	default:
 		return false
 	}
+}
+
+// shortBundleHas reports whether a is a bundle of short options (`-ix`, `-nO'cmd'`, `-qu`) that
+// contains one of the letters. Git reads the letters left to right and the first one that takes
+// a value swallows the rest, so a letter after it is a value, not an option; every letter that
+// takes a value in the verbs checked here is in the set asked about or ends the scan.
+func shortBundleHas(a, letters string) bool {
+	if len(a) < 2 || a[0] != '-' || a[1] == '-' {
+		return false
+	}
+	return strings.ContainsAny(a[1:], letters)
 }
