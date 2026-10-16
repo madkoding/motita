@@ -51,8 +51,10 @@ func (m Mode) unconfinedDecision(d Decision, args []string, dir string) Decision
 			"starts could read the user's keys and logins, and it is confirmed", "unconfined-run", false}
 	}
 	for _, a := range args {
-		if p, ok := pathOperand(a); ok && m.unconfinedOutside(p, dir) {
-			return m.unconfinedRead(d.Reason, p, dir)
+		for _, p := range pathOperands(a) {
+			if m.unconfinedOutside(p, dir) {
+				return m.unconfinedRead(d.Reason, p, dir)
+			}
 		}
 	}
 	return d
@@ -77,6 +79,20 @@ func pathOperand(word string) (string, bool) {
 		w = w[i+1:]
 	}
 	return w, w != ""
+}
+
+// pathOperands are the paths a word may name: pathOperand's, and for a short option written
+// with its value glued on (`-f../../.ssh/id_rsa`, `-f~/.ssh/id_rsa`) the value after the letter,
+// which pathOperand cannot see because the word has no `=` or `:`.
+func pathOperands(word string) []string {
+	var paths []string
+	if p, ok := pathOperand(word); ok {
+		paths = append(paths, p)
+	}
+	if w := unquote(word); len(w) > 2 && w[0] == '-' && w[1] != '-' {
+		paths = append(paths, w[2:])
+	}
+	return paths
 }
 
 // unconfinedOutside reports whether p, a path a command was handed, is outside dir or among the

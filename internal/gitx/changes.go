@@ -2,6 +2,8 @@ package gitx
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -52,6 +54,31 @@ func WorkingTreeChanges(ctx context.Context, dir string) (int, error) {
 			continue
 		}
 		n++
+	}
+	return n, nil
+}
+
+// UnpublishedCommits counts the commits reachable from a local branch that no remote-tracking
+// branch has: work that exists only in dir's repository, so deleting it loses it. A directory that
+// is not a repository has none; losing git is reported, as WorkingTreeChanges does.
+func UnpublishedCommits(ctx context.Context, dir string) (int, error) {
+	if dir == "" {
+		return 0, nil
+	}
+	if err := Repo(ctx, dir); err != nil {
+		if isNoGit(err) {
+			return 0, err
+		}
+		return 0, nil
+	}
+	out, err := noGitOr(ctx, "could not count the unpublished commits", dir,
+		"rev-list", "--count", "--branches", "--not", "--remotes")
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("could not read the unpublished commit count %q: %w", out, err)
 	}
 	return n, nil
 }

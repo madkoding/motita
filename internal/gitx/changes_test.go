@@ -177,3 +177,40 @@ func TestWorkingTreeChangesOfADirectoryThatVanished(t *testing.T) {
 		t.Errorf("changes = %d, want 0", n)
 	}
 }
+
+func TestUnpublishedCommitsCountsWhatNoRemoteHas(t *testing.T) {
+	ctx := context.Background()
+	origin := newRepo(t)
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+	if n, err := UnpublishedCommits(ctx, clone); err != nil || n != 0 {
+		t.Fatalf("a fresh clone has nothing unpublished: %d %v", n, err)
+	}
+	git(t, clone, "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-q", "--allow-empty", "-m", "local")
+	if n, err := UnpublishedCommits(ctx, clone); err != nil || n != 1 {
+		t.Errorf("one local commit: %d %v", n, err)
+	}
+	if n, err := UnpublishedCommits(ctx, ""); err != nil || n != 0 {
+		t.Errorf("no directory: %d %v", n, err)
+	}
+	if n, err := UnpublishedCommits(ctx, t.TempDir()); err != nil || n != 0 {
+		t.Errorf("not a repository: %d %v", n, err)
+	}
+}
+
+func TestUnpublishedCommitsReportsWhatGoesWrong(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	stubOn(t, "rev-list --count", "not a number", nil)
+	if _, err := UnpublishedCommits(ctx, repo); err == nil {
+		t.Error("a count that is not a number is an error")
+	}
+	failOnGit(t, "rev-list --count")
+	if _, err := UnpublishedCommits(ctx, repo); err == nil {
+		t.Error("a git that fails is an error")
+	}
+	noGit(t)
+	if _, err := UnpublishedCommits(ctx, repo); err != ErrNoGit {
+		t.Errorf("no git is reported as such: %v", err)
+	}
+}
