@@ -24,6 +24,11 @@ func TestWsWriteFrameGivesUpOnAClientThatStopsReading(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("writeFrame blocked on a client that stopped reading")
 	}
+	// The failed write must have closed the connection: a half-written frame desyncs the stream.
+	_ = server.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := server.Read(make([]byte, 1)); err == nil || err.Error() != "io: read/write on closed pipe" {
+		t.Errorf("connection left open after a failed write, read error = %v", err)
+	}
 
 	closed := make(chan struct{})
 	go func() {
