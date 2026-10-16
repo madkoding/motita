@@ -114,7 +114,8 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	if p := providerOf(v, "ollama"); !p.AskBaseURL || p.BaseURL != "" || p.DefaultBaseURL != "http://localhost:11434/v1" {
 		t.Errorf("ollama = %+v", p)
 	}
-	if p := providerOf(v, "ollama-cloud"); p.AskBaseURL || p.BaseURL != "https://ollama.com/v1" || p.Key != config.KeyMissing {
+	p := providerOf(v, "ollama-cloud")
+	if p.AskBaseURL || p.BaseURL != "https://ollama.com/v1" || p.Key != config.KeyMissing {
 		t.Errorf("ollama-cloud = %+v", p)
 	}
 	for _, w := range []*httptest.ResponseRecorder{

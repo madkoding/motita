@@ -188,10 +188,10 @@ func ollamaProvider() Provider {
 		// Populated at runtime from the models the server has pulled. The list below is what is
 		// offered when it cannot be reached.
 		Models: []Model{
-			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box",
+			{ID: modelGPTOSS20, Label: modelGPTOSS20, Note: "lightest, good on an i386 box",
 				Tier: "basic", Cost: "local"},
-			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick", Tier: "basic", Cost: "local"},
-			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight",
+			{ID: modelGemma31, Label: modelGemma31, Note: "small and quick", Tier: "basic", Cost: "local"},
+			{ID: modelNemotronNano, Label: modelNemotronNano, Note: "lightweight",
 				Tier: "basic", Cost: "local"},
 			{ID: "qwen3:8b", Label: "qwen3:8b", Note: "small, runs on a laptop", Tier: "basic", Cost: "local"},
 		},
@@ -232,11 +232,11 @@ func ollamaCloudProvider() Provider {
 				Tier: "mid", Cost: "low"},
 			{ID: "muse-spark-open", Label: "muse-spark-open", Note: "multimodal, 1M context",
 				Tier: "frontier", Cost: "mid"},
-			{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick",
+			{ID: modelGemma31, Label: modelGemma31, Note: "small and quick",
 				Tier: "basic", Cost: "low"},
-			{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight",
+			{ID: modelNemotronNano, Label: modelNemotronNano, Note: "lightweight",
 				Tier: "basic", Cost: "low"},
-			{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box",
+			{ID: modelGPTOSS20, Label: modelGPTOSS20, Note: "lightest, good on an i386 box",
 				Tier: "basic", Cost: "low"},
 		},
 		FetchModels: true,
@@ -372,3 +372,10 @@ func DefaultBaseURL(id string) string {
 func (p Provider) String() string {
 	return fmt.Sprintf("%s (%s)", p.Name, p.ID)
 }
+
+// Open models both Ollama providers list.
+const (
+	modelGPTOSS20     = "gpt-oss:20b"
+	modelGemma31      = "gemma4:31b"
+	modelNemotronNano = "nemotron-3-nano:30b"
+)

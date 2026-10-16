@@ -43,6 +43,8 @@ func Infer(provider, id string) (tier, cost string) {
 		// it costs.
 		tier, _ = inferOpen(id)
 		return tier, ""
+	default:
+		// Every other provider is told apart by its model's family below.
 	}
 	for _, f := range families {
 		if strings.Contains(id, f.part) {
