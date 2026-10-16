@@ -253,6 +253,7 @@ func TestTheCatalog(t *testing.T) {
 	})
 	checkCatalogVoices(t, seen, ChatterboxVoices, goodChatterboxVoice, func(Model) []ModelFile { return nil })
 	checkCatalogVoices(t, seen, WhisperModels, goodWhisperModel, func(m Model) []ModelFile { return m.Files })
+	checkCatalogVoices(t, seen, BrowserLLMModels, goodBrowserLLM, func(m Model) []ModelFile { return m.Files })
 	if embeddedSample("nope") != nil {
 		t.Error("a voice with no sample compiled in has none")
 	}
@@ -348,6 +349,18 @@ func goodWhisperModel(m Model) bool {
 	alone := m.Engine == EngineWhisper && m.Shared == "" && m.Sample == nil && sameNames(m.Runtime, runtime)
 	named := strings.HasPrefix(m.ID, WhisperID+"-") && m.Lang == "mul" && m.Name != ""
 	return alone && named && slices.Equal(got, names)
+}
+
+// goodBrowserLLM says whether a build of the browser model stands on its own with the three files
+// the page reads, and WebGPU's runtime.
+func goodBrowserLLM(m Model) bool {
+	var got []string
+	for _, f := range m.Files {
+		got = append(got, f.Name)
+	}
+	alone := m.Engine == EngineLLM && m.Shared == "" && m.Sample == nil && sameNames(m.Runtime, GPURuntime)
+	return alone && strings.HasPrefix(m.ID, BrowserLLMID) && m.Name != "" &&
+		slices.Equal(got, []string{"tokenizer.json", "tokenizer_config.json", "model.onnx"})
 }
 
 // A sample compiled in is written where the others are kept, checked like them, and not

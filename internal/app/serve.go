@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/madkoding/motita/internal/browserllm"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
 	"github.com/madkoding/motita/internal/gateway"
@@ -295,6 +296,8 @@ func (op Options) startGateway(
 		SpeechMaxChars: cfg.TTSMaxChars(),
 		// Local voices, downloaded on request to ~/.motita/voices from a fixed catalog.
 		VoiceModels: voiceLibrary(),
+		// The model that runs in a browser tab, for the cheap jobs; its weights are a catalog entry.
+		BrowserLLM: browserRelay(),
 		// The optional https listener, beside the plain one the local clients use.
 		TLSListen: cfg.Gateway.TLS.Listen,
 		TLSCert:   cfg.Gateway.TLS.Cert,
@@ -376,6 +379,13 @@ func projectDir() string {
 // voiceLibrary is the catalog of local voices (and of the models the page listens with) and
 // where they are kept, ~/.motita/voices, rid of what the catalog no longer has. Nil without a
 // home directory.
+// browserRelay makes the broker of the browser provider and installs it as the provider's relay.
+func browserRelay() *browserllm.Broker {
+	b := browserllm.New()
+	llm.SetBrowserRelay(b)
+	return b
+}
+
 func voiceLibrary() *voice.Library {
 	d := config.Dir()
 	if d == "" {
@@ -384,7 +394,8 @@ func voiceLibrary() *voice.Library {
 	lib := &voice.Library{Dir: filepath.Join(d, "voices"), Runtime: voice.OrtRuntime,
 		Shared: map[string][]voice.ModelFile{voice.SupertonicID: voice.SupertonicModel,
 			voice.ChatterboxID: voice.ChatterboxModel},
-		Models: slices.Concat(voice.PiperVoices, voice.SupertonicVoices, voice.ChatterboxVoices, voice.WhisperModels)}
+		Models: slices.Concat(voice.PiperVoices, voice.SupertonicVoices, voice.ChatterboxVoices,
+			voice.WhisperModels, voice.BrowserLLMModels)}
 	// What earlier catalogs downloaded and this one dropped (Kokoro's voices) is removed; a file
 	// that cannot be is only left on disk, and the catalog is served all the same.
 	_ = lib.Prune()

@@ -135,7 +135,7 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 		return c.callClaudeCodeStream
 	case "codex":
 		return c.callResponsesStream
-	case "anthropic", "gemini":
+	case "anthropic", "gemini", ProviderBrowser:
 		// Neither speaks /chat/completions. Both used to be sent there anyway - a plan-mode
 		// turn with either provider was a request to the wrong API - and they are answered
 		// by their own non-streaming call instead, delivered through the same channel.
@@ -405,6 +405,8 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 		return c.callGemini(ctx, messages)
 	case providerClaudeCode:
 		return c.callClaudeCodeText(ctx, messages)
+	case ProviderBrowser:
+		return c.callBrowserText(ctx, messages)
 	case "codex":
 		return c.callCodexText(ctx, messages)
 	default:
@@ -434,6 +436,8 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 		return c.callGeminiTools(ctx, messages, tools)
 	case providerClaudeCode:
 		return c.callClaudeCode(ctx, messages, tools, nil)
+	case ProviderBrowser:
+		return Reply{}, errBrowserTools
 	case "codex":
 		return c.callResponses(ctx, messages, tools)
 	default:
