@@ -16,6 +16,7 @@ import {
   sampleOf,
   warmLocal,
 } from "./localVoice";
+import { gpuAllowed } from "./gpuPolicy";
 import { isChatterbox, isSupertonic } from "./localVoiceCore";
 import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
@@ -114,7 +115,8 @@ export function useWebGPU(): boolean {
   const [has, setHas] = useState(false);
   useEffect(() => {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    gpu
+    // A phone does not offer WebGPU to the voices, unless the reader forced it.
+    (gpuAllowed() ? gpu : undefined)
       ?.requestAdapter()
       .then((a) => setHas(!!a))
       .catch(() => undefined);

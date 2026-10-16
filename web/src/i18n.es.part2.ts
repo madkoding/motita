@@ -515,6 +515,11 @@ const more: Record<string, string> = {
   "Model to listen with": "Modelo para escuchar",
   "Whisper runs in this browser, on WebGPU where there is one and on WebAssembly otherwise: what you say never leaves this device.":
     "Whisper corre en este navegador, con WebGPU donde lo hay y con WebAssembly si no: lo que dices nunca sale de este dispositivo.",
+  "Whisper runs in this browser, on the processor: what you say never leaves this device.":
+    "Whisper corre en este navegador, con el procesador: lo que dices nunca sale de este dispositivo.",
+  "Use WebGPU on this device": "Usar WebGPU en este dispositivo",
+  "On a phone the models that listen and speak run on the processor, as its graphics card is too weak for them. Turn this on to try WebGPU anyway; reload the page to apply it.":
+    "En el celular los modelos que escuchan y hablan corren en el procesador, porque su tarjeta gráfica es demasiado débil para ellos. Actívalo para probar WebGPU de todos modos; recarga la página para aplicarlo.",
   "The first download adds {size} for the engine.":
     "La primera descarga suma {size} para el motor.",
   "WebGPU could not start here ({reason}): the model runs on the processor.":

@@ -23,6 +23,7 @@ import {
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
+import { gpuForced, isMobileDevice, setGpuForced } from "./gpuPolicy";
 import { LocalListening } from "./LocalListenSettings";
 import {
   Row,
@@ -126,6 +127,31 @@ function VoiceSwitch({
         onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
       />
     </label>
+  );
+}
+
+// MobileGpuRow is the switch to run the local models on WebGPU on a phone, where they use the
+// processor by default; the workers already running keep their way until the page is reloaded.
+function MobileGpuRow() {
+  const [on, setOn] = useState(gpuForced);
+  return (
+    <Row
+      id="settings-gpu-mobile"
+      label={t("Use WebGPU on this device")}
+      hint={t(
+        "On a phone the models that listen and speak run on the processor, as its graphics card is too weak for them. Turn this on to try WebGPU anyway; reload the page to apply it.",
+      )}
+    >
+      <VoiceSwitch
+        id="settings-gpu-mobile"
+        usable
+        checked={on}
+        onChange={(v) => {
+          setGpuForced(v);
+          setOn(v);
+        }}
+      />
+    </Row>
   );
 }
 
@@ -830,6 +856,7 @@ function ListenSource({
       {engine === "local" && api && (
         <LocalListening api={api} prefs={prefs} setPrefs={setPrefs} />
       )}
+      {engine === "local" && isMobileDevice() && <MobileGpuRow />}
       {editor && <VoiceGateway {...editor} service={engine === "service"} />}
     </>
   );

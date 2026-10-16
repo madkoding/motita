@@ -5,6 +5,7 @@
 // and onnxruntime on the processor or on the graphics card.
 import { env, InferenceSession, Tensor } from "onnxruntime-web/wasm";
 import { choose } from "./choose";
+import { CPU_ONLY } from "./gpuPolicy";
 import { NO_WEBGPU, VOICE_CACHE, readAll, type OrtLike } from "./localVoiceCore";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -94,6 +95,10 @@ type GPU = { requestAdapter(o?: { powerPreference?: GPUPowerPreference }): Promi
 
 // workerGPU is the worker's WebGPU, undefined in a browser that has none.
 function workerGPU(): GPU | undefined {
+  // The page names a worker CPU_ONLY where WebGPU is not allowed (a phone).
+  if (self.name === CPU_ONLY) {
+    return undefined;
+  }
   return (self.navigator as Navigator & { gpu?: GPU }).gpu;
 }
 
