@@ -49,6 +49,7 @@
       <p class="lead">Mantenlo en esta máquina, compártelo en tu LAN o llega desde un teléfono.</p>
 <p>Por defecto el gateway responde solo en <code>127.0.0.1:7477</code>, así que solo la máquina donde corre puede alcanzarlo. Todo lo que sigue es un paso deliberado fuera de eso.</p>
 <h2>Quién puede llegar</h2>
+<figure class="diagram"><ol class="flow" aria-label="Quién puede llegar al gateway, de lo más estrecho a lo más amplio"><li><b>1</b><strong>Solo esta máquina</strong><span>Por defecto: loopback</span></li><li><b>2</b><strong>La red local</strong><span>Todas las interfaces, con reglas <code>allow</code></span></li><li><b>3</b><strong>Todos</strong><span>Todas las interfaces, sin reglas de origen</span></li></ol><p class="flow-note">Cada paso hacia afuera es deliberado, y el token siempre es obligatorio. Fuera de loopback, pon https delante.</p></figure>
 <p>El primer <code>gateway start</code> pregunta una vez, y <strong>Ajustes &rarr; Red</strong> o <code>motita gateway setup</code> lo cambia después:</p>
 <table>
 <thead><tr><th>Respuesta</th><th>Resultado</th></tr></thead>
@@ -101,6 +102,26 @@
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copiar";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copiado";
+            setTimeout(() => {
+              button.textContent = "Copiar";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>
