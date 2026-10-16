@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -85,5 +87,68 @@ func TestBothSecurityChoicesInOneRequestAndAFailedSave(t *testing.T) {
 	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"ask_unconfined_runs":true}`)
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "read-only") {
 		t.Errorf("a failed save = %d %s, want 500", w.Code, w.Body.String())
+	}
+}
+
+// A change of several keys is all or nothing: when the second cannot be saved (the environment
+// overrides it, say) the first is put back in the file and no conversation heard of it.
+func TestAFailedSecondKeyLeavesTheFirstUnapplied(t *testing.T) {
+	withConfinement(t, true)
+	path := networkConfig(t, "sandbox:\n  kind: none\n")
+	svc := &diskService{}
+	srv := newTestServer(t, svc, func(o *Options) {
+		o.ConfigPath = path
+		o.NewService = func() (Service, error) { return svc, nil }
+	})
+	if w := sendNetwork(t, srv, http.MethodPost, "/v1/sessions", `{}`); w.Code >= http.StatusBadRequest {
+		t.Fatalf("a session = %d %s", w.Code, w.Body.String())
+	}
+	heard := len(svc.modes)
+	old := setAskUnconfinedRuns
+	setAskUnconfinedRuns = func(string, bool) error { return errors.New("overridden by the environment") }
+	t.Cleanup(func() { setAskUnconfinedRuns = old })
+	w := sendNetwork(t, srv, http.MethodPut, "/v1/security",
+		`{"disk_access":"full","ask_unconfined_runs":false,"confirm":true}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT = %d %s, want 500", w.Code, w.Body.String())
+	}
+	if body, _ := os.ReadFile(path); strings.Contains(string(body), "full") {
+		t.Errorf("the disk access stayed in the file:\n%s", body)
+	}
+	if len(svc.modes) != heard {
+		t.Errorf("a conversation was handed %v of a change that failed", svc.modes[heard:])
+	}
+}
+
+// When the file cannot be put back either, the answer says so.
+func TestAFailedRestoreIsSaid(t *testing.T) {
+	withConfinement(t, true)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "motita.yaml")
+	if err := os.WriteFile(path, []byte("sandbox:\n  kind: none\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	old := setAskUnconfinedRuns
+	setAskUnconfinedRuns = func(string, bool) error {
+		_ = os.RemoveAll(dir) // nowhere to write the file back
+		return errors.New("overridden by the environment")
+	}
+	t.Cleanup(func() { setAskUnconfinedRuns = old })
+	w := sendNetwork(t, srv, http.MethodPut, "/v1/security",
+		`{"disk_access":"full","ask_unconfined_runs":false,"confirm":true}`)
+	if !strings.Contains(w.Body.String(), "could not be restored") {
+		t.Errorf("PUT = %d %s, want the failed restore said", w.Code, w.Body.String())
+	}
+}
+
+// A configuration file that cannot be read is an error, not a change applied blind.
+func TestSecurityNeedsTheFileToBeReadable(t *testing.T) {
+	withConfinement(t, true)
+	path := filepath.Join(t.TempDir(), "gone.yaml")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"ask_unconfined_runs":true}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("PUT = %d %s, want 500", w.Code, w.Body.String())
 	}
 }

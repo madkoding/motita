@@ -135,6 +135,32 @@ func setUILanguageText(body, lang string) (string, error) {
 // or an undo would erase the other's.
 var configWriteMu sync.Mutex
 
+// FileSnapshot is a configuration file as it was, to put back when a change made of several
+// writes fails halfway: none of them may stay applied.
+type FileSnapshot struct {
+	path string
+	body []byte
+	perm os.FileMode
+}
+
+// SnapshotFile reads the configuration file at path.
+func SnapshotFile(path string) (FileSnapshot, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return FileSnapshot{}, fmt.Errorf("the configuration file cannot be read: %w", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return FileSnapshot{}, fmt.Errorf("the configuration file cannot be read: %w", err)
+	}
+	return FileSnapshot{path: path, body: body, perm: info.Mode().Perm()}, nil
+}
+
+// Restore writes the file back as the snapshot read it.
+func (f FileSnapshot) Restore() error {
+	return writeConfigAtomic(f.path, f.body, f.perm)
+}
+
 // writeConfigAtomic replaces path with body, through a temporary file in the same directory so a
 // reader never sees half a file and a crash never leaves none.
 func writeConfigAtomic(path string, body []byte, mode os.FileMode) error {
