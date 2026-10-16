@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/madkoding/motita/internal/i18n"
 )
@@ -53,6 +54,8 @@ var (
 // original, then a rename) and keeps the file's mode, because the configuration may sit next to
 // secrets and be readable by its owner only.
 func SetUILanguage(path, lang string) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	lang = strings.ToLower(strings.TrimSpace(lang))
 	if lang == "" || !i18n.Valid(lang) {
 		return fmt.Errorf("the language %q is not one of auto, en, es", lang)
@@ -125,6 +128,12 @@ func setUILanguageText(body, lang string) (string, error) {
 	out = append(out, lines[start+1:]...)
 	return strings.Join(out, "\n"), nil
 }
+
+// configWriteMu serialises the read-modify-write setters of the configuration file. Each reads the
+// file, edits its own lines and writes the result back, and the ones that load it afterwards undo
+// their edit by writing back what they read at the start: two running at once would lose one edit,
+// or an undo would erase the other's.
+var configWriteMu sync.Mutex
 
 // writeConfigAtomic replaces path with body, through a temporary file in the same directory so a
 // reader never sees half a file and a crash never leaves none.

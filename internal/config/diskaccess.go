@@ -67,6 +67,8 @@ func SetIsolateNetwork(path string, on bool) error {
 // whole and undoes the change when it does not load or when applied says the loaded configuration
 // does not carry it: the environment (MOTITA_SANDBOX_<KEY>) overrides the file.
 func setSandboxKey(path, key, value string, applied func(Config) bool) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
