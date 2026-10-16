@@ -15,6 +15,11 @@ import (
 // (a title, a compaction summary, auto mode's guess) on a cheap one. An empty entry follows the
 // default, so a configuration without this block behaves exactly as before.
 //
+// The cheap and strong entries are TIERS, not kinds of work: a background agent started for an
+// easy piece runs on cheap (a small or local model), a hard one on strong, and a cheap agent that
+// fails is run again on strong. With cheap empty nothing is routed and every agent runs on the
+// model of its role, as before.
+//
 // Each entry is "provider/model": the provider is one of Providers, which never holds a slash,
 // so the model after the first slash may hold its own ("ollama/library/qwen3:8b").
 // The key and the endpoint are the provider's own, found the way a provider switch finds them.
@@ -29,10 +34,12 @@ const (
 	TaskReview   = "review"   // background agents that review the work and change nothing
 	TaskResearch = "research" // background agents that investigate and change nothing
 	TaskSummary  = "summary"  // the small calls: titles, compaction summaries, auto mode's guess
+	TaskCheap    = "cheap"    // tier: easy pieces handed to background agents (a small or local model)
+	TaskStrong   = "strong"   // tier: hard pieces, and where a cheap agent escalates when it fails
 )
 
 // TaskKinds lists the kinds, in the order the interfaces show them.
-var TaskKinds = []string{TaskPlan, TaskCode, TaskReview, TaskResearch, TaskSummary}
+var TaskKinds = []string{TaskPlan, TaskCode, TaskReview, TaskResearch, TaskSummary, TaskCheap, TaskStrong}
 
 // Models is the models block: one "provider/model" per kind of work, empty for the default.
 type Models struct {
@@ -41,6 +48,8 @@ type Models struct {
 	Review   string `yaml:"review"`
 	Research string `yaml:"research"`
 	Summary  string `yaml:"summary"`
+	Cheap    string `yaml:"cheap"`
+	Strong   string `yaml:"strong"`
 }
 
 // ModelChoice is one entry of the models block, split.
@@ -73,6 +82,10 @@ func (m Models) entry(kind string) (string, bool) {
 		return m.Research, true
 	case TaskSummary:
 		return m.Summary, true
+	case TaskCheap:
+		return m.Cheap, true
+	case TaskStrong:
+		return m.Strong, true
 	default:
 		return "", false
 	}

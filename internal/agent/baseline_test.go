@@ -239,7 +239,7 @@ func TestAChangedGateIsPutToTheUser(t *testing.T) {
 		t.Fatalf("asked = %+v", asked)
 	}
 	// A background agent started now is held to the original gate too.
-	child := a.newChild(childPlace{dir: e.dir, branch: "b"}, config.TaskCode)
+	child := a.newChild(childPlace{dir: e.dir, branch: "b"}, config.TaskCode, "")
 	if child.gate != a.gate {
 		t.Error("a background agent must inherit the main agent's gate")
 	}

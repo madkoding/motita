@@ -1043,6 +1043,13 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	}); ok {
 		setter.SetRoleEngines(r.roleEngine)
 	}
+	// The cheap and strong tiers: a piece of work handed to a background agent is judged and
+	// routed to the model that suits it, and a cheap agent that fails is run again on the strong one.
+	if setter, ok := ag.(interface {
+		SetTiers(func(string) *llm.Client, func(context.Context, string, string) string)
+	}); ok {
+		setter.SetTiers(r.tierEngine, r.classifyPiece)
+	}
 	// The conversation goes in before the run and comes back out after it. That round trip is
 	// what makes the agent conversational: the turn that asked a question recorded it, and the
 	// next turn reads it together with the user's answer, so "yes" means something.
