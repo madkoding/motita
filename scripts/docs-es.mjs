@@ -191,7 +191,7 @@ ${sequence("Un pull request seguido por el gateway", [{ name: "Sesión", sub: "s
 <p>Una API key siempre gana sobre una sesión guardada. Las claves que pegas van a un archivo aparte solo para tu usuario junto a la configuración (<code>~/.motita/motita.env</code>), así que la configuración puede versionarse y compartirse. Una clave nunca se envía de vuelta al navegador.</p>
 <img src="shots/webui-ask.webp" alt="La interfaz del navegador respondiendo una pregunta" width="1600" height="1000" loading="lazy" />
 <h2>Desde el navegador</h2>
-<p><strong>Ajustes &rarr; Proveedores</strong> lista cada proveedor, de dónde sale su clave, un campo para clave y endpoint, y un botón que prueba la conexión listando los modelos del proveedor. Copilot, Qwen, Codex y Gemini pueden iniciar sesión con una cuenta desde la misma página.</p>
+<p><strong>Ajustes &rarr; Proveedores</strong> lista cada proveedor, de dónde sale su clave, un campo para clave y endpoint, y un botón que prueba la conexión listando los modelos del proveedor. Copilot, Codex y Gemini pueden iniciar sesión con una cuenta desde la misma página (Qwen usa una clave de DashScope: su login gratuito con cuenta terminó el 2026-04-15).</p>
 <h2>Un modelo para cada tipo de trabajo</h2>
 <p>La pestaña <strong>Modelos</strong> fija el modelo por defecto y, debajo, uno para cada tipo de trabajo. Un tipo en <em>Igual que el predeterminado</em> sigue a la sesión.</p>
 <table>

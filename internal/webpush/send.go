@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/madkoding/motita/internal/httpbody"
 )
 
 // Message is what a notification shows, and where a tap on it leads.
@@ -108,7 +110,10 @@ func (s *Sender) SendTo(ctx context.Context, sub Subscription, m Message) error 
 	case res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusGone:
 		return ErrGone
 	case res.StatusCode >= 300:
-		return fmt.Errorf("the push service refused the message: %s %s", res.Status, bytes.TrimSpace(detail))
+		if note := httpbody.Note(detail, 200); note != "" {
+			return fmt.Errorf("the push service refused the message: %s %s", res.Status, note)
+		}
+		return fmt.Errorf("the push service refused the message: %s", res.Status)
 	default:
 		return nil
 	}

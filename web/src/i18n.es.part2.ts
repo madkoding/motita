@@ -272,8 +272,8 @@ const more: Record<string, string> = {
     "tu plan de Claude, mediante la CLI de Claude Code",
   "sign in with Google, or an AI Studio key":
     "inicia sesión con Google, o una clave de AI Studio",
-  "sign in with qwen.ai, or a DashScope key":
-    "inicia sesión con qwen.ai, o una clave de DashScope",
+  "a DashScope (Alibaba Cloud Model Studio) key":
+    "una clave de DashScope (Alibaba Cloud Model Studio)",
   "Saved ({hint}). Paste a new one to replace it":
     "Guardada ({hint}). Pega una nueva para reemplazarla",
   "Signed in to {name}": "Sesión iniciada en {name}",

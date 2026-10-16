@@ -145,37 +145,14 @@ func TestCopilotDirectAuthReportsAMissingSubscription(t *testing.T) {
 	}
 }
 
-// TestQwenDirectAuthStoresTheResourceHost: the login names the host its token
-// is valid for, and that host is what the client will use.
-func TestQwenDirectAuthStoresTheResourceHost(t *testing.T) {
-	dir := useAuthDir(t)
-	instantSleep(t)
-	polls := 0
-	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
-		"/api/v1/oauth2/device/code": func(*http.Request) (*http.Response, error) {
-			return resp200(
-				`{"device_code":"dc","user_code":"QW-1",` +
-					`"verification_uri_complete":"https://chat.qwen.ai/authorize?user_code=QW-1","expires_in":600}`)
-		},
-		"/api/v1/oauth2/token": func(*http.Request) (*http.Response, error) {
-			polls++
-			if polls == 1 {
-				return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"slow_down"}`), Header: make(http.Header)}, nil
-			}
-			return resp200(`{"access_token":"qa","refresh_token":"qr","expires_in":3600,"resource_url":"portal.qwen.ai"}`)
-		},
-	}})
-	var out bytes.Buffer
-	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")),
-		Provider{ID: "qwen"}); err != nil {
-		t.Fatal(err)
+// TestQwenHasNoDirectLogin: Qwen ended its OAuth login, so the wizard offers a key only.
+func TestQwenHasNoDirectLogin(t *testing.T) {
+	p, _ := Lookup("qwen")
+	if p.SupportsDirectAuth {
+		t.Error("qwen must not offer an account login")
 	}
-	if !strings.Contains(out.String(), "QW-1") {
-		t.Error("the user code must be shown")
-	}
-	c, _ := oauth.LoadCredential(dir, "qwen")
-	if c.BaseURL != "https://portal.qwen.ai/v1" || c.RefreshToken != "qr" {
-		t.Errorf("stored %+v", c)
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), p); err == nil {
+		t.Error("a direct login for qwen must be refused")
 	}
 }
 

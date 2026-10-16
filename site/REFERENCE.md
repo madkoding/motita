@@ -1199,8 +1199,8 @@ file, and the settings say so instead of offering to replace it. The default pro
 are written into the `llm` block of the configuration, in place. A key of 16 characters or more
 shows its last four (`key_hint`, `…a1b2`), so two keys can be told apart without showing either.
 
-Copilot, Qwen, Codex and Gemini can also be connected with an account, the same logins `motita
-config` runs, driven by the gateway: Copilot and Qwen show a link and a code to type; Codex opens
+Copilot, Codex and Gemini can also be connected with an account, the same logins `motita
+config` runs, driven by the gateway: Copilot shows a link and a code to type; Codex opens
 the provider's sign-in page and, when the browser is not on the gateway's machine, takes the
 address the page ended on (`http://localhost:1455/auth/callback?…`); Gemini takes the gcloud
 Application Default Credentials already on the gateway's machine. The login is stored where the

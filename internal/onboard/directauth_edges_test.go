@@ -63,7 +63,7 @@ func TestDirectAuthFailures(t *testing.T) {
 	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "cid")
 	t.Run("no entropy", func(t *testing.T) {
 		failingRand(t)
-		for _, id := range []string{"codex", "qwen"} {
+		for _, id := range []string{"codex"} {
 			if err := direct(id, ""); err == nil {
 				t.Errorf("%s must fail without randomness", id)
 			}
@@ -86,9 +86,6 @@ func TestDirectAuthFailures(t *testing.T) {
 		}
 		if err := direct("gemini", "proj\nthe-code\n"); err == nil || !strings.Contains(err.Error(), "Google") {
 			t.Errorf("gemini: %v", err)
-		}
-		if err := direct("qwen", ""); err == nil || !strings.Contains(err.Error(), "Qwen") {
-			t.Errorf("qwen device: %v", err)
 		}
 	})
 	t.Run("gemini without a loopback", func(t *testing.T) {
@@ -113,19 +110,6 @@ func TestDirectAuthFailures(t *testing.T) {
 		pr, _ := io.Pipe()
 		if _, err := runDirectAuth(ctx, io.Discard, bufio.NewReader(pr), Provider{ID: "gemini"}); err == nil {
 			t.Error("a cancelled prompt must be an error")
-		}
-	})
-	t.Run("qwen denied", func(t *testing.T) {
-		withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
-			"/api/v1/oauth2/device/code": func(*http.Request) (*http.Response, error) {
-				return resp200(`{"device_code":"d","user_code":"U","verification_uri":"https://x"}`)
-			},
-			"/api/v1/oauth2/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"access_denied"}`), Header: make(http.Header)}, nil
-			},
-		}})
-		if err := direct("qwen", ""); err == nil || !strings.Contains(err.Error(), "qwen") {
-			t.Errorf("err = %v", err)
 		}
 	})
 }

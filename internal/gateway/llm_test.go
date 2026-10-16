@@ -127,6 +127,13 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	if p.AskBaseURL || p.BaseURL != "https://ollama.com/v1" || p.Key != config.KeyMissing {
 		t.Errorf("ollama-cloud = %+v", p)
 	}
+	// Qwen ended its OAuth login on 2026-04-15: only the DashScope key is offered, with its link.
+	if p := providerOf(v, "qwen"); p.SupportsLogin || p.ConsoleURL == "" || p.Key != config.KeyMissing {
+		t.Errorf("qwen = %+v", p)
+	}
+	if w := llmCall(t, srv, http.MethodPost, "/v1/llm/providers/qwen/login", ""); w.Code != http.StatusBadRequest {
+		t.Errorf("qwen has no sign-in to start: %d", w.Code)
+	}
 	for _, w := range []*httptest.ResponseRecorder{
 		llmCall(t, srv, http.MethodPut, "/v1/llm/providers/anthropic", `{"api_key":"k"}`),
 		llmCall(t, srv, http.MethodDelete, "/v1/llm/providers/anthropic", ""),
