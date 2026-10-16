@@ -49,14 +49,15 @@
       <p class="lead">Un comando para instalar y una configuración corta la primera vez.</p>
 <p>motita es un único binario estático. No hay nada que compilar ni nada más que instalar antes.</p>
 <h2>Instalar</h2>
-<pre><span class="c"># Linux y macOS</span>
-curl -fsSL https://motita.kodingvibes.com/install.sh | sh
+<pre class="code" data-lang="Shell"><code><span class="c"># Linux y macOS</span>
+curl <span class="o">-fsSL</span> https://motita.kodingvibes.com/install.sh | sh
 
 <span class="c"># Windows (PowerShell)</span>
-irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
+irm https://motita.kodingvibes.com/install.ps1 | iex</code></pre>
 <p>El instalador detecta tu sistema y arquitectura, descarga el binario que corresponde y lo verifica contra el <code>SHA256SUMS</code> de la versión. Si no coincide, se detiene y tu sistema queda intacto. Se instala sin permisos de administrador y ejecuta el binario una vez para comprobar que arranca.</p>
 <h2>Primer uso</h2>
 <p>Escribe <code>motita</code>. Si no hay configuración, arranca solo una configuración corta de cinco pasos. No escribe nada hasta que ves el resultado:</p>
+<figure class="diagram"><ol class="flow" aria-label="Los cinco pasos de la configuración"><li><b>1</b><strong>Proveedor</strong><span>Qué modelo responde</span></li><li><b>2</b><strong>Conectar</strong><span>Inicia sesión o pega una clave</span></li><li><b>3</b><strong>Modelo</strong><span>Elige uno o escribe un ID</span></li><li><b>4</b><strong>Verificación</strong><span>Qué decide que está terminado</span></li><li><b>5</b><strong>Revisar</strong><span>Guarda, o vuelve con <kbd>n</kbd></span></li></ol></figure>
 <ol>
 <li><strong>Proveedor.</strong> Qué servicio de modelos responde: OpenAI, ChatGPT (Codex), GitHub Copilot, Ollama, Anthropic, tu suscripción de Claude, Gemini o Qwen.</li>
 <li><strong>Conexión.</strong> Inicia sesión con tu cuenta o pega una API key (queda oculta al pegarla).</li>
@@ -100,6 +101,26 @@ irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copiar";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copiado";
+            setTimeout(() => {
+              button.textContent = "Copiar";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

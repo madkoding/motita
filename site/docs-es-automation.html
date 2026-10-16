@@ -48,21 +48,124 @@
       <h1>Actualizaciones y tareas programadas</h1>
       <p class="lead">Mantente en la última versión verificada y ejecuta tareas con una cadencia.</p>
 <h2>Actualizar</h2>
+<figure class="diagram"><ol class="flow" aria-label="Cómo se instala una actualización"><li><b>1</b><strong><code>/update</code></strong><span>Busca la versión más nueva</span></li><li><b>2</b><strong>Descarga</strong><span>De la propia versión</span></li><li><b>3</b><strong>Verificación</strong><span>Debe coincidir con <code>SHA256SUMS</code></span></li><li><b>4</b><strong>Instalación</strong><span>Si no coincide, no se instala nada</span></li><li><b>5</b><strong>Reinicio</strong><span>Un gateway iniciado con <code>-serve</code> lo hace solo</span></li></ol></figure>
 <p><code>/update</code> instala la versión más nueva. La pantalla de bienvenida y la barra lateral del navegador avisan cuando existe una. La descarga debe coincidir con el <code>SHA256SUMS</code> de la versión o no se instala nada. Un gateway iniciado con <code>-serve</code> se reinicia solo con el nuevo binario; una interfaz te dice que la reinicies.</p>
 <p>El gateway informa su propia compilación en <code>motita gateway status</code>, así que tras instalar sobre un binario viejo puedes saber si el proceso que sigue corriendo es el anterior.</p>
 <p>Las versiones se crean automáticamente a partir de commits semánticos: <code>feat</code> sube la versión menor, <code>fix</code> el parche y un cambio incompatible la mayor. La versión más nueva siempre aparece en la <a href="index.html">página de inicio</a>.</p>
 <h2>Tareas programadas</h2>
 <p>Una <strong>tarea programada</strong> es una tarea o un plan que el gateway envía por sí solo, con una cadencia, sin nadie frente al teclado. Cada una es un pequeño archivo JSON en <code>~/.motita/schedules/</code> que puedes leer y editar a mano.</p>
+<figure class="diagram"><ol class="flow" aria-label="Cómo corre una tarea programada"><li><b>1</b><strong>Llega la hora</strong><span><code>every 24h</code> tras la última ejecución</span></li><li><b>2</b><strong>El gateway la envía</strong><span>Como plan o tarea, sin nadie frente al teclado</span></li><li><b>3</b><strong>Se ejecuta</strong><span>En la sesión a la que está fijada</span></li><li><b>4</b><strong>Ves el resultado</strong><span>En la interfaz</span></li></ol></figure>
 <ul>
 <li>La cadencia es una duración (<code>30m</code>, <code>6h</code>, <code>24h</code>), no sintaxis cron. <code>every 6h</code> significa seis horas después de la última ejecución.</li>
 <li>La cadencia más corta permitida es un minuto (<code>schedule.min_every</code>).</li>
 <li>Una tarea puede ser un <code>plan</code> (solo lectura) o un <code>task</code>, y puede fijarse a una sesión.</li>
 <li>Créalas, cámbialas, ejecútalas al instante y bórralas con <code>/v1/schedules</code>, o desde la interfaz.</li>
 </ul>
-<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"auditoría nocturna","task":"revisa los logs y reporta","kind":"plan","every":"24h"}' \
-  http://127.0.0.1:7477/v1/schedules</pre>
+<p>La misma llamada desde código, en los lenguajes más usados (primero define <code>MOTITA_TOKEN</code>):</p>
+<div class="tabs"><input type="radio" name="schedule" id="schedule-sh" aria-label="Shell" checked /><input type="radio" name="schedule" id="schedule-js" aria-label="JavaScript" /><input type="radio" name="schedule" id="schedule-ts" aria-label="TypeScript" /><input type="radio" name="schedule" id="schedule-py" aria-label="Python" /><input type="radio" name="schedule" id="schedule-go" aria-label="Go" /><input type="radio" name="schedule" id="schedule-rust" aria-label="Rust" /><div class="tab-bar"><label for="schedule-sh">Shell</label><label for="schedule-js">JavaScript</label><label for="schedule-ts">TypeScript</label><label for="schedule-py">Python</label><label for="schedule-go">Go</label><label for="schedule-rust">Rust</label></div><section><pre class="code" data-lang="Shell"><code><span class="c"># crea un plan que se ejecuta cada 24 horas</span>
+curl <span class="o">-s</span> <span class="o">-X</span> POST <span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span> \
+  <span class="o">-H</span> <span class="s">&quot;Authorization: Bearer $MOTITA_TOKEN&quot;</span> \
+  <span class="o">-H</span> <span class="s">&quot;Content-Type: application/json&quot;</span> \
+  <span class="o">-d</span> <span class="s">'{&quot;title&quot;:&quot;nightly audit&quot;,&quot;task&quot;:&quot;check the logs and report&quot;,&quot;kind&quot;:&quot;plan&quot;,&quot;every&quot;:&quot;24h&quot;}'</span></code></pre></section><section><pre class="code" data-lang="JavaScript"><code><span class="k">const</span> res = <span class="k">await</span> <span class="f">fetch(</span><span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>, {
+  method: <span class="s">&quot;POST&quot;</span>,
+  headers: {
+    <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + process.env.<span class="t">MOTITA_TOKEN</span>, <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="s">&quot;Content-Type&quot;</span>: <span class="s">&quot;application/json&quot;</span>,
+  },
+  body: <span class="t">JSON</span>.<span class="f">stringify(</span>{
+    title: <span class="s">&quot;nightly audit&quot;</span>,
+    task: <span class="s">&quot;check the logs and report&quot;</span>,
+    kind: <span class="s">&quot;plan&quot;</span>, <span class="c">// crea un plan que se ejecuta cada 24 horas</span>
+    every: <span class="s">&quot;24h&quot;</span>,
+  }),
+});
+console.<span class="f">log(</span><span class="k">await</span> res.<span class="f">json(</span>)); <span class="c">// la tarea programada, tal como queda guardada</span></code></pre></section><section><pre class="code" data-lang="TypeScript"><code><span class="k">import</span> { env } <span class="k">from</span> <span class="s">&quot;node:process&quot;</span>;
+
+<span class="k">interface</span> <span class="t">Schedule</span> {
+  title: string;
+  task: string;
+  kind: <span class="s">&quot;plan&quot;</span> | <span class="s">&quot;task&quot;</span>;
+  every: string;
+}
+
+<span class="k">const</span> schedule: <span class="t">Schedule</span> = {
+  title: <span class="s">&quot;nightly audit&quot;</span>,
+  task: <span class="s">&quot;check the logs and report&quot;</span>,
+  kind: <span class="s">&quot;plan&quot;</span>, <span class="c">// crea un plan que se ejecuta cada 24 horas</span>
+  every: <span class="s">&quot;24h&quot;</span>,
+};
+
+<span class="k">const</span> res = <span class="k">await</span> <span class="f">fetch(</span><span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>, {
+  method: <span class="s">&quot;POST&quot;</span>,
+  headers: {
+    <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + env.<span class="t">MOTITA_TOKEN</span>, <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="s">&quot;Content-Type&quot;</span>: <span class="s">&quot;application/json&quot;</span>,
+  },
+  body: <span class="t">JSON</span>.<span class="f">stringify(</span>schedule),
+});
+console.<span class="f">log(</span><span class="k">await</span> res.<span class="f">json(</span>)); <span class="c">// la tarea programada, tal como queda guardada</span></code></pre></section><section><pre class="code" data-lang="Python"><code><span class="c"># pip install requests</span>
+<span class="k">import</span> os
+
+<span class="k">import</span> requests
+
+res = requests.<span class="f">post(</span>
+    <span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>,
+    headers={<span class="s">&quot;Authorization&quot;</span>: <span class="s">&quot;Bearer &quot;</span> + os.environ[<span class="s">&quot;MOTITA_TOKEN&quot;</span>]},  <span class="c"># el token del gateway: motita gateway start -token-only</span>
+    json={
+        <span class="s">&quot;title&quot;</span>: <span class="s">&quot;nightly audit&quot;</span>,
+        <span class="s">&quot;task&quot;</span>: <span class="s">&quot;check the logs and report&quot;</span>,
+        <span class="s">&quot;kind&quot;</span>: <span class="s">&quot;plan&quot;</span>,  <span class="c"># crea un plan que se ejecuta cada 24 horas</span>
+        <span class="s">&quot;every&quot;</span>: <span class="s">&quot;24h&quot;</span>,
+    },
+)
+<span class="f">print(</span>res.<span class="f">json(</span>))  <span class="c"># la tarea programada, tal como queda guardada</span></code></pre></section><section><pre class="code" data-lang="Go"><code><span class="k">package</span> main
+
+<span class="k">import (</span>
+	<span class="s">&quot;fmt&quot;</span>
+	<span class="s">&quot;io&quot;</span>
+	<span class="s">&quot;log&quot;</span>
+	<span class="s">&quot;net/http&quot;</span>
+	<span class="s">&quot;os&quot;</span>
+	<span class="s">&quot;strings&quot;</span>
+)
+
+<span class="k">func</span> <span class="f">main(</span>) {
+	body := strings.<span class="f">NewReader(</span>
+		<span class="s">`{&quot;title&quot;:&quot;nightly audit&quot;,&quot;task&quot;:&quot;check the logs and report&quot;,&quot;kind&quot;:&quot;plan&quot;,&quot;every&quot;:&quot;24h&quot;}`</span>,
+	) <span class="c">// crea un plan que se ejecuta cada 24 horas</span>
+	req, err := http.<span class="f">NewRequest(</span>http.<span class="t">MethodPost</span>, <span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>, body)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	req.<span class="t">Header</span>.<span class="f">Set(</span><span class="s">&quot;Authorization&quot;</span>, <span class="s">&quot;Bearer &quot;</span>+os.<span class="f">Getenv(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)) <span class="c">// el token del gateway: motita gateway start -token-only</span>
+	req.<span class="t">Header</span>.<span class="f">Set(</span><span class="s">&quot;Content-Type&quot;</span>, <span class="s">&quot;application/json&quot;</span>)
+
+	res, err := http.<span class="t">DefaultClient</span>.<span class="f">Do(</span>req)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	<span class="k">defer</span> res.<span class="t">Body</span>.<span class="f">Close(</span>)
+	out, _ := io.<span class="f">ReadAll(</span>res.<span class="t">Body</span>)
+	fmt.<span class="f">Println(</span><span class="f">string(</span>out)) <span class="c">// la tarea programada, tal como queda guardada</span>
+}</code></pre></section><section><pre class="code" data-lang="Rust"><code><span class="c">// Cargo.toml: reqwest = { version = &quot;0.12&quot;, features = [&quot;blocking&quot;, &quot;json&quot;] }, serde_json = &quot;1&quot;</span>
+<span class="k">use</span> serde_json::{json, <span class="t">Value</span>};
+
+<span class="k">fn</span> <span class="f">main(</span>) -&gt; <span class="t">Result</span>&lt;(), <span class="t">Box</span>&lt;<span class="k">dyn</span> std::error::<span class="t">Error</span>&gt;&gt; {
+    <span class="k">let</span> token = std::env::<span class="f">var(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)?; <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="k">let</span> created: <span class="t">Value</span> = reqwest::blocking::<span class="t">Client</span>::<span class="f">new(</span>)
+        .<span class="f">post(</span><span class="s">&quot;http://127.0.0.1:7477/v1/schedules&quot;</span>)
+        .<span class="f">bearer_auth(</span>token)
+        .<span class="f">json(</span>&amp;<span class="f">json!(</span>{
+            <span class="s">&quot;title&quot;</span>: <span class="s">&quot;nightly audit&quot;</span>,
+            <span class="s">&quot;task&quot;</span>: <span class="s">&quot;check the logs and report&quot;</span>,
+            <span class="s">&quot;kind&quot;</span>: <span class="s">&quot;plan&quot;</span>, <span class="c">// crea un plan que se ejecuta cada 24 horas</span>
+            <span class="s">&quot;every&quot;</span>: <span class="s">&quot;24h&quot;</span>,
+        }))
+        .<span class="f">send(</span>)?
+        .<span class="f">json(</span>)?;
+    <span class="f">println!(</span><span class="s">&quot;{created}&quot;</span>); <span class="c">// la tarea programada, tal como queda guardada</span>
+    <span class="f">Ok(</span>())
+}</code></pre></section></div>
       <h2>Profundizar</h2>
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#scheduled-tasks">Referencia: tareas programadas</a></li>
@@ -94,6 +197,26 @@
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copiar";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copiado";
+            setTimeout(() => {
+              button.textContent = "Copiar";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

@@ -18,6 +18,8 @@
 // Vercel (cleanUrls) and under the /motita/ prefix of GitHub Pages.
 import { readFileSync, writeFileSync } from "node:fs";
 import { es } from "./docs-es.mjs";
+import { code, flow, hub, sequence, tabs } from "./docs-kit.mjs";
+import { scheduleExamples, sseExamples, wsExamples } from "./docs-examples.mjs";
 
 const REPO = "https://github.com/madkoding/motita/blob/main/docs";
 const guide = (anchor) => `${REPO}/GUIDE.md#${anchor}`;
@@ -33,14 +35,15 @@ const pages = [
     body: `
 <p>motita is one static binary. There is nothing to compile and nothing else to install first.</p>
 <h2>Install</h2>
-<pre><span class="c"># Linux and macOS</span>
+${code("sh", `# Linux and macOS
 curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 
-<span class="c"># Windows (PowerShell)</span>
-irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
+# Windows (PowerShell)
+irm https://motita.kodingvibes.com/install.ps1 | iex`)}
 <p>The installer detects your system and architecture, downloads the matching binary, and checks it against the release's <code>SHA256SUMS</code>. If the check does not match it stops and leaves your system untouched. It installs without administrator rights, then runs the binary once to prove it starts.</p>
 <h2>First run</h2>
 <p>Type <code>motita</code>. With no configuration, a short setup starts on its own. It has five steps and writes nothing until you have seen the result:</p>
+${flow("The five setup steps", [["Provider", "Which model answers"], ["Connect", "Log in or paste a key"], ["Model", "Pick one or type an ID"], ["Check", "What decides it is done"], ["Review", "Save, or go back with <kbd>n</kbd>"]])}
 <ol>
 <li><strong>Provider.</strong> Which model service answers: OpenAI, ChatGPT (Codex), GitHub Copilot, Ollama, Anthropic, your Claude subscription, Gemini or Qwen.</li>
 <li><strong>Connect.</strong> Log in with your account, or paste an API key (hidden as you paste it).</li>
@@ -71,6 +74,8 @@ irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
 <li><strong>What Enter will do.</strong> The input box is titled with its mode. <strong>Task</strong> makes changes and proves them with your check. <strong>Plan</strong> only reads and explains. <kbd>Tab</kbd> switches.</li>
 <li><strong>The keys that work now.</strong> The footer changes as you type a command, while a task runs, or while you scroll back.</li>
 </ul>
+<h2>How a task runs</h2>
+${flow("How a task runs", [["You ask", "Type a task in Task mode"], ["It works", "Reads, edits and runs commands"], ["Your check runs", "<code>make test</code>, <code>go test</code>, <code>npm test</code>…"], ["Done", "Only once the check passes"]], "If the check fails, the agent reads the failure and tries again. That loop is what gives “done” its meaning.")}
 <h2>Staying in control</h2>
 <ul>
 <li><kbd>Esc</kbd> stops the running task.</li>
@@ -109,22 +114,35 @@ irm https://motita.kodingvibes.com/install.ps1 | iex</pre>
     body: `
 <p>Every motita process is also a <strong>gateway</strong>: it listens on <code>127.0.0.1:7477</code> behind a token, and the terminal you are looking at is just one of its clients. A web page or a phone can join the same conversation, with the same skills and the same history.</p>
 <img src="shots/webui-phone.webp" alt="The browser interface on a phone" class="phone" width="600" height="1298" loading="lazy" />
+<h2>How the pieces connect</h2>
+${hub("The terminal, browser, phone and scripts all talk to one gateway, which runs the sessions", [{ name: "Terminal", sub: "-connect" }, { name: "Browser", sub: "same port" }, { name: "Phone", sub: "installed PWA" }, { name: "Scripts", sub: "HTTP · SSE · WS" }], { name: "Gateway", sub: "127.0.0.1:7477 · one token" }, { name: "Sessions and the agent", sub: "each with its own worktree and sandbox" })}
 <h2>The browser interface</h2>
 <p>It is served from the gateway's own port, so there is no second server and no cross-origin setup. Open <code>http://127.0.0.1:7477</code>, paste the token once, and you have chat, projects, settings and the skill library. It installs as an app (PWA) and is compiled into the binary.</p>
 <p>The token is read from <code>~/.motita/gateway.token</code> and printed by <code>motita gateway start</code>.</p>
 <h2>Running the gateway</h2>
-<pre>motita gateway start    <span class="c"># start the service and wait until it answers</span>
-motita gateway status   <span class="c"># is one running, where, and which build</span>
+${code("sh", `motita gateway start    # start the service and wait until it answers
+motita gateway status   # is one running, where, and which build
 motita gateway stop
-motita gateway setup    <span class="c"># where it answers: this machine, the LAN, everywhere</span></pre>
+motita gateway setup    # where it answers: this machine, the LAN, everywhere`)}
 <p>If a gateway is already running, <code>motita</code> attaches to it and never shuts it down. If none is running, it brings one up for itself and stops it when you leave.</p>
 <h2>The two halves apart</h2>
-<pre><span class="c"># on the machine that runs the commands</span>
+${code("sh", `# on the machine that runs the commands
 motita -serve -gateway 127.0.0.1:7477
 
-<span class="c"># anywhere else: no sandbox, no agent in this process</span>
-motita -connect 127.0.0.1:7477 -tui</pre>
+# anywhere else: no sandbox, no agent in this process
+motita -connect 127.0.0.1:7477 -tui`)}
 <p>A <code>-connect</code> client is only an interface, so it runs on a laptop, a tablet or a phone through a tunnel. Reaching it from other machines safely is covered in <a href="docs-network.html">Network and remote access</a>.</p>
+<h2>Follow a run from code</h2>
+<p>Besides the WebSocket, <code>POST /v1/sessions/{id}/task</code> starts a task and answers with a stream of server-sent events: <code>progress</code> lines while it works, then <code>done</code> with the result, or <code>error</code>. The run belongs to the gateway, not to the connection, so a client that drops can attach again with <code>GET /v1/sessions/{id}/events?from=N</code>.</p>
+${sequence("Following a task over server-sent events", [{ name: "Client" }, { name: "Gateway", sub: "/v1/sessions/{id}/task" }], [
+  { from: "Client", to: "Gateway", label: "POST { task }" },
+  { from: "Gateway", to: "Client", label: "event: attached", dash: true },
+  { from: "Gateway", to: "Client", label: "event: progress { text }", dash: true },
+  { from: "Gateway", to: "Client", label: "event: done { result }", dash: true },
+  { note: "if the connection drops: GET /events?from=N", over: ["Client", "Gateway"] },
+])}
+<p>A browser's <code>EventSource</code> can only send GET, so read the stream with <code>fetch</code>, as here (set <code>MOTITA_TOKEN</code> first):</p>
+${tabs("sse", sseExamples("en"))}
 <h2>More than one conversation</h2>
 <p>A gateway holds many sessions at once. The model belongs to the session, so changing it affects that conversation only, and survives a restart. Other programs can drive the same sessions over HTTP, server-sent events or a WebSocket protocol; the reference lists every endpoint.</p>`,
     more: [
@@ -157,6 +175,14 @@ motita -connect 127.0.0.1:7477 -tui</pre>
 <li>From then on the <em>gateway</em> follows the CI, the reviews and the merge state without the model, so waiting costs no tokens. When a job fails or a reviewer comments, the agent is sent back to fix it, up to a limit you set (5 by default).</li>
 <li>A project can merge by itself (<code>auto_merge</code>) and open the next session by itself (<code>auto_continue</code>).</li>
 </ul>
+${sequence("A pull request followed by the gateway", [{ name: "Session", sub: "its own branch" }, { name: "Gateway", sub: "no model needed" }, { name: "Git host", sub: "GitHub, GitLab…" }], [
+  { from: "Session", to: "Git host", label: "pushes and opens the pull request" },
+  { note: "From here the gateway follows CI and reviews", over: ["Gateway"] },
+  { from: "Git host", to: "Gateway", label: "a job fails, or a reviewer comments", dash: true },
+  { from: "Gateway", to: "Session", label: "sends the agent back to fix it" },
+  { from: "Session", to: "Git host", label: "pushes the fix" },
+  { from: "Git host", to: "Gateway", label: "CI green, approved, merged", dash: true },
+])}
 <h2>Background agents</h2>
 <p>A job with independent pieces does not have to run one piece at a time. The agent can start background agents, each on its own branch, up to <code>agent.max_parallel</code> (3 by default). Each one has a role: <code>code</code> writes, <code>review</code> and <code>research</code> read and change nothing. You see each one's purpose, state, time and token cost in the terminal (<kbd>Ctrl+G</kbd>) and in the browser's agents drawer.</p>`,
     more: [
@@ -216,6 +242,7 @@ motita -connect 127.0.0.1:7477 -tui</pre>
     blurb: "Dictate to motita and have its answers read aloud.",
     body: `
 <p>The browser interface can listen and speak. Voice is off until you turn it on in <strong>Settings &rarr; Voice</strong>.</p>
+${flow("From speaking to hearing the answer", [["You speak", "Mic button, or the wake phrase"], ["It is transcribed", "In this browser, or by a service"], ["Text lands in the box", "You read and edit it"], ["You send", "A normal message"], ["The answer is read aloud", "If you turned that on"]])}
 <h2>Speech input</h2>
 <p>A microphone button beside <strong>Send</strong> dictates into the message box. The text always lands in the box to be read and edited; it is never sent on its own. A hands-free mode listens for a wake phrase (by default <em>hey motita</em>) while the tab is open.</p>
 <p><strong>Who listens</strong> is your choice:</p>
@@ -261,9 +288,8 @@ motita -connect 127.0.0.1:7477 -tui</pre>
 <li>Stale for 30 more days: <strong>archived</strong>, never deleted, one command brings it back.</li>
 <li><strong>Pinned</strong> documents are exempt from every automatic step. Nothing automatic ever deletes.</li>
 </ul>
-<pre>motita curator status
-motita curator run --dry-run
-motita curator pin build-firmware</pre>`,
+${flow("The life of a skill", [["A skill is used", "Nothing to do"], ["Unused for 14 days", "Marked stale, still searchable"], ["Stale for 30 more days", "Archived, never deleted"], ["One command", "<code>curator restore</code> brings it back"]], "Pinned skills skip every step.")}
+${code("sh", "motita curator status\nmotita curator run --dry-run\nmotita curator pin build-firmware")}`,
     more: [
       ["Guide: it learns from you", guide("it-learns-from-you-not-from-a-retraining-pipeline")],
       ["Guide: the shelf keeps itself tidy", guide("you-can-see-the-shelf-and-the-shelf-keeps-itself-tidy")],
@@ -279,6 +305,7 @@ motita curator pin build-firmware</pre>`,
 <h2>The floor</h2>
 <p>Some commands are refused every time: disk formatting and partition tools, <code>shred</code>, <code>dd</code> to an output, power-state commands, and <code>rm</code>, <code>mv</code>, <code>cp</code> or <code>ln</code> aimed at <code>/</code>, your home, a system path, or the folder that contains your workspace (including after <code>sudo</code>, <code>xargs</code> or <code>find -exec</code>). <strong>No key, variable or flag relaxes the floor.</strong></p>
 <h2>Allow, ask, deny</h2>
+${flow("From a command to its sandbox", [["A command", "The agent wants to run it"], ["The floor", "Formatting, <code>shred</code>, <code>rm /</code>…: refused every time"], ["The verdict", "Allow, ask you, or deny"], ["The sandbox", "Runs confined, with limits"]], "The floor never moves. The verdict and the sandbox are yours to tune.")}
 <table>
 <thead><tr><th>Verdict</th><th>When</th></tr></thead>
 <tbody>
@@ -311,6 +338,7 @@ motita curator pin build-firmware</pre>`,
     body: `
 <p>By default the gateway answers only on <code>127.0.0.1:7477</code>, so only the machine it runs on can reach it. Everything below is a deliberate step away from that.</p>
 <h2>Who can reach it</h2>
+${flow("Who can reach the gateway, from narrowest to widest", [["This machine only", "The default: loopback"], ["The local network", "All interfaces, with <code>allow</code> rules"], ["Everywhere", "All interfaces, no origin rules"]], "Each step outward is deliberate, and the token is always required. Past loopback, put https in front.")}
 <p>The first <code>gateway start</code> asks once, and <strong>Settings &rarr; Network</strong> or <code>motita gateway setup</code> changes it later:</p>
 <table>
 <thead><tr><th>Answer</th><th>Result</th></tr></thead>
@@ -352,13 +380,13 @@ motita curator pin build-firmware</pre>`,
 <div class="note">There is no switch to turn the endpoint off: it exposes nothing the authenticated HTTP API does not already expose. A <code>query</code> runs the same read-only planner as <code>POST /plan</code>.</div>
 <h2>The message envelope</h2>
 <p>Every message, in both directions, is a JSON object:</p>
-<pre>{
+${code("json", `{
   "msg_id": "550e8400-e29b-41d4-a716-446655440000",
   "type": "query",
   "flags": ["PROCESSING"],
   "timestamp": "2026-09-25T12:00:00.000Z",
   "payload": {}
-}</pre>
+}`)}
 <table>
 <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
 <tbody>
@@ -394,16 +422,17 @@ motita curator pin build-firmware</pre>`,
 </table>
 <p><strong>Reserved.</strong> The type <code>notification</code> and the flags <code>FATAL_ERROR</code>, <code>LOW_MEMORY</code>, <code>RATE_LIMITED</code>, <code>CACHE_HIT</code>, <code>CACHE_MISS</code> and <code>ENCRYPTED</code> are part of the vocabulary but nothing emits them. A client should accept them and must not wait for them.</p>
 <h2>The conversation</h2>
-<pre>1. connect to /v1/sessions/{id}/ws (token or web cookie in the upgrade request)
-2. server: auth_response  [IDLE]
-3. client: auth           { "token": "..." }
-4. server: auth_response  [AUTHENTICATED, IDLE]    or  [UNAUTHORIZED]
-5. client: query          { "query": "..." }
-6. server: query_response [PROCESSING]             acknowledged at once
-           query_response [PARTIAL, PROCESSING]   progress lines, as they happen
-           query_response [COMPLETED]             { "result": "..." }
-           error          [ERROR_RECOVERABLE]     { "error": "..." }
-7. every 30 s the server sends heartbeat; answer with heartbeat_ack within 10 s</pre>
+${sequence("The WebSocket conversation", [{ name: "Client" }, { name: "Gateway", sub: "/v1/sessions/{id}/ws" }], [
+  { from: "Gateway", to: "Client", label: "auth_response [IDLE]", dash: true },
+  { from: "Client", to: "Gateway", label: "auth { token }" },
+  { from: "Gateway", to: "Client", label: "auth_response [AUTHENTICATED, IDLE]", dash: true },
+  { from: "Client", to: "Gateway", label: "query { query }" },
+  { from: "Gateway", to: "Client", label: "query_response [PROCESSING]", dash: true },
+  { from: "Gateway", to: "Client", label: "query_response [PARTIAL, PROCESSING]", dash: true },
+  { from: "Gateway", to: "Client", label: "query_response [COMPLETED] { result }", dash: true },
+  { note: "every 30 s: heartbeat, answered with heartbeat_ack within 10 s", over: ["Client", "Gateway"] },
+])}
+<p>The acknowledgement comes at once, progress lines stream as they happen, and the last message carries the result. A failed query ends in an <code>error</code> with <code>ERROR_RECOVERABLE</code> instead.</p>
 <p>Malformed JSON and unknown types get an <code>ERROR_RECOVERABLE</code> error. Several clients may connect at once, but the conversation runs one task at a time: a second client that starts a run while one is going gets <code>BUSY</code>.</p>
 <h2>What a client must follow</h2>
 <ul>
@@ -414,36 +443,10 @@ motita curator pin build-firmware</pre>`,
 <li>Close code 1000 means the client closed; 1001 means the gateway is shutting down or the heartbeat went unanswered, so reconnect.</li>
 <li>A <code>query</code> is <strong>read-only</strong> and tied to the connection: if the client disconnects, the query is cancelled.</li>
 </ul>
-<h2>A minimal client</h2>
-<p>In Python, with <code>pip install websocket-client</code>, which masks the frames and sends the header for you:</p>
-<pre>import json, uuid, datetime, websocket
-
-TOKEN = "..."  # printed by: motita gateway start -token-only
-
-def send(ws, type_, payload):
-    ws.send(json.dumps({
-        "msg_id": str(uuid.uuid4()), "type": type_, "flags": [],
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "payload": payload,
-    }))
-
-ws = websocket.create_connection(
-    "ws://127.0.0.1:7477/v1/sessions/default/ws",
-    header=[f"Authorization: Bearer {TOKEN}"],
-)
-json.loads(ws.recv())                       # welcome: auth_response / IDLE
-send(ws, "auth", {"token": TOKEN})
-json.loads(ws.recv())                       # auth_response / AUTHENTICATED
-send(ws, "query", {"query": "what does this project do?"})
-while True:
-    msg = json.loads(ws.recv())
-    if msg["type"] == "heartbeat":          # answer the keep-alive within 10 s
-        send(ws, "heartbeat_ack", {})
-    elif "COMPLETED" in msg["flags"]:
-        print(msg["payload"]["result"])
-        break
-    elif msg["type"] == "error" or "BUSY" in msg["flags"]:
-        raise SystemExit(msg["payload"])</pre>
+<h2>Example clients</h2>
+<p>The same client in the most used languages. Each one authenticates, asks one question, answers the heartbeat and prints the result. Set <code>MOTITA_TOKEN</code> to the gateway token first.</p>
+${tabs("ws", wsExamples("en"))}
+<div class="note">A browser page cannot add the <code>Authorization</code> header to a WebSocket, so it relies on the web interface's cookie and must be served by the gateway itself.</div>
 <p>Off loopback the gateway speaks plain HTTP, so use <code>wss://</code> behind one of the options in <a href="docs-network.html">Network and remote access</a> rather than sending the token in the clear.</p>`,
     more: [
       ["Guide: WebSocket, a bidirectional flag protocol", guide("websocket-a-bidirectional-flag-protocol")],
@@ -453,23 +456,23 @@ while True:
     slug: "automation",
     title: "Updates and scheduled tasks",
     blurb: "Stay on the newest verified release, and run tasks on a cadence.",
-    body: String.raw`
+    body: `
 <h2>Updating</h2>
+${flow("How an update is installed", [["<code>/update</code>", "Finds the newest release"], ["Download", "From the release itself"], ["Check", "Must match <code>SHA256SUMS</code>"], ["Install", "Nothing is installed on a mismatch"], ["Restart", "A gateway started with <code>-serve</code> does it alone"]])}
 <p><code>/update</code> installs the newest release. The welcome screen and the browser's sidebar tell you when one exists. The download must match the release's <code>SHA256SUMS</code> or nothing is installed. A gateway started with <code>-serve</code> restarts itself on the new binary; an interface tells you to restart it.</p>
 <p>The gateway reports its own build through <code>motita gateway status</code>, so after installing over an old binary you can tell whether the process still running is the previous one.</p>
 <p>Releases are cut automatically from semantic commits: <code>feat</code> bumps the minor version, <code>fix</code> the patch, and a breaking change the major. The newest version is always shown on the <a href="index.html">home page</a>.</p>
 <h2>Scheduled tasks</h2>
 <p>A <strong>scheduled task</strong> is a task or a plan the gateway submits on its own, on a cadence, with nobody at the keyboard. Each one is a small JSON file in <code>~/.motita/schedules/</code> that you can read and edit by hand.</p>
+${flow("How a scheduled task runs", [["The time comes", "<code>every 24h</code> after the last run"], ["The gateway submits it", "As a plan or a task, nobody at the keyboard"], ["It runs", "In the session it is pinned to"], ["You see the result", "In the interface"]])}
 <ul>
 <li>The cadence is a duration (<code>30m</code>, <code>6h</code>, <code>24h</code>), not cron syntax. <code>every 6h</code> means six hours after the last run.</li>
 <li>The shortest allowed cadence is one minute (<code>schedule.min_every</code>).</li>
 <li>A task can be a <code>plan</code> (read-only) or a <code>task</code>, and can be pinned to a session.</li>
 <li>Create, change, run-now and delete them through <code>/v1/schedules</code>, or from the interface.</li>
 </ul>
-<pre>curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"nightly audit","task":"check the logs and report","kind":"plan","every":"24h"}' \
-  http://127.0.0.1:7477/v1/schedules</pre>`,
+<p>The same call from code, in the most used languages (set <code>MOTITA_TOKEN</code> first):</p>
+${tabs("schedule", scheduleExamples("en"))}`,
     more: [
       ["Reference: scheduled tasks", reference("scheduled-tasks")],
       ["Guide: automatic releases", guide("automatic-releases")],
@@ -505,6 +508,8 @@ const ui = {
     prev: "Previous",
     next: "Next",
     deeper: "Go deeper",
+    copy: "Copy",
+    copied: "Copied",
     license: "GPL-3.0-or-later licensed.",
     other: "Español",
     otherLabel: "Leer en español",
@@ -527,6 +532,8 @@ const ui = {
     prev: "Anterior",
     next: "Siguiente",
     deeper: "Profundizar",
+    copy: "Copiar",
+    copied: "Copiado",
     license: "Licencia GPL-3.0-or-later.",
     other: "English",
     otherLabel: "Read in English",
@@ -685,6 +692,26 @@ ${main}
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "${t.copy}";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "${t.copied}";
+            setTimeout(() => {
+              button.textContent = "${t.copy}";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>

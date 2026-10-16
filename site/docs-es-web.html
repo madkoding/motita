@@ -49,22 +49,205 @@
       <p class="lead">El mismo agente desde un navegador o un teléfono, servido por un solo puerto.</p>
 <p>Cada proceso de motita es también un <strong>gateway</strong>: escucha en <code>127.0.0.1:7477</code> detrás de un token, y la terminal que miras es solo uno de sus clientes. Una página web o un teléfono pueden unirse a la misma conversación, con las mismas skills y el mismo historial.</p>
 <img src="shots/webui-phone.webp" alt="La interfaz del navegador en un teléfono" class="phone" width="600" height="1298" loading="lazy" />
+<h2>Cómo se conecta todo</h2>
+<figure class="diagram"><div class="dg-scroll"><svg role="img" aria-label="La terminal, el navegador, el teléfono y los scripts hablan con un solo gateway, que ejecuta las sesiones" viewBox="0 0 560 300" width="560" height="300" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah1d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-arrow" x1="79" y1="64" x2="137.5" y2="136" marker-end="url(#ah1)"/><rect class="dg-box" x="20" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="79" y="30" text-anchor="middle">Terminal</text><text class="dg-sub" x="79" y="48" text-anchor="middle">-connect</text><line class="dg-arrow" x1="213" y1="64" x2="232.5" y2="136" marker-end="url(#ah1)"/><rect class="dg-box" x="154" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="213" y="30" text-anchor="middle">Navegador</text><text class="dg-sub" x="213" y="48" text-anchor="middle">mismo puerto</text><line class="dg-arrow" x1="347" y1="64" x2="327.5" y2="136" marker-end="url(#ah1)"/><rect class="dg-box" x="288" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="347" y="30" text-anchor="middle">Teléfono</text><text class="dg-sub" x="347" y="48" text-anchor="middle">PWA instalada</text><line class="dg-arrow" x1="481" y1="64" x2="422.5" y2="136" marker-end="url(#ah1)"/><rect class="dg-box" x="422" y="6" width="118" height="58" rx="8"/><text class="dg-title" x="481" y="30" text-anchor="middle">Scripts</text><text class="dg-sub" x="481" y="48" text-anchor="middle">HTTP · SSE · WS</text><rect class="dg-box dg-hot" x="90" y="138" width="380" height="52" rx="10"/><text class="dg-title" x="280" y="160" text-anchor="middle">Gateway</text><text class="dg-sub" x="280" y="178" text-anchor="middle">127.0.0.1:7477 · un token</text><line class="dg-arrow" x1="280" y1="190" x2="280" y2="236" marker-end="url(#ah1)"/><rect class="dg-box" x="90" y="238" width="380" height="52" rx="10"/><text class="dg-title" x="280" y="260" text-anchor="middle">Sesiones y el agente</text><text class="dg-sub" x="280" y="278" text-anchor="middle">cada una con su worktree y su sandbox</text></svg></div></figure>
 <h2>La interfaz del navegador</h2>
 <p>Se sirve desde el puerto del propio gateway: no hay un segundo servidor ni configuración entre orígenes. Abre <code>http://127.0.0.1:7477</code>, pega el token una vez y tienes chat, proyectos, ajustes y la biblioteca de skills. Se instala como app (PWA) y va compilada dentro del binario.</p>
 <p>El token se lee de <code>~/.motita/gateway.token</code> y lo imprime <code>motita gateway start</code>.</p>
 <h2>Ejecutar el gateway</h2>
-<pre>motita gateway start    <span class="c"># inicia el servicio y espera a que responda</span>
+<pre class="code" data-lang="Shell"><code>motita gateway start    <span class="c"># inicia el servicio y espera a que responda</span>
 motita gateway status   <span class="c"># si hay uno corriendo, dónde y qué compilación</span>
 motita gateway stop
-motita gateway setup    <span class="c"># dónde responde: esta máquina, la LAN, todos</span></pre>
+motita gateway setup    <span class="c"># dónde responde: esta máquina, la LAN, todos</span></code></pre>
 <p>Si ya hay un gateway corriendo, <code>motita</code> se conecta a él y nunca lo apaga. Si no hay ninguno, levanta uno para sí mismo y lo detiene al salir.</p>
 <h2>Las dos mitades por separado</h2>
-<pre><span class="c"># en la máquina que ejecuta los comandos</span>
-motita -serve -gateway 127.0.0.1:7477
+<pre class="code" data-lang="Shell"><code><span class="c"># en la máquina que ejecuta los comandos</span>
+motita <span class="o">-serve</span> <span class="o">-gateway</span> <span class="n">127.0</span>.<span class="n">0.1</span>:<span class="n">7477</span>
 
 <span class="c"># en cualquier otro lugar: sin sandbox, sin agente en este proceso</span>
-motita -connect 127.0.0.1:7477 -tui</pre>
+motita <span class="o">-connect</span> <span class="n">127.0</span>.<span class="n">0.1</span>:<span class="n">7477</span> <span class="o">-tui</span></code></pre>
 <p>Un cliente <code>-connect</code> es solo una interfaz, así que corre en un portátil, una tableta o un teléfono a través de un túnel. Cómo llegar desde otras máquinas de forma segura está en <a href="docs-es-network.html">Red y acceso remoto</a>.</p>
+<h2>Seguir una ejecución desde código</h2>
+<p>Además del WebSocket, <code>POST /v1/sessions/{id}/task</code> inicia una tarea y responde con un flujo de server-sent events: líneas <code>progress</code> mientras trabaja y luego <code>done</code> con el resultado, o <code>error</code>. La ejecución pertenece al gateway, no a la conexión, así que un cliente que se cae puede volver a engancharse con <code>GET /v1/sessions/{id}/events?from=N</code>.</p>
+<figure class="diagram"><div class="dg-scroll"><svg role="img" aria-label="Seguir una tarea con server-sent events" viewBox="0 0 720 326" width="720" height="326" xmlns="http://www.w3.org/2000/svg"><defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head" d="M0 0L10 5L0 10z"/></marker><marker id="ah2d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="dg-head dg-head-dash" d="M0 0L10 5L0 10z"/></marker></defs><line class="dg-life" x1="192" y1="46" x2="192" y2="320"/><line class="dg-life" x1="528" y1="46" x2="528" y2="320"/><rect class="dg-box" x="107" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="192" y="26" text-anchor="middle">Cliente</text><rect class="dg-box" x="443" y="6" width="170" height="40" rx="8"/><text class="dg-title" x="528" y="21" text-anchor="middle">Gateway</text><text class="dg-sub" x="528" y="32" text-anchor="middle">/v1/sessions/{id}/task</text><text class="dg-label" x="360" y="80" text-anchor="middle">POST { task }</text><line class="dg-arrow" x1="195" y1="89" x2="525" y2="89" marker-end="url(#ah2)"/><text class="dg-label" x="360" y="130" text-anchor="middle">event: attached</text><line class="dg-arrow dg-dash" x1="525" y1="139" x2="195" y2="139" marker-end="url(#ah2d)"/><text class="dg-label" x="360" y="180" text-anchor="middle">event: progress { text }</text><line class="dg-arrow dg-dash" x1="525" y1="189" x2="195" y2="189" marker-end="url(#ah2d)"/><text class="dg-label" x="360" y="230" text-anchor="middle">event: done { result }</text><line class="dg-arrow dg-dash" x1="525" y1="239" x2="195" y2="239" marker-end="url(#ah2d)"/><rect class="dg-note" x="122" y="272" width="476" height="34" rx="6"/><text class="dg-label" x="360" y="293" text-anchor="middle">si la conexión se cae: GET /events?from=N</text></svg></div></figure>
+<p><code>EventSource</code> del navegador solo envía GET, así que lee el flujo con <code>fetch</code>, como aquí (primero define <code>MOTITA_TOKEN</code>):</p>
+<div class="tabs"><input type="radio" name="sse" id="sse-js" aria-label="JavaScript" checked /><input type="radio" name="sse" id="sse-ts" aria-label="TypeScript" /><input type="radio" name="sse" id="sse-py" aria-label="Python" /><input type="radio" name="sse" id="sse-go" aria-label="Go" /><input type="radio" name="sse" id="sse-rust" aria-label="Rust" /><div class="tab-bar"><label for="sse-js">JavaScript</label><label for="sse-ts">TypeScript</label><label for="sse-py">Python</label><label for="sse-go">Go</label><label for="sse-rust">Rust</label></div><section><pre class="code" data-lang="JavaScript"><code><span class="k">const</span> res = <span class="k">await</span> <span class="f">fetch(</span><span class="s">&quot;http://127.0.0.1:7477/v1/sessions/default/task&quot;</span>, {
+  method: <span class="s">&quot;POST&quot;</span>,
+  headers: {
+    <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + process.env.<span class="t">MOTITA_TOKEN</span>, <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="s">&quot;Content-Type&quot;</span>: <span class="s">&quot;application/json&quot;</span>,
+  },
+  body: <span class="t">JSON</span>.<span class="f">stringify(</span>{ task: <span class="s">&quot;run the tests and fix what fails&quot;</span> }),
+});
+<span class="k">if (</span>!res.ok) <span class="k">throw</span> <span class="k">new</span> <span class="f">Error(</span><span class="s">&quot;HTTP &quot;</span> + res.status);
+
+<span class="k">let</span> event = <span class="s">&quot;&quot;</span>;
+<span class="k">let</span> buffer = <span class="s">&quot;&quot;</span>;
+<span class="k">for</span> <span class="k">await (</span><span class="k">const</span> chunk <span class="k">of</span> res.body.<span class="f">pipeThrough(</span><span class="k">new</span> <span class="f">TextDecoderStream(</span>))) {
+  buffer += chunk;
+  <span class="k">const</span> lines = buffer.<span class="f">split(</span><span class="s">&quot;\n&quot;</span>);
+  buffer = lines.<span class="f">pop(</span>) ?? <span class="s">&quot;&quot;</span>;
+  <span class="k">for (</span><span class="k">const</span> line <span class="k">of</span> lines) { <span class="c">// una línea por evento: el nombre, y luego su JSON</span>
+    <span class="k">if (</span>line.<span class="f">startsWith(</span><span class="s">&quot;event: &quot;</span>)) {
+      event = line.<span class="f">slice(</span><span class="n">7</span>);
+    } <span class="k">else</span> <span class="k">if (</span>line.<span class="f">startsWith(</span><span class="s">&quot;data: &quot;</span>)) {
+      <span class="k">const</span> data = <span class="t">JSON</span>.<span class="f">parse(</span>line.<span class="f">slice(</span><span class="n">6</span>));
+      <span class="k">if (</span>event === <span class="s">&quot;progress&quot;</span>) console.<span class="f">log(</span><span class="s">&quot;-&quot;</span>, data.text); <span class="c">// una línea de avance, según ocurre</span>
+      <span class="k">if (</span>event === <span class="s">&quot;done&quot;</span>) console.<span class="f">log(</span>data.result); <span class="c">// el resultado final del turno</span>
+      <span class="k">if (</span>event === <span class="s">&quot;error&quot;</span>) <span class="k">throw</span> <span class="k">new</span> <span class="f">Error(</span>data.error); <span class="c">// la ejecución terminó con un fallo</span>
+    }
+  }
+}</code></pre></section><section><pre class="code" data-lang="TypeScript"><code><span class="k">import</span> { env } <span class="k">from</span> <span class="s">&quot;node:process&quot;</span>;
+
+<span class="k">interface</span> <span class="t">Data</span> {
+  text?: string;
+  result?: string;
+  error?: string;
+}
+
+<span class="k">const</span> res = <span class="k">await</span> <span class="f">fetch(</span><span class="s">&quot;http://127.0.0.1:7477/v1/sessions/default/task&quot;</span>, {
+  method: <span class="s">&quot;POST&quot;</span>,
+  headers: {
+    <span class="t">Authorization</span>: <span class="s">&quot;Bearer &quot;</span> + env.<span class="t">MOTITA_TOKEN</span>, <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="s">&quot;Content-Type&quot;</span>: <span class="s">&quot;application/json&quot;</span>,
+  },
+  body: <span class="t">JSON</span>.<span class="f">stringify(</span>{ task: <span class="s">&quot;run the tests and fix what fails&quot;</span> }),
+});
+<span class="k">if (</span>!res.ok || !res.body) <span class="k">throw</span> <span class="k">new</span> <span class="f">Error(</span><span class="s">&quot;HTTP &quot;</span> + res.status);
+
+<span class="k">let</span> event = <span class="s">&quot;&quot;</span>;
+<span class="k">let</span> buffer = <span class="s">&quot;&quot;</span>;
+<span class="k">const</span> reader = res.body.<span class="f">pipeThrough(</span><span class="k">new</span> <span class="f">TextDecoderStream(</span>)).<span class="f">getReader(</span>);
+<span class="k">for (</span><span class="k">let</span> part = <span class="k">await</span> reader.<span class="f">read(</span>); !part.done; part = <span class="k">await</span> reader.<span class="f">read(</span>)) {
+  buffer += part.value;
+  <span class="k">const</span> lines = buffer.<span class="f">split(</span><span class="s">&quot;\n&quot;</span>);
+  buffer = lines.<span class="f">pop(</span>) ?? <span class="s">&quot;&quot;</span>;
+  <span class="k">for (</span><span class="k">const</span> line <span class="k">of</span> lines) { <span class="c">// una línea por evento: el nombre, y luego su JSON</span>
+    <span class="k">if (</span>line.<span class="f">startsWith(</span><span class="s">&quot;event: &quot;</span>)) {
+      event = line.<span class="f">slice(</span><span class="n">7</span>);
+    } <span class="k">else</span> <span class="k">if (</span>line.<span class="f">startsWith(</span><span class="s">&quot;data: &quot;</span>)) {
+      <span class="k">const</span> data = <span class="t">JSON</span>.<span class="f">parse(</span>line.<span class="f">slice(</span><span class="n">6</span>)) <span class="k">as</span> <span class="t">Data</span>;
+      <span class="k">if (</span>event === <span class="s">&quot;progress&quot;</span>) console.<span class="f">log(</span><span class="s">&quot;-&quot;</span>, data.text); <span class="c">// una línea de avance, según ocurre</span>
+      <span class="k">if (</span>event === <span class="s">&quot;done&quot;</span>) console.<span class="f">log(</span>data.result); <span class="c">// el resultado final del turno</span>
+      <span class="k">if (</span>event === <span class="s">&quot;error&quot;</span>) <span class="k">throw</span> <span class="k">new</span> <span class="f">Error(</span>data.error); <span class="c">// la ejecución terminó con un fallo</span>
+    }
+  }
+}</code></pre></section><section><pre class="code" data-lang="Python"><code><span class="c"># pip install requests</span>
+<span class="k">import</span> json
+<span class="k">import</span> os
+
+<span class="k">import</span> requests
+
+res = requests.<span class="f">post(</span>
+    <span class="s">&quot;http://127.0.0.1:7477/v1/sessions/default/task&quot;</span>,
+    headers={<span class="s">&quot;Authorization&quot;</span>: <span class="s">&quot;Bearer &quot;</span> + os.environ[<span class="s">&quot;MOTITA_TOKEN&quot;</span>]},  <span class="c"># el token del gateway: motita gateway start -token-only</span>
+    json={<span class="s">&quot;task&quot;</span>: <span class="s">&quot;run the tests and fix what fails&quot;</span>},
+    stream=<span class="k">True</span>,
+)
+res.<span class="f">raise_for_status(</span>)
+res.encoding = <span class="s">&quot;utf-8&quot;</span>
+
+event = <span class="s">&quot;&quot;</span>
+<span class="k">for</span> line <span class="k">in</span> res.<span class="f">iter_lines(</span>decode_unicode=<span class="k">True</span>):  <span class="c"># una línea por evento: el nombre, y luego su JSON</span>
+    <span class="k">if</span> line.<span class="f">startswith(</span><span class="s">&quot;event: &quot;</span>):
+        event = line[<span class="n">7</span>:]
+    <span class="k">elif</span> line.<span class="f">startswith(</span><span class="s">&quot;data: &quot;</span>):
+        data = json.<span class="f">loads(</span>line[<span class="n">6</span>:])
+        <span class="k">if</span> event == <span class="s">&quot;progress&quot;</span>:
+            <span class="f">print(</span><span class="s">&quot;-&quot;</span>, data[<span class="s">&quot;text&quot;</span>])  <span class="c"># una línea de avance, según ocurre</span>
+        <span class="k">elif</span> event == <span class="s">&quot;done&quot;</span>:
+            <span class="f">print(</span>data[<span class="s">&quot;result&quot;</span>])  <span class="c"># el resultado final del turno</span>
+        <span class="k">elif</span> event == <span class="s">&quot;error&quot;</span>:
+            <span class="k">raise</span> <span class="f">SystemExit(</span>data[<span class="s">&quot;error&quot;</span>])  <span class="c"># la ejecución terminó con un fallo</span></code></pre></section><section><pre class="code" data-lang="Go"><code><span class="k">package</span> main
+
+<span class="k">import (</span>
+	<span class="s">&quot;bufio&quot;</span>
+	<span class="s">&quot;encoding/json&quot;</span>
+	<span class="s">&quot;fmt&quot;</span>
+	<span class="s">&quot;log&quot;</span>
+	<span class="s">&quot;net/http&quot;</span>
+	<span class="s">&quot;os&quot;</span>
+	<span class="s">&quot;strings&quot;</span>
+)
+
+<span class="k">type</span> <span class="t">Data</span> <span class="k">struct</span> {
+	<span class="t">Text</span>   string <span class="s">`json:&quot;text&quot;`</span>
+	<span class="t">Result</span> string <span class="s">`json:&quot;result&quot;`</span>
+	<span class="t">Error</span>  string <span class="s">`json:&quot;error&quot;`</span>
+}
+
+<span class="k">func</span> <span class="f">main(</span>) {
+	body := strings.<span class="f">NewReader(</span><span class="s">`{&quot;task&quot;:&quot;run the tests and fix what fails&quot;}`</span>)
+	req, err := http.<span class="f">NewRequest(</span>http.<span class="t">MethodPost</span>, <span class="s">&quot;http://127.0.0.1:7477/v1/sessions/default/task&quot;</span>, body)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	req.<span class="t">Header</span>.<span class="f">Set(</span><span class="s">&quot;Authorization&quot;</span>, <span class="s">&quot;Bearer &quot;</span>+os.<span class="f">Getenv(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)) <span class="c">// el token del gateway: motita gateway start -token-only</span>
+	req.<span class="t">Header</span>.<span class="f">Set(</span><span class="s">&quot;Content-Type&quot;</span>, <span class="s">&quot;application/json&quot;</span>)
+
+	res, err := http.<span class="t">DefaultClient</span>.<span class="f">Do(</span>req)
+	<span class="k">if</span> err != <span class="k">nil</span> {
+		log.<span class="f">Fatal(</span>err)
+	}
+	<span class="k">defer</span> res.<span class="t">Body</span>.<span class="f">Close(</span>)
+	<span class="k">if</span> res.<span class="t">StatusCode</span> != http.<span class="t">StatusOK</span> {
+		log.<span class="f">Fatal(</span><span class="s">&quot;HTTP &quot;</span>, res.<span class="t">Status</span>)
+	}
+
+	scanner := bufio.<span class="f">NewScanner(</span>res.<span class="t">Body</span>)
+	scanner.<span class="f">Buffer(</span><span class="f">make(</span>[]byte, <span class="n">0</span>, <span class="n">64</span>*<span class="n">1024</span>), <span class="n">1</span>&lt;&lt;<span class="n">20</span>)
+	event := <span class="s">&quot;&quot;</span>
+	<span class="k">for</span> scanner.<span class="f">Scan(</span>) { <span class="c">// una línea por evento: el nombre, y luego su JSON</span>
+		line := scanner.<span class="f">Text(</span>)
+		<span class="k">if</span> name, ok := strings.<span class="f">CutPrefix(</span>line, <span class="s">&quot;event: &quot;</span>); ok {
+			event = name
+		} <span class="k">else</span> <span class="k">if</span> raw, ok := strings.<span class="f">CutPrefix(</span>line, <span class="s">&quot;data: &quot;</span>); ok {
+			<span class="k">var</span> data <span class="t">Data</span>
+			<span class="k">if</span> err := json.<span class="f">Unmarshal(</span>[]<span class="f">byte(</span>raw), &amp;data); err != <span class="k">nil</span> {
+				log.<span class="f">Fatal(</span>err)
+			}
+			<span class="k">switch</span> event {
+			<span class="k">case</span> <span class="s">&quot;progress&quot;</span>:
+				fmt.<span class="f">Println(</span><span class="s">&quot;-&quot;</span>, data.<span class="t">Text</span>) <span class="c">// una línea de avance, según ocurre</span>
+			<span class="k">case</span> <span class="s">&quot;done&quot;</span>:
+				fmt.<span class="f">Println(</span>data.<span class="t">Result</span>) <span class="c">// el resultado final del turno</span>
+			<span class="k">case</span> <span class="s">&quot;error&quot;</span>:
+				log.<span class="f">Fatal(</span>data.<span class="t">Error</span>) <span class="c">// la ejecución terminó con un fallo</span>
+			}
+		}
+	}
+}</code></pre></section><section><pre class="code" data-lang="Rust"><code><span class="c">// Cargo.toml: reqwest = { version = &quot;0.12&quot;, features = [&quot;blocking&quot;, &quot;json&quot;] }, serde_json = &quot;1&quot;</span>
+<span class="k">use</span> serde_json::{json, <span class="t">Value</span>};
+<span class="k">use</span> std::io::{<span class="t">BufRead</span>, <span class="t">BufReader</span>};
+
+<span class="k">fn</span> <span class="f">main(</span>) -&gt; <span class="t">Result</span>&lt;(), <span class="t">Box</span>&lt;<span class="k">dyn</span> std::error::<span class="t">Error</span>&gt;&gt; {
+    <span class="k">let</span> token = std::env::<span class="f">var(</span><span class="s">&quot;MOTITA_TOKEN&quot;</span>)?; <span class="c">// el token del gateway: motita gateway start -token-only</span>
+    <span class="k">let</span> res = reqwest::blocking::<span class="t">Client</span>::<span class="f">builder(</span>)
+        .<span class="f">timeout(</span><span class="t">None</span>) <span class="c">// a run can take minutes</span>
+        .<span class="f">build(</span>)?
+        .<span class="f">post(</span><span class="s">&quot;http://127.0.0.1:7477/v1/sessions/default/task&quot;</span>)
+        .<span class="f">bearer_auth(</span>token)
+        .<span class="f">json(</span>&amp;<span class="f">json!(</span>{ <span class="s">&quot;task&quot;</span>: <span class="s">&quot;run the tests and fix what fails&quot;</span> }))
+        .<span class="f">send(</span>)?
+        .<span class="f">error_for_status(</span>)?;
+
+    <span class="k">let</span> <span class="k">mut</span> event = <span class="t">String</span>::<span class="f">new(</span>);
+    <span class="k">for</span> line <span class="k">in</span> <span class="t">BufReader</span>::<span class="f">new(</span>res).<span class="f">lines(</span>) { <span class="c">// una línea por evento: el nombre, y luego su JSON</span>
+        <span class="k">let</span> line = line?;
+        <span class="k">if</span> <span class="k">let</span> <span class="f">Some(</span>name) = line.<span class="f">strip_prefix(</span><span class="s">&quot;event: &quot;</span>) {
+            event = name.<span class="f">to_string(</span>);
+        } <span class="k">else</span> <span class="k">if</span> <span class="k">let</span> <span class="f">Some(</span>raw) = line.<span class="f">strip_prefix(</span><span class="s">&quot;data: &quot;</span>) {
+            <span class="k">let</span> data: <span class="t">Value</span> = serde_json::<span class="f">from_str(</span>raw)?;
+            <span class="k">match</span> event.<span class="f">as_str(</span>) {
+                <span class="s">&quot;progress&quot;</span> =&gt; <span class="f">println!(</span><span class="s">&quot;- {}&quot;</span>, data[<span class="s">&quot;text&quot;</span>].<span class="f">as_str(</span>).<span class="f">unwrap_or_default(</span>)), <span class="c">// una línea de avance, según ocurre</span>
+                <span class="s">&quot;done&quot;</span> =&gt; <span class="f">println!(</span><span class="s">&quot;{}&quot;</span>, data[<span class="s">&quot;result&quot;</span>].<span class="f">as_str(</span>).<span class="f">unwrap_or_default(</span>)), <span class="c">// el resultado final del turno</span>
+                <span class="s">&quot;error&quot;</span> =&gt; <span class="k">return</span> <span class="f">Err(</span>data[<span class="s">&quot;error&quot;</span>].<span class="f">as_str(</span>).<span class="f">unwrap_or(</span><span class="s">&quot;error&quot;</span>).<span class="f">into(</span>)), <span class="c">// la ejecución terminó con un fallo</span>
+                _ =&gt; {}
+            }
+        }
+    }
+    <span class="f">Ok(</span>())
+}</code></pre></section></div>
 <h2>Más de una conversación</h2>
 <p>Un gateway mantiene muchas sesiones a la vez. El modelo pertenece a la sesión: cambiarlo afecta solo a esa conversación y sobrevive a un reinicio. Otros programas pueden manejar las mismas sesiones por HTTP, eventos del servidor o un protocolo WebSocket; la referencia lista todos los endpoints.</p>
       <h2>Profundizar</h2>
@@ -99,6 +282,26 @@ motita -connect 127.0.0.1:7477 -tui</pre>
           // blocked storage: the choice just does not carry over
         }
       });
+      // A copy button on every code block; the blocks read the same without it.
+      const RESET_MS = 1600;
+      for (const pre of document.querySelectorAll("pre.code")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copiar";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").textContent);
+            button.textContent = "Copiado";
+            setTimeout(() => {
+              button.textContent = "Copiar";
+            }, RESET_MS);
+          } catch (e) {
+            // no clipboard on a plain-http page: the text stays selectable by hand
+          }
+        });
+        pre.appendChild(button);
+      }
     </script>
   </body>
 </html>
