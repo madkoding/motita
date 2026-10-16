@@ -42,33 +42,53 @@ func (s Sandbox) FullDisk() bool { return s.DiskAccess == DiskFull }
 // (MOTITA_SANDBOX_DISK_ACCESS) is undone and refused: saving a choice that does not apply would
 // tell the person the agent is confined when it is not, or the reverse.
 func SetDiskAccess(path, mode string) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+	return Tx{path}.SetDiskAccess(mode)
+}
+
+// SetDiskAccess is SetDiskAccess inside a transaction.
+func (t Tx) SetDiskAccess(mode string) error {
 	if !ValidDiskAccess(mode) {
 		return fmt.Errorf("the disk access %q is not one of workspace, full", mode)
 	}
-	return setSandboxKey(path, "disk_access", strconv.Quote(mode),
+	return setSandboxKey(t.path, "disk_access", strconv.Quote(mode),
 		func(cfg Config) bool { return cfg.Sandbox.DiskAccess == mode })
 }
 
 // SetAskUnconfinedRuns writes ask into the configuration file at path as
 // sandbox.ask_unconfined_runs, in place and with the same checks as SetDiskAccess.
 func SetAskUnconfinedRuns(path string, ask bool) error {
-	return setSandboxKey(path, "ask_unconfined_runs", strconv.FormatBool(ask),
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+	return Tx{path}.SetAskUnconfinedRuns(ask)
+}
+
+// SetAskUnconfinedRuns is SetAskUnconfinedRuns inside a transaction.
+func (t Tx) SetAskUnconfinedRuns(ask bool) error {
+	return setSandboxKey(t.path, "ask_unconfined_runs", strconv.FormatBool(ask),
 		func(cfg Config) bool { return cfg.Sandbox.AskUnconfinedRuns == ask })
 }
 
 // SetIsolateNetwork writes on into the configuration file at path as sandbox.isolate_network, in
 // place and with the same checks as SetDiskAccess.
 func SetIsolateNetwork(path string, on bool) error {
-	return setSandboxKey(path, "isolate_network", strconv.FormatBool(on),
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+	return Tx{path}.SetIsolateNetwork(on)
+}
+
+// SetIsolateNetwork is SetIsolateNetwork inside a transaction.
+func (t Tx) SetIsolateNetwork(on bool) error {
+	return setSandboxKey(t.path, "isolate_network", strconv.FormatBool(on),
 		func(cfg Config) bool { return cfg.Sandbox.IsolateNetwork == on })
 }
 
-// setSandboxKey sets sandbox.key to value (YAML text) in the file at path, then loads the file
+// setSandboxKey, with configWriteMu held by the caller, sets sandbox.key to value (YAML text) in the
+// file at path, then loads the file
 // whole and undoes the change when it does not load or when applied says the loaded configuration
 // does not carry it: the environment (MOTITA_SANDBOX_<KEY>) overrides the file.
 func setSandboxKey(path, key, value string, applied func(Config) bool) error {
-	configWriteMu.Lock()
-	defer configWriteMu.Unlock()
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)

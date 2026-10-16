@@ -135,30 +135,31 @@ func setUILanguageText(body, lang string) (string, error) {
 // or an undo would erase the other's.
 var configWriteMu sync.Mutex
 
-// FileSnapshot is a configuration file as it was, to put back when a change made of several
-// writes fails halfway: none of them may stay applied.
-type FileSnapshot struct {
-	path string
-	body []byte
-	perm os.FileMode
-}
+// Tx is the configuration file held for a change made of several writes. Its setters do not take
+// configWriteMu: Transaction already holds it, from before the first write to after the last.
+type Tx struct{ path string }
 
-// SnapshotFile reads the configuration file at path.
-func SnapshotFile(path string) (FileSnapshot, error) {
+// Transaction runs fn with the configuration file at path locked against every other setter, and
+// puts the file back as it was when fn fails: none of its writes may stay applied, and no other
+// setter's edit may land between the snapshot and the restore only to be erased by it.
+func Transaction(path string, fn func(Tx) error) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
 	info, err := os.Stat(path)
 	if err != nil {
-		return FileSnapshot{}, fmt.Errorf("the configuration file cannot be read: %w", err)
+		return fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return FileSnapshot{}, fmt.Errorf("the configuration file cannot be read: %w", err)
+		return fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
-	return FileSnapshot{path: path, body: body, perm: info.Mode().Perm()}, nil
-}
-
-// Restore writes the file back as the snapshot read it.
-func (f FileSnapshot) Restore() error {
-	return writeConfigAtomic(f.path, f.body, f.perm)
+	if err := fn(Tx{path}); err != nil {
+		if rerr := writeConfigAtomic(path, body, info.Mode().Perm()); rerr != nil {
+			return fmt.Errorf("%w (and the file could not be restored: %v)", err, rerr)
+		}
+		return err
+	}
+	return nil
 }
 
 // writeConfigAtomic replaces path with body, through a temporary file in the same directory so a
