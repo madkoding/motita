@@ -287,7 +287,9 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 
 // beforeProjectUpdate runs just before a repository handler saves its change; a variable only so a
 // test can delete the project at that point, as a user can while a clone runs.
-var beforeProjectUpdate = func(string) {}
+var beforeProjectUpdate = func(string) {
+	// Nothing to do in production.
+}
 
 // updateProject is projectStore.update for a repository handler.
 func (s *Server) updateProject(id string, change func(*Project)) (*Project, error) {
