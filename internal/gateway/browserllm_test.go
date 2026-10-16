@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,17 +44,24 @@ func TestBrowserLLMRoundTrip(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"content":"title?"`) {
 		t.Fatalf("job = %s", w.Body)
 	}
-	ans := post(t, srv, "/v1/browser-llm/jobs/1", `{"text":"A title"}`, testToken)
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &job); err != nil || job.ID == "" {
+		t.Fatalf("job id: %v %s", err, w.Body)
+	}
+	jobPath := "/v1/browser-llm/jobs/" + job.ID
+	ans := post(t, srv, jobPath, `{"text":"A title"}`, testToken)
 	if ans.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", ans.Code, ans.Body)
 	}
 	if got := <-asked; got != "A title" {
 		t.Errorf("asked got %q", got)
 	}
-	if again := post(t, srv, "/v1/browser-llm/jobs/1", `{"text":"x"}`, testToken); again.Code != http.StatusGone {
+	if again := post(t, srv, jobPath, `{"text":"x"}`, testToken); again.Code != http.StatusGone {
 		t.Errorf("a second answer = %d", again.Code)
 	}
-	if bad := post(t, srv, "/v1/browser-llm/jobs/1", `{`, testToken); bad.Code != http.StatusBadRequest {
+	if bad := post(t, srv, jobPath, `{`, testToken); bad.Code != http.StatusBadRequest {
 		t.Errorf("a broken body = %d", bad.Code)
 	}
 }
