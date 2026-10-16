@@ -24,11 +24,14 @@ func (s *Server) browserLLMRoutes(mux *http.ServeMux, plain func(http.HandlerFun
 	mux.Handle("POST /v1/browser-llm/jobs/{id}", plain(s.handleBrowserLLMAnswer))
 }
 
+// errNoBrowserModel is what the browser model routes answer when the gateway was built without one.
+const errNoBrowserModel = "this gateway has no browser model"
+
 // handleBrowserLLMNext holds the request open until there is work for the tab, or answers 204.
 func (s *Server) handleBrowserLLMNext(w http.ResponseWriter, r *http.Request) {
 	b := s.opts.BrowserLLM
 	if b == nil {
-		writeError(w, http.StatusNotImplemented, "this gateway has no browser model")
+		writeError(w, http.StatusNotImplemented, errNoBrowserModel)
 		return
 	}
 	job, ok := b.Next(r.Context())
@@ -43,7 +46,7 @@ func (s *Server) handleBrowserLLMNext(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBrowserLLMAnswer(w http.ResponseWriter, r *http.Request) {
 	b := s.opts.BrowserLLM
 	if b == nil {
-		writeError(w, http.StatusNotImplemented, "this gateway has no browser model")
+		writeError(w, http.StatusNotImplemented, errNoBrowserModel)
 		return
 	}
 	var body browserJobAnswer
@@ -66,7 +69,7 @@ const browserTestPrompt = "Write a title of at most six words for a conversation
 func (s *Server) handleBrowserLLMTest(w http.ResponseWriter, r *http.Request) {
 	b := s.opts.BrowserLLM
 	if b == nil {
-		writeError(w, http.StatusNotImplemented, "this gateway has no browser model")
+		writeError(w, http.StatusNotImplemented, errNoBrowserModel)
 		return
 	}
 	start := time.Now()

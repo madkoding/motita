@@ -31,7 +31,8 @@ const (
 )
 
 // ErrNoTab is the failure when no tab with the browser model on is open.
-var ErrNoTab = errors.New("no browser tab is running the browser model: open the web UI and turn it on in Settings → Models")
+var ErrNoTab = errors.New(
+	"no browser tab is running the browser model: open the web UI and turn it on in Settings → Models")
 
 // Message is one turn of the conversation, as the tab reads it.
 type Message struct {

@@ -19,7 +19,9 @@ const LAYERS = 24;
 const KV_HEADS = 2;
 const HEAD_DIM = 64;
 // The end of a turn and the end of the text: the model stops on either.
-const STOPS = new Set([151645, 151643]);
+const IM_END = 151645;
+const END_OF_TEXT = 151643;
+const STOPS = new Set([IM_END, END_OF_TEXT]);
 const DEFAULT_SYSTEM =
   "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.";
 // A title or a summary is short: the answer is cut at this many tokens.

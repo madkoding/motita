@@ -92,13 +92,12 @@ export function BrowserModelSettings({ api }: { api: Api }) {
           )}
           warning={
             status && (
-              <p
-                class="text-xs text-[#9a9aaa] mt-1"
+              <output
+                class="block text-xs text-[#9a9aaa] mt-1"
                 data-testid="llm-browser-status"
-                role="status"
               >
                 {status}
-              </p>
+              </output>
             )
           }
         >

@@ -14,6 +14,25 @@ import type { Api } from "./prApi";
 
 export const BROWSER_MODEL_KEY = "motita.ui.browserModel";
 
+const HTTP_OK = 200;
+const HTTP_NO_CONTENT = 204;
+const RETRY_MS = 5000;
+
+function messageOf(e: unknown): string {
+  if (e instanceof Error) {
+    return e.message;
+  }
+  return String(e);
+}
+
+// percentOf is how much of the download is done, 0 while its size is not known.
+function percentOf(d: { done: number; total: number } | null | undefined): number {
+  if (d && d.total) {
+    return Math.round((100 * d.done) / d.total);
+  }
+  return 0;
+}
+
 // off: not asked for; unsupported: this browser or device cannot run it; downloading: the gateway
 // is fetching the files; loading: the worker is starting the model; ready: it answers requests.
 export type BrowserPhase =
@@ -57,7 +76,11 @@ export function browserModelOn(): boolean {
 
 export function setBrowserModelOn(on: boolean): void {
   try {
-    localStorage.setItem(BROWSER_MODEL_KEY, on ? "1" : "0");
+    let value = "0";
+    if (on) {
+      value = "1";
+    }
+    localStorage.setItem(BROWSER_MODEL_KEY, value);
   } catch {
     // Nothing to do: the choice is only a convenience.
   }
@@ -103,7 +126,7 @@ export function startBrowserModel(api: Api): void {
     if (!ctl.signal.aborted) {
       set({
         phase: "failed",
-        error: e instanceof Error ? e.message : String(e),
+        error: messageOf(e),
       });
       run = undefined;
     }
@@ -141,7 +164,7 @@ async function ensureFiles(
     const d = catalog.download;
     set({
       phase: "downloading",
-      pct: d && d.total ? Math.round((100 * d.done) / d.total) : 0,
+      pct: percentOf(d),
     });
     await sleep(1000);
   }
@@ -193,7 +216,8 @@ async function serve(api: Api, signal: AbortSignal): Promise<void> {
   let seq = 0;
   const generate = (messages: ChatMessage[]) =>
     new Promise<string>((ok, fail) => {
-      waiting.set(++seq, { ok, fail });
+      seq += 1;
+      waiting.set(seq, { ok, fail });
       post({ kind: "generate", seq, messages });
     });
   await answerLoop(api, signal, generate);
@@ -210,13 +234,15 @@ async function answerLoop(
     let job: { id: string; messages: ChatMessage[] } | undefined;
     try {
       const res = await api("/v1/browser-llm/next", { signal });
-      if (res.status === 200) {
+      if (res.status === HTTP_OK) {
         job = (await res.json()) as { id: string; messages: ChatMessage[] };
-      } else if (res.status !== 204) {
-        await sleep(5000);
+      } else if (res.status === HTTP_NO_CONTENT) {
+        // No work yet: ask again.
+      } else {
+        await sleep(RETRY_MS);
       }
     } catch {
-      await sleep(5000);
+      await sleep(RETRY_MS);
     }
     if (!job) {
       continue;
