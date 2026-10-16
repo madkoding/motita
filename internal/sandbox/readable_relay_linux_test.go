@@ -98,10 +98,20 @@ func TestConfineListsForItselfWithoutAUsableAnswer(t *testing.T) {
 // namespaces only when it cannot.
 func TestWorkOutReadableLeavesTheListForTheRelay(t *testing.T) {
 	home, work := userHome(t)
-	spec := Spec{WriteRoots: []string{work}, PrivatePaths: []string{home}}
-	workOutReadable(&spec)
-	list, known := takeReadableFile(spec.ReadableFile)
-	want := readableAround([]string{home})
+	// The home is under /tmp, which other packages' tests write to while this one runs, so a list
+	// and the expectation taken a moment apart can differ by a directory that came or went. Take
+	// them again until they agree; a list that is really wrong never does.
+	var list, want []string
+	var known bool
+	for range 5 {
+		spec := Spec{WriteRoots: []string{work}, PrivatePaths: []string{home}}
+		workOutReadable(&spec)
+		list, known = takeReadableFile(spec.ReadableFile)
+		want = readableAround([]string{home})
+		if known && strings.Join(list, ",") == strings.Join(want, ",") {
+			break
+		}
+	}
 	if !known || strings.Join(list, ",") != strings.Join(want, ",") {
 		t.Errorf("list = %v (known %v), want %v", list, known, want)
 	}
