@@ -1,5 +1,5 @@
 import { useCallback, useState } from "preact/hooks";
-import { t } from "./i18n";
+import { t, tf } from "./i18n";
 import type { Api } from "./gitApi";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
@@ -84,20 +84,25 @@ export function NetworkIsolationSetting({
   const confirm = useCallback(() => void save(false), [save]);
   const cancel = useCallback(() => setAsking(false), []);
   const shown: NetChoice = choose(asking, "open", current);
-  const unenforced = choose(
-    view.network_enforced === false,
-    " " +
-      choose(
-        view.network_hint,
-        t(
-          "This system blocks it for programs without permission (Ubuntu 24.04 and later). To allow it, run once on the machine that runs Motita: sudo motita sandbox apparmor install",
-        ),
-        t(
-          "This system cannot take the network away from a command (it needs Linux), so this changes nothing here.",
-        ),
+  // What the machine said, when it said: the hint is the AppArmor profile (translated here), the
+  // reason is the system's own words; with neither, the only thing known is that it needs Linux.
+  const why = choose(
+    view.network_hint,
+    t(
+      "This system blocks it for programs without permission (Ubuntu 24.04 and later). To allow it, run once on the machine that runs Motita: sudo motita sandbox apparmor install",
+    ),
+    choose(
+      view.network_reason,
+      tf(
+        "This system cannot give a command a network of its own ({reason}), so this changes nothing here.",
+        { reason: view.network_reason ?? "" },
       ),
-    "",
+      t(
+        "This system cannot take the network away from a command (it needs Linux), so this changes nothing here.",
+      ),
+    ),
   );
+  const unenforced = choose(view.network_enforced === false, " " + why, "");
 
   return (
     <>

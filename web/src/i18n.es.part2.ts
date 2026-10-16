@@ -571,6 +571,8 @@ const more: Record<string, string> = {
     "Este sistema no puede quitarle la red a un comando (necesita Linux), así que aquí no cambia nada.",
   "This system blocks it for programs without permission (Ubuntu 24.04 and later). To allow it, run once on the machine that runs Motita: sudo motita sandbox apparmor install":
     "Este sistema lo bloquea para los programas sin permiso (Ubuntu 24.04 y posteriores). Para permitirlo, ejecuta una vez en la máquina donde corre Motita: sudo motita sandbox apparmor install",
+  "This system cannot give a command a network of its own ({reason}), so this changes nothing here.":
+    "Este sistema no puede dar a un comando una red propia ({reason}), así que aquí esto no cambia nada.",
   "Give Motita's commands the network?": "¿Dar la red a los comandos de Motita?",
   "This voice needs WebGPU, which this device does not use. Choose another voice, or turn WebGPU on in the settings.":
     "Esta voz necesita WebGPU, que este dispositivo no usa. Elige otra voz, o activa WebGPU en los ajustes.",
