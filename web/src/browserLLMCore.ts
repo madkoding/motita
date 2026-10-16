@@ -112,7 +112,7 @@ export interface LLMSession {
 export interface LLMOrt {
   Tensor: new (
     type: string,
-    data: BigInt64Array | Uint16Array | Float32Array,
+    data: BigInt64Array | Float32Array,
     dims: number[],
   ) => LLMTensor;
   createSession(model: ArrayBuffer): Promise<LLMSession>;
@@ -148,7 +148,6 @@ export class BrowserModel {
     session: LLMSession;
     ort: LLMOrt;
     tok: TokenizerLike;
-    half: boolean;
   };
 
   private readonly deps: LLMDeps;
@@ -180,7 +179,7 @@ export class BrowserModel {
     );
     const ort = await this.deps.gpu(wasm);
     const session = await ort.createSession(weights);
-    this.ready = { session, ort, tok: this.deps.tokenizer(json, config), half };
+    this.ready = { session, ort, tok: this.deps.tokenizer(json, config) };
     progress(100);
     return { build: id };
   }
@@ -194,22 +193,17 @@ export class BrowserModel {
     if (!m) {
       throw new Error("the browser model is not loaded");
     }
-    const { session, ort, tok, half } = m;
-    let kind = "float32";
-    let empty = (): Uint16Array | Float32Array => new Float32Array(0);
-    if (half) {
-      kind = "float16";
-      empty = () => new Uint16Array(0);
-    }
+    const { session, ort, tok } = m;
+    // Both builds (the 16-bit one too: only its weights and shaders are 16-bit) take and give the
+    // caches as 32-bit floats, so an empty one is always float32: feeding float16 fails OrtRun().
     let past: Record<string, LLMTensor> = {};
     for (let i = 0; i < LAYERS; i++) {
       for (const part of ["key", "value"]) {
-        past[`past_key_values.${i}.${part}`] = new ort.Tensor(kind, empty(), [
-          1,
-          KV_HEADS,
-          0,
-          HEAD_DIM,
-        ]);
+        past[`past_key_values.${i}.${part}`] = new ort.Tensor(
+          "float32",
+          new Float32Array(0),
+          [1, KV_HEADS, 0, HEAD_DIM],
+        );
       }
     }
     let ids = tok.encode(chatPrompt(messages)).ids;
