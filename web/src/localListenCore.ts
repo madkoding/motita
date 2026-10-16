@@ -473,6 +473,8 @@ export class Listener {
       } catch (e) {
         gpuError = reasonOf(e);
       }
+    } else {
+      // A model that does not run on WebGPU has no runtime of it to fetch.
     }
     const gpu = ort !== null;
     ort ??= await this.deps.ort(await read(fileURL(RUNTIME_ID, ORT_WASM), choose(tried, 0, SHARES.runtime)));
