@@ -413,7 +413,16 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	if !body.applyPR(w, p) || !body.applyDetails(w, p) || !body.applyMainBranch(w, r, p) {
 		return
 	}
-	if err := s.projects.save(*p); err != nil {
+	// Checking the branch above can take a while; a repository added or removed meanwhile is in
+	// the stored project, not in this copy, so only the fields this request changes are written
+	// onto the project as it is now.
+	validated := *p
+	p, err := s.updateProject(validated.ID, func(cur *Project) { body.copyTo(cur, &validated) })
+	if errors.Is(err, errProjectGone) {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -436,6 +445,34 @@ type projectUpdate struct {
 	PRMaxFixes   *int    `json:"pr_max_fixes"`
 	AutoMerge    *bool   `json:"auto_merge"`
 	AutoContinue *bool   `json:"auto_continue"`
+}
+
+// copyTo writes onto dst the fields this request set, taking their validated values from src.
+func (u projectUpdate) copyTo(dst, src *Project) {
+	if u.Title != nil {
+		dst.Title = src.Title
+	}
+	if u.Description != nil {
+		dst.Description = src.Description
+	}
+	if u.Podman != nil {
+		dst.Podman = src.Podman
+	}
+	if u.MainBranch != nil {
+		dst.MainBranch = src.MainBranch
+	}
+	if u.MergeMethod != nil {
+		dst.MergeMethod = src.MergeMethod
+	}
+	if u.PRMaxFixes != nil {
+		dst.PRMaxFixes = src.PRMaxFixes
+	}
+	if u.AutoMerge != nil {
+		dst.AutoMerge = src.AutoMerge
+	}
+	if u.AutoContinue != nil {
+		dst.AutoContinue = src.AutoContinue
+	}
 }
 
 // applyPR applies the pull-request settings to p. It answers the request itself, and returns
@@ -659,6 +696,13 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// stops the whole deletion unless the user confirmed the discard with
 	// `?force=1`. The work belongs to the user, not to the project record, and
 	// deleting the record is not a decision to destroy it.
+	if !isForced(r) {
+		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id)); dir != "" {
+			writeError(w, http.StatusConflict, "the project has commits that exist nowhere else: push them, "+
+				"or confirm the discard ("+dir+")")
+			return
+		}
+	}
 	sessions := s.sessionsOfProject(id)
 	if err := s.closeProjectSessions(sessions, isForced(r)); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
@@ -693,6 +737,25 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		releaseSharedRepos(r.Context(), p)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// unpublishedInProject is the first clone deleting p would remove that holds commits no remote
+// has. A clean working tree says nothing about them. Only the clones added from a remote count:
+// the project's own folder is meant to be removed, the deletion dialog being its confirmation,
+// and a folder created locally has no remote to have published to.
+func (s *Server) unpublishedInProject(ctx context.Context, p *Project) string {
+	if p == nil {
+		return ""
+	}
+	for _, repo := range p.Repos {
+		if !s.deletesClone(repo) || gitx.Repo(ctx, repo.Dir) != nil {
+			continue
+		}
+		if n, err := gitx.UnpublishedCommits(ctx, repo.Dir); err != nil || n != 0 {
+			return repo.Dir
+		}
+	}
+	return ""
 }
 
 // ownsProjectDir reports whether dir is a folder strictly inside the workspace, which is
