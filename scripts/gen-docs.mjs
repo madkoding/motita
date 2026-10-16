@@ -339,6 +339,119 @@ motita curator pin build-firmware</pre>`,
     ],
   },
   {
+    slug: "websocket",
+    title: "The WebSocket",
+    blurb: "A two-way connection with flags and a heartbeat, for programs that talk to the gateway.",
+    body: String.raw`
+<p>The browser and <code>POST /task</code> follow a run over SSE. The gateway also speaks <strong>WebSocket</strong> at <code>GET /v1/sessions/{id}/ws</code>: a persistent, two-way connection with flags, a heartbeat and a structured message format, for programs that want more than a one-shot HTTP request. It is a second transport, not a second agent: same conversation, same token, same run slot.</p>
+<h2>Who may connect</h2>
+<p>The endpoint sits behind the same token as the rest of the API, in two layers, and both are required:</p>
+<ol>
+<li><strong>The upgrade request</strong> carries <code>Authorization: Bearer &lt;token&gt;</code>. A browser cannot add that header to a WebSocket handshake, so the web interface's own session cookie is accepted instead, and a cookie-authorised request must also come from the server's own origin (another origin gets <code>403</code>). With no credential at all the upgrade is refused with <code>401</code>.</li>
+<li><strong>The <code>auth</code> message</strong> repeats the token inside the protocol. Until it succeeds, a <code>query</code> is answered with <code>UNAUTHORIZED</code>; a wrong token gets <code>UNAUTHORIZED</code> and the connection stays open so the client can retry.</li>
+</ol>
+<div class="note">There is no switch to turn the endpoint off: it exposes nothing the authenticated HTTP API does not already expose. A <code>query</code> runs the same read-only planner as <code>POST /plan</code>.</div>
+<h2>The message envelope</h2>
+<p>Every message, in both directions, is a JSON object:</p>
+<pre>{
+  "msg_id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "query",
+  "flags": ["PROCESSING"],
+  "timestamp": "2026-09-25T12:00:00.000Z",
+  "payload": {}
+}</pre>
+<table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>msg_id</code></td><td>UUID v4, unique per message.</td></tr>
+<tr><td><code>type</code></td><td>The kind of message (below).</td></tr>
+<tr><td><code>flags</code></td><td>List of state indicators (below).</td></tr>
+<tr><td><code>timestamp</code></td><td>ISO-8601.</td></tr>
+<tr><td><code>payload</code></td><td>Data specific to the type.</td></tr>
+</tbody>
+</table>
+<h2>Message types</h2>
+<table>
+<thead><tr><th>Type</th><th>Direction</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td><code>auth</code></td><td>Client &rarr; server</td><td>Authenticate with the token.</td></tr>
+<tr><td><code>auth_response</code></td><td>Server &rarr; client</td><td>The result of authentication.</td></tr>
+<tr><td><code>query</code></td><td>Client &rarr; server</td><td>A question or request.</td></tr>
+<tr><td><code>query_response</code></td><td>Server &rarr; client</td><td>Acknowledgement, partial progress or the final answer.</td></tr>
+<tr><td><code>heartbeat</code>, <code>heartbeat_ack</code></td><td>Both</td><td>Keep-alive probe and its answer.</td></tr>
+<tr><td><code>error</code></td><td>Server &rarr; client</td><td>Something went wrong.</td></tr>
+<tr><td><code>notification</code></td><td>Server &rarr; client</td><td>Reserved, never sent yet.</td></tr>
+</tbody>
+</table>
+<h2>Flags</h2>
+<table>
+<thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>AUTHENTICATED</code>, <code>UNAUTHORIZED</code></td><td>Authentication succeeded or failed.</td></tr>
+<tr><td><code>IDLE</code>, <code>BUSY</code></td><td>The agent is waiting, or already running something.</td></tr>
+<tr><td><code>PROCESSING</code>, <code>PARTIAL</code>, <code>COMPLETED</code></td><td>A query is being worked on, streams a progress line, or finished.</td></tr>
+<tr><td><code>ERROR_RECOVERABLE</code></td><td>An error the connection survives.</td></tr>
+</tbody>
+</table>
+<p><strong>Reserved.</strong> The type <code>notification</code> and the flags <code>FATAL_ERROR</code>, <code>LOW_MEMORY</code>, <code>RATE_LIMITED</code>, <code>CACHE_HIT</code>, <code>CACHE_MISS</code> and <code>ENCRYPTED</code> are part of the vocabulary but nothing emits them. A client should accept them and must not wait for them.</p>
+<h2>The conversation</h2>
+<pre>1. connect to /v1/sessions/{id}/ws (token or web cookie in the upgrade request)
+2. server: auth_response  [IDLE]
+3. client: auth           { "token": "..." }
+4. server: auth_response  [AUTHENTICATED, IDLE]    or  [UNAUTHORIZED]
+5. client: query          { "query": "..." }
+6. server: query_response [PROCESSING]             acknowledged at once
+           query_response [PARTIAL, PROCESSING]   progress lines, as they happen
+           query_response [COMPLETED]             { "result": "..." }
+           error          [ERROR_RECOVERABLE]     { "error": "..." }
+7. every 30 s the server sends heartbeat; answer with heartbeat_ack within 10 s</pre>
+<p>Malformed JSON and unknown types get an <code>ERROR_RECOVERABLE</code> error. Several clients may connect at once, but the conversation runs one task at a time: a second client that starts a run while one is going gets <code>BUSY</code>.</p>
+<h2>What a client must follow</h2>
+<ul>
+<li>Only <strong>text</strong> frames with JSON. A binary or fragmented message gets an <code>ERROR_RECOVERABLE</code> and the connection stays open.</li>
+<li>Client frames must be <strong>masked</strong> (RFC 6455); an unmasked frame closes the connection with code 1002. Any WebSocket library does this for you.</li>
+<li>A <strong>ping</strong> is answered with a pong, and a client pong also counts as the answer to a heartbeat.</li>
+<li>A connection that sends nothing for <strong>90 seconds</strong> is dropped, and no heartbeat ack closes it too.</li>
+<li>Close code 1000 means the client closed; 1001 means the gateway is shutting down or the heartbeat went unanswered, so reconnect.</li>
+<li>A <code>query</code> is <strong>read-only</strong> and tied to the connection: if the client disconnects, the query is cancelled.</li>
+</ul>
+<h2>A minimal client</h2>
+<p>In Python, with <code>pip install websocket-client</code>, which masks the frames and sends the header for you:</p>
+<pre>import json, uuid, datetime, websocket
+
+TOKEN = "..."  # printed by: motita gateway start -token-only
+
+def send(ws, type_, payload):
+    ws.send(json.dumps({
+        "msg_id": str(uuid.uuid4()), "type": type_, "flags": [],
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "payload": payload,
+    }))
+
+ws = websocket.create_connection(
+    "ws://127.0.0.1:7477/v1/sessions/default/ws",
+    header=[f"Authorization: Bearer {TOKEN}"],
+)
+json.loads(ws.recv())                       # welcome: auth_response / IDLE
+send(ws, "auth", {"token": TOKEN})
+json.loads(ws.recv())                       # auth_response / AUTHENTICATED
+send(ws, "query", {"query": "what does this project do?"})
+while True:
+    msg = json.loads(ws.recv())
+    if msg["type"] == "heartbeat":          # answer the keep-alive within 10 s
+        send(ws, "heartbeat_ack", {})
+    elif "COMPLETED" in msg["flags"]:
+        print(msg["payload"]["result"])
+        break
+    elif msg["type"] == "error" or "BUSY" in msg["flags"]:
+        raise SystemExit(msg["payload"])</pre>
+<p>Off loopback the gateway speaks plain HTTP, so use <code>wss://</code> behind one of the options in <a href="docs-network.html">Network and remote access</a> rather than sending the token in the clear.</p>`,
+    more: [
+      ["Guide: WebSocket, a bidirectional flag protocol", guide("websocket-a-bidirectional-flag-protocol")],
+      ["Reference: the gateway", reference("the-gateway")],
+    ],
+  },
+  {
     slug: "automation",
     title: "Updates and scheduled tasks",
     blurb: "Stay on the newest verified release, and run tasks on a cadence.",

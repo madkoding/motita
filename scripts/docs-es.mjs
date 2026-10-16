@@ -296,6 +296,115 @@ motita curator pin build-firmware</pre>`,
 <h2>Notificaciones</h2>
 <p>Cuando termina el CI de un pull request, la página muestra un aviso. Las <strong>notificaciones al teléfono</strong> usan Web Push estándar desde el propio gateway, así que llegan con la página cerrada. En un iPhone o iPad la página debe agregarse antes a la pantalla de inicio (iOS 16.4 o posterior). <strong>Ajustes &rarr; Notificaciones</strong> tiene un botón de prueba de todo el camino.</p>`,
   },
+  websocket: {
+    title: "El WebSocket",
+    blurb: "Una conexión bidireccional con banderas y latido, para programas que hablan con el gateway.",
+    more: ["Guía: WebSocket, un protocolo bidireccional de banderas", "Referencia: el gateway"],
+    body: String.raw`
+<p>El navegador y <code>POST /task</code> siguen una ejecución por SSE. El gateway también habla <strong>WebSocket</strong> en <code>GET /v1/sessions/{id}/ws</code>: una conexión persistente y bidireccional con banderas, latido y un formato de mensaje estructurado, para programas que quieren más que una petición HTTP puntual. Es un segundo transporte, no un segundo agente: misma conversación, mismo token, mismo turno de ejecución.</p>
+<h2>Quién puede conectarse</h2>
+<p>El endpoint está detrás del mismo token que el resto de la API, en dos capas, y se exigen ambas:</p>
+<ol>
+<li><strong>La petición de upgrade</strong> lleva <code>Authorization: Bearer &lt;token&gt;</code>. Un navegador no puede añadir esa cabecera a un handshake WebSocket, así que se acepta la cookie de sesión de la propia interfaz web, y una petición autorizada por cookie debe venir además del origen del propio servidor (otro origen recibe <code>403</code>). Sin ninguna credencial, el upgrade se rechaza con <code>401</code>.</li>
+<li><strong>El mensaje <code>auth</code></strong> repite el token dentro del protocolo. Hasta que tiene éxito, un <code>query</code> se responde con <code>UNAUTHORIZED</code>; un token incorrecto recibe <code>UNAUTHORIZED</code> y la conexión sigue abierta para reintentar.</li>
+</ol>
+<div class="note">No hay interruptor para apagar el endpoint: no expone nada que la API HTTP autenticada no exponga ya. Un <code>query</code> ejecuta el mismo planificador de solo lectura que <code>POST /plan</code>.</div>
+<h2>El sobre del mensaje</h2>
+<p>Cada mensaje, en ambos sentidos, es un objeto JSON:</p>
+<pre>{
+  "msg_id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "query",
+  "flags": ["PROCESSING"],
+  "timestamp": "2026-09-25T12:00:00.000Z",
+  "payload": {}
+}</pre>
+<table>
+<thead><tr><th>Campo</th><th>Significado</th></tr></thead>
+<tbody>
+<tr><td><code>msg_id</code></td><td>UUID v4, único por mensaje.</td></tr>
+<tr><td><code>type</code></td><td>El tipo de mensaje (abajo).</td></tr>
+<tr><td><code>flags</code></td><td>Lista de indicadores de estado (abajo).</td></tr>
+<tr><td><code>timestamp</code></td><td>ISO-8601.</td></tr>
+<tr><td><code>payload</code></td><td>Datos propios del tipo.</td></tr>
+</tbody>
+</table>
+<h2>Tipos de mensaje</h2>
+<table>
+<thead><tr><th>Tipo</th><th>Sentido</th><th>Uso</th></tr></thead>
+<tbody>
+<tr><td><code>auth</code></td><td>Cliente &rarr; servidor</td><td>Autenticarse con el token.</td></tr>
+<tr><td><code>auth_response</code></td><td>Servidor &rarr; cliente</td><td>El resultado de la autenticación.</td></tr>
+<tr><td><code>query</code></td><td>Cliente &rarr; servidor</td><td>Una pregunta o petición.</td></tr>
+<tr><td><code>query_response</code></td><td>Servidor &rarr; cliente</td><td>Acuse, avance parcial o respuesta final.</td></tr>
+<tr><td><code>heartbeat</code>, <code>heartbeat_ack</code></td><td>Ambos</td><td>Sonda de keep-alive y su respuesta.</td></tr>
+<tr><td><code>error</code></td><td>Servidor &rarr; cliente</td><td>Algo salió mal.</td></tr>
+<tr><td><code>notification</code></td><td>Servidor &rarr; cliente</td><td>Reservado, aún no se envía.</td></tr>
+</tbody>
+</table>
+<h2>Banderas</h2>
+<table>
+<thead><tr><th>Bandera</th><th>Significado</th></tr></thead>
+<tbody>
+<tr><td><code>AUTHENTICATED</code>, <code>UNAUTHORIZED</code></td><td>La autenticación tuvo éxito o falló.</td></tr>
+<tr><td><code>IDLE</code>, <code>BUSY</code></td><td>El agente espera, o ya está ejecutando algo.</td></tr>
+<tr><td><code>PROCESSING</code>, <code>PARTIAL</code>, <code>COMPLETED</code></td><td>Una consulta se está procesando, envía una línea de avance, o terminó.</td></tr>
+<tr><td><code>ERROR_RECOVERABLE</code></td><td>Un error que la conexión supera.</td></tr>
+</tbody>
+</table>
+<p><strong>Reservadas.</strong> El tipo <code>notification</code> y las banderas <code>FATAL_ERROR</code>, <code>LOW_MEMORY</code>, <code>RATE_LIMITED</code>, <code>CACHE_HIT</code>, <code>CACHE_MISS</code> y <code>ENCRYPTED</code> forman parte del vocabulario, pero nada las emite. Un cliente debe aceptarlas y no esperarlas.</p>
+<h2>La conversación</h2>
+<pre>1. conectar a /v1/sessions/{id}/ws (token o cookie web en el upgrade)
+2. servidor: auth_response  [IDLE]
+3. cliente:  auth           { "token": "..." }
+4. servidor: auth_response  [AUTHENTICATED, IDLE]    o  [UNAUTHORIZED]
+5. cliente:  query          { "query": "..." }
+6. servidor: query_response [PROCESSING]             acuse inmediato
+             query_response [PARTIAL, PROCESSING]   líneas de avance, según ocurren
+             query_response [COMPLETED]             { "result": "..." }
+             error          [ERROR_RECOVERABLE]     { "error": "..." }
+7. cada 30 s el servidor envía heartbeat; responde con heartbeat_ack en 10 s</pre>
+<p>JSON mal formado y tipos desconocidos reciben un error <code>ERROR_RECOVERABLE</code>. Pueden conectarse varios clientes a la vez, pero la conversación ejecuta una tarea a la vez: un segundo cliente que inicie una ejecución mientras otra corre recibe <code>BUSY</code>.</p>
+<h2>Lo que un cliente debe cumplir</h2>
+<ul>
+<li>Solo tramas de <strong>texto</strong> con JSON. Un mensaje binario o fragmentado recibe un <code>ERROR_RECOVERABLE</code> y la conexión sigue abierta.</li>
+<li>Las tramas del cliente deben ir <strong>enmascaradas</strong> (RFC 6455); una trama sin máscara cierra la conexión con el código 1002. Cualquier librería WebSocket lo hace por ti.</li>
+<li>Un <strong>ping</strong> se responde con pong, y un pong del cliente también cuenta como respuesta a un latido.</li>
+<li>Una conexión que no envía nada durante <strong>90 segundos</strong> se cierra, y no responder el latido también la cierra.</li>
+<li>El código 1000 indica que el cliente cerró; 1001 que el gateway se apaga o que el latido quedó sin respuesta, así que reconecta.</li>
+<li>Un <code>query</code> es de <strong>solo lectura</strong> y va atado a la conexión: si el cliente se desconecta, la consulta se cancela.</li>
+</ul>
+<h2>Un cliente mínimo</h2>
+<p>En Python, con <code>pip install websocket-client</code>, que enmascara las tramas y envía la cabecera por ti:</p>
+<pre>import json, uuid, datetime, websocket
+
+TOKEN = "..."  # lo imprime: motita gateway start -token-only
+
+def send(ws, type_, payload):
+    ws.send(json.dumps({
+        "msg_id": str(uuid.uuid4()), "type": type_, "flags": [],
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "payload": payload,
+    }))
+
+ws = websocket.create_connection(
+    "ws://127.0.0.1:7477/v1/sessions/default/ws",
+    header=[f"Authorization: Bearer {TOKEN}"],
+)
+json.loads(ws.recv())                       # bienvenida: auth_response / IDLE
+send(ws, "auth", {"token": TOKEN})
+json.loads(ws.recv())                       # auth_response / AUTHENTICATED
+send(ws, "query", {"query": "¿qué hace este proyecto?"})
+while True:
+    msg = json.loads(ws.recv())
+    if msg["type"] == "heartbeat":          # responde el keep-alive en 10 s
+        send(ws, "heartbeat_ack", {})
+    elif "COMPLETED" in msg["flags"]:
+        print(msg["payload"]["result"])
+        break
+    elif msg["type"] == "error" or "BUSY" in msg["flags"]:
+        raise SystemExit(msg["payload"])</pre>
+<p>Fuera de loopback el gateway habla http plano, así que usa <code>wss://</code> detrás de una de las opciones de <a href="docs-es-network.html">Red y acceso remoto</a> en lugar de enviar el token en claro.</p>`,
+  },
   automation: {
     title: "Actualizaciones y tareas programadas",
     blurb: "Mantente en la última versión verificada y ejecuta tareas con una cadencia.",
