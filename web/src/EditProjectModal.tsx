@@ -196,7 +196,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       catalog={repoCatalog}
       projectId={p.id}
       hint={t(
-        "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.",
+        "Changes here apply right away. Other projects that use a repository keep it.",
       )}
     />
   );

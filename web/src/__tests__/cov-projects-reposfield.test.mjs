@@ -48,6 +48,8 @@ test("the main repository is shown first, with its source and the main mark", as
   assert.match(list.textContent, /main/);
   assert.match(list.textContent, /https:\/\/x\.io\/u\/motita\.git/);
   assert.equal(m.qa("[data-testid=repo-row]").length, 0);
+  assert.doesNotMatch(m.root.textContent, /the hint/);
+  await click(m.q("[data-testid=repo-add-open]"));
   assert.match(m.root.textContent, /the hint/);
   await m.unmount();
 });
@@ -138,6 +140,7 @@ test("adding a repository: refused when not a URL or taken, emptied once added",
       },
     }),
   );
+  await click(m.q("[data-testid=repo-add-open]"));
   const input = m.q("[data-testid=repo-add-url]");
   const add = m.q("[data-testid=repo-add]");
   assert.equal(add.disabled, true, "nothing typed, nothing to add");
@@ -186,6 +189,7 @@ test("adding a repository: refused when not a URL or taken, emptied once added",
 
 test("while one is being added the field and its button are locked", async () => {
   const m = await mount(AppCtx, null, section({ busy: "+" }));
+  await click(m.q("[data-testid=repo-add-open]"));
   assert.equal(m.q("[data-testid=repo-add-url]").disabled, true);
   const add = m.q("[data-testid=repo-add]");
   assert.equal(add.disabled, true);
@@ -198,6 +202,8 @@ test("in Spanish the block speaks Spanish", async () => {
   try {
     const m = await mount(AppCtx, null, section({}));
     assert.match(m.root.textContent, /Repositorios/);
+    assert.match(m.root.textContent, /\+ Agregar otro repositorio/);
+    await click(m.q("[data-testid=repo-add-open]"));
     assert.equal(m.q("[data-testid=repo-add]").textContent, "Agregar");
     await m.unmount();
   } finally {
@@ -311,6 +317,7 @@ test("the repositories the workspace already has are offered, except the ones th
     },
   };
   const m = await mount(AppCtx, null, section(props));
+  await click(m.q("[data-testid=repo-add-open]"));
   const picks = m.qa("[data-testid=repo-catalog-pick]");
   assert.deepEqual(
     picks.map((b) => b.textContent),
@@ -433,6 +440,7 @@ test("a URL the workspace already has says it is not cloned again", async () => 
     },
   ];
   const m = await mount(AppCtx, null, section({ main: null, catalog }));
+  await click(m.q("[data-testid=repo-add-open]"));
   const input = m.q("[data-testid=repo-add-url]");
   assert.equal(m.q("[data-testid=repo-add-known]"), null);
   await type(input, "https://X.io/u/api/");
