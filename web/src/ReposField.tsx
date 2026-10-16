@@ -419,17 +419,26 @@ export function AddRepo({
 // adds one, and the project shares the clone instead of making another.
 function CatalogPicks({
   catalog,
+  main,
   repos,
   busy,
   onAdd,
 }: {
   catalog: CatalogRepo[];
+  main: MainRepo | null;
   repos: RepoListItem[];
   busy: boolean;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
 }) {
+  // The main repository counts as one the project has: its name and its address are taken too.
   const urls = new Set(repos.map((r) => sameRepoUrl(r.git_url)));
   const names = new Set(repos.map((r) => r.name));
+  if (main) {
+    names.add(main.name);
+    if (main.source) {
+      urls.add(sameRepoUrl(main.source));
+    }
+  }
   const picks = catalog
     .map((c) => ({
       name: repoFolderOf(c.git_url) || c.name,
@@ -530,13 +539,17 @@ export function ReposSection({
         {open && (
           <>
             <AddRepo
-              taken={repos.map((r) => r.name)}
+              taken={[
+                ...repos.map((r) => r.name),
+                ...choose(main, [main?.name ?? ""], []),
+              ]}
               busy={busy === "+"}
               onAdd={onAdd}
               known={knownRepos(catalog)}
             />
             <CatalogPicks
               catalog={catalog}
+              main={main}
               repos={repos}
               busy={busy === "+"}
               onAdd={onAdd}
