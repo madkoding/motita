@@ -146,7 +146,7 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	// The project's own repository must not see the folder as a change of its own. Advisory, as it
 	// is for a worktree: a folder that is not a repository has nothing to ignore it in.
 	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
-	updated, err := s.projects.update(p.ID, func(cur *Project) { cur.Repos = append(cur.Repos, repo) })
+	updated, err := s.updateProject(p.ID, func(cur *Project) { cur.Repos = append(cur.Repos, repo) })
 	if errors.Is(err, errProjectGone) {
 		// Deleted while the clone ran: the folder it went into is no longer anyone's.
 		s.discardRepoFolder(ctx, p, repo)
@@ -266,7 +266,7 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		// Best effort: the clone goes below, and a registration left behind is pruned with it.
 		_ = worktreeRemove(ctx, repo.Dir, path, true)
 	}
-	updated, err := s.projects.update(p.ID, func(cur *Project) {
+	updated, err := s.updateProject(p.ID, func(cur *Project) {
 		cur.Repos = slices.DeleteFunc(cur.Repos, func(x ProjectRepo) bool { return x.Name == repo.Name })
 	})
 	if errors.Is(err, errProjectGone) {
@@ -283,6 +283,16 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// beforeProjectUpdate runs just before a repository handler saves its change; a variable only so a
+// test can delete the project at that point, as a user can while a clone runs.
+var beforeProjectUpdate = func(string) {}
+
+// updateProject is projectStore.update for a repository handler.
+func (s *Server) updateProject(id string, change func(*Project)) (*Project, error) {
+	beforeProjectUpdate(id)
+	return s.projects.update(id, change)
 }
 
 // deletesClone reports whether taking repo out of its project deletes a clone: its own, in the
@@ -724,7 +734,7 @@ func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request)
 	}
 	moved := ProjectRepo{Name: name, GitURL: p.GitURL, Dir: filepath.Join(p.Dir, name), MainBranch: mainBranch}
 	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
-	updated, err := s.projects.update(p.ID, func(cur *Project) {
+	updated, err := s.updateProject(p.ID, func(cur *Project) {
 		cur.Repos = append([]ProjectRepo{moved}, cur.Repos...)
 		cur.GitURL = ""
 		cur.MainBranch = mainBranch

@@ -121,3 +121,44 @@ func TestADeletedCloneWithUnpublishedCommitsNeedsConfirmation(t *testing.T) {
 		t.Fatalf("a confirmed deletion: %d %s", w.Code, w.Body)
 	}
 }
+
+// A project deleted while a repository operation runs stays deleted: the operation answers 404,
+// and an added repository's folder does not outlive it.
+func TestAProjectDeletedMidOperationStaysDeleted(t *testing.T) {
+	srv, projectDir, _ := newSessionInProject(t)
+	id := onlyProjectID(t, srv)
+	vanish := func() {
+		beforeProjectUpdate = func(pid string) { _ = srv.projects.delete(pid) }
+		t.Cleanup(func() { beforeProjectUpdate = func(string) {} })
+	}
+	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"keep"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
+	}
+
+	vanish()
+	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"late"}`); code != http.StatusNotFound {
+		t.Errorf("an add to a project deleted meanwhile: %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "late")); !os.IsNotExist(err) {
+		t.Errorf("the folder of the lost add must be cleaned up: %v", err)
+	}
+	if p, _ := srv.projects.load(id); p != nil {
+		t.Errorf("the project must not come back: %+v", p)
+	}
+
+	// Remove, and detach, on a project that is deleted just before they save.
+	srv2, _, _ := newSessionInProject(t)
+	id2 := onlyProjectID(t, srv2)
+	if code, _ := addRepo(t, srv2, id2, `{"git_url":"`+sourceRepo(t)+`","name":"keep"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
+	}
+	beforeProjectUpdate = func(pid string) { _ = srv2.projects.delete(pid) }
+	if w := send(t, srv2, http.MethodDelete, "/v1/projects/"+id2+"/repos/keep", testToken, ""); w.Code != http.StatusNotFound {
+		t.Errorf("a removal from a project deleted meanwhile: %d %s", w.Code, w.Body)
+	}
+	srv3, _, id3 := bareProject(t)
+	beforeProjectUpdate = func(pid string) { _ = srv3.projects.delete(pid) }
+	if code, _ := detachMain(t, srv3, id3); code != http.StatusNotFound {
+		t.Errorf("a detach of a project deleted meanwhile: %d", code)
+	}
+}
