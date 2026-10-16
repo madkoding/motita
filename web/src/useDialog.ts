@@ -63,6 +63,13 @@ export function useDialog(
         return;
       }
       if (e.key === "Escape") {
+        // An open listbox takes its own Escape (it closes the list); the dialog stays.
+        if (
+          e.target instanceof Element &&
+          e.target.closest('[aria-haspopup="listbox"][aria-expanded="true"]')
+        ) {
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         closeRef.current();
