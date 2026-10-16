@@ -18,6 +18,7 @@ import {
 } from "./localVoice";
 import { gpuAllowed } from "./gpuPolicy";
 import { isChatterbox, isSupertonic } from "./localVoiceCore";
+import { isBrowserLLM } from "./browserLLMCore";
 import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
 import { Collapsed, inputCls, primaryBtn, smallBtn } from "./SettingsControls";
@@ -176,7 +177,7 @@ function useSample(api: Api) {
 
 // voicesOf is the catalog without the models speech input listens with (LocalListenSettings.tsx).
 function voicesOf(catalog: LocalCatalog): LocalCatalog {
-  return { ...catalog, models: catalog.models.filter((m) => !isWhisper(m.id)) };
+  return { ...catalog, models: catalog.models.filter((m) => !isWhisper(m.id) && !isBrowserLLM(m.id)) };
 }
 
 // useCatalog is the gateway's catalog of local models as shape keeps them, read again on its own
