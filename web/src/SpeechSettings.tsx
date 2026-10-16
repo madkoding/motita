@@ -571,15 +571,13 @@ function SpeechVoice({
       return null;
     }
     return (
-      <>
-        <Row id="settings-speech-local" label={t("Voices to download")} stack>
-          <LocalVoices
-            api={api}
-            chosen={prefs.localVoice}
-            choose={setLocalVoice}
-          />
-        </Row>
-      </>
+      <Row id="settings-speech-local" label={t("Voices to download")} stack>
+        <LocalVoices
+          api={api}
+          chosen={prefs.localVoice}
+          choose={setLocalVoice}
+        />
+      </Row>
     );
   }
   if (engine === "gateway") {

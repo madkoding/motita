@@ -78,7 +78,7 @@ const ABBREVIATIONS: Record<Words, Record<string, Abbreviation>> = {
 
 // escapeRegExp makes a literal of text for a pattern.
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 // abbreviationPattern finds any abbreviation of a language where it stands alone, not inside a
@@ -86,9 +86,9 @@ function escapeRegExp(s: string): string {
 function abbreviationPattern(lang: Words): RegExp {
   const keys = Object.keys(ABBREVIATIONS[lang])
     .sort((a, b) => b.length - a.length)
-    .map((k) => escapeRegExp(k).replace(/\\\.(?=.)/g, "\\.\\s?"));
+    .map((k) => escapeRegExp(k).replace(/\\\.(?=.)/g, String.raw`\.\s?`));
   return new RegExp(
-    `(?<![\\p{L}\\p{N}])(?:${keys.join("|")})(?![\\p{L}\\p{N}])`,
+    String.raw`(?<![\p{L}\p{N}])(?:${keys.join("|")})(?![\p{L}\p{N}])`,
     "giu",
   );
 }
@@ -567,7 +567,7 @@ function connectorPattern(lang: Words): RegExp {
   const list = [...CONNECTORS[lang]]
     .sort((a, b) => b.length - a.length)
     .join("|");
-  return new RegExp(`(^|[.!?…]\\s+)(${list})(?=\\s+\\p{L})`, "gu");
+  return new RegExp(String.raw`(^|[.!?…]\s+)(${list})(?=\s+\p{L})`, "gu");
 }
 
 // setRhythm marks the pauses: ellipses are kept as they are, dashes, colons, brackets and slashes
