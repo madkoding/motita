@@ -246,6 +246,7 @@ func (op Options) startGateway(
 		Token:          token,
 		Allow:          allow,
 		Hosts:          cfg.Gateway.Hosts,
+		Origins:        cfg.Gateway.Origins,
 		MaxBodyKB:      cfg.Gateway.MaxBodyKB,
 		Version:        op.Version,
 		ExePath:        op.ExePath,
