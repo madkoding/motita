@@ -183,6 +183,8 @@ const more: Record<string, string> = {
     "Cargando el modelo en la tarjeta gráfica: {pct}%",
   "Ready: it answers while this tab stays open.":
     "Listo: responde mientras esta pestaña siga abierta.",
+  "this gateway does not offer the browser model":
+    "este gateway no ofrece el modelo del navegador",
   "The model could not start: {error}": "El modelo no pudo iniciar: {error}",
   "This browser or device cannot run it: it needs WebGPU, and a phone is left out.":
     "Este navegador o dispositivo no puede ejecutarlo: necesita WebGPU, y un celular queda fuera.",

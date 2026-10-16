@@ -493,6 +493,9 @@ func (cl *wsClient) writeFrame(opcode byte, payload []byte) bool {
 		if cl.log != nil && !isClosedConnErr(err) {
 			cl.log.Warn("websocket write failed", "error", err.Error())
 		}
+		// A frame that failed half-way (deadline hit) leaves the stream out of sync: any later
+		// frame would be read as garbage, so the connection ends here and the read loop returns.
+		_ = cl.conn.Close()
 		return false
 	}
 	return true

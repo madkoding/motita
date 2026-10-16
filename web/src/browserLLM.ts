@@ -8,6 +8,7 @@ import {
   type FromLLMWorker,
   type ToLLMWorker,
 } from "./browserLLMCore";
+import { t } from "./i18n";
 import { gpuAllowed, workerName } from "./gpuPolicy";
 import { fetchCatalog, installVoice } from "./localVoice";
 import type { Api } from "./prApi";
@@ -161,7 +162,7 @@ async function ensureFiles(
     const catalog = await fetchCatalog(api);
     const mine = catalog.models.find((m) => m.id === id);
     if (!mine) {
-      throw new Error("this gateway does not offer the browser model");
+      throw new Error(t("this gateway does not offer the browser model"));
     }
     if (mine.installed) {
       return;
@@ -303,7 +304,12 @@ export function useBrowserModelState(): BrowserState {
 // useBrowserModel starts the model once this tab is signed in, when the person turned it on.
 export function useBrowserModel(api: Api, authed: boolean): void {
   useEffect(() => {
-    if (authed && browserModelOn()) {
+    if (!authed) {
+      // Signed out: every request would be a 401, so the loop and the worker stop.
+      stopBrowserModel();
+      return;
+    }
+    if (browserModelOn()) {
       startBrowserModel(api);
     }
   }, [api, authed]);

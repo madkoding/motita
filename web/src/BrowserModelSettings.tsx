@@ -45,7 +45,8 @@ function statusOf(phase: BrowserPhase, pct: number, error: string): string {
 // tryIt asks the gateway to have the model write a title, and says what came back.
 async function tryIt(api: Api): Promise<string> {
   const res = await api("/v1/browser-llm/test", { method: "POST" });
-  const body = (await res.json()) as {
+  // A proxy's error page is not JSON: the status still says what went wrong.
+  const body = (await res.json().catch(() => ({}))) as {
     text?: string;
     ms?: number;
     error?: string;

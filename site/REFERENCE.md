@@ -608,6 +608,15 @@ a command reaches a path outside the workspace or inside a keys directory
 workspace stays silent. `sandbox.ask_unconfined_runs: false` (or Settings →
 Security in the webui) drops the first question and keeps the second.
 
+Known limit of the Landlock confinement: a command can still connect to a
+Unix socket that lives at a path it can reach (a local daemon's socket under
+`/run` or the workspace, for example). Blocking that needs
+`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`, which arrived with Landlock ABI 9 (Linux
+7.0); on older kernels it is not applied and the network namespace of
+`isolate_network` does not close it either, since path sockets are files, not
+network. Abstract sockets are cut off by the namespace. Keep sockets of
+services you do not want a command to talk to out of reachable directories.
+
 Under `cmd.exe` (the Windows fallback when PowerShell is missing) only a line of
 plain words (letters, digits, `.`, `_`, `-` and blanks) is classified. Anything
 else — `%VAR%`, `!VAR!`, `^`, a backslash, a drive, a quote, a redirection — is

@@ -396,9 +396,11 @@ test("it starts by itself in a signed-in tab where it was turned on", async () =
   await wait(() => workers.length === 1, "a worker");
   await settle();
   assert.equal(root.querySelector("span").dataset.phase, "loading");
-  page.stopBrowserModel();
+  // Signing out stops it: no worker and no requests are left running for a 401.
+  await act(() => render(h(Probe, { authed: false }), root));
   await settle();
   assert.equal(root.querySelector("span").dataset.phase, "off");
+  page.stopBrowserModel();
   await act(() => render(null, root));
   root.remove();
 });
@@ -478,6 +480,10 @@ test("the settings turn it on, follow it, let it be tried, and turn it off", asy
   tab.test = async () => json({}, 500);
   await click(tryButton(m));
   assert.match(text(m.box()), /HTTP 500/);
+  tab.test = async () =>
+    new Response("<html>Bad Gateway</html>", { status: 502 });
+  await click(tryButton(m));
+  assert.match(text(m.box()), /HTTP 502/);
   tab.test = async () => json({});
   await click(tryButton(m));
   assert.match(text(m.box()), /“” in 0\.0 s/);
