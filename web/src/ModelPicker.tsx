@@ -99,7 +99,8 @@ export function ModelPicker({
         ))}
         <option value={OTHER}>{t("Other…")}</option>
       </select>
-      {typing ? field : <Facts option={options.find((o) => o.id === value)} />}
+      {typing && field}
+      {!typing && <Facts option={options.find((o) => o.id === value)} />}
     </>
   );
 }
