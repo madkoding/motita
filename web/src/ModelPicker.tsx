@@ -16,66 +16,145 @@ import { inputCls } from "./ProviderSettings";
 // The value of the option that opens the field for a model the list does not offer.
 const OTHER = "\u0000other";
 
-// optionText is a model's name followed by how capable it is and what it costs, in words, so two
-// can be compared in the list itself. A model the catalogue knows nothing about is its name alone.
-function optionText(o: ModelOption): string {
-  const words = [tierLabel(o.tier), costLabel(o.cost)].filter(Boolean);
-  return [o.label, ...words.map((w) => t(w))].join(" · ");
+// Chips say how capable a model is and what it costs, in words. They sit beside its name in the
+// list and in the closed picker, so nothing about it is repeated elsewhere. A model the catalogue
+// knows nothing about has none.
+function Chips({ option }: { option: ModelOption }) {
+  const tier = tierLabel(option.tier);
+  const cost = costLabel(option.cost);
+  return (
+    <span class="llm-chips">
+      {tier && (
+        <span class="llm-chip llm-chip-tier" data-level={tierLevel(option.tier)}>
+          {t(tier)}
+        </span>
+      )}
+      {cost && (
+        <span class="llm-chip llm-chip-cost" data-level={costLevel(option.cost)}>
+          {t(cost)}
+        </span>
+      )}
+    </span>
+  );
 }
 
-// Meter is a label, three dots filled up to a level, and the word for it.
-function Meter({
-  name,
-  word,
-  level,
+// A step of the keyboard through the options: the index to land on, or -1 for a key that is not one.
+function stepOf(key: string, at: number, last: number): number {
+  const moves: Record<string, number> = {
+    ArrowDown: Math.min(at + 1, last),
+    ArrowUp: Math.max(at - 1, 0),
+    Home: 0,
+    End: last,
+  };
+  return moves[key] ?? -1;
+}
+
+// ModelListbox is a select that can draw each option with its chips, which a native one cannot.
+function ModelListbox({
+  id,
+  ariaLabel,
+  options,
+  value,
+  disabled,
+  onPick,
 }: {
-  name: string;
-  word: string;
-  level: number;
+  id: string;
+  ariaLabel?: string;
+  options: { id: string; label: string; option?: ModelOption }[];
+  value: string;
+  disabled: boolean;
+  onPick: (value: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const selected = Math.max(
+    0,
+    options.findIndex((o) => o.id === value),
+  );
+  const [active, setActive] = useState(selected);
+  const toggle = () => {
+    setActive(selected);
+    setOpen((o) => !o);
+  };
+  const pick = (i: number) => {
+    setOpen(false);
+    onPick(options[i].id);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    const step = stepOf(e.key, active, options.length - 1);
+    if (step >= 0) {
+      e.preventDefault();
+      setOpen(true);
+      setActive(step);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    } else if (e.key === "Enter" && open) {
+      e.preventDefault();
+      pick(active);
+    }
+  };
+  const current = options[selected];
   return (
-    <div class="llm-meter" role="img" aria-label={`${name}: ${word}`}>
-      <span class="llm-meter-name">{name}</span>
-      <span class="llm-meter-dots" aria-hidden="true">
-        {[1, 2, 3].map((n) => (
-          <i key={n} class={choose(n <= level, "on", "")} />
-        ))}
-      </span>
-      <span class="llm-meter-word">{word}</span>
+    <div class="llm-listbox">
+      <button
+        id={id}
+        type="button"
+        class={inputCls + " llm-listbox-trigger"}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-list`}
+        aria-label={ariaLabel}
+        data-value={value}
+        value={value}
+        disabled={disabled}
+        onClick={toggle}
+        onKeyDown={onKey}
+        onBlur={() => setOpen(false)}
+      >
+        <span class="llm-listbox-name">{current.label}</span>
+        {current.option && <Chips option={current.option} />}
+        <span class="llm-listbox-caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {open && (
+        <ul
+          id={`${id}-list`}
+          class="llm-listbox-list"
+          role="listbox"
+          aria-label={ariaLabel}
+        >
+          {options.map((o, i) => (
+            <li
+              key={o.id}
+              id={`${id}-opt-${i}`}
+              data-value={o.id}
+              role="option"
+              aria-selected={i === selected}
+              class={choose(i === active, "active", "")}
+              // A press must not blur the trigger first, or the list would close before it is read.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(i)}
+            >
+              <span class="llm-listbox-name">{o.label}</span>
+              {o.option && <Chips option={o.option} />}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-// Facts says, under the picker, how capable the chosen model is and what it costs.
-function Facts({ option }: { option: ModelOption | undefined }) {
-  const tier = tierLabel(option?.tier);
-  const cost = costLabel(option?.cost);
-  if (!option || (!tier && !cost)) {
+// Price says, under the picker, what the chosen model roughly costs per million tokens.
+function Price({ option }: { option: ModelOption | undefined }) {
+  const price = option && priceText(option);
+  if (!price) {
     return null;
   }
-  const price = priceText(option);
   return (
-    <div class="llm-model-facts" data-testid="model-facts">
-      {tier && (
-        <Meter
-          name={t("Capability")}
-          word={t(tier)}
-          level={tierLevel(option.tier)}
-        />
-      )}
-      {cost && (
-        <Meter
-          name={t("Cost")}
-          word={t(cost)}
-          level={costLevel(option.cost)}
-        />
-      )}
-      {price && (
-        <p class="text-xs text-[#7a7a8c]">
-          {tf("About {price} per million tokens, read / written", { price })}
-        </p>
-      )}
-    </div>
+    <p class="text-xs text-[#7a7a8c]" data-testid="model-facts">
+      {tf("About {price} per million tokens, read / written", { price })}
+    </p>
   );
 }
 
@@ -116,29 +195,25 @@ export function ModelPicker({
   if (options.length === 0) {
     return field;
   }
+  const choices = [
+    ...options.map((o) => ({ id: o.id, label: o.label, option: o })),
+    { id: OTHER, label: t("Other…"), option: undefined },
+  ];
   return (
     <>
-      <select
+      <ModelListbox
         id={id}
-        class={inputCls}
+        ariaLabel={ariaLabel}
+        options={choices}
         value={choose(typing, OTHER, value)}
-        aria-label={ariaLabel}
         disabled={disabled}
-        onChange={(e) => {
-          const v = (e.target as HTMLSelectElement).value;
+        onPick={(v) => {
           setOther(v === OTHER);
           onChange(choose(v === OTHER, choose(offered, "", value), v));
         }}
-      >
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {optionText(o)}
-          </option>
-        ))}
-        <option value={OTHER}>{t("Other…")}</option>
-      </select>
+      />
       {typing && field}
-      {!typing && <Facts option={options.find((o) => o.id === value)} />}
+      {!typing && <Price option={options.find((o) => o.id === value)} />}
     </>
   );
 }

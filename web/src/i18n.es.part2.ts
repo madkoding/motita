@@ -171,8 +171,6 @@ const more: Record<string, string> = {
   Cheap: "Económico",
   Moderate: "Intermedio",
   Expensive: "Caro",
-  Capability: "Capacidad",
-  Cost: "Costo",
   "About {price} per million tokens, read / written":
     "Unos {price} por millón de tokens, leídos / escritos",
   "Each model shows how capable it is and what it costs. Use a cheap one for easy pieces and a very capable one for hard pieces. Prices are approximate.":
