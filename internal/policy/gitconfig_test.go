@@ -63,6 +63,12 @@ func TestGitCodeRunningFormsAreAsked(t *testing.T) {
 		{"diff", "--ext", "a", "b"},
 		{"show", "--textc", "HEAD:f"},
 		{"log", "--out=x"},
+		{"rebase", "-ix", "cmd", "HEAD~1"},
+		{"grep", "-nOcmd;", "x"},
+		{"clone", "-qu", "cmd", "file:///r"},
+		{"clone", "-ucmd", "file:///r"},
+		{"clone", "-ccore.sshCommand=x", "https://h/r"},
+		{"clone", "--template=/hooks", "https://h/r"},
 	}
 	for _, args := range asked {
 		if !reachesOutside("git", args) {
