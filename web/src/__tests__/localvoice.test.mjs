@@ -844,7 +844,7 @@ test("a Supertonic voice says where it runs, and why WebGPU could not start when
   assert.equal(q("local-voice-gpu-note"), null);
   await tell({ kind: "ready", id: SUPERTONIC, gpuError: "the browser gave no graphics card to use" });
   assert.doesNotMatch(q(ROW_SUPERTONIC).textContent, /WebGPU/);
-  assert.match(q("local-voice-gpu-note").textContent, /could not start here \(the browser gave no graphics card to use\)/);
+  assert.match(q("local-voice-gpu-note").textContent, /could not start here \(The browser gave no graphics card to use\.\)/);
   v.done();
   globalThis.lastWorker.onerror();
   delete globalThis.Worker;

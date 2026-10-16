@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { lang, t, tf } from "./i18n";
 import { choose } from "./choose";
-import { errorMessage } from "./errors";
+import { errorMessage, workerError } from "./errors";
 import {
   type LocalCatalog,
   type LocalModel,
@@ -393,7 +393,7 @@ export function LocalVoices({
       </Collapsed>
       {isSupertonic(chosen) && loading?.gpuError && (
         <div class="text-xs text-[#7a7a8c]" data-testid="local-voice-gpu-note">
-          {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: loading.gpuError })}
+          {tf("WebGPU could not start here ({reason}): Supertonic runs on the processor.", { reason: workerError(loading.gpuError) })}
         </div>
       )}
       {isChatterbox(chosen) && <Emotion value={emotion} set={setEmotion} />}
@@ -598,7 +598,10 @@ function Failures({
   const alerts = [
     { kind: "sample", text: sample },
     { kind: "download", text: choose(download, tf("The download failed: {error}", { error: download ?? "" }), "") },
-    { kind: "load", text: choose(load, tf("The voice could not be loaded: {error}", { error: load ?? "" }), "") },
+    {
+      kind: "load",
+      text: choose(load, tf("The voice could not be loaded: {error}", { error: workerError(load ?? "") }), ""),
+    },
     { kind: "catalog", text: catalog },
   ];
   return (

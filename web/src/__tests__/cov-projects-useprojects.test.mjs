@@ -1194,6 +1194,7 @@ test("one operation on the repositories at a time: a second is ignored while the
   await run(() => s.p.syncProjectRepo("api"));
   await run(() => s.p.removeProjectRepo("api", false));
   assert.equal(await s.p.addProjectRepo({ name: "x", git_url: "u/x" }), false);
+  await run(() => s.p.detachProjectMain());
   assert.equal(s.p.repoBusy, "*", "the ignored ones did not free the field");
   assert.equal(callsTo(s, "POST").length, 0);
   assert.equal(callsTo(s, "DELETE /v1/projects/p1/repos").length, 0);
