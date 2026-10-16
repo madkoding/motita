@@ -733,6 +733,7 @@ func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request)
 		mainBranch = defaultMainBranch
 	}
 	if err := initRepo(ctx, p.Dir, mainBranch); err != nil {
+		undoMoveMainRepo(p, name)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -743,6 +744,10 @@ func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request)
 		cur.GitURL = ""
 		cur.MainBranch = mainBranch
 	})
+	if err != nil {
+		// The project does not declare the move, so the disk must not show it either.
+		undoMoveMainRepo(p, name)
+	}
 	if errors.Is(err, errProjectGone) {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
@@ -819,6 +824,22 @@ func moveMainRepo(p *Project, name string) error {
 		moved = append(moved, e.Name())
 	}
 	return nil
+}
+
+// undoMoveMainRepo puts back what moveMainRepo moved into the subfolder name, after a step that
+// came later failed: the repository this folder was initialised as is dropped, and the original
+// (which is in the subfolder) takes its place. Nothing is touched unless the original is there.
+func undoMoveMainRepo(p *Project, name string) {
+	dest := filepath.Join(p.Dir, name)
+	if !pathExists(filepath.Join(dest, ".git")) {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(p.Dir, ".git"))
+	entries, _ := os.ReadDir(dest)
+	for _, e := range entries {
+		_ = renamePath(filepath.Join(dest, e.Name()), filepath.Join(p.Dir, e.Name()))
+	}
+	_ = os.Remove(dest)
 }
 
 // catalogRepoDir is the folder of the catalog's clone called name, "" when there is none.
