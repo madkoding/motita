@@ -164,6 +164,53 @@ function PullRequestFields({
   );
 }
 
+// FolderField shows the folder the project is anchored to and, when Settings → Security allows the
+// whole disk, lets it point at another one. Nothing is moved on disk.
+function FolderField({ p, patch }: { p: EditProjectDraft; patch: Patch }) {
+  const { fullDisk, openFolderPicker } = useApp().projects;
+  const shown = p.path || p.dir;
+  return (
+    <div data-testid="edit-project-folder">
+      <label class={LABEL}>{t("Folder")}</label>
+      <p
+        class="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
+        data-testid="edit-project-dir"
+      >
+        {shown}
+      </p>
+      {fullDisk && (
+        <div class="flex gap-2 mt-2">
+          <button
+            type="button"
+            class="px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5"
+            data-testid="edit-project-browse"
+            onClick={() => openFolderPicker("edit")}
+          >
+            {t("Choose another folder…")}
+          </button>
+          {p.path && (
+            <button
+              type="button"
+              class="px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:bg-white/5"
+              data-testid="edit-project-path-clear"
+              onClick={() => patch({ path: "" })}
+            >
+              {t("Keep the current one")}
+            </button>
+          )}
+        </div>
+      )}
+      {fullDisk && (
+        <p class={HINT}>
+          {t(
+            "Nothing is moved: the project points at that folder. Not possible while it has sessions or other repositories.",
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // EditRepos are the project's repositories. They change at once, not on Save.
 function EditRepos({ p }: { p: EditProjectDraft }) {
   const {
@@ -250,6 +297,7 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
               }
             />
           </div>
+          <FolderField p={p} patch={patch} />
           <EditRepos p={p} />
           <BranchFields p={p} patch={patch} />
           <PullRequestFields p={p} patch={patch} />

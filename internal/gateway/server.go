@@ -772,6 +772,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/projects/{id}/deletion-preview", plain(s.handleProjectDeletionPreview))
 
 	s.gitRoutes(mux, plain)
+	mux.Handle("GET /v1/fs/dirs", plain(s.handleListDirs))
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
