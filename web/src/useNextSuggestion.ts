@@ -65,7 +65,8 @@ export function useNextSuggestion({
     if (!ended || !api || !answer) {
       return;
     }
-    const mine = ++generation.current;
+    generation.current += 1;
+    const mine = generation.current;
     nextSuggestion(api, sessionId, {
       request: requestOf(messagesRef.current, answer.id),
       answer: spokenText(answer),

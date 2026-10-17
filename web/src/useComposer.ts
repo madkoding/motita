@@ -239,13 +239,8 @@ export function useComposer({
   // acceptSuggestion: ArrowRight on an empty field takes the hint as the text, ready to send or edit.
   const acceptSuggestion = (e: KeyboardEvent) => {
     const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
-    if (
-      e.key !== "ArrowRight" ||
-      !plain ||
-      input !== "" ||
-      activeTags.length > 0 ||
-      !nextSuggestion
-    ) {
+    const canTake = input === "" && activeTags.length === 0 && nextSuggestion;
+    if (e.key !== "ArrowRight" || !plain || !canTake) {
       return false;
     }
     e.preventDefault();
