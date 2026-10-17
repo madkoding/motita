@@ -893,6 +893,9 @@ func (m Mode) windowsLine(line, dir string) (string, Decision, bool) {
 // segmentDecision decides one segment of a line. skip reports a segment that runs nothing, and
 // final a verdict that decides the whole line on its own.
 func (m Mode) segmentDecision(seg lineSegment, dir string) (d Decision, skip, final bool) {
+	if seg.unreadable != "" {
+		return m.unclassified(seg.unreadable+", and that command cannot be checked", "line-unreadable"), false, true
+	}
 	if seg.redirect {
 		return m.redirectTarget(seg, dir), false, false
 	}
@@ -1026,6 +1029,9 @@ type lineSegment struct {
 	// op is the operator that produced a redirect segment, or the separator that produced
 	// a command one.
 	op string
+	// unreadable says why sh may run text in this segment that the segment does not show as a
+	// command (a substitution inside double quotes), or "" when nothing is hidden.
+	unreadable string
 }
 
 // lineSegments splits a line into the pieces a shell would run or open separately: the
@@ -1071,24 +1077,65 @@ type segmentScanner struct {
 	// fdRef is true right after the `&` of `2>&1`: the descriptor that follows belongs to
 	// the redirection. Left in the stream, `npm ci 2>&1` reached the command as `npm ci 1`.
 	fdRef bool
+	// sh follows where sh starts a word, and comment is true from a `#` that starts one to the
+	// end of its line: sh discards that text, quotes and operators included.
+	sh      shellWords
+	comment bool
+	// unreadable is the reason the segment being read hides a command, for lineSegment.
+	unreadable string
 }
 
 // feed reads one character of the line.
 func (s *segmentScanner) feed(r rune) {
+	if s.comment {
+		if r != '\n' {
+			return
+		}
+		s.comment = false
+	}
 	if s.fdRef {
 		s.fdRef = false
 		if (r >= '0' && r <= '9') || r == '-' {
+			s.sh.see('a')
 			return
 		}
 	}
 	switch {
 	case s.escaped:
-		s.current.WriteRune(r)
 		s.escaped = false
+		// A backslash before a newline joins two lines into one word: sh drops both.
+		if r != '\n' {
+			s.current.WriteRune(r)
+			s.sh.see('a')
+		}
 	case r == '\\' && s.quote != '\'':
 		s.escaped = true
 	case s.quote != 0:
 		s.quoted(r)
+		s.sh.see('a')
+	case s.sh.comment(r):
+		s.comment = true
+	default:
+		if r == '#' && s.sh.prev == '`' {
+			// After the backtick that opens a substitution, sh starts a comment that only the
+			// closing backtick ends. Read as a word, the `#` and a quote after it hide lines.
+			s.hides("a `#` right after a backtick may start a comment that hides what follows")
+		}
+		s.sh.see(r)
+		s.unquoted(r)
+	}
+}
+
+// hides records why the segment being read may run what it does not show.
+func (s *segmentScanner) hides(reason string) {
+	if s.unreadable == "" {
+		s.unreadable = reason
+	}
+}
+
+// unquoted reads a character outside quotes and escapes.
+func (s *segmentScanner) unquoted(r rune) {
+	switch {
 	case r == '\'' || r == '"':
 		s.current.WriteRune(r)
 		s.quote = r
@@ -1116,7 +1163,13 @@ func (s *segmentScanner) feed(r rune) {
 // The quote characters are KEPT in the word. The segment is re-read as a command afterwards, and
 // `grep -n "two words" f` only produces one argument if the quoting survives the round trip:
 // stripping it here would hand the tokeniser five words and change what the program is given.
+//
+// Double quotes keep a substitution's OUTPUT one word, but sh still runs it: `echo "$(curl ...)"`
+// runs curl. The segment records that it hides a command.
 func (s *segmentScanner) quoted(r rune) {
+	if s.quote == '"' && (r == '`' || (r == '(' && strings.HasSuffix(s.current.String(), "$"))) {
+		s.hides("a command substitution inside double quotes runs a command")
+	}
 	s.current.WriteRune(r)
 	if r == s.quote {
 		s.quote = 0
@@ -1178,6 +1231,7 @@ func (s *segmentScanner) takeTarget() {
 // interleaved with it. A command with no words and no redirections emits nothing.
 func (s *segmentScanner) flushCommand(sep string) {
 	s.flushWord()
+	first := len(s.out)
 	if len(s.words) > 0 {
 		s.out = append(s.out, lineSegment{words: s.words, op: sep})
 		s.words = nil
@@ -1185,6 +1239,9 @@ func (s *segmentScanner) flushCommand(sep string) {
 	if len(s.redirects) > 0 {
 		s.out = append(s.out, s.redirects...)
 		s.redirects = nil
+	}
+	if s.unreadable != "" && len(s.out) > first {
+		s.out[first].unreadable, s.unreadable = s.unreadable, ""
 	}
 }
 

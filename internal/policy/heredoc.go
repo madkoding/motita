@@ -50,6 +50,7 @@ type heredocScanner struct {
 	queue  []pendingHeredoc
 	quote  rune
 	escape bool
+	sh     shellWords
 }
 
 // step reads the rune at i and returns the index of the last rune it consumed.
@@ -58,23 +59,84 @@ func (s *heredocScanner) step(i int) int {
 	switch {
 	case s.escape:
 		s.escape = false
+		if r != '\n' {
+			s.sh.see('a')
+		}
 	case r == '\\' && s.quote != '\'':
 		s.escape = true
 	case s.quote != 0:
 		if r == s.quote {
 			s.quote = 0
 		}
+		s.sh.see('a')
+	case s.sh.comment(r):
+		// A `<<` or a quote in a comment is text: it opens nothing.
+		return s.copyComment(i)
 	case r == '\'' || r == '"':
 		s.quote = r
+		s.sh.see('a')
 	case r == '<' && s.heredocOperator(i):
+		s.sh.see('a')
 		return s.readOperator(i)
 	case r == '\n' && len(s.queue) > 0:
+		s.sh.see(r)
 		return s.readBodies(i)
 	default:
-		// Any other rune is copied as it is.
+		s.sh.see(r)
 	}
 	s.out.WriteRune(r)
 	return i
+}
+
+// copyComment copies the comment that starts at i, up to its newline, and returns the index of
+// its last rune.
+func (s *heredocScanner) copyComment(i int) int {
+	end := i
+	for end+1 < len(s.runes) && s.runes[end+1] != '\n' {
+		end++
+	}
+	s.out.WriteString(string(s.runes[i : end+1]))
+	return end
+}
+
+// shellWords follows, rune by rune, what sh needs to tell a comment from a `#` inside a word.
+//
+// sh starts a comment only at a `#` that begins a word: after a blank, a newline or an operator,
+// and never inside `${...}`. Reading a `#` anywhere else as a comment would hide text sh runs,
+// and missing one would read its quote as the start of a string that swallows the lines after
+// it: `ls #'` + newline + `curl ...` + newline + `#'` is `ls` and `curl` to sh.
+type shellWords struct {
+	// prev is the last rune read outside quotes and escapes, 'a' for one that was quoted or
+	// escaped (it belongs to a word), and 0 at the start of the line.
+	prev rune
+	// param counts the `${` still open.
+	param int
+}
+
+// see records a rune. Quoted and escaped runes are recorded as 'a'.
+func (w *shellWords) see(r rune) {
+	switch {
+	case r == '{' && w.prev == '$':
+		w.param++
+	case r == '}' && w.param > 0:
+		w.param--
+	default:
+		// Any other rune only moves prev.
+	}
+	w.prev = r
+}
+
+// comment reports whether r, read outside quotes and escapes, starts a comment.
+func (w *shellWords) comment(r rune) bool {
+	if r != '#' || w.param > 0 {
+		return false
+	}
+	switch w.prev {
+	case 0, ' ', '\t', '\n', ';', '&', '|', '(', ')', '<', '>':
+		return true
+	default:
+		return false
+	}
 }
 
 // heredocOperator reports whether the `<` at i opens a `<<` (a here-STRING is `<<<`, which has
