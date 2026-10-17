@@ -137,17 +137,25 @@ func (s *loginState) credential(ctx context.Context, force bool) (oauth.Credenti
 	if !force && !s.cred.NeedsRefresh(s.now()) {
 		return s.cred, nil
 	}
-	// Another process (the gateway, a second terminal) may have renewed it already:
-	// a rotated refresh token can be spent only once, so the newer file wins.
 	if s.dir != "" {
-		if disk, err := oauth.LoadCredential(s.dir, s.provider); err == nil &&
-			disk.AccessToken != s.cred.AccessToken && !disk.NeedsRefresh(s.now()) {
-			s.cred = disk
-			return s.cred, nil
-		}
+		// Every client of this login in this process renews it one at a time: the
+		// next one then finds the renewed file below and does not spend the
+		// rotated refresh token a second time.
+		mu, _ := loginLocks.LoadOrStore(oauth.CredentialPath(s.dir, s.provider), new(sync.Mutex))
+		mu.(*sync.Mutex).Lock()
+		defer mu.(*sync.Mutex).Unlock()
+	}
+	// Another client (the gateway, a second terminal) may have renewed it already:
+	// a rotated refresh token can be spent only once, so the newer file wins.
+	if s.adoptStored() {
+		return s.cred, nil
 	}
 	fresh, err := s.refresh(ctx, s.hc, s.cred)
 	if err != nil {
+		// Another process may have spent the refresh token first and saved its renewal.
+		if s.adoptStored() {
+			return s.cred, nil
+		}
 		return oauth.Credential{}, fatalError{fmt.Errorf(
 			"the %s login could not be renewed: %w (log in again with `motita config`)", s.provider, err)}
 	}
@@ -158,6 +166,23 @@ func (s *loginState) credential(ctx context.Context, force bool) (oauth.Credenti
 		}
 	}
 	return s.cred, nil
+}
+
+// loginLocks holds one *sync.Mutex per stored login file, shared by every client of the process.
+var loginLocks sync.Map
+
+// adoptStored takes the stored login when another client renewed it: a different token that is
+// still valid. It reports whether it did.
+func (s *loginState) adoptStored() bool {
+	if s.dir == "" {
+		return false
+	}
+	disk, err := oauth.LoadCredential(s.dir, s.provider)
+	if err != nil || disk.AccessToken == s.cred.AccessToken || disk.NeedsRefresh(s.now()) {
+		return false
+	}
+	s.cred = disk
+	return true
 }
 
 // target resolves where the next request goes and how it is authenticated.
@@ -249,9 +274,12 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		return nil, target{}, fmt.Errorf("could not serialise the request: %w", err)
 	}
 	data = c.clampOutputLimit(data)
-	relearned := false
-	for attempt := 0; ; attempt++ {
-		t, err := c.target(ctx, attempt > 0)
+	// renew forces a renewal on the pass right after a 401, and only then: asking again within
+	// the output limit is no reason to spend a rotating refresh token.
+	relearned, renewed, renew := false, false, false
+	for {
+		t, err := c.target(ctx, renew)
+		renew = false
 		if err != nil {
 			return nil, t, err
 		}
@@ -271,7 +299,8 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusUnauthorized && t.login && attempt == 0 {
+		if resp.StatusCode == http.StatusUnauthorized && t.login && !renewed {
+			renewed, renew = true, true
 			continue
 		}
 		// Asked for more output than the model allows: the refusal names the limit.
