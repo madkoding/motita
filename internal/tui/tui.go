@@ -898,7 +898,10 @@ func (t *TUI) addMessage(author Author, text string) {
 // opened on its last command and its first half was never seen.
 func (t *TUI) addPreformatted(author Author, text string) {
 	m := Message{Author: author, Text: text, Preformatted: true}
+	// Under t.draw for the reason addMessage is: a followed run paints from its own goroutine.
+	t.draw.Lock()
 	t.messages = append(t.messages, m)
+	t.draw.Unlock()
 	inner := t.conversationWidth()
 	tall := len(t.messageLines(m, inner))
 	start := len(t.chatLines(inner)) - tall
