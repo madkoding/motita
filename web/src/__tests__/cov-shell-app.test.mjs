@@ -965,7 +965,31 @@ test("screenshots a report names are fetched once from the session's artifacts",
   assert.equal(await loadImage("missing.png"), null);
   assert.equal(await loadImage("offline.png"), null);
   assert.equal(fetched.length, 3);
-  await ctl.done();
+  // Another session lets go of the screenshots of the one before, and fetches its own.
+  const revoked = [];
+  const savedRevoke = URL.revokeObjectURL;
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  try {
+    await ctl.set((s) => {
+      s.rs = { ...s.rs, sessionId: "s2" };
+    });
+    await flush();
+    assert.deepEqual(revoked, ["blob:shot-1"]);
+    assert.equal(
+      await lastProps("ReportCard").loadImage("my shot.png"),
+      "blob:shot-2",
+    );
+    assert.equal(fetched.length, 4);
+    await ctl.done();
+    await flush();
+    assert.deepEqual(
+      revoked,
+      ["blob:shot-1", "blob:shot-2"],
+      "the page leaves",
+    );
+  } finally {
+    URL.revokeObjectURL = savedRevoke;
+  }
 });
 
 test("an answer can be read aloud, or stopped while it is the one being read", async () => {
