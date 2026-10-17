@@ -112,7 +112,9 @@ func TestTheGitCredentialStoresAreHidden(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
 	s := &Sandbox{op: Options{GitHome: "/home/u"}}
 	got := strings.Join(s.hiddenPaths([]string{"/work"}), " ")
-	if got != "/home/u/.git-credentials /home/u/.config/git/credentials /xdg/git/credentials" {
+	// The private keys of the user's GnuPG home are hidden along with them.
+	if got != "/home/u/.git-credentials /home/u/.config/git/credentials /xdg/git/credentials "+
+		"/home/u/.gnupg/private-keys-v1.d /home/u/.gnupg/secring.gpg /home/u/.gnupg/openpgp-revocs.d" {
 		t.Errorf("got %s", got)
 	}
 }

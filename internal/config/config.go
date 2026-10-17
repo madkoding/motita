@@ -192,6 +192,11 @@ type Sandbox struct {
 	// while a command that reaches outside the workspace and a cmd.exe line with cmd's own syntax
 	// are still asked about. Where the kernel confines commands it changes nothing.
 	AskUnconfinedRuns bool `yaml:"ask_unconfined_runs"`
+	// GPGSigning lets the git the agent runs sign commits with the keys of the user's gpg-agent when
+	// their global git configuration asks for signed commits (commit.gpgsign). A command is granted
+	// the agent's socket and the public half of the keyring, never the private keys. Default true;
+	// false leaves signing out of reach of every command.
+	GPGSigning bool `yaml:"gpg_signing"`
 }
 
 // Providers are the values llm.provider accepts. The LLM client, the wizard and
@@ -411,6 +416,7 @@ func Default() Config {
 			ConfineWrites:     true,
 			DiskAccess:        DiskWorkspace,
 			AskUnconfinedRuns: true,
+			GPGSigning:        true,
 			IsolateNetwork:    true,
 		},
 		LLM: LLM{
