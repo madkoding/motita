@@ -2,11 +2,14 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The task loop shows the model's reasoning WHILE it is written. These tests pin the pieces
@@ -71,6 +74,67 @@ func TestCompleteStreamReadsDataLinesWithNoSpace(t *testing.T) {
 		[]Message{{Role: "user", Content: "hi"}}, func(string, bool) { deltas++ })
 	if err != nil || got != "hi" || deltas != 1 || stream != 1 || plain != 0 {
 		t.Errorf("got %q err %v deltas %d stream %d plain %d", got, err, deltas, stream, plain)
+	}
+}
+
+// TestLLMTimeoutBoundsEachGapOfAStream: llm.timeout bounds the wait for the headers and each gap
+// between two pieces of a stream, not the whole answer. A long answer that keeps coming is never
+// cut, and a stream that goes silent fails as a timeout, which is worth retrying.
+func TestLLMTimeoutBoundsEachGapOfAStream(t *testing.T) {
+	const timeout = 300 * time.Millisecond
+	streamText := func(srv *httptest.Server) (string, error) {
+		c := streamClient(t, srv.URL)
+		c.cfg.Timeout, c.http.Timeout = timeout, timeout
+		var text strings.Builder
+		for chunk := range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+			switch chunk.Event {
+			case StreamText:
+				text.WriteString(chunk.Text)
+			case StreamError:
+				return text.String(), chunk.Error
+			default:
+				// The end and the other events do not matter here.
+			}
+		}
+		return text.String(), nil
+	}
+	// A server sees the client leave only once it has read the request.
+	silent := func(r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+	}
+
+	long := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for range 12 {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
+			w.(http.Flusher).Flush()
+			time.Sleep(timeout / 6)
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer long.Close()
+	if got, err := streamText(long); err != nil || got != strings.Repeat("x", 12) {
+		t.Errorf("a stream longer than the timeout: got %q err %v", got, err)
+	}
+
+	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
+		w.(http.Flusher).Flush()
+		silent(r)
+	}))
+	defer stalled.Close()
+	start := time.Now()
+	got, err := streamText(stalled)
+	if got != "x" || !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 3*time.Second {
+		t.Errorf("a silent stream: got %q err %v after %v", got, err, time.Since(start))
+	}
+
+	mute := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { silent(r) }))
+	defer mute.Close()
+	start = time.Now()
+	if _, err := streamText(mute); !errors.As(err, new(*netFailure)) || time.Since(start) > 3*time.Second {
+		t.Errorf("a server that never answers: err %v after %v", err, time.Since(start))
 	}
 }
 

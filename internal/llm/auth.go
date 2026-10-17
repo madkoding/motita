@@ -287,7 +287,7 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		if err != nil {
 			return nil, t, err
 		}
-		resp, err := c.http.Do(req)
+		resp, err := c.do(req, stream)
 		if err != nil {
 			return nil, t, Explain(err) // network error: retryable
 		}
@@ -312,6 +312,50 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		}
 		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
+}
+
+// do sends req. A plain request is bounded as a whole by llm.timeout. A stream is not: its answer
+// can take far longer than that while it keeps coming, so llm.timeout bounds the wait for the
+// headers and then each gap between two reads of the body. Closing the body stops the watch.
+func (c *Client) do(req *http.Request, stream bool) (*http.Response, error) {
+	if !stream {
+		return c.http.Do(req)
+	}
+	ctx, cancel := context.WithCancelCause(req.Context())
+	// The cause reads as a timeout (net.Error), so the stream is retried like any other.
+	watch := time.AfterFunc(c.cfg.Timeout, func() { cancel(context.DeadlineExceeded) })
+	hc := *c.http
+	hc.Timeout = 0
+	resp, err := hc.Do(req.WithContext(ctx))
+	if err != nil {
+		watch.Stop()
+		cancel(nil)
+		return nil, err
+	}
+	resp.Body = &watchedBody{ReadCloser: resp.Body, watch: watch, timeout: c.cfg.Timeout, cancel: cancel}
+	return resp, nil
+}
+
+// watchedBody is a stream's body that restarts its watch on every read that brings data.
+type watchedBody struct {
+	io.ReadCloser
+	watch   *time.Timer
+	timeout time.Duration
+	cancel  context.CancelCauseFunc
+}
+
+func (b *watchedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.watch.Reset(b.timeout)
+	}
+	return n, err
+}
+
+func (b *watchedBody) Close() error {
+	b.watch.Stop()
+	b.cancel(nil)
+	return b.ReadCloser.Close()
 }
 
 // newPostRequest builds the POST of data to path under t's base URL, with t's headers.
