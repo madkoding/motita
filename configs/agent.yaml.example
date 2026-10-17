@@ -349,3 +349,15 @@ voice:
     format: mp3
     # Cap on the text of one request, in characters.
     max_chars: 4000
+
+xerj:
+  # A local XERJ node (https://github.com/xerj-org/xerj) that indexes a folder and answers with
+  # the matching passage instead of the whole file. Turning it on gives the agent a search_index
+  # tool. Off by default. motita does not start or feed the node: run `xerj --insecure
+  # --data-dir ~/xerj-data` and `xerj autoindex <folder>` yourself.
+  enabled: false
+  url: "http://localhost:9200"
+  # Sent as `Authorization: ApiKey`; empty for a node started with --insecure.
+  api_key: ""
+  # The index (or wildcard) searched; `xerj autoindex` creates ax-<dataset>.
+  index: "ax-*"

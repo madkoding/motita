@@ -1271,6 +1271,33 @@ million tokens, from `internal/onboard/prices.json`, revised by hand; absent for
 local models; the `ollama-cloud` provider's are Ollama Cloud's, and `ollama` is local), which Settings → Models shows next to each model. A model a provider lists that the
 catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesChecked()`).
 
+### Searching an index with XERJ
+
+[XERJ](https://github.com/xerj-org/xerj) is a local search engine in one binary: `xerj autoindex <folder>`
+makes code, docs, PDFs, logs and more searchable, and a search answers with the matching passage
+(`path:line` and a few lines) instead of the whole file. With the `xerj` block on, the planner gets a
+`search_index` tool that asks the node, so the agent reads a passage where `search_in_files` would
+bring whole matches. motita only queries a node you already run; it never starts, installs or feeds it.
+
+```sh
+curl -fsSL https://xerj.org/get | sh
+xerj --insecure --data-dir ~/xerj-data &   # keep the data dir OUTSIDE the folder you index
+xerj autoindex ~/my-project
+```
+
+```yaml
+xerj:
+  enabled: true
+  url: "http://localhost:9200"
+  api_key: "" # empty for a node started with --insecure
+  index: "ax-*" # what `xerj autoindex` creates
+```
+
+Off by default. A key is refused over plain http to a host outside this machine and its network.
+What the node returns goes into the model's context like any other tool result (secrets are masked).
+`search_index` takes `query` (plain words or a symbol) and `limit` (default 5, at most 20); with no node
+running it answers how to start one, and the agent falls back to `search_in_files`.
+
 ### Voice input
 
 The browser interface can take speech: a microphone button beside **Send** dictates into the

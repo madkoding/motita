@@ -39,6 +39,7 @@ type Config struct {
 	Schedule    Schedule    `yaml:"schedule"`
 	UI          UI          `yaml:"ui"`
 	Voice       Voice       `yaml:"voice"`
+	Xerj        Xerj        `yaml:"xerj"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -538,6 +539,7 @@ func Default() Config {
 		},
 		UI:    UI{Language: "auto"},
 		Voice: defaultVoice(),
+		Xerj:  defaultXerj(),
 	}
 }
 
@@ -873,6 +875,9 @@ func (c *Config) validate(requireKey bool) error {
 		return err
 	}
 	if err := c.validateVoice(); err != nil {
+		return err
+	}
+	if err := c.validateXerj(); err != nil {
 		return err
 	}
 	return c.validateAgent()

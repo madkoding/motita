@@ -60,6 +60,7 @@ func (op Options) runPlan(
 		WithReward(procs.Ledger).
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
+		WithXerj(cfg.Xerj.Enabled, cfg.Xerj.URL, cfg.Xerj.APIKey, cfg.Xerj.Index).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
 
 	if fl.prompt != "" {
