@@ -157,6 +157,20 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 	}
 }
 
+// TestAWorkspaceReachedThroughALinkIsStillRefusedAsAProject: the folder is compared resolved, so
+// the workspace must be too (on macOS, a workspace under /var or /tmp is reached through a link).
+func TestAWorkspaceReachedThroughALinkIsStillRefusedAsAProject(t *testing.T) {
+	srv, ws := fullDiskServer(t)
+	link := filepath.Join(t.TempDir(), "ws-link")
+	if err := os.Symlink(ws, link); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+	srv.opts.WorkspaceDir = link
+	if code, out := createProject(t, srv, `{"title":"x","path":"`+ws+`"}`); code != http.StatusBadRequest {
+		t.Errorf("the workspace itself: %d %v", code, out)
+	}
+}
+
 // TestAProjectWithoutSessionsCanMoveToAnotherFolder: editing a project points it at a folder
 // outside the workspace; sessions, other repositories, taken folders and the default setting
 // refuse it.
