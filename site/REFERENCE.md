@@ -2347,7 +2347,7 @@ internal/logx/        JSON logging with rotation
 internal/readonly/    structural read-only guarantee (no shell + allowlist)
 tools/mockapi/        OpenAI-compatible API for end-to-end tests
 tools/mockllm/        simulated LLM for the agent's E2E
-configs/              example configuration + 3 use cases
+configs/              example configuration + 4 use cases
 scripts/              end-to-end tests
 ```
 
@@ -2369,6 +2369,8 @@ Every package keeps its tests next to the code (`*_test.go`).
 
 ## License
 
-GPL-3.0-or-later — see [LICENSE](LICENSE). The copyright notice to carry in a modified
-version is quoted in the README, because section 5 of the GPL does not allow the licence
-document itself to be changed.
+GPL-3.0-or-later — see
+[LICENSE](https://github.com/madkoding/motita/blob/main/LICENSE).
+The copyright notice to carry in a modified version is quoted in the
+[guide](https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#licence),
+because section 5 of the GPL does not allow the licence document itself to be changed.
