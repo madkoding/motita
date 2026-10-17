@@ -117,6 +117,7 @@ export function useAppStore(api: Api) {
     authed: auth.authState === "ok",
     setInput: composer.setInput,
     setToast,
+    send: composer.sendQueued,
   });
   const speech = useSpeech({
     messages: rs.messages,

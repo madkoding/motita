@@ -114,7 +114,7 @@ globalThis.caches = {};
 // The device's own voice, which hands-free listening must not take for the person.
 globalThis.speechSynthesis = { speaking: false };
 
-const { useVoice } = await source("useVoice.ts");
+const { useVoice, AUTO_SEND_MS } = await source("useVoice.ts");
 const { useVoiceConversation } = await source("useVoiceConversation.ts");
 const { SPEECH_TURN_READ_EVENT, SPEECH_STOP_EVENT } =
   await import("../speech.ts");
@@ -156,7 +156,14 @@ async function mount({
   conversation = false,
   models = WHISPER_BASE,
 } = {}) {
-  const s = { input: "", toasts: [], sent: [], asked: [], voice: null };
+  const s = {
+    input: "",
+    toasts: [],
+    sent: [],
+    asked: [],
+    sends: [],
+    voice: null,
+  };
   const api = async (path, init) => {
     s.asked.push([path, init?.headers?.["Content-Type"]]);
     if (path === "/v1/voice") {
@@ -193,7 +200,13 @@ async function mount({
   document.body.appendChild(root);
   let props = { conversation, authed };
   function Host(p) {
-    const voice = useVoice({ api, authed: p.authed, setInput, setToast });
+    const voice = useVoice({
+      api,
+      authed: p.authed,
+      setInput,
+      setToast,
+      send: () => s.sends.push(s.input),
+    });
     s.voice = voice;
     useVoiceConversation({
       on: p.conversation,
@@ -590,6 +603,8 @@ test("hands-free: a phrase that opens with a wake phrase reaches the composer", 
     "audio/webm",
   ]);
   assert.equal(v.s.voice.takeHeard(), true);
+  await advance(AUTO_SEND_MS + 200);
+  assert.deepEqual(v.s.sends, ["open a pr"], "silence sends the message");
 
   await speak();
   assert.equal(
@@ -693,6 +708,7 @@ test("listening in the browser: neither dictation nor the wake phrase leaves it"
   await speak();
   assert.equal(v.s.input, "abre un pr");
   assert.equal(v.s.toasts.at(-1).message, "Heard “hey motita”");
+  await advance(AUTO_SEND_MS + 200);
   await speak();
   await speak();
   assert.equal(
@@ -737,6 +753,38 @@ test("a chosen model the gateway no longer has is no model at all", async () => 
     v.s.voice.setPrefs({ ...v.s.voice.prefs, listener: "whisper-tiny" }),
   );
   assert.equal(v.s.voice.state, "ready");
+  await v.done();
+});
+
+test("hands-free: after a wake phrase the message grows with what is said and is sent in the silence", async () => {
+  reset();
+  localStorage.setItem(VOICE_KEY, JSON.stringify({ listen: true }));
+  const v = await mount({
+    replies: [
+      { text: "hey motita", wake: { phrase: "hey motita", rest: "" } },
+      { text: "" },
+      {
+        text: "hey motita open a pr",
+        wake: { phrase: "hey motita", rest: "open a pr" },
+      },
+      { text: "and run the tests" },
+    ],
+  });
+  // A wake phrase alone sends nothing, even when the composer holds a draft.
+  v.s.input = "draft";
+  await speak();
+  await advance(AUTO_SEND_MS + 200);
+  assert.deepEqual(v.s.sends, []);
+  assert.equal(v.s.input, "draft");
+
+  // Words that follow join the message; the clock starts again with each.
+  await speak();
+  await speak();
+  await speak();
+  assert.equal(v.s.input, "draft open a pr and run the tests");
+  assert.deepEqual(v.s.sends, []);
+  await advance(AUTO_SEND_MS + 200);
+  assert.deepEqual(v.s.sends, ["draft open a pr and run the tests"]);
   await v.done();
 });
 
