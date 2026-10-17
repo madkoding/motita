@@ -72,7 +72,8 @@ Practical consequences:
   `grep`, `cut`, `sort`, `uniq`, `tr`, `jq` are the reading equivalents.
 - `find` is a reader until `-delete`, `-exec`, `-execdir` or `-fprint*` appear, and then it is a
   writer (or a refusal). Prefer `find dir -name '*.go'` plus a separate call for the action.
-- `git` is read-only only for `status`, `log`, `diff`, `show`, `branch`, `remote`, `tag`,
+- `git` is read-only only for `status`, `log`, `diff`, `show`, `branch`, `remote`, `tag`, `ls-tree`, `rev-list`, `merge-base`,
+  `worktree list`, `stash list`, `ls-remote`,
   `blame`, `ls-files`, `cat-file`, `grep`, `rev-parse`, `shortlog`, `reflog`. Everything else
   changes the repository and is confirmed.
 

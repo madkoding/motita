@@ -120,6 +120,12 @@ func TestGitDependsOnItsSubcommand(t *testing.T) {
 		{"status"}, {"log"}, {"diff"}, {"show", "HEAD"}, {"branch", "-a"},
 		{"remote", "-v"}, {"rev-parse", "HEAD"}, {"ls-files"}, {"blame", "f"},
 		{"config", "--get", "user.name"}, {"config", "--list"},
+		{"ls-tree", "-r", "HEAD"}, {"merge-base", "a", "b"}, {"rev-list", "--count", "HEAD"},
+		{"name-rev", "HEAD"}, {"diff-tree", "-r", "HEAD"}, {"diff-index", "HEAD"}, {"diff-files"},
+		{"show-branch"}, {"cherry", "-v"}, {"range-diff", "a...b"}, {"check-ignore", "x"},
+		{"check-attr", "-a", "f"}, {"var", "-l"}, {"verify-commit", "HEAD"}, {"verify-tag", "v1"},
+		{"worktree", "list"}, {"stash", "list"}, {"stash", "show", "-p"}, {"submodule", "status"},
+		{"ls-remote", "--heads", "https://github.com/madkoding/motita"}, {"ls-remote", "origin"},
 	}
 	for _, args := range allowed {
 		if d := Check("git", args); !d.Allowed {
@@ -131,6 +137,10 @@ func TestGitDependsOnItsSubcommand(t *testing.T) {
 		{"reset", "--hard"}, {"clean", "-fd"}, {"rm", "f"}, {"merge", "x"},
 		{"config", "user.name", "x"}, {"config", "--unset", "user.name"},
 		{"add", "."}, {"init"}, {"clone", "x"},
+		{"worktree", "add", "../x"}, {"worktree"}, {"stash"}, {"stash", "pop"}, {"stash", "push"},
+		{"submodule", "update"}, {"submodule"}, {"diff-tree", "--output=f", "HEAD"},
+		{"ls-remote", "--upload-pack=sh", "origin"}, {"ls-remote", "--up", "x", "origin"},
+		{"ls-remote", "--exec=sh", "origin"}, {"ls-remote", "ext::sh -c x"},
 	}
 	for _, args := range refused {
 		if d := Check("git", args); d.Allowed {

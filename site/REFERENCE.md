@@ -1331,7 +1331,7 @@ secrets masked. It only knows what it indexed, so a negative is confirmed with `
 
 Plan mode never writes, but it is not blind: besides `read_file`, `list_directory`, `search_in_files` and
 `search_index`, its `execute_command` runs any command the read-only list knows (`cat`, `ls`, `grep`,
-`rg`, `find`, `sed -n`, `git log`/`show`/`diff`/`status`/`blame`/`grep`, `go list`, `systemctl status`,
+`rg`, `find`, `sed -n`, `git log`/`show`/`diff`/`status`/`blame`/`grep`/`ls-tree`/`rev-list`/`merge-base`/`worktree list`/`stash list`/`ls-remote`, `go list`, `systemctl status`,
 and so on). The list is `internal/readonly`; a command that is not on it, or that writes through an
 argument (`sed -i`, `find -exec`, `git commit`), is refused with the reason.
 

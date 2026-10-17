@@ -634,6 +634,9 @@ var gitLocalVerbs = map[string]bool{
 	"tag": true, "describe": true, "rev-parse": true, "blame": true, "shortlog": true,
 	"ls-files": true, "cat-file": true, "grep": true, "whatchanged": true, "reflog": true,
 	"show-ref": true, "for-each-ref": true, "count-objects": true, "add": true, "commit": true,
+	"ls-tree": true, "merge-base": true, "rev-list": true, "name-rev": true, "diff-tree": true,
+	"diff-index": true, "diff-files": true, "show-branch": true, "cherry": true, "range-diff": true,
+	"check-ignore": true, "check-attr": true, "var": true, "verify-commit": true, "verify-tag": true,
 	"checkout": true, "switch": true, "restore": true, "stash": true, "merge": true,
 	"rebase": true, "clone": true, "worktree": true, "rm": true, "mv": true,
 }
