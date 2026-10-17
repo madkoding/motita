@@ -159,6 +159,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     voice: { label: "voice in" },
     speech: { label: "speech out" },
     security: { api, sessionId: "" },
+    codeIndex: { api },
     network: { api },
     llm: { api, onNotice() {} },
     git: { label: "git hosts" },
@@ -172,6 +173,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     "voice",
     "speech",
     "security",
+    "codeindex",
     "network",
     "providers",
     "models",
@@ -188,6 +190,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
   assert.equal(text(shown.voice), "voice in");
   assert.equal(text(shown.speech), "speech out");
   assert.ok(shown.security.querySelector("[data-testid=security-setting]"));
+  assert.ok(shown.codeindex.querySelector("section"));
   assert.ok(shown.network.querySelector("[data-testid=network-setting]"));
   assert.ok(shown.providers.querySelector("[data-testid=provider-settings]"));
   assert.ok(shown.models.querySelector("[data-testid=model-settings]"));

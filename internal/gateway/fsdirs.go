@@ -186,6 +186,8 @@ func parentOf(dir, root string, full bool) string {
 func (s *Server) routeDisk(mux *http.ServeMux, wrap func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/security", wrap(s.handleGetSecurity))
 	mux.Handle("PUT /v1/security", wrap(s.handlePutSecurity))
+	mux.Handle("GET /v1/code-index", wrap(s.handleGetCodeIndex))
+	mux.Handle("PUT /v1/code-index", wrap(s.handlePutCodeIndex))
 	mux.Handle("GET /v1/fs/dirs", wrap(s.handleListDirs))
 	mux.Handle("POST /v1/fs/dirs", wrap(s.handleMakeDir))
 }
