@@ -231,6 +231,7 @@ func TestFileActionFailuresOnDisk(t *testing.T) {
 	}
 	defer os.Chdir(wd)
 	os.Remove(gone)
+	skipIfTheRemovedDirectoryHasAPath(t)
 	if _, err := e.agent.workspacePath("x"); err == nil {
 		t.Error("a workspace with no absolute path must be an error")
 	}
@@ -360,6 +361,7 @@ func TestReadPathResolvesAgainstTheWorkspace(t *testing.T) {
 	}
 	defer os.Chdir(wd)
 	os.Remove(gone)
+	skipIfTheRemovedDirectoryHasAPath(t)
 	if _, err := e.agent.ReadPath("x"); err == nil {
 		t.Error("a workspace with no absolute path must be an error")
 	}
@@ -401,5 +403,14 @@ func TestAnActionThatIsNotAShellCommandStillClosesItsLine(t *testing.T) {
 	}
 	if len(running) != 2 || len(closed) != 2 {
 		t.Fatalf("running=%q closed=%q", running, closed)
+	}
+}
+
+// skipIfTheRemovedDirectoryHasAPath skips the rest of a test that needs os.Getwd to fail once the
+// working directory is removed, as it does on Linux. macOS still names the removed directory.
+func skipIfTheRemovedDirectoryHasAPath(t *testing.T) {
+	t.Helper()
+	if wd, err := os.Getwd(); err == nil {
+		t.Skipf("this system still names the removed working directory (%s), as macOS does", wd)
 	}
 }

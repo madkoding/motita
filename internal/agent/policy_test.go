@@ -646,6 +646,7 @@ func TestPolicyDirWhenThereIsNoUsableWorkingDirectory(t *testing.T) {
 		t.Skipf("this filesystem does not let its working directory be removed: %v", err)
 	}
 	// From here the process stands in a directory that is gone, and `os.Getwd` fails.
+	skipIfTheRemovedDirectoryHasAPath(t)
 
 	a := agentWith(t, false)
 	a.cfg.Agent.WorkspaceDir = ""
