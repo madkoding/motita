@@ -41,7 +41,8 @@ func signingHome(t *testing.T) (home, work string) {
 		t.Skipf("no key could be made: %v\n%s", err, out)
 	}
 	os.WriteFile(filepath.Join(home, ".gitconfig"), []byte(
-		"[user]\n\tname = Signer\n\temail = signer@example.com\n\tsigningkey = signer@example.com\n[commit]\n\tgpgsign = true\n"), 0o644)
+		"[user]\n\tname = Signer\n\temail = signer@example.com\n\tsigningkey = signer@example.com\n"+
+			"[commit]\n\tgpgsign = true\n"), 0o644)
 	work = filepath.Join(home, "work")
 	os.MkdirAll(work, 0o755)
 	init := exec.Command("git", "init", "-q", "-b", "main")
@@ -65,7 +66,8 @@ func TestAConfinedCommandSignsWithTheUsersAgent(t *testing.T) {
 	if !res.Access.Enabled() {
 		t.Skipf("the agent is not reachable here: %s", res.Problem)
 	}
-	s, err := New(Options{Dir: work, ConfineWrites: true, GitHome: home, GPG: res.Access, ToolsDir: filepath.Join(home, "tools")})
+	s, err := New(Options{Dir: work, ConfineWrites: true, GitHome: home, GPG: res.Access,
+		ToolsDir: filepath.Join(home, "tools")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +82,8 @@ func TestAConfinedCommandSignsWithTheUsersAgent(t *testing.T) {
 	if entries, err := os.ReadDir(keys); err != nil || len(entries) == 0 {
 		t.Fatalf("the test needs a private key to hide: %v", err)
 	}
-	out, _, _, _ = s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", "ls " + keys + " && cat " + keys + "/*"}})
+	peek := execx.Request{Command: "/bin/sh", Args: []string{"-c", "ls " + keys + " && cat " + keys + "/*"}}
+	out, _, _, _ = s.Run(context.Background(), peek)
 	if strings.Contains(out, ".key") || strings.Contains(out, "PRIVATE KEY") {
 		t.Errorf("the private keys must stay hidden: %q", out)
 	}
@@ -101,7 +104,8 @@ func TestWithoutTheGrantACommandCannotSign(t *testing.T) {
 		t.Error("a command with no grant must not sign")
 	}
 	keys := filepath.Join(home, ".gnupg", "private-keys-v1.d")
-	out, _, _, _ := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", "cat " + keys + "/*"}})
+	peek := execx.Request{Command: "/bin/sh", Args: []string{"-c", "cat " + keys + "/*"}}
+	out, _, _, _ := s.Run(context.Background(), peek)
 	if strings.Contains(out, "PRIVATE KEY") || strings.Contains(out, "OpenPGP") {
 		t.Errorf("the private keys must be hidden on the whole disk: %q", out)
 	}

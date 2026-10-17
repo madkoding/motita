@@ -115,7 +115,8 @@ func TestGPGReadRootsAndHiddenPaths(t *testing.T) {
 	if slices.Contains(roots, "/g/private-keys-v1.d") {
 		t.Error("the private keys must not be granted")
 	}
-	if hidden := on.hiddenPaths(nil); !slices.Contains(hidden, "/g/private-keys-v1.d") || !slices.Contains(hidden, "/g/secring.gpg") {
+	hidden := on.hiddenPaths(nil)
+	if !slices.Contains(hidden, "/g/private-keys-v1.d") || !slices.Contains(hidden, "/g/secring.gpg") {
 		t.Errorf("hidden = %v", hidden)
 	}
 	t.Setenv("GNUPGHOME", "")

@@ -37,6 +37,8 @@ func install(t *testing.T, f *fake) {
 			return nil, errors.New("unset")
 		case "gpgconf":
 			return []byte(f.gpgconf), f.gpgErr
+		default:
+			// Any other program is a mistake of the test.
 		}
 		return nil, errors.New("unexpected " + name)
 	}

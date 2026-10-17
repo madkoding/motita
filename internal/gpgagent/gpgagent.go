@@ -151,7 +151,9 @@ func Home(realHome string) string {
 // locate asks gpgconf for the home and the agent's sockets, and falls back to the conventional ones.
 func locate(ctx context.Context, realHome string) (home, socket, extra string) {
 	home = Home(realHome)
-	if out, err := command(ctx, []string{"GNUPGHOME=" + home}, "gpgconf", "--list-dirs", "homedir", "agent-socket", "agent-extra-socket"); err == nil {
+	out, err := command(ctx, []string{"GNUPGHOME=" + home}, "gpgconf",
+		"--list-dirs", "homedir", "agent-socket", "agent-extra-socket")
+	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
 			if !ok {
@@ -168,6 +170,8 @@ func locate(ctx context.Context, realHome string) (home, socket, extra string) {
 				socket = filepath.Clean(value)
 			case "agent-extra-socket":
 				extra = filepath.Clean(value)
+			default:
+				// Other directories gpgconf lists are not ones a command needs.
 			}
 		}
 	}
@@ -185,7 +189,8 @@ func locate(ctx context.Context, realHome string) (home, socket, extra string) {
 
 // gitEnv points git at the user's own configuration, as the sandboxed git is.
 func gitEnv(realHome string) []string {
-	for _, cfg := range []string{filepath.Join(realHome, ".gitconfig"), filepath.Join(realHome, ".config", "git", "config")} {
+	configs := []string{filepath.Join(realHome, ".gitconfig"), filepath.Join(realHome, ".config", "git", "config")}
+	for _, cfg := range configs {
 		if info, err := stat(cfg); err == nil && !info.IsDir() {
 			return []string{"GIT_CONFIG_GLOBAL=" + cfg}
 		}

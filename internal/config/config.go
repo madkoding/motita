@@ -7,6 +7,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net"
@@ -967,10 +968,7 @@ func (c *Config) normalize() {
 	c.Anchor.Kind = normalize(c.Anchor.Kind)
 	c.Sandbox.Kind = normalize(c.Sandbox.Kind)
 	c.Sandbox.ToolsDir = expandHome(strings.TrimSpace(c.Sandbox.ToolsDir))
-	c.Sandbox.DiskAccess = normalize(c.Sandbox.DiskAccess)
-	if c.Sandbox.DiskAccess == "" {
-		c.Sandbox.DiskAccess = DiskWorkspace
-	}
+	c.Sandbox.DiskAccess = cmp.Or(normalize(c.Sandbox.DiskAccess), DiskWorkspace)
 	c.LLM.Provider = normalize(c.LLM.Provider)
 	c.dropRetiredBrowserModel()
 	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
