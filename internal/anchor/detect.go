@@ -180,9 +180,18 @@ func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
 var makefileNames = []string{"GNUmakefile", "makefile", "Makefile"}
 
 // makefile returns the makefile GNU make would read in the anchor's directory - its name and body
-// - or reports that there is none.
+// - or reports that there is none. A name counts only as the directory spells it: on a
+// case-insensitive file system (macOS, Windows) opening "makefile" would open a "Makefile".
 func (a *Anchor) makefile() (name, body string, ok bool) {
+	entries, _ := os.ReadDir(a.dir)
+	present := map[string]bool{}
+	for _, e := range entries {
+		present[e.Name()] = true
+	}
 	for _, name := range makefileNames {
+		if !present[name] {
+			continue
+		}
 		if body, ok := readIfPresent(a.dir, name); ok {
 			return name, body, true
 		}
