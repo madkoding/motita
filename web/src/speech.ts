@@ -972,12 +972,20 @@ export async function narrate(
   return (out.text || "").trim();
 }
 
+// ROUND_COUNTER is the agent's own progress line for each round of its loop.
+const ROUND_COUNTER = /^deciding action \(round \d+\/\d+\)/;
+
 // notesOf turns the steps of a run into the notes the model is told about: what each step did,
-// leaving out the line that names the mode auto mode picked.
+// leaving out the line that names the mode auto mode picked and the round counter ("deciding action
+// (round 3/10)..."), which says nothing about what the agent does.
 export function notesOf(steps: { kind: string; text: string }[]): string[] {
-  return steps
-    .filter((st) => st.text.trim() && !st.text.startsWith("mode: "))
-    .map(noteOf);
+  return steps.filter(worthSaying).map(noteOf);
+}
+
+// worthSaying says a step tells the person something about the work.
+function worthSaying(st: { text: string }): boolean {
+  const text = st.text.trim();
+  return text !== "" && !text.startsWith("mode: ") && !ROUND_COUNTER.test(text);
 }
 
 // noteOf is one step as a note: its kind, then what it did.

@@ -467,13 +467,14 @@ test("the microphone asks for silence, and the device says whether it is speakin
   delete globalThis.speechSynthesis;
 });
 
-test("natural style: the notes are what the steps did, without the mode line", () => {
+test("natural style: the notes are what the steps did, without the mode line or the round counter", () => {
   assert.deepEqual(
     m.notesOf([
       { kind: "step", text: "mode: plan (question)" },
       { kind: "command", text: " go test ./... " },
       { kind: "", text: "read the CI log" },
       { kind: "thought", text: "  " },
+      { kind: "step", text: "deciding action (round 3/10)..." },
     ]),
     ["command: go test ./...", "read the CI log"],
   );

@@ -142,7 +142,8 @@ func progressPrompt(asked string, b narrateRequest) (string, error) {
 	return asked + "<already_said>\n" + bulleted(lastN(b.Said, narrateMaxSaid, narrateMaxNote)) +
 		"\n</already_said>\n\n<agent_activity>\n" + bulleted(notes) + "\n</agent_activity>\n\n" +
 		"The agent is still working. In ONE short sentence, tell the person what it is doing " +
-		"now or what it just found, without repeating what was already said. If nothing new " +
+		"now or what it just found, without repeating what was already said. Never mention round, " +
+		"step or progress counters. If nothing new " +
 		"is worth saying, answer exactly " + narrateSkip + ".", nil
 }
 
