@@ -27,6 +27,7 @@ import (
 	"github.com/madkoding/motita/internal/skills"
 	taskpkg "github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/usage"
+	"github.com/madkoding/motita/internal/webfetch"
 )
 
 // Runner is the callback that executes the selected mode. The TUI package uses
@@ -522,6 +523,13 @@ func (r *AppRunner) SetAskUnconfinedRuns(ask bool) {
 // machine answers.
 var setBoxNetwork = (*sandbox.Sandbox).SetIsolateNetwork
 
+// networkIsolated reports whether the commands run without a network right now.
+func (r *AppRunner) networkIsolated() bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	return r.Cfg.Sandbox.IsolateNetwork
+}
+
 // SetIsolateNetwork says whether the commands run without a network (sandbox.isolate_network). The
 // next command follows it; a command already running keeps what it started with. Where the machine
 // cannot isolate, the sandbox stays without it and says why in the log.
@@ -770,7 +778,10 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// reviewed at all. Both come from the RUNNER because a planner does not outlive
 		// its turn.
 		WithReview(r.reviewOrNil()).
-		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options())
+		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
+		// Reading a page follows the commands' network, which Settings → Security can change
+		// while the session is open, so it is asked at every fetch.
+		WithWeb(webfetch.New(r.networkIsolated))
 	answer, err := planner.Run(ctx, prompt)
 	// The turn's iteration count is folded into the runner's running total whatever the
 	// outcome: it is what decides whether the fork that just looked at this turn fires
