@@ -353,6 +353,8 @@ func (t *TUI) Run(ctx context.Context) int {
 	// that one is the handle to undo.
 	defer func() { t.termMode.restore() }()
 	defer recoverRaw(&t.termMode)()
+	t.setPaste(mode.active)
+	defer t.setPaste(false)
 
 	// The nudge to connect a git host: local files only, so it can be made before the loop.
 	if t.gitNudge {

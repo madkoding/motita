@@ -514,6 +514,8 @@ func (t *TUI) suspendForWizard(ctx context.Context) error {
 	if t.termMode != nil {
 		t.termMode.restore()
 	}
+	// The wizard reads cooked lines, so a pasted key must arrive without paste marks.
+	t.setPaste(false)
 	// Show the cursor and clear the screen. The chat hid the cursor while painting, and
 	// its last frame is still there: leaving both in place is how the wizard ends up
 	// typed on top of the chat.
@@ -536,6 +538,7 @@ func (t *TUI) suspendForWizard(ctx context.Context) error {
 	mode := enterRaw()
 	t.termMode = mode
 	t.charMode = mode.active
+	t.setPaste(mode.active)
 
 	// Wipe whatever the wizard left on screen and redraw the chat from scratch. A
 	// partial wipe would show the chat's previous frame under the wizard's last
