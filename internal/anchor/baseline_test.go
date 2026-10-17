@@ -2,6 +2,7 @@ package anchor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,73 @@ func TestAnOldFailingCheckMustFailTheSameWay(t *testing.T) {
 			!strings.HasSuffix(got.Reason, "; failing before this change, but differently now: test") {
 			t.Errorf("a different failure must keep the result failed: %+v", got)
 		}
+	}
+}
+
+// TestAnUnprovenOldFailureIsNotTheSameFailure: an output cut at the size limit hides what came
+// after the cut, and a check that hung, was killed or never started (exit < 0) did not run its
+// tests to the end. Neither proves the failure is the old one, on either side.
+func TestAnUnprovenOldFailureIsNotTheSameFailure(t *testing.T) {
+	old := CheckLog{Name: "test", Exit: 1, Failures: []string{"--- FAIL: TestOld"}}
+	cut := old
+	cut.Truncated = true
+	hung := CheckLog{Name: "test", Exit: -1, Error: "the command exceeded the limit"}
+	for _, c := range []struct{ before, now CheckLog }{
+		{old, cut}, {cut, old}, {cut, cut}, {hung, hung},
+	} {
+		got := WithBaseline(Result{Checks: []CheckLog{c.now}}, map[string]CheckLog{"test": c.before})
+		if got.Pass || got.Checks[0].PreExisting {
+			t.Errorf("before %+v, now %+v: an unproven failure must keep the result failed: %+v", c.before, c.now, got)
+		}
+	}
+	// Measured end to end: the failure the run added is past the cut, and both sides read the same.
+	a := New(config.Anchor{}, t.TempDir(), nil)
+	script := "echo '--- FAIL: TestOld'; head -c 300000 /dev/zero | tr '\\0' x; echo"
+	run := func(tail string) CheckLog {
+		return a.runCheck(context.Background(), config.Check{Name: "test", Command: "sh",
+			Args: []string{"-c", script + tail + "; exit 1"}, ExpectExit: 0, Timeout: 10 * time.Second})
+	}
+	before, now := run(""), run("; echo '--- FAIL: TestNewlyBroken'")
+	if !now.Truncated || strings.Join(before.Failures, "|") != strings.Join(now.Failures, "|") {
+		t.Fatalf("the setup must hide the new failure past the cut: %+v / %+v", before.Failures, now.Failures)
+	}
+	if got := WithBaseline(Result{Checks: []CheckLog{now}}, map[string]CheckLog{"test": before}); got.Pass {
+		t.Errorf("a truncated failure must not pass as pre-existing: %+v", got.Reason)
+	}
+}
+
+// TestMoreFailuresInTheSameFileAreNew: Jest names a failing test on a line no failure pattern
+// matches, so only its summary counts tell one broken test from two. A count that grew is a new
+// failure; a count that fell is the run fixing some of them.
+func TestMoreFailuresInTheSameFileAreNew(t *testing.T) {
+	jest := func(failed int, extra string) CheckLog {
+		out := fmt.Sprintf("FAIL src/a.test.js\n  ● sum › adds\n%s\nTest Suites: 1 failed, 1 total\n"+
+			"Tests:       %d failed, %d passed, 10 total\n", extra, failed, 10-failed)
+		return CheckLog{Name: "npm test", Exit: 1, Failures: failureSignature(out, ""), FailCounts: failureCounts(out)}
+	}
+	before := map[string]CheckLog{"npm test": jest(2, "  ● mul › multiplies")}
+	if got := WithBaseline(Result{Checks: []CheckLog{jest(3, "  ● div › divides")}}, before); got.Pass {
+		t.Errorf("a third failing test must keep the result failed: %+v", got.Reason)
+	}
+	if got := WithBaseline(Result{Checks: []CheckLog{jest(1, "")}}, before); !got.Pass {
+		t.Errorf("fewer failures is the same failure: %+v", got.Reason)
+	}
+	if got := WithBaseline(Result{Checks: []CheckLog{jest(2, "")}}, before); !got.Pass {
+		t.Errorf("the same counts are the same failure: %+v", got.Reason)
+	}
+	// A count the baseline did not print at all is a new one (mocha's "N failing").
+	now := CheckLog{Name: "npm test", Exit: 1, FailCounts: []int{2, 1, 1}}
+	if got := WithBaseline(Result{Checks: []CheckLog{now}}, before); got.Pass {
+		t.Errorf("an extra count must keep the result failed: %+v", got.Reason)
+	}
+	if got := failureCounts("  3 failing\n1 error\nTests: 0 failed\n12 errors\n"); fmt.Sprint(got) != "[3 1 0 12]" {
+		t.Errorf("counts = %v", got)
+	}
+	// Measured end to end: the record of a check carries its counts.
+	rec := New(config.Anchor{}, t.TempDir(), nil).runCheck(context.Background(),
+		config.Check{Name: "t", Command: "sh", Args: []string{"-c", "echo 'Tests: 4 failed'; exit 1"}, Timeout: 5 * time.Second})
+	if fmt.Sprint(rec.FailCounts) != "[4]" {
+		t.Errorf("record = %+v", rec)
 	}
 }
 
