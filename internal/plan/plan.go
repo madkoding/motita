@@ -112,6 +112,8 @@ type Planner struct {
 	// off: no post-turn review runs. Non-nil means MaybeRun is called after
 	// finalize, with the session's messages and the current itersSinceSkill.
 	review *review.Review
+	// index is what the search_index tool asks. Nil means the tool is not offered.
+	index IndexSearcher
 	// session is the conversation this planner continues. Nil means "create one on
 	// first use": a planner built directly still works, and one that is handed a
 	// session keeps the same conversation across runs.
@@ -331,7 +333,8 @@ Three pathways create and maintain skills:
 
 1. Read the request for what it implies, as above.
 2. Look for a skill covering the work. If one exists, follow it and say that you did.
-3. Investigate: list_directory, read_file, search_in_files, execute_command. Facts before
+3. Investigate: list_directory, read_file, search_in_files, search_index (when offered: ranked
+   passages for a question in plain words, cheaper than grep), execute_command. Facts before
    conclusions, and prefer reading a file over guessing what is in it.
 4. If something contradicts your assumption, say so and correct course rather than
    justifying the assumption.
@@ -387,6 +390,15 @@ func ResolveSoul(home string) string {
 
 // tools returns the tool definitions exposed to the model.
 func (p *Planner) tools() []llm.Tool {
+	tools := p.baseTools()
+	if p.index != nil {
+		tools = append(tools, searchIndexTool())
+	}
+	return tools
+}
+
+// baseTools are the tools every planner offers.
+func (p *Planner) baseTools() []llm.Tool {
 	return []llm.Tool{
 		llm.NewTool("list_directory", "Lists the contents of a directory (files and subdirectories).",
 			llm.ObjectSchema(map[string]any{
@@ -732,6 +744,8 @@ func (p *Planner) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
 		return p.toolExecuteCommand(ctx, tc.Function.Arguments)
 	case "search_in_files":
 		return p.toolSearchInFiles(ctx, tc.Function.Arguments)
+	case "search_index":
+		return p.toolSearchIndex(ctx, tc.Function.Arguments)
 	case "list_skills":
 		return p.toolListSkills()
 	case "search_skills":

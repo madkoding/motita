@@ -68,7 +68,12 @@ func (rr *roundRun) run(i int, action Command) {
 // it was handled.
 func (rr *roundRun) kindAction(i int, kind string, action Command) bool {
 	return rr.agentAction(i, kind, action) || rr.fileAction(i, kind, action) ||
-		rr.libraryAction(kind, action) || rr.unknownKind(i, kind, action)
+		rr.readAction(kind, action) || rr.unknownKind(i, kind, action)
+}
+
+// readAction is an action answered from the library or the code index, which change nothing.
+func (rr *roundRun) readAction(kind string, action Command) bool {
+	return rr.libraryAction(kind, action) || rr.indexAction(kind, action)
 }
 
 // agentAction is a background agent started or waited for (see subagents.go).
@@ -152,7 +157,7 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
 		"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, "+
-		"search_skills, read_skill, save_skill. "+
+		"search_skills, read_skill, save_skill, search_index. "+
 		"To run a shell command, use kind \"command\".]\n",
 		kind, action.Description, kind)
 	rr.a.log.Warn(rr.prefix+"action with an unknown kind",

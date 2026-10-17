@@ -60,6 +60,7 @@ func (op Options) runPlan(
 		WithReward(procs.Ledger).
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
+		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
 
 	if fl.prompt != "" {

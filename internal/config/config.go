@@ -39,6 +39,7 @@ type Config struct {
 	Schedule    Schedule    `yaml:"schedule"`
 	UI          UI          `yaml:"ui"`
 	Voice       Voice       `yaml:"voice"`
+	CodeIndex   CodeIndex   `yaml:"code_index"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -536,8 +537,9 @@ func Default() Config {
 			Tick:     30 * time.Second,
 			MinEvery: time.Minute,
 		},
-		UI:    UI{Language: "auto"},
-		Voice: defaultVoice(),
+		UI:        UI{Language: "auto"},
+		Voice:     defaultVoice(),
+		CodeIndex: defaultCodeIndex(),
 	}
 }
 
@@ -873,6 +875,9 @@ func (c *Config) validate(requireKey bool) error {
 		return err
 	}
 	if err := c.validateVoice(); err != nil {
+		return err
+	}
+	if err := c.validateCodeIndex(); err != nil {
 		return err
 	}
 	return c.validateAgent()

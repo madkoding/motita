@@ -1271,6 +1271,62 @@ million tokens, from `internal/onboard/prices.json`, revised by hand; absent for
 local models; the `ollama-cloud` provider's are Ollama Cloud's, and `ollama` is local), which Settings → Models shows next to each model. A model a provider lists that the
 catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesChecked()`).
 
+### Searching the workspace with search_index
+
+Plan mode has a `search_index` tool next to `search_in_files`, and task mode reaches the same index with the action `{"kind": "search_index", "command": "the question"}`. It reads the workspace into an index and
+answers a question in plain words, or a symbol name, with `path:line` and a few lines instead of whole
+matches. It runs in this process and nothing is sent anywhere; the idea comes from
+[XERJ](https://github.com/xerj-org/xerj).
+
+- **Words:** BM25 over the code split at camelCase and snake_case, with definitions and file names
+  weighted up.
+- **Meaning:** a second ranking learned from the folder's own vocabulary (random indexing: a term is
+  described by the terms it shares windows with), fused with the first by reciprocal rank. It finds
+  code that shares context with the question even without sharing the word. It is not a neural
+  embedding: it knows this codebase's vocabulary and nothing else. The vectors are kept on disk with
+  the index.
+- **Real embeddings (off by default):** with `embeddings_url` set, a third ranking comes from an
+  OpenAI-compatible `POST <url>/embeddings`. **This sends the text of the indexed files (windows of up
+  to 1500 characters, at most 4000 of them) and every query to that endpoint**, so use it only with a
+  provider you would already show the code to. If the endpoint fails the search still answers with the
+  other rankings and says so in a note after the passages. Plain http with a key is refused unless the
+  host is on this machine or its network.
+- **Local Ollama (automatic):** with no `embeddings_url`, the first search looks for an Ollama on this
+  machine (`127.0.0.1:11434`, 0.4 s at most, again once a minute while it is not there). If it has
+  `nomic-embed-text` (`ollama pull nomic-embed-text`), that model is used through its `/v1/embeddings`.
+  The text only goes to your own machine. `embeddings_auto: false` (or `MOTITA_CODE_INDEX_EMBEDDINGS_AUTO=false`)
+  turns the look-up off.
+- **On disk:** the index is kept in `cache_dir` and reused while no file's name, size or time changed,
+  so the next start does not read everything again. It holds the terms of the source, not its text
+  (passages are read from the files when answered), in a file only you can read.
+
+```yaml
+code_index:
+  enabled: true
+  max_file_kb: 256 # larger files are not indexed
+  max_files: 5000 # indexing stops after this many files
+  semantic: true # the ranking by meaning
+  # cache_dir: ~/.motita/index # the default; an empty value keeps the index in memory only
+  # embeddings_auto: true # use a local Ollama with nomic-embed-text when there is one
+  # embeddings_url: https://api.openai.com/v1 # OFF while empty: setting it sends code to that endpoint
+  # embeddings_model: text-embedding-3-small
+  # embeddings_api_key: ... # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
+```
+
+Everything above can be changed from **Settings → Code search**, or through `GET/PUT /v1/code-index` on
+the gateway (the toggles, the embeddings address and model, the two limits). The change is written to the
+configuration file and applies to the sessions started after it. An address outside this machine and its
+network is saved only after the page told the person that the text of the indexed files will be sent
+there (`confirm: true` in the request). The embeddings key is not handled by the page: set
+`MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY`.
+
+The `.gitignore` of the folder, and of the folders below it, is respected. Hidden files and folders
+(`.env`, `.git`), `node_modules`, `vendor`, build output, symbolic links and binary files are never
+indexed. The tool reads only what the session may read: a `path` outside it is refused like `read_file`
+does. `search_index` takes `query`, `path` (a folder to search in, default the working directory) and
+`limit` (default 5, at most 20). What it returns goes into the model's context like any tool result, with
+secrets masked. It only knows what it indexed, so a negative is confirmed with `search_in_files`.
+
 ### Voice input
 
 The browser interface can take speech: a microphone button beside **Send** dictates into the
@@ -1380,6 +1436,8 @@ that only motita's own file edits are limited.
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true,"isolate_network":true,"network_enforced":true}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`); `network_enforced` is false where a command cannot be given a network of its own, and `network_reason` and `network_hint` then say why and what to do |
 | `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false` and for `isolate_network: false`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` or `MOTITA_SANDBOX_ISOLATE_NETWORK` overrides it; a change of several keys is saved whole or not at all |
+| `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
+| `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud
