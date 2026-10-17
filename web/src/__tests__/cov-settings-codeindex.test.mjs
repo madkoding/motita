@@ -1,4 +1,4 @@
-// The Code tab: the switches, where the embeddings come from, the endpoint and limits, and
+// The Indexing tab: the switches, where the embeddings come from, the endpoint and limits, and
 // the confirmation an address outside this machine needs.
 // Run with: node --test web/src/__tests__/cov-settings-codeindex.test.mjs
 import test from "node:test";

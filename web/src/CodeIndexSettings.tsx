@@ -248,7 +248,7 @@ export function CodeIndexSettings({ api }: { api: Api }) {
   return (
     <section class="settings-group" aria-labelledby="settings-code-index-h">
       <h3 id="settings-code-index-h" class="settings-group-title">
-        {t("Code")}
+        {t("Indexing")}
       </h3>
       <div class="settings-card" data-testid="code-index-setting">
         {loadErr && (

@@ -7,7 +7,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 )
 
-// THE CODE INDEX, as the settings page's Code tab shows and changes it: whether search_index
+// THE CODE INDEX, as the settings page's Indexing tab shows and changes it: whether search_index
 // is on, the ranking by meaning, the embeddings and the limits (the code_index block).
 //
 // A change is saved in the configuration file and reaches the sessions started after it; a session

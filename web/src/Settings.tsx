@@ -122,7 +122,7 @@ function settingsTabs(p: Props): TabInfo[] {
   if (p.codeIndex) {
     tabs.push({
       id: "codeindex",
-      label: t("Code"),
+      label: t("Indexing"),
       icon: <IconSearch />,
     });
   }
