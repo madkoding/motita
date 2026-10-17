@@ -37,7 +37,7 @@ import (
 //     people to edit the number without reading it, which is worse than a
 //     tolerance that still catches a claim that has drifted into being
 //     misleading - the 1,763 above is 44% below the truth, and that fails.
-//   - The binary size cannot be derived without building all nine targets, so it
+//   - The binary size cannot be derived without building all ten targets, so it
 //     is bounded instead: the unit must be MiB, the range must be ordered, the
 //     top must stay under the ceiling the size gate enforces, and the bottom
 //     must clear the assets every binary carries. That is what catches the real

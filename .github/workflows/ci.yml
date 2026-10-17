@@ -493,7 +493,7 @@ jobs:
         with:
           cache-key: go-gateway
 
-      # One job, not a nine-platform matrix: the gateway is a single HTTP surface, and its
+      # One job, not a ten-platform matrix: the gateway is a single HTTP surface, and its
       # behaviour does not vary with the target architecture the way a sandbox or a signal
       # handler does. The other e2e scripts already run per platform.
       - name: End-to-end test of the gateway
