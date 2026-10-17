@@ -21,6 +21,7 @@ import {
 import { NotifySetting } from "./NotifySettings";
 import { VoiceSettings, type VoiceSettingsProps } from "./VoiceSettings";
 import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
+import { CodeIndexSettings } from "./CodeIndexSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
@@ -32,6 +33,7 @@ import {
   IconGlobe,
   IconMic,
   IconPlug,
+  IconSearch,
   IconShield,
   IconSliders,
   IconPalette,
@@ -65,6 +67,8 @@ interface Props extends AppearanceSettingsProps {
   security?: { api: Api; sessionId?: string };
   // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
   push?: { api: Api };
+  // The search_index tool: its switches, embeddings and limits. Hidden on a gateway without the API.
+  codeIndex?: { api: Api };
   // tab is the tab the dialog opens on; the first one when absent.
   tab?: Tab;
 }
@@ -78,6 +82,7 @@ export type Tab =
   | "speech"
   | "security"
   | "network"
+  | "codeindex"
   | "providers"
   | "models"
   | "git";
@@ -114,6 +119,13 @@ function settingsTabs(p: Props): TabInfo[] {
   if (p.security) {
     tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
   }
+  if (p.codeIndex) {
+    tabs.push({
+      id: "codeindex",
+      label: t("Code search"),
+      icon: <IconSearch />,
+    });
+  }
   if (p.network) {
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
   }
@@ -146,6 +158,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     p.security && (
       <SecuritySettings api={p.security.api} sessionId={p.security.sessionId} />
     ),
+  codeindex: (p) => p.codeIndex && <CodeIndexSettings api={p.codeIndex.api} />,
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,

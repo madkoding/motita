@@ -600,6 +600,45 @@ const more: Record<string, string> = {
   "Every voice ({n})": "Todas las voces ({n})",
   "The local listener took too long and was stopped.":
     "La transcripción local tardó demasiado y se detuvo.",
+  On: "Encendido",
+  "Code search": "Búsqueda en el código",
+  "Search the workspace": "Buscar en el espacio de trabajo",
+  "Motita reads the folder once and answers with passages instead of whole files.":
+    "Motita lee la carpeta una vez y responde con pasajes en vez de archivos enteros.",
+  "Ranking by meaning": "Ranking por significado",
+  "Learned from your own code. No network.":
+    "Aprendido de tu propio código. Sin red.",
+  "Find a local Ollama": "Buscar un Ollama local",
+  "Looks on this machine for nomic-embed-text. The text does not leave it.":
+    "Busca nomic-embed-text en este equipo. El texto no sale de él.",
+  "Embeddings come from {endpoint} ({model}), on this machine or its network.":
+    "Los embeddings vienen de {endpoint} ({model}), en este equipo o en tu red.",
+  "Embeddings come from {endpoint} ({model}). The text of your files and every question go there.":
+    "Los embeddings vienen de {endpoint} ({model}). El texto de tus archivos y cada pregunta se envían allí.",
+  "Embeddings use a local Ollama with nomic-embed-text when there is one (ollama pull nomic-embed-text). The text stays on this machine.":
+    "Los embeddings usan un Ollama local con nomic-embed-text si lo hay (ollama pull nomic-embed-text). El texto se queda en este equipo.",
+  "No embeddings: passages are ranked by words and by meaning learned from your code.":
+    "Sin embeddings: los pasajes se ordenan por palabras y por el significado aprendido de tu código.",
+  "The text of the indexed files, in pieces, is sent to {endpoint} once.":
+    "El texto de los archivos indexados, por trozos, se envía una vez a {endpoint}.",
+  "Every question searched is sent there too.":
+    "Cada pregunta que se busca también se envía allí.",
+  "Use it only with a provider you would already show your code to.":
+    "Úsalo solo con un proveedor al que ya le mostrarías tu código.",
+  "Embeddings endpoint": "Endpoint de embeddings",
+  "An OpenAI-compatible /embeddings address. Empty uses only the local Ollama, if any.":
+    "Una dirección /embeddings compatible con OpenAI. Vacía, solo usa el Ollama local, si lo hay.",
+  "Embeddings model": "Modelo de embeddings",
+  Limits: "Límites",
+  "Files larger than this many KB, or beyond this many files, are not indexed.":
+    "No se indexan los archivos de más KB que esto, ni los que pasen de esta cantidad.",
+  "Largest file (KB)": "Archivo más grande (KB)",
+  "Most files": "Máximo de archivos",
+  "Send your code to this endpoint?": "¿Enviar tu código a este endpoint?",
+  "Send my code there": "Enviar mi código allí",
+  "The embeddings key goes in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Changes apply to new sessions.":
+    "La clave de embeddings va en MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Los cambios se aplican a las sesiones nuevas.",
+  "A key is set.": "Hay una clave definida.",
   "Network for commands": "Red para los comandos",
   "No network": "Sin red",
   "Allow the network": "Permitir la red",

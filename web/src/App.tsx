@@ -591,6 +591,7 @@ function SettingsHost() {
           setToast({ message, type: choose(error, "error", "success") }),
       }}
       security={{ api: request, sessionId: rs.sessionId }}
+      codeIndex={{ api: request }}
       network={{ api: request }}
       push={{ api: request }}
       git={{
