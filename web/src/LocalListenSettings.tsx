@@ -104,7 +104,8 @@ export function adviceFor(
   if (webGPU && !forGPU(id)) {
     return t("This browser has WebGPU: the “GPU” models are much faster here.");
   }
-  if (!webGPU && id !== FASTEST && h && !h.gpu && h.took > h.seconds * 1000) {
+  const slow = !!h && !h.gpu && h.took > h.seconds * 1000;
+  if (!webGPU && id !== FASTEST && slow) {
     return t(
       "Too slow on the processor: the Tiny model answers several times sooner.",
     );
