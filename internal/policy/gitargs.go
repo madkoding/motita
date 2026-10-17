@@ -101,3 +101,11 @@ func shortBundleHas(a, letters string) bool {
 	}
 	return strings.ContainsAny(a[1:], letters)
 }
+
+// gitPlumbingReads are the git subcommands that only inspect a repository and are stable enough
+// to script against; plan mode's read-only list (internal/readonly) allows the same names.
+var gitPlumbingReads = map[string]bool{
+	"ls-tree": true, "merge-base": true, "rev-list": true, "name-rev": true, "diff-tree": true,
+	"diff-index": true, "diff-files": true, "show-branch": true, "cherry": true, "range-diff": true,
+	"check-ignore": true, "check-attr": true, "var": true, "verify-commit": true, "verify-tag": true,
+}
