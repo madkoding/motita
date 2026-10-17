@@ -1175,6 +1175,11 @@ func (a *Agent) continueBudget(ctx context.Context, rounds, maxSteps int, prefix
 // the user said yes to running commands, not to working for ever.
 const BudgetRule = "agent.max_steps"
 
+// GateRule is the Rule of the question "accept a PASS from a gate this run changed?". It is not a
+// command either: it asks whether the check that judges the work may be one the run rewrote, so
+// an approver that approves every COMMAND must not answer it.
+const GateRule = "anchor-gate-changed"
+
 // maxSteps is the round budget in force, defaulted when none was configured.
 func (a *Agent) maxSteps() int {
 	if a.cfg.Agent.MaxSteps > 0 {

@@ -735,7 +735,7 @@ func (a *Agent) guardGate(ctx context.Context, v anchor.Result) anchor.Result {
 	approved, err := a.approve(ctx, RequestPlan{
 		Reason: "the project's gate (.motita/anchor, Makefile or package.json scripts) changed during this run, " +
 			"and it passed; accept a PASS from the changed gate?",
-		Rule: "anchor-gate-changed",
+		Rule: GateRule,
 	}, "accept PASS from the changed gate: "+gate)
 	if err == nil && approved {
 		a.gate = now

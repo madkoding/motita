@@ -105,6 +105,35 @@ func TestTheBudgetQuestionIsStillAsked(t *testing.T) {
 	cancel()
 }
 
+// TestTheChangedGateQuestionIsStillAsked: "allow all commands" is consent to run commands, not
+// to let the run replace the check that judges it. A PASS from a gate the run rewrote is still
+// put to the user, and a background agent cannot have it approved at all.
+func TestTheChangedGateQuestionIsStillAsked(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	conv := srv.sessions[DefaultSession]
+	conv.setAutoApprove(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rn := newRun("r", ctx, cancel, "")
+	ok, err := srv.approverFor(conv, rn)(ctx, agent.ApprovalRequest{Command: "accept PASS", Rule: agent.GateRule,
+		Background: true, Agent: "a1"})
+	if ok || err == nil {
+		t.Fatalf("a background agent's changed gate must be refused, got %v %v", ok, err)
+	}
+	var returned atomic.Bool
+	go func() {
+		srv.approverFor(conv, rn)(ctx, agent.ApprovalRequest{Command: "accept PASS", Rule: agent.GateRule})
+		returned.Store(true)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for conv.pendingApprovalNow() == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if conv.pendingApprovalNow() == nil || returned.Load() {
+		t.Fatal("the changed-gate question must be put to the user even with every command allowed")
+	}
+}
+
 // TestAllowAllCanBeTakenBack: the interface turns it off, and the next command is asked again.
 func TestAllowAllCanBeTakenBack(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})

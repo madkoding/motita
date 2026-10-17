@@ -235,7 +235,7 @@ func TestAChangedGateIsPutToTheUser(t *testing.T) {
 	if got := a.validateClaim(ctx, nil); got.Pass || !strings.Contains(got.Reason, "did not approve") {
 		t.Errorf("a no must keep the FAIL: %+v", got)
 	}
-	if len(asked) != 1 || asked[0].Rule != "anchor-gate-changed" || !strings.Contains(asked[0].Command, "sh -c true") {
+	if len(asked) != 1 || asked[0].Rule != GateRule || !strings.Contains(asked[0].Command, "sh -c true") {
 		t.Fatalf("asked = %+v", asked)
 	}
 	// A background agent started now is held to the original gate too.

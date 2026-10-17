@@ -651,8 +651,9 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 	return func(ctx context.Context, req agent.ApprovalRequest) (bool, error) {
 		// "Allow all commands for this session". Said once, it answers every later command
 		// question - announced in the run, so what ran on that answer is still visible. The
-		// question of spending another step budget is not a command and is still asked.
-		if req.Rule != agent.BudgetRule && c.autoApproving() {
+		// questions of spending another step budget and of accepting a PASS from a gate the run
+		// rewrote are not commands and are still asked.
+		if req.Rule != agent.BudgetRule && req.Rule != agent.GateRule && c.autoApproving() {
 			who := ""
 			if req.Background {
 				who = "background agent " + req.Agent + ": "
