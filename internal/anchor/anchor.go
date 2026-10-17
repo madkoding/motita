@@ -30,6 +30,12 @@ type Result struct {
 	// anything (see WithBaseline). A result with Pass true and a non-empty PreExisting is a pass
 	// WITH A CAVEAT, and Reason says so in words: it is never reported as plain green.
 	PreExisting []string `json:"pre_existing,omitempty"`
+	// NoGate marks a FAIL that is not a failed check: kind=auto looked in the directory and found
+	// nothing to run. The caller decides what that means for the run; retrying cannot change it.
+	NoGate bool `json:"no_gate,omitempty"`
+	// Unverified marks a PASS that nothing checked (see the agent's handling of NoGate). Reason
+	// says so in words: it is never reported as plain green.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // CheckLog is the structured record of one check.
@@ -121,7 +127,7 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 		// list. Letting the loop below run over nothing would leave Pass true - an
 		// optimistic PASS over a project nobody checked, which is the exact failure
 		// this package exists to refuse.
-		res.Pass = false
+		res.Pass, res.NoGate = false, true
 		res.Reason = "anchor.kind=auto found no gate to run in " + a.dir +
 			": looked for " + declaredGateFile + " (one command per line), a Makefile with check or test, " +
 			"go.mod, package.json (lint/typecheck/test), Cargo.toml and pyproject.toml; " +

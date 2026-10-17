@@ -356,3 +356,24 @@ func TestAGoalTheConfigurationStatesIsNeverCalledAlreadyFailing(t *testing.T) {
 		t.Errorf("a stated goal must never be excused as pre-existing: %s", result.Reason)
 	}
 }
+
+// TestADirectoryWithNoGateEndsUnverifiedNotFailed: reported from a free session folder (no
+// Makefile, go.mod, package.json...): the claim of done was refused four times for a gate that
+// retrying cannot create, and the task was reported as failed. It passes, flagged unverified,
+// with the reason pointing at .motita/anchor; an anchor that is off still fails.
+func TestADirectoryWithNoGateEndsUnverifiedNotFailed(t *testing.T) {
+	e := mount(t, idleServer(t), config.Anchor{Kind: "auto", Timeout: 10 * time.Second}, nil)
+	got := e.agent.validateClaim(context.Background(), nil)
+	if !got.Pass || !got.Unverified || !got.NoGate {
+		t.Fatalf("no gate must end done but unverified: %+v", got)
+	}
+	for _, want := range []string{"NOT verified", ".motita/anchor"} {
+		if !strings.Contains(got.Reason, want) {
+			t.Errorf("the reason should say %q, got: %s", want, got.Reason)
+		}
+	}
+	e.agent.cfg.Anchor = config.Anchor{Kind: "none"}
+	if got := e.agent.validateClaim(context.Background(), nil); got.Pass {
+		t.Errorf("anchor.kind=none must still fail: %+v", got)
+	}
+}
