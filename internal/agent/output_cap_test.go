@@ -95,3 +95,27 @@ func TestACutOutputSaysHowMuchIsMissing(t *testing.T) {
 func shellQuoteText(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// TestTheWorkLogKeepsOnlyWhatTheSynthesisReads: the synthesis reads the head and the tail of every
+// round's output, so the log holds those and the length, not every byte of a long run, and still
+// hands over the same text as the whole log cut in its middle.
+func TestTheWorkLogKeepsOnlyWhatTheSynthesisReads(t *testing.T) {
+	for _, rounds := range []int{0, 1, 3, 40, 400} {
+		var log workLog
+		var whole strings.Builder
+		for i := range rounds {
+			line := fmt.Sprintf("## Round %d\n%s\n", i, strings.Repeat("acción ", 50+i%7*300))
+			fmt.Fprint(&log, line)
+			whole.WriteString(line)
+		}
+		for _, notes := range []string{"", "## Notes\nFindings: x\n"} {
+			if got, want := log.text(notes), truncateMiddle(whole.String()+notes, roundOutputChars); got != want {
+				t.Fatalf("%d rounds, notes %q: the cut differs from the whole log's\n got %d bytes\nwant %d bytes",
+					rounds, notes, len(got), len(want))
+			}
+		}
+		if len(log.head) > roundOutputChars || len(log.tail) > 2*roundOutputChars {
+			t.Errorf("%d rounds: the log holds %d + %d bytes", rounds, len(log.head), len(log.tail))
+		}
+	}
+}

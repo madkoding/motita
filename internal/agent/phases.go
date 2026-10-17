@@ -116,9 +116,9 @@ func describeAnalysis(analysis Analysis) string {
 // actions have run and the anchor has validated them.
 func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string, validation anchor.Result) *Report {
 	vars := a.baseVariables(t)
-	// The output of every round, so the head AND the tail are kept: the start says what was
-	// found, the end says where the work landed.
-	vars["output"] = truncateMiddle(output, roundOutputChars)
+	// The output of every round, already cut in its middle (workLog.text): the start says what
+	// was found, the end says where the work landed.
+	vars["output"] = output
 	vars["validation"] = validation.Reason
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Synthesize, vars, "synthesize")
