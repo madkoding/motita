@@ -136,35 +136,49 @@ func gitArgs(ctx context.Context, dir string, args ...string) []string {
 // the machine owner's (git-lfs installs filter.lfs.* in the system scope, and
 // that filter must keep working), while the local scope - .git/config - is exactly what an agent
 // or a cloned project can rewrite. A repository that sets no such key gets no override, and a dir
-// that is not a repository, or a machine with no git, reports nothing: the caller still runs with
-// the fixed hardening.
+// that is not a repository reports nothing: the caller still runs with the fixed hardening. A
+// config that cannot be listed at all fails CLOSED: git is pointed at a repository that does not
+// exist, because a listing that failed says nothing about what the repository arms.
 //
 // Reading the config is itself a git run, and it is made WITHOUT these overrides (reading config
 // does not run a driver), so there is no recursion.
 func neutralizeLocalConfig(ctx context.Context, dir string) []string {
+	names, ok := localConfigNames(ctx, dir)
+	if !ok {
+		return []string{"--git-dir=" + unsafeConfigGitDir}
+	}
 	var over []string
-	for _, name := range localConfigNames(ctx, dir) {
+	for _, name := range names {
 		over = append(over, neutralize(name)...)
 	}
 	return over
 }
 
 // localConfigNames lists the names of dir's repository-controlled config variables (the local and
-// worktree scopes), in the order git reports them. It is listed WITHOUT --local on
-// purpose: --local turns include resolution off and skips config.worktree, so a
-// [include] path = ... or extensions.worktreeConfig in .git/config would hide a filter driver
-// from the list while git still applies it. With --show-scope each name is preceded by its scope
-// (NUL-separated), and the included files report the scope of the file that includes them. A
-// failure (not a repository, no local config, no git) is
-// reported as no names: there is then nothing to neutralize.
-func localConfigNames(ctx context.Context, dir string) []string {
+// worktree scopes), in the order git reports them, and whether the listing could be read. It is
+// listed WITHOUT --local on purpose: --local turns include resolution off and skips
+// config.worktree, so a [include] path = ... or extensions.worktreeConfig in .git/config would
+// hide a filter driver from the list while git still applies it. With --show-scope each name is
+// preceded by its scope (NUL-separated), and the included files report the scope of the file
+// that includes them.
+//
+// git older than 2.26 has no --show-scope. The listing is then retried without it and EVERY name
+// is returned: the machine owner's drivers (git-lfs) are disarmed too, which is the price of not
+// running a planted one. A listing that ran out of time is not retried.
+func localConfigNames(ctx context.Context, dir string) ([]string, bool) {
 	c, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	full := append([]string{"-C", dir}, hardening...)
-	full = append(full, "config", "--list", "--name-only", "--show-scope", "-z")
-	out, err := execCommand(c, "git", full...)
+	full = append(full, "config", "--list", "--name-only", "-z")
+	out, err := execCommand(c, "git", append(full, "--show-scope")...)
+	if err != nil && c.Err() == nil {
+		out, err = execCommand(c, "git", full...)
+		if err == nil {
+			return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 }), true
+		}
+	}
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	fields := strings.Split(string(out), "\x00")
 	var names []string
@@ -173,7 +187,7 @@ func localConfigNames(ctx context.Context, dir string) []string {
 			names = append(names, fields[i+1])
 		}
 	}
-	return names
+	return names, true
 }
 
 // dangerousConfigKeys are the fixed-name config variables whose value git runs as a command, or

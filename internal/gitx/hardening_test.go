@@ -2,11 +2,13 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRepositoryConfigRunsNoCode: the repository's own .git/config is writable by whatever
@@ -307,6 +309,41 @@ func TestAlternateRefsCommandRunsNoCode(t *testing.T) {
 	if exists(marker) {
 		t.Error("core.alternateRefsCommand ran on fetch")
 	}
+}
+
+// TestAConfigListingThatFailsDoesNotFailOpen: git older than 2.26 has no --show-scope, and a
+// listing that failed used to mean "nothing to neutralize", so every planted driver stayed armed.
+// The listing is retried without scopes (every key is then the repository's), and a listing that
+// cannot be read at all makes git refuse to run.
+func TestAConfigListingThatFailsDoesNotFailOpen(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	git(t, repo, "config", "filter.x.clean", "touch /never")
+	t.Run("old git", func(t *testing.T) {
+		stubOn(t, "--show-scope", "error: unknown option `show-scope'", errors.New("exit status 129"))
+		if got := strings.Join(neutralizeLocalConfig(ctx, repo), " "); !strings.Contains(got, "-c filter.x.clean=") {
+			t.Errorf("a git with no --show-scope must still neutralize the filter, got %q", got)
+		}
+	})
+	t.Run("no listing at all", func(t *testing.T) {
+		failOnGit(t, "config --list")
+		if got := neutralizeLocalConfig(ctx, repo); len(got) != 1 || got[0] != "--git-dir="+unsafeConfigGitDir {
+			t.Errorf("an unreadable config must fail closed, got %q", got)
+		}
+	})
+	t.Run("out of time", func(t *testing.T) {
+		calls := 0
+		withExec(t, func(c context.Context, name string, args ...string) ([]byte, error) {
+			calls++
+			<-c.Done()
+			return nil, errors.New("signal: killed")
+		})
+		short, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+		defer cancel()
+		if got := neutralizeLocalConfig(short, repo); len(got) != 1 || calls != 1 {
+			t.Errorf("a listing out of time fails closed without a retry: %q after %d calls", got, calls)
+		}
+	})
 }
 
 func readFile(t *testing.T, path string) string {
