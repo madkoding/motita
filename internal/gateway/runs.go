@@ -45,12 +45,6 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
-	// Record the task so it can be resumed after a gateway restart.
-	c.stateMu.Lock()
-	c.lastTask = body.Task
-	c.lastKind = "task"
-	c.stateMu.Unlock()
-	s.saveSession(c)
 	s.startRun(w, r, c, body.Task, schedule.KindTask)
 }
 
@@ -71,12 +65,6 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
-	// Record the prompt so it can be resumed after a gateway restart.
-	c.stateMu.Lock()
-	c.lastTask = body.Prompt
-	c.lastKind = "plan"
-	c.stateMu.Unlock()
-	s.saveSession(c)
 	s.startRun(w, r, c, body.Prompt, schedule.KindPlan)
 }
 
