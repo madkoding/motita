@@ -1065,9 +1065,9 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 44 of 44 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
-| **Test functions**        | 4,824 across 490 files                                                                                                                                                                                    |
-| **Code vs tests**         | 79,804 lines of Go · 133,725 lines of test                                                                                                                                                                |
+| **Statement coverage**    | **100% in every package that ships** — 45 of 45 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Test functions**        | 4,950 across 517 files                                                                                                                                                                                    |
+| **Code vs tests**         | 80,335 lines of Go · 134,298 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |
 | **Platforms CI builds**   | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                 |
 
