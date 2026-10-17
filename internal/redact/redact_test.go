@@ -68,6 +68,9 @@ func TestStringKeepsOrdinaryText(t *testing.T) {
 		"Authorization: short",
 		`{"max_tokens": 4096, "key": "value", "token": "${TOKEN}", "input_tokens": "12"}`,
 		"PATH=/usr/bin\nHOME=/home/u",
+		"best = max(pixels, key=lambda p: p[1])\nrows = sorted(rows,\n    key=len)",
+		`<g data-edge-key="a-b" key="x">`,
+		"body := `{\"api_key\":\"` + key + `\"}`\nlog(`\"token\": \"`)\nx := 1 // \"",
 	} {
 		if got := String(in); got != in {
 			t.Errorf("String(%q) = %q, want it unchanged", in, got)
