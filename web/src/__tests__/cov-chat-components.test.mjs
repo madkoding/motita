@@ -82,6 +82,20 @@ async function composer(over) {
   return { ...s, m, q, root: m.root };
 }
 
+test("after a turn the empty field hints at the next request, unless tags are on", async () => {
+  const c = await composer({
+    composer: { nextSuggestion: "Add tests for the parser" },
+  });
+  assert.equal(c.q("textarea#task").placeholder, "Add tests for the parser →");
+  const tagged = await composer({
+    composer: {
+      nextSuggestion: "Add tests",
+      activeTags: [{ name: "/task", group: "mode", key: 1 }],
+    },
+  });
+  assert.equal(tagged.q("textarea#task").placeholder, "argument…");
+});
+
 test("an empty composer asks for something and sends", async () => {
   const c = await composer();
   const field = c.q("textarea#task");
