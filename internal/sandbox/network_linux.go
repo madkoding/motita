@@ -3,14 +3,15 @@
 package sandbox
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"syscall"
-	"unsafe"
 )
 
 // capNetAdmin is CAP_NET_ADMIN, what bringing the namespace's loopback up takes.
@@ -205,6 +206,24 @@ type ifreqFlags struct {
 	_     [22]byte
 }
 
+// ioctlSyscall is the raw system call, a variable only so a test can make it fail.
+var ioctlSyscall = syscall.Syscall
+
+// ifreqSize is the size of the kernel's struct ifreq: IFNAMSIZ plus the 24-byte union.
+const ifreqSize = syscall.IFNAMSIZ + 24
+
+// marshal writes the struct into b in the kernel's layout (native byte order).
+func (i *ifreqFlags) marshal(b []byte) {
+	copy(b, i.name[:])
+	binary.NativeEndian.PutUint16(b[syscall.IFNAMSIZ:], i.flags)
+}
+
+// unmarshal reads the name and flags back from b after the kernel filled it.
+func (i *ifreqFlags) unmarshal(b []byte) {
+	copy(i.name[:], b)
+	i.flags = binary.NativeEndian.Uint16(b[syscall.IFNAMSIZ:])
+}
+
 // prCapAmbient and prCapAmbientClearAll are prctl's PR_CAP_AMBIENT and PR_CAP_AMBIENT_CLEAR_ALL.
 const (
 	prCapAmbient         = 47
@@ -222,11 +241,19 @@ var networkHooks = struct {
 		return syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, 0)
 	},
 	ioctl: func(fd int, req uintptr, ifr *ifreqFlags) error {
-		// nosemgrep: use-of-unsafe-block -- the ioctl takes a pointer to a struct this function owns.
-		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), req, uintptr(unsafe.Pointer(ifr)))
+		// The kernel reads and writes the struct through its address; it lives in a mapping, not a
+		// Go variable, so no unsafe pointer is needed (see kernelBuffer).
+		buf, err := mmapAnon(-1, 0, ifreqSize, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = syscall.Munmap(buf) }()
+		ifr.marshal(buf)
+		_, _, errno := ioctlSyscall(syscall.SYS_IOCTL, uintptr(fd), req, reflect.ValueOf(&buf[0]).Pointer())
 		if errno != 0 {
 			return errno
 		}
+		ifr.unmarshal(buf)
 		return nil
 	},
 	prctl: syscall.RawSyscall,

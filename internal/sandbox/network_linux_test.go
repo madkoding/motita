@@ -246,6 +246,24 @@ func TestTheRealIoctlReadsTheLoopback(t *testing.T) {
 	}
 }
 
+// The ioctl reports a failed mapping and a failed call without touching the struct.
+func TestTheRealIoctlReportsFailures(t *testing.T) {
+	realMmap, realSys := mmapAnon, ioctlSyscall
+	t.Cleanup(func() { mmapAnon, ioctlSyscall = realMmap, realSys })
+	var ifr ifreqFlags
+	mmapAnon = func(int, int64, int, int, int) ([]byte, error) { return nil, syscall.ENOMEM }
+	if err := networkHooks.ioctl(0, syscall.SIOCGIFFLAGS, &ifr); err != syscall.ENOMEM {
+		t.Errorf("failed mapping = %v", err)
+	}
+	mmapAnon = realMmap
+	ioctlSyscall = func(uintptr, uintptr, uintptr, uintptr) (uintptr, uintptr, syscall.Errno) {
+		return 0, 0, syscall.EPERM
+	}
+	if err := networkHooks.ioctl(0, syscall.SIOCGIFFLAGS, &ifr); err != syscall.EPERM {
+		t.Errorf("failed ioctl = %v", err)
+	}
+}
+
 // Only root asks the kernel for the network namespace in the child's own clone; without root the
 // isolation child relays into it (see relayInNamespace).
 func TestChildAttributesAskForTheNamespaceOnlyAsRoot(t *testing.T) {
