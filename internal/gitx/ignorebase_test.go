@@ -150,7 +150,7 @@ func TestIgnoreBaseFailures(t *testing.T) {
 		if err := os.RemoveAll(info); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join(repo, "nowhere"), info); err != nil {
+		if err := os.Symlink(filepath.Join(repo, ".git", "nowhere"), info); err != nil {
 			t.Fatal(err)
 		}
 		if err := EnsureIgnoreBase(ctx, repo); err == nil {
