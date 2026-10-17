@@ -162,50 +162,63 @@ type fileInfo struct {
 	mod  int64
 }
 
+// walker collects the files worth indexing while a folder is walked.
+type walker struct {
+	ctx      context.Context
+	root     string
+	limit    int
+	maxBytes int64
+	files    []fileInfo
+}
+
+// visit is the filepath.WalkDir callback.
+func (w *walker) visit(path string, d fs.DirEntry, err error) error {
+	if cerr := w.ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if err != nil || path == w.root {
+		return nil
+	}
+	name := d.Name()
+	if strings.HasPrefix(name, ".") || d.Type()&fs.ModeSymlink != 0 {
+		return skipEntry(d)
+	}
+	if d.IsDir() {
+		if skipDirs[name] {
+			return fs.SkipDir
+		}
+		return nil
+	}
+	info, ierr := d.Info()
+	if ierr != nil || !info.Mode().IsRegular() || info.Size() > w.maxBytes || info.Size() == 0 {
+		return nil
+	}
+	if len(w.files) >= w.limit {
+		return fs.SkipAll
+	}
+	rel, _ := filepath.Rel(w.root, path)
+	w.files = append(w.files, fileInfo{filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano()})
+	return nil
+}
+
 // scan walks root and lists the files worth indexing, in a stable order, with a fingerprint of
 // their names, sizes and times so a later call can tell whether anything changed.
 func scan(ctx context.Context, root string, o Options) ([]fileInfo, uint64, error) {
-	var files []fileInfo
-	limit, maxBytes := o.maxFiles(), o.maxBytes()
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		if err != nil || path == root {
-			return nil
-		}
-		name := d.Name()
-		if strings.HasPrefix(name, ".") || d.Type()&fs.ModeSymlink != 0 {
-			return skipEntry(d)
-		}
-		if d.IsDir() {
-			if skipDirs[name] {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		info, ierr := d.Info()
-		if ierr != nil || !info.Mode().IsRegular() || info.Size() > maxBytes || info.Size() == 0 {
-			return nil
-		}
-		if len(files) >= limit {
-			return fs.SkipAll
-		}
-		rel, _ := filepath.Rel(root, path)
-		files = append(files, fileInfo{filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano()})
-		return nil
-	})
-	if err != nil {
+	w := &walker{ctx: ctx, root: root, limit: o.maxFiles(), maxBytes: o.maxBytes()}
+	if err := filepath.WalkDir(root, w.visit); err != nil {
 		return nil, 0, err
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
+	sort.Slice(w.files, func(i, j int) bool { return w.files[i].rel < w.files[j].rel })
+	return w.files, fingerprint(w.files), nil
+}
+
+// fingerprint hashes the names, sizes and times of the files.
+func fingerprint(files []fileInfo) uint64 {
 	h := fnv.New64a()
 	for _, f := range files {
-		_, _ = h.Write([]byte(f.rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(strings.Join([]string{strconv.FormatInt(f.size, 10), strconv.FormatInt(f.mod, 10)}, ":")))
+		_, _ = h.Write([]byte(f.rel + "\x00" + strconv.FormatInt(f.size, 10) + ":" + strconv.FormatInt(f.mod, 10)))
 	}
-	return files, h.Sum64(), nil
+	return h.Sum64()
 }
 
 // skipEntry skips a directory whole and a file alone.
@@ -266,20 +279,7 @@ func (ix *Index) addFile(file int, rel string, lines []string) {
 	pathTerms := tokens(rel)
 	for start := 0; start < len(lines); start += windowStep {
 		end := min(start+windowLines, len(lines))
-		c := chunk{file: file, line: start + 1, lines: lines[start:end], tf: map[string]float64{}}
-		for _, t := range pathTerms {
-			c.tf[t] += pathWeight
-		}
-		for _, line := range c.lines {
-			for _, t := range tokens(line) {
-				c.tf[t]++
-			}
-			if m := defRe.FindStringSubmatch(line); m != nil {
-				for _, t := range tokens(m[1]) {
-					c.tf[t] += defWeight
-				}
-			}
-		}
+		c := newChunk(file, start+1, lines[start:end], pathTerms)
 		for t, n := range c.tf {
 			c.size += n
 			ix.df[t]++
@@ -289,6 +289,25 @@ func (ix *Index) addFile(file int, rel string, lines []string) {
 			break
 		}
 	}
+}
+
+// newChunk counts the terms of one window: its lines, the names it defines and its file's path.
+func newChunk(file, line int, lines, pathTerms []string) chunk {
+	c := chunk{file: file, line: line, lines: lines, tf: map[string]float64{}}
+	for _, t := range pathTerms {
+		c.tf[t] += pathWeight
+	}
+	for _, l := range lines {
+		for _, t := range tokens(l) {
+			c.tf[t]++
+		}
+		if m := defRe.FindStringSubmatch(l); m != nil {
+			for _, t := range tokens(m[1]) {
+				c.tf[t] += defWeight
+			}
+		}
+	}
+	return c
 }
 
 // Search returns the best passages for a question in plain words.
