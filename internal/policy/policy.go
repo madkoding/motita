@@ -647,7 +647,7 @@ func gitReachesOutside(args []string) bool {
 	if sub == "config" {
 		return gitConfigWrites(rest)
 	}
-	if !gitLocalVerbs[sub] || gitGlobalRunsCode(args) {
+	if !(gitLocalVerbs[sub] || gitPlumbingReads[sub]) || gitGlobalRunsCode(args) {
 		return true
 	}
 	return gitVerbRunsCode(sub, rest)

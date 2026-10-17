@@ -13,6 +13,7 @@ import (
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/webfetch"
 )
 
 // runPlan runs the read-only plan/chat mode. It uses the reasoning engine and the
@@ -61,6 +62,8 @@ func (op Options) runPlan(
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
 		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
+		// Reading a page follows the commands' network: closed in Settings → Security, closed here.
+		WithWeb(webfetch.New(networkClosed(cfg))).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
 
 	if fl.prompt != "" {
@@ -75,6 +78,11 @@ func (op Options) runPlan(
 
 	// No one-shot prompt: send the user to the TUI, which has a dedicated plan mode.
 	return op.runTUI(ctx, fl, cfg, engine, box, log)
+}
+
+// networkClosed answers, for fetch_url, whether the commands run without a network.
+func networkClosed(cfg config.Config) func() bool {
+	return func() bool { return cfg.Sandbox.IsolateNetwork }
 }
 
 func planDefaultTimeout(cfg config.Config) time.Duration {
