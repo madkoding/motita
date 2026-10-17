@@ -147,7 +147,7 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	if op.RunTUI != nil {
 		// The test seam still wins: a test that wants to observe the interface must not need a
 		// gateway listening on a port.
-		return op.RunTUI(context.Background(), cfg, nil, nil, nil)
+		return op.RunTUI(ctx, cfg, nil, nil, nil)
 	}
 
 	token, err := gateway.ReadToken(cfg.Gateway.TokenFile)
@@ -237,7 +237,7 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 		fmt.Fprintf(op.Err, "%v\n", err)
 	}
 
-	return ui.Run(context.Background())
+	return ui.Run(ctx)
 }
 
 // gatewayVersion asks the gateway at the other end which build it is.
