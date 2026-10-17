@@ -1,13 +1,16 @@
 # motita — complete example configuration
 #
-# Every value shown is what the agent applies when the key is omitted, so this
-# file doubles as documentation and as a template.
+# A complete example, so this file doubles as documentation and as a template.
+# Most values shown are what the agent applies when the key is omitted. A value
+# that differs from that built-in default says so with a `default:` note; the
+# settings under a non-default kind (anchor.command, anchor.checks, the
+# on_failure command) are examples.
 #
 # Validate without running anything (does not call the LLM):
-#     motita-agent -config configs/agent.yaml.example -validate-config
+#     motita -config configs/agent.yaml.example -validate-config
 #
 # Every scalar setting can be overridden with a MOTITA_<BLOCK>_<FIELD>
-# environment variable (see README.md). The lists and maps (task_source.headers,
+# environment variable (see docs/REFERENCE.md, "Configuration"). The lists and maps (task_source.headers,
 # anchor.args, anchor.checks) are set here. Credentials must NEVER live in this
 # file: use MOTITA_LLM_API_KEY, the provider's own variable (OPENAI_API_KEY,
 # ANTHROPIC_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, OLLAMA_API_KEY,
@@ -38,7 +41,7 @@ task_source:
 # Layer A — THE ANCHOR (deterministic validator)
 # ---------------------------------------------------------------------------
 anchor:
-  kind: command        # auto (read the project's own gate) | command | none
+  kind: command        # auto (read the project's own gate) | command | none. default: none
   command: make        # run as is, with no reasoning
   args: [test]
   timeout: 120s
@@ -62,7 +65,7 @@ anchor:
 # Layer C — THE SANDBOX (isolated execution, no Docker)
 # ---------------------------------------------------------------------------
 sandbox:
-  kind: cgroups        # none | chroot | cgroups
+  kind: cgroups        # none | chroot | cgroups. default: none
   # kind=chroot: chroot root (requires root, and the command must exist inside
   # the root)
   root: ""
@@ -92,7 +95,7 @@ sandbox:
 # Layer B — THE REASONING ENGINE
 # ---------------------------------------------------------------------------
 llm:
-  provider: openai     # openai | codex | copilot | ollama | anthropic | claude-code | gemini | qwen
+  provider: openai     # openai | codex | copilot | ollama | ollama-cloud | anthropic | claude-code | gemini | qwen
   model: gpt-4o-mini
   api_key: ""          # BETTER: export MOTITA_LLM_API_KEY
   base_url: https://api.openai.com/v1   # any compatible gateway works
@@ -158,7 +161,7 @@ prompts:
 # What to do when the anchor gives PASS
 # ---------------------------------------------------------------------------
 final_action:
-  kind: git_commit     # none | command | api | git_commit
+  kind: git_commit     # none | command | api | git_commit. default: none
   command: ""          # kind=command
   args: []
   url: ""              # kind=api: POSTs {task, command, status:"pass"}
@@ -169,7 +172,7 @@ final_action:
 # Main loop, logging and shutdown
 # ---------------------------------------------------------------------------
 agent:
-  max_retries: 3               # total attempts = max_retries + 1
+  max_retries: 3               # total attempts = max_retries + 1. default: 5
   subtask_depth: 1             # allowed splitting levels
   subtask_retries: 1           # tries again a failed subtask, told why, before the parent gives up; 0 = off
   quick_plan: true             # the analysis writes the plan itself (one model call before the first action); false = always plan apart
@@ -177,8 +180,8 @@ agent:
   criteria_audit: true         # sends a "done" back when a success criterion is not shown (1 short model call)
   max_parallel: 3              # background agents (spawn_agent) running at once; 0 = off
   max_tasks: 0                 # 0 = no limit
-  workspace_dir: ./workspace
-  log_file: ./workspace/motita.log   # empty = console only
+  workspace_dir: ./workspace   # default: ~/.motita/workspace
+  log_file: ./workspace/motita.log   # empty = console only. default: ~/.motita/workspace/motita.log
   log_level: info              # debug | info | warn | error
   log_console: true
   log_max_mb: 5                # size-based rotation
@@ -187,30 +190,28 @@ agent:
   # Failure action, run when a task runs out of retries without passing.
   # It runs inside the sandbox and leaves a trace for someone to review.
   on_failure:
-    kind: command              # none | command
+    kind: command              # none | command. default: none
     command: 'echo "task not resolved: check the log" >> escalations.log'
 
 # ---------------------------------------------------------------------------
 # Gateway: the HTTP face of the agent.
 #
-# It LISTENS EVERYWHERE by default and RULES NOTHING OUT, which is the posture of
-# a machine with a fresh, empty firewall table. The token is what stands between
-# the network and an agent that runs commands here; the ordered rule list in
-# `allow` is how you narrow WHERE that token may come from - one rule at a time.
+# It listens on LOOPBACK by default, 127.0.0.1:7477, so only this machine can
+# reach it. Opening it to the network is ONE act: write a non-loopback address
+# in `listen`. Once it is open, the token is what stands between the network and
+# an agent that runs commands here, and the ordered rule list in `allow` narrows
+# WHERE that token may come from - one rule at a time.
 #
-# The point of that default is that the reachable case works out of the box: a
-# phone on the same network can reach the agent without you first learning about
-# listen addresses or looking up this machine's address.
+# The plain listener has no TLS: over the network the token travels in clear
+# text, readable by anyone on it. For a browser on another device, add the https
+# listener in `tls` below. To reach the gateway from another machine without
+# exposing it at all, use a tunnel:
 #
-# There is NO TLS in this version. The supported way to reach a gateway on
-# another machine without exposing it at all is a tunnel:
+#     ssh -N -L 7477:127.0.0.1:7477 the-host
+#     # then point the client at http://127.0.0.1:7477
 #
-#     ssh -N -L 8787:127.0.0.1:8787 the-host
-#     # then point the client at http://127.0.0.1:8787
-#
-# Over the network the token travels in clear text, readable by anyone on it. That
-# is why the rules exist: `allow: ["lan"]` or `allow: ["!any"]` is what keeps it
-# to the machines you meant.
+# On an open listener, `allow: ["lan", "!any"]` is what keeps it to the machines
+# on your local network.
 gateway:
   enabled: true
   # host:port, and EMPTY means "resolve it": loopback, 127.0.0.1:7477, which is

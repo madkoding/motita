@@ -11,7 +11,7 @@
 #   export MOTITA_LLM_API_KEY=sk-...
 #   git clone <repo> workspace/audit              # the tree to audit lives in the workspace
 #   echo "Audit the repository: general quality and security." > tasks/audit.md
-#   motita-agent -config configs/cases/4-audit.yaml
+#   motita -config configs/cases/4-audit.yaml
 #
 # The anchor path below assumes this repository's scripts/ is two levels above the workspace;
 # change it if you keep the workspace somewhere else.
