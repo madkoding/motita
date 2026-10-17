@@ -84,7 +84,7 @@ function ArtifactBody({ view }: { view: ArtifactView }) {
   }
   if (shape === "markdown") {
     return (
-      <div class="overflow-auto flex-1 p-3 rounded-lg bg-black/30">
+      <div class="skill-body artifact-body overflow-auto flex-1 p-3 rounded-lg bg-black/30">
         <Markdown content={view.body || ""} />
       </div>
     );

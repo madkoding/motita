@@ -457,6 +457,12 @@ body {
   overflow-x: auto;
 }
 
+/* The artifact viewer's .md reuses the skill document scale; its own box scrolls,
+ * so the skill card's height cap is lifted. */
+.skill-body.artifact-body {
+  max-height: none;
+}
+
 /* The countdown: the figure a person opens this panel to read, so it is the
  * accent colour and monospaced (the digits must not reflow as they tick). */
 .task-countdown {
