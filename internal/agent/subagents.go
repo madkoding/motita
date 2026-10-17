@@ -695,6 +695,15 @@ func (a *Agent) validateClaim(ctx context.Context, before *runBaseline) anchor.R
 			Reason: "no project gate in the background agent's tree: " +
 				"its branch is validated by the main agent's anchor once merged"}
 	}
+	// A directory that declares no gate (a free session folder with no Makefile, go.mod,
+	// package.json...) cannot be fixed by trying again: the old behaviour spent every attempt and
+	// reported the task as failed although nothing failed. The run ends as done but UNVERIFIED, and
+	// the reason says how to get it verified. An explicit anchor.kind=none still fails.
+	if v.NoGate {
+		return anchor.Result{Pass: true, Unverified: true, NoGate: true, Checks: []anchor.CheckLog{},
+			DurationMS: v.DurationMS,
+			Reason:     "done, but NOT verified: " + v.Reason}
+	}
 	return a.guardGate(ctx, before.judge(ctx, v))
 }
 

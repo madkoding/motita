@@ -206,6 +206,9 @@ func TestAutoWithNoGateFAILSAndSaysSo(t *testing.T) {
 	if res.Pass {
 		t.Fatal("a directory with no gate must NOT PASS: an empty list gave an optimistic PASS")
 	}
+	if !res.NoGate {
+		t.Error("the result should say it is the absence of a gate, not a failed check")
+	}
 	// The reason must name what was looked for, so the reader can fix it without
 	// reading this package's source.
 	for _, want := range []string{".motita/anchor", "Makefile", "go.mod", "package.json"} {
