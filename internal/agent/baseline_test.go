@@ -262,6 +262,40 @@ func TestAChangedGateIsPutToTheUser(t *testing.T) {
 	}
 }
 
+// TestARunCannotDropItsGateToSkipTheQuestion: a gate the run started with and then deleted
+// leaves a folder with no gate, which ends done but unverified. That must not skip the changed-gate
+// question: a no is a FAIL, a yes accepts the unverified result.
+func TestARunCannotDropItsGateToSkipTheQuestion(t *testing.T) {
+	e := mount(t, idleServer(t), config.Anchor{Kind: "auto", Timeout: 10 * time.Second}, nil)
+	a := e.agent
+	if err := os.MkdirAll(e.dir+"/.motita", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.dir+"/.motita/anchor", []byte("false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.gate = a.gateFingerprint()
+	if err := os.Remove(e.dir + "/.motita/anchor"); err != nil {
+		t.Fatal(err)
+	}
+	asked, answer := 0, false
+	a.SetApprover(func(_ context.Context, req ApprovalRequest) (bool, error) {
+		asked++
+		if req.Rule != GateRule {
+			t.Errorf("rule = %q, want the gate rule", req.Rule)
+		}
+		return answer, nil
+	})
+	ctx := context.Background()
+	if got := a.validateClaim(ctx, nil); got.Pass || asked != 1 {
+		t.Errorf("a deleted gate must be put to the user, and a no must FAIL: %+v, asked %d", got, asked)
+	}
+	answer = true
+	if got := a.validateClaim(ctx, nil); !got.Pass || !got.Unverified || asked != 2 {
+		t.Errorf("a yes must accept the unverified result: %+v, asked %d", got, asked)
+	}
+}
+
 // TestNoBaselineIsTakenWhereThereIsNothingToCompare: turned off, no anchor, an anchor the
 // configuration wrote, or not a repository - the run behaves exactly as before.
 func TestNoBaselineIsTakenWhereThereIsNothingToCompare(t *testing.T) {
