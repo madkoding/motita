@@ -57,9 +57,18 @@ func TestWindowsParent(t *testing.T) {
 	}
 }
 
+// On macOS the users' folders, the external disks and the place /home leads to are private.
+func TestMacOSUsersArePrivate(t *testing.T) {
+	onPlatform(t, "darwin", map[string]string{"USERPROFILE": `C:\Users\me`})
+	want := []string{"/Users", "/Volumes", "/System/Volumes/Data/home"}
+	if got := platformPrivateTrees(); !reflect.DeepEqual(got, want) {
+		t.Errorf("platformPrivateTrees() = %q, want %q", got, want)
+	}
+}
+
 // Elsewhere the POSIX trees are the whole list.
 func TestOtherPlatformsAddNoPrivateTrees(t *testing.T) {
-	onPlatform(t, "darwin", map[string]string{"USERPROFILE": `C:\Users\me`})
+	onPlatform(t, "linux", map[string]string{"USERPROFILE": `C:\Users\me`})
 	if got := platformPrivateTrees(); got != nil {
 		t.Errorf("platformPrivateTrees() = %q, want none", got)
 	}
