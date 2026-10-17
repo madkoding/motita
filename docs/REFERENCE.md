@@ -1313,7 +1313,7 @@ code_index:
   # embeddings_api_key: ... # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
 ```
 
-Everything above can be changed from **Settings → Code search**, or through `GET/PUT /v1/code-index` on
+Everything above can be changed from **Settings → Indexing**, or through `GET/PUT /v1/code-index` on
 the gateway (the toggles, the embeddings address and model, the two limits). The change is written to the
 configuration file and applies to the sessions started after it. An address outside this machine and its
 network is saved only after the page told the person that the text of the indexed files will be sent
