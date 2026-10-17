@@ -1197,7 +1197,7 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
   host.innerHTML =
     '<button class="copy-btn" data-copy-text="go test ./...">copy</button>' +
     '<button class="copy-btn">copy</button>' +
-    '<button class="copy-msg-btn" data-raw="**raw** answer">copy</button>' +
+    '<div class="markdown-body" data-raw="**raw** answer"><button class="copy-msg-btn">copy</button></div>' +
     '<button class="copy-msg-btn">copy</button>' +
     '<button class="other">other</button>' +
     // An answer may carry a class and data-* of its own, never a button: a look-alike laid

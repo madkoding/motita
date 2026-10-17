@@ -551,7 +551,8 @@ function copyTextOf(target: HTMLElement): string | null {
     return target.dataset.copyText || "";
   }
   if (target.classList.contains("copy-msg-btn")) {
-    return target.dataset.raw || "";
+    // The message keeps its source on its .markdown-body, the button's parent (Markdown.tsx).
+    return target.closest<HTMLElement>(".markdown-body")?.dataset.raw || "";
   }
   return null;
 }
