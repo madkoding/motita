@@ -182,8 +182,7 @@ var (
 // switches the embeddings on when it finds the model. Called with the lock held. Indexes built
 // without vectors are dropped so they are built again with them.
 func (s *Searcher) detect(ctx context.Context) {
-	if s.embedder != nil || !s.opts.EmbedAuto || strings.TrimSpace(s.opts.EmbedURL) != "" ||
-		(!s.probedAt.IsZero() && time.Since(s.probedAt) < probeEvery) {
+	if !s.shouldProbe() {
 		return
 	}
 	s.probedAt = time.Now()
@@ -194,6 +193,15 @@ func (s *Searcher) detect(ctx context.Context) {
 	s.opts.EmbedURL, s.opts.EmbedModel = ollamaBase+"/v1", model
 	s.embedder = newEmbedder(s.opts)
 	s.byAt = map[string]*Index{}
+}
+
+// shouldProbe says the settings ask for the look-up, nothing else supplies the embeddings, and the
+// last look is old enough.
+func (s *Searcher) shouldProbe() bool {
+	if s.embedder != nil || !s.opts.EmbedAuto || strings.TrimSpace(s.opts.EmbedURL) != "" {
+		return false
+	}
+	return s.probedAt.IsZero() || time.Since(s.probedAt) >= probeEvery
 }
 
 // localEmbedModel returns the installed model name of nomic-embed-text, or "" when Ollama does not
