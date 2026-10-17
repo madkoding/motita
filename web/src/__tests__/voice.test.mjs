@@ -24,6 +24,7 @@ test("the switches: the microphone on and hands-free off by default, and both ar
     engine: "",
     listener: "",
     language: "",
+    sendAfter: 3,
   });
   let heard = 0;
   globalThis.window = dom.window;
@@ -38,6 +39,7 @@ test("the switches: the microphone on and hands-free off by default, and both ar
     engine: "local",
     listener: "whisper-base",
     language: "es",
+    sendAfter: 8,
   };
   m.saveVoicePrefs(kept);
   assert.deepEqual(m.loadVoicePrefs(), kept);
@@ -342,4 +344,32 @@ test("the microphone permission comes from the Permissions API, or from the micr
   assert.deepEqual(await m.queryMicPermission(undefined), { state: "prompt" });
   assert.equal(m.isPermissionRefused({ name: "NotAllowedError" }), true);
   assert.equal(m.isPermissionRefused({ name: "NotFoundError" }), false);
+});
+
+test("a wake phrase's message grows and ends in silence, or never ends when the seconds are 0", () => {
+  const wake = (rest) => ({ text: "x", wake: { phrase: "hey", rest } });
+  const w = new m.WakeMessage(2);
+  assert.equal(w.hear({ text: "hola" }, 0), null, "no message, no wake phrase");
+  assert.equal(w.hear(wake(""), 0), "");
+  assert.equal(w.hear({ text: "  " }, 100), null, "silence adds nothing");
+  assert.equal(
+    w.ended(2500, false),
+    false,
+    "a wake phrase alone sends nothing",
+  );
+  w.hear(wake("abre"), 3000);
+  assert.equal(w.hear({ text: "un pr" }, 4000), "un pr");
+  assert.equal(w.ended(5999, false), false, "not yet");
+  assert.equal(w.ended(6000, true), false, "someone is speaking");
+  w.begin();
+  assert.equal(w.ended(6000, false), false, "a phrase is being written down");
+  w.end();
+  assert.equal(w.ended(6000, false), true);
+  assert.equal(w.ended(9000, false), false, "closed");
+  assert.equal(w.hear({ text: "late" }, 9000), null);
+
+  const never = new m.WakeMessage(0);
+  assert.equal(never.hear(wake("abre"), 0), "abre");
+  assert.equal(never.hear({ text: "mas" }, 1), null);
+  assert.equal(never.ended(10 ** 9, false), false);
 });

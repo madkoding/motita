@@ -23,6 +23,7 @@ import {
   type VoicePrefs,
   VOICE_PREFS_EVENT,
   SpeechGate,
+  WakeMessage,
   appendText,
   audioConstraints,
   browserSupport,
@@ -63,6 +64,8 @@ interface Deps {
   authed: boolean;
   setInput: Dispatch<StateUpdater<string>>;
   setToast: SetToast;
+  // send sends what the composer holds, when a wake phrase's message ended in silence.
+  send?: () => void;
 }
 
 // recorderFor starts a recorder on a stream and resolves the recording when it stops.
@@ -283,6 +286,18 @@ function useListenOnce({
   return { listenOnce, cancelListen };
 }
 
+// staleRecording says a recording holds only silence for too long: it starts again, so a phrase is
+// never sent with minutes of quiet in front of it.
+function staleRecording(
+  speaking: boolean,
+  startedAt: number | undefined,
+  now: number,
+): boolean {
+  return (
+    !speaking && startedAt !== undefined && now - startedAt > IDLE_RESTART_MS
+  );
+}
+
 // useHandsFree listens while the hands-free mode is active: every spoken phrase is transcribed,
 // and only one that opens with a wake phrase reaches the composer.
 function useHandsFree({
@@ -295,8 +310,12 @@ function useHandsFree({
   setListening,
   phaseRef,
   heard,
+  submit,
+  sendAfter,
 }: Pick<MicRefs, "hear" | "deviceId" | "fail" | "phaseRef" | "heard"> & {
   active: boolean;
+  submit: () => void;
+  sendAfter: number;
   setInput: Deps["setInput"];
   setToast: SetToast;
   setListening: Dispatch<StateUpdater<boolean>>;
@@ -314,6 +333,8 @@ function useHandsFree({
       done: Promise<Blob>;
       at: number;
     } | null = null;
+    // msg is the message a wake phrase opened: it grows with what follows and ends in silence.
+    const msg = new WakeMessage(sendAfter);
 
     const restart = () => {
       if (current && current.recorder.state !== "inactive") {
@@ -325,19 +346,25 @@ function useHandsFree({
       }
     };
     const send = async (audio: Promise<Blob>) => {
+      msg.begin();
       try {
         const r = await hear(await audio, true);
-        if (!stopped && r.wake) {
+        const said = msg.hear(r, performance.now());
+        if (!stopped && said !== null) {
           heard.current = true;
-          setInput((cur) => appendText(cur, r.wake?.rest || ""));
-          setToast({
-            message: tf("Heard “{phrase}”", { phrase: r.wake.phrase }),
-            type: "success",
-          });
-          focusComposer();
+          setInput((cur) => appendText(cur, said));
+          if (r.wake) {
+            setToast({
+              message: tf("Heard “{phrase}”", { phrase: r.wake.phrase }),
+              type: "success",
+            });
+            focusComposer();
+          }
         }
       } catch (e) {
         fail(e);
+      } finally {
+        msg.end();
       }
     };
 
@@ -383,9 +410,12 @@ function useHandsFree({
           void send(done);
           return;
         }
+        if (phaseRef.current === "idle" && msg.ended(now, gate.speaking)) {
+          submit();
+        }
         if (
           ev === "discard" ||
-          (!gate.speaking && current && now - current.at > IDLE_RESTART_MS)
+          staleRecording(gate.speaking, current?.at, now)
         ) {
           restart();
         }
@@ -404,7 +434,7 @@ function useHandsFree({
       void ctx?.close();
       setListening(false);
     };
-  }, [active, hear, deviceId, fail, setInput, setToast]);
+  }, [active, hear, deviceId, fail, setInput, setToast, submit, sendAfter]);
 }
 
 // useHear is the listener chosen: a model run in this browser, or the transcription service. What
@@ -469,7 +499,7 @@ export function useListenerInstalled(
   return installed;
 }
 
-export function useVoice({ api, authed, setInput, setToast }: Deps) {
+export function useVoice({ api, authed, setInput, setToast, send }: Deps) {
   const [info, setInfo] = useState<VoiceInfo | null>(null);
   const [prefs, setPrefsState] = useState<VoicePrefs>(loadVoicePrefs);
   const [phase, setPhase] = useState<VoicePhase>("idle");
@@ -567,6 +597,9 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
   // HANDS-FREE: while the switch is on and this tab is open, every spoken phrase is transcribed,
   // and only one that opens with a wake phrase reaches the composer.
   const active = prefs.listen && hands === "ready" && authed;
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const submit = useCallback(() => sendRef.current?.(), []);
   useHandsFree({
     active,
     hear,
@@ -577,6 +610,8 @@ export function useVoice({ api, authed, setInput, setToast }: Deps) {
     setListening,
     phaseRef,
     heard,
+    submit,
+    sendAfter: prefs.sendAfter,
   });
 
   return {

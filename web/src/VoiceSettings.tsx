@@ -11,6 +11,7 @@ import {
   type VoiceInfo,
   type VoicePrefs,
   type VoiceState,
+  SEND_AFTER_OPTIONS,
   VOICE_PRESETS,
   isPermissionRefused,
   listenEngine,
@@ -814,6 +815,43 @@ function ListenEngineRow({
   );
 }
 
+// SendAfterRow chooses how many seconds of silence after a wake phrase's message send it by itself.
+function SendAfterRow({
+  value,
+  onPick,
+}: {
+  value: number;
+  onPick: (seconds: number) => void;
+}) {
+  return (
+    <Row
+      id="settings-send-after"
+      label={t("Send after silence")}
+      hint={t(
+        "After the wake phrase, what you say joins the message and it is sent once you stop talking for this long.",
+      )}
+    >
+      <select
+        class={selectCls}
+        aria-labelledby="settings-send-after"
+        data-testid="voice-send-after"
+        value={String(value)}
+        onChange={(e) => onPick(Number((e.target as HTMLSelectElement).value))}
+      >
+        {SEND_AFTER_OPTIONS.map((n) => (
+          <option key={n} value={String(n)}>
+            {choose(
+              n === 0,
+              t("Never: I send it myself"),
+              tf("{n} seconds", { n: String(n) }),
+            )}
+          </option>
+        ))}
+      </select>
+    </Row>
+  );
+}
+
 // listenHint is what listening for the wake phrase does with what it hears.
 function listenHint(engine: ListenEngine, phrases: string[]): string {
   const said = phrases.map((p) => `“${p}”`).join(", ");
@@ -884,6 +922,10 @@ export function VoiceSettings({
   );
   const setListen = useCallback(
     (listen: boolean) => setPrefs({ ...prefs, listen }),
+    [prefs, setPrefs],
+  );
+  const setSendAfter = useCallback(
+    (sendAfter: number) => setPrefs({ ...prefs, sendAfter }),
     [prefs, setPrefs],
   );
   const engine = listenEngine(prefs, info ?? null);
@@ -957,6 +999,7 @@ export function VoiceSettings({
               onChange={setListen}
             />
           </Row>
+          <SendAfterRow value={prefs.sendAfter} onPick={setSendAfter} />
         </fieldset>
       </div>
     </section>
