@@ -126,6 +126,7 @@ export function useAppStore(api: Api) {
     takeHeard: voice.takeHeard,
     setToast,
     api,
+    stepsByTurn: rs.stepsByTurn,
     tts: voice.info?.tts,
     local: voice.info?.local,
     approval: rs.approval,

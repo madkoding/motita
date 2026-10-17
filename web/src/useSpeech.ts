@@ -1,8 +1,7 @@
 // useSpeech reads the agent's answers aloud: on request (the 🔊 button of an answer, or Alt+L for
 // the last one), and on its own when a turn ends, as the settings say. The sentence being read is
 // highlighted on screen, and shown as a subtitle when the settings ask. In the natural style it says short lines the session's model writes
-// instead: when the turn starts and the gist of the answer. What the agent does in between (its
-// steps, decisions, thoughts) is never read aloud.
+// instead: when the turn starts, now and then while the agent works, and the gist of the answer.
 // See speech.ts for the parts that are decided without a voice.
 import {
   useCallback,
@@ -15,7 +14,7 @@ import { choose } from "./choose";
 import { scrollKey } from "./scrollIntent";
 import { localClip, localVoicesSupported, warmLocal } from "./localVoice";
 import { lang, t } from "./i18n";
-import type { Message, SetToast } from "./appTypes";
+import type { Message, SetToast, StepView } from "./appTypes";
 import type { Api } from "./prApi";
 import {
   type AudioLike,
@@ -31,7 +30,9 @@ import {
   type NarrateBody,
   loadSpeechPrefs,
   narrate,
+  notesOf,
   pickVoice,
+  progressDue,
   saveSpeechPrefs,
   script,
   showSubtitle,
@@ -51,8 +52,9 @@ interface Deps {
   // takeHeard says whether the person spoke the turn that just started, and forgets it.
   takeHeard: () => boolean;
   setToast: SetToast;
-  // api serves the natural style; without it the answer is read word for word.
+  // api and stepsByTurn serve the natural style; without api it reads word for word.
   api?: Api;
+  stepsByTurn?: Record<number, StepView[]>;
   // tts is the gateway's voice, as GET /v1/voice describes it; absent or off, the device speaks.
   tts?: TTSInfo;
   // local says the gateway offers local voices (GET /v1/voice); the page runs them itself.
@@ -78,6 +80,9 @@ interface AnyReader {
   stop(): void;
 }
 
+// How often the natural style looks whether the agent did something worth a line.
+const PROGRESS_TICK_MS = 4000;
+
 // isAnswer says the message is an answer of the agent: what can be read aloud.
 export function isAnswer(m: Message): boolean {
   return m.role === "agent" && !m.kind && !m.draft;
@@ -100,6 +105,17 @@ function requestOf(messages: Message[], id: number): string {
     }
   }
   return asked;
+}
+
+// currentSteps are the steps of the newest turn: the one a running agent is adding to.
+function currentSteps(
+  stepsByTurn: Record<number, StepView[]> | undefined,
+): StepView[] {
+  const turns = Object.keys(stepsByTurn || {}).map(Number);
+  if (!stepsByTurn || turns.length === 0) {
+    return [];
+  }
+  return stepsByTurn[Math.max(...turns)] || [];
 }
 
 // lastAnswer is the newest answer of the conversation, if there is one.
@@ -611,6 +627,59 @@ function useNotices(
   }, [id, question]);
 }
 
+// useProgressLines are the PROGRESS LINES: while a natural turn runs, every few seconds, when the
+// agent did something new since the last line and nothing is being said or asked, the model is
+// asked for one more.
+function useProgressLines(o: {
+  running: boolean;
+  natural: boolean;
+  stepsByTurn: Record<number, StepView[]> | undefined;
+  pending: { current: PendingTurn | null };
+  said: { current: string[] };
+  reader: AnyReader | null;
+  ask: Ask;
+  say: Say;
+}) {
+  const { running, natural, pending, said, reader, ask, say } = o;
+  const stepsRef = useRef(o.stepsByTurn);
+  stepsRef.current = o.stepsByTurn;
+  useEffect(() => {
+    if (!running || !natural) {
+      return undefined;
+    }
+    let lastAt = Date.now();
+    let lastNotes = 0;
+    let asking = false;
+    const timer = setInterval(() => {
+      const p = pending.current;
+      const notes = notesOf(currentSteps(stepsRef.current));
+      if (
+        !p?.auto ||
+        asking ||
+        reader?.reading ||
+        !progressDue(Date.now(), lastAt, notes.length, lastNotes)
+      ) {
+        return;
+      }
+      asking = true;
+      lastNotes = notes.length;
+      void ask({
+        stage: "progress",
+        request: p.request,
+        notes,
+        said: said.current,
+      }).then((text) => {
+        asking = false;
+        lastAt = Date.now();
+        if (text && pending.current === p) {
+          say(text, null);
+        }
+      });
+    }, PROGRESS_TICK_MS);
+    return () => clearInterval(timer);
+  }, [running, natural, ask, say, reader, pending, said]);
+}
+
 type ReadText = (
   text: string,
   id: number | null,
@@ -743,6 +812,7 @@ export function useSpeech({
   takeHeard,
   setToast,
   api,
+  stepsByTurn,
   tts,
   local,
   approval,
@@ -893,7 +963,7 @@ export function useSpeech({
   useStopOnLeave(stop, sessionId);
   useVoiceUnlock(device, prefs.mode);
   useNotices(prefsRef, say, approval);
-  useAutoRead({
+  const pending = useAutoRead({
     running,
     messages,
     sessionId,
@@ -904,6 +974,16 @@ export function useSpeech({
     ask,
     say,
     stop,
+  });
+  useProgressLines({
+    running,
+    natural: prefs.style === "natural" && !!api,
+    stepsByTurn,
+    pending,
+    said,
+    reader,
+    ask,
+    say,
   });
 
   return {

@@ -343,10 +343,11 @@ function fakeNarrator(lines, fail = false) {
 // flush lets the requests and their answers settle.
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-test("natural: a line when the turn starts, none while it works, and the gist at the end", async (t) => {
+test("natural: a line when the turn starts, one while it works, and the gist at the end", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "Date"] });
   const n = fakeNarrator({
     start: OPENING,
+    progress: "Estoy corriendo los tests.",
     answer: "Listo: todo pasa.",
   });
   const sub = subtitles();
@@ -371,7 +372,14 @@ test("natural: a line when the turn starts, none while it works, and the gist at
   );
   sub.off();
 
-  // What the agent does while it works is never said, however long it takes.
+  // Nothing new: no progress line, however long it waits.
+  t.mock.timers.tick(PAST_THE_GAP_MS);
+  await flush();
+  assert.deepEqual(
+    n.asked.map((a) => a.stage),
+    ["start"],
+  );
+
   await s.set({
     stepsByTurn: { 1: [{ kind: "command", text: "go test ./..." }] },
   });
@@ -379,8 +387,12 @@ test("natural: a line when the turn starts, none while it works, and the gist at
   await flush();
   assert.deepEqual(
     n.asked.map((a) => a.stage),
-    ["start"],
+    ["start", "progress"],
   );
+  assert.deepEqual(n.asked[1].notes, ["command: go test ./..."]);
+  assert.deepEqual(n.asked[1].said, [OPENING], "what was said is not repeated");
+  assert.equal(synth.said.at(-1).text, "Estoy corriendo los tests.");
+  await act(() => synth.finish());
 
   await s.set({
     running: false,
@@ -1030,22 +1042,78 @@ test("natural without an api reads word for word, and a turn that starts on an e
   await s.done();
 });
 
-test("natural: the steps of the agent are never asked for or said, spoken turn or not", async (t) => {
+test("natural: progress waits while the agent has done nothing new, the voice talks, or a line is asked", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "Date"] });
-  const n = fakeNarrator({ start: OPENING, progress: "Más." });
-  const v = await mount("always", false, { style: "natural", api: n.api });
-  await v.set({
+  let release;
+  const asked = [];
+  const api = async (path, init) => {
+    const body = JSON.parse(init.body);
+    asked.push(body.stage);
+    if (body.stage === "progress") {
+      await new Promise((r) => (release = r));
+      return new Response(JSON.stringify({ text: "Sigo." }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ text: "" }), { status: 200 });
+  };
+  const s = await mount("always", false, { style: "natural", api });
+  await s.set({
     running: true,
     messages: [user(1)],
-    stepsByTurn: { 1: [{ kind: "", text: "decision 1 of 10" }] },
+    stepsByTurn: { 1: undefined },
   });
   await flush();
   t.mock.timers.tick(PAST_THE_GAP_MS);
   await flush();
   assert.deepEqual(
+    asked,
+    ["start"],
+    "a turn with no steps has nothing to tell",
+  );
+  await s.set({ stepsByTurn: { 1: [{ kind: "", text: "edit" }] } });
+  t.mock.timers.tick(PAST_THE_GAP_MS);
+  await flush();
+  assert.deepEqual(asked, ["start", "progress"]);
+  // While the line is asked for, no other one is.
+  t.mock.timers.tick(PAST_THE_GAP_MS);
+  await flush();
+  assert.deepEqual(asked, ["start", "progress"]);
+  // The turn ends before the line comes back: it is not said.
+  await s.set({ running: false, messages: [user(1), answer(2, "Done.")] });
+  await flush();
+  release();
+  await flush();
+  assert.ok(!synth.said.some((u) => u.text === "Sigo."));
+  await s.done();
+
+  // While the voice talks, progress waits.
+  const n = fakeNarrator({ start: OPENING, progress: "Más." });
+  const v = await mount("always", false, { style: "natural", api: n.api });
+  await v.set({
+    running: true,
+    messages: [user(1)],
+    stepsByTurn: { 1: [{ kind: "", text: "a" }] },
+  });
+  await flush();
+  assert.equal(synth.said.at(-1).text, OPENING);
+  t.mock.timers.tick(PAST_THE_GAP_MS);
+  await flush();
+  assert.deepEqual(
     n.asked.map((a) => a.stage),
     ["start"],
+    "the opening is still being said",
   );
-  assert.ok(!synth.said.some((u) => u.text === "Más."));
   await v.done();
+
+  // A typed turn in "when I spoke" mode says no progress at all.
+  const quiet = fakeNarrator({ progress: "Nope." });
+  const w = await mount("voice", false, { style: "natural", api: quiet.api });
+  await w.set({
+    running: true,
+    messages: [user(1)],
+    stepsByTurn: { 1: [{ kind: "", text: "a" }] },
+  });
+  t.mock.timers.tick(PAST_THE_GAP_MS);
+  await flush();
+  assert.deepEqual(quiet.asked, []);
+  await w.done();
 });

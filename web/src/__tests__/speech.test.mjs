@@ -22,6 +22,8 @@ const CLAUSES = 3;
 const MAX_PIECE = 220; // speech.ts: the longest piece a voice is given
 const ONE_WORD = 500;
 const QUICK = 1.25;
+const NEW_NOTES = 3;
+const SAID_NOTES = 2;
 const FAST = 1.5;
 const HIGH_PITCH = 1.5;
 const MAX_TERM = 80; // speech.ts: the longest term or saying a pronunciation keeps
@@ -463,6 +465,29 @@ test("the microphone asks for silence, and the device says whether it is speakin
   globalThis.speechSynthesis = { speaking: true };
   assert.equal(m.voiceBusy(), true);
   delete globalThis.speechSynthesis;
+});
+
+test("natural style: the notes are what the steps did, without the mode line", () => {
+  assert.deepEqual(
+    m.notesOf([
+      { kind: "step", text: "mode: plan (question)" },
+      { kind: "command", text: " go test ./... " },
+      { kind: "", text: "read the CI log" },
+      { kind: "thought", text: "  " },
+    ]),
+    ["command: go test ./...", "read the CI log"],
+  );
+});
+
+test("natural style: a progress line waits for something new and for the gap", () => {
+  const gap = m.PROGRESS_GAP_MS;
+  assert.equal(m.progressDue(gap, 0, NEW_NOTES, SAID_NOTES), true);
+  assert.equal(
+    m.progressDue(gap - 1, 0, NEW_NOTES, SAID_NOTES),
+    false,
+    "too soon",
+  );
+  assert.equal(m.progressDue(gap, 0, 2, 2), false, "nothing new");
 });
 
 test("natural style: the line is asked of the session, and a refusal throws", async () => {
