@@ -41,9 +41,14 @@ var rules = []rule{
 	{regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`), Mask},
 	// Credentials in a URL: scheme://user:password@host.
 	{regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s:@"'\\]+:[^/\s@"'\\]+@`), "${1}" + Mask + "@"},
-	// Secret query parameters: ?token=, &access_token=, &api_key=, &secret=, &password=...
-	{regexp.MustCompile(`(?i)((?:^|[?&;])(?:[a-z0-9_.-]*[_-])?(?:token|key|apikey|secret|password|passwd)=)` +
+	// Secret assignments: query parameters (?token=, &api_key=), .env lines on any line
+	// (API_KEY=x, export DB_PASSWORD='x') and flags (--password=x). A quote around the
+	// value stays.
+	{regexp.MustCompile(`(?i)((?:^|[?&;\s])(?:[a-z0-9_.-]*[_-])?(?:token|key|apikey|secret|password|passwd)=["']?)` +
 		`[^&;\s"'\\#<>$(){}` + "`" + `]+`), "${1}" + Mask},
+	// Secret string fields in JSON: "access_token": "x", "client_secret": "x", "apiKey": "x".
+	{regexp.MustCompile(`(?i)("[a-z0-9_-]*(?:token|secret|password|passwd|api_?key)"\s*:\s*")[^"\\$({<][^"\\]*`),
+		"${1}" + Mask},
 }
 
 // String returns s with every recognized secret replaced by Mask.
