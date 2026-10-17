@@ -876,8 +876,13 @@ func (t *TUI) cycleReasoning() {
 }
 
 // addMessage appends a chat line and repaints.
+//
+// The append is under t.draw: a followed run (AttachTo) paints from its own goroutine while
+// Run adds its startup lines, and drawFrame reads the messages under the same lock.
 func (t *TUI) addMessage(author Author, text string) {
+	t.draw.Lock()
 	t.messages = append(t.messages, Message{Author: author, Text: text})
+	t.draw.Unlock()
 	t.drawFrame()
 }
 
