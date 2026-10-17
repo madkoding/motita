@@ -7,6 +7,7 @@ import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { BodyPortal } from "./BodyPortal";
 import { useLongPress, useStopClicks } from "./domHooks";
+import { isImeKey } from "./a11y";
 import {
   formatUpdated,
   rowMenuStyle,
@@ -242,6 +243,9 @@ function RenameField({ s }: { s: SessionInfo }) {
         autoFocus
         onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
         onKeyDown={(e) => {
+          if (isImeKey(e)) {
+            return;
+          }
           if (e.key === "Enter") {
             renameSession(s.id, renameValue);
             setRenamingId(null);

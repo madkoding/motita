@@ -28,6 +28,13 @@ type ClickLike = {
   stopPropagation(): void;
 };
 
+// isImeKey says whether a key picks or drops an IME candidate (CJK input, dead keys): such a key is
+// the IME's, so it must not send, confirm or close anything. Safari marks it with keyCode 229
+// instead of isComposing.
+export function isImeKey(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
+
 // backdropClick closes a modal when the click lands on the backdrop itself. A click that started inside
 // the dialog bubbles up to here and is stopped, as the dialog's own handler used to do, so it never
 // reaches the page's outside-click listeners. Escape and Tab are handled by useDialog.
