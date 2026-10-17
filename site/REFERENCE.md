@@ -1273,25 +1273,36 @@ catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, it
 
 ### Searching the workspace with search_index
 
-Plan mode has a `search_index` tool next to `search_in_files`. It reads the workspace once into an
-in-memory index and ranks passages by what they are about (BM25 over the code split at camelCase and
-snake_case, with definitions and file names weighted up), then answers with `path:line` and a few
-lines instead of whole matches. The index is rebuilt by itself when a file changes. It lives in this
-process and nothing is sent anywhere; the idea comes from [XERJ](https://github.com/xerj-org/xerj).
+Plan mode has a `search_index` tool next to `search_in_files`. It reads the workspace into an index and
+answers a question in plain words, or a symbol name, with `path:line` and a few lines instead of whole
+matches. It runs in this process and nothing is sent anywhere; the idea comes from
+[XERJ](https://github.com/xerj-org/xerj).
+
+- **Words:** BM25 over the code split at camelCase and snake_case, with definitions and file names
+  weighted up.
+- **Meaning:** a second ranking learned from the folder's own vocabulary (random indexing: a term is
+  described by the terms it shares windows with), fused with the first by reciprocal rank. It finds
+  code that shares context with the question even without sharing the word. It is not a neural
+  embedding: it knows this codebase's vocabulary and nothing else.
+- **On disk:** the index is kept in `cache_dir` and reused while no file's name, size or time changed,
+  so the next start does not read everything again. It holds the terms of the source, not its text
+  (passages are read from the files when answered), in a file only you can read.
 
 ```yaml
 code_index:
   enabled: true
   max_file_kb: 256 # larger files are not indexed
   max_files: 5000 # indexing stops after this many files
+  semantic: true # the ranking by meaning
+  # cache_dir: ~/.motita/index # the default; an empty value keeps the index in memory only
 ```
 
-Hidden files and directories (`.env`, `.git`), `node_modules`, `vendor`, build output, symbolic links
-and binary files are never indexed. The tool reads only what the session may read: a `path` outside it
-is refused like `read_file` does. `search_index` takes `query` (plain words or a symbol), `path` (a
-folder to search in, default the working directory) and `limit` (default 5, at most 20). What it
-returns goes into the model's context like any tool result, with secrets masked. It only knows what it
-indexed, so a negative is confirmed with `search_in_files`.
+The `.gitignore` of the folder, and of the folders below it, is respected. Hidden files and folders
+(`.env`, `.git`), `node_modules`, `vendor`, build output, symbolic links and binary files are never
+indexed. The tool reads only what the session may read: a `path` outside it is refused like `read_file`
+does. `search_index` takes `query`, `path` (a folder to search in, default the working directory) and
+`limit` (default 5, at most 20). What it returns goes into the model's context like any tool result, with
+secrets masked. It only knows what it indexed, so a negative is confirmed with `search_in_files`.
 
 ### Voice input
 

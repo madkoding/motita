@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -10,8 +12,19 @@ func TestCodeIndexIsOnByDefault(t *testing.T) {
 	if !c.CodeIndex.Enabled || c.CodeIndex.MaxFileKB != 256 || c.CodeIndex.MaxFiles != 5000 {
 		t.Fatalf("default code_index = %+v", c.CodeIndex)
 	}
+	if !c.CodeIndex.Semantic {
+		t.Error("the semantic ranking is on by default")
+	}
 	if err := c.ValidateWithoutKey(); err != nil {
 		t.Errorf("the default must validate: %v", err)
+	}
+}
+
+func TestCodeIndexIsKeptInsideTheConfigDirectory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	if got := defaultCodeIndexDir(); got != filepath.Join(Dir(), "index") || got == "" {
+		t.Errorf("dir = %q", got)
 	}
 }
 

@@ -60,7 +60,8 @@ func (op Options) runPlan(
 		WithReward(procs.Ledger).
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
-		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.MaxFileKB, cfg.CodeIndex.MaxFiles).
+		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.MaxFileKB, cfg.CodeIndex.MaxFiles,
+			cfg.CodeIndex.CacheDir, cfg.CodeIndex.Semantic).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
 
 	if fl.prompt != "" {

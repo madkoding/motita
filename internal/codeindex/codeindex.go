@@ -36,6 +36,8 @@ const (
 	snippetRunes  = 160
 	defWeight     = 3
 	pathWeight    = 2
+	fuseK         = 60  // reciprocal rank fusion constant
+	semanticShare = 0.5 // weight of the semantic ranking against BM25
 	bm25K1        = 1.2
 	bm25B         = 0.75
 	binarySniffer = 512
@@ -45,6 +47,10 @@ const (
 type Options struct {
 	MaxFileKB int
 	MaxFiles  int
+	// CacheDir is where the index is kept between runs. Empty keeps it in memory only.
+	CacheDir string
+	// Semantic adds a second ranking by meaning learned from the folder itself, fused with BM25.
+	Semantic bool
 }
 
 func (o Options) maxBytes() int64 {
@@ -136,23 +142,34 @@ func splitIdentifier(word string) []string {
 	return parts
 }
 
-// chunk is one window of lines.
+// chunk is one window of lines. It keeps the terms, not the text: the passage is read from the
+// file when it is answered, so an index on disk holds no copy of the source.
 type chunk struct {
-	file  int
-	line  int // 1-based first line
-	lines []string
-	tf    map[string]float64
-	size  float64
+	File int
+	Line int // 1-based first line
+	N    int // number of lines
+	TF   map[string]float64
+	Size float64
+}
+
+// indexVersion changes whenever the stored form does, so an old index on disk is rebuilt.
+const indexVersion = 1
+
+// indexData is everything worth keeping on disk.
+type indexData struct {
+	Version     int
+	Fingerprint uint64
+	Files       []string
+	Chunks      []chunk
+	DF          map[string]int
+	AvgSize     float64
 }
 
 // Index is a built index of one folder.
 type Index struct {
-	root        string
-	files       []string
-	chunks      []chunk
-	df          map[string]int
-	avgSize     float64
-	fingerprint uint64
+	root string
+	indexData
+	sem *semantic
 }
 
 // fileInfo is what the walk learns about one candidate file before reading it.
@@ -169,6 +186,7 @@ type walker struct {
 	limit    int
 	maxBytes int64
 	files    []fileInfo
+	ignore   ignores
 }
 
 // visit is the filepath.WalkDir callback.
@@ -180,13 +198,16 @@ func (w *walker) visit(path string, d fs.DirEntry, err error) error {
 		return nil
 	}
 	name := d.Name()
-	if strings.HasPrefix(name, ".") || d.Type()&fs.ModeSymlink != 0 {
+	rel, _ := filepath.Rel(w.root, path)
+	rel = filepath.ToSlash(rel)
+	if strings.HasPrefix(name, ".") || d.Type()&fs.ModeSymlink != 0 || w.ignore.matched(rel, d.IsDir()) {
 		return skipEntry(d)
 	}
 	if d.IsDir() {
 		if skipDirs[name] {
 			return fs.SkipDir
 		}
+		w.ignore.load(w.root, rel)
 		return nil
 	}
 	info, ierr := d.Info()
@@ -196,15 +217,15 @@ func (w *walker) visit(path string, d fs.DirEntry, err error) error {
 	if len(w.files) >= w.limit {
 		return fs.SkipAll
 	}
-	rel, _ := filepath.Rel(w.root, path)
-	w.files = append(w.files, fileInfo{filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano()})
+	w.files = append(w.files, fileInfo{rel, info.Size(), info.ModTime().UnixNano()})
 	return nil
 }
 
 // scan walks root and lists the files worth indexing, in a stable order, with a fingerprint of
 // their names, sizes and times so a later call can tell whether anything changed.
 func scan(ctx context.Context, root string, o Options) ([]fileInfo, uint64, error) {
-	w := &walker{ctx: ctx, root: root, limit: o.maxFiles(), maxBytes: o.maxBytes()}
+	w := &walker{ctx: ctx, root: root, limit: o.maxFiles(), maxBytes: o.maxBytes(), ignore: ignores{}}
+	w.ignore.load(root, "")
 	if err := filepath.WalkDir(root, w.visit); err != nil {
 		return nil, 0, err
 	}
@@ -239,7 +260,7 @@ func Build(ctx context.Context, root string, o Options) (*Index, error) {
 }
 
 func buildFrom(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
-	ix := &Index{root: root, df: map[string]int{}, fingerprint: fp}
+	ix := &Index{root: root, indexData: indexData{Version: indexVersion, Fingerprint: fp, DF: map[string]int{}}}
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -248,15 +269,15 @@ func buildFrom(ctx context.Context, root string, files []fileInfo, fp uint64) (*
 		if err != nil || isBinary(data) {
 			continue
 		}
-		ix.files = append(ix.files, f.rel)
-		ix.addFile(len(ix.files)-1, f.rel, strings.Split(string(data), "\n"))
+		ix.Files = append(ix.Files, f.rel)
+		ix.addFile(len(ix.Files)-1, f.rel, strings.Split(string(data), "\n"))
 	}
 	total := 0.0
-	for i := range ix.chunks {
-		total += ix.chunks[i].size
+	for i := range ix.Chunks {
+		total += ix.Chunks[i].Size
 	}
-	if len(ix.chunks) > 0 {
-		ix.avgSize = total / float64(len(ix.chunks))
+	if len(ix.Chunks) > 0 {
+		ix.AvgSize = total / float64(len(ix.Chunks))
 	}
 	return ix, nil
 }
@@ -280,11 +301,11 @@ func (ix *Index) addFile(file int, rel string, lines []string) {
 	for start := 0; start < len(lines); start += windowStep {
 		end := min(start+windowLines, len(lines))
 		c := newChunk(file, start+1, lines[start:end], pathTerms)
-		for t, n := range c.tf {
-			c.size += n
-			ix.df[t]++
+		for t, n := range c.TF {
+			c.Size += n
+			ix.DF[t]++
 		}
-		ix.chunks = append(ix.chunks, c)
+		ix.Chunks = append(ix.Chunks, c)
 		if end == len(lines) {
 			break
 		}
@@ -293,21 +314,27 @@ func (ix *Index) addFile(file int, rel string, lines []string) {
 
 // newChunk counts the terms of one window: its lines, the names it defines and its file's path.
 func newChunk(file, line int, lines, pathTerms []string) chunk {
-	c := chunk{file: file, line: line, lines: lines, tf: map[string]float64{}}
+	c := chunk{File: file, Line: line, N: len(lines), TF: map[string]float64{}}
 	for _, t := range pathTerms {
-		c.tf[t] += pathWeight
+		c.TF[t] += pathWeight
 	}
 	for _, l := range lines {
 		for _, t := range tokens(l) {
-			c.tf[t]++
+			c.TF[t]++
 		}
 		if m := defRe.FindStringSubmatch(l); m != nil {
 			for _, t := range tokens(m[1]) {
-				c.tf[t] += defWeight
+				c.TF[t] += defWeight
 			}
 		}
 	}
 	return c
+}
+
+// ranked is one window with its score.
+type ranked struct {
+	i     int
+	score float64
 }
 
 // Search returns the best passages for a question in plain words.
@@ -317,74 +344,128 @@ func (ix *Index) Search(query string, limit int) []Hit {
 	}
 	limit = min(limit, MaxLimit)
 	terms := uniq(tokens(query))
-	if len(terms) == 0 || len(ix.chunks) == 0 {
+	if len(terms) == 0 || len(ix.Chunks) == 0 {
 		return nil
 	}
-	type scored struct {
-		i     int
-		score float64
-	}
-	var ranked []scored
-	for i := range ix.chunks {
-		if s := ix.score(&ix.chunks[i], terms); s > 0 {
-			ranked = append(ranked, scored{i, s})
-		}
-	}
-	sort.SliceStable(ranked, func(a, b int) bool { return ranked[a].score > ranked[b].score })
+	order := ix.fuse(ix.rankLexical(terms), ix.sem.rank(terms))
+	reader := &lineCache{root: ix.root, byFile: map[string][]string{}}
 	var hits []Hit
 	seen := map[string]bool{}
-	for _, r := range ranked {
-		c := &ix.chunks[r.i]
-		hit := ix.hit(c, terms, r.score)
+	for _, r := range order {
+		hit, ok := ix.hit(reader, &ix.Chunks[r.i], terms, r.score)
 		key := hit.Path + ":" + strconv.Itoa(hit.Line)
-		if seen[key] {
+		if !ok || seen[key] {
 			continue
 		}
 		seen[key] = true
-		hits = append(hits, hit)
-		if len(hits) == limit {
+		if hits = append(hits, hit); len(hits) == limit {
 			break
 		}
 	}
 	return hits
 }
 
+// rankLexical orders the windows that hold a query term by BM25.
+func (ix *Index) rankLexical(terms []string) []ranked {
+	var out []ranked
+	for i := range ix.Chunks {
+		if s := ix.score(&ix.Chunks[i], terms); s > 0 {
+			out = append(out, ranked{i, s})
+		}
+	}
+	sort.SliceStable(out, func(a, b int) bool { return out[a].score > out[b].score })
+	return out
+}
+
+// fuse merges the lexical and the semantic rankings by reciprocal rank. With no semantic ranking
+// the BM25 scores stand as they are.
+func (ix *Index) fuse(lexical, semantic []ranked) []ranked {
+	if len(semantic) == 0 {
+		return lexical
+	}
+	score := map[int]float64{}
+	var order []int
+	add := func(list []ranked, share float64) {
+		for rank, r := range list {
+			if _, seen := score[r.i]; !seen {
+				order = append(order, r.i)
+			}
+			score[r.i] += share / float64(fuseK+rank)
+		}
+	}
+	add(lexical, 1)
+	add(semantic, semanticShare)
+	out := make([]ranked, 0, len(order))
+	for _, i := range order {
+		out = append(out, ranked{i, score[i]})
+	}
+	sort.SliceStable(out, func(a, b int) bool { return out[a].score > out[b].score })
+	return out
+}
+
 // score is the BM25 of one window for the query terms.
 func (ix *Index) score(c *chunk, terms []string) float64 {
-	n := float64(len(ix.chunks))
+	n := float64(len(ix.Chunks))
 	total := 0.0
 	for _, t := range terms {
-		tf := c.tf[t]
+		tf := c.TF[t]
 		if tf == 0 {
 			continue
 		}
-		idf := math.Log(1 + (n-float64(ix.df[t])+0.5)/(float64(ix.df[t])+0.5))
-		total += idf * tf * (bm25K1 + 1) / (tf + bm25K1*(1-bm25B+bm25B*c.size/ix.avgSize))
+		df := float64(ix.DF[t])
+		idf := math.Log(1 + (n-df+0.5)/(df+0.5))
+		total += idf * tf * (bm25K1 + 1) / (tf + bm25K1*(1-bm25B+bm25B*c.Size/ix.AvgSize))
 	}
 	return total
 }
 
-// hit cuts the window down to the lines from the one that holds the most query terms.
-func (ix *Index) hit(c *chunk, terms []string, score float64) Hit {
+// lineCache reads each file once per search.
+type lineCache struct {
+	root   string
+	byFile map[string][]string
+}
+
+func (lc *lineCache) lines(rel string) ([]string, bool) {
+	if l, ok := lc.byFile[rel]; ok {
+		return l, true
+	}
+	data, err := os.ReadFile(filepath.Join(lc.root, filepath.FromSlash(rel)))
+	if err != nil {
+		return nil, false
+	}
+	l := strings.Split(string(data), "\n")
+	lc.byFile[rel] = l
+	return l, true
+}
+
+// hit cuts the window down to the lines from the one that holds the most query terms. It is not
+// ok when the file cannot be read any more.
+func (ix *Index) hit(lc *lineCache, c *chunk, terms []string, score float64) (Hit, bool) {
+	rel := ix.Files[c.File]
+	all, ok := lc.lines(rel)
+	if !ok || c.Line-1+c.N > len(all) {
+		return Hit{Path: rel, Line: c.Line}, false
+	}
+	lines := all[c.Line-1 : c.Line-1+c.N]
 	want := map[string]bool{}
 	for _, t := range terms {
 		want[t] = true
 	}
 	first, best := 0, 0
-	for i, line := range c.lines {
+	for i, line := range lines {
 		if n := matches(line, want); n > best {
 			first, best = i, n
 		}
 	}
-	last := min(first+snippetLines, len(c.lines))
+	last := min(first+snippetLines, len(lines))
 	var sb strings.Builder
-	for i, line := range c.lines[first:last] {
+	for i, line := range lines[first:last] {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
 		sb.WriteString(clip(strings.TrimRight(line, " \t\r"), snippetRunes))
 	}
-	return Hit{Path: ix.files[c.file], Line: c.line + first, Snippet: strings.TrimRight(sb.String(), "\n"), Score: score}
+	return Hit{Path: rel, Line: c.Line + first, Snippet: strings.TrimRight(sb.String(), "\n"), Score: score}, true
 }
 
 // matches counts the distinct query terms a line holds.
@@ -456,13 +537,30 @@ func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ix := s.byAt[root]
-	if ix == nil || ix.fingerprint != fp {
-		if ix, err = buildFrom(ctx, root, files, fp); err != nil {
+	if ix == nil || ix.Fingerprint != fp {
+		if ix, err = s.obtain(ctx, root, files, fp); err != nil {
 			return nil, err
 		}
 		s.byAt[root] = ix
 	}
 	return ix.Search(query, limit), nil
+}
+
+// obtain returns the index of root: the one on disk when it still describes the folder, else a
+// new one, which is then kept on disk.
+func (s *Searcher) obtain(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
+	ix := loadIndex(s.opts.CacheDir, root, fp)
+	if ix == nil {
+		var err error
+		if ix, err = buildFrom(ctx, root, files, fp); err != nil {
+			return nil, err
+		}
+		saveIndex(s.opts.CacheDir, ix)
+	}
+	if s.opts.Semantic {
+		ix.sem = buildSemantic(ix)
+	}
+	return ix, nil
 }
 
 // Format renders hits as the plain text a model reads: path:line, then the passage.

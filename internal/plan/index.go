@@ -26,11 +26,13 @@ func (p *Planner) WithIndex(s IndexSearcher) *Planner {
 // WithCodeIndex offers search_index over the built-in index when the code_index block is on. The
 // settings are passed one by one because this package does not read the configuration. The index
 // is shared between planners, which are built again for every turn.
-func (p *Planner) WithCodeIndex(enabled bool, maxFileKB, maxFiles int) *Planner {
+func (p *Planner) WithCodeIndex(enabled bool, maxFileKB, maxFiles int, cacheDir string, semantic bool) *Planner {
 	if !enabled {
 		return p
 	}
-	return p.WithIndex(codeindex.Shared(codeindex.Options{MaxFileKB: maxFileKB, MaxFiles: maxFiles}))
+	return p.WithIndex(codeindex.Shared(codeindex.Options{
+		MaxFileKB: maxFileKB, MaxFiles: maxFiles, CacheDir: cacheDir, Semantic: semantic,
+	}))
 }
 
 // searchIndexArgs are the arguments for search_index.

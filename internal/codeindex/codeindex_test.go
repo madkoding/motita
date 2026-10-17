@@ -158,8 +158,8 @@ func TestBuildSkipsUnreadableFiles(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "a.txt", "needle")
 	ix, err := buildFrom(context.Background(), root, []fileInfo{{rel: "gone.txt"}, {rel: "a.txt"}}, 0)
-	if err != nil || len(ix.files) != 1 {
-		t.Fatalf("files = %v err = %v", ix.files, err)
+	if err != nil || len(ix.Files) != 1 {
+		t.Fatalf("files = %v err = %v", ix.Files, err)
 	}
 }
 
@@ -214,8 +214,8 @@ func TestOverlappingWindowsDoNotRepeatAPassage(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "a.txt", strings.Repeat("filler\n", 34)+"needle\n"+strings.Repeat("filler\n", 30))
 	ix, _ := Build(context.Background(), root, Options{})
-	if len(ix.chunks) < 2 {
-		t.Fatalf("expected overlapping windows, got %d", len(ix.chunks))
+	if len(ix.Chunks) < 2 {
+		t.Fatalf("expected overlapping windows, got %d", len(ix.Chunks))
 	}
 	if got := ix.Search("needle", 5); len(got) != 1 || got[0].Line != 35 {
 		t.Errorf("hits = %+v", got)

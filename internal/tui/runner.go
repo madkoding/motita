@@ -770,7 +770,8 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// reviewed at all. Both come from the RUNNER because a planner does not outlive
 		// its turn.
 		WithReview(r.reviewOrNil()).
-		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.MaxFileKB, cfg.CodeIndex.MaxFiles)
+		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.MaxFileKB, cfg.CodeIndex.MaxFiles,
+			cfg.CodeIndex.CacheDir, cfg.CodeIndex.Semantic)
 	answer, err := planner.Run(ctx, prompt)
 	// The turn's iteration count is folded into the runner's running total whatever the
 	// outcome: it is what decides whether the fork that just looked at this turn fires

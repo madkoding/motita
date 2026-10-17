@@ -90,11 +90,11 @@ func TestToolSearchIndexReadsOnlyWhatTheSessionMayRead(t *testing.T) {
 }
 
 func TestWithCodeIndexFollowsTheSwitch(t *testing.T) {
-	if p := (&Planner{}).WithCodeIndex(false, 1, 1); p.index != nil {
+	if p := (&Planner{}).WithCodeIndex(false, 1, 1, "", false); p.index != nil {
 		t.Error("a disabled block must not offer the tool")
 	}
-	p := (&Planner{}).WithCodeIndex(true, 64, 10)
-	want := codeindex.Shared(codeindex.Options{MaxFileKB: 64, MaxFiles: 10})
+	p := (&Planner{}).WithCodeIndex(true, 64, 10, "/c", true)
+	want := codeindex.Shared(codeindex.Options{MaxFileKB: 64, MaxFiles: 10, CacheDir: "/c", Semantic: true})
 	if p.index != IndexSearcher(want) {
 		t.Errorf("index = %#v", p.index)
 	}
