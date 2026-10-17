@@ -1170,6 +1170,9 @@ func bodyDeadline(next http.Handler) http.Handler {
 		if r.ContentLength != 0 {
 			rc := http.NewResponseController(w)
 			if rc.SetReadDeadline(time.Now().Add(bodyIdleTimeout)) == nil {
+				// On a copy: net/http checks the type of ITS request's body to choose between
+				// draining it and closing at once (a large body, an unanswered 100-continue).
+				r = r.WithContext(r.Context())
 				r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
 			}
 		}

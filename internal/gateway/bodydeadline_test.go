@@ -103,3 +103,28 @@ func TestAStreamOutlivesTheBodyDeadline(t *testing.T) {
 		t.Fatalf("the stream was cut off: %q", raw)
 	}
 }
+
+// TestARefusalOfAnUnsentBodyIsNotDelayed: net/http answers at once, and closes, when the client
+// waits for a 100-continue it never got. It decides that by the type of the request's body, so the
+// deadline must not replace that body: replaced, the 401 waited for the whole body timeout.
+func TestARefusalOfAnUnsentBodyIsNotDelayed(t *testing.T) {
+	shortBodyTimeout(t, 5*time.Second)
+	srv := newTestServer(t, &fakeService{})
+
+	c, err := net.Dial("tcp", srv.Addr())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	path := sessionPath(srv, DefaultSession, "/task")
+	if _, err := io.WriteString(c, "POST "+path+" HTTP/1.1\r\nHost: 127.0.0.1\r\n"+
+		"Content-Length: 1000\r\nExpect: 100-continue\r\n\r\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = c.SetReadDeadline(time.Now().Add(time.Second))
+	got := make([]byte, 64)
+	n, err := c.Read(got)
+	if err != nil || !strings.Contains(string(got[:n]), "401") {
+		t.Fatalf("the answer = %q, %v; want a 401 at once", got[:n], err)
+	}
+}
