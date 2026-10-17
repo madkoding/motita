@@ -19,7 +19,7 @@ import (
 func TestDefaultBaseURLOfEveryProvider(t *testing.T) {
 	for _, p := range config.Providers {
 		got := DefaultBaseURL(p)
-		if (got == "") != (p == "claude-code" || p == ProviderBrowser) {
+		if (got == "") != (p == "claude-code") {
 			t.Errorf("%s: %q", p, got)
 		}
 	}

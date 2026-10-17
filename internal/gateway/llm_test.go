@@ -96,13 +96,6 @@ func llmServer(t *testing.T, path string) (*Server, *refreshingService) {
 	return srv, svc
 }
 
-func checkBrowserProvider(t *testing.T, p llmProviderView) {
-	t.Helper()
-	if p.Key != config.KeyNotNeeded || p.Login != "" || len(p.Models) != 1 {
-		t.Errorf("browser = %+v", p)
-	}
-}
-
 // checkQwenHasNoLogin: Qwen ended its OAuth login on 2026-04-15, so only the DashScope key is offered,
 // with its link.
 func checkQwenHasNoLogin(t *testing.T, srv *Server, v llmView) {
@@ -122,10 +115,9 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
 	srv := newTestServer(t, svc)
 	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
-	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != len(onboard.Providers())+1 {
+	if v.Writable || v.Provider != "anthropic" || len(v.Providers) != len(onboard.Providers()) {
 		t.Fatalf("view = %+v", v)
 	}
-	checkBrowserProvider(t, providerOf(v, "browser"))
 	if p := providerOf(v, "claude-code"); p.Key != config.KeyNotNeeded || p.Login == "" || len(p.Models) == 0 {
 		t.Errorf("claude-code = %+v", p)
 	}

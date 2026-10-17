@@ -22,7 +22,6 @@ import { useComposer } from "./useComposer";
 import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { useUpdates } from "./useUpdates";
-import { useBrowserModel } from "./browserLLM";
 import { useRowMenus } from "./useRowMenus";
 import { useFinishedElsewhere } from "./sessionWatch";
 import type { Api } from "./prApi";
@@ -113,7 +112,6 @@ export function useAppStore(api: Api) {
     setSlashCommands: composer.setSlashCommands,
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
-  useBrowserModel(api, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",

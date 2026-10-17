@@ -17,7 +17,6 @@ import {
   warmLocal,
 } from "./localVoice";
 import { gpuAllowed } from "./gpuPolicy";
-import { isBrowserLLM } from "./browserLLMCore";
 import { isWhisper } from "./localListenCore";
 import type { Api } from "./prApi";
 import { Collapsed, inputCls, primaryBtn, smallBtn } from "./SettingsControls";
@@ -173,9 +172,7 @@ function useSample(api: Api) {
 function voicesOf(catalog: LocalCatalog): LocalCatalog {
   return {
     ...catalog,
-    models: catalog.models.filter(
-      (m) => !isWhisper(m.id) && !isBrowserLLM(m.id),
-    ),
+    models: catalog.models.filter((m) => !isWhisper(m.id)),
   };
 }
 

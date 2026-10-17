@@ -109,15 +109,6 @@ function workerGPU(): GPU | undefined {
   return (self.navigator as Navigator & { gpu?: GPU }).gpu;
 }
 
-// workerCard is the card this worker's models run on, null where there is none.
-export async function workerCard(): Promise<GPUAdapter | null> {
-  const gpu = workerGPU();
-  if (!gpu) {
-    return null;
-  }
-  return pickCard(gpu);
-}
-
 // webGPU says whether this worker has WebGPU at all: where it does not, onnxruntime's WebGPU
 // build (27 MB) is not fetched.
 export function webGPU(): boolean {

@@ -172,20 +172,18 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
             {t("Providers")}
           </h4>
           <ul class="settings-card" data-testid="llm-providers">
-            {view.providers
-              .filter((p) => p.id !== "browser")
-              .map((p) => (
-                <ProviderRow
-                  key={p.id}
-                  api={api}
-                  p={p}
-                  writable={view.writable}
-                  open={open === p.id}
-                  onToggle={onToggle}
-                  onChanged={reload}
-                  onNotice={onNotice}
-                />
-              ))}
+            {view.providers.map((p) => (
+              <ProviderRow
+                key={p.id}
+                api={api}
+                p={p}
+                writable={view.writable}
+                open={open === p.id}
+                onToggle={onToggle}
+                onChanged={reload}
+                onNotice={onNotice}
+              />
+            ))}
           </ul>
         </section>
       )}

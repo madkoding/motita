@@ -55,17 +55,6 @@ export function workerName(): string {
   return choose(gpuAllowed(), "", CPU_ONLY);
 }
 
-// The adapters that emulate WebGPU on the processor (SwiftShader, llvmpipe, Microsoft's WARP).
-const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|lavapipe|software|\bwarp\b/i;
-
-// Card is what the browser model tells the person about the graphics card it runs on.
-export interface Card {
-  // name is the card's own words for itself, empty when the browser hides them.
-  name: string;
-  // software says it is WebGPU emulated on the processor, not a graphics card.
-  software: boolean;
-}
-
 type Adapters = {
   requestAdapter(o?: {
     powerPreference?: "high-performance";
@@ -80,18 +69,4 @@ export async function pickCard(gpu: Adapters): Promise<GPUAdapter | null> {
     (await gpu.requestAdapter({ powerPreference: "high-performance" })) ??
     (await gpu.requestAdapter())
   );
-}
-
-// cardOf says what a card is called and whether it is only emulated.
-export function cardOf(adapter: GPUAdapter | null): Card {
-  const info = adapter?.info;
-  const name = [info?.vendor, info?.architecture, info?.description]
-    .filter(Boolean)
-    .join(" ");
-  return {
-    name,
-    software:
-      (adapter as { isFallbackAdapter?: boolean } | null)?.isFallbackAdapter ===
-        true || SOFTWARE_ADAPTER.test(name),
-  };
 }

@@ -496,11 +496,10 @@ func ProviderKeyFromEnv(provider string) string {
 }
 
 // ProviderNeedsKey reports whether a provider is reached with a key of motita's.
-// claude-code is not: the claude CLI brings the user's own `claude auth login`. The browser model
-// is not either: it runs in an open tab of the web UI.
+// claude-code is not: the claude CLI brings the user's own `claude auth login`.
 func ProviderNeedsKey(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "claude-code", "browser":
+	case "claude-code":
 		return false
 	default:
 		return true
