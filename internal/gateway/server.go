@@ -329,7 +329,7 @@ type Server struct {
 
 	// sessionsMu guards the registry. The conversations themselves are safe to use without it:
 	// each is guarded by its own locks, and this is only read to find one.
-	// heartbeat is the resolved keepalive interval, always positive: see Options.Heartbeat.
+	// heartbeat is the resolved keepalive interval, zero when it is off: see Options.Heartbeat.
 	heartbeat time.Duration
 
 	sessionsMu sync.Mutex
@@ -575,7 +575,8 @@ func listenAddr(listen string) string {
 }
 
 // resolveHeartbeat is the heartbeat the stream loop uses. Resolved at construction so the loop
-// never has to reason about zero and negative: a zero means the default and a negative means off.
+// never has to tell the default from off: a zero asks for the default, a negative for off, and off
+// comes out as zero.
 func resolveHeartbeat(heartbeat time.Duration) time.Duration {
 	if heartbeat == 0 {
 		heartbeat = defaultHeartbeat

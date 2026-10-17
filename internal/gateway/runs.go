@@ -508,18 +508,21 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 	// It is a COMMENT and not an event: a comment carries no data, so a client that does not
 	// understand it cannot mis-render it, and no sequence number is consumed - the numbering
 	// belongs to the run's log, and a keepalive is not part of the log.
-	// s.heartbeat is always resolved at construction (see Options.Heartbeat): a zero here would be
-	// a ticker that fires immediately and forever, so there is deliberately no second fallback -
-	// one place decides it, and this is not it.
-	beat := time.NewTicker(s.heartbeat)
-	defer beat.Stop()
+	// s.heartbeat is resolved at construction (see Options.Heartbeat), and zero means off. A nil
+	// channel never fires in the select, which is what off is; time.NewTicker(0) would panic.
+	var beat <-chan time.Time
+	if s.heartbeat > 0 {
+		t := time.NewTicker(s.heartbeat)
+		defer t.Stop()
+		beat = t.C
+	}
 
 	for {
 		select {
 		case <-r.Context().Done():
 			// This client is gone. Only this reader is affected; the run keeps its log.
 			return
-		case <-beat.C:
+		case <-beat:
 			// Written from THIS goroutine, the only one that writes to this connection - see the
 			// note at the top of this function. A heartbeat goroutine of its own would be a second
 			// writer on the same ResponseWriter, which is the one hazard a keepalive introduces.
