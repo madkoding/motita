@@ -137,8 +137,16 @@ func EnsureIgnoreBase(ctx context.Context, repoDir string) error {
 	if !filepath.IsAbs(common) {
 		common = filepath.Join(repoDir, common)
 	}
-	path := filepath.Join(common, "info", "exclude")
-	existing, err := os.ReadFile(path)
+	// The git directory is opened as a root: an agent that worked in the checkout can write it, and
+	// a link at info or info/exclude that leads out of it (to a shell rc) is refused rather than
+	// followed. The block copies the uncommitted .gitignore, so it is text the agent chose.
+	root, err := os.OpenRoot(common)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	path := filepath.Join("info", "exclude")
+	existing, err := root.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -147,10 +155,10 @@ func EnsureIgnoreBase(ctx context.Context, repoDir string) error {
 	if updated == string(existing) {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := root.MkdirAll("info", 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(updated), 0o644)
+	return root.WriteFile(path, []byte(updated), 0o644)
 }
 
 // uncommittedGitignore is the root .gitignore's content when it is untracked or differs from the
