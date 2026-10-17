@@ -21,9 +21,9 @@ const (
 
 // semantic holds a vector per eligible term and one per window.
 type semantic struct {
-	idf   map[string]float64
-	ctx   map[string][]float32
-	chunk [][]float32
+	IDF   map[string]float64
+	Ctx   map[string][]float32
+	Chunk [][]float32
 }
 
 // eligible says whether a term carries meaning: it must appear in at least two windows and not in
@@ -71,30 +71,30 @@ func normalize(v []float32) bool {
 }
 
 // weight is how much a term counts in a window.
-func (s *semantic) weight(t string, tf float64) float64 { return (1 + math.Log(tf)) * s.idf[t] }
+func (s *semantic) weight(t string, tf float64) float64 { return (1 + math.Log(tf)) * s.IDF[t] }
 
 // buildSemantic learns the term vectors and the window vectors of ix.
 func buildSemantic(ix *Index) *semantic {
 	n := len(ix.Chunks)
-	s := &semantic{idf: map[string]float64{}, ctx: map[string][]float32{}}
+	s := &semantic{IDF: map[string]float64{}, Ctx: map[string][]float32{}}
 	random := map[string][]float32{}
 	for t, df := range ix.DF {
 		if eligible(df, n) {
-			s.idf[t] = math.Log(1 + float64(n)/float64(df))
+			s.IDF[t] = math.Log(1 + float64(n)/float64(df))
 			random[t] = randomVector(t)
 		}
 	}
 	for i := range ix.Chunks {
 		s.learn(&ix.Chunks[i], random)
 	}
-	for t, v := range s.ctx {
+	for t, v := range s.Ctx {
 		if !normalize(v) {
-			delete(s.ctx, t)
+			delete(s.Ctx, t)
 		}
 	}
-	s.chunk = make([][]float32, n)
+	s.Chunk = make([][]float32, n)
 	for i := range ix.Chunks {
-		s.chunk[i] = s.vectorOf(ix.Chunks[i].TF)
+		s.Chunk[i] = s.vectorOf(ix.Chunks[i].TF)
 	}
 	return s
 }
@@ -112,10 +112,10 @@ func (s *semantic) learn(c *chunk, random map[string][]float32) {
 		if !ok {
 			continue
 		}
-		v := s.ctx[t]
+		v := s.Ctx[t]
 		if v == nil {
 			v = make([]float32, semDim)
-			s.ctx[t] = v
+			s.Ctx[t] = v
 		}
 		addScaled(v, sum, 1)
 		addScaled(v, r, -s.weight(t, tf))
@@ -126,7 +126,7 @@ func (s *semantic) learn(c *chunk, random map[string][]float32) {
 func (s *semantic) vectorOf(tf map[string]float64) []float32 {
 	v := make([]float32, semDim)
 	for t, n := range tf {
-		if c, ok := s.ctx[t]; ok {
+		if c, ok := s.Ctx[t]; ok {
 			addScaled(v, c, s.weight(t, n))
 		}
 	}
@@ -151,7 +151,7 @@ func (s *semantic) rank(terms []string) []ranked {
 		return nil
 	}
 	var out []ranked
-	for i, v := range s.chunk {
+	for i, v := range s.Chunk {
 		if cos := dot(q, v); v != nil && cos >= semMinCosine {
 			out = append(out, ranked{i, cos})
 		}

@@ -30,7 +30,7 @@ func TestSemanticFindsWhatSharesContextEvenWithoutTheWord(t *testing.T) {
 	root := semanticProject(t)
 	lexical, _ := Build(context.Background(), root, Options{})
 	withMeaning, _ := Build(context.Background(), root, Options{})
-	withMeaning.sem = buildSemantic(withMeaning)
+	withMeaning.Sem = buildSemantic(withMeaning)
 
 	paths := func(hits []Hit) string {
 		var p []string
@@ -57,12 +57,12 @@ func TestSemanticEdges(t *testing.T) {
 		t.Error("a nil semantic must rank nothing")
 	}
 	ix, _ := Build(context.Background(), semanticProject(t), Options{})
-	ix.sem = buildSemantic(ix)
-	if ix.sem.rank([]string{"zzzunknown"}) != nil {
+	ix.Sem = buildSemantic(ix)
+	if ix.Sem.rank([]string{"zzzunknown"}) != nil {
 		t.Error("a query of unknown terms must rank nothing")
 	}
 	many := []string{"journal", "segment", "peer", "socket", "handshake", "close"}
-	if got := ix.sem.rank(many); len(got) > semCandidate {
+	if got := ix.Sem.rank(many); len(got) > semCandidate {
 		t.Errorf("candidates not capped: %d", len(got))
 	}
 	if eligible(1, 10) || eligible(6, 10) || !eligible(2, 10) || !eligible(5, 10) {
@@ -88,7 +88,7 @@ func TestATermWithNoCompanyHasNoVector(t *testing.T) {
 	write(t, root, "e.txt", "more text everywhere\n")
 	ix, _ := Build(context.Background(), root, Options{})
 	s := buildSemantic(ix)
-	if _, ok := s.ctx["solo"]; ok {
+	if _, ok := s.Ctx["solo"]; ok {
 		t.Error("a term that only ever appears alone must not keep a zero vector")
 	}
 }
@@ -117,7 +117,7 @@ func TestSearcherWithSemanticAndFilesGoneMissing(t *testing.T) {
 		t.Fatalf("hits = %+v err = %v", hits, err)
 	}
 	ix := s.byAt[root]
-	if ix.sem == nil {
+	if ix.Sem == nil {
 		t.Fatal("the semantic index was not built")
 	}
 	// A file removed after indexing is skipped, and a file that shrank too.

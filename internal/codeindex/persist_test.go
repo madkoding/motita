@@ -98,3 +98,39 @@ func TestSavingIsBestEffort(t *testing.T) {
 		t.Errorf("temp files left behind: %v", left)
 	}
 }
+
+func TestSemanticVectorsSurviveARestartAndFollowTheSwitch(t *testing.T) {
+	root, cache := semanticProject(t), t.TempDir()
+	ctx := context.Background()
+	plain := NewSearcher(Options{CacheDir: cache})
+	if _, err := plain.Search(ctx, root, "roll", 3); err != nil || plain.byAt[root].Sem != nil {
+		t.Fatalf("a search without the switch must not learn vectors: %v", err)
+	}
+	_, fp, _ := scan(ctx, root, Options{})
+	if ix := loadIndex(cache, root, fp); ix == nil || ix.Sem != nil {
+		t.Fatal("the plain index on disk must hold no vectors")
+	}
+	learned := NewSearcher(Options{CacheDir: cache, Semantic: true})
+	if _, err := learned.Search(ctx, root, "roll", 3); err != nil || learned.byAt[root].Sem == nil {
+		t.Fatalf("the switch must learn the vectors for an index that lacks them: %v", err)
+	}
+	if ix := loadIndex(cache, root, fp); ix == nil || ix.Sem == nil || len(ix.Sem.Ctx) == 0 {
+		t.Fatal("the vectors were not kept on disk")
+	}
+	again := NewSearcher(Options{CacheDir: cache, Semantic: true})
+	hits, err := again.Search(ctx, root, "roll", 5)
+	if err != nil || again.byAt[root].Sem == nil || len(again.byAt[root].Sem.Chunk) != len(again.byAt[root].Chunks) {
+		t.Fatalf("restart: %v %v", hits, err)
+	}
+	var found bool
+	for _, h := range hits {
+		found = found || strings.HasSuffix(h.Path, "rotate.go")
+	}
+	if !found {
+		t.Errorf("the reloaded vectors must still bring rotate.go in: %+v", hits)
+	}
+	off := NewSearcher(Options{CacheDir: cache})
+	if _, err := off.Search(ctx, root, "roll", 3); err != nil || off.byAt[root].Sem != nil {
+		t.Fatalf("switched off, the vectors on disk must not be used: %v", err)
+	}
+}

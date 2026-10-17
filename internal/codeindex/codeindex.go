@@ -10,6 +10,7 @@ package codeindex
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
 	"io/fs"
 	"math"
@@ -51,6 +52,9 @@ type Options struct {
 	CacheDir string
 	// Semantic adds a second ranking by meaning learned from the folder itself, fused with BM25.
 	Semantic bool
+	// EmbedURL, EmbedModel and EmbedKey name an OpenAI-compatible embeddings endpoint. When set, the
+	// text of every indexed window is sent there once and its vectors replace the learned ones.
+	EmbedURL, EmbedModel, EmbedKey string
 }
 
 func (o Options) maxBytes() int64 {
@@ -153,7 +157,7 @@ type chunk struct {
 }
 
 // indexVersion changes whenever the stored form does, so an old index on disk is rebuilt.
-const indexVersion = 1
+const indexVersion = 2
 
 // indexData is everything worth keeping on disk.
 type indexData struct {
@@ -163,13 +167,17 @@ type indexData struct {
 	Chunks      []chunk
 	DF          map[string]int
 	AvgSize     float64
+	// Sem is the semantic ranking's vectors, kept so a restart does not learn them again.
+	Sem *semantic
+	// EmbedID names the model Emb came from, and Emb holds one vector per window (nil past the cap).
+	EmbedID string
+	Emb     [][]float32
 }
 
 // Index is a built index of one folder.
 type Index struct {
 	root string
 	indexData
-	sem *semantic
 }
 
 // fileInfo is what the walk learns about one candidate file before reading it.
@@ -338,7 +346,10 @@ type ranked struct {
 }
 
 // Search returns the best passages for a question in plain words.
-func (ix *Index) Search(query string, limit int) []Hit {
+func (ix *Index) Search(query string, limit int) []Hit { return ix.searchWith(query, limit, nil) }
+
+// searchWith is Search with the embedding of the query, when there is one.
+func (ix *Index) searchWith(query string, limit int, queryVec []float32) []Hit {
 	if limit < 1 {
 		limit = DefaultLimit
 	}
@@ -347,7 +358,11 @@ func (ix *Index) Search(query string, limit int) []Hit {
 	if len(terms) == 0 || len(ix.Chunks) == 0 {
 		return nil
 	}
-	order := ix.fuse(ix.rankLexical(terms), ix.sem.rank(terms))
+	second := ix.Sem.rank(terms)
+	if queryVec != nil && ix.Emb != nil {
+		second = ix.rankEmbedded(queryVec)
+	}
+	order := ix.fuse(ix.rankLexical(terms), second)
 	reader := &lineCache{root: ix.root, byFile: map[string][]string{}}
 	var hits []Hit
 	seen := map[string]bool{}
@@ -502,13 +517,26 @@ func uniq(in []string) []string {
 // Searcher keeps one built index per folder and rebuilds it when the folder changed, so a turn
 // that searches twice reads the disk once.
 type Searcher struct {
-	opts Options
-	mu   sync.Mutex
-	byAt map[string]*Index
+	opts     Options
+	embedder Embedder
+	mu       sync.Mutex
+	byAt     map[string]*Index
+	warning  string
 }
 
 // NewSearcher builds a searcher that indexes with o.
-func NewSearcher(o Options) *Searcher { return &Searcher{opts: o, byAt: map[string]*Index{}} }
+func NewSearcher(o Options) *Searcher {
+	return &Searcher{opts: o, embedder: newEmbedder(o), byAt: map[string]*Index{}}
+}
+
+// Warning says why the last search ran without something the settings asked for (the embeddings
+// endpoint did not answer), or is empty. A search still answers: it falls back to the rankings
+// that need nothing outside.
+func (s *Searcher) Warning() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.warning
+}
 
 var (
 	sharedMu sync.Mutex
@@ -543,24 +571,78 @@ func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([
 		}
 		s.byAt[root] = ix
 	}
-	return ix.Search(query, limit), nil
+	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+}
+
+// queryVector embeds the query when the index holds embeddings. A failure is a warning, not an
+// error: the other rankings answer.
+func (s *Searcher) queryVector(ctx context.Context, ix *Index, query string) []float32 {
+	if s.embedder == nil || ix.Emb == nil {
+		return nil
+	}
+	vecs, err := s.embedder.Embed(ctx, []string{query})
+	if err != nil || len(vecs) != 1 {
+		s.warn(err)
+		return nil
+	}
+	s.warning = ""
+	return vecs[0]
+}
+
+// warn records that the embeddings could not be used.
+func (s *Searcher) warn(err error) {
+	if err == nil {
+		err = errors.New("the endpoint returned the wrong number of vectors")
+	}
+	s.warning = "embeddings unavailable (" + err.Error() + "): ranked by words and the vocabulary learned locally"
 }
 
 // obtain returns the index of root: the one on disk when it still describes the folder, else a
 // new one, which is then kept on disk.
 func (s *Searcher) obtain(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
 	ix := loadIndex(s.opts.CacheDir, root, fp)
-	if ix == nil {
+	fresh := ix == nil
+	if fresh {
 		var err error
 		if ix, err = buildFrom(ctx, root, files, fp); err != nil {
 			return nil, err
 		}
+	}
+	if s.opts.Semantic && ix.Sem == nil {
+		ix.Sem = buildSemantic(ix)
+		fresh = true
+	}
+	fresh = s.embed(ctx, ix) || fresh
+	if fresh {
 		saveIndex(s.opts.CacheDir, ix)
 	}
-	if s.opts.Semantic {
-		ix.sem = buildSemantic(ix)
+	if !s.opts.Semantic {
+		ix.Sem = nil
 	}
 	return ix, nil
+}
+
+// embed gets the vectors of ix from the embeddings endpoint when the settings name one and the index
+// does not hold them already, and says whether it changed the index. The vectors of another model
+// are dropped. A failure leaves the index without them and is remembered as the warning.
+func (s *Searcher) embed(ctx context.Context, ix *Index) bool {
+	id := s.opts.embedID()
+	if s.embedder == nil {
+		ix.EmbedID, ix.Emb = "", nil
+		return false
+	}
+	if ix.EmbedID == id && ix.Emb != nil {
+		return false
+	}
+	vecs, err := embedChunks(ctx, ix, s.embedder)
+	if err != nil {
+		s.warn(err)
+		ix.EmbedID, ix.Emb = "", nil
+		return false
+	}
+	ix.EmbedID, ix.Emb = id, vecs
+	s.warning = ""
+	return true
 }
 
 // Format renders hits as the plain text a model reads: path:line, then the passage.

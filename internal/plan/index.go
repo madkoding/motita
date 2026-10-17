@@ -24,15 +24,25 @@ func (p *Planner) WithIndex(s IndexSearcher) *Planner {
 }
 
 // WithCodeIndex offers search_index over the built-in index when the code_index block is on. The
-// settings are passed one by one because this package does not read the configuration. The index
-// is shared between planners, which are built again for every turn.
-func (p *Planner) WithCodeIndex(enabled bool, maxFileKB, maxFiles int, cacheDir string, semantic bool) *Planner {
+// options come from the caller because this package does not read the configuration. The index is
+// shared between planners, which are built again for every turn.
+func (p *Planner) WithCodeIndex(enabled bool, o codeindex.Options) *Planner {
 	if !enabled {
 		return p
 	}
-	return p.WithIndex(codeindex.Shared(codeindex.Options{
-		MaxFileKB: maxFileKB, MaxFiles: maxFiles, CacheDir: cacheDir, Semantic: semantic,
-	}))
+	return p.WithIndex(codeindex.Shared(o))
+}
+
+// warner is implemented by an index that can say why it answered with less than it was set up
+// to (the embeddings endpoint was down); the planner passes that on, so the user is not misled.
+type warner interface{ Warning() string }
+
+// withWarning appends the index's warning, when it has one, to an answer.
+func withWarning(s IndexSearcher, answer string) string {
+	if w, ok := s.(warner); ok && w.Warning() != "" {
+		return answer + "\n(" + w.Warning() + ")"
+	}
+	return answer
 }
 
 // searchIndexArgs are the arguments for search_index.
@@ -77,5 +87,5 @@ func (p *Planner) toolSearchIndex(ctx context.Context, raw []byte) string {
 	if err != nil {
 		return "Error searching the index: " + err.Error()
 	}
-	return limitString(codeindex.Format(query, hits), maxToolOutputBytes)
+	return withWarning(p.index, limitString(codeindex.Format(query, hits), maxToolOutputBytes))
 }

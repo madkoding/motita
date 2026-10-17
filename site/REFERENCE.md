@@ -1273,7 +1273,7 @@ catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, it
 
 ### Searching the workspace with search_index
 
-Plan mode has a `search_index` tool next to `search_in_files`. It reads the workspace into an index and
+Plan mode has a `search_index` tool next to `search_in_files`, and task mode reaches the same index with the action `{"kind": "search_index", "command": "the question"}`. It reads the workspace into an index and
 answers a question in plain words, or a symbol name, with `path:line` and a few lines instead of whole
 matches. It runs in this process and nothing is sent anywhere; the idea comes from
 [XERJ](https://github.com/xerj-org/xerj).
@@ -1283,7 +1283,14 @@ matches. It runs in this process and nothing is sent anywhere; the idea comes fr
 - **Meaning:** a second ranking learned from the folder's own vocabulary (random indexing: a term is
   described by the terms it shares windows with), fused with the first by reciprocal rank. It finds
   code that shares context with the question even without sharing the word. It is not a neural
-  embedding: it knows this codebase's vocabulary and nothing else.
+  embedding: it knows this codebase's vocabulary and nothing else. The vectors are kept on disk with
+  the index.
+- **Real embeddings (off by default):** with `embeddings_url` set, a third ranking comes from an
+  OpenAI-compatible `POST <url>/embeddings`. **This sends the text of the indexed files (windows of up
+  to 1500 characters, at most 4000 of them) and every query to that endpoint**, so use it only with a
+  provider you would already show the code to. If the endpoint fails the search still answers with the
+  other rankings and says so in a note after the passages. Plain http with a key is refused unless the
+  host is on this machine or its network.
 - **On disk:** the index is kept in `cache_dir` and reused while no file's name, size or time changed,
   so the next start does not read everything again. It holds the terms of the source, not its text
   (passages are read from the files when answered), in a file only you can read.
@@ -1295,6 +1302,9 @@ code_index:
   max_files: 5000 # indexing stops after this many files
   semantic: true # the ranking by meaning
   # cache_dir: ~/.motita/index # the default; an empty value keeps the index in memory only
+  # embeddings_url: https://api.openai.com/v1 # OFF while empty: setting it sends code to that endpoint
+  # embeddings_model: text-embedding-3-small
+  # embeddings_api_key: ... # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
 ```
 
 The `.gitignore` of the folder, and of the folders below it, is respected. Hidden files and folders

@@ -367,3 +367,10 @@ code_index:
   # holds the terms of the source, not its text, and only you can read it. Empty keeps it in
   # memory. Leave this line out to use the "index" folder inside the configuration directory.
   # cache_dir: /path/to/index
+  # Real embeddings from an OpenAI-compatible endpoint (POST <url>/embeddings), a third ranking.
+  # OFF while the url is empty. Setting it SENDS THE TEXT of the indexed files and every query to
+  # that endpoint: use a provider you would already show the code to. If it fails, the search
+  # still answers with the other rankings and says so.
+  # embeddings_url: https://api.openai.com/v1
+  # embeddings_model: text-embedding-3-small
+  # embeddings_api_key: ""  # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY

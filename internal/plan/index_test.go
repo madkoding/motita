@@ -90,12 +90,34 @@ func TestToolSearchIndexReadsOnlyWhatTheSessionMayRead(t *testing.T) {
 }
 
 func TestWithCodeIndexFollowsTheSwitch(t *testing.T) {
-	if p := (&Planner{}).WithCodeIndex(false, 1, 1, "", false); p.index != nil {
+	if p := (&Planner{}).WithCodeIndex(false, codeindex.Options{}); p.index != nil {
 		t.Error("a disabled block must not offer the tool")
 	}
-	p := (&Planner{}).WithCodeIndex(true, 64, 10, "/c", true)
-	want := codeindex.Shared(codeindex.Options{MaxFileKB: 64, MaxFiles: 10, CacheDir: "/c", Semantic: true})
+	o := codeindex.Options{MaxFileKB: 64, MaxFiles: 10, CacheDir: "/c", Semantic: true}
+	p := (&Planner{}).WithCodeIndex(true, o)
+	want := codeindex.Shared(o)
 	if p.index != IndexSearcher(want) {
 		t.Errorf("index = %#v", p.index)
+	}
+}
+
+type warningIndex struct {
+	fakeIndex
+	warning string
+}
+
+func (w *warningIndex) Warning() string { return w.warning }
+
+func TestSearchIndexPassesTheIndexWarningOn(t *testing.T) {
+	dir := t.TempDir()
+	w := &warningIndex{fakeIndex: fakeIndex{hits: []codeindex.Hit{{Path: "a.go", Line: 1, Snippet: "x"}}}}
+	p := (&Planner{}).WithIndex(w)
+	args := raw(`{"query":"x","path":"` + filepath.ToSlash(dir) + `"}`)
+	if out := p.toolSearchIndex(context.Background(), args); strings.Contains(out, "embeddings") {
+		t.Errorf("no warning, none shown: %q", out)
+	}
+	w.warning = "embeddings unavailable: down"
+	if out := p.toolSearchIndex(context.Background(), args); !strings.HasSuffix(out, "\n(embeddings unavailable: down)") {
+		t.Errorf("the warning is appended: %q", out)
 	}
 }

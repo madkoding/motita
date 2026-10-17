@@ -169,6 +169,17 @@ request was to change something, "done": true means the change is on disk and ve
 if it was to investigate, it means you have the answer. Do not stop at "I have made a
 good start". Do not keep going after the work is finished.
 
+## SEARCHING THE WORKSPACE
+
+To find where something lives in the working directory without reading whole files, ask the
+code index INSTEAD of a shell command. It answers with the best matching passages as path:line
+plus a few lines, definitions first:
+
+- {"kind": "search_index", "description": "why", "command": "plain words or a symbol name"}
+
+It only knows what it indexed (no hidden files, dependencies or binaries), so confirm a negative
+with grep.
+
 ## YOUR PROCEDURE LIBRARY
 
 You have a library of procedures written down from previous work. It is NOT part of these

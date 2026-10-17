@@ -1,8 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
+
+	"github.com/madkoding/motita/internal/codeindex"
 )
 
 // CodeIndex is the built-in index behind the search_index tool: motita reads the workspace once,
@@ -25,6 +28,23 @@ type CodeIndex struct {
 	// file again. It holds the terms of the source, not its text, and is private to the user.
 	// Empty keeps the index in memory only.
 	CacheDir string `yaml:"cache_dir"`
+	// EmbeddingsURL, when set, adds a third ranking from a real embedding model: an
+	// OpenAI-compatible endpoint (POST <url>/embeddings). OFF by default, and turning it on SENDS
+	// THE TEXT of the indexed files (and every query) to that endpoint, so only point it at a
+	// provider you would already show the code to. A failure is a warning, never an error.
+	EmbeddingsURL   string `yaml:"embeddings_url"`
+	EmbeddingsModel string `yaml:"embeddings_model"`
+	// EmbeddingsAPIKey is sent to EmbeddingsURL as a bearer token. MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
+	// is the better place for it.
+	EmbeddingsAPIKey string `yaml:"embeddings_api_key"`
+}
+
+// Options is the block as the index takes it.
+func (c CodeIndex) Options() codeindex.Options {
+	return codeindex.Options{
+		MaxFileKB: c.MaxFileKB, MaxFiles: c.MaxFiles, CacheDir: c.CacheDir, Semantic: c.Semantic,
+		EmbedURL: c.EmbeddingsURL, EmbedModel: c.EmbeddingsModel, EmbedKey: c.EmbeddingsAPIKey,
+	}
 }
 
 // Defaults of the code_index block.
@@ -62,5 +82,12 @@ func (c *Config) validateCodeIndex() error {
 		return fmt.Errorf("code_index.max_files is %d: it cannot be negative (0 means the built-in default)",
 			c.CodeIndex.MaxFiles)
 	}
-	return nil
+	if c.CodeIndex.EmbeddingsURL == "" {
+		return nil
+	}
+	if c.CodeIndex.EmbeddingsModel == "" {
+		return errors.New("code_index.embeddings_model is empty: name the embedding model " +
+			"(text-embedding-3-small on OpenAI)")
+	}
+	return checkKeyedEndpoint("code_index.embeddings_url", c.CodeIndex.EmbeddingsURL, c.CodeIndex.EmbeddingsAPIKey)
 }
