@@ -554,7 +554,9 @@ func TestGitLocalVerbs(t *testing.T) {
 		"rev-parse", "blame", "shortlog", "ls-files", "cat-file", "config", "grep",
 		"whatchanged", "reflog", "show-ref", "for-each-ref", "count-objects",
 		"add", "commit", "checkout", "switch", "restore", "stash", "merge", "rebase",
-		"clone", "worktree", "rm", "mv",
+		"clone", "worktree", "rm", "mv", "ls-tree", "merge-base", "rev-list", "name-rev", "diff-tree",
+		"diff-index", "diff-files", "show-branch", "cherry", "range-diff", "check-ignore", "check-attr",
+		"var", "verify-commit", "verify-tag",
 	}
 	for _, sub := range local {
 		if reachesOutside("git", []string{sub}) {

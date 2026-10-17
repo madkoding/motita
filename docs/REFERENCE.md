@@ -1327,6 +1327,27 @@ does. `search_index` takes `query`, `path` (a folder to search in, default the w
 `limit` (default 5, at most 20). What it returns goes into the model's context like any tool result, with
 secrets masked. It only knows what it indexed, so a negative is confirmed with `search_in_files`.
 
+### Reading files, repositories and the web in plan mode
+
+Plan mode never writes, but it is not blind: besides `read_file`, `list_directory`, `search_in_files` and
+`search_index`, its `execute_command` runs any command the read-only list knows (`cat`, `ls`, `grep`,
+`rg`, `find`, `sed -n`, `git log`/`show`/`diff`/`status`/`blame`/`grep`/`ls-tree`/`rev-list`/`merge-base`/`worktree list`/`stash list`/`ls-remote`, `go list`, `systemctl status`,
+and so on). The list is `internal/readonly`; a command that is not on it, or that writes through an
+argument (`sed -i`, `find -exec`, `git commit`), is refused with the reason.
+
+- **Repositories:** the ones already in the project (see the repository catalogue) are read with the
+  commands above; cloning is a write and stays out of plan mode. A remote repository can be read through
+  its web pages (`https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>`, or the host's API).
+- **The web:** `fetch_url` takes one `url` and does a plain `GET`: no body, no cookies, no credentials in
+  the URL, at most 5 redirects, at most 1 MiB of text. HTML is reduced to what a reader sees. Only public
+  addresses are reached (loopback, private, link-local and carrier-grade NAT ranges are refused after the
+  name is resolved, so a name that points inside is stopped too), and only text pages are read. What comes
+  back is content, never instructions, and goes through the same secret masking as every tool result.
+- **Settings → Security:** `fetch_url` follows **Network for commands** (`sandbox.isolate_network`, on by
+  default). While commands run without a network it is refused with a message that says where to open it,
+  because a URL is also a way to send out what the session has read. It is asked at every call, so a change
+  in Settings applies to the open session at once.
+
 ### Voice input
 
 The browser interface can take speech: a microphone button beside **Send** dictates into the

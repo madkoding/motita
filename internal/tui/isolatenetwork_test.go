@@ -38,3 +38,18 @@ func TestSetIsolateNetworkReachesTheConfigurationAndTheSandbox(t *testing.T) {
 		t.Errorf("without a sandbox only the configuration changes: %v", got)
 	}
 }
+
+// fetch_url asks the runner at every fetch, so it follows a change made while the session is open.
+func TestNetworkIsolatedFollowsTheSetting(t *testing.T) {
+	prev := setBoxNetwork
+	t.Cleanup(func() { setBoxNetwork = prev })
+	setBoxNetwork = func(*sandbox.Sandbox, bool) error { return nil }
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	if !r.networkIsolated() {
+		t.Error("isolating is the default")
+	}
+	r.SetIsolateNetwork(false)
+	if r.networkIsolated() {
+		t.Error("the network was opened and pages are still refused")
+	}
+}

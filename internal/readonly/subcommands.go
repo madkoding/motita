@@ -22,6 +22,18 @@ var gitReading = map[string]bool{
 	"blame": true, "shortlog": true, "ls-files": true, "cat-file": true,
 	"config": true, "grep": true, "whatchanged": true, "reflog": true,
 	"show-ref": true, "for-each-ref": true, "count-objects": true,
+	"ls-tree": true, "merge-base": true, "rev-list": true, "name-rev": true, "diff-tree": true,
+	"diff-index": true, "diff-files": true, "show-branch": true, "cherry": true, "range-diff": true,
+	"check-ignore": true, "check-attr": true, "var": true, "verify-commit": true, "verify-tag": true,
+	// These have a writing form too, so gitSubcommandRule keeps them to the listing one.
+	"ls-remote": true, "worktree": true, "stash": true, "submodule": true,
+}
+
+// gitListingVerbs are the only verbs of the subcommands that also change things.
+var gitListingVerbs = map[string][]string{
+	"worktree":  {"list"},
+	"stash":     {"list", "show"},
+	"submodule": {"status"},
 }
 
 // gitHarmless are the options before a git subcommand that change nothing it runs or where.
@@ -85,9 +97,44 @@ func gitSubcommandRule(sub string, rest []string) (string, bool) {
 		return gitListRule(sub, rest)
 	case "remote":
 		return gitRemoteRule(rest)
+	case "worktree", "stash", "submodule":
+		return gitListingVerbRule(sub, rest)
+	case "ls-remote":
+		return gitLsRemoteRule(rest)
 	default:
 		return "", false
 	}
+}
+
+// gitListingVerbRule allows `git worktree list`, `git stash list|show` and `git submodule status`:
+// the first operand must be the listing verb (`git stash` alone is `stash push`, and `git
+// submodule` alone is a listing but the verb form is the one that can be told from `update`).
+func gitListingVerbRule(sub string, rest []string) (string, bool) {
+	verb := firstNonFlag(rest)
+	for _, ok := range gitListingVerbs[sub] {
+		if verb == ok {
+			return "", false
+		}
+	}
+	return fmt.Sprintf("git %s %s can change the repository; only %s is read-only", sub, verb,
+		strings.Join(gitListingVerbs[sub], " or ")), true
+}
+
+// gitLsRemoteRule allows `git ls-remote` as a listing of a remote's references, which reads over
+// the network (and fails where commands have none). `--upload-pack`/`--exec` name a program to run
+// on the other side, and a `transport::address` operand picks a remote helper, which is a program
+// too; git accepts abbreviated long options.
+func gitLsRemoteRule(rest []string) (string, bool) {
+	for _, a := range rest {
+		name, _, _ := strings.Cut(a, "=")
+		if longOptionAbbrev(name, "--upload-pack", len("--up")) || longOptionAbbrev(name, "--exec", len("--ex")) {
+			return fmt.Sprintf("git ls-remote %s runs a program", name), true
+		}
+		if strings.Contains(a, "::") {
+			return fmt.Sprintf("git ls-remote %s picks a remote helper, which is a program", a), true
+		}
+	}
+	return "", false
 }
 
 // gitGrepRule refuses `-O CMD` / `--open-files-in-pager=CMD`, which runs CMD on the matching
