@@ -44,7 +44,8 @@ commands is refused in every mode.
 
 **The release path.** Binaries are built and published by CI. The updater and
 the installers verify each download against the release's `SHA256SUMS`, which
-is signed with the project's ed25519 release key once one is configured, and
+is signed with the project's ed25519 release key (`SHA256SUMS.sig`; the
+installers need OpenSSL 3 to check it), and
 each binary carries a build provenance attestation
 (`gh attestation verify <binary> --repo madkoding/motita`).
 

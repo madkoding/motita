@@ -167,6 +167,20 @@ That is the same installer for Windows: it detects the architecture, downloads
 the matching `.exe`, verifies it against the release's `SHA256SUMS`, and puts it
 on your `PATH` without administrator rights. Everything below applies to both.
 
+Both installers also check `SHA256SUMS.sig`, the signature over `SHA256SUMS` made with
+the project's release key. The checksum alone catches a corrupted download; the signature
+is what refuses a replaced release. The check needs **OpenSSL 3**:
+
+- **Linux**: most distributions ship it. On Termux: `pkg install openssl`.
+- **macOS**: the system `openssl` is LibreSSL and cannot check the signature. Run
+  `brew install openssl@3`, then `export PATH="$(brew --prefix openssl@3)/bin:$PATH"`,
+  then the install line.
+- **Windows**: Git for Windows carries one, or `winget install ShiningLight.OpenSSL.Light`.
+
+Without OpenSSL 3 the installer stops and installs nothing. `MOTITA_INSECURE_SKIP_VERIFY=1`
+installs without the check (not recommended). A signature that does not verify always stops
+the install.
+
 ```mermaid
 flowchart LR
     D["Detects your OS<br/>and architecture"] --> G["Downloads the<br/>matching binary"]

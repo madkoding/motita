@@ -11,7 +11,7 @@ export const es = {
     blurb: "Un comando para instalar y una configuración corta la primera vez.",
     more: ["Guía: Install", "Referencia: Installation", "Referencia: motita doctor"],
     body: `
-<p>motita es un único binario estático. No hay nada que compilar ni nada más que instalar antes.</p>
+<p>motita es un único binario estático. No hay nada que compilar. El instalador solo necesita OpenSSL 3, para verificar la firma de la versión.</p>
 <h2>Instalar</h2>
 ${code("sh", `# Linux y macOS
 curl -fsSL https://motita.kodingvibes.com/install.sh | sh
@@ -19,6 +19,10 @@ curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 # Windows (PowerShell)
 irm https://motita.kodingvibes.com/install.ps1 | iex`)}
 <p>El instalador detecta tu sistema y arquitectura, descarga el binario que corresponde y lo verifica contra el <code>SHA256SUMS</code> de la versión. Si no coincide, se detiene y tu sistema queda intacto. Se instala sin permisos de administrador y ejecuta el binario una vez para comprobar que arranca.</p>
+<p>También verifica <code>SHA256SUMS.sig</code>, la firma sobre <code>SHA256SUMS</code>, con OpenSSL 3. Sin OpenSSL 3 se detiene y no instala nada. Casi todos los Linux lo traen. macOS trae LibreSSL, así que ejecuta esto antes:</p>
+${code("sh", `brew install openssl@3
+export PATH="$(brew --prefix openssl@3)/bin:$PATH"`)}
+<p>En Windows, Git for Windows incluye OpenSSL 3. <code>MOTITA_INSECURE_SKIP_VERIFY=1</code> instala sin la verificación (no recomendado).</p>
 <h2>Primer uso</h2>
 <p>Escribe <code>motita</code>. Si no hay configuración, arranca solo una configuración corta de cinco pasos. No escribe nada hasta que ves el resultado:</p>
 ${flow("Los cinco pasos de la configuración", [["Proveedor", "Qué modelo responde"], ["Conectar", "Inicia sesión o pega una clave"], ["Modelo", "Elige uno o escribe un ID"], ["Verificación", "Qué decide que está terminado"], ["Revisar", "Guarda, o vuelve con <kbd>n</kbd>"]])}

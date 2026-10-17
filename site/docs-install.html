@@ -47,7 +47,7 @@
       <main id="main">
       <h1>Install and first run</h1>
       <p class="lead">One command to install, a short setup the first time you run it.</p>
-<p>motita is one static binary. There is nothing to compile and nothing else to install first.</p>
+<p>motita is one static binary. There is nothing to compile. The installer needs only OpenSSL 3, to check the release signature.</p>
 <h2>Install</h2>
 <pre class="code" data-lang="Shell"><code><span class="c"># Linux and macOS</span>
 curl <span class="o">-fsSL</span> https://motita.kodingvibes.com/install.sh | sh
@@ -55,6 +55,10 @@ curl <span class="o">-fsSL</span> https://motita.kodingvibes.com/install.sh | sh
 <span class="c"># Windows (PowerShell)</span>
 irm https://motita.kodingvibes.com/install.ps1 | iex</code></pre>
 <p>The installer detects your system and architecture, downloads the matching binary, and checks it against the release's <code>SHA256SUMS</code>. If the check does not match it stops and leaves your system untouched. It installs without administrator rights, then runs the binary once to prove it starts.</p>
+<p>It also checks <code>SHA256SUMS.sig</code>, the signature over <code>SHA256SUMS</code>, with OpenSSL 3. Without OpenSSL 3 it stops and installs nothing. Most Linux systems have it. Stock macOS ships LibreSSL, so run this first:</p>
+<pre class="code" data-lang="Shell"><code>brew install openssl@<span class="n">3</span>
+export PATH=<span class="s">&quot;$(brew --prefix openssl@3)/bin:$PATH&quot;</span></code></pre>
+<p>On Windows, Git for Windows carries OpenSSL 3. <code>MOTITA_INSECURE_SKIP_VERIFY=1</code> installs without the check (not recommended).</p>
 <h2>First run</h2>
 <p>Type <code>motita</code>. With no configuration, a short setup starts on its own. It has five steps and writes nothing until you have seen the result:</p>
 <figure class="diagram"><ol class="flow" aria-label="The five setup steps"><li><b>1</b><strong>Provider</strong><span>Which model answers</span></li><li><b>2</b><strong>Connect</strong><span>Log in or paste a key</span></li><li><b>3</b><strong>Model</strong><span>Pick one or type an ID</span></li><li><b>4</b><strong>Check</strong><span>What decides it is done</span></li><li><b>5</b><strong>Review</strong><span>Save, or go back with <kbd>n</kbd></span></li></ol></figure>

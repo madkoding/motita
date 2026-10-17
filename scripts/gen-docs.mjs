@@ -33,7 +33,7 @@ const pages = [
     title: "Install and first run",
     blurb: "One command to install, a short setup the first time you run it.",
     body: `
-<p>motita is one static binary. There is nothing to compile and nothing else to install first.</p>
+<p>motita is one static binary. There is nothing to compile. The installer needs only OpenSSL 3, to check the release signature.</p>
 <h2>Install</h2>
 ${code("sh", `# Linux and macOS
 curl -fsSL https://motita.kodingvibes.com/install.sh | sh
@@ -41,6 +41,10 @@ curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 # Windows (PowerShell)
 irm https://motita.kodingvibes.com/install.ps1 | iex`)}
 <p>The installer detects your system and architecture, downloads the matching binary, and checks it against the release's <code>SHA256SUMS</code>. If the check does not match it stops and leaves your system untouched. It installs without administrator rights, then runs the binary once to prove it starts.</p>
+<p>It also checks <code>SHA256SUMS.sig</code>, the signature over <code>SHA256SUMS</code>, with OpenSSL 3. Without OpenSSL 3 it stops and installs nothing. Most Linux systems have it. Stock macOS ships LibreSSL, so run this first:</p>
+${code("sh", `brew install openssl@3
+export PATH="$(brew --prefix openssl@3)/bin:$PATH"`)}
+<p>On Windows, Git for Windows carries OpenSSL 3. <code>MOTITA_INSECURE_SKIP_VERIFY=1</code> installs without the check (not recommended).</p>
 <h2>First run</h2>
 <p>Type <code>motita</code>. With no configuration, a short setup starts on its own. It has five steps and writes nothing until you have seen the result:</p>
 ${flow("The five setup steps", [["Provider", "Which model answers"], ["Connect", "Log in or paste a key"], ["Model", "Pick one or type an ID"], ["Check", "What decides it is done"], ["Review", "Save, or go back with <kbd>n</kbd>"]])}

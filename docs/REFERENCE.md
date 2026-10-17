@@ -225,7 +225,8 @@ the exit code.
 
 **One line.** It detects the system, downloads the matching static binary from
 the latest release, verifies it against the release's `SHA256SUMS`, and puts it
-on your `PATH`. No Go, no Docker, no runtime on the target:
+on your `PATH`. No Go, no Docker, no runtime on the target. It needs OpenSSL 3 to
+check the release signature (see below):
 
 ```sh
 curl -fsSL https://motita.kodingvibes.com/install.sh | sh
@@ -234,8 +235,8 @@ curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 Override the version or the destination:
 
 ```sh
-MOTITA_VERSION=v0.3.0 curl -fsSL .../install.sh | sh
-MOTITA_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
+curl -fsSL .../install.sh | MOTITA_VERSION=v0.3.0 sh
+curl -fsSL .../install.sh | MOTITA_INSTALL_DIR="$HOME/bin" sh
 ```
 
 The installer prefers `/usr/local/bin` when it is writable and falls back to
@@ -250,8 +251,26 @@ corrupted download leaves the system as it was. Finally it runs the binary once,
 because reporting success without executing it would miss the one failure that
 matters — a binary that does not run on this machine.
 
-`SHA256SUMS` comes from the same release as the binary, so verification catches
-a corrupted transfer, not a compromised release.
+`SHA256SUMS` comes from the same release as the binary, so on its own it catches
+only a corrupted transfer. The installer also checks `SHA256SUMS.sig`, an ed25519
+signature over `SHA256SUMS` made with the project's release key. The key is built
+into the installers and the updater, so the signature is what refuses a compromised
+release.
+
+The signature check needs OpenSSL 3 (`openssl pkeyutl -rawin`). Most Linux
+distributions ship it; on Termux run `pkg install openssl`. Stock macOS ships
+LibreSSL, which cannot check it, so install OpenSSL 3 and put it first on the
+`PATH` before the install line:
+
+```sh
+brew install openssl@3
+export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+```
+
+If OpenSSL 3 is missing, or the release has no `SHA256SUMS.sig`, the installer
+stops and installs nothing. `MOTITA_INSECURE_SKIP_VERIFY=1` installs anyway,
+without the check (not recommended). A checksum mismatch or a signature that does
+not verify always stops the install.
 
 **On Windows**, in PowerShell:
 
@@ -265,6 +284,11 @@ put it on your `PATH` — using what Windows has: `PROCESSOR_ARCHITEW6432` for t
 architecture (a 32-bit PowerShell on 64-bit Windows reports `x86` and must be
 corrected, or you silently get the 32-bit binary), `Get-FileHash` for the
 digest, and the **user** `PATH` scope, so it never needs administrator rights.
+Windows has no ed25519 verifier, so it checks `SHA256SUMS.sig` with OpenSSL 3: the
+one on the `PATH`, or the one Git for Windows carries. Without one it stops, the
+same as the shell installer. Install Git for Windows or run
+`winget install ShiningLight.OpenSSL.Light`, or set
+`$env:MOTITA_INSECURE_SKIP_VERIFY = '1'` to skip the check (not recommended).
 
 It installs to `%LOCALAPPDATA%\Programs\motita\motita.exe` by default; override
 with `$env:MOTITA_INSTALL_DIR`, and pin a release with `$env:MOTITA_VERSION`:
