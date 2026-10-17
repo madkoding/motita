@@ -47,12 +47,14 @@ self.onmessage = (e: MessageEvent<ToListener>) => {
       );
     return;
   }
+  const began = performance.now();
   listener.hear(m.id, m.samples, m.lang).then(
     (h) =>
       self.postMessage({
         seq: m.seq,
         text: h.text,
         lang: h.lang,
+        ms: Math.round(performance.now() - began),
       } satisfies FromListener),
     (err: unknown) =>
       self.postMessage({

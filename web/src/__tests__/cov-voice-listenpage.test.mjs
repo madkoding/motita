@@ -121,8 +121,19 @@ test("a recording is decoded at 16 kHz, its channels mixed, and handed over to b
     "loaded first",
   );
   answer({ seq: 999, text: "nobody asked" });
-  answer({ seq: hear.m.seq, text: "hola", lang: "es" });
+  assert.equal(L.lastHearing(), undefined);
+  let told = 0;
+  const off = L.onListenState(() => told++);
+  answer({ seq: hear.m.seq, text: "hola", lang: "es", ms: 1500 });
   assert.equal(await p, "hola");
+  assert.deepEqual(L.lastHearing(), {
+    id: "whisper-tiny",
+    took: 1500,
+    seconds: 3 / 16000,
+    gpu: false,
+  });
+  assert.ok(told > 0, "the settings are told");
+  off();
 
   const q = L.hearLocal("whisper-tiny", blob, "");
   await new Promise((r) => setImmediate(r));

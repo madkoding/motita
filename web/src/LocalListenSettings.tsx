@@ -11,7 +11,9 @@ import {
 } from "./localVoice";
 import { isWhisper } from "./localListenCore";
 import {
+  type LastHearing,
   forGPU,
+  lastHearing,
   listenStateOf,
   onListenState,
   warmListener,
@@ -55,6 +57,59 @@ function useListenState(id: string): LoadState | undefined {
   const [, redraw] = useState(0);
   useEffect(() => onListenState(() => redraw((n) => n + 1)), []);
   return choose(id !== "", listenStateOf(id), undefined);
+}
+
+// FASTEST is the model that answers soonest on the processor: its quality is the lowest.
+const FASTEST = "whisper-tiny";
+
+// engineLine says where the model in use runs, once it is loaded.
+export function engineLine(id: string, loading: LoadState): string {
+  if (!loading.ready) {
+    return t("Not loaded yet.");
+  }
+  if (loading.gpu) {
+    return t("Running on WebGPU.");
+  }
+  return choose(
+    forGPU(id),
+    t("Running on the processor: WebGPU could not start."),
+    t("Running on the processor (WebAssembly, one thread)."),
+  );
+}
+
+// lastLine says how long the latest recording took, against how long it was.
+export function lastLine(h: LastHearing | undefined, name: string): string {
+  if (!h) {
+    return t("No recording yet: speak once to measure it.");
+  }
+  return tf(
+    "Last: {model} wrote {seconds} s of speech in {took} s ({times}× real time).",
+    {
+      model: name,
+      seconds: h.seconds.toFixed(1),
+      took: (h.took / 1000).toFixed(1),
+      times: (h.took / 1000 / Math.max(h.seconds, 0.1)).toFixed(1),
+    },
+  );
+}
+
+// adviceFor suggests the quickest change, or "" when there is none: WebGPU's model where the card
+// is there and the processor's is in use, or the smallest model where the processor is slower
+// than the voice.
+export function adviceFor(
+  id: string,
+  webGPU: boolean,
+  h: LastHearing | undefined,
+): string {
+  if (webGPU && !forGPU(id)) {
+    return t("This browser has WebGPU: the “GPU” models are much faster here.");
+  }
+  if (!webGPU && id !== FASTEST && h && !h.gpu && h.took > h.seconds * 1000) {
+    return t(
+      "Too slow on the processor: the Tiny model answers several times sooner.",
+    );
+  }
+  return "";
 }
 
 // recommendedFor is the model offered first: the small one where the graphics card runs it, the
@@ -178,6 +233,16 @@ export function LocalListening({
           >
             {rest.map(row)}
           </Collapsed>
+          {chosenReady && (
+            <ListenStatus
+              id={chosen}
+              name={
+                (catalog.models.find((m) => m.id === chosen) as LocalModel).name
+              }
+              loading={loading}
+              webGPU={webGPU}
+            />
+          )}
           {forGPU(chosen) && loading.gpuError && (
             <div
               class="text-xs text-[#7a7a8c]"
@@ -223,6 +288,35 @@ export function LocalListening({
         </select>
       </Row>
     </>
+  );
+}
+
+// ListenStatus is what the reader can check: where the model runs, how long the latest recording
+// took, and what to change when it is slow. It redraws when either changes.
+function ListenStatus({
+  id,
+  name,
+  loading,
+  webGPU,
+}: {
+  id: string;
+  name: string;
+  loading: LoadState;
+  webGPU: boolean;
+}) {
+  const h = lastHearing();
+  const advice = adviceFor(id, webGPU, h);
+  return (
+    <div
+      class="text-xs text-[#a0a0b0] flex flex-col gap-1"
+      data-testid="local-listener-status"
+    >
+      {[engineLine(id, loading), lastLine(h, name), advice]
+        .filter(Boolean)
+        .map((line) => (
+          <div key={line}>{line}</div>
+        ))}
+    </div>
   );
 }
 

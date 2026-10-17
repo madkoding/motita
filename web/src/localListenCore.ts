@@ -664,7 +664,7 @@ export type ToListener =
       lang: string;
     };
 export type FromListener =
-  | { seq: number; text: string; lang: string }
+  | { seq: number; text: string; lang: string; ms?: number }
   | { seq: number; error: string }
   | { kind: "progress"; id: string; pct: number }
   | { kind: "ready"; id: string; gpu?: boolean; gpuError?: string }
