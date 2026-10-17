@@ -117,8 +117,9 @@ func Hardening() []string {
 // HardeningFor is Hardening plus the -c overrides that neutralize the command-running config
 // keys found in dir's local config. A caller outside this package that starts git itself in a
 // repository an agent can write (a workspace checkout) passes these before the subcommand, so a
-// planted filter, diff or merge driver runs no command. dir that is not a repository, or a git
-// that cannot be run, contributes no overrides: the fixed hardening is still returned.
+// planted filter, diff or merge driver runs no command. dir that is not a repository contributes
+// no overrides. A config that cannot be listed (a git that cannot be run, a dir that is gone)
+// fails closed, as neutralizeLocalConfig says.
 func HardeningFor(ctx context.Context, dir string) []string {
 	return append(Hardening(), neutralizeLocalConfig(ctx, dir)...)
 }
