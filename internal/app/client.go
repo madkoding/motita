@@ -304,6 +304,12 @@ func checkSession(client tui.Runner, session string) error {
 		// cannot answer a listing is a gateway that will not answer anything else either.
 		return fmt.Errorf("the gateway did not answer when asked which sessions it holds: %w", err)
 	}
+	// The default session always exists in the gateway's memory, but the listing hides it while it
+	// is empty, so a fresh gateway reports none at all. Refusing it would make a plain
+	// `-connect host` fail on every new gateway.
+	if session == gateway.DefaultSession {
+		return nil
+	}
 	ids := make([]string, 0, len(sessions))
 	for _, s := range sessions {
 		if s.ID == session {
