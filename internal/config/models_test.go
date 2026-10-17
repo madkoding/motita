@@ -133,7 +133,9 @@ func TestLoadRefusesAnUnreadableModel(t *testing.T) {
 func TestRetiredBrowserProviderFallsBack(t *testing.T) {
 	c := Default()
 	c.LLM.Provider, c.LLM.Model = " Browser ", "qwen2.5-0.5b-instruct"
-	c.Models.Summary, c.Models.Cheap, c.Models.Plan = "browser/qwen2.5-0.5b-instruct", " BROWSER/m", "anthropic/claude-opus-5-5"
+	c.Models.Summary = "browser/qwen2.5-0.5b-instruct"
+	c.Models.Cheap = " BROWSER/m"
+	c.Models.Plan = "anthropic/claude-opus-5-5"
 	c.normalize()
 	d := Default().LLM
 	if c.LLM.Provider != d.Provider || c.LLM.Model != d.Model || c.LLM.BaseURL != d.BaseURL {
