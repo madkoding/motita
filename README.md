@@ -45,7 +45,7 @@ Windows, Git for Windows carries OpenSSL 3. `MOTITA_INSECURE_SKIP_VERIFY=1` skip
 > **The model can _propose_ a `PASS`. Only your check can _declare_ one.**
 > No check behind it, no `PASS`. There is no "trust me" mode.
 
-<img src="docs/assets/readme/stats.svg" alt="0 dependencies, 1 static binary, 9 platforms, 100% test coverage, runs in 484 MB of RAM" width="100%">
+<img src="docs/assets/readme/stats.svg" alt="0 dependencies, 1 static binary, 10 platforms, 100% test coverage, runs in 484 MB of RAM" width="100%">
 
 ## ✨ Why motita
 

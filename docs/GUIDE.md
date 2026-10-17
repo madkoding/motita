@@ -140,9 +140,10 @@ you'll regret in two years.
 |                    |                                                                                |
 | ------------------ | ------------------------------------------------------------------------------ |
 | **Linux**          | `386`, `amd64`, `arm` (ARMv7), `arm64`                                         |
+| **Android**        | `arm64` (Termux)                                                               |
 | **Windows**        | `386`, `amd64`, `arm64`                                                        |
 | **macOS**          | `amd64`, `arm64`                                                               |
-| **Published size** | 17.8 – 18.9 MiB per binary (measured on all 9 binaries of the v0.10.0 release) |
+| **Published size** | 21.8 – 23.1 MiB per binary (measured on all 10 binaries of the v4.2.0 release) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
@@ -1205,7 +1206,7 @@ now.
 flowchart LR
     F["gofmt"] --> V["go vet"] --> R["go test -race"]
     R --> CV["Per-package coverage gate<br/><i>a gap cannot hide<br/>behind an average</i>"]
-    CV --> X["Cross-build all<br/>9 targets"]
+    CV --> X["Cross-build all<br/>10 targets"]
     X --> E["Read the ELF header<br/><i>proves the i386 binary<br/>really is 32-bit</i>"]
     E --> E2["End-to-end tests inside<br/>a 32-bit container"]
     E2 --> P["Publish"]

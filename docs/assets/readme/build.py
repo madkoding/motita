@@ -257,7 +257,7 @@ def loop() -> None:
 def stats() -> None:
     """stats.svg: the five headline numbers, one cut-corner card each."""
     W, H = 1280, 150
-    items = [("0", "dependencies", ACCENT), ("1", "static binary", ACCENT), ("9", "platforms", ACCENT),
+    items = [("0", "dependencies", ACCENT), ("1", "static binary", ACCENT), ("10", "platforms", ACCENT),
              ("100%", "test coverage", GREEN), ("484 MB", "of RAM is enough", MAGENTA)]
     css = (font_face("JBM", MONO_BOLD, "".join(v for v, _, _ in items))
            + font_face("Sansation", SANS, "".join(l for _, l, _ in items))
@@ -273,8 +273,8 @@ def stats() -> None:
             f'<rect x="{x + 10}" y="24" width="{cw - 10}" height="2" fill="{c}" fill-opacity=".8"/>'
             f'<text x="{cx}" y="80" class="m" font-size="36" text-anchor="middle" fill="{c}">{v}</text>'
             f'<text x="{cx}" y="108" class="s" font-size="15" text-anchor="middle" fill="{MUTED}">{label}</text>')
-    label = "0 dependencies, 1 static binary, 9 platforms, 100% test coverage, runs in 484 MB of RAM"
-    title = "0 dependencies · 1 static binary · 9 platforms · 100% test coverage · 484 MB of RAM is enough"
+    label = "0 dependencies, 1 static binary, 10 platforms, 100% test coverage, runs in 484 MB of RAM"
+    title = "0 dependencies · 1 static binary · 10 platforms · 100% test coverage · 484 MB of RAM is enough"
     svg = f'''{svg_open(W, H, label)}
 <title>{title}</title>
 <defs><style>{css}</style><clipPath id="frame"><path d="{cut(0, 0, W, H, 16)}"/></clipPath></defs>

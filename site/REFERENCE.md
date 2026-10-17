@@ -485,7 +485,7 @@ binary. With no network it says so and moves on, which is what lets the same scr
 the i386 machine.
 
 ```bash
-make dist             # one binary for all 9 supported platforms
+make dist             # one binary for all 10 supported platforms
 make test-matrix      # the tests build for every one of them
 make check            # gofmt + go vet + go test
 ARCH=arm64 make e2e-agent   # end to end in a real container of that architecture
@@ -493,26 +493,28 @@ ARCH=arm64 make e2e-agent   # end to end in a real container of that architectur
 
 Resulting binaries (static, no cgo, no external libraries):
 
-Nine binaries, one per supported platform, all measured under the CI's toolchain and
-build flags (`-trimpath -ldflags "-s -w"`, no cgo):
+Ten binaries, one per supported platform. The sizes are the published assets of the
+v4.35.0 release, built by CI with its toolchain and build flags (`-trimpath -ldflags "-s -w"`,
+no cgo):
 
-| Binary                          | Size    |
-| ------------------------------- | ------- |
-| `dist/motita-linux-386`         | 7.21 MB |
-| `dist/motita-linux-amd64`       | 7.46 MB |
-| `dist/motita-linux-arm`         | 7.25 MB |
-| `dist/motita-linux-arm64`       | 6.88 MB |
-| `dist/motita-windows-386.exe`   | 7.40 MB |
-| `dist/motita-windows-amd64.exe` | 7.66 MB |
-| `dist/motita-windows-arm64.exe` | 6.96 MB |
-| `dist/motita-darwin-amd64`      | 7.58 MB |
-| `dist/motita-darwin-arm64`      | 7.02 MB |
+| Binary                          | Size      |
+| ------------------------------- | --------- |
+| `dist/motita-linux-386`         | 23.87 MiB |
+| `dist/motita-linux-amd64`       | 24.69 MiB |
+| `dist/motita-linux-arm`         | 23.81 MiB |
+| `dist/motita-linux-arm64`       | 23.50 MiB |
+| `dist/motita-android-arm64`     | 25.00 MiB |
+| `dist/motita-windows-386.exe`   | 24.16 MiB |
+| `dist/motita-windows-amd64.exe` | 24.98 MiB |
+| `dist/motita-windows-arm64.exe` | 23.59 MiB |
+| `dist/motita-darwin-amd64`      | 24.91 MiB |
+| `dist/motita-darwin-arm64`      | 23.89 MiB |
 
-The whole range is 6.88 – 7.66 MB as measured when the interface was a text one; the web
-interface, the WebSocket transport and scheduled tasks have since added to that. The
-requirement CI enforces is under 30 MB per binary. The sizes move with the Go release, so
-treat them as measurements rather than specifications: the gate is the limit, not these
-numbers, and it is there to catch runaway growth rather than to bound a feature.
+The whole range is 23.5 – 25.0 MiB. The requirement CI enforces is under 30 MiB
+(31,457,280 bytes) per binary. The sizes move with the Go release and with what the
+web interface embeds, so treat them as measurements rather than specifications: the
+gate is the limit, not these numbers, and it is there to catch runaway growth rather
+than to bound a feature.
 
 Copy them to the i386 machine over `scp`, `ftp` or USB:
 
