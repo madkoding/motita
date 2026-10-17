@@ -41,21 +41,22 @@ func TestToolFetchURL(t *testing.T) {
 	call := func(args string) string {
 		return p.dispatchTool(ctx, llm.ToolCall{Function: llm.FunctionCall{Name: "fetch_url", Arguments: raw(args)}})
 	}
-	if out := call(`{"url":" https://example.com/a "}`); out != "GET https://example.com/a\nhello page" || f.url != "https://example.com/a" {
+	out := call(`{"url":" https://example.com/a "}`)
+	if out != "GET https://example.com/a\nhello page" || f.url != "https://example.com/a" {
 		t.Errorf("out = %q url = %q", out, f.url)
 	}
-	if out := call(`{"url":" "}`); !strings.Contains(out, "'url' parameter is missing") {
+	if out = call(`{"url":" "}`); !strings.Contains(out, "'url' parameter is missing") {
 		t.Errorf("out = %q", out)
 	}
-	if out := call(`{"url":`); !strings.HasPrefix(out, errParsingArguments) {
+	if out = call(`{"url":`); !strings.HasPrefix(out, errParsingArguments) {
 		t.Errorf("out = %q", out)
 	}
 	f.text = "  "
-	if out := call(`{"url":"https://x"}`); out != "(the page has no text)" {
+	if out = call(`{"url":"https://x"}`); out != "(the page has no text)" {
 		t.Errorf("out = %q", out)
 	}
 	f.err = errors.New("closed")
-	if out := call(`{"url":"https://x"}`); out != "Error: closed" {
+	if out = call(`{"url":"https://x"}`); out != "Error: closed" {
 		t.Errorf("out = %q", out)
 	}
 }

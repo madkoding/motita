@@ -159,9 +159,10 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 // public reports whether ip is on the public internet.
 func public(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	return ip.IsValid() && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsMulticast() && !ip.IsUnspecified() &&
-		!cgnat.Contains(ip)
+	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() || cgnat.Contains(ip) {
+		return false
+	}
+	return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast()
 }
 
 // cgnat is the shared address space of carrier-grade NAT (RFC 6598), which IsPrivate leaves out.
@@ -169,13 +170,16 @@ var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
 // textual reports whether a media type is text a model can read.
 func textual(kind string) bool {
-	return strings.HasPrefix(kind, "text/") || strings.HasSuffix(kind, "+json") ||
-		strings.HasSuffix(kind, "+xml") || kind == "application/json" || kind == "application/xml" ||
-		kind == "application/xhtml+xml" || kind == "application/javascript"
+	switch kind {
+	case "application/json", "application/xml", "application/xhtml+xml", "application/javascript":
+		return true
+	}
+	return strings.HasPrefix(kind, "text/") || strings.HasSuffix(kind, "+json") || strings.HasSuffix(kind, "+xml")
 }
 
 var (
-	reBlocks = regexp.MustCompile(`(?is)<(script|style|noscript|template|svg|head)\b.*?</(script|style|noscript|template|svg|head)\s*>`)
+	reBlocks = regexp.MustCompile(
+		`(?is)<(script|style|noscript|template|svg|head)\b.*?</(script|style|noscript|template|svg|head)\s*>`)
 	reBreaks = regexp.MustCompile(`(?i)</?(p|div|br|li|tr|h[1-6]|section|article|pre|table|ul|ol)\b[^>]*>`)
 	reTags   = regexp.MustCompile(`(?s)<[^>]*>`)
 	reBlank  = regexp.MustCompile(`\n[ \t]*(\n[ \t]*)+`)

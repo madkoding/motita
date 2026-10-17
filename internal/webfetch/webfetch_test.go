@@ -26,8 +26,8 @@ func serve(t *testing.T, kind, body string) *httptest.Server {
 }
 
 func TestFetchHTMLBecomesText(t *testing.T) {
-	srv := serve(t, "text/html; charset=utf-8",
-		`<html><head><title>x</title></head><body><script>evil()</script><h1>Hi &amp; bye</h1><p>one</p><p>two</p></body></html>`)
+	srv := serve(t, "text/html; charset=utf-8", `<html><head><title>x</title></head><body><script>evil()</script>`+
+		`<h1>Hi &amp; bye</h1><p>one</p><p>two</p></body></html>`)
 	got, err := local().Fetch(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatal(err)
