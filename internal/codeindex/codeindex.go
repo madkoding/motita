@@ -519,20 +519,30 @@ func uniq(in []string) []string {
 	return out
 }
 
+// keepRoots is how many folders a searcher keeps the index of in memory. Every background agent
+// searches a worktree of its own, so without a cap the indexes of finished agents pile up.
+const keepRoots = 4
+
 // Searcher keeps one built index per folder and rebuilds it when the folder changed, so a turn
 // that searches twice reads the disk once.
+//
+// mu guards the fields, never a build: a build reads every file and may embed thousands of
+// windows, and one searcher serves every session in the process.
 type Searcher struct {
 	opts     Options
 	embedder Embedder
 	mu       sync.Mutex
 	byAt     map[string]*Index
+	used     []string                 // the roots in byAt, least recently searched first
+	building map[string]chan struct{} // the roots being indexed now; closed when done
+	gen      int                      // counts embedder changes: a build with an old one is not kept
 	warning  string
 	probedAt time.Time
 }
 
 // NewSearcher builds a searcher that indexes with o.
 func NewSearcher(o Options) *Searcher {
-	return &Searcher{opts: o, embedder: newEmbedder(o), byAt: map[string]*Index{}}
+	return &Searcher{opts: o, embedder: newEmbedder(o), byAt: map[string]*Index{}, building: map[string]chan struct{}{}}
 }
 
 // Warning says why the last search ran without something the settings asked for (the embeddings
@@ -564,47 +574,99 @@ func Shared(o Options) *Searcher {
 
 // Search returns the best passages under root for a question in plain words.
 func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([]Hit, error) {
-	files, fp, err := scan(ctx, root, s.opts)
+	s.detect(ctx)
+	ix, emb, err := s.index(ctx, root)
 	if err != nil {
 		return nil, err
+	}
+	return ix.searchWith(query, limit, s.queryVector(ctx, emb, ix, query)), nil
+}
+
+// index returns the index of root, built or read again when the folder changed, and the embedder
+// it was built with. One build per root runs at a time, outside the lock: a search of another
+// folder does not wait for it, and a search of the same folder waits only while its ctx lives.
+func (s *Searcher) index(ctx context.Context, root string) (*Index, Embedder, error) {
+	s.mu.Lock()
+	for s.building[root] != nil {
+		wait := s.building[root]
+		s.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+		s.mu.Lock()
+	}
+	done := make(chan struct{})
+	s.building[root] = done
+	opts, emb, gen, ix := s.opts, s.embedder, s.gen, s.byAt[root]
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.building, root)
+		s.mu.Unlock()
+		close(done)
+	}()
+
+	files, fp, err := scan(ctx, root, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ix == nil || ix.Fingerprint != fp {
+		if ix, err = s.obtain(ctx, opts, emb, root, files, fp); err != nil {
+			return nil, nil, err
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ix, err := s.locate(ctx, root, files, fp)
-	if err != nil {
-		return nil, err
+	if gen == s.gen {
+		s.keep(opts.CacheDir, root, ix)
 	}
-	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+	return ix, emb, nil
 }
 
-// locate returns the index of root as the folder is now (files, fp), from memory, disk or a new
-// build. The caller holds s.mu.
-func (s *Searcher) locate(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
-	s.detect(ctx)
-	ix := s.byAt[root]
-	if ix == nil || ix.Fingerprint != fp {
-		var err error
-		if ix, err = s.obtain(ctx, root, files, fp); err != nil {
-			return nil, err
+// keep holds ix as the most recently searched index, and lets go of the least recently searched
+// past keepRoots. A folder that is gone (a finished agent's worktree) is forgotten, and so is its
+// file on disk: nothing will search it again. Called with the lock held.
+func (s *Searcher) keep(cacheDir, root string, ix *Index) {
+	s.byAt[root] = ix
+	var used []string
+	for _, r := range s.used {
+		if r == root {
+			continue
 		}
-		s.byAt[root] = ix
+		if _, err := os.Stat(r); errors.Is(err, fs.ErrNotExist) {
+			delete(s.byAt, r)
+			if cacheDir != "" {
+				_ = os.Remove(cachePath(cacheDir, r))
+			}
+			continue
+		}
+		used = append(used, r)
 	}
-	return ix, nil
+	used = append(used, root)
+	for len(used) > keepRoots {
+		delete(s.byAt, used[0])
+		used = used[1:]
+	}
+	s.used = used
 }
 
 // Build brings the index kept on disk for root up to date, even when this process still holds it in
 // memory (the cache files may have been cleared since), and tells why when it cannot keep it.
 func (s *Searcher) Build(ctx context.Context, root string) error {
-	if _, err := s.Search(ctx, root, "", 1); err != nil {
+	s.detect(ctx)
+	ix, _, err := s.index(ctx, root)
+	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	ix := s.byAt[root]
-	if data := readData(s.opts.CacheDir, root); data != nil && data.Fingerprint == ix.Fingerprint {
+	dir := s.opts.CacheDir
+	s.mu.Unlock()
+	if data := readData(dir, root); data != nil && data.Fingerprint == ix.Fingerprint {
 		return nil
 	}
-	if err := writeIndex(s.opts.CacheDir, ix); err != nil {
+	if err := writeIndex(dir, ix); err != nil {
 		return fmt.Errorf("the index could not be kept on disk: %w", err)
 	}
 	return nil
@@ -612,16 +674,16 @@ func (s *Searcher) Build(ctx context.Context, root string) error {
 
 // queryVector embeds the query when the index holds embeddings. A failure is a warning, not an
 // error: the other rankings answer.
-func (s *Searcher) queryVector(ctx context.Context, ix *Index, query string) []float32 {
-	if s.embedder == nil || ix.Emb == nil {
+func (s *Searcher) queryVector(ctx context.Context, emb Embedder, ix *Index, query string) []float32 {
+	if emb == nil || ix.Emb == nil {
 		return nil
 	}
-	vecs, err := s.embedder.Embed(ctx, []string{query})
+	vecs, err := emb.Embed(ctx, []string{query})
 	if err != nil || len(vecs) != 1 {
 		s.warn(err)
 		return nil
 	}
-	s.warning = ""
+	s.setWarning("")
 	return vecs[0]
 }
 
@@ -630,13 +692,20 @@ func (s *Searcher) warn(err error) {
 	if err == nil {
 		err = errors.New("the endpoint returned the wrong number of vectors")
 	}
-	s.warning = "embeddings unavailable (" + err.Error() + "): ranked by words and the vocabulary learned locally"
+	s.setWarning("embeddings unavailable (" + err.Error() + "): ranked by words and the vocabulary learned locally")
+}
+
+// setWarning replaces the warning.
+func (s *Searcher) setWarning(w string) {
+	s.mu.Lock()
+	s.warning = w
+	s.mu.Unlock()
 }
 
 // obtain returns the index of root: the one on disk when it still describes the folder, else a
 // new one, which is then kept on disk.
-func (s *Searcher) obtain(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
-	ix := loadIndex(s.opts.CacheDir, root, fp)
+func (s *Searcher) obtain(ctx context.Context, o Options, emb Embedder, root string, files []fileInfo, fp uint64) (*Index, error) {
+	ix := loadIndex(o.CacheDir, root, fp)
 	fresh := ix == nil
 	if fresh {
 		var err error
@@ -644,15 +713,15 @@ func (s *Searcher) obtain(ctx context.Context, root string, files []fileInfo, fp
 			return nil, err
 		}
 	}
-	if s.opts.Semantic && ix.Sem == nil {
+	if o.Semantic && ix.Sem == nil {
 		ix.Sem = buildSemantic(ix)
 		fresh = true
 	}
-	fresh = s.embed(ctx, ix) || fresh
+	fresh = s.embed(ctx, o, emb, ix) || fresh
 	if fresh {
-		saveIndex(s.opts.CacheDir, ix)
+		saveIndex(o.CacheDir, ix)
 	}
-	if !s.opts.Semantic {
+	if !o.Semantic {
 		ix.Sem = nil
 	}
 	return ix, nil
@@ -661,23 +730,23 @@ func (s *Searcher) obtain(ctx context.Context, root string, files []fileInfo, fp
 // embed gets the vectors of ix from the embeddings endpoint when the settings name one and the index
 // does not hold them already, and says whether it changed the index. The vectors of another model
 // are dropped. A failure leaves the index without them and is remembered as the warning.
-func (s *Searcher) embed(ctx context.Context, ix *Index) bool {
-	id := s.opts.embedID()
-	if s.embedder == nil {
+func (s *Searcher) embed(ctx context.Context, o Options, emb Embedder, ix *Index) bool {
+	id := o.embedID()
+	if emb == nil {
 		ix.EmbedID, ix.Emb = "", nil
 		return false
 	}
 	if ix.EmbedID == id && ix.Emb != nil {
 		return false
 	}
-	vecs, err := embedChunks(ctx, ix, s.embedder)
+	vecs, err := embedChunks(ctx, ix, emb)
 	if err != nil {
 		s.warn(err)
 		ix.EmbedID, ix.Emb = "", nil
 		return false
 	}
 	ix.EmbedID, ix.Emb = id, vecs
-	s.warning = ""
+	s.setWarning("")
 	return true
 }
 

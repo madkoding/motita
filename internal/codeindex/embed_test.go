@@ -150,7 +150,7 @@ func TestEmbeddingsAreCappedAndSkippedWithoutAnEndpoint(t *testing.T) {
 	if _, err := plain.Search(context.Background(), root, "roll", 3); err != nil || plain.byAt[root].Emb != nil {
 		t.Errorf("no endpoint, no vectors: %v", err)
 	}
-	if plain.embed(context.Background(), plain.byAt[root]) {
+	if plain.embed(context.Background(), plain.opts, plain.embedder, plain.byAt[root]) {
 		t.Error("nothing to embed")
 	}
 }
