@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 
@@ -17,6 +18,13 @@ func TestRunsDoNotGrowWhatWasNotApplied(t *testing.T) {
 	}
 	defer box.Close()
 
+	// The platform's warnings are recorded, once.
+	_, warnings := childAttributes(Limits{}, false, 0, 0)
+	for _, w := range warnings {
+		if !slices.Contains(box.NotApplied(), w) {
+			t.Errorf("NotApplied %q is missing the platform warning %q", box.NotApplied(), w)
+		}
+	}
 	before := len(box.NotApplied())
 	cmd, args := echoCommand("hi")
 	var wg sync.WaitGroup

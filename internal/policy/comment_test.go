@@ -80,4 +80,8 @@ func TestACommentIsReadWhereShReadsOne(t *testing.T) {
 	if main, docs := splitHeredocs("cat <<EOF #'\nbody\nEOF\nls"); main != "cat <<EOF #'\nls" || len(docs) != 1 {
 		t.Errorf("a comment after a heredoc operator: main %q docs %+v", main, docs)
 	}
+	// Inside `${...}` a `#` is text, so the `<<` after it still opens a heredoc.
+	if _, docs := splitHeredocs("cat ${x:- #} <<EOF\nbody\nEOF"); len(docs) != 1 {
+		t.Errorf("a `#` inside ${...} was read as a comment: docs %+v", docs)
+	}
 }
