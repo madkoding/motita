@@ -64,19 +64,25 @@ func globRegexp(glob string, anchored bool) string {
 		case c == '?':
 			sb.WriteString("[^/]")
 		case c == '[':
-			end := strings.IndexByte(glob[i:], ']')
-			if end < 0 {
-				sb.WriteString(`\[`)
-				continue
-			}
-			sb.WriteString(strings.Replace(glob[i:i+end+1], "[!", "[^", 1))
-			i += end
+			class, width := bracketClass(glob[i:])
+			sb.WriteString(class)
+			i += width - 1
 		default:
 			sb.WriteString(regexp.QuoteMeta(string(c)))
 		}
 	}
 	sb.WriteString("$")
 	return sb.String()
+}
+
+// bracketClass turns the character class at the start of glob into a regexp class and says how many
+// bytes of glob it used. A bracket that is never closed is a plain character.
+func bracketClass(glob string) (string, int) {
+	end := strings.IndexByte(glob, ']')
+	if end < 0 {
+		return `\[`, 1
+	}
+	return strings.Replace(glob[:end+1], "[!", "[^", 1), end + 1
 }
 
 // ignores holds the .gitignore rules of the folders walked so far, by folder relative to the root.
