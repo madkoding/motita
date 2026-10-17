@@ -46,6 +46,9 @@ type securityView struct {
 	// page says so.
 	IsolateNetwork  bool `json:"isolate_network"`
 	NetworkEnforced bool `json:"network_enforced"`
+	// AutoApplySuggestions says the suggestions of a finished task are applied without asking
+	// (agent.auto_apply_suggestions).
+	AutoApplySuggestions bool `json:"auto_apply_suggestions"`
 	// NetworkReason says why it cannot, and NetworkHint what would make it possible, when there is
 	// one (Ubuntu 24.04: the AppArmor profile motita installs). Both are empty where it can.
 	NetworkReason string `json:"network_reason,omitempty"`
@@ -58,28 +61,35 @@ type securityChange struct {
 	DiskAccess        string `json:"disk_access"`
 	AskUnconfinedRuns *bool  `json:"ask_unconfined_runs"`
 	IsolateNetwork    *bool  `json:"isolate_network"`
-	Confirm           bool   `json:"confirm"`
+	// AutoApplySuggestions turns on applying every suggestion without asking.
+	AutoApplySuggestions *bool `json:"auto_apply_suggestions"`
+	Confirm              bool  `json:"confirm"`
 }
 
-// widens says whether the change turns off asking or the network isolation: what needs confirm.
+// widens says whether the change turns off asking or the network isolation, or turns on applying
+// suggestions without asking: what needs confirm.
 func (c securityChange) widens() bool {
-	return (c.AskUnconfinedRuns != nil && !*c.AskUnconfinedRuns) || (c.IsolateNetwork != nil && !*c.IsolateNetwork)
+	return (c.AskUnconfinedRuns != nil && !*c.AskUnconfinedRuns) ||
+		(c.IsolateNetwork != nil && !*c.IsolateNetwork) ||
+		(c.AutoApplySuggestions != nil && *c.AutoApplySuggestions)
 }
 
 // refusal is why the change cannot be made as sent ("" when it can); mode is its disk access,
 // normalised.
 func (c securityChange) refusal(mode string) string {
 	switch {
-	case mode == "" && c.AskUnconfinedRuns == nil && c.IsolateNetwork == nil:
-		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, or several"
+	case mode == "" && c.AskUnconfinedRuns == nil && c.IsolateNetwork == nil && c.AutoApplySuggestions == nil:
+		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, " +
+			"auto_apply_suggestions, or several"
 	case mode != "" && !config.ValidDiskAccess(mode):
 		return "disk_access must be workspace or full"
 	case mode == config.DiskFull && !c.Confirm:
 		return "giving the agent the whole disk needs confirm: true, " +
 			"sent after the person has been told what the change means"
 	case c.widens() && !c.Confirm:
-		return "running the project's code without asking where nothing confines it, or giving the " +
-			"commands the network, needs confirm: true, sent after the person has been told what the change means"
+		return "running the project's code without asking where nothing confines it, giving the " +
+			"commands the network, or applying suggestions without asking needs confirm: true, " +
+			"sent after the person has been told what the change means"
 	default:
 		return ""
 	}
@@ -95,6 +105,11 @@ type unconfinedRunsSetter interface {
 	SetAskUnconfinedRuns(ask bool)
 }
 
+// autoApplySetter is a service that can take the auto-apply choice for its next report.
+type autoApplySetter interface {
+	SetAutoApplySuggestions(on bool)
+}
+
 // diskAccessSetter is a service that can take a new disk access for its next command.
 type diskAccessSetter interface {
 	SetDiskAccess(mode string)
@@ -106,6 +121,7 @@ var (
 	setDiskAccess        = config.Tx.SetDiskAccess
 	setAskUnconfinedRuns = config.Tx.SetAskUnconfinedRuns
 	setIsolateNetwork    = config.Tx.SetIsolateNetwork
+	setAutoApply         = config.Tx.SetAutoApplySuggestions
 	confinementAvailable = sandbox.ConfinementAvailable
 	networkAvailable     = sandbox.NetworkIsolationAvailable
 	networkReason        = sandbox.NetworkIsolationReason
@@ -141,6 +157,8 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 		AskUnconfinedRuns: cfg.Sandbox.AskUnconfinedRuns,
 		IsolateNetwork:    cfg.Sandbox.IsolateNetwork,
 		NetworkEnforced:   networkAvailable(),
+
+		AutoApplySuggestions: cfg.Agent.AutoApplySuggestions,
 	}
 	if !view.NetworkEnforced {
 		view.NetworkReason, view.NetworkHint = networkReason(), networkHint()
@@ -203,6 +221,12 @@ func (s *Server) saveSecurity(mode string, change securityChange) error {
 		}
 		s.info("the network isolation of the commands was changed from the settings", "isolate_network", *on)
 	}
+	if on := change.AutoApplySuggestions; on != nil {
+		for _, c := range s.snapshot() {
+			applyAutoApply(c.svc, *on)
+		}
+		s.info("applying suggestions without asking was changed from the settings", "auto_apply_suggestions", *on)
+	}
 	return nil
 }
 
@@ -220,7 +244,12 @@ func writeSecurityKeys(tx config.Tx, mode string, change securityChange) error {
 		}
 	}
 	if on := change.IsolateNetwork; on != nil {
-		return setIsolateNetwork(tx, *on)
+		if err := setIsolateNetwork(tx, *on); err != nil {
+			return err
+		}
+	}
+	if on := change.AutoApplySuggestions; on != nil {
+		return setAutoApply(tx, *on)
 	}
 	return nil
 }
@@ -235,6 +264,14 @@ func (s *Server) startingDiskAccess(svc Service) {
 		applyDiskAccess(svc, cfg.Sandbox.DiskAccess)
 		applyAskUnconfinedRuns(svc, cfg.Sandbox.AskUnconfinedRuns)
 		applyIsolateNetwork(svc, cfg.Sandbox.IsolateNetwork)
+		applyAutoApply(svc, cfg.Agent.AutoApplySuggestions)
+	}
+}
+
+// applyAutoApply gives svc the auto-apply choice, when it can take one.
+func applyAutoApply(svc Service, on bool) {
+	if as, ok := svc.(autoApplySetter); ok {
+		as.SetAutoApplySuggestions(on)
 	}
 }
 

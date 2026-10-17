@@ -184,6 +184,7 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_AGENT_READ_ONLY", &c.Agent.ReadOnly},
 		{"MOTITA_AGENT_AUTO_MODE_RULES_ONLY", &c.Agent.AutoModeRulesOnly},
 		{"MOTITA_AGENT_AUTO_MODE_ASK_ALL_SUGGESTIONS", &c.Agent.AutoModeAskAllSuggestions},
+		{"MOTITA_AGENT_AUTO_APPLY_SUGGESTIONS", &c.Agent.AutoApplySuggestions},
 		{"MOTITA_AGENT_POLICY_ENFORCE", &c.Agent.Policy.Enforce},
 		{"MOTITA_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
 		{"MOTITA_GATEWAY_ENABLED", &c.Gateway.Enabled},

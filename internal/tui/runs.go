@@ -205,18 +205,18 @@ func (t *TUI) openAskIfPending() {
 	// In auto mode the suggestions whose answer is obvious are not asked about: they are applied,
 	// alone when nothing else is left, or with whatever the user accepts from the rest.
 	var needed []agent.AskItem
-	if t.autoTurn {
+	if t.autoTurn || agent.AutoApplies(items) {
 		needed, items = agent.SplitNeeded(items)
 	}
 	if len(items) == 0 {
-		t.addMessage(AuthorSystem, t.tr("Applied without asking, they are needed:")+"\n"+neededMarks(needed))
+		t.addMessage(AuthorSystem, t.tr(appliedLead(needed))+"\n"+neededMarks(needed))
 		t.submitProposals(&askState{needed: needed})
 		return
 	}
 	t.ask = newAsk(items, origin)
 	t.ask.needed = needed
 	if len(needed) > 0 {
-		t.addMessage(AuthorSystem, t.tr("Applied without asking, they are needed:")+"\n"+neededMarks(needed))
+		t.addMessage(AuthorSystem, t.tr(appliedLead(needed))+"\n"+neededMarks(needed))
 	}
 	// The cursor lands on the first question that needs an answer, which on a fresh window is
 	// the first one.
@@ -545,12 +545,25 @@ func (t *TUI) suspendForWizard(ctx context.Context) error {
 	return err
 }
 
+// appliedLead is the line that introduces the suggestions applied without asking: because the
+// settings apply every one, or because auto mode found them needed.
+func appliedLead(applied []agent.AskItem) string {
+	if agent.AutoApplies(applied) {
+		return "Applied without asking, as the settings say:"
+	}
+	return "Applied without asking, they are needed:"
+}
+
 // neededMarks is each suggestion auto mode applies on its own, with the reason it is needed, so
 // the decision taken for the user can be checked.
 func neededMarks(needed []agent.AskItem) string {
 	lines := make([]string, 0, len(needed))
 	for _, it := range needed {
-		lines = append(lines, "✓ "+EscapeControls(it.Text)+" ("+EscapeControls(it.Why)+")")
+		line := "✓ " + EscapeControls(it.Text)
+		if it.Why != "" {
+			line += " (" + EscapeControls(it.Why) + ")"
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }

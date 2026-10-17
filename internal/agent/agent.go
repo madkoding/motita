@@ -400,6 +400,9 @@ type AskItem struct {
 	// Why says what makes it needed.
 	Needed bool   `json:"needed,omitempty"`
 	Why    string `json:"why,omitempty"`
+	// AutoApply marks a proposal the configuration applies without asking, in any mode
+	// (agent.auto_apply_suggestions), whether or not it is needed.
+	AutoApply bool `json:"auto_apply,omitempty"`
 }
 
 // Kinds of message the analysis can report.

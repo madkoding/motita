@@ -1,6 +1,26 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/madkoding/motita/internal/i18n"
+)
+
+// ProposalLead is the sentence that opens the turn applying accepted proposals, in English; the
+// interfaces send it in their own language.
+const ProposalLead = "Apply these suggestions you made, and nothing else:"
+
+// IsApplyingTurn says a task is the turn that applies accepted proposals, in either language.
+// Its own suggestions are never applied on their own, so applying cannot chain into more of itself.
+func IsApplyingTurn(description string) bool {
+	d := strings.TrimSpace(description)
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ES} {
+		if strings.HasPrefix(d, i18n.T(lang, ProposalLead)) {
+			return true
+		}
+	}
+	return false
+}
 
 // The answers every proposal offers, in the order the interface shows them.
 //
@@ -36,6 +56,8 @@ func ProposalItems(rep *Report) []AskItem {
 			Proposal: true,
 			Needed:   s.Needed,
 			Why:      s.WhyNeeded,
+			// Every proposal of the report: the setting applies them all or none.
+			AutoApply: rep.AutoApply,
 		})
 	}
 	return items
@@ -49,12 +71,24 @@ func (r *Report) askAllSuggestions() {
 	}
 }
 
+// AutoApplies says the proposals among items are applied without asking whatever the mode, because
+// the configuration turns every suggestion into an applied one (agent.auto_apply_suggestions).
+func AutoApplies(items []AskItem) bool {
+	for _, it := range items {
+		if it.Proposal && it.AutoApply {
+			return true
+		}
+	}
+	return false
+}
+
 // SplitNeeded separates the proposals auto mode applies on its own from the ones it still asks
 // about, each in its original order. Items that are not proposals (questions about the request)
-// are never needed: a question is asked because the answer is not obvious.
+// are never needed: a question is asked because the answer is not obvious. A proposal the
+// configuration applies without asking (AutoApply) is taken whether or not it is needed.
 func SplitNeeded(items []AskItem) (needed, rest []AskItem) {
 	for _, it := range items {
-		if it.Proposal && it.Needed {
+		if it.Proposal && (it.Needed || it.AutoApply) {
 			needed = append(needed, it)
 		} else {
 			rest = append(rest, it)

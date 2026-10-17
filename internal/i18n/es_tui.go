@@ -278,7 +278,8 @@ var esTUI = map[string]string{
 		"escribes",
 
 	// Auto mode applying the suggestions whose answer is obvious.
-	"Applied without asking, they are needed:": "Se aplican sin preguntar, son necesarias:",
+	"Applied without asking, they are needed:":     "Se aplican sin preguntar, son necesarias:",
+	"Applied without asking, as the settings say:": "Se aplican sin preguntar, como dicen los ajustes:",
 
 	// The phase lines an agent reports, as the agents panel shows them.
 	"analysing the task...":                 "analizando la tarea...",

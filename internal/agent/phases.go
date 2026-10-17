@@ -135,6 +135,9 @@ func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string,
 	if a.cfg.Agent.AutoModeAskAllSuggestions {
 		rep.askAllSuggestions()
 	}
+	// Not on the turn that applies suggestions: its own are asked about, so this cannot chain.
+	rep.AutoApply = a.cfg.Agent.AutoApplySuggestions && len(rep.Suggestions) > 0 &&
+		!IsApplyingTurn(t.Description)
 	if rep.Summary == "" {
 		return nil
 	}

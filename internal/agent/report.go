@@ -40,6 +40,10 @@ type Report struct {
 	// change, a missing test, an alternative worth weighing. They are proposals, never applied
 	// on their own: the interface asks the user, one by one, whether to apply each.
 	Suggestions []ReportSuggestion `json:"suggestions"`
+	// AutoApply says the configuration applies every suggestion without asking
+	// (agent.auto_apply_suggestions) as of this report: the interface starts the applying turn on
+	// its own. It is stamped by the synthesis, never written by the model.
+	AutoApply bool `json:"auto_apply,omitempty"`
 }
 
 // ReportSuggestion is one proposal the user decides on.

@@ -513,7 +513,7 @@ func (t *TUI) submitProposals(a *askState) {
 }
 
 // proposalLead opens the turn that applies accepted suggestions, in the interface's language.
-const proposalLead = "Apply these suggestions you made, and nothing else:"
+const proposalLead = agent.ProposalLead
 
 // proposalMarks is each suggestion with what was decided for it: ✓ applied, ✗ not applied, or the
 // user's own words when they typed an answer.
