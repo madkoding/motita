@@ -20,6 +20,7 @@ for (const [how, m] of copies) {
         engine: "",
         listener: "",
         language: "",
+        sendAfter: 3,
       });
       localStorage.setItem(
         m.VOICE_KEY,
@@ -32,6 +33,7 @@ for (const [how, m] of copies) {
         engine: "",
         listener: "",
         language: "",
+        sendAfter: 3,
       });
       let told = 0;
       const onPrefs = () => told++;

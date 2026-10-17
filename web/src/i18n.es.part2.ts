@@ -561,6 +561,11 @@ const more: Record<string, string> = {
   Processor: "Procesador",
   "on the graphics card": "en la tarjeta gráfica",
   Recommended: "Recomendado",
+  "Send after silence": "Enviar tras el silencio",
+  "After the wake phrase, what you say joins the message and it is sent once you stop talking for this long.":
+    "Tras la frase de activación, lo que digas se suma al mensaje y se envía cuando dejas de hablar este tiempo.",
+  "Never: I send it myself": "Nunca: lo envío yo",
+  "{n} seconds": "{n} segundos",
   "Not loaded yet.": "Todavía no está cargado.",
   "Running on WebGPU.": "Corre en WebGPU.",
   "Running on the processor: WebGPU could not start.":

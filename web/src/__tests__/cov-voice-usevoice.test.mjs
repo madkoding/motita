@@ -114,7 +114,8 @@ globalThis.caches = {};
 // The device's own voice, which hands-free listening must not take for the person.
 globalThis.speechSynthesis = { speaking: false };
 
-const { useVoice, AUTO_SEND_MS } = await source("useVoice.ts");
+const { useVoice } = await source("useVoice.ts");
+const AUTO_SEND_MS = 3000;
 const { useVoiceConversation } = await source("useVoiceConversation.ts");
 const { SPEECH_TURN_READ_EVENT, SPEECH_STOP_EVENT } =
   await import("../speech.ts");
@@ -298,6 +299,7 @@ test("the switches are saved, and the page follows a change made elsewhere", asy
     engine: "",
     listener: "",
     language: "",
+    sendAfter: 3,
   });
   assert.equal(v.s.voice.showMic, false);
   await act(() =>

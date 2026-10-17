@@ -124,6 +124,7 @@ async function mount(prefs = {}, info = null) {
       engine: "",
       listener: "",
       language: "",
+      sendAfter: 3,
       ...prefs,
     },
   };
@@ -503,4 +504,26 @@ test("the status says where the model runs, how long the last recording took, an
   assert.equal(adviceFor("whisper-base", false, undefined), "");
   assert.equal(adviceFor("whisper-base", false, { ...slow, took: 2000 }), "");
   assert.equal(adviceFor("whisper-small-gpu", true, slow), "");
+});
+
+test("the seconds of silence that send a wake phrase's message are chosen in the settings", async () => {
+  const m = await mount({}, null);
+  const select = m.tid("voice-send-after");
+  assert.equal(select.value, "3");
+  assert.deepEqual(
+    [...select.options].map((o) => o.textContent),
+    [
+      "Never: I send it myself",
+      "2 seconds",
+      "3 seconds",
+      "5 seconds",
+      "8 seconds",
+      "12 seconds",
+    ],
+  );
+  await pick(select, "8");
+  assert.equal(m.box.prefs.sendAfter, 8);
+  await pick(m.tid("voice-send-after"), "0");
+  assert.equal(m.box.prefs.sendAfter, 0);
+  await m.done();
 });

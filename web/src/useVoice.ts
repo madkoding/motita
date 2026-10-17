@@ -23,6 +23,7 @@ import {
   type VoicePrefs,
   VOICE_PREFS_EVENT,
   SpeechGate,
+  WakeMessage,
   appendText,
   audioConstraints,
   browserSupport,
@@ -49,9 +50,6 @@ const MAX_DICTATION_MS = 120_000;
 // starts a fresh recording (so a phrase is never sent with minutes of quiet in front of it).
 const FRAME_MS = 50;
 const IDLE_RESTART_MS = 4000;
-// How long after the last words that followed a wake phrase the composer is sent by itself: the
-// silence that says nothing more is coming. Anything said before then joins the message.
-export const AUTO_SEND_MS = 3000;
 // How long conversation mode waits for the person to start speaking before it stops listening.
 const NOTHING_HEARD_MS = 8000;
 
@@ -301,9 +299,11 @@ function useHandsFree({
   phaseRef,
   heard,
   submit,
+  sendAfter,
 }: Pick<MicRefs, "hear" | "deviceId" | "fail" | "phaseRef" | "heard"> & {
   active: boolean;
   submit: () => void;
+  sendAfter: number;
   setInput: Deps["setInput"];
   setToast: SetToast;
   setListening: Dispatch<StateUpdater<boolean>>;
@@ -321,13 +321,8 @@ function useHandsFree({
       done: Promise<Blob>;
       at: number;
     } | null = null;
-    // sendAt is when the composer is sent: set by a wake phrase, pushed back by every phrase that
-    // follows it, 0 while no wake phrase is waiting for its message to end. phrases counts the
-    // ones still being written down.
-    let sendAt = 0;
-    let phrases = 0;
-    // added says words reached the composer since the wake phrase: a wake phrase alone sends nothing.
-    let added = false;
+    // msg is the message a wake phrase opened: it grows with what follows and ends in silence.
+    const msg = new WakeMessage(sendAfter);
 
     const restart = () => {
       if (current && current.recorder.state !== "inactive") {
@@ -339,20 +334,13 @@ function useHandsFree({
       }
     };
     const send = async (audio: Promise<Blob>) => {
-      phrases++;
+      msg.begin();
       try {
         const r = await hear(await audio, true);
-        // After a wake phrase the message goes on with whatever is said, wake phrase or not.
-        const said = choose(
-          !!r.wake,
-          r.wake?.rest ?? "",
-          choose(sendAt > 0, r.text, ""),
-        );
-        if (!stopped && (r.wake || (sendAt > 0 && said.trim()))) {
+        const said = msg.hear(r, performance.now());
+        if (!stopped && said !== null) {
           heard.current = true;
           setInput((cur) => appendText(cur, said));
-          added = added || said.trim() !== "";
-          sendAt = performance.now() + AUTO_SEND_MS;
           if (r.wake) {
             setToast({
               message: tf("Heard “{phrase}”", { phrase: r.wake.phrase }),
@@ -364,7 +352,7 @@ function useHandsFree({
       } catch (e) {
         fail(e);
       } finally {
-        phrases--;
+        msg.end();
       }
     };
 
@@ -410,18 +398,8 @@ function useHandsFree({
           void send(done);
           return;
         }
-        if (
-          sendAt > 0 &&
-          now >= sendAt &&
-          phrases === 0 &&
-          !gate.speaking &&
-          phaseRef.current === "idle"
-        ) {
-          sendAt = 0;
-          if (added) {
-            submit();
-          }
-          added = false;
+        if (phaseRef.current === "idle" && msg.ended(now, gate.speaking)) {
+          submit();
         }
         if (
           ev === "discard" ||
@@ -444,7 +422,7 @@ function useHandsFree({
       void ctx?.close();
       setListening(false);
     };
-  }, [active, hear, deviceId, fail, setInput, setToast, submit]);
+  }, [active, hear, deviceId, fail, setInput, setToast, submit, sendAfter]);
 }
 
 // useHear is the listener chosen: a model run in this browser, or the transcription service. What
@@ -621,6 +599,7 @@ export function useVoice({ api, authed, setInput, setToast, send }: Deps) {
     phaseRef,
     heard,
     submit,
+    sendAfter: prefs.sendAfter,
   });
 
   return {
