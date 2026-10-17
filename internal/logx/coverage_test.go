@@ -2,6 +2,7 @@ package logx
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,24 @@ func TestUnserialisableFieldDegrades(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "it must not be lost") {
 		t.Errorf("the message was lost: %q", lines[0])
+	}
+}
+
+// TestUnserialisableFieldKeepsRedaction: the plain-text fallback masks a secret in the message, as
+// every other path does.
+func TestUnserialisableFieldKeepsRedaction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "odd3.log")
+	l, err := New(Options{Path: path, Level: Debug, Console: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Info("calling with Authorization: Bearer abcdefghijklmnop", "ratio", math.NaN())
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lines := readLines(t, path)
+	if len(lines) != 1 || strings.Contains(lines[0], "abcdefghijklmnop") || !strings.Contains(lines[0], "could not serialize") {
+		t.Errorf("the fallback leaked the secret or lost the line: %v", lines)
 	}
 }
 
