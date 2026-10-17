@@ -568,7 +568,7 @@ const more: Record<string, string> = {
   "The local listener took too long and was stopped.":
     "La transcripción local tardó demasiado y se detuvo.",
   On: "Encendido",
-  "Code search": "Búsqueda en el código",
+  "Code": "Código",
   "Search the workspace": "Buscar en el espacio de trabajo",
   "Motita reads the folder once and answers with passages instead of whole files.":
     "Motita lee la carpeta una vez y responde con pasajes en vez de archivos enteros.",
