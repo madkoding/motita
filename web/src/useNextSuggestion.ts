@@ -3,6 +3,7 @@
 // usual hint, and nothing here touches the run or the conversation.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { lang } from "./i18n";
+import { loadNextHint } from "./settings";
 import type { Api } from "./prApi";
 import type { Message } from "./appTypes";
 import { JSON_HEADERS, SESSIONS_PATH } from "./appConst";
@@ -12,7 +13,7 @@ import { lastAnswer, requestOf, spokenText } from "./useSpeech";
 export async function nextSuggestion(
   api: Api,
   sessionId: string,
-  body: { request: string; answer: string },
+  body: { request: string; answer: string; files?: string[] },
 ): Promise<string> {
   const res = await api(
     SESSIONS_PATH + encodeURIComponent(sessionId) + "/next-suggestion",
@@ -62,7 +63,7 @@ export function useNextSuggestion({
       return;
     }
     const answer = lastAnswer(messagesRef.current);
-    if (!ended || !api || !answer) {
+    if (!ended || !api || !answer || !loadNextHint()) {
       return;
     }
     generation.current += 1;
@@ -70,6 +71,7 @@ export function useNextSuggestion({
     nextSuggestion(api, sessionId, {
       request: requestOf(messagesRef.current, answer.id),
       answer: spokenText(answer),
+      files: (answer.changes?.files || []).map((f) => f.path),
     }).then(
       (text) => {
         if (mine === generation.current) {

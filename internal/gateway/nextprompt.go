@@ -20,6 +20,8 @@ const (
 	nextTimeout    = 20 * time.Second
 	nextMaxRequest = 1000
 	nextMaxAnswer  = 4000
+	nextMaxFiles   = 10
+	nextMaxFile    = 200
 )
 
 // nextRequest is the body of POST /v1/sessions/{id}/next-suggestion.
@@ -30,6 +32,8 @@ type nextRequest struct {
 	Request string `json:"request"`
 	// Answer is the agent's written answer to it.
 	Answer string `json:"answer"`
+	// Files are the paths the turn changed, to make the suggestion specific.
+	Files []string `json:"files"`
 }
 
 // nextSuggestion is what the endpoint answers. An empty text means nothing is worth suggesting.
@@ -54,6 +58,7 @@ func nextPrompt(b nextRequest) (string, error) {
 	}
 	return "<request>\n" + clip(b.Request, nextMaxRequest) + "\n</request>\n\n" +
 		"<written_answer>\n" + answer + "\n</written_answer>\n\n" +
+		"<changed_files>\n" + bulleted(lastN(b.Files, nextMaxFiles, nextMaxFile)) + "\n</changed_files>\n\n" +
 		"The agent finished the request above. Write the single most useful thing the person " +
 		"could ask it next.", nil
 }

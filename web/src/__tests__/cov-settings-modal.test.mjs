@@ -304,6 +304,15 @@ test("appearance: the language when the page offers it, and the font size and de
     density: "comfortable",
   });
   assert.equal(radio("settings-font", "small").checked, true);
+  // The hint of the next request is on until it is switched off.
+  const hint = m.root.querySelector("[aria-labelledby=settings-next-hint]");
+  assert.equal(hint.checked, true);
+  hint.click();
+  await settle();
+  assert.equal(localStorage.getItem("motita.ui.nextHint"), "off");
+  hint.click();
+  await settle();
+  assert.equal(localStorage.getItem("motita.ui.nextHint"), "on");
   await m.unmount();
 
   // Without a language choice the row is left out.

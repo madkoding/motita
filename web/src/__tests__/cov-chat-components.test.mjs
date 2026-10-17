@@ -94,6 +94,22 @@ test("after a turn the empty field hints at the next request, unless tags are on
     },
   });
   assert.equal(tagged.q("textarea#task").placeholder, "argument…");
+  assert.equal(tagged.q("[data-testid=use-suggestion]") !== null, true);
+});
+
+test("the arrow button takes the suggestion, and goes away once there is text", async () => {
+  const c = await composer({
+    composer: {
+      nextSuggestion: "Add tests",
+      setInput: (v) => c.calls.push(["setInput", v]),
+    },
+  });
+  c.q("[data-testid=use-suggestion]").click();
+  assert.deepEqual(c.calls, [["setInput", "Add tests"]]);
+  const typed = await composer({
+    composer: { nextSuggestion: "Add tests", input: "hi" },
+  });
+  assert.equal(typed.q("[data-testid=use-suggestion]"), null);
 });
 
 test("an empty composer asks for something and sends", async () => {

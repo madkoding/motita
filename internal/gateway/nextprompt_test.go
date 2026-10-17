@@ -25,12 +25,12 @@ func TestNextSuggestionAsksTheModelInTheInterfaceLanguage(t *testing.T) {
 	svc := &narrateService{fakeService: &fakeService{}}
 	srv := newTestServer(t, svc)
 	svc.out = "\"**Agrega** tests para el parser.\"\n"
-	code, text := nextSuggest(t, srv, `{"lang":"es","request":"arregla el parser","answer":"Listo, corregido."}`)
+	code, text := nextSuggest(t, srv, `{"lang":"es","request":"arregla el parser","answer":"Listo, corregido.","files":["parser.go"]}`)
 	if code != http.StatusOK || text != "Agrega tests para el parser" {
 		t.Fatalf("got %d %q", code, text)
 	}
 	if !strings.Contains(svc.system, "Spanish") || !strings.Contains(svc.user, "arregla el parser") ||
-		!strings.Contains(svc.user, "Listo, corregido.") {
+		!strings.Contains(svc.user, "Listo, corregido.") || !strings.Contains(svc.user, "- parser.go") {
 		t.Errorf("prompt:\n%s\n%s", svc.system, svc.user)
 	}
 }

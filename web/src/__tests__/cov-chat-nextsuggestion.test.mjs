@@ -10,7 +10,15 @@ const { useNextSuggestion, nextSuggestion } = await load(
 
 const MESSAGES = [
   { id: 1, role: "user", text: "fix the parser" },
-  { id: 2, role: "agent", text: "Fixed.", report: { summary: "Parser fixed" } },
+  {
+    id: 2,
+    role: "agent",
+    text: "Fixed.",
+    report: { summary: "Parser fixed" },
+    changes: {
+      files: [{ path: "parser.go", status: "M", added: 1, deleted: 0 }],
+    },
+  },
 ];
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
@@ -60,6 +68,7 @@ test("a finished turn gets a suggestion, and the next turn drops it", async () =
   assert.equal(hook.result.current, "Add tests");
   assert.deepEqual(api.calls[0].body.request, "fix the parser");
   assert.equal(api.calls[0].body.answer, "Parser fixed");
+  assert.deepEqual(api.calls[0].body.files, ["parser.go"]);
   await hook.rerender({
     api,
     sessionId: "s1",
@@ -67,6 +76,23 @@ test("a finished turn gets a suggestion, and the next turn drops it", async () =
     messages: MESSAGES,
   });
   assert.equal(hook.result.current, "");
+  await hook.unmount();
+});
+
+test("the settings switch turns the suggestion off", async () => {
+  localStorage.setItem("motita.ui.nextHint", "off");
+  const api = fakeApi(() => json({ text: "Add tests" }));
+  const hook = await mountWith(api, { running: true });
+  await hook.rerender({
+    api,
+    sessionId: "s1",
+    running: false,
+    messages: MESSAGES,
+  });
+  await settle();
+  assert.equal(api.calls.length, 0);
+  assert.equal(hook.result.current, "");
+  localStorage.removeItem("motita.ui.nextHint");
   await hook.unmount();
 });
 
@@ -133,4 +159,19 @@ test("no api, no answer, or an answer that arrives after the session moved on", 
   await settle();
   assert.equal(hook.result.current, "");
   await hook.unmount();
+});
+
+test("an answer that changed nothing sends no files", async () => {
+  for (const changes of [undefined, {}]) {
+    const api = fakeApi(() => json({ text: "Next" }));
+    const messages = [
+      MESSAGES[0],
+      { id: 2, role: "agent", text: "Done.", changes },
+    ];
+    const hook = await mountWith(api, { running: true, messages });
+    await hook.rerender({ api, sessionId: "s1", running: false, messages });
+    await settle();
+    assert.deepEqual(api.calls[0].body.files, []);
+    await hook.unmount();
+  }
 });

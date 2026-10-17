@@ -285,6 +285,18 @@ export function Composer() {
           class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 composer-input font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
+      {composer.nextSuggestion && input === "" && !isMerged && (
+        <button
+          type="button"
+          class="flex-none px-2.5 rounded-xl text-sm text-[#e8e8ea] bg-white/5 hover:bg-white/10 border border-white/5"
+          aria-label={t("Use the suggestion")}
+          title={composer.nextSuggestion}
+          data-testid="use-suggestion"
+          onClick={() => composer.setInput(composer.nextSuggestion)}
+        >
+          →
+        </button>
+      )}
       {voice.showMic && <MicButton disabled={isMerged} />}
       <SendButton disabled={rs.running || isMerged} />
     </form>
