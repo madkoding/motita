@@ -92,22 +92,25 @@ function SwitchRow({
   hint,
   value,
   disabled,
-  onChange,
+  field,
+  save,
 }: {
   id: string;
   label: string;
   hint: string;
   value: boolean;
   disabled: boolean;
-  onChange: (on: boolean) => void;
+  field: "enabled" | "semantic" | "embeddings_auto";
+  save: (c: CodeIndexChange) => Promise<void>;
 }) {
+  const onChange = (v: OnOff) => void save({ [field]: v === "on" });
   return (
     <Row id={id} label={label} hint={hint} stack>
       <Segmented<OnOff>
         name={id}
         labelledBy={id}
         value={choose(value, "on", "off")}
-        onChange={(v) => onChange(v === "on")}
+        onChange={onChange}
         disabled={disabled}
         options={[
           { value: "on", label: t("On") },
@@ -152,6 +155,8 @@ function EndpointFields({
     submit(false);
   };
   const off = !view.can_save || busy;
+  const confirm = () => submit(true);
+  const cancel = () => setAsking(false);
   return (
     <>
       <Row
@@ -220,8 +225,8 @@ function EndpointFields({
           confirmLabel={t("Send my code there")}
           danger
           busy={busy}
-          onConfirm={() => submit(true)}
-          onCancel={() => setAsking(false)}
+          onConfirm={confirm}
+          onCancel={cancel}
         />
       )}
     </>
@@ -258,7 +263,8 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               )}
               value={view.enabled}
               disabled={off}
-              onChange={(enabled) => void save({ enabled })}
+              field="enabled"
+              save={save}
             />
             <SwitchRow
               id="settings-code-index-semantic"
@@ -266,7 +272,8 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               hint={t("Learned from your own code. No network.")}
               value={view.semantic}
               disabled={off}
-              onChange={(semantic) => void save({ semantic })}
+              field="semantic"
+              save={save}
             />
             <SwitchRow
               id="settings-code-index-auto"
@@ -276,7 +283,8 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               )}
               value={view.embeddings_auto}
               disabled={off}
-              onChange={(embeddings_auto) => void save({ embeddings_auto })}
+              field="embeddings_auto"
+              save={save}
             />
             <p
               class="settings-card-note text-xs text-[#7a7a8c]"
