@@ -23,6 +23,12 @@ func TestTheFloorHoldsOnEveryCommandPosition(t *testing.T) {
 		"if true; then rm -rf /; fi",
 		"while true; do rm -rf /; done",
 		"! rm -rf /",
+		"exec -a name rm -rf /",
+		"builtin eval rm -rf /",
+		"busybox rm -rf /",
+		"sh -c 'ls\nrm -rf /'",
+		"sh <<'EOF'\nrm -rf /\nEOF",
+		"cat <<'EOF' | bash\nrm -rf /\nEOF",
 	} {
 		for _, m := range []Mode{{}, {Enforce: true}} {
 			if d := m.DecideLine(line, "/tmp/ws"); d.Verdict != Deny || !d.Mandatory {
@@ -30,11 +36,16 @@ func TestTheFloorHoldsOnEveryCommandPosition(t *testing.T) {
 			}
 		}
 	}
-	// A line that only mentions the command, or a shell with no -c, is still not refused.
+	// A line that only mentions the command, or a shell with no -c, is still not refused. Nor is
+	// a newline inside a quote or a heredoc body that no shell runs.
 	for _, line := range []string{
 		"echo rm -rf /",
 		"bash script.sh",
 		"git commit -m 'drop rm -rf / from the docs'",
+		"git commit -m \"feat: x\n\nReboot the board after flashing.\"",
+		"echo 'a\nshutdown'",
+		"cat > a.py <<'EOF'\ninit()\nEOF",
+		"python3 - <<'EOF'\ninit()\nEOF",
 	} {
 		if d := (Mode{}).DecideLine(line, "/tmp/ws"); d.Mandatory {
 			t.Errorf("%q was refused by the floor (%s)", line, d.Reason)

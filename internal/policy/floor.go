@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -29,7 +30,50 @@ import (
 // either refuses it (the writers list) or asks about it (unclassified). False positives are
 // possible too, and they are the safe direction: the floor only ever refuses.
 func MandatoryInLine(line, dir string) (Decision, bool) {
-	return scanLine(line, dir)
+	if d, hit := scanLine(line, dir); hit {
+		return d, true
+	}
+	// sh also starts a command after a newline, but only one outside a quote, a comment and a
+	// heredoc body: `git commit -m "a\n\nreboot ..."` and `cat > f << EOF` + `init()` run no
+	// command. The segment reader knows where those are, so each of its commands is scanned too.
+	main, docs := splitHeredocs(line)
+	for _, seg := range lineSegments(main) {
+		if seg.redirect {
+			continue
+		}
+		if d, hit := scanLine(strings.Join(seg.words, " "), dir); hit {
+			return d, true
+		}
+		if d, hit := shellRuns(seg.words, docs, dir); hit {
+			return d, true
+		}
+	}
+	return Decision{}, false
+}
+
+// shellRuns scans, as lines of their own, what a shell named in a segment runs: the words after
+// it (the payload of `sh -c` or `eval`, quoted newlines included) and the heredoc bodies.
+func shellRuns(words []string, docs []heredoc, dir string) (Decision, bool) {
+	i := slices.IndexFunc(words, func(w string) bool {
+		name := baseName(unquote(w))
+		return isShellName(name) || name == "eval"
+	})
+	if i < 0 {
+		return Decision{}, false
+	}
+	texts := make([]string, 0, len(words)+len(docs))
+	for _, w := range words[i+1:] {
+		texts = append(texts, unquote(w))
+	}
+	for _, d := range docs {
+		texts = append(texts, d.body)
+	}
+	for _, text := range texts {
+		if d, hit := MandatoryInLine(text, dir); hit {
+			return d, true
+		}
+	}
+	return Decision{}, false
 }
 
 // floorPrograms are the programs the floor knows. It is the membership test for the scan,
@@ -53,7 +97,7 @@ var floorPrograms = map[string]bool{
 var commandWrappers = map[string]bool{
 	"sudo": true, "doas": true, "env": true, "nohup": true, "command": true,
 	"nice": true, "ionice": true, "time": true, "stdbuf": true, "setsid": true,
-	"exec": true, "eval": true,
+	"exec": true, "eval": true, "builtin": true, "busybox": true,
 }
 
 // nestedIntroducers open a command position in the MIDDLE of a segment, which is how xargs
@@ -99,10 +143,11 @@ func segments(line string) [][]string {
 // quote-aware tokeniser would hand the scan the single token `rm -rf /` whose program name
 // is none of the floor's. Keeping the separators is what lets the scan see that a line has a
 // second command — dropping them, as a plain field split does, makes `ls; rm -rf /` look
-// like one command called `ls` with five arguments. A newline is one of those separators.
+// like one command called `ls` with five arguments. A newline is a blank here: MandatoryInLine
+// finds the ones that start a command.
 func lineTokens(line string) []string {
 	fields := strings.FieldsFunc(line, func(r rune) bool {
-		return r == ' ' || r == '	'
+		return r == ' ' || r == '	' || r == '\n' || r == '\r'
 	})
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
@@ -142,7 +187,7 @@ var shellQuoting = strings.NewReplacer(`"`, "", `'`, "", `\`, "")
 
 func isSeparatorRune(r rune) bool {
 	switch r {
-	case ';', '|', '&', '(', ')', '`', '{', '}', '\n', '\r':
+	case ';', '|', '&', '(', ')', '`', '{', '}':
 		return true
 	default:
 		return false
@@ -156,7 +201,7 @@ func isSeparatorRune(r rune) bool {
 // that wrote to it, and the scan must not run its program name past it.
 func isSeparatorToken(token string) bool {
 	switch token {
-	case ";", "|", "&", "(", ")", "`", "{", "}", "&&", "||", "\n", "\r",
+	case ";", "|", "&", "(", ")", "`", "{", "}", "&&", "||",
 		">", ">>", "<", "<<", "<>", ">&", "<&":
 		return true
 	default:
@@ -311,6 +356,7 @@ var wrapperValueFlags = map[string]map[string]bool{
 	"time": {"-f": true, "--format": true, "-o": true, "--output": true},
 	"env": {"-u": true, "--unset": true, "-C": true, "--chdir": true,
 		"-S": true, "--split-string": true},
+	"exec": {"-a": true},
 	// `nohup` and `command` take no option with a value.
 }
 
