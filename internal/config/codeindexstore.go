@@ -84,15 +84,21 @@ func (t Tx) SetCodeIndex(c CodeIndexChange) error {
 	return nil
 }
 
+// same says a field the change leaves alone, or sets to what was loaded.
+func same[T comparable](set *T, loaded T) bool { return set == nil || *set == loaded }
+
 // appliedTo says the loaded block carries every field of the change.
 func (c CodeIndexChange) appliedTo(x CodeIndex) bool {
-	return (c.Enabled == nil || *c.Enabled == x.Enabled) &&
-		(c.Semantic == nil || *c.Semantic == x.Semantic) &&
-		(c.EmbeddingsAuto == nil || *c.EmbeddingsAuto == x.EmbeddingsAuto) &&
-		(c.EmbeddingsURL == nil || *c.EmbeddingsURL == x.EmbeddingsURL) &&
-		(c.EmbeddingsModel == nil || *c.EmbeddingsModel == x.EmbeddingsModel) &&
-		(c.MaxFileKB == nil || *c.MaxFileKB == x.MaxFileKB) &&
-		(c.MaxFiles == nil || *c.MaxFiles == x.MaxFiles)
+	for _, ok := range []bool{
+		same(c.Enabled, x.Enabled), same(c.Semantic, x.Semantic), same(c.EmbeddingsAuto, x.EmbeddingsAuto),
+		same(c.EmbeddingsURL, x.EmbeddingsURL), same(c.EmbeddingsModel, x.EmbeddingsModel),
+		same(c.MaxFileKB, x.MaxFileKB), same(c.MaxFiles, x.MaxFiles),
+	} {
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // IsLocalURL reports whether an http(s) address names this machine or the person's own network, the

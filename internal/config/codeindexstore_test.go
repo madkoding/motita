@@ -24,10 +24,14 @@ func TestSetCodeIndexWritesOnlyWhatChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg, err := LoadWithoutKey(path)
-	x := cfg.CodeIndex
-	if err != nil || x.Semantic || x.EmbeddingsAuto || x.EmbeddingsURL != "http://localhost:11434/v1" ||
-		x.EmbeddingsModel != "nomic-embed-text" || x.MaxFileKB != 64 || x.MaxFiles != 20 || !x.Enabled {
-		t.Fatalf("loaded = %+v, %v", x, err)
+	want := CodeIndex{
+		Enabled: true, EmbeddingsURL: "http://localhost:11434/v1", EmbeddingsModel: "nomic-embed-text",
+		MaxFileKB: 64, MaxFiles: 20,
+	}
+	got := cfg.CodeIndex
+	got.CacheDir = ""
+	if err != nil || got != want {
+		t.Fatalf("loaded = %+v, %v", got, err)
 	}
 	body, _ := os.ReadFile(path)
 	if !strings.Contains(string(body), "enabled: true # keep") || !strings.Contains(string(body), "provider: openai") {

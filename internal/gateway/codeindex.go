@@ -85,6 +85,18 @@ func (c codeIndexChange) store() config.CodeIndexChange {
 	}
 }
 
+// embeddingsSource says where the vectors come from: an address, a look-up for a local Ollama, or nowhere.
+func embeddingsSource(x config.CodeIndex) string {
+	switch {
+	case x.EmbeddingsURL != "":
+		return "endpoint"
+	case x.EmbeddingsAuto:
+		return "auto"
+	default:
+		return "off"
+	}
+}
+
 // writeCodeIndex answers the current view, or the error that kept it from being read.
 func (s *Server) writeCodeIndex(w http.ResponseWriter) {
 	cfg, canSave, err := s.securityConfig()
@@ -96,14 +108,10 @@ func (s *Server) writeCodeIndex(w http.ResponseWriter) {
 	view := codeIndexView{
 		Enabled: x.Enabled, Semantic: x.Semantic, EmbeddingsAuto: x.EmbeddingsAuto,
 		EmbeddingsURL: x.EmbeddingsURL, EmbeddingsModel: x.EmbeddingsModel, EmbeddingsKey: x.EmbeddingsAPIKey != "",
-		MaxFileKB: x.MaxFileKB, MaxFiles: x.MaxFiles, CanSave: canSave, Embeddings: "off",
+		MaxFileKB: x.MaxFileKB, MaxFiles: x.MaxFiles, CanSave: canSave,
 		EndpointLocal: x.EmbeddingsURL != "" && config.IsLocalURL(x.EmbeddingsURL),
 	}
-	if x.EmbeddingsURL != "" {
-		view.Embeddings = "endpoint"
-	} else if x.EmbeddingsAuto {
-		view.Embeddings = "auto"
-	}
+	view.Embeddings = embeddingsSource(x)
 	writeJSON(w, http.StatusOK, view)
 }
 

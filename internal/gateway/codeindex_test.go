@@ -18,9 +18,13 @@ func decodeCodeIndex(t *testing.T, w *httptest.ResponseRecorder) codeIndexView {
 }
 
 func TestTheCodeIndexIsReadFromTheFile(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm:\n  provider: openai\n") })
-	v := decodeCodeIndex(t, get(t, srv, "/v1/code-index", testToken))
-	if !v.Enabled || !v.Semantic || !v.CanSave || v.Embeddings != "auto" || v.EndpointLocal || v.MaxFileKB != 256 {
+	path := networkConfig(t, "llm:\n  provider: openai\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	want := codeIndexView{
+		Enabled: true, Semantic: true, EmbeddingsAuto: true, MaxFileKB: 256, MaxFiles: 5000,
+		Embeddings: "auto", CanSave: true,
+	}
+	if v := decodeCodeIndex(t, get(t, srv, "/v1/code-index", testToken)); v != want {
 		t.Errorf("default = %+v", v)
 	}
 
@@ -55,21 +59,23 @@ func TestTheCodeIndexIsSavedAndRemoteEmbeddingsNeedConfirmation(t *testing.T) {
 		}
 	}
 
-	v := decodeCodeIndex(t, put(`{"semantic":false,"embeddings_auto":false,"max_file_kb":64,"max_files":100,"enabled":true}`))
-	if v.Semantic || v.EmbeddingsAuto || v.Embeddings != "off" || v.MaxFileKB != 64 || v.MaxFiles != 100 {
+	limits := `{"semantic":false,"embeddings_auto":false,"max_file_kb":64,"max_files":100,"enabled":true}`
+	want := codeIndexView{Enabled: true, MaxFileKB: 64, MaxFiles: 100, Embeddings: "off", CanSave: true}
+	if v := decodeCodeIndex(t, put(limits)); v != want {
 		t.Errorf("limits = %+v", v)
 	}
-	v = decodeCodeIndex(t, put(`{"embeddings_url":" http://localhost:11434/v1 ","embeddings_model":" nomic-embed-text "}`))
-	if v.Embeddings != "endpoint" || !v.EndpointLocal || v.EmbeddingsURL != "http://localhost:11434/v1" ||
-		v.EmbeddingsModel != "nomic-embed-text" {
+	local := `{"embeddings_url":" http://localhost:11434/v1 ","embeddings_model":" nomic-embed-text "}`
+	want.EmbeddingsURL, want.EmbeddingsModel = "http://localhost:11434/v1", "nomic-embed-text"
+	want.Embeddings, want.EndpointLocal = "endpoint", true
+	if v := decodeCodeIndex(t, put(local)); v != want {
 		t.Errorf("local endpoint needs no confirmation: %+v", v)
 	}
-	v = decodeCodeIndex(t, put(`{"embeddings_url":"https://api.openai.com/v1","embeddings_model":"m","confirm":true}`))
-	if v.Embeddings != "endpoint" || v.EndpointLocal {
+	remote := `{"embeddings_url":"https://api.openai.com/v1","embeddings_model":"m","confirm":true}`
+	want.EmbeddingsURL, want.EmbeddingsModel, want.EndpointLocal = "https://api.openai.com/v1", "m", false
+	if v := decodeCodeIndex(t, put(remote)); v != want {
 		t.Errorf("remote confirmed: %+v", v)
 	}
-	v = decodeCodeIndex(t, put(`{"embeddings_url":""}`))
-	if v.Embeddings != "off" {
+	if v := decodeCodeIndex(t, put(`{"embeddings_url":""}`)); v.Embeddings != "off" {
 		t.Errorf("clearing the endpoint needs no confirmation: %+v", v)
 	}
 
