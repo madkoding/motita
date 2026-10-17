@@ -117,12 +117,16 @@ func (s Skill) Tag() string {
 // guarded reports whether the front layer is untrusted.
 func (l *Library) guarded() bool { return l.Overlay != nil && l.Overlay.Base != "" }
 
-// inFront reports whether path is in (or is) the untrusted front layer.
+// inFront reports whether path is untrusted: in the front layer, or anywhere inside the checkout
+// the overlay's Base names. The second matters because the background review of a project session
+// reads the project's documents as its SECOND layer, behind the project's proposals.
 func (l *Library) inFront(path string) bool {
-	if !l.guarded() {
-		return false
-	}
-	rel, err := filepath.Rel(filepath.Clean(l.Overlay.Primary), filepath.Clean(path))
+	return l.guarded() && (within(l.Overlay.Primary, path) || within(l.Overlay.Base, path))
+}
+
+// within reports whether path is dir or inside it.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
@@ -362,7 +366,7 @@ func (l *Library) lookup(name string) (string, bool) {
 				continue
 			}
 			p = filepath.Join(dir, name+".md")
-			if _, err := os.Stat(p); err == nil {
+			if _, err := os.Stat(p); err == nil && l.frontServes(name, p) {
 				return p, true
 			}
 		}
