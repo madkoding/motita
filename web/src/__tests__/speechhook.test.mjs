@@ -12,7 +12,7 @@ const MAX_UTTERANCES = 50;
 // The id of a later message in a conversation.
 const LATER_ID = 3;
 const SYNTHESIS_FAILED = "synthesis-failed";
-// Longer than the gap the natural style waits between progress lines.
+// Longer than the gap the natural style used to wait between progress lines.
 const PAST_THE_GAP_MS = 20000;
 const OPENING = "Dale, lo reviso.";
 const ALL_DONE = "All done.";
@@ -356,11 +356,10 @@ function fakeNarrator(lines, fail = false) {
 // flush lets the requests and their answers settle.
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-test("natural: a line when the turn starts, one while it works, and the gist at the end", async (t) => {
+test("natural: a line when the turn starts, none while it works, and the gist at the end", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval", "Date"] });
   const n = fakeNarrator({
     start: OPENING,
-    progress: "Estoy corriendo los tests.",
     answer: "Listo: todo pasa.",
   });
   const sub = subtitles();
@@ -385,14 +384,7 @@ test("natural: a line when the turn starts, one while it works, and the gist at 
   );
   sub.off();
 
-  // Nothing new: no progress line, however long it waits.
-  t.mock.timers.tick(PAST_THE_GAP_MS);
-  await flush();
-  assert.deepEqual(
-    n.asked.map((a) => a.stage),
-    ["start"],
-  );
-
+  // What the agent does while it works is never said, however long it takes.
   await s.set({
     stepsByTurn: { 1: [{ kind: "command", text: "go test ./..." }] },
   });
@@ -400,12 +392,8 @@ test("natural: a line when the turn starts, one while it works, and the gist at 
   await flush();
   assert.deepEqual(
     n.asked.map((a) => a.stage),
-    ["start", "progress"],
+    ["start"],
   );
-  assert.deepEqual(n.asked[1].notes, ["command: go test ./..."]);
-  assert.deepEqual(n.asked[1].said, [OPENING], "what was said is not repeated");
-  assert.equal(synth.said.at(-1).text, "Estoy corriendo los tests.");
-  await act(() => synth.finish());
 
   await s.set({
     running: false,

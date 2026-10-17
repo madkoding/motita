@@ -940,7 +940,7 @@ export function voiceBusy(): boolean {
 
 // NATURAL STYLE: the lines the session's model writes about a turn.
 
-export type NarrateStage = "start" | "progress" | "answer";
+export type NarrateStage = "start" | "answer";
 
 export interface NarrateBody {
   stage: NarrateStage;
@@ -970,33 +970,4 @@ export async function narrate(
   }
   const out = (await res.json()) as { text?: string };
   return (out.text || "").trim();
-}
-
-// notesOf turns the steps of a run into the notes the model is told about: what each step did,
-// leaving out the line that names the mode auto mode picked.
-export function notesOf(steps: { kind: string; text: string }[]): string[] {
-  return steps
-    .filter((st) => st.text.trim() && !st.text.startsWith("mode: "))
-    .map(noteOf);
-}
-
-// noteOf is one step as a note: its kind, then what it did.
-function noteOf(st: { kind: string; text: string }): string {
-  if (st.kind) {
-    return st.kind + ": " + st.text.trim();
-  }
-  return st.text.trim();
-}
-
-// When the natural style says something while the agent works: no sooner than PROGRESS_GAP_MS
-// after the last line, and only when the run has done something new since.
-export const PROGRESS_GAP_MS = 15000;
-
-export function progressDue(
-  now: number,
-  lastAt: number,
-  notes: number,
-  lastNotes: number,
-): boolean {
-  return notes > lastNotes && now - lastAt >= PROGRESS_GAP_MS;
 }
