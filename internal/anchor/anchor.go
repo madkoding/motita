@@ -57,9 +57,9 @@ type CheckLog struct {
 	// Failures is what the check's WHOLE output said failed, normalised (see failureSignature). It
 	// is how the baseline tells "fails the same way" from "fails, and now also for a new reason".
 	Failures []string `json:"-"`
-	// FailCounts are the failure counts the output printed, in order (see failureCounts): the
+	// FailCounts are the failure counts the output printed, by line (see failureCounts): the
 	// signature hides numbers, and "2 failed" must still read as more than "1 failed".
-	FailCounts []int `json:"-"`
+	FailCounts map[string][]int `json:"-"`
 }
 
 // Anchor validates results according to the configuration.
@@ -233,10 +233,7 @@ func failureSignature(output, dir string) []string {
 		if !failureLine.MatchString(line) {
 			continue
 		}
-		if dir != "" {
-			line = strings.ReplaceAll(line, dir, "<dir>")
-		}
-		line = strings.TrimSpace(digitRun.ReplaceAllString(line, "#"))
+		line = normalise(line, dir)
 		if !seen[line] {
 			seen[line] = true
 			out = append(out, line)
@@ -249,12 +246,26 @@ func failureSignature(output, dir string) []string {
 // linter's "4 errors".
 var failCount = regexp.MustCompile(`(?i)\b([0-9]+)\s+(failed|failing|errors?)\b`)
 
-// failureCounts are the failure counts an output printed, in the order it printed them.
-func failureCounts(output string) []int {
-	var out []int
-	for _, m := range failCount.FindAllStringSubmatch(output, -1) {
-		n, _ := strconv.Atoi(m[1]) // out of range is the largest int: still "more"
-		out = append(out, n)
+// normalise is a failure line as the baseline's checkout and the workspace both read it: the
+// directory the check ran in and every number replaced.
+func normalise(line, dir string) string {
+	if dir != "" {
+		line = strings.ReplaceAll(line, dir, "<dir>")
+	}
+	return strings.TrimSpace(digitRun.ReplaceAllString(line, "#"))
+}
+
+// failureCounts are the failure counts an output printed, each under its line up to the count
+// (normalised), in the order it printed them: "Tests: 2 failed" is compared with the baseline's
+// "Tests: N failed", never with another tool's "N errors" that happened to print first.
+func failureCounts(output, dir string) map[string][]int {
+	out := map[string][]int{}
+	for _, line := range strings.Split(output, "\n") {
+		for _, m := range failCount.FindAllStringSubmatchIndex(line, -1) {
+			n, _ := strconv.Atoi(line[m[2]:m[3]]) // out of range is the largest int: still "more"
+			key := normalise(line[:m[1]], dir)
+			out[key] = append(out[key], n)
+		}
 	}
 	return out
 }
@@ -270,9 +281,11 @@ func sameFailure(before, now CheckLog) bool {
 	if before.Exit != now.Exit || before.Truncated || now.Truncated || now.Exit < 0 {
 		return false
 	}
-	for i, n := range now.FailCounts {
-		if i >= len(before.FailCounts) || n > before.FailCounts[i] {
-			return false
+	for key, counts := range now.FailCounts {
+		for i, n := range counts {
+			if i >= len(before.FailCounts[key]) || n > before.FailCounts[key][i] {
+				return false
+			}
 		}
 	}
 	known := map[string]bool{}
@@ -420,7 +433,7 @@ func (a *Anchor) runCheck(ctx context.Context, c config.Check) CheckLog {
 	record.Exit = exit
 	record.Output = truncate(output, 4000)
 	record.Failures = failureSignature(output, a.dir)
-	record.FailCounts = failureCounts(output)
+	record.FailCounts = failureCounts(output, a.dir)
 	record.Truncated = truncated
 
 	if runErr != nil {

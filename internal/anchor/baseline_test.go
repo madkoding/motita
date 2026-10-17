@@ -153,7 +153,7 @@ func TestMoreFailuresInTheSameFileAreNew(t *testing.T) {
 	jest := func(failed int, extra string) CheckLog {
 		out := fmt.Sprintf("FAIL src/a.test.js\n  ● sum › adds\n%s\nTest Suites: 1 failed, 1 total\n"+
 			"Tests:       %d failed, %d passed, 10 total\n", extra, failed, 10-failed)
-		return CheckLog{Name: "npm test", Exit: 1, Failures: failureSignature(out, ""), FailCounts: failureCounts(out)}
+		return CheckLog{Name: "npm test", Exit: 1, Failures: failureSignature(out, ""), FailCounts: failureCounts(out, "")}
 	}
 	before := map[string]CheckLog{"npm test": jest(2, "  ● mul › multiplies")}
 	if got := WithBaseline(Result{Checks: []CheckLog{jest(3, "  ● div › divides")}}, before); got.Pass {
@@ -166,17 +166,30 @@ func TestMoreFailuresInTheSameFileAreNew(t *testing.T) {
 		t.Errorf("the same counts are the same failure: %+v", got.Reason)
 	}
 	// A count the baseline did not print at all is a new one (mocha's "N failing").
-	now := CheckLog{Name: "npm test", Exit: 1, FailCounts: []int{2, 1, 1}}
+	now := jest(2, "")
+	now.FailCounts["# failing"] = []int{1}
 	if got := WithBaseline(Result{Checks: []CheckLog{now}}, before); got.Pass {
 		t.Errorf("an extra count must keep the result failed: %+v", got.Reason)
 	}
-	if got := failureCounts("  3 failing\n1 error\nTests: 0 failed\n12 errors\n"); fmt.Sprint(got) != "[3 1 0 12]" {
+	// A count is compared with the same line's count only: the run fixed the 10 type errors and
+	// broke a second mocha test, and "2 failing" is not "fewer than 10 errors".
+	mixed := func(out string) CheckLog {
+		return CheckLog{Name: "check", Exit: 1, Failures: failureSignature(out, ""), FailCounts: failureCounts(out, "")}
+	}
+	assertion := "     AssertionError: expected 3 to equal 4\n"
+	was := mixed("Found 10 errors.\n  1 failing\n" + assertion)
+	if got := WithBaseline(Result{Checks: []CheckLog{mixed("  2 failing\n" + assertion + assertion)}},
+		map[string]CheckLog{"check": was}); got.Pass {
+		t.Errorf("another tool's count must not hide a grown one: %+v", got.Reason)
+	}
+	got := failureCounts("  3 failing\n1 error, 2 errors\nTests: 0 failed\n  3 failing\n/w/a.go: 12 errors\n", "/w")
+	if fmt.Sprint(got) != "map[# error:[1] # error, # errors:[2] # failing:[3 3] <dir>/a.go: # errors:[12] Tests: # failed:[0]]" {
 		t.Errorf("counts = %v", got)
 	}
 	// Measured end to end: the record of a check carries its counts.
 	rec := New(config.Anchor{}, t.TempDir(), nil).runCheck(context.Background(),
 		config.Check{Name: "t", Command: "sh", Args: []string{"-c", "echo 'Tests: 4 failed'; exit 1"}, Timeout: 5 * time.Second})
-	if fmt.Sprint(rec.FailCounts) != "[4]" {
+	if fmt.Sprint(rec.FailCounts) != "map[Tests: # failed:[4]]" {
 		t.Errorf("record = %+v", rec)
 	}
 }
