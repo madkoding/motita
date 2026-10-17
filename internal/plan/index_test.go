@@ -42,18 +42,24 @@ func TestSearchIndexIsOfferedOnlyWithAnIndex(t *testing.T) {
 func TestToolSearchIndex(t *testing.T) {
 	f := &fakeIndex{hits: []xerj.Hit{{Path: "a.go", Line: 3, Passage: "func A() {}"}}}
 	p := (&Planner{}).WithIndex(f)
-	out := p.dispatchTool(context.Background(), llm.ToolCall{Function: llm.FunctionCall{Name: "search_index", Arguments: raw(`{"query":" rotate wal ","limit":3}`)}})
+	call := llm.ToolCall{Function: llm.FunctionCall{
+		Name: "search_index", Arguments: raw(`{"query":" rotate wal ","limit":3}`),
+	}}
+	out := p.dispatchTool(context.Background(), call)
 	if !strings.Contains(out, "a.go:3\nfunc A() {}") || f.query != "rotate wal" || f.size != 3 {
 		t.Errorf("out=%q query=%q size=%d", out, f.query, f.size)
 	}
-	if out := p.toolSearchIndex(context.Background(), raw(`{"query":"  "}`)); !strings.Contains(out, "'query' parameter is missing") {
+	out = p.toolSearchIndex(context.Background(), raw(`{"query":"  "}`))
+	if !strings.Contains(out, "'query' parameter is missing") {
 		t.Errorf("empty query: %q", out)
 	}
-	if out := p.toolSearchIndex(context.Background(), raw(`{"query":`)); !strings.HasPrefix(out, errParsingArguments) {
+	out = p.toolSearchIndex(context.Background(), raw(`{"query":`))
+	if !strings.HasPrefix(out, errParsingArguments) {
 		t.Errorf("bad arguments: %q", out)
 	}
 	f.err = errors.New("no node")
-	if out := p.toolSearchIndex(context.Background(), raw(`{"query":"x"}`)); out != "Error searching the index: no node" {
+	out = p.toolSearchIndex(context.Background(), raw(`{"query":"x"}`))
+	if out != "Error searching the index: no node" {
 		t.Errorf("node down: %q", out)
 	}
 }

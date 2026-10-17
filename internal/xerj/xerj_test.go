@@ -10,9 +10,13 @@ import (
 )
 
 const answer = `{"hits":{"hits":[
- {"_score":3.5,"_source":{"ax_path":"a/b.go","line":12,"title":"b"},"fields":{"_passage":[{"field":"title","ordinal":0,"text":"b"},{"field":"body","ordinal":4,"text":"  func Rotate() {}  "}]}},
- {"_score":1,"_source":{"ax_path":"c.go","start_line":7},"fields":{"_passage":[{"field":"body","ordinal":0,"text":"x"}]}},
- {"_score":1,"_source":{"ax_path":"d.md"},"fields":{"_passage":[{"field":"body","ordinal":9,"text":"` + "é" + `"}]}},
+ {"_score":3.5,"_source":{"ax_path":"a/b.go","line":12,"title":"b"},"fields":{"_passage":[
+  {"field":"title","ordinal":0,"text":"b"},
+  {"field":"body","ordinal":4,"text":"  func Rotate() {}  "}]}},
+ {"_score":1,"_source":{"ax_path":"c.go","start_line":7},
+  "fields":{"_passage":[{"field":"body","ordinal":0,"text":"x"}]}},
+ {"_score":1,"_source":{"ax_path":"d.md"},
+  "fields":{"_passage":[{"field":"body","ordinal":9,"text":"é"}]}},
  {"_score":1,"_source":{},"fields":{}}
 ]}}`
 
@@ -52,9 +56,13 @@ func TestSearchParsesPassages(t *testing.T) {
 		t.Errorf("lines: %+v", hits)
 	}
 	out := Format("rotate", hits)
-	if !strings.Contains(out, "a/b.go:12\nfunc Rotate() {}") || !strings.Contains(out, "\n---\n") ||
-		!strings.Contains(out, "d.md:10") || !strings.Contains(out, "\n?\n") && !strings.HasSuffix(out, "?") {
-		t.Errorf("format:\n%s", out)
+	for _, want := range []string{"a/b.go:12\nfunc Rotate() {}", "\n---\n", "d.md:10"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("format lacks %q:\n%s", want, out)
+		}
+	}
+	if !strings.HasSuffix(out, "?") {
+		t.Errorf("a hit with no path ends the text with ?:\n%s", out)
 	}
 }
 
@@ -74,6 +82,11 @@ func TestSearchDefaultsAndNoKey(t *testing.T) {
 	}
 }
 
+// errHas reports whether err mentions want.
+func errHas(err error, want string) bool {
+	return err != nil && strings.Contains(err.Error(), want)
+}
+
 func TestSearchErrors(t *testing.T) {
 	ctx := context.Background()
 	if _, err := New("", "", "").Search(ctx, "  ", 1); err == nil {
@@ -82,17 +95,20 @@ func TestSearchErrors(t *testing.T) {
 	if c := New("", "", ""); c.URL != DefaultURL || c.Index != DefaultIndex {
 		t.Errorf("defaults: %+v", c)
 	}
-	if _, err := serve(t, 500, strings.Repeat("x", 400), nil).Search(ctx, "q", 1); err == nil ||
-		!strings.Contains(err.Error(), "HTTP 500") || !strings.Contains(err.Error(), "…") {
+	_, err := serve(t, 500, strings.Repeat("x", 400), nil).Search(ctx, "q", 1)
+	if !errHas(err, "HTTP 500") || !errHas(err, "…") {
 		t.Errorf("status error: %v", err)
 	}
-	if _, err := serve(t, 200, "nope", nil).Search(ctx, "q", 1); err == nil || !strings.Contains(err.Error(), "not JSON") {
+	_, err = serve(t, 200, "nope", nil).Search(ctx, "q", 1)
+	if !errHas(err, "not JSON") {
 		t.Errorf("json error: %v", err)
 	}
-	if _, err := New("http://127.0.0.1:1", "", "").Search(ctx, "q", 1); err == nil || !strings.Contains(err.Error(), "no XERJ node") {
+	_, err = New("http://127.0.0.1:1", "", "").Search(ctx, "q", 1)
+	if !errHas(err, "no XERJ node") {
 		t.Errorf("down: %v", err)
 	}
-	if _, err := New("http://bad host", "", "").Search(ctx, "q", 1); err == nil || !strings.Contains(err.Error(), "not usable") {
+	_, err = New("http://bad host", "", "").Search(ctx, "q", 1)
+	if !errHas(err, "not usable") {
 		t.Errorf("url: %v", err)
 	}
 }
@@ -104,7 +120,8 @@ func TestSearchBodyRead(t *testing.T) {
 		_, _ = w.Write([]byte("abc"))
 	}))
 	defer srv.Close()
-	if _, err := New(srv.URL, "", "").Search(context.Background(), "q", 1); err == nil || !strings.Contains(err.Error(), "reading") {
+	_, err := New(srv.URL, "", "").Search(context.Background(), "q", 1)
+	if !errHas(err, "reading") {
 		t.Errorf("truncated body: %v", err)
 	}
 }

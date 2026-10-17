@@ -117,11 +117,23 @@ func (c *Client) Search(ctx context.Context, query string, size int) ([]Hit, err
 	if size < 1 {
 		size = DefaultSize
 	}
-	if size > MaxSize {
-		size = MaxSize
+	size = min(size, MaxSize)
+	data, err := c.post(ctx, searchBody(query, size))
+	if err != nil {
+		return nil, err
 	}
-	body, _ := json.Marshal(searchBody(query, size))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/"+c.Index+"/_search?ignore_unavailable=true", bytes.NewReader(body))
+	var parsed response
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("XERJ answered something that is not JSON: %w", err)
+	}
+	return parsed.toHits(), nil
+}
+
+// post sends one search body and returns the answer's bytes, or why there are none.
+func (c *Client) post(ctx context.Context, payload map[string]any) ([]byte, error) {
+	body, _ := json.Marshal(payload)
+	endpoint := c.URL + "/" + c.Index + "/_search?ignore_unavailable=true"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("the XERJ address %q is not usable: %w", c.URL, err)
 	}
@@ -142,18 +154,24 @@ func (c *Client) Search(ctx context.Context, query string, size int) ([]Hit, err
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("XERJ answered HTTP %d: %s", res.StatusCode, firstRunes(string(data), 300))
 	}
-	var parsed response
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return nil, fmt.Errorf("XERJ answered something that is not JSON: %w", err)
-	}
-	hits := make([]Hit, 0, len(parsed.Hits.Hits))
-	for _, h := range parsed.Hits.Hits {
+	return data, nil
+}
+
+// bodyField reports whether a passage comes from the document's text, not from a symbol list or title.
+func bodyField(field string) bool {
+	return field != "defs" && field != "title" && field != "name"
+}
+
+// toHits turns the node's answer into hits.
+func (r response) toHits() []Hit {
+	hits := make([]Hit, 0, len(r.Hits.Hits))
+	for _, h := range r.Hits.Hits {
 		hit := Hit{Path: h.Source.Path, Title: h.Source.Title, Score: h.Score, Line: h.Source.Line}
 		if hit.Line == 0 {
 			hit.Line = h.Source.StartLine
 		}
 		for _, p := range h.Fields.Passage {
-			if p.Field == "defs" || p.Field == "title" || p.Field == "name" {
+			if !bodyField(p.Field) {
 				continue
 			}
 			hit.Passage = firstRunes(strings.TrimSpace(p.Text), maxPassageRunes)
@@ -164,7 +182,7 @@ func (c *Client) Search(ctx context.Context, query string, size int) ([]Hit, err
 		}
 		hits = append(hits, hit)
 	}
-	return hits, nil
+	return hits
 }
 
 // Format renders hits as the plain text a model reads: path:line, then the passage.
