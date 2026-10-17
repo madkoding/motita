@@ -45,7 +45,7 @@ type Model struct {
 	Name    string `json:"name"`
 	Lang    string `json:"lang"`
 	Quality string `json:"quality"`
-	// Engine is what runs the model in the page: EnginePiper, EngineWhisper or EngineLLM.
+	// Engine is what runs the model in the page: EnginePiper or EngineWhisper.
 	Engine string `json:"engine"`
 	// Files are the voice's own: a Piper model and its settings (the .onnx.json the page reads
 	// the phonemizer voice and the sample rate from).
