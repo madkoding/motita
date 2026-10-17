@@ -104,7 +104,7 @@ func TestTheWorkLogKeepsOnlyWhatTheSynthesisReads(t *testing.T) {
 		var log workLog
 		var whole strings.Builder
 		for i := range rounds {
-			line := fmt.Sprintf("## Round %d\n%s\n", i, strings.Repeat("acción ", 50+i%7*300))
+			line := fmt.Sprintf("## Round %d\n%s\n", i, strings.Repeat("日本 ", 50+i%7*300))
 			fmt.Fprint(&log, line)
 			whole.WriteString(line)
 		}
