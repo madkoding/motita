@@ -120,7 +120,8 @@ func TestAutoApplyAppliesEverySuggestionOutsideAutoMode(t *testing.T) {
 	}
 	found := false
 	for _, m := range tui.messages {
-		found = found || (m.Author == AuthorSystem && strings.Contains(m.Text, "as the settings say:\n✓ test the empty header\n✓ share"))
+		found = found || (m.Author == AuthorSystem &&
+			strings.Contains(m.Text, "as the settings say:\n✓ test the empty header\n✓ share"))
 	}
 	if !found {
 		t.Errorf("what is applied without asking must be said: %+v", tui.messages)

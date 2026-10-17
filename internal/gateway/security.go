@@ -69,10 +69,13 @@ type securityChange struct {
 // widens says whether the change turns off asking or the network isolation, or turns on applying
 // suggestions without asking: what needs confirm.
 func (c securityChange) widens() bool {
-	return (c.AskUnconfinedRuns != nil && !*c.AskUnconfinedRuns) ||
-		(c.IsolateNetwork != nil && !*c.IsolateNetwork) ||
-		(c.AutoApplySuggestions != nil && *c.AutoApplySuggestions)
+	return isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) || isTrue(c.AutoApplySuggestions)
 }
+
+// isTrue and isFalse say a choice was sent and which way.
+func isTrue(b *bool) bool { return b != nil && *b }
+
+func isFalse(b *bool) bool { return b != nil && !*b }
 
 // refusal is why the change cannot be made as sent ("" when it can); mode is its disk access,
 // normalised.

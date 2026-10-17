@@ -37,7 +37,7 @@ export function initialVerdicts(
   suggestions: { needed?: boolean }[],
   auto: boolean,
   answered?: Verdict[],
-  all?: boolean,
+  all = false,
 ): (Verdict | undefined)[] {
   if (answered) {
     return answered;

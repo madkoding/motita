@@ -112,6 +112,26 @@ export function useSuggestions(
     return false;
   };
 
+  // keepAnswers stores the answers of turn `turn` in session `sid`, and says whether another tab
+  // had answered already. A gateway that cannot keep them is "kept" all the same: it costs only
+  // the marks after a reload.
+  const keepAnswers = async (
+    sid: string,
+    turn: number,
+    answers: SuggestionAnswers,
+  ): Promise<"kept" | "taken"> => {
+    try {
+      const res = await api(answersPath(sid, turn), {
+        method: "PUT",
+        headers: JSON_HEADERS,
+        body: JSON.stringify(answers),
+      });
+      return choose(res.status === HTTP_CONFLICT, "taken", "kept");
+    } catch {
+      return "kept";
+    }
+  };
+
   const answerSuggestions = useCallback(
     async (m: Message, answers: SuggestionAnswers) => {
       // Read before any await: a switch while the answers are kept must not send them elsewhere.
@@ -119,24 +139,16 @@ export function useSuggestions(
       rs.setMessages((prev) => prev.map((x) => withAnswers(x, m, answers)));
       // Kept before the turn starts. A gateway that cannot keep them costs only the marks after
       // a reload, so the turn is sent anyway.
-      if (m.turn != null) {
-        try {
-          const res = await api(answersPath(sid, m.turn), {
-            method: "PUT",
-            headers: JSON_HEADERS,
-            body: JSON.stringify(answers),
-          });
-          // Another tab answered first (the settings apply them without asking in every open
-          // tab): that answer stands and so does the turn it sent, so this one is not sent twice.
-          if (res.status === HTTP_CONFLICT) {
-            if (rs.sessionRef.current === sid) {
-              await ui.reload();
-            }
-            return;
-          }
-        } catch {
-          /* the marks stay on screen; only a reload loses them */
+      // Another tab answered first (the settings apply them without asking in every open tab):
+      // that answer stands and so does the turn it sent, so this one is not sent twice.
+      if (
+        m.turn != null &&
+        (await keepAnswers(sid, m.turn, answers)) === "taken"
+      ) {
+        if (rs.sessionRef.current === sid) {
+          await ui.reload();
         }
+        return;
       }
       // Sent as a task, not through auto mode: applying accepted changes is work by definition,
       // and the wording of the request must not route it to the read-only planner.
