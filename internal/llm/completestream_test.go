@@ -50,6 +50,30 @@ func TestCompleteStreamDeliversTextAndThinking(t *testing.T) {
 	}
 }
 
+// TestCompleteStreamReadsDataLinesWithNoSpace: the space after "data:" is optional in SSE. A
+// server that leaves it out is still streamed, and not asked a second time without streaming.
+func TestCompleteStreamReadsDataLinesWithNoSpace(t *testing.T) {
+	var stream, plain int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b := make([]byte, r.ContentLength)
+		r.Body.Read(b)
+		if strings.Contains(string(b), `"stream":true`) {
+			stream++
+			fmt.Fprint(w, "data:{\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\ndata:[DONE]\n\n")
+			return
+		}
+		plain++
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"hi"}}]}`)
+	}))
+	defer srv.Close()
+	var deltas int
+	got, err := streamClient(t, srv.URL).CompleteStream(context.Background(),
+		[]Message{{Role: "user", Content: "hi"}}, func(string, bool) { deltas++ })
+	if err != nil || got != "hi" || deltas != 1 || stream != 1 || plain != 0 {
+		t.Errorf("got %q err %v deltas %d stream %d plain %d", got, err, deltas, stream, plain)
+	}
+}
+
 // TestCompleteStreamFallsBackToAPlainCompletion: an endpoint that answers `stream: true`
 // with nothing usable still gets its answer, through the non-streaming call.
 func TestCompleteStreamFallsBackToAPlainCompletion(t *testing.T) {
