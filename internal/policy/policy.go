@@ -25,6 +25,7 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/madkoding/motita/internal/readonly"
@@ -576,6 +577,8 @@ var externalPrograms = map[string]bool{
 	"apt": true, "apt-get": true, "dpkg": true, "dnf": true, "yum": true, "pacman": true,
 	"apk": true, "snap": true, "flatpak": true, "pip": true, "pip3": true, "npm": true,
 	"yarn": true, "pnpm": true, "cargo": true, "gem": true, "go": true, "composer": true,
+	// build tools whose publish, deploy and install verbs reach a registry
+	"uv": true, "poetry": true, "mvn": true, "gradle": true, "dotnet": true,
 	// containers and orchestration: the effect lands somewhere else entirely
 	"docker": true, "podman": true, "kubectl": true, "helm": true, "vagrant": true,
 	// privileges and accounts
@@ -607,10 +610,34 @@ func reachesOutside(name string, args []string) bool {
 	if name == "git" {
 		return gitReachesOutside(args)
 	}
+	if ships, ok := shippingTasks[name]; ok {
+		return slices.ContainsFunc(args, ships)
+	}
 	if sub, ok := subcommandScoped[name]; ok {
-		return sub(firstNonFlag(args))
+		return sub(firstNonFlag(args)) || goRunsByVersion(name, args)
 	}
 	return true
+}
+
+// shippingTasks are the build tools whose operands are a LIST of tasks, any one of which can be
+// the one that ships the project: `mvn clean deploy`, `gradle build publish`.
+var shippingTasks = map[string]func(task string) bool{
+	"mvn": func(task string) bool {
+		return task == "deploy" || strings.HasPrefix(task, "deploy:") || strings.HasPrefix(task, "release:")
+	},
+	"gradle": func(task string) bool {
+		task = task[strings.LastIndex(task, ":")+1:]
+		return strings.HasPrefix(task, "publish") || strings.HasPrefix(task, "upload")
+	},
+}
+
+// goRunsByVersion reports `go run pkg@version`, which fetches the package by name and runs it, as
+// `go install pkg@version` does.
+func goRunsByVersion(name string, args []string) bool {
+	if name != "go" || firstNonFlag(args) != "run" {
+		return false
+	}
+	return strings.Contains(firstNonFlag(args[slices.Index(args, "run")+1:]), "@")
 }
 
 // gitLocalVerbs are the git subcommands whose effect stays in the working tree the task was
@@ -691,7 +718,7 @@ var subcommandScoped = map[string]func(sub string) bool{
 	},
 	"npm": func(sub string) bool {
 		switch sub {
-		case "test", "run", "run-script", "exec", "ls", "list", "view", "outdated", "audit":
+		case "test", "run", "run-script", "ls", "list", "view", "outdated", "audit":
 			return false
 		default:
 			return true
@@ -705,8 +732,14 @@ var subcommandScoped = map[string]func(sub string) bool{
 			return true
 		}
 	},
-	"pip":  func(sub string) bool { return sub != "list" && sub != "show" && sub != "freeze" },
-	"pip3": func(sub string) bool { return sub != "list" && sub != "show" && sub != "freeze" },
+	// The Python and .NET build tools: their other verbs are local work.
+	"uv": func(sub string) bool {
+		return sub == "publish" || sub == "add" || sub == "pip" || sub == "tool"
+	},
+	"poetry": func(sub string) bool { return sub == "publish" || sub == "add" || sub == "self" },
+	"dotnet": func(sub string) bool { return sub == "nuget" || sub == "tool" || sub == "workload" },
+	"pip":    func(sub string) bool { return sub != "list" && sub != "show" && sub != "freeze" },
+	"pip3":   func(sub string) bool { return sub != "list" && sub != "show" && sub != "freeze" },
 	"yarn": func(sub string) bool {
 		switch sub {
 		case "test", "run", "list", "why", "outdated":
