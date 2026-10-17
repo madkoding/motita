@@ -509,8 +509,8 @@ func (t *TUI) suspendForWizard(ctx context.Context) error {
 	// pass straight through. Restoring the original mode is what makes the wizard behave
 	// the same way it does on the first run, before the chat was ever started.
 	//
-	// The deferred restore in Run will see the NEW handle's mode.active flag on its way
-	// out, so swapping the pointer is enough — the new handle owns its own lifecycle.
+	// The deferred restores in Run read t.termMode when they run, so swapping the pointer
+	// below is enough: they undo the NEW handle on the way out.
 	if t.termMode != nil {
 		t.termMode.restore()
 	}

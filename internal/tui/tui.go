@@ -349,8 +349,10 @@ func (t *TUI) Run(ctx context.Context) int {
 	mode := enterRaw()
 	t.charMode = mode.active || t.LiveInput
 	t.termMode = mode
-	defer mode.restore()
-	defer recoverRaw(mode)()
+	// Both defers read t.termMode when they run, not now: /config swaps in a new handle, and
+	// that one is the handle to undo.
+	defer func() { t.termMode.restore() }()
+	defer recoverRaw(&t.termMode)()
 
 	// The nudge to connect a git host: local files only, so it can be made before the loop.
 	if t.gitNudge {
@@ -1077,10 +1079,12 @@ func (t *TUI) tooSmallLines(w, h int) []string {
 // It is a named function returning the deferred call rather than an inline closure so the
 // behaviour can be tested: triggering a real panic inside a live terminal is not something a
 // test should do.
-func recoverRaw(mode *terminalMode) func() {
+//
+// It takes a pointer to the handle so it restores the handle current at panic time.
+func recoverRaw(mode **terminalMode) func() {
 	return func() {
 		if r := recover(); r != nil {
-			mode.restore()
+			(*mode).restore()
 			panic(r)
 		}
 	}
