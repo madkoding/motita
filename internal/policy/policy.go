@@ -610,6 +610,10 @@ func reachesOutside(name string, args []string) bool {
 	if name == "git" {
 		return gitReachesOutside(args)
 	}
+	if name == "uv" && firstNonFlag(args) == "pip" {
+		// `uv pip` is pip: `uv pip list` reads, `uv pip install` fetches.
+		return reachesOutside("pip", args[slices.Index(args, "pip")+1:])
+	}
 	if ships, ok := shippingTasks[name]; ok {
 		return slices.ContainsFunc(args, ships)
 	}
@@ -734,7 +738,7 @@ var subcommandScoped = map[string]func(sub string) bool{
 	},
 	// The Python and .NET build tools: their other verbs are local work.
 	"uv": func(sub string) bool {
-		return sub == "publish" || sub == "add" || sub == "pip" || sub == "tool"
+		return sub == "publish" || sub == "add" || sub == "tool"
 	},
 	"poetry": func(sub string) bool { return sub == "publish" || sub == "add" || sub == "self" },
 	"dotnet": func(sub string) bool { return sub == "nuget" || sub == "tool" || sub == "workload" },

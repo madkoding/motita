@@ -22,7 +22,7 @@ func TestPublishAndRemoteVerbsOfTheLocalToolsAreAsked(t *testing.T) {
 	for _, line := range []string{
 		"uv run pytest", "poetry run pytest", "mvn test", "mvn clean package",
 		"gradle build", "gradle :lib:test", "dotnet build", "dotnet test", "dotnet publish -o out",
-		"go run ./cmd/x", "go run .", "npm run build", "npm exec vitest",
+		"go run ./cmd/x", "go run .", "npm run build", "npm exec vitest", "uv pip list", "uv pip show x",
 		// What the manifest declares is still the project's own install.
 		"uv sync", "poetry install",
 	} {
