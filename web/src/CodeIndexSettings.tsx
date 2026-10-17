@@ -103,7 +103,10 @@ function SwitchRow({
   field: "enabled" | "semantic" | "embeddings_auto";
   save: (c: CodeIndexChange) => Promise<void>;
 }) {
-  const onChange = (v: OnOff) => void save({ [field]: v === "on" });
+  const onChange = useCallback(
+    (v: OnOff) => void save({ [field]: v === "on" }),
+    [field, save],
+  );
   return (
     <Row id={id} label={label} hint={hint} stack>
       <Segmented<OnOff>
@@ -143,9 +146,9 @@ function EndpointFields({
     max_file_kb: Number(kb),
     max_files: Number(files),
   });
-  const submit = (confirm: boolean) => {
+  const submit = (sure: boolean) => {
     setAsking(false);
-    void save({ ...change(), confirm });
+    void save({ ...change(), confirm: sure });
   };
   const press = () => {
     if (url.trim() !== "" && !looksLocal(url)) {
@@ -155,8 +158,8 @@ function EndpointFields({
     submit(false);
   };
   const off = !view.can_save || busy;
-  const confirm = () => submit(true);
-  const cancel = () => setAsking(false);
+  const confirm = useCallback(() => submit(true), [submit]);
+  const cancel = useCallback(() => setAsking(false), []);
   return (
     <>
       <Row
