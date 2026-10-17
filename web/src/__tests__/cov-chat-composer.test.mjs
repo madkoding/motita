@@ -574,3 +574,42 @@ test("answering suggestions keeps the answers, stores them, and sends the accept
   assert.equal(rs.messages[2].answers, none);
   await hook.unmount();
 });
+
+test("answering suggestions another tab already answered sends nothing and reads the conversation again", async () => {
+  let leave = false;
+  const api = fakeApi(async () => {
+    if (leave) {
+      rs.sessionRef.current = "other";
+    }
+    return json({ error: "answered" }, 409);
+  });
+  const sent = [];
+  const reloads = [];
+  const rs = {
+    sessionRef: { current: "s" },
+    messages: [{ id: 1, turn: 3, text: "a" }],
+    setMessages(fn) {
+      rs.messages = fn(rs.messages);
+    },
+  };
+  const stream = { submit: async (...a) => sent.push(a) };
+  const ui = {
+    reload: async () => reloads.push(1),
+    setToast: () => assert.fail("no toast"),
+  };
+  const hook = await renderHook(() => useSuggestions(api, rs, stream, ui));
+  const answers = { picks: ["this"], verdicts: ["apply"], request: "- do it" };
+  await hook.result.current.answerSuggestions(rs.messages[0], answers);
+  assert.equal(
+    sent.length,
+    0,
+    "the turn the other tab sent is the one that runs",
+  );
+  assert.equal(reloads.length, 1);
+  // The user moved to another conversation meanwhile: nothing to read again.
+  leave = true;
+  await hook.result.current.answerSuggestions(rs.messages[0], answers);
+  assert.equal(sent.length, 0);
+  assert.equal(reloads.length, 1);
+  await hook.unmount();
+});

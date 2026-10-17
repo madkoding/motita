@@ -31,16 +31,21 @@ export function settle(
 
 // initialVerdicts is where a list of suggestions starts: as it was answered, or, in a turn auto
 // mode routed, with the needed ones already accepted. Those are the ones whose answer is obvious
-// from the context, so auto mode does not ask about them.
+// from the context, so auto mode does not ask about them. With `all` (the setting that applies
+// every suggestion without asking) every one starts accepted.
 export function initialVerdicts(
   suggestions: { needed?: boolean }[],
   auto: boolean,
   answered?: Verdict[],
+  all?: boolean,
 ): (Verdict | undefined)[] {
   if (answered) {
     return answered;
   }
   return suggestions.map((s) => {
+    if (all) {
+      return "apply";
+    }
     if (auto && s.needed) {
       return "apply";
     }

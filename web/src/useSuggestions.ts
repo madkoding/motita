@@ -121,11 +121,19 @@ export function useSuggestions(
       // a reload, so the turn is sent anyway.
       if (m.turn != null) {
         try {
-          await api(answersPath(sid, m.turn), {
+          const res = await api(answersPath(sid, m.turn), {
             method: "PUT",
             headers: JSON_HEADERS,
             body: JSON.stringify(answers),
           });
+          // Another tab answered first (the settings apply them without asking in every open
+          // tab): that answer stands and so does the turn it sent, so this one is not sent twice.
+          if (res.status === HTTP_CONFLICT) {
+            if (rs.sessionRef.current === sid) {
+              await ui.reload();
+            }
+            return;
+          }
         } catch {
           /* the marks stay on screen; only a reload loses them */
         }

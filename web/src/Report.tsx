@@ -47,6 +47,9 @@ export interface TaskReport {
     needed?: boolean;
     why_needed?: string;
   }[];
+  // Set when the settings apply every suggestion without asking: the card accepts them all and
+  // starts the applying turn on its own.
+  auto_apply?: boolean;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -271,6 +274,7 @@ export function ReportCard({
           expired={expired}
           onAnswer={onAnswer}
           auto={!!auto}
+          all={!!report.auto_apply}
         />
       )}
       {zoom && (
@@ -540,15 +544,18 @@ function SuggestionsSection({
   expired,
   onAnswer,
   auto,
+  all,
 }: {
   suggestions: Suggestion[];
   answers?: SuggestionAnswers;
   expired?: boolean;
   onAnswer?: (answers: SuggestionAnswers) => void;
   auto: boolean;
+  // all says the settings apply every suggestion without asking.
+  all: boolean;
 }) {
   const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(() =>
-    initialVerdicts(suggestions, auto, answers?.verdicts),
+    initialVerdicts(suggestions, auto, answers?.verdicts, all),
   );
   const [picks, setPicks] = useState<Pick[]>(
     () => answers?.picks ?? suggestions.map(() => ""),
@@ -577,14 +584,14 @@ function SuggestionsSection({
       finish(next, pressed);
     }
   };
-  // In auto mode a list whose every suggestion is needed has nothing to ask: it is applied as
-  // soon as it can be (no run in flight), once.
+  // In auto mode a list whose every suggestion is needed has nothing to ask, and neither has one
+  // the settings apply without asking: it is applied as soon as it can be (no run in flight), once.
   const applied = useRef(false);
   useEffect(() => {
     if (applied.current || answers || stale) {
       return;
     }
-    if (!onAnswer || !auto) {
+    if (!onAnswer || !(auto || all)) {
       return;
     }
     if (verdicts.every((v) => v === "apply")) {

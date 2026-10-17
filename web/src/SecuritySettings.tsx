@@ -15,6 +15,7 @@ import { Row, Segmented } from "./SettingsControls";
 import { InlineConfirm } from "./NetworkSettings";
 import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
 import { NetworkIsolationSetting } from "./NetworkIsolationSetting";
+import { AutoApplySetting } from "./AutoApplySetting";
 
 // accessHint says what the choice shown lets the agent reach.
 function accessHint(m: DiskAccess): string {
@@ -258,6 +259,9 @@ function CommandSettings({
     <>
       {view.ask_unconfined_runs !== undefined && (
         <UnconfinedRunsSetting api={api} view={view} onView={onView} />
+      )}
+      {view.auto_apply_suggestions !== undefined && (
+        <AutoApplySetting api={api} view={view} onView={onView} />
       )}
       {view.isolate_network !== undefined && (
         <NetworkIsolationSetting api={api} view={view} onView={onView} />

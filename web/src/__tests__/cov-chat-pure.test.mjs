@@ -47,6 +47,10 @@ test("initialVerdicts keeps the answers or accepts the needed ones in auto mode"
   for (const M of proposalCopies) {
     const answered = ["skip", "apply"];
     assert.equal(M.initialVerdicts([{}, {}], true, answered), answered);
+    assert.deepEqual(M.initialVerdicts([{}, {}], false, undefined, true), [
+      "apply",
+      "apply",
+    ]);
     assert.deepEqual(M.initialVerdicts([{ needed: true }, {}], true), [
       "apply",
       undefined,

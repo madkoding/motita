@@ -233,3 +233,34 @@ test("the conversation draws the label, the stream keeps the turn of the answer,
   );
   assert.match(hook, /\/checkpoints\//);
 });
+
+test("a report the settings apply without asking accepts every suggestion and sends them once", async () => {
+  const got = [];
+  let root;
+  await act(async () => {
+    root = mount({
+      report: { ...report, auto_apply: true },
+      onAnswer: (a) => got.push(a),
+    });
+  });
+  assert.equal(got.length, 1, "applied once, nobody pressed anything");
+  assert.deepEqual(got[0].verdicts, ["apply", "apply", "apply"]);
+  assert.deepEqual(got[0].picks, ["", "", ""]);
+  assert.match(
+    got[0].request,
+    /test the empty header[\s\S]*log the dropped rows/,
+  );
+  root.remove();
+});
+
+test("a stamped report that was answered, expired or cannot be answered yet is left alone", async () => {
+  const stamped = { ...report, auto_apply: true };
+  const answered = { picks: ["none"], verdicts: ["skip", "skip", "skip"] };
+  const got = [];
+  await act(async () => {
+    mount({ report: stamped, answers: answered, onAnswer: (a) => got.push(a) });
+    mount({ report: stamped, expired: true, onAnswer: (a) => got.push(a) });
+    mount({ report: stamped });
+  });
+  assert.equal(got.length, 0);
+});
