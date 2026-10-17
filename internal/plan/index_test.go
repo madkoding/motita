@@ -3,22 +3,25 @@ package plan
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/madkoding/motita/internal/codeindex"
 	"github.com/madkoding/motita/internal/llm"
-	"github.com/madkoding/motita/internal/xerj"
 )
 
 type fakeIndex struct {
-	hits  []xerj.Hit
+	hits  []codeindex.Hit
 	err   error
+	root  string
 	query string
-	size  int
+	limit int
 }
 
-func (f *fakeIndex) Search(_ context.Context, q string, size int) ([]xerj.Hit, error) {
-	f.query, f.size = q, size
+func (f *fakeIndex) Search(_ context.Context, root, q string, limit int) ([]codeindex.Hit, error) {
+	f.root, f.query, f.limit = root, q, limit
 	return f.hits, f.err
 }
 
@@ -40,37 +43,59 @@ func TestSearchIndexIsOfferedOnlyWithAnIndex(t *testing.T) {
 }
 
 func TestToolSearchIndex(t *testing.T) {
-	f := &fakeIndex{hits: []xerj.Hit{{Path: "a.go", Line: 3, Passage: "func A() {}"}}}
-	p := (&Planner{}).WithIndex(f)
-	call := llm.ToolCall{Function: llm.FunctionCall{
-		Name: "search_index", Arguments: raw(`{"query":" rotate wal ","limit":3}`),
-	}}
-	out := p.dispatchTool(context.Background(), call)
-	if !strings.Contains(out, "a.go:3\nfunc A() {}") || f.query != "rotate wal" || f.size != 3 {
-		t.Errorf("out=%q query=%q size=%d", out, f.query, f.size)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	out = p.toolSearchIndex(context.Background(), raw(`{"query":"  "}`))
+	f := &fakeIndex{hits: []codeindex.Hit{{Path: "a.go", Line: 3, Snippet: "func A() {}"}}}
+	p := (&Planner{}).WithIndex(f)
+	ctx := context.Background()
+	call := llm.ToolCall{Function: llm.FunctionCall{
+		Name: "search_index", Arguments: raw(`{"query":" rotate wal ","limit":3,"path":"` + filepath.ToSlash(dir) + `"}`),
+	}}
+	out := p.dispatchTool(ctx, call)
+	if !strings.Contains(out, "a.go:3\nfunc A() {}") || f.query != "rotate wal" || f.limit != 3 || f.root != dir {
+		t.Errorf("out=%q root=%q query=%q limit=%d", out, f.root, f.query, f.limit)
+	}
+	out = p.toolSearchIndex(ctx, raw(`{"query":"  "}`))
 	if !strings.Contains(out, "'query' parameter is missing") {
 		t.Errorf("empty query: %q", out)
 	}
-	out = p.toolSearchIndex(context.Background(), raw(`{"query":`))
+	out = p.toolSearchIndex(ctx, raw(`{"query":`))
 	if !strings.HasPrefix(out, errParsingArguments) {
 		t.Errorf("bad arguments: %q", out)
 	}
-	f.err = errors.New("no node")
-	out = p.toolSearchIndex(context.Background(), raw(`{"query":"x"}`))
-	if out != "Error searching the index: no node" {
-		t.Errorf("node down: %q", out)
+	out = p.toolSearchIndex(ctx, raw(`{"query":"x","path":"`+filepath.ToSlash(filepath.Join(dir, "f.txt"))+`"}`))
+	if !strings.Contains(out, "is not a directory") {
+		t.Errorf("a file: %q", out)
+	}
+	out = p.toolSearchIndex(ctx, raw(`{"query":"x","path":"`+filepath.ToSlash(filepath.Join(dir, "nope"))+`"}`))
+	if !strings.Contains(out, "is not a directory") {
+		t.Errorf("a folder that does not exist: %q", out)
+	}
+	f.err = errors.New("boom")
+	out = p.toolSearchIndex(ctx, raw(`{"query":"x","path":"`+filepath.ToSlash(dir)+`"}`))
+	if out != "Error searching the index: boom" {
+		t.Errorf("index error: %q", out)
 	}
 }
 
-func TestWithXerjFollowsTheSwitch(t *testing.T) {
-	if p := (&Planner{}).WithXerj(false, "http://h", "", ""); p.index != nil {
+func TestToolSearchIndexReadsOnlyWhatTheSessionMayRead(t *testing.T) {
+	work, other := t.TempDir(), t.TempDir()
+	p := (&Planner{runner: &rootedRunner{root: work}}).WithIndex(&fakeIndex{})
+	out := p.toolSearchIndex(context.Background(), raw(`{"query":"x","path":"`+filepath.ToSlash(other)+`"}`))
+	if !strings.HasPrefix(out, errPrefix) {
+		t.Errorf("a folder outside the session was searched: %q", out)
+	}
+}
+
+func TestWithCodeIndexFollowsTheSwitch(t *testing.T) {
+	if p := (&Planner{}).WithCodeIndex(false, 1, 1); p.index != nil {
 		t.Error("a disabled block must not offer the tool")
 	}
-	p := (&Planner{}).WithXerj(true, "http://h:9200/", "k", "ax-code")
-	c, ok := p.index.(*xerj.Client)
-	if !ok || c.URL != "http://h:9200" || c.APIKey != "k" || c.Index != "ax-code" {
+	p := (&Planner{}).WithCodeIndex(true, 64, 10)
+	want := codeindex.Shared(codeindex.Options{MaxFileKB: 64, MaxFiles: 10})
+	if p.index != IndexSearcher(want) {
 		t.Errorf("index = %#v", p.index)
 	}
 }
