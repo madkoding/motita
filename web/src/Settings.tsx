@@ -5,7 +5,7 @@ import { useDialog } from "./useDialog";
 import { IconClose } from "./icons";
 import "./dialog.css";
 import { t } from "./i18n";
-import { initSettings } from "./settings";
+import { initSettings } from "./uiPrefs";
 import { ThemeSettings } from "./ThemeSettings";
 import type { Api } from "./gitApi";
 import { choose } from "./choose";

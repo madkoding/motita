@@ -7,7 +7,7 @@ const dom = new JSDOM("<!doctype html><html></html>", {
 });
 globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage;
-const m = await import("../settings.ts");
+const m = await import("../uiPrefs.ts");
 
 test("settings are applied and persisted", () => {
   assert.deepEqual(m.loadSettings(), m.DEFAULT_SETTINGS);

@@ -9,7 +9,7 @@ import {
   notifyState,
   type NotifyState,
   type NotifyPlatform,
-} from "./settings";
+} from "./uiPrefs";
 import { choose } from "./choose";
 import { showNotification } from "./notify";
 import type { Api } from "./gitApi";

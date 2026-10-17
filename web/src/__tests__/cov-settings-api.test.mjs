@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { installDom, fakeApi, json } from "./cov-settings-helpers.mjs";
 
 installDom();
-const s = await import("../settings.ts");
+const s = await import("../uiPrefs.ts");
 const sec = await import("../securityApi.ts");
 const net = await import("../networkApi.ts");
 const llm = await import("../llmApi.ts");
@@ -36,7 +36,7 @@ function brokenStorage(fn) {
   }
 }
 
-// ── settings.ts ─────────────────────────────────────────────────────────────
+// ── uiPrefs.ts ──────────────────────────────────────────────────────────────
 
 test("loadSettings keeps allowed values and falls back on unknown or broken ones", () => {
   localStorage.clear();
