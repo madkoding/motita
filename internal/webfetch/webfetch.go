@@ -170,8 +170,8 @@ var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
 // textual reports whether a media type is text a model can read.
 func textual(kind string) bool {
-	switch kind {
-	case "application/json", "application/xml", "application/xhtml+xml", "application/javascript":
+	if kind == "application/json" || kind == "application/xml" || kind == "application/xhtml+xml" ||
+		kind == "application/javascript" {
 		return true
 	}
 	return strings.HasPrefix(kind, "text/") || strings.HasSuffix(kind, "+json") || strings.HasSuffix(kind, "+xml")
