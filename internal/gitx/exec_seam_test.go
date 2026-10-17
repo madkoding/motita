@@ -108,6 +108,10 @@ func TestSamePathResolvesSymlinks(t *testing.T) {
 	if !samePath(real, link) {
 		t.Errorf("a symlink and its target are the same directory: %q vs %q", real, link)
 	}
+	// A removed worktree under a link (macOS's /var) is listed by git in its resolved form.
+	if gone := "removed"; !samePath(filepath.Join(link, gone), filepath.Join(real, gone)) {
+		t.Errorf("a path that does not exist resolves through its parent: %q vs %q", link, real)
+	}
 }
 
 // TestSamePathForCallersOutsideThePackage: SamePath is the exported door to
