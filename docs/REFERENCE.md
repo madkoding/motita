@@ -200,7 +200,7 @@ states what the task must achieve, fails before the run by design, and is never 
 
 - `agent.max_retries` bounds **rejected** rounds: a validation the anchor refused, which
   the model corrects from the failure records it is handed.
-- `agent.max_steps` (default 24) bounds **rounds altogether**. A request is usually a
+- `agent.max_steps` (default 100) bounds **rounds altogether**. A request is usually a
   plan and not a single step, and the model reports whether it is finished through the
   `done` field of its action. With `"done": false` the round is not a failure — it is
   work — so it does not spend the retry budget, and the loop continues with everything
@@ -543,8 +543,8 @@ honoured. The documented one wins when both are set.
 | `ui`           | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
-list, search, read and extend. It defaults to `skills` under the working
-directory. The documents **shipped inside the binary** are served even when that
+list, search, read and extend. It defaults to `~/.motita/skills` (or `skills`
+under the working directory when there is no home directory). The documents **shipped inside the binary** are served even when that
 directory does not exist yet, so a fresh install has a library rather than an
 empty shelf; your own documents shadow a built-in of the same name.
 
