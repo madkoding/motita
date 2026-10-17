@@ -68,7 +68,12 @@ func (rr *roundRun) run(i int, action Command) {
 // it was handled.
 func (rr *roundRun) kindAction(i int, kind string, action Command) bool {
 	return rr.agentAction(i, kind, action) || rr.fileAction(i, kind, action) ||
-		rr.libraryAction(kind, action) || rr.indexAction(kind, action) || rr.unknownKind(i, kind, action)
+		rr.readAction(kind, action) || rr.unknownKind(i, kind, action)
+}
+
+// readAction is an action answered from the library or the code index, which change nothing.
+func (rr *roundRun) readAction(kind string, action Command) bool {
+	return rr.libraryAction(kind, action) || rr.indexAction(kind, action)
 }
 
 // agentAction is a background agent started or waited for (see subagents.go).

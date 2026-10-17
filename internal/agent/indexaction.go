@@ -26,10 +26,10 @@ func (rr *roundRun) indexAction(kind string, action Command) bool {
 // is information for the model, not a failure of the run.
 func (a *Agent) searchIndex(rr *roundRun, query string) string {
 	query = strings.TrimSpace(query)
-	switch {
-	case !a.cfg.CodeIndex.Enabled:
+	if !a.cfg.CodeIndex.Enabled {
 		return "Error: the code index is switched off (code_index.enabled); use grep through a command."
-	case query == "":
+	}
+	if query == "" {
 		return "Error: 'command' must hold the question or symbol to search for."
 	}
 	root, err := a.ReadPath(".")
