@@ -23,7 +23,7 @@ export const HEAR_PER_SECOND_MS = 5_000;
 
 // A recording being written down: how it is answered, the model it waits on, and its clock.
 interface Pending {
-  ok: (text: string) => void;
+  ok: (text: string, ms: number) => void;
   fail: (e: Error) => void;
   id: string;
   ms: number;
@@ -85,7 +85,7 @@ function getWorker(): Worker {
         return;
       }
       if ("text" in m) {
-        p.ok(m.text);
+        p.ok(m.text, m.ms ?? 0);
         return;
       }
       p.fail(new Error(m.error));
@@ -131,6 +131,29 @@ function loaded(m: Extract<FromListener, { kind: string }>): void {
     return;
   }
   setLoad(m.id, { pct: 0, ready: false, error: m.error });
+}
+
+// LastHearing is how the latest recording went: the model, how long the worker took to write it
+// down, how long it was, and whether the model ran on WebGPU.
+export interface LastHearing {
+  id: string;
+  took: number;
+  seconds: number;
+  gpu: boolean;
+}
+
+let last: LastHearing | undefined;
+
+function setLast(h: LastHearing): void {
+  last = h;
+  for (const f of loadListeners) {
+    f();
+  }
+}
+
+// lastHearing is how the latest recording went in this page; undefined before the first.
+export function lastHearing(): LastHearing | undefined {
+  return last;
 }
 
 // listenStateOf is how far a model is from being ready here; undefined before it was asked for.
@@ -187,16 +210,23 @@ export async function hearLocal(
 ): Promise<string> {
   const samples = await samplesOf(audio);
   warmListener(id);
-  const ms =
-    HEAR_BASE_MS +
-    Math.ceil(samples.length / WHISPER_RATE) * HEAR_PER_SECOND_MS;
+  const seconds = samples.length / WHISPER_RATE;
+  const ms = HEAR_BASE_MS + Math.ceil(seconds) * HEAR_PER_SECOND_MS;
   // One recording at a time: the worker writes them down in order anyway, and a clock that started
   // while the recording waited its turn would stop the worker (and every model loaded) for a wait.
   const turn = hearing.then(
     () =>
       new Promise<string>((ok, fail) => {
         seq++;
-        arm(seq, { ok, fail, id, ms });
+        arm(seq, {
+          ok: (text, took) => {
+            setLast({ id, took, seconds, gpu: !!loads.get(id)?.gpu });
+            ok(text);
+          },
+          fail,
+          id,
+          ms,
+        });
         getWorker().postMessage(
           { kind: "hear", seq, id, samples, lang } satisfies ToListener,
           [samples.buffer],

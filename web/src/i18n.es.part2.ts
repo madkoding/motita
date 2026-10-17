@@ -561,6 +561,25 @@ const more: Record<string, string> = {
   Processor: "Procesador",
   "on the graphics card": "en la tarjeta gráfica",
   Recommended: "Recomendado",
+  "Send after silence": "Enviar tras el silencio",
+  "After the wake phrase, what you say joins the message and it is sent once you stop talking for this long.":
+    "Tras la frase de activación, lo que digas se suma al mensaje y se envía cuando dejas de hablar este tiempo.",
+  "Never: I send it myself": "Nunca: lo envío yo",
+  "{n} seconds": "{n} segundos",
+  "Not loaded yet.": "Todavía no está cargado.",
+  "Running on WebGPU.": "Corre en WebGPU.",
+  "Running on the processor: WebGPU could not start.":
+    "Corre en el procesador: WebGPU no pudo iniciar.",
+  "Running on the processor (WebAssembly, one thread).":
+    "Corre en el procesador (WebAssembly, un hilo).",
+  "No recording yet: speak once to measure it.":
+    "Aún no hay grabación: habla una vez para medirlo.",
+  "Last: {model} wrote {seconds} s of speech in {took} s ({times}× real time).":
+    "Última: {model} transcribió {seconds} s de voz en {took} s ({times}× el tiempo real).",
+  "This browser has WebGPU: the “GPU” models are much faster here.":
+    "Este navegador tiene WebGPU: los modelos «GPU» son mucho más rápidos aquí.",
+  "Too slow on the processor: the Tiny model answers several times sooner.":
+    "Va lento en el procesador: el modelo Tiny responde varias veces más rápido.",
   "Voice input": "Entrada de voz",
   "Voice output": "Salida de voz",
   "Every model ({n})": "Todos los modelos ({n})",

@@ -111,6 +111,7 @@ const prefs = {
   engine: "service",
   listener: "",
   language: "",
+  sendAfter: 3,
 };
 const savedVoice = (o = {}) => ({
   enabled: true,

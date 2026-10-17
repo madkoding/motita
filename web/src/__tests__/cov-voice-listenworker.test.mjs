@@ -106,11 +106,12 @@ test("a model loads with its progress, writes down a recording, and is forgotten
     samples: new Float32Array(1600),
     lang: "",
   });
-  assert.deepEqual(await next((m) => m.seq === 1, from), {
-    seq: 1,
-    text: "mundo hola!",
-    lang: "es",
-  });
+  const heard = await next((m) => m.seq === 1, from);
+  assert.equal(typeof heard.ms, "number", "the worker says how long it took");
+  assert.deepEqual(
+    { ...heard, ms: 0 },
+    { seq: 1, text: "mundo hola!", lang: "es", ms: 0 },
+  );
 
   send({ kind: "forget", id: "whisper-base" });
   const before = made.length;

@@ -124,6 +124,7 @@ async function mount(prefs = {}, info = null) {
       engine: "",
       listener: "",
       language: "",
+      sendAfter: 3,
       ...prefs,
     },
   };
@@ -474,4 +475,55 @@ test("on a phone the models run on the processor, with a switch to force WebGPU"
       delete navigator.userAgent;
     }
   }
+});
+
+test("the status says where the model runs, how long the last recording took, and what to change", () => {
+  const { engineLine, lastLine, adviceFor } = listenSettings;
+  const ready = { pct: 100, ready: true };
+  assert.match(
+    engineLine("whisper-base", { pct: 0, ready: false }),
+    /Not loaded/,
+  );
+  assert.match(
+    engineLine("whisper-small-gpu", { ...ready, gpu: true }),
+    /WebGPU\./,
+  );
+  assert.match(engineLine("whisper-small-gpu", ready), /could not start/);
+  assert.match(engineLine("whisper-base", ready), /one thread/);
+
+  assert.match(lastLine(undefined, "Whisper base"), /No recording yet/);
+  assert.match(
+    lastLine({ id: "x", took: 5600, seconds: 6, gpu: false }, "Whisper base"),
+    /Whisper base wrote 6\.0 s of speech in 5\.6 s \(0\.9× real time\)/,
+  );
+
+  const slow = { id: "whisper-base", took: 9000, seconds: 6, gpu: false };
+  assert.match(adviceFor("whisper-base", true, undefined), /WebGPU/);
+  assert.match(adviceFor("whisper-base", false, slow), /Tiny/);
+  assert.equal(adviceFor("whisper-tiny", false, slow), "");
+  assert.equal(adviceFor("whisper-base", false, undefined), "");
+  assert.equal(adviceFor("whisper-base", false, { ...slow, took: 2000 }), "");
+  assert.equal(adviceFor("whisper-small-gpu", true, slow), "");
+});
+
+test("the seconds of silence that send a wake phrase's message are chosen in the settings", async () => {
+  const m = await mount({}, null);
+  const select = m.tid("voice-send-after");
+  assert.equal(select.value, "3");
+  assert.deepEqual(
+    [...select.options].map((o) => o.textContent),
+    [
+      "Never: I send it myself",
+      "2 seconds",
+      "3 seconds",
+      "5 seconds",
+      "8 seconds",
+      "12 seconds",
+    ],
+  );
+  await pick(select, "8");
+  assert.equal(m.box.prefs.sendAfter, 8);
+  await pick(m.tid("voice-send-after"), "0");
+  assert.equal(m.box.prefs.sendAfter, 0);
+  await m.done();
 });

@@ -273,6 +273,8 @@ export function useComposer({ rs, drawers, stream, runShellLine }: Deps) {
     onInput,
     handleSubmit,
     handleKeydown,
+    // sendQueued sends without interrupting a run in flight: for a message nobody pressed send on.
+    sendQueued: () => send(false),
     shellMode,
   };
 }

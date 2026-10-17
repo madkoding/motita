@@ -96,6 +96,27 @@ export interface VoicePrefs {
   engine: ListenEngine | "";
   listener: string;
   language: string;
+  // sendAfter is the seconds of silence after a wake phrase's message that send it by itself; 0
+  // leaves it in the composer to be sent by hand.
+  sendAfter: number;
+}
+// The seconds of silence that send a wake phrase's message, as offered in the settings (0: never).
+const SEND_AFTER_SECONDS = {
+  never: 0,
+  quick: 2,
+  normal: 3,
+  relaxed: 5,
+  slow: 8,
+  patient: 12,
+};
+export const DEFAULT_SEND_AFTER = SEND_AFTER_SECONDS.normal;
+export const SEND_AFTER_OPTIONS = Object.values(SEND_AFTER_SECONDS);
+// sendAfterOf is a saved seconds value when the settings offer it, the default otherwise.
+function sendAfterOf(saved: unknown): number {
+  if (SEND_AFTER_OPTIONS.includes(saved as number)) {
+    return saved as number;
+  }
+  return DEFAULT_SEND_AFTER;
 }
 export const VOICE_KEY = "motita.ui.voice";
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
@@ -105,6 +126,7 @@ export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   engine: "",
   listener: "",
   language: "",
+  sendAfter: DEFAULT_SEND_AFTER,
 };
 
 // listenEngine is who listens: the one chosen, or before anything was, the model of this browser
@@ -147,6 +169,7 @@ export function loadVoicePrefs(): VoicePrefs {
       engine,
       listener: stringOf(raw.listener),
       language: stringOf(raw.language),
+      sendAfter: sendAfterOf(raw.sendAfter),
     };
   } catch {
     return { ...DEFAULT_VOICE_PREFS };
@@ -399,6 +422,59 @@ export const GATE = {
 };
 
 export type GateEvent = "start" | "end" | "discard" | null;
+
+// WakeMessage is the message a wake phrase opens: what is said next joins it, wake phrase or not,
+// and it ends sendAfter seconds after the last words (0: it never does, and what is said next is
+// left out), once every phrase has been written down and
+// nobody is speaking. A wake phrase alone ends with nothing to send.
+export class WakeMessage {
+  private at = 0;
+  private writing = 0;
+  private readonly ms: number;
+  private added = false;
+
+  constructor(sendAfter: number) {
+    this.ms = sendAfter * 1000;
+  }
+
+  // begin and end count the phrases still being written down.
+  begin(): void {
+    this.writing++;
+  }
+
+  end(): void {
+    this.writing--;
+  }
+
+  // hear says what a transcript adds to the message, or null when it is no part of one.
+  hear(r: Transcript, now: number): string | null {
+    if (this.ms === 0) {
+      return r.wake?.rest ?? null;
+    }
+    if (!r.wake && this.at === 0) {
+      return null;
+    }
+    const said = r.wake?.rest ?? r.text;
+    const words = said.trim() !== "";
+    if (!r.wake && !words) {
+      return null;
+    }
+    this.added = this.added || words;
+    this.at = now + this.ms;
+    return said;
+  }
+
+  // ended says the message is over and has words to send; it is closed either way.
+  ended(now: number, speaking: boolean): boolean {
+    if (this.at === 0 || now < this.at || this.writing > 0 || speaking) {
+      return false;
+    }
+    const send = this.added;
+    this.at = 0;
+    this.added = false;
+    return send;
+  }
+}
 
 // SpeechGate turns a stream of levels into phrases: "start" when speech begins, "end" when it is
 // followed by enough silence (or runs too long), "discard" when it was too short to be words.
