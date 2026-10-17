@@ -530,8 +530,12 @@ function previewOf(
 }
 
 // copyTextOf is the text a copy button copies (a code block's or a whole message's), or null when
-// the click was not on one.
+// the click was not on one. Only a button counts: an answer may carry the class and the data-*
+// payload of its own (raw HTML), but never a button, so a look-alike cannot pick what is copied.
 function copyTextOf(target: HTMLElement): string | null {
+  if (target.tagName !== "BUTTON") {
+    return null;
+  }
   if (target.classList.contains("copy-btn")) {
     return target.dataset.copyText || "";
   }

