@@ -19,10 +19,6 @@ import {
   primaryBtn,
 } from "./ProviderSettings";
 import { ModelPicker } from "./ModelPicker";
-import { BrowserModelSettings } from "./BrowserModelSettings";
-
-// BROWSER is the provider that runs in an open tab (see BrowserModelSettings.tsx).
-const BROWSER = "browser";
 
 // The kinds of work a model can be assigned to, with what each one covers. The gateway names the
 // kinds; one it names that is not here is still shown, under its own name.
@@ -104,7 +100,6 @@ export function ModelSettings({ api, onNotice }: ProviderSettingsProps) {
       )}
       {view && (
         <>
-          <BrowserModelSettings api={api} />
           <DefaultModel
             api={api}
             view={view}
@@ -143,10 +138,7 @@ function DefaultModel({
     setProvider(view.provider);
     setModel(view.model);
   }, [view.provider, view.model]);
-  // The browser model only writes titles and summaries: it cannot be the default.
-  const connected = view.providers.filter(
-    (x) => isConnected(x) && x.id !== BROWSER,
-  );
+  const connected = view.providers.filter(isConnected);
   const p = view.providers.find((x) => x.id === provider);
   const changed = provider !== view.provider || model.trim() !== view.model;
   const pick = (id: string) => {
@@ -194,11 +186,7 @@ function DefaultModel({
             >
               {/* The one in force is listed even when its key has gone, so it is not mistaken for another. */}
               {view.providers
-                .filter(
-                  (x) =>
-                    x.id !== BROWSER &&
-                    (isConnected(x) || x.id === view.provider),
-                )
+                .filter((x) => isConnected(x) || x.id === view.provider)
                 .map((x) => (
                   <option key={x.id} value={x.id}>
                     {x.name}
@@ -296,11 +284,7 @@ function TaskRow({
         >
           <option value="">{t("Same as default")}</option>
           {view.providers
-            .filter(
-              (x) =>
-                (isConnected(x) && (x.id !== BROWSER || kind === "summary")) ||
-                x.id === c?.provider,
-            )
+            .filter((x) => isConnected(x) || x.id === c?.provider)
             .map((x) => (
               <option key={x.id} value={x.id}>
                 {x.name}
@@ -342,9 +326,7 @@ function TaskModels({
   const [err, setErr] = useState("");
   useEffect(() => setDraft(view.tasks || {}), [view.tasks]);
   const kinds = view.task_kinds || Object.keys(KINDS);
-  const usable = view.providers.filter(
-    (x) => isConnected(x) && x.id !== BROWSER,
-  );
+  const usable = view.providers.filter(isConnected);
   const pick = useCallback(
     (kind: string, provider: string) => {
       setErr("");

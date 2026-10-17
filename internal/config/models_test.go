@@ -128,3 +128,23 @@ func TestLoadRefusesAnUnreadableModel(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestRetiredBrowserProviderFallsBack: a file saved while the browser model existed still loads.
+func TestRetiredBrowserProviderFallsBack(t *testing.T) {
+	c := Default()
+	c.LLM.Provider, c.LLM.Model = " Browser ", "qwen2.5-0.5b-instruct"
+	c.Models.Summary = "browser/qwen2.5-0.5b-instruct"
+	c.Models.Cheap = " BROWSER/m"
+	c.Models.Plan = "anthropic/claude-opus-5-5"
+	c.normalize()
+	d := Default().LLM
+	if c.LLM.Provider != d.Provider || c.LLM.Model != d.Model || c.LLM.BaseURL != d.BaseURL {
+		t.Errorf("llm = %+v, want the default %+v", c.LLM, d)
+	}
+	if c.Models.Summary != "" || c.Models.Cheap != "" || c.Models.Plan != "anthropic/claude-opus-5-5" {
+		t.Errorf("models = %+v", c.Models)
+	}
+	if err := c.validateModels(); err != nil {
+		t.Error(err)
+	}
+}

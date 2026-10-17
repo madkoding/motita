@@ -220,8 +220,7 @@ func TestVerifyNoticesChanges(t *testing.T) {
 }
 
 // The compiled-in catalog is well formed: unique ids, https addresses, real hashes, a sample for
-// every Piper voice (high quality only, Spanish and English), the models that listen and the
-// browser model.
+// every Piper voice (high quality only, Spanish and English) and the models that listen.
 func TestTheCatalog(t *testing.T) {
 	seen := map[string]bool{RuntimeID: true, samplesDir: true}
 	for _, files := range [][]ModelFile{OrtRuntime, PhonemizerRuntime, GPURuntime} {
@@ -236,7 +235,6 @@ func TestTheCatalog(t *testing.T) {
 		}
 	}
 	checkCatalogVoices(t, seen, WhisperModels, goodWhisperModel, func(m Model) []ModelFile { return m.Files })
-	checkCatalogVoices(t, seen, BrowserLLMModels, goodBrowserLLM, func(m Model) []ModelFile { return m.Files })
 }
 
 // checkCatalogFiles reports each file of the catalog that is not well formed.
@@ -302,18 +300,6 @@ func goodWhisperModel(m Model) bool {
 	alone := m.Engine == EngineWhisper && m.Sample == nil && sameNames(m.Runtime, runtime)
 	named := strings.HasPrefix(m.ID, WhisperID+"-") && m.Lang == "mul" && m.Name != ""
 	return alone && named && slices.Equal(got, names)
-}
-
-// goodBrowserLLM says whether a build of the browser model stands on its own with the three files
-// the page reads, and WebGPU's runtime.
-func goodBrowserLLM(m Model) bool {
-	var got []string
-	for _, f := range m.Files {
-		got = append(got, f.Name)
-	}
-	alone := m.Engine == EngineLLM && m.Sample == nil && sameNames(m.Runtime, GPURuntime)
-	return alone && strings.HasPrefix(m.ID, BrowserLLMID) && m.Name != "" &&
-		slices.Equal(got, []string{"tokenizer.json", "tokenizer_config.json", "model.onnx"})
 }
 
 // A sample is downloaded the first time it is asked for, checked, and kept apart from the voice.

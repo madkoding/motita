@@ -71,6 +71,17 @@ test("a worker named for the processor has no WebGPU", async () => {
   );
 });
 
+test("WebGPU's runtime says so when the browser gives no graphics card", async () => {
+  globalThis.self = globalThis;
+  self.name = "";
+  self.navigator = { gpu: { requestAdapter: async () => null } };
+  const O = await source("workerOrt.ts");
+  await assert.rejects(
+    O.gpuOrt(new ArrayBuffer(0)),
+    /the browser gave no graphics card to use/,
+  );
+});
+
 test("the fast card is asked for first, then any, and a card is told from an emulation", async () => {
   const asked = [];
   const gpu = (first, second) => ({
@@ -83,11 +94,4 @@ test("the fast card is asked for first, then any, and a card is told from an emu
   assert.equal(await P.pickCard(gpu(null, "any")), "any");
   assert.equal(await P.pickCard(gpu(null, null)), null);
   assert.deepEqual(asked[0], { powerPreference: "high-performance" });
-  assert.deepEqual(P.cardOf(null), { name: "", software: false });
-  assert.deepEqual(
-    P.cardOf({ info: { vendor: "nvidia", architecture: "ada" } }),
-    { name: "nvidia ada", software: false },
-  );
-  assert.equal(P.cardOf({ info: { description: "llvmpipe" } }).software, true);
-  assert.equal(P.cardOf({ isFallbackAdapter: true }).software, true);
 });
