@@ -24,3 +24,7 @@ func killGroup(cmd *exec.Cmd) error {
 func asExitError(err error, target **exec.ExitError) bool {
 	return errors.As(err, target)
 }
+
+// killLeftovers does nothing outside Unix: once the command exited there is no group left to
+// find what it started.
+func killLeftovers(*exec.Cmd) {}

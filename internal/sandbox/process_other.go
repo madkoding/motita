@@ -14,3 +14,7 @@ func killGroup(cmd *exec.Cmd) error {
 	}
 	return cmd.Process.Kill()
 }
+
+// killLeftovers does nothing outside Unix: once the child exited there is no group left to find
+// what it started.
+func killLeftovers(*exec.Cmd) {}

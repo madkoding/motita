@@ -754,7 +754,7 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	// What the command left running in the background (`cmd &`, or detached with setsid) goes
 	// with it, not only on a timeout: it would otherwise outlive the run and its limits' purpose,
 	// and keep its temporary directory busy after it is deleted.
-	_ = killGroup(cmd)
+	killLeftovers(cmd)
 	group.kill()
 	_ = group.remove()
 	duration := time.Since(start)
@@ -762,6 +762,11 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 
 	if childCtx.Err() == context.DeadlineExceeded {
 		return text, out.truncated, -1, fmt.Errorf("the command exceeded the %s limit in the sandbox", timeout)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The command exited 0, and only a child it left behind held the output open past
+		// WaitDelay. That child is gone now, and the run succeeded.
+		err = nil
 	}
 
 	exit := 0
