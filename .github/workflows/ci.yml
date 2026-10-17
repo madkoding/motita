@@ -92,6 +92,15 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: no Go file imports unsafe
+        run: |
+          # The sandbox hands the kernel addresses of anonymous mappings (kernelBuffer) instead,
+          # so nothing needs the unsafe package; Semgrep flags it and Sonar ignores nosemgrep.
+          if grep -rn --include='*.go' -E '^\s*(import\s+)?"unsafe"' .; then
+            echo "::error::the unsafe package is not allowed; see kernelBuffer in internal/sandbox" >&2
+            exit 1
+          fi
+
       - name: The POSIX installer works end to end
         run: ./scripts/verify-install-sh.sh
 
