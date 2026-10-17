@@ -86,17 +86,40 @@ func isRootWriteTarget(target string) bool {
 	if t == "/" || t == "~" || t == "~/" || strings.HasPrefix(t, "~/") {
 		return true
 	}
-	abs := t
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	abs = filepath.Clean(abs)
-	for _, tree := range systemTrees {
-		if abs == tree || strings.HasPrefix(abs, tree+string(filepath.Separator)) {
-			return true
+	for _, abs := range writtenAndResolved(t) {
+		if strings.HasPrefix(abs, userTempTree+"/") {
+			continue
+		}
+		for _, tree := range systemTrees {
+			if abs == tree || strings.HasPrefix(abs, tree+string(filepath.Separator)) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// userTempTree holds each user's own temporary and cache directories on macOS ($TMPDIR is
+// under it). It is inside /var, but it belongs to the user, not to the system.
+const userTempTree = "/var/folders"
+
+// writtenAndResolved returns a path as written (cleaned) and as it resolves through its links.
+//
+// Both are judged, because on macOS /etc, /var and /tmp are links into /private: `/etc` as
+// written names the system tree and resolves to /private/etc, while a link to /private/etc
+// names nothing and resolves to it. The resolved form is named by the tree users write.
+func writtenAndResolved(path string) []string {
+	written := filepath.Clean(path)
+	resolved := written
+	if r, err := filepath.EvalSymlinks(written); err == nil {
+		resolved = r
+	}
+	for _, top := range []string{"/etc", "/var", "/tmp"} {
+		if rest, ok := strings.CutPrefix(resolved, "/private"+top); ok && (rest == "" || rest[0] == '/') {
+			resolved = top + rest
+		}
+	}
+	return []string{written, resolved}
 }
 
 // isHarmlessDevice reports whether a device path is one of the streams or the null device,
@@ -137,11 +160,10 @@ func firstOutside(targets []string, dir string) string {
 			base = abs
 		}
 	}
-	// The workspace itself is resolved once: a workspace reached through a link must not
-	// make every path inside it look like it is outside.
-	if resolved, err := filepath.EvalSymlinks(base); err == nil {
-		base = resolved
-	}
+	// The workspace itself is resolved once, and the same way as the targets: a workspace
+	// reached through a link (on macOS, /tmp is one) must not make every path inside it look
+	// like it is outside, even before the workspace exists.
+	base = resolveAsFarAsPossible(base)
 	for _, t := range targets {
 		t = strings.TrimSpace(t)
 		if t == "" {
