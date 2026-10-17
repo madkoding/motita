@@ -37,6 +37,10 @@ type CodeIndex struct {
 	// EmbeddingsAPIKey is sent to EmbeddingsURL as a bearer token. MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
 	// is the better place for it.
 	EmbeddingsAPIKey string `yaml:"embeddings_api_key"`
+	// EmbeddingsAuto, with no EmbeddingsURL, looks for an Ollama on this machine (port 11434) that
+	// has nomic-embed-text and uses it. It is on by default because the text goes to a server on
+	// this same machine; nothing leaves it. Turn it off to never use embeddings unasked.
+	EmbeddingsAuto bool `yaml:"embeddings_auto"`
 }
 
 // Options is the block as the index takes it.
@@ -44,6 +48,7 @@ func (c CodeIndex) Options() codeindex.Options {
 	return codeindex.Options{
 		MaxFileKB: c.MaxFileKB, MaxFiles: c.MaxFiles, CacheDir: c.CacheDir, Semantic: c.Semantic,
 		EmbedURL: c.EmbeddingsURL, EmbedModel: c.EmbeddingsModel, EmbedKey: c.EmbeddingsAPIKey,
+		EmbedAuto: c.EmbeddingsAuto,
 	}
 }
 
@@ -57,7 +62,7 @@ const (
 func defaultCodeIndex() CodeIndex {
 	return CodeIndex{
 		Enabled: true, MaxFileKB: defaultCodeIndexMaxFileKB, MaxFiles: defaultCodeIndexMaxFiles,
-		Semantic: true, CacheDir: defaultCodeIndexDir(),
+		Semantic: true, CacheDir: defaultCodeIndexDir(), EmbeddingsAuto: true,
 	}
 }
 

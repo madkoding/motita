@@ -367,6 +367,9 @@ code_index:
   # holds the terms of the source, not its text, and only you can read it. Empty keeps it in
   # memory. Leave this line out to use the "index" folder inside the configuration directory.
   # cache_dir: /path/to/index
+  # With no embeddings_url, a local Ollama (127.0.0.1:11434) that has nomic-embed-text is found and
+  # used; the text stays on this machine. Set false to never look.
+  embeddings_auto: true
   # Real embeddings from an OpenAI-compatible endpoint (POST <url>/embeddings), a third ranking.
   # OFF while the url is empty. Setting it SENDS THE TEXT of the indexed files and every query to
   # that endpoint: use a provider you would already show the code to. If it fails, the search

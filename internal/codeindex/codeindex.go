@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
@@ -55,6 +56,9 @@ type Options struct {
 	// EmbedURL, EmbedModel and EmbedKey name an OpenAI-compatible embeddings endpoint. When set, the
 	// text of every indexed window is sent there once and its vectors replace the learned ones.
 	EmbedURL, EmbedModel, EmbedKey string
+	// EmbedAuto looks for a local Ollama with nomic-embed-text when EmbedURL is empty, and uses it:
+	// the text goes to a server on this machine, so nothing leaves it.
+	EmbedAuto bool
 }
 
 func (o Options) maxBytes() int64 {
@@ -522,6 +526,7 @@ type Searcher struct {
 	mu       sync.Mutex
 	byAt     map[string]*Index
 	warning  string
+	probedAt time.Time
 }
 
 // NewSearcher builds a searcher that indexes with o.
@@ -564,6 +569,7 @@ func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.detect(ctx)
 	ix := s.byAt[root]
 	if ix == nil || ix.Fingerprint != fp {
 		if ix, err = s.obtain(ctx, root, files, fp); err != nil {

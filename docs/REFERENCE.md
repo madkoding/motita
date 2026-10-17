@@ -1291,6 +1291,11 @@ matches. It runs in this process and nothing is sent anywhere; the idea comes fr
   provider you would already show the code to. If the endpoint fails the search still answers with the
   other rankings and says so in a note after the passages. Plain http with a key is refused unless the
   host is on this machine or its network.
+- **Local Ollama (automatic):** with no `embeddings_url`, the first search looks for an Ollama on this
+  machine (`127.0.0.1:11434`, 0.4 s at most, again once a minute while it is not there). If it has
+  `nomic-embed-text` (`ollama pull nomic-embed-text`), that model is used through its `/v1/embeddings`.
+  The text only goes to your own machine. `embeddings_auto: false` (or `MOTITA_CODE_INDEX_EMBEDDINGS_AUTO=false`)
+  turns the look-up off.
 - **On disk:** the index is kept in `cache_dir` and reused while no file's name, size or time changed,
   so the next start does not read everything again. It holds the terms of the source, not its text
   (passages are read from the files when answered), in a file only you can read.
@@ -1302,6 +1307,7 @@ code_index:
   max_files: 5000 # indexing stops after this many files
   semantic: true # the ranking by meaning
   # cache_dir: ~/.motita/index # the default; an empty value keeps the index in memory only
+  # embeddings_auto: true # use a local Ollama with nomic-embed-text when there is one
   # embeddings_url: https://api.openai.com/v1 # OFF while empty: setting it sends code to that endpoint
   # embeddings_model: text-embedding-3-small
   # embeddings_api_key: ... # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY

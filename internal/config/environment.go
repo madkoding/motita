@@ -196,6 +196,7 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_VOICE_ENABLED", &c.Voice.Enabled},
 		{"MOTITA_CODE_INDEX_ENABLED", &c.CodeIndex.Enabled},
 		{"MOTITA_CODE_INDEX_SEMANTIC", &c.CodeIndex.Semantic},
+		{"MOTITA_CODE_INDEX_EMBEDDINGS_AUTO", &c.CodeIndex.EmbeddingsAuto},
 		{"MOTITA_VOICE_TTS_ENABLED", &c.Voice.TTS.Enabled},
 	}
 }

@@ -14,6 +14,9 @@ func TestCodeIndexIsOnByDefault(t *testing.T) {
 	if !c.CodeIndex.Enabled || c.CodeIndex.MaxFileKB != 256 || c.CodeIndex.MaxFiles != 5000 {
 		t.Fatalf("default code_index = %+v", c.CodeIndex)
 	}
+	if !c.CodeIndex.EmbeddingsAuto {
+		t.Error("a local Ollama is looked for by default")
+	}
 	if !c.CodeIndex.Semantic {
 		t.Error("the semantic ranking is on by default")
 	}
@@ -69,10 +72,11 @@ func TestValidateCodeIndex(t *testing.T) {
 func TestCodeIndexOptions(t *testing.T) {
 	c := CodeIndex{
 		MaxFileKB: 1, MaxFiles: 2, CacheDir: "/c", Semantic: true,
-		EmbeddingsURL: "u", EmbeddingsModel: "m", EmbeddingsAPIKey: "k",
+		EmbeddingsURL: "u", EmbeddingsModel: "m", EmbeddingsAPIKey: "k", EmbeddingsAuto: true,
 	}
 	want := codeindex.Options{
 		MaxFileKB: 1, MaxFiles: 2, CacheDir: "/c", Semantic: true, EmbedURL: "u", EmbedModel: "m", EmbedKey: "k",
+		EmbedAuto: true,
 	}
 	if got := c.Options(); got != want {
 		t.Errorf("Options() = %+v", got)

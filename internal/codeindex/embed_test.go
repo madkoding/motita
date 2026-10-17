@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // topics is the fake embedding model: one axis per topic, a text scores on the axes of the words
@@ -265,3 +266,92 @@ func TestNewEmbedderNeedsAnAddress(t *testing.T) {
 }
 
 func errHas(err error, want string) bool { return err != nil && strings.Contains(err.Error(), want) }
+
+// ollamaServer answers /api/tags with the named models and /v1/embeddings like the fake model.
+func ollamaServer(t *testing.T, tags string, status int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(tags))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestLocalOllamaIsDetected(t *testing.T) {
+	old, oldEvery := ollamaBase, probeEvery
+	t.Cleanup(func() { ollamaBase, probeEvery = old, oldEvery })
+	probeEvery = 0
+	ctx := context.Background()
+
+	for name, tc := range map[string]struct {
+		tags   string
+		status int
+		want   string
+	}{
+		"with the model": {`{"models":[{"name":"llama3"},{"name":"nomic-embed-text:latest"}]}`, 200,
+			"nomic-embed-text:latest"},
+		"bare name":     {`{"models":[{"name":"nomic-embed-text"}]}`, 200, "nomic-embed-text"},
+		"another model": {`{"models":[{"name":"nomic-embed-text-v2:1"}]}`, 200, ""},
+		"not json":      {`oops`, 200, ""},
+		"an error":      {`{"models":[{"name":"nomic-embed-text"}]}`, 500, ""},
+	} {
+		ollamaBase = ollamaServer(t, tc.tags, tc.status).URL
+		if got := localEmbedModel(ctx); got != tc.want {
+			t.Errorf("%s: model = %q, want %q", name, got, tc.want)
+		}
+	}
+	ollamaBase = "http://127.0.0.1:1"
+	if got := localEmbedModel(ctx); got != "" {
+		t.Errorf("nothing listens: %q", got)
+	}
+	ollamaBase = "http://bad host"
+	if got := localEmbedModel(ctx); got != "" {
+		t.Errorf("a bad address: %q", got)
+	}
+}
+
+func TestDetectSwitchesTheEmbeddingsOnOnce(t *testing.T) {
+	old, oldEvery := ollamaBase, probeEvery
+	t.Cleanup(func() { ollamaBase, probeEvery = old, oldEvery })
+	ctx := context.Background()
+	ollamaBase = "http://127.0.0.1:1"
+	probeEvery = time.Hour
+
+	s := NewSearcher(Options{EmbedAuto: true})
+	s.byAt["x"] = &Index{}
+	s.detect(ctx)
+	if s.embedder != nil || s.probedAt.IsZero() {
+		t.Fatal("no Ollama: no embedder, but the probe is remembered")
+	}
+	ollamaBase = ollamaServer(t, `{"models":[{"name":"nomic-embed-text:latest"}]}`, 200).URL
+	s.detect(ctx) // too soon to look again
+	if s.embedder != nil {
+		t.Fatal("the probe must wait")
+	}
+	probeEvery = 0
+	s.detect(ctx)
+	if s.embedder == nil || s.opts.EmbedModel != "nomic-embed-text:latest" ||
+		s.opts.EmbedURL != ollamaBase+"/v1" || len(s.byAt) != 0 {
+		t.Fatalf("detected = %+v embedder=%v byAt=%d", s.opts, s.embedder, len(s.byAt))
+	}
+	first := s.embedder
+	s.detect(ctx)
+	if s.embedder != first {
+		t.Error("an embedder already in use is kept")
+	}
+	for name, o := range map[string]Options{
+		"off":      {},
+		"explicit": {EmbedAuto: true, EmbedURL: "http://x"},
+	} {
+		t2 := NewSearcher(o)
+		t2.detect(ctx)
+		if t2.probedAt != (time.Time{}) && name == "off" {
+			t.Errorf("%s: must not probe", name)
+		}
+	}
+}

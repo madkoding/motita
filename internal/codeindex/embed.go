@@ -163,3 +163,65 @@ func (ix *Index) rankEmbedded(q []float32) []ranked {
 	sort.SliceStable(out, func(a, b int) bool { return out[a].score > out[b].score })
 	return out[:min(len(out), semCandidate)]
 }
+
+// Local embeddings: with nothing configured, a running Ollama that has the nomic-embed-text model
+// is used. It is on this machine, so no code leaves it.
+const (
+	autoModel   = "nomic-embed-text"
+	probeBudget = 400 * time.Millisecond
+)
+
+var (
+	// ollamaBase is where a local Ollama listens. A variable so a test can point it elsewhere.
+	ollamaBase = "http://127.0.0.1:11434"
+	// probeEvery is how long a search waits before looking again for an Ollama that was not there.
+	probeEvery = time.Minute
+)
+
+// detect looks for the local Ollama when the settings ask for it and no endpoint is set, and
+// switches the embeddings on when it finds the model. Called with the lock held. Indexes built
+// without vectors are dropped so they are built again with them.
+func (s *Searcher) detect(ctx context.Context) {
+	if s.embedder != nil || !s.opts.EmbedAuto || strings.TrimSpace(s.opts.EmbedURL) != "" ||
+		(!s.probedAt.IsZero() && time.Since(s.probedAt) < probeEvery) {
+		return
+	}
+	s.probedAt = time.Now()
+	model := localEmbedModel(ctx)
+	if model == "" {
+		return
+	}
+	s.opts.EmbedURL, s.opts.EmbedModel = ollamaBase+"/v1", model
+	s.embedder = newEmbedder(s.opts)
+	s.byAt = map[string]*Index{}
+}
+
+// localEmbedModel returns the installed model name of nomic-embed-text, or "" when Ollama does not
+// answer or does not have it.
+func localEmbedModel(ctx context.Context) string {
+	ctx, cancel := context.WithTimeout(ctx, probeBudget)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ollamaBase+"/api/tags", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var tags struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&tags) != nil {
+		return ""
+	}
+	for _, m := range tags.Models {
+		if m.Name == autoModel || strings.HasPrefix(m.Name, autoModel+":") {
+			return m.Name
+		}
+	}
+	return ""
+}
