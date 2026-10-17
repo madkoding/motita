@@ -891,6 +891,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
 	mux.Handle("POST /v1/sessions/{id}/run", scoped(s.handleRun))
 	mux.Handle("POST /v1/sessions/{id}/narrate", scoped(s.handleNarrate))
+	mux.Handle("POST /v1/sessions/{id}/next-suggestion", scoped(s.handleNextSuggestion))
 	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
 	mux.Handle("POST /v1/sessions/{id}/continue", scoped(s.handleContinueSession))
 	mux.Handle("GET /v1/sessions/{id}/pr", scoped(s.handleGetPR))

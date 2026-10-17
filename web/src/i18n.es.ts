@@ -783,6 +783,10 @@ const first: Record<string, string> = {
   "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.":
     "0 usa el valor por defecto (5). Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
   "Notice when a CI ends": "Aviso cuando termine un CI",
+  "Suggest the next request": "Sugerir el siguiente pedido",
+  "After a turn, the empty field hints at what to ask next.":
+    "Al terminar un turno, el campo vacío sugiere qué pedir después.",
+  "Use the suggestion": "Usar la sugerencia",
   "A message inside Motita. Works on any connection.":
     "Un mensaje dentro de Motita. Funciona con cualquier conexión.",
   "Desktop notification": "Notificación de escritorio",

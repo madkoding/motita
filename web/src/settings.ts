@@ -108,6 +108,26 @@ export function saveCiToast(on: boolean): void {
   }
 }
 
+// Whether the empty composer hints at the next request after a turn. It costs one small model call
+// per finished turn, so it is the user's switch, on by default.
+export const NEXT_HINT_KEY = "motita.ui.nextHint";
+
+export function loadNextHint(): boolean {
+  try {
+    return localStorage.getItem(NEXT_HINT_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveNextHint(on: boolean): void {
+  try {
+    localStorage.setItem(NEXT_HINT_KEY, onOff(on));
+  } catch {
+    /* ignore */
+  }
+}
+
 export type NotifyState =
   | "unsupported"
   | "insecure"

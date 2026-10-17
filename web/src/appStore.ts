@@ -19,6 +19,7 @@ import { useStream } from "./useStream";
 import { useSuggestions } from "./useSuggestions";
 import { useShellApproval } from "./useShellApproval";
 import { useComposer } from "./useComposer";
+import { useNextSuggestion } from "./useNextSuggestion";
 import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { useUpdates } from "./useUpdates";
@@ -90,11 +91,18 @@ export function useAppStore(api: Api) {
     stream,
     { reload: conv.transcript, setToast },
   );
+  const nextSuggestion = useNextSuggestion({
+    api,
+    sessionId: rs.sessionId,
+    running: rs.running,
+    messages: rs.messages,
+  });
   const composer = useComposer({
     rs,
     drawers,
     stream,
     runShellLine: shell.runShellLine,
+    nextSuggestion,
   });
   const checkpoints = useCheckpoints({
     api,

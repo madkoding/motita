@@ -89,12 +89,12 @@ export function isAnswer(m: Message): boolean {
 }
 
 // spokenText is the part of an answer that is read: a report's summary, or the answer itself.
-function spokenText(m: Message): string {
+export function spokenText(m: Message): string {
   return m.report?.summary || m.text;
 }
 
 // requestOf is what the person asked for an answer: the closest message of theirs before it.
-function requestOf(messages: Message[], id: number): string {
+export function requestOf(messages: Message[], id: number): string {
   let asked = "";
   for (const m of messages) {
     if (m.id >= id) {
@@ -119,7 +119,7 @@ function currentSteps(
 }
 
 // lastAnswer is the newest answer of the conversation, if there is one.
-function lastAnswer(messages: Message[]): Message | undefined {
+export function lastAnswer(messages: Message[]): Message | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (isAnswer(messages[i])) {
       return messages[i];

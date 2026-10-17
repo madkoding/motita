@@ -6,6 +6,8 @@ import {
   type UISettings,
   type FontSize,
   type Density,
+  loadNextHint,
+  saveNextHint,
 } from "./settings";
 import { Row, Segmented } from "./SettingsControls";
 
@@ -22,6 +24,7 @@ export function AppearanceSettings({
   onLang,
 }: AppearanceSettingsProps) {
   const [s, setS] = useState<UISettings>(() => initSettings());
+  const [hint, setHint] = useState(() => loadNextHint());
   const update = (next: UISettings) => {
     setS(next);
     saveSettings(next);
@@ -79,6 +82,26 @@ export function AppearanceSettings({
               { value: "compact", label: t("Compact") },
             ]}
           />
+        </Row>
+        <Row
+          id="settings-next-hint"
+          label={t("Suggest the next request")}
+          hint={t("After a turn, the empty field hints at what to ask next.")}
+        >
+          <label class="settings-switch-hit">
+            <input
+              type="checkbox"
+              role="switch"
+              class="settings-switch"
+              aria-labelledby="settings-next-hint"
+              checked={hint}
+              onChange={(e) => {
+                const v = (e.target as HTMLInputElement).checked;
+                setHint(v);
+                saveNextHint(v);
+              }}
+            />
+          </label>
         </Row>
       </div>
     </section>

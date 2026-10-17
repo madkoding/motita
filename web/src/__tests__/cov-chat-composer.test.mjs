@@ -17,7 +17,7 @@ const CMDS = [
 ];
 
 // composer mounts useComposer with recording fakes.
-async function composer({ running = false } = {}) {
+async function composer({ running = false, nextSuggestion = "" } = {}) {
   const calls = [];
   const rs = {
     runningRef: { current: running },
@@ -38,6 +38,7 @@ async function composer({ running = false } = {}) {
       stopRun: () => calls.push(["stop"]),
     },
     runShellLine: async (c) => calls.push(["shell", c]),
+    nextSuggestion,
   };
   const hook = await renderHook(() => useComposer(deps));
   const c = () => hook.result.current;
@@ -62,6 +63,37 @@ function key(k, mods = {}) {
   };
   return e;
 }
+
+test("ArrowRight on an empty field takes the suggested request", async () => {
+  const { c, run } = await composer({ nextSuggestion: "Add tests" });
+  const plain = key("ArrowRight");
+  await run((x) => x.handleKeydown(plain));
+  assert.equal(plain.prevented, true);
+  assert.equal(c().input, "Add tests");
+  // Now the field has text: the key moves the caret as usual.
+  const again = key("ArrowRight");
+  await run((x) => x.handleKeydown(again));
+  assert.equal(again.prevented, false);
+});
+
+test("ArrowRight leaves the field alone with modifiers, tags or nothing suggested", async () => {
+  const none = await composer();
+  const a = key("ArrowRight");
+  await none.run((x) => x.handleKeydown(a));
+  assert.equal(a.prevented, false);
+  const { c, run } = await composer({ nextSuggestion: "Add tests" });
+  const shifted = key("ArrowRight", { shiftKey: true });
+  await run((x) => x.handleKeydown(shifted));
+  assert.equal(shifted.prevented, false);
+  const left = key("ArrowLeft");
+  await run((x) => x.handleKeydown(left));
+  assert.equal(left.prevented, false);
+  await run((x) => x.pickSlash({ name: "/task", group: "mode" }));
+  const tagged = key("ArrowRight");
+  await run((x) => x.handleKeydown(tagged));
+  assert.equal(tagged.prevented, false);
+  assert.equal(c().input, "");
+});
 
 const names = (items) => items.map((x) => x.name);
 

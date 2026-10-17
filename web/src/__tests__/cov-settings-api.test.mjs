@@ -97,7 +97,16 @@ test("the notification and CI toast switches default to on and survive broken st
   s.saveCiToast(true);
   assert.equal(s.loadCiToast(), true);
 
+  assert.equal(s.loadNextHint(), true);
+  s.saveNextHint(false);
+  assert.equal(localStorage.getItem(s.NEXT_HINT_KEY), "off");
+  assert.equal(s.loadNextHint(), false);
+  s.saveNextHint(true);
+  assert.equal(s.loadNextHint(), true);
+
   brokenStorage(() => {
+    assert.equal(s.loadNextHint(), true);
+    assert.doesNotThrow(() => s.saveNextHint(false));
     assert.equal(s.loadNotify(), true);
     assert.equal(s.loadCiToast(), true);
     assert.doesNotThrow(() => s.saveNotify(false));

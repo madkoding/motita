@@ -197,9 +197,16 @@ function ListeningBadge() {
 }
 
 // placeholderOf is what the empty field says.
-function placeholderOf(isMerged: boolean, tagged: boolean): string {
+function placeholderOf(
+  isMerged: boolean,
+  tagged: boolean,
+  suggestion: string,
+): string {
   if (isMerged) {
     return t("This session is read-only after integration");
+  }
+  if (suggestion && !tagged) {
+    return suggestion + " →";
   }
   return t(choose(tagged, "argument…", "Ask for something…"));
 }
@@ -270,10 +277,26 @@ export function Composer() {
             composer.onInput((e.target as HTMLTextAreaElement).value)
           }
           onKeyDown={composer.handleKeydown}
-          placeholder={placeholderOf(isMerged, composer.activeTags.length > 0)}
+          placeholder={placeholderOf(
+            isMerged,
+            composer.activeTags.length > 0,
+            composer.nextSuggestion,
+          )}
           class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 composer-input font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
+      {composer.nextSuggestion && input === "" && !isMerged && (
+        <button
+          type="button"
+          class="flex-none px-2.5 rounded-xl text-sm text-[#e8e8ea] bg-white/5 hover:bg-white/10 border border-white/5"
+          aria-label={t("Use the suggestion")}
+          title={composer.nextSuggestion}
+          data-testid="use-suggestion"
+          onClick={() => composer.setInput(composer.nextSuggestion)}
+        >
+          →
+        </button>
+      )}
       {voice.showMic && <MicButton disabled={isMerged} />}
       <SendButton disabled={rs.running || isMerged} />
     </form>

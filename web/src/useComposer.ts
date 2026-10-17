@@ -64,9 +64,17 @@ interface Deps {
   drawers: Drawers;
   stream: Stream;
   runShellLine: (command: string) => Promise<void>;
+  // nextSuggestion is what the empty field hints at after a turn; "" when there is none.
+  nextSuggestion: string;
 }
 
-export function useComposer({ rs, drawers, stream, runShellLine }: Deps) {
+export function useComposer({
+  rs,
+  drawers,
+  stream,
+  runShellLine,
+  nextSuggestion,
+}: Deps) {
   const { runningRef } = rs;
   const [input, setInput] = useState("");
   // Slash commands loaded from the backend, and the autocomplete popup state.
@@ -228,6 +236,18 @@ export function useComposer({ rs, drawers, stream, runShellLine }: Deps) {
     return false;
   };
 
+  // acceptSuggestion: ArrowRight on an empty field takes the hint as the text, ready to send or edit.
+  const acceptSuggestion = (e: KeyboardEvent) => {
+    const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const canTake = input === "" && activeTags.length === 0 && nextSuggestion;
+    if (e.key !== "ArrowRight" || !plain || !canTake) {
+      return false;
+    }
+    e.preventDefault();
+    setInput(nextSuggestion);
+    return true;
+  };
+
   // handleKeydown: Enter sends on desktop (no modifier), Shift+Enter inserts newline.
   // On touch devices Enter always inserts a newline — a physical keyboard is
   // the signal that single-line Enter-to-send is expected.
@@ -240,6 +260,9 @@ export function useComposer({ rs, drawers, stream, runShellLine }: Deps) {
     if (e.key === "Escape" && runningRef.current) {
       e.preventDefault();
       stream.stopRun();
+      return;
+    }
+    if (acceptSuggestion(e)) {
       return;
     }
     if (e.key !== "Enter") {
@@ -276,6 +299,7 @@ export function useComposer({ rs, drawers, stream, runShellLine }: Deps) {
     // sendQueued sends without interrupting a run in flight: for a message nobody pressed send on.
     sendQueued: () => send(false),
     shellMode,
+    nextSuggestion,
   };
 }
 
