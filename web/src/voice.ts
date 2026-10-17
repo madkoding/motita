@@ -101,8 +101,23 @@ export interface VoicePrefs {
   sendAfter: number;
 }
 // The seconds of silence that send a wake phrase's message, as offered in the settings (0: never).
-export const DEFAULT_SEND_AFTER = 3;
-export const SEND_AFTER_OPTIONS = [0, 2, 3, 5, 8, 12];
+const SEND_AFTER_SECONDS = {
+  never: 0,
+  quick: 2,
+  normal: 3,
+  relaxed: 5,
+  slow: 8,
+  patient: 12,
+};
+export const DEFAULT_SEND_AFTER = SEND_AFTER_SECONDS.normal;
+export const SEND_AFTER_OPTIONS = Object.values(SEND_AFTER_SECONDS);
+// sendAfterOf is a saved seconds value when the settings offer it, the default otherwise.
+function sendAfterOf(saved: unknown): number {
+  if (SEND_AFTER_OPTIONS.includes(saved as number)) {
+    return saved as number;
+  }
+  return DEFAULT_SEND_AFTER;
+}
 export const VOICE_KEY = "motita.ui.voice";
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   mic: true,
@@ -154,9 +169,7 @@ export function loadVoicePrefs(): VoicePrefs {
       engine,
       listener: stringOf(raw.listener),
       language: stringOf(raw.language),
-      sendAfter: SEND_AFTER_OPTIONS.includes(raw.sendAfter)
-        ? raw.sendAfter
-        : DEFAULT_SEND_AFTER,
+      sendAfter: sendAfterOf(raw.sendAfter),
     };
   } catch {
     return { ...DEFAULT_VOICE_PREFS };

@@ -286,6 +286,18 @@ function useListenOnce({
   return { listenOnce, cancelListen };
 }
 
+// staleRecording says a recording holds only silence for too long: it starts again, so a phrase is
+// never sent with minutes of quiet in front of it.
+function staleRecording(
+  speaking: boolean,
+  startedAt: number | undefined,
+  now: number,
+): boolean {
+  return (
+    !speaking && startedAt !== undefined && now - startedAt > IDLE_RESTART_MS
+  );
+}
+
 // useHandsFree listens while the hands-free mode is active: every spoken phrase is transcribed,
 // and only one that opens with a wake phrase reaches the composer.
 function useHandsFree({
@@ -403,7 +415,7 @@ function useHandsFree({
         }
         if (
           ev === "discard" ||
-          (!gate.speaking && current && now - current.at > IDLE_RESTART_MS)
+          staleRecording(gate.speaking, current?.at, now)
         ) {
           restart();
         }
