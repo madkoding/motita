@@ -41,7 +41,7 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 	}
 	// The parent does not wait for the child, so the marker is polled rather than read straight
 	// away: this is the same reason `gateway start` waits for the gateway to answer.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(childStartDeadline)
 	var got string
 	for time.Now().Before(deadline) {
 		b, err := os.ReadFile(marker)
@@ -71,7 +71,7 @@ func TestSpawnDetachedWithoutAnAddressOmitsTheFlag(t *testing.T) {
 	if err := spawnDetached(context.Background(), spawnSpec{ExePath: script, Listen: "   "}); err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(childStartDeadline)
 	var got string
 	for time.Now().Before(deadline) {
 		if b, err := os.ReadFile(marker); err == nil {
@@ -515,7 +515,7 @@ func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 	if err := spawnDetached(context.Background(), spec); err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(childStartDeadline)
 	var got string
 	for time.Now().Before(deadline) {
 		b, err := os.ReadFile(marker)
@@ -544,7 +544,7 @@ func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
 	if err := spawnDetached(context.Background(), spawnSpec{ExePath: script, Config: "  "}); err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(childStartDeadline)
 	var got string
 	for time.Now().Before(deadline) {
 		b, err := os.ReadFile(marker)
@@ -564,3 +564,8 @@ func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
 func recorderScript(marker string) string {
 	return "#!/bin/sh\nprintf '%s' \"$*\" > " + marker + ".tmp && mv " + marker + ".tmp " + marker + "\n"
 }
+
+// childStartDeadline is how long a spawn test waits for the child to record its arguments. The poll
+// ends as soon as it has; on macOS the first run of a new script takes about 0.25 s alone, and more
+// than 2 s while the other packages test in parallel.
+const childStartDeadline = 15 * time.Second
