@@ -106,8 +106,9 @@ jobs:
           # -e: a tool that does not install fails the step where everyone sees it. Without it,
           # each scan below wrote an empty report and the run looked clean.
           set -euo pipefail
-          # No GOTOOLCHAIN pin: setup-go provides the go.mod toolchain, and `go install` switches
-          # up on its own when a tool needs a newer Go. A pin to go1.25.5 could not build
+          # No GOTOOLCHAIN pin: setup-go installs the go.mod toolchain and exports
+          # GOTOOLCHAIN=local, so the tools build with it and never switch up. A tool that
+          # needs a newer Go than go.mod fails here. A pin to go1.25.5 could not build
           # govulncheck v1.8.0, which requires go 1.26.
           GOBIN="$HOME/kv-bin" go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
           GOBIN="$HOME/kv-bin" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
