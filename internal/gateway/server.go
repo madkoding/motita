@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net"
 	"net/http"
@@ -511,13 +512,15 @@ func Start(opts Options) (*Server, error) {
 	if opts.Tailscale != nil {
 		go s.learnTailnetName(s.baseCtx)
 	}
-	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
+	s.mux = bodyDeadline(s.originPolicy(s.hostPolicy(securityHeaders(s.routes()))))
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
 		// are a run that streams until the agent is done: a deadline there would cut a slow
-		// answer off mid-sentence, which reads to the user as "the agent stopped". A stalled
-		// client is bounded by ReadHeaderTimeout instead, which is the risk worth bounding.
+		// answer off mid-sentence, which reads to the user as "the agent stopped". No ReadTimeout
+		// either: it stays armed while the response streams, and when it fires net/http cancels
+		// the request context of that stream. A stalled header is bounded by ReadHeaderTimeout,
+		// and a stalled body by bodyDeadline.
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -1147,6 +1150,44 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bodyIdleTimeout is how long a request body may go without a byte arriving. A variable so a test
+// does not wait thirty seconds.
+var bodyIdleTimeout = 30 * time.Second
+
+// bodyDeadline bounds the read of a request body, and it wraps everything, ahead of the token check.
+//
+// Without it, a peer with no token declares a body and never sends it: net/http drains the unread
+// body before it writes the 401, that read has no deadline, and the connection stays open for as
+// long as the peer likes. Every read that brings bytes pushes the deadline on, so a slow upload that
+// keeps moving is not cut off. The end of the body is left alone: there net/http clears the
+// deadline itself and reads the connection in the background to notice a client that leaves, and a
+// deadline set again would end that read and cancel the request context of a stream still running.
+func bodyDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength != 0 {
+			rc := http.NewResponseController(w)
+			if rc.SetReadDeadline(time.Now().Add(bodyIdleTimeout)) == nil {
+				r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// deadlineBody moves the read deadline of its connection on as the body arrives: see bodyDeadline.
+type deadlineBody struct {
+	io.ReadCloser
+	rc *http.ResponseController
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 && err == nil {
+		_ = b.rc.SetReadDeadline(time.Now().Add(bodyIdleTimeout))
+	}
+	return n, err
 }
 
 // osHostname is this machine's name, a variable so a test can make it fail.
