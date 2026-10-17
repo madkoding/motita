@@ -99,11 +99,15 @@ var removeTimeoutFor = removeTimeout
 // .gitattributes entry at it, so `git add` or `git diff` runs that command. A static -c list
 // cannot neutralize a key whose name is not known in advance; neutralizeLocalConfig reads the
 // repository's local config and emits a -c override for every such key it finds. See gitArgs.
-var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
+//
+// The ext:: transport is forbidden here, not only when the repository names protocol.ext.allow:
+// a general protocol.allow=always arms it too, and a per-protocol policy on the command line wins
+// over both.
+var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never"}
 
 // Hardening is a copy of the fixed -c options every git of this package runs with, for the few
 // callers outside it that start git themselves: put them before the subcommand. It carries only
-// the hooks and fsmonitor neutralization; a caller that runs git in a repository an agent may
+// the hooks, fsmonitor and ext:: neutralization; a caller that runs git in a repository an agent may
 // have written must use HardeningFor so the repository's own filter, diff and merge drivers are
 // neutralized too.
 func Hardening() []string {
@@ -178,17 +182,18 @@ func localConfigNames(ctx context.Context, dir string) []string {
 // fixed hardening, and are left to it, but a repository that re-sets them is overridden here too
 // rather than trusted).
 var dangerousConfigKeys = map[string]bool{
-	"diff.external":         true,
-	"core.sshcommand":       true,
-	"core.editor":           true,
-	"core.pager":            true,
-	"core.askpass":          true,
-	"core.fsmonitor":        true,
-	"core.hookspath":        true,
-	"sequence.editor":       true,
-	"commit.gpgsign":        true,
-	"tag.gpgsign":           true,
-	"sendemail.sendmailcmd": true,
+	"diff.external":             true,
+	"core.sshcommand":           true,
+	"core.editor":               true,
+	"core.pager":                true,
+	"core.askpass":              true,
+	"core.fsmonitor":            true,
+	"core.hookspath":            true,
+	"core.alternaterefscommand": true,
+	"sequence.editor":           true,
+	"commit.gpgsign":            true,
+	"tag.gpgsign":               true,
+	"sendemail.sendmailcmd":     true,
 }
 
 // commandFilterVars are the variables of a filter driver that run a command.

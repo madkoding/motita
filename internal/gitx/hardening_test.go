@@ -150,6 +150,7 @@ func TestNeutralizeCoversEveryCommandKey(t *testing.T) {
 		{"core.askPass", "-c core.askPass="},
 		{"core.fsmonitor", "-c core.fsmonitor="},
 		{"core.hooksPath", "-c core.hooksPath="},
+		{"core.alternateRefsCommand", "-c core.alternateRefsCommand="},
 		{"sequence.editor", "-c sequence.editor="},
 		{"commit.gpgSign", "-c commit.gpgSign="},
 		{"tag.gpgSign", "-c tag.gpgSign="},
@@ -208,7 +209,7 @@ func TestHardeningForNeutralizesTheRepository(t *testing.T) {
 // Hardening hands out a copy: a caller that appends to it cannot change what this package runs.
 func TestHardeningIsACopy(t *testing.T) {
 	h := Hardening()
-	if strings.Join(h, " ") != "-c core.hooksPath=/dev/null -c core.fsmonitor=false" {
+	if strings.Join(h, " ") != "-c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never" {
 		t.Fatalf("hardening: %q", h)
 	}
 	h[1] = "core.hooksPath=hooks"
@@ -259,6 +260,52 @@ func TestAFilterNamedWithAnEqualsSignRunsNoCode(t *testing.T) {
 	}
 	if got := neutralize("user.name=x"); got != nil {
 		t.Errorf("a harmless key got an override: %q", got)
+	}
+}
+
+// TestAProtocolPolicyCannotArmTheExtTransport: a repository that sets protocol.allow=always (not
+// protocol.ext.allow, which neutralize overrides by name) turns on the ext:: transport, and an
+// ext:: origin is a command git runs on fetch. The fixed hardening forbids ext by name, which
+// beats any general policy.
+func TestAProtocolPolicyCannotArmTheExtTransport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted transport is a shell command")
+	}
+	repo := newRepo(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	git(t, repo, "config", "protocol.allow", "always")
+	git(t, repo, "remote", "add", "origin", "ext::sh -c touch% "+marker)
+	_ = PullFastForward(context.Background(), repo, "main")
+	if exists(marker) {
+		t.Error("an ext:: origin ran a command on fetch")
+	}
+}
+
+// TestAlternateRefsCommandRunsNoCode: core.alternateRefsCommand is a command git runs on fetch
+// in a repository that borrows objects from another one (objects/info/alternates).
+func TestAlternateRefsCommandRunsNoCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted command is a shell command")
+	}
+	repo := newRepo(t)
+	remote := pushToOrigin(t, repo)
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, repo, "clone", "-q", remote, clone)
+	other := filepath.Join(t.TempDir(), "other")
+	git(t, repo, "clone", "-q", remote, other)
+	write(t, filepath.Join(clone, ".git", "objects", "info", "alternates"), filepath.Join(other, ".git", "objects")+"\n")
+	marker := filepath.Join(t.TempDir(), "ran")
+	git(t, clone, "config", "core.alternateRefsCommand", "touch "+marker+"; true")
+	write(t, filepath.Join(repo, "new.txt"), "new\n")
+	git(t, repo, "add", "new.txt")
+	git(t, repo, "commit", "-qm", "new")
+	git(t, repo, "push", "-q", "origin", "main")
+
+	if err := PullFastForward(context.Background(), clone, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(marker) {
+		t.Error("core.alternateRefsCommand ran on fetch")
 	}
 }
 
