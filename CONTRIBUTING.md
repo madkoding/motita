@@ -79,7 +79,7 @@ make vet
 ### 5. No Spanish in code, configs, or scripts
 
 The project is English-only in its codebase. `scripts/verify.sh` step 6
-scans all tracked `.go`, `.yaml`, `.sh`, `.md` and `Makefile` files for
+scans all tracked `.go`, `.yaml`, `.yml`, `.sh`, `.ps1`, `.md` and `Makefile` files for
 Spanish text and fails if any is found.
 
 If you need Spanish in a test fixture (the `cleanAssumption` feature,

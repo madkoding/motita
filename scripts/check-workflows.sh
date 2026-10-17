@@ -21,7 +21,8 @@
 #   3. `on` is present and its triggers are real ones, with the shape each needs
 #      (push/pull_request take a mapping, workflow_dispatch may be null);
 #   4. no tab indentation, which YAML forbids outright;
-#   5. every `run:` step is at least syntactically valid shell.
+#   5. every `run:` step is at least syntactically valid shell;
+#   6. no GOTOOLCHAIN pin is older than the Go floor in go.mod.
 #
 # It deliberately does NOT try to be a schema validator. It catches the class of
 # defect that costs a whole run and reads as nothing.
@@ -99,8 +100,18 @@ def main():
         print(f"error: no workflow files in {target}", file=sys.stderr)
         return 1
 
+    # A GOTOOLCHAIN pin older than go.mod cannot build tools that need the newer Go.
+    # Measured: go1.25.5 refused govulncheck v1.8.0 (it requires go 1.26), the step went
+    # on without it, and the security report showed a govulncheck run that never happened.
+    gomod = pathlib.Path("go.mod")
+    floor = re.search(r"^go 1\.(\d+)", gomod.read_text(), re.M) if gomod.exists() else None
+
     for path in files:
         raw = path.read_text(encoding="utf-8")
+
+        for pin in re.finditer(r"GOTOOLCHAIN=go1\.(\d+)[\w.]*", raw):
+            if floor and int(pin.group(1)) < int(floor.group(1)):
+                fail(path, f"{pin.group(0)} is older than go.mod's go 1.{floor.group(1)}")
 
         # YAML forbids tab indentation, and the failure it produces elsewhere is
         # confusing enough to be worth naming here.
