@@ -566,3 +566,58 @@ func TestRunSttyModeReportsAFailureOnANonTerminal(t *testing.T) {
 		t.Error("stty against a regular file must fail rather than report success")
 	}
 }
+
+// --- watchResize default case ---
+
+// TestWatchResizeBurstDoesNotBlock: sending two SIGWINCH signals in quick
+// succession must not block the watcher. The out channel has capacity 1, so
+// the second signal hits the default branch of the inner select — the path
+// that keeps a burst from leaving the watcher stuck on a redraw already
+// pending.
+func TestWatchResizeBurstDoesNotBlock(t *testing.T) {
+	out, stop := watchResize()
+	defer stop()
+
+	// Drain any pending notification so the buffer is empty before the burst.
+	select {
+	case <-out:
+	default:
+	}
+
+	// Send two SIGWINCH signals in quick succession. The first fills the
+	// buffered out channel; the second takes the default branch.
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGWINCH); err != nil {
+		t.Fatalf("first SIGWINCH: %v", err)
+	}
+	// Give the goroutine a moment to process the first signal and fill the
+	// channel before sending the second.
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGWINCH); err != nil {
+		t.Fatalf("second SIGWINCH: %v", err)
+	}
+	// If the default branch were missing, the goroutine would block on
+	// out <- struct{}{} and the second signal would hang. Give it a moment
+	// to process the second signal (which takes the default path) and then
+	// verify we can still receive at least one notification and stop cleanly.
+	time.Sleep(50 * time.Millisecond)
+
+	select {
+	case <-out:
+		// At least one notification was delivered.
+	case <-time.After(time.Second):
+		t.Error("expected at least one resize notification")
+	}
+
+	// stop must return promptly — if the goroutine were blocked on the
+	// inner select's send, stop would hang.
+	done := make(chan struct{})
+	go func() {
+		stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop() hung: the watcher goroutine is blocked")
+	}
+}
