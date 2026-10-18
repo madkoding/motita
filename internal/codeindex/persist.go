@@ -3,6 +3,7 @@ package codeindex
 import (
 	"encoding/gob"
 	"encoding/hex"
+	"errors"
 	"hash/fnv"
 	"os"
 	"path/filepath"
@@ -52,24 +53,31 @@ func readData(dir, root string) *indexData {
 
 // saveIndex keeps ix on disk, privately: the terms of the source are in it. It is best effort, a
 // disk that cannot be written only costs the next start a rebuild.
-func saveIndex(dir string, ix *Index) {
+func saveIndex(dir string, ix *Index) { _ = writeIndex(dir, ix) }
+
+// writeIndex is saveIndex with the failure told, for the caller that must not stay silent about it.
+func writeIndex(dir string, ix *Index) error {
 	if dir == "" {
-		return
+		return errors.New("no cache directory is set")
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return
+		return err
 	}
 	tmp, err := createTemp(dir, "index-*.tmp")
 	if err != nil {
-		return
+		return err
 	}
 	name := tmp.Name()
 	encodeErr := gob.NewEncoder(tmp).Encode(ix.indexData)
 	closeErr := tmp.Close()
-	if encodeErr != nil || closeErr != nil || os.Chmod(name, 0o600) != nil ||
-		os.Rename(name, cachePath(dir, ix.root)) != nil {
+	err = errors.Join(encodeErr, closeErr, os.Chmod(name, 0o600))
+	if err == nil {
+		err = os.Rename(name, cachePath(dir, ix.root))
+	}
+	if err != nil {
 		_ = os.Remove(name)
 	}
+	return err
 }
 
 // ClearCache deletes the index files kept in dir and says how many it removed and how many bytes

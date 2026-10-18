@@ -185,3 +185,42 @@ func TestClearCacheSkipsFoldersAndReportsAFileThatCannotBeRemoved(t *testing.T) 
 		t.Error("expected an error")
 	}
 }
+
+func TestBuildTellsWhenTheIndexCannotBeKept(t *testing.T) {
+	root := project(t)
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewSearcher(Options{CacheDir: filepath.Join(blocker, "sub")}).Build(context.Background(), root); err == nil {
+		t.Error("an unwritable cache folder was reported as built")
+	}
+	if err := NewSearcher(Options{}).Build(context.Background(), root); err == nil {
+		t.Error("no cache folder was reported as built")
+	}
+	dir := t.TempDir()
+	s := NewSearcher(Options{CacheDir: dir})
+	for range 2 { // the second call finds the file already on disk
+		if err := s.Build(context.Background(), root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := ClearCache(dir); err != nil { // the index is still in memory, the disk copy is gone
+		t.Fatal(err)
+	}
+	if err := s.Build(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := Inspect(context.Background(), root, Options{CacheDir: dir}); st.State != StateReady {
+		t.Errorf("not kept on disk again: %+v", st)
+	}
+	if err := s.Build(canceled(), root); err == nil {
+		t.Error("a cancelled build succeeded")
+	}
+}
+
+func canceled() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
