@@ -70,12 +70,21 @@
 </ul>
 <p>Where nothing confines a command (Windows, macOS, Linux without Landlock), the agent asks before the project's own code runs, unless you turn that off.</p>
 <p>Each session also gets its own HOME, and cannot read the other projects and sessions of the same gateway.</p>
+<p>The <strong>Sandbox</strong> section of the same page lists the services (a database, a web server) the agent runs in boxes of their own to test against, and stops them.</p>
+<h2>This computer's desktop</h2>
+<p>Off by default. Turned on in <strong>Settings &rarr; Security</strong>, after a confirmation that spells out the risk, the agent can look at the screen and use the mouse, the keyboard and the windows of the computer motita runs on: Linux (X11 or Wayland), macOS and Windows.</p>
+<ul>
+<li><strong>Every step is asked about</strong>, a picture of the screen included, since it shows whatever you have open. Allowing every command for the session allows them all.</li>
+<li>Never from a background agent or a read-only session; while it is off the model is not even offered it.</li>
+<li>The pictures are saved under <code>.motita/previews/</code> and shown with the result.</li>
+</ul>
       <h2>Go deeper</h2>
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#guardrails-that-cant-be-switched-off">Guide: guardrails that can't be switched off</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#guardrails-and-the-two-layers-of-them">Reference: guardrails and the two layers</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#disk-access">Reference: disk access</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#what-runs-silently-and-why-that-is-a-design-decision">Reference: what runs silently</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#this-computers-desktop-desktop_shot-desktop_click-desktop_type-">Reference: this computer's desktop</a></li>
       </ul>
       <nav class="pn" aria-label="Previous and next page">
         <a class="prev" href="docs-skills.html"><span>Previous</span>Skills: what it learns</a>

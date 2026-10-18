@@ -269,6 +269,7 @@ ${code("sh", "motita curator status\nmotita curator run --dry-run\nmotita curato
       "Referencia: guardarraíles y sus dos capas",
       "Referencia: acceso al disco",
       "Referencia: qué corre en silencio",
+      "Referencia: el escritorio de este equipo",
     ],
     body: `
 <p>Un agente que ejecuta comandos necesita límites que no dependan de que el modelo se porte bien. motita tiene dos capas, y solo una es tuya.</p>
@@ -293,12 +294,25 @@ ${flow("De un comando a su sandbox", [["Un comando", "El agente quiere ejecutarl
 <li><strong>Todo el disco</strong>: ambos llegan a cualquier parte que tu cuenta alcance. La página pregunta primero y explica el riesgo. Las credenciales propias de motita quedan ocultas en ambos casos.</li>
 </ul>
 <p>Donde nada confina un comando (Windows, macOS, Linux sin Landlock), el agente pregunta antes de ejecutar código del propio proyecto, salvo que lo desactives.</p>
-<p>Cada sesión además tiene su propio HOME y no puede leer los demás proyectos y sesiones del mismo gateway.</p>`,
+<p>Cada sesión además tiene su propio HOME y no puede leer los demás proyectos y sesiones del mismo gateway.</p>
+<p>La sección <strong>Sandbox</strong> de la misma página lista los servicios (una base de datos, un servidor web) que el agente ejecuta en cajas propias para probar contra ellos, y los detiene.</p>
+<h2>El escritorio de este equipo</h2>
+<p>Apagado por defecto. Al activarlo en <strong>Ajustes &rarr; Seguridad</strong>, tras una confirmación que explica el riesgo, el agente puede ver la pantalla y usar el mouse, el teclado y las ventanas del equipo donde corre motita: Linux (X11 o Wayland), macOS y Windows.</p>
+<ul>
+<li><strong>Cada paso se pregunta</strong>, incluida una foto de la pantalla, porque muestra lo que tengas abierto. Permitir todos los comandos en una sesión también permite todos sus pasos.</li>
+<li>Nunca desde un agente en segundo plano ni en una sesión de solo lectura; mientras está apagado, ni siquiera se le ofrece al modelo.</li>
+<li>Las fotos se guardan en <code>.motita/previews/</code> y se muestran con el resultado.</li>
+</ul>`,
   },
   network: {
     title: "Red y acceso remoto",
     blurb: "Mantenlo en esta máquina, compártelo en tu LAN o llega desde un teléfono.",
-    more: ["Referencia: el gateway", "Guía: la interfaz del navegador y las notificaciones"],
+    more: [
+      "Referencia: el gateway",
+      "Guía: la interfaz del navegador y las notificaciones",
+      "Guía: tus otros equipos",
+      "Referencia: otros equipos",
+    ],
     body: `
 <p>Por defecto el gateway responde solo en <code>127.0.0.1:7477</code>, así que solo la máquina donde corre puede alcanzarlo. Todo lo que sigue es un paso deliberado fuera de eso.</p>
 <h2>Quién puede llegar</h2>
@@ -312,7 +326,7 @@ ${flow("Quién puede llegar al gateway, de lo más estrecho a lo más amplio", [
 <tr><td>Todos</td><td>Escucha en todas las interfaces sin reglas de origen.</td></tr>
 </tbody>
 </table>
-<p><code>gateway.allow</code> es una lista ordenada de reglas (<code>lan</code>, una dirección, una red, cada una con prefijo <code>!</code> opcional). Gana la primera que coincide, y loopback siempre se permite, así que no puedes dejarte fuera. El token sigue siendo la llave real; las reglas dicen desde dónde puede venir.</p>
+<p><code>gateway.allow</code> es una lista ordenada de reglas (<code>lan</code>: los rangos privados, link-local y de la tailnet; una dirección, una red, cada una con prefijo <code>!</code> opcional). Gana la primera que coincide, y loopback siempre se permite, así que no puedes dejarte fuera. El token sigue siendo la llave real; las reglas dicen desde dónde puede venir.</p>
 <div class="note">El gateway habla http plano. Fuera de loopback el token viaja sin cifrar, y el gateway te lo advierte al abrir.</div>
 <h2>Llegar de forma segura</h2>
 <ul>
@@ -320,6 +334,14 @@ ${flow("Quién puede llegar al gateway, de lo más estrecho a lo más amplio", [
 <li><strong>Tailscale.</strong> Si Tailscale está corriendo, motita puede publicar el gateway con <code>tailscale serve</code>: https en el nombre de tu tailnet, accesible solo desde tus propios dispositivos. Funnel (internet pública) nunca se usa.</li>
 <li><strong>Un proxy inverso con TLS</strong> como Caddy delante de un gateway en loopback, o el segundo listener https del propio gateway (<code>gateway.tls</code>).</li>
 </ul>
+<h2>Tus otros equipos</h2>
+<p>Cada equipo con un gateway se puede abrir desde cualquier otro: la barra lateral los lista en <strong>Otros equipos</strong>, y al elegir uno ves sus sesiones y proyectos, con cuántas ejecuciones tiene en curso. Se encuentran solos en la red local y en tu tailnet; por otra VPN, <strong>Agregar un equipo</strong> pide la dirección.</p>
+<ul>
+<li><strong>Pídele acceso.</strong> Deja el token vacío: el otro equipo muestra un código de seis dígitos que este también muestra. Compáralos y elige <em>Permitir</em>.</li>
+<li><strong>¿No tiene pantalla?</strong> En un servidor por SSH o VPN, <code>motita gateway computers</code> lista quién pide entrar con sus códigos, y <code>motita gateway allow 123 456</code> (o <code>deny</code>) responde.</li>
+<li><strong>O su token</strong>: <code>motita gateway start -token-only</code> en ese equipo lo muestra.</li>
+</ul>
+<p>Los gateways se hablan por TLS y fijan el certificado del otro, y solo se marcan redes privadas. El otro equipo debe responder a la red (<em>la red local</em> en <code>motita gateway setup</code>) y dejar pasar su puerto (7477) en el firewall; si nadie responde, el error dice qué revisar.</p>
 <h2>Por qué importa https</h2>
 <p>Los navegadores permiten el micrófono, las notificaciones de escritorio y el push al teléfono solo en https o localhost. Un teléfono en la LAN con http plano no obtiene ninguno, y es la razón habitual para elegir una de las opciones de arriba.</p>
 <h2>Notificaciones</h2>
