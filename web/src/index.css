@@ -1995,12 +1995,12 @@ button:disabled {
      terminal drawer's tabs (.term-tab-label) are styled further down. */
   writing-mode: vertical-rl;
   transform: rotate(180deg);
-  width: 16px;
-  min-height: 18px;
-  padding: 4px 0;
+  width: 14px;
+  min-height: 16px;
+  padding: 3px 0;
   border-radius: 999px;
-  font-size: 10px;
-  line-height: 16px;
+  font-size: 9px;
+  line-height: 14px;
   text-align: center;
   color: var(--tx-tab-bg);
   background: var(--tx-main);
@@ -2647,17 +2647,17 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-tab {
   position: absolute;
   top: 40%;
-  left: -34px;
-  width: 34px;
-  padding: 10px 0;
+  left: -26px;
+  width: 26px;
+  padding: 7px 0;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 9px;
+  letter-spacing: 0.1em;
   color: var(--tx-main);
   background: var(--tx-tab-bg);
   border: 1px solid rgba(var(--tx-rgb), 0.45);
@@ -3104,6 +3104,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   align-items: flex-start;
   gap: 4px;
   max-width: 100%;
+  padding-top: 11px;
 }
 /* The input that opened a turn is a card: a bar with who wrote it, the mode it ran in and its one
    menu, then the text, which scrolls on its own so the menu is never clipped. */
@@ -3120,9 +3121,15 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .turn-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
+  gap: 6px;
   white-space: nowrap;
+  /* Out of the flow, its pills centred on the card's top border. */
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 8px;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 .turn-who {
   font-size: 0.72em;
@@ -3647,7 +3654,12 @@ button.border-4 {
 /* `:is(main, div)` keeps the old `main.chat-bg.chat-bg` weight now that the conversation is a
  * div (a `main` cannot take role="log"); the waiting state is still a `main`. */
 :is(main, div).chat-bg.chat-bg {
-  padding-right: 46px;
+  padding-right: 28px;
+}
+@media (pointer: coarse) {
+  :is(main, div).chat-bg.chat-bg {
+    padding-right: 32px;
+  }
 }
 .msg.user,
 .msg.agent {
@@ -3675,6 +3687,12 @@ button.border-4 {
 .msg.agent[data-who]::before {
   content: attr(data-who);
   color: var(--t3);
+  position: absolute;
+  top: 0;
+  left: 8px;
+  margin: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
 }
 
 /* The option the keyboard (arrows + Enter) has highlighted in the approval question. */
@@ -3862,11 +3880,11 @@ html[data-keyboard="open"] .app-shell {
     align-items: center;
     justify-content: center;
   }
-  /* The drawer tabs grow to 44px wide. The conversation's 46px right gutter already leaves
-   * room for them. */
+  /* The drawer tabs stay slim (they are a tab on an edge, not a button to aim at); the
+   * conversation's gutter below is as wide as they are. */
   .term-tab {
-    left: -44px;
-    width: 44px;
+    left: -30px;
+    width: 30px;
   }
   /* Under 16px iOS zooms the page into a field when it is focused, and leaves it zoomed. */
   :root :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
@@ -4852,4 +4870,91 @@ html[data-density="compact"] .settings-warn {
 }
 .llm-chip-cost[data-level="3"] {
   --chip: var(--color-danger);
+}
+
+/* ─── The conversation's borders ──────────────────────────────────────
+ * Who wrote a message, its mode, its action counter and its menu sit ON the top border of its
+ * card as pills, instead of taking a line of the card. That gives the line back to the text.
+ * The bar is out of the flow (its pills are centred on the border), so the card's text starts
+ * under it with a little room, and the sticky input keeps 11px above its card for the pills. */
+.turn-bar > * {
+  pointer-events: auto;
+}
+.turn-card .turn-text {
+  padding-top: 10px;
+}
+.turn-who,
+.msg.agent[data-who]::before {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.66em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* Opaque, so the border does not show through the pill. */
+  background: var(--s2);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+}
+.turn-bar button.cp-btn {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  background: var(--s2);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+  border-radius: 999px;
+}
+.turn-bar button.cp-btn svg {
+  width: 14px;
+  height: 14px;
+}
+@media (pointer: coarse) {
+  .turn-bar button.cp-btn.cp-btn {
+    margin: 0;
+    min-width: 22px;
+    min-height: 22px;
+  }
+  /* A finger gets the target of the floor without the pill growing. */
+  .turn-bar button.cp-btn::after {
+    content: "";
+    display: block;
+    position: absolute;
+    inset: -9px;
+    width: auto;
+    height: auto;
+    border: 0;
+  }
+}
+/* The agent's label, the same pill on its card's top border. */
+.msg.agent[data-who] {
+  margin-top: 10px;
+  padding-top: 12px;
+}
+/* The fade is fixed over the top edge of the conversation, not part of what scrolls: opaque at
+ * the edge, thinning to nothing below it. It sits under the pinned input (z-index 6) and over the
+ * messages, so the answer scrolling beneath never blends with the request above it. */
+.chat-fade {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6.5rem;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--bg-rgb) / 0.97) 0,
+    rgb(var(--bg-rgb) / 0.9) 40%,
+    rgb(var(--bg-rgb) / 0)
+  );
+}
+
+/* The header's pills are the second row on a phone: a slim line, not the finger-sized button the
+ * touch floor makes of every button. They keep a target of the row's height. */
+@media (max-width: 639px) {
+  html .header-pills button.model-pill.model-pill {
+    min-height: 0;
+  }
+  html .header-pills .state-pill {
+    line-height: 1.3;
+  }
 }

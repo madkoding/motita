@@ -219,7 +219,7 @@ test("touch targets are at least 44px, only for a finger", () => {
     coarse,
     /button:is\(\[aria-label\], \[title\]\)[^{]*\{\s*min-width: 44px;/,
   );
-  assert.match(coarse, /\.term-tab \{\s*left: -44px;\s*width: 44px;/);
+  assert.match(coarse, /\.term-tab \{\s*left: -30px;\s*width: 30px;/);
   // The 44px floor must not leak to the desktop.
   assert.doesNotMatch(outsideMedia(COARSE), /min-height: 44px;/);
 });
@@ -317,4 +317,41 @@ test("the skill body is set at a reading size with bounded headings", () => {
   const modal = src("SkillLibraryModal.tsx");
   assert.match(modal, /flex flex-wrap items-center gap-2 mb-4/);
   assert.match(modal, /line-clamp-2/);
+});
+
+test("the conversation is full width: its gutter is only as wide as the slim drawer tabs", () => {
+  assert.match(css, /\.term-tab \{[^}]*left: -26px;\s*width: 26px;/);
+  assert.match(
+    css,
+    /:is\(main, div\)\.chat-bg\.chat-bg \{\s*padding-right: 28px;/,
+  );
+  assert.match(
+    mediaBlocks(COARSE),
+    /:is\(main, div\)\.chat-bg\.chat-bg \{\s*padding-right: 32px;/,
+  );
+});
+
+test("the pinned input has a fixed gradient behind it, and its bar sits on the card's border", () => {
+  assert.match(
+    css,
+    /\.chat-fade \{[^}]*position: absolute;[^}]*z-index: 5;[^}]*linear-gradient\(\s*to bottom[^}]*\/ 0\.97[^}]*\/ 0\)/,
+  );
+  assert.match(
+    css,
+    /\.turn-bar \{[^}]*position: absolute;[^}]*translateY\(-50%\)/,
+  );
+  assert.match(
+    css,
+    /\.msg\.agent\[data-who\]::before \{[^}]*position: absolute;/,
+  );
+});
+
+test("the header's second row on a phone is a slim line of small type", () => {
+  assert.match(
+    mediaBlocks("(max-width: 639px)"),
+    /\.header-pills button\.model-pill\.model-pill \{\s*min-height: 0;/,
+  );
+  const header = src("ChatHeader.tsx");
+  assert.match(header, /max-sm:text-\[10px\]/);
+  assert.match(header, /max-sm:py-1\.5/);
 });
