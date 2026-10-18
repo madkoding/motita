@@ -156,22 +156,20 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
       </div>
       {st && <IndexBody st={st} />}
       {busy && (
-        <p
-          class="text-xs text-[#9a9aaa]"
-          role="status"
+        <output
+          class="block text-xs text-[#9a9aaa]"
           data-testid="project-index-working"
         >
           {t("Reading the project's files…")}
-        </p>
+        </output>
       )}
       {done && !busy && !err && (
-        <p
-          class="text-xs text-accent"
-          role="status"
+        <output
+          class="block text-xs text-accent"
           data-testid="project-index-done"
         >
           {done}
-        </p>
+        </output>
       )}
       {err && (
         <p
