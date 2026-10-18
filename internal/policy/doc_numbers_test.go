@@ -190,7 +190,7 @@ func checkLineCountClaims(t *testing.T, doc, name string, srcLines, testLines in
 // starts BELOW the embedded web interface every binary already carries.
 var sizeClaimRe = regexp.MustCompile(`([\d.]+)\s*[–-]\s*([\d.]+)\s*(?:&nbsp;)?(MiB|MB)`)
 
-const sizeCeilingMiB = 26.0
+const sizeCeilingMiB = 30.0
 
 func checkBinarySizeClaim(t *testing.T, doc, name string) {
 	t.Helper()

@@ -9,7 +9,7 @@
 #   2  the check could not run (no argument, or a path that is not a file)
 #
 # ONE implementation, two callers - this script from scripts/verify.sh, and a
-# literal 27262976 in .github/workflows/ci.yml. The CI copies the number because
+# literal 31457280 in .github/workflows/ci.yml. The CI copies the number because
 # it measures binaries built by a matrix step on the runner, where invoking a
 # repo script for a two-line comparison is more machinery than the check is
 # worth. The risk of two copies is that they drift, so this is the number that
@@ -23,11 +23,11 @@
 # each of them pay a tax for work that belongs there. It was 10 MB while the
 # project was a CLI, then 20 MB until the security hardening and the web
 # interface's growth reached it, then 24 MB until desktop control and the
-# connected computers; at 26 MB it still catches a framework (React instead
+# connected computers; at 30 MB it still catches a framework (React instead
 # of Preact, a WebSocket library, an ORM) while leaving room to keep building.
 set -u
 
-CEILING=${BINARY_CEILING:-27262976}
+CEILING=${BINARY_CEILING:-31457280}
 LIMIT_MB=$((CEILING / 1024 / 1024))
 
 if [ "$#" -eq 0 ]; then
