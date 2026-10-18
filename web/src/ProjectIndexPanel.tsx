@@ -116,20 +116,25 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
     setBusy(true);
     setErr("");
     setDone("");
+    const wasReady = st?.state === "ready";
     try {
       const next = await buildProjectIndex(api, id);
       setSt(next);
       setDone(
-        tf("Index updated: {files} files, {chunks} passages.", {
-          files: String(next.files),
-          chunks: String(next.chunks),
-        }),
+        choose(
+          wasReady,
+          t("Already up to date."),
+          tf("Index updated: {files} files, {chunks} passages.", {
+            files: String(next.files),
+            chunks: String(next.chunks),
+          }),
+        ),
       );
     } catch (e) {
       setErr(errorMessage(e));
     }
     setBusy(false);
-  }, [api, id]);
+  }, [api, id, st]);
 
   return (
     <div data-testid="project-index" class="space-y-2">
@@ -160,6 +165,10 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
           class="block text-xs text-[#9a9aaa]"
           data-testid="project-index-working"
         >
+          <progress
+            class="settings-progress settings-progress-wide mb-1"
+            aria-label={t("Indexing…")}
+          />
           {t("Reading the project's files…")}
         </output>
       )}

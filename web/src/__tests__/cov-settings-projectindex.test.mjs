@@ -112,6 +112,17 @@ test("Index now builds and shows the new state; a project never indexed says so"
   assert.match(text(q(root, "done")), /Index updated: 38 files, 120 passages/);
 });
 
+test("building an index that was already up to date says so", async () => {
+  const gw = fakeApi({
+    "GET /v1/projects/p%201/code-index": () => json(200, READY),
+    "POST /v1/projects/p%201/code-index": () => json(200, READY),
+  });
+  const root = await mount(gw);
+  click(q(root, "build"));
+  await settle();
+  assert.equal(text(q(root, "done")), "Already up to date.");
+});
+
 test("errors are shown, from the first read and from a build", async () => {
   const failing = fakeApi({
     "GET /v1/projects/p%201/code-index": () =>
@@ -130,6 +141,7 @@ test("errors are shown, from the first read and from a build", async () => {
   click(q(second, "build"));
   await Promise.resolve();
   assert.ok(q(second, "working"));
+  assert.ok(q(second, "working").querySelector("progress"));
   await settle();
   assert.match(text(q(second, "error")), /HTTP 500/);
   assert.equal(q(second, "done"), null);
