@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useCallback, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { plural, t } from "./i18n";
 import { choose } from "./choose";
@@ -44,7 +44,7 @@ export function ActionTrail({
   children: ComponentChildren;
 }) {
   const [open, setOpen] = useState(false);
-  const toggle = () => setOpen((o) => !o);
+  const toggle = useCallback(() => setOpen((o) => !o), []);
   return (
     <div class="action-trail">
       <ActionCount count={count} open={open} onToggle={toggle} />
