@@ -1445,6 +1445,32 @@ In Settings → Security, *Services in boxes* lists every container carrying the
 
 The browser of the loopback mode is `$MOTITA_BROWSER`, then `chromium`, `chromium-browser`, `google-chrome` on `PATH`, then a Playwright download (`$PLAYWRIGHT_BROWSERS_PATH`, default `/opt/pw-browsers`). The service inside the box can still use the network (a build downloads packages); only its published port is limited.
 
+### This computer's desktop (`desktop_shot`, `desktop_click`, `desktop_type`, ...)
+
+With `agent.desktop_control: true` (`MOTITA_AGENT_DESKTOP_CONTROL`, default `false`) task mode can look at the screen of the computer motita runs on and use its mouse, keyboard and windows. Settings → Security turns it on only after a confirmation, and every step is **asked about** (rule `desktop`), a picture of the screen included; *Allow all commands for this session* answers them all. A background agent or a read-only session cannot use it, and while it is off the actions are not even offered to the model.
+
+| Action | `command` | Result |
+|---|---|---|
+| `desktop_shot` | nothing | a picture of the screen, at most 1280 px on its longer side, attached to the model's next round and saved as `.motita/previews/desktop-*.jpg` |
+| `desktop_click` | `x: 640`, `y: 400`, optional `button: right` or `middle`, `double: true` | clicks at that point of the last picture |
+| `desktop_move` | `x:`, `y:` | moves the pointer |
+| `desktop_scroll` | `x:`, `y:`, `amount: 3` (positive down) | turns the wheel there |
+| `desktop_type` | the text | types it where the keyboard is |
+| `desktop_key` | a combination: `ctrl+s`, `alt+tab`, `enter`, `super` | presses it |
+| `desktop_windows` | nothing | lists the open windows |
+| `desktop_focus` | a window title (on macOS, an application) | brings it to the front |
+
+The coordinates are the picture's pixels and are mapped back to the screen with the scale of the last picture, so a click before any `desktop_shot` is refused. Each step is a program the system already has, run by motita itself, outside the sandbox (which hides the display from commands on purpose):
+
+| System | Needs |
+|---|---|
+| Linux, X11 | `xdotool`, one of `maim`, `scrot` or ImageMagick's `import`, and `wmctrl` for the windows |
+| Linux, Wayland | `grim` and `ydotool` with its service (`ydotoold`) running; no window list |
+| macOS | `screencapture` and `osascript` (built in) and `cliclick` (`brew install cliclick`); allow the terminal or app that runs motita in Privacy & Security → Screen Recording and Accessibility; no scroll (use `pagedown`) |
+| Windows | Windows PowerShell (built in); the Windows key cannot be pressed |
+
+motita must run inside the graphical session (`DISPLAY` or `WAYLAND_DISPLAY` set on Linux): a gateway started as a system service has no desktop, and Settings → Security says so. A connected computer is controlled through its own setting, from its box in the sidebar. The picture reaches every provider (Anthropic, OpenAI-compatible, Gemini, Codex and claude-code); the model must be one that reads images.
+
 ### Searching the workspace with search_index
 
 Plan mode has a `search_index` tool next to `search_in_files`, and task mode reaches the same index with the action `{"kind": "search_index", "command": "the question"}`. It reads the workspace into an index and
@@ -1629,8 +1655,8 @@ that only motita's own file edits are limited.
 
 | Endpoint            | What it does                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true,"isolate_network":true,"network_enforced":true,"auto_apply_suggestions":false}`; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`); `network_enforced` is false where a command cannot be given a network of its own, and `network_reason` and `network_hint` then say why and what to do |
-| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}`, `{"auto_apply_suggestions":true,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false`, for `isolate_network: false` and for `auto_apply_suggestions: true`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS`, `MOTITA_SANDBOX_ISOLATE_NETWORK` or `MOTITA_AGENT_AUTO_APPLY_SUGGESTIONS` overrides it; a change of several keys is saved whole or not at all |
+| `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true,"isolate_network":true,"network_enforced":true,"auto_apply_suggestions":false,"desktop_control":false}`; `desktop_reason` says why this computer has no desktop to control, when it has none; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`); `network_enforced` is false where a command cannot be given a network of its own, and `network_reason` and `network_hint` then say why and what to do |
+| `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}`, `{"auto_apply_suggestions":true,"confirm":true}`, `{"desktop_control":true,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false`, for `isolate_network: false`, for `auto_apply_suggestions: true` and for `desktop_control: true`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS`, `MOTITA_SANDBOX_ISOLATE_NETWORK`, `MOTITA_AGENT_AUTO_APPLY_SUGGESTIONS` or `MOTITA_AGENT_DESKTOP_CONTROL` overrides it; a change of several keys is saved whole or not at all |
 | `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"cache_files":0,"cache_bytes":0,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
 | `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
 | `DELETE /v1/code-index/cache` | none; deletes the index files kept in `code_index.cache_dir` and answers `{removed, bytes}` |

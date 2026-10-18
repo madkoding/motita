@@ -340,6 +340,10 @@ type Agent struct {
 	// mode: the follow-up turn that applies them starts on its own. Off by default, because it
 	// changes files the user did not confirm. The policy and the sandbox still bind that turn.
 	AutoApplySuggestions bool `yaml:"auto_apply_suggestions"`
+	// DesktopControl lets the agent see this computer's screen and use its mouse, keyboard and
+	// windows (internal/desktop), asking before every step. Off by default: it reaches everything
+	// the person's own session reaches, outside the sandbox.
+	DesktopControl bool `yaml:"desktop_control"`
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
 	// the platform default (sh on Unix; on Windows PowerShell 7, then Windows PowerShell,
 	// then the command processor).

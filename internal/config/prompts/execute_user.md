@@ -192,6 +192,7 @@ outside the project is refused; remove `ports:`).
 Add `box: <name>` to a line set when more than one box is up. If the service does not start, the
 answer carries the end of its log.
 
+{{desktop}}
 ## SEARCHING THE WORKSPACE
 
 To find where something lives in the working directory without reading whole files, ask the

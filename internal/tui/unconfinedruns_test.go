@@ -32,3 +32,15 @@ func TestSetAutoApplySuggestionsReachesTheConfiguration(t *testing.T) {
 		t.Error("the change must reach the configuration")
 	}
 }
+
+// The next turn's agent is built from the configuration, so the desktop choice reaches it there.
+func TestSetDesktopControlReachesTheConfiguration(t *testing.T) {
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, nil, logx.Global())
+	if r.Config().Agent.DesktopControl {
+		t.Fatal("off is the default")
+	}
+	r.SetDesktopControl(true)
+	if !r.Config().Agent.DesktopControl {
+		t.Error("the change must reach the configuration")
+	}
+}

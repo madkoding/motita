@@ -98,6 +98,13 @@ func (t Tx) SetAutoApplySuggestions(on bool) error {
 		func(cfg Config) bool { return cfg.Agent.AutoApplySuggestions == on })
 }
 
+// SetDesktopControl is agent.desktop_control inside a transaction, with the same checks as
+// SetDiskAccess.
+func (t Tx) SetDesktopControl(on bool) error {
+	return setBlockKey(t.path, "agent", "desktop_control", strconv.FormatBool(on),
+		func(cfg Config) bool { return cfg.Agent.DesktopControl == on })
+}
+
 // setSandboxKey sets sandbox.key; see setBlockKey.
 func setSandboxKey(path, key, value string, applied func(Config) bool) error {
 	return setBlockKey(path, "sandbox", key, value, applied)
