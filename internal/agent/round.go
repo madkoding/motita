@@ -64,11 +64,18 @@ func (rr *roundRun) run(i int, action Command) {
 	rr.shell(i, action)
 }
 
+// runningFmt is the line announced before an action runs.
+const runningFmt = "running: %s %s"
+
 // kindAction runs an action that names a kind other than a shell command, and reports whether
 // it was handled.
 func (rr *roundRun) kindAction(i int, kind string, action Command) bool {
-	return rr.agentAction(i, kind, action) || rr.fileAction(i, kind, action) ||
-		rr.readAction(kind, action) || rr.unknownKind(i, kind, action)
+	return rr.workAction(i, kind, action) || rr.readAction(kind, action) || rr.unknownKind(i, kind, action)
+}
+
+// workAction is an action that starts agents, writes files or runs a service in a box.
+func (rr *roundRun) workAction(i int, kind string, action Command) bool {
+	return rr.agentAction(i, kind, action) || rr.fileAction(i, kind, action) || rr.boxAction(i, kind, action)
 }
 
 // readAction is an action answered from the library or the code index, which change nothing.
@@ -84,7 +91,7 @@ func (rr *roundRun) agentAction(i int, kind string, action Command) bool {
 	}
 	// Announced BEFORE it runs: a wait lasts as long as the agents work, and the terminal must show
 	// what the run is waiting for while it waits, not after.
-	a.report("running: %s %s", kind, firstLineOf(action.Command))
+	a.report(runningFmt, kind, firstLineOf(action.Command))
 	_, out, refusal := a.runAgentAction(rr.ctx, kind, action)
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
 	rr.reportResult(out, refusal)
@@ -115,7 +122,7 @@ func (rr *roundRun) fileAction(i int, kind string, action Command) bool {
 		return false
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
-	a.report("running: %s %s", kind, firstLineOf(action.Command))
+	a.report(runningFmt, kind, firstLineOf(action.Command))
 	rr.reportResult(out, refusal)
 	a.log.Info(rr.prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
 	if refusal != nil {
@@ -124,6 +131,23 @@ func (rr *roundRun) fileAction(i int, kind string, action Command) bool {
 	if rr.mem != nil {
 		rr.mem.executed++
 		rr.mem.sync(a.cfg.Agent.WorkspaceDir)
+	}
+	return true
+}
+
+// boxAction is a service started, read, photographed or taken down in its private container.
+func (rr *roundRun) boxAction(i int, kind string, action Command) bool {
+	a := rr.a
+	if !isBoxKind(kind) {
+		return false
+	}
+	a.report(runningFmt, kind, firstLineOf(action.Command))
+	_, out, refusal := a.runBoxAction(rr.ctx, kind, action)
+	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
+	rr.reportResult(out, refusal)
+	a.log.Info(rr.prefix+"box action", "kind", kind, "command", truncate(firstLineOf(action.Command), 120))
+	if refusal != nil {
+		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
 	}
 	return true
 }
@@ -157,7 +181,7 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
 		"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, "+
-		"search_skills, read_skill, save_skill, search_index. "+
+		"search_skills, read_skill, save_skill, search_index, box_up, box_get, box_shot, box_down. "+
 		"To run a shell command, use kind \"command\".]\n",
 		kind, action.Description, kind)
 	rr.a.log.Warn(rr.prefix+"action with an unknown kind",

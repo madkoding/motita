@@ -132,6 +132,8 @@ type Agent struct {
 	subs     *subagents
 	isChild  bool
 	research bool
+	// box is the run's services in containers, nil until the first box_up. See boxaction.go.
+	box *boxState
 	// roleEngines is the engine a background agent of a role runs on, handed by the session that
 	// runs this agent; nil (or a nil answer) means this agent's own engine. See SetRoleEngines.
 	roleEngines func(role string) *llm.Client

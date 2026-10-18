@@ -1,17 +1,26 @@
 package gateway
 
 import (
+	"context"
 	"os"
 	"strings"
 
+	"github.com/madkoding/motita/internal/devbox"
 	"github.com/madkoding/motita/internal/gitx"
 )
+
+// SweepBoxes removes the service containers an earlier process left behind (a crash, a kill): a
+// run removes its own when it ends, so any that exist when the gateway starts are orphans. It is
+// a variable, exported, so the tests of any package never touch the machine's real containers.
+var SweepBoxes = devbox.Sweep
 
 // loadPersistedSessions reads every conversation the store has on disk and
 // registers each one that is not already in memory. The default session is
 // skipped: it is always in memory, and its file (if any) is loaded separately
 // so its transcript can be restored into the existing service.
 func (s *Server) loadPersistedSessions() {
+	// In the background: asking a container runtime can take seconds and nothing waits for it.
+	go SweepBoxes(context.Background())
 	if s.store == nil {
 		return
 	}
