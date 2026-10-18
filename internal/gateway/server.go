@@ -281,6 +281,8 @@ type Server struct {
 	usageTotals func() []llm.ProviderUsage
 	// quotaCache keeps the last read of the plan quotas providers state over an API.
 	quotaCache quotaCache
+	// claudeProbe is the question that keeps Claude's quotas fresh.
+	claudeProbe claudeProbe
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//

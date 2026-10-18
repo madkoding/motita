@@ -2,8 +2,13 @@ package llm
 
 import (
 	"bufio"
+	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClaudeSubscriptionLimitsBecomeQuotas(t *testing.T) {
@@ -143,5 +148,84 @@ func TestARealClaudeEventGivesTheSessionAndTheWeek(t *testing.T) {
 	}
 	if week.Used < 56.9 || week.Used > 57.1 || week.Minutes != weekMinutes || week.ResetsAt.Unix() != 1792656000 {
 		t.Errorf("week: %+v", week)
+	}
+}
+
+// waitForClaudeQuotas is claude-code's quotas once the ledger has some, or nil after a few seconds.
+func waitForClaudeQuotas(t *testing.T) []Quota {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if l := totalsOf("claude-code").Limits; l != nil && len(l.Quotas) > 0 {
+			return l.Quotas
+		}
+	}
+	return nil
+}
+
+func TestTheLimitsClaudePrintsAfterTheAnswerAreRecorded(t *testing.T) {
+	// The order claude 2.1.303 prints: the answer's message_stop, then the limits, then the result.
+	script := lines(evStart, textDelta("ok"), assistantText("ok"), stopReason("end_turn"), evStop,
+		strings.TrimSuffix(claudeEventSeen, "\n"), "sleep")
+	c, _ := claudeTestClient(t, script, nil)
+	defer delete(totals.by, "claude-code")
+	start := time.Now()
+	reply, err := c.callClaudeCodeText(context.Background(), hi)
+	if err != nil || reply != "ok" {
+		t.Fatalf("reply %q, %v", reply, err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Errorf("the answer waited for the limits (%v)", time.Since(start))
+	}
+	if q := waitForClaudeQuotas(t); len(q) != 2 {
+		t.Errorf("quotas after the answer: %+v", q)
+	}
+}
+
+func TestAClaudeThatPrintsNothingMoreIsStoppedAfterTheWait(t *testing.T) {
+	old := claudeDrainWait
+	claudeDrainWait = 50 * time.Millisecond
+	t.Cleanup(func() { claudeDrainWait = old })
+	c, record := claudeTestClient(t, textScript, nil)
+	if _, err := c.callClaudeCodeText(context.Background(), hi); err != nil {
+		t.Fatal(err)
+	}
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(record + ".term"); err == nil {
+			return
+		}
+	}
+	if runtime.GOOS != "windows" {
+		t.Error("claude was not stopped after the wait")
+	}
+}
+
+func TestAProbeRecordsTheLimitsWithTheSmallestQuestion(t *testing.T) {
+	_, record := claudeTestClient(t, lines(assistantText("ok"), strings.TrimSuffix(claudeEventSeen, "\n"), "sleep"), nil)
+	defer delete(totals.by, "claude-code")
+	if err := ProbeClaudeQuota(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if q := totalsOf("claude-code"); len(q.Limits.Quotas) != 2 || q.Calls != 0 {
+		t.Errorf("probe: %+v", q)
+	}
+	rec := readRecord(t, record)
+	args := strings.Join(rec.Args, " ")
+	if !strings.Contains(args, "--model haiku") || !strings.Contains(args, "--tools  ") ||
+		!strings.Contains(args, "--no-session-persistence") {
+		t.Errorf("args: %q", args)
+	}
+	if len(rec.Frames) != 1 || !strings.Contains(string(rec.Frames[0]), `"text":"ok"`) {
+		t.Errorf("question: %q", rec.Frames)
+	}
+}
+
+func TestAProbeWithoutLimitsFails(t *testing.T) {
+	claudeTestClient(t, `{"type":"result","subtype":"success"}`, nil)
+	if err := ProbeClaudeQuota(context.Background()); err == nil {
+		t.Error("a probe that saw no limits succeeded")
+	}
+	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
+	if err := ProbeClaudeQuota(context.Background()); err == nil {
+		t.Error("a probe without claude succeeded")
 	}
 }
