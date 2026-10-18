@@ -4918,3 +4918,14 @@ html[data-density="compact"] .settings-warn {
     rgb(var(--bg-rgb) / 0)
   );
 }
+
+/* The header's pills are the second row on a phone: a slim line, not the finger-sized button the
+ * touch floor makes of every button. They keep a target of the row's height. */
+@media (max-width: 639px) {
+  html .header-pills button.model-pill.model-pill {
+    min-height: 0;
+  }
+  html .header-pills .state-pill {
+    line-height: 1.3;
+  }
+}

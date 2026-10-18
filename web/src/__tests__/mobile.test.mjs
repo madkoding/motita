@@ -345,3 +345,13 @@ test("the pinned input has a fixed gradient behind it, and its bar sits on the c
     /\.msg\.agent\[data-who\]::before \{[^}]*position: absolute;/,
   );
 });
+
+test("the header's second row on a phone is a slim line of small type", () => {
+  assert.match(
+    mediaBlocks("(max-width: 639px)"),
+    /\.header-pills button\.model-pill\.model-pill \{\s*min-height: 0;/,
+  );
+  const header = src("ChatHeader.tsx");
+  assert.match(header, /max-sm:text-\[10px\]/);
+  assert.match(header, /max-sm:py-1\.5/);
+});

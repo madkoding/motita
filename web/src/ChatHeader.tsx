@@ -20,7 +20,7 @@ function ModelPill({ config }: { config: ConfigView }) {
   const level = reasoningOf(config);
   return (
     <button
-      class="sm:flex-none flex items-center gap-1 min-w-0 max-sm:max-w-full sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
+      class="sm:flex-none flex items-center gap-1 min-w-0 max-sm:max-w-full sm:max-w-none model-pill text-xs max-sm:text-[10px] px-2 sm:px-2.5 py-1 max-sm:py-0 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
       title={tf("{provider} / {model} — reasoning: {level}", {
         provider: config.provider,
         model: config.model,
@@ -42,7 +42,7 @@ function ModelPill({ config }: { config: ConfigView }) {
 export function ChatHeader() {
   const { rs, lists, status, model, shell, selectedSession } = useApp();
   return (
-    <header class="frosted flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1.5 sm:gap-3 px-3 sm:px-5 py-2.5 sm:py-3 border-b border-white/5 flex-none overflow-hidden z-10">
+    <header class="frosted flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 sm:gap-3 px-3 sm:px-5 py-2.5 max-sm:py-1.5 sm:py-3 border-b border-white/5 flex-none overflow-hidden z-10">
       {!lists.sidebarOpen && (
         <button
           class="p-1.5 rounded-lg hover:bg-white/5 transition-colors flex-none"
@@ -73,7 +73,7 @@ export function ChatHeader() {
       <div class="header-pills flex items-center gap-2 sm:gap-3 min-w-0 max-sm:basis-full sm:flex-none">
         {selectedSession?.auto_approve && (
           <button
-            class="auto-approve-pill flex-none whitespace-nowrap px-2 py-0.5 rounded-full"
+            class="auto-approve-pill flex-none whitespace-nowrap px-2 py-0.5 rounded-full max-sm:text-[10px]"
             title={t(
               "Every command in this session runs without asking. Click to be asked again.",
             )}
@@ -83,7 +83,7 @@ export function ChatHeader() {
           </button>
         )}
         <span
-          class={`state-pill flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 ${status.stateClass}`}
+          class={`state-pill flex-none whitespace-nowrap text-xs max-sm:text-[10px] px-2 sm:px-2.5 py-1 max-sm:py-0 rounded-full bg-black/20 border border-white/5 ${status.stateClass}`}
           aria-live="polite"
         >
           {/* Keyed by the state, so each change rises in; the live region itself stays mounted. */}
