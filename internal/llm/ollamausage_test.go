@@ -18,7 +18,10 @@ func ollamaBalanceServer(t *testing.T, status int, body string) {
 	}))
 	old := ollamaCloudURL
 	ollamaCloudURL = srv.URL
-	t.Cleanup(func() { ollamaCloudURL = old; srv.Close() })
+	t.Cleanup(func() {
+		ollamaCloudURL = old
+		srv.Close()
+	})
 }
 
 func TestACurrentOllamaPlanGivesItsIncludedCreditsAsAQuota(t *testing.T) {

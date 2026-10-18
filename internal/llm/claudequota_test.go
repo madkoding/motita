@@ -9,8 +9,11 @@ import (
 func TestClaudeSubscriptionLimitsBecomeQuotas(t *testing.T) {
 	five := 0.42
 	q, ok := (&claudeRateLimit{RateLimitType: "five_hour", Utilization: &five, ResetsAt: 1792300000}).quota()
-	if !ok || q.Name != "session" || q.Minutes != 300 || q.Used < 41.9 || q.Used > 42.1 || q.ResetsAt == nil {
+	if !ok || q.Name != "session" || q.Minutes != 300 || q.ResetsAt == nil {
 		t.Errorf("five hours: %+v %v", q, ok)
+	}
+	if q.Used < 41.9 || q.Used > 42.1 {
+		t.Errorf("five hours used: %v", q.Used)
 	}
 	over := 1.7
 	q, ok = (&claudeRateLimit{RateLimitType: "seven_day", Utilization: &over, ResetsAt: 1792300000000}).quota()

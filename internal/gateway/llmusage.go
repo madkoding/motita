@@ -147,8 +147,9 @@ func (s *Server) planQuotas(ctx context.Context, configPath string, cfg config.L
 		return s.cachedQuotas(ctx, "ollama", key, func(ctx context.Context) ([]llm.Quota, error) {
 			return ollamaQuotas(ctx, nil, key)
 		})
+	default:
+		return nil
 	}
-	return nil
 }
 
 // copilotMonth is the month's premium-request quota of a Copilot account as one quota; none when the
