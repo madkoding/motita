@@ -983,13 +983,19 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
 		s.placeAndSave(conv, body.ProjectID, project, body.Git)
-		st := conv.status()
-		if warning != "" {
-			st.Warning = "the project's base branch could not be updated: " + warning +
-				"; the session starts from the checkout as it is"
-		}
-		writeJSON(w, http.StatusCreated, st)
+		writeJSON(w, http.StatusCreated, createdStatus(conv, warning))
 	}
+}
+
+// createdStatus is the answer to a create: the session, and the warning when the project could
+// not be updated first.
+func createdStatus(conv *conversation, warning string) SessionStatus {
+	st := conv.status()
+	if warning != "" {
+		st.Warning = "the project's base branch could not be updated: " + warning +
+			"; the session starts from the checkout as it is"
+	}
+	return st
 }
 
 // placeAndSave puts a new session where it runs - in the project when one was named, in a

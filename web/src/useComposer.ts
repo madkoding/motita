@@ -44,6 +44,18 @@ function startsWith(c: SlashCommand, query: string): boolean {
   );
 }
 
+// blockedBy says whether the tags already on the composer keep a command off it: plan and task
+// are mutually exclusive, so one blocks the other.
+function blockedBy(tags: ActiveTag[], cmdName: string): boolean {
+  if (cmdName === "/plan") {
+    return tags.some((tag) => tag.name === "/task");
+  }
+  if (cmdName === "/task") {
+    return tags.some((tag) => tag.name === "/plan");
+  }
+  return false;
+}
+
 // isAccept says whether a key takes the highlighted command of the popup.
 function isAccept(e: KeyboardEvent): boolean {
   const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey;
@@ -88,17 +100,7 @@ export function useComposer({
   // above the textarea. Multiple tags can be active at once.
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
 
-  // plan and task are mutually exclusive — if one is already an active tag,
-  // the other is blocked from being added.
-  const isCommandBlocked = (cmdName: string) => {
-    if (cmdName === "/plan") {
-      return activeTags.some((tag) => tag.name === "/task");
-    }
-    if (cmdName === "/task") {
-      return activeTags.some((tag) => tag.name === "/plan");
-    }
-    return false;
-  };
+  const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 
   // Choosing a slash command from the popup (by click, or Enter/Space on the row) adds it as a tag.
   const pickSlash = (c: { name: string; group: string }) => {
