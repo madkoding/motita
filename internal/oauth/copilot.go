@@ -242,3 +242,51 @@ func CopilotFullFlow(
 
 // PollSleep is the pause between device-flow polls. Tests replace it.
 var PollSleep = time.After
+
+// CopilotQuota is what a Copilot plan allows in premium requests for the month and how much of it
+// is left, as GitHub's (undocumented) user endpoint states it.
+type CopilotQuota struct {
+	Entitlement int64
+	Remaining   int64
+	Unlimited   bool
+	ResetsAt    time.Time // zero when the endpoint named no date
+}
+
+// copilotUserResponse is the part of GET /copilot_internal/user the quota needs.
+type copilotUserResponse struct {
+	QuotaResetDate string `json:"quota_reset_date"`
+	QuotaSnapshots struct {
+		Premium struct {
+			Entitlement float64 `json:"entitlement"`
+			Remaining   float64 `json:"remaining"`
+			Unlimited   bool    `json:"unlimited"`
+		} `json:"premium_interactions"`
+	} `json:"quota_snapshots"`
+}
+
+// CopilotUserQuota reads the premium-request quota of the account behind a GitHub OAuth token.
+// The endpoint is not documented by GitHub, so a reply without the quota is an error, never a guess.
+func CopilotUserQuota(ctx context.Context, client HTTPClient, githubToken string) (CopilotQuota, error) {
+	headers := map[string]string{
+		"Authorization":         "token " + githubToken,
+		"Editor-Version":        "vscode/1.99.3",
+		"Editor-Plugin-Version": "copilot-chat/0.26.7",
+		"User-Agent":            "GitHubCopilotChat/0.26.7",
+	}
+	var resp copilotUserResponse
+	if err := getJSON(ctx, client, "https://api.github.com/copilot_internal/user", headers, &resp); err != nil {
+		return CopilotQuota{}, err
+	}
+	p := resp.QuotaSnapshots.Premium
+	if p.Entitlement <= 0 && !p.Unlimited {
+		return CopilotQuota{}, errors.New("GitHub reported no premium-request quota for this account")
+	}
+	q := CopilotQuota{Entitlement: int64(p.Entitlement), Remaining: int64(p.Remaining), Unlimited: p.Unlimited}
+	for _, layout := range []string{"2006-01-02", time.RFC3339} {
+		if t, err := time.Parse(layout, resp.QuotaResetDate); err == nil {
+			q.ResetsAt = t
+			break
+		}
+	}
+	return q, nil
+}

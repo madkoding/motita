@@ -104,10 +104,13 @@ export function liveQuotas(u: ProviderUsage, now: number): UsageQuota[] {
   );
 }
 
-// quotaLabel names a quota's window: "5 h" for a session of hours, "Week" for the weekly one.
+// quotaLabel names a quota's window: "5 h" for a session of hours, "Week" and "Month" for the longer ones.
 export function quotaLabel(q: UsageQuota): string {
   if (q.name === "week") {
     return t("Week");
+  }
+  if (q.name === "month") {
+    return t("Month");
   }
   const m = q.window_minutes ?? 0;
   return choose(

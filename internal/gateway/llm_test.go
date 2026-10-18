@@ -14,6 +14,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/onboard"
 )
 
@@ -644,5 +645,82 @@ func TestLLMUsageLeavesOutAnOllamaOnTheUsersOwnServer(t *testing.T) {
 	}
 	if usageRow(v, "ollama-cloud") == nil {
 		t.Error("Ollama Cloud keeps its row")
+	}
+}
+
+// copilotUsageServer is a gateway with a Copilot login whose quota read is `read`.
+func copilotUsageServer(t *testing.T, read func() (oauth.CopilotQuota, error)) (*Server, *int) {
+	t.Helper()
+	srv := usageServer(t)
+	calls := 0
+	old := copilotUserQuota
+	copilotUserQuota = func(context.Context, oauth.HTTPClient, string) (oauth.CopilotQuota, error) {
+		calls++
+		return read()
+	}
+	t.Cleanup(func() { copilotUserQuota = old })
+	if err := oauth.SaveCredential(config.AuthDir(), oauth.Credential{Provider: "copilot", AccessToken: "t", RefreshToken: "gho_x"}); err != nil {
+		t.Fatal(err)
+	}
+	return srv, &calls
+}
+
+func TestLLMUsageShowsTheCopilotMonthlyQuota(t *testing.T) {
+	reset := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	srv, calls := copilotUsageServer(t, func() (oauth.CopilotQuota, error) {
+		return oauth.CopilotQuota{Entitlement: 300, Remaining: 75, ResetsAt: reset}, nil
+	})
+	srv.usageTotals = func() []llm.ProviderUsage {
+		return []llm.ProviderUsage{{Provider: "copilot", Calls: 1, Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 5, Remaining: 4}}}}
+	}
+	r := usageRow(readUsage(t, srv), "copilot")
+	if r == nil || r.Limits == nil || len(r.Limits.Quotas) != 1 || r.Limits.Tokens == nil {
+		t.Fatalf("copilot row: %+v", r)
+	}
+	if q := r.Limits.Quotas[0]; q.Name != "month" || q.Used != 75 || q.ResetsAt == nil || !q.ResetsAt.Equal(reset) {
+		t.Errorf("quota: %+v", q)
+	}
+	readUsage(t, srv) // kept for a few minutes: GitHub is not asked again
+	if *calls != 1 {
+		t.Errorf("GitHub was asked %d times", *calls)
+	}
+}
+
+func TestLLMUsageSaysNothingOfACopilotQuotaItCannotRead(t *testing.T) {
+	cases := map[string]func() (oauth.CopilotQuota, error){
+		"unlimited": func() (oauth.CopilotQuota, error) { return oauth.CopilotQuota{Unlimited: true}, nil },
+		"failing":   func() (oauth.CopilotQuota, error) { return oauth.CopilotQuota{}, errors.New("offline") },
+	}
+	for name, read := range cases {
+		srv, calls := copilotUsageServer(t, read)
+		srv.usageTotals = func() []llm.ProviderUsage { return []llm.ProviderUsage{{Provider: "copilot", Calls: 1}} }
+		if r := usageRow(readUsage(t, srv), "copilot"); r == nil || r.Limits != nil {
+			t.Errorf("%s: a quota was invented: %+v", name, r)
+		}
+		readUsage(t, srv)
+		if *calls != 1 {
+			t.Errorf("%s: asked %d times inside the minute", name, *calls)
+		}
+		srv.quotaCache.at = time.Now().Add(-2 * quotaKeepFail)
+		readUsage(t, srv)
+		if *calls != 2 {
+			t.Errorf("%s: a failed read is not tried again after a minute: %d", name, *calls)
+		}
+	}
+}
+
+func TestACopilotQuotaNeedsALoginOrAConfiguredKey(t *testing.T) {
+	srv := usageServer(t)
+	if q := srv.copilotQuota(context.Background(), config.LLM{Provider: "copilot"}); q != nil {
+		t.Errorf("no login, no key: %+v", q)
+	}
+	if copilotToken(config.LLM{Provider: "copilot", APIKey: "gho_k"}) != "gho_k" || copilotToken(config.LLM{Provider: "openai", APIKey: "k"}) != "" {
+		t.Error("only a copilot key is a GitHub token")
+	}
+	if withQuota(nil, nil) != nil {
+		t.Error("nothing to add")
+	}
+	if got := withQuota(nil, &llm.Quota{Name: "month"}); len(got.Quotas) != 1 {
+		t.Errorf("limits made from nothing: %+v", got)
 	}
 }

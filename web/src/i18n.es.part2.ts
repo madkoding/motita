@@ -634,6 +634,7 @@ const more: Record<string, string> = {
   "Index now": "Indexar ahora",
   "Provider usage": "Uso de proveedores",
   Week: "Semana",
+  Month: "Mes",
   Session: "Sesión",
   "{n} h": "{n} h",
   "resets in {t}": "se reinicia en {t}",

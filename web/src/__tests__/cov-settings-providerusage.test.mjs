@@ -211,6 +211,7 @@ test("no quota list and no note when every provider reports one or none does", a
                 quotas: [
                   { name: "week", used_percent: -4 },
                   { name: "session", used_percent: 3 },
+                  { name: "month", used_percent: 24.6 },
                 ],
               },
             }),
@@ -221,6 +222,7 @@ test("no quota list and no note when every provider reports one or none does", a
   assert.equal(q(all, "provider-usage-noquota"), null);
   assert.match(text(q(all, "provider-quota-a-week")), /A · Week0%/);
   assert.match(text(q(all, "provider-quota-a-session")), /A · Session3%/);
+  assert.match(text(q(all, "provider-quota-a-month")), /A · Month25%/);
 });
 
 test("only the busiest providers are named and the rest are counted", async () => {

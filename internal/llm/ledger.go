@@ -35,8 +35,8 @@ type Window struct {
 }
 
 // Quota is a plan's allowance over a longer window, as a provider reports it: a share used, the
-// length of the window and when it starts over. Name is "session" for the short window (hours) and
-// "week" for the weekly one.
+// length of the window and when it starts over. Name is "session" for the short window (hours),
+// "week" for the weekly one and "month" for a monthly one (Copilot's premium requests).
 type Quota struct {
 	Name     string     `json:"name"`
 	Used     float64    `json:"used_percent"`

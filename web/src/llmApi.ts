@@ -93,9 +93,9 @@ export interface ProviderUsage {
 }
 
 // A plan's allowance over a window: the share used, how long the window is and when it starts over
-// (ISO 8601). "session" is the short window (hours), "week" the weekly one.
+// (ISO 8601). "session" is the short window (hours), "week" the weekly one and "month" a monthly one (Copilot's premium requests).
 export interface UsageQuota {
-  name: "session" | "week";
+  name: "session" | "week" | "month";
   used_percent: number;
   window_minutes?: number;
   resets_at?: string;
