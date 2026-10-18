@@ -391,12 +391,12 @@ func TestALetInComputerIsLetInAgainRefusedAndRevoked(t *testing.T) {
 	r, _ := newReg(t)
 	_, _ = r.Ask("peer0001", "laptop", "", "fp1")
 	_ = r.Decide("peer0001", true)
-	_, token := r.Answer("fp1")
+	_, old := r.Answer("fp1")
 	// Let in again: the new token replaces the old one.
 	_, _ = r.Ask("peer0001", "laptop", "", "fp1")
 	_ = r.Decide("peer0001", true)
-	_, token = r.Answer("fp1")
-	if len(r.Grants()) != 1 || !r.Granted(token, "fp1") {
+	_, token := r.Answer("fp1")
+	if len(r.Grants()) != 1 || !r.Granted(token, "fp1") || r.Granted(old, "fp1") {
 		t.Fatalf("grants = %+v", r.Grants())
 	}
 	// Asked again and denied this time.
