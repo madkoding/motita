@@ -15,15 +15,15 @@ func newLedger(clock *time.Time) *ledger {
 	return &ledger{by: map[string]*ProviderUsage{}, tick: func() time.Time { return *clock }}
 }
 
-func src(provider, model string) usageSource { return usageSource{provider: provider, model: model} }
+func src(provider string) usageSource { return usageSource{provider: provider} }
 
 func TestTheLedgerSumsEachProviderApartAndListsTheLatestFirst(t *testing.T) {
 	clock := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 	l := newLedger(&clock)
-	l.add(src("openai", "gpt-a"), Usage{Input: 10, Output: 2})
-	l.add(src("openai", "gpt-b"), Usage{Input: 5, CacheRead: 1})
+	l.add(src("openai"), Usage{Input: 10, Output: 2})
+	l.add(src("openai"), Usage{Input: 5, CacheRead: 1})
 	clock = clock.Add(time.Minute)
-	l.add(src("anthropic", "claude"), Usage{Output: 7})
+	l.add(src("anthropic"), Usage{Output: 7})
 	got := l.snapshot()
 	if len(got) != 2 || got[0].Provider != "anthropic" || got[1].Provider != "openai" {
 		t.Fatalf("order: %+v", got)
@@ -32,19 +32,16 @@ func TestTheLedgerSumsEachProviderApartAndListsTheLatestFirst(t *testing.T) {
 	if want := (Usage{Input: 15, Output: 2, CacheRead: 1}); o.Usage != want || o.Calls != 2 {
 		t.Errorf("openai: %+v", o)
 	}
-	if o.Models["gpt-a"] != (Usage{Input: 10, Output: 2}) || o.Models["gpt-b"] != (Usage{Input: 5, CacheRead: 1}) {
-		t.Errorf("split by model: %+v", o.Models)
-	}
 	if !got[0].Last.After(got[1].Last) || !o.Since.Equal(clock.Add(-time.Minute)) {
 		t.Errorf("times: %+v %+v", got[0], o)
 	}
 	// The snapshot is a copy: changing it does not change the ledger.
-	o.Models["gpt-a"] = Usage{}
-	if l.snapshot()[1].Models["gpt-a"].Input != 10 {
-		t.Error("the snapshot shares its maps with the ledger")
+	o.Calls = 99
+	if l.snapshot()[1].Calls != 2 {
+		t.Error("the snapshot shares its entries with the ledger")
 	}
 	// Two used at the same moment keep a stable order, by name.
-	l.add(src("gemini", "g"), Usage{Input: 1})
+	l.add(src("gemini"), Usage{Input: 1})
 	l.by["gemini"].Last = l.by["anthropic"].Last
 	if again := l.snapshot(); again[0].Provider != "anthropic" || again[1].Provider != "gemini" {
 		t.Errorf("tie: %+v", again)
@@ -103,8 +100,8 @@ func TestTheTotalsSurviveARestart(t *testing.T) {
 	clock := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 	l := newLedger(&clock)
 	l.load(file) // nothing saved yet
-	l.add(src("openai", "m"), Usage{Input: 3})
-	l.add(src("openai", "m"), Usage{Input: 4}) // one write for both: it is already scheduled
+	l.add(src("openai"), Usage{Input: 3})
+	l.add(src("openai"), Usage{Input: 4}) // one write for both: it is already scheduled
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		if _, err := os.Stat(file); err == nil || time.Now().After(deadline) {
@@ -121,7 +118,7 @@ func TestTheTotalsSurviveARestart(t *testing.T) {
 	again := newLedger(&clock)
 	again.load(file)
 	got := again.snapshot()
-	if len(got) != 1 || got[0].Usage.Input != 7 || got[0].Calls != 2 || got[0].Models["m"].Input != 7 {
+	if len(got) != 1 || got[0].Usage.Input != 7 || got[0].Calls != 2 {
 		t.Errorf("after a restart: %+v", got)
 	}
 }
@@ -141,7 +138,7 @@ func TestTheLedgerFileIsBestEffort(t *testing.T) {
 	}
 	// Without a file nothing is written and nothing fails.
 	none := newLedger(&clock)
-	none.add(src("p", "m"), Usage{Input: 1})
+	none.add(src("p"), Usage{Input: 1})
 	if err := none.flush(); err != nil || none.pending {
 		t.Errorf("no file: %v %v", err, none.pending)
 	}
@@ -174,7 +171,7 @@ func TestProviderCallsFeedTheProcessWideTotals(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := totalsOf("openai")
-	if after.Calls != before.Calls+1 || after.Usage.Input != before.Usage.Input+10 || after.Models["m"].Input == 0 {
+	if after.Calls != before.Calls+1 || after.Usage.Input != before.Usage.Input+10 {
 		t.Errorf("before %+v, after %+v", before, after)
 	}
 	if totalsOf("nobody").Calls != 0 {

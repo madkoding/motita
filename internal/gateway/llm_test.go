@@ -573,19 +573,14 @@ func usageRow(v llmUsageView, id string) *llmUsageRow {
 
 var usageLast = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 
-// usedProviders is a ledger with three providers: priced models, an unknown one, and limits only.
+// usedProviders is a ledger of three providers: calls and a rate window, calls only, limits only.
 func usedProviders() []llm.ProviderUsage {
 	return []llm.ProviderUsage{
 		{Provider: "anthropic", Usage: llm.Usage{Input: 1_000_000, Output: 500_000, CacheRead: 3, CacheWrite: 2},
 			Calls: 4, Since: usageLast.Add(-time.Hour), Last: usageLast,
-			Models: map[string]llm.Usage{
-				"claude-sonnet-5-5": {Input: 1_000_000, Output: 500_000},
-				"made-up-model":     {Input: 5},
-			},
 			Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 100, Remaining: 40}}},
-		{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: usageLast,
-			Models: map[string]llm.Usage{"unpriced": {Input: 1}}},
-		{Provider: "gemini", Models: map[string]llm.Usage{"claude-sonnet-5-5": {}}, Limits: &llm.RateLimits{}},
+		{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: usageLast},
+		{Provider: "gemini", Limits: &llm.RateLimits{}},
 	}
 }
 
@@ -622,20 +617,12 @@ func TestLLMUsageShowsTheTokensOfACalledProvider(t *testing.T) {
 	}
 }
 
-func TestLLMUsageEstimatesTheCostFromTheCataloguePrices(t *testing.T) {
+func TestLLMUsageListsAProviderThatOnlyReportedARateLimit(t *testing.T) {
 	srv := usageServer(t)
 	srv.usageTotals = usedProviders
-	v := readUsage(t, srv)
-	// 1M input at $2 + 0.5M output at $10 = $7, and the unknown model's tokens make it partial.
-	r := usageRow(v, "anthropic")
-	if r.CostUSD == nil || *r.CostUSD < 6.99 || *r.CostUSD > 7.01 || !r.CostPartial {
-		t.Errorf("cost: %v %v", r.CostUSD, r.CostPartial)
-	}
-	if o := usageRow(v, "openai"); o == nil || o.CostUSD != nil || o.CostPartial {
-		t.Errorf("openai with an unpriced model: %+v", o)
-	}
-	// A provider that only reported a rate limit (no call counted) has no count to date.
-	if g := usageRow(v, "gemini"); g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
+	// No call counted, so there is no count to date.
+	g := usageRow(readUsage(t, srv), "gemini")
+	if g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
 		t.Errorf("gemini with limits only: %+v", g)
 	}
 }

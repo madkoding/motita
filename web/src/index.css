@@ -4494,7 +4494,7 @@ html[data-density="compact"] .settings-warn {
   background: var(--color-accent);
 }
 
-/* What each provider consumed, in the sidebar's bottom menu: a thin bar against the busiest. */
+/* What each provider consumed, in the sidebar's bottom menu: a thin bar per provider, or a ring. */
 .provider-usage-bar {
   display: block;
   height: 0.25rem;
@@ -4509,6 +4509,49 @@ html[data-density="compact"] .settings-warn {
   border-radius: inherit;
   background: var(--color-accent);
   transition: width var(--motion-fast, 120ms) linear;
+}
+
+.provider-usage-gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(3.5rem, 1fr));
+  gap: 0.5rem;
+}
+.provider-usage-gauge {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.provider-usage-gauge svg {
+  transform: rotate(-90deg);
+}
+.provider-usage-ring,
+.provider-usage-arc {
+  fill: none;
+  stroke-width: 3.5;
+}
+.provider-usage-ring {
+  stroke: rgb(var(--ov-rgb) / 0.08);
+}
+.provider-usage-arc {
+  stroke: var(--color-accent);
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--motion-fast, 120ms) linear;
+}
+.provider-usage-pct {
+  position: absolute;
+  top: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  color: #e8e8ea;
+}
+.provider-usage-name {
+  max-width: 100%;
+  font-size: 0.625rem;
+  color: #9a9aaa;
 }
 
 /* The project's index: a full-width bar that turns amber when the index is out of date. */

@@ -13,14 +13,13 @@ import (
 // TOKENS SPENT, per provider.
 //
 // A Meter answers "what did this agent spend"; this answers "what has each provider been asked for",
-// which is what the bottom bars show. It counts what a provider reported in its responses, by model
-// so a price can be applied, and keeps the rate-limit window the provider last reported in its
-// headers. A plan's quota or balance is the provider's to state, and none of them sends one with an
+// which is what the bottom bars show. It counts what a provider reported in its responses and keeps
+// the rate-limit window the provider last reported in its headers. A plan's quota or balance is the provider's to state, and none of them sends one with an
 // answer, so none is guessed here. The totals are kept in a file once PersistUsage names one.
 
 // usageSource is who a call is counted under.
 type usageSource struct {
-	provider, model string
+	provider string
 }
 
 // Window is one rate limit a provider reported: how much the window allows and how much is left.
@@ -42,8 +41,6 @@ type ProviderUsage struct {
 	Provider string `json:"provider"`
 	Usage    Usage  `json:"usage"`
 	Calls    int64  `json:"calls"`
-	// Models is the same tokens split by the model that spent them, which is what a price needs.
-	Models map[string]Usage `json:"models,omitempty"`
 	// Since is when the totals began (the first call counted), Last when the latest finished.
 	Since time.Time `json:"since"`
 	Last  time.Time `json:"last"`
@@ -85,10 +82,6 @@ func (l *ledger) add(src usageSource, u Usage) {
 	p.Usage = p.Usage.Add(u)
 	p.Calls++
 	p.Last = l.tick()
-	if p.Models == nil {
-		p.Models = map[string]Usage{}
-	}
-	p.Models[src.model] = p.Models[src.model].Add(u)
 	l.changed()
 }
 
@@ -153,12 +146,7 @@ func (l *ledger) load(file string) {
 func (l *ledger) listLocked() []ProviderUsage {
 	out := make([]ProviderUsage, 0, len(l.by))
 	for _, p := range l.by {
-		c := *p
-		c.Models = make(map[string]Usage, len(p.Models))
-		for k, v := range p.Models {
-			c.Models[k] = v
-		}
-		out = append(out, c)
+		out = append(out, *p)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].Last.Equal(out[j].Last) {

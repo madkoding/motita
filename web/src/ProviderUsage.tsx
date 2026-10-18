@@ -1,8 +1,9 @@
 // What each configured provider has consumed, in the sidebar's bottom menu: the tokens the provider
-// reported since the gateway started, as a number and a bar against the busiest one. It shows no
+// reported since the gateway started, as a share of the total, drawn as bars or circular gauges. It shows no
 // quota or balance, because no provider sends one with an answer; hovering a row gives the split
 // and the calls. It stays quiet where the gateway has no such API.
 import { useEffect, useState } from "preact/hooks";
+import { USAGE_STYLE_EVENT, loadUsageStyle, type UsageStyle } from "./settings";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { formatTokens, tokenBreakdown } from "./appFormat";
@@ -41,17 +42,37 @@ function rowTitle(u: ProviderUsage): string {
   return u.name + ": " + parts.join(" · ");
 }
 
-// costLabel is the estimated cost, "≈$7.20" (with a "+" when some tokens had no price), or "".
-export function costLabel(u: ProviderUsage): string {
-  if (u.cost_usd === undefined) {
-    return "";
-  }
-  return "≈$" + u.cost_usd.toFixed(2) + choose(!!u.cost_partial, "+", "");
+// GAUGE_RADIUS and GAUGE_LENGTH size the circular gauge: the ring is a circle whose stroke is drawn
+// for `share` percent of its circumference.
+const GAUGE_RADIUS = 15;
+const GAUGE_LENGTH = 2 * Math.PI * GAUGE_RADIUS;
+
+// UsageGauge is one provider as a ring with its share in the middle and its name beneath.
+function UsageGauge({ u, share }: { u: ProviderUsage; share: number }) {
+  return (
+    <li
+      class="provider-usage-gauge"
+      title={rowTitle(u)}
+      data-testid={"provider-usage-" + u.id}
+    >
+      <svg viewBox="0 0 36 36" width="44" height="44" aria-hidden="true">
+        <circle class="provider-usage-ring" cx="18" cy="18" r={GAUGE_RADIUS} />
+        <circle
+          class="provider-usage-arc"
+          cx="18"
+          cy="18"
+          r={GAUGE_RADIUS}
+          stroke-dasharray={`${(GAUGE_LENGTH * share) / 100} ${GAUGE_LENGTH}`}
+        />
+      </svg>
+      <span class="provider-usage-pct tabular-nums">{share}%</span>
+      <span class="provider-usage-name truncate">{u.name}</span>
+    </li>
+  );
 }
 
-// UsageRow is one provider: its name, its tokens and a bar against `max`, the busiest one's.
-function UsageRow({ u, sum }: { u: ProviderUsage; sum: number }) {
-  const share = shareOf(usageTotal(u), sum);
+// UsageRow is one provider: its name, its share and a bar filled to that share.
+function UsageRow({ u, share }: { u: ProviderUsage; share: number }) {
   return (
     <li
       class="provider-usage-row"
@@ -60,15 +81,24 @@ function UsageRow({ u, sum }: { u: ProviderUsage; sum: number }) {
     >
       <span class="flex items-center gap-2 text-xs">
         <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
-        <span class="tabular-nums text-[#9a9aaa]">
-          {share}%{costLabel(u) && " · " + costLabel(u)}
-        </span>
+        <span class="tabular-nums text-[#9a9aaa]">{share}%</span>
       </span>
       <span class="provider-usage-bar" aria-hidden="true">
         <span class="provider-usage-fill" style={{ width: share + "%" }} />
       </span>
     </li>
   );
+}
+
+// useUsageStyle is the look chosen in Settings, kept in step when it changes.
+function useUsageStyle(): UsageStyle {
+  const [style, setStyle] = useState<UsageStyle>(loadUsageStyle);
+  useEffect(() => {
+    const sync = () => setStyle(loadUsageStyle());
+    window.addEventListener(USAGE_STYLE_EVENT, sync);
+    return () => window.removeEventListener(USAGE_STYLE_EVENT, sync);
+  }, []);
+  return style;
 }
 
 // ProviderUsagePanel lists the providers by what they consumed, the busiest first.
@@ -80,6 +110,7 @@ export function ProviderUsagePanel({
   running: boolean;
 }) {
   const [rows, setRows] = useState<ProviderUsage[]>([]);
+  const style = useUsageStyle();
   useEffect(() => {
     let live = true;
     const load = () =>
@@ -110,10 +141,20 @@ export function ProviderUsagePanel({
       <h2 class="text-[10px] font-semibold uppercase tracking-wider text-[#7a7a8c] pb-1">
         {t("Provider usage")}
       </h2>
-      <ul class="space-y-1.5">
-        {shown.map((u) => (
-          <UsageRow key={u.id} u={u} sum={sum} />
-        ))}
+      <ul
+        class={choose(
+          style === "gauge",
+          "provider-usage-gauges",
+          "space-y-1.5",
+        )}
+      >
+        {shown.map((u) =>
+          choose(
+            style === "gauge",
+            <UsageGauge key={u.id} u={u} share={shareOf(usageTotal(u), sum)} />,
+            <UsageRow key={u.id} u={u} share={shareOf(usageTotal(u), sum)} />,
+          ),
+        )}
       </ul>
       {more > 0 && (
         <p

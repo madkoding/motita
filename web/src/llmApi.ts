@@ -83,10 +83,6 @@ export interface ProviderUsage {
   // before the first call.
   since?: string;
   last?: string;
-  // An upper estimate in USD at the catalogue's per-token prices, and whether some tokens had no
-  // price (so the real figure is higher). Absent when no model used has a price.
-  cost_usd?: number;
-  cost_partial?: boolean;
   // The rate-limit window the provider reported with its latest answer, not a plan's quota.
   limits?: { requests?: UsageWindow; tokens?: UsageWindow };
 }

@@ -87,17 +87,15 @@ test("providers are listed busiest first, each with its tokens and a bar against
   assert.equal(q(root, "provider-usage-more"), null);
 });
 
-test("the estimated cost and the rate window are shown when the provider has them", async () => {
+test("the rate window is in the tooltip when the provider reported one", async () => {
   const gw = fakeApi({
     [ROUTE]: () =>
       json(200, {
         providers: [
           row("anthropic", {
             input: 1000,
-            cost_usd: 7.2,
             limits: { tokens: { limit: 40000, remaining: 39000 } },
           }),
-          row("openai", { input: 10, cost_usd: 0.5, cost_partial: true }),
           row("gemini", {
             input: 5,
             limits: { requests: { limit: 5, remaining: 1 } },
@@ -106,17 +104,36 @@ test("the estimated cost and the rate window are shown when the provider has the
       }),
   });
   const root = await mount(gw.api);
-  assert.equal(
-    text(q(root, "provider-usage-anthropic")),
-    "ANTHROPIC99% · ≈$7.20",
-  );
-  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI1% · ≈$0.50+");
-  assert.equal(text(q(root, "provider-usage-gemini")), "GEMINI0%");
+  assert.equal(text(q(root, "provider-usage-anthropic")), "ANTHROPIC100%");
   assert.match(
     q(root, "provider-usage-anthropic").title,
     /39k of 40k tokens left in the rate window$/,
   );
   assert.doesNotMatch(q(root, "provider-usage-gemini").title, /rate window/);
+});
+
+test("the gauge style draws a ring per provider and follows the setting", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [row("a", { input: 300 }), row("b", { input: 100 })],
+      }),
+  });
+  localStorage.setItem("motita.ui.usageStyle", "gauge");
+  const root = await mount(gw.api);
+  assert.equal(text(q(root, "provider-usage-a")), "75%A");
+  assert.equal(root.querySelectorAll(".provider-usage-arc").length, 2);
+  assert.equal(root.querySelector(".provider-usage-fill"), null);
+  const dash = q(root, "provider-usage-a")
+    .querySelector(".provider-usage-arc")
+    .getAttribute("stroke-dasharray");
+  assert.match(dash, /^70\.68\d* 94\.24\d*$/);
+  localStorage.setItem("motita.ui.usageStyle", "bars");
+  window.dispatchEvent(new Event("motita-usage-style"));
+  await settle();
+  assert.equal(root.querySelectorAll(".provider-usage-fill").length, 2);
+  assert.equal(root.querySelector(".provider-usage-arc"), null);
+  localStorage.removeItem("motita.ui.usageStyle");
 });
 
 test("only the busiest providers are named and the rest are counted", async () => {
@@ -194,6 +211,22 @@ test("leaving the panel ignores a late answer", async () => {
   release();
   await settle();
   assert.equal(root.textContent, "");
+});
+
+test("the usage style falls back to bars and survives a storage that refuses", async () => {
+  const S = await load("settings.ts");
+  localStorage.setItem(S.USAGE_STYLE_KEY, "nonsense");
+  assert.equal(S.loadUsageStyle(), "bars");
+  const proto = window.Storage.prototype;
+  const { getItem, setItem } = proto;
+  proto.getItem = proto.setItem = () => {
+    throw new Error("blocked");
+  };
+  const style = S.loadUsageStyle();
+  S.saveUsageStyle("gauge");
+  Object.assign(proto, { getItem, setItem });
+  assert.equal(style, "bars");
+  localStorage.removeItem(S.USAGE_STYLE_KEY);
 });
 
 test("the api helpers add the tokens and read the list", async () => {

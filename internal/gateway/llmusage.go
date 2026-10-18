@@ -25,11 +25,6 @@ type llmUsageRow struct {
 	// are absent for a provider with no call yet.
 	Since *time.Time `json:"since,omitempty"`
 	Last  *time.Time `json:"last,omitempty"`
-	// CostUSD is an upper estimate of what the tokens cost at the catalogue's per-token prices
-	// (every token that is not output is priced as input); CostPartial says some tokens had no
-	// price, so the real figure is higher. Absent when no model used has a price.
-	CostUSD     *float64 `json:"cost_usd,omitempty"`
-	CostPartial bool     `json:"cost_partial,omitempty"`
 	// Limits is the rate-limit window (requests and tokens per minute) the provider reported with
 	// its latest answer, when it reports one. It is not a plan's quota.
 	Limits *llm.RateLimits `json:"limits,omitempty"`
@@ -63,7 +58,6 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, _ *http.Request) {
 				row.Since, row.Last = &since, &last
 			}
 			row.Limits = u.Limits
-			row.CostUSD, row.CostPartial = costOf(p, u)
 		}
 		rows = append(rows, row)
 	}
@@ -77,29 +71,4 @@ func (s *Server) providerTotals() []llm.ProviderUsage {
 		return s.usageTotals()
 	}
 	return llm.ProviderTotals()
-}
-
-// costOf prices what a provider consumed, model by model, at the catalogue's USD per million
-// tokens. It answers nil when no model used has a price.
-func costOf(p onboard.Provider, u llm.ProviderUsage) (*float64, bool) {
-	prices := map[string]onboard.Model{}
-	for _, m := range p.Models {
-		prices[m.ID] = m
-	}
-	var total float64
-	priced, partial := false, false
-	for model, use := range u.Models {
-		m, ok := prices[model]
-		if !ok || m.PriceIn == 0 || m.PriceOut == 0 {
-			partial = partial || use.Total() > 0
-			continue
-		}
-		priced = true
-		in := float64(use.Input + use.CacheRead + use.CacheWrite)
-		total += (in*m.PriceIn + float64(use.Output)*m.PriceOut) / 1e6
-	}
-	if !priced {
-		return nil, false
-	}
-	return &total, partial
 }
