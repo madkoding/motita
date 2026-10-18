@@ -3312,12 +3312,14 @@ html[data-density="compact"] .session-row {
   padding-top: 2px;
   padding-bottom: 2px;
 }
-html[data-density="compact"] :is(.session-when, .session-facts) {
+/* The date and the facts (branch, model, changes) share the row's second line, at every density:
+ * the facts used to take a third line of their own. */
+:is(.session-when, .session-facts) {
   display: inline-flex;
   vertical-align: middle;
   margin-top: 0;
 }
-html[data-density="compact"] .session-when {
+.session-when {
   margin-right: 6px;
 }
 html[data-density="compact"] .project-header {
@@ -3807,6 +3809,33 @@ html[data-keyboard="open"] .app-shell {
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);
+  }
+}
+
+/* The bottom menu of the sidebar on a phone: the four entries side by side, icon over a small
+ * label, like the settings tabs, instead of four full-width rows. */
+@media (max-width: 767px) {
+  /* The facts' labels (branch, model, changes) give way to their colours, so the date and the
+   * facts fit the row's second line; the row's tooltip still names each one. */
+  .session-facts > span > span:first-child {
+    display: none;
+  }
+  .sidebar-foot {
+    display: flex;
+    gap: 0.125rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .sidebar-foot > button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.125rem;
+    padding: 0.375rem 0.125rem;
+    font-size: 0.6875rem;
+    line-height: 1.15;
+    text-align: center;
   }
 }
 

@@ -69,7 +69,6 @@ test("the row buttons carry the tooltips of the labels they cover", () => {
   for (const [file, name] of [
     [SESSION_ROW, "SessionFacts"],
     [SESSION_ROW, "SessionSummary"],
-    [PROJECT_GROUP, "ProjectFacts"],
   ]) {
     assert.doesNotMatch(
       component(file, name),
@@ -82,7 +81,7 @@ test("the row buttons carry the tooltips of the labels they cover", () => {
 test("a project header's click target is drawn above its title and under its actions", () => {
   const header = component(PROJECT_GROUP, "ProjectHeader");
   const [title, hit, actions] = order(header, [
-    "<ProjectFacts",
+    "<BehindFact",
     ROW_HIT,
     "<ProjectActions",
   ]);

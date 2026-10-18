@@ -5,7 +5,7 @@ import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { useLongPress } from "./domHooks";
-import { projectTooltip, shortBranch } from "./appFormat";
+import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
 import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
 import { IconDots, IconFolder } from "./icons";
@@ -69,48 +69,6 @@ function BehindFact({ p }: { p: ProjectInfo }) {
       </span>
       <span class="tabular-nums text-[#f0a040]">{behind.length}</span>
     </span>
-  );
-}
-
-// ProjectFacts is the facts line, labelled and coloured exactly like a
-// session's: `project` says this is the project's own
-// checkout rather than a session's.
-//
-// There is deliberately NO session/worktree count
-// here. The counts were the width the user asked to be
-// rid of, and they are visible without them: the
-// sessions are the rows under this header, and a
-// session's worktree is named by its own row. The
-// gateway still reports `sessions`/`worktrees` in
-// GET /v1/projects for clients that want them.
-function ProjectFacts({ p }: { p: ProjectInfo }) {
-  return (
-    <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
-      {p.branch && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10">
-          <span class="text-accent/50 uppercase tracking-wide text-[9px]">
-            {t("project")}
-          </span>
-          <span class="font-mono text-accent truncate max-w-28">
-            {shortBranch(p.branch)}
-          </span>
-        </span>
-      )}
-      {p.podman && (
-        <span class="inline-flex items-center flex-none px-1 py-px rounded-sm bg-accent/10 text-accent text-[9px] uppercase tracking-wide">
-          podman
-        </span>
-      )}
-      <BehindFact p={p} />
-      {!!p.changes && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
-          <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-            {choose(p.changes === 1, t("change"), t("changes"))}
-          </span>
-          <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
-        </span>
-      )}
-    </div>
   );
 }
 
@@ -197,14 +155,14 @@ function ProjectHeader({
         <polyline points="6 9 12 15 18 9" />
       </svg>
       <IconFolder size={14} class="flex-none text-accent/60" />
-      {/* Title + facts, the same two-line shape as a session
-          row so the eye reads one pattern. */}
+      {/* The title alone, so the folder sits level with it. The checkout's branch and changes
+          are in the tooltip; the facts of a session are on the session's own row. */}
       <div class="flex-1 min-w-0">
         <div class="truncate font-semibold text-[13px] text-[#c8c8d2]">
           {p.title}
         </div>
-        <ProjectFacts p={p} />
       </div>
+      <BehindFact p={p} />
       {/* The header folds its list from anywhere on it: this button covers the header. It comes
           after the title and before the actions, so it is painted above the one and under the
           other whatever their styles (see SessionRow). */}
