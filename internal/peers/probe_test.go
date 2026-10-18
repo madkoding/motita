@@ -127,3 +127,14 @@ func TestWithPortCompletesABareAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestTheProxyTransportIsDirectAndGuarded(t *testing.T) {
+	tr := Transport()
+	if tr.Proxy != nil {
+		t.Fatal("a proxy from the environment would be used")
+	}
+	req, _ := http.NewRequest(http.MethodGet, "http://8.8.8.8:7477/", nil)
+	if _, err := tr.RoundTrip(req); !errors.Is(err, errOutside) {
+		t.Fatalf("public: %v", err)
+	}
+}

@@ -45,14 +45,46 @@ func Transport() *http.Transport {
 	}
 }
 
+// probeURL is the base of every probe. The address asked is NOT part of the URL: it travels in the
+// request's context to the dialer (see probeTransport), so what a person typed never becomes a URL
+// a request is sent to, and the guard still checks the address actually connected to.
+const probeURL = "http://motita-peer"
+
+// targetKey carries the address a probe dials in its context.
+type targetKey struct{}
+
+// probeTransport dials the address in the request's context, guarded like Transport. It keeps no
+// connection: every probe names its own address under the same URL, and a pooled connection would
+// answer for another one.
+func probeTransport() *http.Transport {
+	dialer := &net.Dialer{Timeout: ProbeTimeout, Control: guard}
+	return &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			address, _ := ctx.Value(targetKey{}).(string)
+			return dialer.DialContext(ctx, network, address)
+		},
+		DisableKeepAlives: true,
+	}
+}
+
 // Prober asks other gateways who they are.
 type Prober struct {
 	Client *http.Client
 }
 
-// NewProber is a prober over Transport.
+// NewProber is a prober over probeTransport.
 func NewProber() *Prober {
-	return &Prober{Client: &http.Client{Transport: Transport(), Timeout: ProbeTimeout}}
+	return &Prober{Client: &http.Client{Transport: probeTransport(), Timeout: ProbeTimeout}}
+}
+
+// request is a probe of path at address. The Host header names the address, as a browser
+// reaching it would.
+func request(ctx context.Context, address, path string) *http.Request {
+	// A constant URL cannot fail to parse.
+	req, _ := http.NewRequestWithContext(context.WithValue(ctx, targetKey{}, address), http.MethodGet, probeURL+path, nil)
+	req.Host = address
+	return req
 }
 
 // WithPort completes an address typed without a port with this gateway's own, which is the port
@@ -72,11 +104,7 @@ func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPo
 		remote, _ = netip.ParseAddrPort(info.Conn.RemoteAddr().String())
 	}}
 	ctx = httptrace.WithClientTrace(ctx, trace)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+HelloPath, nil)
-	if err != nil {
-		return Hello{}, remote, err
-	}
-	res, err := p.Client.Do(req)
+	res, err := p.Client.Do(request(ctx, address, HelloPath))
 	if err != nil {
 		if errors.Is(err, errOutside) {
 			return Hello{}, remote, errOutside
@@ -100,10 +128,7 @@ var ErrRefused = errors.New("the other computer refuses connections from this on
 
 // CheckToken reports whether the gateway at address accepts token.
 func (p *Prober) CheckToken(ctx context.Context, address, token string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/v1/sessions", nil)
-	if err != nil {
-		return err
-	}
+	req := request(ctx, address, "/v1/sessions")
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := p.Client.Do(req)
 	if err != nil {
