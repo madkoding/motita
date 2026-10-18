@@ -258,6 +258,48 @@ function EndpointFields({
   );
 }
 
+// CacheRow deletes the index kept on disk and says what was removed.
+function CacheRow({
+  busy,
+  clear,
+  cleared,
+}: {
+  busy: boolean;
+  clear: () => Promise<void>;
+  cleared: string;
+}) {
+  return (
+    <>
+      <Row
+        id="settings-code-index-cache"
+        label={t("Index cache")}
+        hint={t(
+          "The index is kept in ~/.motita/index and rebuilt when it is gone.",
+        )}
+        stack
+      >
+        <button
+          type="button"
+          class={primaryBtn}
+          disabled={busy}
+          onClick={clear}
+          data-testid="code-index-clear"
+        >
+          {t("Clear index cache")}
+        </button>
+      </Row>
+      {cleared && (
+        <output
+          class="settings-card-note block text-xs text-[#7a7a8c]"
+          data-testid="code-index-cleared"
+        >
+          {cleared}
+        </output>
+      )}
+    </>
+  );
+}
+
 // CodeIndexSettings is the search_index tool's settings: whether it is on, the ranking by meaning,
 // where real embeddings come from, and the limits. The section stays hidden on a gateway without
 // the code index API.
@@ -323,33 +365,7 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               busy={busy}
               save={save}
             />
-            <Row
-              id="settings-code-index-cache"
-              label={t("Index cache")}
-              hint={t(
-                "The index is kept in ~/.motita/index and rebuilt when it is gone.",
-              )}
-              stack
-            >
-              <button
-                type="button"
-                class={primaryBtn}
-                disabled={busy}
-                onClick={clear}
-                data-testid="code-index-clear"
-              >
-                {t("Clear index cache")}
-              </button>
-            </Row>
-            {cleared && (
-              <p
-                class="settings-card-note text-xs text-[#7a7a8c]"
-                role="status"
-                data-testid="code-index-cleared"
-              >
-                {cleared}
-              </p>
-            )}
+            <CacheRow busy={busy} clear={clear} cleared={cleared} />
             <p class="settings-card-note text-xs text-[#7a7a8c]">
               {t(
                 "The embeddings key goes in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Changes apply to new sessions.",

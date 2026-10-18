@@ -97,7 +97,8 @@ func TestTheCodeIndexCacheIsCleared(t *testing.T) {
 	}
 	w := del(t, srv, "/v1/code-index/cache", testToken)
 	var got codeIndexCleared
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got != (codeIndexCleared{1, 5}) {
+	err := json.Unmarshal(w.Body.Bytes(), &got)
+	if err != nil || w.Code != http.StatusOK || got != (codeIndexCleared{1, 5}) {
 		t.Fatalf("clear = %d %s", w.Code, w.Body.String())
 	}
 	if w := del(t, srv, "/v1/code-index/cache", ""); w.Code != http.StatusUnauthorized {
