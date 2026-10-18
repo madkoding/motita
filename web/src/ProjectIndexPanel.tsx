@@ -100,6 +100,7 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
   const [st, setSt] = useState<ProjectIndexStatus | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
 
   useEffect(() => {
     let live = true;
@@ -114,13 +115,26 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
   const build = useCallback(async () => {
     setBusy(true);
     setErr("");
+    setDone("");
+    const wasReady = st?.state === "ready";
     try {
-      setSt(await buildProjectIndex(api, id));
+      const next = await buildProjectIndex(api, id);
+      setSt(next);
+      setDone(
+        choose(
+          wasReady,
+          t("Already up to date."),
+          tf("Index updated: {files} files, {chunks} passages.", {
+            files: String(next.files),
+            chunks: String(next.chunks),
+          }),
+        ),
+      );
     } catch (e) {
       setErr(errorMessage(e));
     }
     setBusy(false);
-  }, [api, id]);
+  }, [api, id, st]);
 
   return (
     <div data-testid="project-index" class="space-y-2">
@@ -146,6 +160,26 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
         </button>
       </div>
       {st && <IndexBody st={st} />}
+      {busy && (
+        <output
+          class="block text-xs text-[#9a9aaa]"
+          data-testid="project-index-working"
+        >
+          <progress
+            class="settings-progress settings-progress-wide mb-1"
+            aria-label={t("Indexing…")}
+          />
+          {t("Reading the project's files…")}
+        </output>
+      )}
+      {done && !busy && !err && (
+        <output
+          class="block text-xs text-accent"
+          data-testid="project-index-done"
+        >
+          {done}
+        </output>
+      )}
       {err && (
         <p
           class="text-xs text-danger"

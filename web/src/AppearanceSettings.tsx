@@ -8,6 +8,9 @@ import {
   type Density,
   loadNextHint,
   saveNextHint,
+  loadUsageStyle,
+  saveUsageStyle,
+  type UsageStyle,
 } from "./settings";
 import { Row, Segmented } from "./SettingsControls";
 
@@ -25,6 +28,11 @@ export function AppearanceSettings({
 }: AppearanceSettingsProps) {
   const [s, setS] = useState<UISettings>(() => initSettings());
   const [hint, setHint] = useState(() => loadNextHint());
+  const [usageStyle, setUsageStyle] = useState(() => loadUsageStyle());
+  const changeUsageStyle = useCallback((v: UsageStyle) => {
+    setUsageStyle(v);
+    saveUsageStyle(v);
+  }, []);
   const update = (next: UISettings) => {
     setS(next);
     saveSettings(next);
@@ -80,6 +88,18 @@ export function AppearanceSettings({
             options={[
               { value: "comfortable", label: t("Comfortable") },
               { value: "compact", label: t("Compact") },
+            ]}
+          />
+        </Row>
+        <Row id="settings-usage-style" label={t("Provider usage")}>
+          <Segmented<UsageStyle>
+            name="settings-usage-style"
+            labelledBy="settings-usage-style"
+            value={usageStyle}
+            onChange={changeUsageStyle}
+            options={[
+              { value: "bars", label: t("Bars") },
+              { value: "gauge", label: t("Gauge") },
             ]}
           />
         </Row>

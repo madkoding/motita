@@ -117,6 +117,11 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}, nil
 }
 
+// source is who this client's calls are counted under.
+func (c *Client) source() usageSource {
+	return usageSource{provider: strings.ToLower(c.cfg.Provider)}
+}
+
 // WithTransport sends every request of this client, the login's included, through rt instead of
 // the network. It is the seam that lets a caller's test see where a request would have gone
 // (the provider's default endpoint, say) without making it.

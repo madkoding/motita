@@ -632,7 +632,20 @@ const more: Record<string, string> = {
   "Ranked also by embeddings.": "Ordena también con embeddings.",
   "Ranked also by meaning.": "Ordena también por significado.",
   "Index now": "Indexar ahora",
+  "Provider usage": "Uso de proveedores",
+  "1 call": "1 llamada",
+  "{n} calls": "{n} llamadas",
+  "{n} tokens": "{n} tokens",
+  Bars: "Barras",
+  Gauge: "Indicador circular",
+  "+{n} more": "+{n} más",
+  "{left} of {max} tokens left in the rate window":
+    "quedan {left} de {max} tokens en la ventana de límite",
   "Indexing…": "Indexando…",
+  "Already up to date.": "Ya estaba al día.",
+  "Reading the project's files…": "Leyendo los archivos del proyecto…",
+  "Index updated: {files} files, {chunks} passages.":
+    "Índice actualizado: {files} archivos, {chunks} pasajes.",
   "Clear index cache": "Borrar caché del índice",
   "{n} index files deleted ({kb} KB). The next search builds it again.":
     "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",

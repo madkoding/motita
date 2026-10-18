@@ -11,6 +11,7 @@ package codeindex
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io/fs"
 	"math"
@@ -569,15 +570,44 @@ func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	ix, err := s.locate(ctx, root, files, fp)
+	if err != nil {
+		return nil, err
+	}
+	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+}
+
+// locate returns the index of root as the folder is now (files, fp), from memory, disk or a new
+// build. The caller holds s.mu.
+func (s *Searcher) locate(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
 	s.detect(ctx)
 	ix := s.byAt[root]
 	if ix == nil || ix.Fingerprint != fp {
+		var err error
 		if ix, err = s.obtain(ctx, root, files, fp); err != nil {
 			return nil, err
 		}
 		s.byAt[root] = ix
 	}
-	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+	return ix, nil
+}
+
+// Build brings the index kept on disk for root up to date, even when this process still holds it in
+// memory (the cache files may have been cleared since), and tells why when it cannot keep it.
+func (s *Searcher) Build(ctx context.Context, root string) error {
+	if _, err := s.Search(ctx, root, "", 1); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ix := s.byAt[root]
+	if data := readData(s.opts.CacheDir, root); data != nil && data.Fingerprint == ix.Fingerprint {
+		return nil
+	}
+	if err := writeIndex(s.opts.CacheDir, ix); err != nil {
+		return fmt.Errorf("the index could not be kept on disk: %w", err)
+	}
+	return nil
 }
 
 // queryVector embeds the query when the index holds embeddings. A failure is a warning, not an

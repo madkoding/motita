@@ -313,6 +313,15 @@ test("appearance: the language when the page offers it, and the font size and de
   hint.click();
   await settle();
   assert.equal(localStorage.getItem("motita.ui.nextHint"), "on");
+  // The sidebar's usage is bars until the gauge is picked, and the choice is announced.
+  assert.equal(radio("settings-usage-style", "bars").checked, true);
+  let heard = 0;
+  window.addEventListener("motita-usage-style", () => (heard += 1));
+  radio("settings-usage-style", "gauge").click();
+  await settle();
+  assert.equal(localStorage.getItem("motita.ui.usageStyle"), "gauge");
+  assert.equal(heard, 1);
+  localStorage.removeItem("motita.ui.usageStyle");
   await m.unmount();
 
   // Without a language choice the row is left out.

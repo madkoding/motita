@@ -167,10 +167,10 @@ test("the appearance tab offers every choice as one tap and applies it", async (
     ],
     "one tab per kind of setting; appearance is the first, and it is open",
   );
-  const languageFontAndDensity = 3;
+  const languageFontDensityAndUsage = 4;
   assert.equal(
     root.querySelectorAll("[role=radiogroup]").length,
-    languageFontAndDensity,
+    languageFontDensityAndUsage,
   );
   assert.equal(root.querySelector("select"), null, "no dropdowns are left");
   assert.equal(radio(root, "settings-density", "comfortable").checked, true);
@@ -418,7 +418,7 @@ test("a tab whose API is absent is not offered", async () => {
       "settings-tab-notifications",
     ],
   );
-  assert.equal(root.querySelectorAll("[role=radiogroup]").length, 2);
+  assert.equal(root.querySelectorAll("[role=radiogroup]").length, 3);
   await done();
 });
 

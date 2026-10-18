@@ -630,7 +630,7 @@ func (c *Client) callClaudeCode(
 	if err != nil {
 		return Reply{}, err
 	}
-	recordUsage(ctx, reply.Usage)
+	recordUsage(ctx, c.source(), reply.Usage)
 	return reply, nil
 }
 

@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/onboard"
 )
 
@@ -534,5 +536,93 @@ func TestCheckBaseURL(t *testing.T) {
 		if _, why := checkBaseURL(raw); (why == "") != ok {
 			t.Errorf("%q: refusal %q, want accepted %v", raw, why, ok)
 		}
+	}
+}
+
+// usageServer is a gateway whose default provider (anthropic) has a key.
+func usageServer(t *testing.T) *Server {
+	t.Helper()
+	llmEnv(t, "")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-0123456789abcdef")
+	svc := &fakeService{}
+	svc.cfg = config.Default()
+	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
+	return newTestServer(t, svc)
+}
+
+// readUsage reads GET /v1/llm/usage.
+func readUsage(t *testing.T, srv *Server) llmUsageView {
+	t.Helper()
+	w := get(t, srv, "/v1/llm/usage", testToken)
+	var v llmUsageView
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %s: %v", w.Code, w.Body.String(), err)
+	}
+	return v
+}
+
+// usageRow is the row of provider id, or nil.
+func usageRow(v llmUsageView, id string) *llmUsageRow {
+	for i := range v.Providers {
+		if v.Providers[i].ID == id {
+			return &v.Providers[i]
+		}
+	}
+	return nil
+}
+
+var usageLast = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+
+// usedProviders is a ledger of three providers: calls and a rate window, calls only, limits only.
+func usedProviders() []llm.ProviderUsage {
+	return []llm.ProviderUsage{
+		{Provider: "anthropic", Usage: llm.Usage{Input: 1_000_000, Output: 500_000, CacheRead: 3, CacheWrite: 2},
+			Calls: 4, Since: usageLast.Add(-time.Hour), Last: usageLast,
+			Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 100, Remaining: 40}}},
+		{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: usageLast},
+		{Provider: "gemini", Limits: &llm.RateLimits{}},
+	}
+}
+
+func TestLLMUsageListsAProviderWithAKeyAtZeroAndHidesOneWithout(t *testing.T) {
+	srv := usageServer(t)
+	v := readUsage(t, srv)
+	r := usageRow(v, "anthropic")
+	if r == nil || !r.Default || r.Calls != 0 || r.Last != nil {
+		t.Errorf("anthropic before any call: %+v", r)
+	}
+	if usageRow(v, "openai") != nil {
+		t.Error("a provider with no key and no call is listed")
+	}
+	if w := get(t, srv, "/v1/llm/usage", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("the usage needs the token: %d", w.Code)
+	}
+}
+
+func TestLLMUsageShowsTheTokensOfACalledProvider(t *testing.T) {
+	srv := usageServer(t)
+	srv.usageTotals = usedProviders
+	r := usageRow(readUsage(t, srv), "anthropic")
+	if r == nil || r.Input != 1_000_000 || r.Output != 500_000 {
+		t.Fatalf("tokens: %+v", r)
+	}
+	if r.CacheRead != 3 || r.CacheWrite != 2 || r.Calls != 4 {
+		t.Errorf("cache and calls: %+v", r)
+	}
+	if r.Last == nil || !r.Last.Equal(usageLast) || r.Since == nil || !r.Since.Equal(usageLast.Add(-time.Hour)) {
+		t.Errorf("times: %+v", r)
+	}
+	if r.Limits == nil || r.Limits.Tokens.Remaining != 40 {
+		t.Errorf("limits: %+v", r.Limits)
+	}
+}
+
+func TestLLMUsageListsAProviderThatOnlyReportedARateLimit(t *testing.T) {
+	srv := usageServer(t)
+	srv.usageTotals = usedProviders
+	// No call counted, so there is no count to date.
+	g := usageRow(readUsage(t, srv), "gemini")
+	if g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
+		t.Errorf("gemini with limits only: %+v", g)
 	}
 }
