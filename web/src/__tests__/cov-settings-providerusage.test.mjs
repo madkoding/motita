@@ -1,5 +1,6 @@
-// What each provider consumed, in the sidebar's bottom menu: the rows, the bar against the busiest
-// one, the tooltip, the cap, the periodic read and the gateways that have no such API.
+// How much of each provider's plan is used, in the sidebar's bottom menu: the order, each quota as a
+// bar or a ring, the quotas that state only where the usage stands, the providers that report none,
+// the closed summary, the tooltip, the cap, the periodic read and the gateways that have no such API.
 // Run with: node --test web/src/__tests__/cov-settings-providerusage.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
@@ -13,7 +14,7 @@ import {
 } from "./cov-settings-helpers.mjs";
 
 installDom();
-const { ProviderUsagePanel, USAGE_POLL_MS, USAGE_ROWS } =
+const { ProviderUsagePanel, USAGE_POLL_MS, USAGE_ROWS, formatReset } =
   await load("ProviderUsage.tsx");
 const { getLLMUsage, usageTotal } = await load("llmApi.ts");
 const es = (await import("../i18n.es.ts")).default;
@@ -52,7 +53,15 @@ async function mount(api, running = false, open = true) {
 }
 const q = (root, id) => root.querySelector(`[data-testid=${id}]`);
 
-test("providers are listed busiest first, each with its tokens and a bar against the top one", async () => {
+const H = 3600_000;
+const at = (ms) => new Date(Date.now() + ms).toISOString();
+// tip is a provider's tooltip: on its row when closed, on its name when open.
+const tip = (root, id) =>
+  q(root, id).title || q(root, id).querySelector("[title]").title;
+const quota = (root, id, name) =>
+  q(root, id).querySelector(`[data-testid=provider-quota-${name}]`);
+
+test("providers with a quota come first, the most used first, then the rest by tokens", async () => {
   const gw = fakeApi({
     [ROUTE]: () =>
       json(200, {
@@ -65,32 +74,35 @@ test("providers are listed busiest first, each with its tokens and a bar against
             cache_write: 1000,
             calls: 1,
           }),
-          row("gemini"),
+          row("ollama", {
+            limits: { quotas: [{ name: "month", used_percent: 22 }] },
+          }),
+          row("codex", {
+            limits: { quotas: [{ name: "week", used_percent: 60 }] },
+          }),
+          row("claude", {
+            limits: {
+              quotas: [{ name: "week", used_percent: 0, status: "warning" }],
+            },
+          }),
         ],
       }),
   });
   const root = await mount(gw.api);
-  const names = [...root.querySelectorAll("li")].map((li) =>
+  const names = [...root.querySelectorAll(".provider-block")].map((li) =>
     li.getAttribute("data-testid"),
   );
   assert.deepEqual(names, [
+    "provider-usage-claude",
+    "provider-usage-codex",
+    "provider-usage-ollama",
     "provider-usage-anthropic",
-    "provider-usage-openai",
-    "provider-usage-gemini",
   ]);
-  assert.match(text(q(root, "provider-usage-anthropic")), /ANTHROPIC91%/);
-  assert.match(text(q(root, "provider-usage-gemini")), /GEMINI0%/);
-  const width = (id) =>
-    q(root, id).querySelector(".provider-usage-fill").style.width;
-  assert.equal(width("provider-usage-anthropic"), "91%");
-  assert.equal(width("provider-usage-openai"), "9%");
-  assert.equal(width("provider-usage-gemini"), "0%");
   assert.equal(
-    q(root, "provider-usage-anthropic").title,
+    tip(root, "provider-usage-anthropic"),
     "ANTHROPIC: 16k tokens · in 10k · out 2k · cache read 3k · cache write 1k · 1 call",
   );
-  assert.match(q(root, "provider-usage-openai").title, /3 calls$/);
-  assert.equal(q(root, "provider-usage-more"), null);
+  assert.equal(text(q(root, "provider-usage-more")), "+1 more");
 });
 
 test("the rate window is in the tooltip when the provider reported one", async () => {
@@ -104,36 +116,188 @@ test("the rate window is in the tooltip when the provider reported one", async (
           }),
           row("gemini", {
             input: 5,
+            calls: 3,
             limits: { requests: { limit: 5, remaining: 1 } },
           }),
         ],
       }),
   });
   const root = await mount(gw.api);
-  assert.equal(text(q(root, "provider-usage-anthropic")), "ANTHROPIC100%");
   assert.match(
-    q(root, "provider-usage-anthropic").title,
+    tip(root, "provider-usage-anthropic"),
     /39k of 40k tokens left in the rate window$/,
   );
-  assert.doesNotMatch(q(root, "provider-usage-gemini").title, /rate window/);
+  assert.doesNotMatch(tip(root, "provider-usage-gemini"), /rate window/);
+  assert.match(tip(root, "provider-usage-gemini"), /3 calls$/);
 });
 
-test("the gauge style draws a ring per provider and follows the setting", async () => {
+test("each quota is a line with its window, a bar, the share and when it starts over", async () => {
   const gw = fakeApi({
     [ROUTE]: () =>
       json(200, {
-        providers: [row("a", { input: 300 }), row("b", { input: 100 })],
+        providers: [
+          row("codex", {
+            limits: {
+              quotas: [
+                {
+                  name: "session",
+                  used_percent: 93.4,
+                  window_minutes: 300,
+                  resets_at: at(H + 5 * 60_000 - 1000),
+                },
+                {
+                  name: "week",
+                  used_percent: 41,
+                  resets_at: at(3 * 24 * H - 1000),
+                },
+                {
+                  name: "month",
+                  used_percent: -4,
+                  resets_at: at(13 * 24 * H + 9 * H - 1000),
+                },
+              ],
+            },
+          }),
+          row("claude", {
+            limits: {
+              quotas: [
+                { name: "week", used_percent: 130, resets_at: at(-1000) },
+                {
+                  name: "session",
+                  used_percent: 5,
+                  window_minutes: 7,
+                  resets_at: at(20_000),
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+  });
+  const root = await mount(gw.api);
+  const session = quota(root, "provider-usage-codex", "session");
+  assert.equal(text(session), "5 h93%resets in 1 h 5 min");
+  assert.ok(session.querySelector(".provider-usage-fill.warn"));
+  assert.equal(
+    session.querySelector(".provider-usage-fill").style.width,
+    "93%",
+  );
+  const week = quota(root, "provider-usage-codex", "week");
+  assert.equal(text(week), "Week41%resets in 3 d");
+  assert.equal(week.querySelector(".warn"), null);
+  assert.equal(
+    text(quota(root, "provider-usage-codex", "month")),
+    "Month0%resets in 13 d 9 h",
+  );
+  // A window that started over says nothing; one of an odd length is just "Session".
+  const claude = q(root, "provider-usage-claude");
+  assert.equal(claude.querySelectorAll(".provider-quota").length, 1);
+  assert.equal(
+    text(quota(root, "provider-usage-claude", "session")),
+    "Session5%resets in 1 min",
+  );
+});
+
+test("a quota that states only where the usage stands says so, with no bar", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [
+          row("claude", {
+            limits: {
+              quotas: [
+                {
+                  name: "session",
+                  used_percent: 0,
+                  status: "ok",
+                  window_minutes: 300,
+                  resets_at: at(2 * H + 10 * 60_000 - 1000),
+                },
+                { name: "week", used_percent: 0, status: "warning" },
+              ],
+            },
+          }),
+        ],
+      }),
+  });
+  const root = await mount(gw.api);
+  const session = quota(root, "provider-usage-claude", "session");
+  assert.equal(text(session), "5 hBelow the warning levelresets in 2 h 10 min");
+  assert.equal(session.querySelector(".provider-usage-bar"), null);
+  const week = quota(root, "provider-usage-claude", "week");
+  assert.equal(text(week), "WeekNear the limit");
+  assert.ok(week.querySelector(".provider-quota-status.warning"));
+});
+
+test("a provider that reports no quota says so, with the tokens it moved", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [row("qwen", { input: 15000 }), row("gemini")],
+      }),
+  });
+  const root = await mount(gw.api);
+  const note = (id) =>
+    text(q(root, id).querySelector("[data-testid=provider-usage-noquota]"));
+  assert.equal(note("provider-usage-qwen"), "No quota reported · 15k tokens");
+  assert.equal(note("provider-usage-gemini"), "No quota reported");
+  assert.equal(root.querySelector(".provider-quotas"), null);
+});
+
+test("the gauge style draws a ring per quota and follows the setting", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [
+          row("a", {
+            limits: {
+              quotas: [
+                {
+                  name: "week",
+                  used_percent: 75,
+                  resets_at: at(4 * 24 * H + 3 * H - 1000),
+                },
+                { name: "month", used_percent: 0 },
+              ],
+            },
+          }),
+          row("b", {
+            limits: {
+              quotas: [
+                {
+                  name: "session",
+                  used_percent: 0,
+                  status: "ok",
+                  window_minutes: 300,
+                  resets_at: at(H - 1000),
+                },
+                { name: "week", used_percent: 0, status: "warning" },
+              ],
+            },
+          }),
+        ],
       }),
   });
   localStorage.setItem("motita.ui.usageStyle", "gauge");
   const root = await mount(gw.api);
-  assert.equal(text(q(root, "provider-usage-a")), "75%A");
-  assert.equal(root.querySelectorAll(".provider-usage-arc").length, 2);
+  const week = quota(root, "provider-usage-a", "week");
+  assert.equal(text(week), "75%Week4 d 3 h");
+  assert.equal(week.title, "resets in 4 d 3 h");
+  assert.match(
+    week.querySelector(".provider-usage-arc").getAttribute("stroke-dasharray"),
+    /^70\.68\d* 94\.24\d*$/,
+  );
+  // An empty quota draws no arc, not a dot.
+  const month = quota(root, "provider-usage-a", "month");
+  assert.equal(month.querySelector(".provider-usage-arc"), null);
+  assert.equal(month.title, "");
+  const ok = quota(root, "provider-usage-b", "session");
+  assert.equal(text(ok), "OK5 h1 h 0 min");
+  assert.equal(ok.title, "Below the warning level · resets in 1 h 0 min");
+  const warn = quota(root, "provider-usage-b", "week");
+  assert.equal(text(warn), "!Week");
+  assert.equal(warn.title, "Near the limit");
   assert.equal(root.querySelector(".provider-usage-fill"), null);
-  const dash = q(root, "provider-usage-a")
-    .querySelector(".provider-usage-arc")
-    .getAttribute("stroke-dasharray");
-  assert.match(dash, /^70\.68\d* 94\.24\d*$/);
   localStorage.setItem("motita.ui.usageStyle", "bars");
   window.dispatchEvent(new Event("motita-usage-style"));
   await settle();
@@ -142,114 +306,48 @@ test("the gauge style draws a ring per provider and follows the setting", async 
   localStorage.removeItem("motita.ui.usageStyle");
 });
 
-test("the plan's session and weekly quotas are shown with their reset, and expired ones are not", async () => {
-  const soon = new Date(Date.now() + 2 * 3600_000 + 60_000).toISOString();
-  const gone = new Date(Date.now() - 1000).toISOString();
-  const gw = fakeApi({
-    [ROUTE]: () =>
-      json(200, {
-        providers: [
-          row("codex", {
-            input: 100,
-            limits: {
-              quotas: [
-                {
-                  name: "session",
-                  used_percent: 37.4,
-                  window_minutes: 300,
-                  resets_at: soon,
-                },
-                { name: "week", used_percent: 95.2 },
-              ],
-            },
-          }),
-          row("claude", {
-            input: 50,
-            limits: {
-              quotas: [
-                { name: "session", used_percent: 130, resets_at: gone },
-                { name: "session", used_percent: 5, window_minutes: 7 },
-              ],
-            },
-          }),
-          row("gemini", { input: 1 }),
-        ],
-      }),
-  });
-  const root = await mount(gw.api);
-  const session = q(root, "provider-quota-codex-session");
-  assert.match(text(session), /CODEX · 5 h37%resets in 2h 0\dm/);
-  assert.match(session.title, /^resets in 2h/);
-  const week = q(root, "provider-quota-codex-week");
-  assert.match(text(week), /CODEX · Week95%$/);
-  assert.equal(week.title, "");
-  assert.ok(week.querySelector(".provider-usage-fill.warn"));
-  assert.equal(session.querySelector(".warn"), null);
-  // A window that started over says nothing; one of an odd length is just "Session".
-  const claude = q(root, "provider-quota-claude-session");
-  assert.match(text(claude), /CLAUDE · Session5%/);
-  assert.equal(
-    root.querySelectorAll("[data-testid^=provider-quota-]").length,
-    3,
-  );
-  assert.equal(
-    text(q(root, "provider-usage-noquota")),
-    "No quota reported: GEMINI",
-  );
-});
-
-test("no quota list and no note when every provider reports one or none does", async () => {
-  const none = await mount(
-    fakeApi({
-      [ROUTE]: () => json(200, { providers: [row("a", { input: 1 })] }),
-    }).api,
-  );
-  assert.equal(q(none, "provider-quotas"), null);
-  assert.equal(text(q(none, "provider-usage-noquota")), "No quota reported: A");
-  const all = await mount(
-    fakeApi({
-      [ROUTE]: () =>
-        json(200, {
-          providers: [
-            row("a", {
-              input: 1,
-              limits: {
-                quotas: [
-                  { name: "week", used_percent: -4 },
-                  { name: "session", used_percent: 3 },
-                  { name: "month", used_percent: 24.6 },
-                ],
-              },
-            }),
-          ],
-        }),
-    }).api,
-  );
-  assert.equal(q(all, "provider-usage-noquota"), null);
-  assert.match(text(q(all, "provider-quota-a-week")), /A · Week0%/);
-  assert.match(text(q(all, "provider-quota-a-session")), /A · Session3%/);
-  assert.match(text(q(all, "provider-quota-a-month")), /A · Month25%/);
-});
-
-test("it starts closed with only each provider and its percentage, and the title opens it", async () => {
+test("it starts closed with each provider and its most used quota, and the title opens it", async () => {
   const gw = fakeApi({
     [ROUTE]: () =>
       json(200, {
         providers: [
           row("a", {
-            input: 300,
-            limits: { quotas: [{ name: "week", used_percent: 40 }] },
+            limits: {
+              quotas: [
+                { name: "week", used_percent: 40 },
+                { name: "session", used_percent: 93, window_minutes: 300 },
+              ],
+            },
           }),
-          row("b", { input: 100 }),
+          row("m", {
+            limits: { quotas: [{ name: "month", used_percent: 22 }] },
+          }),
+          row("c", {
+            limits: {
+              quotas: [
+                { name: "session", used_percent: 0, status: "ok" },
+                { name: "week", used_percent: 0, status: "ok" },
+              ],
+            },
+          }),
+          row("w", {
+            limits: {
+              quotas: [
+                { name: "session", used_percent: 0, status: "ok" },
+                { name: "week", used_percent: 0, status: "warning" },
+              ],
+            },
+          }),
         ],
       }),
   });
   const root = await mount(gw.api, false, false);
-  assert.equal(text(q(root, "provider-usage-a")), "A75%");
-  assert.equal(text(q(root, "provider-usage-b")), "B25%");
+  assert.equal(text(q(root, "provider-usage-a")), "A5 h93%");
+  assert.ok(q(root, "provider-usage-a").querySelector(".warn"));
+  assert.equal(text(q(root, "provider-usage-m")), "MMonth22%");
+  assert.equal(text(q(root, "provider-usage-c")), "CSessionOK");
+  assert.equal(text(q(root, "provider-usage-w")), "WWeekNear the limit");
   assert.equal(root.querySelector(".provider-usage-bar"), null);
-  assert.equal(q(root, "provider-quotas"), null);
-  assert.equal(q(root, "provider-usage-noquota"), null);
   assert.match(q(root, "provider-usage-a").title, /^A: /);
   const toggle = q(root, "provider-usage-toggle");
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
@@ -257,12 +355,31 @@ test("it starts closed with only each provider and its percentage, and the title
   await settle();
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   assert.ok(root.querySelector(".provider-usage-fill"));
-  assert.ok(q(root, "provider-quota-a-week"));
   assert.equal(localStorage.getItem("motita.ui.usageOpen"), "open");
   toggle.click();
   await settle();
   assert.equal(root.querySelector(".provider-usage-fill"), null);
   assert.equal(localStorage.getItem("motita.ui.usageOpen"), "closed");
+});
+
+test("closed, a provider without a quota shows a dash", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () => json(200, { providers: [row("qwen", { input: 9 })] }),
+  });
+  const root = await mount(gw.api, false, false);
+  const value = q(root, "provider-usage-qwen").querySelector(
+    ".provider-summary-value",
+  );
+  assert.equal(text(value), "—");
+  assert.equal(value.title, "No quota reported");
+});
+
+test("the time to a reset reads in days, hours and minutes", () => {
+  assert.equal(formatReset(0), "1 min");
+  assert.equal(formatReset(59 * 60_000), "59 min");
+  assert.equal(formatReset(2 * H), "2 h 0 min");
+  assert.equal(formatReset(24 * H), "1 d");
+  assert.equal(formatReset(321 * H + 27 * 60_000), "13 d 9 h");
 });
 
 test("the open or closed state survives a storage that refuses", async () => {
@@ -284,7 +401,7 @@ test("only the busiest providers are named and the rest are counted", async () =
   );
   const gw = fakeApi({ [ROUTE]: () => json(200, { providers: many }) });
   const root = await mount(gw.api);
-  assert.equal(root.querySelectorAll("li").length, USAGE_ROWS);
+  assert.equal(root.querySelectorAll(".provider-block").length, USAGE_ROWS);
   assert.equal(text(q(root, "provider-usage-more")), "+2 more");
 });
 
@@ -319,17 +436,17 @@ test("the figures are read again when a run starts or ends and on a timer", asyn
   document.body.appendChild(root);
   render(h(ProviderUsagePanel, { api: gw.api, running: false }), root);
   await settle();
-  assert.match(q(root, "provider-usage-openai").title, /: 1 tokens/);
+  assert.match(tip(root, "provider-usage-openai"), /: 1 tokens/);
   assert.deepEqual(
     timers.map((t) => t[1]),
     [USAGE_POLL_MS],
   );
   timers[0][0]();
   await settle();
-  assert.match(q(root, "provider-usage-openai").title, /: 2 tokens/);
+  assert.match(tip(root, "provider-usage-openai"), /: 2 tokens/);
   render(h(ProviderUsagePanel, { api: gw.api, running: true }), root);
   await settle();
-  assert.match(q(root, "provider-usage-openai").title, /: 3 tokens/);
+  assert.match(tip(root, "provider-usage-openai"), /: 3 tokens/);
   assert.deepEqual(cleared, [1]);
   render(null, root);
   await settle();

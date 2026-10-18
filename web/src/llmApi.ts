@@ -97,6 +97,9 @@ export interface ProviderUsage {
 export interface UsageQuota {
   name: "session" | "week" | "month";
   used_percent: number;
+  // Set instead of a share when the provider only says where the usage stands: below its warning
+  // level ("ok") or past it ("warning"), as a Claude subscription does until a threshold nears.
+  status?: "ok" | "warning";
   window_minutes?: number;
   resets_at?: string;
 }
