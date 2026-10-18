@@ -196,3 +196,30 @@ export function notifyPlatform(ua: string, touchPoints = 0): NotifyPlatform {
   }
   return "other";
 }
+
+// How the providers' usage is drawn in the sidebar: a bar each, or a circular gauge each. The
+// panel listens for USAGE_STYLE_EVENT, so a change made in Settings shows at once.
+export type UsageStyle = "bars" | "gauge";
+export const USAGE_STYLE_KEY = "motita.ui.usageStyle";
+export const USAGE_STYLE_EVENT = "motita-usage-style";
+
+export function loadUsageStyle(): UsageStyle {
+  try {
+    return oneOf<UsageStyle>(
+      ["bars", "gauge"],
+      localStorage.getItem(USAGE_STYLE_KEY),
+      "bars",
+    );
+  } catch {
+    return "bars";
+  }
+}
+
+export function saveUsageStyle(style: UsageStyle): void {
+  try {
+    localStorage.setItem(USAGE_STYLE_KEY, style);
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new Event(USAGE_STYLE_EVENT));
+}

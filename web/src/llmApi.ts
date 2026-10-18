@@ -68,6 +68,30 @@ export interface LLMView {
   prices_checked?: string;
 }
 
+// What one provider has consumed since the gateway started, as it reported in its responses. There
+// is no quota here: no provider sends one with an answer, so none is ever shown.
+export interface ProviderUsage {
+  id: string;
+  name: string;
+  default: boolean;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  calls: number;
+  // When the count began and when the latest call that reported usage finished (ISO 8601); absent
+  // before the first call.
+  since?: string;
+  last?: string;
+  // The rate-limit window the provider reported with its latest answer, not a plan's quota.
+  limits?: { requests?: UsageWindow; tokens?: UsageWindow };
+}
+
+export interface UsageWindow {
+  limit: number;
+  remaining: number;
+}
+
 export interface TestResult {
   ok: boolean;
   models?: string[];
@@ -349,4 +373,20 @@ export function priceText(o: ModelOption): string {
   }
   const n = (v: number) => `$${Number(v.toFixed(2))}`;
   return `${n(o.price_in)} / ${n(o.price_out)}`;
+}
+
+// getLLMUsage reads what each provider with a key has consumed, or null from a gateway that has no
+// such API (404) or cannot answer: the bottom bar then simply says nothing.
+export async function getLLMUsage(api: Api): Promise<ProviderUsage[] | null> {
+  const res = await api("/v1/llm/usage");
+  if (!res.ok) {
+    return null;
+  }
+  const body = (await res.json()) as { providers?: ProviderUsage[] };
+  return body.providers ?? [];
+}
+
+// usageTotal is every token the provider moved, cached ones included.
+export function usageTotal(u: ProviderUsage): number {
+  return u.input + u.output + u.cache_read + u.cache_write;
 }

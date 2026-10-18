@@ -18,6 +18,7 @@ import (
 	"github.com/madkoding/motita/internal/approvals"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
 	"github.com/madkoding/motita/internal/oauth"
@@ -268,6 +269,8 @@ type Server struct {
 	llmLogins   map[string]*llmLogin
 	llmListedMu sync.Mutex
 	llmListed   map[string][]string
+	// usageTotals replaces the process-wide token ledger in tests; nil reads the ledger.
+	usageTotals func() []llm.ProviderUsage
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//

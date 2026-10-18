@@ -75,7 +75,7 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("unreadable Gemini response: %w", err)
 	}
-	recordUsage(ctx, resp.UsageMetadata.usage())
+	recordUsage(ctx, c.source(), resp.UsageMetadata.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -121,7 +121,7 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return Reply{}, fmt.Errorf("unreadable Gemini response: %w", err)
 	}
-	recordUsage(ctx, resp.UsageMetadata.usage())
+	recordUsage(ctx, c.source(), resp.UsageMetadata.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
