@@ -51,10 +51,12 @@ func (b ollamaBalance) quotas() []Quota {
 			Minutes: int(until.Sub(in.Period.From) / time.Minute), ResetsAt: &until})
 	}
 	if in.Session != nil {
-		out = append(out, Quota{Name: "session", Used: usedOf(100, in.Session.RemainingPercent), ResetsAt: &in.Session.ResetsAt})
+		s := in.Session
+		out = append(out, Quota{Name: "session", Used: usedOf(100, s.RemainingPercent), ResetsAt: &s.ResetsAt})
 	}
 	if in.Weekly != nil {
-		out = append(out, Quota{Name: "week", Used: usedOf(100, in.Weekly.RemainingPercent), ResetsAt: &in.Weekly.ResetsAt})
+		w := in.Weekly
+		out = append(out, Quota{Name: "week", Used: usedOf(100, w.RemainingPercent), ResetsAt: &w.ResetsAt})
 	}
 	return out
 }

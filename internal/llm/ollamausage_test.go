@@ -29,8 +29,11 @@ func TestACurrentOllamaPlanGivesItsIncludedCreditsAsAQuota(t *testing.T) {
 		t.Fatalf("quotas: %+v %v", qs, err)
 	}
 	q := qs[0]
-	if q.Name != "month" || q.Used < 27.49 || q.Used > 27.51 || q.Minutes != 30*24*60 || q.ResetsAt == nil || q.ResetsAt.Day() != 15 {
+	if q.Name != "month" || q.Used < 27.49 || q.Used > 27.51 || q.Minutes != 30*24*60 {
 		t.Errorf("month: %+v", q)
+	}
+	if q.ResetsAt == nil || q.ResetsAt.Day() != 15 {
+		t.Errorf("reset: %+v", q.ResetsAt)
 	}
 }
 

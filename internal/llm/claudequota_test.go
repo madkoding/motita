@@ -35,8 +35,12 @@ func TestClaudeSubscriptionLimitsBecomeQuotas(t *testing.T) {
 }
 
 func TestARateLimitEventFromClaudeIsRecordedUnderClaudeCode(t *testing.T) {
-	stream := `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"five_hour","utilization":0.8,"resetsAt":1792300000}}` + "\n" +
-		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.3}}` + "\n" +
+	info := func(kind, rest string) string {
+		return `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning",` +
+			`"rateLimitType":"` + kind + `",` + rest + `}}` + "\n"
+	}
+	stream := info("five_hour", `"utilization":0.8,"resetsAt":1792300000`) +
+		info("seven_day", `"utilization":0.3`) +
 		`{"type":"assistant","rate_limit_info":{"rateLimitType":"five_hour","utilization":0.1}}` + "\n"
 	p := &claudeProcess{out: bufio.NewScanner(strings.NewReader(stream))}
 	for i := 0; i < 3; i++ {
