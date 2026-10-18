@@ -153,3 +153,57 @@ func TestSecurityNeedsTheFileToBeReadable(t *testing.T) {
 		t.Errorf("PUT = %d %s, want 500", w.Code, w.Body.String())
 	}
 }
+
+// autoApplyService is the fake that also takes the auto-apply choice, like the runner.
+type autoApplyService struct {
+	fakeService
+	ons []bool
+}
+
+func (a *autoApplyService) SetAutoApplySuggestions(on bool) { a.ons = append(a.ons, on) }
+
+// Applying suggestions without asking is off until a confirmed change, which is saved, reaches the
+// open conversations and the ones started after it; turning it off needs nothing.
+func TestAutoApplySuggestionsIsOffUntilAConfirmedChange(t *testing.T) {
+	withConfinement(t, false)
+	path := networkConfig(t, "sandbox:\n  kind: none\n")
+	svc := &autoApplyService{}
+	srv := newTestServer(t, svc, func(o *Options) {
+		o.ConfigPath = path
+		o.NewService = func() (Service, error) { return &autoApplyService{}, nil }
+	})
+	if v := decodeSecurity(t, get(t, srv, "/v1/security", testToken)); v.AutoApplySuggestions {
+		t.Fatalf("GET = %+v, want off", v)
+	}
+	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"auto_apply_suggestions":true}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "confirm") {
+		t.Fatalf("unconfirmed = %d %s, want 400", w.Code, w.Body.String())
+	}
+	if mustLoad(t, path).Agent.AutoApplySuggestions || len(svc.ons) != 0 {
+		t.Fatal("a refused change reached the file or a session")
+	}
+	v := decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security",
+		`{"auto_apply_suggestions":true,"confirm":true}`))
+	if !v.AutoApplySuggestions || !mustLoad(t, path).Agent.AutoApplySuggestions {
+		t.Fatalf("PUT on = %+v", v)
+	}
+	if len(svc.ons) != 1 || !svc.ons[0] {
+		t.Errorf("the open session takes the change: %v", svc.ons)
+	}
+	w = sendNetwork(t, srv, http.MethodPost, "/v1/sessions", `{}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	conv := srv.sessions[created.ID]
+	if conv == nil {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	if got := conv.svc.(*autoApplyService).ons; len(got) != 1 || !got[0] {
+		t.Errorf("a new session starts with the saved choice: %v", got)
+	}
+	v = decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"auto_apply_suggestions":false}`))
+	if v.AutoApplySuggestions || mustLoad(t, path).Agent.AutoApplySuggestions {
+		t.Fatalf("turning it off needs no confirmation: %+v", v)
+	}
+}

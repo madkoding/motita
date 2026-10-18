@@ -84,11 +84,30 @@ func (t Tx) SetIsolateNetwork(on bool) error {
 		func(cfg Config) bool { return cfg.Sandbox.IsolateNetwork == on })
 }
 
-// setSandboxKey, with configWriteMu held by the caller, sets sandbox.key to value (YAML text) in the
-// file at path, then loads the file
-// whole and undoes the change when it does not load or when applied says the loaded configuration
-// does not carry it: the environment (MOTITA_SANDBOX_<KEY>) overrides the file.
+// SetAutoApplySuggestions writes on into the configuration file at path as
+// agent.auto_apply_suggestions, in place and with the same checks as SetDiskAccess.
+func SetAutoApplySuggestions(path string, on bool) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+	return Tx{path}.SetAutoApplySuggestions(on)
+}
+
+// SetAutoApplySuggestions is SetAutoApplySuggestions inside a transaction.
+func (t Tx) SetAutoApplySuggestions(on bool) error {
+	return setBlockKey(t.path, "agent", "auto_apply_suggestions", strconv.FormatBool(on),
+		func(cfg Config) bool { return cfg.Agent.AutoApplySuggestions == on })
+}
+
+// setSandboxKey sets sandbox.key; see setBlockKey.
 func setSandboxKey(path, key, value string, applied func(Config) bool) error {
+	return setBlockKey(path, "sandbox", key, value, applied)
+}
+
+// setBlockKey, with configWriteMu held by the caller, sets block.key to value (YAML text) in the
+// file at path, then loads the file whole and undoes the change when it does not load or when
+// applied says the loaded configuration does not carry it: the environment
+// (MOTITA_<BLOCK>_<KEY>) overrides the file.
+func setBlockKey(path, block, key, value string, applied func(Config) bool) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
@@ -97,7 +116,7 @@ func setSandboxKey(path, key, value string, applied func(Config) bool) error {
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
-	text, err := setBlockKeyText(string(body), "sandbox", key, value)
+	text, err := setBlockKeyText(string(body), block, key, value)
 	if err != nil {
 		return err
 	}
@@ -107,9 +126,9 @@ func setSandboxKey(path, key, value string, applied func(Config) bool) error {
 	}
 	cfg, err := LoadWithoutKey(path)
 	if err == nil && !applied(cfg) {
-		env := "MOTITA_SANDBOX_" + strings.ToUpper(key)
-		err = fmt.Errorf("%s in the gateway's environment overrides sandbox.%s: "+
-			"remove it from the environment, or change it there", env, key)
+		env := "MOTITA_" + strings.ToUpper(block) + "_" + strings.ToUpper(key)
+		err = fmt.Errorf("%s in the gateway's environment overrides %s.%s: "+
+			"remove it from the environment, or change it there", env, block, key)
 	}
 	if err != nil {
 		if rerr := writeConfigAtomic(path, body, perm); rerr != nil {

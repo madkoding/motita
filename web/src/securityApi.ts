@@ -25,6 +25,9 @@ export interface SecurityView {
   // cannot. Missing where it can, and from an older gateway.
   network_reason?: string;
   network_hint?: string;
+  // Whether the suggestions of a finished task are applied without asking. Missing from a gateway
+  // older than the setting.
+  auto_apply_suggestions?: boolean;
 }
 
 const HTTP_NOT_FOUND = 404;
@@ -73,6 +76,21 @@ export async function setAskUnconfinedRuns(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ask_unconfined_runs: ask, confirm: !ask }),
+  });
+  return view(res);
+}
+
+// setAutoApplySuggestions saves whether the suggestions of a finished task are applied without
+// asking. Turning it on is sent only after the person confirmed what it implies, with confirm;
+// turning it off needs none.
+export async function setAutoApplySuggestions(
+  api: Api,
+  on: boolean,
+): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ auto_apply_suggestions: on, confirm: on }),
   });
   return view(res);
 }

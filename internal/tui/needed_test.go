@@ -31,7 +31,7 @@ func mixedItems() []agent.AskItem {
 // In auto mode, when every suggestion is needed, they are applied at once and nothing is asked.
 func TestAutoModeAppliesNeededSuggestionsWithoutAsking(t *testing.T) {
 	rr := &pendingRunner{items: agent.ProposalItems(&agent.Report{Suggestions: []agent.ReportSuggestion{
-		{Title: "test the empty header", Needed: true},
+		{Title: "test the empty header", Needed: true, WhyNeeded: "no test"},
 	}})}
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr, autoTurn: true}
 	tui.openAskIfPending()
@@ -101,5 +101,29 @@ func TestSubmitMarksAutoTurns(t *testing.T) {
 	tui.submit(t.Context(), "fix the parser")
 	if tui.autoTurn {
 		t.Error("a message from the Task screen is not an auto turn")
+	}
+}
+
+// agent.auto_apply_suggestions applies every suggestion without asking, in any mode, and says so.
+func TestAutoApplyAppliesEverySuggestionOutsideAutoMode(t *testing.T) {
+	rr := &pendingRunner{items: agent.ProposalItems(&agent.Report{AutoApply: true, Suggestions: []agent.ReportSuggestion{
+		{Title: "test the empty header"}, {Title: "share the retry helper"},
+	}})}
+	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr}
+	tui.openAskIfPending()
+	if tui.asking() {
+		t.Fatal("nothing must be asked")
+	}
+	want := "Apply these suggestions you made, and nothing else:\n- test the empty header\n- share the retry helper"
+	if len(rr.tasks) != 1 || rr.tasks[0] != want {
+		t.Fatalf("tasks = %q", rr.tasks)
+	}
+	found := false
+	for _, m := range tui.messages {
+		found = found || (m.Author == AuthorSystem &&
+			strings.Contains(m.Text, "as the settings say:\n✓ test the empty header\n✓ share"))
+	}
+	if !found {
+		t.Errorf("what is applied without asking must be said: %+v", tui.messages)
 	}
 }

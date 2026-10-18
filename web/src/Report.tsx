@@ -9,16 +9,8 @@ import { Markdown } from "./Markdown";
 import { Lightbox } from "./Lightbox";
 import { t, tf, plural } from "./i18n";
 import { choose } from "./choose";
-import {
-  pickAt,
-  proposalRequest,
-  initialVerdicts,
-  settle,
-  type Pick,
-  type ProposalAnswer,
-  type SuggestionAnswers,
-  type Verdict,
-} from "./proposals";
+import type { SuggestionAnswers } from "./proposals";
+import { SuggestionsSection } from "./SuggestionsCard";
 
 // The structured account of a finished task, as the gateway sends it in the `done` event
 // (agent.Report in Go). Every field is optional here on purpose: a report from a build that
@@ -47,6 +39,9 @@ export interface TaskReport {
     needed?: boolean;
     why_needed?: string;
   }[];
+  // Set when the settings apply every suggestion without asking: the card accepts them all and
+  // starts the applying turn on its own.
+  auto_apply?: boolean;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -271,6 +266,7 @@ export function ReportCard({
           expired={expired}
           onAnswer={onAnswer}
           auto={!!auto}
+          all={!!report.auto_apply}
         />
       )}
       {zoom && (
@@ -501,151 +497,6 @@ function BulletSection({
       <ul>
         {items.map(({ key, item }) => (
           <li key={key}>{item}</li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-type Suggestion = NonNullable<TaskReport["suggestions"]>[number];
-
-// The three buttons of a suggestion, in the order they are drawn.
-const ANSWERS: { pick: ProposalAnswer; label: () => string }[] = [
-  { pick: "this", label: () => t("Apply this one") },
-  { pick: "rest", label: () => t("Apply this one and the following") },
-  { pick: "none", label: () => t("Apply none") },
-];
-
-// suggestionClass is how a suggestion is drawn: by its verdict once it has one, else marked as the
-// one asked now while the list is still offered.
-function suggestionClass(
-  verdict: Verdict | undefined,
-  isCurrent: boolean,
-  stale: boolean,
-): string {
-  if (verdict) {
-    return verdict;
-  }
-  return choose(isCurrent && !stale, "current", "");
-}
-
-// SuggestionsSection asks about each suggestion in turn: apply this one, apply this one and the
-// following, or apply none. Nothing is applied until every one has an answer, and then only the
-// accepted ones are sent, as a new turn. The button pressed stays on screen, marked and no longer
-// pressable, so the card says what was chosen; `answers` brings that back when the conversation
-// is opened again.
-function SuggestionsSection({
-  suggestions,
-  answers,
-  expired,
-  onAnswer,
-  auto,
-}: {
-  suggestions: Suggestion[];
-  answers?: SuggestionAnswers;
-  expired?: boolean;
-  onAnswer?: (answers: SuggestionAnswers) => void;
-  auto: boolean;
-}) {
-  const [verdicts, setVerdicts] = useState<(Verdict | undefined)[]>(() =>
-    initialVerdicts(suggestions, auto, answers?.verdicts),
-  );
-  const [picks, setPicks] = useState<Pick[]>(
-    () => answers?.picks ?? suggestions.map(() => ""),
-  );
-  // Expired only while nothing was answered here: a half-answered list keeps its marks.
-  const stale = !!expired && picks.every((p) => !p);
-  const done = stale || verdicts.every((v) => v !== undefined);
-  const current = verdicts.indexOf(undefined);
-  // asking says the buttons of suggestion i are drawn: it was answered, or it is the one asked now.
-  const asking = (i: number) => !!picks[i] || (i === current && !done);
-  // Only reached with onAnswer: without it the buttons are disabled and nothing is applied.
-  const finish = (next: (Verdict | undefined)[], pressed: Pick[]) => {
-    const request = proposalRequest(
-      t("Apply these suggestions you made, and nothing else:"),
-      suggestions,
-      next,
-    );
-    onAnswer?.({ picks: pressed, verdicts: next as Verdict[], request });
-  };
-  const answer = (pick: ProposalAnswer) => {
-    const next = settle(verdicts, current, pick);
-    const pressed = pickAt(picks, current, pick);
-    setVerdicts(next);
-    setPicks(pressed);
-    if (next.every((v) => v !== undefined)) {
-      finish(next, pressed);
-    }
-  };
-  // In auto mode a list whose every suggestion is needed has nothing to ask: it is applied as
-  // soon as it can be (no run in flight), once.
-  const applied = useRef(false);
-  useEffect(() => {
-    if (applied.current || answers || stale) {
-      return;
-    }
-    if (!onAnswer || !auto) {
-      return;
-    }
-    if (verdicts.every((v) => v === "apply")) {
-      applied.current = true;
-      finish(verdicts, picks);
-    }
-  });
-  const items = keyed(suggestions, (s) => `${s.title}|${s.detail}`);
-  return (
-    <section class={`rpt-sec rpt-suggest${choose(stale, " expired", "")}`}>
-      <h4>{t("Suggestions")}</h4>
-      {stale && (
-        <p class="rpt-expired">
-          {t(
-            "Not answered before the conversation moved on; no longer offered.",
-          )}
-        </p>
-      )}
-      <ul>
-        {items.map(({ key, item }, i) => (
-          <li
-            key={key}
-            class={suggestionClass(verdicts[i], i === current, stale)}
-          >
-            <span class="rpt-body">
-              <span class="rpt-check">{item.title}</span>
-              {item.detail && <span class="rpt-evidence">{item.detail}</span>}
-            </span>
-            {auto && item.needed && (
-              <span class="rpt-needed" title={item.why_needed}>
-                {t("needed")}
-                {item.why_needed && `: ${item.why_needed}`}
-              </span>
-            )}
-            {verdicts[i] && (
-              <span class="rpt-verdict">
-                {choose(
-                  verdicts[i] === "apply",
-                  t("will apply"),
-                  t("not applied"),
-                )}
-              </span>
-            )}
-            {asking(i) && (
-              <div class="rpt-suggest-actions">
-                {ANSWERS.map(({ pick, label }) => (
-                  <button
-                    key={pick}
-                    type="button"
-                    class={choose(picks[i] === pick, "picked", undefined)}
-                    aria-pressed={!!picks[i] && picks[i] === pick}
-                    disabled={!!picks[i] || !onAnswer}
-                    onClick={() => answer(pick)}
-                  >
-                    {choose(picks[i] === pick, "✓ ", "")}
-                    {label()}
-                  </button>
-                ))}
-              </div>
-            )}
-          </li>
         ))}
       </ul>
     </section>

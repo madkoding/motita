@@ -62,28 +62,8 @@ test("a picture in an answer opens the same preview, unless it is a link", () =>
   assert.match(app, /<Lightbox images=\{\[previewImage\]\}/);
 });
 
-const { settle, proposalRequest, initialVerdicts } =
-  await import("../proposals.ts");
+const { proposalRequest, initialVerdicts } = await import("../proposals.ts");
 const es = (await import("../i18n.es.ts")).default;
-
-test("a suggestion answer settles the ones after it, never the ones before", () => {
-  const none = [undefined, undefined, undefined];
-  assert.deepEqual(settle(none, 0, "this"), ["apply", undefined, undefined]);
-  assert.deepEqual(settle(["apply", undefined, undefined], 1, "none"), [
-    "apply",
-    "skip",
-    "skip",
-  ]);
-  assert.deepEqual(settle(none, 0, "rest"), ["apply", "apply", "apply"]);
-});
-
-test("a needed suggestion auto mode accepted is never settled away by a later answer", () => {
-  assert.deepEqual(settle([undefined, "apply", undefined], 0, "none"), [
-    "skip",
-    "apply",
-    "skip",
-  ]);
-});
 
 test("auto mode starts with the needed suggestions accepted, and only in auto mode", () => {
   const s = [{ title: "a", needed: true }, { title: "b" }];
@@ -109,14 +89,24 @@ test("only the accepted suggestions are sent, and none accepted sends nothing", 
   );
 });
 
-test("the report offers the three answers, in both languages, and only while nothing runs", () => {
+test("the report offers Apply and Ignore, in both languages, and only while nothing runs", () => {
+  const card = src("SuggestionsCard.tsx");
   for (const label of [
-    "Apply this one",
-    "Apply this one and the following",
-    "Apply none",
+    "Apply",
+    "Ignore",
+    "Ignored",
     "Apply these suggestions you made, and nothing else:",
   ]) {
-    assert.ok(report.includes(`t("${label}")`), label);
+    assert.ok(card.includes(`t("${label}")`), label);
+    assert.ok(es[label], `missing Spanish for ${label}`);
+  }
+  for (const label of [
+    "Apply ({n})",
+    "{done} of {total} selected",
+    "1 suggestion applied",
+    "{n} suggestions applied",
+  ]) {
+    assert.ok(card.includes(`"${label}"`), label);
     assert.ok(es[label], `missing Spanish for ${label}`);
   }
   assert.match(report, /r\.suggestions\?\.length/);

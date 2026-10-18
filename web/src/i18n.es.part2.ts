@@ -319,6 +319,22 @@ const more: Record<string, string> = {
   "Running the project's code": "Ejecutar el código del proyecto",
   "Ask first": "Preguntar antes",
   "Run without asking": "Ejecutar sin preguntar",
+  "Suggestions after a task": "Sugerencias tras una tarea",
+  "Ask me": "Preguntarme",
+  "Apply all": "Aplicar todas",
+  "After a task, Motita asks which of the changes it suggests to apply: this one, this one and the following, or none.":
+    "Tras una tarea, Motita pregunta cuáles de los cambios que sugiere aplicar: esta, esta y las siguientes, o ninguna.",
+  "After a task, Motita applies every change it suggests without asking. It still follows the sandbox and the policy, and each applied change shows in the conversation.":
+    "Tras una tarea, Motita aplica todos los cambios que sugiere sin preguntar. Sigue respetando el sandbox y la política, y cada cambio aplicado se ve en la conversación.",
+  "Changes you never reviewed are written to your files right after each task.":
+    "Cambios que no revisaste se escriben en tus archivos justo después de cada tarea.",
+  "A suggestion shaped by instructions hidden in a web page or a repository would be applied before you see it.":
+    "Una sugerencia influida por instrucciones escondidas en una página web o en un repositorio se aplicaría antes de que la veas.",
+  "It applies at once to every open session, from its next report.":
+    "Se aplica de inmediato a todas las sesiones abiertas, desde su próximo informe.",
+  "Apply every suggestion without asking?":
+    "¿Aplicar todas las sugerencias sin preguntar?",
+  "Apply without asking": "Aplicar sin preguntar",
   "Where nothing confines its commands (Windows, macOS, Linux without Landlock), Motita asks before it runs the project's own code: a script, a build, a test.":
     "Donde nada confina sus comandos (Windows, macOS, Linux sin Landlock), Motita pregunta antes de ejecutar el código del propio proyecto: un script, una compilación, un test.",
   "Motita runs the project's own scripts, builds and tests without asking, even where nothing confines them. Reads outside the workspace are still asked about.":
@@ -587,7 +603,7 @@ const more: Record<string, string> = {
   "The local listener took too long and was stopped.":
     "La transcripción local tardó demasiado y se detuvo.",
   On: "Encendido",
-  "Indexing": "Indexado",
+  Indexing: "Indexado",
   "Search the workspace": "Buscar en el espacio de trabajo",
   "Motita reads the folder once and answers with passages instead of whole files.":
     "Motita lee la carpeta una vez y responde con pasajes en vez de archivos enteros.",

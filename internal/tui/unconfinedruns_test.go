@@ -20,3 +20,15 @@ func TestSetAskUnconfinedRunsReachesTheConfiguration(t *testing.T) {
 		t.Error("the change must reach the configuration")
 	}
 }
+
+// The next report is stamped from the configuration, so the setting reaches it there.
+func TestSetAutoApplySuggestionsReachesTheConfiguration(t *testing.T) {
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, nil, logx.Global())
+	if r.Config().Agent.AutoApplySuggestions {
+		t.Fatal("off is the default")
+	}
+	r.SetAutoApplySuggestions(true)
+	if !r.Config().Agent.AutoApplySuggestions {
+		t.Error("the change must reach the configuration")
+	}
+}

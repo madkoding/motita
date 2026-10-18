@@ -520,6 +520,14 @@ func (r *AppRunner) SetAskUnconfinedRuns(ask bool) {
 	r.cfgMu.Unlock()
 }
 
+// SetAutoApplySuggestions says whether the suggestions of a finished task are applied without
+// asking (agent.auto_apply_suggestions). The next report follows it.
+func (r *AppRunner) SetAutoApplySuggestions(on bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Agent.AutoApplySuggestions = on
+	r.cfgMu.Unlock()
+}
+
 // setBoxNetwork is the sandbox's SetIsolateNetwork, as a variable so a test can choose what the
 // machine answers.
 var setBoxNetwork = (*sandbox.Sandbox).SetIsolateNetwork
