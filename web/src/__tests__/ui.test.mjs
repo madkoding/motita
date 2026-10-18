@@ -113,8 +113,8 @@ test("compact density tightens the Tailwind spacing and keeps the fixed sizes", 
   );
   assert.match(
     css,
-    /html\[data-density="compact"\] :is\(\.session-when, \.session-facts\)\s*\{\s*display:\s*inline-flex;/,
-    "a compact session row puts the timestamp and the facts on one line",
+    /\n:is\(\.session-when, \.session-facts\)\s*\{\s*display:\s*inline-flex;/,
+    "a session row puts the timestamp and the facts on one line",
   );
   const row = readFileSync(join(here, "..", "SessionRow.tsx"), "utf8");
   assert.ok(
