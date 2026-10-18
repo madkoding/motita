@@ -123,7 +123,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// subtasks, and it used to end as "only 0 of 0 subtasks passed validation" - a failure
 	// for a task nobody ever tried.
 	if subs := nonBlank(r.plan.Subtasks); len(subs) > 0 {
-		if depth < a.cfg.Agent.SubtaskDepth {
+		switch {
+		case depth >= a.cfg.Agent.SubtaskDepth:
+			// The limit is reached: the warning below, then the task runs as one.
+		case a.parallelSubtasks(ctx, r.plan, subs):
+			return a.runSubtasksParallel(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
+		default:
 			return a.runSubtasks(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
 		}
 		a.log.Warn(r.prefix+"subtask splitting reached the configured limit; continuing as a single task",

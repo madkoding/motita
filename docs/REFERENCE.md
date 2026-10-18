@@ -168,7 +168,8 @@ START
 [2] EXTRACT       context and success criteria (the anchor's rules)
 [3] LLM           analyses the task   -> {"understandable", "success_criteria", ...}
 [4] LLM           produces a plan     -> {"plan", "subtasks", ...}
-[5] SPLIT          into subtasks when the plan declares them (bounded depth)
+[5] SPLIT          into subtasks when the plan declares them (bounded depth); independent
+                   ones run side by side in worktrees of their own and are merged in order
 [6] LLM           produces the action -> {"actions", "final_action", "done"}
 [7] RUN            in the SANDBOX (Layer C)
 [8] VALIDATE       with the ANCHOR (Layer A) — always, even if [7] failed
@@ -643,6 +644,12 @@ Three things keep a request from needing a second one:
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores
   the old stop at the first failure.
+- **Independent subtasks run side by side.** A plan may mark its subtasks `"independent": true`
+  (they touch different files and none builds on another). In a repository root, with
+  `agent.max_parallel` above 1, each then runs as a background agent in a worktree of its own, at
+  most `max_parallel` at a time, and the branches are merged into the checkout in the order listed
+  once all have ended. A subtask that does not pass, or whose branch does not merge, fails the
+  parent and says which; the others still land. Anywhere else they run one after another.
 - **Applying suggestions never asks.** The turn that applies suggestions you accepted proceeds on
   that list like a subtask does, instead of asking what it meant.
 

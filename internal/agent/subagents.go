@@ -366,8 +366,7 @@ type childPlace struct {
 // writes, detached for one that only reads - and the workspace itself (read-only) otherwise.
 func (a *Agent) childPlace(ctx context.Context, id string, write bool) (childPlace, error) {
 	dir := a.cfg.Agent.WorkspaceDir
-	root, err := gitx.Root(ctx, dir)
-	if err != nil || !gitx.SamePath(root, dir) || !gitx.HasCommits(ctx, dir) {
+	if !a.workspaceIsRepoRoot(ctx) {
 		return childPlace{dir: dir}, nil
 	}
 	unique := fmt.Sprintf("%d-%d", os.Getpid(), fleetNow().UnixNano())

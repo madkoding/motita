@@ -445,9 +445,12 @@ func (a Analysis) resolveKind() string {
 
 // Plan is the structured output of phase [4].
 type Plan struct {
-	Steps          []Step   `json:"plan"`
-	Subtasks       []string `json:"subtasks"`
-	ExpectedResult string   `json:"expected_result"`
+	Steps    []Step   `json:"plan"`
+	Subtasks []string `json:"subtasks"`
+	// Independent marks subtasks that touch different files and none of which builds on another:
+	// they may run side by side, each in a worktree of its own. See runSubtasksParallel.
+	Independent    bool   `json:"independent"`
+	ExpectedResult string `json:"expected_result"`
 }
 
 // Step is one step of the plan.
