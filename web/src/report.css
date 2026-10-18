@@ -577,3 +577,21 @@
 .rpt-suggest.expired .sg-row {
   opacity: 0.55;
 }
+/* The native box stays for keyboards and screen readers; the key beside it draws the tick. */
+.sg-box {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.sg-row {
+  position: relative;
+}
+.sg-box:focus-visible + .qcard-key {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.sg-row:has(.sg-box:not(:disabled)) {
+  cursor: pointer;
+}

@@ -73,13 +73,27 @@ export interface SuggestionAnswers {
 // answersOf is how a list was answered when the user ticked some suggestions and pressed Apply (or
 // none and pressed Ignore): the ticked ones are "this", the rest "none", so every suggestion has
 // a button recorded, the way the gateway keeps them. The request is "" when none was ticked.
+function verdictOf(on: boolean): Verdict {
+  if (on) {
+    return "apply";
+  }
+  return "skip";
+}
+
+function pickOf(on: boolean): Pick {
+  if (on) {
+    return "this";
+  }
+  return "none";
+}
+
 export function answersOf(
   lead: string,
   suggestions: { title?: string; detail?: string }[],
   ticked: boolean[],
 ): SuggestionAnswers {
-  const verdicts = ticked.map((on): Verdict => (on ? "apply" : "skip"));
-  const picks = ticked.map((on): Pick => (on ? "this" : "none"));
+  const verdicts = ticked.map(verdictOf);
+  const picks = ticked.map(pickOf);
   return {
     picks,
     verdicts,

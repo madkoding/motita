@@ -58,10 +58,8 @@ function mount(props) {
 // The label the applying turn is drawn with.
 const APPLYING = "Applying suggestions";
 
-const rows = (root) => [
-  ...root.querySelectorAll(".rpt-suggest [role=checkbox]"),
-];
-const ticks = (root) => rows(root).map((r) => r.getAttribute("aria-checked"));
+const rows = (root) => [...root.querySelectorAll(".rpt-suggest .sg-box")];
+const ticks = (root) => rows(root).map((r) => String(r.checked));
 const button = (root, label) =>
   [...root.querySelectorAll(".rpt-suggest .qcard-foot button")].find((b) =>
     b.textContent.startsWith(label),

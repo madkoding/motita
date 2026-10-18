@@ -527,10 +527,9 @@ const SUGGESTIONS = [
   { title: "share the helper" },
   { title: "log it", detail: "at debug" },
 ];
-const boxes = (root) => [
-  ...root.querySelectorAll(".rpt-suggest [role=checkbox]"),
-];
-const ticked = (root) => boxes(root).map((b) => b.getAttribute("aria-checked"));
+const boxes = (root) => [...root.querySelectorAll(".rpt-suggest .sg-box")];
+const labels = (root) => [...root.querySelectorAll(".rpt-suggest .sg-row")];
+const ticked = (root) => boxes(root).map((b) => String(b.checked));
 const foot = (root) =>
   [...root.querySelectorAll(".rpt-suggest .qcard-foot button")].map(text);
 const footButton = (root, label) =>
@@ -547,14 +546,14 @@ test("suggestions are ticked and applied together; the card then says what it di
     }),
   );
   assert.deepEqual(ticked(root), ["false", "false", "false"]);
-  assert.equal(text(boxes(root)[0].querySelector(".sg-detail")), "it panics");
-  assert.equal(boxes(root)[1].querySelector(".sg-detail"), null);
+  assert.equal(text(labels(root)[0].querySelector(".sg-detail")), "it panics");
+  assert.equal(labels(root)[1].querySelector(".sg-detail"), null);
   assert.deepEqual(foot(root), ["Apply", "Ignore"]);
   assert.equal(footButton(root, "Apply").disabled, true, "nothing ticked");
 
   await fire(boxes(root)[0], "click");
   await fire(boxes(root)[2], "click");
-  assert.equal(boxes(root)[0].className, "qcard-opt sg-row picked");
+  assert.equal(labels(root)[0].className, "qcard-opt sg-row picked");
   assert.deepEqual(ticked(root), ["true", "false", "true"]);
   assert.deepEqual(foot(root), ["Apply (2)", "Ignore"]);
   assert.deepEqual(sent, []);

@@ -2,7 +2,7 @@
 // to tick, laid out like the questions card (QuestionsCard.tsx), and at the end one button that
 // applies the ticked ones and one that ignores them all. The answers are kept the way the gateway
 // keeps them (proposals.ts), so a conversation opened again draws the same ticks.
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { choose } from "./choose";
 import { plural, t, tf } from "./i18n";
 import {
@@ -79,12 +79,15 @@ export function SuggestionsSection({
   const toggle = (i: number) => {
     setTicked(ticked.map((on, k) => on !== (k === i)));
   };
+  const apply = useCallback(() => submit(ticked), [ticked, onAnswer]);
+  const ignore = useCallback(
+    () => submit(suggestions.map(() => false)),
+    [suggestions, onAnswer],
+  );
   const applied = useRef(false);
+  const autoApplies = !!onAnswer && (auto || all) && !sent && !stale;
   useEffect(() => {
-    if (applied.current || sent || stale || !onAnswer || !(auto || all)) {
-      return;
-    }
-    if (ticked.every(Boolean)) {
+    if (!applied.current && autoApplies && ticked.every(Boolean)) {
       applied.current = true;
       submit(ticked);
     }
@@ -101,7 +104,7 @@ export function SuggestionsSection({
           )}
         </p>
       )}
-      <div class="sg-list" role="group" aria-label={t("Suggestions")}>
+      <div class="sg-list">
         {suggestions.map((s, i) => (
           <Row
             key={keys[i]}
@@ -120,8 +123,8 @@ export function SuggestionsSection({
         locked={locked}
         count={count}
         total={suggestions.length}
-        onApply={() => submit(ticked)}
-        onIgnore={() => submit(suggestions.map(() => false))}
+        onApply={apply}
+        onIgnore={ignore}
       />
     </section>
   );
@@ -145,15 +148,16 @@ function Row({
   // onToggle ticks or unticks the suggestion at `index`.
   onToggle: (i: number) => void;
 }) {
+  const change = useCallback(() => onToggle(index), [onToggle, index]);
   return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={on}
-      class={`qcard-opt sg-row${choose(on, " picked", "")}`}
-      disabled={locked}
-      onClick={() => onToggle(index)}
-    >
+    <label class={`qcard-opt sg-row${choose(on, " picked", "")}`}>
+      <input
+        type="checkbox"
+        class="sg-box"
+        checked={on}
+        disabled={locked}
+        onChange={change}
+      />
       <span class="qcard-key" aria-hidden="true">
         {choose(on, "✓", "")}
       </span>
@@ -167,7 +171,7 @@ function Row({
           </span>
         )}
       </span>
-    </button>
+    </label>
   );
 }
 
