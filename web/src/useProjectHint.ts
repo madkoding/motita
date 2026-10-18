@@ -4,12 +4,25 @@ import { useCallback, useMemo, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { slugOf } from "./appParse";
 import { errorMessage } from "./errors";
-import { hintKey, projectHint, type ProjectHint } from "./projectHints";
+import {
+  hintKey,
+  projectHint,
+  type ProjectHint,
+  type RepoMention,
+} from "./projectHints";
 import type { Api } from "./prApi";
 import type { SetToast } from "./appTypes";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
-import { JSON_HEADERS, PROJECTS_PATH, SESSIONS_PATH } from "./appConst";
+import {
+  HTTP_CONFLICT,
+  JSON_HEADERS,
+  PROJECTS_PATH,
+  SESSIONS_PATH,
+} from "./appConst";
+
+const TURNED_DOWN_KEY = "motita.ui.projectHintsTurnedDown";
+const TURNED_DOWN_MAX = 300;
 
 interface Deps {
   api: Api;
@@ -39,10 +52,32 @@ async function send(api: Api, path: string, body: object, method = "POST") {
 
 // indexIn brings the project's code index up to date. It is a courtesy that can take a while, so
 // nothing waits for it, and an index that is off or fails changes nothing.
-function indexIn(api: Api, projectId: string) {
+function indexIn(api: Api, projectId: string, setToast: SetToast) {
   api(PROJECTS_PATH + encodeURIComponent(projectId) + "/code-index", {
     method: "POST",
-  }).catch(() => undefined);
+  })
+    .then((res) => {
+      if (res.status === HTTP_CONFLICT) {
+        setToast({
+          message: t("The project is not indexed: the code index is off"),
+          type: "warning",
+          detail: t("Turn it on in Settings → Indexing."),
+        });
+      }
+    })
+    .catch(() => undefined);
+}
+
+// newProjectOf is the title a new project gets and the repository it is cloned from, if any.
+function newProjectOf(
+  hint:
+    | { kind: "create"; repo: RepoMention }
+    | { kind: "start"; title: string },
+) {
+  if (hint.kind === "start") {
+    return { title: hint.title, gitUrl: undefined };
+  }
+  return { title: hint.repo.name, gitUrl: hint.repo.url };
 }
 
 // settle does what the hint offers and answers the toast to tell it with.
@@ -50,6 +85,7 @@ async function settle(
   api: Api,
   sessionId: string,
   hint: ProjectHint,
+  setToast: SetToast,
 ): Promise<string> {
   const move = (projectId: string) =>
     send(api, SESSIONS_PATH + encodeURIComponent(sessionId) + "/project", {
@@ -64,7 +100,7 @@ async function settle(
         git_url: hint.repo.url,
       },
     );
-    indexIn(api, hint.projectId);
+    indexIn(api, hint.projectId, setToast);
     return tf('{name} added to the project "{title}"', {
       name: hint.repo.name,
       title: hint.projectTitle,
@@ -76,10 +112,11 @@ async function settle(
       title: hint.projectTitle,
     });
   }
+  const { title, gitUrl } = newProjectOf(hint);
   const created = await send(api, "/v1/projects", {
-    title: hint.repo.name,
-    dir: slugOf(hint.repo.name),
-    git_url: hint.repo.url,
+    title,
+    dir: slugOf(title) || "project-" + sessionId.slice(0, 6),
+    git_url: gitUrl,
   });
   try {
     await move(created.id);
@@ -88,23 +125,44 @@ async function settle(
       tf(
         'The project "{title}" was created, but the session was not moved: {err}',
         {
-          title: hint.repo.name,
+          title,
           err: errorMessage(e),
         },
       ),
     );
   }
-  indexIn(api, created.id);
+  indexIn(api, created.id, setToast);
   return tf('Project "{title}" created and this session moved into it', {
-    title: hint.repo.name,
+    title,
   });
+}
+
+// readTurnedDown is the offers the person turned down, as this browser remembers them.
+function readTurnedDown(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(TURNED_DOWN_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+// keepTurnedDown remembers them, the latest few hundred.
+function keepTurnedDown(keys: string[]) {
+  try {
+    localStorage.setItem(
+      TURNED_DOWN_KEY,
+      JSON.stringify(keys.slice(-TURNED_DOWN_MAX)),
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 // useProjectHint is the offer for the conversation on screen, while it is idle and the person has
 // not turned it down, and what accepting or turning it down does.
 export function useProjectHint({ api, rs, lists, setToast }: Deps) {
   const { sessionId, running, messages, noSession } = rs;
-  const [turnedDown, setTurnedDown] = useState<string[]>([]);
+  const [turnedDown, setTurnedDown] = useState<string[]>(readTurnedDown);
   const [busy, setBusy] = useState(false);
   const hint = useMemo(() => {
     const session = lists.sessions.find((s) => s.id === sessionId);
@@ -130,7 +188,11 @@ export function useProjectHint({ api, rs, lists, setToast }: Deps) {
 
   const dismiss = useCallback(() => {
     if (hint) {
-      setTurnedDown((prev) => [...prev, hintKey(sessionId, hint)]);
+      setTurnedDown((prev) => {
+        const next = [...prev, hintKey(sessionId, hint)];
+        keepTurnedDown(next);
+        return next;
+      });
     }
   }, [hint, sessionId]);
 
@@ -140,7 +202,7 @@ export function useProjectHint({ api, rs, lists, setToast }: Deps) {
     }
     setBusy(true);
     try {
-      const message = await settle(api, sessionId, hint);
+      const message = await settle(api, sessionId, hint, setToast);
       setToast({ message, type: "success" });
     } catch (e) {
       setToast({

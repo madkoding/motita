@@ -97,12 +97,22 @@ test("a session in a project is offered the repository the project lacks", () =>
 });
 
 // mount the hook over a gateway that answers by "METHOD path".
-function mountHint({ routes, session = free, projects = [], over = {} }) {
+function mountHint({
+  routes,
+  session = free,
+  projects = [],
+  over = {},
+  messages = talk,
+  keep = false,
+}) {
   const api = fakeApi((path, init) => {
     const key = (init?.method || "GET") + " " + path;
     const route = Object.keys(routes).find((k) => key.startsWith(k));
     return route ? routes[route](key, init) : undefined;
   });
+  if (!keep) {
+    localStorage.removeItem("motita.ui.projectHintsTurnedDown");
+  }
   const toasts = [];
   const refreshed = [];
   const props = {
@@ -111,7 +121,7 @@ function mountHint({ routes, session = free, projects = [], over = {} }) {
       sessionId: "s1",
       running: false,
       noSession: false,
-      messages: talk,
+      messages,
       ...over,
     },
     lists: {
@@ -267,4 +277,126 @@ test("a second press while it works does nothing", async () => {
   await first;
   assert.equal(api.calls.length, 1);
   await hook.unmount();
+});
+
+test("owner/name and `name` read as the known repositories they say, and a path does not", () => {
+  const known = [
+    { url: "https://github.com/ada/engine.git", name: "engine" },
+    { url: "git@github.com:ada/tools.git", name: "tools" },
+  ];
+  const got = (text) => mentionedIn([user(text)], known).map((r) => r.name);
+  assert.deepEqual(got("fix ada/engine please"), ["engine"]);
+  assert.deepEqual(got("look at `tools` again"), ["tools"]);
+  assert.deepEqual(got("edit src/main and the engine folder"), []);
+  assert.deepEqual(got("https://github.com/ada/engine/issues/3"), ["engine"]);
+  const lib = project("a", { git_url: "https://github.com/ada/engine" });
+  const hint = projectHint([user("ada/engine")], inProject, [
+    project("p1"),
+    lib,
+  ]);
+  assert.equal(hint.kind, "add");
+  assert.equal(hint.repo.url, "https://github.com/ada/engine");
+});
+
+test("a named session with work and no repository is offered a project of its own", () => {
+  const worked = { ...free, title: "Billing script", changes: 3 };
+  const hint = projectHint([user("hello")], worked, []);
+  assert.deepEqual(hint, { kind: "start", title: "Billing script" });
+  assert.equal(hintKey("s1", hint), "s1|start");
+  for (const s of [
+    { ...worked, changes: 0 },
+    { ...worked, title: "New session" },
+    { ...worked, project_id: "p1" },
+  ]) {
+    assert.equal(projectHint([user("hello")], s, []), null);
+  }
+});
+
+test("a project of its own is created without a repository, with a folder name always", async () => {
+  const worked = { ...free, title: "Billing script", changes: 3 };
+  const a = await mountHint({
+    session: worked,
+    messages: [user("hello")],
+    routes: {
+      "POST /v1/projects/pnew/code-index": () => json({}),
+      "POST /v1/projects": () => json({ id: "pnew" }, 201),
+      "POST /v1/sessions/s1/project": () => json({}),
+    },
+  });
+  await act(() => a.hook.result.current.accept());
+  assert.deepEqual(a.api.calls[0].body, {
+    title: "Billing script",
+    dir: "billing-script",
+  });
+  await a.hook.unmount();
+  const b = await mountHint({
+    session: { ...worked, title: "¡¡¡" },
+    messages: [user("hello")],
+    routes: {
+      "POST /v1/projects": () => json({ id: "pnew" }, 201),
+      "POST /v1/sessions/s1/project": () => json({}),
+    },
+  });
+  await act(() => b.hook.result.current.accept());
+  assert.equal(b.api.calls[0].body.dir, "project-s1");
+  await b.hook.unmount();
+});
+
+test("an index that is off is said, once the project is set up", async () => {
+  const { hook, toasts } = await mountHint({
+    routes: {
+      "POST /v1/projects/pnew/code-index": () => json({ error: "off" }, 409),
+      "POST /v1/projects": () => json({ id: "pnew" }, 201),
+      "POST /v1/sessions/s1/project": () => json({}),
+    },
+  });
+  await act(() => hook.result.current.accept());
+  await settle();
+  await settle();
+  assert.equal(toasts.at(-1).type, "warning");
+  assert.match(toasts.at(-1).message, /code index is off/);
+  await hook.unmount();
+});
+
+test("an offer turned down is remembered by the browser, and a browser that cannot say forgets", async () => {
+  localStorage.removeItem("motita.ui.projectHintsTurnedDown");
+  const first = await mountHint({ routes: {} });
+  await act(() => first.hook.result.current.dismiss());
+  assert.deepEqual(
+    JSON.parse(localStorage.getItem("motita.ui.projectHintsTurnedDown")),
+    ["s1|create|github.com/ada/engine"],
+  );
+  await first.hook.unmount();
+  const again = await mountHint({ routes: {}, keep: true });
+  assert.equal(again.hook.result.current.hint, null);
+  await again.hook.unmount();
+
+  const real = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("blocked");
+    },
+  });
+  const blockedGlobal = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "localStorage",
+  );
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("blocked");
+    },
+  });
+  try {
+    const blocked = await mountHint({ routes: {}, keep: true });
+    assert.equal(blocked.hook.result.current.hint.kind, "create");
+    await act(() => blocked.hook.result.current.dismiss());
+    assert.equal(blocked.hook.result.current.hint, null);
+    await blocked.hook.unmount();
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", blockedGlobal);
+    Object.defineProperty(window, "localStorage", real);
+    localStorage.removeItem("motita.ui.projectHintsTurnedDown");
+  }
 });

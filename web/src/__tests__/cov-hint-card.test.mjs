@@ -47,6 +47,11 @@ test("each offer says what it would do and its buttons answer it", async () => {
       "Move session",
     ],
     [
+      { kind: "start", title: "Billing" },
+      /new project "Billing"/,
+      "Create project",
+    ],
+    [
       { kind: "add", repo, projectId: "a", projectTitle: "Motor" },
       /Add engine to the project "Motor"/,
       "Add repository",

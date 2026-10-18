@@ -715,6 +715,13 @@ const more: Record<string, string> = {
   'Project "{title}" created and this session moved into it':
     'Proyecto "{title}" creado y esta sesión movida a él',
   "Could not set up the project": "No se pudo configurar el proyecto",
+  'Move this session into a new project "{title}"?':
+    '¿Mover esta sesión a un proyecto nuevo "{title}"?',
+  "The files it made stay in its previous folder; the conversation goes on in the new project.":
+    "Los archivos que creó se quedan en su carpeta anterior; la conversación sigue en el proyecto nuevo.",
+  "The project is not indexed: the code index is off":
+    "El proyecto no se indexó: el índice de código está desactivado",
+  "Turn it on in Settings → Indexing.": "Actívalo en Ajustes → Indexado.",
 };
 
 export default more;

@@ -10,6 +10,17 @@ function offerOf(hint: ProjectHint): {
   action: string;
   detail: string;
 } {
+  if (hint.kind === "start") {
+    return {
+      ask: tf('Move this session into a new project "{title}"?', {
+        title: hint.title,
+      }),
+      action: t("Create project"),
+      detail: t(
+        "The files it made stay in its previous folder; the conversation goes on in the new project.",
+      ),
+    };
+  }
   const { name } = hint.repo;
   if (hint.kind === "create") {
     return {

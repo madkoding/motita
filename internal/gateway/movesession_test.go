@@ -51,7 +51,8 @@ func TestMovingAFreeSessionIntoAProject(t *testing.T) {
 	}
 	busy := createFree(t, srv)
 	convNamed(t, srv, busy).takeRunSlot()
-	if got := post(t, srv, sessionPath(srv, busy, "/project"), `{"project_id":"`+id+`"}`, testToken).Code; got != http.StatusConflict {
+	body := `{"project_id":"` + id + `"}`
+	if got := post(t, srv, sessionPath(srv, busy, "/project"), body, testToken).Code; got != http.StatusConflict {
 		t.Errorf("a working session answered %d, want 409", got)
 	}
 }
@@ -65,7 +66,8 @@ func TestMovingKeepsTheFilesTheSessionLeft(t *testing.T) {
 	if err := os.WriteFile(kept, []byte("work"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if w := post(t, srv, sessionPath(srv, free, "/project"), `{"project_id":"`+id+`"}`, testToken); w.Code != http.StatusOK {
+	body := `{"project_id":"` + id + `"}`
+	if w := post(t, srv, sessionPath(srv, free, "/project"), body, testToken); w.Code != http.StatusOK {
 		t.Fatalf("moving answered %d: %s", w.Code, w.Body.String())
 	}
 	if _, err := os.Stat(kept); err != nil {
