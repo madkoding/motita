@@ -11,6 +11,9 @@ import (
 // createTemp is os.CreateTemp, a variable so a test can make the write fail on a disk that allows it.
 var createTemp = os.CreateTemp
 
+// removeFile is os.Remove, a variable so a test can make the deletion fail.
+var removeFile = os.Remove
+
 // cachePath is where the index of root lives inside dir.
 func cachePath(dir, root string) string {
 	h := fnv.New64a()
@@ -75,7 +78,7 @@ func ClearCache(dir string) (files int, bytes int64, err error) {
 		if statErr != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		if err := os.Remove(name); err != nil {
+		if err := removeFile(name); err != nil {
 			return files, bytes, err
 		}
 		files++

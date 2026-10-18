@@ -167,19 +167,20 @@ func TestClearCacheRemovesOnlyIndexFiles(t *testing.T) {
 	}
 }
 
-func TestClearCacheReportsAFileThatCannotBeRemoved(t *testing.T) {
+func TestClearCacheSkipsFoldersAndReportsAFileThatCannotBeRemoved(t *testing.T) {
 	cache := t.TempDir()
-	locked := filepath.Join(cache, "a.gob")
-	if err := os.WriteFile(locked, []byte("x"), 0o600); err != nil {
+	if err := os.Mkdir(filepath.Join(cache, "dir.gob"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(cache, 0o500); err != nil {
-		t.Skip("cannot make the folder read-only")
+	if files, _, err := ClearCache(cache); err != nil || files != 0 {
+		t.Fatalf("a folder named like an index file: %d, %v", files, err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(cache, 0o700) })
-	if os.Geteuid() == 0 {
-		t.Skip("root removes files from a read-only folder")
+	if err := os.WriteFile(filepath.Join(cache, "a.gob"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	old := removeFile
+	removeFile = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { removeFile = old })
 	if _, _, err := ClearCache(cache); err == nil {
 		t.Error("expected an error")
 	}
