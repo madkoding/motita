@@ -244,7 +244,7 @@ const (
 // verdictText is the sentence the conversation keeps after a decision, so the transcript records
 // what was approved, what was not, and what ran without asking.
 func verdictText(lang i18n.Lang, req agent.ApprovalRequest, v verdict) string {
-	format := "[rejected by the user] %s"
+	var format string
 	switch v {
 	case verdictApproved:
 		format = "[approved by the user] %s"
@@ -252,6 +252,8 @@ func verdictText(lang i18n.Lang, req agent.ApprovalRequest, v verdict) string {
 		format = "[approved by the user, always allowed here from now on] %s"
 	case verdictAllowedEarlier:
 		format = "[allowed earlier in this folder, ran without asking] %s"
+	default:
+		format = "[rejected by the user] %s"
 	}
 	return i18n.Tf(lang, format, strings.TrimSpace(req.Command))
 }

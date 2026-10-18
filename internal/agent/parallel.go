@@ -29,8 +29,9 @@ func (a *Agent) workspaceIsRepoRoot(ctx context.Context) bool {
 // start background agents in worktrees of their own. In a directory that is not a repository root
 // two pieces side by side would trample each other, so they run one after another there.
 func (a *Agent) parallelSubtasks(ctx context.Context, plan Plan, subs []string) bool {
-	return plan.Independent && len(subs) > 1 && !a.isChild && a.subs != nil &&
-		a.cfg.Agent.MaxParallel > 1 && a.workspaceIsRepoRoot(ctx)
+	declared := plan.Independent && len(subs) > 1
+	mayStartAgents := !a.isChild && a.subs != nil && a.cfg.Agent.MaxParallel > 1
+	return declared && mayStartAgents && a.workspaceIsRepoRoot(ctx)
 }
 
 // runSubtasksParallel carries out independent subtasks side by side: each one is a background agent
@@ -107,8 +108,10 @@ func (a *Agent) runSubtaskAside(ctx context.Context, t task.Task, analysis Analy
 	a.report("subtask %d/%d: %s", i+1, len(subs), truncate(subs[i], 160))
 	child := a.newChild(place, config.TaskCode, "")
 	a.armChild(child, id, id, config.TaskCode, truncate(collapse(subs[i]), 120), place.branch)
+	// The parent's context is the one that cancels a subtask: there is nothing of its own to stop.
+	noCancel := func() { /* cancelled with the parent's context */ }
 	c := &subagent{id: id, purpose: subs[i], role: config.TaskCode, branch: place.branch,
-		cancel: func() {}, done: make(chan struct{})}
+		cancel: noCancel, done: make(chan struct{})}
 	desc := subtaskBrief(t.Description, analysis.Summary, subs, i, nil) +
 		fmt.Sprintf("\nThe subtasks are independent and run AT THE SAME TIME, each in a git worktree of "+
 			"its own; yours is on branch %s, started from the current tree. Touch only the files this "+
