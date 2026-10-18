@@ -271,7 +271,7 @@ type Server struct {
 	llmListed   map[string][]string
 	// usageTotals replaces the process-wide token ledger in tests; nil reads the ledger.
 	usageTotals func() []llm.ProviderUsage
-	// quotaCache keeps the last Copilot quota read from GitHub.
+	// quotaCache keeps the last read of the plan quotas providers state over an API.
 	quotaCache quotaCache
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
