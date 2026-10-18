@@ -279,8 +279,9 @@ function FoundMachine({ m }: { m: Machine }) {
       {m.ask?.state === "waiting" && (
         <span
           class="flex-none px-2 py-0.5 rounded-md text-[11px] text-[#c8c8d2] bg-white/5 font-mono"
-          title={t(
-            "Waiting for the other computer to let this one in. Its screen shows the same code.",
+          title={tf(
+            "Waiting for the other computer to let this one in. Its screen shows the same code; on one without a screen, run `motita gateway allow {code}` there.",
+            { code: m.ask.code },
           )}
           data-testid="machine-asking"
         >

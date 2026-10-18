@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -136,10 +137,12 @@ func withoutArgs(args []string, i, n int) []string {
 // gatewaySubcommand reads `gateway <action>` at args[i].
 func (b *flags) gatewaySubcommand(args []string, i int) ([]string, bool, error) {
 	if i+1 >= len(args) {
-		return nil, false, fmt.Errorf("gateway needs an action: start, stop, status or setup")
+		return nil, false, fmt.Errorf("gateway needs an action: %s", gatewayActions)
 	}
 	switch strings.ToLower(strings.TrimSpace(args[i+1])) {
-	case "start", "stop", "status", "setup":
+	case "allow", "deny":
+		return b.gatewayCodeAction(args, i)
+	case "start", "stop", "status", "setup", "computers":
 		// Recorded as the user wrote it: what they typed is what gets reported.
 		b.gatewayAction = args[i+1]
 		// Removed from the argument list so the flag loop never sees them: a positional argument
@@ -149,8 +152,33 @@ func (b *flags) gatewaySubcommand(args []string, i int) ([]string, bool, error) 
 		// Rejected with the list rather than ignored: falling through would turn a
 		// typo into something else entirely - `motita gateway strat` starting the
 		// interface.
-		return nil, false, fmt.Errorf("unknown gateway action %q: start, stop, status or setup", args[i+1])
+		return nil, false, fmt.Errorf("unknown gateway action %q: %s", args[i+1], gatewayActions)
 	}
+}
+
+// gatewayActions lists the actions of `motita gateway`, for the errors above.
+const gatewayActions = "start, stop, status, setup, computers, allow or deny"
+
+// codeHalf is one half of a pairing code, as the page shows it: "123 456".
+var codeHalf = regexp.MustCompile(`^\d{3}$`)
+
+// gatewayCodeAction reads `gateway allow|deny <code>` at args[i]. The code is the one the other
+// computer's page shows, typed with its space ("123 456", two arguments) or without it.
+func (b *flags) gatewayCodeAction(args []string, i int) ([]string, bool, error) {
+	action := strings.ToLower(strings.TrimSpace(args[i+1]))
+	if i+2 >= len(args) {
+		return nil, false, fmt.Errorf("gateway %s needs the code the other computer shows: "+
+			"`motita gateway computers` lists the ones waiting", action)
+	}
+	n := 3
+	code := strings.TrimSpace(args[i+2])
+	if codeHalf.MatchString(code) && i+3 < len(args) && codeHalf.MatchString(strings.TrimSpace(args[i+3])) {
+		code += strings.TrimSpace(args[i+3])
+		n = 4
+	}
+	b.gatewayAction = action
+	b.gatewayCode = code
+	return withoutArgs(args, i, n), true, nil
 }
 
 // indexSubcommand reads `index <status|clear>` at args[i].

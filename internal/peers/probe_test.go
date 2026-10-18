@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // testCert is the certificate the test probers present.
@@ -143,13 +144,19 @@ func TestHelloReportsAnUnreachableOrPublicAddress(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 	_, _, err := p.Hello(context.Background(), addr)
-	if err == nil || !strings.Contains(err.Error(), "no motita answered") {
+	if err == nil || !strings.Contains(err.Error(), "no gateway answers the network") {
 		t.Fatalf("closed port: %v", err)
+	}
+	// Nothing answering in time reads as what to check over there.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now())
+	defer cancel()
+	if _, _, err := p.Hello(ctx, "127.0.0.1:7477"); err == nil || !strings.Contains(err.Error(), "ufw allow 7477/tcp") {
+		t.Fatalf("timeout: %v", err)
 	}
 	if _, _, err := p.Hello(context.Background(), "8.8.8.8:7477"); !errors.Is(err, errOutside) {
 		t.Fatalf("public: %v", err)
 	}
-	if _, _, err := p.Hello(context.Background(), "a b"); err == nil {
+	if _, _, err := p.Hello(context.Background(), "a b"); err == nil || !strings.Contains(err.Error(), "no motita answered") {
 		t.Fatal("bad address accepted")
 	}
 }
