@@ -35,6 +35,7 @@ func TestPhaseDetectsEachStep(t *testing.T) {
 		"## ACTION\n...":               "execute",
 		"reasoning appears":            "execute",
 		"## FINAL ANSWER\n...":         "synthesize",
+		"## CRITERIA AUDIT\n...":       "audit",
 		"something else entirely":      "unknown",
 	}
 	for prompt, want := range cases {
@@ -406,5 +407,19 @@ func TestPlanModeIsAskedToRunACommandThenAnswers(t *testing.T) {
 	second := ask(`{"stream":true,` + tools + `,"messages":[{"role":"tool","content":"x"}]}`)
 	if !strings.Contains(second, "The workspac") || strings.Contains(second, "tool_calls") {
 		t.Errorf("second round must answer: %s", second)
+	}
+}
+
+// TestAuditReplyMeetsItsCriterion: the audit of a claim answers that the criterion is met, so a
+// run driven against this mock is never sent back by it.
+func TestAuditReplyMeetsItsCriterion(t *testing.T) {
+	var rep struct {
+		Criteria []struct {
+			Met bool `json:"met"`
+		} `json:"criteria"`
+	}
+	if err := json.Unmarshal([]byte(contentJSON("audit", 1)), &rep); err != nil ||
+		len(rep.Criteria) != 1 || !rep.Criteria[0].Met {
+		t.Fatalf("audit reply = %+v, %v", rep, err)
 	}
 }

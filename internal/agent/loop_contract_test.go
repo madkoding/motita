@@ -46,6 +46,9 @@ type scriptServer struct {
 	executes []string
 	analyses []string
 	synth    []string
+	// audit overrides the criteria audit when set; by default every criterion is met.
+	audit  func(prompt string) string
+	audits int
 	// synthReply overrides the final answer when set.
 	synthReply string
 	// sse answers a streamed request as a real provider does: the reasoning tokens first,
@@ -93,6 +96,12 @@ func (s *scriptServer) reply(t *testing.T, text string) string {
 		content = `{"plan":[{"step":1,"action":"do it","command":""}],"subtasks":[]}`
 		if s.plan != nil {
 			content = s.plan(text)
+		}
+	case strings.Contains(text, "## CRITERIA AUDIT"):
+		s.audits++
+		content = `{"criteria":[{"criterion":"it is done","met":true,"evidence":"shown"}]}`
+		if s.audit != nil {
+			content = s.audit(text)
 		}
 	case strings.Contains(text, "## FINAL ANSWER"):
 		s.synth = append(s.synth, text)

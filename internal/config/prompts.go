@@ -22,6 +22,8 @@ var (
 	synthesizeSystemPrompt string
 	//go:embed prompts/synthesize_user.md
 	synthesizeUserPrompt string
+	//go:embed prompts/audit_user.md
+	auditUserPrompt string
 )
 
 // BaseAnalyzeTemplate asks for the analysis of the task and the definition of
@@ -89,4 +91,13 @@ var BaseExecuteTemplate = Template{
 var BaseSynthesizeTemplate = Template{
 	System: synthesizeSystemPrompt,
 	User:   synthesizeUserPrompt,
+}
+
+// BaseAuditTemplate asks whether a claim of "done" meets each success criterion the analysis
+// stated, with the evidence from the run. It is a second reading of the work before the anchor,
+// so a criterion the project's own checks cannot see (a behaviour, a file nobody tests) is not
+// left to the user to notice.
+var BaseAuditTemplate = Template{
+	System: BaseAnalyzeTemplate.System,
+	User:   auditUserPrompt,
 }
