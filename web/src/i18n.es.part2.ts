@@ -640,6 +640,10 @@ const more: Record<string, string> = {
   "{left} of {max} tokens left in the rate window":
     "quedan {left} de {max} tokens en la ventana de límite",
   "Indexing…": "Indexando…",
+  "Already up to date.": "Ya estaba al día.",
+  "Reading the project's files…": "Leyendo los archivos del proyecto…",
+  "Index updated: {files} files, {chunks} passages.":
+    "Índice actualizado: {files} archivos, {chunks} pasajes.",
   "Clear index cache": "Borrar caché del índice",
   "{n} index files deleted ({kb} KB). The next search builds it again.":
     "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",
