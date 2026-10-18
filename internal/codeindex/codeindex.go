@@ -570,35 +570,38 @@ func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	ix, err := s.locate(ctx, root, files, fp)
+	if err != nil {
+		return nil, err
+	}
+	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+}
+
+// locate returns the index of root as the folder is now (files, fp), from memory, disk or a new
+// build. The caller holds s.mu.
+func (s *Searcher) locate(ctx context.Context, root string, files []fileInfo, fp uint64) (*Index, error) {
 	s.detect(ctx)
 	ix := s.byAt[root]
 	if ix == nil || ix.Fingerprint != fp {
+		var err error
 		if ix, err = s.obtain(ctx, root, files, fp); err != nil {
 			return nil, err
 		}
 		s.byAt[root] = ix
 	}
-	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+	return ix, nil
 }
 
 // Build brings the index kept on disk for root up to date, even when this process still holds it in
 // memory (the cache files may have been cleared since), and tells why when it cannot keep it.
 func (s *Searcher) Build(ctx context.Context, root string) error {
-	files, fp, err := scan(ctx, root, s.opts)
-	if err != nil {
+	if _, err := s.Search(ctx, root, "", 1); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.detect(ctx)
 	ix := s.byAt[root]
-	if ix == nil || ix.Fingerprint != fp {
-		if ix, err = s.obtain(ctx, root, files, fp); err != nil {
-			return err
-		}
-		s.byAt[root] = ix
-	}
-	if data := readData(s.opts.CacheDir, root); data != nil && data.Fingerprint == fp {
+	if data := readData(s.opts.CacheDir, root); data != nil && data.Fingerprint == ix.Fingerprint {
 		return nil
 	}
 	if err := writeIndex(s.opts.CacheDir, ix); err != nil {

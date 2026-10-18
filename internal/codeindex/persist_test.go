@@ -205,6 +205,15 @@ func TestBuildTellsWhenTheIndexCannotBeKept(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, _, err := ClearCache(dir); err != nil { // the index is still in memory, the disk copy is gone
+		t.Fatal(err)
+	}
+	if err := s.Build(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := Inspect(context.Background(), root, Options{CacheDir: dir}); st.State != StateReady {
+		t.Errorf("not kept on disk again: %+v", st)
+	}
 	if err := s.Build(canceled(), root); err == nil {
 		t.Error("a cancelled build succeeded")
 	}
