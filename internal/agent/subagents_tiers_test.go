@@ -97,6 +97,33 @@ func TestEngineOfPrefersTheTierThenTheRole(t *testing.T) {
 	}
 }
 
+// The audit and the synthesis run on the summary model when the session assigns one; the phases
+// that decide what to do, and every phase without a summary model, run on the agent's own.
+func TestTheAuditAndTheSynthesisRunOnTheSummaryModel(t *testing.T) {
+	a := bareAgent(t, nil)
+	summary := &llm.Client{}
+	a.SetRoleEngines(func(role string) *llm.Client {
+		if role == config.TaskSummary {
+			return summary
+		}
+		return nil
+	})
+	for _, phase := range []string{"audit", "synthesize"} {
+		if a.phaseEngine(phase) != summary {
+			t.Errorf("%s runs on the summary model", phase)
+		}
+	}
+	for _, phase := range []string{"analyze", "plan", "execute"} {
+		if a.phaseEngine(phase) != a.engine {
+			t.Errorf("%s keeps the agent's own engine", phase)
+		}
+	}
+	a.SetRoleEngines(nil)
+	if a.phaseEngine("audit") != a.engine {
+		t.Error("without a summary model the audit runs on the agent's own engine")
+	}
+}
+
 // escalationScript is a cheap agent that never finishes and a strong one that does, once told.
 func escalationScript() *scriptServer {
 	s := &scriptServer{}

@@ -405,6 +405,11 @@ func (t *TUI) runPlanAs(ctx context.Context, prompt, shown string) {
 				stream.openPending()
 			}
 			stream.settle(result.err, result.result)
+			// The plan a go-ahead carries out: kept only when the turn answered (see submit).
+			t.lastPlan = ""
+			if result.err == nil {
+				t.lastPlan = result.result
+			}
 			t.endTurn()
 		},
 	})

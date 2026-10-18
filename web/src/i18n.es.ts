@@ -61,7 +61,11 @@ const first: Record<string, string> = {
   "A turn is running: it finishes with the current model, and the new one answers from the next turn.":
     "Hay un turno en curso: termina con el modelo actual y el nuevo responde desde el próximo turno.",
   "API key": "Clave de API",
-  "Allow all this session": "Permitir todo en esta sesión",
+  "Always allow this here": "Permitir siempre esto aquí",
+  "Files, checks and what was learned": "Archivos, comprobaciones y lo aprendido",
+  "Kept for next time": "Guardado para la próxima vez",
+  "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.":
+    "Ejecutarlo y, de ahora en adelante, ejecutar los comandos de este tipo en este proyecto sin preguntar. Los que la política prohíbe siguen prohibidos.",
   "Any running tasks will be interrupted.":
     "Las tareas en curso se interrumpirán.",
   Archived: "Archivadas",
@@ -156,8 +160,8 @@ const first: Record<string, string> = {
   "Clone and create": "Clonar y crear",
   "The repository uses {branch}.": "El repositorio usa {branch}.",
   "Stop the agent": "Detener al agente",
-  "Enter sends a message that interrupts; Alt+Enter queues it":
-    "Enter envía un mensaje que interrumpe; Alt+Enter lo deja en cola",
+  "A message typed meanwhile goes to the run; Esc stops it":
+    "Un mensaje escrito mientras tanto va a la tarea; Esc la detiene",
   "Click Continue in the session menu to keep working from the latest project branch.":
     "Haz clic en Continuar en el menú de la sesión para seguir trabajando desde la rama más reciente del proyecto.",
   "Click again: discard changes since":
@@ -176,6 +180,8 @@ const first: Record<string, string> = {
   Continue: "Continuar",
   "Continued in a new session": "Continuaste en una sesión nueva",
   "Could not continue this session": "No se pudo continuar esta sesión",
+  "The project could not be updated first":
+    "No se pudo actualizar el proyecto antes de empezar",
   "Could not go back to that checkpoint": "No se pudo volver a ese checkpoint",
   "Could not reach the gateway": "No se pudo contactar al gateway",
   "Could not save the language": "No se pudo guardar el idioma",
@@ -292,8 +298,8 @@ const first: Record<string, string> = {
   "Nothing to integrate yet": "Todavía no hay nada que integrar",
   "Nothing yet. Ask for something below.": "Nada todavía. Pide algo abajo.",
   "Waiting for a new session": "Esperando por una nueva sesión",
-  "Create a session to start talking to the agent.":
-    "Crea una sesión para empezar a hablar con el agente.",
+  "Type below to start talking to the agent, or create a session first.":
+    "Escribe abajo para empezar a hablar con el agente, o crea una sesión primero.",
   "Open sidebar": "Abrir la barra lateral",
   "Open the agents": "Abrir los agentes",
   "Open the terminal history": "Abrir el historial de la terminal",
@@ -322,8 +328,6 @@ const first: Record<string, string> = {
   Run: "Ejecuta",
   "Run it": "Ejecutar",
   "Run now": "Ejecutar ahora",
-  "Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.":
-    "Ejecutar este y todos los comandos siguientes de esta sesión sin preguntar. Lo que la política prohíbe sigue prohibido.",
   "Save and create": "Guardar y crear",
   Save: "Guardar",
   "Saving…": "Guardando…",

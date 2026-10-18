@@ -544,6 +544,7 @@ func TestAnUnclearRequestBecomesAQuestion(t *testing.T) {
 	defer srv.Close()
 
 	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.cfg.Agent.AssumeFirst = false
 	e.agent.Interactive = true
 
 	var result *TaskResult
@@ -638,6 +639,7 @@ func TestAnAssumptionWithNoQuestionStillAsks(t *testing.T) {
 	defer srv.Close()
 
 	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.cfg.Agent.AssumeFirst = false
 	e.agent.Interactive = true
 
 	var result *TaskResult

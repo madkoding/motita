@@ -64,8 +64,10 @@ export function useShellApproval({
   // the agent's commands are. When the policy would ask, the question is the approval panel's,
   // and the answer comes back through answerApproval with a "shell:" id.
   const shellPendingRef = useRef<string | null>(null);
+  // `always` keeps commands of this shape allowed in the project, as the panel's second answer
+  // does for the agent's own commands.
   const runShellLine = useCallback(
-    async (command: string, approved = false) => {
+    async (command: string, approved = false, always = false) => {
       const sid = sessionRef.current;
       const entryId = nextId();
       setShellLog((prev) =>
@@ -89,7 +91,9 @@ export function useShellApproval({
           {
             method: "POST",
             headers: JSON_HEADERS,
-            body: JSON.stringify({ command, approved }),
+            body: JSON.stringify(
+              choose(always, { command, approved, scope: "project" }, { command, approved }),
+            ),
           },
         );
         const body = await res.json().catch(() => ({}));
@@ -126,61 +130,42 @@ export function useShellApproval({
     [],
   );
 
-  // allowAll turns "allow every command" on for the session, as the panel's second answer does.
-  const allowAll = async (sid: string) => {
-    const res = await api(SESSIONS_PATH + sid + "/auto-approve", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ enabled: true }),
-    }).catch(() => null);
-    if (res?.ok) {
-      setSessions((prev) => withSession(prev, sid, { auto_approve: true }));
-    }
-  };
-
   // answerShell answers a typed command's question: it has no run to answer, so it is asked again
   // with the yes in hand.
-  const answerShell = async (approve: boolean, all: boolean) => {
+  const answerShell = (approve: boolean, always: boolean) => {
     const command = shellPendingRef.current;
     shellPendingRef.current = null;
     if (!approve || !command) {
       return;
     }
-    if (all) {
-      await allowAll(sessionRef.current);
-    }
-    void runShellLine(command, true);
+    void runShellLine(command, true, always);
   };
 
   // answerApproval sends the approval response.
   //
-  // `all` is "allow every command for the rest of this session": the gateway then
-  // answers yes on the user's behalf until they take it back from the header.
+  // `always` is "always allow this here": the gateway keeps the shape of the command (its
+  // rule and program) allowed in the project, so later sessions are not asked about it either.
   const answerApproval = useCallback(
-    async (id: string, approve: boolean, all = false) => {
+    async (id: string, approve: boolean, always = false) => {
       setApproval(null);
       if (id.startsWith("shell:")) {
-        await answerShell(approve, all);
+        answerShell(approve, always);
         return;
       }
-      // The session is pinned now: the answer is for the question asked in it, and so is the
-      // "allow every command" it may turn on.
+      // The session is pinned now: the answer is for the question asked in it.
       const sid = sessionRef.current;
       try {
         const res = await api(SESSIONS_PATH + sid + "/runs/approval", {
           method: "POST",
           headers: JSON_HEADERS,
           body: JSON.stringify(
-            choose(all, { id, approve, scope: "session" }, { id, approve }),
+            choose(always, { id, approve, scope: "project" }, { id, approve }),
           ),
         });
         // A refusal (the question was already answered, or the run is gone) is a failure too:
         // the panel is closed, so the user must hear that the answer did not land.
         if (!res.ok) {
           throw new Error(String(res.status));
-        }
-        if (all) {
-          setSessions((prev) => withSession(prev, sid, { auto_approve: true }));
         }
       } catch {
         setState("could not answer the approval", true);

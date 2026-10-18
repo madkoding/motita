@@ -904,6 +904,22 @@ func (c *Client) CancelRun(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, c.scoped("/cancel"), nil, nil)
 }
 
+// Steer hands a message to the task in flight in this session, without stopping it, and reports
+// whether the task took it. When nothing took it the gateway queued or started the message, and
+// the caller shows it as a message of its own; a gateway that cannot be reached reports false
+// too, since the message was not delivered either way.
+func (c *Client) Steer(text string) bool {
+	var out struct {
+		Steered bool `json:"steered"`
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.postJSON(ctx, c.scoped("/steer"), map[string]any{"task": text}, &out); err != nil {
+		return false
+	}
+	return out.Steered
+}
+
 // StopRun asks the gateway to stop the run in this session, and reports whether there was one.
 //
 // "There was nothing running" is an ANSWER, not a failure: pressing Escape a moment after a turn

@@ -75,7 +75,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	//
 	// The turn that applies suggestions the user already accepted is the same: the list IS the
 	// request, and asking what it meant sends the user back to a decision they just made.
-	if depth > 0 || IsApplyingTurn(t.Description) {
+	//
+	// The turn that carries out a plan the person just approved is work by the same token, and
+	// the plan it carries is the plan: see followedPlan below.
+	_, following := FollowedPlan(t.Description)
+	if depth > 0 || IsApplyingTurn(t.Description) || following {
 		r.workAsSubtask()
 	}
 
@@ -87,10 +91,20 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		a.report("%sdone means:\n- %s", ThinkingPrefix, strings.Join(r.analysis.SuccessCrit, "\n- "))
 	}
 
-	// [4] Plan.
-	a.report("planning...")
-	r.plan = a.planPhase(ctx, t, r.analysis, depth)
-	a.report("plan ready: %d steps", len(r.plan.Steps))
+	// [4] Plan. A plan the person already approved is not planned again, and one the analysis
+	// wrote itself is taken as it is: the plan phase is for work that splits into subtasks.
+	switch {
+	case following:
+		r.plan = approvedPlan()
+		a.report("carrying out the approved plan")
+	case r.quickPlan():
+		r.plan = planFromAnalysis(r.analysis)
+		a.report("plan ready: %d steps", len(r.plan.Steps))
+	default:
+		a.report("planning...")
+		r.plan = a.planPhase(ctx, t, r.analysis, depth)
+		a.report("plan ready: %d steps", len(r.plan.Steps))
+	}
 	if len(r.plan.Steps) > 0 {
 		a.report("%splan:\n%s", ThinkingPrefix, strings.TrimRight(describePlan(r.plan), "\n"))
 	}
@@ -109,7 +123,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// subtasks, and it used to end as "only 0 of 0 subtasks passed validation" - a failure
 	// for a task nobody ever tried.
 	if subs := nonBlank(r.plan.Subtasks); len(subs) > 0 {
-		if depth < a.cfg.Agent.SubtaskDepth {
+		switch {
+		case depth >= a.cfg.Agent.SubtaskDepth:
+			// The limit is reached: the warning below, then the task runs as one.
+		case a.parallelSubtasks(ctx, r.plan, subs):
+			return a.runSubtasksParallel(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
+		default:
 			return a.runSubtasks(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
 		}
 		a.log.Warn(r.prefix+"subtask splitting reached the configured limit; continuing as a single task",
@@ -249,8 +268,37 @@ func (r *taskRun) askOrAssume() (res TaskResult, done bool) {
 		r.proceedOnAssumption()
 		return TaskResult{}, false
 	}
+	if r.shouldAssume() {
+		r.assumeAndGo()
+		return TaskResult{}, false
+	}
 	r.askUser()
 	return r.res, true
+}
+
+// shouldAssume says whether a question with a stated assumption is answered by the agent itself:
+// a person is there, the setting is on, and the question is not a real decision.
+func (r *taskRun) shouldAssume() bool {
+	return r.a.cfg.Agent.AssumeFirst && r.res.Assumption != "" && !r.analysis.Decision &&
+		len(r.res.Questions) < 2
+}
+
+// assumeAndGo proceeds on the assumption the analysis stated, with a person who could have been
+// asked: the report says what was assumed, so they correct it with the next message instead of
+// answering a question before any work starts.
+func (r *taskRun) assumeAndGo() {
+	assumed := r.res.Assumption
+	r.a.log.Info("assuming instead of asking", "question", truncate(r.res.Question, 160),
+		"assumption", truncate(assumed, 200))
+	r.a.report("assuming: %s", assumed)
+	r.analysis.Understandable = true
+	r.analysis.Question = ""
+	r.res.NeedsInput = false
+	r.res.Question = ""
+	r.res.Options = nil
+	r.res.Questions = nil
+	r.res.Assumption = ""
+	r.proceededOnAssumption = assumed
 }
 
 // fillFromQuestions derives the single question fields from the list when they are empty.
@@ -378,6 +426,12 @@ func (r *taskRun) execute() TaskResult {
 	// to see only the LAST round, which on a long task is a final `git status` and nothing
 	// of the work.
 	r.maxSteps = a.maxSteps()
+	// A message typed while this task runs steers it (see steer.go); only the outermost task
+	// reads them, since the person talks to the turn, not to a subtask.
+	if r.depth == 0 {
+		a.steer.begin()
+		defer a.steer.end()
+	}
 	for {
 		if res, done := r.step(); done {
 			return res
@@ -411,6 +465,7 @@ func (r *taskRun) step() (res TaskResult, done bool) {
 	}
 	r.res.Attempts = r.round
 	r.a.noteRound(r.round)
+	r.absorbSteering()
 
 	// [6] The LLM proposes the concrete action.
 	action, usable, stop := r.decide()

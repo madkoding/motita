@@ -2,7 +2,6 @@
 // connection drops, and the messages sent to a run that is already in flight.
 import { useCallback, useEffect, useRef } from "preact/hooks";
 import { t } from "./i18n";
-import { choose } from "./choose";
 import { parseFrame } from "./appParse";
 import {
   handleStreamEvent,
@@ -237,29 +236,32 @@ function useDetach(rs: RunState, lists: SessionList, conv: Conversation) {
 function runMessages(api: Api, rs: RunState, setToast: SetToast) {
   const { sessionRef, handoffRef } = rs;
 
-  // sendWhileRunning sends a message to the session on screen while a run is in flight.
-  // `interrupt` stops the run first and puts the message at the front, so the agent reads the
-  // new context right away; without it the message waits for the end of the turn.
-  const sendWhileRunning = (text: string, interrupt: boolean) => {
+  // sendWhileRunning sends a message to the session on screen while a run is in flight. The
+  // task reads it at its next step and shows it in its trail; when it cannot (a plan, a task
+  // between steps) the gateway queues it for the end of the turn, and the next run is followed.
+  const sendWhileRunning = (text: string) => {
     const sid = sessionRef.current;
     handoffRef.current = true;
     const failed = () => {
       handoffRef.current = false;
       setToast({ message: t(TURN_REFUSED), type: "error" });
     };
-    void api(
-      SESSIONS_PATH +
-        encodeURIComponent(sid) +
-        choose(interrupt, "/interrupt", "/queue"),
-      {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ task: text }),
-      },
-    )
-      .then((res) => {
+    void api(SESSIONS_PATH + encodeURIComponent(sid) + "/steer", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ task: text }),
+    })
+      .then(async (res) => {
         if (!res.ok) {
           failed();
+          return;
+        }
+        const body = (await res.json().catch(() => ({}))) as {
+          steered?: boolean;
+        };
+        if (body.steered) {
+          // Read by the run on screen: there is no next run to follow.
+          handoffRef.current = false;
         }
       })
       .catch(failed);

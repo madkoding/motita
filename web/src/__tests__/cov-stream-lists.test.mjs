@@ -316,7 +316,7 @@ test("a new session is created, listed and opened; a refusal says why", async ()
       res(200, { id: init.body === "{}" ? "new1" : "new2" }),
     "GET /v1/sessions": () => res(200, { sessions: [{ id: "new1" }] }),
   });
-  const { h, conv, states, cur } = await actions(gw);
+  const { h, conv, states, toasts, cur } = await actions(gw);
   await h.act(() => cur().actions.createSession());
   assert.deepEqual(conv.switched, ["new1"]);
   assert.deepEqual(
@@ -345,6 +345,19 @@ test("a new session is created, listed and opened; a refusal says why", async ()
   assert.equal(cur().actions.creatingSession, null);
   assert.deepEqual(conv.switched, ["new1", "p1-s"]);
   assert.equal(gw.calls.at(-2).body, '{"project_id":"p1"}');
+
+  // A project that could not be updated (offline) still opens, and the warning is shown once.
+  gw.routes["POST /v1/sessions"] = () =>
+    res(200, { id: "p1-off", warning: "could not fetch" });
+  await h.act(() => cur().actions.createSession("p1"));
+  assert.deepEqual(conv.switched, ["new1", "p1-s", "p1-off"]);
+  assert.deepEqual(toasts, [
+    {
+      message: "The project could not be updated first",
+      type: "warning",
+      detail: "could not fetch",
+    },
+  ]);
 
   // The gateway refuses: its reason, or a plain one.
   gw.routes["POST /v1/sessions"] = () => res(409, { error: "project is busy" });

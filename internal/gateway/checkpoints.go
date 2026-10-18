@@ -200,12 +200,14 @@ func clipMiddle(s string, max int) string {
 }
 
 // recordStep files one progress line under its turn. The lines are the agent's own, verbatim:
-// see run.progress for the ones that are not steps at all.
+// see run.progress for the ones that are not steps at all. The pipeline's phase labels
+// ("planning...", "deciding action (round 2/8)...") are not steps either: they go to the
+// activity line while the run lasts, and the trail keeps the work they framed.
 func (c *conversation) recordStep(turn int, text string) {
 	c.cpMu.Lock()
 	defer c.cpMu.Unlock()
 	cp := c.checkpointLocked(turn)
-	if cp == nil || text == "" {
+	if cp == nil || text == "" || agent.IsPhaseLine(text) {
 		return
 	}
 	if sub, ok := agent.ParseSubLine(text); ok {

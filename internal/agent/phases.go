@@ -167,11 +167,12 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	start := time.Now()
 	var text string
 	var err error
+	engine := a.phaseEngine(phase)
 	if a.streamThoughts && a.Progress != nil {
 		live := &liveView{a: a, phase: phase}
-		text, err = a.engine.CompleteStream(ctx, messages, live.add)
+		text, err = engine.CompleteStream(ctx, messages, live.add)
 	} else {
-		text, err = a.engine.Complete(ctx, messages)
+		text, err = engine.Complete(ctx, messages)
 	}
 	if errors.Is(err, llm.ErrToolCallForText) && ctx.Err() == nil {
 		// Reported from real use: "I ask it for things and the agent does nothing". The model
@@ -183,7 +184,7 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 		retry := append(append([]llm.Message{}, messages...), llm.Message{Role: "user", Content: "Your last reply was a " +
 			"tool call, and this step cannot run tool calls. Reply with ONLY the JSON object the instructions " +
 			"describe. If you wanted to use a tool, put it in the \"actions\" list of that JSON (kind and command)."})
-		text, err = a.engine.Complete(ctx, retry)
+		text, err = engine.Complete(ctx, retry)
 	}
 	if err != nil {
 		return "", err
@@ -192,12 +193,24 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	return text, nil
 }
 
+// phaseEngine is the engine a phase runs on. The criteria audit and the synthesis only READ what
+// the rounds did and write a short verdict, so they run on the summary model when one is
+// assigned: the same answer at a fraction of the cost and the wait. The phases that decide what
+// to do (analysis, plan, every round) keep the agent's own engine. Without a summary model, or
+// outside a session that hands engines out, every phase runs on the agent's own.
+func (a *Agent) phaseEngine(phase string) *llm.Client {
+	if phase == "audit" || phase == "synthesize" {
+		return a.engineOf(config.TaskSummary, "")
+	}
+	return a.engine
+}
+
 // baseVariables are the variables available in every template.
 func (a *Agent) baseVariables(t task.Task) map[string]string {
 	vars := map[string]string{
 		"task":         t.Description,
 		"workspace":    a.cfg.Agent.WorkspaceDir,
-		"project":      a.projectNote,
+		"project":      a.projectNote + memoryContext(a.cfg.Agent.WorkspaceDir),
 		"origin":       t.Origin,
 		"attempt":      "1",
 		"max_attempts": fmt.Sprint(a.cfg.Agent.MaxRetries + 1),

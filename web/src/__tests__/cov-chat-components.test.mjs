@@ -143,9 +143,9 @@ test("an empty composer asks for something and sends", async () => {
   await c.m.unmount();
 });
 
-test("a running conversation cannot send; a merged one is read-only", async () => {
+test("a running conversation still sends; a merged one is read-only", async () => {
   const running = await composer({ top: { rs: { running: true } } });
-  assert.equal(running.q("button[type=submit]").disabled, true);
+  assert.equal(running.q("button[type=submit]").disabled, false);
   await running.m.unmount();
   const merged = await composer({
     top: { isMerged: true },

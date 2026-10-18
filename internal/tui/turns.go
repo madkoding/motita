@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/intent"
 )
 
@@ -147,6 +148,13 @@ func (t *TUI) leaveTurn(ctx context.Context) {
 // One message, not a list: a second one replaces the first, and the conversation says so. A
 // queue the user cannot see is a queue that sends things they forgot they typed.
 func (t *TUI) queue(line string) {
+	// A task in flight reads the message at its next round: the work goes on with it, which is
+	// what a person who keeps typing wants. A plan, or a task between rounds, still queues.
+	if st, ok := t.Runner.(steerer); ok && st.Steer(line) {
+		t.addMessage(AuthorUser, line)
+		t.addMessage(AuthorSystem, t.tr("Added to the task in progress; it reads it in its next step. Esc stops it."))
+		return
+	}
 	note := t.tr("Queued: it will be sent when the current task finishes. Esc stops the current one.")
 	if t.queued != "" {
 		note = t.tr("Queued, replacing the message queued before. Esc stops the current task.")
@@ -166,16 +174,27 @@ func (t *TUI) submit(ctx context.Context, line string) {
 	t.autoTurn = t.screen == ScreenAuto
 	if t.autoTurn {
 		d := intent.Classify(line)
-		if strings.TrimSpace(d.Prompt) != "" {
-			t.addMessage(AuthorSystem, d.Note()+" · "+t.tr("Tab, /plan or /task to choose it yourself"))
+		if strings.TrimSpace(d.Prompt) == "" {
+			// Nothing was sent, so the plan on the table stays there.
+			t.runTask(ctx, d.Prompt)
+			return
 		}
+		t.addMessage(AuthorSystem, d.Note()+" · "+t.tr("Tab, /plan or /task to choose it yourself"))
 		if d.Kind == intent.KindPlan {
 			t.runPlan(ctx, d.Prompt)
+			return
+		}
+		plan := t.lastPlan
+		t.lastPlan = ""
+		if plan != "" && d.Reason == intent.ReasonGoAhead {
+			// The plan the person just read is the task; the plan phase takes it as it is.
+			t.runTaskAs(ctx, agent.FollowPlanTask(d.Prompt, plan), d.Prompt)
 			return
 		}
 		t.runTask(ctx, d.Prompt)
 		return
 	}
+	t.lastPlan = ""
 	if t.screen == ScreenPlan {
 		t.runPlan(ctx, line)
 		return

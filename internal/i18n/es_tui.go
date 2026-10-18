@@ -99,10 +99,15 @@ var esTUI = map[string]string{
 	"what was wrong":                            "qué estuvo mal",
 
 	// The confirmation window.
-	"The agent wants to run:":           "El agente quiere ejecutar:",
-	"y = yes, run it · Enter or n = no": "s o y = sí, ejecútalo · Enter o n = no",
-	"[approved by the user] %s":         "[aprobado por el usuario] %s",
-	"[rejected by the user] %s":         "[rechazado por el usuario] %s",
+	"The agent wants to run:": "El agente quiere ejecutar:",
+	"y = yes, run it · a = always allow here · Enter or n = no": "s o y = sí, ejecútalo · " +
+		"a = permitir siempre aquí · Enter o n = no",
+	"[approved by the user] %s": "[aprobado por el usuario] %s",
+	"[approved by the user, always allowed here from now on] %s": "[aprobado por el usuario, " +
+		"permitido siempre aquí desde ahora] %s",
+	"[allowed earlier in this folder, ran without asking] %s": "[permitido antes en esta carpeta, " +
+		"ejecutado sin preguntar] %s",
+	"[rejected by the user] %s": "[rechazado por el usuario] %s",
 
 	// Errors and their hints.
 	"error: %v": "error: %v",
@@ -424,6 +429,8 @@ var esTUI = map[string]string{
 	// The queue while a task runs.
 	"Stopped. Your queued message was not sent; it is in the input box if it was empty.": "Detenido. Tu mensaje en " +
 		"cola no se envió; está en la caja de entrada si estaba vacía.",
+	"Added to the task in progress; it reads it in its next step. Esc stops it.": "Añadido a la tarea en curso; " +
+		"lo lee en su siguiente paso. Esc la detiene.",
 	"Queued: it will be sent when the current task finishes. Esc stops the current one.": "En cola: se enviará cuando " +
 		"termine la tarea actual. Esc detiene la actual.",
 	"Queued, replacing the message queued before. Esc stops the current task.": "En cola, en reemplazo del mensaje que " +

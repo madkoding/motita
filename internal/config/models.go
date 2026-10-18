@@ -33,7 +33,7 @@ const (
 	TaskCode     = "code"     // task mode: the main agent, and the background agents that write
 	TaskReview   = "review"   // background agents that review the work and change nothing
 	TaskResearch = "research" // background agents that investigate and change nothing
-	TaskSummary  = "summary"  // the small calls: titles, compaction summaries, auto mode's guess
+	TaskSummary  = "summary"  // the small calls: titles, summaries, auto mode's guess, the audit and synthesis
 	TaskCheap    = "cheap"    // tier: easy pieces handed to background agents (a small or local model)
 	TaskStrong   = "strong"   // tier: hard pieces, and where a cheap agent escalates when it fails
 )

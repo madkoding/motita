@@ -99,7 +99,9 @@ test("the app draws them above the approval panel and the composer, in the conve
   const at = (s) => column.indexOf(s);
   assert.ok(at(SUBTITLES_TAG) > at("<Conversation />"));
   assert.ok(at(SUBTITLES_TAG) < at("<ApprovalPanel"));
-  assert.ok(at(SUBTITLES_TAG) < at("<Composer />"));
+  // The composer is drawn with no conversation too (a message typed opens one), so the one
+  // the subtitles sit above is the last in the column.
+  assert.ok(at(SUBTITLES_TAG) < column.lastIndexOf("<Composer />"));
   assert.match(column, /on=\{speech\.prefs\.subtitles\}/);
   assert.match(column, /size=\{speech\.prefs\.subtitleSize\}/);
 });

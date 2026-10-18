@@ -75,6 +75,8 @@ type Agent struct {
 	//
 	// Both are better than refusing, which is what the agent used to do in either case.
 	Interactive bool
+	// steer is what the person says while a task runs: see steer.go.
+	steer steering
 
 	// library is the procedure library, when one is configured. It is the SAME library Plan
 	// mode uses: one shelf of procedures, reachable from both modes, because a procedure is
@@ -332,6 +334,10 @@ type Analysis struct {
 	SuccessCrit    []string `json:"success_criteria"`
 	Risks          []string `json:"risks"`
 	NeedsSubtasks  bool     `json:"needs_subtasks"`
+	// Plan is the steps of the work, written by the analysis itself when the task does not split
+	// into subtasks. With it the plan phase is not called: one model call stands before the
+	// first action instead of two (see agent.quick_plan).
+	Plan []string `json:"plan"`
 
 	// Question is what to ask the user when the request cannot be understood well enough to act
 	// on. It is the difference between an agent that stops and one that asks.
@@ -345,6 +351,12 @@ type Analysis struct {
 	// a stated assumption lets the user confirm in one word instead of writing a new request, and
 	// it gives the agent a defensible reading if nobody answers.
 	Assumption string `json:"assumption"`
+
+	// Decision marks a question the agent must not answer for the user: the work would be
+	// destructive or hard to undo depending on the answer, or the readings lead to materially
+	// different results. Any other question with an assumption is assumed and the work goes on
+	// (see agent.assume_first); the assumption is stated in the report so it can be corrected.
+	Decision bool `json:"decision"`
 
 	// Questions are the questions to ask, in order, when more than one thing is unclear.
 	//
@@ -433,9 +445,12 @@ func (a Analysis) resolveKind() string {
 
 // Plan is the structured output of phase [4].
 type Plan struct {
-	Steps          []Step   `json:"plan"`
-	Subtasks       []string `json:"subtasks"`
-	ExpectedResult string   `json:"expected_result"`
+	Steps    []Step   `json:"plan"`
+	Subtasks []string `json:"subtasks"`
+	// Independent marks subtasks that touch different files and none of which builds on another:
+	// they may run side by side, each in a worktree of its own. See runSubtasksParallel.
+	Independent    bool   `json:"independent"`
+	ExpectedResult string `json:"expected_result"`
 }
 
 // Step is one step of the plan.
@@ -737,6 +752,9 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	r := a.loop(ctx, run, depth)
 	if isGoal && r.Report != nil {
 		a.saveGoalDecisions(t, r.Report)
+	}
+	if depth == 0 {
+		a.saveLessons(r.Report)
 	}
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.

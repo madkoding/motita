@@ -44,19 +44,28 @@ function startsWith(c: SlashCommand, query: string): boolean {
   );
 }
 
+// blockedBy says whether the tags already on the composer keep a command off it: plan and task
+// are mutually exclusive, so one blocks the other.
+function blockedBy(tags: ActiveTag[], cmdName: string): boolean {
+  if (cmdName === "/plan") {
+    return tags.some((tag) => tag.name === "/task");
+  }
+  if (cmdName === "/task") {
+    return tags.some((tag) => tag.name === "/plan");
+  }
+  return false;
+}
+
 // isAccept says whether a key takes the highlighted command of the popup.
 function isAccept(e: KeyboardEvent): boolean {
   const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey;
   return e.key === "Tab" || (e.key === "Enter" && plain && !e.altKey);
 }
 
-// keepsLine says whether an Enter leaves the line alone instead of sending it: Shift, Ctrl or
-// Meta insert a newline, and Alt does too unless a run is in flight (then it queues the message).
-function keepsLine(e: KeyboardEvent, running: boolean): boolean {
-  if (e.shiftKey || e.ctrlKey || e.metaKey) {
-    return true;
-  }
-  return e.altKey && !running;
+// keepsLine says whether an Enter leaves the line alone instead of sending it: Shift, Ctrl, Meta
+// or Alt insert a newline.
+function keepsLine(e: KeyboardEvent): boolean {
+  return e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
 }
 
 interface Deps {
@@ -64,6 +73,9 @@ interface Deps {
   drawers: Drawers;
   stream: Stream;
   runShellLine: (command: string) => Promise<void>;
+  // startSession opens a conversation when a message is sent with none on screen, and says
+  // which; nothing when it could not.
+  startSession: () => Promise<string | undefined>;
   // nextSuggestion is what the empty field hints at after a turn; "" when there is none.
   nextSuggestion: string;
 }
@@ -73,9 +85,10 @@ export function useComposer({
   drawers,
   stream,
   runShellLine,
+  startSession,
   nextSuggestion,
 }: Deps) {
-  const { runningRef } = rs;
+  const { runningRef, sessionRef } = rs;
   const [input, setInput] = useState("");
   // Slash commands loaded from the backend, and the autocomplete popup state.
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
@@ -87,17 +100,7 @@ export function useComposer({
   // above the textarea. Multiple tags can be active at once.
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
 
-  // plan and task are mutually exclusive — if one is already an active tag,
-  // the other is blocked from being added.
-  const isCommandBlocked = (cmdName: string) => {
-    if (cmdName === "/plan") {
-      return activeTags.some((tag) => tag.name === "/task");
-    }
-    if (cmdName === "/task") {
-      return activeTags.some((tag) => tag.name === "/plan");
-    }
-    return false;
-  };
+  const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 
   // Choosing a slash command from the popup (by click, or Enter/Space on the row) adds it as a tag.
   const pickSlash = (c: { name: string; group: string }) => {
@@ -153,10 +156,23 @@ export function useComposer({
     setActiveTags([]);
   };
 
+  // sendInNewSession opens a conversation for a message typed with none on screen, then sends
+  // it there: the first message IS the start of the conversation, with nothing to click first.
+  // When no conversation could be opened the message goes back to the field, not lost.
+  const sendInNewSession = async (text: string) => {
+    const id = await startSession();
+    if (!id) {
+      setInput(text);
+      return;
+    }
+    stream.submit(text);
+  };
+
   // send does what the composer holds: /agents opens the agents drawer, a shell line runs in the
-  // shell, a message to a run in flight interrupts it (or waits, with `interrupt` off), and
-  // anything else starts a run.
-  const send = (interrupt: boolean) => {
+  // shell, a message to a run in flight goes to the run (the agent reads it at its next step, or
+  // it waits for the end of the turn), and anything else starts a run. Stopping is Escape, or the
+  // turn's menu: typing never cuts the work off.
+  const send = () => {
     const text = composedText(input, activeTags);
     if (text === "/agents") {
       drawers.showAgents();
@@ -174,7 +190,12 @@ export function useComposer({
     }
     if (runningRef.current) {
       clear();
-      stream.sendWhileRunning(text, interrupt);
+      stream.sendWhileRunning(text);
+      return;
+    }
+    if (!sessionRef.current) {
+      clear();
+      void sendInNewSession(text);
       return;
     }
     // Remove placeholder messages (.kind) before the first real turn.
@@ -186,7 +207,7 @@ export function useComposer({
   // handleSubmit is called when the form is submitted.
   const handleSubmit = (e: Event) => {
     e.preventDefault();
-    send(true);
+    send();
   };
 
   // acceptSlash takes the highlighted command of the popup.
@@ -272,12 +293,11 @@ export function useComposer({
     if (window.matchMedia("(pointer: coarse)").matches) {
       return;
     }
-    if (keepsLine(e, runningRef.current)) {
+    if (keepsLine(e)) {
       return;
     }
     e.preventDefault();
-    // Enter interrupts with the message; Alt+Enter leaves the run alone and queues it.
-    send(!e.altKey);
+    send();
   };
 
   // shellMode: what is typed is a shell command (`!ls` or `/shell ls`), so the send button says so.
@@ -296,8 +316,8 @@ export function useComposer({
     onInput,
     handleSubmit,
     handleKeydown,
-    // sendQueued sends without interrupting a run in flight: for a message nobody pressed send on.
-    sendQueued: () => send(false),
+    // sendQueued sends what the composer holds: for a message nobody pressed send on.
+    sendQueued: send,
     shellMode,
     nextSuggestion,
   };

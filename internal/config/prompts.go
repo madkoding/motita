@@ -82,6 +82,7 @@ Return a JSON object with this exact shape:
     {"step": 1, "action": "what is done", "command": "exact shell command or empty"}
   ],
   "subtasks": [],
+  "independent": false,
   "expected_result": "what should be seen when it is done right"
 }
 The commands must be verifiable and non-destructive unless the task explicitly
@@ -93,7 +94,11 @@ subtasks ONLY when the request is really several separate pieces of work that ca
 be finished and verified on its own (for example "add the endpoint, then write its
 documentation page"). Each subtask is then run as its own task, in the order listed, so
 write each one as a complete instruction that names what it applies to, and list them
-in the order the work has to happen. Never split a single change into its steps.`,
+in the order the work has to happen. Never split a single change into its steps.
+"independent" is true ONLY when the subtasks touch different files and none of them
+builds on another's result: they are then carried out at the same time, each in a
+working copy of its own, and merged when all have ended. When one subtask reads or
+changes what another produces, leave it false.`,
 }
 
 // BaseExecuteTemplate asks for the concrete action to run and, when applicable,

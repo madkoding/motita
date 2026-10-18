@@ -711,8 +711,9 @@ func TestContinueSessionPullsMainAndStartsAFreshSession(t *testing.T) {
 }
 
 // A project session starts by bringing in the base branch from origin; an origin that cannot
-// be reached refuses the session instead of branching from stale code.
-func TestCreateSessionRefusesWhenTheProjectCannotBeUpdated(t *testing.T) {
+// be reached (offline) still gives a session, from the checkout as it is, and the answer says
+// so once. The listing afterwards carries no warning: it was about the create.
+func TestCreateSessionWarnsWhenTheProjectCannotBeUpdated(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	ws := t.TempDir()
 	withProjectsAndFake(t, srv, ws)
@@ -721,7 +722,19 @@ func TestCreateSessionRefusesWhenTheProjectCannotBeUpdated(t *testing.T) {
 	mustRun(t, "git", "-C", p.Dir, "remote", "add", "origin", filepath.Join(ws, "missing.git"))
 
 	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("create with an unreachable origin = %d, want 409: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create with an unreachable origin = %d, want 201: %s", w.Code, w.Body.String())
+	}
+	var ss SessionStatus
+	decodeJSON(t, w, &ss)
+	if !strings.Contains(ss.Warning, "could not be updated") || !strings.Contains(ss.Warning, "could not fetch") {
+		t.Fatalf("warning = %q, want the failed update and git's reason", ss.Warning)
+	}
+	if ss.ProjectID != pid || ss.Workspace == "" {
+		t.Errorf("the session must still be placed in the project: %+v", ss)
+	}
+	c, _ := srv.lookup(ss.ID)
+	if c.status().Warning != "" {
+		t.Error("the warning belongs to the create answer, not to the session")
 	}
 }

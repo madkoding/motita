@@ -26,6 +26,9 @@ type confirmState struct {
 	// reply carries the answer back to the agent. It is buffered, so the interface never
 	// blocks on a reader that has already been cancelled.
 	reply chan bool
+	// allowed marks a command whose shape the person already said "always" to here: the loop
+	// answers yes and records it, and no window opens.
+	allowed bool
 }
 
 // answering reports whether the confirmation window is open.
@@ -67,7 +70,7 @@ func (t *TUI) confirmLines(max int) []string {
 			out = append(out, t.confirmLine("  "+t.muted(l), width))
 		}
 	}
-	out = append(out, t.confirmLine(t.muted(t.tr("y = yes, run it · Enter or n = no")), width))
+	out = append(out, t.confirmLine(t.muted(t.tr("y = yes, run it · a = always allow here · Enter or n = no")), width))
 
 	if max > 0 && len(out) > max {
 		// The cap keeps the LAST row, so the keys hint always survives the cut: the user has
@@ -96,7 +99,9 @@ func (t *TUI) askConfirm(ctx context.Context, req agent.ApprovalRequest) (bool, 
 		// cover it, about a run the user is not looking at. It is refused, and the refusal says so.
 		return false, errors.New("a background agent cannot ask for approval here; leave this step to the main agent")
 	}
-	c := &confirmState{req: req, reply: make(chan bool, 1)}
+	// A shape the person already said "always" to is still handed to the loop: the loop owns the
+	// transcript, so the note that it ran without asking is written there and not from here.
+	c := &confirmState{req: req, reply: make(chan bool, 1), allowed: t.alwaysAllowed(req)}
 
 	select {
 	case t.approvalChannel() <- c:
@@ -159,8 +164,14 @@ func (t *TUI) answerConfirm(ctx context.Context, c *confirmState) {
 	}
 }
 
-// openConfirm shows the window for a command the agent is waiting on.
+// openConfirm shows the window for a command the agent is waiting on. A command the person
+// already said "always" to here is answered on the spot, with a note, and no window opens.
 func (t *TUI) openConfirm(c *confirmState) {
+	if c.allowed {
+		t.recordConfirm(c.req, verdictAllowedEarlier)
+		c.reply <- true
+		return
+	}
 	t.confirm = c
 	t.drawFrame()
 }
@@ -174,6 +185,8 @@ func (t *TUI) handleConfirmLine(line string) {
 	// reaches for them, and accepting an answer the hint did not name costs nothing.
 	case "s", "S", "y", "Y", "si", "sí", "yes": // spanish-fixture: accepted input, a Spanish typist reaches for these
 		t.decideConfirm(true)
+	case "a", "A", "always":
+		t.decideAlways()
 	case "n", "N", "no", keyEsc, keyEnter:
 		// Enter is the CAUTIOUS answer, not the eager one. A stray Enter is far more likely
 		// than a considered one, and the action behind this window is the one the user
@@ -190,28 +203,77 @@ func (t *TUI) handleConfirmLine(line string) {
 // handed to the agent waiting for it. The window is closed FIRST, so the frame that records the
 // decision no longer shows it, and the keys go back to the input.
 func (t *TUI) decideConfirm(approved bool) {
+	v := verdictRejected
+	if approved {
+		v = verdictApproved
+	}
+	t.closeConfirm(approved, v)
+}
+
+// decideAlways answers yes and keeps this shape of command allowed here, so the next time, in
+// this session or a later one in this folder, it runs without asking. A line with no shape to
+// remember is a plain yes.
+func (t *TUI) decideAlways() {
+	v := verdictApproved
+	if t.rememberApproval(t.confirm.req) {
+		v = verdictAlways
+	}
+	t.closeConfirm(true, v)
+}
+
+// closeConfirm closes the window with its verdict: recorded, handed to the agent, and the keys go
+// back to the input.
+func (t *TUI) closeConfirm(approved bool, v verdict) {
 	c := t.confirm
 	t.confirm = nil
-	t.recordDecision(c.req, approved)
+	t.recordConfirm(c.req, v)
 	c.reply <- approved
 	t.drawFrame()
 }
 
-// confirmHintText is the sentence the conversation keeps after a decision, so the transcript
-// records what was approved and what was not.
-func confirmHintText(lang i18n.Lang, req agent.ApprovalRequest, approved bool) string {
+// verdict is how a command's question ended, which is what the transcript records.
+type verdict int
+
+const (
+	verdictRejected       verdict = iota
+	verdictApproved               // yes, this once
+	verdictAlways                 // yes, and this shape of command from now on here
+	verdictAllowedEarlier         // not asked: the person said "always" to this shape before
+)
+
+// verdictText is the sentence the conversation keeps after a decision, so the transcript records
+// what was approved, what was not, and what ran without asking.
+func verdictText(lang i18n.Lang, req agent.ApprovalRequest, v verdict) string {
 	format := "[rejected by the user] %s"
-	if approved {
+	switch v {
+	case verdictApproved:
 		format = "[approved by the user] %s"
+	case verdictAlways:
+		format = "[approved by the user, always allowed here from now on] %s"
+	case verdictAllowedEarlier:
+		format = "[allowed earlier in this folder, ran without asking] %s"
 	}
 	return i18n.Tf(lang, format, strings.TrimSpace(req.Command))
 }
 
-// recordDecision writes that sentence into the conversation.
+// confirmHintText is verdictText for a plain yes or no.
+func confirmHintText(lang i18n.Lang, req agent.ApprovalRequest, approved bool) string {
+	if approved {
+		return verdictText(lang, req, verdictApproved)
+	}
+	return verdictText(lang, req, verdictRejected)
+}
+
+// recordConfirm writes that sentence into the conversation.
 //
-// It is called from the ONE place the answer is decided, so the two branches cannot record
-// different things, and it is a method on the TUI rather than a bare helper so the note lands in
-// the transcript the user reads instead of only being reachable from a test.
+// It is called from the ONE place a window closes, and from the loop that answers an allowed
+// command, so no two paths record different things; it is a method on the TUI rather than a bare
+// helper so the note lands in the transcript the user reads.
+func (t *TUI) recordConfirm(req agent.ApprovalRequest, v verdict) {
+	t.addMessage(AuthorAgent, verdictText(t.Lang, req, v))
+}
+
+// recordDecision records a plain yes or no.
 func (t *TUI) recordDecision(req agent.ApprovalRequest, approved bool) {
 	t.addMessage(AuthorAgent, confirmHintText(t.Lang, req, approved))
 }

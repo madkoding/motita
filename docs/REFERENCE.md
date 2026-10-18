@@ -168,7 +168,8 @@ START
 [2] EXTRACT       context and success criteria (the anchor's rules)
 [3] LLM           analyses the task   -> {"understandable", "success_criteria", ...}
 [4] LLM           produces a plan     -> {"plan", "subtasks", ...}
-[5] SPLIT          into subtasks when the plan declares them (bounded depth)
+[5] SPLIT          into subtasks when the plan declares them (bounded depth); independent
+                   ones run side by side in worktrees of their own and are merged in order
 [6] LLM           produces the action -> {"actions", "final_action", "done"}
 [7] RUN            in the SANDBOX (Layer C)
 [8] VALIDATE       with the ANCHOR (Layer A) — always, even if [7] failed
@@ -535,7 +536,7 @@ honoured. The documented one wins when both are set.
 | `models`       | `plan`, `code`, `review`, `research`, `summary`: one `provider/model` per kind of work (see [Models per kind of work](#models-per-kind-of-work)); empty follows `llm.provider`/`llm.model`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `subtask_retries`, `criteria_audit`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `auto_apply_suggestions`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
+| `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `subtask_retries`, `criteria_audit`, `assume_first`, `quick_plan`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `auto_apply_suggestions`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
 | `skills`       | `dir`, `max_file_bytes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `gateway`      | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `origins`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click)                                                                                                                                                                                                                                                                                                                                                                                  |
 | `schedule`     | `enabled`, `tick`, `min_every`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -577,6 +578,34 @@ task, a question or "don't change anything" is a plan). In the gateway, a messag
 cannot place costs one short model call; `agent.auto_mode_rules_only: true`
 (`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns that call off and runs such a message as a task.
 
+A bare go-ahead after a plan ("ok", "do it", "dale", "hazlo") carries that plan out: the plan
+travels inside the task, the agent does not plan it again and never stops to ask, and the turn
+is noted as `mode: task (carrying out the plan)`. A go-ahead after anything else is an ordinary
+message.
+
+A finished task also reports `lessons`: facts about the project it learned that the next task
+should not rediscover (the command that runs the tests, a convention, a trap, a decision the
+person made). They are kept in `.motita/memory.md` in the workspace, newest last and bounded,
+and every later task reads them with the project note; the person can edit or delete a line. In
+the web UI the files, checks and lessons of a finished task are folded under one line, open only
+when the task is not done.
+
+When a command needs approval, the panel's second answer, **Always allow this here**, runs it
+and keeps that shape of command (its policy rule and program, `git push`, `npm install`) allowed
+in the project: later sessions of the project run it without asking, and the run says so
+(`approved (always allowed in this project): …`). The decision is kept in `approvals.json`
+beside the sessions (`scope: "project"` on `POST /v1/sessions/{id}/runs/approval` and on
+`/shell`); "allow all commands for this session" stays available through
+`POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden. In the terminal
+the confirmation window's `a` key does the same for the folder the commands run in, kept in
+`~/.motita/approvals.json`; the transcript says when a command ran without asking.
+
+A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent
+reads it at its next step, it wins over the plan where they differ, and the turn's trail shows
+it as `you: …`. When nothing can read it (a plan, a task between steps) it is queued for the end
+of the turn, as `/queue` does. In the web UI Enter sends while a run works and Escape stops it;
+in the TUI a line typed during a task is added to it, and Esc stops it.
+
 After a task routed by auto mode, the suggestions the agent marks as needed (the request is
 not done or correct without them, they stay in scope and are safe to undo) are applied
 without asking, each with the reason it is needed; the rest are still asked about.
@@ -598,6 +627,14 @@ sandbox, and its own suggestions are asked about, so applying never chains into 
 
 Three things keep a request from needing a second one:
 
+- **Quick plan** (`agent.quick_plan`, `MOTITA_AGENT_QUICK_PLAN`, default `true`). The analysis
+  writes the steps of a task in its own answer, so one model call stands before the first action
+  instead of two; the plan phase still runs when the analysis says the work needs subtasks. `false`
+  always plans apart.
+- **Assume first** (`agent.assume_first`, `MOTITA_AGENT_ASSUME_FIRST`, default `true`). When the
+  analysis has a question and states what it would do, the agent does it and the report says what was
+  assumed; only a question marked as a real decision (destructive, irreversible, materially different
+  results) stops the turn. `false` asks every time.
 - **Criteria audit** (`agent.criteria_audit`, `MOTITA_AGENT_CRITERIA_AUDIT`, default `true`). When the
   model claims the task is done, one short model call reads the claim against the success criteria
   the analysis wrote down ("done means ..."). A criterion the run never showed (a behaviour no check
@@ -607,6 +644,12 @@ Three things keep a request from needing a second one:
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores
   the old stop at the first failure.
+- **Independent subtasks run side by side.** A plan may mark its subtasks `"independent": true`
+  (they touch different files and none builds on another). In a repository root, with
+  `agent.max_parallel` above 1, each then runs as a background agent in a worktree of its own, at
+  most `max_parallel` at a time, and the branches are merged into the checkout in the order listed
+  once all have ended. A subtask that does not pass, or whose branch does not merge, fails the
+  parent and says which; the others still land. Anywhere else they run one after another.
 - **Applying suggestions never asks.** The turn that applies suggestions you accepted proceeds on
   that list like a subtask does, instead of asking what it meant.
 
@@ -1259,7 +1302,7 @@ models:
   code: ""                           # task mode, and background agents that write
   review: openai/gpt-5               # background agents with "role": "review"
   research: ollama/qwen3:8b          # background agents with "role": "research"
-  summary: openai/gpt-5-nano         # titles, compaction summaries, auto mode's guess
+  summary: openai/gpt-5-nano         # titles, compaction summaries, auto mode's guess, the criteria audit and the synthesis
   cheap: ollama/qwen3:8b             # tier: easy pieces handed to background agents
   strong: ""                         # tier: hard pieces; empty = the coding model
 ```

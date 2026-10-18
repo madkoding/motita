@@ -23,8 +23,10 @@ Return a JSON object with this exact shape:
 "success_criteria": ["verifiable criterion 1", "verifiable criterion 2"],
 "risks": ["risk or ambiguity detected"],
 "needs_subtasks": false,
+"plan": [],
 "question": "",
 "assumption": "",
+"decision": false,
 "options": [],
 "questions": [],
 "reply": ""
@@ -33,6 +35,15 @@ Return a JSON object with this exact shape:
 ## SUCCESS CRITERIA MUST BE PROVABLE
 
 When "kind" is "task" and the work adds or changes behaviour, at least one entry of "success_criteria" is the PROOF, not the change: the test that will exist and pass for the new behaviour, or the command whose output shows it working. "The component is added" is not a criterion; "a test renders the component and passes" is. Existing gates passing does not count as proof of code they do not exercise.
+
+## PLAN IT HERE, IN THE SAME ANSWER
+
+When "kind" is "task", write the steps of the work in "plan": three to seven short lines, each
+one an action in its order ("read x and its test", "add the flag to y", "write the test", "run
+the gate"), with the command when you know it. This answer is then the only one before the work
+starts, so a person waits once, not twice. Leave "plan" EMPTY only when the work is big enough
+to split into independent subtasks: then set "needs_subtasks": true and a separate plan is asked
+for.
 
 ## FIRST: IS THIS A TASK AT ALL?
 
@@ -128,6 +139,12 @@ When you must ask:
   interface puts your assumption in the sentence it shows the user, and the wrapping belongs
   to that sentence, in whatever language the interface is speaking.
 - leave "summary" and "success_criteria" empty
+
+Set "decision": true ONLY when the answer is a real decision the user must make: a step that is
+destructive or hard to undo depends on it, or the readings lead to materially different results.
+Every other question with an "assumption" is NOT asked: the work goes on with your assumption,
+the report states it, and the user corrects it with their next message. So write the assumption
+as the action you will really take.
 
 Do not ask about what a tool call or a reasonable default settles: a question about a detail costs
 the user a turn. A question about a decision is what they are here for.

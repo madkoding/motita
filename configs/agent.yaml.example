@@ -172,6 +172,8 @@ agent:
   max_retries: 3               # total attempts = max_retries + 1
   subtask_depth: 1             # allowed splitting levels
   subtask_retries: 1           # tries again a failed subtask, told why, before the parent gives up; 0 = off
+  quick_plan: true             # the analysis writes the plan itself (one model call before the first action); false = always plan apart
+  assume_first: true           # goes on with its stated assumption instead of asking, unless the question is a real decision; false = always ask
   criteria_audit: true         # sends a "done" back when a success criterion is not shown (1 short model call)
   max_parallel: 3              # background agents (spawn_agent) running at once; 0 = off
   max_tasks: 0                 # 0 = no limit
@@ -306,7 +308,7 @@ models:
   code: ""       # task mode, and the background agents that write
   review: ""     # background agents with "role": "review" (read-only)
   research: ""   # background agents with "role": "research" (read-only)
-  summary: ""    # titles, compaction summaries, auto mode's guess
+  summary: ""    # titles, compaction summaries, auto mode's guess, the criteria audit and the synthesis
 
 ui:
   # The language of the terminal, the browser and the setup wizard: auto | en | es.

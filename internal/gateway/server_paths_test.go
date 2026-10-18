@@ -143,8 +143,9 @@ func TestAServerWithUnusableStorePathsStillStarts(t *testing.T) {
 	if srv == nil {
 		t.Fatal("a server with unusable stores must still come up")
 	}
-	if len(logged) != 3 {
-		t.Errorf("all three store failures must be reported, got %d: %v", len(logged), logged)
+	// Four: the three stores, and the remembered approvals that live beside the sessions.
+	if len(logged) != 4 {
+		t.Errorf("every store failure must be reported, got %d: %v", len(logged), logged)
 	}
 	if srv.store != nil {
 		t.Error("no session store can have been opened from a path that is not a directory")

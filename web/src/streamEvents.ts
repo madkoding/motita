@@ -7,6 +7,7 @@ import { sortAgents } from "./appFormat";
 import {
   classifyProgress,
   commandOf,
+  isPhaseLine,
   parseSub,
   splitOutput,
   subTag,
@@ -157,7 +158,9 @@ function stepKind(kind: string): string {
   return choose(kind === "thought", "thought", "step");
 }
 
-// onStep: a progress line that is a step of the turn (a command, a phase, a thought).
+// onStep: a progress line that is a step of the turn (a command, a thought, a note), or one
+// that only names the phase the pipeline is in. The second kind moves the activity line and is
+// filed nowhere: the trail is a timeline of what the agent did, not of the labels around it.
 function onStep({ rs }: StreamContext, text: string, kind: string) {
   // A finished thought belongs to the thinking drawer, not to the chat: it is filed with
   // the turn's steps (where it is kept) and the live snapshot it grew from is done.
@@ -166,7 +169,7 @@ function onStep({ rs }: StreamContext, text: string, kind: string) {
     rs.setActivityKind(kind);
   }
   const liveTurn = rs.liveTurnRef.current;
-  if (text && liveTurn != null) {
+  if (text && liveTurn != null && !isPhaseLine(text)) {
     const step = keyed({
       kind: stepKind(kind),
       text,

@@ -71,13 +71,16 @@ func defaultConv(t *testing.T, srv *Server) *conversation {
 
 func TestEveryInputBecomesACheckpointWithItsSteps(t *testing.T) {
 	svc := recordingService(func(p func(string, ...any)) {
+		p("analysing the task...")
 		p("thinking: plan the work")
+		p("deciding action (round 1/8)...")
 		p("running: go test ./...")
 		p("output (exit 1):\nFAIL pkg")
 		p("running: ls")
 		p("output (exit 0):\na.go")
 		p("live: half a thought")
 		p("subtask 1/2 done")
+		p("synthesizing answer...")
 	})
 	srv := newTestServer(t, svc)
 	runTask(t, srv, "first")
@@ -89,7 +92,8 @@ func TestEveryInputBecomesACheckpointWithItsSteps(t *testing.T) {
 	}
 	steps := cps[0].Steps
 	if len(steps) != 4 {
-		t.Fatalf("steps = %+v, want thought, 2 commands and a plain step (the live snapshot is not one)", steps)
+		t.Fatalf("steps = %+v, want thought, 2 commands and a plain step "+
+			"(the live snapshot and the phase labels are not steps)", steps)
 	}
 	if steps[0].Kind != "thought" || steps[1].Kind != "command" || steps[3].Kind != "step" {
 		t.Errorf("kinds = %+v", steps)

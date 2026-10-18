@@ -318,11 +318,17 @@ test("the card leads with the verdict and tallies, then the summary, the changes
     ],
     risks: ["slow on big repos", "slow on big repos"],
     next_steps: ["ship it"],
+    lessons: ["tests run with make test"],
   };
   const { root, done } = await mount(h(ReportCard, { report }));
   await flush(5);
   const card = root.querySelector(".rpt");
   assert.equal(card.className, "rpt rpt-partial");
+  // Not done: the account of the work is open, with what was learned at its end.
+  assert.equal(card.querySelector("details.rpt-fold").open, true);
+  assert.deepEqual([...card.querySelectorAll(".rpt-lessons li")].map(text), [
+    "tests run with make test",
+  ]);
   assert.equal(text(card.querySelector(".rpt-badge")), "Partly done");
   const [checks, changes] = card.querySelectorAll(".rpt-tally");
   assert.equal(checks.className, "rpt-tally bad");
@@ -377,6 +383,16 @@ test("a report with no lists draws only the verdict, and an unknown status reads
   assert.equal(text(failed.root.querySelector(".rpt-badge")), "Not completed");
   assert.equal(text(failed.root.querySelector(".rpt-tally")), "1 change");
   await failed.done();
+  // Done: the files and checks are folded away; the answer is the summary.
+  const fine = await mount(
+    h(ReportCard, {
+      report: { status: "done", summary: "ok", changes: [{ path: "x" }] },
+    }),
+  );
+  const fold = fine.root.querySelector("details.rpt-fold");
+  assert.equal(fold.open, false);
+  assert.equal(text(fold.querySelector("summary")), "Files, checks and what was learned");
+  await fine.done();
   const none = await mount(h(ReportCard, { report: {} }));
   assert.equal(none.root.querySelector(".rpt").className, "rpt rpt-done");
   await none.done();

@@ -290,7 +290,11 @@ type Agent struct {
 	// analysis stated is not shown to be met, before the project's gate is spent on it. It costs
 	// one short model call per claim; false skips it.
 	CriteriaAudit bool `yaml:"criteria_audit"`
-	MaxTasks      int  `yaml:"max_tasks"`
+	// AssumeFirst: go on with the stated assumption unless the question is a real decision.
+	AssumeFirst bool `yaml:"assume_first"`
+	// QuickPlan: the analysis may plan the task in its own answer, skipping the plan phase.
+	QuickPlan bool `yaml:"quick_plan"`
+	MaxTasks  int  `yaml:"max_tasks"`
 	// MaxSteps bounds how many rounds a SINGLE task may take, which is a different
 	// question from max_retries.
 	//
@@ -493,6 +497,8 @@ func Default() Config {
 			// subtask abandons every one that comes after it.
 			SubtaskRetries: 1,
 			CriteriaAudit:  true,
+			AssumeFirst:    true,
+			QuickPlan:      true,
 			// A task is allowed to take many rounds, because "do what I asked" is usually a
 			// plan and not a single step.
 			//
@@ -990,25 +996,6 @@ func (c *Config) normalize() {
 	}
 	if !c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level != "off" {
 		c.LLM.Reasoning.Enabled = true
-	}
-}
-
-// retiredBrowserProvider is the provider that ran a small model in a browser tab. It answered
-// nonsense, so it was removed; a file that still names it falls back to the default.
-const retiredBrowserProvider = "browser"
-
-// dropRetiredBrowserModel lets a saved file that still points at the removed browser provider
-// load: the main model returns to the default, and a models entry follows the default again.
-func (c *Config) dropRetiredBrowserModel() {
-	if c.LLM.Provider == retiredBrowserProvider {
-		d := Default().LLM
-		c.LLM.Provider, c.LLM.Model, c.LLM.BaseURL = d.Provider, d.Model, d.BaseURL
-	}
-	for _, e := range []*string{&c.Models.Plan, &c.Models.Code, &c.Models.Review, &c.Models.Research,
-		&c.Models.Summary, &c.Models.Cheap, &c.Models.Strong} {
-		if provider, _, _ := strings.Cut(strings.TrimSpace(*e), "/"); strings.EqualFold(provider, retiredBrowserProvider) {
-			*e = ""
-		}
 	}
 }
 

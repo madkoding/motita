@@ -188,7 +188,7 @@ test("the approval panel asks the question, shows the command and takes the thre
   const [run, all, no] = root.querySelectorAll("button");
   assert.deepEqual(
     [text(run), text(all), text(no)],
-    ["Run it", "Allow all this session", "No"],
+    ["Run it", "Always allow this here", "No"],
   );
   assert.deepEqual(
     [run, all, no].map((b) => b.getAttribute("aria-pressed")),

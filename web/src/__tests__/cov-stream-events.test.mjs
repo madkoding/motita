@@ -163,8 +163,13 @@ test("progress lines become the turn's steps, its commands and the terminal log"
     "a thought does not change the activity",
   );
   assert.equal(rs().liveThought, null);
+  // A phase label moves the activity line and is no step: the trail keeps the work.
+  await send("progress", { text: "deciding action (round 1/8)..." });
+  assert.equal(rs().activity, "deciding action (round 1/8)...");
+  assert.equal(rs().activityKind, "reasoning");
   await send("progress", { text: "running: ls -la" });
   await send("progress", { text: "some phase" });
+  await send("progress", { text: "synthesizing answer..." });
   await send("progress", {});
   let steps = rs().stepsByTurn[1];
   assert.deepEqual(

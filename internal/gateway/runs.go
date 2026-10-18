@@ -100,6 +100,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d = intent.Refine(r.Context(), d, completerOf(c.svc))
+	d, _ = followPlan(c.svc.Transcript(), d)
 	c.stateMu.Lock()
 	prev := c.lastAuto
 	c.lastAuto = d
@@ -649,6 +650,12 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 				progressEvent{Text: "approved (all commands allowed in this session): " + who + req.Command})
 			return true, nil
 		}
+		// "Always allow this here", said in an earlier session of the project: answered the same
+		// way, and announced the same way.
+		if req.Rule != agent.BudgetRule && s.alwaysAllowed(c, req.Rule, req.Command) {
+			rn.append(EventProgress, progressEvent{Text: "approved (always allowed in this project): " + req.Command})
+			return true, nil
+		}
 		if req.Background {
 			// One question is open at a time, and it belongs to the agent the user is watching.
 			return false, errors.New("a background agent cannot ask for approval: allow all commands for this " +
@@ -683,7 +690,8 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID      string `json:"id"`
 		Approve bool   `json:"approve"`
-		// Scope "session" approves this command AND every later one in this session.
+		// Scope "session" approves this command AND every later one in this session; "project"
+		// approves it and every later command of the same shape in this project, for good.
 		Scope string `json:"scope"`
 	}
 	if !s.decodeBody(w, r, &body) {
@@ -715,6 +723,9 @@ func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bo
 		// Written now: the answer is the user's decision, and a gateway that is stopped a
 		// moment later must still know it.
 		s.saveSession(c)
+	}
+	if approve && scope == "project" {
+		s.rememberApproval(c, p.rule, p.command)
 	}
 	// Buffered with room for one, so this never blocks even if the run has already moved on or
 	// already been cancelled. A blocking send here would hang the answering client on a

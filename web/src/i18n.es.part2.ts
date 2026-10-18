@@ -216,8 +216,8 @@ const more: Record<string, string> = {
   "Background agents that investigate and change nothing.":
     "Agentes en segundo plano que investigan y no cambian nada.",
   Summaries: "Resúmenes",
-  "Titles, conversation summaries and auto mode's guess.":
-    "Títulos, resúmenes de la conversación y la elección del modo auto.",
+  "Titles, conversation summaries, auto mode's guess, the final check and the answer's summary.":
+    "Títulos, resúmenes de la conversación, la elección del modo auto, la revisión final y el resumen de la respuesta.",
   "Easy pieces (cheap)": "Piezas fáciles (barato)",
   "A small or local model for easy pieces handed to background agents. Leave empty to send everything to one model.":
     "Un modelo pequeño o local para las piezas fáciles que van a los agentes en segundo plano. Déjalo vacío para mandar todo a un solo modelo.",

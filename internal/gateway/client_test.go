@@ -876,3 +876,31 @@ func TestARunKeepsTalkingToItsOwnSessionAfterASwitch(t *testing.T) {
 		t.Errorf("the finished run's figures were cached for the session the client moved to: %+v", snap)
 	}
 }
+
+// Steer reports what the gateway said: taken by the task, or not (queued, started, unreachable).
+func TestClientSteerReportsWhetherTheTaskTookIt(t *testing.T) {
+	var got string
+	answer := `{"steered":true}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/"+DefaultSession+"/steer" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		got = string(body)
+		_, _ = io.WriteString(w, answer)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, testToken)
+	if !c.Steer("also this") || !strings.Contains(got, `"also this"`) {
+		t.Fatalf("steered: got %q", got)
+	}
+	answer = `{"steered":false,"queued":true}`
+	if c.Steer("later") {
+		t.Fatal("a queued message was not taken by the task")
+	}
+	srv.Close()
+	if c.Steer("offline") {
+		t.Fatal("an unreachable gateway took nothing")
+	}
+}

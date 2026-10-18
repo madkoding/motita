@@ -469,9 +469,9 @@ test("with no session the chat waits for one, and the button creates it", async 
   const { root } = ctl;
   const main = root.querySelector("[data-no-session]");
   assert.match(text(main), /Waiting for a new session/);
-  assert.match(text(main), /Create a session to start talking to the agent\./);
+  assert.match(text(main), /Type below to start talking to the agent/);
   assert.equal(root.querySelector("[role=log]"), null);
-  assert.equal(stubEl(root, "Composer"), null);
+  assert.ok(stubEl(root, "Composer"), "typing is the other way to start");
   assert.ok(root.querySelector("header"), "the header stays");
   const btn = main.querySelector("button");
   assert.equal(text(btn), "New session");

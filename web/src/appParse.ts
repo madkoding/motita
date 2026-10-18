@@ -122,6 +122,17 @@ const PROGRESS_PATTERNS: [RegExp, string][] = [
   [/^(task complete|synthesizing)/, "synthesis"],
 ];
 
+// isPhaseLine says whether a progress line only names the phase the pipeline is in. It is the
+// activity line while the run lasts and nothing more: the trail keeps the work, not its labels.
+// The gateway drops the same lines from the steps it keeps (agent.IsPhaseLine), so a conversation
+// opened again shows the trail the live view did.
+const PHASE_LINE =
+  /^(analysing the task\.\.\.|planning\.\.\.|plan ready: \d+ steps?|deciding action \(round \d+\/\d+\)\.\.\.|round \d+ done; |validating with anchor\.\.\.|validation passed; |synthesizing answer\.\.\.|task complete: )/;
+
+export function isPhaseLine(text: string): boolean {
+  return PHASE_LINE.test(text);
+}
+
 export function classifyProgress(text: string): string | null {
   const byPrefix = PROGRESS_PREFIXES.find(([prefix]) =>
     text.startsWith(prefix),
