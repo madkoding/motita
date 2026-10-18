@@ -39,6 +39,7 @@ import (
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/gpgagent"
 	"github.com/madkoding/motita/internal/logx"
 )
 
@@ -98,6 +99,10 @@ type Options struct {
 	// sandbox's HOME. Both empty leaves the environment as it was.
 	GitAuthDir string
 	GitHome    string
+	// GPG is the user's gpg-agent a command may sign with (see gpgagent.Resolve): its socket and
+	// the public half of the keyring become readable and GNUPGHOME points at them. Zero grants
+	// nothing. The private keys stay hidden either way.
+	GPG gpgagent.Access
 	// HiddenPaths are files and directories a confined command may not read: motita's logins and
 	// stored keys, which no command needs. Like the write confinement, it spares what the user
 	// approved, which also keeps motita's logins for git.
@@ -479,7 +484,13 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		"temp_dir", tempDir,
 		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
-	return s.launch(ctx, command, args, workDir, timeout, maxOutput, spec.Limits)
+	out, truncated, code, err := s.launch(ctx, command, args, workDir, timeout, maxOutput, spec.Limits)
+	if code != 0 && s.op.GPG.Enabled() && gpgagent.FailedToSign(out) {
+		// A sandboxed command has no terminal for pinentry: say what to do instead of leaving git's
+		// one line to be guessed at.
+		out = strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
+	}
+	return out, truncated, code, err
 }
 
 // writeRoots are the directories a confined command may write: where it works, the home the
@@ -610,6 +621,10 @@ func (s *Sandbox) readRoots(workDir string) []string {
 			roots = append(roots, filepath.Join(dir, name))
 		}
 	}
+	if s.op.GPG.Enabled() {
+		roots = append(roots, gpgagent.PublicPaths(s.op.GPG.Home)...)
+		roots = append(roots, s.op.GPG.Socket)
+	}
 	roots = append(roots, s.repoRoots...)
 	if workDir != s.base {
 		_, repos := worktreeGit(workDir)
@@ -669,6 +684,9 @@ func (s *Sandbox) hiddenPaths(roots []string) []string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		candidates = append(candidates, filepath.Join(xdg, "git", "credentials"))
 	}
+	if home := s.gpgHome(); home != "" {
+		candidates = append(candidates, gpgagent.PrivatePaths(home)...)
+	}
 	var hidden []string
 	for _, h := range candidates {
 		h = filepath.Clean(h)
@@ -682,6 +700,15 @@ func (s *Sandbox) hiddenPaths(roots []string) []string {
 		}
 	}
 	return hidden
+}
+
+// gpgHome is the GnuPG home whose private keys no confined command may read: the one granted for
+// signing, else the user's own, whether or not signing is on.
+func (s *Sandbox) gpgHome() string {
+	if s.op.GPG.Enabled() {
+		return s.op.GPG.Home
+	}
+	return gpgagent.Home(s.op.GitHome)
 }
 
 // launchCommand builds the command that the isolation child will run. It is a
@@ -815,6 +842,9 @@ func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 			exe, auth = "", ""
 		}
 		base = append(base, gitforge.GitEnv(exe, auth, s.op.GitHome)...)
+	}
+	if view := s.gpgView(); view != "" {
+		base = append(base, "GNUPGHOME="+view)
 	}
 	return base
 }

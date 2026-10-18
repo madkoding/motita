@@ -52,6 +52,14 @@ each binary carries a build provenance attestation
 Unix socket reachable by path until the kernel offers Landlock ABI 9; see
 `docs/REFERENCE.md` ("Known limit of the Landlock confinement").
 
+**Commit signing.** When the global git configuration asks for signed commits,
+a confined command is given the user's gpg-agent socket (the restricted
+`extra` one when there is one) so its commits can be signed; keys are never
+copied and the private key files stay hidden from every confined command. The
+residual risk is the point of the grant: while the user's key is unlocked in
+the agent, a command can ask it to sign. `sandbox.gpg_signing: false` removes
+the grant.
+
 **Out of scope.** An attacker who already controls the user's account or
 machine, a model provider that is itself malicious, and commands the user
 explicitly approves.

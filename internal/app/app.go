@@ -1068,6 +1068,7 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 		FullDisk:      cfg.Sandbox.FullDisk(),
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
+		GPG:           sandbox.GPGAccess(cfg.Sandbox.GPGSigning, config.HomeDir(), log),
 		HiddenPaths:   config.SecretFiles(""),
 		Log:           log,
 	}
