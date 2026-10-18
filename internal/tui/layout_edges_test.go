@@ -960,7 +960,7 @@ func TestTheBottomBarNamesWhatEachProviderConsumed(t *testing.T) {
 	t.Cleanup(func() { providerTotals = old })
 	tu, _ := newKeyTUI("", "")
 	tu.Runner.(*fakeRunner).snapshot = session.Snapshot{Window: 1000, Tokens: 10, Used: 0.01}
-	if got := tu.usageLabel(); got != "" {
+	if got := tu.usageLabel(3); got != "" {
 		t.Errorf("before any call: %q", got)
 	}
 	providerTotals = func() []llm.ProviderUsage {
@@ -970,15 +970,23 @@ func TestTheBottomBarNamesWhatEachProviderConsumed(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := tu.usageLabel(), "anthropic 2.5k, openai 4.5k, gemini 6.5k tok"; got != want {
+	if got, want := tu.usageLabel(3), "anthropic 2.5k, openai 4.5k, gemini 6.5k tok"; got != want {
 		t.Errorf("usageLabel = %q, want %q", got, want)
 	}
 	if wide := stripANSI(tu.bottomBar(160)); !strings.Contains(wide, "anthropic 2.5k") || !strings.Contains(wide, "context 1%") {
 		t.Errorf("room for both: %q", wide)
 	}
-	// Without room for the usage the context gauge stays.
+	if got := tu.usageLabel(0); got != "" {
+		t.Errorf("no providers asked for: %q", got)
+	}
+	// Short of room, fewer providers are named, and then none; the context gauge stays.
+	two := stripANSI(tu.bottomBar(134))
+	if !strings.Contains(two, "anthropic 2.5k, openai 4.5k tok") || strings.Contains(two, "gemini") ||
+		!strings.Contains(two, "context 1%") {
+		t.Errorf("two providers: %q", two)
+	}
 	mid := stripANSI(tu.bottomBar(60))
-	if strings.Contains(mid, "anthropic") {
+	if strings.Contains(mid, "anthropic") || !strings.Contains(mid, "context 1%") {
 		t.Errorf("the usage must go first: %q", mid)
 	}
 }
