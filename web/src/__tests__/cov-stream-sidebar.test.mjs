@@ -15,6 +15,7 @@ window.matchMedia = () => ({
 const { AppCtx } = await source("appStore.ts");
 const { SessionRow, RowMenu, DeleteItem } = await source("SessionRow.tsx");
 const { Sidebar } = await source("Sidebar.tsx");
+const { MachinesCtx } = await source("useMachines.ts");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
 
@@ -76,14 +77,27 @@ function store(over = {}) {
   return s;
 }
 
+// machines is the computers the sidebar is drawn among: this one only, shown and open.
+const machines = {
+  view: null,
+  active: "",
+  isOpen: (id) => id === "",
+  openConnect() {},
+};
+
 async function mount(node, value) {
   const root = document.createElement("div");
   document.body.appendChild(root);
-  await act(() => render(h(AppCtx.Provider, { value }, node), root));
+  const tree = (v) =>
+    h(
+      MachinesCtx.Provider,
+      { value: machines },
+      h(AppCtx.Provider, { value: v }, node),
+    );
+  await act(() => render(tree(value), root));
   return {
     root,
-    rerender: (v) =>
-      act(() => render(h(AppCtx.Provider, { value: v }, node), root)),
+    rerender: (v) => act(() => render(tree(v), root)),
     done: async () => {
       await act(() => render(null, root));
       root.remove();

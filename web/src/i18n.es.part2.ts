@@ -748,7 +748,7 @@ const more: Record<string, string> = {
   "The project is not indexed: the code index is off":
     "El proyecto no se indexó: el índice de código está desactivado",
   "Turn it on in Settings → Indexing.": "Actívalo en Ajustes → Indexado.",
-  "Services in boxes": "Servicios en cajas",
+  Sandbox: "Sandbox",
   "Projects Motita starts in a container only it can reach, to test them and take screenshots. A run removes its own when it ends; stop here any that stay.":
     "Proyectos que Motita levanta en un contenedor al que solo ella llega, para probarlos y sacar capturas. Cada ejecución quita los suyos al terminar; detén aquí los que queden.",
   Refresh: "Actualizar",
@@ -756,6 +756,49 @@ const more: Record<string, string> = {
   Stop: "Detener",
   "Stop {name}": "Detener {name}",
   "No boxes are running.": "No hay cajas en marcha.",
+  "this computer": "este equipo",
+  "Computer name": "Nombre del equipo",
+  Online: "Conectado",
+  Offline: "Sin conexión",
+  "Disconnect {name}": "Desconectar {name}",
+  "Rename {name}": "Renombrar {name}",
+  "Other computers": "Otros equipos",
+  "Add a computer": "Agregar un equipo",
+  "Other computers cannot connect to this one: it listens on this computer only. Settings → Network opens it to the local network.":
+    "Otros equipos no pueden conectarse a este: solo escucha en este equipo. Ajustes → Red lo abre a la red local.",
+  "Connect {name}": "Conectar {name}",
+  Address: "Dirección",
+  "{count} running": "{count} en curso",
+  "Waiting for the other computer to let this one in. Its screen shows the same code.":
+    "Esperando que el otro equipo deje entrar a este. Su pantalla muestra el mismo código.",
+  Refused: "Rechazado",
+  "{name} wants to open this computer": "{name} quiere abrir este equipo",
+  "From {address}. Allow it only if that computer shows this code:":
+    "Desde {address}. Permítelo solo si ese equipo muestra este código:",
+  Allow: "Permitir",
+  Deny: "Rechazar",
+  "Revoke {name}": "Quitar el acceso a {name}",
+  "Revoke access": "Quitar el acceso",
+  "Can open this computer": "Pueden abrir este equipo",
+  "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in. Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.":
+    "Deja el token vacío para pedirle acceso a ese equipo: su pantalla muestra un código y quien esté ahí deja entrar a este. O escribe el token de su gateway (`motita gateway start -token-only` lo muestra). Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
+  "Token (optional)": "Token (opcional)",
+  "Ask for access": "Pedir acceso",
+  "Control of this computer's desktop": "Control del escritorio de este equipo",
+  "Allowed, asking each step": "Permitido, preguntando cada paso",
+  "Motita works with files and commands only: it never sees your screen nor uses your mouse or keyboard.":
+    "Motita trabaja solo con archivos y comandos: nunca ve tu pantalla ni usa tu mouse o teclado.",
+  "Motita can look at this computer's screen and use its mouse, keyboard and windows. It asks before every step, a picture of the screen included.":
+    "Motita puede mirar la pantalla de este equipo y usar su mouse, teclado y ventanas. Pregunta antes de cada paso, incluida cada captura de pantalla.",
+  "A picture of the screen shows the model whatever you have open: mail, chats, passwords on display.":
+    "Una captura de pantalla le muestra al modelo todo lo que tengas abierto: correo, chats, contraseñas a la vista.",
+  "Clicks and keys act as you, outside the sandbox, in every program of your session.":
+    "Los clics y las teclas actúan como tú, fuera del sandbox, en todos los programas de tu sesión.",
+  "Allowing every command for a session also allows every step on the desktop.":
+    "Permitir todos los comandos en una sesión también permite todos los pasos en el escritorio.",
+  "Let Motita control this computer's desktop?":
+    "¿Dejar que Motita controle el escritorio de este equipo?",
+  "Allow desktop control": "Permitir el control del escritorio",
 };
 
 export default more;

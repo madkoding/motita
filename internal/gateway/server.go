@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/madkoding/motita/internal/approvals"
@@ -22,6 +23,7 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
 	"github.com/madkoding/motita/internal/oauth"
+	"github.com/madkoding/motita/internal/peers"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
 	"github.com/madkoding/motita/internal/voice"
@@ -236,6 +238,12 @@ type Options struct {
 	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
 	// (see push.go). Empty means there are none.
 	PushDir string
+	// PeerFile is where this gateway's identity and the other computers it is connected to are
+	// kept (see peers.go). Empty keeps them in memory: the identity changes with every start.
+	PeerFile string
+	// Discovery announces this gateway on the local network and looks for the others there and
+	// on the tailnet. Off, the other computers can still be added by address.
+	Discovery bool
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -349,6 +357,15 @@ type Server struct {
 	// flight. See push.go.
 	push   *webpush.Sender
 	pushWG sync.WaitGroup
+
+	// peers are the other gateways found and connected to, and how they are spoken to. See
+	// peers.go.
+	peers     *peers.Registry
+	prober    *peers.Prober
+	peerProxy *http.Transport
+	// runningAt is when the connected computers' runs were last read, runningBusy while they are.
+	runningAt   atomic.Int64
+	runningBusy atomic.Bool
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -427,6 +444,7 @@ func Start(opts Options) (*Server, error) {
 	// lock once the gateway serves.
 	s.openScheduleStore()
 	s.openPush()
+	s.openPeers()
 	resumeInterrupted(s)
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
@@ -751,6 +769,8 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	// Who this gateway is, for another one on the network looking for it: no token, like health.
+	mux.HandleFunc("GET "+peers.HelloPath, s.handlePeerHello)
 
 	// The interface, when it is on, BEFORE the API: it is the one part of this server that is
 	// deliberately reachable without a token, because it is the only way a browser can get one.
@@ -771,10 +791,10 @@ func (s *Server) routes() *http.ServeMux {
 
 	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
 	// forcing it through a HandlerFunc would be a cast that says nothing.
-	auth := func(h http.Handler) http.Handler { return requireToken(s.opts.Token, h, s.opts.Origins...) }
+	auth := s.requireAuth
 	// plain is the same check for a bare handler function, so the session-list endpoints do not
 	// have to be cast to satisfy a signature.
-	plain := func(h http.HandlerFunc) http.Handler { return requireToken(s.opts.Token, h, s.opts.Origins...) }
+	plain := func(h http.HandlerFunc) http.Handler { return auth(h) }
 	// scoped is every handler that speaks ABOUT a conversation: the token is checked, then the
 	// session is resolved, then the handler runs with it in the request context.
 	scoped := func(h http.HandlerFunc) http.Handler { return auth(s.withConversation(h)) }
@@ -835,6 +855,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/network/tailscale", plain(s.handleTailscale))
 	mux.Handle("POST /v1/network/restart", plain(s.handleRestartNetwork))
 	// Phone notifications: process-wide, the browsers subscribed to them. See push.go.
+	s.peerRoutes(mux, plain)
 	mux.Handle("GET /v1/push", plain(s.handleGetPush))
 	mux.Handle("POST /v1/push/subscriptions", plain(s.handleAddPush))
 	mux.Handle("DELETE /v1/push/subscriptions", plain(s.handleRemovePush))
@@ -1311,7 +1332,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // so requiring it is a second wall behind the X-Motita header (see crossSiteRefusal). A bearer
 // client is not held to it: no page can attach the token.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) {
+	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) && !s.peerGranted(r) {
 		if mt, _, _ := mime.ParseMediaType(r.Header.Get(headerContentType)); mt != "application/json" {
 			writeError(w, http.StatusUnsupportedMediaType, "the request body must be sent as application/json")
 			return false

@@ -16,6 +16,7 @@ import { InlineConfirm } from "./NetworkSettings";
 import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
 import { NetworkIsolationSetting } from "./NetworkIsolationSetting";
 import { AutoApplySetting } from "./AutoApplySetting";
+import { DesktopSetting } from "./DesktopSetting";
 import { BoxesSetting } from "./BoxesSetting";
 
 // accessHint says what the choice shown lets the agent reach.
@@ -266,6 +267,9 @@ function CommandSettings({
       )}
       {view.isolate_network !== undefined && (
         <NetworkIsolationSetting api={api} view={view} onView={onView} />
+      )}
+      {view.desktop_control !== undefined && (
+        <DesktopSetting api={api} view={view} onView={onView} />
       )}
     </>
   );

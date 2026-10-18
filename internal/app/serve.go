@@ -310,6 +310,10 @@ func (op Options) startGateway(
 		// Phone notifications: the gateway's push key and the browsers subscribed, in
 		// ~/.motita/push.
 		PushDir: pushDir(),
+		// The other computers: this gateway's identity and the ones it is connected to, in
+		// ~/.motita/peers.json, and whether it announces itself and looks for the others.
+		PeerFile:  peerFile(),
+		Discovery: cfg.Gateway.Discovery,
 	}, cfg)
 	if err != nil {
 		return nil, err
@@ -393,6 +397,14 @@ func voiceLibrary() *voice.Library {
 	// that cannot be is only left on disk, and the catalog is served all the same.
 	_ = lib.Prune()
 	return lib
+}
+
+func peerFile() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "peers.json")
 }
 
 func pushDir() string {

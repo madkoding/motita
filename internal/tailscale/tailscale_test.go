@@ -201,3 +201,30 @@ func TestNewRunsTheRealCommand(t *testing.T) {
 		t.Fatalf("runCommand: %q %v", out, err)
 	}
 }
+
+func TestPeersListsTheOnlineMachinesIPv6First(t *testing.T) {
+	f := &fake{answers: map[string]answer{"status --json": {out: `{"BackendState":"Running","Peer":{
+		"k1":{"HostName":"zeta","TailscaleIPs":["100.64.0.2","fd7a:115c:a1e0::2"],"Online":true},
+		"k2":{"HostName":"alpha","TailscaleIPs":["fd7a:115c:a1e0::3","100.64.0.3","bogus"],"Online":true},
+		"k3":{"HostName":"off","TailscaleIPs":["100.64.0.4"],"Online":false},
+		"k4":{"HostName":"noip","TailscaleIPs":["bogus"],"Online":true}}}`}}}
+	peers := f.client().Peers(context.Background())
+	if len(peers) != 2 || peers[0].HostName != "alpha" || peers[1].HostName != "zeta" {
+		t.Fatalf("peers = %+v", peers)
+	}
+	for _, p := range peers {
+		if !p.IPs[0].Is6() || len(p.IPs) != 2 {
+			t.Fatalf("%s: IPs = %v, want IPv6 first", p.HostName, p.IPs)
+		}
+	}
+}
+
+func TestPeersIsEmptyWithoutTailscaleOrAReadableStatus(t *testing.T) {
+	if p := (&fake{missing: true}).client().Peers(context.Background()); p != nil {
+		t.Fatalf("missing: %v", p)
+	}
+	f := &fake{answers: map[string]answer{"status --json": {out: "nope", err: errors.New("exit 1")}}}
+	if p := f.client().Peers(context.Background()); p != nil {
+		t.Fatalf("unreadable: %v", p)
+	}
+}

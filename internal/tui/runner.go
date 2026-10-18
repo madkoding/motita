@@ -530,6 +530,14 @@ func (r *AppRunner) SetAutoApplySuggestions(on bool) {
 	r.cfgMu.Unlock()
 }
 
+// SetDesktopControl says whether the agent may see and drive this computer's desktop
+// (agent.desktop_control). The next turn follows it.
+func (r *AppRunner) SetDesktopControl(on bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Agent.DesktopControl = on
+	r.cfgMu.Unlock()
+}
+
 // setBoxNetwork is the sandbox's SetIsolateNetwork, as a variable so a test can choose what the
 // machine answers.
 var setBoxNetwork = (*sandbox.Sandbox).SetIsolateNetwork

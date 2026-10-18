@@ -162,7 +162,12 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	if strings.TrimSpace(system) != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: system})
 	}
-	messages = append(messages, llm.Message{Role: "user", Content: user})
+	// A picture of the desktop the last round took goes to the round that reads its result.
+	var shots []llm.Image
+	if phase == "execute" {
+		shots = a.takeShot()
+	}
+	messages = append(messages, llm.Message{Role: "user", Content: user, Images: shots})
 
 	start := time.Now()
 	var text string
@@ -221,6 +226,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
 		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)),
+		"desktop":      a.desktopDocs(),
 	}
 	for k, v := range t.Context {
 		vars["context_"+k] = v

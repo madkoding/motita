@@ -13,16 +13,22 @@
 package tailscale
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
+
+// jsonFlag asks the tailscale command for its machine-readable answer.
+const jsonFlag = "--json"
 
 // Status is what this machine's Tailscale looks like, as far as the gateway cares.
 type Status struct {
@@ -96,7 +102,7 @@ func (c *Client) Detect(ctx context.Context, target string) Status {
 	st := Status{Installed: true}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := c.Run(ctx, bin, "status", "--json")
+	out, err := c.Run(ctx, bin, "status", jsonFlag)
 	var doc statusDoc
 	// `status` exits non-zero when the daemon is stopped or logged out but still prints the JSON,
 	// so the document is read whatever the exit code, and the error only matters without one.
@@ -121,7 +127,7 @@ func (c *Client) Detect(ctx context.Context, target string) Status {
 
 // serving reports whether the serve configuration already forwards to target.
 func (c *Client) serving(ctx context.Context, bin, target string) bool {
-	out, err := c.Run(ctx, bin, "serve", "status", "--json")
+	out, err := c.Run(ctx, bin, "serve", "status", jsonFlag)
 	if err != nil {
 		return false
 	}
@@ -234,4 +240,67 @@ func hostPort(raw string) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, u.Port())
+}
+
+// Peer is another machine of the tailnet, as `tailscale status --json` lists it.
+type Peer struct {
+	// HostName is the machine's own name.
+	HostName string
+	// IPs are its tailnet addresses, IPv6 first when it has one.
+	IPs []netip.Addr
+}
+
+// peersDoc is the part of `tailscale status --json` that lists the other machines.
+type peersDoc struct {
+	Peer map[string]struct {
+		HostName     string   `json:"HostName"`
+		TailscaleIPs []string `json:"TailscaleIPs"`
+		Online       bool     `json:"Online"`
+	} `json:"Peer"`
+}
+
+// Peers lists the machines of the tailnet that are online now, sorted by name. It is empty when
+// Tailscale is missing, stopped or answers something unreadable: the tailnet is one more place to
+// look for other gateways, never a reason to fail.
+func (c *Client) Peers(ctx context.Context) []Peer {
+	bin, err := c.LookPath("tailscale")
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	out, _ := c.Run(ctx, bin, "status", jsonFlag)
+	var doc peersDoc
+	if json.Unmarshal(out, &doc) != nil {
+		return nil
+	}
+	var peers []Peer
+	for _, p := range doc.Peer {
+		if !p.Online {
+			continue
+		}
+		peer := Peer{HostName: p.HostName}
+		for _, raw := range p.TailscaleIPs {
+			if ip, err := netip.ParseAddr(raw); err == nil {
+				peer.IPs = append(peer.IPs, ip)
+			}
+		}
+		// IPv6 first: it is the address a gateway is reached at by preference.
+		slices.SortStableFunc(peer.IPs, func(a, b netip.Addr) int {
+			return cmp.Compare(boolRank(a.Is4()), boolRank(b.Is4()))
+		})
+		if len(peer.IPs) > 0 {
+			peers = append(peers, peer)
+		}
+	}
+	slices.SortFunc(peers, func(a, b Peer) int { return cmp.Compare(a.HostName, b.HostName) })
+	return peers
+}
+
+// boolRank orders false before true.
+func boolRank(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

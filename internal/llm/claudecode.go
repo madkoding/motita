@@ -67,6 +67,14 @@ type claudeBlock struct {
 	Input     json.RawMessage `json:"input,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
+	Source    *claudeSource   `json:"source,omitempty"`
+}
+
+// claudeSource is an image block's picture.
+type claudeSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type claudeMessage struct {
@@ -151,7 +159,7 @@ func claudeFrames(messages []Message) (string, []claudeFrame, error) {
 		case "tool":
 			blocks = []claudeBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content}}
 		default:
-			blocks = []claudeBlock{{Type: "text", Text: claudeUserText(m.Content)}}
+			blocks = append([]claudeBlock{{Type: "text", Text: claudeUserText(m.Content)}}, claudeImages(m.Images)...)
 		}
 		if n := len(frames); n > 0 && role == "user" && frames[n-1].Type == "user" {
 			frames[n-1].Message.Content = append(frames[n-1].Message.Content, blocks...)

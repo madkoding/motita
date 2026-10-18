@@ -41,7 +41,7 @@ func (c *Client) responsesBody(messages []Message, tools []Tool, chatgpt bool) m
 		default:
 			input = append(input, map[string]any{
 				"type": "message", "role": "user",
-				"content": []map[string]any{{"type": "input_text", "text": m.Content}},
+				"content": append([]map[string]any{{"type": "input_text", "text": m.Content}}, responsesImages(m.Images)...),
 			})
 		}
 	}
