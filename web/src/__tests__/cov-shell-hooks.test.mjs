@@ -47,6 +47,21 @@ async function probe(useHook, props = {}) {
 
 // ── useToastStatus ───────────────────────────────────────────────────────────
 
+test("the connection follows the pill: dropped, lost, and back", async () => {
+  const s = await probe(useToastStatus);
+  assert.equal(s.v.connection, "ok");
+  await act(() => s.v.setState("reconnecting", true));
+  assert.equal(s.v.connection, "reconnecting");
+  await act(() => s.v.setState("not connected", true));
+  assert.equal(s.v.connection, "lost");
+  await act(() => s.v.setState("could not load the skill library", true));
+  assert.equal(s.v.connection, "ok", "the gateway answered, so it is up");
+  await act(() => s.v.setState("not connected", true));
+  await act(() => s.v.setState("ready"));
+  assert.equal(s.v.connection, "ok");
+  await s.done();
+});
+
 test("the pill starts connecting, and takes the working states as given", async () => {
   const s = await probe(useToastStatus);
   assert.equal(s.v.stateText, "connecting");
@@ -481,23 +496,38 @@ test("without a credential the token is asked for; a rejected one says so", asyn
   await a.done();
 });
 
+// settle lets pending promises run on setImmediate, for tests that mock setTimeout.
+async function settle() {
+  for (let i = 0; i < 3; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
 test("a gateway that does not answer is offline, not a token prompt, and is asked again by itself", async () => {
   history.replaceState(null, "", "/");
-  mock.timers.enable({ apis: ["setInterval"] });
+  mock.timers.enable({ apis: ["setTimeout"] });
   try {
     const gw = gateway({ authed: false, down: true });
     const { deps, log } = authDeps();
     const a = await probe(() => useAuth(deps));
-    await act(() => flush());
+    await act(() => settle());
     assert.equal(a.v.authState, "offline");
     assert.equal(log.length, 0, "nothing is loaded without a gateway");
 
-    // Still down at the next turn: it stays offline.
+    // Still down at the next turn: it stays offline and waits twice as long for the next.
+    const asked = () => gw.calls.filter((c) => c.url === "/v1/sessions").length;
+    const before = asked();
     await act(async () => {
       mock.timers.tick(5000);
-      await flush();
+      await settle();
     });
     assert.equal(a.v.authState, "offline");
+    assert.equal(asked(), before + 1);
+    await act(async () => {
+      mock.timers.tick(5000);
+      await settle();
+    });
+    assert.equal(asked(), before + 1, "the second wait is longer");
 
     // The button asks at once, and shows it is asking while the answer is in flight.
     let pending;
@@ -513,9 +543,15 @@ test("a gateway that does not answer is offline, not a token prompt, and is aske
     gw.down = false;
     await act(async () => {
       mock.timers.tick(5000);
-      await flush();
+      await settle();
     });
     assert.equal(a.v.authState, "needed");
+    const settled = asked();
+    await act(async () => {
+      mock.timers.tick(60000);
+      await settle();
+    });
+    assert.equal(asked(), settled, "it stops asking once the gateway answers");
     await a.done();
   } finally {
     mock.timers.reset();
@@ -524,18 +560,18 @@ test("a gateway that does not answer is offline, not a token prompt, and is aske
 
 test("a gateway that comes back with a valid credential loads the page", async () => {
   history.replaceState(null, "", "/");
-  mock.timers.enable({ apis: ["setInterval"] });
+  mock.timers.enable({ apis: ["setTimeout"] });
   try {
     const gw = gateway({ down: true });
     const { deps, log } = authDeps({
       sessions: [S("s1", "2024-01-01T00:00:00Z")],
     });
     const a = await probe(() => useAuth(deps));
-    await act(() => flush());
+    await act(() => settle());
     assert.equal(a.v.authState, "offline");
     gw.down = false;
     await act(() => a.v.retry());
-    await act(() => flush());
+    await act(() => settle());
     assert.equal(a.v.authState, "ok");
     assert.ok(log.some((e) => e[0] === "switchSession"));
     await a.done();

@@ -84,6 +84,7 @@ const first: Record<string, string> = {
     "Motita no puede comunicarse con el gateway ahora",
   "Check that it is running and that you are online. Retrying on its own…":
     "Revisa que esté en marcha y que tengas conexión. Reintenta solo…",
+  "Connection lost. Reconnecting…": "Conexión perdida. Reconectando…",
   Automatic: "Automático",
   "Back at the checkpoint — conversation and files":
     "De vuelta en el checkpoint — conversación y archivos",

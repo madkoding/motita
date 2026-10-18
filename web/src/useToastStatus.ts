@@ -37,7 +37,12 @@ function pillClass(text: string, bad: boolean): string {
   );
 }
 
+// ConnectionState is how the tab stands with the gateway, for the banner: "ok", "reconnecting"
+// (the stream dropped and the tab is trying again) or "lost" (the gateway is not answering).
+export type ConnectionState = "ok" | "reconnecting" | "lost";
+
 export function useToastStatus() {
+  const [connection, setConnection] = useState<ConnectionState>("ok");
   const [toast, setToast] = useState<Toast | null>(null);
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false);
   const [stateText, setStateText] = useState("connecting");
@@ -87,8 +92,19 @@ export function useToastStatus() {
       // back is something the user watches in the pill, and it happens while
       // they are waiting - a toast popping up would be an alarm about a
       // condition they can see.
-      const connection = isConnectionState(text);
-      if (!connection) {
+      const isConnection = isConnectionState(text);
+      setConnection(
+        choose(
+          isConnection,
+          choose(
+            text.trim().toLowerCase() === NOT_CONNECTED,
+            "lost",
+            "reconnecting",
+          ),
+          "ok",
+        ),
+      );
+      if (!isConnection) {
         // Translated here, once, for every caller: their messages are the English keys.
         setToast({ message: t(text), type: "error" });
       }
@@ -96,11 +112,12 @@ export function useToastStatus() {
       // own, so the pill warns. Everything else - not connected, a request that
       // failed - is an error.
       const warning =
-        connection && text.trim().toLowerCase() === "reconnecting";
+        isConnection && text.trim().toLowerCase() === "reconnecting";
       setStateText(choose(warning, "warning", "error"));
       setStateBad(true);
       return;
     }
+    setConnection("ok");
     setStateText(text);
     setStateBad(false);
   }, []);
@@ -117,6 +134,7 @@ export function useToastStatus() {
     dismissToast,
     toastDetailsOpen,
     toggleToastDetails,
+    connection,
     stateText,
     stateClass: pillClass(stateText, stateBad),
     setState,

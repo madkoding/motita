@@ -26,6 +26,8 @@ export type AuthState = "checking" | "needed" | "offline" | "ok";
 
 // OFFLINE_RETRY_MS is how often the page asks again while the gateway does not answer.
 export const OFFLINE_RETRY_MS = 5000;
+// OFFLINE_RETRY_MAX_MS is the longest it waits: each failed ask doubles the wait up to this.
+export const OFFLINE_RETRY_MAX_MS = 30000;
 
 // lastSessionOf is the conversation to open: the one the address names, else the one used last,
 // else the most recently used one the gateway has. With none, it is "": nothing is opened and the
@@ -144,13 +146,27 @@ export function useAuth({
     };
   }, [fetchProjects, fetchSessions, switchSession]);
 
-  // While the gateway does not answer, ask again by itself until it does.
+  // While the gateway does not answer, ask again by itself until it does, waiting longer after
+  // each miss so a gateway that is down for a while is not hammered.
   useEffect(() => {
     if (authState !== "offline") {
       return undefined;
     }
-    const timer = setInterval(() => void checkRef.current(), OFFLINE_RETRY_MS);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let wait = OFFLINE_RETRY_MS;
+    let timer: ReturnType<typeof setTimeout>;
+    const again = async () => {
+      await checkRef.current();
+      wait = Math.min(wait * 2, OFFLINE_RETRY_MAX_MS);
+      if (!stopped) {
+        timer = setTimeout(again, wait);
+      }
+    };
+    timer = setTimeout(again, wait);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [authState]);
 
   // retry is the Retry button of the offline modal: ask now instead of waiting for the next turn.

@@ -25,6 +25,7 @@ const { TermDrawer, ThinkDrawer, AgentsDrawer } = await load("Drawers.tsx");
 const { SubagentsStrip } = await load("ConversationParts.tsx");
 const { ToastCard } = await load("ToastCard.tsx");
 const { AuthModal } = await load("AuthModal.tsx");
+const { ConnectionBanner } = await load("ConnectionBanner.tsx");
 const { h } = await import("preact");
 const { act } = await import("preact/test-utils");
 const mount = await mounter();
@@ -993,5 +994,31 @@ test("while the token is checked the prompt is busy", async () => {
   assert.equal(text(submit), "Connecting…");
   assert.ok(submit.querySelector(".animate-spin"));
   assert.equal(root.querySelector("#auth-token").disabled, true);
+  await done();
+});
+
+// ── ConnectionBanner ─────────────────────────────────────────────────────────
+
+test("the connection banner is silent while connected and says what is wrong otherwise", async () => {
+  let { root, done } = await show(ConnectionBanner, {
+    status: { connection: "ok" },
+  });
+  assert.equal(root.querySelector("[role=status]"), null);
+  await done();
+  ({ root, done } = await show(ConnectionBanner, {
+    status: { connection: "reconnecting" },
+  }));
+  assert.equal(
+    text(root.querySelector("[role=status]")),
+    "Connection lost. Reconnecting…",
+  );
+  await done();
+  ({ root, done } = await show(ConnectionBanner, {
+    status: { connection: "lost" },
+  }));
+  assert.equal(
+    text(root.querySelector("[role=status]")),
+    "No connection to the server",
+  );
   await done();
 });
