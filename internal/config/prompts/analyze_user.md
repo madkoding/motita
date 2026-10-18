@@ -25,6 +25,7 @@ Return a JSON object with this exact shape:
 "needs_subtasks": false,
 "question": "",
 "assumption": "",
+"decision": false,
 "options": [],
 "questions": [],
 "reply": ""
@@ -128,6 +129,12 @@ When you must ask:
   interface puts your assumption in the sentence it shows the user, and the wrapping belongs
   to that sentence, in whatever language the interface is speaking.
 - leave "summary" and "success_criteria" empty
+
+Set "decision": true ONLY when the answer is a real decision the user must make: a step that is
+destructive or hard to undo depends on it, or the readings lead to materially different results.
+Every other question with an "assumption" is NOT asked: the work goes on with your assumption,
+the report states it, and the user corrects it with their next message. So write the assumption
+as the action you will really take.
 
 Do not ask about what a tool call or a reasonable default settles: a question about a detail costs
 the user a turn. A question about a decision is what they are here for.

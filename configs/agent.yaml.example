@@ -172,6 +172,7 @@ agent:
   max_retries: 3               # total attempts = max_retries + 1
   subtask_depth: 1             # allowed splitting levels
   subtask_retries: 1           # tries again a failed subtask, told why, before the parent gives up; 0 = off
+  assume_first: true           # goes on with its stated assumption instead of asking, unless the question is a real decision; false = always ask
   criteria_audit: true         # sends a "done" back when a success criterion is not shown (1 short model call)
   max_parallel: 3              # background agents (spawn_agent) running at once; 0 = off
   max_tasks: 0                 # 0 = no limit

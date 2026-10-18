@@ -166,6 +166,7 @@ func TestAskingIsReportedAsAsking(t *testing.T) {
 	defer srv.Close()
 
 	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.cfg.Agent.AssumeFirst = false
 	e.agent.Interactive = true
 
 	var result *TaskResult
@@ -458,5 +459,58 @@ func TestAskedTextListsEveryQuestion(t *testing.T) {
 	want := "1. which login?\n   - email\n   - GitHub\n   (email)\n\n2. where?"
 	if got != want {
 		t.Errorf("AskedText = %q, want %q", got, want)
+	}
+}
+
+// askingServer answers the analysis with an ask that carries an assumption; decision marks it as
+// a real decision.
+func askingServer(t *testing.T, decision bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "## ANALYSIS OF THE TASK") {
+			fmt.Fprintf(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":true,`+
+				`\"question\":\"About which folder?\",\"assumption\":\"reviso la actual\",\"decision\":%v}"}}]}`, decision)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[]}"}}]}`)
+	}))
+}
+
+// TestAQuestionWithAnAssumptionIsAssumed: a person is there, but the question is no decision, so
+// the agent goes on with what it stated and says so.
+func TestAQuestionWithAnAssumptionIsAssumed(t *testing.T) {
+	srv := askingServer(t, false)
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = true
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	_ = e.agent.Run(context.Background())
+
+	if result == nil || result.NeedsInput {
+		t.Fatalf("the agent should have gone on, got %+v", result)
+	}
+	if !strings.Contains(result.Assumption, "reviso la actual") {
+		t.Errorf("the report must state what was assumed, got %q", result.Assumption)
+	}
+}
+
+// TestARealDecisionStillAsks: a question marked as a decision stops the turn even with an assumption.
+func TestARealDecisionStillAsks(t *testing.T) {
+	srv := askingServer(t, true)
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = true
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	_ = e.agent.Run(context.Background())
+
+	if result == nil || !result.NeedsInput {
+		t.Fatalf("a real decision must reach the user as a question: %+v", result)
 	}
 }

@@ -346,6 +346,12 @@ type Analysis struct {
 	// it gives the agent a defensible reading if nobody answers.
 	Assumption string `json:"assumption"`
 
+	// Decision marks a question the agent must not answer for the user: the work would be
+	// destructive or hard to undo depending on the answer, or the readings lead to materially
+	// different results. Any other question with an assumption is assumed and the work goes on
+	// (see agent.assume_first); the assumption is stated in the report so it can be corrected.
+	Decision bool `json:"decision"`
+
 	// Questions are the questions to ask, in order, when more than one thing is unclear.
 	//
 	// The single Question/Comment pair above covers the common case; this covers the case where

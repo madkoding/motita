@@ -290,7 +290,11 @@ type Agent struct {
 	// analysis stated is not shown to be met, before the project's gate is spent on it. It costs
 	// one short model call per claim; false skips it.
 	CriteriaAudit bool `yaml:"criteria_audit"`
-	MaxTasks      int  `yaml:"max_tasks"`
+	// AssumeFirst makes the agent go on with the assumption it stated, instead of stopping to
+	// ask, unless the question is a real decision (destructive, irreversible or materially
+	// different outcomes). The report says what was assumed. false asks every time.
+	AssumeFirst bool `yaml:"assume_first"`
+	MaxTasks    int  `yaml:"max_tasks"`
 	// MaxSteps bounds how many rounds a SINGLE task may take, which is a different
 	// question from max_retries.
 	//
@@ -493,6 +497,7 @@ func Default() Config {
 			// subtask abandons every one that comes after it.
 			SubtaskRetries: 1,
 			CriteriaAudit:  true,
+			AssumeFirst:    true,
 			// A task is allowed to take many rounds, because "do what I asked" is usually a
 			// plan and not a single step.
 			//

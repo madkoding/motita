@@ -249,8 +249,37 @@ func (r *taskRun) askOrAssume() (res TaskResult, done bool) {
 		r.proceedOnAssumption()
 		return TaskResult{}, false
 	}
+	if r.shouldAssume() {
+		r.assumeAndGo()
+		return TaskResult{}, false
+	}
 	r.askUser()
 	return r.res, true
+}
+
+// shouldAssume says whether a question with a stated assumption is answered by the agent itself:
+// a person is there, the setting is on, and the question is not a real decision.
+func (r *taskRun) shouldAssume() bool {
+	return r.a.cfg.Agent.AssumeFirst && r.res.Assumption != "" && !r.analysis.Decision &&
+		len(r.res.Questions) < 2
+}
+
+// assumeAndGo proceeds on the assumption the analysis stated, with a person who could have been
+// asked: the report says what was assumed, so they correct it with the next message instead of
+// answering a question before any work starts.
+func (r *taskRun) assumeAndGo() {
+	assumed := r.res.Assumption
+	r.a.log.Info("assuming instead of asking", "question", truncate(r.res.Question, 160),
+		"assumption", truncate(assumed, 200))
+	r.a.report("assuming: %s", assumed)
+	r.analysis.Understandable = true
+	r.analysis.Question = ""
+	r.res.NeedsInput = false
+	r.res.Question = ""
+	r.res.Options = nil
+	r.res.Questions = nil
+	r.res.Assumption = ""
+	r.proceededOnAssumption = assumed
 }
 
 // fillFromQuestions derives the single question fields from the list when they are empty.
