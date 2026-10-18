@@ -331,17 +331,17 @@ test("the conversation is full width: its gutter is only as wide as the slim dra
   );
 });
 
-test("the pinned input has a gradient behind it, and its bar sits on the card's border", () => {
+test("the pinned input has a fixed gradient behind it, and its bar sits on the card's border", () => {
   assert.match(
     css,
-    /\.turn-head::before \{[^}]*linear-gradient\(\s*to bottom[^}]*\/ 0\.96[^}]*\/ 0\)/,
+    /\.chat-fade \{[^}]*position: absolute;[^}]*z-index: 5;[^}]*linear-gradient\(\s*to bottom[^}]*\/ 0\.97[^}]*\/ 0\)/,
   );
   assert.match(
     css,
-    /\.turn-bar \{\s*position: absolute;[^}]*translateY\(-50%\)/,
+    /\.turn-bar \{[^}]*position: absolute;[^}]*translateY\(-50%\)/,
   );
   assert.match(
     css,
-    /\.msg\.agent\[data-who\]::before \{\s*position: absolute;/,
+    /\.msg\.agent\[data-who\]::before \{[^}]*position: absolute;/,
   );
 });

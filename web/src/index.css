@@ -3104,6 +3104,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   align-items: flex-start;
   gap: 4px;
   max-width: 100%;
+  padding-top: 11px;
 }
 /* The input that opened a turn is a card: a bar with who wrote it, the mode it ran in and its one
    menu, then the text, which scrolls on its own so the menu is never clipped. */
@@ -3120,9 +3121,15 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .turn-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
+  gap: 6px;
   white-space: nowrap;
+  /* Out of the flow, its pills centred on the card's top border. */
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 8px;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 .turn-who {
   font-size: 0.72em;
@@ -3678,6 +3685,12 @@ button.border-4 {
 .msg.agent[data-who]::before {
   content: attr(data-who);
   color: var(--t3);
+  position: absolute;
+  top: 0;
+  left: 8px;
+  margin: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
 }
 
 /* The option the keyboard (arrows + Enter) has highlighted in the approval question. */
@@ -4835,19 +4848,6 @@ html[data-density="compact"] .settings-warn {
  * card as pills, instead of taking a line of the card. That gives the line back to the text.
  * The bar is out of the flow (its pills are centred on the border), so the card's text starts
  * under it with a little room, and the sticky input keeps 11px above its card for the pills. */
-.turn-head {
-  padding-top: 11px;
-}
-.turn-bar {
-  position: absolute;
-  top: 0;
-  left: 10px;
-  right: 8px;
-  min-height: 0;
-  gap: 6px;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
 .turn-bar > * {
   pointer-events: auto;
 }
@@ -4878,9 +4878,6 @@ html[data-density="compact"] .settings-warn {
   width: 14px;
   height: 14px;
 }
-.turn-bar .cp-wrap {
-  margin-left: auto;
-}
 @media (pointer: coarse) {
   .turn-bar button.cp-btn.cp-btn {
     margin: 0;
@@ -4903,33 +4900,21 @@ html[data-density="compact"] .settings-warn {
   margin-top: 10px;
   padding-top: 12px;
 }
-.msg.agent[data-who]::before {
+/* The fade is fixed over the top edge of the conversation, not part of what scrolls: opaque at
+ * the edge, thinning to nothing below it. It sits under the pinned input (z-index 6) and over the
+ * messages, so the answer scrolling beneath never blends with the request above it. */
+.chat-fade {
   position: absolute;
+  z-index: 5;
   top: 0;
-  left: 8px;
-  margin: 0;
-  color: var(--t3);
-  transform: translateY(-50%);
-  white-space: nowrap;
-}
-/* Under the pinned input the text fades in from nothing instead of running into its edge: an
- * opaque top that thins to transparent, behind the card, so the request above never blends with
- * the answer scrolling beneath it. */
-.turn-head::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: 0;
-  bottom: -22px;
-  /* Wider than the column on both sides: the scroll box clips it at its own edges, so the fade
-     runs the full width of the conversation, drawers' gutter included. */
-  left: -3rem;
-  right: -3rem;
+  left: 0;
+  right: 0;
+  height: 6.5rem;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgb(var(--bg-rgb) / 0.96) 0,
-    rgb(var(--bg-rgb) / 0.96) 55%,
+    rgb(var(--bg-rgb) / 0.97) 0,
+    rgb(var(--bg-rgb) / 0.9) 40%,
     rgb(var(--bg-rgb) / 0)
   );
 }
