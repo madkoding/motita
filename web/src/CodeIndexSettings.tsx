@@ -9,6 +9,7 @@ import {
   clearCodeIndexCache,
   getCodeIndex,
   looksLocal,
+  sizeLabel,
   setCodeIndex,
 } from "./codeIndexApi";
 import { Row, Segmented, inputCls, primaryBtn } from "./SettingsControls";
@@ -277,11 +278,8 @@ function CacheRow({
         id="settings-code-index-cache"
         label={t("Index cache")}
         hint={tf(
-          "{n} files, {kb} KB on disk. The index is rebuilt when it is gone.",
-          {
-            n: String(view.cache_files),
-            kb: String(Math.ceil(view.cache_bytes / 1024)),
-          },
+          "{n} files, {size} on disk. The index is rebuilt when it is gone.",
+          { n: String(view.cache_files), size: sizeLabel(view.cache_bytes) },
         )}
         stack
       >

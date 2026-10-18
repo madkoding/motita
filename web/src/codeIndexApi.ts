@@ -152,3 +152,13 @@ export function looksLocal(raw: string): boolean {
     /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)
   );
 }
+
+const KB = 1024;
+
+// sizeLabel writes a byte count as KB, or as MB once it passes one.
+export function sizeLabel(bytes: number): string {
+  if (bytes < KB * KB) {
+    return Math.ceil(bytes / KB) + " KB";
+  }
+  return (bytes / (KB * KB)).toFixed(1) + " MB";
+}

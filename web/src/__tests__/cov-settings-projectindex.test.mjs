@@ -54,8 +54,17 @@ test("it shows the bar and the numbers of a ready index", async () => {
   assert.equal(text(q(root, "size")), "2 KBon disk");
   assert.match(
     text(q(root, "note")),
-    /38 of 40 files covered\. Ranked also by meaning\./,
+    /38 files indexed; 2 binary or unreadable skipped\. Ranked also by meaning\./,
   );
+});
+
+test("a large cache is shown in MB", async () => {
+  const gw = fakeApi({
+    "GET /v1/projects/p%201/code-index": () =>
+      json(200, { ...READY, cache_bytes: 36463469 }),
+  });
+  const root = await mount(gw);
+  assert.equal(text(q(root, "size")), "34.8 MBon disk");
 });
 
 test("an old index is marked out of date and a capped folder says so", async () => {

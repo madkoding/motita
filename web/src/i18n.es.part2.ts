@@ -613,8 +613,8 @@ const more: Record<string, string> = {
     "Aprendido de tu propio código. Sin red.",
   "Find a local Ollama": "Buscar un Ollama local",
   "Index cache": "Caché del índice",
-  "{n} files, {kb} KB on disk. The index is rebuilt when it is gone.":
-    "{n} archivos, {kb} KB en disco. El índice se reconstruye si falta.",
+  "{n} files, {size} on disk. The index is rebuilt when it is gone.":
+    "{n} archivos, {size} en disco. El índice se reconstruye si falta.",
   "Code index": "Índice de código",
   "Up to date": "Al día",
   "Out of date": "Desactualizado",
@@ -624,6 +624,8 @@ const more: Record<string, string> = {
   passages: "pasajes",
   terms: "términos",
   "on disk": "en disco",
+  "{files} files indexed; {skipped} binary or unreadable skipped.":
+    "{files} archivos indexados; {skipped} binarios o ilegibles omitidos.",
   "{files} of {total} files covered.": "{files} de {total} archivos cubiertos.",
   "The limit of {max} files is reached: raise it in Settings.":
     "Se alcanzó el límite de {max} archivos: súbelo en Ajustes.",

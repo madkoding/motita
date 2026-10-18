@@ -10,9 +10,8 @@ import {
   type ProjectIndexStatus,
   buildProjectIndex,
   getProjectIndex,
+  sizeLabel,
 } from "./codeIndexApi";
-
-const KB = 1024;
 
 // stateLabel is what the badge says.
 function stateLabel(state: IndexState): string {
@@ -40,9 +39,26 @@ function Stat({
   );
 }
 
+// coverage says how many files the index holds. A ready index holds every text file, so the rest
+// are binaries it skipped; an old or missing one is measured against what the folder offers.
+function coverage(st: ProjectIndexStatus): string {
+  if (st.state === "ready") {
+    return tf(
+      "{files} files indexed; {skipped} binary or unreadable skipped.",
+      {
+        files: String(st.files),
+        skipped: String(Math.max(0, st.candidates - st.files)),
+      },
+    );
+  }
+  return tf("{files} of {total} files covered.", {
+    files: String(st.files),
+    total: String(st.candidates),
+  });
+}
+
 // IndexBody is the bar, the numbers and the notes for one status.
 function IndexBody({ st }: { st: ProjectIndexStatus }) {
-  const kb = Math.ceil(st.cache_bytes / KB);
   return (
     <>
       <div class="flex items-center gap-2">
@@ -59,13 +75,14 @@ function IndexBody({ st }: { st: ProjectIndexStatus }) {
         <Stat id="files" value={String(st.files)} label={t("files")} />
         <Stat id="chunks" value={String(st.chunks)} label={t("passages")} />
         <Stat id="terms" value={String(st.terms)} label={t("terms")} />
-        <Stat id="size" value={kb + " KB"} label={t("on disk")} />
+        <Stat
+          id="size"
+          value={sizeLabel(st.cache_bytes)}
+          label={t("on disk")}
+        />
       </div>
       <p class="text-xs text-[#7a7a8c]" data-testid="project-index-note">
-        {tf("{files} of {total} files covered.", {
-          files: String(st.files),
-          total: String(st.candidates),
-        })}
+        {coverage(st)}
         {st.capped &&
           " " +
             tf("The limit of {max} files is reached: raise it in Settings.", {
