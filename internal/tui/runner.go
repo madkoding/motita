@@ -169,7 +169,9 @@ type AppRunner struct {
 	// Guarded because the background goroutine running the turn appends to it while the
 	// interface may read it.
 	transcriptMu sync.Mutex
-	transcript   []agent.DialogueTurn
+	// live is the agent of the task in flight, which Steer talks to.
+	live       liveAgent
+	transcript []agent.DialogueTurn
 	// store is the procedure library and its ledger, resolved on first use.
 	//
 	// It is built by internal/procedures, which is also what the command line's task and plan
@@ -1084,7 +1086,9 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	if o, ok := ag.(taskObserver); ok {
 		r.observe(o, task, progress, &result)
 	}
+	r.live.set(ag)
 	runErr := ag.Run(ctx)
+	r.live.set(nil)
 	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
 	// would make the agent repeat a mistake it cannot see.
 	r.remember(ag.Transcript())

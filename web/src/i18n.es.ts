@@ -156,8 +156,8 @@ const first: Record<string, string> = {
   "Clone and create": "Clonar y crear",
   "The repository uses {branch}.": "El repositorio usa {branch}.",
   "Stop the agent": "Detener al agente",
-  "Enter sends a message that interrupts; Alt+Enter queues it":
-    "Enter envía un mensaje que interrumpe; Alt+Enter lo deja en cola",
+  "A message typed meanwhile goes to the run; Esc stops it":
+    "Un mensaje escrito mientras tanto va a la tarea; Esc la detiene",
   "Click Continue in the session menu to keep working from the latest project branch.":
     "Haz clic en Continuar en el menú de la sesión para seguir trabajando desde la rama más reciente del proyecto.",
   "Click again: discard changes since":

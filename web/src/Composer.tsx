@@ -212,7 +212,7 @@ function placeholderOf(
 }
 
 export function Composer() {
-  const { composer, isMerged, rs, voice } = useApp();
+  const { composer, isMerged, voice } = useApp();
   const { slashPopup, input } = composer;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -298,7 +298,7 @@ export function Composer() {
         </button>
       )}
       {voice.showMic && <MicButton disabled={isMerged} />}
-      <SendButton disabled={rs.running || isMerged} />
+      <SendButton disabled={isMerged} />
     </form>
   );
 }

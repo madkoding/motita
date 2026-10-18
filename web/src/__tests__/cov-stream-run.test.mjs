@@ -642,22 +642,21 @@ test("a stream that breaks after the reader left is not followed", async () => {
   await h.unmount();
 });
 
-test("messages sent to a run in flight are queued, or interrupt it, and the next run is followed", async () => {
+test("messages sent to a run in flight go to it, or are queued, and a queued one's run is followed", async () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
     const m = await mount({
-      "POST /v1/sessions/s1/queue": () => res(200, {}),
+      "POST /v1/sessions/s1/steer": () => res(202, { steered: false, queued: true }),
       "POST /v1/sessions/s1/interrupt": () => res(200, {}),
     });
     const { h, cur, conv, toasts } = m;
-    await h.act(() => cur().stream.sendWhileRunning("also this", false));
-    await h.act(() => cur().stream.sendWhileRunning("stop and do this", true));
+    await h.act(async () => {
+      cur().stream.sendWhileRunning("also this");
+      await tick();
+    });
     assert.deepEqual(
       m.calls.map((c) => [c.key, c.body]),
-      [
-        ["POST /v1/sessions/s1/queue", '{"task":"also this"}'],
-        ["POST /v1/sessions/s1/interrupt", '{"task":"stop and do this"}'],
-      ],
+      [["POST /v1/sessions/s1/steer", '{"task":"also this"}']],
     );
     assert.equal(cur().rs.handoffRef.current, true);
     // The run ends: the conversation is read again twice, to follow the run the gateway starts.
@@ -671,28 +670,47 @@ test("messages sent to a run in flight are queued, or interrupt it, and the next
     assert.equal(conv.switched.length, 1);
     cur().rs.runningRef.current = false;
 
+    // Taken by the task in flight: nothing to follow afterwards.
+    m.routes["POST /v1/sessions/s1/steer"] = () => res(202, { steered: true });
+    await h.act(async () => {
+      cur().stream.sendWhileRunning("and this");
+      await tick();
+    });
+    assert.equal(cur().rs.handoffRef.current, false);
+    // An answer that is not JSON is read as not taken.
+    m.routes["POST /v1/sessions/s1/steer"] = () => res(202, new Error("not json"));
+    await h.act(async () => {
+      cur().stream.sendWhileRunning("odd");
+      await tick();
+    });
+    assert.equal(cur().rs.handoffRef.current, true);
+    m.routes["POST /v1/sessions/s1/steer"] = () => res(202, { queued: true });
+
     // The reader moved to another session before the reload: nothing is reloaded.
-    await h.act(() => cur().stream.sendWhileRunning("more", false));
+    await h.act(() => cur().stream.sendWhileRunning("more"));
     await h.act(() => cur().stream.finish());
     cur().rs.sessionRef.current = "s2";
     mock.timers.tick(2000);
     assert.equal(conv.switched.length, 1);
     cur().rs.sessionRef.current = "s1";
     // No conversation to reload into yet.
-    await h.act(() => cur().stream.sendWhileRunning("more", false));
+    await h.act(() => cur().stream.sendWhileRunning("more"));
     await h.act(() => cur().stream.finish());
     conv.switchSessionRef.current = null;
     mock.timers.tick(2000);
     assert.equal(conv.switched.length, 1);
 
     // Refused or unreachable: said, and nothing is followed.
-    m.routes["POST /v1/sessions/s1/queue"] = () => res(409, {});
-    m.routes["POST /v1/sessions/s1/interrupt"] = () => {
+    m.routes["POST /v1/sessions/s1/steer"] = () => res(409, {});
+    await h.act(async () => {
+      cur().stream.sendWhileRunning("x");
+      await tick();
+    });
+    m.routes["POST /v1/sessions/s1/steer"] = () => {
       throw new Error("offline");
     };
-    await h.act(() => cur().stream.sendWhileRunning("x", false));
     await h.act(async () => {
-      cur().stream.sendWhileRunning("y", true);
+      cur().stream.sendWhileRunning("y");
       await tick();
     });
     assert.deepEqual(toasts, [

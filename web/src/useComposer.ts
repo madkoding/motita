@@ -50,13 +50,10 @@ function isAccept(e: KeyboardEvent): boolean {
   return e.key === "Tab" || (e.key === "Enter" && plain && !e.altKey);
 }
 
-// keepsLine says whether an Enter leaves the line alone instead of sending it: Shift, Ctrl or
-// Meta insert a newline, and Alt does too unless a run is in flight (then it queues the message).
-function keepsLine(e: KeyboardEvent, running: boolean): boolean {
-  if (e.shiftKey || e.ctrlKey || e.metaKey) {
-    return true;
-  }
-  return e.altKey && !running;
+// keepsLine says whether an Enter leaves the line alone instead of sending it: Shift, Ctrl, Meta
+// or Alt insert a newline.
+function keepsLine(e: KeyboardEvent): boolean {
+  return e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
 }
 
 interface Deps {
@@ -154,9 +151,10 @@ export function useComposer({
   };
 
   // send does what the composer holds: /agents opens the agents drawer, a shell line runs in the
-  // shell, a message to a run in flight interrupts it (or waits, with `interrupt` off), and
-  // anything else starts a run.
-  const send = (interrupt: boolean) => {
+  // shell, a message to a run in flight goes to the run (the agent reads it at its next step, or
+  // it waits for the end of the turn), and anything else starts a run. Stopping is Escape, or the
+  // turn's menu: typing never cuts the work off.
+  const send = () => {
     const text = composedText(input, activeTags);
     if (text === "/agents") {
       drawers.showAgents();
@@ -174,7 +172,7 @@ export function useComposer({
     }
     if (runningRef.current) {
       clear();
-      stream.sendWhileRunning(text, interrupt);
+      stream.sendWhileRunning(text);
       return;
     }
     // Remove placeholder messages (.kind) before the first real turn.
@@ -186,7 +184,7 @@ export function useComposer({
   // handleSubmit is called when the form is submitted.
   const handleSubmit = (e: Event) => {
     e.preventDefault();
-    send(true);
+    send();
   };
 
   // acceptSlash takes the highlighted command of the popup.
@@ -272,12 +270,11 @@ export function useComposer({
     if (window.matchMedia("(pointer: coarse)").matches) {
       return;
     }
-    if (keepsLine(e, runningRef.current)) {
+    if (keepsLine(e)) {
       return;
     }
     e.preventDefault();
-    // Enter interrupts with the message; Alt+Enter leaves the run alone and queues it.
-    send(!e.altKey);
+    send();
   };
 
   // shellMode: what is typed is a shell command (`!ls` or `/shell ls`), so the send button says so.
@@ -296,8 +293,8 @@ export function useComposer({
     onInput,
     handleSubmit,
     handleKeydown,
-    // sendQueued sends without interrupting a run in flight: for a message nobody pressed send on.
-    sendQueued: () => send(false),
+    // sendQueued sends what the composer holds: for a message nobody pressed send on.
+    sendQueued: send,
     shellMode,
     nextSuggestion,
   };

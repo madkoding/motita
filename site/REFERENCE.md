@@ -582,6 +582,12 @@ travels inside the task, the agent does not plan it again and never stops to ask
 is noted as `mode: task (carrying out the plan)`. A go-ahead after anything else is an ordinary
 message.
 
+A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent
+reads it at its next step, it wins over the plan where they differ, and the turn's trail shows
+it as `you: …`. When nothing can read it (a plan, a task between steps) it is queued for the end
+of the turn, as `/queue` does. In the web UI Enter sends while a run works and Escape stops it;
+in the TUI a line typed during a task is added to it, and Esc stops it.
+
 After a task routed by auto mode, the suggestions the agent marks as needed (the request is
 not done or correct without them, they stay in scope and are safe to undo) are applied
 without asking, each with the reason it is needed; the rest are still asked about.

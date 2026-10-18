@@ -424,6 +424,8 @@ var esTUI = map[string]string{
 	// The queue while a task runs.
 	"Stopped. Your queued message was not sent; it is in the input box if it was empty.": "Detenido. Tu mensaje en " +
 		"cola no se envió; está en la caja de entrada si estaba vacía.",
+	"Added to the task in progress; it reads it in its next step. Esc stops it.": "Añadido a la tarea en curso; " +
+		"lo lee en su siguiente paso. Esc la detiene.",
 	"Queued: it will be sent when the current task finishes. Esc stops the current one.": "En cola: se enviará cuando " +
 		"termine la tarea actual. Esc detiene la actual.",
 	"Queued, replacing the message queued before. Esc stops the current task.": "En cola, en reemplazo del mensaje que " +

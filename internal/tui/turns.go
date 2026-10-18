@@ -148,6 +148,13 @@ func (t *TUI) leaveTurn(ctx context.Context) {
 // One message, not a list: a second one replaces the first, and the conversation says so. A
 // queue the user cannot see is a queue that sends things they forgot they typed.
 func (t *TUI) queue(line string) {
+	// A task in flight reads the message at its next round: the work goes on with it, which is
+	// what a person who keeps typing wants. A plan, or a task between rounds, still queues.
+	if st, ok := t.Runner.(steerer); ok && st.Steer(line) {
+		t.addMessage(AuthorUser, line)
+		t.addMessage(AuthorSystem, t.tr("Added to the task in progress; it reads it in its next step. Esc stops it."))
+		return
+	}
 	note := t.tr("Queued: it will be sent when the current task finishes. Esc stops the current one.")
 	if t.queued != "" {
 		note = t.tr("Queued, replacing the message queued before. Esc stops the current task.")

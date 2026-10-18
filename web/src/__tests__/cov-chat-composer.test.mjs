@@ -34,7 +34,7 @@ async function composer({ running = false, nextSuggestion = "" } = {}) {
     drawers: { showAgents: () => calls.push(["agents"]) },
     stream: {
       submit: (t) => calls.push(["submit", t]),
-      sendWhileRunning: (t, i) => calls.push(["while", t, i]),
+      sendWhileRunning: (t) => calls.push(["while", t]),
       stopRun: () => calls.push(["stop"]),
     },
     runShellLine: async (c) => calls.push(["shell", c]),
@@ -314,14 +314,17 @@ test("Enter sends what the composer holds: a run, a shell line, the agents, or n
   await hook.unmount();
 });
 
-test("while a run works, Enter interrupts with the message, Alt+Enter queues it, Escape stops it", async () => {
-  const { run, hook, calls } = await composer({ running: true });
+test("while a run works, Enter sends the message to the run, Alt+Enter keeps the line, Escape stops it", async () => {
+  const { run, hook, calls, c } = await composer({ running: true });
   await run((x) => x.onInput("more"));
   await run((x) => x.handleKeydown(key("Enter")));
-  assert.deepEqual(calls.pop(), ["while", "more", true]);
+  assert.deepEqual(calls.pop(), ["while", "more"]);
   await run((x) => x.onInput("later"));
   await run((x) => x.handleKeydown(key("Enter", { altKey: true })));
-  assert.deepEqual(calls.pop(), ["while", "later", false]);
+  assert.equal(c().input, "later");
+  assert.deepEqual(calls, []);
+  await run((x) => x.handleSubmit({ preventDefault() {} }));
+  assert.deepEqual(calls.pop(), ["while", "later"]);
   const esc = key("Escape");
   await run((x) => x.handleKeydown(esc));
   assert.equal(esc.prevented, true);

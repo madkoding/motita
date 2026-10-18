@@ -75,6 +75,8 @@ type Agent struct {
 	//
 	// Both are better than refusing, which is what the agent used to do in either case.
 	Interactive bool
+	// steer is what the person says while a task runs: see steer.go.
+	steer steering
 
 	// library is the procedure library, when one is configured. It is the SAME library Plan
 	// mode uses: one shelf of procedures, reachable from both modes, because a procedure is

@@ -190,7 +190,7 @@ function TurnMenu({
               {t("Stop the agent")}
               <small>
                 {t(
-                  "Enter sends a message that interrupts; Alt+Enter queues it",
+                  "A message typed meanwhile goes to the run; Esc stops it",
                 )}
               </small>
             </button>

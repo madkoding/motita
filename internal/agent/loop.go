@@ -416,6 +416,12 @@ func (r *taskRun) execute() TaskResult {
 	// to see only the LAST round, which on a long task is a final `git status` and nothing
 	// of the work.
 	r.maxSteps = a.maxSteps()
+	// A message typed while this task runs steers it (see steer.go); only the outermost task
+	// reads them, since the person talks to the turn, not to a subtask.
+	if r.depth == 0 {
+		a.steer.begin()
+		defer a.steer.end()
+	}
 	for {
 		if res, done := r.step(); done {
 			return res
@@ -449,6 +455,7 @@ func (r *taskRun) step() (res TaskResult, done bool) {
 	}
 	r.res.Attempts = r.round
 	r.a.noteRound(r.round)
+	r.absorbSteering()
 
 	// [6] The LLM proposes the concrete action.
 	action, usable, stop := r.decide()
