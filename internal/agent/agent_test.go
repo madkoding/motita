@@ -73,6 +73,11 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 					`file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`,
 			)
 
+		case strings.Contains(text, "## CRITERIA AUDIT"):
+			s.phases = append(s.phases, "audit")
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"criteria\":[{\"criterion\":\"the file exists\",`+
+				`\"met\":true,\"evidence\":\"listed\"}]}"}}]}`)
+
 		case strings.Contains(text, "## FINAL ANSWER"):
 			s.phases = append(s.phases, "synthesize")
 			response := map[string]any{"summary": "synthesized test answer"}

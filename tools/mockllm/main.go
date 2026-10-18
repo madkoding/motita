@@ -41,6 +41,8 @@ var (
 // received.
 func phase(text string) string {
 	switch {
+	case strings.Contains(text, "## CRITERIA AUDIT"):
+		return "audit"
 	case strings.Contains(text, "## FINAL ANSWER"):
 		return "synthesize"
 	case strings.Contains(text, "## ANALYSIS OF THE TASK") || strings.Contains(text, "success_criteria"):
@@ -83,6 +85,8 @@ func contentJSON(phaseName string, n int) string {
 			return synthesizeJSON[:len(synthesizeJSON)-1] + suggestionsJSON
 		}
 		return synthesizeJSON
+	case "audit":
+		return auditJSON
 	case "analyze":
 		return analyzeJSON
 	case "plan":
@@ -106,6 +110,8 @@ const (
 		`{"title":"log the overwrite","detail":"it is silent today"}]}`
 	analyzeJSON = `{"understandable":true,"summary":"leave the report with the requested content",` +
 		`"success_criteria":["report.txt holds content-valid"],"risks":[],"needs_subtasks":false}`
+	auditJSON = `{"criteria":[{"criterion":"report.txt holds content-valid","met":true,` +
+		`"evidence":"the anchor read it"}]}`
 	planJSON = `{"plan":[{"step":1,"action":"write the report","command":"write report.txt"}],` +
 		`"subtasks":[],"expected_result":"report.txt with content-valid"}`
 )

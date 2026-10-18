@@ -1038,6 +1038,7 @@ func (a *Agent) runSubtasks(ctx context.Context, t task.Task, analysis Analysis,
 			Origin:      t.Origin + " (subtask)",
 			Context:     t.Context,
 		}, depth+1)
+		subResult = a.retrySubtask(ctx, subtaskTry{t, analysis, subs, i, outcomes, depth}, subResult)
 		res.Validation = subResult.Validation
 		if !subResult.Pass {
 			skipped := len(subs) - i - 1

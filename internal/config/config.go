@@ -263,20 +263,6 @@ type Reasoning struct {
 	Level   string `yaml:"level"` // off, low, medium, high
 }
 
-// Template is a prompt with {{name}} variables.
-type Template struct {
-	System string `yaml:"system"`
-	User   string `yaml:"user"`
-}
-
-// Prompts groups the templates used by the agent's main loop.
-type Prompts struct {
-	Analyze    Template `yaml:"analyze"`
-	Plan       Template `yaml:"plan"`
-	Execute    Template `yaml:"execute"`
-	Synthesize Template `yaml:"synthesize"`
-}
-
 // FinalAction is what runs when the anchor gives PASS.
 type FinalAction struct {
 	Kind          string   `yaml:"kind"` // none | command | api | git_commit
@@ -297,7 +283,14 @@ type OnFailure struct {
 type Agent struct {
 	MaxRetries   int `yaml:"max_retries"`
 	SubtaskDepth int `yaml:"subtask_depth"`
-	MaxTasks     int `yaml:"max_tasks"`
+	// SubtaskRetries is how many times a subtask that failed is tried again, told why the last
+	// attempt failed, before the parent gives up on the rest of its subtasks. Zero turns it off.
+	SubtaskRetries int `yaml:"subtask_retries"`
+	// CriteriaAudit sends a claim of "done" back to the run when one of the success criteria the
+	// analysis stated is not shown to be met, before the project's gate is spent on it. It costs
+	// one short model call per claim; false skips it.
+	CriteriaAudit bool `yaml:"criteria_audit"`
+	MaxTasks      int  `yaml:"max_tasks"`
 	// MaxSteps bounds how many rounds a SINGLE task may take, which is a different
 	// question from max_retries.
 	//
@@ -486,6 +479,7 @@ func Default() Config {
 			Plan:       BasePlanTemplate,
 			Execute:    BaseExecuteTemplate,
 			Synthesize: BaseSynthesizeTemplate,
+			Audit:      BaseAuditTemplate,
 		},
 		FinalAction: FinalAction{
 			Kind:          "none",
@@ -495,6 +489,10 @@ func Default() Config {
 		Agent: Agent{
 			MaxRetries:   5,
 			SubtaskDepth: 1,
+			// One more try per subtask: a failure is usually one fix away, and giving up on the
+			// subtask abandons every one that comes after it.
+			SubtaskRetries: 1,
+			CriteriaAudit:  true,
 			// A task is allowed to take many rounds, because "do what I asked" is usually a
 			// plan and not a single step.
 			//
@@ -1145,6 +1143,9 @@ func (c Config) Deprecations() []string {
 func (c *Config) validateAgent() error {
 	if c.Agent.MaxRetries < 0 {
 		return fmt.Errorf("agent.max_retries cannot be negative")
+	}
+	if c.Agent.SubtaskRetries < 0 {
+		return fmt.Errorf("agent.subtask_retries cannot be negative")
 	}
 	if c.Agent.WorkspaceDir == "" {
 		c.Agent.WorkspaceDir = Default().Agent.WorkspaceDir

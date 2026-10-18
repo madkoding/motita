@@ -38,6 +38,8 @@ type taskRun struct {
 	readOnlyRounds   int
 	unbackedDone     int
 	verifyChallenges int
+	auditChallenges  int
+	auditPassed      bool
 	toolingRetries   int
 	trail            []string
 	workLog          strings.Builder
@@ -70,7 +72,10 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// done - and it cannot stop to ask: its question would surface as the parent's failure
 	// ("only 0 of 3 subtasks passed") with the question itself lost, because the user is
 	// talking to the PARENT turn. It proceeds on the reading the analysis stated instead.
-	if depth > 0 {
+	//
+	// The turn that applies suggestions the user already accepted is the same: the list IS the
+	// request, and asking what it meant sends the user back to a decision they just made.
+	if depth > 0 || IsApplyingTurn(t.Description) {
 		r.workAsSubtask()
 	}
 
@@ -119,7 +124,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 func (r *taskRun) workAsSubtask() {
 	an := &r.analysis
 	if an.resolveKind() != KindTask || !an.Understandable || an.Question != "" {
-		r.a.log.Info(r.prefix+"a subtask cannot chat or ask: proceeding as work",
+		r.a.log.Info(r.prefix+"this turn cannot chat or ask: proceeding as work",
 			"kind", an.Kind, "question", truncate(an.Question, 160))
 		if assumed := cleanAssumption(an.Assumption); assumed != "" {
 			r.proceededOnAssumption = assumed
@@ -677,7 +682,9 @@ func (r *taskRun) claimSentBack(action Action) bool {
 		r.challengeFailing(action, open)
 		return true
 	}
-	return false
+
+	// [7d] A claim of "done" with a success criterion the run never showed. See audit.go.
+	return r.auditClaim(action)
 }
 
 // unbackedClaim reports a claim of "done" over a tree that is still the one the run found, after
