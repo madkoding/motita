@@ -223,3 +223,23 @@ export function saveUsageStyle(style: UsageStyle): void {
   }
   window.dispatchEvent(new Event(USAGE_STYLE_EVENT));
 }
+
+// Whether the provider usage in the sidebar is open. It starts closed, showing only each provider and
+// its percentage, and stays as the user left it.
+export const USAGE_OPEN_KEY = "motita.ui.usageOpen";
+
+export function loadUsageOpen(): boolean {
+  try {
+    return localStorage.getItem(USAGE_OPEN_KEY) === "open";
+  } catch {
+    return false;
+  }
+}
+
+export function saveUsageOpen(open: boolean): void {
+  try {
+    localStorage.setItem(USAGE_OPEN_KEY, open ? "open" : "closed");
+  } catch {
+    /* ignore */
+  }
+}

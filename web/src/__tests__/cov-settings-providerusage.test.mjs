@@ -36,7 +36,13 @@ const ROUTE = "GET /v1/llm/usage";
 // the process would wait for the next read.
 const mounted = [];
 
-async function mount(api, running = false) {
+// The panel starts closed; most tests look at what it shows open, so they open it first.
+async function mount(api, running = false, open = true) {
+  if (open) {
+    localStorage.setItem("motita.ui.usageOpen", "open");
+  } else {
+    localStorage.removeItem("motita.ui.usageOpen");
+  }
   const root = document.createElement("div");
   document.body.appendChild(root);
   mounted.push(root);
@@ -223,6 +229,53 @@ test("no quota list and no note when every provider reports one or none does", a
   assert.match(text(q(all, "provider-quota-a-week")), /A · Week0%/);
   assert.match(text(q(all, "provider-quota-a-session")), /A · Session3%/);
   assert.match(text(q(all, "provider-quota-a-month")), /A · Month25%/);
+});
+
+test("it starts closed with only each provider and its percentage, and the title opens it", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [
+          row("a", {
+            input: 300,
+            limits: { quotas: [{ name: "week", used_percent: 40 }] },
+          }),
+          row("b", { input: 100 }),
+        ],
+      }),
+  });
+  const root = await mount(gw.api, false, false);
+  assert.equal(text(q(root, "provider-usage-a")), "A75%");
+  assert.equal(text(q(root, "provider-usage-b")), "B25%");
+  assert.equal(root.querySelector(".provider-usage-bar"), null);
+  assert.equal(q(root, "provider-quotas"), null);
+  assert.equal(q(root, "provider-usage-noquota"), null);
+  assert.match(q(root, "provider-usage-a").title, /^A: /);
+  const toggle = q(root, "provider-usage-toggle");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  toggle.click();
+  await settle();
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.ok(root.querySelector(".provider-usage-fill"));
+  assert.ok(q(root, "provider-quota-a-week"));
+  assert.equal(localStorage.getItem("motita.ui.usageOpen"), "open");
+  toggle.click();
+  await settle();
+  assert.equal(root.querySelector(".provider-usage-fill"), null);
+  assert.equal(localStorage.getItem("motita.ui.usageOpen"), "closed");
+});
+
+test("the open or closed state survives a storage that refuses", async () => {
+  const S = await load("settings.ts");
+  const proto = window.Storage.prototype;
+  const { getItem, setItem } = proto;
+  proto.getItem = proto.setItem = () => {
+    throw new Error("blocked");
+  };
+  const closed = S.loadUsageOpen();
+  S.saveUsageOpen(true);
+  Object.assign(proto, { getItem, setItem });
+  assert.equal(closed, false);
 });
 
 test("only the busiest providers are named and the rest are counted", async () => {

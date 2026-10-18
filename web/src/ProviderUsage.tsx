@@ -4,8 +4,14 @@
 // Claude subscription), with the share used and when each starts over; the providers that report
 // none are named as such, never guessed. Hovering a row gives the split and the calls. It stays
 // quiet where the gateway has no such API.
-import { useEffect, useState } from "preact/hooks";
-import { USAGE_STYLE_EVENT, loadUsageStyle, type UsageStyle } from "./settings";
+import { useCallback, useEffect, useState } from "preact/hooks";
+import {
+  USAGE_STYLE_EVENT,
+  loadUsageOpen,
+  loadUsageStyle,
+  saveUsageOpen,
+  type UsageStyle,
+} from "./settings";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { formatElapsed, formatTokens, tokenBreakdown } from "./appFormat";
@@ -176,49 +182,52 @@ function useUsageStyle(): UsageStyle {
   return style;
 }
 
-// ProviderUsagePanel lists the providers by what they consumed, the busiest first.
-export function ProviderUsagePanel({
-  api,
-  running,
+// useUsageOpen is whether the panel is open, closed until the user opens it.
+function useUsageOpen(): [boolean, () => void] {
+  const [open, setOpen] = useState(loadUsageOpen);
+  const toggle = useCallback(() => {
+    setOpen(!open);
+    saveUsageOpen(!open);
+  }, [open]);
+  return [open, toggle];
+}
+
+// UsageSummary is the closed panel: each provider and its percentage, as text.
+function UsageSummary({ shown, sum }: { shown: ProviderUsage[]; sum: number }) {
+  return (
+    <ul class="space-y-0.5">
+      {shown.map((u) => (
+        <li
+          key={u.id}
+          class="flex items-center gap-2 text-xs"
+          title={rowTitle(u)}
+          data-testid={"provider-usage-" + u.id}
+        >
+          <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
+          <span class="tabular-nums text-[#9a9aaa]">
+            {shareOf(usageTotal(u), sum)}%
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// UsageDetail is the open panel: bars or gauges, then the quotas and the providers that report none.
+function UsageDetail({
+  shown,
+  sum,
+  style,
 }: {
-  api: Api;
-  running: boolean;
+  shown: ProviderUsage[];
+  sum: number;
+  style: UsageStyle;
 }) {
-  const [rows, setRows] = useState<ProviderUsage[]>([]);
-  const style = useUsageStyle();
-  useEffect(() => {
-    let live = true;
-    const load = () =>
-      getLLMUsage(api)
-        .then((v) => live && setRows(v ?? []))
-        .catch(() => undefined);
-    void load();
-    // A run starting or ending changes the figures, so the effect also reads on those.
-    const timer = setInterval(load, USAGE_POLL_MS);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [api, running]);
-  if (rows.length === 0) {
-    return null;
-  }
-  const sorted = [...rows].sort((a, b) => usageTotal(b) - usageTotal(a));
-  const shown = sorted.slice(0, USAGE_ROWS);
-  const sum = sorted.reduce((n, u) => n + usageTotal(u), 0);
-  const more = sorted.length - shown.length;
   const now = Date.now();
   const quotas = shown.map((u) => ({ u, qs: liveQuotas(u, now) }));
   const silent = quotas.filter((x) => x.qs.length === 0).map((x) => x.u.name);
   return (
-    <section
-      class="px-4 py-2 border-t border-white/5 flex-none"
-      aria-label={t("Provider usage")}
-      data-testid="provider-usage"
-    >
-      <h2 class="text-[10px] font-semibold uppercase tracking-wider text-[#7a7a8c] pb-1">
-        {t("Provider usage")}
-      </h2>
+    <>
       <ul
         class={choose(
           style === "gauge",
@@ -250,6 +259,66 @@ export function ProviderUsagePanel({
         >
           {tf("No quota reported: {names}", { names: silent.join(", ") })}
         </p>
+      )}
+    </>
+  );
+}
+
+// ProviderUsagePanel lists the providers by what they consumed, the busiest first. It starts
+// closed, with only each provider and its percentage; the title opens it.
+export function ProviderUsagePanel({
+  api,
+  running,
+}: {
+  api: Api;
+  running: boolean;
+}) {
+  const [rows, setRows] = useState<ProviderUsage[]>([]);
+  const style = useUsageStyle();
+  const [open, toggle] = useUsageOpen();
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      getLLMUsage(api)
+        .then((v) => live && setRows(v ?? []))
+        .catch(() => undefined);
+    void load();
+    // A run starting or ending changes the figures, so the effect also reads on those.
+    const timer = setInterval(load, USAGE_POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [api, running]);
+  if (rows.length === 0) {
+    return null;
+  }
+  const sorted = [...rows].sort((a, b) => usageTotal(b) - usageTotal(a));
+  const shown = sorted.slice(0, USAGE_ROWS);
+  const sum = sorted.reduce((n, u) => n + usageTotal(u), 0);
+  const more = sorted.length - shown.length;
+  return (
+    <section
+      class="px-4 py-2 border-t border-white/5 flex-none"
+      aria-label={t("Provider usage")}
+      data-testid="provider-usage"
+    >
+      <h2 class="pb-1">
+        <button
+          type="button"
+          class="provider-usage-toggle"
+          aria-expanded={open}
+          onClick={toggle}
+          data-testid="provider-usage-toggle"
+        >
+          <span aria-hidden="true">{choose(open, "▾", "▸")}</span>
+          {t("Provider usage")}
+        </button>
+      </h2>
+      {choose(
+        open,
+        <UsageDetail shown={shown} sum={sum} style={style} />,
+        <UsageSummary shown={shown} sum={sum} />,
       )}
       {more > 0 && (
         <p
