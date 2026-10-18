@@ -357,6 +357,7 @@ export function SpeechSettings({
     [set],
   );
   const off = !supported;
+  const mute = off || speaksNothing(prefs);
   return (
     <section class="settings-group" aria-labelledby="settings-speech-h">
       <h3 id="settings-speech-h" class="settings-group-title">
@@ -439,7 +440,7 @@ export function SpeechSettings({
             name="settings-speech-rate"
             labelledBy="settings-speech-rate"
             value={String(prefs.rate)}
-            disabled={off || speaksNothing(prefs)}
+            disabled={mute}
             onChange={setRate}
             options={RATES.map((r) => ({
               value: String(r),
@@ -454,7 +455,7 @@ export function SpeechSettings({
           value={prefs.volume}
           step={VOLUME_STEP}
           format={volumeLabel}
-          disabled={off || speaksNothing(prefs)}
+          disabled={mute}
           onChange={setVolume}
         />
         <VoiceTuning
