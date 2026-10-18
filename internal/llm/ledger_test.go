@@ -86,9 +86,11 @@ func TestTheLatestRateLimitsStayWithTheProvider(t *testing.T) {
 	l := newLedger(&clock)
 	l.limits("openai", RateLimits{Tokens: &Window{Limit: 10, Remaining: 4}})
 	got := l.snapshot()
-	if len(got) != 1 || got[0].Calls != 0 || got[0].Limits == nil || got[0].Limits.Tokens.Remaining != 4 ||
-		!got[0].Limits.At.Equal(clock) {
-		t.Errorf("limits: %+v", got)
+	if len(got) != 1 || got[0].Calls != 0 || got[0].Limits == nil {
+		t.Fatalf("limits: %+v", got)
+	}
+	if got[0].Limits.Tokens.Remaining != 4 || !got[0].Limits.At.Equal(clock) {
+		t.Errorf("limits: %+v", got[0].Limits)
 	}
 }
 
