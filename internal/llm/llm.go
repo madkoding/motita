@@ -44,6 +44,7 @@ type Message struct {
 	Content    string     // text of the turn (empty when the turn is only calls)
 	ToolCalls  []ToolCall // for assistant turns that ask for tool results
 	ToolCallID string     // for tool turns, matching the assistant call
+	Images     []Image    // pictures a user turn shows the model (see image.go)
 }
 
 // Client talks to the configured provider.

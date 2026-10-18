@@ -13,7 +13,7 @@ import (
 
 type openAIMessage struct {
 	Role       string     `json:"role"`
-	Content    string     `json:"content"`
+	Content    any        `json:"content"` // the text, or text and image parts (see openAIContent)
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
@@ -337,7 +337,7 @@ func toOpenAIMessages(messages []Message) []openAIMessage {
 		}
 		out = append(out, openAIMessage{
 			Role:       role,
-			Content:    m.Content,
+			Content:    openAIContent(m.Content, m.Images),
 			ToolCalls:  m.ToolCalls,
 			ToolCallID: m.ToolCallID,
 		})

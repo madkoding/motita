@@ -36,7 +36,8 @@ type geminiFunctionCall struct {
 	Args json.RawMessage `json:"args"`
 }
 
-func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
+// geminiTextContents converts a text conversation (with its pictures) for generateContent.
+func geminiTextContents(messages []Message) (string, []map[string]any) {
 	var system string
 	var contents []map[string]any
 	for _, m := range messages {
@@ -48,12 +49,14 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 		if m.Role == "assistant" {
 			role = "model"
 		}
-		contents = append(contents, map[string]any{
-			"role":  role,
-			"parts": []map[string]any{{"text": m.Content}},
-		})
+		parts := append([]map[string]any{{"text": m.Content}}, geminiImages(m.Images)...)
+		contents = append(contents, map[string]any{"role": role, "parts": parts})
 	}
+	return system, contents
+}
 
+func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
+	system, contents := geminiTextContents(messages)
 	body := map[string]any{
 		"contents": contents,
 		"generationConfig": map[string]any{
@@ -251,6 +254,7 @@ func geminiTurnParts(m Message, names map[string]string) []map[string]any {
 	if m.Content != "" {
 		parts = append(parts, map[string]any{"text": m.Content})
 	}
+	parts = append(parts, geminiImages(m.Images)...)
 	for i, tc := range m.ToolCalls {
 		names[tc.ID] = tc.Function.Name
 		args := map[string]any{}
