@@ -1003,13 +1003,13 @@ test("the connection banner is silent while connected and says what is wrong oth
   let { root, done } = await show(ConnectionBanner, {
     status: { connection: "ok" },
   });
-  assert.equal(root.querySelector("[role=status]"), null);
+  assert.equal(root.querySelector("output"), null);
   await done();
   ({ root, done } = await show(ConnectionBanner, {
     status: { connection: "reconnecting" },
   }));
   assert.equal(
-    text(root.querySelector("[role=status]")),
+    text(root.querySelector("output")),
     "Connection lost. Reconnecting…",
   );
   await done();
@@ -1017,7 +1017,7 @@ test("the connection banner is silent while connected and says what is wrong oth
     status: { connection: "lost" },
   }));
   assert.equal(
-    text(root.querySelector("[role=status]")),
+    text(root.querySelector("output")),
     "No connection to the server",
   );
   await done();
