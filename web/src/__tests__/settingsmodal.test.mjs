@@ -604,6 +604,7 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     rate: 1,
     maxChars: 600,
     pitch: 1,
+    volume: 1,
     expressiveness: 1,
     variation: 1,
     langVoices: {},
@@ -627,6 +628,18 @@ test("read aloud: with a gateway voice, who speaks is chosen, and the gateway's 
     pitch.dispatchEvent(new window.Event("input", { bubbles: true })),
   );
   assert.deepEqual(saved.pop(), { ...base, pitch: 1.5 });
+  // The volume is a percentage, for every voice, back to full with one button.
+  const volume = card.querySelector("[data-testid=settings-speech-volume]");
+  const volumeReset = card.querySelector(
+    "[data-testid=settings-speech-volume-reset]",
+  );
+  assert.equal(volumeReset.disabled, true, "already full");
+  assert.match(card.textContent, /Volume.*100 %/);
+  volume.value = "0.5";
+  await act(() =>
+    volume.dispatchEvent(new window.Event("input", { bubbles: true })),
+  );
+  assert.deepEqual(saved.pop(), { ...base, volume: 0.5 });
   assert.equal(
     card.querySelector("[data-testid=settings-speech-expressiveness]"),
     null,

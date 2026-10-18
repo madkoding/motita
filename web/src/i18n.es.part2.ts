@@ -462,6 +462,7 @@ const more: Record<string, string> = {
   "How much the length of each sound varies: lower is more even, higher more natural.":
     "Cuánto varía la duración de cada sonido: menos es más parejo, más es más natural.",
   Pitch: "Tono",
+  Volume: "Volumen",
   Reset: "Restablecer",
   "Loading into memory… {pct}%": "Cargando en memoria… {pct} %",
   "The voice could not be loaded: {error}": "No se pudo cargar la voz: {error}",

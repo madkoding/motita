@@ -78,6 +78,7 @@ interface AnyReader {
     opts: Parameters<Reader["read"]>[1],
   ): void;
   stop(): void;
+  setVolume(v: number): void;
 }
 
 // How often the natural style looks whether the agent did something worth a line.
@@ -407,6 +408,10 @@ function useReader(
       stop: () => {
         device?.stop();
         clip?.stop();
+      },
+      setVolume: (v) => {
+        device?.setVolume(v);
+        clip?.setVolume(v);
       },
     };
   }, [device, clip, prefsRef, gatewayOn, localOn]);
@@ -740,6 +745,7 @@ function useReadText(o: {
         // would double it.
         rate: choose(p.engine === "local", 1, p.rate),
         pitch: p.pitch,
+        volume: p.volume,
         onSentence: (i) => {
           showSubtitle(list[i].shown);
           const root = rootOf?.();
@@ -846,6 +852,11 @@ export function useSpeech({
     gatewayOn,
     localOn,
   );
+
+  // The volume applies at once, also to the sentence being said.
+  useEffect(() => {
+    reader?.setVolume(prefs.volume);
+  }, [reader, prefs.volume]);
 
   // NATURAL STYLE state: the lines waiting for the voice, the lines said this turn, and a counter
   // that a stop or a new turn bumps, so an answer from the model that comes back late is dropped.
