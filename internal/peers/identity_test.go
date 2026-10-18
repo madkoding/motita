@@ -39,7 +39,7 @@ func TestSniffServesPlainAndTLSOnOnePort(t *testing.T) {
 		t.Fatalf("plain = %q", body)
 	}
 	tr := Transport(testCert)
-	req, _ := http.NewRequestWithContext(WithPin(context.Background(), Fingerprint(testCert.Certificate[0])),
+	req, _ := http.NewRequestWithContext(WithPin(context.Background(), EncodeCert(testCert.Certificate[0])),
 		http.MethodGet, "https://"+addr+"/", nil)
 	res, err = tr.RoundTrip(req)
 	if err != nil {
@@ -81,5 +81,14 @@ func TestSniffSurvivesAFailedAcceptAndDropsWhatArrivesAfterClosing(t *testing.T)
 	_ = there.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if _, err := there.Read(buf); err == nil {
 		t.Fatal("the late connection was kept")
+	}
+}
+
+func TestFingerprintOfReadsOnlyACertificate(t *testing.T) {
+	if FingerprintOf(EncodeCert(testCert.Certificate[0])) != Fingerprint(testCert.Certificate[0]) {
+		t.Fatal("fingerprint of an encoded certificate")
+	}
+	if FingerprintOf("not base64!") != "" || FingerprintOf("aGVsbG8=") != "" {
+		t.Fatal("a fingerprint of what is not a certificate")
 	}
 }

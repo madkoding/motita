@@ -166,7 +166,10 @@ func TestDiscoveryWithoutSocketsStillProbesAndScans(t *testing.T) {
 		d.Run(ctx)
 		close(done)
 	}()
-	eventually(t, "probed", func() bool { p, _ := reg.Find("peer0001"); return p.Online })
+	eventually(t, "probed", func() bool {
+		p, _ := reg.Find("peer0001")
+		return p.Online
+	})
 	eventually(t, "second period", func() bool { return calls.Load() >= 3 })
 	cancel()
 	<-done
@@ -187,7 +190,8 @@ func TestDiscoveryWithoutSocketsStillProbesAndScans(t *testing.T) {
 
 func TestScanTailnetTriesTheNextAddressAndNeedsTailscale(t *testing.T) {
 	reg, _ := Open("", "box")
-	d := &Discovery{Registry: reg, Prober: NewProber(testCert), Hello: func() (Hello, bool) { return Hello{Port: 1}, true }}
+	d := &Discovery{Registry: reg, Prober: NewProber(testCert),
+		Hello: func() (Hello, bool) { return Hello{Port: 1}, true }}
 	d.scanTailnet(context.Background())
 	d.Tailnet = func(context.Context) []tailscale.Peer {
 		return []tailscale.Peer{{IPs: []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("8.8.4.4")}}}

@@ -19,9 +19,11 @@ export function ConnectMachineModal() {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const title = machine
-    ? tf("Connect {name}", { name: machine.name })
-    : t("Add a computer");
+  const title = choose(
+    machine,
+    tf("Connect {name}", { name: machine?.name ?? "" }),
+    t("Add a computer"),
+  );
   const incomplete = !machine && !address.trim();
   const asking = !token.trim();
   return (

@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -22,11 +23,12 @@ import (
 
 // THE IDENTITY OF A GATEWAY ON THE WIRE.
 //
-// Every gateway holds a self-signed certificate, made once and kept with its identity. Gateways
-// speak to each other over TLS only, each presenting its own certificate, and each one knows the
-// other by the SHA-256 FINGERPRINT of that certificate: there is no authority to vouch for a
-// machine on a LAN, so the fingerprint seen when two computers are first connected is pinned, and
-// a connection that later presents another one is refused before a token is ever sent on it.
+// Every gateway holds a self-signed certificate, made once and kept with its identity, and says it
+// in its hello. Gateways speak to each other over TLS only, each presenting its own certificate.
+// There is no authority to vouch for a machine on a LAN, so the certificate a computer announced
+// when it was first connected is pinned as the ONLY authority trusted for it, and a connection
+// that later presents another one is refused before a token is ever sent on it. Its SHA-256
+// fingerprint is what a gateway knows a client by, and what the pairing code is made from.
 //
 // TLS arrives on the gateway's one port: the first byte of a TLS connection (a handshake record,
 // 0x16) is never the first byte of an HTTP request, so Sniff hands each connection to the TLS or
@@ -68,7 +70,7 @@ func newCertificate(id string) string {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: "motita " + id},
-		DNSNames:     []string{"motita-peer"},
+		DNSNames:     []string{peerName},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().AddDate(30, 0, 0),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -97,49 +99,63 @@ func ServerConfig(cert tls.Certificate) *tls.Config {
 	}
 }
 
-// pinKey carries the fingerprint a connection must present; seenKey a place to write the one it did.
-type (
-	pinKey  struct{}
-	seenKey struct{}
-)
+// pinKey carries the certificate a connection must present.
+type pinKey struct{}
 
-// WithPin is ctx for a request to the computer whose certificate has fingerprint pin.
+// WithPin is ctx for a request to the computer whose certificate is pin (see EncodeCert).
 func WithPin(ctx context.Context, pin string) context.Context {
 	return context.WithValue(ctx, pinKey{}, pin)
 }
 
-// withSeen is ctx that records the fingerprint the other end presented in *seen.
-func withSeen(ctx context.Context, seen *string) context.Context {
-	return context.WithValue(ctx, seenKey{}, seen)
+// peerName is the name every gateway's certificate is made for.
+const peerName = "motita-peer"
+
+// EncodeCert is a certificate as a gateway announces it and another pins it: its DER, in base64.
+func EncodeCert(der []byte) string { return base64.StdEncoding.EncodeToString(der) }
+
+// decodeCert reads what EncodeCert wrote, or nil.
+func decodeCert(pin string) *x509.Certificate {
+	der, err := base64.StdEncoding.DecodeString(pin)
+	if err != nil {
+		return nil
+	}
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
+// FingerprintOf is the fingerprint of an encoded certificate, or "" when it is not one.
+func FingerprintOf(pin string) string {
+	c := decodeCert(pin)
+	if c == nil {
+		return ""
+	}
+	return Fingerprint(c.Raw)
 }
 
 // clientConfig is the TLS side of a request to another gateway: this one's certificate, and the
-// other's checked against the pin in ctx when there is one. There is no authority to check it
-// against (a LAN has none), so the certificate is not verified as a web browser would: what makes
-// it trusted is its fingerprint, pinned the first time the person connected the two computers.
+// other's verified against the one pinned in ctx, which is the only authority trusted for it (a
+// LAN has no other). Without a pin, or with a pin that is not a certificate, nothing is trusted
+// and the handshake fails.
 func clientConfig(ctx context.Context, cert tls.Certificate) *tls.Config {
-	pin, pinned := ctx.Value(pinKey{}).(string)
-	seen, _ := ctx.Value(seenKey{}).(*string)
+	roots := x509.NewCertPool()
+	pin, _ := ctx.Value(pinKey{}).(string)
+	if c := decodeCert(pin); c != nil {
+		roots.AddCert(c)
+	}
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
+		RootCAs:      roots,
+		ServerName:   peerName,
 		MinVersion:   tls.VersionTLS13,
 		NextProtos:   []string{"http/1.1"},
-		// The chain is not verified because there is none: VerifyConnection checks the pin.
-		InsecureSkipVerify: true, //nolint:gosec // identity is the pinned fingerprint, checked below
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			fp := Fingerprint(cs.PeerCertificates[0].Raw)
-			if seen != nil {
-				*seen = fp
-			}
-			if pinned && fp != pin {
-				return ErrIdentity
-			}
-			return nil
-		},
 	}
 }
 
-// dialTLS opens a guarded connection to address and shakes hands as clientConfig says.
+// dialTLS opens a guarded connection to address and shakes hands as clientConfig says. A
+// certificate other than the pinned one is ErrIdentity.
 func dialTLS(ctx context.Context, dialer *net.Dialer, cert tls.Certificate, address string) (net.Conn, error) {
 	raw, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
@@ -148,6 +164,10 @@ func dialTLS(ctx context.Context, dialer *net.Dialer, cert tls.Certificate, addr
 	conn := tls.Client(raw, clientConfig(ctx, cert))
 	if err := conn.HandshakeContext(ctx); err != nil {
 		_ = raw.Close()
+		var verify *tls.CertificateVerificationError
+		if errors.As(err, &verify) {
+			return nil, ErrIdentity
+		}
 		return nil, err
 	}
 	return conn, nil

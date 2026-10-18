@@ -228,7 +228,8 @@ func TestPairRenameTargetAndForget(t *testing.T) {
 	r.Saw(h, ap("192.168.1.6:7477"), SourceLAN)
 	again, _ := Open(path, "box")
 	p, ok := again.Find("peer0001")
-	if !ok || p.Name != "desk2" || p.Alias != "Office" || p.Version != "v2" || !p.Paired || p.Online {
+	got := [...]any{p.Name, p.Alias, p.Version, p.Paired, p.Online}
+	if !ok || got != [...]any{"desk2", "Office", "v2", true, false} {
 		t.Fatalf("kept = %+v", p)
 	}
 	if err := r.Forget("nobody00"); !errors.Is(err, ErrUnknown) {
@@ -291,7 +292,7 @@ func TestAllowedIsThePrivateNetworksOnly(t *testing.T) {
 func TestOpenMakesACertificateOnceAndReplacesABrokenOne(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "peers.json")
 	r, _ := Open(path, "box")
-	if len(r.Fingerprint()) != 64 || len(r.Certificate().Certificate) != 1 {
+	if len(r.Fingerprint()) != 64 || len(r.Certificate().Certificate) != 1 || FingerprintOf(r.Cert()) != r.Fingerprint() {
 		t.Fatalf("fingerprint %q", r.Fingerprint())
 	}
 	again, _ := Open(path, "box")
@@ -384,6 +385,13 @@ func TestARequestToConnectIsAnsweredOnce(t *testing.T) {
 	if g := again.Grants(); len(g) != 1 || g[0].ID != "peer0001" || g[0].Name != "laptop" {
 		t.Fatalf("kept grants = %+v", g)
 	}
+}
+
+func TestALetInComputerIsLetInAgainRefusedAndRevoked(t *testing.T) {
+	r, _ := newReg(t)
+	_, _ = r.Ask("peer0001", "laptop", "", "fp1")
+	_ = r.Decide("peer0001", true)
+	_, token := r.Answer("fp1")
 	// Let in again: the new token replaces the old one.
 	_, _ = r.Ask("peer0001", "laptop", "", "fp1")
 	_ = r.Decide("peer0001", true)

@@ -27,6 +27,9 @@ import (
 	"time"
 )
 
+// jsonFlag asks the tailscale command for its machine-readable answer.
+const jsonFlag = "--json"
+
 // Status is what this machine's Tailscale looks like, as far as the gateway cares.
 type Status struct {
 	// Installed is true when the tailscale command was found.
@@ -99,7 +102,7 @@ func (c *Client) Detect(ctx context.Context, target string) Status {
 	st := Status{Installed: true}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := c.Run(ctx, bin, "status", "--json")
+	out, err := c.Run(ctx, bin, "status", jsonFlag)
 	var doc statusDoc
 	// `status` exits non-zero when the daemon is stopped or logged out but still prints the JSON,
 	// so the document is read whatever the exit code, and the error only matters without one.
@@ -124,7 +127,7 @@ func (c *Client) Detect(ctx context.Context, target string) Status {
 
 // serving reports whether the serve configuration already forwards to target.
 func (c *Client) serving(ctx context.Context, bin, target string) bool {
-	out, err := c.Run(ctx, bin, "serve", "status", "--json")
+	out, err := c.Run(ctx, bin, "serve", "status", jsonFlag)
 	if err != nil {
 		return false
 	}
@@ -266,7 +269,7 @@ func (c *Client) Peers(ctx context.Context) []Peer {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, _ := c.Run(ctx, bin, "status", "--json")
+	out, _ := c.Run(ctx, bin, "status", jsonFlag)
 	var doc peersDoc
 	if json.Unmarshal(out, &doc) != nil {
 		return nil

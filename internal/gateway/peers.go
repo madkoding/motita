@@ -24,10 +24,11 @@ import (
 // CONNECTS it by typing that computer's token once, or by asking it and having the person at that
 // computer let this one in (a token of its own is then issued for this computer, tied to its
 // certificate and revocable there). From then on this gateway speaks to it on their behalf, over
-// TLS pinned to the certificate it presented when connected, and the page opens its sessions, projects and settings through
-// /v1/peers/{id}/proxy/..., which forwards the request, the stream of events and the WebSocket as
-// they are. The page never holds the other token, and the other gateway only ever sees a bearer
-// client: its own token check, network rules and limits apply unchanged.
+// TLS pinned to the certificate it presented when connected, and the page opens its sessions,
+// projects and settings through /v1/peers/{id}/proxy/..., which forwards the request, the stream
+// of events and the WebSocket as they are. The page never holds the other token, and the other
+// gateway only ever sees a bearer client: its own token check, network rules and limits apply
+// unchanged.
 
 // peerProxyPrefix is where a connected computer's API is reached through this gateway.
 const peerProxyPrefix = "/v1/peers/"
@@ -73,7 +74,7 @@ func (s *Server) peerHello() (peers.Hello, bool) {
 	p, _ := strconv.Atoi(port)
 	addrs, _ := interfaceAddrs()
 	return peers.Hello{Protocol: peers.Protocol, ID: self.ID, Name: self.Name, Version: s.opts.Version,
-		Port: p, Addrs: peers.LocalAddrs(addrs), Cert: s.peers.Fingerprint()}, !isLoopback(host)
+		Port: p, Addrs: peers.LocalAddrs(addrs), Cert: s.peers.Cert()}, !isLoopback(host)
 }
 
 // handlePeerHello answers another gateway that asks who this one is.
@@ -333,7 +334,7 @@ func (s *Server) askPeer(w http.ResponseWriter, r *http.Request, h peers.Hello, 
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	code := peers.PairCode(s.peers.Fingerprint(), h.Cert)
+	code := peers.PairCode(s.peers.Fingerprint(), peers.FingerprintOf(h.Cert))
 	s.peers.SetAsk(h.ID, peers.Ask{Code: code, State: peers.AskWaiting})
 	go s.awaitApproval(h, at, addr, code)
 	writeJSON(w, http.StatusOK, s.peersView())
@@ -365,9 +366,17 @@ func (s *Server) awaitApproval(h peers.Hello, at netip.AddrPort, addr, code stri
 		case a.State == peers.AskDenied:
 			s.peers.SetAsk(h.ID, peers.Ask{Code: code, State: peers.AskDenied})
 			return
+		default:
+			// Still waiting for the person there.
 		}
 	}
 	s.peers.SetAsk(h.ID, peers.Ask{})
+}
+
+// requireAuth is the check every endpoint but a few passes: the token or the browser's cookie, or
+// a computer let into this one.
+func (s *Server) requireAuth(h http.Handler) http.Handler {
+	return requireCredential(s.opts.Token, s.peerGranted, h, s.opts.Origins...)
 }
 
 // clientCert is the fingerprint of the certificate the connection presented, or "".
@@ -449,7 +458,9 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 // proxyRefused are the endpoints never forwarded: the other computer's own list of computers (no
 // chains of hops, and no way to reach a third gateway from here), its cookie exchange (the page
 // holds this gateway's cookie, never another's) and its shutdown.
-var proxyRefused = []string{"/v1/peers", "/v1/peer/", "/v1/peer-requests/", "/v1/peer-grants/", "/v1/webui/", "/v1/shutdown"}
+var proxyRefused = []string{
+	"/v1/peers", "/v1/peer/", "/v1/peer-requests/", "/v1/peer-grants/", "/v1/webui/", "/v1/shutdown",
+}
 
 // peerPath is the path forwarded, or "" when it is not one the page may reach: an API path, with no
 // dot segments, outside proxyRefused.

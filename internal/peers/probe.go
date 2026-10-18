@@ -59,16 +59,26 @@ const probeURL = "https://motita-peer"
 // targetKey carries the address a probe dials in its context.
 type targetKey struct{}
 
-// probeTransport dials the address in the request's context, guarded and over TLS like Transport.
-// It keeps no connection: every probe names its own address under the same URL, and a pooled
-// connection would answer for another one.
+// helloURL is the base of the hello, the one probe made in plain HTTP: it is how a gateway learns
+// the certificate to speak TLS to the other with.
+const helloURL = "http://motita-peer"
+
+// probeTransport dials the address in the request's context, guarded, and over TLS like Transport
+// for everything but the hello. It keeps no connection: every probe names its own address under
+// the same URL, and a pooled connection would answer for another one.
 func probeTransport(cert tls.Certificate) *http.Transport {
 	dialer := &net.Dialer{Timeout: ProbeTimeout, Control: guard}
+	target := func(ctx context.Context) string {
+		address, _ := ctx.Value(targetKey{}).(string)
+		return address
+	}
 	return &http.Transport{
 		Proxy: nil,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, target(ctx))
+		},
 		DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			address, _ := ctx.Value(targetKey{}).(string)
-			return dialTLS(ctx, dialer, cert, address)
+			return dialTLS(ctx, dialer, cert, target(ctx))
 		},
 		DisableKeepAlives: true,
 	}
@@ -87,8 +97,12 @@ func NewProber(cert tls.Certificate) *Prober {
 // request is a probe of path at address. The Host header names the address, as a browser
 // reaching it would.
 func request(ctx context.Context, method, address, path string, body []byte) *http.Request {
+	base := probeURL
+	if path == HelloPath {
+		base = helloURL
+	}
 	// A constant URL cannot fail to parse.
-	req, _ := http.NewRequestWithContext(context.WithValue(ctx, targetKey{}, address), method, probeURL+path,
+	req, _ := http.NewRequestWithContext(context.WithValue(ctx, targetKey{}, address), method, base+path,
 		bytes.NewReader(body))
 	req.Host = address
 	if body != nil {
@@ -108,14 +122,14 @@ func WithPort(address string, port int) string {
 }
 
 // Hello asks the gateway at address who it is, and reports the address it actually answered at.
-// The certificate it claims is the one its connection presented, or it is refused.
+// The certificate it says is only a claim until a TLS request pinned to it succeeds: every request
+// after the hello is one.
 func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPort, error) {
 	var remote netip.AddrPort
-	var seen string
 	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
 		remote, _ = netip.ParseAddrPort(info.Conn.RemoteAddr().String())
 	}}
-	ctx = withSeen(httptrace.WithClientTrace(ctx, trace), &seen)
+	ctx = httptrace.WithClientTrace(ctx, trace)
 	res, err := p.Client.Do(request(ctx, http.MethodGet, address, HelloPath, nil))
 	if err != nil {
 		if errors.Is(err, errOutside) {
@@ -125,8 +139,9 @@ func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPo
 	}
 	defer res.Body.Close()
 	var h Hello
-	if json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&h) != nil || !h.Valid() || h.Cert != seen {
-		return Hello{}, remote, fmt.Errorf("what answered at %s is not a motita gateway, or one too old to connect to", address)
+	if json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&h) != nil || !h.Valid() || FingerprintOf(h.Cert) == "" {
+		return Hello{}, remote, fmt.Errorf(
+			"what answered at %s is not a motita gateway, or one too old to connect to", address)
 	}
 	return h, netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), nil
 }
@@ -154,19 +169,18 @@ func (p *Prober) sessions(ctx context.Context, address, pin, token string) (*htt
 		}
 		return nil, fmt.Errorf("the other computer could not be reached at %s: %w", address, err)
 	}
-	switch {
-	case res.StatusCode == http.StatusUnauthorized:
+	switch res.StatusCode {
+	case http.StatusOK:
+		return res, nil
+	case http.StatusUnauthorized:
 		err = ErrToken
-	case res.StatusCode == http.StatusForbidden:
+	case http.StatusForbidden:
 		err = ErrRefused
-	case res.StatusCode != http.StatusOK:
+	default:
 		err = fmt.Errorf("the other computer answered %s", res.Status)
 	}
-	if err != nil {
-		_ = res.Body.Close()
-		return nil, err
-	}
-	return res, nil
+	_ = res.Body.Close()
+	return nil, err
 }
 
 // CheckToken reports whether the gateway at address, presenting pin, accepts token.

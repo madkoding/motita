@@ -6,8 +6,9 @@
 // (a VPN that carries no multicast). Being found grants nothing: a found gateway is only listed.
 // It is CONNECTED (paired) when the person types that gateway's own token, or when the person at
 // that gateway lets this one in (see Ask), and this one then keeps the token to speak to it on
-// their behalf, over TLS, pinned to the certificate it presented then (see identity.go). Only addresses of private networks are ever spoken to -
-// the LAN, a VPN, the tailnet - so nothing here reaches the internet, whatever a beacon claims.
+// their behalf, over TLS, pinned to the certificate it presented then (see identity.go). Only
+// addresses of private networks are ever spoken to - the LAN, a VPN, the tailnet - so nothing here
+// reaches the internet, whatever a beacon claims.
 package peers
 
 import (
@@ -51,8 +52,7 @@ type Hello struct {
 	// Addrs are the machine's own routable addresses. A beacon arrives from a link-local IPv6
 	// address, which needs its interface to be used; these let the receiver find a better one.
 	Addrs []string `json:"addrs,omitempty"`
-	// Cert is the fingerprint of its certificate. A prober checks it against the one the
-	// connection presented; in a beacon it is only a claim.
+	// Cert is its certificate (see EncodeCert): what the TLS connections to it are pinned to.
 	Cert string `json:"cert"`
 }
 
@@ -67,7 +67,9 @@ func validID(id string) bool {
 		return false
 	}
 	for _, c := range id {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+		lower := c >= 'a' && c <= 'z'
+		digit := c >= '0' && c <= '9'
+		if !lower && !digit && c != '-' {
 			return false
 		}
 	}
@@ -129,7 +131,7 @@ type Self struct {
 type Target struct {
 	Address string
 	Token   string
-	// Cert is the fingerprint the connection must present.
+	// Cert is the certificate the connection must present.
 	Cert string
 }
 
@@ -249,7 +251,9 @@ func Open(path, hostname string) (*Registry, error) {
 			if err := json.Unmarshal(data, &r.doc); err != nil {
 				return nil, fmt.Errorf("%s is not a computers file: %w", path, err)
 			}
-		case !errors.Is(err, os.ErrNotExist):
+		case errors.Is(err, os.ErrNotExist):
+			// A first run: the identity is made below.
+		default:
 			return nil, err
 		}
 	}
@@ -270,8 +274,10 @@ func Open(path, hostname string) (*Registry, error) {
 	return r, r.save()
 }
 
-// Certificate is this gateway's certificate, and Fingerprint its fingerprint.
+// Certificate is this gateway's certificate, Cert the same as it is announced, and Fingerprint its
+// fingerprint.
 func (r *Registry) Certificate() tls.Certificate { return r.cert }
+func (r *Registry) Cert() string                 { return EncodeCert(r.cert.Certificate[0]) }
 func (r *Registry) Fingerprint() string          { return r.fp }
 
 // save writes the file, readable by its owner only: it holds other gateways' tokens.
@@ -472,8 +478,8 @@ func (r *Registry) find(id string) (Peer, bool) {
 	return list[i], true
 }
 
-// Pair keeps a gateway with its token, pinned to the certificate fingerprint cert, at the address
-// it was last seen at.
+// Pair keeps a gateway with its token, pinned to the certificate cert (see EncodeCert), at the
+// address it was last seen at.
 func (r *Registry) Pair(id, token, cert string) error {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -679,7 +685,8 @@ func (r *Registry) Granted(token, cert string) bool {
 	ok := false
 	for _, g := range r.doc.Granted {
 		// Every grant is compared, in constant time: the loop takes as long whichever matches.
-		match := subtle.ConstantTimeCompare([]byte(g.Token), []byte(token)) & subtle.ConstantTimeCompare([]byte(g.Cert), []byte(cert))
+		match := subtle.ConstantTimeCompare([]byte(g.Token), []byte(token)) &
+			subtle.ConstantTimeCompare([]byte(g.Cert), []byte(cert))
 		ok = ok || match == 1
 	}
 	return ok

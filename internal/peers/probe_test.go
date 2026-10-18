@@ -20,7 +20,8 @@ var testCert, _ = parseCertificate(newCertificate("tester01"))
 type fakeGateway struct {
 	*httptest.Server
 	cert tls.Certificate
-	fp   string
+	// pin is its certificate as it announces it.
+	pin string
 
 	mu sync.Mutex
 	// asked is the last request to be let in and the fingerprint it came with.
@@ -34,15 +35,15 @@ type fakeGateway struct {
 // addr is where the fake listens.
 func (g *fakeGateway) addr() string { return g.Listener.Addr().String() }
 
-// gatewayServer starts a TLS gateway that says h (with its own certificate's fingerprint, unless h
-// names one) and accepts token.
+// gatewayServer starts a gateway that says h (with its own certificate, unless h names one) in
+// plain HTTP and answers the rest over TLS, and accepts token.
 func gatewayServer(t *testing.T, h Hello, token string) *fakeGateway {
 	t.Helper()
 	g := &fakeGateway{}
 	g.cert, _ = parseCertificate(newCertificate("gateway1"))
-	g.fp = Fingerprint(g.cert.Certificate[0])
+	g.pin = EncodeCert(g.cert.Certificate[0])
 	if h.Cert == "" {
-		h.Cert = g.fp
+		h.Cert = g.pin
 	}
 	g.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
@@ -51,30 +52,9 @@ func gatewayServer(t *testing.T, h Hello, token string) *fakeGateway {
 		case r.URL.Path == HelloPath:
 			_ = json.NewEncoder(w).Encode(h)
 		case r.URL.Path == "/v1/sessions":
-			switch r.Header.Get("Authorization") {
-			case "Bearer " + token:
-				_, _ = w.Write([]byte(`{"sessions":[{"running":true},{"running":false},{"running":true}]}`))
-			case "Bearer garbled":
-				_, _ = w.Write([]byte(`not json`))
-			case "Bearer refused":
-				w.WriteHeader(http.StatusForbidden)
-			case "Bearer broken":
-				w.WriteHeader(http.StatusInternalServerError)
-			default:
-				w.WriteHeader(http.StatusUnauthorized)
-			}
+			sessionsAnswer(w, r.Header.Get("Authorization"), token)
 		case r.URL.Path == PairPath && r.Method == http.MethodPost:
-			_ = json.NewDecoder(r.Body).Decode(&g.asked)
-			g.askedCert = Fingerprint(r.TLS.PeerCertificates[0].Raw)
-			switch g.asked.Name {
-			case "busy":
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte(`{"error":"too many"}`))
-			case "silent":
-				w.WriteHeader(http.StatusInternalServerError)
-			default:
-				w.WriteHeader(http.StatusAccepted)
-			}
+			g.ask(w, r)
 		case r.URL.Path == PairPath:
 			if g.status != 0 {
 				w.WriteHeader(g.status)
@@ -86,10 +66,41 @@ func gatewayServer(t *testing.T, h Hello, token string) *fakeGateway {
 			http.NotFound(w, r)
 		}
 	}))
-	g.TLS = ServerConfig(g.cert)
-	g.StartTLS()
+	g.Listener = Sniff(g.Listener, ServerConfig(g.cert))
+	g.Start()
 	t.Cleanup(g.Close)
 	return g
+}
+
+// sessionsAnswer is the list of sessions for the right token, and each refusal for the others.
+func sessionsAnswer(w http.ResponseWriter, auth, token string) {
+	switch auth {
+	case "Bearer " + token:
+		_, _ = w.Write([]byte(`{"sessions":[{"running":true},{"running":false},{"running":true}]}`))
+	case "Bearer garbled":
+		_, _ = w.Write([]byte(`not json`))
+	case "Bearer refused":
+		w.WriteHeader(http.StatusForbidden)
+	case "Bearer broken":
+		w.WriteHeader(http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+}
+
+// ask records a request to be let in, and answers it by the name it carries.
+func (g *fakeGateway) ask(w http.ResponseWriter, r *http.Request) {
+	_ = json.NewDecoder(r.Body).Decode(&g.asked)
+	g.askedCert = Fingerprint(r.TLS.PeerCertificates[0].Raw)
+	switch g.asked.Name {
+	case "busy":
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"too many"}`))
+	case "silent":
+		w.WriteHeader(http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusAccepted)
+	}
 }
 
 // redirected is a prober whose every connection goes to g, whatever address is asked.
@@ -97,6 +108,9 @@ func redirected(g *fakeGateway) *Prober {
 	addr := g.addr()
 	return &Prober{Client: &http.Client{Transport: &http.Transport{
 		Proxy: nil,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
 		DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return dialTLS(ctx, &net.Dialer{}, testCert, addr)
 		},
@@ -106,13 +120,15 @@ func redirected(g *fakeGateway) *Prober {
 func TestHelloReadsTheGatewayAndWhereItAnswered(t *testing.T) {
 	g := gatewayServer(t, hello("peer0001", "desk"), "tok")
 	h, at, err := NewProber(testCert).Hello(context.Background(), g.addr())
-	if err != nil || h.ID != "peer0001" || h.Cert != g.fp || !at.Addr().IsLoopback() {
+	if err != nil || h.ID != "peer0001" || h.Cert != g.pin || !at.Addr().IsLoopback() {
 		t.Fatalf("%+v %v %v", h, at, err)
 	}
 }
 
-func TestHelloRefusesWhatIsNotAGatewayOrClaimsAnotherCertificate(t *testing.T) {
-	for _, h := range []Hello{{Protocol: "other"}, func() Hello { h := hello("peer0001", "x"); h.Cert = "forged"; return h }()} {
+func TestHelloRefusesWhatIsNotAGatewayOrSaysNoCertificate(t *testing.T) {
+	forged := hello("peer0001", "x")
+	forged.Cert = "forged"
+	for _, h := range []Hello{{Protocol: "other"}, forged} {
 		g := gatewayServer(t, h, "tok")
 		_, _, err := NewProber(testCert).Hello(context.Background(), g.addr())
 		if err == nil || !strings.Contains(err.Error(), "not a motita gateway") {
@@ -126,7 +142,8 @@ func TestHelloReportsAnUnreachableOrPublicAddress(t *testing.T) {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := ln.Addr().String()
 	_ = ln.Close()
-	if _, _, err := p.Hello(context.Background(), addr); err == nil || !strings.Contains(err.Error(), "no motita answered") {
+	_, _, err := p.Hello(context.Background(), addr)
+	if err == nil || !strings.Contains(err.Error(), "no motita answered") {
 		t.Fatalf("closed port: %v", err)
 	}
 	if _, _, err := p.Hello(context.Background(), "8.8.8.8:7477"); !errors.Is(err, errOutside) {
@@ -143,6 +160,11 @@ func TestAPlainHTTPServerIsNoGateway(t *testing.T) {
 	if _, _, err := NewProber(testCert).Hello(context.Background(), srv.Listener.Addr().String()); err == nil {
 		t.Fatal("a plain server answered")
 	}
+	pin := EncodeCert(testCert.Certificate[0])
+	err := NewProber(testCert).CheckToken(context.Background(), srv.Listener.Addr().String(), pin, "tok")
+	if err == nil || errors.Is(err, ErrIdentity) {
+		t.Fatalf("TLS to a plain server: %v", err)
+	}
 }
 
 func TestGuardRefusesWhatIsNotAnAddress(t *testing.T) {
@@ -158,25 +180,26 @@ func TestCheckTokenTellsTheAnswersApart(t *testing.T) {
 	g := gatewayServer(t, hello("peer0001", "desk"), "tok")
 	p, addr := NewProber(testCert), g.addr()
 	ctx := context.Background()
-	if err := p.CheckToken(ctx, addr, g.fp, "tok"); err != nil {
+	if err := p.CheckToken(ctx, addr, g.pin, "tok"); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.CheckToken(ctx, addr, "another", "tok"); !errors.Is(err, ErrIdentity) {
 		t.Fatalf("another certificate: %v", err)
 	}
-	if err := p.CheckToken(ctx, addr, g.fp, "wrong"); !errors.Is(err, ErrToken) {
+	if err := p.CheckToken(ctx, addr, g.pin, "wrong"); !errors.Is(err, ErrToken) {
 		t.Fatalf("wrong: %v", err)
 	}
-	if err := p.CheckToken(ctx, addr, g.fp, "refused"); !errors.Is(err, ErrRefused) {
+	if err := p.CheckToken(ctx, addr, g.pin, "refused"); !errors.Is(err, ErrRefused) {
 		t.Fatalf("refused: %v", err)
 	}
-	if err := p.CheckToken(ctx, addr, g.fp, "broken"); err == nil || !strings.Contains(err.Error(), "500") {
+	if err := p.CheckToken(ctx, addr, g.pin, "broken"); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("broken: %v", err)
 	}
-	if err := p.CheckToken(ctx, "8.8.8.8:1", g.fp, "tok"); err == nil || !strings.Contains(err.Error(), "could not be reached") {
+	err := p.CheckToken(ctx, "8.8.8.8:1", g.pin, "tok")
+	if err == nil || !strings.Contains(err.Error(), "could not be reached") {
 		t.Fatalf("public: %v", err)
 	}
-	if err := p.CheckToken(ctx, "a b", g.fp, "tok"); err == nil {
+	if err := p.CheckToken(ctx, "a b", g.pin, "tok"); err == nil {
 		t.Fatal("bad address accepted")
 	}
 }
@@ -185,13 +208,13 @@ func TestRunningCountsTheRunsInFlight(t *testing.T) {
 	g := gatewayServer(t, hello("peer0001", "desk"), "tok")
 	p := NewProber(testCert)
 	ctx := context.Background()
-	if n, err := p.Running(ctx, Target{Address: g.addr(), Token: "tok", Cert: g.fp}); err != nil || n != 2 {
+	if n, err := p.Running(ctx, Target{Address: g.addr(), Token: "tok", Cert: g.pin}); err != nil || n != 2 {
 		t.Fatalf("n = %d, %v", n, err)
 	}
-	if _, err := p.Running(ctx, Target{Address: g.addr(), Token: "wrong", Cert: g.fp}); !errors.Is(err, ErrToken) {
+	if _, err := p.Running(ctx, Target{Address: g.addr(), Token: "wrong", Cert: g.pin}); !errors.Is(err, ErrToken) {
 		t.Fatalf("wrong: %v", err)
 	}
-	if _, err := p.Running(ctx, Target{Address: g.addr(), Token: "garbled", Cert: g.fp}); err == nil {
+	if _, err := p.Running(ctx, Target{Address: g.addr(), Token: "garbled", Cert: g.pin}); err == nil {
 		t.Fatal("garbled list read")
 	}
 }
@@ -200,16 +223,16 @@ func TestAskSendsWhoIsAskingWithItsCertificate(t *testing.T) {
 	g := gatewayServer(t, hello("peer0001", "desk"), "tok")
 	p := NewProber(testCert)
 	ctx := context.Background()
-	if err := p.Ask(ctx, g.addr(), g.fp, AskBody{ID: "self0001", Name: "laptop"}); err != nil {
+	if err := p.Ask(ctx, g.addr(), g.pin, AskBody{ID: "self0001", Name: "laptop"}); err != nil {
 		t.Fatal(err)
 	}
 	if g.asked.ID != "self0001" || g.askedCert != Fingerprint(testCert.Certificate[0]) {
 		t.Fatalf("asked %+v with %q", g.asked, g.askedCert)
 	}
-	if err := p.Ask(ctx, g.addr(), g.fp, AskBody{Name: "busy"}); err == nil || err.Error() != "too many" {
+	if err := p.Ask(ctx, g.addr(), g.pin, AskBody{Name: "busy"}); err == nil || err.Error() != "too many" {
 		t.Fatalf("busy: %v", err)
 	}
-	if err := p.Ask(ctx, g.addr(), g.fp, AskBody{Name: "silent"}); err == nil || !strings.Contains(err.Error(), "500") {
+	if err := p.Ask(ctx, g.addr(), g.pin, AskBody{Name: "silent"}); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("silent: %v", err)
 	}
 	if err := p.Ask(ctx, g.addr(), "another", AskBody{}); err == nil {
@@ -222,18 +245,18 @@ func TestAnswerReadsTheOtherComputersDecision(t *testing.T) {
 	p := NewProber(testCert)
 	ctx := context.Background()
 	g.answer = AnswerBody{State: AskAllowed, Token: "granted"}
-	if a, err := p.Answer(ctx, g.addr(), g.fp); err != nil || a.Token != "granted" {
+	if a, err := p.Answer(ctx, g.addr(), g.pin); err != nil || a.Token != "granted" {
 		t.Fatalf("%+v %v", a, err)
 	}
 	g.status = http.StatusNotFound
-	if _, err := p.Answer(ctx, g.addr(), g.fp); err == nil || !strings.Contains(err.Error(), "404") {
+	if _, err := p.Answer(ctx, g.addr(), g.pin); err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatalf("unknown: %v", err)
 	}
 	g.status = http.StatusOK
-	if _, err := p.Answer(ctx, g.addr(), g.fp); err == nil || !strings.Contains(err.Error(), "could not be read") {
+	if _, err := p.Answer(ctx, g.addr(), g.pin); err == nil || !strings.Contains(err.Error(), "could not be read") {
 		t.Fatalf("garbage: %v", err)
 	}
-	if _, err := p.Answer(ctx, "8.8.8.8:1", g.fp); err == nil {
+	if _, err := p.Answer(ctx, "8.8.8.8:1", g.pin); err == nil {
 		t.Fatal("public answered")
 	}
 }
@@ -263,13 +286,14 @@ func TestTheProxyTransportIsDirectGuardedAndPinned(t *testing.T) {
 		t.Fatalf("public: %v", err)
 	}
 	g := gatewayServer(t, hello("peer0001", "desk"), "tok")
-	req, _ = http.NewRequestWithContext(WithPin(context.Background(), g.fp), http.MethodGet, "https://"+g.addr()+HelloPath, nil)
+	url := "https://" + g.addr() + HelloPath
+	req, _ = http.NewRequestWithContext(WithPin(context.Background(), g.pin), http.MethodGet, url, nil)
 	res, err := tr.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = res.Body.Close()
-	req, _ = http.NewRequestWithContext(WithPin(context.Background(), "another"), http.MethodGet, "https://"+g.addr()+HelloPath, nil)
+	req, _ = http.NewRequestWithContext(WithPin(context.Background(), "another"), http.MethodGet, url, nil)
 	tr.CloseIdleConnections()
 	if _, err := tr.RoundTrip(req); !errors.Is(err, ErrIdentity) {
 		t.Fatalf("another certificate: %v", err)

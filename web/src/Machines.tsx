@@ -6,7 +6,7 @@
 // connected yet (or are waiting to be let in), the "+" that adds one by its address, and the
 // computers let into this one.
 import type { ComponentChildren } from "preact";
-import { useState } from "preact/hooks";
+import { useCallback, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useMachinesCtx } from "./useMachines";
@@ -76,7 +76,8 @@ function RenameField({
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           onSave(draft.trim());
-        } else if (e.key === "Escape") {
+        }
+        if (e.key === "Escape") {
           onCancel();
         }
       }}
@@ -145,6 +146,49 @@ function ForgetButton({ m }: { m: Machine }) {
   );
 }
 
+// MachineToggle is a computer's name in its header: picking it shows the computer, or folds it.
+function MachineToggle({
+  id,
+  name,
+  machine,
+  open,
+  reachable,
+}: {
+  id: string;
+  name: string;
+  machine?: Machine;
+  open: boolean;
+  reachable: boolean;
+}) {
+  const machines = useMachinesCtx();
+  return (
+    <button
+      type="button"
+      class="flex-1 min-w-0 flex items-center gap-2 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+      aria-expanded={open}
+      disabled={!reachable}
+      title={choose(machine, machine?.address, t("This computer"))}
+      onClick={() => machines.select(id)}
+      data-testid="machine-toggle"
+    >
+      <Chevron open={open} />
+      <IconMonitor size={15} class="flex-none text-accent/70" />
+      <span class="truncate font-semibold text-[13px] text-[#c8c8d2]">
+        {name}
+      </span>
+      {!machine && (
+        <span class="flex-none text-[10px] text-[#7a7a8c]">
+          {t("this computer")}
+        </span>
+      )}
+      {machine && <Status online={machine.online} />}
+      <Running
+        count={choose(machine, machine?.running, machines.view?.self.running)}
+      />
+    </button>
+  );
+}
+
 // MachineBox is one computer: its header and, when it is the one shown and open, the sidebar.
 function MachineBox({
   id,
@@ -163,17 +207,22 @@ function MachineBox({
   const shown = machines.active === id;
   // A computer that does not answer cannot be shown; the one already shown can still be folded.
   const reachable = !machine || machine.online || shown;
-  const save = (value: string) => {
-    setRenaming(false);
-    if (value === name) {
-      return;
-    }
-    if (machine) {
-      void machines.rename(id, value);
-    } else {
-      void machines.renameSelf(value);
-    }
-  };
+  const stopRenaming = useCallback(() => setRenaming(false), []);
+  const { rename, renameSelf } = machines;
+  const save = useCallback(
+    (value: string) => {
+      setRenaming(false);
+      if (value === name) {
+        return;
+      }
+      if (machine) {
+        void rename(id, value);
+      } else {
+        void renameSelf(value);
+      }
+    },
+    [id, name, machine, rename, renameSelf],
+  );
   return (
     <section
       class={`mx-2 mt-2 rounded-xl border ${choose(shown, "border-accent/25 bg-white/3", "border-white/6 bg-white/2")}${choose(open, " flex-1 min-h-[16rem] flex flex-col", " flex-none")}`}
@@ -181,37 +230,17 @@ function MachineBox({
       data-machine={id || "self"}
     >
       <div class="flex items-center gap-1.5 px-2.5 py-2">
-        {renaming ? (
-          <RenameField
-            value={name}
-            onSave={save}
-            onCancel={() => setRenaming(false)}
+        {renaming && (
+          <RenameField value={name} onSave={save} onCancel={stopRenaming} />
+        )}
+        {!renaming && (
+          <MachineToggle
+            id={id}
+            name={name}
+            machine={machine}
+            open={open}
+            reachable={reachable}
           />
-        ) : (
-          <button
-            type="button"
-            class="flex-1 min-w-0 flex items-center gap-2 text-left disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-expanded={open}
-            disabled={!reachable}
-            title={choose(machine, machine?.address, t("This computer"))}
-            onClick={() => machines.select(id)}
-            data-testid="machine-toggle"
-          >
-            <Chevron open={open} />
-            <IconMonitor size={15} class="flex-none text-accent/70" />
-            <span class="truncate font-semibold text-[13px] text-[#c8c8d2]">
-              {name}
-            </span>
-            {!machine && (
-              <span class="flex-none text-[10px] text-[#7a7a8c]">
-                {t("this computer")}
-              </span>
-            )}
-            {machine && <Status online={machine.online} />}
-            <Running
-              count={machine ? machine.running : machines.view?.self.running}
-            />
-          </button>
         )}
         {!renaming && (
           <button
@@ -247,7 +276,7 @@ function FoundMachine({ m }: { m: Machine }) {
       <span class="flex-none text-[10px] text-[#7a7a8c]">
         {SOURCES[m.source] ?? m.source}
       </span>
-      {m.ask?.state === "waiting" ? (
+      {m.ask?.state === "waiting" && (
         <span
           class="flex-none px-2 py-0.5 rounded-md text-[11px] text-[#c8c8d2] bg-white/5 font-mono"
           title={t(
@@ -257,7 +286,8 @@ function FoundMachine({ m }: { m: Machine }) {
         >
           {m.ask.code}
         </span>
-      ) : (
+      )}
+      {m.ask?.state !== "waiting" && (
         <>
           {m.ask && (
             <span
@@ -354,6 +384,7 @@ function GrantRow({ g }: { g: MachineGrant }) {
 // word when this computer cannot be reached by the others.
 function OtherMachines() {
   const { view, openConnect } = useMachinesCtx();
+  const add = useCallback(() => openConnect({}), [openConnect]);
   const found = (view?.peers ?? []).filter((p) => !p.paired);
   const grants = view?.grants ?? [];
   return (
@@ -365,7 +396,7 @@ function OtherMachines() {
       <SectionTitle id="sidebar-machines" label={t("Other computers")}>
         <SectionAdd
           label={t("Add a computer")}
-          onClick={() => openConnect({})}
+          onClick={add}
           testid="sidebar-add-machine"
         />
       </SectionTitle>
@@ -407,7 +438,7 @@ export function MachineList({ children }: { children: ComponentChildren }) {
       data-testid="machines"
     >
       {requests.length > 0 && (
-        <div class="flex-none mx-2 mt-2 space-y-2" role="status">
+        <div class="flex-none mx-2 mt-2 space-y-2">
           {requests.map((r) => (
             <RequestCard key={r.id} r={r} />
           ))}

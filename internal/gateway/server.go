@@ -791,9 +791,7 @@ func (s *Server) routes() *http.ServeMux {
 
 	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
 	// forcing it through a HandlerFunc would be a cast that says nothing.
-	auth := func(h http.Handler) http.Handler {
-		return requireCredential(s.opts.Token, s.peerGranted, h, s.opts.Origins...)
-	}
+	auth := s.requireAuth
 	// plain is the same check for a bare handler function, so the session-list endpoints do not
 	// have to be cast to satisfy a signature.
 	plain := func(h http.HandlerFunc) http.Handler { return auth(h) }

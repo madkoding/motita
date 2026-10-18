@@ -17,6 +17,7 @@ import {
   type MachinesView,
 } from "./machinesApi";
 import { errorMessage } from "./errors";
+import { choose } from "./choose";
 
 // The computer the page shows is remembered in the browser: "" (or nothing) is this one.
 export const MACHINE_KEY = "motita.machine";
@@ -53,11 +54,11 @@ function writeMachine(id: string) {
 // useMachineChoice is the computer the page shows, remembered across reloads.
 export function useMachineChoice(): [string, (id: string) => void] {
   const [id, setId] = useState(readMachine);
-  const choose = useCallback((next: string) => {
+  const pick = useCallback((next: string) => {
     writeMachine(next);
     setId(next);
   }, []);
-  return [id, choose];
+  return [id, pick];
 }
 
 // ConnectTarget is what the connect dialog is about: a found computer, or none (an address is
@@ -95,11 +96,11 @@ export function useMachines(
   const fast = waiting(view);
   useEffect(() => {
     if (!enabled) {
-      return;
+      return undefined;
     }
     const timer = setInterval(
       refresh,
-      fast ? MACHINES_ASK_POLL_MS : MACHINES_POLL_MS,
+      choose(fast, MACHINES_ASK_POLL_MS, MACHINES_POLL_MS),
     );
     return () => clearInterval(timer);
   }, [enabled, refresh, fast]);

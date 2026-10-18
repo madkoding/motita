@@ -106,7 +106,8 @@ func TestThisComputerIsNamedAfterTheHostAndRenamed(t *testing.T) {
 	if v.Self.Name != "Taller" {
 		t.Fatalf("renamed = %+v", v.Self)
 	}
-	if w := sendPeers(t, srv, http.MethodPut, "/v1/peers/self", `{"name":"`+strings.Repeat("x", 65)+`"}`); w.Code != http.StatusBadRequest {
+	long := `{"name":"` + strings.Repeat("x", 65) + `"}`
+	if w := sendPeers(t, srv, http.MethodPut, "/v1/peers/self", long); w.Code != http.StatusBadRequest {
 		t.Fatalf("long name: %d", w.Code)
 	}
 	if w := sendPeers(t, srv, http.MethodPut, "/v1/peers/self", `nope`); w.Code != http.StatusBadRequest {
@@ -137,7 +138,7 @@ func TestAddingAComputerChecksWhatAnswersAndItsToken(t *testing.T) {
 func TestATokenCheckThatFailsOtherwiseIsABadGateway(t *testing.T) {
 	here := newTestServer(t, &fakeService{})
 	reg, _ := peers.Open("", "x")
-	hello := peers.Hello{Protocol: peers.Protocol, ID: "peer0001", Name: "x", Port: 1, Cert: reg.Fingerprint()}
+	hello := peers.Hello{Protocol: peers.Protocol, ID: "peer0001", Name: "x", Port: 1, Cert: reg.Cert()}
 	broken := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == peers.HelloPath {
 			_ = json.NewEncoder(w).Encode(hello)
@@ -145,11 +146,12 @@ func TestATokenCheckThatFailsOtherwiseIsABadGateway(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusTeapot)
 	}))
-	broken.TLS = peers.ServerConfig(reg.Certificate())
-	broken.StartTLS()
+	broken.Listener = peers.Sniff(broken.Listener, peers.ServerConfig(reg.Certificate()))
+	broken.Start()
 	t.Cleanup(broken.Close)
 	addr := broken.Listener.Addr().String()
-	if w := sendPeers(t, here, http.MethodPost, "/v1/peers", `{"address":"`+addr+`","token":"x"}`); w.Code != http.StatusBadGateway {
+	w := sendPeers(t, here, http.MethodPost, "/v1/peers", `{"address":"`+addr+`","token":"x"}`)
+	if w.Code != http.StatusBadGateway {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 }
@@ -170,6 +172,7 @@ func TestAComputerThatCannotBeSavedIsReported(t *testing.T) {
 func TestAFoundComputerIsConnectedRenamedAndForgotten(t *testing.T) {
 	here, there := peerPair(t)
 	id := connect(t, here, there)
+	longAlias := `{"alias":"` + strings.Repeat("x", 65) + `"}`
 	for name, tc := range map[string]struct {
 		method, path, body string
 		code               int
@@ -179,14 +182,15 @@ func TestAFoundComputerIsConnectedRenamedAndForgotten(t *testing.T) {
 		"wrong token":    {http.MethodPut, "/v1/peers/" + id, `{"token":"wrong"}`, http.StatusUnprocessableEntity},
 		"empty token":    {http.MethodPut, "/v1/peers/" + id, `{"token":" "}`, http.StatusUnprocessableEntity},
 		"unknown alias":  {http.MethodPut, "/v1/peers/nobody00", `{"alias":"x"}`, http.StatusNotFound},
-		"long alias":     {http.MethodPut, "/v1/peers/" + id, `{"alias":"` + strings.Repeat("x", 65) + `"}`, http.StatusBadRequest},
+		"long alias":     {http.MethodPut, "/v1/peers/" + id, longAlias, http.StatusBadRequest},
 		"unknown forget": {http.MethodDelete, "/v1/peers/nobody00", "", http.StatusNotFound},
 	} {
 		if w := sendPeers(t, here, tc.method, tc.path, tc.body); w.Code != tc.code {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
-	v := decodePeers(t, sendPeers(t, here, http.MethodPut, "/v1/peers/"+id, `{"token":"`+otherToken+`","alias":"Oficina"}`))
+	both := `{"token":"` + otherToken + `","alias":"Oficina"}`
+	v := decodePeers(t, sendPeers(t, here, http.MethodPut, "/v1/peers/"+id, both))
 	if v.Peers[0].Alias != "Oficina" {
 		t.Fatalf("alias = %+v", v.Peers[0])
 	}
@@ -247,7 +251,9 @@ func TestTheProxyRefusesWhatIsNotConnectedOrNotAllowed(t *testing.T) {
 		t.Fatalf("unknown: %d", res.StatusCode)
 	}
 	id := connect(t, here, there)
-	for _, p := range []string{"/v1/webui/session", "/v1/shutdown", "/v1/peer/hello", "/v1/peers", "/other", "/v1/a/%2e%2e/peers"} {
+	for _, p := range []string{
+		"/v1/webui/session", "/v1/shutdown", "/v1/peer/hello", "/v1/peers", "/other", "/v1/a/%2e%2e/peers",
+	} {
 		if res := proxied(t, here, http.MethodGet, id, p, ""); res.StatusCode != http.StatusForbidden {
 			t.Errorf("%s: %d", p, res.StatusCode)
 		}
@@ -278,7 +284,7 @@ func TestPeerPathKeepsOnlyCleanAPIPaths(t *testing.T) {
 func TestAChangedTokenOrAnOfflineComputerIsABadGatewayNotALogout(t *testing.T) {
 	here, there := peerPair(t)
 	id := connect(t, here, there)
-	if err := here.peers.Pair(id, "rotated", there.peers.Fingerprint()); err != nil {
+	if err := here.peers.Pair(id, "rotated", there.peers.Cert()); err != nil {
 		t.Fatal(err)
 	}
 	res := proxied(t, here, http.MethodGet, id, "/v1/sessions", "")
@@ -358,6 +364,11 @@ func servePeer(srv *Server, req *http.Request) *httptest.ResponseRecorder {
 	return w
 }
 
+// helloOf is what the gateway srv would say if its id were id.
+func helloOf(id string, srv *Server) peers.Hello {
+	return peers.Hello{Protocol: peers.Protocol, ID: id, Name: "x", Port: int(netip.MustParseAddrPort(srv.Addr()).Port())}
+}
+
 // fastAsks makes a request to be let in checked on at once.
 func fastAsks(t *testing.T, wait time.Duration) {
 	t.Helper()
@@ -377,9 +388,10 @@ func eventuallyPeers(t *testing.T, what string, ok func() bool) {
 	}
 }
 
-func TestAComputerAsksAndIsLetInWithoutItsToken(t *testing.T) {
-	fastAsks(t, time.Minute)
-	here, there := peerPair(t)
+// askAndAnswer has here ask there to be let in, checks both show the same code, and has there
+// answer. It returns there's id here and here's own id.
+func askAndAnswer(t *testing.T, here, there *Server, allow string) (id, self string) {
+	t.Helper()
 	v := decodePeers(t, sendPeers(t, here, http.MethodPost, "/v1/peers", `{"address":"`+there.Addr()+`"}`))
 	if len(v.Peers) != 1 || v.Peers[0].Paired || v.Peers[0].Ask == nil || v.Peers[0].Ask.State != peers.AskWaiting {
 		t.Fatalf("asking = %+v", v.Peers)
@@ -397,8 +409,18 @@ func TestAComputerAsksAndIsLetInWithoutItsToken(t *testing.T) {
 			t.Errorf("%s: %d", name, w.Code)
 		}
 	}
-	decodePeers(t, sendPeers(t, there, http.MethodPost, "/v1/peer-requests/"+v.Self.ID, `{"allow":true}`))
-	eventuallyPeers(t, "let in", func() bool { p, _ := here.peers.Find(id); return p.Paired && p.Ask == nil })
+	decodePeers(t, sendPeers(t, there, http.MethodPost, "/v1/peer-requests/"+v.Self.ID, `{"allow":`+allow+`}`))
+	return id, v.Self.ID
+}
+
+func TestAComputerAsksAndIsLetInWithoutItsToken(t *testing.T) {
+	fastAsks(t, time.Minute)
+	here, there := peerPair(t)
+	id, self := askAndAnswer(t, here, there, "true")
+	eventuallyPeers(t, "let in", func() bool {
+		p, _ := here.peers.Find(id)
+		return p.Paired && p.Ask == nil
+	})
 
 	// Its own token, over its certificate: reads and writes go through as a bearer client's.
 	res := proxied(t, here, http.MethodGet, id, "/v1/sessions", "")
@@ -409,25 +431,29 @@ func TestAComputerAsksAndIsLetInWithoutItsToken(t *testing.T) {
 	if res.StatusCode != http.StatusConflict {
 		t.Fatalf("write: %d", res.StatusCode)
 	}
-	if g := decodePeers(t, sendPeers(t, there, http.MethodGet, "/v1/peers", "")).Grants; len(g) != 1 || g[0].ID != v.Self.ID {
+	g := decodePeers(t, sendPeers(t, there, http.MethodGet, "/v1/peers", "")).Grants
+	if len(g) != 1 || g[0].ID != self {
 		t.Fatalf("grants = %+v", g)
 	}
 	if w := sendPeers(t, there, http.MethodDelete, "/v1/peer-grants/nobody00", ""); w.Code != http.StatusNotFound {
 		t.Fatalf("unknown revoke: %d", w.Code)
 	}
-	decodePeers(t, sendPeers(t, there, http.MethodDelete, "/v1/peer-grants/"+v.Self.ID, ""))
+	decodePeers(t, sendPeers(t, there, http.MethodDelete, "/v1/peer-grants/"+self, ""))
 	res = proxied(t, here, http.MethodGet, id, "/v1/sessions", "")
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "connect it again") {
 		t.Fatalf("revoked: %d %s", res.StatusCode, body)
 	}
 
-	// Disconnected here and asked again: refused this time.
-	decodePeers(t, sendPeers(t, here, http.MethodDelete, "/v1/peers/"+id, ""))
-	here.peers.Saw(peers.Hello{Protocol: peers.Protocol, ID: id, Name: "x", Port: int(netip.MustParseAddrPort(there.Addr()).Port())},
-		netip.MustParseAddrPort(there.Addr()), peers.SourceManual)
+}
+
+func TestAComputerAskedCanRefuse(t *testing.T) {
+	fastAsks(t, time.Minute)
+	here, there := peerPair(t)
+	id, self := askAndAnswer(t, here, there, "false")
+	// Asked again from its entry in the list: the request replaces the refused one.
 	decodePeers(t, sendPeers(t, here, http.MethodPost, "/v1/peers/"+id+"/ask", ""))
-	decodePeers(t, sendPeers(t, there, http.MethodPost, "/v1/peer-requests/"+v.Self.ID, `{"allow":false}`))
+	decodePeers(t, sendPeers(t, there, http.MethodPost, "/v1/peer-requests/"+self, `{"allow":false}`))
 	eventuallyPeers(t, "denied", func() bool {
 		p, _ := here.peers.Find(id)
 		return p.Ask != nil && p.Ask.State == peers.AskDenied
@@ -440,7 +466,10 @@ func TestARequestNobodyAnswersIsDropped(t *testing.T) {
 	v := decodePeers(t, sendPeers(t, here, http.MethodPost, "/v1/peers", `{"address":"`+there.Addr()+`"}`))
 	id := v.Peers[0].ID
 	_ = there.Close(context.Background())
-	eventuallyPeers(t, "dropped", func() bool { p, _ := here.peers.Find(id); return p.Ask == nil })
+	eventuallyPeers(t, "dropped", func() bool {
+		p, _ := here.peers.Find(id)
+		return p.Ask == nil
+	})
 }
 
 func TestAskingNeedsAComputerThatAnswers(t *testing.T) {
@@ -449,7 +478,7 @@ func TestAskingNeedsAComputerThatAnswers(t *testing.T) {
 		t.Fatalf("unknown: %d", w.Code)
 	}
 	// Found at an address where another computer answers now.
-	here.peers.Saw(peers.Hello{Protocol: peers.Protocol, ID: "peer0001", Name: "x", Port: int(netip.MustParseAddrPort(there.Addr()).Port())},
+	here.peers.Saw(helloOf("peer0001", there),
 		netip.MustParseAddrPort(there.Addr()), peers.SourceLAN)
 	if w := sendPeers(t, here, http.MethodPost, "/v1/peers/peer0001/ask", ""); w.Code != http.StatusBadGateway {
 		t.Fatalf("another computer: %d %s", w.Code, w.Body.String())
@@ -487,7 +516,8 @@ func TestOnlyAGatewayOnTheNetworkCanAskToConnect(t *testing.T) {
 	if c := servePeer(there, plain).Code; c != http.StatusForbidden {
 		t.Fatalf("no certificate: %d", c)
 	}
-	if c := servePeer(there, tlsRequest(t, here, http.MethodGet, peers.PairPath, "", "192.168.1.5:1")).Code; c != http.StatusNotFound {
+	answer := tlsRequest(t, here, http.MethodGet, peers.PairPath, "", "192.168.1.5:1")
+	if c := servePeer(there, answer).Code; c != http.StatusNotFound {
 		t.Fatalf("no request: %d", c)
 	}
 	if c := asker(`{"id":"peer0001","name":"x"}`, "192.168.1.5:1"); c != http.StatusAccepted {
@@ -538,9 +568,12 @@ func TestTheRunsInFlightAreCountedHereAndThere(t *testing.T) {
 		t.Fatalf("here = %+v", v.Self)
 	}
 	sendPeers(t, here, http.MethodGet, "/v1/peers", "")
-	eventuallyPeers(t, "counted", func() bool { p, _ := here.peers.Find(id); return p.Running == 1 })
+	eventuallyPeers(t, "counted", func() bool {
+		p, _ := here.peers.Find(id)
+		return p.Running == 1
+	})
 	eventuallyPeers(t, "done", func() bool { return !here.runningBusy.Load() })
-	_ = here.peers.Pair(id, "rotated", there.peers.Fingerprint())
+	_ = here.peers.Pair(id, "rotated", there.peers.Cert())
 	here.peers.SetRunning(id, 5)
 	here.readRunning(context.Background())
 	if p, _ := here.peers.Find(id); p.Running != 5 {
