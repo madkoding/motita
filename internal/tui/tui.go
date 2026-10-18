@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/approvals"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/i18n"
 )
@@ -224,6 +225,10 @@ type TUI struct {
 	// make every one of them wrong for no reason.
 	approvalsOnce sync.Once
 	approvals     chan *confirmState
+	// remembered is the file of command shapes the person said to always allow here, opened
+	// once, the first time a command asks. See alwaysallow.go.
+	rememberedOnce sync.Once
+	remembered     *approvals.Store
 
 	// query filters the conversation; searching is true while the user is typing it.
 	//

@@ -99,10 +99,15 @@ var esTUI = map[string]string{
 	"what was wrong":                            "qué estuvo mal",
 
 	// The confirmation window.
-	"The agent wants to run:":           "El agente quiere ejecutar:",
-	"y = yes, run it · Enter or n = no": "s o y = sí, ejecútalo · Enter o n = no",
-	"[approved by the user] %s":         "[aprobado por el usuario] %s",
-	"[rejected by the user] %s":         "[rechazado por el usuario] %s",
+	"The agent wants to run:": "El agente quiere ejecutar:",
+	"y = yes, run it · a = always allow here · Enter or n = no": "s o y = sí, ejecútalo · " +
+		"a = permitir siempre aquí · Enter o n = no",
+	"[approved by the user] %s": "[aprobado por el usuario] %s",
+	"[approved by the user, always allowed here from now on] %s": "[aprobado por el usuario, " +
+		"permitido siempre aquí desde ahora] %s",
+	"[allowed earlier in this folder, ran without asking] %s": "[permitido antes en esta carpeta, " +
+		"ejecutado sin preguntar] %s",
+	"[rejected by the user] %s": "[rechazado por el usuario] %s",
 
 	// Errors and their hints.
 	"error: %v": "error: %v",

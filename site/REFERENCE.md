@@ -595,7 +595,9 @@ in the project: later sessions of the project run it without asking, and the run
 (`approved (always allowed in this project): …`). The decision is kept in `approvals.json`
 beside the sessions (`scope: "project"` on `POST /v1/sessions/{id}/runs/approval` and on
 `/shell`); "allow all commands for this session" stays available through
-`POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden.
+`POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden. In the terminal
+the confirmation window's `a` key does the same for the folder the commands run in, kept in
+`~/.motita/approvals.json`; the transcript says when a command ran without asking.
 
 A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent
 reads it at its next step, it wins over the plan where they differ, and the turn's trail shows
