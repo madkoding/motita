@@ -980,13 +980,14 @@ func TestTheBottomBarNamesWhatEachProviderConsumed(t *testing.T) {
 	if got := tu.usageLabel(0); got != "" {
 		t.Errorf("no providers asked for: %q", got)
 	}
+	used := providerTotals
 	providerTotals = func() []llm.ProviderUsage { return []llm.ProviderUsage{{Provider: "x"}} }
 	if got := tu.usageLabel(3); got != "" {
 		t.Errorf("limits reported but no tokens: %q", got)
 	}
-	providerTotals = old
+	providerTotals = used
 	// Short of room, fewer providers are named, and then none; the context gauge stays.
-	two := stripANSI(tu.bottomBar(134))
+	two := stripANSI(tu.bottomBar(122))
 	if !strings.Contains(two, "anthropic 11%, openai 20%") || strings.Contains(two, "gemini") ||
 		!strings.Contains(two, "context 1%") {
 		t.Errorf("two providers: %q", two)
