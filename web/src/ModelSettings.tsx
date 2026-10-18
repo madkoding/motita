@@ -41,7 +41,7 @@ const KINDS: Record<string, { label: string; hint: string }> = {
   },
   summary: {
     label: "Summaries",
-    hint: "Titles, conversation summaries and auto mode's guess.",
+    hint: "Titles, conversation summaries, auto mode's guess, the final check and the answer's summary.",
   },
   cheap: {
     label: "Easy pieces (cheap)",

@@ -1293,7 +1293,7 @@ models:
   code: ""                           # task mode, and background agents that write
   review: openai/gpt-5               # background agents with "role": "review"
   research: ollama/qwen3:8b          # background agents with "role": "research"
-  summary: openai/gpt-5-nano         # titles, compaction summaries, auto mode's guess
+  summary: openai/gpt-5-nano         # titles, compaction summaries, auto mode's guess, the criteria audit and the synthesis
   cheap: ollama/qwen3:8b             # tier: easy pieces handed to background agents
   strong: ""                         # tier: hard pieces; empty = the coding model
 ```

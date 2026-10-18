@@ -308,7 +308,7 @@ models:
   code: ""       # task mode, and the background agents that write
   review: ""     # background agents with "role": "review" (read-only)
   research: ""   # background agents with "role": "research" (read-only)
-  summary: ""    # titles, compaction summaries, auto mode's guess
+  summary: ""    # titles, compaction summaries, auto mode's guess, the criteria audit and the synthesis
 
 ui:
   # The language of the terminal, the browser and the setup wizard: auto | en | es.
