@@ -49,6 +49,8 @@ export interface SpeechPrefs {
   // variation shape a local voice: how much its intonation varies, and its rhythm (0 to 2, times
   // the voice's own; 1 is the voice as it was trained).
   pitch: number;
+  // volume is how loud the voice speaks, from 0 (silent) to 1 (the device's own level).
+  volume: number;
   expressiveness: number;
   variation: number;
   // maxChars is the longest answer read whole; a longer one is read up to its first paragraph.
@@ -100,6 +102,7 @@ export const DEFAULT_SPEECH_PREFS: SpeechPrefs = {
   voiceURI: "",
   rate: 1,
   pitch: 1,
+  volume: 1,
   expressiveness: 1,
   variation: 1,
   maxChars: MEDIUM_CHARS,
@@ -131,6 +134,7 @@ function oneOf<T>(v: unknown, list: T[], fallback: T): T {
 // The ranges of the voice's sliders: the device's pitch, and a local voice's expressiveness and
 // variation.
 export const PITCH_RANGE: [number, number] = [0.5, 2];
+export const VOLUME_RANGE: [number, number] = [0, 1];
 export const TUNE_RANGE: [number, number] = [0, 2];
 // Past this the rhythm of a Piper voice runs away: one sentence in three came out minutes long.
 const MAX_VARIATION = 1.25;
@@ -255,6 +259,7 @@ export function loadSpeechPrefs(ui: Lang = "en"): SpeechPrefs {
       voiceURI: stringOr(raw.voiceURI, d.voiceURI),
       rate: oneOf(raw.rate, RATES, d.rate),
       pitch: numberIn(raw.pitch, PITCH_RANGE, d.pitch),
+      volume: numberIn(raw.volume, VOLUME_RANGE, d.volume),
       expressiveness: numberIn(
         raw.expressiveness,
         TUNE_RANGE,
@@ -478,6 +483,7 @@ export interface UtteranceLike {
   lang: string;
   rate: number;
   pitch?: number;
+  volume?: number;
   voice: unknown;
   onstart: ((e: unknown) => void) | null;
   onend: ((e: unknown) => void) | null;
@@ -493,6 +499,8 @@ export interface ReadOptions {
   rate: number;
   // pitch is the device's voice's (1 when absent); the clip readers have none.
   pitch?: number;
+  // volume is how loud it speaks, 0 to 1 (1 when absent). setVolume changes it while reading.
+  volume?: number;
   // onSentence is told which sentence the voice starts.
   onSentence?: (i: number) => void;
   // onEnd is told once when the reading ends: finished, stopped (stopped is true), or failed
@@ -504,6 +512,7 @@ export interface ReadOptions {
 // browsers lose the end events, and a piece at a time is what lets the page follow along.
 export class Reader {
   private run = 0;
+  private volume = 1;
   private active: ReadOptions | null = null;
   private readonly synth: Synth;
   private readonly make: MakeUtterance;
@@ -525,6 +534,7 @@ export class Reader {
     this.run++;
     const run = this.run;
     this.active = opts;
+    this.volume = opts.volume ?? 1;
     const next = (i: number) => {
       if (run !== this.run) {
         return;
@@ -543,6 +553,7 @@ export class Reader {
       u.voice = voice;
       u.rate = opts.rate;
       u.pitch = opts.pitch ?? 1;
+      u.volume = this.volume;
       u.onstart = () => {
         if (run === this.run) {
           opts.onSentence?.(i);
@@ -563,6 +574,11 @@ export class Reader {
       this.synth.speak(u);
     };
     next(0);
+  }
+
+  // setVolume applies from the next sentence: an utterance in progress keeps its own.
+  setVolume(v: number): void {
+    this.volume = v;
   }
 
   // stop silences the voice; the reading in progress ends without an error.
@@ -590,6 +606,7 @@ export class Reader {
 export interface AudioLike {
   src: string;
   playbackRate: number;
+  volume: number;
   onplaying: (() => void) | null;
   onended: (() => void) | null;
   onerror: (() => void) | null;
@@ -653,6 +670,7 @@ export function speakClip(api: Api, voice: string): FetchClip {
 // Reader.
 export class ClipReader {
   private run = 0;
+  private volume = 1;
   private active: ReadOptions | null = null;
   private abort: AbortController | null = null;
   private audio: AudioLike | null = null;
@@ -685,6 +703,7 @@ export class ClipReader {
     this.run++;
     const run = this.run;
     this.active = opts;
+    this.volume = opts.volume ?? 1;
     const abort = new AbortController();
     this.abort = abort;
     const fetchClip = this.fetchClip();
@@ -736,6 +755,7 @@ export class ClipReader {
       const a = this.makeAudio();
       this.audio = a;
       a.playbackRate = opts.rate;
+      a.volume = this.volume;
       a.onplaying = () => {
         if (run === this.run) {
           this.setPlaying(true);
@@ -759,6 +779,14 @@ export class ClipReader {
       });
     };
     void next(0);
+  }
+
+  // setVolume changes the level at once, also for the sentence playing.
+  setVolume(v: number): void {
+    this.volume = v;
+    if (this.audio) {
+      this.audio.volume = v;
+    }
   }
 
   // stop silences the voice; the reading in progress ends without an error.

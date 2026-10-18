@@ -10,6 +10,7 @@ import {
   LENGTHS,
   MEDIUM_CHARS,
   PITCH_RANGE,
+  VOLUME_RANGE,
   VARIATION_RANGE,
   RATES,
   SHORT_CHARS,
@@ -53,6 +54,8 @@ export interface SpeechSettingsProps {
 
 // SLIDER_STEP is how far one step of a voice slider moves.
 const SLIDER_STEP = 0.1;
+// VOLUME_STEP is one step of the volume slider: 5 %.
+const VOLUME_STEP = 0.05;
 
 // VoiceSlider is one attribute of the voice on a slider, with its value beside it and a way
 // back to the voice's own (1).
@@ -63,6 +66,9 @@ function VoiceSlider({
   range,
   value,
   disabled,
+  format = rateLabel,
+  resetTo = 1,
+  step = SLIDER_STEP,
   onChange,
 }: {
   id: string;
@@ -71,6 +77,9 @@ function VoiceSlider({
   range: [number, number];
   value: number;
   disabled?: boolean;
+  format?: (v: number) => string;
+  resetTo?: number;
+  step?: number;
   onChange: (v: number) => void;
 }) {
   return (
@@ -83,22 +92,22 @@ function VoiceSlider({
           data-testid={id}
           min={range[0]}
           max={range[1]}
-          step={SLIDER_STEP}
+          step={step}
           value={value}
           disabled={disabled}
           onInput={(e) =>
             onChange(Number((e.target as HTMLInputElement).value))
           }
         />
-        <span class="text-xs text-[#a0a0b0] w-10 text-right tabular-nums">
-          {rateLabel(value)}
+        <span class="text-xs text-[#a0a0b0] w-12 text-right tabular-nums">
+          {format(value)}
         </span>
         <button
           type="button"
           class={smallBtn}
-          disabled={disabled || value === 1}
+          disabled={disabled || value === resetTo}
           data-testid={id + "-reset"}
-          onClick={() => onChange(1)}
+          onClick={() => onChange(resetTo)}
         >
           {t("Reset")}
         </button>
@@ -171,6 +180,11 @@ function VoiceTuning({
       onChange={setPitch}
     />
   );
+}
+
+// volumeLabel writes a volume as a percentage: 80 %.
+function volumeLabel(v: number): string {
+  return Math.round(v * 100).toLocaleString(lang()) + " %";
 }
 
 // rateLabel writes a speed as people say it: 1×, 1.25×.
@@ -323,6 +337,7 @@ export function SpeechSettings({
   );
   const engines = engineOptions(device, hasGateway, hasLocal);
   const engineShown = engineShownOf(localChosen, gateway);
+  const setVolume = useCallback((v: number) => set({ volume: v }), [set]);
   const setRate = useCallback((r: string) => set({ rate: Number(r) }), [set]);
   const setLength = useCallback(
     (n: string) => set({ maxChars: Number(n) }),
@@ -342,6 +357,7 @@ export function SpeechSettings({
     [set],
   );
   const off = !supported;
+  const mute = off || speaksNothing(prefs);
   return (
     <section class="settings-group" aria-labelledby="settings-speech-h">
       <h3 id="settings-speech-h" class="settings-group-title">
@@ -424,7 +440,7 @@ export function SpeechSettings({
             name="settings-speech-rate"
             labelledBy="settings-speech-rate"
             value={String(prefs.rate)}
-            disabled={off || speaksNothing(prefs)}
+            disabled={mute}
             onChange={setRate}
             options={RATES.map((r) => ({
               value: String(r),
@@ -432,6 +448,16 @@ export function SpeechSettings({
             }))}
           />
         </Row>
+        <VoiceSlider
+          id="settings-speech-volume"
+          label={t("Volume")}
+          range={VOLUME_RANGE}
+          value={prefs.volume}
+          step={VOLUME_STEP}
+          format={volumeLabel}
+          disabled={mute}
+          onChange={setVolume}
+        />
         <VoiceTuning
           localChosen={localChosen}
           gateway={gateway}

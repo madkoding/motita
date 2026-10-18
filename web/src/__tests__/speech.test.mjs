@@ -85,6 +85,7 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
     rate: 1.5,
     maxChars: 0,
     pitch: 1.5,
+    volume: 0.6,
     expressiveness: 0.4,
     variation: 1.25,
     conversation: true,
@@ -111,6 +112,7 @@ test("the settings: read when I spoke, the device's voice, normal speed, and the
       rate: 9,
       maxChars: 600,
       pitch: 9,
+      volume: -1,
       expressiveness: -1,
       variation: "x",
       subtitles: "yes",
@@ -519,6 +521,7 @@ function audioFactory(made, { refuse = false } = {}) {
     const a = {
       src: "",
       playbackRate: 1,
+      volume: 1,
       onplaying: null,
       onended: null,
       onerror: null,
@@ -920,4 +923,49 @@ test("the sentence being said is handed to the subtitles, and an empty one hides
   dom.window.removeEventListener(m.SUBTITLE_EVENT, on);
   assert.deepEqual(heard, ["All done.", ""]);
   assert.deepEqual(m.SUBTITLE_SIZES, ["small", "medium", "large"]);
+});
+
+const HALF = 0.5;
+const QUIET = 0.2;
+
+test("the volume: kept within 0 to 1, spoken by the device from the next sentence", () => {
+  localStorage.clear();
+  assert.equal(m.DEFAULT_SPEECH_PREFS.volume, 1);
+  localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ volume: HALF }));
+  assert.equal(m.loadSpeechPrefs().volume, HALF);
+  localStorage.setItem(m.SPEECH_KEY, JSON.stringify({ volume: 7 }));
+  assert.equal(m.loadSpeechPrefs().volume, 1, "out of range: the default");
+  localStorage.clear();
+
+  const { synth, reader } = fakeSynth();
+  reader.read(two, { voice: null, lang: "es", rate: 1, volume: HALF });
+  assert.equal(synth.said[0].volume, HALF);
+  reader.setVolume(QUIET);
+  synth.start();
+  synth.end();
+  assert.equal(synth.said[1].volume, QUIET, "the next sentence is quieter");
+  reader.stop();
+  reader.read(two, { voice: null, lang: "es", rate: 1 });
+  assert.equal(synth.said.at(-1).volume, 1, "full when no volume is given");
+});
+
+test("the volume: a clip is played at it, and a change reaches the clip playing", async () => {
+  const made = [];
+  const r = new m.ClipReader(
+    () => async (text) => new Blob([text]),
+    audioFactory(made),
+    urls(),
+  );
+  r.setVolume(HALF);
+  r.read(LIST, { voice: null, lang: "es", rate: 1, volume: HALF });
+  await settle();
+  assert.equal(made[0].volume, HALF);
+  r.setVolume(QUIET);
+  assert.equal(made[0].volume, QUIET, "heard at once");
+  r.stop();
+  r.setVolume(1);
+  r.read(LIST, { voice: null, lang: "es", rate: 1 });
+  await settle();
+  assert.equal(made.at(-1).volume, 1);
+  r.stop();
 });
