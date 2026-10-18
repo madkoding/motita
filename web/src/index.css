@@ -1995,12 +1995,12 @@ button:disabled {
      terminal drawer's tabs (.term-tab-label) are styled further down. */
   writing-mode: vertical-rl;
   transform: rotate(180deg);
-  width: 16px;
-  min-height: 18px;
-  padding: 4px 0;
+  width: 14px;
+  min-height: 16px;
+  padding: 3px 0;
   border-radius: 999px;
-  font-size: 10px;
-  line-height: 16px;
+  font-size: 9px;
+  line-height: 14px;
   text-align: center;
   color: var(--tx-tab-bg);
   background: var(--tx-main);
@@ -2647,17 +2647,17 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-tab {
   position: absolute;
   top: 40%;
-  left: -34px;
-  width: 34px;
-  padding: 10px 0;
+  left: -26px;
+  width: 26px;
+  padding: 7px 0;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 9px;
+  letter-spacing: 0.1em;
   color: var(--tx-main);
   background: var(--tx-tab-bg);
   border: 1px solid rgba(var(--tx-rgb), 0.45);
@@ -3645,7 +3645,12 @@ button.border-4 {
 /* `:is(main, div)` keeps the old `main.chat-bg.chat-bg` weight now that the conversation is a
  * div (a `main` cannot take role="log"); the waiting state is still a `main`. */
 :is(main, div).chat-bg.chat-bg {
-  padding-right: 46px;
+  padding-right: 28px;
+}
+@media (pointer: coarse) {
+  :is(main, div).chat-bg.chat-bg {
+    padding-right: 32px;
+  }
 }
 .msg.user,
 .msg.agent {
@@ -3833,11 +3838,11 @@ html[data-keyboard="open"] .app-shell {
     align-items: center;
     justify-content: center;
   }
-  /* The drawer tabs grow to 44px wide. The conversation's 46px right gutter already leaves
-   * room for them. */
+  /* The drawer tabs stay slim (they are a tab on an edge, not a button to aim at); the
+   * conversation's gutter below is as wide as they are. */
   .term-tab {
-    left: -44px;
-    width: 44px;
+    left: -30px;
+    width: 30px;
   }
   /* Under 16px iOS zooms the page into a field when it is focused, and leaves it zoomed. */
   :root :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
@@ -4823,4 +4828,108 @@ html[data-density="compact"] .settings-warn {
 }
 .llm-chip-cost[data-level="3"] {
   --chip: var(--color-danger);
+}
+
+/* ─── The conversation's borders ──────────────────────────────────────
+ * Who wrote a message, its mode, its action counter and its menu sit ON the top border of its
+ * card as pills, instead of taking a line of the card. That gives the line back to the text.
+ * The bar is out of the flow (its pills are centred on the border), so the card's text starts
+ * under it with a little room, and the sticky input keeps 11px above its card for the pills. */
+.turn-head {
+  padding-top: 11px;
+}
+.turn-bar {
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 8px;
+  min-height: 0;
+  gap: 6px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.turn-bar > * {
+  pointer-events: auto;
+}
+.turn-card .turn-text {
+  padding-top: 10px;
+}
+.turn-who,
+.msg.agent[data-who]::before {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.66em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* Opaque, so the border does not show through the pill. */
+  background: var(--s2);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+}
+.turn-bar button.cp-btn {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  background: var(--s2);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+  border-radius: 999px;
+}
+.turn-bar button.cp-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.turn-bar .cp-wrap {
+  margin-left: auto;
+}
+@media (pointer: coarse) {
+  .turn-bar button.cp-btn.cp-btn {
+    margin: 0;
+    min-width: 22px;
+    min-height: 22px;
+  }
+  /* A finger gets the target of the floor without the pill growing. */
+  .turn-bar button.cp-btn::after {
+    content: "";
+    display: block;
+    position: absolute;
+    inset: -9px;
+    width: auto;
+    height: auto;
+    border: 0;
+  }
+}
+/* The agent's label, the same pill on its card's top border. */
+.msg.agent[data-who] {
+  margin-top: 10px;
+  padding-top: 12px;
+}
+.msg.agent[data-who]::before {
+  position: absolute;
+  top: 0;
+  left: 8px;
+  margin: 0;
+  color: var(--t3);
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+/* Under the pinned input the text fades in from nothing instead of running into its edge: an
+ * opaque top that thins to transparent, behind the card, so the request above never blends with
+ * the answer scrolling beneath it. */
+.turn-head::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: -22px;
+  /* Wider than the column on both sides: the scroll box clips it at its own edges, so the fade
+     runs the full width of the conversation, drawers' gutter included. */
+  left: -3rem;
+  right: -3rem;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--bg-rgb) / 0.96) 0,
+    rgb(var(--bg-rgb) / 0.96) 55%,
+    rgb(var(--bg-rgb) / 0)
+  );
 }

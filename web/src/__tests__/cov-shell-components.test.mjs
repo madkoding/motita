@@ -104,6 +104,10 @@ test("the header names the session, shows the state and the model, and opens the
   root.querySelector("[aria-label='Open sidebar']").click();
   assert.deepEqual(calls, [["openModelSwitcher"], ["openSidebar"]]);
   assert.equal(root.querySelector(".auto-approve-pill"), null);
+  // The cat is the sidebar's; the pills share one wrapper, which is the header's second row on a phone.
+  assert.doesNotMatch(root.textContent, /🐱/);
+  assert.equal(root.querySelector(".header-pills .state-pill"), pill);
+  assert.ok(root.querySelector(".header-pills").contains(model));
   await done();
 });
 
