@@ -32,6 +32,11 @@ export function shareOf(total: number, sum: number): number {
   return choose(sum > 0, Math.round((total / sum) * 100), 0);
 }
 
+// usageTestId names a provider's row for the tests.
+function usageTestId(u: ProviderUsage): string {
+  return "provider-usage-" + u.id;
+}
+
 // rowTitle is the tooltip of one provider: the split of its tokens and its calls.
 function rowTitle(u: ProviderUsage): string {
   const parts = [
@@ -62,7 +67,7 @@ function UsageGauge({ u, share }: { u: ProviderUsage; share: number }) {
     <li
       class="provider-usage-gauge"
       title={rowTitle(u)}
-      data-testid={"provider-usage-" + u.id}
+      data-testid={usageTestId(u)}
     >
       <svg viewBox="0 0 36 36" width="44" height="44" aria-hidden="true">
         <circle class="provider-usage-ring" cx="18" cy="18" r={GAUGE_RADIUS} />
@@ -86,7 +91,7 @@ function UsageRow({ u, share }: { u: ProviderUsage; share: number }) {
     <li
       class="provider-usage-row"
       title={rowTitle(u)}
-      data-testid={"provider-usage-" + u.id}
+      data-testid={usageTestId(u)}
     >
       <span class="flex items-center gap-2 text-xs">
         <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
@@ -201,7 +206,7 @@ function UsageSummary({ shown, sum }: { shown: ProviderUsage[]; sum: number }) {
           key={u.id}
           class="flex items-center gap-2 text-xs"
           title={rowTitle(u)}
-          data-testid={"provider-usage-" + u.id}
+          data-testid={usageTestId(u)}
         >
           <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
           <span class="tabular-nums text-[#9a9aaa]">

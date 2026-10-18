@@ -108,14 +108,20 @@ type CopilotToken struct {
 	ChatEnabled bool
 }
 
-// CopilotExchangeToken performs the GET /copilot_internal/v2/token exchange.
-func CopilotExchangeToken(ctx context.Context, client HTTPClient, githubToken string) (CopilotToken, error) {
-	headers := map[string]string{
+// copilotGitHubHeaders authenticate a call to GitHub's Copilot endpoints with the GitHub OAuth
+// token, as the Copilot chat extension does.
+func copilotGitHubHeaders(githubToken string) map[string]string {
+	return map[string]string{
 		"Authorization":         "token " + githubToken,
 		"Editor-Version":        "vscode/1.99.3",
 		"Editor-Plugin-Version": "copilot-chat/0.26.7",
 		"User-Agent":            "GitHubCopilotChat/0.26.7",
 	}
+}
+
+// CopilotExchangeToken performs the GET /copilot_internal/v2/token exchange.
+func CopilotExchangeToken(ctx context.Context, client HTTPClient, githubToken string) (CopilotToken, error) {
+	headers := copilotGitHubHeaders(githubToken)
 	var resp copilotTokenResponse
 	if err := getJSON(ctx, client, "https://api.github.com/copilot_internal/v2/token", headers, &resp); err != nil {
 		return CopilotToken{}, err
@@ -267,12 +273,7 @@ type copilotUserResponse struct {
 // CopilotUserQuota reads the premium-request quota of the account behind a GitHub OAuth token.
 // The endpoint is not documented by GitHub, so a reply without the quota is an error, never a guess.
 func CopilotUserQuota(ctx context.Context, client HTTPClient, githubToken string) (CopilotQuota, error) {
-	headers := map[string]string{
-		"Authorization":         "token " + githubToken,
-		"Editor-Version":        "vscode/1.99.3",
-		"Editor-Plugin-Version": "copilot-chat/0.26.7",
-		"User-Agent":            "GitHubCopilotChat/0.26.7",
-	}
+	headers := copilotGitHubHeaders(githubToken)
 	var resp copilotUserResponse
 	if err := getJSON(ctx, client, "https://api.github.com/copilot_internal/user", headers, &resp); err != nil {
 		return CopilotQuota{}, err
