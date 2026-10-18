@@ -8,18 +8,24 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // TOKENS SPENT, per provider.
 //
 // A Meter answers "what did this agent spend"; this answers "what has each provider been asked for",
 // which is what the bottom bars show. It counts what a provider reported in its responses and keeps
-// the rate-limit window the provider last reported in its headers. A plan's quota or balance is the provider's to state, and none of them sends one with an
-// answer, so none is guessed here. The totals are kept in a file once PersistUsage names one.
+// the rate-limit window the provider last reported in its headers. A plan's quota or balance is the
+// provider's to state, and none of them sends one with an answer, so none is guessed here. The totals
+// are kept in a file once PersistUsage names one.
 
 // usageSource is who a call is counted under.
 type usageSource struct {
 	provider string
+	// local is a server of the user's own (a self-hosted Ollama): it has no quota to follow, so
+	// the ledger does not count it.
+	local bool
 }
 
 // Window is one rate limit a provider reported: how much the window allows and how much is left.
@@ -28,11 +34,23 @@ type Window struct {
 	Remaining int64 `json:"remaining"`
 }
 
-// RateLimits is the rate-limit window a provider reported with its latest answer: requests and
-// tokens per minute, not a plan's quota. A window the provider did not report is nil.
+// Quota is a plan's allowance over a longer window, as a provider reports it: a share used, the
+// length of the window and when it starts over. Name is "session" for the short window (hours),
+// "week" for the weekly one and "month" for a monthly one (Copilot's premium requests).
+type Quota struct {
+	Name     string     `json:"name"`
+	Used     float64    `json:"used_percent"`
+	Minutes  int        `json:"window_minutes,omitempty"`
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
+}
+
+// RateLimits is what a provider reported about its limits with its latest answer: requests and
+// tokens per minute, and the plan's session and weekly quotas when it sends them. What it did not
+// report is nil or empty.
 type RateLimits struct {
 	Requests *Window   `json:"requests,omitempty"`
 	Tokens   *Window   `json:"tokens,omitempty"`
+	Quotas   []Quota   `json:"quotas,omitempty"`
 	At       time.Time `json:"at"`
 }
 
@@ -76,6 +94,9 @@ func (l *ledger) entry(provider string) *ProviderUsage {
 
 // add records one call.
 func (l *ledger) add(src usageSource, u Usage) {
+	if src.local {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	p := l.entry(src.provider)
@@ -86,11 +107,14 @@ func (l *ledger) add(src usageSource, u Usage) {
 }
 
 // limits records the rate-limit window a provider reported.
-func (l *ledger) limits(provider string, r RateLimits) {
+func (l *ledger) limits(src usageSource, r RateLimits) {
+	if src.local {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r.At = l.tick()
-	l.entry(provider).Limits = &r
+	l.entry(src.provider).Limits = &r
 	l.changed()
 }
 
@@ -166,7 +190,16 @@ func (l *ledger) snapshot() []ProviderUsage {
 
 // ProviderTotals is what each provider has consumed, most recently used first. A provider that
 // made no call that reported usage or limits is not in it.
-func ProviderTotals() []ProviderUsage { return totals.snapshot() }
+func ProviderTotals() []ProviderUsage {
+	all := totals.snapshot()
+	out := all[:0:0]
+	for _, p := range all {
+		if config.ReportsUsage(p.Provider) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 // PersistUsage keeps the totals in file: it reads what an earlier run left and, from then on,
 // writes the totals a few seconds after they change. Without it they last as long as the process.
@@ -188,12 +221,82 @@ func windowFrom(h http.Header, limit, remaining string) *Window {
 	return &Window{Limit: l, Remaining: r}
 }
 
-// limitsFrom reads the rate-limit headers of OpenAI-style hosts (x-ratelimit-*) and Anthropic
-// (anthropic-ratelimit-*), and reports whether the answer carried any.
-func limitsFrom(h http.Header) (RateLimits, bool) {
+// weekMinutes is the length of the weekly window; anything shorter is the session's.
+const weekMinutes = 7 * 24 * 60
+
+// resetAt is the moment a window starts over: a Unix time, else seconds from now; nil if neither.
+func resetAt(at, after string, now time.Time) *time.Time {
+	if n, err := strconv.ParseInt(at, 10, 64); err == nil && n > 0 {
+		t := time.Unix(n, 0).UTC()
+		return &t
+	}
+	if n, err := strconv.ParseInt(after, 10, 64); err == nil && n >= 0 {
+		t := now.Add(time.Duration(n) * time.Second).UTC()
+		return &t
+	}
+	return nil
+}
+
+// codexQuota reads one quota from the Codex headers (x-codex-<which>-*): the share used, the
+// window in minutes and when it starts over. The window says whether it is the session's or the
+// week's; without one, primary is the session and secondary the week.
+func codexQuota(h http.Header, which string, now time.Time) *Quota {
+	key := "x-codex-" + which + "-"
+	used, err := strconv.ParseFloat(h.Get(key+"used-percent"), 64)
+	if err != nil {
+		return nil
+	}
+	q := &Quota{Name: "session", Used: used}
+	if which == "secondary" {
+		q.Name = "week"
+	}
+	if m, err := strconv.Atoi(h.Get(key + "window-minutes")); err == nil && m > 0 {
+		q.Minutes = m
+		q.Name = "session"
+		if m >= weekMinutes {
+			q.Name = "week"
+		}
+	}
+	q.ResetsAt = resetAt(h.Get(key+"reset-at"), h.Get(key+"reset-after-seconds"), now)
+	return q
+}
+
+// unifiedQuota reads one window of Anthropic's subscription headers
+// (anthropic-ratelimit-unified-5h-* and -7d-*), whose utilization is a fraction of 1.
+func unifiedQuota(h http.Header, key, name string, minutes int) *Quota {
+	key = "anthropic-ratelimit-unified-" + key + "-"
+	u, err := strconv.ParseFloat(h.Get(key+"utilization"), 64)
+	if err != nil {
+		return nil
+	}
+	return &Quota{Name: name, Used: u * 100, Minutes: minutes, ResetsAt: resetAt(h.Get(key+"reset"), "", time.Time{})}
+}
+
+// quotasFrom reads the plan's session and weekly quotas: the headers of the Codex backend (a
+// ChatGPT plan) and the subscription headers of Anthropic.
+func quotasFrom(h http.Header, now time.Time) []Quota {
+	var out []Quota
+	for _, q := range []*Quota{
+		codexQuota(h, "primary", now),
+		codexQuota(h, "secondary", now),
+		unifiedQuota(h, "5h", "session", 300),
+		unifiedQuota(h, "7d", "week", weekMinutes),
+	} {
+		if q != nil {
+			out = append(out, *q)
+		}
+	}
+	return out
+}
+
+// limitsFrom reads what the headers of an answer say about the limits: the per-minute windows of
+// OpenAI-style hosts (x-ratelimit-*) and Anthropic (anthropic-ratelimit-*), and the plan's
+// quotas. It reports whether the answer carried any.
+func limitsFrom(h http.Header, now time.Time) (RateLimits, bool) {
 	r := RateLimits{
 		Requests: windowFrom(h, "x-ratelimit-limit-requests", "x-ratelimit-remaining-requests"),
 		Tokens:   windowFrom(h, "x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens"),
+		Quotas:   quotasFrom(h, now),
 	}
 	if r.Requests == nil {
 		r.Requests = windowFrom(h, "anthropic-ratelimit-requests-limit", "anthropic-ratelimit-requests-remaining")
@@ -201,5 +304,5 @@ func limitsFrom(h http.Header) (RateLimits, bool) {
 	if r.Tokens == nil {
 		r.Tokens = windowFrom(h, "anthropic-ratelimit-tokens-limit", "anthropic-ratelimit-tokens-remaining")
 	}
-	return r, r.Requests != nil || r.Tokens != nil
+	return r, r.Requests != nil || r.Tokens != nil || len(r.Quotas) > 0
 }

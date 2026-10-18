@@ -4511,6 +4511,28 @@ html[data-density="compact"] .settings-warn {
   transition: width var(--motion-fast, 120ms) linear;
 }
 
+.provider-usage-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #7a7a8c;
+}
+.provider-usage-toggle:hover {
+  color: #e8e8ea;
+}
+.provider-usage-fill.warn {
+  background: var(--color-warn, #d9a441);
+}
+.provider-quotas {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgb(var(--ov-rgb) / 0.06);
+}
 .provider-usage-gauges {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(3.5rem, 1fr));

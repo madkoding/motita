@@ -54,7 +54,7 @@ func TestRateLimitHeadersOfOpenAIAndAnthropicAreRead(t *testing.T) {
 	openai.Set("x-ratelimit-remaining-requests", "499")
 	openai.Set("x-ratelimit-limit-tokens", "30000")
 	openai.Set("x-ratelimit-remaining-tokens", "29000")
-	r, ok := limitsFrom(openai)
+	r, ok := limitsFrom(openai, quotaNow)
 	if !ok || *r.Requests != (Window{500, 499}) || *r.Tokens != (Window{30000, 29000}) {
 		t.Errorf("openai: %+v %v", r, ok)
 	}
@@ -63,20 +63,20 @@ func TestRateLimitHeadersOfOpenAIAndAnthropicAreRead(t *testing.T) {
 	anthropic.Set("anthropic-ratelimit-requests-remaining", "49")
 	anthropic.Set("anthropic-ratelimit-tokens-limit", "40000")
 	anthropic.Set("anthropic-ratelimit-tokens-remaining", "39000")
-	r, ok = limitsFrom(anthropic)
+	r, ok = limitsFrom(anthropic, quotaNow)
 	if !ok || *r.Requests != (Window{50, 49}) || *r.Tokens != (Window{40000, 39000}) {
 		t.Errorf("anthropic: %+v %v", r, ok)
 	}
 	half := http.Header{}
 	half.Set("x-ratelimit-limit-tokens", "100") // no remaining: not a window
-	if _, ok := limitsFrom(half); ok {
+	if _, ok := limitsFrom(half, quotaNow); ok {
 		t.Error("a limit without its remaining is not a window")
 	}
 	half.Set("x-ratelimit-remaining-tokens", "abc")
-	if _, ok := limitsFrom(half); ok {
+	if _, ok := limitsFrom(half, quotaNow); ok {
 		t.Error("an unreadable remaining is not a window")
 	}
-	if _, ok := limitsFrom(http.Header{}); ok {
+	if _, ok := limitsFrom(http.Header{}, quotaNow); ok {
 		t.Error("no headers, no limits")
 	}
 }
@@ -84,7 +84,7 @@ func TestRateLimitHeadersOfOpenAIAndAnthropicAreRead(t *testing.T) {
 func TestTheLatestRateLimitsStayWithTheProvider(t *testing.T) {
 	clock := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 	l := newLedger(&clock)
-	l.limits("openai", RateLimits{Tokens: &Window{Limit: 10, Remaining: 4}})
+	l.limits(src("openai"), RateLimits{Tokens: &Window{Limit: 10, Remaining: 4}})
 	got := l.snapshot()
 	if len(got) != 1 || got[0].Calls != 0 || got[0].Limits == nil {
 		t.Fatalf("limits: %+v", got)
@@ -188,11 +188,11 @@ func TestAnAnswerWithRateLimitHeadersRecordsThem(t *testing.T) {
 	srv := newHeaderServer(t, map[string]string{
 		"x-ratelimit-limit-tokens": "1000", "x-ratelimit-remaining-tokens": "900",
 	})
-	c := clientFor(t, srv.URL, func(l *config.LLM) { l.Provider = "ollama" })
+	c := clientFor(t, srv.URL, func(l *config.LLM) { l.Provider = "qwen" })
 	if _, err := c.Complete(context.Background(), hi); err != nil {
 		t.Fatal(err)
 	}
-	if l := totalsOf("ollama").Limits; l == nil || l.Tokens.Remaining != 900 {
+	if l := totalsOf("qwen").Limits; l == nil || l.Tokens.Remaining != 900 {
 		t.Errorf("limits: %+v", l)
 	}
 	PersistUsage(filepath.Join(t.TempDir(), "usage.json"))

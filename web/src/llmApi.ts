@@ -68,8 +68,8 @@ export interface LLMView {
   prices_checked?: string;
 }
 
-// What one provider has consumed since the gateway started, as it reported in its responses. There
-// is no quota here: no provider sends one with an answer, so none is ever shown.
+// What one provider has consumed since the gateway started, as it reported in its responses, and the
+// limits it sent with its latest answer. A quota appears only when the provider reports one.
 export interface ProviderUsage {
   id: string;
   name: string;
@@ -83,8 +83,22 @@ export interface ProviderUsage {
   // before the first call.
   since?: string;
   last?: string;
-  // The rate-limit window the provider reported with its latest answer, not a plan's quota.
-  limits?: { requests?: UsageWindow; tokens?: UsageWindow };
+  // What the provider reported about its limits with its latest answer: requests and tokens per
+  // minute, and the plan's session and weekly quotas.
+  limits?: {
+    requests?: UsageWindow;
+    tokens?: UsageWindow;
+    quotas?: UsageQuota[];
+  };
+}
+
+// A plan's allowance over a window: the share used, how long the window is and when it starts over
+// (ISO 8601). "session" is the short window (hours), "week" the weekly one and "month" a monthly one (Copilot's premium requests).
+export interface UsageQuota {
+  name: "session" | "week" | "month";
+  used_percent: number;
+  window_minutes?: number;
+  resets_at?: string;
 }
 
 export interface UsageWindow {
