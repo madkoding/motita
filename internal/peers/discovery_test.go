@@ -138,7 +138,7 @@ func TestDiscoveryWithoutSocketsStillProbesAndScans(t *testing.T) {
 	reg, _ := Open("", "box")
 	srv := gatewayServer(t, hello("peer0001", "desk"), "tok")
 	reg.Saw(hello("peer0001", "desk"), ap("192.168.1.5:7477"), SourceManual)
-	_ = reg.Pair("peer0001", "tok")
+	_ = reg.Pair("peer0001", "tok", "fp")
 	reg.mu.Lock()
 	delete(reg.live, "peer0001")
 	reg.mu.Unlock()
@@ -187,7 +187,7 @@ func TestDiscoveryWithoutSocketsStillProbesAndScans(t *testing.T) {
 
 func TestScanTailnetTriesTheNextAddressAndNeedsTailscale(t *testing.T) {
 	reg, _ := Open("", "box")
-	d := &Discovery{Registry: reg, Prober: NewProber(), Hello: func() (Hello, bool) { return Hello{Port: 1}, true }}
+	d := &Discovery{Registry: reg, Prober: NewProber(testCert), Hello: func() (Hello, bool) { return Hello{Port: 1}, true }}
 	d.scanTailnet(context.Background())
 	d.Tailnet = func(context.Context) []tailscale.Peer {
 		return []tailscale.Peer{{IPs: []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("8.8.4.4")}}}
@@ -200,7 +200,7 @@ func TestScanTailnetTriesTheNextAddressAndNeedsTailscale(t *testing.T) {
 
 func TestRunWithTheRealSockets(t *testing.T) {
 	reg, _ := Open("", "box")
-	d := &Discovery{Registry: reg, Prober: NewProber(), Hello: func() (Hello, bool) { return Hello{}, false }}
+	d := &Discovery{Registry: reg, Prober: NewProber(testCert), Hello: func() (Hello, bool) { return Hello{}, false }}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	d.Run(ctx)

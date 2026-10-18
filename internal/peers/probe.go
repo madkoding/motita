@@ -1,7 +1,9 @@
 package peers
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,12 +36,16 @@ func guard(_, address string, _ syscall.RawConn) error {
 }
 
 // Transport is the HTTP transport every request to another gateway goes through: direct (never
-// through a proxy from the environment, which would be outside the network) and guarded.
-func Transport() *http.Transport {
+// through a proxy from the environment, which would be outside the network), guarded, and over TLS
+// with this gateway's certificate, checking the other's against the pin in the request's context
+// (see WithPin).
+func Transport(cert tls.Certificate) *http.Transport {
 	dialer := &net.Dialer{Timeout: ProbeTimeout, Control: guard}
 	return &http.Transport{
-		Proxy:               nil,
-		DialContext:         dialer.DialContext,
+		Proxy: nil,
+		DialTLSContext: func(ctx context.Context, _, address string) (net.Conn, error) {
+			return dialTLS(ctx, dialer, cert, address)
+		},
 		MaxIdleConnsPerHost: 4,
 		IdleConnTimeout:     90 * time.Second,
 	}
@@ -48,42 +54,46 @@ func Transport() *http.Transport {
 // probeURL is the base of every probe. The address asked is NOT part of the URL: it travels in the
 // request's context to the dialer (see probeTransport), so what a person typed never becomes a URL
 // a request is sent to, and the guard still checks the address actually connected to.
-const probeURL = "http://motita-peer"
+const probeURL = "https://motita-peer"
 
 // targetKey carries the address a probe dials in its context.
 type targetKey struct{}
 
-// probeTransport dials the address in the request's context, guarded like Transport. It keeps no
-// connection: every probe names its own address under the same URL, and a pooled connection would
-// answer for another one.
-func probeTransport() *http.Transport {
+// probeTransport dials the address in the request's context, guarded and over TLS like Transport.
+// It keeps no connection: every probe names its own address under the same URL, and a pooled
+// connection would answer for another one.
+func probeTransport(cert tls.Certificate) *http.Transport {
 	dialer := &net.Dialer{Timeout: ProbeTimeout, Control: guard}
 	return &http.Transport{
 		Proxy: nil,
-		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			address, _ := ctx.Value(targetKey{}).(string)
-			return dialer.DialContext(ctx, network, address)
+			return dialTLS(ctx, dialer, cert, address)
 		},
 		DisableKeepAlives: true,
 	}
 }
 
-// Prober asks other gateways who they are.
+// Prober asks other gateways who they are, and speaks to them before they are connected.
 type Prober struct {
 	Client *http.Client
 }
 
-// NewProber is a prober over probeTransport.
-func NewProber() *Prober {
-	return &Prober{Client: &http.Client{Transport: probeTransport(), Timeout: ProbeTimeout}}
+// NewProber is a prober over probeTransport, presenting cert.
+func NewProber(cert tls.Certificate) *Prober {
+	return &Prober{Client: &http.Client{Transport: probeTransport(cert), Timeout: ProbeTimeout}}
 }
 
 // request is a probe of path at address. The Host header names the address, as a browser
 // reaching it would.
-func request(ctx context.Context, address, path string) *http.Request {
+func request(ctx context.Context, method, address, path string, body []byte) *http.Request {
 	// A constant URL cannot fail to parse.
-	req, _ := http.NewRequestWithContext(context.WithValue(ctx, targetKey{}, address), http.MethodGet, probeURL+path, nil)
+	req, _ := http.NewRequestWithContext(context.WithValue(ctx, targetKey{}, address), method, probeURL+path,
+		bytes.NewReader(body))
 	req.Host = address
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	return req
 }
 
@@ -98,13 +108,15 @@ func WithPort(address string, port int) string {
 }
 
 // Hello asks the gateway at address who it is, and reports the address it actually answered at.
+// The certificate it claims is the one its connection presented, or it is refused.
 func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPort, error) {
 	var remote netip.AddrPort
+	var seen string
 	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
 		remote, _ = netip.ParseAddrPort(info.Conn.RemoteAddr().String())
 	}}
-	ctx = httptrace.WithClientTrace(ctx, trace)
-	res, err := p.Client.Do(request(ctx, address, HelloPath))
+	ctx = withSeen(httptrace.WithClientTrace(ctx, trace), &seen)
+	res, err := p.Client.Do(request(ctx, http.MethodGet, address, HelloPath, nil))
 	if err != nil {
 		if errors.Is(err, errOutside) {
 			return Hello{}, remote, errOutside
@@ -113,7 +125,7 @@ func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPo
 	}
 	defer res.Body.Close()
 	var h Hello
-	if json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&h) != nil || !h.Valid() {
+	if json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&h) != nil || !h.Valid() || h.Cert != seen {
 		return Hello{}, remote, fmt.Errorf("what answered at %s is not a motita gateway, or one too old to connect to", address)
 	}
 	return h, netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), nil
@@ -126,22 +138,125 @@ var ErrToken = errors.New("the other computer did not accept that token")
 var ErrRefused = errors.New("the other computer refuses connections from this one: " +
 	"in its Settings, Network, let the local network in")
 
-// CheckToken reports whether the gateway at address accepts token.
-func (p *Prober) CheckToken(ctx context.Context, address, token string) error {
-	req := request(ctx, address, "/v1/sessions")
+// sessionsPath is the other computer's list of sessions: a token is checked, and its runs counted,
+// by reading it.
+const sessionsPath = "/v1/sessions"
+
+// sessions reads the list of sessions of the gateway at address, which must present pin, with
+// token.
+func (p *Prober) sessions(ctx context.Context, address, pin, token string) (*http.Response, error) {
+	req := request(WithPin(ctx, pin), http.MethodGet, address, sessionsPath, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := p.Client.Do(req)
 	if err != nil {
-		return fmt.Errorf("the other computer could not be reached at %s: %w", address, err)
+		if errors.Is(err, ErrIdentity) {
+			return nil, ErrIdentity
+		}
+		return nil, fmt.Errorf("the other computer could not be reached at %s: %w", address, err)
 	}
-	_ = res.Body.Close()
 	switch {
 	case res.StatusCode == http.StatusUnauthorized:
-		return ErrToken
+		err = ErrToken
 	case res.StatusCode == http.StatusForbidden:
-		return ErrRefused
+		err = ErrRefused
 	case res.StatusCode != http.StatusOK:
-		return fmt.Errorf("the other computer answered %s", res.Status)
+		err = fmt.Errorf("the other computer answered %s", res.Status)
+	}
+	if err != nil {
+		_ = res.Body.Close()
+		return nil, err
+	}
+	return res, nil
+}
+
+// CheckToken reports whether the gateway at address, presenting pin, accepts token.
+func (p *Prober) CheckToken(ctx context.Context, address, pin, token string) error {
+	res, err := p.sessions(ctx, address, pin, token)
+	if err != nil {
+		return err
+	}
+	return res.Body.Close()
+}
+
+// Running counts the sessions of a connected computer with a run in flight.
+func (p *Prober) Running(ctx context.Context, t Target) (int, error) {
+	res, err := p.sessions(ctx, t.Address, t.Cert, t.Token)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	var list struct {
+		Sessions []struct {
+			Running bool `json:"running"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&list); err != nil {
+		return 0, fmt.Errorf("the other computer's sessions could not be read: %w", err)
+	}
+	n := 0
+	for _, s := range list.Sessions {
+		if s.Running {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// PairPath is where a gateway asks another to let it in (POST) and reads the answer (GET). The
+// connection's certificate says who is asking.
+const PairPath = "/v1/peer/pair"
+
+// AskBody is what a gateway sends when it asks to be let in.
+type AskBody struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AnswerBody is the answer to a request to be let in.
+type AnswerBody struct {
+	State string `json:"state"`
+	Token string `json:"token,omitempty"`
+}
+
+// Ask asks the gateway at address, presenting pin, to let this one (self) in.
+func (p *Prober) Ask(ctx context.Context, address, pin string, self AskBody) error {
+	body, _ := json.Marshal(self)
+	res, err := p.Client.Do(request(WithPin(ctx, pin), http.MethodPost, address, PairPath, body))
+	if err != nil {
+		return fmt.Errorf("the other computer could not be reached at %s: %w", address, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusAccepted {
+		return answerError(res)
 	}
 	return nil
+}
+
+// Answer reads the answer to this gateway's request from the gateway at address.
+func (p *Prober) Answer(ctx context.Context, address, pin string) (AnswerBody, error) {
+	res, err := p.Client.Do(request(WithPin(ctx, pin), http.MethodGet, address, PairPath, nil))
+	if err != nil {
+		return AnswerBody{}, fmt.Errorf("the other computer could not be reached at %s: %w", address, err)
+	}
+	defer res.Body.Close()
+	var a AnswerBody
+	if res.StatusCode != http.StatusOK {
+		return a, answerError(res)
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&a); err != nil {
+		return a, fmt.Errorf("the other computer's answer could not be read: %w", err)
+	}
+	return a, nil
+}
+
+// answerError is the other computer's refusal, in its own words when it gave them.
+func answerError(res *http.Response) error {
+	var body struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&body)
+	if body.Error != "" {
+		return errors.New(body.Error)
+	}
+	return fmt.Errorf("the other computer answered %s", res.Status)
 }

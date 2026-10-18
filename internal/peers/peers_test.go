@@ -2,6 +2,7 @@ package peers
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -193,23 +194,23 @@ func TestTheLANNeverOverridesABetterSource(t *testing.T) {
 func TestPairRenameTargetAndForget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "peers.json")
 	r, _ := Open(path, "box")
-	if err := r.Pair("peer0001", "tok"); !errors.Is(err, ErrUnknown) {
+	if err := r.Pair("peer0001", "tok", "fp"); !errors.Is(err, ErrUnknown) {
 		t.Fatalf("unknown: %v", err)
 	}
 	r.Saw(hello("peer0001", "desk"), ap("192.168.1.5:7477"), SourceLAN)
 	if _, ok := r.Target("peer0001"); ok {
 		t.Fatal("unpaired has a target")
 	}
-	if err := r.Pair("peer0001", " "); err == nil {
+	if err := r.Pair("peer0001", " ", "fp"); err == nil {
 		t.Fatal("empty token accepted")
 	}
-	if err := r.Pair("peer0001", "tok"); err != nil {
+	if err := r.Pair("peer0001", "tok", "fp"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Pair("peer0001", "tok2"); err != nil {
+	if err := r.Pair("peer0001", "tok2", "fp"); err != nil {
 		t.Fatal(err)
 	}
-	if tg, ok := r.Target("peer0001"); !ok || tg != (Target{Address: "192.168.1.5:7477", Token: "tok2"}) {
+	if tg, ok := r.Target("peer0001"); !ok || tg != (Target{Address: "192.168.1.5:7477", Token: "tok2", Cert: "fp"}) {
 		t.Fatalf("target = %+v", tg)
 	}
 	if err := r.Rename("nobody00", "x"); !errors.Is(err, ErrUnknown) {
@@ -247,7 +248,7 @@ func TestListOrdersPairedFirstThenByName(t *testing.T) {
 	r.Saw(hello("peer000a", "Alpha"), ap("192.168.1.3:1"), SourceLAN)
 	r.Saw(hello("peer000c", "zulu"), ap("192.168.1.4:1"), SourceLAN)
 	r.Saw(hello("peer000d", "zulu"), ap("192.168.1.5:1"), SourceLAN)
-	_ = r.Pair("peer000c", "t")
+	_ = r.Pair("peer000c", "t", "fp")
 	var got []string
 	for _, p := range r.List() {
 		got = append(got, p.ID)
@@ -260,9 +261,9 @@ func TestListOrdersPairedFirstThenByName(t *testing.T) {
 func TestStaleListsConnectedPeersNotHeardFrom(t *testing.T) {
 	r, c := newReg(t)
 	r.Saw(hello("peer0001", "desk"), ap("192.168.1.5:7477"), SourceLAN)
-	_ = r.Pair("peer0001", "t")
+	_ = r.Pair("peer0001", "t", "fp")
 	r.Saw(hello("peer0002", "nas"), ap("192.168.1.6:7477"), SourceLAN)
-	_ = r.Pair("peer0002", "t")
+	_ = r.Pair("peer0002", "t", "fp")
 	r.mu.Lock()
 	r.doc.Peers[1].Address = ""
 	r.mu.Unlock()
@@ -284,5 +285,157 @@ func TestAllowedIsThePrivateNetworksOnly(t *testing.T) {
 		if Allowed(netip.MustParseAddr(addr)) != want {
 			t.Errorf("%s: want %v", addr, want)
 		}
+	}
+}
+
+func TestOpenMakesACertificateOnceAndReplacesABrokenOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peers.json")
+	r, _ := Open(path, "box")
+	if len(r.Fingerprint()) != 64 || len(r.Certificate().Certificate) != 1 {
+		t.Fatalf("fingerprint %q", r.Fingerprint())
+	}
+	again, _ := Open(path, "box")
+	if again.Fingerprint() != r.Fingerprint() {
+		t.Fatal("the certificate changed on reopening")
+	}
+	again.mu.Lock()
+	again.doc.SelfKey = "broken"
+	_ = again.save()
+	again.mu.Unlock()
+	third, err := Open(path, "box")
+	if err != nil || third.Fingerprint() == r.Fingerprint() || third.Self().ID != r.Self().ID {
+		t.Fatalf("broken key: %v", err)
+	}
+}
+
+func TestPairCodeIsTheSameOnBothSides(t *testing.T) {
+	a, b := PairCode("aaa", "bbb"), PairCode("bbb", "aaa")
+	if a != b || len(a) != 7 || a[3] != ' ' {
+		t.Fatalf("%q %q", a, b)
+	}
+	if PairCode("aaa", "ccc") == a {
+		t.Fatal("another certificate gives the same code")
+	}
+}
+
+func TestRunningAndAsksShowInTheList(t *testing.T) {
+	r, c := newReg(t)
+	r.Saw(hello("peer0001", "desk"), ap("192.168.1.5:7477"), SourceLAN)
+	r.Saw(hello("peer0002", "nas"), ap("192.168.1.6:7477"), SourceLAN)
+	_ = r.Pair("peer0001", "t", "fp")
+	r.SetRunning("peer0001", 3)
+	r.SetAsk("peer0002", Ask{Code: "123 456", State: AskWaiting})
+	if p, _ := r.Find("peer0001"); p.Running != 3 {
+		t.Fatalf("running = %+v", p)
+	}
+	if p, _ := r.Find("peer0002"); p.Ask == nil || p.Ask.Code != "123 456" {
+		t.Fatalf("ask = %+v", p)
+	}
+	r.SetAsk("peer0002", Ask{})
+	if p, _ := r.Find("peer0002"); p.Ask != nil {
+		t.Fatalf("ask kept: %+v", p)
+	}
+	// A computer gone quiet shows no runs: they cannot be read.
+	c.t = c.t.Add(TTL + time.Second)
+	if p, _ := r.Find("peer0001"); p.Running != 0 || p.Online {
+		t.Fatalf("offline = %+v", p)
+	}
+	_ = r.Forget("peer0001")
+}
+
+func TestARequestToConnectIsAnsweredOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peers.json")
+	r, _ := Open(path, "box")
+	c := &clock{t: time.Unix(1_000_000, 0)}
+	r.Now = c.now
+	if _, err := r.Ask("bad", "x", "", "fp"); err == nil {
+		t.Fatal("bad id accepted")
+	}
+	code, err := r.Ask("peer0001", "laptop", "192.168.1.5:5000", "fp1")
+	if err != nil || code != PairCode(r.Fingerprint(), "fp1") {
+		t.Fatalf("%q %v", code, err)
+	}
+	if st, _ := r.Answer("fp1"); st != AskWaiting {
+		t.Fatalf("state = %q", st)
+	}
+	if st, _ := r.Answer("unknown"); st != "" {
+		t.Fatalf("unknown = %q", st)
+	}
+	if q := r.Requests(); len(q) != 1 || q[0].Name != "laptop" || q[0].Code != code {
+		t.Fatalf("requests = %+v", q)
+	}
+	if err := r.Decide("nobody00", true); !errors.Is(err, ErrUnknown) {
+		t.Fatal(err)
+	}
+	if err := r.Decide("peer0001", true); err != nil {
+		t.Fatal(err)
+	}
+	st, token := r.Answer("fp1")
+	if st != AskAllowed || len(token) != 64 {
+		t.Fatalf("%q %q", st, token)
+	}
+	if st, _ := r.Answer("fp1"); st != "" {
+		t.Fatal("the token was handed out twice")
+	}
+	if !r.Granted(token, "fp1") || r.Granted(token, "fp2") || r.Granted("", "fp1") || r.Granted(token, "") {
+		t.Fatal("the token is not tied to its certificate")
+	}
+	again, _ := Open(path, "box")
+	if g := again.Grants(); len(g) != 1 || g[0].ID != "peer0001" || g[0].Name != "laptop" {
+		t.Fatalf("kept grants = %+v", g)
+	}
+	// Let in again: the new token replaces the old one.
+	_, _ = r.Ask("peer0001", "laptop", "", "fp1")
+	_ = r.Decide("peer0001", true)
+	_, token = r.Answer("fp1")
+	if len(r.Grants()) != 1 || !r.Granted(token, "fp1") {
+		t.Fatalf("grants = %+v", r.Grants())
+	}
+	// Asked again and denied this time.
+	_, _ = r.Ask("peer0001", "laptop", "", "fp1")
+	_ = r.Decide("peer0001", false)
+	if st, _ := r.Answer("fp1"); st != AskDenied {
+		t.Fatalf("denied = %q", st)
+	}
+	if err := r.Revoke("nobody00"); !errors.Is(err, ErrUnknown) {
+		t.Fatal(err)
+	}
+	if err := r.Revoke("peer0001"); err != nil || r.Granted(token, "fp1") {
+		t.Fatalf("revoked: %v", err)
+	}
+}
+
+func TestRequestsExpireAndAreBounded(t *testing.T) {
+	r, c := newReg(t)
+	_, _ = r.Ask("peer0001", "first", "", "fp1")
+	c.t = c.t.Add(time.Second)
+	_, _ = r.Ask("peer0002", "second", "", "fp2")
+	if q := r.Requests(); len(q) != 2 || q[0].ID != "peer0001" {
+		t.Fatalf("order = %+v", q)
+	}
+	for i := 3; i <= MaxRequests; i++ {
+		if _, err := r.Ask(fmt.Sprintf("peer%04d", i), "x", "", fmt.Sprintf("fp%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.Ask("peer0099", "x", "", "fp99"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("over the limit: %v", err)
+	}
+	// Asking again replaces the request rather than counting twice.
+	if _, err := r.Ask("peer0001", "first", "", "fp1"); err != nil {
+		t.Fatal(err)
+	}
+	c.t = c.t.Add(AskTTL + time.Minute)
+	if len(r.Requests()) != 0 {
+		t.Fatal("expired requests listed")
+	}
+	if err := r.Decide("peer0001", true); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("expired decided: %v", err)
+	}
+	if st, _ := r.Answer("fp1"); st != "" {
+		t.Fatalf("expired answered %q", st)
+	}
+	if _, err := r.Ask("peer0099", "x", "", "fp99"); err != nil {
+		t.Fatalf("after expiry: %v", err)
 	}
 }

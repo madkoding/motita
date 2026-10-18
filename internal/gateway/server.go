@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/madkoding/motita/internal/approvals"
@@ -361,7 +362,10 @@ type Server struct {
 	// peers.go.
 	peers     *peers.Registry
 	prober    *peers.Prober
-	peerProxy http.RoundTripper
+	peerProxy *http.Transport
+	// runningAt is when the connected computers' runs were last read, runningBusy while they are.
+	runningAt   atomic.Int64
+	runningBusy atomic.Bool
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -787,10 +791,12 @@ func (s *Server) routes() *http.ServeMux {
 
 	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
 	// forcing it through a HandlerFunc would be a cast that says nothing.
-	auth := func(h http.Handler) http.Handler { return requireToken(s.opts.Token, h, s.opts.Origins...) }
+	auth := func(h http.Handler) http.Handler {
+		return requireCredential(s.opts.Token, s.peerGranted, h, s.opts.Origins...)
+	}
 	// plain is the same check for a bare handler function, so the session-list endpoints do not
 	// have to be cast to satisfy a signature.
-	plain := func(h http.HandlerFunc) http.Handler { return requireToken(s.opts.Token, h, s.opts.Origins...) }
+	plain := func(h http.HandlerFunc) http.Handler { return auth(h) }
 	// scoped is every handler that speaks ABOUT a conversation: the token is checked, then the
 	// session is resolved, then the handler runs with it in the request context.
 	scoped := func(h http.HandlerFunc) http.Handler { return auth(s.withConversation(h)) }
@@ -1328,7 +1334,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // so requiring it is a second wall behind the X-Motita header (see crossSiteRefusal). A bearer
 // client is not held to it: no page can attach the token.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) {
+	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) && !s.peerGranted(r) {
 		if mt, _, _ := mime.ParseMediaType(r.Header.Get(headerContentType)); mt != "application/json" {
 			writeError(w, http.StatusUnsupportedMediaType, "the request body must be sent as application/json")
 			return false

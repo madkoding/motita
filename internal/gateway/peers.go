@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/peers"
 	"github.com/madkoding/motita/internal/tailscale"
@@ -20,8 +21,10 @@ import (
 //
 // A gateway announces itself on the local network and finds the others there, on the tailnet, or
 // at an address typed by hand (see the peers package). Finding one grants nothing. The person
-// CONNECTS it by typing that computer's token once; from then on this gateway speaks to it on
-// their behalf, and the page opens its sessions, projects and settings through
+// CONNECTS it by typing that computer's token once, or by asking it and having the person at that
+// computer let this one in (a token of its own is then issued for this computer, tied to its
+// certificate and revocable there). From then on this gateway speaks to it on their behalf, over
+// TLS pinned to the certificate it presented when connected, and the page opens its sessions, projects and settings through
 // /v1/peers/{id}/proxy/..., which forwards the request, the stream of events and the WebSocket as
 // they are. The page never holds the other token, and the other gateway only ever sees a bearer
 // client: its own token check, network rules and limits apply unchanged.
@@ -40,8 +43,10 @@ func (s *Server) openPeers() {
 		reg, _ = peers.Open("", host)
 	}
 	s.peers = reg
-	s.prober = peers.NewProber()
-	s.peerProxy = peers.Transport()
+	s.prober = peers.NewProber(reg.Certificate())
+	s.peerProxy = peers.Transport(reg.Certificate())
+	// The other gateways speak TLS on this same port; the browser keeps its plain address.
+	s.listener = peers.Sniff(s.listener, peers.ServerConfig(reg.Certificate()))
 	if !s.opts.Discovery {
 		return
 	}
@@ -68,7 +73,7 @@ func (s *Server) peerHello() (peers.Hello, bool) {
 	p, _ := strconv.Atoi(port)
 	addrs, _ := interfaceAddrs()
 	return peers.Hello{Protocol: peers.Protocol, ID: self.ID, Name: self.Name, Version: s.opts.Version,
-		Port: p, Addrs: peers.LocalAddrs(addrs)}, !isLoopback(host)
+		Port: p, Addrs: peers.LocalAddrs(addrs), Cert: s.peers.Fingerprint()}, !isLoopback(host)
 }
 
 // handlePeerHello answers another gateway that asks who this one is.
@@ -79,11 +84,17 @@ func (s *Server) handlePeerHello(w http.ResponseWriter, _ *http.Request) {
 
 // peerRoutes registers the endpoints about the other computers.
 func (s *Server) peerRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	// Asked by another gateway, before it holds any token: the connection's certificate says who.
+	mux.HandleFunc("POST "+peers.PairPath, s.handlePairAsk)
+	mux.HandleFunc("GET "+peers.PairPath, s.handlePairAnswer)
 	mux.Handle("GET /v1/peers", plain(s.handleListPeers))
 	mux.Handle("POST /v1/peers", plain(s.handleAddPeer))
 	mux.Handle("PUT /v1/peers/self", plain(s.handleRenameSelf))
 	mux.Handle("PUT /v1/peers/{id}", plain(s.handleUpdatePeer))
 	mux.Handle("DELETE /v1/peers/{id}", plain(s.handleForgetPeer))
+	mux.Handle("POST /v1/peers/{id}/ask", plain(s.handleAskPeer))
+	mux.Handle("POST /v1/peer-requests/{id}", plain(s.handleDecide))
+	mux.Handle("DELETE /v1/peer-grants/{id}", plain(s.handleRevoke))
 	// Every method: the page's GETs, POSTs, PUTs, PATCHes and DELETEs all go through.
 	mux.Handle(peerProxyPrefix+"{id}/proxy/{rest...}", plain(s.handlePeerProxy))
 }
@@ -94,6 +105,8 @@ type selfView struct {
 	// Reachable is false when the gateway listens on loopback only: no other computer can connect
 	// to it then, and the page points at the network settings.
 	Reachable bool `json:"reachable"`
+	// Running is how many sessions here have a run in flight.
+	Running int `json:"running"`
 }
 
 // peersView is what the computer endpoints answer.
@@ -101,16 +114,60 @@ type peersView struct {
 	Self      selfView     `json:"self"`
 	Peers     []peers.Peer `json:"peers"`
 	Discovery bool         `json:"discovery"`
+	// Requests are the computers asking to be let into this one; Grants the ones let in.
+	Requests []peers.Request `json:"requests"`
+	Grants   []peers.Grant   `json:"grants"`
 }
 
 func (s *Server) peersView() peersView {
 	_, reachable := s.peerHello()
-	return peersView{Self: selfView{Self: s.peers.Self(), Reachable: reachable}, Peers: s.peers.List(),
-		Discovery: s.opts.Discovery}
+	return peersView{Self: selfView{Self: s.peers.Self(), Reachable: reachable, Running: s.runningHere()},
+		Peers: s.peers.List(), Discovery: s.opts.Discovery, Requests: s.peers.Requests(), Grants: s.peers.Grants()}
+}
+
+// runningHere counts this gateway's sessions with a run in flight.
+func (s *Server) runningHere() int {
+	n := 0
+	for _, c := range s.snapshot() {
+		if c.status().Running {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *Server) handleListPeers(w http.ResponseWriter, _ *http.Request) {
+	s.kickRunning()
 	writeJSON(w, http.StatusOK, s.peersView())
+}
+
+// runningEvery is how often the runs of the connected computers are read, at most: only while the
+// page reads the list, which it does while it is open.
+var runningEvery = 10 * time.Second
+
+// kickRunning reads the connected computers' runs in the background, when the last read is old.
+func (s *Server) kickRunning() {
+	if time.Since(time.Unix(0, s.runningAt.Load())) < runningEvery || !s.runningBusy.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer s.runningBusy.Store(false)
+		s.readRunning(s.baseCtx)
+		s.runningAt.Store(time.Now().UnixNano())
+	}()
+}
+
+// readRunning asks each connected computer that answers how many runs it has in flight.
+func (s *Server) readRunning(ctx context.Context) {
+	for _, p := range s.peers.List() {
+		if !p.Paired || !p.Online {
+			continue
+		}
+		t, _ := s.peers.Target(p.ID)
+		if n, err := s.prober.Running(ctx, t); err == nil {
+			s.peers.SetRunning(p.ID, n)
+		}
+	}
 }
 
 // handleRenameSelf changes the name this computer is shown and announced under.
@@ -128,8 +185,8 @@ func (s *Server) handleRenameSelf(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.peersView())
 }
 
-// handleAddPeer connects a computer by its address and token: the one way across a VPN, which
-// carries no beacon.
+// handleAddPeer connects a computer by its address - the one way across a VPN, which carries no
+// beacon - with its token, or, without one, asks it to let this one in.
 func (s *Server) handleAddPeer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Address string `json:"address"`
@@ -138,34 +195,52 @@ func (s *Server) handleAddPeer(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if strings.TrimSpace(body.Address) == "" || strings.TrimSpace(body.Token) == "" {
-		writeError(w, http.StatusBadRequest, "the other computer's address and token are both required")
+	if strings.TrimSpace(body.Address) == "" {
+		writeError(w, http.StatusBadRequest, "the other computer's address is required")
 		return
 	}
 	self, _ := s.peerHello()
 	addr := peers.WithPort(body.Address, self.Port)
-	h, at, err := s.prober.Hello(r.Context(), addr)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+	h, at, ok := s.reach(w, r, addr, "")
+	if !ok {
 		return
 	}
-	if h.ID == self.ID {
-		writeError(w, http.StatusBadRequest, "that address is this computer")
+	if strings.TrimSpace(body.Token) == "" {
+		s.peers.Saw(h, at, peers.SourceManual)
+		s.askPeer(w, r, h, at, addr)
 		return
 	}
-	if !s.connectPeer(w, r, addr, body.Token) {
+	if !s.connectPeer(w, r, addr, h.Cert, body.Token) {
 		return
 	}
-	s.peers.Saw(h, netip.AddrPortFrom(at.Addr(), uint16(h.Port)), peers.SourceManual)
-	if s.pairPeer(w, h.ID, body.Token) {
+	s.peers.Saw(h, at, peers.SourceManual)
+	if s.pairPeer(w, h.ID, body.Token, h.Cert) {
 		writeJSON(w, http.StatusOK, s.peersView())
 	}
 }
 
-// connectPeer checks that the computer at addr is the one meant and accepts token. It writes the
-// refusal and returns false when not.
-func (s *Server) connectPeer(w http.ResponseWriter, r *http.Request, addr, token string) bool {
-	err := s.prober.CheckToken(r.Context(), addr, strings.TrimSpace(token))
+// reach asks the computer at addr who it is, and checks it is another one (and the one meant, when
+// id is given). It writes the refusal and returns false when not. The address returned is where it
+// answered, at the port its API listens on.
+func (s *Server) reach(w http.ResponseWriter, r *http.Request, addr, id string) (peers.Hello, netip.AddrPort, bool) {
+	h, at, err := s.prober.Hello(r.Context(), addr)
+	switch {
+	case err != nil:
+		writeError(w, http.StatusBadGateway, err.Error())
+	case h.ID == s.peers.Self().ID:
+		writeError(w, http.StatusBadRequest, "that address is this computer")
+	case id != "" && h.ID != id:
+		writeError(w, http.StatusBadGateway, "another computer answers at "+addr+" now: wait for it to be found again")
+	default:
+		return h, netip.AddrPortFrom(at.Addr(), uint16(h.Port)), true
+	}
+	return h, at, false
+}
+
+// connectPeer checks that the computer at addr, presenting the certificate cert, accepts token. It
+// writes the refusal and returns false when not.
+func (s *Server) connectPeer(w http.ResponseWriter, r *http.Request, addr, cert, token string) bool {
+	err := s.prober.CheckToken(r.Context(), addr, cert, strings.TrimSpace(token))
 	switch {
 	case err == nil:
 		return true
@@ -202,7 +277,8 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, peers.ErrUnknown.Error())
 			return
 		}
-		if !s.connectPeer(w, r, p.Address, *body.Token) || !s.pairPeer(w, id, *body.Token) {
+		h, _, ok := s.reach(w, r, p.Address, id)
+		if !ok || !s.connectPeer(w, r, p.Address, h.Cert, *body.Token) || !s.pairPeer(w, id, *body.Token, h.Cert) {
 			return
 		}
 	}
@@ -215,12 +291,14 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.peersView())
 }
 
-// pairPeer keeps the token, or writes why it could not.
-func (s *Server) pairPeer(w http.ResponseWriter, id, token string) bool {
-	if err := s.peers.Pair(id, token); err != nil {
+// pairPeer keeps the token and the certificate it is good with, or writes why it could not.
+func (s *Server) pairPeer(w http.ResponseWriter, id, token, cert string) bool {
+	if err := s.peers.Pair(id, token, cert); err != nil {
 		writeError(w, peerStatus(err), err.Error())
 		return false
 	}
+	// A connection kept from before was made with the previous pin.
+	s.peerProxy.CloseIdleConnections()
 	return true
 }
 
@@ -230,13 +308,148 @@ func (s *Server) handleForgetPeer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, peerStatus(err), err.Error())
 		return
 	}
+	s.peerProxy.CloseIdleConnections()
+	writeJSON(w, http.StatusOK, s.peersView())
+}
+
+// handleAskPeer asks a found computer to let this one in.
+func (s *Server) handleAskPeer(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	p, ok := s.peers.Find(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, peers.ErrUnknown.Error())
+		return
+	}
+	if h, at, ok := s.reach(w, r, p.Address, id); ok {
+		s.askPeer(w, r, h, at, p.Address)
+	}
+}
+
+// askPeer sends the request to the computer h at addr and waits for its answer in the background:
+// the person there may take a while to come to it.
+func (s *Server) askPeer(w http.ResponseWriter, r *http.Request, h peers.Hello, at netip.AddrPort, addr string) {
+	self := s.peers.Self()
+	if err := s.prober.Ask(r.Context(), addr, h.Cert, peers.AskBody{ID: self.ID, Name: self.Name}); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	code := peers.PairCode(s.peers.Fingerprint(), h.Cert)
+	s.peers.SetAsk(h.ID, peers.Ask{Code: code, State: peers.AskWaiting})
+	go s.awaitApproval(h, at, addr, code)
+	writeJSON(w, http.StatusOK, s.peersView())
+}
+
+// askEvery is how often a request to be let in is checked on, and askWait how long for.
+var (
+	askEvery = 2 * time.Second
+	askWait  = peers.AskTTL
+)
+
+// awaitApproval checks on this gateway's request to the computer h until it is answered or expires.
+func (s *Server) awaitApproval(h peers.Hello, at netip.AddrPort, addr, code string) {
+	src := s.peers.SourceOf(h.ID)
+	deadline := time.Now().Add(askWait)
+	tick := time.NewTicker(askEvery)
+	defer tick.Stop()
+	for time.Now().Before(deadline) && s.baseCtx.Err() == nil {
+		<-tick.C
+		// Talking to it is seeing it: a computer reached by address sends no beacon.
+		s.peers.Saw(h, at, src)
+		a, err := s.prober.Answer(s.baseCtx, addr, h.Cert)
+		switch {
+		case err != nil:
+			continue
+		case a.State == peers.AskAllowed:
+			_ = s.peers.Pair(h.ID, a.Token, h.Cert)
+			return
+		case a.State == peers.AskDenied:
+			s.peers.SetAsk(h.ID, peers.Ask{Code: code, State: peers.AskDenied})
+			return
+		}
+	}
+	s.peers.SetAsk(h.ID, peers.Ask{})
+}
+
+// clientCert is the fingerprint of the certificate the connection presented, or "".
+func clientCert(r *http.Request) string {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return ""
+	}
+	return peers.Fingerprint(r.TLS.PeerCertificates[0].Raw)
+}
+
+// peerGranted reports whether a request comes from a computer let into this one, with its token
+// and over a connection that presents its certificate.
+func (s *Server) peerGranted(r *http.Request) bool {
+	return s.peers.Granted(bearer(r.Header.Get("Authorization")), clientCert(r))
+}
+
+// errNoCert is a request to connect that did not come from a gateway.
+const errNoCert = "only another motita gateway can ask to connect, over TLS with its certificate"
+
+// handlePairAsk is another computer asking to be let in. Anyone on the network can ask, so the
+// requests waiting are few and short-lived, and the person here decides.
+func (s *Server) handlePairAsk(w http.ResponseWriter, r *http.Request) {
+	cert := clientCert(r)
+	from, err := netip.ParseAddrPort(r.RemoteAddr)
+	if cert == "" || err != nil || !peers.Allowed(from.Addr()) {
+		writeError(w, http.StatusForbidden, errNoCert)
+		return
+	}
+	var body peers.AskBody
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	code, err := s.peers.Ask(body.ID, body.Name, from.Addr().Unmap().String(), cert)
+	switch {
+	case errors.Is(err, peers.ErrBusy):
+		writeError(w, http.StatusTooManyRequests, err.Error())
+	case err != nil:
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		s.info("another computer asks to connect", "name", body.Name, "code", code)
+		writeJSON(w, http.StatusAccepted, map[string]string{"code": code})
+	}
+}
+
+// handlePairAnswer tells the computer that asked what was decided.
+func (s *Server) handlePairAnswer(w http.ResponseWriter, r *http.Request) {
+	state, token := s.peers.Answer(clientCert(r))
+	if state == "" {
+		writeError(w, http.StatusNotFound, "no request to connect from this computer is waiting")
+		return
+	}
+	writeJSON(w, http.StatusOK, peers.AnswerBody{State: state, Token: token})
+}
+
+// handleDecide lets a computer that asked in, or not.
+func (s *Server) handleDecide(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Allow bool `json:"allow"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if err := s.peers.Decide(r.PathValue("id"), body.Allow); err != nil {
+		writeError(w, peerStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.peersView())
+}
+
+// handleRevoke takes back the token a computer was let in with.
+func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	if err := s.peers.Revoke(r.PathValue("id")); err != nil {
+		writeError(w, peerStatus(err), err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, s.peersView())
 }
 
 // proxyRefused are the endpoints never forwarded: the other computer's own list of computers (no
 // chains of hops, and no way to reach a third gateway from here), its cookie exchange (the page
 // holds this gateway's cookie, never another's) and its shutdown.
-var proxyRefused = []string{"/v1/peers", "/v1/peer/", "/v1/webui/", "/v1/shutdown"}
+var proxyRefused = []string{"/v1/peers", "/v1/peer/", "/v1/peer-requests/", "/v1/peer-grants/", "/v1/webui/", "/v1/shutdown"}
 
 // peerPath is the path forwarded, or "" when it is not one the page may reach: an API path, with no
 // dot segments, outside proxyRefused.
@@ -272,7 +485,7 @@ func (s *Server) handlePeerProxy(w http.ResponseWriter, r *http.Request) {
 	raw := strings.TrimPrefix(r.URL.EscapedPath(), peerProxyPrefix+id+"/proxy")
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme = "http"
+			pr.Out.URL.Scheme = "https"
 			pr.Out.URL.Host = target.Address
 			pr.Out.URL.Path = p
 			pr.Out.URL.RawPath = raw
@@ -302,7 +515,7 @@ func (s *Server) handlePeerProxy(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, msg)
 		},
 	}
-	proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(w, r.WithContext(peers.WithPin(r.Context(), target.Cert)))
 }
 
 // errPeerToken is a connected computer that no longer accepts its token.
@@ -310,8 +523,10 @@ var errPeerToken = errors.New("the other computer no longer accepts its saved to
 
 // peerProxyMessage is the sentence for a failure the person can act on, or "".
 func peerProxyMessage(err error) string {
-	if errors.Is(err, errPeerToken) {
-		return errPeerToken.Error()
+	for _, known := range []error{errPeerToken, peers.ErrIdentity} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
 	}
 	return ""
 }
