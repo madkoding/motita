@@ -1441,7 +1441,7 @@ How it stays private:
 - starting one is **asked about** (rule `box-up`) unless the policy is off; reading, photographing and taking down are not, and a background agent or a read-only session cannot start one; at most 3 boxes per run;
 - every box (and the image built for it) is removed when the run ends, and the gateway removes leftovers of a crashed process when it starts (containers labelled `motita.box`).
 
-In Settings → Security, *Services in boxes* lists every container carrying the box label (`GET /v1/boxes`) and stops one (`DELETE /v1/boxes/{id}`, only a labelled container) or all of them (`DELETE /v1/boxes`); ending a box under a run that uses it makes that run's next `box_get` or `box_shot` fail with a message.
+In Settings → Security, *Sandbox* lists every container carrying the box label (`GET /v1/boxes`) and stops one (`DELETE /v1/boxes/{id}`, only a labelled container) or all of them (`DELETE /v1/boxes`); ending a box under a run that uses it makes that run's next `box_get` or `box_shot` fail with a message.
 
 The browser of the loopback mode is `$MOTITA_BROWSER`, then `chromium`, `chromium-browser`, `google-chrome` on `PATH`, then a Playwright download (`$PLAYWRIGHT_BROWSERS_PATH`, default `/opt/pw-browsers`). The service inside the box can still use the network (a build downloads packages); only its published port is limited.
 

@@ -71,7 +71,7 @@ function gateway(initial, runtime = "podman") {
 test("with nothing running it says so, and refresh reads again", async () => {
   const f = gateway([]);
   const m = await mount(f.api);
-  assert.match(text(m.root), /Services in boxes/);
+  assert.match(text(m.root), /Sandbox/);
   assert.match(text(q(m.root, "boxes-empty")), /No boxes are running/);
   assert.equal(q(m.root, "boxes-stop-all"), null);
   assert.equal(q(m.root, "boxes-list"), null);
