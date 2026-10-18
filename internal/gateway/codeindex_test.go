@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/madkoding/motita/internal/codeindex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,7 +22,7 @@ func decodeCodeIndex(t *testing.T, w *httptest.ResponseRecorder) codeIndexView {
 }
 
 func TestTheCodeIndexIsReadFromTheFile(t *testing.T) {
-	path := networkConfig(t, "llm:\n  provider: openai\n")
+	path := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+t.TempDir()+"\n")
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
 	want := codeIndexView{
 		Enabled: true, Semantic: true, EmbeddingsAuto: true, MaxFileKB: 256, MaxFiles: 5000,
@@ -112,5 +114,66 @@ func TestTheCodeIndexCacheIsCleared(t *testing.T) {
 	badSrv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = bad })
 	if w := del(t, badSrv, "/v1/code-index/cache", testToken); w.Code != http.StatusInternalServerError {
 		t.Errorf("a cache_dir that cannot be listed: %d", w.Code)
+	}
+}
+
+func TestTheProjectIndexIsReportedAndBuiltOnDemand(t *testing.T) {
+	cache := t.TempDir()
+	path := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+cache+"\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	withProjects(t, srv, t.TempDir())
+	id := makeProject(t, srv, "indexed")
+	dir := srv.projectOf(id).Dir
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc Rotate() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(w *httptest.ResponseRecorder) codeindex.Status {
+		t.Helper()
+		var st codeindex.Status
+		if err := json.Unmarshal(w.Body.Bytes(), &st); err != nil || w.Code != http.StatusOK {
+			t.Fatalf("%d %s: %v", w.Code, w.Body.String(), err)
+		}
+		return st
+	}
+	url := "/v1/projects/" + id + "/code-index"
+	if st := read(get(t, srv, url, testToken)); st.State != codeindex.StateNone || st.Candidates == 0 || st.Percent != 0 {
+		t.Errorf("before building: %+v", st)
+	}
+	if st := read(post(t, srv, url, "", testToken)); st.State != codeindex.StateReady || st.Percent != 100 || st.CacheBytes == 0 {
+		t.Errorf("after building: %+v", st)
+	}
+	if v := decodeCodeIndex(t, get(t, srv, "/v1/code-index", testToken)); v.CacheFiles != 1 || v.CacheBytes == 0 {
+		t.Errorf("cache size in the settings view: %+v", v)
+	}
+	if w := get(t, srv, "/v1/projects/nope/code-index", testToken); w.Code != http.StatusNotFound {
+		t.Errorf("unknown project: %d", w.Code)
+	}
+	if w := post(t, srv, url, "", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("without a token: %d", w.Code)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		req := httptest.NewRequest(method, url, nil).WithContext(ctx)
+		req.SetPathValue("id", id)
+		rec := httptest.NewRecorder()
+		srv.projectIndex(rec, req, method == http.MethodPost)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("%s with the walk cancelled: %d", method, rec.Code)
+		}
+	}
+
+	off := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ConfigPath = networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: false\n")
+	})
+	off.projects = srv.projects
+	if w := get(t, off, url, testToken); w.Code != http.StatusConflict {
+		t.Errorf("index turned off: %d", w.Code)
+	}
+	broken := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm: [\n") })
+	broken.projects = srv.projects
+	if w := get(t, broken, url, testToken); w.Code != http.StatusInternalServerError {
+		t.Errorf("unreadable configuration: %d", w.Code)
 	}
 }

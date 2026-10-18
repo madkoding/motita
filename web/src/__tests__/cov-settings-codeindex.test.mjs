@@ -32,6 +32,8 @@ const VIEW = {
   max_files: 5000,
   embeddings: "auto",
   endpoint_local: false,
+  cache_files: 2,
+  cache_bytes: 3000,
   can_save: true,
 };
 
@@ -295,4 +297,16 @@ test("clearing the cache falls back to the status when the error has no body", a
     },
   });
   await assert.rejects(api.clearCodeIndexCache(broken), /HTTP 500/);
+});
+
+test("the cache size is shown and drops to zero once cleared", async () => {
+  const gw = fakeApi({
+    "GET /v1/code-index": () => json(200, VIEW),
+    "DELETE /v1/code-index/cache": () => json(200, { removed: 2, bytes: 3000 }),
+  });
+  const root = await mount(gw);
+  assert.match(text(root), /2 files, 3 KB on disk/);
+  click(byText(root, "button", "Clear index cache"));
+  await settle();
+  assert.match(text(root), /0 files, 0 KB on disk/);
 });

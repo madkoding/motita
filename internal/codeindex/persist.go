@@ -25,6 +25,16 @@ func cachePath(dir, root string) string {
 // stored form, same fingerprint), and nil otherwise. A missing, damaged or stale file is not an
 // error: the index is built again.
 func loadIndex(dir, root string, fp uint64) *Index {
+	data := readData(dir, root)
+	if data == nil || data.Fingerprint != fp {
+		return nil
+	}
+	return &Index{root: root, indexData: *data}
+}
+
+// readData decodes the index file kept for root, whatever folder state it describes. It is nil
+// for a missing, damaged or old-form file.
+func readData(dir, root string) *indexData {
 	if dir == "" {
 		return nil
 	}
@@ -34,10 +44,10 @@ func loadIndex(dir, root string, fp uint64) *Index {
 	}
 	defer f.Close()
 	var data indexData
-	if err := gob.NewDecoder(f).Decode(&data); err != nil || data.Version != indexVersion || data.Fingerprint != fp {
+	if err := gob.NewDecoder(f).Decode(&data); err != nil || data.Version != indexVersion {
 		return nil
 	}
-	return &Index{root: root, indexData: data}
+	return &data
 }
 
 // saveIndex keeps ix on disk, privately: the terms of the source are in it. It is best effort, a

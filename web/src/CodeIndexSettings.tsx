@@ -90,6 +90,7 @@ function useCodeIndex(api: Api) {
     setCleared("");
     try {
       const done = await clearCodeIndexCache(api);
+      setView((v) => v && { ...v, cache_files: 0, cache_bytes: 0 });
       setCleared(
         tf(
           "{n} index files deleted ({kb} KB). The next search builds it again.",
@@ -260,10 +261,12 @@ function EndpointFields({
 
 // CacheRow deletes the index kept on disk and says what was removed.
 function CacheRow({
+  view,
   busy,
   clear,
   cleared,
 }: {
+  view: CodeIndexView;
   busy: boolean;
   clear: () => Promise<void>;
   cleared: string;
@@ -273,8 +276,12 @@ function CacheRow({
       <Row
         id="settings-code-index-cache"
         label={t("Index cache")}
-        hint={t(
-          "The index is kept in ~/.motita/index and rebuilt when it is gone.",
+        hint={tf(
+          "{n} files, {kb} KB on disk. The index is rebuilt when it is gone.",
+          {
+            n: String(view.cache_files),
+            kb: String(Math.ceil(view.cache_bytes / 1024)),
+          },
         )}
         stack
       >
@@ -365,7 +372,7 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               busy={busy}
               save={save}
             />
-            <CacheRow busy={busy} clear={clear} cleared={cleared} />
+            <CacheRow view={view} busy={busy} clear={clear} cleared={cleared} />
             <p class="settings-card-note text-xs text-[#7a7a8c]">
               {t(
                 "The embeddings key goes in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Changes apply to new sessions.",

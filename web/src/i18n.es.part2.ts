@@ -613,8 +613,24 @@ const more: Record<string, string> = {
     "Aprendido de tu propio código. Sin red.",
   "Find a local Ollama": "Buscar un Ollama local",
   "Index cache": "Caché del índice",
-  "The index is kept in ~/.motita/index and rebuilt when it is gone.":
-    "El índice se guarda en ~/.motita/index y se reconstruye si falta.",
+  "{n} files, {kb} KB on disk. The index is rebuilt when it is gone.":
+    "{n} archivos, {kb} KB en disco. El índice se reconstruye si falta.",
+  "Code index": "Índice de código",
+  "Up to date": "Al día",
+  "Out of date": "Desactualizado",
+  "Not indexed": "Sin indexar",
+  "Indexed share of the project": "Parte del proyecto indexada",
+  files: "archivos",
+  passages: "pasajes",
+  terms: "términos",
+  "on disk": "en disco",
+  "{files} of {total} files covered.": "{files} de {total} archivos cubiertos.",
+  "The limit of {max} files is reached: raise it in Settings.":
+    "Se alcanzó el límite de {max} archivos: súbelo en Ajustes.",
+  "Ranked also by embeddings.": "Ordena también con embeddings.",
+  "Ranked also by meaning.": "Ordena también por significado.",
+  "Index now": "Indexar ahora",
+  "Indexing…": "Indexando…",
   "Clear index cache": "Borrar caché del índice",
   "{n} index files deleted ({kb} KB). The next search builds it again.":
     "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",
