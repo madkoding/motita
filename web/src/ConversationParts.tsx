@@ -15,6 +15,7 @@ import {
   oneLine,
   progressText,
   switchedText,
+  type TurnMode,
 } from "./appParse";
 import { lastExit, statusLabel } from "./appFormat";
 import { RUN_MENU } from "./useCheckpoints";
@@ -156,7 +157,7 @@ function TurnMenu({
 }: {
   menuKey: number;
   liveHere: boolean;
-  mode: "plan" | "task" | null;
+  mode: TurnMode | null;
   text: string;
   turn: number | null | undefined;
 }) {
@@ -189,9 +190,7 @@ function TurnMenu({
             >
               {t("Stop the agent")}
               <small>
-                {t(
-                  "A message typed meanwhile goes to the run; Esc stops it",
-                )}
+                {t("A message typed meanwhile goes to the run; Esc stops it")}
               </small>
             </button>
           )}
@@ -284,7 +283,7 @@ export function TurnTop({
   head: Message | null;
   turn?: number;
   liveHere: boolean;
-  mode: "plan" | "task" | null;
+  mode: TurnMode | null;
   steps: StepView[];
 }) {
   const [open, setOpen] = useState(false);
@@ -330,7 +329,7 @@ export function TurnHead({
   head: Message;
   turn?: number;
   liveHere: boolean;
-  mode?: "plan" | "task" | null;
+  mode?: TurnMode | null;
   // actions is the turn's action counter, drawn in the bar so it costs no row of its own.
   actions?: { count: number; open: boolean; onToggle: () => void };
 }) {
@@ -367,7 +366,7 @@ export function TurnHead({
 
 // ModeBadge says which mode auto mode picked for a turn. Sending it again in the other mode is
 // in the input's menu.
-export function ModeBadge({ mode }: { mode: "plan" | "task" }) {
+export function ModeBadge({ mode }: { mode: TurnMode }) {
   return (
     <span
       class="mode-badge"

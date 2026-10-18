@@ -88,19 +88,22 @@ export function durationOf(every: string): { ms: number; short: string } {
   return { ms, short: short || every };
 }
 
+// TurnMode is the mode a turn declares: planning, or carrying out a task.
+export type TurnMode = "plan" | "task";
+
 // modeOf reads the line auto mode opens a turn with, "mode: plan (question)", and returns the
 // mode it picked, or null for any other line.
-export function modeOf(text: string): "plan" | "task" | null {
+export function modeOf(text: string): TurnMode | null {
   const m = /^mode: (plan|task) \(/.exec(text);
   if (!m) {
     return null;
   }
-  return m[1] as "plan" | "task";
+  return m[1] as TurnMode;
 }
 
 // switchedText is a message sent again in the other mode: a leading /plan or /task (or its
 // alias) is replaced, so the gateway runs it in the mode named and records the correction.
-export function switchedText(text: string, from: "plan" | "task"): string {
+export function switchedText(text: string, from: TurnMode): string {
   const rest = text.replace(/^\/(plan|p|task|t)(\s+|$)/i, "");
   return choose(from === "plan", "/task ", "/plan ") + rest;
 }

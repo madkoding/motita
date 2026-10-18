@@ -720,15 +720,19 @@ func comparePrerelease(a, b string) int {
 	case b == "":
 		return -1
 	default:
-		ia := strings.Split(a, ".")
-		ib := strings.Split(b, ".")
-		for i := 0; i < len(ia) && i < len(ib); i++ {
-			if c := compareIdentifier(ia[i], ib[i]); c != 0 {
-				return c
-			}
-		}
-		return len(ia) - len(ib)
+		return compareIdentifiers(strings.Split(a, "."), strings.Split(b, "."))
 	}
+}
+
+// compareIdentifiers compares two lists of pre-release identifiers left to right; when every
+// shared one is equal, the longer list wins.
+func compareIdentifiers(ia, ib []string) int {
+	for i := 0; i < len(ia) && i < len(ib); i++ {
+		if c := compareIdentifier(ia[i], ib[i]); c != 0 {
+			return c
+		}
+	}
+	return len(ia) - len(ib)
 }
 
 // compareIdentifier compares one pre-release identifier pair.
@@ -736,13 +740,7 @@ func compareIdentifier(a, b string) int {
 	numA, numB := isNumeric(a), isNumeric(b)
 	switch {
 	case numA && numB:
-		// Compared as decimal strings so no length can overflow: without leading zeros, the
-		// longer one is the bigger number.
-		a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
-		if len(a) != len(b) {
-			return len(a) - len(b)
-		}
-		return strings.Compare(a, b)
+		return compareNumeric(a, b)
 	case numA:
 		return -1
 	case numB:
@@ -750,6 +748,16 @@ func compareIdentifier(a, b string) int {
 	default:
 		return strings.Compare(a, b)
 	}
+}
+
+// compareNumeric compares two digit runs as decimal strings so no length can overflow: without
+// leading zeros, the longer one is the bigger number.
+func compareNumeric(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if len(a) != len(b) {
+		return len(a) - len(b)
+	}
+	return strings.Compare(a, b)
 }
 
 // isNumeric reports whether s is a non-empty run of ASCII digits.
