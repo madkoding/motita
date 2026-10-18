@@ -232,12 +232,14 @@ func TestCopilotUserQuota(t *testing.T) {
 		})
 	}
 	q, err := CopilotUserQuota(context.Background(),
-		user(`{"quota_reset_date":"2026-11-01","quota_snapshots":{"premium_interactions":{"entitlement":300,"remaining":71}}}`), "gho_x")
+		user(`{"quota_reset_date":"2026-11-01",`+
+			`"quota_snapshots":{"premium_interactions":{"entitlement":300,"remaining":71}}}`), "gho_x")
 	if err != nil || q.Entitlement != 300 || q.Remaining != 71 || q.Unlimited || q.ResetsAt.Month() != time.November {
 		t.Fatalf("quota = %+v, %v", q, err)
 	}
 	q, err = CopilotUserQuota(context.Background(),
-		user(`{"quota_reset_date":"2026-11-01T00:00:00Z","quota_snapshots":{"premium_interactions":{"unlimited":true}}}`), "gho_x")
+		user(`{"quota_reset_date":"2026-11-01T00:00:00Z",`+
+			`"quota_snapshots":{"premium_interactions":{"unlimited":true}}}`), "gho_x")
 	if err != nil || !q.Unlimited || q.ResetsAt.IsZero() {
 		t.Fatalf("unlimited = %+v, %v", q, err)
 	}

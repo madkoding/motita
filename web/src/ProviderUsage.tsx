@@ -120,6 +120,16 @@ export function quotaLabel(q: UsageQuota): string {
   );
 }
 
+// resetText says when a quota starts over, or "" when the provider did not say.
+function resetText(q: UsageQuota, now: number): string {
+  if (!q.resets_at) {
+    return "";
+  }
+  return tf("resets in {t}", {
+    t: formatElapsed(Date.parse(q.resets_at) - now),
+  });
+}
+
 // QuotaRow is one quota of one provider: its window, the share used and when it starts over.
 function QuotaRow({
   u,
@@ -131,9 +141,7 @@ function QuotaRow({
   now: number;
 }) {
   const used = Math.min(100, Math.max(0, Math.round(q.used_percent)));
-  const reset = q.resets_at
-    ? tf("resets in {t}", { t: formatElapsed(Date.parse(q.resets_at) - now) })
-    : "";
+  const reset = resetText(q, now);
   return (
     <li
       class="provider-quota"

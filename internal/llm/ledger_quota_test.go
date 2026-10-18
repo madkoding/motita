@@ -49,7 +49,8 @@ func TestACodexQuotaWithoutItsWindowIsNamedByPosition(t *testing.T) {
 		t.Errorf("nothing was reported about the window: %+v", r.Quotas[0])
 	}
 	// The window decides over the position: a long primary is the week.
-	long, _ := limitsFrom(headers("x-codex-primary-used-percent", "1", "x-codex-primary-window-minutes", "10080"), quotaNow)
+	weekly := headers("x-codex-primary-used-percent", "1", "x-codex-primary-window-minutes", "10080")
+	long, _ := limitsFrom(weekly, quotaNow)
 	if long.Quotas[0].Name != "week" {
 		t.Errorf("window: %+v", long.Quotas[0])
 	}
@@ -95,7 +96,10 @@ func TestOllamaOnTheUsersOwnServerIsNotCountedButTheCloudIs(t *testing.T) {
 	cap := &captureServer{}
 	srv := cap.start(t, `{"choices":[{"message":{"content":"ok"}}],`+openAIUsageJSON+`}`)
 	before := totalsOf("ollama")
-	own := clientFor(t, srv.URL, func(l *config.LLM) { l.Provider = "ollama"; l.BaseURL = srv.URL })
+	own := clientFor(t, srv.URL, func(l *config.LLM) {
+		l.Provider = "ollama"
+		l.BaseURL = srv.URL
+	})
 	if _, err := own.Complete(context.Background(), hi); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +109,10 @@ func TestOllamaOnTheUsersOwnServerIsNotCountedButTheCloudIs(t *testing.T) {
 	if !own.source().local {
 		t.Error("a loopback Ollama is local")
 	}
-	cloud := clientFor(t, srv.URL, func(l *config.LLM) { l.Provider = "ollama"; l.BaseURL = "https://ollama.com/v1" })
+	cloud := clientFor(t, srv.URL, func(l *config.LLM) {
+		l.Provider = "ollama"
+		l.BaseURL = "https://ollama.com/v1"
+	})
 	if cloud.source().local {
 		t.Error("Ollama Cloud is not local")
 	}
@@ -113,7 +120,8 @@ func TestOllamaOnTheUsersOwnServerIsNotCountedButTheCloudIs(t *testing.T) {
 
 func TestPersistedUsageOfASelfHostedOllamaIsLeftOut(t *testing.T) {
 	other := filepath.Join(t.TempDir(), "motita.yaml")
-	if err := config.SetCredential(other, config.ProviderBaseURLVariable("ollama"), "http://localhost:11434/v1"); err != nil {
+	ollamaBase := config.ProviderBaseURLVariable("ollama")
+	if err := config.SetCredential(other, ollamaBase, "http://localhost:11434/v1"); err != nil {
 		t.Fatal(err)
 	}
 	config.UseCredentialsBeside(other)

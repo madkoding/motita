@@ -634,7 +634,8 @@ func TestLLMUsageLeavesOutAnOllamaOnTheUsersOwnServer(t *testing.T) {
 		return []llm.ProviderUsage{{Provider: "ollama", Calls: 1}, {Provider: "ollama-cloud", Calls: 1}}
 	}
 	other := filepath.Join(t.TempDir(), "motita.yaml")
-	if err := config.SetCredential(other, config.ProviderBaseURLVariable("ollama"), "http://localhost:11434/v1"); err != nil {
+	ollamaBase := config.ProviderBaseURLVariable("ollama")
+	if err := config.SetCredential(other, ollamaBase, "http://localhost:11434/v1"); err != nil {
 		t.Fatal(err)
 	}
 	config.UseCredentialsBeside(other)
@@ -659,7 +660,8 @@ func copilotUsageServer(t *testing.T, read func() (oauth.CopilotQuota, error)) (
 		return read()
 	}
 	t.Cleanup(func() { copilotUserQuota = old })
-	if err := oauth.SaveCredential(config.AuthDir(), oauth.Credential{Provider: "copilot", AccessToken: "t", RefreshToken: "gho_x"}); err != nil {
+	login := oauth.Credential{Provider: "copilot", AccessToken: "t", RefreshToken: "gho_x"}
+	if err := oauth.SaveCredential(config.AuthDir(), login); err != nil {
 		t.Fatal(err)
 	}
 	return srv, &calls
@@ -671,7 +673,8 @@ func TestLLMUsageShowsTheCopilotMonthlyQuota(t *testing.T) {
 		return oauth.CopilotQuota{Entitlement: 300, Remaining: 75, ResetsAt: reset}, nil
 	})
 	srv.usageTotals = func() []llm.ProviderUsage {
-		return []llm.ProviderUsage{{Provider: "copilot", Calls: 1, Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 5, Remaining: 4}}}}
+		perMinute := &llm.RateLimits{Tokens: &llm.Window{Limit: 5, Remaining: 4}}
+		return []llm.ProviderUsage{{Provider: "copilot", Calls: 1, Limits: perMinute}}
 	}
 	r := usageRow(readUsage(t, srv), "copilot")
 	if r == nil || r.Limits == nil || len(r.Limits.Quotas) != 1 || r.Limits.Tokens == nil {
@@ -714,8 +717,11 @@ func TestACopilotQuotaNeedsALoginOrAConfiguredKey(t *testing.T) {
 	if q := srv.copilotQuota(context.Background(), config.LLM{Provider: "copilot"}); q != nil {
 		t.Errorf("no login, no key: %+v", q)
 	}
-	if copilotToken(config.LLM{Provider: "copilot", APIKey: "gho_k"}) != "gho_k" || copilotToken(config.LLM{Provider: "openai", APIKey: "k"}) != "" {
-		t.Error("only a copilot key is a GitHub token")
+	if copilotToken(config.LLM{Provider: "copilot", APIKey: "gho_k"}) != "gho_k" {
+		t.Error("a copilot key is a GitHub token")
+	}
+	if copilotToken(config.LLM{Provider: "openai", APIKey: "k"}) != "" {
+		t.Error("any other key is not")
 	}
 	if withQuota(nil, nil) != nil {
 		t.Error("nothing to add")
