@@ -124,6 +124,8 @@ type claudeEvent struct {
 	// Usage is the whole turn's consumption, on the result event.
 	Usage    *anthropicUsage `json:"usage"`
 	Response json.RawMessage `json:"response"`
+	// RateLimitInfo is what claude says of the subscription's limits on a rate_limit_event.
+	RateLimitInfo *claudeRateLimit `json:"rate_limit_info"`
 	// StructuredOutput is the object a --json-schema turn produced, repeated on its result.
 	StructuredOutput json.RawMessage `json:"structured_output"`
 }
@@ -347,9 +349,55 @@ func (p *claudeProcess) event() (claudeEvent, error) {
 				return ev, fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
 			}
 		}
+		if q, ok := ev.RateLimitInfo.quota(); ok && ev.Type == "rate_limit_event" {
+			totals.quota(usageSource{provider: "claude-code"}, q)
+		}
 		return ev, nil
 	}
 	return claudeEvent{}, p.exited()
+}
+
+// claudeRateLimit is one limit of a Claude subscription as claude reports it: which window, how much
+// of it is used (a fraction of 1, sent only once the usage nears a threshold) and when it starts over.
+type claudeRateLimit struct {
+	Status        string   `json:"status"`
+	ResetsAt      float64  `json:"resetsAt"`
+	RateLimitType string   `json:"rateLimitType"`
+	Utilization   *float64 `json:"utilization"`
+}
+
+// quota is the limit as a quota: the five-hour window is the session and the seven-day one the week.
+// It is not one when the event is about another window, or says nothing of how much is used (claude
+// sends the utilization only near a threshold); a limit that is rejected is fully used.
+func (r *claudeRateLimit) quota() (Quota, bool) {
+	if r == nil {
+		return Quota{}, false
+	}
+	q := Quota{Name: "session", Minutes: 300}
+	switch r.RateLimitType {
+	case "five_hour":
+	case "seven_day":
+		q = Quota{Name: "week", Minutes: weekMinutes}
+	default:
+		return Quota{}, false
+	}
+	switch {
+	case r.Utilization != nil:
+		q.Used = min(100, max(0, *r.Utilization*100))
+	case r.Status == "rejected":
+		q.Used = 100
+	default:
+		return Quota{}, false
+	}
+	if r.ResetsAt > 0 {
+		secs := r.ResetsAt
+		if secs > 1e12 { // milliseconds
+			secs /= 1000
+		}
+		at := time.Unix(int64(secs), 0).UTC()
+		q.ResetsAt = &at
+	}
+	return q, true
 }
 
 // motitaMCPStatus is the status claude's init event reports for motita's tool server, "missing"

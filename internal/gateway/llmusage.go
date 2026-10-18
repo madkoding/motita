@@ -12,6 +12,9 @@ import (
 	"github.com/madkoding/motita/internal/onboard"
 )
 
+// ollamaQuotas reads an Ollama Cloud plan's quotas; a variable so a test needs no network.
+var ollamaQuotas = llm.OllamaQuotas
+
 // copilotUserQuota reads a Copilot account's premium-request quota; a variable so a test needs no
 // network.
 var copilotUserQuota = oauth.CopilotUserQuota
@@ -24,12 +27,16 @@ const (
 	quotaTimeout  = 5 * time.Second
 )
 
-// quotaCache is the last Copilot quota read, or the failure of it.
+// quotaEntry is one read of a provider's quotas, or the failure of it.
+type quotaEntry struct {
+	at     time.Time
+	quotas []llm.Quota
+}
+
+// quotaCache keeps the last read of each provider's quotas, by provider and token.
 type quotaCache struct {
 	mu    sync.Mutex
-	at    time.Time
-	token string
-	quota *llm.Quota
+	items map[string]quotaEntry
 }
 
 // llmUsageRow is what one provider has consumed since the gateway started, as the bottom bars of
@@ -85,9 +92,7 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 			}
 			row.Limits = u.Limits
 		}
-		if p.ID == "copilot" {
-			row.Limits = withQuota(row.Limits, s.copilotQuota(r.Context(), cfg))
-		}
+		row.Limits = withQuotas(row.Limits, s.planQuotas(r.Context(), s.opts.ConfigPath, cfg, p.ID))
 		rows = append(rows, row)
 	}
 	writeJSON(w, http.StatusOK, llmUsageView{Providers: rows})
@@ -102,16 +107,16 @@ func (s *Server) providerTotals() []llm.ProviderUsage {
 	return llm.ProviderTotals()
 }
 
-// withQuota adds q to the limits a provider reported, when there is one.
-func withQuota(l *llm.RateLimits, q *llm.Quota) *llm.RateLimits {
-	if q == nil {
+// withQuotas adds qs to the limits a provider reported, when there are any.
+func withQuotas(l *llm.RateLimits, qs []llm.Quota) *llm.RateLimits {
+	if len(qs) == 0 {
 		return l
 	}
 	out := llm.RateLimits{}
 	if l != nil {
 		out = *l
 	}
-	out.Quotas = append(append([]llm.Quota{}, out.Quotas...), *q)
+	out.Quotas = append(append([]llm.Quota{}, out.Quotas...), qs...)
 	return &out
 }
 
@@ -126,35 +131,67 @@ func copilotToken(cfg config.LLM) string {
 	return ""
 }
 
-// copilotQuota is the month's premium-request quota of the Copilot account, read from GitHub and
-// kept for a few minutes. It is nil when there is no login or GitHub says nothing: no quota is
-// ever guessed.
-func (s *Server) copilotQuota(ctx context.Context, cfg config.LLM) *llm.Quota {
-	token := copilotToken(cfg)
+// planQuotas is the quotas of a provider's plan that the provider itself states over an API: the
+// month's premium requests of Copilot, the included credits or the session and weekly limits of
+// Ollama Cloud. It is nil for any other provider, and when there is no login or key or the provider
+// says nothing: no quota is ever guessed.
+func (s *Server) planQuotas(ctx context.Context, configPath string, cfg config.LLM, id string) []llm.Quota {
+	switch id {
+	case "copilot":
+		token := copilotToken(cfg)
+		return s.cachedQuotas(ctx, id, token, func(ctx context.Context) ([]llm.Quota, error) {
+			return copilotMonth(ctx, token)
+		})
+	case "ollama", "ollama-cloud":
+		key := config.ProviderKey(configPath, cfg, id)
+		return s.cachedQuotas(ctx, "ollama", key, func(ctx context.Context) ([]llm.Quota, error) {
+			return ollamaQuotas(ctx, nil, key)
+		})
+	}
+	return nil
+}
+
+// copilotMonth is the month's premium-request quota of a Copilot account as one quota; none when the
+// plan is unlimited.
+func copilotMonth(ctx context.Context, token string) ([]llm.Quota, error) {
+	q, err := copilotUserQuota(ctx, nil, token)
+	if err != nil || q.Unlimited {
+		return nil, err
+	}
+	month := llm.Quota{Name: "month", Used: float64(q.Entitlement-q.Remaining) / float64(q.Entitlement) * 100}
+	if !q.ResetsAt.IsZero() {
+		month.ResetsAt = &q.ResetsAt
+	}
+	return []llm.Quota{month}, nil
+}
+
+// cachedQuotas reads quotas with read, keeping the answer for a few minutes (a minute after a
+// failure) so the page's one-minute polling does not ask the provider each time. Without a token
+// there is nothing to ask.
+func (s *Server) cachedQuotas(ctx context.Context, id, token string,
+	read func(context.Context) ([]llm.Quota, error)) []llm.Quota {
 	if token == "" {
 		return nil
 	}
 	c := &s.quotaCache
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	key := id + "|" + token
 	keep := quotaKeep
-	if c.quota == nil {
-		keep = quotaKeepFail
-	}
-	if c.token == token && time.Since(c.at) < keep {
-		return c.quota
+	if e, ok := c.items[key]; ok {
+		if len(e.quotas) == 0 {
+			keep = quotaKeepFail
+		}
+		if time.Since(e.at) < keep {
+			return e.quotas
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, quotaTimeout)
 	defer cancel()
-	c.token, c.at, c.quota = token, time.Now(), nil
-	q, err := copilotUserQuota(ctx, nil, token)
-	if err != nil || q.Unlimited {
-		return nil
+	qs, _ := read(ctx)
+	if c.items == nil {
+		c.items = map[string]quotaEntry{}
 	}
-	used := float64(q.Entitlement-q.Remaining) / float64(q.Entitlement) * 100
-	c.quota = &llm.Quota{Name: "month", Used: used}
-	if !q.ResetsAt.IsZero() {
-		c.quota.ResetsAt = &q.ResetsAt
-	}
-	return c.quota
+	c.items[key] = quotaEntry{at: time.Now(), quotas: qs}
+	return qs
 }
