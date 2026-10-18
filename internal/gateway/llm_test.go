@@ -539,74 +539,103 @@ func TestCheckBaseURL(t *testing.T) {
 	}
 }
 
-func TestLLMUsageListsConfiguredAndCalledProvidersWithTheirTokens(t *testing.T) {
+// usageServer is a gateway whose default provider (anthropic) has a key.
+func usageServer(t *testing.T) *Server {
+	t.Helper()
 	llmEnv(t, "")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-0123456789abcdef")
 	svc := &fakeService{}
 	svc.cfg = config.Default()
 	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
-	srv := newTestServer(t, svc)
-	read := func() llmUsageView {
-		t.Helper()
-		w := get(t, srv, "/v1/llm/usage", testToken)
-		var v llmUsageView
-		if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusOK {
-			t.Fatalf("%d %s: %v", w.Code, w.Body.String(), err)
-		}
-		return v
+	return newTestServer(t, svc)
+}
+
+// readUsage reads GET /v1/llm/usage.
+func readUsage(t *testing.T, srv *Server) llmUsageView {
+	t.Helper()
+	w := get(t, srv, "/v1/llm/usage", testToken)
+	var v llmUsageView
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %s: %v", w.Code, w.Body.String(), err)
 	}
-	rowOf := func(v llmUsageView, id string) *llmUsageRow {
-		for i := range v.Providers {
-			if v.Providers[i].ID == id {
-				return &v.Providers[i]
-			}
+	return v
+}
+
+// usageRow is the row of provider id, or nil.
+func usageRow(v llmUsageView, id string) *llmUsageRow {
+	for i := range v.Providers {
+		if v.Providers[i].ID == id {
+			return &v.Providers[i]
 		}
-		return nil
 	}
-	// Before any call: the provider with a key is listed at zero, one without a key is not.
-	v := read()
-	if r := rowOf(v, "anthropic"); r == nil || !r.Default || r.Calls != 0 || r.Last != nil {
+	return nil
+}
+
+var usageLast = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+
+// usedProviders is a ledger with three providers: priced models, an unknown one, and limits only.
+func usedProviders() []llm.ProviderUsage {
+	return []llm.ProviderUsage{
+		{Provider: "anthropic", Usage: llm.Usage{Input: 1_000_000, Output: 500_000, CacheRead: 3, CacheWrite: 2},
+			Calls: 4, Since: usageLast.Add(-time.Hour), Last: usageLast,
+			Models: map[string]llm.Usage{
+				"claude-sonnet-5-5": {Input: 1_000_000, Output: 500_000},
+				"made-up-model":     {Input: 5},
+			},
+			Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 100, Remaining: 40}}},
+		{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: usageLast,
+			Models: map[string]llm.Usage{"unpriced": {Input: 1}}},
+		{Provider: "gemini", Models: map[string]llm.Usage{"claude-sonnet-5-5": {}}, Limits: &llm.RateLimits{}},
+	}
+}
+
+func TestLLMUsageListsAProviderWithAKeyAtZeroAndHidesOneWithout(t *testing.T) {
+	srv := usageServer(t)
+	v := readUsage(t, srv)
+	r := usageRow(v, "anthropic")
+	if r == nil || !r.Default || r.Calls != 0 || r.Last != nil {
 		t.Errorf("anthropic before any call: %+v", r)
 	}
-	if rowOf(v, "openai") != nil {
+	if usageRow(v, "openai") != nil {
 		t.Error("a provider with no key and no call is listed")
 	}
-	// A provider that was called shows up with its tokens even without a key (its key was removed).
-	last := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
-	srv.usageTotals = func() []llm.ProviderUsage {
-		return []llm.ProviderUsage{
-			{Provider: "anthropic", Usage: llm.Usage{Input: 1_000_000, Output: 500_000, CacheRead: 3, CacheWrite: 2}, Calls: 4,
-				Since: last.Add(-time.Hour), Last: last,
-				Models: map[string]llm.Usage{
-					"claude-sonnet-5-5": {Input: 1_000_000, Output: 500_000},
-					"made-up-model":     {Input: 5},
-				},
-				Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 100, Remaining: 40}}},
-			{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: last, Models: map[string]llm.Usage{"unpriced": {Input: 1}}},
-			{Provider: "gemini", Models: map[string]llm.Usage{"claude-sonnet-5-5": {}}, Limits: &llm.RateLimits{}},
-		}
+	if w := get(t, srv, "/v1/llm/usage", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("the usage needs the token: %d", w.Code)
 	}
-	v = read()
-	r := rowOf(v, "anthropic")
-	if r == nil || r.Input != 1_000_000 || r.Output != 500_000 || r.CacheRead != 3 || r.CacheWrite != 2 || r.Calls != 4 ||
-		r.Last == nil || !r.Last.Equal(last) || r.Since == nil || !r.Since.Equal(last.Add(-time.Hour)) {
-		t.Errorf("anthropic after calls: %+v", r)
+}
+
+func TestLLMUsageShowsTheTokensOfACalledProvider(t *testing.T) {
+	srv := usageServer(t)
+	srv.usageTotals = usedProviders
+	r := usageRow(readUsage(t, srv), "anthropic")
+	if r == nil || r.Input != 1_000_000 || r.Output != 500_000 {
+		t.Fatalf("tokens: %+v", r)
 	}
-	// 1M input at $2 + 0.5M output at $10 = $7, and the unknown model's tokens make it partial.
-	if r.CostUSD == nil || *r.CostUSD < 6.99 || *r.CostUSD > 7.01 || !r.CostPartial {
-		t.Errorf("cost: %v %v", r.CostUSD, r.CostPartial)
+	if r.CacheRead != 3 || r.CacheWrite != 2 || r.Calls != 4 {
+		t.Errorf("cache and calls: %+v", r)
+	}
+	if r.Last == nil || !r.Last.Equal(usageLast) || r.Since == nil || !r.Since.Equal(usageLast.Add(-time.Hour)) {
+		t.Errorf("times: %+v", r)
 	}
 	if r.Limits == nil || r.Limits.Tokens.Remaining != 40 {
 		t.Errorf("limits: %+v", r.Limits)
 	}
-	if o := rowOf(v, "openai"); o == nil || o.Default || o.Calls != 1 || o.CostUSD != nil || o.CostPartial {
+}
+
+func TestLLMUsageEstimatesTheCostFromTheCataloguePrices(t *testing.T) {
+	srv := usageServer(t)
+	srv.usageTotals = usedProviders
+	v := readUsage(t, srv)
+	// 1M input at $2 + 0.5M output at $10 = $7, and the unknown model's tokens make it partial.
+	r := usageRow(v, "anthropic")
+	if r.CostUSD == nil || *r.CostUSD < 6.99 || *r.CostUSD > 7.01 || !r.CostPartial {
+		t.Errorf("cost: %v %v", r.CostUSD, r.CostPartial)
+	}
+	if o := usageRow(v, "openai"); o == nil || o.CostUSD != nil || o.CostPartial {
 		t.Errorf("openai with an unpriced model: %+v", o)
 	}
 	// A provider that only reported a rate limit (no call counted) has no count to date.
-	if g := rowOf(v, "gemini"); g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
+	if g := usageRow(v, "gemini"); g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
 		t.Errorf("gemini with limits only: %+v", g)
-	}
-	if w := get(t, srv, "/v1/llm/usage", ""); w.Code != http.StatusUnauthorized {
-		t.Errorf("the usage needs the token: %d", w.Code)
 	}
 }

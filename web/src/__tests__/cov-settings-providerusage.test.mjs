@@ -72,16 +72,16 @@ test("providers are listed busiest first, each with its tokens and a bar against
     "provider-usage-openai",
     "provider-usage-gemini",
   ]);
-  assert.match(text(q(root, "provider-usage-anthropic")), /ANTHROPIC16k/);
-  assert.match(text(q(root, "provider-usage-gemini")), /GEMINI0/);
+  assert.match(text(q(root, "provider-usage-anthropic")), /ANTHROPIC91%/);
+  assert.match(text(q(root, "provider-usage-gemini")), /GEMINI0%/);
   const width = (id) =>
     q(root, id).querySelector(".provider-usage-fill").style.width;
-  assert.equal(width("provider-usage-anthropic"), "100%");
+  assert.equal(width("provider-usage-anthropic"), "91%");
   assert.equal(width("provider-usage-openai"), "9%");
   assert.equal(width("provider-usage-gemini"), "0%");
   assert.equal(
     q(root, "provider-usage-anthropic").title,
-    "ANTHROPIC: in 10k · out 2k · cache read 3k · cache write 1k · 1 call",
+    "ANTHROPIC: 16k tokens · in 10k · out 2k · cache read 3k · cache write 1k · 1 call",
   );
   assert.match(q(root, "provider-usage-openai").title, /3 calls$/);
   assert.equal(q(root, "provider-usage-more"), null);
@@ -108,10 +108,10 @@ test("the estimated cost and the rate window are shown when the provider has the
   const root = await mount(gw.api);
   assert.equal(
     text(q(root, "provider-usage-anthropic")),
-    "ANTHROPIC1k · ≈$7.20",
+    "ANTHROPIC99% · ≈$7.20",
   );
-  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI10 · ≈$0.50+");
-  assert.equal(text(q(root, "provider-usage-gemini")), "GEMINI5");
+  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI1% · ≈$0.50+");
+  assert.equal(text(q(root, "provider-usage-gemini")), "GEMINI0%");
   assert.match(
     q(root, "provider-usage-anthropic").title,
     /39k of 40k tokens left in the rate window$/,
@@ -160,17 +160,17 @@ test("the figures are read again when a run starts or ends and on a timer", asyn
   document.body.appendChild(root);
   render(h(ProviderUsagePanel, { api: gw.api, running: false }), root);
   await settle();
-  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI1");
+  assert.match(q(root, "provider-usage-openai").title, /: 1 tokens/);
   assert.deepEqual(
     timers.map((t) => t[1]),
     [USAGE_POLL_MS],
   );
   timers[0][0]();
   await settle();
-  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI2");
+  assert.match(q(root, "provider-usage-openai").title, /: 2 tokens/);
   render(h(ProviderUsagePanel, { api: gw.api, running: true }), root);
   await settle();
-  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI3");
+  assert.match(q(root, "provider-usage-openai").title, /: 3 tokens/);
   assert.deepEqual(cleared, [1]);
   render(null, root);
   await settle();
@@ -225,9 +225,11 @@ test("every new string has its Spanish", async () => {
   for (const m of found) {
     assert.ok(es[m[1]], `missing Spanish for: ${m[1]}`);
   }
-  assert.ok(es["{n} calls"] && es["1 call"]);
+  assert.ok(es["{n} calls"]);
+  assert.ok(es["1 call"]);
 });
 
 test("nothing is left reading", () => {
   mounted.forEach((root) => render(null, root));
+  assert.ok(mounted.every((root) => root.textContent === ""));
 });

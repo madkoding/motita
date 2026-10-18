@@ -17,9 +17,18 @@ import {
 export const USAGE_POLL_MS = 60_000;
 export const USAGE_ROWS = 4;
 
+// shareOf is a provider's share of everything the providers consumed, as a whole percentage.
+export function shareOf(total: number, sum: number): number {
+  return choose(sum > 0, Math.round((total / sum) * 100), 0);
+}
+
 // rowTitle is the tooltip of one provider: the split of its tokens and its calls.
 function rowTitle(u: ProviderUsage): string {
-  const parts = [tokenBreakdown(u), plural(u.calls, "1 call", "{n} calls")];
+  const parts = [
+    tf("{n} tokens", { n: formatTokens(usageTotal(u)) }),
+    tokenBreakdown(u),
+    plural(u.calls, "1 call", "{n} calls"),
+  ];
   const w = u.limits?.tokens;
   if (w) {
     parts.push(
@@ -41,8 +50,8 @@ export function costLabel(u: ProviderUsage): string {
 }
 
 // UsageRow is one provider: its name, its tokens and a bar against `max`, the busiest one's.
-function UsageRow({ u, max }: { u: ProviderUsage; max: number }) {
-  const total = usageTotal(u);
+function UsageRow({ u, sum }: { u: ProviderUsage; sum: number }) {
+  const share = shareOf(usageTotal(u), sum);
   return (
     <li
       class="provider-usage-row"
@@ -52,15 +61,11 @@ function UsageRow({ u, max }: { u: ProviderUsage; max: number }) {
       <span class="flex items-center gap-2 text-xs">
         <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
         <span class="tabular-nums text-[#9a9aaa]">
-          {formatTokens(total)}
-          {costLabel(u) && " · " + costLabel(u)}
+          {share}%{costLabel(u) && " · " + costLabel(u)}
         </span>
       </span>
       <span class="provider-usage-bar" aria-hidden="true">
-        <span
-          class="provider-usage-fill"
-          style={{ width: Math.round((total / max) * 100) + "%" }}
-        />
+        <span class="provider-usage-fill" style={{ width: share + "%" }} />
       </span>
     </li>
   );
@@ -94,7 +99,7 @@ export function ProviderUsagePanel({
   }
   const sorted = [...rows].sort((a, b) => usageTotal(b) - usageTotal(a));
   const shown = sorted.slice(0, USAGE_ROWS);
-  const max = Math.max(1, usageTotal(shown[0]));
+  const sum = sorted.reduce((n, u) => n + usageTotal(u), 0);
   const more = sorted.length - shown.length;
   return (
     <section
@@ -107,7 +112,7 @@ export function ProviderUsagePanel({
       </h2>
       <ul class="space-y-1.5">
         {shown.map((u) => (
-          <UsageRow key={u.id} u={u} max={max} />
+          <UsageRow key={u.id} u={u} sum={sum} />
         ))}
       </ul>
       {more > 0 && (

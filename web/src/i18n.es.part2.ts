@@ -635,6 +635,7 @@ const more: Record<string, string> = {
   "Provider usage": "Uso de proveedores",
   "1 call": "1 llamada",
   "{n} calls": "{n} llamadas",
+  "{n} tokens": "{n} tokens",
   "+{n} more": "+{n} más",
   "{left} of {max} tokens left in the rate window":
     "quedan {left} de {max} tokens en la ventana de límite",

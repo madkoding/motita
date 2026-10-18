@@ -922,21 +922,26 @@ func (t *TUI) bottomBar(w int) string {
 	return t.plainLine(left + strings.Repeat(" ", gap) + right)
 }
 
-// usageLabel says what each provider has consumed: "anthropic 12.3k, openai 4.0k tok", the n used
-// most recently. It says nothing before any call reported usage, and it never shows a quota: the
-// providers do not send one with an answer, so there is none to show.
+// usageLabel says each provider's share of the tokens consumed: "anthropic 62%, openai 30%", the
+// n used most recently. It says nothing before any call reported usage, and it never shows a
+// quota: the providers do not send one with an answer, so there is none to show.
 func (t *TUI) usageLabel(n int) string {
+	all := providerTotals()
+	var sum int64
+	for _, u := range all {
+		sum += u.Usage.Total()
+	}
+	if sum == 0 {
+		return "" // limits reported, but no tokens counted yet
+	}
 	var parts []string
-	for _, u := range providerTotals() {
+	for _, u := range all {
 		if len(parts) == n {
 			break
 		}
-		parts = append(parts, u.Provider+" "+humanTokens(u.Usage.Total()))
+		parts = append(parts, fmt.Sprintf("%s %d%%", u.Provider, (u.Usage.Total()*100+sum/2)/sum))
 	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, ", ") + " tok"
+	return strings.Join(parts, ", ")
 }
 
 // maxUsageProviders is how many providers the footer names.

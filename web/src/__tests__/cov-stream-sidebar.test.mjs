@@ -547,7 +547,7 @@ test("with a gateway to ask, the bottom menu shows what each provider consumed",
   await act(() => new Promise((r) => setImmediate(r)));
   const shown = text(root.querySelector("[data-testid=provider-usage]"));
   await done();
-  assert.match(shown, /Provider usageOpenAI2k/);
+  assert.match(shown, /Provider usageOpenAI100%/);
 });
 
 test("on a phone, picking a session in the sidebar closes it", async () => {
