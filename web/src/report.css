@@ -171,21 +171,6 @@
   background: var(--color-accent);
 }
 
-/* Suggestions: what the agent found and did not do, asked about one at a time. */
-.rpt-suggest li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  align-items: baseline;
-  padding: 4px 0;
-}
-.rpt-suggest li.skip {
-  opacity: 0.55;
-}
-.rpt-verdict {
-  font-size: 0.85em;
-  opacity: 0.8;
-}
 /* A suggestion auto mode applies without asking: its answer is obvious from the context. The
  * background is the green tint already laid over the dark surface, opaque so the text keeps its
  * contrast whatever shows behind the card. */
@@ -195,35 +180,6 @@
   border-radius: 999px;
   background: #1d3128;
   color: var(--c-green);
-}
-.rpt-suggest-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-}
-.rpt-suggest-actions button {
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid rgb(var(--ov-rgb) / 0.18);
-  background: rgb(var(--ov-rgb) / 0.04);
-  color: inherit;
-  cursor: pointer;
-}
-.rpt-suggest-actions button:first-child {
-  border-color: var(--color-accent);
-}
-.rpt-suggest-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-/* The button that was pressed: it stays, marked, so the card says what was chosen. */
-.rpt-suggest-actions button.picked,
-.rpt-suggest-actions button.picked:disabled {
-  opacity: 1;
-  border-color: var(--color-accent);
-  background: rgb(var(--accent-rgb) / 0.18);
-  font-weight: 600;
 }
 
 /* Evidence: the before and after screenshots, side by side. Two columns while there is room, one
@@ -373,10 +329,6 @@
   overflow-wrap: anywhere;
   font-size: 0.85em;
   opacity: 0.75;
-}
-/* Suggestions the conversation moved on from: kept to read, no longer offered. */
-.rpt-suggest.expired li {
-  opacity: 0.55;
 }
 .rpt-expired {
   font-size: 0.85em;
@@ -577,5 +529,51 @@
   font-weight: 600;
 }
 .qcard.expired .qcard-item {
+  opacity: 0.55;
+}
+
+/* Suggestions as a card to answer: each a row with a box (the questions card's option rows), the
+ * title over its detail, and below them Apply, Ignore and how many are ticked. */
+.sg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sg-row {
+  align-items: flex-start;
+}
+.sg-row .qcard-opt-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.sg-title {
+  font-weight: 600;
+}
+.sg-detail {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+.sg-ignore {
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--ov-rgb) / 0.25);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.sg-ignore:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sg-ignored {
+  opacity: 0.7;
+  font-weight: 600;
+}
+.rpt-suggest .qcard-foot {
+  margin-top: 10px;
+}
+.rpt-suggest.expired .sg-row {
   opacity: 0.55;
 }

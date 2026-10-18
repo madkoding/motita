@@ -6,10 +6,7 @@ import assert from "node:assert/strict";
 import { copies, frames, renderHook, mount, h } from "./cov-chat-helpers.mjs";
 
 const proposalCopies = await copies("proposals", [
-  [
-    "settle, initialVerdicts, proposalRequest, pickAt, isApplying",
-    "proposals.ts",
-  ],
+  ["initialVerdicts, proposalRequest, answersOf, isApplying", "proposals.ts"],
 ]);
 const intentCopies = await copies("intent", [
   ["newIntent, readerActs, scrolled, scrollKey", "scrollIntent.ts"],
@@ -23,25 +20,6 @@ const transcriptCopies = await copies("transcript", [
 const turnCopies = await copies("turn", [
   ["useTurnView, useTurn, lastUserIdOf, sameTurn, TurnCtx", "turnView.ts"],
 ]);
-
-test("settle answers one, the rest, or none, keeping decided ones", () => {
-  for (const M of proposalCopies) {
-    assert.deepEqual(M.settle([undefined, undefined, "skip"], 0, "this"), [
-      "apply",
-      undefined,
-      "skip",
-    ]);
-    assert.deepEqual(
-      M.settle([undefined, undefined, "skip", undefined], 1, "rest"),
-      [undefined, "apply", "skip", "apply"],
-    );
-    assert.deepEqual(M.settle(["apply", undefined, undefined], 1, "none"), [
-      "apply",
-      "skip",
-      "skip",
-    ]);
-  }
-});
 
 test("initialVerdicts keeps the answers or accepts the needed ones in auto mode", () => {
   for (const M of proposalCopies) {
@@ -83,14 +61,19 @@ test("proposalRequest lists the accepted suggestions under the lead, or nothing"
   }
 });
 
-test("pickAt marks only the pressed button and isApplying recognises the applying turn", () => {
+test("answersOf keeps a button for every suggestion, and isApplying recognises the applying turn", () => {
   for (const M of proposalCopies) {
-    const picks = ["", "", ""];
-    const next = M.pickAt(picks, 1, "rest");
-    assert.deepEqual(next, ["", "rest", ""]);
-    assert.deepEqual(picks, ["", "", ""], "the old picks are not changed");
-    const answers = { picks: next, verdicts: ["apply"], request: "do it" };
-    assert.equal(M.isApplying(answers, "do it"), true);
+    const s = [{ title: "a", detail: "do a" }, { title: "b" }, { title: "c" }];
+    const answers = M.answersOf("Apply:", s, [true, false, true]);
+    assert.deepEqual(answers, {
+      picks: ["this", "none", "this"],
+      verdicts: ["apply", "skip", "apply"],
+      request: "Apply:\n- a: do a\n- c",
+    });
+    const none = M.answersOf("Apply:", s, [false, false, false]);
+    assert.deepEqual(none.picks, ["none", "none", "none"]);
+    assert.equal(none.request, "");
+    assert.equal(M.isApplying(answers, "Apply:\n- a: do a\n- c"), true);
     assert.equal(M.isApplying(answers, "something else"), false);
     assert.equal(M.isApplying({ picks: [], verdicts: [] }, ""), false);
     assert.equal(M.isApplying(undefined, "do it"), false);

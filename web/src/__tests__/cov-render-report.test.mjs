@@ -527,12 +527,18 @@ const SUGGESTIONS = [
   { title: "share the helper" },
   { title: "log it", detail: "at debug" },
 ];
-const suggestionRows = (root) => [...root.querySelectorAll(".rpt-suggest li")];
-const answerButtons = (li) => [
-  ...li.querySelectorAll(".rpt-suggest-actions button"),
+const boxes = (root) => [
+  ...root.querySelectorAll(".rpt-suggest [role=checkbox]"),
 ];
+const ticked = (root) => boxes(root).map((b) => b.getAttribute("aria-checked"));
+const foot = (root) =>
+  [...root.querySelectorAll(".rpt-suggest .qcard-foot button")].map(text);
+const footButton = (root, label) =>
+  [...root.querySelectorAll(".rpt-suggest .qcard-foot button")].find((b) =>
+    text(b).startsWith(label),
+  );
 
-test("suggestions are asked one at a time; the answers are sent once every one has one", async () => {
+test("suggestions are ticked and applied together; the card then says what it did", async () => {
   const sent = [];
   const { root, done } = await mount(
     h(ReportCard, {
@@ -540,65 +546,36 @@ test("suggestions are asked one at a time; the answers are sent once every one h
       onAnswer: (a) => sent.push(a),
     }),
   );
-  let rows = suggestionRows(root);
-  assert.deepEqual(
-    rows.map((li) => li.className),
-    ["current", "", ""],
-  );
-  assert.equal(text(rows[0].querySelector(".rpt-evidence")), "it panics");
-  assert.equal(rows[1].querySelector(".rpt-evidence"), null);
-  assert.equal(
-    answerButtons(rows[1]).length,
-    0,
-    "only the current one is asked",
-  );
-  assert.deepEqual(answerButtons(rows[0]).map(text), [
-    "Apply this one",
-    "Apply this one and the following",
-    "Apply none",
-  ]);
+  assert.deepEqual(ticked(root), ["false", "false", "false"]);
+  assert.equal(text(boxes(root)[0].querySelector(".sg-detail")), "it panics");
+  assert.equal(boxes(root)[1].querySelector(".sg-detail"), null);
+  assert.deepEqual(foot(root), ["Apply", "Ignore"]);
+  assert.equal(footButton(root, "Apply").disabled, true, "nothing ticked");
 
-  await fire(answerButtons(rows[0])[0], "click");
-  rows = suggestionRows(root);
-  assert.deepEqual(
-    rows.map((li) => li.className),
-    ["apply", "current", ""],
-  );
-  const picked = answerButtons(rows[0]);
-  assert.equal(text(picked[0]), "✓ Apply this one");
-  assert.equal(picked[0].className, "picked");
-  assert.equal(picked[0].getAttribute("aria-pressed"), "true");
-  assert.equal(picked[1].getAttribute("aria-pressed"), "false");
-  assert.ok(
-    picked.every((b) => b.disabled),
-    "an answered suggestion cannot be answered again",
-  );
-  assert.equal(text(rows[0].querySelector(".rpt-verdict")), "will apply");
+  await fire(boxes(root)[0], "click");
+  await fire(boxes(root)[2], "click");
+  assert.equal(boxes(root)[0].className, "qcard-opt sg-row picked");
+  assert.deepEqual(ticked(root), ["true", "false", "true"]);
+  assert.deepEqual(foot(root), ["Apply (2)", "Ignore"]);
   assert.deepEqual(sent, []);
 
-  await fire(answerButtons(rows[1])[2], "click");
-  rows = suggestionRows(root);
-  assert.deepEqual(
-    rows.map((li) => li.className),
-    ["apply", "skip", "skip"],
-  );
-  assert.equal(text(rows[2].querySelector(".rpt-verdict")), "not applied");
-  assert.equal(
-    answerButtons(rows[2]).length,
-    0,
-    "settled by the earlier answer, never pressed",
-  );
+  await fire(footButton(root, "Apply"), "click");
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0].picks, ["this", "none", ""]);
-  assert.deepEqual(sent[0].verdicts, ["apply", "skip", "skip"]);
+  assert.deepEqual(sent[0].picks, ["this", "none", "this"]);
+  assert.deepEqual(sent[0].verdicts, ["apply", "skip", "apply"]);
   assert.equal(
     sent[0].request,
-    "Apply these suggestions you made, and nothing else:\n- test the empty header: it panics",
+    "Apply these suggestions you made, and nothing else:\n- test the empty header: it panics\n- log it: at debug",
+  );
+  assert.ok(boxes(root).every((b) => b.disabled));
+  assert.equal(
+    text(root.querySelector(".qcard-foot")),
+    "✓ 2 suggestions applied",
   );
   await done();
 });
 
-test("apply this one and the following settles the rest at once", async () => {
+test("Ignore applies none and says so", async () => {
   const sent = [];
   const { root, done } = await mount(
     h(ReportCard, {
@@ -606,12 +583,10 @@ test("apply this one and the following settles the rest at once", async () => {
       onAnswer: (a) => sent.push(a),
     }),
   );
-  await fire(answerButtons(suggestionRows(root)[0])[1], "click");
-  assert.deepEqual(
-    suggestionRows(root).map((li) => li.className),
-    ["apply", "apply", "apply"],
-  );
-  assert.deepEqual(sent[0].picks, ["rest", "", ""]);
+  await fire(footButton(root, "Ignore"), "click");
+  assert.deepEqual(sent[0].verdicts, ["skip", "skip", "skip"]);
+  assert.equal(sent[0].request, "");
+  assert.equal(text(root.querySelector(".qcard-foot")), "Ignored");
   await done();
 });
 
@@ -619,17 +594,19 @@ test("while a run is in flight the suggestions are shown but cannot be answered"
   const { root, done } = await mount(
     h(ReportCard, { report: { suggestions: SUGGESTIONS } }),
   );
-  const buttons = answerButtons(suggestionRows(root)[0]);
-  assert.equal(buttons.length, 3);
-  assert.ok(buttons.every((b) => b.disabled));
+  assert.equal(boxes(root).length, 3);
+  assert.ok(boxes(root).every((b) => b.disabled));
+  assert.ok(
+    [...root.querySelectorAll(".qcard-foot button")].every((b) => b.disabled),
+  );
   await done();
 });
 
 test("answers given back redraw what was chosen", async () => {
   const answers = {
-    picks: ["none", "", ""],
-    verdicts: ["skip", "skip", "skip"],
-    request: "",
+    picks: ["none", "this", "none"],
+    verdicts: ["skip", "apply", "skip"],
+    request: "x",
   };
   const sent = [];
   const { root, done } = await mount(
@@ -640,12 +617,11 @@ test("answers given back redraw what was chosen", async () => {
       onAnswer: (a) => sent.push(a),
     }),
   );
-  const rows = suggestionRows(root);
-  assert.deepEqual(
-    rows.map((li) => li.className),
-    ["skip", "skip", "skip"],
+  assert.deepEqual(ticked(root), ["false", "true", "false"]);
+  assert.equal(
+    text(root.querySelector(".qcard-foot")),
+    "✓ 1 suggestion applied",
   );
-  assert.equal(text(answerButtons(rows[0])[2]), "✓ Apply none");
   assert.deepEqual(sent, [], "nothing is sent again");
   await done();
 });
@@ -664,34 +640,28 @@ test("a list left unanswered when the conversation moved on is no longer offered
     text(sec.querySelector(".rpt-expired")),
     "Not answered before the conversation moved on; no longer offered.",
   );
-  assert.deepEqual(
-    suggestionRows(root).map((li) => li.className),
-    ["", "", ""],
-  );
-  assert.equal(root.querySelectorAll(".rpt-suggest-actions").length, 0);
+  assert.ok(boxes(root).every((b) => b.disabled));
+  assert.deepEqual(foot(root), []);
   await done();
 
-  // Half answered before it expired: it keeps its marks.
+  // Answered before it expired: it keeps its marks.
   const half = await mount(
     h(ReportCard, {
       report: { suggestions: SUGGESTIONS },
       expired: true,
       answers: {
-        picks: ["this", "", ""],
-        verdicts: ["apply", undefined, undefined],
+        picks: ["this", "none", "none"],
+        verdicts: ["apply", "skip", "skip"],
       },
       onAnswer() {},
     }),
   );
   assert.equal(half.root.querySelector(".rpt-expired"), null);
-  assert.deepEqual(
-    suggestionRows(half.root).map((li) => li.className),
-    ["apply", "current", ""],
-  );
+  assert.deepEqual(ticked(half.root), ["true", "false", "false"]);
   await half.done();
 });
 
-test("in auto mode the needed suggestions are marked, and a list of only needed ones applies itself once", async () => {
+test("in auto mode the needed suggestions are marked and ticked, and a list of only needed ones applies itself once", async () => {
   const needed = [
     {
       title: "fix the nil check",
@@ -713,12 +683,12 @@ test("in auto mode the needed suggestions are marked, and a list of only needed 
   assert.equal(text(tags[1]), "needed");
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].verdicts, ["apply", "apply"]);
-  assert.deepEqual(sent[0].picks, ["", ""]);
+  assert.deepEqual(sent[0].picks, ["this", "this"]);
   await rerender(h(ReportCard, { ...props }));
   assert.equal(sent.length, 1, "applied once");
   await done();
 
-  // Mixed: the needed one is accepted, the other is asked.
+  // Mixed: the needed one is ticked, the other waits for the reader.
   const mixed = await mount(
     h(ReportCard, {
       report: { suggestions: [needed[0], { title: "rename it" }] },
@@ -726,10 +696,7 @@ test("in auto mode the needed suggestions are marked, and a list of only needed 
       onAnswer: (a) => sent.push(a),
     }),
   );
-  assert.deepEqual(
-    suggestionRows(mixed.root).map((li) => li.className),
-    ["apply", "current"],
-  );
+  assert.deepEqual(ticked(mixed.root), ["true", "false"]);
   assert.equal(sent.length, 1);
   await mixed.done();
 
@@ -745,10 +712,7 @@ test("in auto mode the needed suggestions are marked, and a list of only needed 
   const busy = await mount(
     h(ReportCard, { report: { suggestions: needed }, auto: true }),
   );
-  assert.deepEqual(
-    suggestionRows(busy.root).map((li) => li.className),
-    ["apply", "apply"],
-  );
+  assert.deepEqual(ticked(busy.root), ["true", "true"]);
   await busy.done();
   const stale = await mount(
     h(ReportCard, {

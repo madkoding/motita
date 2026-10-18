@@ -58,74 +58,81 @@ function mount(props) {
 // The label the applying turn is drawn with.
 const APPLYING = "Applying suggestions";
 
-const rows = (root) => [...root.querySelectorAll(".rpt-suggest li")];
-const buttons = (li) => [...li.querySelectorAll("button")];
-const pressed = (li) =>
-  buttons(li)
-    .filter((b) => b.getAttribute("aria-pressed") === "true")
-    .map((b) => b.textContent);
+const rows = (root) => [
+  ...root.querySelectorAll(".rpt-suggest [role=checkbox]"),
+];
+const ticks = (root) => rows(root).map((r) => r.getAttribute("aria-checked"));
+const button = (root, label) =>
+  [...root.querySelectorAll(".rpt-suggest .qcard-foot button")].find((b) =>
+    b.textContent.startsWith(label),
+  );
 
-test("the button pressed stays marked, and the answer is handed over once all are settled", async () => {
+test("ticking suggestions and pressing Apply hands over exactly the ticked ones", async () => {
   const got = [];
   const root = mount({ onAnswer: (a) => got.push(a) });
-  await act(() => buttons(rows(root)[0])[0].click()); // apply this one
-  let [first, second] = rows(root);
-  assert.deepEqual(pressed(first), ["✓ Apply this one"]);
-  assert.ok(
-    buttons(first).every((b) => b.disabled),
-    "an answered row cannot be answered again",
-  );
-  assert.equal(
-    got.length,
-    0,
-    "nothing is sent while a suggestion is still open",
-  );
+  assert.deepEqual(ticks(root), ["false", "false", "false"]);
+  assert.equal(button(root, "Apply").disabled, true, "nothing ticked yet");
+  await act(() => rows(root)[0].click());
+  await act(() => rows(root)[2].click());
+  assert.deepEqual(ticks(root), ["true", "false", "true"]);
+  assert.equal(button(root, "Apply (2)").disabled, false);
+  assert.match(root.textContent, /2 of 3 selected/);
+  await act(() => rows(root)[2].click()); // untick again
+  assert.deepEqual(ticks(root), ["true", "false", "false"]);
+  assert.equal(got.length, 0, "nothing is sent before Apply");
 
-  await act(() => buttons(second)[2].click()); // apply none
-  [first, second] = rows(root);
-  const third = rows(root)[2];
-  assert.deepEqual(pressed(first), ["✓ Apply this one"]);
-  assert.deepEqual(pressed(second), ["✓ Apply none"]);
-  assert.equal(
-    buttons(third).length,
-    0,
-    "a row settled by an earlier answer has no buttons",
-  );
-  assert.match(third.textContent, /not applied/);
-
+  await act(() => button(root, "Apply (1)").click());
   assert.equal(got.length, 1);
-  assert.deepEqual(got[0].picks, ["this", "none", ""]);
+  assert.deepEqual(got[0].picks, ["this", "none", "none"]);
   assert.deepEqual(got[0].verdicts, ["apply", "skip", "skip"]);
   assert.match(
     got[0].request,
     /^Apply these suggestions you made, and nothing else:\n- test the empty header$/,
   );
+  assert.ok(
+    rows(root).every((r) => r.disabled),
+    "answered rows are locked",
+  );
+  assert.match(root.textContent, /1 suggestion applied/);
+  assert.equal(button(root, "Apply"), undefined);
   root.remove();
 });
 
-test("answering none still hands the answer over, with nothing to send", async () => {
+test("Ignore applies none, still hands the answer over, and is said", async () => {
   const got = [];
   const root = mount({ onAnswer: (a) => got.push(a) });
-  await act(() => buttons(rows(root)[0])[2].click());
-  assert.deepEqual(got[0].picks, ["none", "", ""]);
+  await act(() => rows(root)[1].click());
+  await act(() => button(root, "Ignore").click());
+  assert.deepEqual(got[0].picks, ["none", "none", "none"]);
+  assert.deepEqual(got[0].verdicts, ["skip", "skip", "skip"]);
   assert.equal(got[0].request, "");
+  assert.match(
+    root.querySelector(".rpt-suggest .qcard-foot").textContent,
+    /Ignored/,
+  );
   root.remove();
 });
 
-test("answers read back draw the same pressed buttons and offer nothing to press", () => {
+test("answers read back draw the same ticks and offer nothing to press", () => {
   const root = mount({
     answers: {
-      picks: ["rest", "", ""],
-      verdicts: ["apply", "apply", "apply"],
+      picks: ["this", "none", "this"],
+      verdicts: ["apply", "skip", "apply"],
       request: "x",
     },
     onAnswer: () => assert.fail("an answered card must not answer again"),
   });
-  const [first, second] = rows(root);
-  assert.deepEqual(pressed(first), ["✓ Apply this one and the following"]);
-  assert.ok(buttons(first).every((b) => b.disabled));
-  assert.equal(buttons(second).length, 0);
-  assert.match(second.textContent, /will apply/);
+  assert.deepEqual(ticks(root), ["true", "false", "true"]);
+  assert.ok(rows(root).every((r) => r.disabled));
+  assert.match(root.textContent, /2 suggestions applied/);
+  root.remove();
+});
+
+test("a card that cannot answer yet (a run in flight) shows the boxes and no way to send", () => {
+  const root = mount({});
+  assert.ok(rows(root).every((r) => r.disabled));
+  assert.equal(button(root, "Apply").disabled, true);
+  assert.equal(button(root, "Ignore").disabled, true);
   root.remove();
 });
 
@@ -150,7 +157,7 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
         steps: [],
         outcome: { result: "fixed", report },
         answers: {
-          picks: ["this", "none", ""],
+          picks: ["this", "none", "none"],
           verdicts: ["apply", "skip", "skip"],
           request,
         },
@@ -174,12 +181,16 @@ test("the turn that applies the suggestions is drawn by name, not by its prompt"
   );
   const answer = msgs.find((m) => m.report);
   assert.equal(answer.turn, 0);
-  assert.deepEqual(answer.answers.picks, ["this", "none", ""]);
+  assert.deepEqual(answer.answers.picks, ["this", "none", "none"]);
 });
 
 test("suggestions left unanswered when the conversation moved on are no longer offered", () => {
   const root = mount({ expired: true, onAnswer: () => assert.fail("expired") });
-  assert.equal(root.querySelectorAll(".rpt-suggest button").length, 0);
+  assert.equal(
+    root.querySelectorAll(".rpt-suggest .qcard-foot button").length,
+    0,
+  );
+  assert.ok(rows(root).every((r) => r.disabled));
   assert.ok(root.querySelector(".rpt-suggest.expired"));
   assert.match(
     root.querySelector(".rpt-expired").textContent,
@@ -191,10 +202,14 @@ test("suggestions left unanswered when the conversation moved on are no longer o
 test("an answered card keeps its marks even when the conversation moved on", () => {
   const root = mount({
     expired: true,
-    answers: { picks: ["none", "", ""], verdicts: ["skip", "skip", "skip"] },
+    answers: {
+      picks: ["none", "none", "none"],
+      verdicts: ["skip", "skip", "skip"],
+    },
   });
   assert.equal(root.querySelector(".rpt-expired"), null);
-  assert.deepEqual(pressed(rows(root)[0]), ["✓ Apply none"]);
+  assert.deepEqual(ticks(root), ["false", "false", "false"]);
+  assert.match(root.textContent, /Ignored/);
   root.remove();
 });
 
@@ -245,7 +260,7 @@ test("a report the settings apply without asking accepts every suggestion and se
   });
   assert.equal(got.length, 1, "applied once, nobody pressed anything");
   assert.deepEqual(got[0].verdicts, ["apply", "apply", "apply"]);
-  assert.deepEqual(got[0].picks, ["", "", ""]);
+  assert.deepEqual(got[0].picks, ["this", "this", "this"]);
   assert.match(
     got[0].request,
     /test the empty header[\s\S]*log the dropped rows/,

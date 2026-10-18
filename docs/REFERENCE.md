@@ -583,10 +583,13 @@ without asking, each with the reason it is needed; the rest are still asked abou
 `agent.auto_mode_ask_all_suggestions: true` (`MOTITA_AGENT_AUTO_MODE_ASK_ALL_SUGGESTIONS`)
 asks about every one.
 
+In the web UI the suggestions of a report are a card like the one for the agent's questions: one
+row with a box per suggestion, and at the end **Apply** (the ticked ones) and **Ignore** (none).
+
 `agent.auto_apply_suggestions: true` (`MOTITA_AGENT_AUTO_APPLY_SUGGESTIONS`, default `false`)
 applies **every** suggestion of a finished task without asking, in any mode: the report is
 stamped `auto_apply` and the web UI and the TUI start the usual applying turn ("Applying
-suggestions") on their own, without the three buttons. It changes files you did not confirm, so
+suggestions") on their own, without asking. It changes files you did not confirm, so
 Settings → Security in the webui turns it on only after a confirmation, and it applies at once to
 every open session, from its next report. The applying turn still runs under the policy and the
 sandbox, and its own suggestions are asked about, so applying never chains into more applying.

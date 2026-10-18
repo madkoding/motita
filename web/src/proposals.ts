@@ -1,33 +1,12 @@
 // The suggestions a finished task offers, and the rule that answers them. Kept apart from the card
 // (Report.tsx) and free of imports so the tests can load it as it is.
 //
-// Each suggestion is answered with one of three: apply this one, apply this one and the following,
-// or apply none. It is the same rule the terminal's window follows.
+// The web card lists them with a box each: the ticked ones are applied with Apply, and Ignore
+// applies none. The terminal's window asks about them one at a time (apply this one, this one and
+// the following, none), and the gateway keeps the answers in that shape for both.
 
 export type Verdict = "apply" | "skip";
 export type ProposalAnswer = "this" | "rest" | "none";
-
-// settle answers suggestion i and, for "rest" or "none", every undecided one after it, so a list is
-// one click to accept or dismiss. The ones before i keep their own answers, and so does one after
-// it that was already decided (a needed suggestion auto mode accepted on its own).
-export function settle(
-  verdicts: (Verdict | undefined)[],
-  i: number,
-  answer: ProposalAnswer,
-): (Verdict | undefined)[] {
-  const next = [...verdicts];
-  let fill: Verdict = "apply";
-  if (answer === "none") {
-    fill = "skip";
-  }
-  next[i] = fill;
-  if (answer !== "this") {
-    for (let k = i + 1; k < next.length; k++) {
-      next[k] = next[k] ?? fill;
-    }
-  }
-  return next;
-}
 
 // initialVerdicts is where a list of suggestions starts: as it was answered, or, in a turn auto
 // mode routed, with the needed ones already accepted. Those are the ones whose answer is obvious
@@ -91,16 +70,21 @@ export interface SuggestionAnswers {
   request?: string;
 }
 
-// pickAt records the button pressed on suggestion i. The ones it settles keep "" as their pick:
-// only the button the user actually pressed is drawn as pressed.
-export function pickAt(
-  picks: Pick[],
-  i: number,
-  answer: ProposalAnswer,
-): Pick[] {
-  const next = [...picks];
-  next[i] = answer;
-  return next;
+// answersOf is how a list was answered when the user ticked some suggestions and pressed Apply (or
+// none and pressed Ignore): the ticked ones are "this", the rest "none", so every suggestion has
+// a button recorded, the way the gateway keeps them. The request is "" when none was ticked.
+export function answersOf(
+  lead: string,
+  suggestions: { title?: string; detail?: string }[],
+  ticked: boolean[],
+): SuggestionAnswers {
+  const verdicts = ticked.map((on): Verdict => (on ? "apply" : "skip"));
+  const picks = ticked.map((on): Pick => (on ? "this" : "none"));
+  return {
+    picks,
+    verdicts,
+    request: proposalRequest(lead, suggestions, verdicts),
+  };
 }
 
 // isApplying says whether a user turn is the one sent to apply the suggestions answered with
