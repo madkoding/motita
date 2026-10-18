@@ -111,7 +111,7 @@ test("only the project's own sessions are listed under it", async () => {
   await m.unmount();
 });
 
-test("the facts line names the checkout's branch, podman and its changes", async () => {
+test("the header is the title alone: the checkout's facts are in its tooltip", async () => {
   const s = store();
   const m = await mount(
     AppCtx,
@@ -121,13 +121,10 @@ test("the facts line names the checkout's branch, podman and its changes", async
     }),
   );
   const text = m.root.textContent;
-  assert.match(text, /project/);
-  assert.match(text, /feature/);
-  assert.match(text, /podman/);
-  assert.match(text, /changes3/);
-  await m.rerender(s.value, h(ProjectGroup, { p: { ...P, changes: 1 } }));
-  assert.match(m.root.textContent, /change1/);
-  assert.doesNotMatch(m.root.textContent, /podman|changes/);
+  assert.doesNotMatch(text, /feature|podman|changes/);
+  const tip = m.q(".project-header .row-hit").getAttribute("title");
+  assert.match(tip, /feature/);
+  assert.match(tip, /podman/);
   await m.unmount();
 });
 

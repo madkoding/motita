@@ -1,9 +1,9 @@
-// What each configured provider has consumed, in the sidebar's bottom menu: the tokens the provider
-// reported since the gateway started, as a share of the total, drawn as bars or circular gauges.
-// Under them, the session and weekly quotas of the providers that report them (a ChatGPT plan, a
-// Claude subscription), with the share used and when each starts over; the providers that report
-// none are named as such, never guessed. Hovering a row gives the split and the calls. It stays
-// quiet where the gateway has no such API.
+// How much of each provider's plan is used, in the sidebar's bottom menu. Only what the provider
+// itself reports is shown: the share of a quota (the 5-hour session, the week, the month) and when
+// it starts over, or, for a Claude subscription before a threshold nears, only whether the usage is
+// below its warning level. A provider that reports no quota says so, with the tokens it moved since
+// the gateway started; nothing is guessed. Closed, the panel is each provider and its most used
+// quota; open, every quota as a bar or a ring. It stays quiet where the gateway has no such API.
 import { useCallback, useEffect, useState } from "preact/hooks";
 import {
   USAGE_STYLE_EVENT,
@@ -14,7 +14,7 @@ import {
 } from "./settings";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
-import { formatElapsed, formatTokens, tokenBreakdown } from "./appFormat";
+import { formatTokens, tokenBreakdown } from "./appFormat";
 import {
   type Api,
   type ProviderUsage,
@@ -27,17 +27,17 @@ import {
 export const USAGE_POLL_MS = 60_000;
 export const USAGE_ROWS = 4;
 
-// shareOf is a provider's share of everything the providers consumed, as a whole percentage.
-export function shareOf(total: number, sum: number): number {
-  return choose(sum > 0, Math.round((total / sum) * 100), 0);
-}
+const MINUTE_MS = 60_000;
+const MINUTES_PER_HOUR = 60;
+const MINUTES_PER_DAY = 1440;
+const WARN_AT = 90;
 
 // usageTestId names a provider's row for the tests.
 function usageTestId(u: ProviderUsage): string {
   return "provider-usage-" + u.id;
 }
 
-// rowTitle is the tooltip of one provider: the split of its tokens and its calls.
+// rowTitle is the tooltip of one provider: its tokens, their split and its calls.
 function rowTitle(u: ProviderUsage): string {
   const parts = [
     tf("{n} tokens", { n: formatTokens(usageTotal(u)) }),
@@ -55,57 +55,6 @@ function rowTitle(u: ProviderUsage): string {
   }
   return u.name + ": " + parts.join(" · ");
 }
-
-// GAUGE_RADIUS and GAUGE_LENGTH size the circular gauge: the ring is a circle whose stroke is drawn
-// for `share` percent of its circumference.
-const GAUGE_RADIUS = 15;
-const GAUGE_LENGTH = 2 * Math.PI * GAUGE_RADIUS;
-
-// UsageGauge is one provider as a ring with its share in the middle and its name beneath.
-function UsageGauge({ u, share }: { u: ProviderUsage; share: number }) {
-  return (
-    <li
-      class="provider-usage-gauge"
-      title={rowTitle(u)}
-      data-testid={usageTestId(u)}
-    >
-      <svg viewBox="0 0 36 36" width="44" height="44" aria-hidden="true">
-        <circle class="provider-usage-ring" cx="18" cy="18" r={GAUGE_RADIUS} />
-        <circle
-          class="provider-usage-arc"
-          cx="18"
-          cy="18"
-          r={GAUGE_RADIUS}
-          stroke-dasharray={`${(GAUGE_LENGTH * share) / 100} ${GAUGE_LENGTH}`}
-        />
-      </svg>
-      <span class="provider-usage-pct tabular-nums">{share}%</span>
-      <span class="provider-usage-name truncate">{u.name}</span>
-    </li>
-  );
-}
-
-// UsageRow is one provider: its name, its share and a bar filled to that share.
-function UsageRow({ u, share }: { u: ProviderUsage; share: number }) {
-  return (
-    <li
-      class="provider-usage-row"
-      title={rowTitle(u)}
-      data-testid={usageTestId(u)}
-    >
-      <span class="flex items-center gap-2 text-xs">
-        <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
-        <span class="tabular-nums text-[#9a9aaa]">{share}%</span>
-      </span>
-      <span class="provider-usage-bar" aria-hidden="true">
-        <span class="provider-usage-fill" style={{ width: share + "%" }} />
-      </span>
-    </li>
-  );
-}
-
-const MINUTES_PER_HOUR = 60;
-const WARN_AT = 90;
 
 // liveQuotas are the quotas a provider reported that have not started over since: a window whose
 // reset has passed says nothing about now.
@@ -131,48 +80,263 @@ export function quotaLabel(q: UsageQuota): string {
   );
 }
 
+// usedOf is a quota's share used as a whole percentage between 0 and 100; a quota that states only
+// where the usage stands counts as 0, so it never outranks a real share.
+export function usedOf(q: UsageQuota): number {
+  if (q.status) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, Math.round(q.used_percent)));
+}
+
+// statusText is what a quota without a share says: below its warning level, or past it.
+function statusText(q: UsageQuota): string {
+  if (q.status === "warning") {
+    return t("Near the limit");
+  }
+  return t("Below the warning level");
+}
+
+// rankOf is how far along a quota is, to order them: its share, or for one that states only where
+// the usage stands, the warning level when it is past it and 0 below.
+function rankOf(q: UsageQuota): number {
+  if (q.status === "warning") {
+    return WARN_AT;
+  }
+  return usedOf(q);
+}
+
+// peakQuota is a provider's most used quota, the one the closed panel shows.
+export function peakQuota(qs: UsageQuota[]): UsageQuota | undefined {
+  let peak: UsageQuota | undefined;
+  for (const q of qs) {
+    if (!peak || rankOf(q) > rankOf(peak)) {
+      peak = q;
+    }
+  }
+  return peak;
+}
+
+// formatReset is how long until a quota starts over, in days and hours, hours and minutes, or minutes.
+export function formatReset(ms: number): string {
+  const total = Math.max(1, Math.ceil(ms / MINUTE_MS));
+  const days = Math.floor(total / MINUTES_PER_DAY);
+  const hours = Math.floor((total % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
+  const minutes = total % MINUTES_PER_HOUR;
+  if (days > 0 && hours > 0) {
+    return tf("{d} d {h} h", { d: days, h: hours });
+  }
+  if (days > 0) {
+    return tf("{d} d", { d: days });
+  }
+  if (hours > 0) {
+    return tf("{h} h {m} min", { h: hours, m: minutes });
+  }
+  return tf("{m} min", { m: minutes });
+}
+
 // resetText says when a quota starts over, or "" when the provider did not say.
 function resetText(q: UsageQuota, now: number): string {
   if (!q.resets_at) {
     return "";
   }
   return tf("resets in {t}", {
-    t: formatElapsed(Date.parse(q.resets_at) - now),
+    t: formatReset(Date.parse(q.resets_at) - now),
   });
 }
 
-// QuotaRow is one quota of one provider: its window, the share used and when it starts over.
-function QuotaRow({
-  u,
-  q,
-  now,
-}: {
-  u: ProviderUsage;
-  q: UsageQuota;
-  now: number;
-}) {
-  const used = Math.min(100, Math.max(0, Math.round(q.used_percent)));
+// ranked are the providers in the order the panel lists them: those with a quota first, the most
+// used first, then the others by the tokens they moved.
+function ranked(rows: ProviderUsage[], now: number) {
+  const items = rows.map((u) => {
+    const qs = liveQuotas(u, now);
+    return { u, qs, peak: peakQuota(qs) };
+  });
+  const score = (x: (typeof items)[number]) => {
+    if (!x.peak) {
+      return -1;
+    }
+    return rankOf(x.peak);
+  };
+  return items.sort(
+    (a, b) => score(b) - score(a) || usageTotal(b.u) - usageTotal(a.u),
+  );
+}
+
+type Item = ReturnType<typeof ranked>[number];
+
+// fillClass is the bar or ring of a share, amber once it nears the end.
+function fillClass(base: string, used: number): string {
+  return base + choose(used >= WARN_AT, " warn", "");
+}
+
+// QuotaBar is one quota as a line: its window, a bar and the share, then when it starts over.
+function QuotaBar({ q, now }: { q: UsageQuota; now: number }) {
+  const used = usedOf(q);
   const reset = resetText(q, now);
   return (
-    <li
-      class="provider-quota"
-      data-testid={`provider-quota-${u.id}-${q.name}`}
-      title={reset}
-    >
-      <span class="flex items-center gap-2 text-[11px]">
-        <span class="flex-1 truncate text-[#9a9aaa]">
-          {u.name} · {quotaLabel(q)}
-        </span>
-        <span class="tabular-nums text-[#e8e8ea]">{used}%</span>
+    <li class="provider-quota" data-testid={`provider-quota-${q.name}`}>
+      <span class="provider-quota-line">
+        <span class="provider-quota-label">{quotaLabel(q)}</span>
+        {choose(
+          q.status !== undefined,
+          <span class={`provider-quota-status ${q.status}`}>
+            {statusText(q)}
+          </span>,
+          <>
+            <span class="provider-usage-bar" aria-hidden="true">
+              <span
+                class={fillClass("provider-usage-fill", used)}
+                style={{ width: used + "%" }}
+              />
+            </span>
+            <span class="provider-quota-pct tabular-nums">{used}%</span>
+          </>,
+        )}
       </span>
-      <span class="provider-usage-bar" aria-hidden="true">
-        <span
-          class={`provider-usage-fill${choose(used >= WARN_AT, " warn", "")}`}
-          style={{ width: used + "%" }}
-        />
-      </span>
-      {reset && <span class="text-[10px] text-[#7a7a8c]">{reset}</span>}
+      {reset && <span class="provider-quota-reset">{reset}</span>}
     </li>
+  );
+}
+
+// GAUGE_RADIUS and GAUGE_LENGTH size the ring: a circle whose stroke is drawn for the share used.
+const GAUGE_RADIUS = 15;
+const GAUGE_LENGTH = 2 * Math.PI * GAUGE_RADIUS;
+
+// QuotaGauge is one quota as a ring with the share in the middle, its window and reset beneath.
+// A quota that states only where the usage stands shows "OK", or "!" past its warning level.
+function QuotaGauge({ q, now }: { q: UsageQuota; now: number }) {
+  const used = usedOf(q);
+  const reset = resetText(q, now);
+  let middle = used + "%";
+  let tip = reset;
+  if (q.status) {
+    middle = choose(q.status === "warning", "!", t("OK"));
+    tip = [statusText(q), reset].filter(Boolean).join(" · ");
+  }
+  return (
+    <li
+      class="provider-usage-gauge"
+      title={tip}
+      data-testid={`provider-quota-${q.name}`}
+    >
+      <svg viewBox="0 0 36 36" width="44" height="44" aria-hidden="true">
+        <circle class="provider-usage-ring" cx="18" cy="18" r={GAUGE_RADIUS} />
+        {used > 0 && (
+          <circle
+            class={fillClass("provider-usage-arc", used)}
+            cx="18"
+            cy="18"
+            r={GAUGE_RADIUS}
+            stroke-dasharray={`${(GAUGE_LENGTH * used) / 100} ${GAUGE_LENGTH}`}
+          />
+        )}
+      </svg>
+      <span class={`provider-usage-pct tabular-nums ${q.status ?? ""}`}>
+        {middle}
+      </span>
+      <span class="provider-usage-name">{quotaLabel(q)}</span>
+      {q.resets_at && (
+        <span class="provider-usage-name" data-testid="provider-gauge-reset">
+          {formatReset(Date.parse(q.resets_at) - now)}
+        </span>
+      )}
+    </li>
+  );
+}
+
+// NoQuota is what a provider that reports no quota shows: that it reports none, and its tokens.
+function NoQuota({ u }: { u: ProviderUsage }) {
+  const total = usageTotal(u);
+  const tokens = choose(
+    total > 0,
+    " · " + tf("{n} tokens", { n: formatTokens(total) }),
+    "",
+  );
+  return (
+    <p class="provider-quota-none" data-testid="provider-usage-noquota">
+      {t("No quota reported") + tokens}
+    </p>
+  );
+}
+
+// ProviderBlock is one provider in the open panel: its name, then each quota or the note that it
+// reports none.
+function ProviderBlock({
+  item,
+  style,
+  now,
+}: {
+  item: Item;
+  style: UsageStyle;
+  now: number;
+}) {
+  const { u, qs } = item;
+  const Quota = choose(style === "gauge", QuotaGauge, QuotaBar);
+  return (
+    <li class="provider-block" data-testid={usageTestId(u)}>
+      <span class="provider-block-name truncate" title={rowTitle(u)}>
+        {u.name}
+      </span>
+      {choose(
+        qs.length > 0,
+        <ul
+          class={choose(
+            style === "gauge",
+            "provider-usage-gauges",
+            "provider-quotas",
+          )}
+        >
+          {qs.map((q) => (
+            <Quota key={q.name} q={q} now={now} />
+          ))}
+        </ul>,
+        <NoQuota u={u} />,
+      )}
+    </li>
+  );
+}
+
+// SummaryValue is what the closed panel says of a provider: its most used quota, or a dash.
+function SummaryValue({ peak }: { peak?: UsageQuota }) {
+  if (!peak) {
+    return (
+      <span class="provider-summary-value" title={t("No quota reported")}>
+        —
+      </span>
+    );
+  }
+  const used = usedOf(peak);
+  return (
+    <span class="provider-summary-value">
+      <span class="provider-summary-window">{quotaLabel(peak)}</span>
+      {choose(
+        peak.status !== undefined,
+        <span class={`provider-quota-status ${peak.status}`}>
+          {choose(peak.status === "warning", t("Near the limit"), t("OK"))}
+        </span>,
+        <span class={fillClass("tabular-nums", used)}>{used}%</span>,
+      )}
+    </span>
+  );
+}
+
+// UsageSummary is the closed panel: each provider and its most used quota, as text.
+function UsageSummary({ items }: { items: Item[] }) {
+  return (
+    <ul class="space-y-0.5">
+      {items.map((x) => (
+        <li
+          key={x.u.id}
+          class="provider-summary"
+          title={rowTitle(x.u)}
+          data-testid={usageTestId(x.u)}
+        >
+          <span class="flex-1 truncate">{x.u.name}</span>
+          <SummaryValue peak={x.peak} />
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -197,80 +361,8 @@ function useUsageOpen(): [boolean, () => void] {
   return [open, toggle];
 }
 
-// UsageSummary is the closed panel: each provider and its percentage, as text.
-function UsageSummary({ shown, sum }: { shown: ProviderUsage[]; sum: number }) {
-  return (
-    <ul class="space-y-0.5">
-      {shown.map((u) => (
-        <li
-          key={u.id}
-          class="flex items-center gap-2 text-xs"
-          title={rowTitle(u)}
-          data-testid={usageTestId(u)}
-        >
-          <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
-          <span class="tabular-nums text-[#9a9aaa]">
-            {shareOf(usageTotal(u), sum)}%
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-// UsageDetail is the open panel: bars or gauges, then the quotas and the providers that report none.
-function UsageDetail({
-  shown,
-  sum,
-  style,
-}: {
-  shown: ProviderUsage[];
-  sum: number;
-  style: UsageStyle;
-}) {
-  const now = Date.now();
-  const quotas = shown.map((u) => ({ u, qs: liveQuotas(u, now) }));
-  const silent = quotas.filter((x) => x.qs.length === 0).map((x) => x.u.name);
-  return (
-    <>
-      <ul
-        class={choose(
-          style === "gauge",
-          "provider-usage-gauges",
-          "space-y-1.5",
-        )}
-      >
-        {shown.map((u) =>
-          choose(
-            style === "gauge",
-            <UsageGauge key={u.id} u={u} share={shareOf(usageTotal(u), sum)} />,
-            <UsageRow key={u.id} u={u} share={shareOf(usageTotal(u), sum)} />,
-          ),
-        )}
-      </ul>
-      {quotas.some((x) => x.qs.length > 0) && (
-        <ul class="provider-quotas space-y-1.5" data-testid="provider-quotas">
-          {quotas.flatMap((x) =>
-            x.qs.map((q) => (
-              <QuotaRow key={x.u.id + q.name} u={x.u} q={q} now={now} />
-            )),
-          )}
-        </ul>
-      )}
-      {silent.length > 0 && (
-        <p
-          class="pt-1 text-[10px] text-[#7a7a8c]"
-          data-testid="provider-usage-noquota"
-        >
-          {tf("No quota reported: {names}", { names: silent.join(", ") })}
-        </p>
-      )}
-    </>
-  );
-}
-
-// ProviderUsagePanel lists the providers by what they consumed, the busiest first. It starts
-// closed, with only each provider and its percentage; the title opens it.
+// ProviderUsagePanel lists the providers, the most used plan first. It starts closed, with each
+// provider and its most used quota; the title opens it.
 export function ProviderUsagePanel({
   api,
   running,
@@ -298,10 +390,10 @@ export function ProviderUsagePanel({
   if (rows.length === 0) {
     return null;
   }
-  const sorted = [...rows].sort((a, b) => usageTotal(b) - usageTotal(a));
-  const shown = sorted.slice(0, USAGE_ROWS);
-  const sum = sorted.reduce((n, u) => n + usageTotal(u), 0);
-  const more = sorted.length - shown.length;
+  const now = Date.now();
+  const all = ranked(rows, now);
+  const shown = all.slice(0, USAGE_ROWS);
+  const more = all.length - shown.length;
   return (
     <section
       class="px-4 py-2 border-t border-white/5 flex-none"
@@ -322,8 +414,12 @@ export function ProviderUsagePanel({
       </h2>
       {choose(
         open,
-        <UsageDetail shown={shown} sum={sum} style={style} />,
-        <UsageSummary shown={shown} sum={sum} />,
+        <ul class="provider-blocks">
+          {shown.map((x) => (
+            <ProviderBlock key={x.u.id} item={x} style={style} now={now} />
+          ))}
+        </ul>,
+        <UsageSummary items={shown} />,
       )}
       {more > 0 && (
         <p

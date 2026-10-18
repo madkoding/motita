@@ -367,8 +367,9 @@ type claudeRateLimit struct {
 }
 
 // quota is the limit as a quota: the five-hour window is the session and the seven-day one the week.
-// It is not one when the event is about another window, or says nothing of how much is used (claude
-// sends the utilization only near a threshold); a limit that is rejected is fully used.
+// It is not one when the event is about another window. claude sends the utilization only near a
+// threshold: before that the quota says only whether the usage is below its warning level or past
+// it, never a share. A limit that is rejected is fully used.
 func (r *claudeRateLimit) quota() (Quota, bool) {
 	if r == nil {
 		return Quota{}, false
@@ -386,6 +387,10 @@ func (r *claudeRateLimit) quota() (Quota, bool) {
 		q.Used = min(100, max(0, *r.Utilization*100))
 	case r.Status == "rejected":
 		q.Used = 100
+	case r.Status == "allowed":
+		q.Status = "ok"
+	case r.Status == "allowed_warning":
+		q.Status = "warning"
 	default:
 		return Quota{}, false
 	}

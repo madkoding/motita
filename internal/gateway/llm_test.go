@@ -782,3 +782,13 @@ func TestLLMUsageSaysNothingOfAnOllamaBalanceItCannotRead(t *testing.T) {
 		t.Errorf("a provider with no quota API: %+v", got)
 	}
 }
+
+func TestTheUsagePanelNamesAProviderShortly(t *testing.T) {
+	long := onboard.Provider{Name: "Ollama Cloud (hosted, with a key)", Short: "Ollama Cloud"}
+	if got := shortName(long); got != "Ollama Cloud" {
+		t.Errorf("short: %q", got)
+	}
+	if got := shortName(onboard.Provider{Name: "Custom"}); got != "Custom" {
+		t.Errorf("no short name: %q", got)
+	}
+}

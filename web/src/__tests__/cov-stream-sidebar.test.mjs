@@ -537,7 +537,7 @@ test("an empty sidebar says so in each section", async () => {
   await done();
 });
 
-test("with a gateway to ask, the bottom menu shows what each provider consumed", async () => {
+test("with a gateway to ask, the bottom menu shows how much of each plan is used", async () => {
   const api = async (path) => {
     assert.equal(path, "/v1/llm/usage");
     return new Response(
@@ -561,7 +561,7 @@ test("with a gateway to ask, the bottom menu shows what each provider consumed",
   await act(() => new Promise((r) => setImmediate(r)));
   const shown = text(root.querySelector("[data-testid=provider-usage]"));
   await done();
-  assert.match(shown, /Provider usageOpenAI100%/);
+  assert.match(shown, /Provider usageOpenAI—/);
 });
 
 test("on a phone, picking a session in the sidebar closes it", async () => {

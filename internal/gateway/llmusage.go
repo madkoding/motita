@@ -82,7 +82,7 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 		if !called && config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyMissing {
 			continue
 		}
-		row := llmUsageRow{ID: p.ID, Name: p.Name, Default: p.ID == cfg.Provider,
+		row := llmUsageRow{ID: p.ID, Name: shortName(p), Default: p.ID == cfg.Provider,
 			Input: u.Usage.Input, Output: u.Usage.Output, CacheRead: u.Usage.CacheRead,
 			CacheWrite: u.Usage.CacheWrite, Calls: u.Calls}
 		if called {
@@ -96,6 +96,15 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 	writeJSON(w, http.StatusOK, llmUsageView{Providers: rows})
+}
+
+// shortName is the provider's name as the narrow panel shows it: "Ollama Cloud", not the wizard's
+// "Ollama Cloud (hosted, with a key)".
+func shortName(p onboard.Provider) string {
+	if p.Short != "" {
+		return p.Short
+	}
+	return p.Name
 }
 
 // providerTotals is what each provider has consumed so far: the process-wide ledger, unless a test
