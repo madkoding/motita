@@ -365,35 +365,44 @@ function Conversation() {
   const turnView = useTurnView(store);
   const groups = groupsOf(rs.messages);
   return (
-    // A div, not a main: a `main` cannot take role="log" (its role is fixed), and the log role is
-    // what screen readers need here; the explicit role already hid the landmark.
-    <div
-      ref={scroll.scrollRef}
-      role="log"
-      aria-live="polite"
-      aria-label={t("conversation")}
-      class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5${choose(
-        scroll.chatLoading,
-        " chat-loading",
-        "",
-      )}`}
-      data-chat-loading={choose(scroll.chatLoading, "1", "0")}
-    >
-      <TurnCtx.Provider value={turnView}>
-        {groups.map((g, gi) => {
-          const liveHere = rs.running && gi === groups.length - 1;
-          return (
-            <Turn
-              key={g.key}
-              g={g}
-              steps={choose(g.turn != null, rs.stepsByTurn[g.turn!], undefined)}
-              liveHere={liveHere}
-              activity={choose(liveHere, rs.activity, null)}
-            />
-          );
-        })}
-      </TurnCtx.Provider>
-      <SubagentsStrip />
+    // The wrapper holds the conversation and the fade fixed over its top edge, which sits behind
+    // the pinned input (see .chat-fade).
+    <div class="chat-wrap relative flex-1 min-h-0 flex flex-col">
+      <div class="chat-fade" aria-hidden="true" />
+      {/* A div, not a main: a `main` cannot take role="log" (its role is fixed), and the log role is
+        what screen readers need here; the explicit role already hid the landmark. */}
+      <div
+        ref={scroll.scrollRef}
+        role="log"
+        aria-live="polite"
+        aria-label={t("conversation")}
+        class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5${choose(
+          scroll.chatLoading,
+          " chat-loading",
+          "",
+        )}`}
+        data-chat-loading={choose(scroll.chatLoading, "1", "0")}
+      >
+        <TurnCtx.Provider value={turnView}>
+          {groups.map((g, gi) => {
+            const liveHere = rs.running && gi === groups.length - 1;
+            return (
+              <Turn
+                key={g.key}
+                g={g}
+                steps={choose(
+                  g.turn != null,
+                  rs.stepsByTurn[g.turn!],
+                  undefined,
+                )}
+                liveHere={liveHere}
+                activity={choose(liveHere, rs.activity, null)}
+              />
+            );
+          })}
+        </TurnCtx.Provider>
+        <SubagentsStrip />
+      </div>
     </div>
   );
 }
