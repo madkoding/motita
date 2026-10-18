@@ -360,12 +360,8 @@ func Run(op Options) int {
 		return op.runDoctor(fl)
 	}
 
-	if fl.sandboxAction != "" {
-		return op.runSandboxCommand(fl.sandboxAction)
-	}
-
-	if fl.indexAction != "" {
-		return op.runIndexCommand(fl)
+	if fl.localCommand() {
+		return op.runLocalCommand(fl)
 	}
 
 	// A subcommand is dispatched here, before the main path, because it pays for neither the

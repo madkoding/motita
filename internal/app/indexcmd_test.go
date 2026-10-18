@@ -25,24 +25,25 @@ func runIndex(t *testing.T, config string, args ...string) (int, string, string)
 	return code, out.String(), errOut.String()
 }
 
+// expectIndex runs `motita index <action>` and checks it succeeded and printed want.
+func expectIndex(t *testing.T, cfg, action, want string) {
+	t.Helper()
+	code, out, _ := runIndex(t, cfg, "index", action)
+	if code != Success || !strings.Contains(out, want) {
+		t.Errorf("index %s = %d %q, want %q", action, code, out, want)
+	}
+}
+
 func TestIndexStatusAndClearWorkOnTheCacheDir(t *testing.T) {
 	cache := t.TempDir()
 	if err := os.WriteFile(filepath.Join(cache, "a.gob"), []byte("12345"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := indexConfig(t, cache)
-	if code, out, _ := runIndex(t, cfg, "index", "status"); code != Success || !strings.Contains(out, "1 index files") {
-		t.Errorf("status = %d %q", code, out)
-	}
-	if code, out, _ := runIndex(t, cfg, "index", "clear"); code != Success || !strings.Contains(out, "1 index files deleted") {
-		t.Errorf("clear = %d %q", code, out)
-	}
-	if code, out, _ := runIndex(t, cfg, "index", "status"); code != Success || !strings.Contains(out, "0 index files") {
-		t.Errorf("status after = %d %q", code, out)
-	}
-	if code, out, _ := runIndex(t, indexConfig(t, ""), "index", "clear"); code != Success || !strings.Contains(out, "memory only") {
-		t.Errorf("no cache dir = %d %q", code, out)
-	}
+	expectIndex(t, cfg, "status", "1 index files")
+	expectIndex(t, cfg, "clear", "1 index files deleted")
+	expectIndex(t, cfg, "status", "0 index files")
+	expectIndex(t, indexConfig(t, ""), "clear", "memory only")
 }
 
 func TestIndexClearReportsAFailure(t *testing.T) {

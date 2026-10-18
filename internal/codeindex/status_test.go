@@ -7,30 +7,39 @@ import (
 	"testing"
 )
 
+// expect fails the test, showing the status, when ok is false.
+func expect(t *testing.T, label string, ok bool, st Status) {
+	t.Helper()
+	if !ok {
+		t.Errorf("%s: %+v", label, st)
+	}
+}
+
 func TestInspectFollowsTheIndexOnDisk(t *testing.T) {
 	root, cache := project(t), t.TempDir()
 	o := Options{CacheDir: cache, Semantic: true}
 	ctx := context.Background()
 
 	st, err := Inspect(ctx, root, o)
-	if err != nil || st.State != StateNone || st.Candidates == 0 || st.Files != 0 || st.Percent != 0 || st.MaxFiles != DefaultMaxFiles {
-		t.Fatalf("before indexing: %+v %v", st, err)
+	if err != nil {
+		t.Fatal(err)
 	}
+	expect(t, "before indexing", st.State == StateNone && st.Percent == 0, st)
+	expect(t, "before indexing", st.Candidates > 0 && st.Files == 0, st)
+	expect(t, "before indexing", st.MaxFiles == DefaultMaxFiles, st)
 	if _, err := NewSearcher(o).Search(ctx, root, "wal", 1); err != nil {
 		t.Fatal(err)
 	}
 	st, _ = Inspect(ctx, root, o)
-	if st.State != StateReady || st.Percent != 100 || st.Files == 0 || st.Chunks == 0 || st.Terms == 0 ||
-		st.CacheBytes == 0 || !st.Semantic || st.Embeddings {
-		t.Errorf("after indexing: %+v", st)
-	}
-	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package x\nfunc New() {}\n"), 0o600); err != nil {
+	expect(t, "after indexing", st.State == StateReady && st.Percent == 100, st)
+	expect(t, "after indexing", st.Files > 0 && st.Chunks > 0 && st.Terms > 0, st)
+	expect(t, "after indexing", st.CacheBytes > 0 && st.Semantic && !st.Embeddings, st)
+	newFile := filepath.Join(root, "new.go")
+	if err := os.WriteFile(newFile, []byte("package x\nfunc New() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st, _ = Inspect(ctx, root, o)
-	if st.State != StateStale || st.Percent <= 0 || st.Percent >= 100 {
-		t.Errorf("after a new file: %+v", st)
-	}
+	expect(t, "after a new file", st.State == StateStale && st.Percent > 0 && st.Percent < 100, st)
 	if st, _ = Inspect(ctx, root, Options{CacheDir: cache, MaxFiles: 1}); !st.Capped {
 		t.Errorf("one file allowed: %+v", st)
 	}

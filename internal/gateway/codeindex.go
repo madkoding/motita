@@ -17,6 +17,9 @@ import (
 // without confirm in the request itself, sent only after the person was told what it means.
 // The embeddings key is not handled here: it belongs in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY.
 
+// errConfigUnreadable starts the message when the configuration file cannot be read.
+const errConfigUnreadable = "the configuration could not be read: "
+
 // codeIndexView is what GET and PUT /v1/code-index answer.
 type codeIndexView struct {
 	Enabled         bool   `json:"enabled"`
@@ -105,7 +108,7 @@ func embeddingsSource(x config.CodeIndex) string {
 func (s *Server) writeCodeIndex(w http.ResponseWriter) {
 	cfg, canSave, err := s.securityConfig()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "the configuration could not be read: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
 		return
 	}
 	x := cfg.CodeIndex
@@ -159,7 +162,7 @@ type codeIndexCleared struct {
 func (s *Server) handleDeleteCodeIndexCache(w http.ResponseWriter, _ *http.Request) {
 	cfg, _, err := s.securityConfig()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "the configuration could not be read: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
 		return
 	}
 	files, size, err := codeindex.ClearCache(cfg.CodeIndex.CacheDir)
@@ -190,7 +193,7 @@ func (s *Server) projectIndex(w http.ResponseWriter, r *http.Request, build bool
 	}
 	cfg, _, err := s.securityConfig()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "the configuration could not be read: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
 		return
 	}
 	if !cfg.CodeIndex.Enabled {
