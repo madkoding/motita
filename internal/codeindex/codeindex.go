@@ -11,6 +11,7 @@ package codeindex
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io/fs"
 	"math"
@@ -578,6 +579,32 @@ func (s *Searcher) Search(ctx context.Context, root, query string, limit int) ([
 		s.byAt[root] = ix
 	}
 	return ix.searchWith(query, limit, s.queryVector(ctx, ix, query)), nil
+}
+
+// Build brings the index kept on disk for root up to date, even when this process still holds it in
+// memory (the cache files may have been cleared since), and tells why when it cannot keep it.
+func (s *Searcher) Build(ctx context.Context, root string) error {
+	files, fp, err := scan(ctx, root, s.opts)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.detect(ctx)
+	ix := s.byAt[root]
+	if ix == nil || ix.Fingerprint != fp {
+		if ix, err = s.obtain(ctx, root, files, fp); err != nil {
+			return err
+		}
+		s.byAt[root] = ix
+	}
+	if data := readData(s.opts.CacheDir, root); data != nil && data.Fingerprint == fp {
+		return nil
+	}
+	if err := writeIndex(s.opts.CacheDir, ix); err != nil {
+		return fmt.Errorf("the index could not be kept on disk: %w", err)
+	}
+	return nil
 }
 
 // queryVector embeds the query when the index holds embeddings. A failure is a warning, not an

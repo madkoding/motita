@@ -202,7 +202,7 @@ func (s *Server) projectIndex(w http.ResponseWriter, r *http.Request, build bool
 	}
 	opts := cfg.CodeIndex.Options()
 	if build {
-		if _, err := codeindex.Shared(opts).Search(r.Context(), p.Dir, "index", 1); err != nil {
+		if err := codeindex.Shared(opts).Build(r.Context(), p.Dir); err != nil {
 			writeError(w, http.StatusInternalServerError, "the project could not be indexed: "+err.Error())
 			return
 		}

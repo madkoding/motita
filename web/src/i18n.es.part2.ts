@@ -633,6 +633,9 @@ const more: Record<string, string> = {
   "Ranked also by meaning.": "Ordena también por significado.",
   "Index now": "Indexar ahora",
   "Indexing…": "Indexando…",
+  "Reading the project's files…": "Leyendo los archivos del proyecto…",
+  "Index updated: {files} files, {chunks} passages.":
+    "Índice actualizado: {files} archivos, {chunks} pasajes.",
   "Clear index cache": "Borrar caché del índice",
   "{n} index files deleted ({kb} KB). The next search builds it again.":
     "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",

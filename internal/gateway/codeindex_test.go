@@ -190,3 +190,19 @@ func TestTheProjectIndexRefusesWhatItCannotAnswer(t *testing.T) {
 		}
 	}
 }
+
+// The same process still holds the index in memory after the cache is cleared; building must write
+// it to disk again instead of answering "none" as if nothing happened.
+func TestBuildingAgainAfterClearingTheCacheKeepsTheIndexOnDisk(t *testing.T) {
+	srv, _, url := indexedProject(t)
+	readProjectIndex(t, post(t, srv, url, "", testToken))
+	if w := del(t, srv, "/v1/code-index/cache", testToken); w.Code != http.StatusOK {
+		t.Fatalf("clearing: %d", w.Code)
+	}
+	if st := readProjectIndex(t, get(t, srv, url, testToken)); st.State != codeindex.StateNone {
+		t.Fatalf("after clearing: %+v", st)
+	}
+	if st := readProjectIndex(t, post(t, srv, url, "", testToken)); st.State != codeindex.StateReady {
+		t.Errorf("after building again: %+v", st)
+	}
+}
