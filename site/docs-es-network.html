@@ -59,7 +59,7 @@
 <tr><td>Todos</td><td>Escucha en todas las interfaces sin reglas de origen.</td></tr>
 </tbody>
 </table>
-<p><code>gateway.allow</code> es una lista ordenada de reglas (<code>lan</code>, una dirección, una red, cada una con prefijo <code>!</code> opcional). Gana la primera que coincide, y loopback siempre se permite, así que no puedes dejarte fuera. El token sigue siendo la llave real; las reglas dicen desde dónde puede venir.</p>
+<p><code>gateway.allow</code> es una lista ordenada de reglas (<code>lan</code>: los rangos privados, link-local y de la tailnet; una dirección, una red, cada una con prefijo <code>!</code> opcional). Gana la primera que coincide, y loopback siempre se permite, así que no puedes dejarte fuera. El token sigue siendo la llave real; las reglas dicen desde dónde puede venir.</p>
 <div class="note">El gateway habla http plano. Fuera de loopback el token viaja sin cifrar, y el gateway te lo advierte al abrir.</div>
 <h2>Llegar de forma segura</h2>
 <ul>
@@ -67,6 +67,14 @@
 <li><strong>Tailscale.</strong> Si Tailscale está corriendo, motita puede publicar el gateway con <code>tailscale serve</code>: https en el nombre de tu tailnet, accesible solo desde tus propios dispositivos. Funnel (internet pública) nunca se usa.</li>
 <li><strong>Un proxy inverso con TLS</strong> como Caddy delante de un gateway en loopback, o el segundo listener https del propio gateway (<code>gateway.tls</code>).</li>
 </ul>
+<h2>Tus otros equipos</h2>
+<p>Cada equipo con un gateway se puede abrir desde cualquier otro: la barra lateral los lista en <strong>Otros equipos</strong>, y al elegir uno ves sus sesiones y proyectos, con cuántas ejecuciones tiene en curso. Se encuentran solos en la red local y en tu tailnet; por otra VPN, <strong>Agregar un equipo</strong> pide la dirección.</p>
+<ul>
+<li><strong>Pídele acceso.</strong> Deja el token vacío: el otro equipo muestra un código de seis dígitos que este también muestra. Compáralos y elige <em>Permitir</em>.</li>
+<li><strong>¿No tiene pantalla?</strong> En un servidor por SSH o VPN, <code>motita gateway computers</code> lista quién pide entrar con sus códigos, y <code>motita gateway allow 123 456</code> (o <code>deny</code>) responde.</li>
+<li><strong>O su token</strong>: <code>motita gateway start -token-only</code> en ese equipo lo muestra.</li>
+</ul>
+<p>Los gateways se hablan por TLS y fijan el certificado del otro, y solo se marcan redes privadas. El otro equipo debe responder a la red (<em>la red local</em> en <code>motita gateway setup</code>) y dejar pasar su puerto (7477) en el firewall; si nadie responde, el error dice qué revisar.</p>
 <h2>Por qué importa https</h2>
 <p>Los navegadores permiten el micrófono, las notificaciones de escritorio y el push al teléfono solo en https o localhost. Un teléfono en la LAN con http plano no obtiene ninguno, y es la razón habitual para elegir una de las opciones de arriba.</p>
 <h2>Notificaciones</h2>
@@ -75,6 +83,8 @@
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#the-gateway">Referencia: el gateway</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#the-browser-interface-from-the-same-port">Guía: la interfaz del navegador y las notificaciones</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#your-other-computers-from-the-same-page">Guía: tus otros equipos</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#other-computers">Referencia: otros equipos</a></li>
       </ul>
       <nav class="pn" aria-label="Página anterior y siguiente">
         <a class="prev" href="docs-es-security.html"><span>Anterior</span>Seguridad y sandbox</a>

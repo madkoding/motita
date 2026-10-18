@@ -897,7 +897,7 @@ table**: **nothing is restricted until you add a rule**. Rules live in
 | Rule             | Means                                                                                                       |
 | ---------------- | ----------------------------------------------------------------------------------------------------------- |
 | `any`            | every origin (also accepted: `all`, `everyone`)                                                             |
-| `lan`            | the private and link-local ranges: `192.168.x`, `10.x`, `172.16-31.x`, `169.254.x`, `fc00::/7`, `fe80::/10` |
+| `lan`            | the private and link-local ranges: `192.168.x`, `10.x`, `172.16-31.x`, `169.254.x`, `fc00::/7`, `fe80::/10`, and the tailnet's `100.64.0.0/10` |
 | `192.168.1.10`   | one address (an `ip:` prefix is accepted too)                                                               |
 | `192.168.0.0/16` | one network                                                                                                 |
 
