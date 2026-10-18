@@ -14,8 +14,9 @@ import (
 //
 // A Meter answers "what did this agent spend"; this answers "what has each provider been asked for",
 // which is what the bottom bars show. It counts what a provider reported in its responses and keeps
-// the rate-limit window the provider last reported in its headers. A plan's quota or balance is the provider's to state, and none of them sends one with an
-// answer, so none is guessed here. The totals are kept in a file once PersistUsage names one.
+// the rate-limit window the provider last reported in its headers. A plan's quota or balance is the
+// provider's to state, and none of them sends one with an answer, so none is guessed here. The totals
+// are kept in a file once PersistUsage names one.
 
 // usageSource is who a call is counted under.
 type usageSource struct {
