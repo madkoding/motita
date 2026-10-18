@@ -1,5 +1,6 @@
-// Client for the gateway's other computers: this one, the ones found on the network and the ones
-// connected with their token, and the path that reaches a connected one's API through this
+// Client for the gateway's other computers: this one, the ones found on the network, the ones
+// connected (with their token, or let in by the person there), the ones asking to come into this
+// one, and the path that reaches a connected one's API through this
 // gateway. No value imports: the node tests load this file as is.
 
 import type { Api } from "./gitApi";
@@ -19,6 +20,31 @@ export interface Machine {
   // Connected with its token: its sessions can be opened from here.
   paired: boolean;
   online: boolean;
+  // How many of its sessions have a run in flight, for a connected computer that answers.
+  running: number;
+  // This computer's request to be let into it, while it waits or after it was refused.
+  ask?: MachineAsk;
+}
+
+// MachineAsk is a request to be let into another computer: the code both screens show.
+export interface MachineAsk {
+  code: string;
+  state: "waiting" | "denied";
+}
+
+// MachineRequest is another computer asking to be let into this one.
+export interface MachineRequest {
+  id: string;
+  name: string;
+  address: string;
+  code: string;
+}
+
+// MachineGrant is a computer let into this one.
+export interface MachineGrant {
+  id: string;
+  name: string;
+  at: string;
 }
 
 // SelfMachine is this computer.
@@ -28,12 +54,16 @@ export interface SelfMachine {
   hostname: string;
   // False when the gateway listens on this computer only: no other one can connect to it.
   reachable: boolean;
+  // How many sessions here have a run in flight.
+  running: number;
 }
 
 export interface MachinesView {
   self: SelfMachine;
   peers: Machine[];
   discovery: boolean;
+  requests: MachineRequest[];
+  grants: MachineGrant[];
 }
 
 export const PEERS_PATH = "/v1/peers";
@@ -110,7 +140,29 @@ export function connectMachine(
   });
 }
 
-// addMachine connects a computer by its address and token (one across a VPN, say).
+// askMachine asks a found computer to let this one in: the person there allows it.
+export function askMachine(api: Api, id: string): Promise<MachinesView> {
+  return send(api, "POST", PEERS_PATH + "/" + encodeURIComponent(id) + "/ask");
+}
+
+// answerRequest lets a computer that asked into this one, or not.
+export function answerRequest(
+  api: Api,
+  id: string,
+  allow: boolean,
+): Promise<MachinesView> {
+  return send(api, "POST", "/v1/peer-requests/" + encodeURIComponent(id), {
+    allow,
+  });
+}
+
+// revokeGrant takes back the access a computer was let in with.
+export function revokeGrant(api: Api, id: string): Promise<MachinesView> {
+  return send(api, "DELETE", "/v1/peer-grants/" + encodeURIComponent(id));
+}
+
+// addMachine connects a computer by its address (one across a VPN, say): with its token, or,
+// with none, by asking it to let this one in.
 export function addMachine(
   api: Api,
   address: string,

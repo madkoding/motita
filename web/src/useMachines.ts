@@ -5,11 +5,14 @@ import { useCallback, useContext, useEffect, useState } from "preact/hooks";
 import type { Api } from "./gitApi";
 import {
   addMachine,
+  answerRequest,
+  askMachine,
   connectMachine,
   forgetMachine,
   getMachines,
   renameMachine,
   renameSelf,
+  revokeGrant,
   type Machine,
   type MachinesView,
 } from "./machinesApi";
@@ -17,8 +20,19 @@ import { errorMessage } from "./errors";
 
 // The computer the page shows is remembered in the browser: "" (or nothing) is this one.
 export const MACHINE_KEY = "motita.machine";
-// How often the list is read again: a computer found or gone shows up without a reload.
-export const MACHINES_POLL_MS = 15000;
+// How often the list is read again: a computer found or gone, a request to come in, a run that
+// started elsewhere show up without a reload. While a request waits, more often.
+export const MACHINES_POLL_MS = 5000;
+export const MACHINES_ASK_POLL_MS = 1500;
+
+// waiting reports whether a request to be let in waits, here or there.
+function waiting(view: MachinesView | null): boolean {
+  return (
+    !!view &&
+    (view.requests.length > 0 ||
+      view.peers.some((p) => p.ask?.state === "waiting"))
+  );
+}
 
 function readMachine(): string {
   try {
@@ -74,13 +88,21 @@ export function useMachines(
     [api],
   );
   useEffect(() => {
+    if (enabled) {
+      void refresh();
+    }
+  }, [enabled, refresh]);
+  const fast = waiting(view);
+  useEffect(() => {
     if (!enabled) {
       return;
     }
-    void refresh();
-    const timer = setInterval(refresh, MACHINES_POLL_MS);
+    const timer = setInterval(
+      refresh,
+      fast ? MACHINES_ASK_POLL_MS : MACHINES_POLL_MS,
+    );
     return () => clearInterval(timer);
-  }, [enabled, refresh]);
+  }, [enabled, refresh, fast]);
 
   // A computer that is no longer connected (forgotten here or elsewhere) cannot be shown: the
   // page goes back to this one.
@@ -128,9 +150,14 @@ export function useMachines(
   const connect = useCallback(
     (token: string, address: string) => {
       const m = connecting?.machine;
-      const change = m
-        ? connectMachine(api, m.id, token)
-        : addMachine(api, address, token);
+      let change: Promise<MachinesView>;
+      if (!m) {
+        change = addMachine(api, address, token);
+      } else if (token) {
+        change = connectMachine(api, m.id, token);
+      } else {
+        change = askMachine(api, m.id);
+      }
       return apply(change).then((msg) => {
         if (!msg) {
           setConnecting(null);
@@ -154,6 +181,9 @@ export function useMachines(
     renameSelf: (name: string) => apply(renameSelf(api, name)),
     rename: (id: string, alias: string) => apply(renameMachine(api, id, alias)),
     forget: (id: string) => apply(forgetMachine(api, id)),
+    answer: (id: string, allow: boolean) =>
+      apply(answerRequest(api, id, allow)),
+    revoke: (id: string) => apply(revokeGrant(api, id)),
   };
 }
 

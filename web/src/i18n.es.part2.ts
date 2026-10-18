@@ -760,9 +760,23 @@ const more: Record<string, string> = {
   "Other computers cannot connect to this one: it listens on this computer only. Settings → Network opens it to the local network.":
     "Otros equipos no pueden conectarse a este: solo escucha en este equipo. Ajustes → Red lo abre a la red local.",
   "Connect {name}": "Conectar {name}",
-  "Type that computer's gateway token. On that computer, `motita gateway start -token-only` shows it. Only computers on the local network, a VPN or the tailnet can be connected.":
-    "Escribe el token del gateway de ese equipo. En ese equipo, `motita gateway start -token-only` lo muestra. Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
   Address: "Dirección",
+  "{count} running": "{count} en curso",
+  "Waiting for the other computer to let this one in. Its screen shows the same code.":
+    "Esperando que el otro equipo deje entrar a este. Su pantalla muestra el mismo código.",
+  Refused: "Rechazado",
+  "{name} wants to open this computer": "{name} quiere abrir este equipo",
+  "From {address}. Allow it only if that computer shows this code:":
+    "Desde {address}. Permítelo solo si ese equipo muestra este código:",
+  Allow: "Permitir",
+  Deny: "Rechazar",
+  "Revoke {name}": "Quitar el acceso a {name}",
+  "Revoke access": "Quitar el acceso",
+  "Can open this computer": "Pueden abrir este equipo",
+  "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in. Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.":
+    "Deja el token vacío para pedirle acceso a ese equipo: su pantalla muestra un código y quien esté ahí deja entrar a este. O escribe el token de su gateway (`motita gateway start -token-only` lo muestra). Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
+  "Token (optional)": "Token (opcional)",
+  "Ask for access": "Pedir acceso",
 };
 
 export default more;

@@ -1084,10 +1084,30 @@ tailnet scan; a computer can still be added by its address. A gateway listening 
 `127.0.0.1` only (Settings → Network, *This computer*) listens for beacons but sends none,
 since no other computer could reach it, and the sidebar says so.
 
-**Connecting.** A computer found is listed under *Other computers* until it is connected with
-**its own** gateway token (`motita gateway start -token-only` on that computer prints it).
-This gateway checks the token with the other one and keeps it in `~/.motita/peers.json`,
-readable by its owner only; the browser never holds it. *Disconnect* drops it.
+**Connecting.** A computer found is listed under *Other computers* until it is connected, in
+one of two ways:
+
+- **asking it** (*Connect* with the token left empty): the other computer shows a card,
+  *"laptop wants to open this computer"*, with a six-digit code that this computer shows too.
+  The person there compares the codes and picks *Allow*; the other gateway then issues a token
+  of its own for this computer, tied to its certificate, and lists it under *Can open this
+  computer*, where the ✕ revokes it. A request waits five minutes; at most eight wait at once;
+- **its own gateway token** (`motita gateway start -token-only` on that computer prints it).
+
+Either way this gateway keeps the token in `~/.motita/peers.json`, readable by its owner only;
+the browser never holds it. *Disconnect* drops it.
+
+**Encrypted and pinned.** Gateways speak to each other over TLS only, on the same port as the
+browser (a connection that opens with a TLS handshake is told apart by its first byte). Each
+gateway makes a self-signed certificate once, kept in `peers.json`, and presents it both as a
+server and as a client. There is no authority on a LAN, so the certificate's SHA-256
+fingerprint is pinned when two computers are connected; a later connection that presents
+another one is refused before the token is sent, with "it presented a different identity". The
+code compared when asking is made from both fingerprints, so a machine in the middle would make
+the two screens show different codes.
+
+**Runs in flight.** Each computer's box shows how many of its sessions have a run in flight,
+read from the connected computers every ten seconds while the page is open.
 
 **Reaching it.** Every request the page makes for a connected computer goes to
 `/v1/peers/{id}/proxy/v1/...` here, which forwards it — the stream of a run and the WebSocket
@@ -1097,18 +1117,24 @@ apply unchanged. Only addresses of private networks are ever dialled (the LAN an
 link-local range, private and unique-local ranges, the tailnet's `100.64.0.0/10`, loopback),
 checked on the address actually connected to, after any name was resolved. The other
 computer's own list of computers, its cookie exchange and its shutdown are not forwarded.
-A connected computer whose token changed answers `502` with "connect it again", never `401`,
+A connected computer whose token changed (or was revoked there) answers `502` with "connect it
+again", never `401`,
 so the page does not sign out of this gateway.
 
-| Endpoint                      | What it does                                             |
-| ----------------------------- | -------------------------------------------------------- |
-| `GET /v1/peer/hello`          | who this gateway is; no token, like `/v1/health`         |
-| `GET /v1/peers`               | this computer, the ones found and the ones connected     |
-| `PUT /v1/peers/self`          | `{"name"}` renames this computer (empty: the host name)  |
-| `POST /v1/peers`              | `{"address","token"}` connects a computer by its address |
-| `PUT /v1/peers/{id}`          | `{"token"}` connects a found one, `{"alias"}` renames it |
-| `DELETE /v1/peers/{id}`       | disconnects it and drops its token                       |
-| `/v1/peers/{id}/proxy/v1/...` | that computer's API, any method                          |
+| Endpoint                      | What it does                                                               |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `GET /v1/peer/hello`          | who this gateway is; no token, like `/v1/health`                           |
+| `GET /v1/peers`               | this computer, the ones found and connected, requests and grants           |
+| `PUT /v1/peers/self`          | `{"name"}` renames this computer (empty: the host name)                    |
+| `POST /v1/peers`              | `{"address","token"}` connects a computer by its address; no token asks it |
+| `PUT /v1/peers/{id}`          | `{"token"}` connects a found one, `{"alias"}` renames it                   |
+| `POST /v1/peers/{id}/ask`     | asks a found computer to let this one in                                   |
+| `DELETE /v1/peers/{id}`       | disconnects it and drops its token                                         |
+| `/v1/peers/{id}/proxy/v1/...` | that computer's API, any method                                            |
+| `POST /v1/peer/pair`          | another gateway asks to be let in (over TLS, with its certificate)         |
+| `GET /v1/peer/pair`           | that gateway reads the answer, and its token once allowed                  |
+| `POST /v1/peer-requests/{id}` | `{"allow"}` answers a computer that asked                                  |
+| `DELETE /v1/peer-grants/{id}` | revokes a computer that was let in                                         |
 
 #### Reconnecting to a turn that is already running
 

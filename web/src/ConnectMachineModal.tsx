@@ -1,6 +1,7 @@
-// The dialog that connects another computer: its token, and its address when it was not found on
-// the network (one across a VPN). The token is sent to THIS gateway, which checks it with the
-// other computer and keeps it; the page never holds it.
+// The dialog that connects another computer: its address when it was not found on the network
+// (one across a VPN), and its token, or no token to ask the person at that computer to let this
+// one in. A token is sent to THIS gateway, which checks it with the other computer and keeps it;
+// the page never holds it.
 import { useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
@@ -21,7 +22,8 @@ export function ConnectMachineModal() {
   const title = machine
     ? tf("Connect {name}", { name: machine.name })
     : t("Add a computer");
-  const incomplete = !token.trim() || (!machine && !address.trim());
+  const incomplete = !machine && !address.trim();
+  const asking = !token.trim();
   return (
     <ModalBackdrop onClose={closeConnect}>
       <form
@@ -37,7 +39,7 @@ export function ConnectMachineModal() {
         <h2 class="text-base font-semibold mb-1">{title}</h2>
         <p class="text-sm text-[#9a9aaa] mb-4">
           {t(
-            "Type that computer's gateway token. On that computer, `motita gateway start -token-only` shows it. Only computers on the local network, a VPN or the tailnet can be connected.",
+            "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in. Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.",
           )}
         </p>
         <div class="space-y-4">
@@ -60,7 +62,7 @@ export function ConnectMachineModal() {
           )}
           <div>
             <label class={LABEL} for="machine-token">
-              {t("Token")}
+              {t("Token (optional)")}
             </label>
             <input
               id="machine-token"
@@ -84,7 +86,11 @@ export function ConnectMachineModal() {
             class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
             disabled={busy || incomplete}
           >
-            {choose(busy, t("Connecting…"), t("Connect"))}
+            {choose(
+              busy,
+              t("Connecting…"),
+              choose(asking, t("Ask for access"), t("Connect")),
+            )}
           </button>
           <button
             type="button"

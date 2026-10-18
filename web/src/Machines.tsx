@@ -1,16 +1,29 @@
-// The computers in the sidebar. Each one is a box with its name in the header: this computer
-// first, then the ones connected with their token. The box of the computer the page shows holds
+// The computers in the sidebar. Each one is a box with its name in the header, and how many runs
+// are in flight there: this computer first, then the ones connected. Above them, the computers
+// asking to come into this one. The box of the computer the page shows holds
 // everything the sidebar has (sessions, projects, usage, the buttons at the bottom); another
 // computer's header shows it instead. Under them, the computers found on the network that are not
-// connected yet, and the "+" that adds one by its address.
+// connected yet (or are waiting to be let in), the "+" that adds one by its address, and the
+// computers let into this one.
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useMachinesCtx } from "./useMachines";
-import { machineName, type Machine } from "./machinesApi";
+import {
+  machineName,
+  type Machine,
+  type MachineGrant,
+  type MachineRequest,
+} from "./machinesApi";
 import { SectionAdd, SectionTitle } from "./SidebarParts";
-import { IconEdit, IconMonitor, IconTrash } from "./icons";
+import {
+  IconClose,
+  IconEdit,
+  IconMonitor,
+  IconSpinner,
+  IconTrash,
+} from "./icons";
 
 const ICON_BUTTON =
   "flex-none p-1 rounded-md text-[#7a7a8c] hover:text-accent hover:bg-white/5 transition-colors";
@@ -80,6 +93,23 @@ function Status({ online }: { online: boolean }) {
       title={choose(online, t("Online"), t("Offline"))}
       data-testid="machine-status"
     />
+  );
+}
+
+// Running is how many runs are in flight on a computer, on its header while there are any.
+function Running({ count }: { count?: number }) {
+  if (!count) {
+    return null;
+  }
+  return (
+    <span
+      class="flex-none inline-flex items-center gap-1 px-1.5 py-px rounded-full bg-accent/15 text-accent text-[10px] font-semibold"
+      title={tf("{count} running", { count })}
+      data-testid="machine-running"
+    >
+      <IconSpinner size={10} class="animate-spin" />
+      {count}
+    </span>
   );
 }
 
@@ -178,6 +208,9 @@ function MachineBox({
               </span>
             )}
             {machine && <Status online={machine.online} />}
+            <Running
+              count={machine ? machine.running : machines.view?.self.running}
+            />
           </button>
         )}
         {!renaming && (
@@ -214,13 +247,104 @@ function FoundMachine({ m }: { m: Machine }) {
       <span class="flex-none text-[10px] text-[#7a7a8c]">
         {SOURCES[m.source] ?? m.source}
       </span>
+      {m.ask?.state === "waiting" ? (
+        <span
+          class="flex-none px-2 py-0.5 rounded-md text-[11px] text-[#c8c8d2] bg-white/5 font-mono"
+          title={t(
+            "Waiting for the other computer to let this one in. Its screen shows the same code.",
+          )}
+          data-testid="machine-asking"
+        >
+          {m.ask.code}
+        </span>
+      ) : (
+        <>
+          {m.ask && (
+            <span
+              class="flex-none text-[10px] text-danger"
+              data-testid="machine-denied"
+            >
+              {t("Refused")}
+            </span>
+          )}
+          <button
+            type="button"
+            class="flex-none px-2 py-0.5 rounded-md text-[11px] text-accent bg-accent/10 hover:bg-accent/20"
+            onClick={() => openConnect({ machine: m })}
+            data-testid="machine-connect"
+          >
+            {t("Connect")}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// RequestCard is a computer asking to come into this one: allowed only when both screens show
+// the same code, which proves no one sits between the two.
+function RequestCard({ r }: { r: MachineRequest }) {
+  const { answer } = useMachinesCtx();
+  return (
+    <div
+      class="rounded-xl border border-accent/40 bg-accent/10 p-3 text-sm"
+      data-testid="machine-request"
+    >
+      <p class="text-[#e8e8ea]">
+        {tf("{name} wants to open this computer", { name: r.name })}
+      </p>
+      <p class="mt-1 text-[11px] text-[#9a9aaa]">
+        {tf("From {address}. Allow it only if that computer shows this code:", {
+          address: r.address,
+        })}
+      </p>
+      <p
+        class="mt-1.5 font-mono text-lg tracking-widest text-accent"
+        data-testid="machine-request-code"
+      >
+        {r.code}
+      </p>
+      <div class="flex gap-2 mt-2">
+        <button
+          type="button"
+          class="flex-1 px-3 py-1.5 rounded-lg bg-accent text-white text-[12px] font-semibold"
+          onClick={() => void answer(r.id, true)}
+          data-testid="machine-allow"
+        >
+          {t("Allow")}
+        </button>
+        <button
+          type="button"
+          class="flex-1 px-3 py-1.5 rounded-lg border border-white/10 text-[12px] text-[#e8e8ea]"
+          onClick={() => void answer(r.id, false)}
+          data-testid="machine-deny"
+        >
+          {t("Deny")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// GrantRow is a computer let into this one, and the button that takes its access back.
+function GrantRow({ g }: { g: MachineGrant }) {
+  const { revoke } = useMachinesCtx();
+  return (
+    <div
+      class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[#c8c8d2]"
+      data-testid="machine-grant"
+    >
+      <IconMonitor size={14} class="flex-none text-[#7a7a8c]" />
+      <span class="flex-1 min-w-0 truncate">{g.name}</span>
       <button
         type="button"
-        class="flex-none px-2 py-0.5 rounded-md text-[11px] text-accent bg-accent/10 hover:bg-accent/20"
-        onClick={() => openConnect({ machine: m })}
-        data-testid="machine-connect"
+        class={ICON_BUTTON}
+        aria-label={tf("Revoke {name}", { name: g.name })}
+        title={t("Revoke access")}
+        onClick={() => void revoke(g.id)}
+        data-testid="machine-revoke"
       >
-        {t("Connect")}
+        <IconClose size={14} />
       </button>
     </div>
   );
@@ -231,6 +355,7 @@ function FoundMachine({ m }: { m: Machine }) {
 function OtherMachines() {
   const { view, openConnect } = useMachinesCtx();
   const found = (view?.peers ?? []).filter((p) => !p.paired);
+  const grants = view?.grants ?? [];
   return (
     <section
       class="flex-none mx-2 mt-1 mb-2"
@@ -257,6 +382,16 @@ function OtherMachines() {
           )}
         </p>
       )}
+      {grants.length > 0 && (
+        <>
+          <p class="px-2 pt-2 pb-1 text-[11px] text-[#7a7a8c]">
+            {t("Can open this computer")}
+          </p>
+          {grants.map((g) => (
+            <GrantRow key={g.id} g={g} />
+          ))}
+        </>
+      )}
     </section>
   );
 }
@@ -265,11 +400,19 @@ function OtherMachines() {
 export function MachineList({ children }: { children: ComponentChildren }) {
   const { view } = useMachinesCtx();
   const paired = (view?.peers ?? []).filter((p) => p.paired);
+  const requests = view?.requests ?? [];
   return (
     <div
       class="flex-1 min-h-0 flex flex-col overflow-y-auto"
       data-testid="machines"
     >
+      {requests.length > 0 && (
+        <div class="flex-none mx-2 mt-2 space-y-2" role="status">
+          {requests.map((r) => (
+            <RequestCard key={r.id} r={r} />
+          ))}
+        </div>
+      )}
       <MachineBox id="" name={view?.self.name || t("This computer")}>
         {children}
       </MachineBox>

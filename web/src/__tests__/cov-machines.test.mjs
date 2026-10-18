@@ -47,6 +47,13 @@ const FOUND = {
   source: "tailscale",
 };
 const ODD = { ...FOUND, id: "odd00001", name: "odd", source: "carrier-pigeon" };
+const REQUEST = {
+  id: "lap00001",
+  name: "laptop",
+  address: "fd00::5",
+  code: "123 456",
+};
+const GRANT = { id: "tab00001", name: "tablet", at: "2026-10-18T10:00:00Z" };
 
 // fakeApi answers like the gateway, recording the requests; fail makes the next one fail.
 function fakeApi(view) {
@@ -97,7 +104,13 @@ test("a connected computer's API is reached through this gateway", async () => {
 });
 
 test("every change goes to /v1/peers and a refusal says why", async () => {
-  const view = { self: SELF, peers: [], discovery: true };
+  const view = {
+    self: SELF,
+    peers: [],
+    discovery: true,
+    requests: [],
+    grants: [],
+  };
   const f = fakeApi(view);
   assert.deepEqual(await api.getMachines(f.fn), view);
   await api.renameSelf(f.fn, "a");
@@ -105,6 +118,9 @@ test("every change goes to /v1/peers and a refusal says why", async () => {
   await api.connectMachine(f.fn, "d1", "t");
   await api.addMachine(f.fn, "fd00::1", "t");
   await api.forgetMachine(f.fn, "d1");
+  await api.askMachine(f.fn, "d1");
+  await api.answerRequest(f.fn, "l/1", true);
+  await api.revokeGrant(f.fn, "l1");
   assert.deepEqual(f.calls, [
     ["GET", "/v1/peers", undefined],
     ["PUT", "/v1/peers/self", '{"name":"a"}'],
@@ -112,6 +128,9 @@ test("every change goes to /v1/peers and a refusal says why", async () => {
     ["PUT", "/v1/peers/d1", '{"token":"t"}'],
     ["POST", "/v1/peers", '{"address":"fd00::1","token":"t"}'],
     ["DELETE", "/v1/peers/d1", undefined],
+    ["POST", "/v1/peers/d1/ask", undefined],
+    ["POST", "/v1/peer-requests/l%2F1", '{"allow":true}'],
+    ["DELETE", "/v1/peer-grants/l1", undefined],
   ]);
   f.state.fail = { status: 422, body: { error: "bad token" } };
   await assert.rejects(api.getMachines(f.fn), /bad token/);
@@ -167,7 +186,13 @@ async function useHost(f, { enabled = true, active = "" } = {}) {
 }
 
 test("the list is read once signed in, kept current, and a lost computer is left", async () => {
-  const f = fakeApi({ self: SELF, peers: [DESK, FOUND], discovery: true });
+  const f = fakeApi({
+    self: SELF,
+    peers: [DESK, FOUND],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   const off = await useHost(f, { enabled: false });
   assert.equal(f.calls.length, 0, "nothing is asked before signing in");
   await off.unmount();
@@ -198,6 +223,38 @@ test("the list is read once signed in, kept current, and a lost computer is left
     // Shown, but only found (not connected): back to this one.
     await r.rerender({ enabled: true, active: "lap00001" });
     assert.equal(r.shown.active, "");
+    // A request waiting, here or there, is checked on more often.
+    for (const view of [
+      {
+        self: SELF,
+        peers: [],
+        discovery: true,
+        requests: [REQUEST],
+        grants: [],
+      },
+      {
+        self: SELF,
+        peers: [{ ...FOUND, ask: { code: "1", state: "waiting" } }],
+        discovery: true,
+        requests: [],
+        grants: [],
+      },
+    ]) {
+      f.state.view = view;
+      await r.act(() => ticks.at(-1)[0]());
+      await flush();
+      assert.equal(ticks.at(-1)[1], hook.MACHINES_ASK_POLL_MS);
+      f.state.view = {
+        self: SELF,
+        peers: [],
+        discovery: true,
+        requests: [],
+        grants: [],
+      };
+      await r.act(() => ticks.at(-1)[0]());
+      await flush();
+      assert.equal(ticks.at(-1)[1], hook.MACHINES_POLL_MS);
+    }
     await r.unmount();
   } finally {
     globalThis.setInterval = realSet;
@@ -205,7 +262,13 @@ test("the list is read once signed in, kept current, and a lost computer is left
 });
 
 test("picking a computer shows it, and picking it again folds its box", async () => {
-  const f = fakeApi({ self: SELF, peers: [DESK], discovery: true });
+  const f = fakeApi({
+    self: SELF,
+    peers: [DESK],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   const r = await useHost(f);
   const m = () => r.result.current;
   assert.equal(m().isOpen(""), true);
@@ -220,7 +283,13 @@ test("picking a computer shows it, and picking it again folds its box", async ()
 });
 
 test("connecting, renaming and forgetting keep the answer or the refusal", async () => {
-  const f = fakeApi({ self: SELF, peers: [DESK], discovery: true });
+  const f = fakeApi({
+    self: SELF,
+    peers: [DESK],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   const r = await useHost(f);
   const m = () => r.result.current;
   // No dialog open: an address is connected.
@@ -244,6 +313,18 @@ test("connecting, renaming and forgetting keep the answer or the refusal", async
   assert.equal(msg, "");
   assert.equal(m().connecting, null);
   assert.equal(f.calls.at(-1)[1], "/v1/peers/lap00001");
+  // No token: the computer is asked to let this one in.
+  await r.act(() => m().openConnect({ machine: FOUND }));
+  await r.act(async () => {
+    msg = await m().connect("", "");
+  });
+  assert.equal(f.calls.at(-1)[1], "/v1/peers/lap00001/ask");
+  await r.act(() => m().answer("lap00001", false));
+  await r.act(() => m().revoke("tab00001"));
+  assert.deepEqual(
+    f.calls.slice(-2).map((c) => c[0] + " " + c[1]),
+    ["POST /v1/peer-requests/lap00001", "DELETE /v1/peer-grants/tab00001"],
+  );
   await r.act(() => m().openConnect({}));
   await r.act(() => m().closeConnect());
   assert.equal(m().connecting, null);
@@ -325,6 +406,8 @@ test("this computer, the connected ones and the found ones each have their place
     self: { ...SELF, reachable: false },
     peers: [DESK, NAS, FOUND, ODD],
     discovery: true,
+    requests: [],
+    grants: [],
   });
   assert.deepEqual(
     ui.qa("[data-testid=machine]").map((b) => b.dataset.machine),
@@ -377,7 +460,13 @@ test("this computer, the connected ones and the found ones each have their place
 
 test("the shown remote computer can be folded even while it does not answer", async () => {
   const ui = await mount(
-    { self: SELF, peers: [{ ...DESK, online: false }], discovery: true },
+    {
+      self: SELF,
+      peers: [{ ...DESK, online: false }],
+      discovery: true,
+      requests: [],
+      grants: [],
+    },
     "desk0001",
   );
   const toggle = box(ui, "desk0001").querySelector(
@@ -390,7 +479,13 @@ test("the shown remote computer can be folded even while it does not answer", as
 });
 
 test("a computer is renamed in place: Enter or leaving saves, Escape cancels, the same name sends nothing", async () => {
-  const ui = await mount({ self: SELF, peers: [DESK], discovery: true });
+  const ui = await mount({
+    self: SELF,
+    peers: [DESK],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   const rename = async (id) => {
     await click(
       box(ui, id).querySelector("[data-testid=machine-rename-button]"),
@@ -431,7 +526,13 @@ test("a computer is renamed in place: Enter or leaving saves, Escape cancels, th
 });
 
 test("disconnecting asks a second click, and leaving the button disarms it", async () => {
-  const ui = await mount({ self: SELF, peers: [DESK], discovery: true });
+  const ui = await mount({
+    self: SELF,
+    peers: [DESK],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   const desk = () => box(ui, "desk0001");
   await click(desk().querySelector("[data-testid=machine-forget]"));
   const confirm = desk().querySelector("[data-testid=machine-forget-confirm]");
@@ -452,7 +553,13 @@ test("disconnecting asks a second click, and leaving the button disarms it", asy
 });
 
 test("a found computer is connected with its token, and a refusal is shown in the dialog", async () => {
-  const ui = await mount({ self: SELF, peers: [FOUND], discovery: true });
+  const ui = await mount({
+    self: SELF,
+    peers: [FOUND],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   await click(ui.q("[data-testid=machine-connect]"));
   const dialog = () => document.querySelector("[data-testid=connect-machine]");
   assert.equal(text(dialog().querySelector("h2")), "Connect laptop");
@@ -462,9 +569,10 @@ test("a found computer is connected with its token, and a refusal is shown in th
     "a found computer needs no address",
   );
   const submit = () => dialog().querySelector("button[type=submit]");
-  assert.equal(submit().disabled, true);
+  assert.equal(submit().disabled, false, "no token asks for access");
+  assert.equal(text(submit()), "Ask for access");
   await type(dialog().querySelector("#machine-token"), " secret ");
-  assert.equal(submit().disabled, false);
+  assert.equal(text(submit()), "Connect");
   ui.f.state.fail = {
     status: 422,
     body: { error: "the other computer did not accept that token" },
@@ -492,7 +600,13 @@ test("a found computer is connected with its token, and a refusal is shown in th
 });
 
 test("a computer across a VPN is added by its address, or the dialog is cancelled", async () => {
-  const ui = await mount({ self: SELF, peers: [], discovery: true });
+  const ui = await mount({
+    self: SELF,
+    peers: [],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
   await click(ui.q("[data-testid=sidebar-add-machine]"));
   const dialog = () => document.querySelector("[data-testid=connect-machine]");
   assert.equal(text(dialog().querySelector("h2")), "Add a computer");
@@ -524,5 +638,54 @@ test("a computer across a VPN is added by its address, or the dialog is cancelle
     [...dialog().querySelectorAll("button")].find((b) => text(b) === "Cancel"),
   );
   assert.equal(dialog(), null);
+  await ui.done();
+});
+
+test("each computer says how many runs are in flight, and a request to come in waits with its code", async () => {
+  const ui = await mount({
+    self: { ...SELF, running: 2 },
+    peers: [
+      { ...DESK, running: 1 },
+      { ...FOUND, ask: { code: "654 321", state: "waiting" } },
+      { ...ODD, ask: { code: "1", state: "denied" } },
+    ],
+    discovery: true,
+    requests: [REQUEST],
+    grants: [GRANT],
+  });
+  assert.equal(
+    text(box(ui, "self").querySelector("[data-testid=machine-running]")),
+    "2",
+  );
+  assert.equal(
+    box(ui, "desk0001").querySelector("[data-testid=machine-running]").title,
+    "1 running",
+  );
+  assert.equal(text(ui.q("[data-testid=machine-asking]")), "654 321");
+  assert.equal(text(ui.q("[data-testid=machine-denied]")), "Refused");
+  assert.equal(
+    ui.qa("[data-testid=machine-connect]").length,
+    1,
+    "a refused computer can be asked again; a waiting one cannot",
+  );
+  const card = ui.q("[data-testid=machine-request]");
+  assert.match(text(card), /laptop wants to open this computer/);
+  assert.equal(
+    text(card.querySelector("[data-testid=machine-request-code]")),
+    "123 456",
+  );
+  await click(card.querySelector("[data-testid=machine-allow]"));
+  await click(card.querySelector("[data-testid=machine-deny]"));
+  assert.match(text(ui.q("[data-testid=machine-grant]")), /tablet/);
+  await click(ui.q("[data-testid=machine-revoke]"));
+  await act(() => flush());
+  assert.deepEqual(
+    ui.f.calls.slice(-3).map((c) => [c[0], c[1], c[2]]),
+    [
+      ["POST", "/v1/peer-requests/lap00001", '{"allow":true}'],
+      ["POST", "/v1/peer-requests/lap00001", '{"allow":false}'],
+      ["DELETE", "/v1/peer-grants/tab00001", undefined],
+    ],
+  );
   await ui.done();
 });
