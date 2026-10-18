@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -83,5 +85,31 @@ func TestTheCodeIndexIsSavedAndRemoteEmbeddingsNeedConfirmation(t *testing.T) {
 	w := sendNetwork(t, noFile, http.MethodPut, "/v1/code-index", `{"semantic":false}`)
 	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "configuration file") {
 		t.Errorf("no file: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTheCodeIndexCacheIsCleared(t *testing.T) {
+	cache := t.TempDir()
+	path := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+cache+"\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	if err := os.WriteFile(filepath.Join(cache, "a.gob"), []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := del(t, srv, "/v1/code-index/cache", testToken)
+	var got codeIndexCleared
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got != (codeIndexCleared{1, 5}) {
+		t.Fatalf("clear = %d %s", w.Code, w.Body.String())
+	}
+	if w := del(t, srv, "/v1/code-index/cache", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("without a token: %d", w.Code)
+	}
+	broken := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm: [\n") })
+	if w := del(t, broken, "/v1/code-index/cache", testToken); w.Code != http.StatusInternalServerError {
+		t.Errorf("an unreadable file: %d", w.Code)
+	}
+	bad := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: \"[\"\n")
+	badSrv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = bad })
+	if w := del(t, badSrv, "/v1/code-index/cache", testToken); w.Code != http.StatusInternalServerError {
+		t.Errorf("a cache_dir that cannot be listed: %d", w.Code)
 	}
 }

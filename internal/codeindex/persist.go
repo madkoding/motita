@@ -58,3 +58,28 @@ func saveIndex(dir string, ix *Index) {
 		_ = os.Remove(name)
 	}
 }
+
+// ClearCache deletes the index files kept in dir and says how many it removed and how many bytes
+// they held. Only files this package writes (*.gob) are touched; a missing or empty dir is nothing
+// to clear.
+func ClearCache(dir string) (files int, bytes int64, err error) {
+	if dir == "" {
+		return 0, 0, nil
+	}
+	names, err := filepath.Glob(filepath.Join(dir, "*.gob"))
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, name := range names {
+		info, statErr := os.Lstat(name)
+		if statErr != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if err := os.Remove(name); err != nil {
+			return files, bytes, err
+		}
+		files++
+		bytes += info.Size()
+	}
+	return files, bytes, nil
+}

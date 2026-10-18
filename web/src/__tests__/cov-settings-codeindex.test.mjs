@@ -253,3 +253,46 @@ test("leaving the tab stops listening for the answer", async () => {
   await settle();
   assert.equal(root.querySelector("section"), null);
 });
+
+test("the index cache is cleared and the result is shown", async () => {
+  const gw = fakeApi({
+    "GET /v1/code-index": () => json(200, VIEW),
+    "DELETE /v1/code-index/cache": () => json(200, { removed: 2, bytes: 3000 }),
+  });
+  const root = await mount(gw);
+  click(byText(root, "button", "Clear index cache"));
+  await settle();
+  assert.equal(gw.calls.at(-1).method, "DELETE");
+  assert.match(
+    text(root.querySelector("[data-testid=code-index-cleared]")),
+    /2 index files deleted \(3 KB\)/,
+  );
+});
+
+test("a cache that cannot be cleared shows the error", async () => {
+  const gw = fakeApi({
+    "GET /v1/code-index": () => json(200, VIEW),
+    "DELETE /v1/code-index/cache": () => json(500, { error: "disk is busy" }),
+  });
+  const root = await mount(gw);
+  click(byText(root, "button", "Clear index cache"));
+  await settle();
+  assert.match(
+    text(root.querySelector("[data-testid=code-index-error]")),
+    /disk is busy/,
+  );
+  assert.equal(root.querySelector("[data-testid=code-index-cleared]"), null);
+});
+
+test("clearing the cache falls back to the status when the error has no body", async () => {
+  const fake = async () => ({ ok: false, status: 502, json: async () => ({}) });
+  await assert.rejects(api.clearCodeIndexCache(fake), /HTTP 502/);
+  const broken = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => {
+      throw new Error("no body");
+    },
+  });
+  await assert.rejects(api.clearCodeIndexCache(broken), /HTTP 500/);
+});

@@ -612,6 +612,12 @@ const more: Record<string, string> = {
   "Learned from your own code. No network.":
     "Aprendido de tu propio código. Sin red.",
   "Find a local Ollama": "Buscar un Ollama local",
+  "Index cache": "Caché del índice",
+  "The index is kept in ~/.motita/index and rebuilt when it is gone.":
+    "El índice se guarda en ~/.motita/index y se reconstruye si falta.",
+  "Clear index cache": "Borrar caché del índice",
+  "{n} index files deleted ({kb} KB). The next search builds it again.":
+    "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",
   "Looks on this machine for nomic-embed-text. The text does not leave it.":
     "Busca nomic-embed-text en este equipo. El texto no sale de él.",
   "Embeddings come from {endpoint} ({model}), on this machine or its network.":

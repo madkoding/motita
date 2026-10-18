@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/madkoding/motita/internal/codeindex"
 	"github.com/madkoding/motita/internal/config"
 )
 
@@ -141,4 +142,27 @@ func (s *Server) handlePutCodeIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	s.info("the code index settings were changed from the settings page")
 	s.writeCodeIndex(w)
+}
+
+// codeIndexCleared is what DELETE /v1/code-index/cache answers.
+type codeIndexCleared struct {
+	Removed int   `json:"removed"`
+	Bytes   int64 `json:"bytes"`
+}
+
+// handleDeleteCodeIndexCache deletes the index files kept in code_index.cache_dir. The next search
+// builds the index again; nothing else is touched.
+func (s *Server) handleDeleteCodeIndexCache(w http.ResponseWriter, _ *http.Request) {
+	cfg, _, err := s.securityConfig()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the configuration could not be read: "+err.Error())
+		return
+	}
+	files, size, err := codeindex.ClearCache(cfg.CodeIndex.CacheDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the index cache could not be cleared: "+err.Error())
+		return
+	}
+	s.info("the code index cache was cleared from the settings page")
+	writeJSON(w, http.StatusOK, codeIndexCleared{Removed: files, Bytes: size})
 }

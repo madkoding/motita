@@ -72,6 +72,22 @@ export async function setCodeIndex(
   return view(res);
 }
 
+// CodeIndexCleared is what deleting the cache answers: the files removed and the bytes they held.
+export interface CodeIndexCleared {
+  removed: number;
+  bytes: number;
+}
+
+// clearCodeIndexCache deletes the index files kept on disk; the next search builds them again.
+export async function clearCodeIndexCache(api: Api): Promise<CodeIndexCleared> {
+  const res = await api(CODE_INDEX_PATH + "/cache", { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "HTTP " + res.status);
+  }
+  return (await res.json()) as CodeIndexCleared;
+}
+
 // looksLocal is a guess at what the gateway will decide: an address on this machine or its network.
 // A wrong "remote" only asks once too often; a wrong "local" is refused by the gateway.
 export function looksLocal(raw: string): boolean {

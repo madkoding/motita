@@ -6,6 +6,7 @@ import { errorMessage } from "./errors";
 import {
   type CodeIndexChange,
   type CodeIndexView,
+  clearCodeIndexCache,
   getCodeIndex,
   looksLocal,
   setCodeIndex,
@@ -82,7 +83,28 @@ function useCodeIndex(api: Api) {
     },
     [api],
   );
-  return { view, loadErr, err, busy, save };
+  const [cleared, setCleared] = useState("");
+  const clear = useCallback(async () => {
+    setBusy(true);
+    setErr("");
+    setCleared("");
+    try {
+      const done = await clearCodeIndexCache(api);
+      setCleared(
+        tf(
+          "{n} index files deleted ({kb} KB). The next search builds it again.",
+          {
+            n: String(done.removed),
+            kb: String(Math.ceil(done.bytes / 1024)),
+          },
+        ),
+      );
+    } catch (e) {
+      setErr(errorMessage(e));
+    }
+    setBusy(false);
+  }, [api]);
+  return { view, loadErr, err, busy, save, clear, cleared };
 }
 
 // SwitchRow is an on/off setting.
@@ -240,7 +262,7 @@ function EndpointFields({
 // where real embeddings come from, and the limits. The section stays hidden on a gateway without
 // the code index API.
 export function CodeIndexSettings({ api }: { api: Api }) {
-  const { view, loadErr, err, busy, save } = useCodeIndex(api);
+  const { view, loadErr, err, busy, save, clear, cleared } = useCodeIndex(api);
   if (view === null || (view === undefined && !loadErr)) {
     return null;
   }
@@ -301,6 +323,33 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               busy={busy}
               save={save}
             />
+            <Row
+              id="settings-code-index-cache"
+              label={t("Index cache")}
+              hint={t(
+                "The index is kept in ~/.motita/index and rebuilt when it is gone.",
+              )}
+              stack
+            >
+              <button
+                type="button"
+                class={primaryBtn}
+                disabled={busy}
+                onClick={clear}
+                data-testid="code-index-clear"
+              >
+                {t("Clear index cache")}
+              </button>
+            </Row>
+            {cleared && (
+              <p
+                class="settings-card-note text-xs text-[#7a7a8c]"
+                role="status"
+                data-testid="code-index-cleared"
+              >
+                {cleared}
+              </p>
+            )}
             <p class="settings-card-note text-xs text-[#7a7a8c]">
               {t(
                 "The embeddings key goes in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Changes apply to new sessions.",

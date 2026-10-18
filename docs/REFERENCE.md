@@ -1341,7 +1341,7 @@ code_index:
 ```
 
 Everything above can be changed from **Settings → Indexing**, or through `GET/PUT /v1/code-index` on
-the gateway (the toggles, the embeddings address and model, the two limits). The change is written to the
+the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. The change is written to the
 configuration file and applies to the sessions started after it. An address outside this machine and its
 network is saved only after the page told the person that the text of the indexed files will be sent
 there (`confirm: true` in the request). The embeddings key is not handled by the page: set
@@ -1486,6 +1486,7 @@ that only motita's own file edits are limited.
 | `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}`, `{"auto_apply_suggestions":true,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false`, for `isolate_network: false` and for `auto_apply_suggestions: true`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS`, `MOTITA_SANDBOX_ISOLATE_NETWORK` or `MOTITA_AGENT_AUTO_APPLY_SUGGESTIONS` overrides it; a change of several keys is saved whole or not at all |
 | `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
 | `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
+| `DELETE /v1/code-index/cache` | none; deletes the index files kept in `code_index.cache_dir` and answers `{removed, bytes}` |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud
