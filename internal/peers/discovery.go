@@ -210,13 +210,21 @@ func (d *Discovery) announce() {
 	}
 }
 
+// hello is one hello of the discovery, which gives up sooner than one asked for by hand: a scan
+// asks many machines in turn.
+func (d *Discovery) hello(ctx context.Context, addr string) (Hello, netip.AddrPort, error) {
+	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+	return d.Prober.Hello(ctx, addr)
+}
+
 // probeStale asks the connected gateways no beacon was heard from directly: across a VPN that is
 // the only way to know they are there.
 func (d *Discovery) probeStale(ctx context.Context) {
 	for id, addr := range d.Registry.Stale() {
 		// The address is one Saw wrote down, so it parses; one a hand typed was resolved then.
 		at, _ := netip.ParseAddrPort(addr)
-		if h, _, err := d.Prober.Hello(ctx, addr); err == nil && h.ID == id {
+		if h, _, err := d.hello(ctx, addr); err == nil && h.ID == id {
 			d.Registry.Saw(h, netip.AddrPortFrom(at.Addr(), uint16(h.Port)), d.Registry.SourceOf(id))
 		}
 	}
@@ -232,7 +240,7 @@ func (d *Discovery) scanTailnet(ctx context.Context) {
 	for _, p := range d.Tailnet(ctx) {
 		for _, ip := range p.IPs {
 			addr := netip.AddrPortFrom(ip, uint16(self.Port)).String()
-			if h, _, err := d.Prober.Hello(ctx, addr); err == nil {
+			if h, _, err := d.hello(ctx, addr); err == nil {
 				d.Registry.Saw(h, netip.AddrPortFrom(ip, uint16(h.Port)), SourceTailscale)
 				break
 			}

@@ -41,7 +41,7 @@ export function ConnectMachineModal() {
         <h2 class="text-base font-semibold mb-1">{title}</h2>
         <p class="text-sm text-[#9a9aaa] mb-4">
           {t(
-            "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in. Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.",
+            "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in (on one without a screen, `motita gateway allow <code>` in its terminal). Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.",
           )}
         </p>
         <div class="space-y-4">

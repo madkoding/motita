@@ -416,7 +416,8 @@ func (s *Server) handlePairAsk(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
-		s.info("another computer asks to connect", "name", body.Name, "code", code)
+		s.info("another computer asks to connect: let it in from the page or with `motita gateway allow <code>`",
+			"name", body.Name, "code", code)
 		writeJSON(w, http.StatusAccepted, map[string]string{"code": code})
 	}
 }

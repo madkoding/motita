@@ -769,8 +769,8 @@ const more: Record<string, string> = {
   "Connect {name}": "Conectar {name}",
   Address: "Dirección",
   "{count} running": "{count} en curso",
-  "Waiting for the other computer to let this one in. Its screen shows the same code.":
-    "Esperando que el otro equipo deje entrar a este. Su pantalla muestra el mismo código.",
+  "Waiting for the other computer to let this one in. Its screen shows the same code; on one without a screen, run `motita gateway allow {code}` there.":
+    "Esperando que el otro equipo deje entrar a este. Su pantalla muestra el mismo código; si no tiene pantalla, ejecuta ahí `motita gateway allow {code}`.",
   Refused: "Rechazado",
   "{name} wants to open this computer": "{name} quiere abrir este equipo",
   "From {address}. Allow it only if that computer shows this code:":
@@ -780,8 +780,8 @@ const more: Record<string, string> = {
   "Revoke {name}": "Quitar el acceso a {name}",
   "Revoke access": "Quitar el acceso",
   "Can open this computer": "Pueden abrir este equipo",
-  "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in. Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.":
-    "Deja el token vacío para pedirle acceso a ese equipo: su pantalla muestra un código y quien esté ahí deja entrar a este. O escribe el token de su gateway (`motita gateway start -token-only` lo muestra). Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
+  "Leave the token empty to ask that computer for access: its screen shows a code, and the person there lets this one in (on one without a screen, `motita gateway allow <code>` in its terminal). Or type its gateway token (`motita gateway start -token-only` shows it). Only computers on the local network, a VPN or the tailnet can be connected.":
+    "Deja el token vacío para pedirle acceso a ese equipo: su pantalla muestra un código y quien esté ahí deja entrar a este (si no tiene pantalla, con `motita gateway allow <código>` en su terminal). O escribe el token de su gateway (`motita gateway start -token-only` lo muestra). Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
   "Token (optional)": "Token (opcional)",
   "Ask for access": "Pedir acceso",
   "Control of this computer's desktop": "Control del escritorio de este equipo",

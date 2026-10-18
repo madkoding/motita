@@ -18,8 +18,14 @@ import (
 	"time"
 )
 
-// ProbeTimeout bounds one hello: a machine that does not answer this fast is not on this network.
+// ProbeTimeout bounds one hello of the discovery: a machine that does not answer this fast is not
+// on this network.
 const ProbeTimeout = 3 * time.Second
+
+// ReachTimeout bounds every other request to another gateway. A VPN's first packets to a machine
+// can take seconds while it finds the way there, which a hello to an address someone typed must
+// survive.
+const ReachTimeout = 10 * time.Second
 
 // errOutside is an address outside the private networks.
 var errOutside = errors.New("only computers on the local network, a VPN or the tailnet can be reached")
@@ -40,7 +46,7 @@ func guard(_, address string, _ syscall.RawConn) error {
 // with this gateway's certificate, checking the other's against the pin in the request's context
 // (see WithPin).
 func Transport(cert tls.Certificate) *http.Transport {
-	dialer := &net.Dialer{Timeout: ProbeTimeout, Control: guard}
+	dialer := &net.Dialer{Timeout: ReachTimeout, Control: guard}
 	return &http.Transport{
 		Proxy: nil,
 		DialTLSContext: func(ctx context.Context, _, address string) (net.Conn, error) {
@@ -67,7 +73,7 @@ const helloURL = "http://motita-peer"
 // for everything but the hello. It keeps no connection: every probe names its own address under
 // the same URL, and a pooled connection would answer for another one.
 func probeTransport(cert tls.Certificate) *http.Transport {
-	dialer := &net.Dialer{Timeout: ProbeTimeout, Control: guard}
+	dialer := &net.Dialer{Timeout: ReachTimeout, Control: guard}
 	target := func(ctx context.Context) string {
 		address, _ := ctx.Value(targetKey{}).(string)
 		return address
@@ -91,7 +97,7 @@ type Prober struct {
 
 // NewProber is a prober over probeTransport, presenting cert.
 func NewProber(cert tls.Certificate) *Prober {
-	return &Prober{Client: &http.Client{Transport: probeTransport(cert), Timeout: ProbeTimeout}}
+	return &Prober{Client: &http.Client{Transport: probeTransport(cert), Timeout: ReachTimeout}}
 }
 
 // request is a probe of path at address. The Host header names the address, as a browser
@@ -132,10 +138,7 @@ func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPo
 	ctx = httptrace.WithClientTrace(ctx, trace)
 	res, err := p.Client.Do(request(ctx, http.MethodGet, address, HelloPath, nil))
 	if err != nil {
-		if errors.Is(err, errOutside) {
-			return Hello{}, remote, errOutside
-		}
-		return Hello{}, remote, fmt.Errorf("no motita answered at %s: %w", address, err)
+		return Hello{}, remote, unreached(address, err)
 	}
 	defer res.Body.Close()
 	var h Hello
@@ -144,6 +147,31 @@ func (p *Prober) Hello(ctx context.Context, address string) (Hello, netip.AddrPo
 			"what answered at %s is not a motita gateway, or one too old to connect to", address)
 	}
 	return h, netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port()), nil
+}
+
+// unreached is why nothing answered a hello at address, in the words of what to check on the other
+// computer: a person typing an address there cannot see it.
+func unreached(address string, err error) error {
+	var ne net.Error
+	switch {
+	case errors.Is(err, errOutside):
+		return errOutside
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return fmt.Errorf("the computer at %s is there, but no gateway answers the network on that port: "+
+			"on it, run `motita gateway setup`, choose the local network, then `motita gateway start`", address)
+	case errors.As(err, &ne) && ne.Timeout():
+		return fmt.Errorf("nothing answered at %s: on that computer, check that the gateway is running "+
+			"(`motita gateway status`), answers the network (`motita gateway setup`) and that its firewall "+
+			"lets the port in (for example `sudo ufw allow %s/tcp`)", address, portIn(address))
+	default:
+		return fmt.Errorf("no motita answered at %s: %w", address, err)
+	}
+}
+
+// portIn is the port of address, for the sentence above.
+func portIn(address string) string {
+	_, port, _ := net.SplitHostPort(address)
+	return port
 }
 
 // ErrToken is a token the other gateway refused.
