@@ -784,6 +784,21 @@ const more: Record<string, string> = {
     "Deja el token vacío para pedirle acceso a ese equipo: su pantalla muestra un código y quien esté ahí deja entrar a este. O escribe el token de su gateway (`motita gateway start -token-only` lo muestra). Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
   "Token (optional)": "Token (opcional)",
   "Ask for access": "Pedir acceso",
+  "Control of this computer's desktop": "Control del escritorio de este equipo",
+  "Allowed, asking each step": "Permitido, preguntando cada paso",
+  "Motita works with files and commands only: it never sees your screen nor uses your mouse or keyboard.":
+    "Motita trabaja solo con archivos y comandos: nunca ve tu pantalla ni usa tu mouse o teclado.",
+  "Motita can look at this computer's screen and use its mouse, keyboard and windows. It asks before every step, a picture of the screen included.":
+    "Motita puede mirar la pantalla de este equipo y usar su mouse, teclado y ventanas. Pregunta antes de cada paso, incluida cada captura de pantalla.",
+  "A picture of the screen shows the model whatever you have open: mail, chats, passwords on display.":
+    "Una captura de pantalla le muestra al modelo todo lo que tengas abierto: correo, chats, contraseñas a la vista.",
+  "Clicks and keys act as you, outside the sandbox, in every program of your session.":
+    "Los clics y las teclas actúan como tú, fuera del sandbox, en todos los programas de tu sesión.",
+  "Allowing every command for a session also allows every step on the desktop.":
+    "Permitir todos los comandos en una sesión también permite todos los pasos en el escritorio.",
+  "Let Motita control this computer's desktop?":
+    "¿Dejar que Motita controle el escritorio de este equipo?",
+  "Allow desktop control": "Permitir el control del escritorio",
 };
 
 export default more;

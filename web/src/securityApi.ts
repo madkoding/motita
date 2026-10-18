@@ -28,6 +28,11 @@ export interface SecurityView {
   // Whether the suggestions of a finished task are applied without asking. Missing from a gateway
   // older than the setting.
   auto_apply_suggestions?: boolean;
+  // Whether the agent may see this computer's screen and use its mouse, keyboard and windows,
+  // asking before every step, and why there is no desktop here when there is none. Missing from a
+  // gateway older than the setting.
+  desktop_control?: boolean;
+  desktop_reason?: string;
 }
 
 const HTTP_NOT_FOUND = 404;
@@ -91,6 +96,20 @@ export async function setAutoApplySuggestions(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ auto_apply_suggestions: on, confirm: on }),
+  });
+  return view(res);
+}
+
+// setDesktopControl saves whether the agent may control this computer's desktop. Turning it on is
+// sent only after the person confirmed what it implies, with confirm; turning it off needs none.
+export async function setDesktopControl(
+  api: Api,
+  on: boolean,
+): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ desktop_control: on, confirm: on }),
   });
   return view(res);
 }
