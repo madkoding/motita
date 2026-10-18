@@ -38,6 +38,7 @@ import {
 } from "./appConst";
 import type { Message, StepView } from "./appTypes";
 import { AuthModal } from "./AuthModal";
+import { ConnectionBanner } from "./ConnectionBanner";
 import { Sidebar } from "./Sidebar";
 import { ChatHeader } from "./ChatHeader";
 import { AgentsDrawer, TermDrawer, ThinkDrawer } from "./Drawers";
@@ -710,6 +711,7 @@ export default function App() {
           {/* Blocking auth modal — shown when the browser has no valid credential.
               It covers the entire screen and cannot be dismissed without a token. */}
           {store.auth.authState !== "ok" && <AuthModal />}
+          {store.auth.authState === "ok" && <ConnectionBanner />}
           {/* Sidebar — sessions list, toggleable on all sizes. */}
           {store.lists.sidebarOpen && <Sidebar />}
           <MainColumn pr={pr} />
