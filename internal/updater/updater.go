@@ -720,15 +720,19 @@ func comparePrerelease(a, b string) int {
 	case b == "":
 		return -1
 	default:
-		ia := strings.Split(a, ".")
-		ib := strings.Split(b, ".")
-		for i := 0; i < len(ia) && i < len(ib); i++ {
-			if c := compareIdentifier(ia[i], ib[i]); c != 0 {
-				return c
-			}
-		}
-		return len(ia) - len(ib)
+		return compareIdentifiers(strings.Split(a, "."), strings.Split(b, "."))
 	}
+}
+
+// compareIdentifiers compares two lists of pre-release identifiers left to right; when every
+// shared one is equal, the longer list wins.
+func compareIdentifiers(ia, ib []string) int {
+	for i := 0; i < len(ia) && i < len(ib); i++ {
+		if c := compareIdentifier(ia[i], ib[i]); c != 0 {
+			return c
+		}
+	}
+	return len(ia) - len(ib)
 }
 
 // compareIdentifier compares one pre-release identifier pair.
