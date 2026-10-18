@@ -40,13 +40,16 @@ func (f *fakePeers) serve(t *testing.T) Options {
 		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/peer-requests/"):
 			var body struct{ Allow bool }
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			f.decided = append(f.decided, strings.TrimPrefix(r.URL.Path, "/v1/peer-requests/")+map[bool]string{true: "+", false: "-"}[body.Allow])
+			mark := map[bool]string{true: "+", false: "-"}[body.Allow]
+			f.decided = append(f.decided, strings.TrimPrefix(r.URL.Path, "/v1/peer-requests/")+mark)
 			if f.decision != 0 {
 				w.WriteHeader(f.decision)
 				_, _ = io.WriteString(w, `{"error":"gone"}`)
 				return
 			}
 			_, _ = io.WriteString(w, f.view)
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	t.Cleanup(srv.Close)

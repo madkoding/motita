@@ -22,7 +22,10 @@ func TestPeerRequestsFromTheTerminal(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 	view, err := ReadPeerRequests(ctx, srv.URL+"/", "tok")
-	if err != nil || view.Name != "server" || !view.Reachable || len(view.Requests) != 1 || len(view.Grants) != 1 {
+	if err != nil || view.Name != "server" || !view.Reachable {
+		t.Fatalf("%+v %v", view, err)
+	}
+	if len(view.Requests) != 1 || len(view.Grants) != 1 {
 		t.Fatalf("%+v %v", view, err)
 	}
 	if err := DecidePeerRequest(ctx, srv.URL, "tok", "r 1", true); err != nil {
