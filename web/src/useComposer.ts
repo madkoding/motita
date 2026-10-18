@@ -61,6 +61,9 @@ interface Deps {
   drawers: Drawers;
   stream: Stream;
   runShellLine: (command: string) => Promise<void>;
+  // startSession opens a conversation when a message is sent with none on screen, and says
+  // which; nothing when it could not.
+  startSession: () => Promise<string | undefined>;
   // nextSuggestion is what the empty field hints at after a turn; "" when there is none.
   nextSuggestion: string;
 }
@@ -70,9 +73,10 @@ export function useComposer({
   drawers,
   stream,
   runShellLine,
+  startSession,
   nextSuggestion,
 }: Deps) {
-  const { runningRef } = rs;
+  const { runningRef, sessionRef } = rs;
   const [input, setInput] = useState("");
   // Slash commands loaded from the backend, and the autocomplete popup state.
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
@@ -150,6 +154,18 @@ export function useComposer({
     setActiveTags([]);
   };
 
+  // sendInNewSession opens a conversation for a message typed with none on screen, then sends
+  // it there: the first message IS the start of the conversation, with nothing to click first.
+  // When no conversation could be opened the message goes back to the field, not lost.
+  const sendInNewSession = async (text: string) => {
+    const id = await startSession();
+    if (!id) {
+      setInput(text);
+      return;
+    }
+    stream.submit(text);
+  };
+
   // send does what the composer holds: /agents opens the agents drawer, a shell line runs in the
   // shell, a message to a run in flight goes to the run (the agent reads it at its next step, or
   // it waits for the end of the turn), and anything else starts a run. Stopping is Escape, or the
@@ -173,6 +189,11 @@ export function useComposer({
     if (runningRef.current) {
       clear();
       stream.sendWhileRunning(text);
+      return;
+    }
+    if (!sessionRef.current) {
+      clear();
+      void sendInNewSession(text);
       return;
     }
     // Remove placeholder messages (.kind) before the first real turn.

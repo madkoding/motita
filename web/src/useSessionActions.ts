@@ -58,10 +58,13 @@ export function useSessionActions({
   // instant, so the button shows a spinner and refuses a second click while it runs.
   const [creatingSession, setCreatingSession] = useState<string | null>(null);
 
-  // createSession opens a new conversation and switches to it.
+  // createSession opens a new conversation and switches to it. It says which one it opened, so
+  // a message typed with no conversation on screen can go on into the one made for it; nothing
+  // when the gateway refused or could not be reached.
   const createSession = useCallback(
-    async (projectId?: string) => {
+    async (projectId?: string): Promise<string | undefined> => {
       setCreatingSession(projectId ?? "");
+      let opened: string | undefined;
       try {
         const body = choose(
           projectId,
@@ -76,16 +79,18 @@ export function useSessionActions({
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           setState(err.error || "could not create a session", true);
-          return;
+        } else {
+          const data: SessionInfo = await res.json();
+          await fetchSessions();
+          await switchSession(data.id);
+          opened = data.id;
         }
-        const data: SessionInfo = await res.json();
-        await fetchSessions();
-        await switchSession(data.id);
       } catch {
         setState("could not create a session", true);
       } finally {
         setCreatingSession(null);
       }
+      return opened;
     },
     [fetchSessions, switchSession],
   );

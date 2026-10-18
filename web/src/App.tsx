@@ -474,7 +474,8 @@ function ImagePreview() {
 }
 
 // NoSession is the chat when there is no conversation: none was created yet, or every one was
-// deleted. Nothing is created behind the user's back; the chat waits, and says how to start one.
+// deleted. Nothing is created behind the user's back; the chat waits, and says how to start one:
+// the composer is there, and the first message typed opens the conversation it goes to.
 // The words sit on an opaque card (.no-session-card in index.css): straight on the background
 // image they fell on its bright patches and could not be read.
 function NoSession() {
@@ -492,7 +493,7 @@ function NoSession() {
           {t("Waiting for a new session")}
         </p>
         <p class="no-session-hint text-sm">
-          {t("Create a session to start talking to the agent.")}
+          {t("Type below to start talking to the agent, or create a session first.")}
         </p>
         <div class="w-full max-w-[220px] flex">
           <NewSessionButton
@@ -517,6 +518,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <div class="flex flex-col flex-1 min-w-0 h-full relative">
         <ChatHeader />
         <NoSession />
+        <Composer />
       </div>
     );
   }

@@ -102,6 +102,7 @@ export function useAppStore(api: Api) {
     drawers,
     stream,
     runShellLine: shell.runShellLine,
+    startSession: actions.createSession,
     nextSuggestion,
   });
   const checkpoints = useCheckpoints({

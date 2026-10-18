@@ -296,8 +296,8 @@ const first: Record<string, string> = {
   "Nothing to integrate yet": "Todavía no hay nada que integrar",
   "Nothing yet. Ask for something below.": "Nada todavía. Pide algo abajo.",
   "Waiting for a new session": "Esperando por una nueva sesión",
-  "Create a session to start talking to the agent.":
-    "Crea una sesión para empezar a hablar con el agente.",
+  "Type below to start talking to the agent, or create a session first.":
+    "Escribe abajo para empezar a hablar con el agente, o crea una sesión primero.",
   "Open sidebar": "Abrir la barra lateral",
   "Open the agents": "Abrir los agentes",
   "Open the terminal history": "Abrir el historial de la terminal",

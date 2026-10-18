@@ -17,10 +17,16 @@ const CMDS = [
 ];
 
 // composer mounts useComposer with recording fakes.
-async function composer({ running = false, nextSuggestion = "" } = {}) {
+async function composer({
+  running = false,
+  nextSuggestion = "",
+  session = "s1",
+  startSession = async () => "s1",
+} = {}) {
   const calls = [];
   const rs = {
     runningRef: { current: running },
+    sessionRef: { current: session },
     messages: [
       { id: 1, kind: "kind", text: "placeholder" },
       { id: 2, text: "kept" },
@@ -38,6 +44,12 @@ async function composer({ running = false, nextSuggestion = "" } = {}) {
       stopRun: () => calls.push(["stop"]),
     },
     runShellLine: async (c) => calls.push(["shell", c]),
+    startSession: async () => {
+      calls.push(["start"]);
+      const id = await startSession();
+      rs.sessionRef.current = id ?? "";
+      return id;
+    },
     nextSuggestion,
   };
   const hook = await renderHook(() => useComposer(deps));
@@ -46,6 +58,9 @@ async function composer({ running = false, nextSuggestion = "" } = {}) {
   const run = (fn) => act(() => fn(c()));
   return { hook, c, calls, rs, run };
 }
+
+// settled waits for the promises a send left behind (opening a conversation) to run out.
+const settled = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
 // key is a keydown event as the handlers read it.
 function key(k, mods = {}) {
@@ -249,6 +264,31 @@ test("the popup answers the arrows, Tab, Enter and Escape", async () => {
   await run((x) => x.setSlashPopup((p) => p && { ...p, index: 0 }));
   await run((x) => x.setSlashPopup(null));
   await hook.unmount();
+});
+
+test("a message typed with no conversation opens one and goes there", async () => {
+  const { c, run, calls } = await composer({ session: "" });
+  await run((x) => x.onInput("make it so"));
+  await run((x) => x.handleKeydown(key("Enter")));
+  assert.equal(c().input, "", "the field is free at once");
+  await settled();
+  assert.deepEqual(calls, [["start"], ["submit", "make it so"]]);
+  // The conversation is open now: the next message needs no second start.
+  await run((x) => x.onInput("again"));
+  await run((x) => x.handleKeydown(key("Enter")));
+  assert.deepEqual(calls.slice(2), [["submit", "again"]]);
+});
+
+test("a message whose conversation could not be opened goes back to the field", async () => {
+  const { c, run, calls } = await composer({
+    session: "",
+    startSession: async () => undefined,
+  });
+  await run((x) => x.onInput("keep me"));
+  await run((x) => x.handleKeydown(key("Enter")));
+  await settled();
+  assert.deepEqual(calls, [["start"]]);
+  assert.equal(c().input, "keep me");
 });
 
 test("Enter sends what the composer holds: a run, a shell line, the agents, or nothing", async () => {
