@@ -13,7 +13,18 @@ import (
 // which refuses everything when no token was configured. (Start refuses the empty token
 // outright; this is the same defence, in the place every request passes through.)
 func requireToken(token string, next http.Handler, trusted ...string) http.Handler {
+	return requireCredential(token, nil, next, trusted...)
+}
+
+// requireCredential is requireToken that also lets in a request peer accepts: another computer let
+// into this one, with the token it was given (see peers.go). Such a request is a bearer client like
+// any other, so it is not asked for the browser's header either.
+func requireCredential(token string, peer func(*http.Request) bool, next http.Handler, trusted ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if peer != nil && peer(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !authorized(token, r) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="motita"`)
 			http.Error(w, "a valid bearer token is required", http.StatusUnauthorized)

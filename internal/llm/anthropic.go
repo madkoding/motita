@@ -48,12 +48,8 @@ func anthropicTextConversation(messages []Message) (string, []map[string]any) {
 		if role != "assistant" {
 			role = "user"
 		}
-		conversation = append(conversation, map[string]any{
-			"role": role,
-			"content": []map[string]any{
-				{"type": "text", "text": m.Content},
-			},
-		})
+		blocks := append([]map[string]any{{"type": "text", "text": m.Content}}, anthropicImages(m.Images)...)
+		conversation = append(conversation, map[string]any{"role": role, "content": blocks})
 	}
 	return system, conversation
 }
@@ -225,6 +221,7 @@ func anthropicTurnBlocks(m Message) []map[string]any {
 	if strings.TrimSpace(m.Content) != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
 	}
+	blocks = append(blocks, anthropicImages(m.Images)...)
 	for _, tc := range m.ToolCalls {
 		input := map[string]any{}
 		_ = tc.Function.DecodeArguments(&input)

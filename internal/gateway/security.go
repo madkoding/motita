@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/desktop"
 	"github.com/madkoding/motita/internal/sandbox"
 )
 
@@ -53,6 +54,11 @@ type securityView struct {
 	// one (Ubuntu 24.04: the AppArmor profile motita installs). Both are empty where it can.
 	NetworkReason string `json:"network_reason,omitempty"`
 	NetworkHint   string `json:"network_hint,omitempty"`
+	// DesktopControl says the agent may see this computer's screen and use its mouse, keyboard and
+	// windows, asking before every step (agent.desktop_control), and DesktopReason why there is no
+	// desktop for it here ("" when there is one).
+	DesktopControl bool   `json:"desktop_control"`
+	DesktopReason  string `json:"desktop_reason,omitempty"`
 }
 
 // securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, the
@@ -63,13 +69,26 @@ type securityChange struct {
 	IsolateNetwork    *bool  `json:"isolate_network"`
 	// AutoApplySuggestions turns on applying every suggestion without asking.
 	AutoApplySuggestions *bool `json:"auto_apply_suggestions"`
-	Confirm              bool  `json:"confirm"`
+	// DesktopControl turns on the agent's control of this computer's desktop.
+	DesktopControl *bool `json:"desktop_control"`
+	Confirm        bool  `json:"confirm"`
 }
 
 // widens says whether the change turns off asking or the network isolation, or turns on applying
-// suggestions without asking: what needs confirm.
+// suggestions without asking or the desktop control: what needs confirm.
 func (c securityChange) widens() bool {
-	return isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) || isTrue(c.AutoApplySuggestions)
+	return isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) || isTrue(c.AutoApplySuggestions) ||
+		isTrue(c.DesktopControl)
+}
+
+// empty says the change names nothing.
+func (c securityChange) empty(mode string) bool {
+	for _, t := range c.toggles() {
+		if t.on != nil {
+			return false
+		}
+	}
+	return mode == ""
 }
 
 // isTrue and isFalse say a choice was sent and which way.
@@ -81,9 +100,9 @@ func isFalse(b *bool) bool { return b != nil && !*b }
 // normalised.
 func (c securityChange) refusal(mode string) string {
 	switch {
-	case mode == "" && c.AskUnconfinedRuns == nil && c.IsolateNetwork == nil && c.AutoApplySuggestions == nil:
+	case c.empty(mode):
 		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, " +
-			"auto_apply_suggestions, or several"
+			"auto_apply_suggestions, desktop_control, or several"
 	case mode != "" && !config.ValidDiskAccess(mode):
 		return "disk_access must be workspace or full"
 	case mode == config.DiskFull && !c.Confirm:
@@ -91,8 +110,8 @@ func (c securityChange) refusal(mode string) string {
 			"sent after the person has been told what the change means"
 	case c.widens() && !c.Confirm:
 		return "running the project's code without asking where nothing confines it, giving the " +
-			"commands the network, or applying suggestions without asking needs confirm: true, " +
-			"sent after the person has been told what the change means"
+			"commands the network, applying suggestions without asking, or letting the agent control " +
+			"the desktop needs confirm: true, sent after the person has been told what the change means"
 	default:
 		return ""
 	}
@@ -113,6 +132,11 @@ type autoApplySetter interface {
 	SetAutoApplySuggestions(on bool)
 }
 
+// desktopControlSetter is a service that can take the desktop control choice for its next turn.
+type desktopControlSetter interface {
+	SetDesktopControl(on bool)
+}
+
 // diskAccessSetter is a service that can take a new disk access for its next command.
 type diskAccessSetter interface {
 	SetDiskAccess(mode string)
@@ -125,11 +149,19 @@ var (
 	setAskUnconfinedRuns = config.Tx.SetAskUnconfinedRuns
 	setIsolateNetwork    = config.Tx.SetIsolateNetwork
 	setAutoApply         = config.Tx.SetAutoApplySuggestions
+	setDesktopControl    = config.Tx.SetDesktopControl
+	desktopProbe         = probeDesktop
 	confinementAvailable = sandbox.ConfinementAvailable
 	networkAvailable     = sandbox.NetworkIsolationAvailable
 	networkReason        = sandbox.NetworkIsolationReason
 	networkHint          = sandbox.NetworkIsolationHint
 )
+
+// probeDesktop says why this computer has no desktop for the agent, or nil when it has one.
+func probeDesktop() error {
+	_, err := desktop.New()
+	return err
+}
 
 // securityConfig is the configuration the setting is read from: the file's when there is one, the
 // running one otherwise.
@@ -165,6 +197,10 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 	}
 	if !view.NetworkEnforced {
 		view.NetworkReason, view.NetworkHint = networkReason(), networkHint()
+	}
+	view.DesktopControl = cfg.Agent.DesktopControl
+	if err := desktopProbe(); err != nil {
+		view.DesktopReason = err.Error()
 	}
 	writeJSON(w, http.StatusOK, view)
 }
@@ -212,25 +248,40 @@ func (s *Server) saveSecurity(mode string, change securityChange) error {
 		}
 		s.info("the agent's disk access was changed from the settings", "disk_access", mode)
 	}
-	if ask := change.AskUnconfinedRuns; ask != nil {
-		for _, c := range s.snapshot() {
-			applyAskUnconfinedRuns(c.svc, *ask)
+	for _, t := range change.toggles() {
+		if t.on == nil {
+			continue
 		}
-		s.info("asking before unconfined runs was changed from the settings", "ask_unconfined_runs", *ask)
-	}
-	if on := change.IsolateNetwork; on != nil {
 		for _, c := range s.snapshot() {
-			applyIsolateNetwork(c.svc, *on)
+			t.apply(c.svc, *t.on)
 		}
-		s.info("the network isolation of the commands was changed from the settings", "isolate_network", *on)
-	}
-	if on := change.AutoApplySuggestions; on != nil {
-		for _, c := range s.snapshot() {
-			applyAutoApply(c.svc, *on)
-		}
-		s.info("applying suggestions without asking was changed from the settings", "auto_apply_suggestions", *on)
+		s.info(t.changed+" was changed from the settings", t.key, *t.on)
 	}
 	return nil
+}
+
+// toggle is one on/off choice of the page: the change's value (nil when it does not name it), what
+// writes it into the file, what hands it to a conversation, and what the log says changed.
+type toggle struct {
+	on      *bool
+	write   func(config.Tx, bool) error
+	apply   func(Service, bool)
+	changed string
+	key     string
+}
+
+// toggles are the change's on/off choices, in the order they are written.
+func (c securityChange) toggles() []toggle {
+	return []toggle{
+		{c.AskUnconfinedRuns, setAskUnconfinedRuns, applyAskUnconfinedRuns,
+			"asking before unconfined runs", "ask_unconfined_runs"},
+		{c.IsolateNetwork, setIsolateNetwork, applyIsolateNetwork,
+			"the network isolation of the commands", "isolate_network"},
+		{c.AutoApplySuggestions, setAutoApply, applyAutoApply,
+			"applying suggestions without asking", "auto_apply_suggestions"},
+		{c.DesktopControl, setDesktopControl, applyDesktopControl,
+			"the agent's control of this computer's desktop", "desktop_control"},
+	}
 }
 
 // writeSecurityKeys writes each key the change names into the file, stopping at the first that
@@ -241,18 +292,13 @@ func writeSecurityKeys(tx config.Tx, mode string, change securityChange) error {
 			return err
 		}
 	}
-	if ask := change.AskUnconfinedRuns; ask != nil {
-		if err := setAskUnconfinedRuns(tx, *ask); err != nil {
+	for _, t := range change.toggles() {
+		if t.on == nil {
+			continue
+		}
+		if err := t.write(tx, *t.on); err != nil {
 			return err
 		}
-	}
-	if on := change.IsolateNetwork; on != nil {
-		if err := setIsolateNetwork(tx, *on); err != nil {
-			return err
-		}
-	}
-	if on := change.AutoApplySuggestions; on != nil {
-		return setAutoApply(tx, *on)
 	}
 	return nil
 }
@@ -268,6 +314,14 @@ func (s *Server) startingDiskAccess(svc Service) {
 		applyAskUnconfinedRuns(svc, cfg.Sandbox.AskUnconfinedRuns)
 		applyIsolateNetwork(svc, cfg.Sandbox.IsolateNetwork)
 		applyAutoApply(svc, cfg.Agent.AutoApplySuggestions)
+		applyDesktopControl(svc, cfg.Agent.DesktopControl)
+	}
+}
+
+// applyDesktopControl gives svc the desktop control choice, when it can take one.
+func applyDesktopControl(svc Service, on bool) {
+	if ds, ok := svc.(desktopControlSetter); ok {
+		ds.SetDesktopControl(on)
 	}
 }
 
