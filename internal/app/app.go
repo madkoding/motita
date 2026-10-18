@@ -228,6 +228,8 @@ Commands:
                      and write a working configuration
   doctor             check this machine: platform, shell, DNS, PATH, the
                      configuration and the sandbox
+  index status       the code index kept on disk: where, how many files, how big
+  index clear        delete the code index files (the next search builds them again)
   sandbox apparmor   print, install or remove the AppArmor profile that lets commands
                      run without a network on Ubuntu 24.04 and later
                      (print | install | remove; install and remove need sudo)
@@ -268,6 +270,8 @@ type flags struct {
 	isolation      bool
 	initConfig     bool
 	doctor         bool
+	// indexAction is the action of `motita index <action>`.
+	indexAction string
 	// sandboxAction is the action of `motita sandbox apparmor <action>`.
 	sandboxAction string
 	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
@@ -356,8 +360,8 @@ func Run(op Options) int {
 		return op.runDoctor(fl)
 	}
 
-	if fl.sandboxAction != "" {
-		return op.runSandboxCommand(fl.sandboxAction)
+	if fl.localCommand() {
+		return op.runLocalCommand(fl)
 	}
 
 	// A subcommand is dispatched here, before the main path, because it pays for neither the
@@ -625,7 +629,7 @@ func loadPreferringKey(path string, fl flags) (config.Config, error) {
 
 // diagnosticNeedsNoKey reports whether this invocation can be served without an LLM key.
 func diagnosticNeedsNoKey(fl flags) bool {
-	if fl.validateConfig || fl.isolation || fl.doctor {
+	if fl.validateConfig || fl.isolation || fl.doctor || fl.indexAction != "" {
 		return true
 	}
 	// A curator command, unless it is the consolidation pass.

@@ -779,6 +779,8 @@ func (s *Server) routes() *http.ServeMux {
 	s.gitRoutes(mux, plain)
 	s.routeDisk(mux, plain)
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
+	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
 	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))

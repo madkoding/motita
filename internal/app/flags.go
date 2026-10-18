@@ -119,6 +119,8 @@ func (b *flags) subcommandAt(args []string, i int) ([]string, bool, error) {
 		return withoutArgs(args, i, 1), true, nil
 	case "curator":
 		return b.curatorSubcommand(args, i)
+	case "index":
+		return b.indexSubcommand(args, i)
 	case "sandbox":
 		return b.sandboxSubcommand(args, i)
 	default:
@@ -148,6 +150,20 @@ func (b *flags) gatewaySubcommand(args []string, i int) ([]string, bool, error) 
 		// typo into something else entirely - `motita gateway strat` starting the
 		// interface.
 		return nil, false, fmt.Errorf("unknown gateway action %q: start, stop, status or setup", args[i+1])
+	}
+}
+
+// indexSubcommand reads `index <status|clear>` at args[i].
+func (b *flags) indexSubcommand(args []string, i int) ([]string, bool, error) {
+	if i+1 >= len(args) {
+		return nil, false, fmt.Errorf("index needs an action: %s", indexActions)
+	}
+	switch action := strings.ToLower(strings.TrimSpace(args[i+1])); action {
+	case "status", "clear":
+		b.indexAction = action
+		return withoutArgs(args, i, 2), true, nil
+	default:
+		return nil, false, fmt.Errorf("unknown index action %q: %s", args[i+1], indexActions)
 	}
 }
 

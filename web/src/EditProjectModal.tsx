@@ -10,6 +10,7 @@ import type { EditProjectDraft } from "./appTypes";
 import { EDIT_PROJECT, PR_MAX_FIXES_LIMIT } from "./appConst";
 import { ReposSection } from "./ReposField";
 import { connectedAccounts } from "./gitApi";
+import { ProjectIndexPanel } from "./ProjectIndexPanel";
 
 // The look of the dialog's fields.
 const FIELD =
@@ -256,6 +257,7 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
     savingProject,
     saveEditProject,
   } = useApp().projects;
+  const { api } = useApp();
   return (
     <ModalBackdrop onClose={closeEditProject}>
       <dialog
@@ -299,6 +301,7 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
           </div>
           <FolderField p={p} patch={patch} />
           <EditRepos p={p} />
+          {api && <ProjectIndexPanel api={api} id={p.id} />}
           <BranchFields p={p} patch={patch} />
           <PullRequestFields p={p} patch={patch} />
         </div>

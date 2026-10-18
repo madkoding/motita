@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/madkoding/motita/internal/codeindex"
 	"github.com/madkoding/motita/internal/config"
 )
 
@@ -15,6 +16,9 @@ import (
 // on this machine or its network SENDS THE TEXT OF THE INDEXED FILES there, so it is never done
 // without confirm in the request itself, sent only after the person was told what it means.
 // The embeddings key is not handled here: it belongs in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY.
+
+// errConfigUnreadable starts the message when the configuration file cannot be read.
+const errConfigUnreadable = "the configuration could not be read: "
 
 // codeIndexView is what GET and PUT /v1/code-index answer.
 type codeIndexView struct {
@@ -32,6 +36,9 @@ type codeIndexView struct {
 	Embeddings string `json:"embeddings"`
 	// EndpointLocal says the endpoint is on this machine or its network; the text does not leave.
 	EndpointLocal bool `json:"endpoint_local"`
+	// CacheFiles and CacheBytes are the index files kept on disk and what they hold.
+	CacheFiles int   `json:"cache_files"`
+	CacheBytes int64 `json:"cache_bytes"`
 	// CanSave is false when there is no configuration file to save a change in.
 	CanSave bool `json:"can_save"`
 }
@@ -101,7 +108,7 @@ func embeddingsSource(x config.CodeIndex) string {
 func (s *Server) writeCodeIndex(w http.ResponseWriter) {
 	cfg, canSave, err := s.securityConfig()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "the configuration could not be read: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
 		return
 	}
 	x := cfg.CodeIndex
@@ -112,6 +119,7 @@ func (s *Server) writeCodeIndex(w http.ResponseWriter) {
 		EndpointLocal: x.EmbeddingsURL != "" && config.IsLocalURL(x.EmbeddingsURL),
 	}
 	view.Embeddings = embeddingsSource(x)
+	view.CacheFiles, view.CacheBytes = codeindex.CacheSize(x.CacheDir)
 	writeJSON(w, http.StatusOK, view)
 }
 
@@ -141,4 +149,68 @@ func (s *Server) handlePutCodeIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	s.info("the code index settings were changed from the settings page")
 	s.writeCodeIndex(w)
+}
+
+// codeIndexCleared is what DELETE /v1/code-index/cache answers.
+type codeIndexCleared struct {
+	Removed int   `json:"removed"`
+	Bytes   int64 `json:"bytes"`
+}
+
+// handleDeleteCodeIndexCache deletes the index files kept in code_index.cache_dir. The next search
+// builds the index again; nothing else is touched.
+func (s *Server) handleDeleteCodeIndexCache(w http.ResponseWriter, _ *http.Request) {
+	cfg, _, err := s.securityConfig()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
+		return
+	}
+	files, size, err := codeindex.ClearCache(cfg.CodeIndex.CacheDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the index cache could not be cleared: "+err.Error())
+		return
+	}
+	s.info("the code index cache was cleared from the settings page")
+	writeJSON(w, http.StatusOK, codeIndexCleared{Removed: files, Bytes: size})
+}
+
+// handleProjectCodeIndex answers how much of the project's folder the index on disk covers.
+func (s *Server) handleProjectCodeIndex(w http.ResponseWriter, r *http.Request) {
+	s.projectIndex(w, r, false)
+}
+
+// handleBuildProjectCodeIndex builds (or refreshes) the project's index now, and answers its status.
+func (s *Server) handleBuildProjectCodeIndex(w http.ResponseWriter, r *http.Request) {
+	s.projectIndex(w, r, true)
+}
+
+// projectIndex is the two handlers above: build says whether the index is brought up to date first.
+func (s *Server) projectIndex(w http.ResponseWriter, r *http.Request, build bool) {
+	p := s.projectOf(r.PathValue("id"))
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	cfg, _, err := s.securityConfig()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
+		return
+	}
+	if !cfg.CodeIndex.Enabled {
+		writeError(w, http.StatusConflict, "the code index is turned off in Settings → Indexing")
+		return
+	}
+	opts := cfg.CodeIndex.Options()
+	if build {
+		if _, err := codeindex.Shared(opts).Search(r.Context(), p.Dir, "index", 1); err != nil {
+			writeError(w, http.StatusInternalServerError, "the project could not be indexed: "+err.Error())
+			return
+		}
+	}
+	st, err := codeindex.Inspect(r.Context(), p.Dir, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "the project could not be read: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }

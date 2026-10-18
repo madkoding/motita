@@ -20,8 +20,31 @@ export interface CodeIndexView {
   embeddings: EmbeddingsSource;
   // Whether the endpoint is on this machine or its network: the text does not leave.
   endpoint_local: boolean;
+  // The index files kept on disk and what they hold.
+  cache_files: number;
+  cache_bytes: number;
   // Whether there is a configuration file to save a change in.
   can_save: boolean;
+}
+
+// How much of a project's folder the index on disk covers: none, stale (the folder changed since it
+// was built) or ready.
+export type IndexState = "none" | "stale" | "ready";
+
+export interface ProjectIndexStatus {
+  state: IndexState;
+  // Files the folder offers, files the index holds and the share covered (0 to 100).
+  candidates: number;
+  files: number;
+  percent: number;
+  chunks: number;
+  terms: number;
+  max_files: number;
+  // The folder has at least max_files files, so some may be left out.
+  capped: boolean;
+  cache_bytes: number;
+  semantic: boolean;
+  embeddings: boolean;
 }
 
 // CodeIndexChange is any of the fields the page changes; confirm says the person was told that the
@@ -72,6 +95,48 @@ export async function setCodeIndex(
   return view(res);
 }
 
+// CodeIndexCleared is what deleting the cache answers: the files removed and the bytes they held.
+export interface CodeIndexCleared {
+  removed: number;
+  bytes: number;
+}
+
+// clearCodeIndexCache deletes the index files kept on disk; the next search builds them again.
+export async function clearCodeIndexCache(api: Api): Promise<CodeIndexCleared> {
+  const res = await api(CODE_INDEX_PATH + "/cache", { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "HTTP " + res.status);
+  }
+  return (await res.json()) as CodeIndexCleared;
+}
+
+async function projectIndex(
+  api: Api,
+  id: string,
+  method: "GET" | "POST",
+): Promise<ProjectIndexStatus> {
+  const res = await api(
+    "/v1/projects/" + encodeURIComponent(id) + "/code-index",
+    { method },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "HTTP " + res.status);
+  }
+  return (await res.json()) as ProjectIndexStatus;
+}
+
+// getProjectIndex reads how much of a project's folder the index covers.
+export function getProjectIndex(api: Api, id: string) {
+  return projectIndex(api, id, "GET");
+}
+
+// buildProjectIndex brings the project's index up to date and answers its status.
+export function buildProjectIndex(api: Api, id: string) {
+  return projectIndex(api, id, "POST");
+}
+
 // looksLocal is a guess at what the gateway will decide: an address on this machine or its network.
 // A wrong "remote" only asks once too often; a wrong "local" is refused by the gateway.
 export function looksLocal(raw: string): boolean {
@@ -86,4 +151,14 @@ export function looksLocal(raw: string): boolean {
     /\.(local|lan|internal)$/.test(host) ||
     /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)
   );
+}
+
+const KB = 1024;
+
+// sizeLabel writes a byte count as KB, or as MB once it passes one.
+export function sizeLabel(bytes: number): string {
+  if (bytes < KB * KB) {
+    return Math.ceil(bytes / KB) + " KB";
+  }
+  return (bytes / (KB * KB)).toFixed(1) + " MB";
 }

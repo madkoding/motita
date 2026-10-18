@@ -6,8 +6,10 @@ import { errorMessage } from "./errors";
 import {
   type CodeIndexChange,
   type CodeIndexView,
+  clearCodeIndexCache,
   getCodeIndex,
   looksLocal,
+  sizeLabel,
   setCodeIndex,
 } from "./codeIndexApi";
 import { Row, Segmented, inputCls, primaryBtn } from "./SettingsControls";
@@ -82,7 +84,29 @@ function useCodeIndex(api: Api) {
     },
     [api],
   );
-  return { view, loadErr, err, busy, save };
+  const [cleared, setCleared] = useState("");
+  const clear = useCallback(async () => {
+    setBusy(true);
+    setErr("");
+    setCleared("");
+    try {
+      const done = await clearCodeIndexCache(api);
+      setView((v) => v && { ...v, cache_files: 0, cache_bytes: 0 });
+      setCleared(
+        tf(
+          "{n} index files deleted ({kb} KB). The next search builds it again.",
+          {
+            n: String(done.removed),
+            kb: String(Math.ceil(done.bytes / 1024)),
+          },
+        ),
+      );
+    } catch (e) {
+      setErr(errorMessage(e));
+    }
+    setBusy(false);
+  }, [api]);
+  return { view, loadErr, err, busy, save, clear, cleared };
 }
 
 // SwitchRow is an on/off setting.
@@ -236,11 +260,56 @@ function EndpointFields({
   );
 }
 
+// CacheRow deletes the index kept on disk and says what was removed.
+function CacheRow({
+  view,
+  busy,
+  clear,
+  cleared,
+}: {
+  view: CodeIndexView;
+  busy: boolean;
+  clear: () => Promise<void>;
+  cleared: string;
+}) {
+  return (
+    <>
+      <Row
+        id="settings-code-index-cache"
+        label={t("Index cache")}
+        hint={tf(
+          "{n} files, {size} on disk. The index is rebuilt when it is gone.",
+          { n: String(view.cache_files), size: sizeLabel(view.cache_bytes) },
+        )}
+        stack
+      >
+        <button
+          type="button"
+          class={primaryBtn}
+          disabled={busy}
+          onClick={clear}
+          data-testid="code-index-clear"
+        >
+          {t("Clear index cache")}
+        </button>
+      </Row>
+      {cleared && (
+        <output
+          class="settings-card-note block text-xs text-[#7a7a8c]"
+          data-testid="code-index-cleared"
+        >
+          {cleared}
+        </output>
+      )}
+    </>
+  );
+}
+
 // CodeIndexSettings is the search_index tool's settings: whether it is on, the ranking by meaning,
 // where real embeddings come from, and the limits. The section stays hidden on a gateway without
 // the code index API.
 export function CodeIndexSettings({ api }: { api: Api }) {
-  const { view, loadErr, err, busy, save } = useCodeIndex(api);
+  const { view, loadErr, err, busy, save, clear, cleared } = useCodeIndex(api);
   if (view === null || (view === undefined && !loadErr)) {
     return null;
   }
@@ -301,6 +370,7 @@ export function CodeIndexSettings({ api }: { api: Api }) {
               busy={busy}
               save={save}
             />
+            <CacheRow view={view} busy={busy} clear={clear} cleared={cleared} />
             <p class="settings-card-note text-xs text-[#7a7a8c]">
               {t(
                 "The embeddings key goes in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Changes apply to new sessions.",

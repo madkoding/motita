@@ -134,3 +134,54 @@ func TestSemanticVectorsSurviveARestartAndFollowTheSwitch(t *testing.T) {
 		t.Fatalf("switched off, the vectors on disk must not be used: %v", err)
 	}
 }
+
+func TestClearCacheRemovesOnlyIndexFiles(t *testing.T) {
+	root, cache := project(t), t.TempDir()
+	if _, err := NewSearcher(Options{CacheDir: cache}).Search(context.Background(), root, "wal", 1); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(cache, "notes.txt")
+	if err := os.WriteFile(other, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, size, err := ClearCache(cache)
+	if err != nil || files != 1 || size == 0 {
+		t.Fatalf("ClearCache = %d, %d, %v", files, size, err)
+	}
+	if _, err := os.Stat(cachePath(cache, root)); !os.IsNotExist(err) {
+		t.Errorf("the index file is still there: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("a file that is not an index was removed: %v", err)
+	}
+	if files, _, err := ClearCache(cache); err != nil || files != 0 {
+		t.Errorf("second clear = %d, %v", files, err)
+	}
+	for _, dir := range []string{"", filepath.Join(cache, "missing")} {
+		if files, _, err := ClearCache(dir); err != nil || files != 0 {
+			t.Errorf("ClearCache(%q) = %d, %v", dir, files, err)
+		}
+	}
+	if _, _, err := ClearCache("[" + cache); err == nil {
+		t.Error("a malformed pattern should be an error")
+	}
+}
+
+func TestClearCacheSkipsFoldersAndReportsAFileThatCannotBeRemoved(t *testing.T) {
+	cache := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cache, "dir.gob"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if files, _, err := ClearCache(cache); err != nil || files != 0 {
+		t.Fatalf("a folder named like an index file: %d, %v", files, err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "a.gob"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := removeFile
+	removeFile = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { removeFile = old })
+	if _, _, err := ClearCache(cache); err == nil {
+		t.Error("expected an error")
+	}
+}

@@ -612,6 +612,30 @@ const more: Record<string, string> = {
   "Learned from your own code. No network.":
     "Aprendido de tu propio código. Sin red.",
   "Find a local Ollama": "Buscar un Ollama local",
+  "Index cache": "Caché del índice",
+  "{n} files, {size} on disk. The index is rebuilt when it is gone.":
+    "{n} archivos, {size} en disco. El índice se reconstruye si falta.",
+  "Code index": "Índice de código",
+  "Up to date": "Al día",
+  "Out of date": "Desactualizado",
+  "Not indexed": "Sin indexar",
+  "Indexed share of the project": "Parte del proyecto indexada",
+  files: "archivos",
+  passages: "pasajes",
+  terms: "términos",
+  "on disk": "en disco",
+  "{files} files indexed; {skipped} binary or unreadable skipped.":
+    "{files} archivos indexados; {skipped} binarios o ilegibles omitidos.",
+  "{files} of {total} files covered.": "{files} de {total} archivos cubiertos.",
+  "The limit of {max} files is reached: raise it in Settings.":
+    "Se alcanzó el límite de {max} archivos: súbelo en Ajustes.",
+  "Ranked also by embeddings.": "Ordena también con embeddings.",
+  "Ranked also by meaning.": "Ordena también por significado.",
+  "Index now": "Indexar ahora",
+  "Indexing…": "Indexando…",
+  "Clear index cache": "Borrar caché del índice",
+  "{n} index files deleted ({kb} KB). The next search builds it again.":
+    "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",
   "Looks on this machine for nomic-embed-text. The text does not leave it.":
     "Busca nomic-embed-text en este equipo. El texto no sale de él.",
   "Embeddings come from {endpoint} ({model}), on this machine or its network.":

@@ -4494,6 +4494,40 @@ html[data-density="compact"] .settings-warn {
   background: var(--color-accent);
 }
 
+/* The project's index: a full-width bar that turns amber when the index is out of date. */
+.settings-progress-wide {
+  flex: 1;
+  width: auto;
+}
+.settings-progress-wide[data-state="stale"]::-webkit-progress-value {
+  background: var(--color-warn, #d9a441);
+}
+.settings-progress-wide[data-state="stale"]::-moz-progress-bar {
+  background: var(--color-warn, #d9a441);
+}
+.project-index-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.project-index-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.75rem;
+  background: rgb(var(--ov-rgb) / 0.05);
+}
+.project-index-badge {
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  color: var(--color-accent);
+  background: rgb(var(--ov-rgb) / 0.08);
+}
+.project-index-badge[data-state="stale"] {
+  color: var(--color-warn, #d9a441);
+}
+
 /* ─── Text that arrives ─────────────────────────────────────────────
  * The activity line is typed in by the terminal's typewriter (Typed in Term.tsx); its cursor
  * takes the line's own colour instead of the terminal green. */

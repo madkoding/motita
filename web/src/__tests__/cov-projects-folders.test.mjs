@@ -508,3 +508,35 @@ test("a project that keeps its folder sends no path", async () => {
   assert.equal("path" in patch.body, false);
   await s.m.unmount();
 });
+
+test("the edit dialog shows the project's index panel when the app has an api", async () => {
+  const api = fakeApi({
+    "GET /v1/projects/p1/code-index": () =>
+      res(200, {
+        state: "none",
+        percent: 0,
+        files: 0,
+        candidates: 3,
+        chunks: 0,
+        terms: 0,
+        max_files: 5000,
+        capped: false,
+        cache_bytes: 0,
+        semantic: false,
+        embeddings: false,
+      }),
+  });
+  const s = store();
+  const m = await mount(
+    AppCtx,
+    { ...s.value, api },
+    h(EditProjectModal, { p: { ...DRAFT, id: "p1" } }),
+  );
+  await flush();
+  assert.ok(m.q("[data-testid=project-index]"));
+  assert.equal(
+    m.q("[data-testid=project-index-state]").textContent,
+    "Not indexed",
+  );
+  await m.unmount();
+});
