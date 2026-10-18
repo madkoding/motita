@@ -74,6 +74,9 @@ export interface SessionInfo {
   // Older gateways do not send them.
   provider?: string;
   model?: string;
+  // warning comes only on the answer to a create: the project's base branch could not be
+  // brought up to date (offline), and the session starts from the checkout as it is.
+  warning?: string;
 }
 
 // AgentInfo is one agent of a run, as the gateway reports it (agent.AgentInfo). The row with no

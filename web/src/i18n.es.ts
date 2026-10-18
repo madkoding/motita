@@ -180,6 +180,8 @@ const first: Record<string, string> = {
   Continue: "Continuar",
   "Continued in a new session": "Continuaste en una sesión nueva",
   "Could not continue this session": "No se pudo continuar esta sesión",
+  "The project could not be updated first":
+    "No se pudo actualizar el proyecto antes de empezar",
   "Could not go back to that checkpoint": "No se pudo volver a ese checkpoint",
   "Could not reach the gateway": "No se pudo contactar al gateway",
   "Could not save the language": "No se pudo guardar el idioma",
