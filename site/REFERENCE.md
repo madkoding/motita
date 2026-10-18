@@ -785,6 +785,8 @@ motita gateway start -json         # url, pid, version, token and links as JSON
 motita gateway status   # says whether one is running, where, and WHICH BUILD
 motita gateway stop     # stops the one the service file names
 motita gateway setup    # where it answers: this machine, the local network or everywhere
+motita gateway computers          # the computers asking to connect to this one, with their codes
+motita gateway allow 123 456      # lets in the one whose page shows that code (deny turns it away)
 ```
 
 On Windows, where there is no SIGTERM, `gateway stop` first asks the gateway to shut down over
@@ -1091,7 +1093,10 @@ one of two ways:
   *"laptop wants to open this computer"*, with a six-digit code that this computer shows too.
   The person there compares the codes and picks *Allow*; the other gateway then issues a token
   of its own for this computer, tied to its certificate, and lists it under *Can open this
-  computer*, where the ✕ revokes it. A request waits five minutes; at most eight wait at once;
+  computer*, where the ✕ revokes it. A request waits five minutes; at most eight wait at once.
+  A computer with no screen (a server reached over SSH or a VPN) answers from its terminal:
+  `motita gateway computers` lists the requests with their codes, and
+  `motita gateway allow 123 456` (or `deny`) answers the one whose code the other page shows;
 - **its own gateway token** (`motita gateway start -token-only` on that computer prints it).
 
 Either way this gateway keeps the token in `~/.motita/peers.json`, readable by its owner only;
@@ -1115,7 +1120,10 @@ included — with that computer's token and nothing of the browser's (no cookie,
 The other gateway sees an ordinary bearer client, so its own token, network rules and limits
 apply unchanged. Only addresses of private networks are ever dialled (the LAN and its
 link-local range, private and unique-local ranges, the tailnet's `100.64.0.0/10`, loopback),
-checked on the address actually connected to, after any name was resolved. The other
+checked on the address actually connected to, after any name was resolved. A computer added by
+its address is given ten seconds to answer, since a VPN can take that long to find the way; when
+nothing answers, the error says what to check there: that its gateway is running, answers the
+network (`motita gateway setup`) and that its firewall lets the port in. The other
 computer's own list of computers, its cookie exchange and its shutdown are not forwarded.
 A connected computer whose token changed (or was revoked there) answers `502` with "connect it
 again", never `401`,

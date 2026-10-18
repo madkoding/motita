@@ -21,11 +21,14 @@ import (
 const gatewayCommandHelp = `Usage: motita gateway <action>
 
 Actions:
-  start    bring the gateway up as a service and leave it running
-  stop     stop the gateway named by the service file
-  status   report whether a gateway is running
-  setup    choose where the gateway answers (this machine, the local network or
-           everywhere) and, when Tailscale is running, publish it in the tailnet
+  start      bring the gateway up as a service and leave it running
+  stop       stop the gateway named by the service file
+  status     report whether a gateway is running
+  setup      choose where the gateway answers (this machine, the local network or
+             everywhere) and, when Tailscale is running, publish it in the tailnet
+  computers  list the computers asking to connect to this one, with their codes
+  allow CODE let in the computer that asks with CODE (the code its page shows)
+  deny CODE  turn it away
 `
 
 // runGatewayCommand dispatches `motita gateway <action>`.
@@ -46,6 +49,10 @@ func (op Options) runGatewayCommand(ctx context.Context, action string, fl flags
 		return op.gatewayStatus(ctx, fl)
 	case "setup":
 		return op.gatewaySetup(ctx, fl)
+	case "computers":
+		return op.gatewayComputers(ctx)
+	case "allow", "deny":
+		return op.gatewayDecide(ctx, fl.gatewayCode, strings.EqualFold(strings.TrimSpace(action), "allow"))
 	default:
 		fmt.Fprint(op.Out, gatewayCommandHelp)
 		return Success

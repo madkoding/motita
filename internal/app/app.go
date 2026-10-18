@@ -289,6 +289,8 @@ type flags struct {
 	// gatewayAction is the action of `motita gateway <action>`. A POSITIONAL argument, not a
 	// flag, which is why it is read before the flag loop rather than inside it.
 	gatewayAction string
+	// gatewayCode is the pairing code `gateway allow` and `gateway deny` answer.
+	gatewayCode string
 	// curatorAction is the action of `motita curator <action>`, curatorSkill the name some
 	// of them take, and the two switches are `curator run`'s. Positional like
 	// gatewayAction, and read the same way and for the same reason.
