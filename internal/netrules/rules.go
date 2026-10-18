@@ -95,9 +95,9 @@ func (p *Policy) Describe() string {
 // The obvious implementation of `lan` is a table of prefixes to loop over, and an earlier draft of
 // this file had one. It was removed because it duplicated an answer Go already gives: netip's
 // IsPrivate covers 10/8, 172.16/12, 192.168/16 and the IPv6 unique-local range, and
-// IsLinkLocalUnicast covers 169.254/16 and fe80::/10; only the tailnet's 100.64/10 is added. A second table is a second place to be wrong,
-// and the measured failure mode is the quiet one: a rule that stops matching an address the operator
-// can see on their own network.
+// IsLinkLocalUnicast covers 169.254/16 and fe80::/10; only the tailnet's 100.64/10 is added. A
+// second table is a second place to be wrong, and the measured failure mode is the quiet one: a rule
+// that stops matching an address the operator can see on their own network.
 //
 // The set `lan` means is therefore defined by matches(), and the tests assert it against real
 // addresses rather than against a copy of the list.
