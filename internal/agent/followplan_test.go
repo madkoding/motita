@@ -73,3 +73,49 @@ func TestAPlanFollowingTurnSkipsPlanningAndNeverAsks(t *testing.T) {
 		t.Errorf("the turn must say it is carrying out the plan: %q", lines)
 	}
 }
+
+// TestAnAnalysisThatPlansSkipsThePlanPhase: with steps in the analysis the plan phase is not
+// called; without them, or with subtasks asked for, or with the setting off, it is.
+func TestAnAnalysisThatPlansSkipsThePlanPhase(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		analysis string
+		quick    bool
+		planned  bool
+	}{
+		{"steps in the analysis", `\"plan\":[\"read\",\" \",\"write\"]`, true, false},
+		{"no steps", `\"plan\":[]`, true, true},
+		{"subtasks asked for", `\"plan\":[\"a\"],\"needs_subtasks\":true`, true, true},
+		{"setting off", `\"plan\":[\"a\"]`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			planned := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				text := string(body)
+				switch {
+				case strings.Contains(text, "## ANALYSIS OF THE TASK"):
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"task\",\"understandable\":true,`+
+						`\"summary\":\"s\",\"success_criteria\":[\"c\"],`+tc.analysis+`}"}}]}`)
+				case strings.Contains(text, "## ACTION PLAN"):
+					planned = true
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[]}"}}]}`)
+				default:
+					if strings.Contains(text, "## PREVIOUS ROUNDS") && strings.Contains(text, "1. read") == tc.planned {
+						t.Errorf("the execute phase must see the analysis' steps exactly when the plan phase was skipped")
+					}
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[],\"done\":true,`+
+						`\"final_action\":{\"command\":\"true\"}}"}}]}`)
+				}
+			}))
+			defer srv.Close()
+			e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+			e.agent.cfg.Agent.CriteriaAudit = false
+			e.agent.cfg.Agent.QuickPlan = tc.quick
+			_ = e.agent.Run(context.Background())
+			if planned != tc.planned {
+				t.Errorf("plan phase called = %v, want %v", planned, tc.planned)
+			}
+		})
+	}
+}

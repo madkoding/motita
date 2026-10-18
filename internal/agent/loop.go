@@ -91,11 +91,16 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		a.report("%sdone means:\n- %s", ThinkingPrefix, strings.Join(r.analysis.SuccessCrit, "\n- "))
 	}
 
-	// [4] Plan. A plan the person already approved is not planned again.
-	if following {
+	// [4] Plan. A plan the person already approved is not planned again, and one the analysis
+	// wrote itself is taken as it is: the plan phase is for work that splits into subtasks.
+	switch {
+	case following:
 		r.plan = approvedPlan()
 		a.report("carrying out the approved plan")
-	} else {
+	case r.quickPlan():
+		r.plan = planFromAnalysis(r.analysis)
+		a.report("plan ready: %d steps", len(r.plan.Steps))
+	default:
 		a.report("planning...")
 		r.plan = a.planPhase(ctx, t, r.analysis, depth)
 		a.report("plan ready: %d steps", len(r.plan.Steps))

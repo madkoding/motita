@@ -34,3 +34,22 @@ func approvedPlan() Plan {
 		ExpectedResult: "Every step of the plan is done and shown to work",
 	}
 }
+
+// quickPlan says the analysis planned the work itself and the plan phase is not needed: the
+// setting is on, the analysis wrote steps, and it did not ask for subtasks, which only the plan
+// phase can declare.
+func (r *taskRun) quickPlan() bool {
+	return r.a.cfg.Agent.QuickPlan && len(nonBlank(r.analysis.Plan)) > 0 && !r.analysis.NeedsSubtasks
+}
+
+// planFromAnalysis is the plan the analysis wrote, in the plan phase's shape.
+func planFromAnalysis(an Analysis) Plan {
+	var p Plan
+	for i, step := range nonBlank(an.Plan) {
+		p.Steps = append(p.Steps, Step{Number: i + 1, Action: step})
+	}
+	if len(an.SuccessCrit) > 0 {
+		p.ExpectedResult = strings.Join(an.SuccessCrit, "; ")
+	}
+	return p
+}

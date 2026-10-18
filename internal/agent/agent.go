@@ -334,6 +334,10 @@ type Analysis struct {
 	SuccessCrit    []string `json:"success_criteria"`
 	Risks          []string `json:"risks"`
 	NeedsSubtasks  bool     `json:"needs_subtasks"`
+	// Plan is the steps of the work, written by the analysis itself when the task does not split
+	// into subtasks. With it the plan phase is not called: one model call stands before the
+	// first action instead of two (see agent.quick_plan).
+	Plan []string `json:"plan"`
 
 	// Question is what to ask the user when the request cannot be understood well enough to act
 	// on. It is the difference between an agent that stops and one that asks.

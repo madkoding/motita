@@ -294,7 +294,11 @@ type Agent struct {
 	// ask, unless the question is a real decision (destructive, irreversible or materially
 	// different outcomes). The report says what was assumed. false asks every time.
 	AssumeFirst bool `yaml:"assume_first"`
-	MaxTasks    int  `yaml:"max_tasks"`
+	// QuickPlan lets the analysis write the plan of a task in its own answer, so one model call
+	// stands before the first action instead of two; the plan phase still runs for work the
+	// analysis says needs subtasks. false always runs the plan phase.
+	QuickPlan bool `yaml:"quick_plan"`
+	MaxTasks  int  `yaml:"max_tasks"`
 	// MaxSteps bounds how many rounds a SINGLE task may take, which is a different
 	// question from max_retries.
 	//
@@ -498,6 +502,7 @@ func Default() Config {
 			SubtaskRetries: 1,
 			CriteriaAudit:  true,
 			AssumeFirst:    true,
+			QuickPlan:      true,
 			// A task is allowed to take many rounds, because "do what I asked" is usually a
 			// plan and not a single step.
 			//
