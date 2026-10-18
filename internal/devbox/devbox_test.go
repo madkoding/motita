@@ -112,7 +112,12 @@ func TestSpecValidation(t *testing.T) {
 			t.Errorf("%s should be refused", name)
 		}
 	}
-	for _, s := range []Spec{{Image: "nginx:alpine", Port: 80}, {Image: "ghcr.io/a/b@sha256:ab12", Port: 1}, {Dir: "/w/app", Port: 3000}} {
+	good := []Spec{
+		{Image: "nginx:alpine", Port: 80},
+		{Image: "ghcr.io/a/b@sha256:ab12", Port: 1},
+		{Dir: "/w/app", Port: 3000},
+	}
+	for _, s := range good {
 		if err := s.Validate(); err != nil {
 			t.Errorf("%+v: %v", s, err)
 		}
@@ -137,7 +142,9 @@ func TestUpPublishesOnLoopbackOnlyAndIsHardened(t *testing.T) {
 		}
 	}
 	joined := strings.Join(run, " ")
-	for _, want := range []string{"-p 127.0.0.1::80", "no-new-privileges", "--pids-limit", "--memory", "motita.box=1", "motita.owner=ab12", "nginx:alpine"} {
+	wants := []string{"-p 127.0.0.1::80", "no-new-privileges", "--pids-limit", "--memory", "motita.box=1",
+		"motita.owner=ab12", "nginx:alpine"}
+	for _, want := range wants {
 		if !strings.Contains(joined, want) {
 			t.Errorf("run lacks %q: %s", want, joined)
 		}
@@ -174,104 +181,105 @@ func TestUpBuildsADirectoryAndRemovesTheImageWithTheBox(t *testing.T) {
 	}
 }
 
-func TestUpFailures(t *testing.T) {
+func failing(verb, out string) func([]string) ([]byte, error) {
+	return func(a []string) ([]byte, error) {
+		if a[0] == verb {
+			return []byte(out), errors.New("exit 1")
+		}
+		return nil, nil
+	}
+}
+
+// upFailure is a start that goes wrong, and what must be left of it.
+type upFailure struct {
+	name       string
+	spec       Spec
+	answer     func([]string) ([]byte, error)
+	http       func(string) (*http.Response, error)
+	want       string
+	rm, rmi    int
+	timeoutMs  int
+	wantNoRuns bool
+}
+
+func (c upFailure) check(t *testing.T) {
+	f := &fake{answer: c.answer, http: c.http}
+	f.install(t)
 	ctx := context.Background()
-	t.Run("invalid", func(t *testing.T) {
-		(&fake{}).install(t)
-		if _, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{}); err == nil {
-			t.Fatal("invalid spec")
-		}
-	})
-	t.Run("build fails", func(t *testing.T) {
-		f := &fake{answer: func(a []string) ([]byte, error) {
-			if a[0] == "build" {
-				return []byte("step 3 failed"), errors.New("exit 1")
-			}
-			return nil, nil
-		}}
-		f.install(t)
-		_, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{Dir: "/w", Port: 80})
-		if err == nil || !strings.Contains(err.Error(), "step 3 failed") || f.ran("run") != 0 {
-			t.Fatalf("%v %v", err, f.calls)
-		}
-	})
-	t.Run("run fails", func(t *testing.T) {
-		f := &fake{answer: func(a []string) ([]byte, error) {
-			if a[0] == "run" {
-				return []byte("no such image"), errors.New("exit 125")
-			}
-			return nil, nil
-		}}
-		f.install(t)
-		_, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{Dir: "/w", Port: 80})
-		if err == nil || !strings.Contains(err.Error(), "no such image") || f.ran("rmi") != 1 {
-			t.Fatalf("%v %v", err, f.calls)
-		}
-		f2 := &fake{answer: f.answer}
-		f2.install(t)
-		if _, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{Image: "nope", Port: 80}); err == nil || f2.ran("rmi") != 0 {
-			t.Fatalf("a pulled image is not removed: %v", f2.calls)
-		}
-	})
-	t.Run("port unknown", func(t *testing.T) {
-		f := &fake{answer: func(a []string) ([]byte, error) {
-			if a[0] == "port" {
+	if c.timeoutMs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.timeoutMs)*time.Millisecond)
+		defer cancel()
+	}
+	_, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, c.spec)
+	if err == nil || !strings.Contains(err.Error(), c.want) {
+		t.Fatalf("error %v, want %q", err, c.want)
+	}
+	if c.wantNoRuns && f.ran("run") != 0 {
+		t.Fatalf("nothing may start: %v", f.calls)
+	}
+	if f.ran("rm") != c.rm || f.ran("rmi") != c.rmi {
+		t.Fatalf("rm %d rmi %d, calls %v", f.ran("rm"), f.ran("rmi"), f.calls)
+	}
+}
+
+func portAnswers(port, logs string) func([]string) ([]byte, error) {
+	return func(a []string) ([]byte, error) {
+		switch a[0] {
+		case "port":
+			if port == "" {
 				return nil, errors.New("no mapping")
 			}
-			if a[0] == "logs" {
-				return []byte("listening on 3001"), nil
-			}
+			return []byte(port), nil
+		case "logs":
+			return []byte(logs), nil
+		default:
 			return nil, nil
-		}}
-		f.install(t)
-		_, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{Image: "app", Port: 80})
-		if err == nil || !strings.Contains(err.Error(), "listening on 3001") || f.ran("rm") != 1 {
-			t.Fatalf("%v %v", err, f.calls)
 		}
-	})
-	t.Run("published wider than loopback", func(t *testing.T) {
-		f := &fake{answer: runtimeThatPublishes("0.0.0.0:49000")}
-		f.install(t)
-		_, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{Image: "app", Port: 80})
-		if err == nil || !strings.Contains(err.Error(), "127.0.0.1 only") || f.ran("rm") != 1 {
-			t.Fatalf("%v %v", err, f.calls)
+	}
+}
+
+func TestUpFailures(t *testing.T) {
+	refused := func(string) (*http.Response, error) { return nil, errors.New("refused") }
+	app := Spec{Image: "app", Port: 80}
+	dir := Spec{Dir: "/w", Port: 80}
+	noImage := failing("run", "no such image")
+	cases := []upFailure{
+		{name: "invalid spec", spec: Spec{}, want: "exactly one", wantNoRuns: true},
+		{name: "build fails", spec: dir, answer: failing("build", "step 3 failed"), want: "step 3 failed", wantNoRuns: true},
+		{name: "run fails", spec: dir, answer: noImage, want: "no such image", rm: 1, rmi: 1},
+		{name: "a pulled image is not removed", spec: Spec{Image: "nope", Port: 80}, answer: noImage,
+			want: "no such image", rm: 1},
+		{name: "port unknown", spec: app, answer: portAnswers("", "listening on 3001"), want: "listening on 3001", rm: 1},
+		{name: "published wider than loopback", spec: app, answer: runtimeThatPublishes("0.0.0.0:49000"),
+			want: "127.0.0.1 only", rm: 1},
+		{name: "port is not a number", spec: app, answer: runtimeThatPublishes("127.0.0.1:abc"),
+			want: "127.0.0.1 only", rm: 1},
+		{name: "never answers", spec: app, answer: runtimeThatPublishes("127.0.0.1:49000"), http: refused,
+			want: "did not answer", rm: 1, timeoutMs: 30},
+	}
+	for _, c := range cases {
+		t.Run(c.name, c.check)
+	}
+}
+
+func TestOnlyAFewBoxesAtOnce(t *testing.T) {
+	ctx := context.Background()
+	f := &fake{answer: runtimeThatPublishes("127.0.0.1:49000")}
+	f.install(t)
+	m := New(Runtime{Bin: "podman"}, "x")
+	for i := 0; i < MaxBoxes; i++ {
+		if _, err := m.Up(ctx, Spec{Image: "app", Port: 80}); err != nil {
+			t.Fatal(err)
 		}
-	})
-	t.Run("bad port text", func(t *testing.T) {
-		f := &fake{answer: runtimeThatPublishes("127.0.0.1:abc")}
-		f.install(t)
-		if _, err := New(Runtime{Bin: "podman"}, "x").Up(ctx, Spec{Image: "app", Port: 80}); err == nil {
-			t.Fatal("port is not a number")
-		}
-	})
-	t.Run("never answers", func(t *testing.T) {
-		f := &fake{answer: runtimeThatPublishes("127.0.0.1:49000"),
-			http: func(string) (*http.Response, error) { return nil, errors.New("refused") }}
-		f.install(t)
-		c, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
-		defer cancel()
-		_, err := New(Runtime{Bin: "podman"}, "x").Up(c, Spec{Image: "app", Port: 80})
-		if err == nil || !strings.Contains(err.Error(), "did not answer") || f.ran("rm") != 1 {
-			t.Fatalf("%v %v", err, f.calls)
-		}
-	})
-	t.Run("too many", func(t *testing.T) {
-		f := &fake{answer: runtimeThatPublishes("127.0.0.1:49000")}
-		f.install(t)
-		m := New(Runtime{Bin: "podman"}, "x")
-		for i := 0; i < MaxBoxes; i++ {
-			if _, err := m.Up(ctx, Spec{Image: "app", Port: 80}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if _, err := m.Up(ctx, Spec{Image: "app", Port: 80}); err == nil || !strings.Contains(err.Error(), "take one down") {
-			t.Fatalf("%v", err)
-		}
-		m.DownAll()
-		if len(m.List()) != 0 || f.ran("rm") != MaxBoxes {
-			t.Fatalf("down all: %v", f.calls)
-		}
-	})
+	}
+	if _, err := m.Up(ctx, Spec{Image: "app", Port: 80}); err == nil || !strings.Contains(err.Error(), "take one down") {
+		t.Fatalf("%v", err)
+	}
+	m.DownAll()
+	if len(m.List()) != 0 || f.ran("rm") != MaxBoxes {
+		t.Fatalf("down all: %v", f.calls)
+	}
 }
 
 func upOne(t *testing.T, f *fake) *Manager {
@@ -299,10 +307,11 @@ func TestGetOnlyReachesTheBox(t *testing.T) {
 	if !strings.Contains(out, "application/json") || !strings.Contains(out, "[body cut at 4096 bytes]") {
 		t.Fatalf("%s", out)
 	}
-	if out, err = m.Get(context.Background(), "", ""); err != nil || asked != "http://127.0.0.1:49000/" {
+	if _, err = m.Get(context.Background(), "", ""); err != nil || asked != "http://127.0.0.1:49000/" {
 		t.Fatalf("empty path is the root: %q %v", asked, err)
 	}
-	for _, p := range []string{"http://evil.example/", "//evil.example/x", "x", "/a b", `/a\b`, "/@evil.example", "/a\nb"} {
+	evil := []string{"http://evil.example/", "//evil.example/x", "x", "/a b", `/a\b`, "/@evil.example", "/a\nb"}
+	for _, p := range evil {
 		if _, err := m.Get(context.Background(), "", p); err == nil {
 			t.Errorf("%q must not be accepted", p)
 		}
@@ -330,77 +339,124 @@ func TestBoxPicksTheOnlyOneOnly(t *testing.T) {
 	}
 }
 
-func TestShot(t *testing.T) {
-	f := &fake{}
-	m := upOne(t, f)
-	dir := t.TempDir()
-	out := filepath.Join(dir, "p", "home.png")
+// shotFixture is a box that is up and a browser on this machine whose behaviour a test sets.
+type shotFixture struct {
+	m    *Manager
+	out  string
+	args []string
+	// act is what the browser does when it runs.
+	act func(out string) ([]byte, error)
+}
+
+func newShotFixture(t *testing.T) *shotFixture {
+	t.Helper()
+	sf := &shotFixture{m: upOne(t, &fake{}), out: filepath.Join(t.TempDir(), "p", "home.png")}
+	sf.act = func(out string) ([]byte, error) { return nil, os.WriteFile(out, []byte("png"), 0o644) }
 	oldEuid, oldTemp := euid, tempDir
 	t.Cleanup(func() { euid, tempDir = oldEuid, oldTemp })
-	var browserArgs []string
 	base := runCmd
 	runCmd = func(ctx context.Context, bin string, args ...string) ([]byte, error) {
-		if strings.HasSuffix(bin, "chromium") {
-			browserArgs = args
-			return nil, os.WriteFile(out, []byte("png"), 0o644)
+		if !strings.HasSuffix(bin, "chromium") {
+			return base(ctx, bin, args...)
 		}
-		return base(ctx, bin, args...)
+		sf.args = args
+		return sf.act(sf.out)
 	}
+	euid = func() int { return 1000 }
+	return sf
+}
+
+func (sf *shotFixture) shoot(name, path string, w, h int) error {
+	return sf.m.Shot(context.Background(), name, path, sf.out, w, h)
+}
+
+func TestShotRunsTheBrowserOnTheBoxAddress(t *testing.T) {
+	sf := newShotFixture(t)
 	euid = func() int { return 0 }
-	if err := m.Shot(context.Background(), "", "/", out, 1280, 800); err != nil {
+	if err := sf.shoot("", "/", 1280, 800); err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(browserArgs, " ")
+	joined := strings.Join(sf.args, " ")
 	if !strings.Contains(joined, "--no-sandbox") || !strings.Contains(joined, "--window-size=1280,800") ||
-		browserArgs[len(browserArgs)-1] != "http://127.0.0.1:49000/" {
+		sf.args[len(sf.args)-1] != "http://127.0.0.1:49000/" {
 		t.Fatalf("%s", joined)
 	}
 	euid = func() int { return 1000 }
-	browserArgs = nil
-	if err := m.Shot(context.Background(), "", "/", out, 1280, 800); err != nil || strings.Contains(strings.Join(browserArgs, " "), "--no-sandbox") {
-		t.Fatalf("not root keeps the browser's sandbox: %v %v", err, browserArgs)
+	if err := sf.shoot("", "/", 1280, 800); err != nil || strings.Contains(strings.Join(sf.args, " "), "--no-sandbox") {
+		t.Fatalf("not root keeps the browser's sandbox: %v %v", err, sf.args)
 	}
+}
 
-	if err := m.Shot(context.Background(), "", "/", out, 10, 800); err == nil {
-		t.Error("window out of range")
-	}
-	if err := m.Shot(context.Background(), "", "http://x/", out, 1280, 800); err == nil {
-		t.Error("not a path")
-	}
-	if err := m.Shot(context.Background(), "zz", "/", out, 1280, 800); err == nil {
-		t.Error("unknown box")
-	}
-	if err := m.Shot(context.Background(), "", "/", filepath.Join(out, "x", "y.png"), 1280, 800); err == nil {
-		t.Error("cannot create the folder")
-	}
-	tempDir = func(string, string) (string, error) { return "", errors.New("no temp") }
-	if err := m.Shot(context.Background(), "", "/", out, 1280, 800); err == nil {
-		t.Error("no profile dir")
-	}
-	tempDir = oldTemp
-	runCmd = func(ctx context.Context, bin string, args ...string) ([]byte, error) {
-		if strings.HasSuffix(bin, "chromium") {
-			return []byte("crashed"), errors.New("signal")
+func TestShotRefusesWhatIsNotAPictureOfTheBox(t *testing.T) {
+	sf := newShotFixture(t)
+	for name, err := range map[string]error{
+		"window out of range": sf.shoot("", "/", 10, 800),
+		"not a path":          sf.shoot("", "http://x/", 1280, 800),
+		"unknown box":         sf.shoot("zz", "/", 1280, 800),
+	} {
+		if err == nil {
+			t.Errorf("%s must be refused", name)
 		}
-		return base(ctx, bin, args...)
 	}
-	if err := m.Shot(context.Background(), "", "/", out, 1280, 800); err == nil || !strings.Contains(err.Error(), "crashed") {
-		t.Errorf("browser failure: %v", err)
+	if sf.args != nil {
+		t.Fatalf("the browser never ran: %v", sf.args)
 	}
-	os.Remove(out)
-	runCmd = func(ctx context.Context, bin string, args ...string) ([]byte, error) {
-		if strings.HasSuffix(bin, "chromium") {
-			return nil, nil
-		}
-		return base(ctx, bin, args...)
+}
+
+func TestShotFailures(t *testing.T) {
+	type failure struct {
+		act  func(out string) ([]byte, error)
+		temp func(string, string) (string, error)
+		out  func(sf *shotFixture)
+		want string
 	}
-	if err := m.Shot(context.Background(), "", "/", out, 1280, 800); err == nil || !strings.Contains(err.Error(), "no picture") {
-		t.Errorf("no file: %v", err)
+	crash := func(string) ([]byte, error) { return []byte("crashed"), errors.New("signal") }
+	nothing := func(string) ([]byte, error) { return nil, nil }
+	noTemp := func(string, string) (string, error) { return "", errors.New("no temp") }
+	underAFile := func(sf *shotFixture) { sf.out = filepath.Join(sf.out, "x", "y.png") }
+	cases := map[string]failure{
+		"the browser crashes":      {act: crash, want: "crashed"},
+		"no picture":               {act: nothing, want: "no picture"},
+		"no profile folder":        {temp: noTemp, want: "no temp"},
+		"cannot create the folder": {out: underAFile, want: "not a directory"},
 	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			sf := newShotFixture(t)
+			if c.act != nil {
+				sf.act = c.act
+			}
+			if c.temp != nil {
+				tempDir = c.temp
+			}
+			if c.out != nil {
+				sf.blockOutputFolder(t)
+				c.out(sf)
+			}
+			if err := sf.shoot("", "/", 1280, 800); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("%v, want %q", err, c.want)
+			}
+		})
+	}
+}
+
+// blockOutputFolder puts a file where the picture's folder would be.
+func (sf *shotFixture) blockOutputFolder(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(sf.out), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sf.out, []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShotWithoutABrowser(t *testing.T) {
+	sf := newShotFixture(t)
 	lookPath = func(string) (string, error) { return "", errors.New("none") }
 	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", t.TempDir())
 	t.Setenv("MOTITA_BROWSER", "")
-	if err := m.Shot(context.Background(), "", "/", out, 1280, 800); err == nil || !strings.Contains(err.Error(), "MOTITA_BROWSER") {
+	if err := sf.shoot("", "/", 1280, 800); err == nil || !strings.Contains(err.Error(), "MOTITA_BROWSER") {
 		t.Errorf("no browser: %v", err)
 	}
 }

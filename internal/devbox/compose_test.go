@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const goodConfig = `{"services":{
@@ -108,8 +109,10 @@ func TestUpComposeAndDown(t *testing.T) {
 		t.Fatalf("%+v", b)
 	}
 	up := findCall(f, func(a []string) bool { return a[0] == "compose" && has(a, " up ") })
-	if !has(up, "-p motita-box-ab12-1") || !has(up, "--project-directory "+dir) || !has(up, "override.yaml") || !has(up, "up -d --build") {
-		t.Fatalf("%v", up)
+	for _, want := range []string{"-p motita-box-ab12-1", "--project-directory " + dir, "override.yaml", "up -d --build"} {
+		if !has(up, want) {
+			t.Fatalf("%q missing: %v", want, up)
+		}
 	}
 	data, err := os.ReadFile(b.scratch + "/override.yaml")
 	if err != nil || !strings.Contains(string(data), "internal: true") {
@@ -118,7 +121,8 @@ func TestUpComposeAndDown(t *testing.T) {
 	if err := m.Down(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
-	if down := findCall(f, func(a []string) bool { return a[0] == "compose" && has(a, " down ") }); !has(down, "down -v --rmi local --remove-orphans") {
+	down := findCall(f, func(a []string) bool { return a[0] == "compose" && has(a, " down ") })
+	if !has(down, "down -v --rmi local --remove-orphans") {
 		t.Fatalf("%v", f.calls)
 	}
 	if _, err := os.Stat(b.scratch); !os.IsNotExist(err) {
@@ -127,51 +131,83 @@ func TestUpComposeAndDown(t *testing.T) {
 }
 
 func TestUpComposeFailures(t *testing.T) {
-	ctx := context.Background()
 	dir := composeDir(t)
 	cfg := strings.ReplaceAll(goodConfig, "%DIR%", dir)
-	spec := Spec{Compose: dir, Service: "web", Port: 80}
-	run := func(t *testing.T, cfg string, fail map[string]bool) (error, *fake) {
-		f := runtimeFake(composeRuntime(cfg, fail))
-		f.install(t)
-		_, err := New(Runtime{Bin: "docker"}, "x").Up(ctx, spec)
-		return err, f
+	cases := []struct {
+		name string
+		cfg  string
+		fail map[string]bool
+		want string
+	}{
+		{"config fails", cfg, map[string]bool{"config": true}, "config --format json"},
+		{"not json", "not json", nil, "JSON"},
+		{"up fails", cfg, map[string]bool{"up": true}, "up failed"},
 	}
-	if err, _ := run(t, cfg, map[string]bool{"config": true}); err == nil || !strings.Contains(err.Error(), "config --format json") {
-		t.Errorf("config: %v", err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := runtimeFake(composeRuntime(c.cfg, c.fail))
+			f.install(t)
+			_, err := New(Runtime{Bin: "docker"}, "x").Up(context.Background(), Spec{Compose: dir, Service: "web", Port: 80})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("%v, want %q", err, c.want)
+			}
+		})
 	}
-	if err, _ := run(t, "not json", nil); err == nil || !strings.Contains(err.Error(), "JSON") {
-		t.Errorf("json: %v", err)
-	}
-	if err, f := run(t, `{"services":{"web":{"privileged":true}}}`, nil); err == nil || f.ran("compose") != 1 {
-		t.Errorf("a refused file never runs: %v %v", err, f.calls)
-	}
-	err, f := run(t, cfg, map[string]bool{"up": true})
-	if err == nil || !strings.Contains(err.Error(), "up failed") || !has(f.calls[len(f.calls)-1], " down ") {
-		t.Errorf("up: %v", err)
-	}
-	c, cancel := context.WithTimeout(ctx, 30*1e6)
-	defer cancel()
-	f = runtimeFake(composeRuntime(cfg, map[string]bool{"logs": false}))
+}
+
+func TestComposeUpFailureTakesTheProjectDown(t *testing.T) {
+	dir := composeDir(t)
+	f := runtimeFake(composeRuntime(strings.ReplaceAll(goodConfig, "%DIR%", dir), map[string]bool{"up": true}))
 	f.install(t)
-	getImageAnswer := f.answer
+	spec := Spec{Compose: dir, Service: "web", Port: 80}
+	if _, err := New(Runtime{Bin: "docker"}, "x").Up(context.Background(), spec); err == nil {
+		t.Fatal("up failed")
+	}
+	if !has(f.calls[len(f.calls)-1], " down ") {
+		t.Fatalf("%v", f.calls)
+	}
+}
+
+func TestARefusedComposeFileNeverRuns(t *testing.T) {
+	dir := composeDir(t)
+	f := runtimeFake(composeRuntime(`{"services":{"web":{"privileged":true}}}`, nil))
+	f.install(t)
+	_, err := New(Runtime{Bin: "docker"}, "x").Up(context.Background(), Spec{Compose: dir, Service: "web", Port: 80})
+	if err == nil || f.ran("compose") != 1 {
+		t.Fatalf("only the config was read: %v %v", err, f.calls)
+	}
+}
+
+func TestComposeThatNeverAnswers(t *testing.T) {
+	dir := composeDir(t)
+	f := runtimeFake(composeRuntime(strings.ReplaceAll(goodConfig, "%DIR%", dir), nil))
+	inner := f.answer
 	f.answer = func(a []string) ([]byte, error) {
 		if a[0] == "run" {
 			return nil, errors.New("refused")
 		}
-		return getImageAnswer(a)
+		return inner(a)
 	}
-	if _, err := New(Runtime{Bin: "docker"}, "x").Up(c, spec); err == nil || !strings.Contains(err.Error(), "did not answer") {
-		t.Errorf("never ready: %v", err)
+	f.install(t)
+	c, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := New(Runtime{Bin: "docker"}, "x").Up(c, Spec{Compose: dir, Service: "web", Port: 80})
+	if err == nil || !strings.Contains(err.Error(), "did not answer") {
+		t.Fatalf("never ready: %v", err)
 	}
-	empty := t.TempDir()
+}
+
+func TestComposeNeedsAFileAndAScratchFolder(t *testing.T) {
+	ctx := context.Background()
+	dir := composeDir(t)
+	spec := Spec{Compose: dir, Service: "web", Port: 80}
 	(&fake{}).install(t)
-	if _, err := New(Runtime{Bin: "docker"}, "x").Up(ctx, Spec{Compose: empty, Service: "web", Port: 80}); err == nil || !strings.Contains(err.Error(), "no compose.yaml") {
+	empty := Spec{Compose: t.TempDir(), Service: "web", Port: 80}
+	_, err := New(Runtime{Bin: "docker"}, "x").Up(ctx, empty)
+	if err == nil || !strings.Contains(err.Error(), "no compose.yaml") {
 		t.Errorf("no file: %v", err)
 	}
-	// The scratch folder cannot be made, or written.
-	f = runtimeFake(composeRuntime(cfg, nil))
-	f.install(t)
+	runtimeFake(composeRuntime(strings.ReplaceAll(goodConfig, "%DIR%", dir), nil)).install(t)
 	oldTemp := tempDir
 	t.Cleanup(func() { tempDir = oldTemp })
 	tempDir = func(string, string) (string, error) { return "", errors.New("no temp") }

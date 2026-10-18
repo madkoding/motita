@@ -42,9 +42,18 @@ func (f *fakeBoxes) Shot(_ context.Context, _, _, out string, w, h int) error {
 	}
 	return f.shotErr
 }
-func (f *fakeBoxes) Down(context.Context, string) error { f.downs++; return nil }
-func (f *fakeBoxes) DownAll()                           { f.all++ }
-func (f *fakeBoxes) Runtime() string                    { return "podman" }
+func (f *fakeBoxes) Down(context.Context, string) error {
+	f.downs++
+	return nil
+}
+
+func (f *fakeBoxes) DownAll() {
+	f.all++
+}
+
+func (f *fakeBoxes) Runtime() string {
+	return "podman"
+}
 
 func boxAgent(t *testing.T, fb *fakeBoxes, answer bool) (*fixture, *[]ApprovalRequest) {
 	t.Helper()
@@ -165,7 +174,8 @@ func TestBoxUpInternalAndCompose(t *testing.T) {
 		!strings.Contains((*asked)[2].Reason, "compose project in stack (service web)") {
 		t.Fatalf("%v %q %+v", err, out, fb.specs)
 	}
-	if out, err = box(e, "box_up", "compose: ../../etc\nservice: web\nport: 80"); err == nil || !strings.Contains(out, "outside the working directory") {
+	out, err = box(e, "box_up", "compose: ../../etc\nservice: web\nport: 80")
+	if err == nil || !strings.Contains(out, "outside the working directory") {
 		t.Fatalf("%v %q", err, out)
 	}
 }
@@ -193,42 +203,65 @@ func TestBoxUpReportsWhatDoesNotStart(t *testing.T) {
 	}
 }
 
-func TestBoxActionsFailInWordsTheModelCanUse(t *testing.T) {
-	fb := &fakeBoxes{}
-	e, _ := boxAgent(t, fb, true)
+func TestBoxActionsNeedABoxFirst(t *testing.T) {
+	e, _ := boxAgent(t, &fakeBoxes{}, true)
 	for _, k := range []string{"box_get", "box_shot", "box_down"} {
 		if out, err := box(e, k, "path: /"); err == nil || !strings.Contains(out, "start one with box_up first") {
 			t.Errorf("%s with nothing up: %v %q", k, err, out)
 		}
 	}
+}
+
+func upBox(t *testing.T, fb *fakeBoxes) *fixture {
+	t.Helper()
+	e, _ := boxAgent(t, fb, true)
 	if _, err := box(e, "box_up", "image: app\nport: 80"); err != nil {
 		t.Fatal(err)
 	}
-	fb.getErr = errors.New("GET / failed")
+	return e
+}
+
+func TestBoxGetFailureIsInformationForTheModel(t *testing.T) {
+	fb := &fakeBoxes{getErr: errors.New("GET / failed")}
+	e := upBox(t, fb)
 	if out, err := box(e, "box_get", "path: /"); err != nil || !strings.Contains(out, "[failed: GET / failed]") {
 		t.Fatalf("%v %q", err, out)
 	}
-	for cmd, want := range map[string]string{
+}
+
+func TestBoxShotArgumentsAreChecked(t *testing.T) {
+	e := upBox(t, &fakeBoxes{})
+	cases := map[string]string{
 		"path: /\nname: ../x":                  "not a file name",
 		"path: /\nname: a\nsize: wide":         "written like 1280x800",
 		"path: /\nname: a\nsize: 0x0":          "written like 1280x800",
 		"path: /\nname: a\nsize: 1280x800junk": "written like 1280x800",
-	} {
+	}
+	for cmd, want := range cases {
 		if out, err := box(e, "box_shot", cmd); err != nil || !strings.Contains(out, want) {
 			t.Errorf("%q: %v %q", cmd, err, out)
 		}
 	}
-	// A preview folder that is a link out of the workspace is not written through.
+}
+
+func TestBoxShotNeverWritesThroughALinkOutOfTheWorkspace(t *testing.T) {
+	fb := &fakeBoxes{}
+	e := upBox(t, fb)
 	if err := os.MkdirAll(filepath.Join(e.dir, ".motita"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(t.TempDir(), filepath.Join(e.dir, ".motita", "previews")); err == nil {
-		if out, _ := box(e, "box_shot", "path: /\nname: a"); !strings.Contains(out, "failed") || len(fb.shots) != 0 {
-			t.Fatalf("%q", out)
-		}
-		_ = os.Remove(filepath.Join(e.dir, ".motita", "previews"))
+	link := filepath.Join(e.dir, ".motita", "previews")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Skip("no symbolic links here")
 	}
-	fb.shotErr = errors.New("the browser failed")
+	if out, _ := box(e, "box_shot", "path: /\nname: a"); !strings.Contains(out, "failed") || len(fb.shots) != 0 {
+		t.Fatalf("%q", out)
+	}
+}
+
+func TestBoxShotBrowserFailureIsInformationForTheModel(t *testing.T) {
+	fb := &fakeBoxes{shotErr: errors.New("the browser failed")}
+	e := upBox(t, fb)
 	if out, _ := box(e, "box_shot", "path: /\nname: a"); !strings.Contains(out, "the browser failed") {
 		t.Fatalf("%q", out)
 	}
@@ -243,7 +276,8 @@ func TestBoxActionsAreRefusedWhereTheyMustNotRun(t *testing.T) {
 	}
 	e.agent.isChild = false
 	e.agent.cfg.Agent.ReadOnly = true
-	if out, err := box(e, "box_up", "image: app\nport: 80"); err == nil || !strings.Contains(out, "read-only") || len(fb.specs) != 0 {
+	out, err := box(e, "box_up", "image: app\nport: 80")
+	if err == nil || !strings.Contains(out, "read-only") || len(fb.specs) != 0 {
 		t.Fatalf("%v %q", err, out)
 	}
 	if handled, _, _ := e.agent.runBoxAction(context.Background(), "write_file", Command{}); handled {

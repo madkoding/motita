@@ -65,13 +65,15 @@ type boxState struct {
 	m boxes
 }
 
-func isBoxKind(kind string) bool {
-	switch kind {
-	case "box_up", "box_get", "box_shot", "box_down":
-		return true
-	}
-	return false
-}
+// boxKinds are the actions of this file.
+var boxKinds = map[string]bool{"box_up": true, "box_get": true, "box_shot": true, "box_down": true}
+
+func isBoxKind(kind string) bool { return boxKinds[kind] }
+
+// What the model reads when an action is refused (the run's rules), fails (a fact about the
+// project) or is not approved.
+func boxRefused(msg string) (string, error) { return "[refused: " + msg + "]", errors.New(msg) }
+func boxFailed(msg string) (string, error)  { return "[failed: " + msg + "]", nil }
 
 // runBoxAction carries out a box_* action. It reports whether the kind was one of them, what to
 // show the model, and an error only for a REFUSAL; a service that fails to start is a fact about
@@ -80,108 +82,128 @@ func (a *Agent) runBoxAction(ctx context.Context, kind string, action Command) (
 	if !isBoxKind(kind) {
 		return false, "", nil
 	}
-	refuse := func(msg string) (bool, string, error) {
-		return true, "[refused: " + msg + "]", errors.New(msg)
+	out, err := a.boxStep(ctx, kind, action)
+	return true, out, err
+}
+
+// boxStep is runBoxAction for a kind that is one of ours.
+func (a *Agent) boxStep(ctx context.Context, kind string, action Command) (string, error) {
+	if a.isChild {
+		return boxRefused("only the main agent starts boxes")
 	}
-	switch {
-	case a.isChild:
-		return refuse("only the main agent starts boxes")
-	case a.readOnly():
-		return refuse("this session is read-only: no service can be started")
+	if a.readOnly() {
+		return boxRefused("this session is read-only: no service can be started")
 	}
 	kv := parseLines(action.Command)
 	if kind == "box_up" {
 		return a.boxUp(ctx, action, kv)
 	}
 	if a.box == nil {
-		return refuse("no box is up: start one with box_up first")
+		return boxRefused("no box is up: start one with box_up first")
 	}
-	var out string
-	var err error
-	switch kind {
-	case "box_get":
-		out, err = a.box.m.Get(ctx, kv["box"], kv["path"])
-	case "box_shot":
-		out, err = a.boxShot(ctx, kv)
-	default:
-		if err = a.box.m.Down(ctx, kv["box"]); err == nil {
-			out = "[box taken down]"
-		}
-	}
+	out, err := a.boxUse(ctx, kind, kv)
 	if err != nil {
-		return true, "[failed: " + err.Error() + "]", nil
+		return boxFailed(err.Error())
 	}
-	return true, redact.String(out), nil
+	return redact.String(out), nil
 }
 
-// boxUp asks the user, then starts the service.
-func (a *Agent) boxUp(ctx context.Context, action Command, kv map[string]string) (bool, string, error) {
-	fail := func(msg string) (bool, string, error) { return true, "[failed: " + msg + "]", nil }
+// boxUse is get, shot or down on a box that is up.
+func (a *Agent) boxUse(ctx context.Context, kind string, kv map[string]string) (string, error) {
+	switch kind {
+	case "box_get":
+		return a.box.m.Get(ctx, kv["box"], kv["path"])
+	case "box_shot":
+		return a.boxShot(ctx, kv)
+	default:
+		return "[box taken down]", a.box.m.Down(ctx, kv["box"])
+	}
+}
+
+// boxSpec reads what box_up asks for. The folders are resolved inside the workspace; a message for
+// the model is returned when the request cannot be a spec, and a refusal when it leaves the workspace.
+func (a *Agent) boxSpec(kv map[string]string) (devbox.Spec, string, error) {
 	port, err := strconv.Atoi(kv["port"])
 	if err != nil {
-		return fail(`"port:" must be the number the service listens on inside the container`)
+		return devbox.Spec{}, `"port:" must be the number the service listens on inside the container`, nil
 	}
 	spec := devbox.Spec{Image: kv["image"], Port: port, Service: kv["service"],
 		Internal: strings.EqualFold(kv["network"], "internal")}
 	if n := kv["network"]; n != "" && !spec.Internal && !strings.EqualFold(n, "loopback") {
-		return fail(`"network:" is internal or loopback`)
+		return spec, `"network:" is internal or loopback`, nil
 	}
 	if rel := kv["dir"]; rel != "" {
 		dir, err := a.workspacePath(rel)
 		if err != nil {
-			return true, "[refused: " + err.Error() + "]", err
+			return spec, "", err
 		}
 		if !hasContainerfile(dir) {
-			return fail(rel + " has no Dockerfile or Containerfile")
+			return spec, rel + " has no Dockerfile or Containerfile", nil
 		}
 		spec.Dir = dir
 	}
 	if rel := kv["compose"]; rel != "" {
 		dir, err := a.workspacePath(rel)
 		if err != nil {
-			return true, "[refused: " + err.Error() + "]", err
+			return spec, "", err
 		}
 		spec.Compose = dir
 	}
 	if err := spec.Validate(); err != nil {
-		return fail(err.Error())
+		return spec, err.Error(), nil
+	}
+	return spec, "", nil
+}
+
+// boxQuestion is what the person is asked before a box starts: what runs and how it is kept apart.
+func boxQuestion(spec devbox.Spec, kv map[string]string) string {
+	what := "a container from image " + spec.Image
+	if spec.Dir != "" {
+		what = "a container from the image built in " + kv["dir"]
+	}
+	if spec.Compose != "" {
+		what = "the compose project in " + kv["compose"] + " (service " + spec.Service + ")"
+	}
+	where := "published on 127.0.0.1 only"
+	if spec.Internal || spec.Compose != "" {
+		where = "with no port on this machine, on a private network"
+	}
+	return "it starts " + what + ", " + where + ", and removes it when this run ends"
+}
+
+// boxUp asks the user, then starts the service.
+func (a *Agent) boxUp(ctx context.Context, action Command, kv map[string]string) (string, error) {
+	spec, problem, err := a.boxSpec(kv)
+	if err != nil {
+		return boxRefused(err.Error())
+	}
+	if problem != "" {
+		return boxFailed(problem)
 	}
 	if a.cfg.Agent.Policy.Enforce {
-		what := "a container from image " + spec.Image
-		switch {
-		case spec.Dir != "":
-			what = "a container from the image built in " + kv["dir"]
-		case spec.Compose != "":
-			what = "the compose project in " + kv["compose"] + " (service " + spec.Service + ")"
-		}
-		where := "published on 127.0.0.1 only"
-		if spec.Internal || spec.Compose != "" {
-			where = "with no port on this machine, on a private network"
-		}
-		plan := RequestPlan{Verdict: policy.Ask, Rule: "box-up", Reason: "it starts " + what + ", " + where +
-			", and removes it when this run ends"}
+		plan := RequestPlan{Verdict: policy.Ask, Rule: "box-up", Reason: boxQuestion(spec, kv)}
 		approved, err := a.approve(ctx, plan, "box_up "+strings.Join(strings.Fields(action.Command), " "))
-		if err != nil {
-			return true, "[not approved: " + err.Error() + "]", err
+		if err == nil && !approved {
+			err = errors.New("the user declined to start the box")
 		}
-		if !approved {
-			err := errors.New("the user declined to start the box")
-			return true, "[not approved: " + err.Error() + "]", err
+		if err != nil {
+			return "[not approved: " + err.Error() + "]", err
 		}
 	}
 	if a.box == nil {
 		m, err := newBoxes(ctx)
 		if err != nil {
-			return fail(err.Error())
+			return boxFailed(err.Error())
 		}
 		a.box = &boxState{m: m}
 	}
 	b, err := a.box.m.Up(ctx, spec)
 	if err != nil {
-		return fail(err.Error())
+		return boxFailed(err.Error())
 	}
-	return true, fmt.Sprintf("[box %s is up with %s, reachable only by motita at %s (%s): use box_get and "+
-		"box_shot, not curl or a browser in a command]", b.Name, a.box.m.Runtime(), b.URL, reach(spec.Internal || spec.Compose != "")), nil
+	how := reach(spec.Internal || spec.Compose != "")
+	return fmt.Sprintf("[box %s is up with %s, reachable only by motita at %s (%s): use box_get and "+
+		"box_shot, not curl or a browser in a command]", b.Name, a.box.m.Runtime(), b.URL, how), nil
 }
 
 // reach says how a box is reached, for the model.

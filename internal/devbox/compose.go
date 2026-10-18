@@ -49,6 +49,47 @@ type composeService struct {
 	} `json:"volumes"`
 }
 
+// inside reports whether p is dir or below it.
+func inside(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// serviceFault is what a service asks for that would let its container out, "" when nothing.
+func serviceFault(s composeService, dir string) string {
+	for _, c := range []struct {
+		bad  bool
+		what string
+	}{
+		{len(s.Ports) > 0, "publishes ports on the host (remove `ports:`; the box has a private network)"},
+		{s.Privileged, "is privileged"},
+		{s.NetworkMode != "", "sets network_mode"},
+		{s.Pid != "" || s.Ipc != "" || s.UsernsMode != "", "shares the host's pid, ipc or user namespace"},
+		{len(s.CapAdd) > 0, "adds capabilities"},
+		{len(s.Devices) > 0, "maps devices"},
+	} {
+		if c.bad {
+			return c.what
+		}
+	}
+	for _, o := range s.SecurityOpt {
+		if strings.Contains(o, "unconfined") || strings.HasPrefix(o, "label=disable") {
+			return "turns a security profile off"
+		}
+	}
+	for n := range s.Networks {
+		if n != "default" {
+			return "joins the network " + n + " (only the default one is allowed)"
+		}
+	}
+	for _, v := range s.Volumes {
+		if v.Type == "bind" && !inside(dir, v.Source) {
+			return "mounts " + v.Source + ", outside the project"
+		}
+	}
+	return ""
+}
+
 // checkCompose returns why a resolved compose file may not run, or nil.
 func checkCompose(cfg composeConfig, dir, service string) error {
 	if _, ok := cfg.Services[service]; !ok {
@@ -59,48 +100,14 @@ func checkCompose(cfg composeConfig, dir, service string) error {
 		sort.Strings(names)
 		return fmt.Errorf("the compose file has no service %q (it has: %s)", service, strings.Join(names, ", "))
 	}
-	inside := func(p string) bool {
-		rel, err := filepath.Rel(dir, p)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	}
 	for name, s := range cfg.Services {
-		bad := ""
-		switch {
-		case len(s.Ports) > 0:
-			bad = "publishes ports on the host (remove `ports:`; the box is reached through its private network)"
-		case s.Privileged:
-			bad = "is privileged"
-		case s.NetworkMode != "":
-			bad = "sets network_mode"
-		case s.Pid != "" || s.Ipc != "" || s.UsernsMode != "":
-			bad = "shares the host's pid, ipc or user namespace"
-		case len(s.CapAdd) > 0:
-			bad = "adds capabilities"
-		case len(s.Devices) > 0:
-			bad = "maps devices"
-		}
-		for _, o := range s.SecurityOpt {
-			if strings.Contains(o, "unconfined") || strings.HasPrefix(o, "label=disable") {
-				bad = "turns a security profile off"
-			}
-		}
-		for n := range s.Networks {
-			if n != "default" {
-				bad = "joins the network " + n + " (only the default one is allowed)"
-			}
-		}
-		for _, v := range s.Volumes {
-			if v.Type == "bind" && !inside(v.Source) {
-				bad = "mounts " + v.Source + ", outside the project"
-			}
-		}
-		if bad != "" {
+		if bad := serviceFault(s, dir); bad != "" {
 			return fmt.Errorf("service %q %s", name, bad)
 		}
 	}
 	for _, group := range []map[string]composeRef{cfg.Configs, cfg.Secrets} {
 		for name, f := range group {
-			if f.File != "" && !inside(f.File) {
+			if f.File != "" && !inside(dir, f.File) {
 				return fmt.Errorf("%q reads %s, outside the project", name, f.File)
 			}
 		}
@@ -114,7 +121,8 @@ func (m *Manager) composeOverride(services []string) string {
 	var sb strings.Builder
 	sb.WriteString("services:\n")
 	for _, s := range services {
-		fmt.Fprintf(&sb, "  %s:\n    labels:\n      %s: \"1\"\n      %s: %q\n", strconv.Quote(s), Label, OwnerLabel, m.owner)
+		fmt.Fprintf(&sb, "  %s:\n    labels:\n      %s: \"1\"\n      %s: %q\n",
+			strconv.Quote(s), Label, OwnerLabel, m.owner)
 	}
 	fmt.Fprintf(&sb, "networks:\n  default:\n    internal: true\n    labels:\n      %s: \"1\"\n", Label)
 	return sb.String()
@@ -129,7 +137,8 @@ func (m *Manager) upCompose(ctx context.Context, b *Box, s Spec) error {
 	base := []string{"compose", "-p", b.Name, "--project-directory", s.Compose, "-f", file}
 	out, err := runCmd(ctx, m.rt.Bin, append(append([]string{}, base...), "config", "--format", "json")...)
 	if err != nil {
-		return fmt.Errorf("the compose file could not be read (the provider must support `compose config --format json`): %v\n%s", err, tail(string(out), 1000))
+		return fmt.Errorf("the compose file could not be read (the provider must support "+
+			"`compose config --format json`): %v\n%s", err, tail(string(out), 1000))
 	}
 	var cfg composeConfig
 	if err := json.Unmarshal(out, &cfg); err != nil {

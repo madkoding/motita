@@ -20,8 +20,10 @@ func adminFake(t *testing.T, psErr error, rmFail string) *fake {
 			if a[2] == rmFail {
 				return []byte("busy"), errors.New("exit 1")
 			}
+			return nil, nil
+		default:
+			return nil, nil
 		}
-		return nil, nil
 	}}
 	f.install(t)
 	return f
@@ -33,7 +35,9 @@ func TestActiveListsOnlyOurContainers(t *testing.T) {
 	if err != nil || bin != "podman" || len(list) != 2 {
 		t.Fatalf("%v %v %v", bin, list, err)
 	}
-	if list[0] != (Info{ID: "abc123def456", Name: "motita-box-x-1", Image: "nginx:alpine", Status: "Up 2 minutes", Created: "2026-10-18 14:00:00 +0000 UTC"}) {
+	first := Info{ID: "abc123def456", Name: "motita-box-x-1", Image: "nginx:alpine", Status: "Up 2 minutes",
+		Created: "2026-10-18 14:00:00 +0000 UTC"}
+	if list[0] != first {
 		t.Fatalf("%+v", list[0])
 	}
 	ps := findCall(f, func(a []string) bool { return a[0] == "ps" })

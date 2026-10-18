@@ -189,8 +189,9 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("compose needs \"service:\", the name of the service to reach (%q is not one)", s.Service)
 	case s.Compose == "" && s.Service != "":
 		return errors.New(`"service:" belongs to compose`)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // runFlags are the limits every container of ours starts with.
@@ -246,7 +247,8 @@ func (m *Manager) upContainer(ctx context.Context, b *Box, s Spec) error {
 	args = append(args, "--security-opt", "no-new-privileges", "--pids-limit", "512", "--memory", "1g")
 	if b.internal {
 		b.network = "motita-net-" + strings.TrimPrefix(b.Name, "motita-box-")
-		if out, err := runCmd(ctx, m.rt.Bin, append(append([]string{"network", "create", "--internal"}, m.labels()...), b.network)...); err != nil {
+		mk := append(append([]string{"network", "create", "--internal"}, m.labels()...), b.network)
+		if out, err := runCmd(ctx, m.rt.Bin, mk...); err != nil {
 			m.destroy(ctx, b)
 			return fmt.Errorf("the private network was not created: %v\n%s", err, tail(string(out), 800))
 		}
@@ -366,7 +368,8 @@ func (m *Manager) Get(ctx context.Context, name, path string) (string, error) {
 	defer cancel()
 	if b.internal {
 		// -i keeps the status line and the headers in the answer, like the direct path writes them.
-		out, err := m.helperCurl(ctx, b, strings.TrimPrefix(u, b.URL), "-sS", "-i", "--max-time", "20", "--max-filesize", "1048576")
+		path := strings.TrimPrefix(u, b.URL)
+		out, err := m.helperCurl(ctx, b, path, "-sS", "-i", "--max-time", "20", "--max-filesize", "1048576")
 		if err != nil {
 			return "", fmt.Errorf("GET %s failed: %v\n%s", path, err, tail(out, 500))
 		}
@@ -378,7 +381,8 @@ func (m *Manager) Get(ctx context.Context, name, path string) (string, error) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
-	return fmt.Sprintf("HTTP %s\nContent-Type: %s\n\n%s", resp.Status, resp.Header.Get("Content-Type"), clip(string(body))), nil
+	ctype := resp.Header.Get("Content-Type")
+	return fmt.Sprintf("HTTP %s\nContent-Type: %s\n\n%s", resp.Status, ctype, clip(string(body))), nil
 }
 
 // clip keeps the start of a response.
@@ -518,7 +522,8 @@ func (m *Manager) destroy(ctx context.Context, b *Box) {
 	c, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if b.compose != nil {
-		_, _ = runCmd(c, m.rt.Bin, append(append([]string{}, b.compose...), "down", "-v", "--rmi", "local", "--remove-orphans")...)
+		down := append(append([]string{}, b.compose...), "down", "-v", "--rmi", "local", "--remove-orphans")
+		_, _ = runCmd(c, m.rt.Bin, down...)
 		if b.scratch != "" {
 			_ = os.RemoveAll(b.scratch)
 		}

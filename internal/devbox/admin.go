@@ -25,6 +25,12 @@ type Info struct {
 	Created string `json:"created"`
 }
 
+// filterFlag is the runtime's filter option, whose value is always a label test.
+const (
+	filterFlag = "--filter"
+	labelTest  = "label=" + Label
+)
+
 const infoFormat = "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.CreatedAt}}"
 
 // Active lists the containers of ours that exist, running or not, and the runtime that holds them.
@@ -34,7 +40,7 @@ func Active(ctx context.Context) (string, []Info, error) {
 	if err != nil {
 		return "", nil, nil
 	}
-	out, err := runCmd(ctx, rt.Bin, "ps", "-a", "--filter", "label="+Label, "--format", infoFormat)
+	out, err := runCmd(ctx, rt.Bin, "ps", "-a", filterFlag, labelTest, "--format", infoFormat)
 	if err != nil {
 		return rt.Bin, nil, fmt.Errorf("%s could not list the boxes: %v", rt.Bin, err)
 	}
@@ -73,8 +79,8 @@ func Remove(ctx context.Context, ref string) error {
 
 // tidy removes the networks and images of ours that no container uses any more.
 func tidy(ctx context.Context, bin string) {
-	_, _ = runCmd(ctx, bin, "network", "prune", "-f", "--filter", "label="+Label)
-	_, _ = runCmd(ctx, bin, "image", "prune", "-a", "-f", "--filter", "label="+Label)
+	_, _ = runCmd(ctx, bin, "network", "prune", "-f", filterFlag, labelTest)
+	_, _ = runCmd(ctx, bin, "image", "prune", "-a", "-f", filterFlag, labelTest)
 }
 
 // Sweep removes every container of ours that exists, with its networks and images: what earlier

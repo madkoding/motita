@@ -56,13 +56,15 @@ func TestTheBoxesCanBeListedAndStopped(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 
 	w := boxCall(t, srv, http.MethodGet, "/v1/boxes")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"boxes":[]`) || !strings.Contains(w.Body.String(), `"runtime":"podman"`) {
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, `"boxes":[]`) || !strings.Contains(body, `"runtime":"podman"`) {
 		t.Fatalf("an empty list is [], not null: %d %s", w.Code, w.Body)
 	}
 	active = []devbox.Info{{ID: "abc", Name: "motita-box-x-1", Image: "nginx", Status: "Up", Created: "now"}}
 	w = boxCall(t, srv, http.MethodGet, "/v1/boxes")
 	var view boxesView
-	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || len(view.Boxes) != 1 || view.Boxes[0].Name != "motita-box-x-1" {
+	err := json.Unmarshal(w.Body.Bytes(), &view)
+	if err != nil || len(view.Boxes) != 1 || view.Boxes[0].Name != "motita-box-x-1" {
 		t.Fatalf("%v %s", err, w.Body)
 	}
 	activeErr = errors.New("daemon down")
