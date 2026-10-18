@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
+	"github.com/madkoding/motita/internal/gateway"
 	"github.com/madkoding/motita/internal/sandbox"
 )
 
@@ -34,6 +36,9 @@ func TestMain(m *testing.M) {
 	os.Setenv("HOME", home)
 	// No gateway started by the suite asks the real release API: port 1 on the loopback refuses
 	// at once, so an update check fails fast and offline, the same way on every machine.
+	// Nor does one ask the machine's container runtime for orphan boxes: that would create its
+	// storage inside the suite's home, and the sweep outlives the test that started the gateway.
+	gateway.SweepBoxes = func(context.Context) int { return 0 }
 	updateAPIURL = "http://127.0.0.1:1/releases/latest"
 	code := m.Run()
 	os.RemoveAll(home)

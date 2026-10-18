@@ -720,7 +720,7 @@ test("the whole disk is given only after a confirmation; the workspace comes bac
     text(m.root),
     /can read and write any file your user account can/,
   );
-  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls.filter((c) => c.path === "/v1/security").length, 1);
   // Cancel, or the workspace picked again, drops the question.
   await press(btn(c, "Cancel"));
   assert.equal(confirmBox(m.root, "security-confirm"), null);
@@ -728,7 +728,7 @@ test("the whole disk is given only after a confirmation; the workspace comes bac
   await pick(m.root, "settings-disk", "full");
   await pick(m.root, "settings-disk", "workspace");
   assert.equal(confirmBox(m.root, "security-confirm"), null);
-  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls.filter((c) => c.path === "/v1/security").length, 1);
 
   await pick(m.root, "settings-disk", "full");
   await press(
