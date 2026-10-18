@@ -748,6 +748,14 @@ const more: Record<string, string> = {
   "The project is not indexed: the code index is off":
     "El proyecto no se indexó: el índice de código está desactivado",
   "Turn it on in Settings → Indexing.": "Actívalo en Ajustes → Indexado.",
+  "Services in boxes": "Servicios en cajas",
+  "Projects Motita starts in a container only it can reach, to test them and take screenshots. A run removes its own when it ends; stop here any that stay.":
+    "Proyectos que Motita levanta en un contenedor al que solo ella llega, para probarlos y sacar capturas. Cada ejecución quita los suyos al terminar; detén aquí los que queden.",
+  Refresh: "Actualizar",
+  "Stop all": "Detener todas",
+  Stop: "Detener",
+  "Stop {name}": "Detener {name}",
+  "No boxes are running.": "No hay cajas en marcha.",
 };
 
 export default more;

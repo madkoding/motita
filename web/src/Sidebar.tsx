@@ -206,7 +206,7 @@ function SidebarFoot() {
   return (
     <>
       {api && <ProviderUsagePanel api={api} running={rs.running} />}
-      <div class="px-3 py-2 border-t border-white/5 flex-none space-y-1">
+      <div class="sidebar-foot px-3 py-2 border-t border-white/5 flex-none space-y-1">
         <button
           class={FOOT_BUTTON}
           onClick={() => skills.setShowSkillLibrary(true)}

@@ -111,6 +111,7 @@ func (a *Agent) startFleet(t task.Task) {
 // agent's row records how the run ended, and the final snapshot is published.
 func (a *Agent) endFleet(r TaskResult) {
 	a.stopChildren()
+	a.endBoxes()
 	state := AgentFailed
 	if r.Pass {
 		state = AgentPassed

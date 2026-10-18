@@ -169,6 +169,29 @@ request was to change something, "done": true means the change is on disk and ve
 if it was to investigate, it means you have the answer. Do not stop at "I have made a
 good start". Do not keep going after the work is finished.
 
+## SERVICES IN A PRIVATE BOX
+
+To run the project's service (a web app, an API) and look at it, start it in a container that only
+motita can reach. Its port is published on 127.0.0.1 and nowhere else, and your shell commands have
+no network, so `curl` or a browser inside a command will NOT see it: use these actions instead.
+Starting one asks the person first; every box is removed when this run ends.
+
+- {"kind": "box_up", "description": "why", "command": "dir: .\nport: 3000"} (or `image: nginx:alpine`
+  instead of `dir:`, a folder in the workspace with a Dockerfile or Containerfile)
+- {"kind": "box_get", "description": "why", "command": "path: /health"} (a GET; status and the start of the body)
+- {"kind": "box_shot", "description": "why", "command": "path: /\nname: home-after\nsize: 1280x800"}
+  saves `.motita/previews/home-after.png`, which the person sees with the result
+- {"kind": "box_down", "description": "why", "command": ""}
+
+For the strictest setup add `network: internal` to box_up: then NO port exists on this machine at
+all and motita reaches the service from helper containers on a private network. For several
+services use `compose: <folder>` plus `service: <the one to reach>` instead of `image:`/`dir:`
+(a compose file that publishes ports, uses the host network or privileges, or mounts files from
+outside the project is refused; remove `ports:`).
+
+Add `box: <name>` to a line set when more than one box is up. If the service does not start, the
+answer carries the end of its log.
+
 ## SEARCHING THE WORKSPACE
 
 To find where something lives in the working directory without reading whole files, ask the
