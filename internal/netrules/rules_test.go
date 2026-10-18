@@ -121,8 +121,9 @@ func TestAnOriginNoRuleMatchesIsAllowed(t *testing.T) {
 
 // --- lan ----------------------------------------------------------------------
 
-// `lan` matches the private and link-local ranges in both families, which is the set an operator
-// means by "my network": the machine's own neighbours, and nothing routed off it.
+// `lan` matches the private and link-local ranges in both families and the tailnet's IPv4 range,
+// which is the set an operator means by "my network": the machine's own neighbours, the computers
+// of their tailnet, and nothing routed off it.
 //
 // The link-local cases are the ones worth stating: netip reports them as NOT private, so a `lan`
 // built on IsPrivate alone would silently exclude a phone or printer that fell back to a 169.254
@@ -138,7 +139,8 @@ func TestLANCoversThePrivateAndLinkLocalRanges(t *testing.T) {
 		"10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.0.1", "192.168.100.72",
 		"169.254.10.20",      // IPv4 link-local
 		"fd00::1", "fc00::1", // IPv6 unique-local
-		"fe80::1", // IPv6 link-local
+		"fe80::1",                       // IPv6 link-local
+		"100.64.0.1", "100.101.102.103", // the tailnet's IPv4 (100.64/10)
 	} {
 		// `!lan` comes first, so these are refused; the trailing `lan` is unreachable for them.
 		if p.Allows(netip.MustParseAddr(origin)) {
@@ -150,7 +152,7 @@ func TestLANCoversThePrivateAndLinkLocalRanges(t *testing.T) {
 	// would be the worst possible failure of this feature. These match neither rule, so the
 	// default accept lets them through - which is exactly what proves `!lan` is narrow.
 	for _, origin := range []string{
-		"8.8.8.8", "203.0.113.9", "100.64.0.1", // 100.64/10 is carrier-grade NAT, not private
+		"8.8.8.8", "203.0.113.9", "100.128.0.1", // just past the tailnet's range
 		"2606:4700::1111",
 	} {
 		if !p.Allows(netip.MustParseAddr(origin)) {
