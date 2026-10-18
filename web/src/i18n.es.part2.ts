@@ -749,6 +749,20 @@ const more: Record<string, string> = {
   Stop: "Detener",
   "Stop {name}": "Detener {name}",
   "No boxes are running.": "No hay cajas en marcha.",
+  "this computer": "este equipo",
+  "Computer name": "Nombre del equipo",
+  Online: "Conectado",
+  Offline: "Sin conexión",
+  "Disconnect {name}": "Desconectar {name}",
+  "Rename {name}": "Renombrar {name}",
+  "Other computers": "Otros equipos",
+  "Add a computer": "Agregar un equipo",
+  "Other computers cannot connect to this one: it listens on this computer only. Settings → Network opens it to the local network.":
+    "Otros equipos no pueden conectarse a este: solo escucha en este equipo. Ajustes → Red lo abre a la red local.",
+  "Connect {name}": "Conectar {name}",
+  "Type that computer's gateway token. On that computer, `motita gateway start -token-only` shows it. Only computers on the local network, a VPN or the tailnet can be connected.":
+    "Escribe el token del gateway de ese equipo. En ese equipo, `motita gateway start -token-only` lo muestra. Solo se pueden conectar equipos de la red local, una VPN o la tailnet.",
+  Address: "Dirección",
 };
 
 export default more;

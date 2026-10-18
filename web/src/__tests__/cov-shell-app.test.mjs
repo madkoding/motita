@@ -92,6 +92,24 @@ component(
   }
   export function ActivityLine(props) { return mark("ActivityLine", props, props.activity); }`,
 );
+// The computers: the shown one and the list, set by the test through globals.
+stub(
+  "./useMachines",
+  `import { createContext } from "preact";
+  import { useState } from "preact/hooks";
+  export const MachinesCtx = createContext(null);
+  export function useMachineChoice() {
+    const [id, set] = useState(globalThis.covShellMachine || "");
+    globalThis.covShellSetMachine = set;
+    return [id, set];
+  }
+  export function useMachines(api, enabled, active, setActive) {
+    const m = { connecting: null, ...(globalThis.covShellMachines || {}), api, enabled, active, setActive };
+    (globalThis.covShellProps.useMachines ||= []).push(m);
+    return m;
+  }`,
+);
+component("./ConnectMachineModal", ["ConnectMachineModal"]);
 stub(
   "./viewport",
   `export function useVisualViewport() { (globalThis.covShellProps.viewport ||= []).push(1); }`,
@@ -330,6 +348,37 @@ test("every request carries the page's header and the cookie, and keeps its own 
     "the PR bar gets the same api",
   );
   await ctl.done();
+});
+
+test("another computer is reached through this gateway, and its list always from this one", async () => {
+  globalThis.covShellMachine = "desk0001";
+  globalThis.covShellMachines = { connecting: {} };
+  try {
+    const ctl = await mountApp();
+    const calls = [];
+    globalThis.fetch = async (url) => {
+      calls.push(url);
+      return jsonResponse({});
+    };
+    await ctl.api("/v1/sessions");
+    assert.deepEqual(calls, ["/v1/peers/desk0001/proxy/v1/sessions"]);
+    const m = lastProps("useMachines");
+    assert.equal(m.active, "desk0001");
+    await m.api("/v1/peers");
+    assert.equal(calls.at(-1), "/v1/peers", "the computers are this gateway's");
+    assert.ok(
+      stubEl(ctl.root, "ConnectMachineModal"),
+      "the connect dialog is drawn",
+    );
+    // Showing this computer again starts its page over, talking to it directly.
+    await act(() => globalThis.covShellSetMachine(""));
+    await ctl.api("/v1/sessions");
+    assert.equal(calls.at(-1), "/v1/sessions");
+    await ctl.done();
+  } finally {
+    globalThis.covShellMachine = "";
+    globalThis.covShellMachines = null;
+  }
 });
 
 test("a 401 drops the credential and brings the token prompt back", async () => {

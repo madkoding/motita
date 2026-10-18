@@ -104,6 +104,12 @@ type Gateway struct {
 	WebUI bool `yaml:"webui"`
 	// ShowActions lists every command and action; false shows only a counter.
 	ShowActions bool `yaml:"show_actions"`
+	// Discovery announces this gateway to the other computers of the local network and looks for
+	// theirs there and on the tailnet, so the interface lists them. On by default: a beacon says
+	// only the machine's name and never leaves the network, and a computer found is only listed
+	// until its owner connects it with that computer's token. A gateway bound to loopback listens
+	// but does not announce, since no one else could reach it.
+	Discovery bool `yaml:"discovery"`
 	// TLS is an optional second listener that speaks https. See GatewayTLS.
 	TLS GatewayTLS `yaml:"tls"`
 }
@@ -477,6 +483,9 @@ func Default() Config {
 			// It is reachable on loopback, like the gateway itself; putting it on a network
 			// still takes the same two deliberate acts that the gateway does.
 			WebUI: true,
+			// On: finding the other computers of the network is the start of using them, and
+			// being found grants nothing without the token.
+			Discovery: true,
 		},
 		Prompts: Prompts{
 			Analyze:    BaseAnalyzeTemplate,

@@ -1058,6 +1058,58 @@ screen into a lost turn.
 `/sessions` lists the conversations with the most recent first and the one you are in
 marked, so the list answers "where was I?".
 
+#### Other computers
+
+Every gateway can show the others on the same network in its interface, so one browser opens
+the sessions, projects and settings of each computer as if it were its own. The sidebar is one
+box per computer: this one first, holding everything the sidebar has, then each connected one.
+Picking a computer's box shows that computer; its name is the machine's host name until it is
+renamed (the pencil in the box), which renames it for every other computer too, while a
+connected computer can be given a name of its own here.
+
+**Finding.** A gateway is found three ways, none of which grants anything:
+
+- **the local network**: every gateway sends a small beacon (its id, name, port and
+  addresses) to the link-local multicast groups `ff02::6d74` and `239.255.77.84` on UDP port
+  47877 every 15 seconds. Routers never forward those groups, so a beacon cannot leave the
+  network. A beacon arrives from a link-local address; the receiver then asks the IPv6
+  addresses it announced, so a computer is reached over IPv6 when it has a usable one;
+- **the tailnet**: when Tailscale runs, its online machines are asked, at their IPv6
+  address first, whether a gateway answers on this gateway's port;
+- **an address typed by hand** (the "+" beside *Other computers*), for a VPN, which carries no
+  multicast.
+
+`gateway.discovery: false` (or `MOTITA_GATEWAY_DISCOVERY=false`) stops the beacons and the
+tailnet scan; a computer can still be added by its address. A gateway listening on
+`127.0.0.1` only (Settings → Network, *This computer*) listens for beacons but sends none,
+since no other computer could reach it, and the sidebar says so.
+
+**Connecting.** A computer found is listed under *Other computers* until it is connected with
+**its own** gateway token (`motita gateway start -token-only` on that computer prints it).
+This gateway checks the token with the other one and keeps it in `~/.motita/peers.json`,
+readable by its owner only; the browser never holds it. *Disconnect* drops it.
+
+**Reaching it.** Every request the page makes for a connected computer goes to
+`/v1/peers/{id}/proxy/v1/...` here, which forwards it — the stream of a run and the WebSocket
+included — with that computer's token and nothing of the browser's (no cookie, no origin).
+The other gateway sees an ordinary bearer client, so its own token, network rules and limits
+apply unchanged. Only addresses of private networks are ever dialled (the LAN and its
+link-local range, private and unique-local ranges, the tailnet's `100.64.0.0/10`, loopback),
+checked on the address actually connected to, after any name was resolved. The other
+computer's own list of computers, its cookie exchange and its shutdown are not forwarded.
+A connected computer whose token changed answers `502` with "connect it again", never `401`,
+so the page does not sign out of this gateway.
+
+| Endpoint                      | What it does                                             |
+| ----------------------------- | -------------------------------------------------------- |
+| `GET /v1/peer/hello`          | who this gateway is; no token, like `/v1/health`         |
+| `GET /v1/peers`               | this computer, the ones found and the ones connected     |
+| `PUT /v1/peers/self`          | `{"name"}` renames this computer (empty: the host name)  |
+| `POST /v1/peers`              | `{"address","token"}` connects a computer by its address |
+| `PUT /v1/peers/{id}`          | `{"token"}` connects a found one, `{"alias"}` renames it |
+| `DELETE /v1/peers/{id}`       | disconnects it and drops its token                       |
+| `/v1/peers/{id}/proxy/v1/...` | that computer's API, any method                          |
+
 #### Reconnecting to a turn that is already running
 
 A front end loses its connection for ordinary reasons — a locked phone, a laptop lid, a

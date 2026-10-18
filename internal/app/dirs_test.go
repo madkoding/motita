@@ -96,3 +96,17 @@ func TestTheLocalVoicesLiveUnderTheHome(t *testing.T) {
 		t.Fatalf("voiceLibrary() = %+v with no HOME, want nil", lib)
 	}
 }
+
+// TestThePeerFileLivesUnderTheHome: the computers this gateway is connected to, and their
+// tokens, are state the program owns, and without a home they live in memory only.
+func TestThePeerFileLivesUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := peerFile(), filepath.Join(home, ".motita", "peers.json"); got != want {
+		t.Fatalf("peerFile() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := peerFile(); got != "" {
+		t.Fatalf("peerFile() = %q with no HOME, want empty", got)
+	}
+}

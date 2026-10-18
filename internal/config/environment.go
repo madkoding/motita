@@ -194,6 +194,7 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
 		{"MOTITA_GATEWAY_ENABLED", &c.Gateway.Enabled},
 		{"MOTITA_GATEWAY_WEBUI", &c.Gateway.WebUI},
+		{"MOTITA_GATEWAY_DISCOVERY", &c.Gateway.Discovery},
 		{"MOTITA_GATEWAY_SHOW_ACTIONS", &c.Gateway.ShowActions},
 		{"MOTITA_REVIEW_ENABLED", &c.Review.Enabled},
 		{"MOTITA_CURATOR_ENABLED", &c.Curator.Enabled},

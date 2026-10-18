@@ -6,6 +6,7 @@ import {
   useRef,
   useCallback,
   useContext,
+  useMemo,
 } from "preact/hooks";
 import { Markdown } from "./Markdown";
 import { Lightbox } from "./Lightbox";
@@ -65,6 +66,9 @@ import { SkillLibraryModal } from "./SkillLibraryModal";
 import { ArtifactsModal } from "./ArtifactsModal";
 import { ScheduledTasksModal } from "./ScheduledTasksModal";
 import { useVisualViewport } from "./viewport";
+import { machineApi } from "./machinesApi";
+import { MachinesCtx, useMachineChoice, useMachines } from "./useMachines";
+import { ConnectMachineModal } from "./ConnectMachineModal";
 
 // api is the one place a request is built. The cookie is sent automatically
 // by the browser; the X-Motita header is what tells the gateway a request was
@@ -712,31 +716,65 @@ function LibraryModals() {
   );
 }
 
+// MachineApp is the whole page for one computer: request reaches it (this one, or a connected one
+// through this gateway). It is keyed by the computer, so showing another one starts its page fresh
+// rather than mixing two computers' sessions in one state.
+function MachineApp({
+  request,
+  machine,
+  setMachine,
+}: {
+  request: typeof api;
+  machine: string;
+  setMachine: (id: string) => void;
+}) {
+  const store = useAppStore(request);
+  const pr = usePullRequest(store, request);
+  const loadEvidenceImage = useEvidenceLoader(store);
+  // The computers are always this gateway's: api, never the computer's own request.
+  const machines = useMachines(
+    api,
+    store.auth.authState === "ok",
+    machine,
+    setMachine,
+  );
+  return (
+    <AppCtx.Provider value={store}>
+      <MachinesCtx.Provider value={machines}>
+        <EvidenceCtx.Provider value={loadEvidenceImage}>
+          <div class="app-shell app-bg flex text-[#e8e8ea] overflow-hidden">
+            {/* Blocking auth modal — shown when the browser has no valid credential.
+              It covers the entire screen and cannot be dismissed without a token. */}
+            {store.auth.authState !== "ok" && <AuthModal />}
+            {store.auth.authState === "ok" && <ConnectionBanner />}
+            {/* Sidebar — sessions list, toggleable on all sizes. */}
+            {store.lists.sidebarOpen && <Sidebar />}
+            <MainColumn pr={pr} />
+            {/* Before ProjectModals: the git connect dialog it opens stacks on top of it. */}
+            {store.showSettings && <SettingsHost />}
+            <ProjectModals />
+            <DialogModals />
+            <LibraryModals />
+            {machines.connecting && <ConnectMachineModal />}
+          </div>
+        </EvidenceCtx.Provider>
+      </MachinesCtx.Provider>
+    </AppCtx.Provider>
+  );
+}
+
 export default function App() {
   // Every component under App re-renders when the language changes: App itself subscribes.
   useLang();
   useVisualViewport();
-  const store = useAppStore(api);
-  const pr = usePullRequest(store, api);
-  const loadEvidenceImage = useEvidenceLoader(store);
+  const [machine, setMachine] = useMachineChoice();
+  const request = useMemo(() => machineApi(api, machine), [machine]);
   return (
-    <AppCtx.Provider value={store}>
-      <EvidenceCtx.Provider value={loadEvidenceImage}>
-        <div class="app-shell app-bg flex text-[#e8e8ea] overflow-hidden">
-          {/* Blocking auth modal — shown when the browser has no valid credential.
-              It covers the entire screen and cannot be dismissed without a token. */}
-          {store.auth.authState !== "ok" && <AuthModal />}
-          {store.auth.authState === "ok" && <ConnectionBanner />}
-          {/* Sidebar — sessions list, toggleable on all sizes. */}
-          {store.lists.sidebarOpen && <Sidebar />}
-          <MainColumn pr={pr} />
-          {/* Before ProjectModals: the git connect dialog it opens stacks on top of it. */}
-          {store.showSettings && <SettingsHost />}
-          <ProjectModals />
-          <DialogModals />
-          <LibraryModals />
-        </div>
-      </EvidenceCtx.Provider>
-    </AppCtx.Provider>
+    <MachineApp
+      key={machine}
+      request={request}
+      machine={machine}
+      setMachine={setMachine}
+    />
   );
 }

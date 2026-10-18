@@ -22,6 +22,7 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
 	"github.com/madkoding/motita/internal/oauth"
+	"github.com/madkoding/motita/internal/peers"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
 	"github.com/madkoding/motita/internal/voice"
@@ -236,6 +237,12 @@ type Options struct {
 	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
 	// (see push.go). Empty means there are none.
 	PushDir string
+	// PeerFile is where this gateway's identity and the other computers it is connected to are
+	// kept (see peers.go). Empty keeps them in memory: the identity changes with every start.
+	PeerFile string
+	// Discovery announces this gateway on the local network and looks for the others there and
+	// on the tailnet. Off, the other computers can still be added by address.
+	Discovery bool
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -349,6 +356,12 @@ type Server struct {
 	// flight. See push.go.
 	push   *webpush.Sender
 	pushWG sync.WaitGroup
+
+	// peers are the other gateways found and connected to, and how they are spoken to. See
+	// peers.go.
+	peers     *peers.Registry
+	prober    *peers.Prober
+	peerProxy http.RoundTripper
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -427,6 +440,7 @@ func Start(opts Options) (*Server, error) {
 	// lock once the gateway serves.
 	s.openScheduleStore()
 	s.openPush()
+	s.openPeers()
 	resumeInterrupted(s)
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
@@ -751,6 +765,8 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	// Who this gateway is, for another one on the network looking for it: no token, like health.
+	mux.HandleFunc("GET "+peers.HelloPath, s.handlePeerHello)
 
 	// The interface, when it is on, BEFORE the API: it is the one part of this server that is
 	// deliberately reachable without a token, because it is the only way a browser can get one.
@@ -835,6 +851,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/network/tailscale", plain(s.handleTailscale))
 	mux.Handle("POST /v1/network/restart", plain(s.handleRestartNetwork))
 	// Phone notifications: process-wide, the browsers subscribed to them. See push.go.
+	s.peerRoutes(mux, plain)
 	mux.Handle("GET /v1/push", plain(s.handleGetPush))
 	mux.Handle("POST /v1/push/subscriptions", plain(s.handleAddPush))
 	mux.Handle("DELETE /v1/push/subscriptions", plain(s.handleRemovePush))
