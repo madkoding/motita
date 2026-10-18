@@ -582,6 +582,13 @@ travels inside the task, the agent does not plan it again and never stops to ask
 is noted as `mode: task (carrying out the plan)`. A go-ahead after anything else is an ordinary
 message.
 
+A finished task also reports `lessons`: facts about the project it learned that the next task
+should not rediscover (the command that runs the tests, a convention, a trap, a decision the
+person made). They are kept in `.motita/memory.md` in the workspace, newest last and bounded,
+and every later task reads them with the project note; the person can edit or delete a line. In
+the web UI the files, checks and lessons of a finished task are folded under one line, open only
+when the task is not done.
+
 When a command needs approval, the panel's second answer, **Always allow this here**, runs it
 and keeps that shape of command (its policy rule and program, `git push`, `npm install`) allowed
 in the project: later sessions of the project run it without asking, and the run says so

@@ -47,6 +47,26 @@
 .rpt-summary > :last-child {
   margin-bottom: 0;
 }
+.rpt-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--t3);
+  padding-top: 10px;
+  border-top: 1px solid rgb(var(--ov-rgb) / 0.07);
+}
+.rpt-fold > summary::-webkit-details-marker {
+  display: none;
+}
+.rpt-fold > summary::before {
+  content: "▸ ";
+}
+.rpt-fold[open] > summary::before {
+  content: "▾ ";
+}
 .rpt-sec {
   border-top: 1px solid rgb(var(--ov-rgb) / 0.07);
   padding-top: 10px;

@@ -42,6 +42,8 @@ export interface TaskReport {
   // Set when the settings apply every suggestion without asking: the card accepts them all and
   // starts the applying turn on its own.
   auto_apply?: boolean;
+  // What the task learned about the project, kept for the tasks after it.
+  lessons?: string[];
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -187,6 +189,7 @@ function keyedReport(report: TaskReport) {
     ),
     risks: keyed(report.risks, (r) => r),
     next: keyed(report.next_steps, (n) => n),
+    lessons: keyed(report.lessons, (l) => l),
   };
 }
 
@@ -228,7 +231,7 @@ export function ReportCard({
     [loadImage],
   );
   const status = reportStatus(report);
-  const { changes, checks, evidence, risks, next } = useMemo(
+  const { changes, checks, evidence, risks, next, lessons } = useMemo(
     () => keyedReport(report),
     [report],
   );
@@ -246,8 +249,12 @@ export function ReportCard({
         </div>
       )}
 
-      {changes.length > 0 && <ChangesSection changes={changes} />}
-      {checks.length > 0 && <ChecksSection checks={checks} />}
+      <WorkFold
+        open={status !== "done"}
+        changes={changes}
+        checks={checks}
+        lessons={lessons}
+      />
 
       {evidence.length > 0 && (
         <EvidenceSection
@@ -345,6 +352,42 @@ function ReportHead({
         </span>
       )}
     </div>
+  );
+}
+
+// WorkFold holds the account of the work (the files, the checks, what was learned) folded under
+// one line: the head already gives the counts, and a finished task reads as an answer, not as a
+// report. It opens on its own when the task is not done, since that is when the detail matters.
+function WorkFold({
+  open,
+  changes,
+  checks,
+  lessons,
+}: {
+  open: boolean;
+  changes: { key: string; item: Change }[];
+  checks: { key: string; item: Check }[];
+  lessons: { key: string; item: string }[];
+}) {
+  if (changes.length + checks.length + lessons.length === 0) {
+    return null;
+  }
+  return (
+    <details class="rpt-fold" open={open}>
+      <summary>{t("Files, checks and what was learned")}</summary>
+      {changes.length > 0 && <ChangesSection changes={changes} />}
+      {checks.length > 0 && <ChecksSection checks={checks} />}
+      {lessons.length > 0 && (
+        <section class="rpt-sec">
+          <h4>{t("Kept for next time")}</h4>
+          <ul class="rpt-lessons">
+            {lessons.map(({ key, item }) => (
+              <li key={key}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </details>
   );
 }
 

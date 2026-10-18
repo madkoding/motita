@@ -62,6 +62,8 @@ const first: Record<string, string> = {
     "Hay un turno en curso: termina con el modelo actual y el nuevo responde desde el próximo turno.",
   "API key": "Clave de API",
   "Always allow this here": "Permitir siempre esto aquí",
+  "Files, checks and what was learned": "Archivos, comprobaciones y lo aprendido",
+  "Kept for next time": "Guardado para la próxima vez",
   "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.":
     "Ejecutarlo y, de ahora en adelante, ejecutar los comandos de este tipo en este proyecto sin preguntar. Los que la política prohíbe siguen prohibidos.",
   "Any running tasks will be interrupted.":

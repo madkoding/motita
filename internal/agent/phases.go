@@ -197,7 +197,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 	vars := map[string]string{
 		"task":         t.Description,
 		"workspace":    a.cfg.Agent.WorkspaceDir,
-		"project":      a.projectNote,
+		"project":      a.projectNote + memoryContext(a.cfg.Agent.WorkspaceDir),
 		"origin":       t.Origin,
 		"attempt":      "1",
 		"max_attempts": fmt.Sprint(a.cfg.Agent.MaxRetries + 1),

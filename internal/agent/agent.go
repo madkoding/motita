@@ -751,6 +751,9 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.saveGoalDecisions(t, r.Report)
 	}
 	if depth == 0 {
+		a.saveLessons(r.Report)
+	}
+	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
 		a.endFleet(r)
 	}
