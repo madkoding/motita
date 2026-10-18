@@ -1,5 +1,8 @@
 // The browser's credential: the cookie the gateway sets when a token is traded for it.
+import { choose } from "./choose";
 import {
+  HTTP_FORBIDDEN,
+  HTTP_UNAUTHORIZED,
   SAME_ORIGIN,
   SESSIONS_URL,
   STORAGE_KEY,
@@ -12,13 +15,13 @@ import {
 export type GateResult = "ok" | "rejected" | "offline";
 
 // HTTP statuses that say "the server answered and does not accept this credential".
-const REFUSED = new Set([401, 403]);
+const REFUSED = new Set([HTTP_UNAUTHORIZED, HTTP_FORBIDDEN]);
 
 function gateOf(res: Response): GateResult {
   if (res.ok) {
     return "ok";
   }
-  return REFUSED.has(res.status) ? "rejected" : "offline";
+  return choose(REFUSED.has(res.status), "rejected", "offline");
 }
 
 // authGate checks whether the browser currently holds a valid gateway
