@@ -134,10 +134,12 @@ test("a task is sent and its stream is drawn until the answer", async () => {
     await tick();
   });
   assert.equal(cur().rs.lastIdRef.current, 5);
+  // The phase label is the activity line, not a step of the trail.
   assert.deepEqual(
     cur().rs.stepsByTurn[1].map((s) => s.text),
-    ["running: ls", "planning...", "running: pwd"],
+    ["running: ls", "running: pwd"],
   );
+  assert.equal(cur().rs.activity, "running: pwd");
   assert.equal(cur().rs.messages[1].text, "plain words");
   assert.equal(cur().rs.messages[2].draft, true);
   await h.act(async () => {
