@@ -27,7 +27,8 @@ func TestAMessageSteersTheRunningTask(t *testing.T) {
 		text := string(body)
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"task\",\"understandable\":true,\"summary\":\"s\"}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"task\",\"understandable\":true,`+
+				`\"summary\":\"s\"}"}}]}`)
 		case strings.Contains(text, "## ACTION PLAN"):
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[]}"}}]}`)
 		case strings.Contains(text, "## PREVIOUS ROUNDS"):
@@ -42,7 +43,8 @@ func TestAMessageSteersTheRunningTask(t *testing.T) {
 				default:
 				}
 				<-steered
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"command\":\"true\"}],\"done\":false}"}}]}`)
+				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",`+
+					`\"actions\":[{\"command\":\"true\"}],\"done\":false}"}}]}`)
 				return
 			}
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[],\"done\":true,`+
@@ -80,7 +82,8 @@ func TestAMessageSteersTheRunningTask(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(prompts) < 2 || !strings.Contains(prompts[1], "WHILE YOU WORKED") || !strings.Contains(prompts[1], "also rename the flag") {
+	if len(prompts) < 2 || !strings.Contains(prompts[1], "WHILE YOU WORKED") ||
+		!strings.Contains(prompts[1], "also rename the flag") {
 		t.Fatalf("the second round must read the message, got %d rounds; trail %q", len(prompts), lines)
 	}
 	if !strings.Contains(strings.Join(lines, "\n"), "you: also rename the flag") {

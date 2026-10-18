@@ -23,7 +23,8 @@ func TestLessonsAreKeptOncePerLineAndBounded(t *testing.T) {
 	if err := recordLessons("", []string{"x"}); err != nil {
 		t.Fatal("no workspace, nothing written, no error")
 	}
-	if err := recordLessons(dir, []string{" make test runs the gate ", "", "Make test runs the gate", "pnpm, not npm"}); err != nil {
+	lessons := []string{" make test runs the gate ", "", "Make test runs the gate", "pnpm, not npm"}
+	if err := recordLessons(dir, lessons); err != nil {
 		t.Fatal(err)
 	}
 	if got := memoryLines(dir); len(got) != 2 || got[0] != "make test runs the gate" || got[1] != "pnpm, not npm" {
@@ -68,7 +69,8 @@ func TestATaskLearnsAndTheNextOneIsTold(t *testing.T) {
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 			analyses = append(analyses, text)
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"task\",\"understandable\":true,\"summary\":\"s\",\"plan\":[\"do\"]}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"task\",\"understandable\":true,`+
+				`\"summary\":\"s\",\"plan\":[\"do\"]}"}}]}`)
 		case strings.Contains(text, "## PREVIOUS ROUNDS"):
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[],\"done\":true,`+
 				`\"final_action\":{\"command\":\"true\"}}"}}]}`)

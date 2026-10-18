@@ -92,7 +92,8 @@ func TestEveryInputBecomesACheckpointWithItsSteps(t *testing.T) {
 	}
 	steps := cps[0].Steps
 	if len(steps) != 4 {
-		t.Fatalf("steps = %+v, want thought, 2 commands and a plain step (the live snapshot and the phase labels are not steps)", steps)
+		t.Fatalf("steps = %+v, want thought, 2 commands and a plain step "+
+			"(the live snapshot and the phase labels are not steps)", steps)
 	}
 	if steps[0].Kind != "thought" || steps[1].Kind != "command" || steps[3].Kind != "step" {
 		t.Errorf("kinds = %+v", steps)

@@ -72,13 +72,15 @@ func TestImperativeLeavesAWordThatIsNotAVerbAlone(t *testing.T) {
 // TestGoAheadIsATaskThatSaysSo: a go-ahead is a task with its own reason, whatever the wording
 // or the language, and a sentence that merely starts with one is not.
 func TestGoAheadIsATaskThatSaysSo(t *testing.T) {
-	for _, text := range []string{"ok", "Do it!", "go ahead", "  dale  ", "Hazlo.", "Sí", "ejecuta el plan"} { // spanish-fixture: input
+	for _, text := range []string{"ok", "Do it!", "go ahead",
+		"  dale  ", "Hazlo.", "Sí", "ejecuta el plan"} { // spanish-fixture: input
 		d := Classify(text)
 		if d.Kind != KindTask || d.Reason != ReasonGoAhead || d.Source != SourceHeuristic {
 			t.Errorf("%q: %+v", text, d)
 		}
 	}
-	for _, text := range []string{"ok, but explain the retry policy first", "do it in /tmp", "dale una vuelta al diseño"} { // spanish-fixture: input
+	for _, text := range []string{"ok, but explain the retry policy first", "do it in /tmp",
+		"dale una vuelta al diseño"} { // spanish-fixture: input
 		if Classify(text).Reason == ReasonGoAhead {
 			t.Errorf("%q is not a bare go-ahead", text)
 		}

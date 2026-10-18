@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,7 +33,8 @@ func approvalAskingService(cmds []string, answers *[]bool) *fakeService {
 
 func startTask(t *testing.T, srv *Server) *bufio.Reader {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	url := srv.BaseURL() + sessionPath(srv, DefaultSession, "/task")
+	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"task":"x"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -97,14 +99,15 @@ func TestAlwaysAllowingAShapeAnswersItInLaterRuns(t *testing.T) {
 	if second.Command != "npm test" {
 		t.Fatalf("the second question must be about the other shape, got %q", second.Command)
 	}
-	post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":false}`, second.ID), testToken)
+	post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"),
+		fmt.Sprintf(`{"id":%q,"approve":false}`, second.ID), testToken)
 	readEvents(t, br)
 	said := false
 	for _, e := range before {
 		said = said || (e.Event == EventProgress && strings.Contains(string(e.Data), "always allowed in this project") &&
 			strings.Contains(string(e.Data), "npm install --save x"))
 	}
-	if !said || len(answers) != 3 || !answers[0] || !answers[1] || answers[2] {
+	if !said || !slices.Equal(answers, []bool{true, true, false}) {
 		t.Fatalf("said=%v answers=%v", said, answers)
 	}
 	if srv.sessions[DefaultSession].status().AutoApprove {
@@ -116,7 +119,8 @@ func TestAlwaysAllowingAShapeAnswersItInLaterRuns(t *testing.T) {
 
 	// A new gateway over the same directory, and a typed shell line of that shape, needs no yes.
 	answers = nil
-	again := newTestServer(t, approvalAskingService([]string{"npm install y"}, &answers), func(o *Options) { o.SessionDir = dir })
+	again := newTestServer(t, approvalAskingService([]string{"npm install y"}, &answers),
+		func(o *Options) { o.SessionDir = dir })
 	br = startTask(t, again)
 	for _, e := range readEvents(t, br) {
 		if e.Event == EventApproval {

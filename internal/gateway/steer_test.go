@@ -20,6 +20,28 @@ func (p *steerProbe) Steer(text string) bool {
 	return true
 }
 
+// steerExpect posts a message to the steer endpoint and checks the code and a fragment of the
+// answer.
+func steerExpect(t *testing.T, srv *Server, path, body string, code int, fragment string) {
+	t.Helper()
+	w := post(t, srv, path, body, testToken)
+	if w.Code != code || !strings.Contains(w.Body.String(), fragment) {
+		t.Fatalf("%s: %d %s", body, w.Code, w.Body.String())
+	}
+}
+
+// stepMentions says whether a step of the session's checkpoints carries text.
+func stepMentions(srv *Server, id, text string) bool {
+	for _, cp := range srv.conversationOf(id).checkpointRecords() {
+		for _, st := range cp.Steps {
+			if strings.Contains(st.Text, text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // A message sent to a task in flight is handed to it and shown as a step; one the task does not
 // take is queued, and one sent to an idle session starts a run.
 func TestSteerHandsTheMessageToTheTaskInFlight(t *testing.T) {
@@ -34,44 +56,23 @@ func TestSteerHandsTheMessageToTheTaskInFlight(t *testing.T) {
 	t.Cleanup(func() { close(rec.release) })
 	base := "/v1/sessions/" + a.ID
 
-	for _, body := range []string{`{"task":"  "}`, `not json`} {
-		if w := post(t, srv, base+"/steer", body, testToken); w.Code != http.StatusBadRequest {
-			t.Fatalf("%s: %d", body, w.Code)
-		}
-	}
+	steerExpect(t, srv, base+"/steer", `{"task":"  "}`, http.StatusBadRequest, "")
+	steerExpect(t, srv, base+"/steer", `not json`, http.StatusBadRequest, "")
 	merged := newSessionFor(t, srv)
 	srv.conversationOf(merged.ID).setMerged("abc")
-	if w := post(t, srv, "/v1/sessions/"+merged.ID+"/steer", `{"task":"x"}`, testToken); w.Code != http.StatusConflict {
-		t.Fatalf("merged: %d", w.Code)
-	}
-	w := post(t, srv, base+"/steer", `{"task":"idle-start"}`, testToken)
-	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), `"started":true`) {
-		t.Fatalf("steer when idle: %d %s", w.Code, w.Body.String())
-	}
+	steerExpect(t, srv, "/v1/sessions/"+merged.ID+"/steer", `{"task":"x"}`, http.StatusConflict, "")
+	steerExpect(t, srv, base+"/steer", `{"task":"idle-start"}`, http.StatusAccepted, `"started":true`)
 	waitUntil(t, "the session to go idle", func() bool { return !srv.conversationOf(a.ID).isRunning() })
 
 	abandon := startInBackground(t, srv, a.ID, "/task", `{"task":"block-1"}`)
 	defer abandon()
 	waitBlocked(t, rec)
-	w = post(t, srv, base+"/steer", `{"task":"steer: also this"}`, testToken)
-	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), `"steered":true`) {
-		t.Fatalf("steer while busy: %d %s", w.Code, w.Body.String())
-	}
+	steerExpect(t, srv, base+"/steer", `{"task":"steer: also this"}`, http.StatusAccepted, `"steered":true`)
 	if len(probe.taken) != 1 || probe.taken[0] != "steer: also this" {
 		t.Fatalf("taken %v", probe.taken)
 	}
-	cps := srv.conversationOf(a.ID).checkpointRecords()
-	found := false
-	for _, cp := range cps {
-		for _, st := range cp.Steps {
-			found = found || strings.Contains(st.Text, "you: steer: also this")
-		}
+	if !stepMentions(srv, a.ID, "you: steer: also this") {
+		t.Errorf("the message must be a step of the turn")
 	}
-	if !found {
-		t.Errorf("the message must be a step of the turn: %+v", cps)
-	}
-	w = post(t, srv, base+"/steer", `{"task":"not taken"}`, testToken)
-	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), `"queued":true`) {
-		t.Fatalf("a message the task does not take is queued: %d %s", w.Code, w.Body.String())
-	}
+	steerExpect(t, srv, base+"/steer", `{"task":"not taken"}`, http.StatusAccepted, `"queued":true`)
 }

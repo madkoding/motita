@@ -124,11 +124,15 @@ func (s *Store) List(scope string) []Key {
 	return append([]Key(nil), s.data[scope]...)
 }
 
+// marshal encodes the store; a variable so a test can make the encoding fail, which a map of
+// strings never does on its own.
+var marshal = json.MarshalIndent
+
 func (s *Store) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	raw, err := json.MarshalIndent(s.data, "", "  ")
+	raw, err := marshal(s.data, "", "  ")
 	if err != nil {
 		return err
 	}

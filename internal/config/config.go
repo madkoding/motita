@@ -290,13 +290,9 @@ type Agent struct {
 	// analysis stated is not shown to be met, before the project's gate is spent on it. It costs
 	// one short model call per claim; false skips it.
 	CriteriaAudit bool `yaml:"criteria_audit"`
-	// AssumeFirst makes the agent go on with the assumption it stated, instead of stopping to
-	// ask, unless the question is a real decision (destructive, irreversible or materially
-	// different outcomes). The report says what was assumed. false asks every time.
+	// AssumeFirst: go on with the stated assumption unless the question is a real decision.
 	AssumeFirst bool `yaml:"assume_first"`
-	// QuickPlan lets the analysis write the plan of a task in its own answer, so one model call
-	// stands before the first action instead of two; the plan phase still runs for work the
-	// analysis says needs subtasks. false always runs the plan phase.
+	// QuickPlan: the analysis may plan the task in its own answer, skipping the plan phase.
 	QuickPlan bool `yaml:"quick_plan"`
 	MaxTasks  int  `yaml:"max_tasks"`
 	// MaxSteps bounds how many rounds a SINGLE task may take, which is a different
@@ -1000,25 +996,6 @@ func (c *Config) normalize() {
 	}
 	if !c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level != "off" {
 		c.LLM.Reasoning.Enabled = true
-	}
-}
-
-// retiredBrowserProvider is the provider that ran a small model in a browser tab. It answered
-// nonsense, so it was removed; a file that still names it falls back to the default.
-const retiredBrowserProvider = "browser"
-
-// dropRetiredBrowserModel lets a saved file that still points at the removed browser provider
-// load: the main model returns to the default, and a models entry follows the default again.
-func (c *Config) dropRetiredBrowserModel() {
-	if c.LLM.Provider == retiredBrowserProvider {
-		d := Default().LLM
-		c.LLM.Provider, c.LLM.Model, c.LLM.BaseURL = d.Provider, d.Model, d.BaseURL
-	}
-	for _, e := range []*string{&c.Models.Plan, &c.Models.Code, &c.Models.Review, &c.Models.Research,
-		&c.Models.Summary, &c.Models.Cheap, &c.Models.Strong} {
-		if provider, _, _ := strings.Cut(strings.TrimSpace(*e), "/"); strings.EqualFold(provider, retiredBrowserProvider) {
-			*e = ""
-		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package approvals
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,7 +62,8 @@ func TestTheStoreRemembersAcrossOpens(t *testing.T) {
 }
 
 func TestOpenHandlesBadAndMissingFiles(t *testing.T) {
-	if s, err := Open(""); err != nil || s.Remember("x", Key{Rule: "r", Program: "p"}) != nil || !s.Allowed("x", Key{Rule: "r", Program: "p"}) {
+	k := Key{Rule: "r", Program: "p"}
+	if s, err := Open(""); err != nil || s.Remember("x", k) != nil || !s.Allowed("x", k) {
 		t.Fatal("an in-memory store works without a file")
 	}
 	dir := t.TempDir()
@@ -96,5 +98,12 @@ func TestSaveReportsAFileThatCannotBeWritten(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(dir, "g.json", "inner"), 0o700)
 	if err := s2.Remember("x", Key{Rule: "r", Program: "p"}); err == nil {
 		t.Fatal("a file that cannot replace its target is reported")
+	}
+	// An encoding that fails is reported too; the real one never fails on this data.
+	defer func(m func(any, string, string) ([]byte, error)) { marshal = m }(marshal)
+	marshal = func(any, string, string) ([]byte, error) { return nil, errors.New("no encoding") }
+	s3, _ := Open(filepath.Join(dir, "h.json"))
+	if err := s3.Remember("x", Key{Rule: "r", Program: "p"}); err == nil || err.Error() != "no encoding" {
+		t.Fatalf("a failed encoding must be reported: %v", err)
 	}
 }

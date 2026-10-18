@@ -15,7 +15,8 @@ func TestAGoAheadAfterAPlanCarriesItOut(t *testing.T) {
 	svc := autoService(&got)
 	svc.transcript = []agent.DialogueTurn{{User: "how?", Agent: "1. do this\n2. then that", Kind: "plan"}}
 	srv := newTestServer(t, svc)
-	events := withoutPreamble(t, collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/run"), `{"task":"ok, do it"}`))
+	events := withoutPreamble(t,
+		collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/run"), `{"task":"ok, do it"}`))
 	if len(events) == 0 || !strings.Contains(events[0].Data, "mode: task (carrying out the plan)") {
 		t.Fatalf("the note must say the plan is carried out: %+v", events)
 	}
