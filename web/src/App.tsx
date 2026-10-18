@@ -58,6 +58,7 @@ import { GitIdentityModal } from "./GitIdentityModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
 import { Subtitles } from "./Subtitles";
+import { ProjectHintCard } from "./ProjectHintCard";
 import { ToastCard } from "./ToastCard";
 import { UpgradeModal } from "./UpgradeModal";
 import { SkillLibraryModal } from "./SkillLibraryModal";
@@ -493,7 +494,9 @@ function NoSession() {
           {t("Waiting for a new session")}
         </p>
         <p class="no-session-hint text-sm">
-          {t("Type below to start talking to the agent, or create a session first.")}
+          {t(
+            "Type below to start talking to the agent, or create a session first.",
+          )}
         </p>
         <div class="w-full max-w-[220px] flex">
           <NewSessionButton
@@ -533,6 +536,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <Subtitles on={speech.prefs.subtitles} size={speech.prefs.subtitleSize} />
       {rs.approval && <ApprovalPanel approval={rs.approval} />}
       <PRBar pr={pr} />
+      <ProjectHintCard />
       <Composer />
     </div>
   );

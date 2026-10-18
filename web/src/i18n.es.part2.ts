@@ -703,6 +703,38 @@ const more: Record<string, string> = {
   "The local listener stopped.": "El oyente local se detuvo.",
   "Give Motita's commands the network?":
     "¿Dar la red a los comandos de Motita?",
+  'Create the project "{name}" from this repository and move this session into it?':
+    '¿Crear el proyecto "{name}" desde este repositorio y mover esta sesión a él?',
+  "Create project": "Crear proyecto",
+  "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.":
+    "Se clona, se indexa y se configura con sus valores por defecto; esta conversación sigue dentro.",
+  'The project "{title}" already has {name}. Move this session into it?':
+    'El proyecto "{title}" ya tiene {name}. ¿Mover esta sesión a él?',
+  "Move session": "Mover sesión",
+  "The conversation stays; the agent now works in the project's own worktree.":
+    "La conversación se queda; el agente pasa a trabajar en el worktree propio del proyecto.",
+  'Add {name} to the project "{title}"?':
+    '¿Agregar {name} al proyecto "{title}"?',
+  "Add repository": "Agregar repositorio",
+  "It is cloned once and every session of the project gets its own worktree of it.":
+    "Se clona una sola vez y cada sesión del proyecto recibe su propio worktree.",
+  "Not now": "Ahora no",
+  '{name} added to the project "{title}"':
+    '{name} agregado al proyecto "{title}"',
+  'This session moved to the project "{title}"':
+    'Esta sesión se movió al proyecto "{title}"',
+  'The project "{title}" was created, but the session was not moved: {err}':
+    'El proyecto "{title}" se creó, pero la sesión no se movió: {err}',
+  'Project "{title}" created and this session moved into it':
+    'Proyecto "{title}" creado y esta sesión movida a él',
+  "Could not set up the project": "No se pudo configurar el proyecto",
+  'Move this session into a new project "{title}"?':
+    '¿Mover esta sesión a un proyecto nuevo "{title}"?',
+  "The files it made stay in its previous folder; the conversation goes on in the new project.":
+    "Los archivos que creó se quedan en su carpeta anterior; la conversación sigue en el proyecto nuevo.",
+  "The project is not indexed: the code index is off":
+    "El proyecto no se indexó: el índice de código está desactivado",
+  "Turn it on in Settings → Indexing.": "Actívalo en Ajustes → Indexado.",
 };
 
 export default more;

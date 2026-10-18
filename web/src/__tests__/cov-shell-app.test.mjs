@@ -60,6 +60,7 @@ component("./GitIdentityModal", ["GitIdentityModal"]);
 component("./ModelSwitcherModal", ["ModelSwitcherModal"]);
 component("./ConfirmDeleteModal", ["ConfirmDeleteModal", "ContextMenu"]);
 component("./Subtitles", ["Subtitles"]);
+component("./ProjectHintCard", ["ProjectHintCard"]);
 component("./UpgradeModal", ["UpgradeModal"]);
 component("./SkillLibraryModal", ["SkillLibraryModal"]);
 component("./ArtifactsModal", ["ArtifactsModal"]);
