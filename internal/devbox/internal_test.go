@@ -246,6 +246,8 @@ func (b browserContainer) answer(a []string) ([]byte, error) {
 			content = nil
 		}
 		return nil, os.WriteFile(a[2], content, 0o644)
+	default:
+		return nil, nil
 	}
 	return nil, nil
 }

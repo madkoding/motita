@@ -76,10 +76,18 @@ func TestCheckCompose(t *testing.T) {
 			t.Fatal(name, err)
 		}
 		err := checkCompose(cfg, dir, "web")
-		if c.want == "" && err != nil || c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
+		if !refusedAs(err, c.want) {
 			t.Errorf("%s: %v (want %q)", name, err, c.want)
 		}
 	}
+}
+
+// refusedAs reports whether err matches want: no error for an empty want, else one that says it.
+func refusedAs(err error, want string) bool {
+	if want == "" {
+		return err == nil
+	}
+	return err != nil && strings.Contains(err.Error(), want)
 }
 
 func TestComposeOverride(t *testing.T) {

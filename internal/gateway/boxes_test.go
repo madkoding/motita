@@ -26,7 +26,10 @@ func TestStartingTheGatewaySweepsOrphanBoxes(t *testing.T) {
 	swept := make(chan struct{}, 1)
 	old := sweepBoxes
 	t.Cleanup(func() { sweepBoxes = old })
-	sweepBoxes = func(context.Context) int { swept <- struct{}{}; return 0 }
+	sweepBoxes = func(context.Context) int {
+		swept <- struct{}{}
+		return 0
+	}
 	(&Server{}).loadPersistedSessions()
 	select {
 	case <-swept:
@@ -51,7 +54,10 @@ func TestTheBoxesCanBeListedAndStopped(t *testing.T) {
 	var activeErr, removeErr error
 	var removed string
 	boxActive = func(context.Context) (string, []devbox.Info, error) { return "podman", active, activeErr }
-	boxRemove = func(_ context.Context, ref string) error { removed = ref; return removeErr }
+	boxRemove = func(_ context.Context, ref string) error {
+		removed = ref
+		return removeErr
+	}
 	boxStop = func(context.Context) int { return 3 }
 	srv := newTestServer(t, &fakeService{})
 

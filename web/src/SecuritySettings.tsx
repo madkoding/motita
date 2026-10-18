@@ -271,6 +271,25 @@ function CommandSettings({
   );
 }
 
+// SecurityExtras are the controls under the disk access choice: what runs unconfined, the network
+// and the private boxes.
+function SecurityExtras({
+  api,
+  view,
+  onView,
+}: {
+  api: Api;
+  view: SecurityView;
+  onView: (v: SecurityView) => void;
+}) {
+  return (
+    <>
+      <CommandSettings api={api} view={view} onView={onView} />
+      <BoxesSetting api={api} />
+    </>
+  );
+}
+
 // SecuritySettings is how much of the disk Motita reaches: its workspace only (the default) or
 // the whole disk, which is never given without a confirmation that says what it implies. The
 // section stays hidden on a gateway without the security API.
@@ -312,8 +331,7 @@ export function SecuritySettings({
             sec={sec}
           />
         )}
-        {view && <CommandSettings api={api} view={view} onView={sec.setView} />}
-        {view && <BoxesSetting api={api} />}
+        {view && <SecurityExtras api={api} view={view} onView={sec.setView} />}
         {scope && <SessionScopeNote scope={scope} />}
         {err && (
           <p
