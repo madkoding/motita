@@ -356,3 +356,29 @@ func TestSetLLMDefaultFailures(t *testing.T) {
 		t.Error("a failed write is reported")
 	}
 }
+
+func TestProviderKeyFollowsTheOrderKeySourceDoes(t *testing.T) {
+	t.Setenv("OLLAMA_API_KEY", "")
+	cfgPath := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := os.WriteFile(cfgPath, []byte("llm:\n  provider: ollama-cloud\n  api_key: yaml-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	same := LLM{Provider: "ollama-cloud"}
+	if got := ProviderKey(cfgPath, same, "ollama-cloud"); got != "yaml-key" {
+		t.Errorf("the configuration's key for its provider: %q", got)
+	}
+	t.Setenv("OLLAMA_API_KEY", "env-key")
+	if got := ProviderKey(cfgPath, same, "ollama-cloud"); got != "env-key" {
+		t.Errorf("an exported variable wins: %q", got)
+	}
+	t.Setenv("OLLAMA_API_KEY", "")
+	if err := SetCredential(cfgPath, ProviderStoreVariable("openai"), "stored"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProviderKey(cfgPath, same, "openai"); got != "stored" {
+		t.Errorf("a stored key for another provider: %q", got)
+	}
+	if got := ProviderKey("", LLM{}, "gemini"); got != "" {
+		t.Errorf("no key: %q", got)
+	}
+}

@@ -704,7 +704,10 @@ func TestLLMUsageSaysNothingOfACopilotQuotaItCannotRead(t *testing.T) {
 		if *calls != 1 {
 			t.Errorf("%s: asked %d times inside the minute", name, *calls)
 		}
-		srv.quotaCache.at = time.Now().Add(-2 * quotaKeepFail)
+		for k, e := range srv.quotaCache.items {
+			e.at = time.Now().Add(-2 * quotaKeepFail)
+			srv.quotaCache.items[k] = e
+		}
 		readUsage(t, srv)
 		if *calls != 2 {
 			t.Errorf("%s: a failed read is not tried again after a minute: %d", name, *calls)
@@ -714,7 +717,7 @@ func TestLLMUsageSaysNothingOfACopilotQuotaItCannotRead(t *testing.T) {
 
 func TestACopilotQuotaNeedsALoginOrAConfiguredKey(t *testing.T) {
 	srv := usageServer(t)
-	if q := srv.copilotQuota(context.Background(), config.LLM{Provider: "copilot"}); q != nil {
+	if q := srv.planQuotas(context.Background(), "", config.LLM{Provider: "copilot"}, "copilot"); q != nil {
 		t.Errorf("no login, no key: %+v", q)
 	}
 	if copilotToken(config.LLM{Provider: "copilot", APIKey: "gho_k"}) != "gho_k" {
@@ -723,10 +726,59 @@ func TestACopilotQuotaNeedsALoginOrAConfiguredKey(t *testing.T) {
 	if copilotToken(config.LLM{Provider: "openai", APIKey: "k"}) != "" {
 		t.Error("any other key is not")
 	}
-	if withQuota(nil, nil) != nil {
+	if withQuotas(nil, nil) != nil {
 		t.Error("nothing to add")
 	}
-	if got := withQuota(nil, &llm.Quota{Name: "month"}); len(got.Quotas) != 1 {
+	if got := withQuotas(nil, []llm.Quota{{Name: "month"}}); len(got.Quotas) != 1 {
 		t.Errorf("limits made from nothing: %+v", got)
+	}
+}
+
+// ollamaUsageServer is a gateway with an Ollama Cloud key whose balance read is `read`.
+func ollamaUsageServer(t *testing.T, read func() ([]llm.Quota, error)) (*Server, *int) {
+	t.Helper()
+	srv := usageServer(t)
+	calls := 0
+	old := ollamaQuotas
+	ollamaQuotas = func(_ context.Context, _ *http.Client, key string) ([]llm.Quota, error) {
+		calls++
+		if key != "ol-key" {
+			t.Errorf("key = %q", key)
+		}
+		return read()
+	}
+	t.Cleanup(func() { ollamaQuotas = old })
+	t.Setenv("OLLAMA_API_KEY", "ol-key")
+	srv.usageTotals = func() []llm.ProviderUsage {
+		return []llm.ProviderUsage{{Provider: "ollama-cloud", Calls: 1}, {Provider: "ollama", Calls: 1}}
+	}
+	return srv, &calls
+}
+
+func TestLLMUsageShowsTheOllamaCloudQuotas(t *testing.T) {
+	srv, calls := ollamaUsageServer(t, func() ([]llm.Quota, error) {
+		return []llm.Quota{{Name: "month", Used: 27.5}, {Name: "week", Used: 60}}, nil
+	})
+	v := readUsage(t, srv)
+	r := usageRow(v, "ollama-cloud")
+	if r == nil || r.Limits == nil || len(r.Limits.Quotas) != 2 || r.Limits.Quotas[0].Used != 27.5 {
+		t.Fatalf("ollama-cloud row: %+v", r)
+	}
+	if usageRow(v, "ollama") == nil {
+		t.Error("an Ollama with a key keeps its row")
+	}
+	readUsage(t, srv)
+	if *calls != 1 {
+		t.Errorf("the balance was asked %d times for one key", *calls)
+	}
+}
+
+func TestLLMUsageSaysNothingOfAnOllamaBalanceItCannotRead(t *testing.T) {
+	srv, _ := ollamaUsageServer(t, func() ([]llm.Quota, error) { return nil, errors.New("503") })
+	if r := usageRow(readUsage(t, srv), "ollama-cloud"); r == nil || r.Limits != nil {
+		t.Errorf("a quota was invented: %+v", r)
+	}
+	if got := srv.planQuotas(context.Background(), "", config.LLM{}, "openai"); got != nil {
+		t.Errorf("a provider with no quota API: %+v", got)
 	}
 }

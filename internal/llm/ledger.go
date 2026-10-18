@@ -118,6 +118,29 @@ func (l *ledger) limits(src usageSource, r RateLimits) {
 	l.changed()
 }
 
+// quota records one quota a provider reported, replacing the earlier one of the same window and
+// keeping the provider's other limits.
+func (l *ledger) quota(src usageSource, q Quota) {
+	if src.local {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	p := l.entry(src.provider)
+	if p.Limits == nil {
+		p.Limits = &RateLimits{}
+	}
+	p.Limits.At = l.tick()
+	quotas := make([]Quota, 0, len(p.Limits.Quotas)+1)
+	for _, old := range p.Limits.Quotas {
+		if old.Name != q.Name {
+			quotas = append(quotas, old)
+		}
+	}
+	p.Limits.Quotas = append(quotas, q)
+	l.changed()
+}
+
 // changed schedules the file to be written. The caller holds l.mu.
 func (l *ledger) changed() {
 	if l.file == "" || l.pending {

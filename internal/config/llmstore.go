@@ -126,6 +126,21 @@ func KeySource(configPath string, configured LLM, provider string) string {
 	}
 }
 
+// ProviderKey is the key provider runs with for a gateway started with the configuration at
+// configPath whose LLM block is configured, in the order KeySource follows; "" when there is none.
+func ProviderKey(configPath string, configured LLM, provider string) string {
+	same := strings.EqualFold(configured.Provider, provider)
+	if v := envKey(provider, same); v != "" {
+		return v
+	}
+	if same {
+		if v := YAMLAPIKey(configPath); v != "" {
+			return v
+		}
+	}
+	return storedKey(configPath, provider, same)
+}
+
 // envKey is the key an exported variable holds for provider. The generic variable counts only for
 // the configured provider, which it belongs to.
 func envKey(provider string, configured bool) string {
