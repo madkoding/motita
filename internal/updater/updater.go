@@ -736,13 +736,7 @@ func compareIdentifier(a, b string) int {
 	numA, numB := isNumeric(a), isNumeric(b)
 	switch {
 	case numA && numB:
-		// Compared as decimal strings so no length can overflow: without leading zeros, the
-		// longer one is the bigger number.
-		a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
-		if len(a) != len(b) {
-			return len(a) - len(b)
-		}
-		return strings.Compare(a, b)
+		return compareNumeric(a, b)
 	case numA:
 		return -1
 	case numB:
@@ -750,6 +744,16 @@ func compareIdentifier(a, b string) int {
 	default:
 		return strings.Compare(a, b)
 	}
+}
+
+// compareNumeric compares two digit runs as decimal strings so no length can overflow: without
+// leading zeros, the longer one is the bigger number.
+func compareNumeric(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if len(a) != len(b) {
+		return len(a) - len(b)
+	}
+	return strings.Compare(a, b)
 }
 
 // isNumeric reports whether s is a non-empty run of ASCII digits.
