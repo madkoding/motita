@@ -79,15 +79,19 @@ function fakeFetch(answer) {
 
 test("authGate asks the protected sessions endpoint and reports whether it answered ok", async () => {
   let calls = fakeFetch(() => jsonResponse([], 200));
-  assert.equal(await m.authGate(), true);
+  assert.equal(await m.authGate(), "ok");
   assert.equal(calls[0].url, "/v1/sessions");
   assert.equal(calls[0].init.credentials, "same-origin");
   fakeFetch(() => jsonResponse({}, 401));
-  assert.equal(await m.authGate(), false);
+  assert.equal(await m.authGate(), "rejected");
+  fakeFetch(() => jsonResponse({}, 403));
+  assert.equal(await m.authGate(), "rejected");
+  fakeFetch(() => jsonResponse({}, 502));
+  assert.equal(await m.authGate(), "offline", "a proxy with no gateway behind");
   fakeFetch(() => {
     throw new TypeError("offline");
   });
-  assert.equal(await m.authGate(), false, "a network failure is no credential");
+  assert.equal(await m.authGate(), "offline", "no answer is not a refusal");
 });
 
 test("clearCredential deletes the cookie and the remembered session, whatever fails", async () => {
@@ -123,15 +127,15 @@ test("clearCredential deletes the cookie and the remembered session, whatever fa
 
 test("submitToken trades the token as a bearer and reports the answer", async () => {
   const calls = fakeFetch(() => new Response(null, { status: 204 }));
-  assert.equal(await m.submitToken("abc"), true);
+  assert.equal(await m.submitToken("abc"), "ok");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers.Authorization, "Bearer abc");
   fakeFetch(() => new Response(null, { status: 401 }));
-  assert.equal(await m.submitToken("bad"), false);
+  assert.equal(await m.submitToken("bad"), "rejected");
   fakeFetch(() => {
     throw new TypeError("offline");
   });
-  assert.equal(await m.submitToken("x"), false);
+  assert.equal(await m.submitToken("x"), "offline");
 });
 
 test("exchange trades the #t= fragment and erases it, whatever the answer", async () => {

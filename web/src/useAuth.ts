@@ -1,6 +1,6 @@
 // Starting the page: the credential (traded from the link, or typed in the blocking modal), the
 // first load of the lists and the last conversation, and the language of the interface.
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t, setLang, resolveLang, type LangSetting } from "./i18n";
 import { choose } from "./choose";
 import { authGate, exchange, submitToken } from "./appAuth";
@@ -22,7 +22,10 @@ import {
   STORAGE_KEY,
 } from "./appConst";
 
-export type AuthState = "checking" | "needed" | "ok";
+export type AuthState = "checking" | "needed" | "offline" | "ok";
+
+// OFFLINE_RETRY_MS is how often the page asks again while the gateway does not answer.
+export const OFFLINE_RETRY_MS = 5000;
 
 // lastSessionOf is the conversation to open: the one the address names, else the one used last,
 // else the most recently used one the gateway has. With none, it is "": nothing is opened and the
@@ -73,12 +76,14 @@ export function useAuth({
   const { fetchProjects, fetchSessions } = lists;
   const { switchSession } = conv;
   // Auth gate: 'checking' while the initial probe is in flight, 'needed' when
-  // the browser has no valid credential, 'ok' when it does. The blocking modal
-  // is rendered whenever authState !== 'ok'.
+  // the gateway answered and refused the browser's credential, 'offline' when
+  // the gateway did not answer at all, 'ok' when the credential is valid. The
+  // blocking modal is rendered whenever authState !== 'ok'.
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authInput, setAuthInput] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   // loadAll loads everything the page shows, as if it had just started: the projects, the slash
   // commands for autocomplete, the sessions, and the last-used session (or none).
@@ -105,6 +110,20 @@ export function useAuth({
     }
   };
 
+  // check asks the gateway whether the browser holds a valid credential: with one the page loads,
+  // refused it asks for the token, and with no answer it says the gateway cannot be reached.
+  const check = async () => {
+    const gate = await authGate();
+    if (gate === "ok") {
+      setAuthState("ok");
+      await loadAll();
+      return;
+    }
+    setAuthState(choose(gate === "offline", "offline", "needed"));
+  };
+  const checkRef = useRef(check);
+  checkRef.current = check;
+
   // Start: exchange token, check auth, load sessions, pick up the last session or default.
   useEffect(() => {
     (async () => {
@@ -115,13 +134,7 @@ export function useAuth({
         /* ignore */
       }
       // Then check whether the browser now holds a valid credential.
-      const ok = await authGate();
-      if (!ok) {
-        setAuthState("needed");
-        return;
-      }
-      setAuthState("ok");
-      await loadAll();
+      await check();
     })();
     // Cleanup reconnect timer on unmount.
     return () => {
@@ -130,6 +143,22 @@ export function useAuth({
       }
     };
   }, [fetchProjects, fetchSessions, switchSession]);
+
+  // While the gateway does not answer, ask again by itself until it does.
+  useEffect(() => {
+    if (authState !== "offline") {
+      return undefined;
+    }
+    const timer = setInterval(() => void checkRef.current(), OFFLINE_RETRY_MS);
+    return () => clearInterval(timer);
+  }, [authState]);
+
+  // retry is the Retry button of the offline modal: ask now instead of waiting for the next turn.
+  const retry = useCallback(async () => {
+    setRetrying(true);
+    await checkRef.current();
+    setRetrying(false);
+  }, []);
 
   // Listen for auth-needed events dispatched by api() on 401. The modal
   // reappears and local state is reset so nothing stale is shown.
@@ -155,8 +184,13 @@ export function useAuth({
     }
     setAuthBusy(true);
     setAuthError("");
-    const ok = await submitToken(token);
-    if (!ok) {
+    const gate = await submitToken(token);
+    if (gate === "offline") {
+      setAuthBusy(false);
+      setAuthState("offline");
+      return;
+    }
+    if (gate === "rejected") {
       setAuthError(t("That token was rejected. Try again."));
       setAuthBusy(false);
       return;
@@ -181,6 +215,8 @@ export function useAuth({
     authError,
     authBusy,
     submitAuth,
+    retrying,
+    retry,
   };
 }
 

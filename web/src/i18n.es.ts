@@ -79,6 +79,11 @@ const first: Record<string, string> = {
   "could not reject the skill": "no se pudo rechazar la skill",
   "Ask for something…": "Pide algo…",
   "Authentication required": "Se requiere autenticación",
+  "No connection to the server": "Sin conexión con el servidor",
+  "Motita cannot reach the gateway right now":
+    "Motita no puede comunicarse con el gateway ahora",
+  "Check that it is running and that you are online. Retrying on its own…":
+    "Revisa que esté en marcha y que tengas conexión. Reintenta solo…",
   Automatic: "Automático",
   "Back at the checkpoint — conversation and files":
     "De vuelta en el checkpoint — conversación y archivos",

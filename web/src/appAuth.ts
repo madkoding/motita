@@ -6,16 +6,30 @@ import {
   WEBUI_SESSION_URL,
 } from "./appConst";
 
+// GateResult is what asking the gateway about a credential can come to: it accepted it, it
+// answered and refused it, or it did not answer at all (no connection, or a proxy in front of a
+// gateway that is down). Only "rejected" is a reason to ask for the token.
+export type GateResult = "ok" | "rejected" | "offline";
+
+// HTTP statuses that say "the server answered and does not accept this credential".
+const REFUSED = new Set([401, 403]);
+
+function gateOf(res: Response): GateResult {
+  if (res.ok) {
+    return "ok";
+  }
+  return REFUSED.has(res.status) ? "rejected" : "offline";
+}
+
 // authGate checks whether the browser currently holds a valid gateway
 // credential. It hits a PROTECTED endpoint: /v1/health is public, so it would
 // always return true. /v1/sessions requires the cookie and returns 401 without
 // one, which is the actual signal we need.
-export async function authGate(): Promise<boolean> {
+export async function authGate(): Promise<GateResult> {
   try {
-    const res = await fetch(SESSIONS_URL, { credentials: SAME_ORIGIN });
-    return res.ok;
+    return gateOf(await fetch(SESSIONS_URL, { credentials: SAME_ORIGIN }));
   } catch {
-    return false;
+    return "offline";
   }
 }
 
@@ -39,17 +53,17 @@ export async function clearCredential(): Promise<void> {
 }
 
 // submitToken trades a token (or password) the user typed for the browser's
-// cookie. Returns true on success, false on rejection.
-export async function submitToken(token: string): Promise<boolean> {
+// cookie. Says whether the gateway took it, refused it, or could not be reached.
+export async function submitToken(token: string): Promise<GateResult> {
   try {
     const res = await fetch(WEBUI_SESSION_URL, {
       method: "POST",
       credentials: SAME_ORIGIN,
       headers: { Authorization: "Bearer " + token },
     });
-    return res.ok;
+    return gateOf(res);
   } catch {
-    return false;
+    return "offline";
   }
 }
 

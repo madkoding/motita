@@ -962,6 +962,29 @@ test("the token prompt takes the token and submits it, and keeps its clicks", as
   document.removeEventListener("click", listener);
 });
 
+test("with no gateway the modal says so and offers a retry, not the token", async () => {
+  let { store, calls } = authStore({ authState: "offline", retrying: false });
+  store.auth.retry = () => calls.push(["retry"]);
+  let { root, done } = await show(AuthModal, store);
+  assert.equal(text(root.querySelector("h2")), "No connection to the server");
+  assert.equal(root.querySelector("form"), null, "no token field");
+  assert.equal(root.querySelector("#auth-token"), null);
+  const button = root.querySelector("button");
+  assert.equal(text(button), "Retry");
+  assert.equal(button.disabled, false);
+  button.click();
+  assert.deepEqual(calls, [["retry"]]);
+  await done();
+
+  ({ store } = authStore({ authState: "offline", retrying: true }));
+  ({ root, done } = await show(AuthModal, store));
+  const busy = root.querySelector("button");
+  assert.equal(busy.disabled, true);
+  assert.equal(text(busy), "Connecting…");
+  assert.ok(busy.querySelector(".animate-spin"));
+  await done();
+});
+
 test("while the token is checked the prompt is busy", async () => {
   const { store } = authStore({ authInput: "tok", authBusy: true });
   const { root, done } = await show(AuthModal, store);
