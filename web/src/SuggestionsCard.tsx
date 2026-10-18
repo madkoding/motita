@@ -76,16 +76,17 @@ export function SuggestionsSection({
     setSent(a);
     onAnswer?.(a);
   };
-  const toggle = (i: number) => {
-    setTicked(ticked.map((on, k) => on !== (k === i)));
-  };
+  const toggle = useCallback((i: number) => {
+    setTicked((prev) => prev.map((on, k) => on !== (k === i)));
+  }, []);
   const apply = useCallback(() => submit(ticked), [ticked, onAnswer]);
   const ignore = useCallback(
     () => submit(suggestions.map(() => false)),
     [suggestions, onAnswer],
   );
   const applied = useRef(false);
-  const autoApplies = !!onAnswer && (auto || all) && !sent && !stale;
+  const asked = !!onAnswer && (auto || all);
+  const autoApplies = asked && !sent && !stale;
   useEffect(() => {
     if (!applied.current && autoApplies && ticked.every(Boolean)) {
       applied.current = true;
