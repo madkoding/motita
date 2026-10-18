@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 	if err := os.WriteFile(cfg, []byte("[user]\n\tname = Test\n\temail = test@example.com\n"), 0o600); err != nil {
 		panic(err)
 	}
-	sweepBoxes = func(context.Context) int { return 0 }
+	SweepBoxes = func(context.Context) int { return 0 }
 	os.Setenv("GIT_CONFIG_GLOBAL", cfg)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	code := m.Run()

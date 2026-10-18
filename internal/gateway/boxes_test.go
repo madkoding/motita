@@ -24,9 +24,9 @@ func TestBoxScreenshotsLandWhereThePreviewsAreRead(t *testing.T) {
 // A gateway that starts removes the service containers an earlier process left behind.
 func TestStartingTheGatewaySweepsOrphanBoxes(t *testing.T) {
 	swept := make(chan struct{}, 1)
-	old := sweepBoxes
-	t.Cleanup(func() { sweepBoxes = old })
-	sweepBoxes = func(context.Context) int {
+	old := SweepBoxes
+	t.Cleanup(func() { SweepBoxes = old })
+	SweepBoxes = func(context.Context) int {
 		swept <- struct{}{}
 		return 0
 	}
