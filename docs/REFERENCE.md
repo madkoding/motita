@@ -1348,20 +1348,24 @@ To test the project's service or photograph it as evidence, task mode starts it 
 
 | Action | `command` (one `key: value` per line) | Result |
 |---|---|---|
-| `box_up` | `image: nginx:alpine` **or** `dir: app` (a workspace folder with a `Dockerfile` or `Containerfile`), and `port: 3000` | starts it and waits for an HTTP answer; a start that fails returns the end of its log |
+| `box_up` | `image: nginx:alpine`, **or** `dir: app` (a workspace folder with a `Dockerfile` or `Containerfile`), **or** `compose: stack` plus `service: web`; and `port: 3000`. Optional `network: internal` | starts it and waits for an HTTP answer; a start that fails returns the end of its log |
 | `box_get` | `path: /health`, `box:` when more than one is up | `GET` on the box: status, content type, first 4 KiB (redacted) |
 | `box_shot` | `path: /`, `name: home-after`, optional `size: 1280x800` | headless Chromium saves `.motita/previews/home-after.png`, shown with the result |
 | `box_down` | `box:` when more than one is up | removes it |
 
 How it stays private:
 
-- the port is published as `127.0.0.1::<port>` (the runtime picks the host port; a box published anywhere else is removed), never `0.0.0.0`;
+- by default the port is published as `127.0.0.1::<port>` (the runtime picks the host port; a box published anywhere else is removed), never `0.0.0.0`;
+- with `network: internal` **no port exists on the host**: the container joins a network created with `--internal`, and motita reaches it from throwaway helper containers on that network (`curlimages/curl` for `box_get`, `zenika/alpine-chrome` for `box_shot`, overridable with `MOTITA_BOX_CURL_IMAGE` and `MOTITA_BOX_BROWSER_IMAGE`; pulled once). It is also cut off from the internet while it runs;
+- `compose:` always runs this way. The file is read as `compose config --format json` resolves it (the provider must support that, as docker compose v2 does) and refused if any service publishes ports, uses `network_mode`, shares the host's pid, ipc or user namespace, is privileged, adds capabilities, maps devices, turns a security profile off, joins a network other than the default, bind-mounts a path outside the project, or reads a `configs`/`secrets` file from outside it. The default network is overridden to `internal` and every service is labelled;
 - `get` and `shot` build the address from the box they started and accept only a path, so they cannot reach another host; the agent's own commands run without a network and cannot reach the port at all;
 - nothing of the host is mounted, nothing runs privileged, `no-new-privileges`, 512 processes and 1 GiB of memory;
 - starting one is **asked about** (rule `box-up`) unless the policy is off; reading, photographing and taking down are not, and a background agent or a read-only session cannot start one; at most 3 boxes per run;
 - every box (and the image built for it) is removed when the run ends, and the gateway removes leftovers of a crashed process when it starts (containers labelled `motita.box`).
 
-The browser is `$MOTITA_BROWSER`, then `chromium`, `chromium-browser`, `google-chrome` on `PATH`, then a Playwright download (`$PLAYWRIGHT_BROWSERS_PATH`, default `/opt/pw-browsers`). The service inside the box can still use the network (a build downloads packages); only its published port is limited.
+In Settings → Security, *Services in boxes* lists every container carrying the box label (`GET /v1/boxes`) and stops one (`DELETE /v1/boxes/{id}`, only a labelled container) or all of them (`DELETE /v1/boxes`); ending a box under a run that uses it makes that run's next `box_get` or `box_shot` fail with a message.
+
+The browser of the loopback mode is `$MOTITA_BROWSER`, then `chromium`, `chromium-browser`, `google-chrome` on `PATH`, then a Playwright download (`$PLAYWRIGHT_BROWSERS_PATH`, default `/opt/pw-browsers`). The service inside the box can still use the network (a build downloads packages); only its published port is limited.
 
 ### Searching the workspace with search_index
 

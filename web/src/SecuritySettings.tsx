@@ -16,6 +16,7 @@ import { InlineConfirm } from "./NetworkSettings";
 import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
 import { NetworkIsolationSetting } from "./NetworkIsolationSetting";
 import { AutoApplySetting } from "./AutoApplySetting";
+import { BoxesSetting } from "./BoxesSetting";
 
 // accessHint says what the choice shown lets the agent reach.
 function accessHint(m: DiskAccess): string {
@@ -312,6 +313,7 @@ export function SecuritySettings({
           />
         )}
         {view && <CommandSettings api={api} view={view} onView={sec.setView} />}
+        {view && <BoxesSetting api={api} />}
         {scope && <SessionScopeNote scope={scope} />}
         {err && (
           <p

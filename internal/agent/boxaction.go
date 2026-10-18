@@ -29,7 +29,8 @@ import (
 // picture and taking it down touch nothing the user did not approve. Every box goes when the run
 // ends.
 //
-//	box_up:    lines "image: <ref>" or "dir: <folder with a Dockerfile>", and "port: <n>".
+//	box_up:    lines "image: <ref>", "dir: <folder with a Dockerfile>" or "compose: <folder>" with
+//	           "service: <name>", and "port: <n>"; "network: internal" publishes nothing on the host.
 //	box_get:   lines "box: <name>" (optional with one box up) and "path: /x".
 //	box_shot:  as box_get, plus "name: <file>" and optionally "size: 1280x800".
 //	box_down:  "box: <name>".
@@ -120,7 +121,11 @@ func (a *Agent) boxUp(ctx context.Context, action Command, kv map[string]string)
 	if err != nil {
 		return fail(`"port:" must be the number the service listens on inside the container`)
 	}
-	spec := devbox.Spec{Image: kv["image"], Port: port}
+	spec := devbox.Spec{Image: kv["image"], Port: port, Service: kv["service"],
+		Internal: strings.EqualFold(kv["network"], "internal")}
+	if n := kv["network"]; n != "" && !spec.Internal && !strings.EqualFold(n, "loopback") {
+		return fail(`"network:" is internal or loopback`)
+	}
 	if rel := kv["dir"]; rel != "" {
 		dir, err := a.workspacePath(rel)
 		if err != nil {
@@ -131,16 +136,30 @@ func (a *Agent) boxUp(ctx context.Context, action Command, kv map[string]string)
 		}
 		spec.Dir = dir
 	}
+	if rel := kv["compose"]; rel != "" {
+		dir, err := a.workspacePath(rel)
+		if err != nil {
+			return true, "[refused: " + err.Error() + "]", err
+		}
+		spec.Compose = dir
+	}
 	if err := spec.Validate(); err != nil {
 		return fail(err.Error())
 	}
 	if a.cfg.Agent.Policy.Enforce {
-		what := "image " + spec.Image
-		if spec.Dir != "" {
-			what = "the image built from " + kv["dir"]
+		what := "a container from image " + spec.Image
+		switch {
+		case spec.Dir != "":
+			what = "a container from the image built in " + kv["dir"]
+		case spec.Compose != "":
+			what = "the compose project in " + kv["compose"] + " (service " + spec.Service + ")"
 		}
-		plan := RequestPlan{Verdict: policy.Ask, Rule: "box-up", Reason: "it starts a container from " + what +
-			", published on 127.0.0.1 only and removed when this run ends; the service inside can use the network"}
+		where := "published on 127.0.0.1 only"
+		if spec.Internal || spec.Compose != "" {
+			where = "with no port on this machine, on a private network"
+		}
+		plan := RequestPlan{Verdict: policy.Ask, Rule: "box-up", Reason: "it starts " + what + ", " + where +
+			", and removes it when this run ends"}
 		approved, err := a.approve(ctx, plan, "box_up "+strings.Join(strings.Fields(action.Command), " "))
 		if err != nil {
 			return true, "[not approved: " + err.Error() + "]", err
@@ -161,8 +180,16 @@ func (a *Agent) boxUp(ctx context.Context, action Command, kv map[string]string)
 	if err != nil {
 		return fail(err.Error())
 	}
-	return true, fmt.Sprintf("[box %s is up with %s, reachable only by motita at %s: use box_get and box_shot, "+
-		"not curl or a browser in a command]", b.Name, a.box.m.Runtime(), b.URL), nil
+	return true, fmt.Sprintf("[box %s is up with %s, reachable only by motita at %s (%s): use box_get and "+
+		"box_shot, not curl or a browser in a command]", b.Name, a.box.m.Runtime(), b.URL, reach(spec.Internal || spec.Compose != "")), nil
+}
+
+// reach says how a box is reached, for the model.
+func reach(internal bool) string {
+	if internal {
+		return "no port on the host; helper containers on its private network make the requests"
+	}
+	return "published on 127.0.0.1 only"
 }
 
 // boxShot saves a picture of a page of the box under the workspace's preview folder.

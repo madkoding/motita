@@ -1,20 +1,24 @@
 // Package devbox runs a project's service in a container that only motita can reach, so the agent
 // can test it and take screenshots of it as evidence.
 //
-// The container is the same kind of thing a person would start with `podman run`, with three
-// differences that are the whole point:
+// The container is the same kind of thing a person would start with `podman run`, with these
+// differences, which are the whole point:
 //
-//   - its port is published on 127.0.0.1 and nowhere else (never 0.0.0.0, never the network), and
-//     motita is the one that talks to it: the agent's own commands run without a network and
-//     cannot reach it, so the only way in is the get and shot actions, which build the address
-//     themselves from the box they started;
+//   - by default its port is published on 127.0.0.1 and nowhere else (never 0.0.0.0, never the
+//     network), and motita is the one that talks to it: the agent's own commands run without a
+//     network and cannot reach it, so the only way in is the get and shot actions, which build the
+//     address themselves from the box they started;
+//   - in the internal mode (Spec.Internal, and always for compose) NO port reaches the host at all:
+//     the service sits on a network the runtime created with --internal, and motita reaches it from
+//     short-lived helper containers on that network (a curl for get, a headless browser for shot);
 //   - nothing of the host is mounted into it and it is never privileged, so what runs inside
 //     (the project's code, its dependencies) cannot read the user's files;
 //   - it belongs to the run that started it and is removed when the run ends, and a box left by
-//     a process that died is swept at the next start (see Sweep).
+//     a process that died is swept at the next start (see Sweep); Active and Remove let a person
+//     see and stop the boxes that exist.
 //
-// The model never writes the runtime's command line: it names an image or a folder and a port,
-// and this package builds the argv. No shell is involved anywhere.
+// The model never writes the runtime's command line: it names an image, a folder or a compose
+// project and a port, and this package builds the argv. No shell is involved anywhere.
 package devbox
 
 import (
@@ -54,6 +58,8 @@ const (
 var (
 	imageRef = regexp.MustCompile(`^[a-z0-9][a-zA-Z0-9._/:@-]{0,254}$`)
 	shotName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	// serviceName is a compose service: it ends up in an address and in argv.
+	serviceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 )
 
 // Seams: what the machine does, as variables so a test says what the machine has.
@@ -99,22 +105,40 @@ func Detect(ctx context.Context) (Runtime, error) {
 		"and check that `podman info` or `docker info` works")
 }
 
-// Spec says what to start. Exactly one of Image and Dir is set.
+// Spec says what to start. Exactly one of Image, Dir and Compose is set.
 type Spec struct {
 	// Image is a reference to pull or find locally.
 	Image string
 	// Dir is an absolute folder holding a Dockerfile or Containerfile, built into an image.
 	Dir string
+	// Compose is an absolute folder holding a compose file; Service is the one motita reaches.
+	// A compose project always runs in the internal mode.
+	Compose string
+	Service string
 	// Port is the port the service listens on inside the container.
 	Port int
+	// Internal publishes nothing on the host: see the package comment.
+	Internal bool
 }
 
 // Box is a service that is up.
 type Box struct {
 	Name string
-	// URL is the address motita reaches it at: http://127.0.0.1:<port>.
+	// URL is the address motita reaches it at: http://127.0.0.1:<port>, or, in the internal mode,
+	// http://<container or service>:<port>, which only exists inside the box's network.
 	URL string
+
+	internal bool
+	network  string // the network helpers join; created by Up unless compose made it
+	ownsNet  bool
+	image    string // the image built for it, "" when it was pulled
+	service  string
+	compose  []string // the compose invocation up to the verb, nil for a plain container
+	scratch  string   // a folder of ours to remove with the box
 }
+
+// Internal reports whether the box has no port on the host.
+func (b *Box) Internal() bool { return b.internal }
 
 // Manager keeps the boxes of one run.
 type Manager struct {
@@ -123,11 +147,12 @@ type Manager struct {
 	mu    sync.Mutex
 	seq   int
 	boxes map[string]*Box
+	have  map[string]bool // helper images known to be present
 }
 
 // New returns a manager for the run named owner (a short random id).
 func New(rt Runtime, owner string) *Manager {
-	return &Manager{rt: rt, owner: owner, boxes: map[string]*Box{}}
+	return &Manager{rt: rt, owner: owner, boxes: map[string]*Box{}, have: map[string]bool{}}
 }
 
 // Runtime is the tool the manager uses.
@@ -137,11 +162,7 @@ func (m *Manager) Runtime() string { return m.rt.Bin }
 func (m *Manager) List() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	names := make([]string, 0, len(m.boxes))
-	for n := range m.boxes {
-		names = append(names, n)
-	}
-	return sortedNames(names)
+	return sortedKeys(m.boxes)
 }
 
 func sortedNames(names []string) []string {
@@ -151,15 +172,30 @@ func sortedNames(names []string) []string {
 
 // Validate checks a spec before anything runs.
 func (s Spec) Validate() error {
+	sources := 0
+	for _, v := range []string{s.Image, s.Dir, s.Compose} {
+		if v != "" {
+			sources++
+		}
+	}
 	switch {
-	case (s.Image == "") == (s.Dir == ""):
-		return errors.New("name exactly one of image and dir")
+	case sources != 1:
+		return errors.New("name exactly one of image, dir and compose")
 	case s.Port < 1 || s.Port > 65535:
 		return fmt.Errorf("port %d is not a port", s.Port)
 	case s.Image != "" && !imageRef.MatchString(s.Image):
 		return fmt.Errorf("%q is not an image reference", s.Image)
+	case s.Compose != "" && !serviceName.MatchString(s.Service):
+		return fmt.Errorf("compose needs \"service:\", the name of the service to reach (%q is not one)", s.Service)
+	case s.Compose == "" && s.Service != "":
+		return errors.New(`"service:" belongs to compose`)
 	}
 	return nil
+}
+
+// runFlags are the limits every container of ours starts with.
+func (m *Manager) labels() []string {
+	return []string{"--label", Label + "=1", "--label", OwnerLabel + "=" + m.owner}
 }
 
 // Up starts the service and waits until it answers over HTTP. A box that never answers is removed
@@ -177,41 +213,68 @@ func (m *Manager) Up(ctx context.Context, s Spec) (*Box, error) {
 	name := fmt.Sprintf("motita-box-%s-%d", m.owner, m.seq)
 	m.mu.Unlock()
 
-	image := s.Image
-	if s.Dir != "" {
-		image = name
-		bctx, cancel := context.WithTimeout(ctx, buildTimeout)
-		out, err := runCmd(bctx, m.rt.Bin, "build", "--label", Label+"=1", "--label", OwnerLabel+"="+m.owner,
-			"-t", image, s.Dir)
-		cancel()
-		if err != nil {
-			return nil, fmt.Errorf("the image did not build: %v\n%s", err, tail(string(out), 1500))
-		}
-	}
-	args := []string{"run", "-d", "--name", name,
-		"--label", Label + "=1", "--label", OwnerLabel + "=" + m.owner,
-		"--security-opt", "no-new-privileges", "--pids-limit", "512", "--memory", "1g",
-		// 127.0.0.1 and a port the runtime picks: never the whole network, never a fixed port that
-		// something else on the machine may hold.
-		"-p", "127.0.0.1::" + strconv.Itoa(s.Port), image}
-	if out, err := runCmd(ctx, m.rt.Bin, args...); err != nil {
-		m.removeImage(ctx, s, image)
-		return nil, fmt.Errorf("the container did not start: %v\n%s", err, tail(string(out), 1500))
-	}
-	url, err := m.address(ctx, name, s.Port)
-	if err == nil {
-		err = m.waitReady(ctx, url)
+	b := &Box{Name: name, internal: s.Internal || s.Compose != "", service: s.Service}
+	var err error
+	if s.Compose != "" {
+		err = m.upCompose(ctx, b, s)
+	} else {
+		err = m.upContainer(ctx, b, s)
 	}
 	if err != nil {
-		logs, _ := runCmd(ctx, m.rt.Bin, "logs", "--tail", "40", name)
-		m.remove(ctx, name, s.Dir != "")
-		return nil, fmt.Errorf("%v\nlast log lines:\n%s", err, tail(string(logs), 1500))
+		return nil, err
 	}
-	b := &Box{Name: name, URL: url}
 	m.mu.Lock()
 	m.boxes[name] = b
 	m.mu.Unlock()
 	return b, nil
+}
+
+// upContainer builds (when asked), networks and starts one container.
+func (m *Manager) upContainer(ctx context.Context, b *Box, s Spec) error {
+	image := s.Image
+	if s.Dir != "" {
+		image = b.Name
+		bctx, cancel := context.WithTimeout(ctx, buildTimeout)
+		out, err := runCmd(bctx, m.rt.Bin, append(append([]string{"build"}, m.labels()...), "-t", image, s.Dir)...)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("the image did not build: %v\n%s", err, tail(string(out), 1500))
+		}
+		b.image = image
+	}
+	args := append([]string{"run", "-d", "--name", b.Name}, m.labels()...)
+	args = append(args, "--security-opt", "no-new-privileges", "--pids-limit", "512", "--memory", "1g")
+	if b.internal {
+		b.network = "motita-net-" + strings.TrimPrefix(b.Name, "motita-box-")
+		if out, err := runCmd(ctx, m.rt.Bin, append(append([]string{"network", "create", "--internal"}, m.labels()...), b.network)...); err != nil {
+			m.destroy(ctx, b)
+			return fmt.Errorf("the private network was not created: %v\n%s", err, tail(string(out), 800))
+		}
+		b.ownsNet = true
+		args = append(args, "--network", b.network)
+		b.URL = "http://" + b.Name + ":" + strconv.Itoa(s.Port)
+	} else {
+		// 127.0.0.1 and a port the runtime picks: never the whole network, never a fixed port that
+		// something else on the machine may hold.
+		args = append(args, "-p", "127.0.0.1::"+strconv.Itoa(s.Port))
+	}
+	if out, err := runCmd(ctx, m.rt.Bin, append(args, image)...); err != nil {
+		m.destroy(ctx, b)
+		return fmt.Errorf("the container did not start: %v\n%s", err, tail(string(out), 1500))
+	}
+	var err error
+	if !b.internal {
+		b.URL, err = m.address(ctx, b.Name, s.Port)
+	}
+	if err == nil {
+		err = m.waitReady(ctx, b)
+	}
+	if err != nil {
+		logs, _ := runCmd(ctx, m.rt.Bin, "logs", "--tail", "40", b.Name)
+		m.destroy(ctx, b)
+		return fmt.Errorf("%v\nlast log lines:\n%s", err, tail(string(logs), 1500))
+	}
+	return nil
 }
 
 // address asks the runtime which host port it chose and refuses anything but loopback: if the
@@ -233,20 +296,33 @@ func (m *Manager) address(ctx context.Context, name string, port int) (string, e
 }
 
 // waitReady polls until the service answers any HTTP status.
-func (m *Manager) waitReady(ctx context.Context, url string) error {
+func (m *Manager) waitReady(ctx context.Context, b *Box) error {
 	ctx, cancel := context.WithTimeout(ctx, readyTimeout)
 	defer cancel()
 	for {
-		if resp, err := getURL(ctx, url); err == nil {
-			_ = resp.Body.Close()
+		if m.answers(ctx, b) {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("the service did not answer at %s in %s", url, readyTimeout)
+			return fmt.Errorf("the service did not answer at %s in %s", b.URL, readyTimeout)
 		case <-time.After(pollEvery):
 		}
 	}
+}
+
+// answers reports whether the service replies to GET / with any HTTP status.
+func (m *Manager) answers(ctx context.Context, b *Box) bool {
+	if b.internal {
+		_, err := m.helperCurl(ctx, b, "/", "-s", "-o", "/dev/null", "--max-time", "3")
+		return err == nil
+	}
+	resp, err := getURL(ctx, b.URL)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return true
 }
 
 // box returns a running box by name, or the only one when name is empty.
@@ -286,20 +362,31 @@ func (m *Manager) Get(ctx context.Context, name, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
+	if b.internal {
+		// -i keeps the status line and the headers in the answer, like the direct path writes them.
+		out, err := m.helperCurl(ctx, b, strings.TrimPrefix(u, b.URL), "-sS", "-i", "--max-time", "20", "--max-filesize", "1048576")
+		if err != nil {
+			return "", fmt.Errorf("GET %s failed: %v\n%s", path, err, tail(out, 500))
+		}
+		return clip(out), nil
+	}
 	resp, err := getURL(ctx, u)
 	if err != nil {
 		return "", fmt.Errorf("GET %s failed: %v", path, err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
-	text := string(body)
-	more := ""
-	if len(body) > bodyLimit {
-		text, more = string(body[:bodyLimit]), "\n[body cut at 4096 bytes]"
+	return fmt.Sprintf("HTTP %s\nContent-Type: %s\n\n%s", resp.Status, resp.Header.Get("Content-Type"), clip(string(body))), nil
+}
+
+// clip keeps the start of a response.
+func clip(s string) string {
+	if len(s) > bodyLimit {
+		return s[:bodyLimit] + "\n[body cut at 4096 bytes]"
 	}
-	return fmt.Sprintf("HTTP %s\nContent-Type: %s\n\n%s%s", resp.Status, resp.Header.Get("Content-Type"), text, more), nil
+	return s
 }
 
 // join builds the address of path on the box. Only a path is accepted, so a model cannot turn the
@@ -314,7 +401,9 @@ func (b *Box) join(path string) (string, error) {
 	return b.URL + path, nil
 }
 
-// Shot opens path on a box in a headless browser and saves a PNG to out.
+// Shot opens path on a box in a headless browser and saves a PNG to out. A box with a port on the
+// loopback is photographed by the browser on this machine; an internal box, by a browser in a
+// container on its network.
 func (m *Manager) Shot(ctx context.Context, name, path, out string, width, height int) error {
 	b, err := m.box(name)
 	if err != nil {
@@ -324,14 +413,17 @@ func (m *Manager) Shot(ctx context.Context, name, path, out string, width, heigh
 	if err != nil {
 		return err
 	}
-	bin, err := Browser()
-	if err != nil {
-		return err
-	}
 	if width < 200 || width > 3000 || height < 200 || height > 3000 {
 		return fmt.Errorf("a %dx%d window is out of range (200 to 3000)", width, height)
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		return err
+	}
+	if b.internal {
+		return m.shotInside(ctx, b, u, out, width, height)
+	}
+	bin, err := Browser()
+	if err != nil {
 		return err
 	}
 	profile, err := tempDir("", "motita-shot-")
@@ -397,7 +489,7 @@ func (m *Manager) Down(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	m.remove(ctx, b.Name, true)
+	m.destroy(ctx, b)
 	m.mu.Lock()
 	delete(m.boxes, b.Name)
 	m.mu.Unlock()
@@ -408,54 +500,37 @@ func (m *Manager) Down(ctx context.Context, name string) error {
 // when that context is already cancelled.
 func (m *Manager) DownAll() {
 	m.mu.Lock()
-	names := make([]string, 0, len(m.boxes))
-	for n := range m.boxes {
-		names = append(names, n)
+	all := make([]*Box, 0, len(m.boxes))
+	for _, n := range sortedKeys(m.boxes) {
+		all = append(all, m.boxes[n])
 	}
 	m.boxes = map[string]*Box{}
 	m.mu.Unlock()
-	for _, n := range names {
-		m.remove(context.Background(), n, true)
+	for _, b := range all {
+		m.destroy(context.Background(), b)
 	}
 }
 
-// remove deletes a container and, when it was built here, its image. Failures are ignored: a
-// container that is already gone is the goal.
-func (m *Manager) remove(ctx context.Context, name string, image bool) {
-	c, cancel := context.WithTimeout(ctx, 30*time.Second)
+// destroy removes whatever of a box exists: its containers, the image built for it and the
+// network made for it. Failures are ignored: something that is already gone is the goal, and this
+// also runs on a box that failed half way.
+func (m *Manager) destroy(ctx context.Context, b *Box) {
+	c, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	_, _ = runCmd(c, m.rt.Bin, "rm", "-f", name)
-	if image {
-		_, _ = runCmd(c, m.rt.Bin, "rmi", "-f", name)
-	}
-}
-
-func (m *Manager) removeImage(ctx context.Context, s Spec, image string) {
-	if s.Dir != "" {
-		c, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		_, _ = runCmd(c, m.rt.Bin, "rmi", "-f", image)
-	}
-}
-
-// Sweep removes the containers earlier processes left behind (a crash, a kill): everything
-// carrying Label. It is called when the gateway starts, when no run of this process exists yet.
-func Sweep(ctx context.Context) int {
-	rt, err := Detect(ctx)
-	if err != nil {
-		return 0
-	}
-	out, err := runCmd(ctx, rt.Bin, "ps", "-a", "-q", "--filter", "label="+Label)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, id := range strings.Fields(string(out)) {
-		if _, err := runCmd(ctx, rt.Bin, "rm", "-f", id); err == nil {
-			n++
+	if b.compose != nil {
+		_, _ = runCmd(c, m.rt.Bin, append(append([]string{}, b.compose...), "down", "-v", "--rmi", "local", "--remove-orphans")...)
+		if b.scratch != "" {
+			_ = os.RemoveAll(b.scratch)
 		}
+		return
 	}
-	return n
+	_, _ = runCmd(c, m.rt.Bin, "rm", "-f", b.Name)
+	if b.image != "" {
+		_, _ = runCmd(c, m.rt.Bin, "rmi", "-f", b.image)
+	}
+	if b.ownsNet {
+		_, _ = runCmd(c, m.rt.Bin, "network", "rm", b.network)
+	}
 }
 
 func tail(s string, n int) string {

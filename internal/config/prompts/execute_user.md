@@ -183,6 +183,12 @@ Starting one asks the person first; every box is removed when this run ends.
   saves `.motita/previews/home-after.png`, which the person sees with the result
 - {"kind": "box_down", "description": "why", "command": ""}
 
+For the strictest setup add `network: internal` to box_up: then NO port exists on this machine at
+all and motita reaches the service from helper containers on a private network. For several
+services use `compose: <folder>` plus `service: <the one to reach>` instead of `image:`/`dir:`
+(a compose file that publishes ports, uses the host network or privileges, or mounts files from
+outside the project is refused; remove `ports:`).
+
 Add `box: <name>` to a line set when more than one box is up. If the service does not start, the
 answer carries the end of its log.
 

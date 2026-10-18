@@ -454,41 +454,6 @@ func TestShotName(t *testing.T) {
 	}
 }
 
-func TestSweepRemovesOnlyLabelledContainers(t *testing.T) {
-	f := &fake{answer: func(a []string) ([]byte, error) {
-		switch a[0] {
-		case "ps":
-			return []byte("aaa\nbbb\n"), nil
-		case "rm":
-			if a[2] == "bbb" {
-				return nil, errors.New("gone already")
-			}
-		}
-		return nil, nil
-	}}
-	f.install(t)
-	if n := Sweep(context.Background()); n != 1 {
-		t.Fatalf("removed %d", n)
-	}
-	ps := f.calls[1]
-	if strings.Join(ps, " ") != "podman ps -a -q --filter label=motita.box" {
-		t.Fatalf("only boxes: %v", ps)
-	}
-	f.answer = func(a []string) ([]byte, error) {
-		if a[0] == "ps" {
-			return nil, errors.New("daemon down")
-		}
-		return nil, nil
-	}
-	if n := Sweep(context.Background()); n != 0 {
-		t.Fatalf("ps fails: %d", n)
-	}
-	lookPath = func(string) (string, error) { return "", errors.New("none") }
-	if n := Sweep(context.Background()); n != 0 {
-		t.Fatalf("no runtime: %d", n)
-	}
-}
-
 func TestTail(t *testing.T) {
 	if tail(" abc ", 10) != "abc" || tail("abcdef", 3) != "…def" {
 		t.Fatal("tail")

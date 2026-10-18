@@ -136,7 +136,7 @@ func TestBoxUpBuildsAFolderOfTheWorkspaceOnly(t *testing.T) {
 	if out, err := box(e, "box_up", "dir: app\nport: 3000"); err != nil || !strings.Contains(out, "is up") {
 		t.Fatalf("%v %q", err, out)
 	}
-	if fb.specs[0].Dir != filepath.Join(e.dir, "app") || !strings.Contains((*asked)[0].Reason, "built from app") {
+	if fb.specs[0].Dir != filepath.Join(e.dir, "app") || !strings.Contains((*asked)[0].Reason, "built in app") {
 		t.Fatalf("%+v %+v", fb.specs, *asked)
 	}
 	out, err := box(e, "box_up", "dir: ../../etc\nport: 80")
@@ -145,12 +145,37 @@ func TestBoxUpBuildsAFolderOfTheWorkspaceOnly(t *testing.T) {
 	}
 }
 
+func TestBoxUpInternalAndCompose(t *testing.T) {
+	fb := &fakeBoxes{}
+	e, asked := boxAgent(t, fb, true)
+	out, err := box(e, "box_up", "image: nginx\nport: 80\nnetwork: internal")
+	if err != nil || !strings.Contains(out, "no port on the host") || !fb.specs[0].Internal ||
+		!strings.Contains((*asked)[0].Reason, "no port on this machine") {
+		t.Fatalf("%v %q %+v", err, out, *asked)
+	}
+	out, _ = box(e, "box_up", "image: nginx\nport: 80\nnetwork: loopback")
+	if !strings.Contains(out, "published on 127.0.0.1 only") || fb.specs[1].Internal {
+		t.Fatalf("%q", out)
+	}
+	if out, _ = box(e, "box_up", "image: nginx\nport: 80\nnetwork: host"); !strings.Contains(out, "internal or loopback") {
+		t.Fatalf("%q", out)
+	}
+	out, err = box(e, "box_up", "compose: stack\nservice: web\nport: 8080")
+	if err != nil || fb.specs[2].Compose != filepath.Join(e.dir, "stack") || fb.specs[2].Service != "web" ||
+		!strings.Contains((*asked)[2].Reason, "compose project in stack (service web)") {
+		t.Fatalf("%v %q %+v", err, out, fb.specs)
+	}
+	if out, err = box(e, "box_up", "compose: ../../etc\nservice: web\nport: 80"); err == nil || !strings.Contains(out, "outside the working directory") {
+		t.Fatalf("%v %q", err, out)
+	}
+}
+
 func TestBoxUpReportsWhatDoesNotStart(t *testing.T) {
 	fb := &fakeBoxes{}
 	e, _ := boxAgent(t, fb, true)
 	for cmd, want := range map[string]string{
 		"image: nginx":                  `"port:" must be`,
-		"port: 80":                      "exactly one of image and dir",
+		"port: 80":                      "exactly one of image, dir and compose",
 		"image: --privileged\nport: 80": "not an image reference",
 	} {
 		if out, err := box(e, "box_up", cmd); err != nil || !strings.Contains(out, want) {
