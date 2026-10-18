@@ -130,51 +130,47 @@ function ProjectHeader({
     menus.setContextMenu({ type: "project", id: p.id, title: p.title, x, y }),
   );
   return (
-    <div
-      ref={ref}
-      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/4 transition-colors"
-    >
-      {/* The arrow turns to follow the list: it points RIGHT
-          when the sessions are hidden and DOWN when they are
-          showing. One path that rotates, not two paths swapped,
-          because a swap cannot be animated. The rotation lives
-          in `.project-chevron` - this build disables Tailwind's
-          `transform` plugin, so a `rotate-90` utility would emit
-          a declaration the browser drops. */}
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        class={`project-chevron flex-none text-[#8a8a9a]${choose(collapsed, " is-collapsed", "")}`}
-      >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-      <IconFolder size={14} class="flex-none text-accent/60" />
-      {/* The title alone, so the folder sits level with it. The checkout's branch and changes
-          are in the tooltip; the facts of a session are on the session's own row. */}
-      <div class="flex-1 min-w-0">
-        <span class="project-name block w-fit max-w-full truncate px-2.5 py-0.5 rounded-full bg-black/20 border border-white/5 text-xs font-semibold text-[#c8c8d2]">
-          {p.title}
-        </span>
+    <div ref={ref} class="project-header group select-none">
+      {/* The project's pills sit ON the top border of its box, like the chat's, instead of taking
+          a row of the box: the name (with the arrow and the folder) on the left, the actions on
+          the right. The bar is out of the flow and lets clicks through between its pills. */}
+      <div class="project-bar">
+        <div class="project-pill group-toggle">
+          {/* The arrow turns to follow the list: it points RIGHT when the sessions are hidden and
+              DOWN when they are showing. One path that rotates, not two paths swapped, because a
+              swap cannot be animated. The rotation lives in `.project-chevron` - this build
+              disables Tailwind's `transform` plugin, so a `rotate-90` utility would emit a
+              declaration the browser drops. */}
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class={`project-chevron flex-none text-[#8a8a9a]${choose(collapsed, " is-collapsed", "")}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          <IconFolder size={12} class="flex-none text-accent/60" />
+          <span class="project-name truncate">{p.title}</span>
+          <BehindFact p={p} />
+          {/* The pill folds its list: this button covers it. It comes after the title and
+              before the actions, so it is painted above the one and under the other whatever
+              their styles (see SessionRow). */}
+          <button
+            type="button"
+            class="row-hit"
+            aria-label={p.title}
+            aria-expanded={!collapsed}
+            title={projectTooltip(p)}
+            onClick={() => lists.toggleProject(p.id)}
+          />
+        </div>
+        <ProjectActions p={p} />
       </div>
-      <BehindFact p={p} />
-      {/* The header folds its list from anywhere on it: this button covers the header. It comes
-          after the title and before the actions, so it is painted above the one and under the
-          other whatever their styles (see SessionRow). */}
-      <button
-        type="button"
-        class="row-hit"
-        aria-label={p.title}
-        aria-expanded={!collapsed}
-        title={projectTooltip(p)}
-        onClick={() => lists.toggleProject(p.id)}
-      />
-      <ProjectActions p={p} />
     </div>
   );
 }
@@ -194,7 +190,7 @@ export function ProjectGroup({ p }: { p: ProjectInfo }) {
   const isCollapsed = lists.collapsedProjects.has(p.id);
   const projectSessions = lists.sessions.filter((s) => s.project_id === p.id);
   return (
-    <div class="mt-1.5 rounded-xl bg-white/2 border border-white/6">
+    <div class="mt-3.5 rounded-xl bg-white/2 border border-white/6">
       <ProjectHeader p={p} collapsed={isCollapsed} />
       {/* Session list: always rendered, so its height can
           animate. Unmounting it would make the collapse snap,

@@ -4958,3 +4958,55 @@ html[data-density="compact"] .settings-warn {
     line-height: 1.3;
   }
 }
+
+/* ─── A project's pills on the border of its box ──────────────────────
+ * The project's name and its actions sit ON the top border of its box, like the chat's pills,
+ * instead of taking a row of it. The bar is out of the flow, centred on the border; the box keeps
+ * a little room under it so the first session does not touch the pills. */
+.project-header {
+  height: 14px;
+}
+.project-bar {
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.project-bar > * {
+  pointer-events: auto;
+}
+.project-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-right: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--t1);
+  cursor: pointer;
+  /* Opaque, so the border does not show through the pill. */
+  background: var(--s2);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+}
+html .project-bar .row-actions > button,
+html .project-bar button.project-new-session {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--s2);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+}
