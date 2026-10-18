@@ -33,7 +33,6 @@ func TestClaudeSubscriptionLimitsBecomeQuotas(t *testing.T) {
 		t.Errorf("past the warning level, no share: %+v %v", q, ok)
 	}
 	for name, r := range map[string]*claudeRateLimit{
-		"no event":          nil,
 		"another window":    {RateLimitType: "overage", Utilization: &five},
 		"no status":         {RateLimitType: "five_hour"},
 		"opus only window":  {RateLimitType: "seven_day_opus", Utilization: &five},
@@ -42,6 +41,38 @@ func TestClaudeSubscriptionLimitsBecomeQuotas(t *testing.T) {
 		if q, ok := r.quota(); ok {
 			t.Errorf("%s: a quota was invented: %+v", name, q)
 		}
+	}
+}
+
+func TestEveryWindowClaudeSendsBecomesAQuotaWithItsShare(t *testing.T) {
+	var none *claudeRateLimit
+	if got := none.quotas(); got != nil {
+		t.Errorf("no event: %+v", got)
+	}
+	r := &claudeRateLimit{Status: "allowed", RateLimitType: "five_hour", UnifiedWindows: map[string]claudeWindow{
+		"five_hour":                  {Utilization: 0.12, ResetsAt: 1792300000},
+		"seven_day":                  {Utilization: 1.4},
+		"seven_day_overage_included": {Utilization: 0.5},
+	}}
+	got := map[string]Quota{}
+	for _, q := range r.quotas() {
+		got[q.Name] = q
+	}
+	session, week := got["session"], got["week"]
+	if len(got) != 2 || session.Minutes != 300 || session.Status != "" || session.ResetsAt == nil {
+		t.Fatalf("windows: %+v", got)
+	}
+	if session.Used < 11.9 || session.Used > 12.1 || week.Used != 100 || week.ResetsAt != nil {
+		t.Errorf("shares: %+v", got)
+	}
+	// Without the windows, the one limit the event is about; without that either, nothing.
+	single := (&claudeRateLimit{Status: "allowed", RateLimitType: "seven_day"}).quotas()
+	if len(single) != 1 || single[0].Name != "week" || single[0].Status != "ok" {
+		t.Errorf("single limit: %+v", single)
+	}
+	other := &claudeRateLimit{Status: "allowed", UnifiedWindows: map[string]claudeWindow{"overage": {}}}
+	if q := other.quotas(); q != nil {
+		t.Errorf("no window that is a quota: %+v", q)
 	}
 }
 

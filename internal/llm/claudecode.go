@@ -357,8 +357,10 @@ func (p *claudeProcess) event() (claudeEvent, error) {
 				return ev, fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
 			}
 		}
-		if q, ok := ev.RateLimitInfo.quota(); ok && ev.Type == "rate_limit_event" {
-			totals.quota(usageSource{provider: "claude-code"}, q)
+		if ev.Type == "rate_limit_event" {
+			for _, q := range ev.RateLimitInfo.quotas() {
+				totals.quota(usageSource{provider: "claude-code"}, q)
+			}
 		}
 		return ev, nil
 	}
@@ -372,6 +374,59 @@ type claudeRateLimit struct {
 	ResetsAt      float64  `json:"resetsAt"`
 	RateLimitType string   `json:"rateLimitType"`
 	Utilization   *float64 `json:"utilization"`
+	// UnifiedWindows is every window's share and reset, read from the subscription's response
+	// headers on each answer, below any threshold too. Newer claude versions send it; older ones
+	// leave it out.
+	UnifiedWindows map[string]claudeWindow `json:"unifiedWindows"`
+}
+
+// claudeWindow is one window of a subscription: the fraction of it used and when it starts over.
+type claudeWindow struct {
+	Utilization float64 `json:"utilization"`
+	ResetsAt    float64 `json:"resetsAt"`
+}
+
+// claudeWindows names the windows of a subscription that are quotas: the five-hour session and the week.
+var claudeWindows = map[string]Quota{
+	"five_hour": {Name: "session", Minutes: 300},
+	"seven_day": {Name: "week", Minutes: weekMinutes},
+}
+
+// quotas is every quota the event states: each window's share when claude sends them all, else the
+// one limit the event is about.
+func (r *claudeRateLimit) quotas() []Quota {
+	if r == nil {
+		return nil
+	}
+	var out []Quota
+	for kind, w := range r.UnifiedWindows {
+		q, ok := claudeWindows[kind]
+		if !ok {
+			continue
+		}
+		q.Used = min(100, max(0, w.Utilization*100))
+		q.ResetsAt = epoch(w.ResetsAt)
+		out = append(out, q)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if q, ok := r.quota(); ok {
+		return []Quota{q}
+	}
+	return nil
+}
+
+// epoch is a reset time claude sends, in seconds or in milliseconds, or nil when it sends none.
+func epoch(t float64) *time.Time {
+	if t <= 0 {
+		return nil
+	}
+	if t > 1e12 { // milliseconds
+		t /= 1000
+	}
+	at := time.Unix(int64(t), 0).UTC()
+	return &at
 }
 
 // quota is the limit as a quota: the five-hour window is the session and the seven-day one the week.
@@ -379,15 +434,8 @@ type claudeRateLimit struct {
 // threshold: before that the quota says only whether the usage is below its warning level or past
 // it, never a share. A limit that is rejected is fully used.
 func (r *claudeRateLimit) quota() (Quota, bool) {
-	if r == nil {
-		return Quota{}, false
-	}
-	q := Quota{Name: "session", Minutes: 300}
-	switch r.RateLimitType {
-	case "five_hour":
-	case "seven_day":
-		q = Quota{Name: "week", Minutes: weekMinutes}
-	default:
+	q, ok := claudeWindows[r.RateLimitType]
+	if !ok {
 		return Quota{}, false
 	}
 	switch {
@@ -402,14 +450,7 @@ func (r *claudeRateLimit) quota() (Quota, bool) {
 	default:
 		return Quota{}, false
 	}
-	if r.ResetsAt > 0 {
-		secs := r.ResetsAt
-		if secs > 1e12 { // milliseconds
-			secs /= 1000
-		}
-		at := time.Unix(int64(secs), 0).UTC()
-		q.ResetsAt = &at
-	}
+	q.ResetsAt = epoch(r.ResetsAt)
 	return q, true
 }
 
