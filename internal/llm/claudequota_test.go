@@ -117,3 +117,31 @@ func TestAQuotaReplacesTheEarlierOneOfItsWindowAndKeepsTheRest(t *testing.T) {
 		t.Errorf("quotas: %+v", got[0].Limits.Quotas)
 	}
 }
+
+// claudeEventSeen is a rate_limit_event as claude 2.1.302 printed it for a Pro/Max account, ids
+// removed: the session is below its warning level, so the top-level fields carry no share, and the
+// shares come only from unifiedWindows.
+const claudeEventSeen = `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed",` +
+	`"resetsAt":1792380600,"rateLimitType":"five_hour","overageStatus":"rejected",` +
+	`"overageDisabledReason":"org_level_disabled","isUsingOverage":false,"unifiedWindows":{` +
+	`"five_hour":{"utilization":0,"resetsAt":1792380600},` +
+	`"seven_day":{"utilization":0.57,"resetsAt":1792656000}}}}` + "\n"
+
+func TestARealClaudeEventGivesTheSessionAndTheWeek(t *testing.T) {
+	p := &claudeProcess{out: bufio.NewScanner(strings.NewReader(claudeEventSeen))}
+	if _, err := p.event(); err != nil {
+		t.Fatal(err)
+	}
+	defer delete(totals.by, "claude-code")
+	got := map[string]Quota{}
+	for _, q := range totalsOf("claude-code").Limits.Quotas {
+		got[q.Name] = q
+	}
+	session, week := got["session"], got["week"]
+	if session.Used != 0 || session.Status != "" || session.ResetsAt.Unix() != 1792380600 {
+		t.Errorf("session: %+v", session)
+	}
+	if week.Used < 56.9 || week.Used > 57.1 || week.Minutes != weekMinutes || week.ResetsAt.Unix() != 1792656000 {
+		t.Errorf("week: %+v", week)
+	}
+}
