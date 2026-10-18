@@ -15,6 +15,12 @@ Playwright and its browser are a large download (hundreds of MB). Never install 
    change in words.
 3. Install under `<tools dir>/tools/`, never into the repository (see "installing a toolchain").
 
+## A service you start yourself
+
+When the page needs the project running, do not publish it: start it with `box_up` (a container
+only motita can reach), take the picture with `box_shot` (it saves into `.motita/previews/` for
+you), and the box goes when the run ends. A browser or `curl` inside a command cannot see it.
+
 ## Take BOTH halves, in this order
 
 1. BEFORE: capture the page at the unchanged code FIRST (`git stash`, or the base commit in a

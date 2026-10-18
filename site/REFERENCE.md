@@ -1342,6 +1342,27 @@ million tokens, from `internal/onboard/prices.json`, revised by hand; absent for
 local models; the `ollama-cloud` provider's are Ollama Cloud's, and `ollama` is local), which Settings → Models shows next to each model. A model a provider lists that the
 catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesChecked()`).
 
+### Services in a private box (`box_up`, `box_get`, `box_shot`, `box_down`)
+
+To test the project's service or photograph it as evidence, task mode starts it in a container only motita can reach. `internal/devbox` finds the runtime (**podman first**, rootless and daemonless, then docker; each only if `info` answers) and builds the command line itself, so the model never writes runtime flags.
+
+| Action | `command` (one `key: value` per line) | Result |
+|---|---|---|
+| `box_up` | `image: nginx:alpine` **or** `dir: app` (a workspace folder with a `Dockerfile` or `Containerfile`), and `port: 3000` | starts it and waits for an HTTP answer; a start that fails returns the end of its log |
+| `box_get` | `path: /health`, `box:` when more than one is up | `GET` on the box: status, content type, first 4 KiB (redacted) |
+| `box_shot` | `path: /`, `name: home-after`, optional `size: 1280x800` | headless Chromium saves `.motita/previews/home-after.png`, shown with the result |
+| `box_down` | `box:` when more than one is up | removes it |
+
+How it stays private:
+
+- the port is published as `127.0.0.1::<port>` (the runtime picks the host port; a box published anywhere else is removed), never `0.0.0.0`;
+- `get` and `shot` build the address from the box they started and accept only a path, so they cannot reach another host; the agent's own commands run without a network and cannot reach the port at all;
+- nothing of the host is mounted, nothing runs privileged, `no-new-privileges`, 512 processes and 1 GiB of memory;
+- starting one is **asked about** (rule `box-up`) unless the policy is off; reading, photographing and taking down are not, and a background agent or a read-only session cannot start one; at most 3 boxes per run;
+- every box (and the image built for it) is removed when the run ends, and the gateway removes leftovers of a crashed process when it starts (containers labelled `motita.box`).
+
+The browser is `$MOTITA_BROWSER`, then `chromium`, `chromium-browser`, `google-chrome` on `PATH`, then a Playwright download (`$PLAYWRIGHT_BROWSERS_PATH`, default `/opt/pw-browsers`). The service inside the box can still use the network (a build downloads packages); only its published port is limited.
+
 ### Searching the workspace with search_index
 
 Plan mode has a `search_index` tool next to `search_in_files`, and task mode reaches the same index with the action `{"kind": "search_index", "command": "the question"}`. It reads the workspace into an index and
