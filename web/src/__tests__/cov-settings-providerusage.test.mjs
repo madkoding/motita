@@ -136,6 +136,93 @@ test("the gauge style draws a ring per provider and follows the setting", async 
   localStorage.removeItem("motita.ui.usageStyle");
 });
 
+test("the plan's session and weekly quotas are shown with their reset, and expired ones are not", async () => {
+  const soon = new Date(Date.now() + 2 * 3600_000 + 60_000).toISOString();
+  const gone = new Date(Date.now() - 1000).toISOString();
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [
+          row("codex", {
+            input: 100,
+            limits: {
+              quotas: [
+                {
+                  name: "session",
+                  used_percent: 37.4,
+                  window_minutes: 300,
+                  resets_at: soon,
+                },
+                { name: "week", used_percent: 95.2 },
+              ],
+            },
+          }),
+          row("claude", {
+            input: 50,
+            limits: {
+              quotas: [
+                { name: "session", used_percent: 130, resets_at: gone },
+                { name: "session", used_percent: 5, window_minutes: 7 },
+              ],
+            },
+          }),
+          row("gemini", { input: 1 }),
+        ],
+      }),
+  });
+  const root = await mount(gw.api);
+  const session = q(root, "provider-quota-codex-session");
+  assert.match(text(session), /CODEX · 5 h37%resets in 2h 0\dm/);
+  assert.match(session.title, /^resets in 2h/);
+  const week = q(root, "provider-quota-codex-week");
+  assert.match(text(week), /CODEX · Week95%$/);
+  assert.equal(week.title, "");
+  assert.ok(week.querySelector(".provider-usage-fill.warn"));
+  assert.equal(session.querySelector(".warn"), null);
+  // A window that started over says nothing; one of an odd length is just "Session".
+  const claude = q(root, "provider-quota-claude-session");
+  assert.match(text(claude), /CLAUDE · Session5%/);
+  assert.equal(
+    root.querySelectorAll("[data-testid^=provider-quota-]").length,
+    3,
+  );
+  assert.equal(
+    text(q(root, "provider-usage-noquota")),
+    "No quota reported: GEMINI",
+  );
+});
+
+test("no quota list and no note when every provider reports one or none does", async () => {
+  const none = await mount(
+    fakeApi({
+      [ROUTE]: () => json(200, { providers: [row("a", { input: 1 })] }),
+    }).api,
+  );
+  assert.equal(q(none, "provider-quotas"), null);
+  assert.equal(text(q(none, "provider-usage-noquota")), "No quota reported: A");
+  const all = await mount(
+    fakeApi({
+      [ROUTE]: () =>
+        json(200, {
+          providers: [
+            row("a", {
+              input: 1,
+              limits: {
+                quotas: [
+                  { name: "week", used_percent: -4 },
+                  { name: "session", used_percent: 3 },
+                ],
+              },
+            }),
+          ],
+        }),
+    }).api,
+  );
+  assert.equal(q(all, "provider-usage-noquota"), null);
+  assert.match(text(q(all, "provider-quota-a-week")), /A · Week0%/);
+  assert.match(text(q(all, "provider-quota-a-session")), /A · Session3%/);
+});
+
 test("only the busiest providers are named and the rest are counted", async () => {
   const many = Array.from({ length: USAGE_ROWS + 2 }, (_, i) =>
     row("p" + i, { input: 100 * (i + 1) }),

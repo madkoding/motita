@@ -4511,6 +4511,14 @@ html[data-density="compact"] .settings-warn {
   transition: width var(--motion-fast, 120ms) linear;
 }
 
+.provider-usage-fill.warn {
+  background: var(--color-warn, #d9a441);
+}
+.provider-quotas {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgb(var(--ov-rgb) / 0.06);
+}
 .provider-usage-gauges {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(3.5rem, 1fr));

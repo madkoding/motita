@@ -1,15 +1,18 @@
 // What each configured provider has consumed, in the sidebar's bottom menu: the tokens the provider
-// reported since the gateway started, as a share of the total, drawn as bars or circular gauges. It shows no
-// quota or balance, because no provider sends one with an answer; hovering a row gives the split
-// and the calls. It stays quiet where the gateway has no such API.
+// reported since the gateway started, as a share of the total, drawn as bars or circular gauges.
+// Under them, the session and weekly quotas of the providers that report them (a ChatGPT plan, a
+// Claude subscription), with the share used and when each starts over; the providers that report
+// none are named as such, never guessed. Hovering a row gives the split and the calls. It stays
+// quiet where the gateway has no such API.
 import { useEffect, useState } from "preact/hooks";
 import { USAGE_STYLE_EVENT, loadUsageStyle, type UsageStyle } from "./settings";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
-import { formatTokens, tokenBreakdown } from "./appFormat";
+import { formatElapsed, formatTokens, tokenBreakdown } from "./appFormat";
 import {
   type Api,
   type ProviderUsage,
+  type UsageQuota,
   getLLMUsage,
   usageTotal,
 } from "./llmApi";
@@ -90,6 +93,67 @@ function UsageRow({ u, share }: { u: ProviderUsage; share: number }) {
   );
 }
 
+const MINUTES_PER_HOUR = 60;
+const WARN_AT = 90;
+
+// liveQuotas are the quotas a provider reported that have not started over since: a window whose
+// reset has passed says nothing about now.
+export function liveQuotas(u: ProviderUsage, now: number): UsageQuota[] {
+  return (u.limits?.quotas ?? []).filter(
+    (q) => !q.resets_at || Date.parse(q.resets_at) > now,
+  );
+}
+
+// quotaLabel names a quota's window: "5 h" for a session of hours, "Week" for the weekly one.
+export function quotaLabel(q: UsageQuota): string {
+  if (q.name === "week") {
+    return t("Week");
+  }
+  const m = q.window_minutes ?? 0;
+  return choose(
+    m > 0 && m % MINUTES_PER_HOUR === 0,
+    tf("{n} h", { n: m / MINUTES_PER_HOUR }),
+    t("Session"),
+  );
+}
+
+// QuotaRow is one quota of one provider: its window, the share used and when it starts over.
+function QuotaRow({
+  u,
+  q,
+  now,
+}: {
+  u: ProviderUsage;
+  q: UsageQuota;
+  now: number;
+}) {
+  const used = Math.min(100, Math.max(0, Math.round(q.used_percent)));
+  const reset = q.resets_at
+    ? tf("resets in {t}", { t: formatElapsed(Date.parse(q.resets_at) - now) })
+    : "";
+  return (
+    <li
+      class="provider-quota"
+      data-testid={`provider-quota-${u.id}-${q.name}`}
+      title={reset}
+    >
+      <span class="flex items-center gap-2 text-[11px]">
+        <span class="flex-1 truncate text-[#9a9aaa]">
+          {u.name} · {quotaLabel(q)}
+        </span>
+        <span class="tabular-nums text-[#e8e8ea]">{used}%</span>
+      </span>
+      <span class="provider-usage-bar" aria-hidden="true">
+        <span
+          class={`provider-usage-fill${choose(used >= WARN_AT, " warn", "")}`}
+          style={{ width: used + "%" }}
+        />
+      </span>
+      {reset && <span class="text-[10px] text-[#7a7a8c]">{reset}</span>}
+    </li>
+  );
+}
+
 // useUsageStyle is the look chosen in Settings, kept in step when it changes.
 function useUsageStyle(): UsageStyle {
   const [style, setStyle] = useState<UsageStyle>(loadUsageStyle);
@@ -132,6 +196,9 @@ export function ProviderUsagePanel({
   const shown = sorted.slice(0, USAGE_ROWS);
   const sum = sorted.reduce((n, u) => n + usageTotal(u), 0);
   const more = sorted.length - shown.length;
+  const now = Date.now();
+  const quotas = shown.map((u) => ({ u, qs: liveQuotas(u, now) }));
+  const silent = quotas.filter((x) => x.qs.length === 0).map((x) => x.u.name);
   return (
     <section
       class="px-4 py-2 border-t border-white/5 flex-none"
@@ -156,6 +223,23 @@ export function ProviderUsagePanel({
           ),
         )}
       </ul>
+      {quotas.some((x) => x.qs.length > 0) && (
+        <ul class="provider-quotas space-y-1.5" data-testid="provider-quotas">
+          {quotas.flatMap((x) =>
+            x.qs.map((q) => (
+              <QuotaRow key={x.u.id + q.name} u={x.u} q={q} now={now} />
+            )),
+          )}
+        </ul>
+      )}
+      {silent.length > 0 && (
+        <p
+          class="pt-1 text-[10px] text-[#7a7a8c]"
+          data-testid="provider-usage-noquota"
+        >
+          {tf("No quota reported: {names}", { names: silent.join(", ") })}
+        </p>
+      )}
       {more > 0 && (
         <p
           class="pt-1 text-[10px] text-[#7a7a8c]"

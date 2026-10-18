@@ -558,6 +558,12 @@ func IsSelfHostedOllama(l LLM) bool {
 	return isLocalHost(u.Hostname())
 }
 
+// ReportsUsage says whether the usage of provider is worth following: a self-hosted Ollama has
+// no quota and no bill, so it is not (Ollama Cloud, and every other provider, is).
+func ReportsUsage(provider string) bool {
+	return !IsSelfHostedOllama(LLM{Provider: provider, BaseURL: StoredBaseURL(provider)})
+}
+
 // IsClearTextToRemote reports whether rawURL is plain http to a host outside this
 // machine and its network, where a key sent with each request could be read on
 // the way.

@@ -626,3 +626,23 @@ func TestLLMUsageListsAProviderThatOnlyReportedARateLimit(t *testing.T) {
 		t.Errorf("gemini with limits only: %+v", g)
 	}
 }
+
+func TestLLMUsageLeavesOutAnOllamaOnTheUsersOwnServer(t *testing.T) {
+	srv := usageServer(t)
+	srv.usageTotals = func() []llm.ProviderUsage {
+		return []llm.ProviderUsage{{Provider: "ollama", Calls: 1}, {Provider: "ollama-cloud", Calls: 1}}
+	}
+	other := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := config.SetCredential(other, config.ProviderBaseURLVariable("ollama"), "http://localhost:11434/v1"); err != nil {
+		t.Fatal(err)
+	}
+	config.UseCredentialsBeside(other)
+	t.Cleanup(func() { config.UseCredentialsBeside(config.File()) })
+	v := readUsage(t, srv)
+	if usageRow(v, "ollama") != nil {
+		t.Error("a self-hosted Ollama has no usage to show")
+	}
+	if usageRow(v, "ollama-cloud") == nil {
+		t.Error("Ollama Cloud keeps its row")
+	}
+}

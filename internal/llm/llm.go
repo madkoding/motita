@@ -119,7 +119,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 
 // source is who this client's calls are counted under.
 func (c *Client) source() usageSource {
-	return usageSource{provider: strings.ToLower(c.cfg.Provider)}
+	return usageSource{provider: strings.ToLower(c.cfg.Provider), local: config.IsSelfHostedOllama(c.cfg)}
 }
 
 // WithTransport sends every request of this client, the login's included, through rt instead of

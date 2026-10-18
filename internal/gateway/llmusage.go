@@ -10,8 +10,8 @@ import (
 )
 
 // llmUsageRow is what one provider has consumed since the gateway started, as the bottom bars of
-// the page show it. Only what the provider reported in its responses is here: no quota or balance,
-// because none of the providers sends one with an answer.
+// the page show it. Only what the provider reported in its responses is here: its limits when it
+// sends them (per minute, and a plan's session and weekly quotas), never a guess.
 type llmUsageRow struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -25,8 +25,8 @@ type llmUsageRow struct {
 	// are absent for a provider with no call yet.
 	Since *time.Time `json:"since,omitempty"`
 	Last  *time.Time `json:"last,omitempty"`
-	// Limits is the rate-limit window (requests and tokens per minute) the provider reported with
-	// its latest answer, when it reports one. It is not a plan's quota.
+	// Limits is what the provider reported about its limits with its latest answer: requests and
+	// tokens per minute, and the plan's session and weekly quotas. Absent when it reports none.
 	Limits *llm.RateLimits `json:"limits,omitempty"`
 }
 
@@ -45,6 +45,9 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, _ *http.Request) {
 	}
 	rows := []llmUsageRow{}
 	for _, p := range onboard.Providers() {
+		if !config.ReportsUsage(p.ID) {
+			continue // a self-hosted Ollama has no quota to follow
+		}
 		u, called := totals[p.ID]
 		if !called && config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyMissing {
 			continue

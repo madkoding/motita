@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,5 +47,17 @@ func TestAMalformedSkillsCapIsReported(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "MOTITA_SKILLS_MAX_FILE_BYTES") {
 		t.Errorf("the error must name the variable: %v", err)
+	}
+}
+
+func TestReportsUsageSkipsOnlyASelfHostedOllama(t *testing.T) {
+	other := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := SetCredential(other, ProviderBaseURLVariable("ollama"), "http://box:11434/v1"); err != nil {
+		t.Fatal(err)
+	}
+	UseCredentialsBeside(other)
+	t.Cleanup(func() { UseCredentialsBeside(File()) })
+	if ReportsUsage("ollama") || !ReportsUsage("ollama-cloud") || !ReportsUsage("openai") {
+		t.Error("only the self-hosted Ollama has no usage")
 	}
 }
