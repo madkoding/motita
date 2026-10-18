@@ -20,6 +20,7 @@ import { useSuggestions } from "./useSuggestions";
 import { useShellApproval } from "./useShellApproval";
 import { useComposer } from "./useComposer";
 import { useNextSuggestion } from "./useNextSuggestion";
+import { useProjectHint } from "./useProjectHint";
 import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { useUpdates } from "./useUpdates";
@@ -51,6 +52,7 @@ export function useAppStore(api: Api) {
   useFinishedElsewhere(lists.sessions, rs.sessionId, setToast);
   const skills = useSkills(api, rs.sessionId, setState);
   const projects = useProjects({ api, lists, setState, setToast });
+  const projectHint = useProjectHint({ api, rs, lists, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);
   const schedules = useSchedules(api, setToast);
   const conv = useConversation({
@@ -177,6 +179,7 @@ export function useAppStore(api: Api) {
     model,
     skills,
     projects,
+    projectHint,
     artifacts,
     schedules,
     conv,
