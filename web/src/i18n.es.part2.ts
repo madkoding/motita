@@ -632,6 +632,10 @@ const more: Record<string, string> = {
   "Ranked also by embeddings.": "Ordena también con embeddings.",
   "Ranked also by meaning.": "Ordena también por significado.",
   "Index now": "Indexar ahora",
+  "Provider usage": "Uso de proveedores",
+  "1 call": "1 llamada",
+  "{n} calls": "{n} llamadas",
+  "+{n} more": "+{n} más",
   "Indexing…": "Indexando…",
   "Clear index cache": "Borrar caché del índice",
   "{n} index files deleted ({kb} KB). The next search builds it again.":

@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/onboard"
 )
 
@@ -534,5 +536,58 @@ func TestCheckBaseURL(t *testing.T) {
 		if _, why := checkBaseURL(raw); (why == "") != ok {
 			t.Errorf("%q: refusal %q, want accepted %v", raw, why, ok)
 		}
+	}
+}
+
+func TestLLMUsageListsConfiguredAndCalledProvidersWithTheirTokens(t *testing.T) {
+	llmEnv(t, "")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-0123456789abcdef")
+	svc := &fakeService{}
+	svc.cfg = config.Default()
+	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
+	srv := newTestServer(t, svc)
+	read := func() llmUsageView {
+		t.Helper()
+		w := get(t, srv, "/v1/llm/usage", testToken)
+		var v llmUsageView
+		if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || w.Code != http.StatusOK {
+			t.Fatalf("%d %s: %v", w.Code, w.Body.String(), err)
+		}
+		return v
+	}
+	rowOf := func(v llmUsageView, id string) *llmUsageRow {
+		for i := range v.Providers {
+			if v.Providers[i].ID == id {
+				return &v.Providers[i]
+			}
+		}
+		return nil
+	}
+	// Before any call: the provider with a key is listed at zero, one without a key is not.
+	v := read()
+	if r := rowOf(v, "anthropic"); r == nil || !r.Default || r.Calls != 0 || r.Last != nil {
+		t.Errorf("anthropic before any call: %+v", r)
+	}
+	if rowOf(v, "openai") != nil {
+		t.Error("a provider with no key and no call is listed")
+	}
+	// A provider that was called shows up with its tokens even without a key (its key was removed).
+	last := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	srv.usageTotals = func() []llm.ProviderUsage {
+		return []llm.ProviderUsage{
+			{Provider: "anthropic", Usage: llm.Usage{Input: 10, Output: 5, CacheRead: 3, CacheWrite: 2}, Calls: 4, Last: last},
+			{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: last},
+		}
+	}
+	v = read()
+	if r := rowOf(v, "anthropic"); r == nil || r.Input != 10 || r.Output != 5 || r.CacheRead != 3 ||
+		r.CacheWrite != 2 || r.Calls != 4 || r.Last == nil || !r.Last.Equal(last) {
+		t.Errorf("anthropic after calls: %+v", r)
+	}
+	if r := rowOf(v, "openai"); r == nil || r.Default || r.Calls != 1 {
+		t.Errorf("openai after a call: %+v", r)
+	}
+	if w := get(t, srv, "/v1/llm/usage", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("the usage needs the token: %d", w.Code)
 	}
 }

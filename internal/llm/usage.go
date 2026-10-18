@@ -79,12 +79,13 @@ func WithMeter(ctx context.Context, m *Meter) context.Context {
 	return context.WithValue(ctx, meterKey{}, meters)
 }
 
-// recordUsage adds u to every Meter in ctx. A call that reported nothing (a provider or server
-// that does not send usage) records nothing, not a zero call.
-func recordUsage(ctx context.Context, u Usage) {
+// recordUsage adds u to every Meter in ctx and to the provider's totals. A call that reported
+// nothing (a provider or server that does not send usage) records nothing, not a zero call.
+func recordUsage(ctx context.Context, provider string, u Usage) {
 	if u.Total() == 0 {
 		return
 	}
+	totals.add(provider, u)
 	meters, _ := ctx.Value(meterKey{}).([]*Meter)
 	for _, m := range meters {
 		m.Add(u)

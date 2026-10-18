@@ -117,6 +117,9 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}, nil
 }
 
+// providerID is the provider this client talks to, as the catalogue spells it.
+func (c *Client) providerID() string { return strings.ToLower(c.cfg.Provider) }
+
 // WithTransport sends every request of this client, the login's included, through rt instead of
 // the network. It is the seam that lets a caller's test see where a request would have gone
 // (the provider's default endpoint, say) without making it.

@@ -523,6 +523,33 @@ test("an empty sidebar says so in each section", async () => {
   await done();
 });
 
+test("with a gateway to ask, the bottom menu shows what each provider consumed", async () => {
+  const api = async (path) => {
+    assert.equal(path, "/v1/llm/usage");
+    return new Response(
+      JSON.stringify({
+        providers: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            input: 1500,
+            output: 500,
+            cache_read: 0,
+            cache_write: 0,
+            calls: 2,
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  };
+  const { root, done } = await mount(h(Sidebar), store({ api }));
+  await act(() => new Promise((r) => setImmediate(r)));
+  const shown = text(root.querySelector("[data-testid=provider-usage]"));
+  await done();
+  assert.match(shown, /Provider usageOpenAI2k/);
+});
+
 test("on a phone, picking a session in the sidebar closes it", async () => {
   const v = store({ lists: { sessions: [{ id: "a", title: "A" }] } });
   const { root, done } = await mount(h(Sidebar), v);

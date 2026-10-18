@@ -203,7 +203,7 @@ func (c *Client) callOpenAIToolsStream(
 	go func() {
 		defer close(out)
 		defer resp.Body.Close()
-		s := &openAIStream{ctx: ctx, out: out, wantUsage: wantUsage}
+		s := &openAIStream{ctx: ctx, out: out, wantUsage: wantUsage, provider: c.providerID()}
 		s.read(bufio.NewReader(resp.Body))
 	}()
 	return out, nil
@@ -212,6 +212,7 @@ func (c *Client) callOpenAIToolsStream(
 // openAIStream reads a /chat/completions stream into chunks for the caller.
 type openAIStream struct {
 	ctx       context.Context
+	provider  string
 	out       chan<- StreamChunk
 	wantUsage bool
 	acc       StreamResult
@@ -270,7 +271,7 @@ func (s *openAIStream) end(err error) {
 func (s *openAIStream) done() {
 	reply := s.acc.FinalReply()
 	reply.Usage = s.usage
-	recordUsage(s.ctx, s.usage)
+	recordUsage(s.ctx, s.provider, s.usage)
 	s.out <- StreamChunk{Event: StreamDone, Reply: reply}
 }
 

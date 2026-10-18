@@ -163,7 +163,7 @@ func (c *Client) callResponsesStream(
 	go func() {
 		defer close(out)
 		defer resp.Body.Close()
-		s := &responsesReader{ctx: ctx, out: out}
+		s := &responsesReader{ctx: ctx, provider: c.providerID(), out: out}
 		s.read(bufio.NewReader(resp.Body))
 	}()
 	return out, nil
@@ -171,10 +171,11 @@ func (c *Client) callResponsesStream(
 
 // responsesReader reads a /responses stream into chunks for the caller.
 type responsesReader struct {
-	ctx   context.Context
-	out   chan<- StreamChunk
-	acc   StreamResult
-	usage Usage
+	ctx      context.Context
+	provider string
+	out      chan<- StreamChunk
+	acc      StreamResult
+	usage    Usage
 }
 
 // read forwards the stream until it ends.
@@ -224,7 +225,7 @@ func (s *responsesReader) finish() {
 		r.FinishReason = "tool_calls"
 	}
 	r.Usage = s.usage
-	recordUsage(s.ctx, s.usage)
+	recordUsage(s.ctx, s.provider, s.usage)
 	s.out <- StreamChunk{Event: StreamDone, Reply: r}
 }
 

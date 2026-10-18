@@ -12,6 +12,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -950,4 +951,34 @@ func TestTheExitClearRestoresTheCursor(t *testing.T) {
 func TestClearingOnExitWithoutAnOutput(t *testing.T) {
 	tu := &TUI{}
 	tu.clearOnExit() // must not panic
+}
+
+// TestTheBottomBarNamesWhatEachProviderConsumed: the footer says how many tokens the providers in
+// use have consumed, three at most, and gives that up before the keys or the context gauge.
+func TestTheBottomBarNamesWhatEachProviderConsumed(t *testing.T) {
+	old := providerTotals
+	t.Cleanup(func() { providerTotals = old })
+	tu, _ := newKeyTUI("", "")
+	tu.Runner.(*fakeRunner).snapshot = session.Snapshot{Window: 1000, Tokens: 10, Used: 0.01}
+	if got := tu.usageLabel(); got != "" {
+		t.Errorf("before any call: %q", got)
+	}
+	providerTotals = func() []llm.ProviderUsage {
+		var out []llm.ProviderUsage
+		for i, name := range []string{"anthropic", "openai", "gemini", "ollama"} {
+			out = append(out, llm.ProviderUsage{Provider: name, Usage: llm.Usage{Input: int64(i+1) * 2000, Output: 500}})
+		}
+		return out
+	}
+	if got, want := tu.usageLabel(), "anthropic 2.5k, openai 4.5k, gemini 6.5k tok"; got != want {
+		t.Errorf("usageLabel = %q, want %q", got, want)
+	}
+	if wide := stripANSI(tu.bottomBar(160)); !strings.Contains(wide, "anthropic 2.5k") || !strings.Contains(wide, "context 1%") {
+		t.Errorf("room for both: %q", wide)
+	}
+	// Without room for the usage the context gauge stays.
+	mid := stripANSI(tu.bottomBar(60))
+	if strings.Contains(mid, "anthropic") {
+		t.Errorf("the usage must go first: %q", mid)
+	}
 }

@@ -8,6 +8,7 @@ import { useBackdropClose } from "./useBackdropClose";
 import { useLeave } from "./motion";
 import { buttonIcon } from "./NewSessionButton";
 import { SessionRow } from "./SessionRow";
+import { ProviderUsagePanel } from "./ProviderUsage";
 import { ProjectGroup } from "./ProjectGroup";
 import { IconBook, IconClock, IconClose, IconDownload } from "./icons";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
@@ -201,43 +202,46 @@ function Settings() {
 
 // SidebarFoot is the skill library, the artifacts, the scheduled tasks and the settings.
 function SidebarFoot() {
-  const { skills, artifacts, schedules, rs } = useApp();
+  const { api, skills, artifacts, schedules, rs } = useApp();
   return (
-    <div class="px-3 py-2 border-t border-white/5 flex-none space-y-1">
-      <button
-        class={FOOT_BUTTON}
-        onClick={() => skills.setShowSkillLibrary(true)}
-      >
-        <IconBook size={18} />
-        {t("Skill library")}
-      </button>
-      <button
-        class={FOOT_BUTTON + " disabled:opacity-40"}
-        data-testid="artifacts-button"
-        disabled={!rs.sessionId}
-        onClick={artifacts.openArtifacts}
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+    <>
+      {api && <ProviderUsagePanel api={api} running={rs.running} />}
+      <div class="px-3 py-2 border-t border-white/5 flex-none space-y-1">
+        <button
+          class={FOOT_BUTTON}
+          onClick={() => skills.setShowSkillLibrary(true)}
         >
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-        {t("Artifacts")}
-      </button>
-      <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
-        <IconClock size={18} />
-        {t("Scheduled tasks")}
-      </button>
-      <Settings />
-    </div>
+          <IconBook size={18} />
+          {t("Skill library")}
+        </button>
+        <button
+          class={FOOT_BUTTON + " disabled:opacity-40"}
+          data-testid="artifacts-button"
+          disabled={!rs.sessionId}
+          onClick={artifacts.openArtifacts}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          {t("Artifacts")}
+        </button>
+        <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
+          <IconClock size={18} />
+          {t("Scheduled tasks")}
+        </button>
+        <Settings />
+      </div>
+    </>
   );
 }
 

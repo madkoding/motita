@@ -79,7 +79,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("unreadable Anthropic response: %w", err)
 	}
-	recordUsage(ctx, resp.Usage.usage())
+	recordUsage(ctx, c.providerID(), resp.Usage.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -123,7 +123,7 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return Reply{}, fmt.Errorf("unreadable Anthropic response: %w", err)
 	}
-	recordUsage(ctx, resp.Usage.usage())
+	recordUsage(ctx, c.providerID(), resp.Usage.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
 	}

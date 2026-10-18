@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // The palette is the standard 16-colour one, so any terminal can render it.
@@ -890,12 +891,21 @@ func (t *TUI) bottomBar(w int) string {
 		return left
 	}
 	left := lead(t.keyHints())
-	// The agents segment goes before the context gauge: it is what changes while a run works.
-	right := t.muted(strings.Join(nonEmpty(t.agentsLabel(), t.contextLabel()), "  "+glyphMid+"  "))
+	// The agents segment goes before the context gauge: it is what changes while a run works. The
+	// providers' usage sits between them and is the first thing shed: it is a running total, not
+	// something to act on.
+	joinRight := func(parts ...string) string {
+		return t.muted(strings.Join(nonEmpty(parts...), "  "+glyphMid+"  "))
+	}
+	right := joinRight(t.agentsLabel(), t.usageLabel(), t.contextLabel())
 
 	// The available columns are the frame minus the ONE margin plainLine will add: the right
 	// edge is the last usable column, and nothing is reserved twice.
 	room := w - leftMargin - 1
+
+	if visibleLen(left)+1+visibleLen(right) > room {
+		right = joinRight(t.agentsLabel(), t.contextLabel())
+	}
 
 	// Hints are dropped from the END until the line fits: the first ones are the most important.
 	hints := t.hintList()
@@ -910,6 +920,29 @@ func (t *TUI) bottomBar(w int) string {
 	}
 	return t.plainLine(left + strings.Repeat(" ", gap) + right)
 }
+
+// usageLabel says what each provider has consumed since motita started: "anthropic 12.3k, openai
+// 4.0k tok", the three used most recently. It says nothing before any call reported usage, and it
+// never shows a quota: the providers do not send one with an answer, so there is none to show.
+func (t *TUI) usageLabel() string {
+	var parts []string
+	for _, u := range providerTotals() {
+		if len(parts) == maxUsageProviders {
+			break
+		}
+		parts = append(parts, u.Provider+" "+humanTokens(u.Usage.Total()))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ") + " tok"
+}
+
+// maxUsageProviders is how many providers the footer names.
+const maxUsageProviders = 3
+
+// providerTotals is what each provider has consumed so far; a variable so a test can put its own.
+var providerTotals = llm.ProviderTotals
 
 // contextLabel describes how much of the model's window is gone.
 //

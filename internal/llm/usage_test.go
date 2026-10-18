@@ -25,7 +25,7 @@ func TestMeterRecordsCallsMadeWithItsContext(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			recordUsage(ctx, Usage{Input: 2, Output: 1})
+			recordUsage(ctx, "p", Usage{Input: 2, Output: 1})
 		}()
 	}
 	wg.Wait()
@@ -38,10 +38,10 @@ func TestMeterRecordsCallsMadeWithItsContext(t *testing.T) {
 }
 
 func TestRecordUsageWithoutAMeterOrUsageDoesNothing(t *testing.T) {
-	recordUsage(context.Background(), Usage{Input: 1}) // no meter: nothing to record into
+	recordUsage(context.Background(), "p", Usage{Input: 1}) // no meter: nothing to record into
 	m := &Meter{}
 	ctx := WithMeter(context.Background(), m)
-	recordUsage(ctx, Usage{}) // a provider that reports nothing is not a zero-token call
+	recordUsage(ctx, "p", Usage{}) // a provider that reports nothing is not a zero-token call
 	if m.Calls() != 0 {
 		t.Fatalf("calls = %d, want 0", m.Calls())
 	}
@@ -53,8 +53,8 @@ func TestRecordUsageWithoutAMeterOrUsageDoesNothing(t *testing.T) {
 func TestNestedMetersAllRecordTheCall(t *testing.T) {
 	run, agent := &Meter{}, &Meter{}
 	ctx := WithMeter(WithMeter(context.Background(), run), agent)
-	recordUsage(ctx, Usage{Input: 3})
-	recordUsage(WithMeter(context.Background(), run), Usage{Output: 1})
+	recordUsage(ctx, "p", Usage{Input: 3})
+	recordUsage(WithMeter(context.Background(), run), "p", Usage{Output: 1})
 	if run.Usage() != (Usage{Input: 3, Output: 1}) || agent.Usage() != (Usage{Input: 3}) {
 		t.Fatalf("run=%+v agent=%+v", run.Usage(), agent.Usage())
 	}
