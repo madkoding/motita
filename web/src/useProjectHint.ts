@@ -23,6 +23,8 @@ import {
 
 const TURNED_DOWN_KEY = "motita.ui.projectHintsTurnedDown";
 const TURNED_DOWN_MAX = 300;
+// How much of the session id names the folder of a project whose title makes none.
+const FOLDER_ID_CHARS = 6;
 
 interface Deps {
   api: Api;
@@ -115,7 +117,7 @@ async function settle(
   const { title, gitUrl } = newProjectOf(hint);
   const created = await send(api, "/v1/projects", {
     title,
-    dir: slugOf(title) || "project-" + sessionId.slice(0, 6),
+    dir: slugOf(title) || "project-" + sessionId.slice(0, FOLDER_ID_CHARS),
     git_url: gitUrl,
   });
   try {
