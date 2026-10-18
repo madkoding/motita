@@ -706,6 +706,39 @@ can start **background agents** (`spawn_agent`) and collect them later (`wait_ag
 Outside a repository there is nothing to branch, so a background agent runs read-only
 and is good for research and review.
 
+### Your other computers, from the same page
+
+Every computer running a gateway can be opened from any other one: the sidebar lists them
+under **Other computers**, and picking one shows its sessions and projects as if you had
+opened its page, with how many runs it has in flight.
+
+- **Found on its own** on the local network (a beacon every 15 seconds) and in your
+  tailnet when Tailscale runs. Across any other VPN, **Add a computer** takes its address.
+- **Connected by asking.** Leave the token empty and the other computer shows a card with a
+  six-digit code that this one shows too: compare them and pick *Allow*. A computer with no
+  screen (a server over SSH or a VPN) answers from its terminal:
+
+  ```bash
+  motita gateway computers        # who is asking, with the codes
+  motita gateway allow 123 456    # lets in the one whose page shows that code (deny turns it away)
+  ```
+
+  Or type its gateway token (`motita gateway start -token-only` there prints it).
+- **Encrypted and pinned.** Gateways speak TLS to each other and pin each other's
+  certificate, so a machine in the middle makes the two codes differ.
+- **Only private networks** are dialled: the LAN, unique-local and link-local ranges and
+  the tailnet. The other computer must answer the network (`motita gateway setup`, *the
+  local network*, which counts the tailnet's `100.64.x.x` too) and let its port through
+  its firewall; when nothing answers, the error says which of those to check.
+
+**This computer's desktop.** With *Settings → Security → Control of this computer's
+desktop* set to *Allowed, asking each step* (it is off, and asks for confirmation), the
+agent can look at the screen and use the mouse, the keyboard and the windows, on Linux
+(X11 or Wayland), macOS and Windows. Every step, a picture of the screen included, is
+asked about first; allowing every command for the session allows them all. It never
+reaches a background agent or a read-only session. The pictures are saved under
+`.motita/previews/` and shown with the result.
+
 ### WebSocket: a bidirectional flag protocol
 
 The SSE stream (`POST /task`, `GET /events`) is the existing way to follow a run. The
