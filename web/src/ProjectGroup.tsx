@@ -158,9 +158,9 @@ function ProjectHeader({
       {/* The title alone, so the folder sits level with it. The checkout's branch and changes
           are in the tooltip; the facts of a session are on the session's own row. */}
       <div class="flex-1 min-w-0">
-        <div class="truncate font-semibold text-[13px] text-[#c8c8d2]">
+        <span class="project-name block w-fit max-w-full truncate px-2.5 py-0.5 rounded-full bg-black/20 border border-white/5 text-xs font-semibold text-[#c8c8d2]">
           {p.title}
-        </div>
+        </span>
       </div>
       <BehindFact p={p} />
       {/* The header folds its list from anywhere on it: this button covers the header. It comes
