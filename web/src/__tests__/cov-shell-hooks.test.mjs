@@ -47,6 +47,21 @@ async function probe(useHook, props = {}) {
 
 // ── useToastStatus ───────────────────────────────────────────────────────────
 
+test("the connection follows the pill: dropped, lost, and back", async () => {
+  const s = await probe(useToastStatus);
+  assert.equal(s.v.connection, "ok");
+  await act(() => s.v.setState("reconnecting", true));
+  assert.equal(s.v.connection, "reconnecting");
+  await act(() => s.v.setState("not connected", true));
+  assert.equal(s.v.connection, "lost");
+  await act(() => s.v.setState("could not load the skill library", true));
+  assert.equal(s.v.connection, "ok", "the gateway answered, so it is up");
+  await act(() => s.v.setState("not connected", true));
+  await act(() => s.v.setState("ready"));
+  assert.equal(s.v.connection, "ok");
+  await s.done();
+});
+
 test("the pill starts connecting, and takes the working states as given", async () => {
   const s = await probe(useToastStatus);
   assert.equal(s.v.stateText, "connecting");
@@ -298,10 +313,13 @@ test("copying an agent's merge says copied for a moment, and nothing when the co
 // ── useAuth ──────────────────────────────────────────────────────────────────
 
 // gateway is a fake of the gateway's credential endpoints for authGate, exchange and submitToken.
-function gateway({ authed = true, accept = "good" } = {}) {
-  const state = { authed, calls: [] };
+function gateway({ authed = true, accept = "good", down = false } = {}) {
+  const state = { authed, down, calls: [] };
   globalThis.fetch = async (url, init = {}) => {
     state.calls.push({ url, method: init.method || "GET", init });
+    if (state.down) {
+      throw new TypeError("offline");
+    }
     if (url === "/v1/sessions") {
       return new Response("[]", { status: state.authed ? 200 : 401 });
     }
@@ -475,6 +493,106 @@ test("without a credential the token is asked for; a rejected one says so", asyn
   assert.equal(a.v.authError, "That token was rejected. Try again.");
   assert.equal(a.v.authBusy, false);
   assert.equal(a.v.authState, "needed");
+  await a.done();
+});
+
+// settle lets pending promises run on setImmediate, for tests that mock setTimeout.
+async function settle() {
+  for (let i = 0; i < 3; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
+test("a gateway that does not answer is offline, not a token prompt, and is asked again by itself", async () => {
+  history.replaceState(null, "", "/");
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const gw = gateway({ authed: false, down: true });
+    const { deps, log } = authDeps();
+    const a = await probe(() => useAuth(deps));
+    await act(() => settle());
+    assert.equal(a.v.authState, "offline");
+    assert.equal(log.length, 0, "nothing is loaded without a gateway");
+
+    // Still down at the next turn: it stays offline and waits twice as long for the next.
+    const asked = () => gw.calls.filter((c) => c.url === "/v1/sessions").length;
+    const before = asked();
+    await act(async () => {
+      mock.timers.tick(5000);
+      await settle();
+    });
+    assert.equal(a.v.authState, "offline");
+    assert.equal(asked(), before + 1);
+    await act(async () => {
+      mock.timers.tick(5000);
+      await settle();
+    });
+    assert.equal(asked(), before + 1, "the second wait is longer");
+
+    // The button asks at once, and shows it is asking while the answer is in flight.
+    let pending;
+    await act(() => {
+      pending = a.v.retry();
+    });
+    assert.equal(a.v.retrying, true);
+    await act(() => pending);
+    assert.equal(a.v.retrying, false);
+    assert.equal(a.v.authState, "offline");
+
+    // The gateway comes back (and still refuses the browser): the token prompt.
+    gw.down = false;
+    await act(async () => {
+      mock.timers.tick(5000);
+      await settle();
+    });
+    assert.equal(a.v.authState, "needed");
+    const settled = asked();
+    await act(async () => {
+      mock.timers.tick(60000);
+      await settle();
+    });
+    assert.equal(asked(), settled, "it stops asking once the gateway answers");
+    await a.done();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a gateway that comes back with a valid credential loads the page", async () => {
+  history.replaceState(null, "", "/");
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const gw = gateway({ down: true });
+    const { deps, log } = authDeps({
+      sessions: [S("s1", "2024-01-01T00:00:00Z")],
+    });
+    const a = await probe(() => useAuth(deps));
+    await act(() => settle());
+    assert.equal(a.v.authState, "offline");
+    gw.down = false;
+    await act(() => a.v.retry());
+    await act(() => settle());
+    assert.equal(a.v.authState, "ok");
+    assert.ok(log.some((e) => e[0] === "switchSession"));
+    await a.done();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a gateway that goes away while a token is sent is offline, not a rejected token", async () => {
+  history.replaceState(null, "", "/");
+  const gw = gateway({ authed: false });
+  const { deps } = authDeps();
+  const a = await probe(() => useAuth(deps));
+  await act(() => flush());
+  assert.equal(a.v.authState, "needed");
+  await act(() => a.v.setAuthInput("tok"));
+  gw.down = true;
+  await act(() => a.v.submitAuth());
+  assert.equal(a.v.authState, "offline");
+  assert.equal(a.v.authError, "");
+  assert.equal(a.v.authBusy, false);
   await a.done();
 });
 

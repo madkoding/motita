@@ -62,10 +62,66 @@ function AuthForm() {
   );
 }
 
+// OfflineBody says the gateway cannot be reached; the page keeps asking by itself and the button
+// asks at once.
+function OfflineBody() {
+  const { retry, retrying } = useApp().auth;
+  return (
+    <>
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 rounded-full bg-danger/15 flex items-center justify-center flex-none text-danger">
+          <IconAlert size={24} />
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-[#e8e8ea]">
+            {t("No connection to the server")}
+          </h2>
+          <p class="text-xs text-[#9a9aaa] mt-0.5">
+            {t("Motita cannot reach the gateway right now")}
+          </p>
+        </div>
+      </div>
+      <p class="text-xs text-[#7a7a8c] leading-relaxed">
+        {t(
+          "Check that it is running and that you are online. Retrying on its own…",
+        )}
+      </p>
+      <button
+        type="button"
+        onClick={() => void retry()}
+        disabled={retrying}
+        class="w-full min-h-[44px] mt-4 rounded-xl bg-accent text-white font-semibold disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-transform flex items-center justify-center gap-2"
+      >
+        {retrying && (
+          <>
+            <IconSpinner class="animate-spin" size={16} />
+            {t("Connecting…")}
+          </>
+        )}
+        {!retrying && t("Retry")}
+      </button>
+    </>
+  );
+}
+
 export function AuthModal() {
   const { authState } = useApp().auth;
   const ref = useRef<HTMLDivElement>(null);
   useStopClicks(ref);
+  if (authState === "offline") {
+    return (
+      <div
+        ref={ref}
+        class="fixed inset-0 z-100 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+        data-modal
+        role="alertdialog"
+      >
+        <div class="frosted rounded-2xl border border-danger/30 w-full max-w-sm p-6 shadow-2xl">
+          <OfflineBody />
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       ref={ref}
