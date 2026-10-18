@@ -263,23 +263,6 @@ type Reasoning struct {
 	Level   string `yaml:"level"` // off, low, medium, high
 }
 
-// Template is a prompt with {{name}} variables.
-type Template struct {
-	System string `yaml:"system"`
-	User   string `yaml:"user"`
-}
-
-// Prompts groups the templates used by the agent's main loop.
-type Prompts struct {
-	Analyze    Template `yaml:"analyze"`
-	Plan       Template `yaml:"plan"`
-	Execute    Template `yaml:"execute"`
-	Synthesize Template `yaml:"synthesize"`
-	// Audit checks a claim of "done" against the success criteria the analysis stated, before the
-	// anchor is spent on it. See agent.criteria_audit.
-	Audit Template `yaml:"audit"`
-}
-
 // FinalAction is what runs when the anchor gives PASS.
 type FinalAction struct {
 	Kind          string   `yaml:"kind"` // none | command | api | git_commit

@@ -62,12 +62,19 @@ func auditChallenge(unmet []auditCriterion) string {
 	return b.String()
 }
 
+// auditDue says the audit is still to be spent on this run.
+func (r *taskRun) auditDue() bool {
+	if !r.a.cfg.Agent.CriteriaAudit || r.auditPassed || r.auditChallenges >= maxAuditChallenges {
+		return false
+	}
+	return len(r.analysis.SuccessCrit) > 0 && r.ctx.Err() == nil
+}
+
 // auditClaim reads a claim of "done" against the success criteria and reports whether it was sent
 // back. It is spent at most maxAuditChallenges times per run, and not again once it passed.
 func (r *taskRun) auditClaim(action Action) bool {
 	a := r.a
-	if !a.cfg.Agent.CriteriaAudit || r.auditPassed || r.auditChallenges >= maxAuditChallenges ||
-		len(r.analysis.SuccessCrit) == 0 || r.ctx.Err() != nil {
+	if !r.auditDue() {
 		return false
 	}
 	vars := a.baseVariables(r.t)
