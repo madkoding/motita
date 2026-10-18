@@ -4,6 +4,7 @@
 // and the calls. It stays quiet where the gateway has no such API.
 import { useEffect, useState } from "preact/hooks";
 import { plural, t, tf } from "./i18n";
+import { choose } from "./choose";
 import { formatTokens, tokenBreakdown } from "./appFormat";
 import {
   type Api,
@@ -18,13 +19,25 @@ export const USAGE_ROWS = 4;
 
 // rowTitle is the tooltip of one provider: the split of its tokens and its calls.
 function rowTitle(u: ProviderUsage): string {
-  return (
-    u.name +
-    ": " +
-    tokenBreakdown(u) +
-    " · " +
-    plural(u.calls, "1 call", "{n} calls")
-  );
+  const parts = [tokenBreakdown(u), plural(u.calls, "1 call", "{n} calls")];
+  const w = u.limits?.tokens;
+  if (w) {
+    parts.push(
+      tf("{left} of {max} tokens left in the rate window", {
+        left: formatTokens(w.remaining),
+        max: formatTokens(w.limit),
+      }),
+    );
+  }
+  return u.name + ": " + parts.join(" · ");
+}
+
+// costLabel is the estimated cost, "≈$7.20" (with a "+" when some tokens had no price), or "".
+export function costLabel(u: ProviderUsage): string {
+  if (u.cost_usd === undefined) {
+    return "";
+  }
+  return "≈$" + u.cost_usd.toFixed(2) + choose(!!u.cost_partial, "+", "");
 }
 
 // UsageRow is one provider: its name, its tokens and a bar against `max`, the busiest one's.
@@ -38,7 +51,10 @@ function UsageRow({ u, max }: { u: ProviderUsage; max: number }) {
     >
       <span class="flex items-center gap-2 text-xs">
         <span class="flex-1 truncate text-[#e8e8ea]">{u.name}</span>
-        <span class="tabular-nums text-[#9a9aaa]">{formatTokens(total)}</span>
+        <span class="tabular-nums text-[#9a9aaa]">
+          {formatTokens(total)}
+          {costLabel(u) && " · " + costLabel(u)}
+        </span>
       </span>
       <span class="provider-usage-bar" aria-hidden="true">
         <span

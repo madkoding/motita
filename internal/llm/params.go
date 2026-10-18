@@ -109,7 +109,7 @@ func (c *Client) openAIChoice(
 			return openAIChoice{}, nil, fmt.Errorf("unreadable OpenAI response: %w", err)
 		}
 		// Recorded before anything is judged: a reply that is then refused was still billed.
-		recordUsage(ctx, c.providerID(), resp.Usage.usage())
+		recordUsage(ctx, c.source(), resp.Usage.usage())
 		if resp.Error != nil && resp.Error.Message != "" {
 			return openAIChoice{}, nil, &HTTPError{Code: 400, Body: resp.Error.Message}
 		}

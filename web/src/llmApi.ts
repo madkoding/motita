@@ -79,8 +79,21 @@ export interface ProviderUsage {
   cache_read: number;
   cache_write: number;
   calls: number;
-  // When the latest call that reported usage finished (ISO 8601); absent before the first.
+  // When the count began and when the latest call that reported usage finished (ISO 8601); absent
+  // before the first call.
+  since?: string;
   last?: string;
+  // An upper estimate in USD at the catalogue's per-token prices, and whether some tokens had no
+  // price (so the real figure is higher). Absent when no model used has a price.
+  cost_usd?: number;
+  cost_partial?: boolean;
+  // The rate-limit window the provider reported with its latest answer, not a plan's quota.
+  limits?: { requests?: UsageWindow; tokens?: UsageWindow };
+}
+
+export interface UsageWindow {
+  limit: number;
+  remaining: number;
 }
 
 export interface TestResult {

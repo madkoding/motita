@@ -87,6 +87,38 @@ test("providers are listed busiest first, each with its tokens and a bar against
   assert.equal(q(root, "provider-usage-more"), null);
 });
 
+test("the estimated cost and the rate window are shown when the provider has them", async () => {
+  const gw = fakeApi({
+    [ROUTE]: () =>
+      json(200, {
+        providers: [
+          row("anthropic", {
+            input: 1000,
+            cost_usd: 7.2,
+            limits: { tokens: { limit: 40000, remaining: 39000 } },
+          }),
+          row("openai", { input: 10, cost_usd: 0.5, cost_partial: true }),
+          row("gemini", {
+            input: 5,
+            limits: { requests: { limit: 5, remaining: 1 } },
+          }),
+        ],
+      }),
+  });
+  const root = await mount(gw.api);
+  assert.equal(
+    text(q(root, "provider-usage-anthropic")),
+    "ANTHROPIC1k · ≈$7.20",
+  );
+  assert.equal(text(q(root, "provider-usage-openai")), "OPENAI10 · ≈$0.50+");
+  assert.equal(text(q(root, "provider-usage-gemini")), "GEMINI5");
+  assert.match(
+    q(root, "provider-usage-anthropic").title,
+    /39k of 40k tokens left in the rate window$/,
+  );
+  assert.doesNotMatch(q(root, "provider-usage-gemini").title, /rate window/);
+});
+
 test("only the busiest providers are named and the rest are counted", async () => {
   const many = Array.from({ length: USAGE_ROWS + 2 }, (_, i) =>
     row("p" + i, { input: 100 * (i + 1) }),

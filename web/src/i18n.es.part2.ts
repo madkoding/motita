@@ -636,6 +636,8 @@ const more: Record<string, string> = {
   "1 call": "1 llamada",
   "{n} calls": "{n} llamadas",
   "+{n} more": "+{n} más",
+  "{left} of {max} tokens left in the rate window":
+    "quedan {left} de {max} tokens en la ventana de límite",
   "Indexing…": "Indexando…",
   "Clear index cache": "Borrar caché del índice",
   "{n} index files deleted ({kb} KB). The next search builds it again.":

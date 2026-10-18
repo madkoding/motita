@@ -575,17 +575,36 @@ func TestLLMUsageListsConfiguredAndCalledProvidersWithTheirTokens(t *testing.T) 
 	last := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 	srv.usageTotals = func() []llm.ProviderUsage {
 		return []llm.ProviderUsage{
-			{Provider: "anthropic", Usage: llm.Usage{Input: 10, Output: 5, CacheRead: 3, CacheWrite: 2}, Calls: 4, Last: last},
-			{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: last},
+			{Provider: "anthropic", Usage: llm.Usage{Input: 1_000_000, Output: 500_000, CacheRead: 3, CacheWrite: 2}, Calls: 4,
+				Since: last.Add(-time.Hour), Last: last,
+				Models: map[string]llm.Usage{
+					"claude-sonnet-5-5": {Input: 1_000_000, Output: 500_000},
+					"made-up-model":     {Input: 5},
+				},
+				Limits: &llm.RateLimits{Tokens: &llm.Window{Limit: 100, Remaining: 40}}},
+			{Provider: "openai", Usage: llm.Usage{Input: 1}, Calls: 1, Last: last, Models: map[string]llm.Usage{"unpriced": {Input: 1}}},
+			{Provider: "gemini", Models: map[string]llm.Usage{"claude-sonnet-5-5": {}}, Limits: &llm.RateLimits{}},
 		}
 	}
 	v = read()
-	if r := rowOf(v, "anthropic"); r == nil || r.Input != 10 || r.Output != 5 || r.CacheRead != 3 ||
-		r.CacheWrite != 2 || r.Calls != 4 || r.Last == nil || !r.Last.Equal(last) {
+	r := rowOf(v, "anthropic")
+	if r == nil || r.Input != 1_000_000 || r.Output != 500_000 || r.CacheRead != 3 || r.CacheWrite != 2 || r.Calls != 4 ||
+		r.Last == nil || !r.Last.Equal(last) || r.Since == nil || !r.Since.Equal(last.Add(-time.Hour)) {
 		t.Errorf("anthropic after calls: %+v", r)
 	}
-	if r := rowOf(v, "openai"); r == nil || r.Default || r.Calls != 1 {
-		t.Errorf("openai after a call: %+v", r)
+	// 1M input at $2 + 0.5M output at $10 = $7, and the unknown model's tokens make it partial.
+	if r.CostUSD == nil || *r.CostUSD < 6.99 || *r.CostUSD > 7.01 || !r.CostPartial {
+		t.Errorf("cost: %v %v", r.CostUSD, r.CostPartial)
+	}
+	if r.Limits == nil || r.Limits.Tokens.Remaining != 40 {
+		t.Errorf("limits: %+v", r.Limits)
+	}
+	if o := rowOf(v, "openai"); o == nil || o.Default || o.Calls != 1 || o.CostUSD != nil || o.CostPartial {
+		t.Errorf("openai with an unpriced model: %+v", o)
+	}
+	// A provider that only reported a rate limit (no call counted) has no count to date.
+	if g := rowOf(v, "gemini"); g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
+		t.Errorf("gemini with limits only: %+v", g)
 	}
 	if w := get(t, srv, "/v1/llm/usage", ""); w.Code != http.StatusUnauthorized {
 		t.Errorf("the usage needs the token: %d", w.Code)

@@ -264,6 +264,9 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 			return nil, t, Explain(err) // network error: retryable
 		}
 		if resp.StatusCode == http.StatusOK {
+			if r, ok := limitsFrom(resp.Header); ok {
+				totals.limits(c.source().provider, r)
+			}
 			return resp, t, nil
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
