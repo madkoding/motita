@@ -29,6 +29,30 @@ const (
 )
 
 // Sources of a decision, from strongest to weakest.
+// ReasonGoAhead is the Reason of a message that only says to go on with what the agent proposed
+// ("do it", "ok", "dale"): a task, and the interface that keeps the last plan carries it out.
+const ReasonGoAhead = "go-ahead"
+
+var goAheads = set(
+	"ok", "okay", "yes", "yep", "sure", "go", "do it", "go ahead", "proceed", "apply it",
+	"do that", "go on", "sounds good", "ok do it", "yes do it", "run it", "implement it",
+	"si", "dale", "hazlo", "adelante", "procede", "aplicalo", "va", "ya", "listo", "ok hazlo",
+	"si hazlo", "dale hazlo", "ejecutalo", "implementalo", "hazlo asi", "me parece", "de acuerdo",
+	"perfecto", "bueno", "ok dale", "si dale", "vamos", "sigue", "continua", "ejecuta el plan",
+	"aplica el plan", "haz el plan", "run the plan", "execute the plan", "apply the plan",
+)
+
+// GoAhead says the message only tells the agent to go on with what it proposed.
+func GoAhead(text string) bool {
+	plain := strings.Map(func(r rune) rune {
+		if strings.ContainsRune(".,;:!¡?¿", r) {
+			return ' '
+		}
+		return r
+	}, fold(text))
+	return goAheads[strings.Join(strings.Fields(plain), " ")]
+}
+
 const (
 	// SourceExplicit means the message named its mode: /plan, /task, /goal.
 	SourceExplicit = "explicit"
@@ -127,6 +151,9 @@ func Classify(text string) Decision {
 	trimmed := strings.TrimSpace(text)
 	if d, ok := explicitMode(trimmed); ok {
 		return d
+	}
+	if GoAhead(trimmed) {
+		return Decision{KindTask, trimmed, SourceHeuristic, ReasonGoAhead}
 	}
 	plain := fold(trimmed)
 	for _, phrase := range holdPhrases {

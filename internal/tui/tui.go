@@ -165,6 +165,9 @@ type TUI struct {
 	// autoTurn says the last message was routed by auto mode, which applies the needed
 	// suggestions of its turn without asking (see openAskIfPending).
 	autoTurn bool
+	// lastPlan is the answer of the last plan turn, which a go-ahead typed next carries out as a
+	// task; a task turn clears it (see submit).
+	lastPlan string
 	messages []Message
 	// current is the turn in flight and nil when there is none; queued is the message typed while
 	// it ran, sent when it ends. Both belong to the input loop's goroutine (see turns.go).

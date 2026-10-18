@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/intent"
 )
 
@@ -166,16 +167,27 @@ func (t *TUI) submit(ctx context.Context, line string) {
 	t.autoTurn = t.screen == ScreenAuto
 	if t.autoTurn {
 		d := intent.Classify(line)
-		if strings.TrimSpace(d.Prompt) != "" {
-			t.addMessage(AuthorSystem, d.Note()+" · "+t.tr("Tab, /plan or /task to choose it yourself"))
+		if strings.TrimSpace(d.Prompt) == "" {
+			// Nothing was sent, so the plan on the table stays there.
+			t.runTask(ctx, d.Prompt)
+			return
 		}
+		t.addMessage(AuthorSystem, d.Note()+" · "+t.tr("Tab, /plan or /task to choose it yourself"))
 		if d.Kind == intent.KindPlan {
 			t.runPlan(ctx, d.Prompt)
+			return
+		}
+		plan := t.lastPlan
+		t.lastPlan = ""
+		if plan != "" && d.Reason == intent.ReasonGoAhead {
+			// The plan the person just read is the task; the plan phase takes it as it is.
+			t.runTaskAs(ctx, agent.FollowPlanTask(d.Prompt, plan), d.Prompt)
 			return
 		}
 		t.runTask(ctx, d.Prompt)
 		return
 	}
+	t.lastPlan = ""
 	if t.screen == ScreenPlan {
 		t.runPlan(ctx, line)
 		return

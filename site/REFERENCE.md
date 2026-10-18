@@ -577,6 +577,11 @@ task, a question or "don't change anything" is a plan). In the gateway, a messag
 cannot place costs one short model call; `agent.auto_mode_rules_only: true`
 (`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns that call off and runs such a message as a task.
 
+A bare go-ahead after a plan ("ok", "do it", "dale", "hazlo") carries that plan out: the plan
+travels inside the task, the agent does not plan it again and never stops to ask, and the turn
+is noted as `mode: task (carrying out the plan)`. A go-ahead after anything else is an ordinary
+message.
+
 After a task routed by auto mode, the suggestions the agent marks as needed (the request is
 not done or correct without them, they stay in scope and are safe to undo) are applied
 without asking, each with the reason it is needed; the rest are still asked about.

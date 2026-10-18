@@ -75,7 +75,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	//
 	// The turn that applies suggestions the user already accepted is the same: the list IS the
 	// request, and asking what it meant sends the user back to a decision they just made.
-	if depth > 0 || IsApplyingTurn(t.Description) {
+	//
+	// The turn that carries out a plan the person just approved is work by the same token, and
+	// the plan it carries is the plan: see followedPlan below.
+	_, following := FollowedPlan(t.Description)
+	if depth > 0 || IsApplyingTurn(t.Description) || following {
 		r.workAsSubtask()
 	}
 
@@ -87,10 +91,15 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		a.report("%sdone means:\n- %s", ThinkingPrefix, strings.Join(r.analysis.SuccessCrit, "\n- "))
 	}
 
-	// [4] Plan.
-	a.report("planning...")
-	r.plan = a.planPhase(ctx, t, r.analysis, depth)
-	a.report("plan ready: %d steps", len(r.plan.Steps))
+	// [4] Plan. A plan the person already approved is not planned again.
+	if following {
+		r.plan = approvedPlan()
+		a.report("carrying out the approved plan")
+	} else {
+		a.report("planning...")
+		r.plan = a.planPhase(ctx, t, r.analysis, depth)
+		a.report("plan ready: %d steps", len(r.plan.Steps))
+	}
 	if len(r.plan.Steps) > 0 {
 		a.report("%splan:\n%s", ThinkingPrefix, strings.TrimRight(describePlan(r.plan), "\n"))
 	}

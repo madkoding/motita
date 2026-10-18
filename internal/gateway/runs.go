@@ -100,6 +100,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d = intent.Refine(r.Context(), d, completerOf(c.svc))
+	d, _ = followPlan(c.svc.Transcript(), d)
 	c.stateMu.Lock()
 	prev := c.lastAuto
 	c.lastAuto = d
