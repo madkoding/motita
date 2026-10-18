@@ -24,10 +24,18 @@ func TestClaudeSubscriptionLimitsBecomeQuotas(t *testing.T) {
 	if !ok || q.Used != 100 || q.ResetsAt != nil {
 		t.Errorf("rejected: %+v %v", q, ok)
 	}
+	q, ok = (&claudeRateLimit{RateLimitType: "five_hour", Status: "allowed", ResetsAt: 1792300000}).quota()
+	if !ok || q.Status != "ok" || q.Used != 0 || q.ResetsAt == nil {
+		t.Errorf("below the warning level: %+v %v", q, ok)
+	}
+	q, ok = (&claudeRateLimit{RateLimitType: "seven_day", Status: "allowed_warning"}).quota()
+	if !ok || q.Status != "warning" || q.Name != "week" {
+		t.Errorf("past the warning level, no share: %+v %v", q, ok)
+	}
 	for name, r := range map[string]*claudeRateLimit{
 		"no event":          nil,
 		"another window":    {RateLimitType: "overage", Utilization: &five},
-		"no figure":         {RateLimitType: "five_hour", Status: "allowed"},
+		"no status":         {RateLimitType: "five_hour"},
 		"opus only window":  {RateLimitType: "seven_day_opus", Utilization: &five},
 		"empty information": {},
 	} {
