@@ -675,7 +675,7 @@ export function PRBar({ pr }: { pr: PullRequest }) {
     return null;
   }
   return (
-    <output class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative">
+    <output class="pr-bar flex items-center gap-2 px-3 sm:px-5 py-2 text-xs flex-none z-10 relative">
       <PRBarBody pr={pr} session={selectedSession} />
     </output>
   );
