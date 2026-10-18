@@ -42,6 +42,9 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Command  string `json:"command"`
 		Approved bool   `json:"approved"`
+		// Scope "project" keeps this shape of command allowed in the project, as the approval
+		// panel's "always allow this here" does for the agent's commands.
+		Scope string `json:"scope"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
@@ -76,7 +79,10 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 
 	res := shellResult{Command: command}
 	approver := func(_ context.Context, req agent.ApprovalRequest) (bool, error) {
-		if body.Approved || c.autoApproving() {
+		if body.Approved && body.Scope == "project" {
+			s.rememberApproval(c, req.Rule, req.Command)
+		}
+		if body.Approved || c.autoApproving() || s.alwaysAllowed(c, req.Rule, req.Command) {
 			return true, nil
 		}
 		res.NeedsApproval = true

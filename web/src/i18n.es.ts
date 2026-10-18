@@ -61,7 +61,9 @@ const first: Record<string, string> = {
   "A turn is running: it finishes with the current model, and the new one answers from the next turn.":
     "Hay un turno en curso: termina con el modelo actual y el nuevo responde desde el próximo turno.",
   "API key": "Clave de API",
-  "Allow all this session": "Permitir todo en esta sesión",
+  "Always allow this here": "Permitir siempre esto aquí",
+  "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.":
+    "Ejecutarlo y, de ahora en adelante, ejecutar los comandos de este tipo en este proyecto sin preguntar. Los que la política prohíbe siguen prohibidos.",
   "Any running tasks will be interrupted.":
     "Las tareas en curso se interrumpirán.",
   Archived: "Archivadas",
@@ -322,8 +324,6 @@ const first: Record<string, string> = {
   Run: "Ejecuta",
   "Run it": "Ejecutar",
   "Run now": "Ejecutar ahora",
-  "Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.":
-    "Ejecutar este y todos los comandos siguientes de esta sesión sin preguntar. Lo que la política prohíbe sigue prohibido.",
   "Save and create": "Guardar y crear",
   Save: "Guardar",
   "Saving…": "Guardando…",

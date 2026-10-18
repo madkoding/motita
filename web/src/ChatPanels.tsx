@@ -91,11 +91,11 @@ export function ApprovalPanel({ approval }: { approval: PendingApproval }) {
           aria-pressed={approvalSel === APPROVAL_ALL}
           onMouseEnter={() => setApprovalSel(APPROVAL_ALL)}
           title={t(
-            "Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.",
+            "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.",
           )}
           onClick={() => answerApproval(approval.id, true, true)}
         >
-          {t("Allow all this session")}
+          {t("Always allow this here")}
         </button>
         <button
           class={NO_CLASS + picked(APPROVAL_NO)}

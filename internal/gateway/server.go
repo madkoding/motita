@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/madkoding/motita/internal/approvals"
 	"mime"
 	"net"
 	"net/http"
@@ -294,6 +295,8 @@ type Server struct {
 	// when no directory was configured, which means sessions are in-memory
 	// only — the behaviour the tests have always had.
 	store *sessionStore
+	// approvals is what people said to always allow, by project: see alwaysallow.go.
+	approvals *approvals.Store
 	// projects persists project definitions to disk. nil when no project
 	// directory was configured.
 	projects *projectStore
@@ -402,6 +405,7 @@ func Start(opts Options) (*Server, error) {
 	}
 
 	s.openSessionStore()
+	s.openApprovalStore()
 	// The default session belongs to no project, so it works in a folder of its own like any free
 	// session. Left in the workspace root, it - and every scheduled task that names no session -
 	// would run in the parent of every project, worktree and session folder, and reach them all.

@@ -323,50 +323,31 @@ test("a command the policy asks about waits for a yes, then runs approved", asyn
   assert.deepEqual(
     s.api.calls.slice(2).map((c) => [c.path, c.body]),
     [
-      ["/v1/sessions/s1/auto-approve", { enabled: true }],
-      ["/v1/sessions/s1/shell", { command: "touch /y", approved: true }],
+      [
+        "/v1/sessions/s1/shell",
+        { command: "touch /y", approved: true, scope: "project" },
+      ],
     ],
   );
-  assert.equal(s.lists.sessions[0].auto_approve, true);
-  assert.equal(s.lists.sessions[1].auto_approve, false);
+  assert.equal(s.lists.sessions[0].auto_approve, false);
   assert.deepEqual(log(s.rs), [["touch /y", 0, "done"]]);
   await s.hook.unmount();
 });
 
-test("a yes to a typed command still runs it when allowing all fails", async () => {
-  let fail = "reject";
+test("a plain yes to a typed command runs it approved, without a scope", async () => {
+  const s2 = { pending: true };
   const s = await shell((path) => {
-    if (path.endsWith("/auto-approve")) {
-      if (fail === "reject") {
-        throw new TypeError("offline");
-      }
-      return json({}, 500);
-    }
     if (path.endsWith("/shell") && s2.pending) {
       s2.pending = false;
       return json({ needs_approval: true });
     }
     return json({ output: "ok" });
   });
-  const s2 = { pending: true };
-  await s.c().runShellLine("a");
-  await s.c().answerApproval(s.rs.approval.id, true, true);
-  await tick();
-  s2.pending = true;
-  fail = "status";
-  await s.c().runShellLine("b");
-  await s.c().answerApproval(s.rs.approval.id, true, true);
-  await tick();
-  // A plain yes.
-  s2.pending = true;
   await s.c().runShellLine("c");
   await s.c().answerApproval(s.rs.approval.id, true);
   await tick();
-  assert.deepEqual(log(s.rs), [
-    ["a", 0, "ok"],
-    ["b", 0, "ok"],
-    ["c", 0, "ok"],
-  ]);
+  assert.deepEqual(s.api.calls.at(-1).body, { command: "c", approved: true });
+  assert.deepEqual(log(s.rs), [["c", 0, "ok"]]);
   assert.equal(s.lists.sessions[0].auto_approve, false, "never allowed");
   await s.hook.unmount();
 });
@@ -405,11 +386,11 @@ test("the agent's questions are answered once, or for the whole session", async 
       ["/v1/sessions/s1/runs/approval", { id: "q2", approve: false }],
       [
         "/v1/sessions/s1/runs/approval",
-        { id: "q3", approve: true, scope: "session" },
+        { id: "q3", approve: true, scope: "project" },
       ],
     ],
   );
-  assert.equal(s.lists.sessions[0].auto_approve, true);
+  assert.equal(s.lists.sessions[0].auto_approve, false);
   fail = true;
   await s.c().answerApproval("q4", true);
   assert.deepEqual(s.states, [["could not answer the approval", true]]);
@@ -465,13 +446,13 @@ test("the approval panel takes focus, and the keyboard moves and answers it", as
     false,
     "any other key is the browser's",
   );
-  // Enter on "allow all" answers yes for the session.
+  // Enter on "always allow this here" answers yes for the project.
   await press("Enter");
   await tick();
   assert.deepEqual(s.api.calls.at(-1).body, {
     id: "q1",
     approve: true,
-    scope: "session",
+    scope: "project",
   });
   // Enter on "no".
   s.rs.approval = { id: "q2", question: "?" };

@@ -582,6 +582,14 @@ travels inside the task, the agent does not plan it again and never stops to ask
 is noted as `mode: task (carrying out the plan)`. A go-ahead after anything else is an ordinary
 message.
 
+When a command needs approval, the panel's second answer, **Always allow this here**, runs it
+and keeps that shape of command (its policy rule and program, `git push`, `npm install`) allowed
+in the project: later sessions of the project run it without asking, and the run says so
+(`approved (always allowed in this project): …`). The decision is kept in `approvals.json`
+beside the sessions (`scope: "project"` on `POST /v1/sessions/{id}/runs/approval` and on
+`/shell`); "allow all commands for this session" stays available through
+`POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden.
+
 A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent
 reads it at its next step, it wins over the plan where they differ, and the turn's trail shows
 it as `you: …`. When nothing can read it (a plan, a task between steps) it is queued for the end
