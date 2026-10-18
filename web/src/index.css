@@ -1820,6 +1820,8 @@ div[role="log"]:not(.chat-loading) > * {
 
 /* Project headers: fade in. */
 .project-header {
+  /* Its pills sit on the box's top border (.project-bar); this is the room left under them. */
+  height: 14px;
   animation: motion-fade-in var(--motion-base) var(--ease-out) backwards;
 }
 
@@ -4963,9 +4965,6 @@ html[data-density="compact"] .settings-warn {
  * The project's name and its actions sit ON the top border of its box, like the chat's pills,
  * instead of taking a row of it. The bar is out of the flow, centred on the border; the box keeps
  * a little room under it so the first session does not touch the pills. */
-.project-header {
-  height: 14px;
-}
 .project-bar {
   position: absolute;
   top: 0;
