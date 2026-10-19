@@ -144,6 +144,8 @@ func (s *Server) linkRepository(w http.ResponseWriter, r *http.Request, p *Proje
 	case !gitx.HasCommits(r.Context(), repo.Dir):
 		writeError(w, http.StatusConflict, "the repository has no commit yet to branch the project from")
 		return
+	default:
+		// The repository can be linked.
 	}
 	defer s.lockCatalogRepo(repo.Dir)()
 	placed, err := placeSharedRepo(r.Context(), p, name, repo.GitURL, repo.Dir, dest)
@@ -198,7 +200,9 @@ func (s *Server) handleCreateRepository(w http.ResponseWriter, r *http.Request) 
 
 // newRepository prepares the record of the repository asked for, cloning it when it has to. It
 // answers the request itself, and returns false, when it cannot.
-func (s *Server) newRepository(w http.ResponseWriter, r *http.Request, gitURL, path, rawName string) (Repository, bool) {
+func (s *Server) newRepository(
+	w http.ResponseWriter, r *http.Request, gitURL, path, rawName string,
+) (Repository, bool) {
 	if path != "" {
 		dir, ok := s.externalProjectFolder(w, path)
 		if !ok {
@@ -221,6 +225,8 @@ func (s *Server) newRepository(w http.ResponseWriter, r *http.Request, gitURL, p
 	case name == "":
 		writeError(w, http.StatusBadRequest, "the repository needs a simple folder name: letters, digits, '.', '_' or '-'")
 		return Repository{}, false
+	default:
+		// A URL with a usable name.
 	}
 	defer s.lockCatalogRepo(gitURL)()
 	dir, _, err := s.catalogClone(gitURL, name)
@@ -228,7 +234,8 @@ func (s *Server) newRepository(w http.ResponseWriter, r *http.Request, gitURL, p
 		s.writeCloneError(w, gitURL, err)
 		return Repository{}, false
 	}
-	return Repository{Name: name, GitURL: gitURL, Dir: dir, MainBranch: settleMainBranch(r.Context(), dir, defaultMainBranch)}, true
+	main := settleMainBranch(r.Context(), dir, defaultMainBranch)
+	return Repository{Name: name, GitURL: gitURL, Dir: dir, MainBranch: main}, true
 }
 
 // deleteRepository removes the record of a repository that no project uses. The clone goes with it

@@ -12,7 +12,8 @@ import (
 
 func TestRepositoriesAreOptionalWithoutAProjectDirectory(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	if w := get(t, srv, "/v1/repos", testToken); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"repositories":[]`) {
+	w := get(t, srv, "/v1/repos", testToken)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"repositories":[]`) {
 		t.Errorf("an empty list: %d %s", w.Code, w.Body)
 	}
 	if w := send(t, srv, http.MethodPatch, "/v1/repos/x", testToken, `{}`); w.Code != http.StatusNotImplemented {
@@ -37,7 +38,10 @@ func TestAProjectDirectoryThatCannotHoldRepositoriesStillServesProjects(t *testi
 	if err := os.WriteFile(filepath.Join(pdir, repoStoreFolder), []byte("in the way"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ProjectDir = pdir; o.WorkspaceDir = t.TempDir() })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ProjectDir = pdir
+		o.WorkspaceDir = t.TempDir()
+	})
 	if srv.projects == nil || srv.repos != nil {
 		t.Errorf("projects work, repositories are off: %v %v", srv.projects, srv.repos)
 	}
@@ -60,7 +64,8 @@ func TestChangingRepositorySettingsReportsWhatIsWrong(t *testing.T) {
 		t.Fatalf("every setting: %d %s", w.Code, w.Body)
 	}
 	got, _ := srv.repos.load(repo.ID)
-	if got.MergeMethod != "squash" || got.PRMaxFixes != 2 || !got.AutoMerge || !got.AutoContinue || got.MainBranch != "main" {
+	flags := got.AutoMerge && got.AutoContinue
+	if got.MergeMethod != "squash" || got.PRMaxFixes != 2 || !flags || got.MainBranch != "main" {
 		t.Errorf("saved: %+v", got)
 	}
 
@@ -68,7 +73,8 @@ func TestChangingRepositorySettingsReportsWhatIsWrong(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(srv.repos.dir, repo.ID+".json.tmp"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if w := send(t, srv, http.MethodPatch, path, testToken, `{"auto_merge":false}`); w.Code != http.StatusInternalServerError {
+	w = send(t, srv, http.MethodPatch, path, testToken, `{"auto_merge":false}`)
+	if w.Code != http.StatusInternalServerError {
 		t.Errorf("a save that fails: %d", w.Code)
 	}
 }
@@ -240,7 +246,8 @@ func TestACloneWithNoProjectGetsARecordWhenTheCatalogIsRead(t *testing.T) {
 
 func TestCreatingAProjectReportsABadRepositoryName(t *testing.T) {
 	srv, _ := projectServer(t)
-	if code, _ := createProject(t, srv, `{"title":"x","dir":"x","git_url":"https://example.com/.hidden"}`); code != http.StatusBadRequest {
+	hidden := `{"title":"x","dir":"x","git_url":"https://example.com/.hidden"}`
+	if code, _ := createProject(t, srv, hidden); code != http.StatusBadRequest {
 		t.Errorf("an unusable repository name: %d", code)
 	}
 }
@@ -249,7 +256,8 @@ func TestACloneThatCannotBeRecordedFailsTheNewProject(t *testing.T) {
 	srv, _ := projectServer(t)
 	beforeProjectUpdate = func(pid string) { _ = srv.projects.delete(pid) }
 	t.Cleanup(func() { beforeProjectUpdate = func(string) {} })
-	if code, _ := createProject(t, srv, `{"title":"c","dir":"c","git_url":"`+sourceRepo(t)+`"}`); code != http.StatusInternalServerError {
+	body := `{"title":"c","dir":"c","git_url":"` + sourceRepo(t) + `"}`
+	if code, _ := createProject(t, srv, body); code != http.StatusInternalServerError {
 		t.Errorf("a project that vanished while it was cloned: %d", code)
 	}
 }
@@ -265,7 +273,8 @@ func TestWithoutAWorkspaceThereIsNoCatalogToRead(t *testing.T) {
 func TestDeletingACatalogCloneByNameForgetsItsRecord(t *testing.T) {
 	srv, _ := projectServer(t)
 	_, repo := createRepository(t, srv, `{"git_url":"`+sourceRepo(t)+`"}`)
-	if w := send(t, srv, http.MethodDelete, "/v1/repos/"+filepath.Base(repo.Dir), testToken, ""); w.Code != http.StatusNoContent {
+	byName := "/v1/repos/" + filepath.Base(repo.Dir)
+	if w := send(t, srv, http.MethodDelete, byName, testToken, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("deleting by name: %d %s", w.Code, w.Body)
 	}
 	if got, _ := srv.repos.load(repo.ID); got != nil {

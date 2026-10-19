@@ -348,7 +348,8 @@ func TestCreateProjectFromAURLClonesIntoThePlainFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(p.Repos[0].Dir, ".git")); err != nil {
 		t.Errorf("the clone is a repository: %v", err)
 	}
-	if code, _ := createProject(t, srv, `{"title":"d","dir":"d","git_url":"/nonexistent/repo-x"}`); code == http.StatusCreated {
+	failing := `{"title":"d","dir":"d","git_url":"/nonexistent/repo-x"}`
+	if code, _ := createProject(t, srv, failing); code == http.StatusCreated {
 		t.Error("a clone that fails fails the project")
 	}
 	if _, err := os.Stat(filepath.Join(ws, "d")); err == nil {

@@ -116,6 +116,22 @@ func createRepository(t *testing.T, srv *Server, body string) (int, Repository) 
 	return w.Code, r
 }
 
+// linkToTwoProjects makes two projects and links the repository to both.
+func linkToTwoProjects(t *testing.T, srv *Server, repo Repository) []string {
+	t.Helper()
+	var ids []string
+	for _, dir := range []string{"one", "two"} {
+		_, out := createProject(t, srv, `{"title":"`+dir+`","dir":"`+dir+`"}`)
+		id := out["id"].(string)
+		ids = append(ids, id)
+		code, p := addRepo(t, srv, id, `{"repo_id":"`+repo.ID+`"}`)
+		if code != http.StatusCreated || len(p.Repos) != 1 || p.Repos[0].RepoID != repo.ID || !p.Repos[0].Shared {
+			t.Fatalf("linking to %s: %d %+v", dir, code, p)
+		}
+	}
+	return ids
+}
+
 func TestARepositoryIsClonedOnceAndLinkedToManyProjects(t *testing.T) {
 	srv, _ := projectServer(t)
 	src := sourceRepo(t)
@@ -126,15 +142,7 @@ func TestARepositoryIsClonedOnceAndLinkedToManyProjects(t *testing.T) {
 	if code, _ := createRepository(t, srv, `{"git_url":"`+src+`"}`); code != http.StatusConflict {
 		t.Errorf("the same repository twice: %d", code)
 	}
-	var ids []string
-	for _, dir := range []string{"one", "two"} {
-		_, out := createProject(t, srv, `{"title":"`+dir+`","dir":"`+dir+`"}`)
-		ids = append(ids, out["id"].(string))
-		if code, p := addRepo(t, srv, ids[len(ids)-1], `{"repo_id":"`+repo.ID+`"}`); code != http.StatusCreated ||
-			len(p.Repos) != 1 || p.Repos[0].RepoID != repo.ID || !p.Repos[0].Shared {
-			t.Fatalf("linking to %s: %d %+v", dir, code, p)
-		}
-	}
+	ids := linkToTwoProjects(t, srv, repo)
 	if code, _ := addRepo(t, srv, ids[0], `{"repo_id":"`+repo.ID+`"}`); code != http.StatusConflict {
 		t.Errorf("linking twice: %d", code)
 	}
