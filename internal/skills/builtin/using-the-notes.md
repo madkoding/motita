@@ -29,8 +29,9 @@ When the work is in a project, check whether the scan already mapped it before r
 cold: `read_note` `Projects/<project> - Architecture`, or `search_notes` "Architecture of" with the
 project's name. It lists the modules, which one imports which and, when the person turned the
 model option on, how the project fits together and its main flows. Its "Manual" link opens the
-project's manual, `Projects/<project> manual/_index`: one note per folder with its files, its API
-with doc comments and what it uses and what uses it; read the notes of the folders you will touch. Use it to decide where to look,
+project's manual, `Projects/<project> - Manual/Start here`: a chapter per folder, named by its path
+(`internal › gateway`), with what it is for, its files, what it uses and what uses it, and its API
+with doc comments; read the chapters of the folders you will touch. Use it to decide where to look,
 then confirm in the code: the note is a map made at the last scan, not the code itself. If it is
 missing, work from the code as usual; do not ask the person to scan first. If what you find in the
 code contradicts the note, say so and offer to `append_note` the correction.

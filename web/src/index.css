@@ -3285,6 +3285,7 @@ html[data-density="compact"] {
   --spacing: 0.125rem;
 }
 @layer utilities {
+  html[data-density="compact"] .h-1 { height: 0.25rem; }
   html[data-density="compact"] .h-2 { height: 0.5rem; }
   html[data-density="compact"] .h-3 { height: 0.75rem; }
   html[data-density="compact"] .h-10 { height: 2.5rem; }
@@ -5108,4 +5109,141 @@ html .project-bar button.project-new-session {
   height: 24px;
   pointer-events: none;
   background: linear-gradient(to top, rgb(var(--bg-rgb) / 0.6), transparent);
+}
+
+/* The map of the notes: a dark neon room, a canvas from three.js (or the flat drawing) and the
+   names of the notes floating over it as buttons. */
+.graph3d {
+  background:
+    radial-gradient(ellipse at 50% 120%, rgba(255, 43, 214, 0.22), transparent 60%),
+    radial-gradient(ellipse at 50% -20%, rgba(0, 240, 255, 0.16), transparent 55%),
+    #07010f;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 240, 255, 0.25),
+    inset 0 0 40px rgba(157, 77, 255, 0.25);
+}
+.graph3d::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.03) 0 1px,
+    transparent 1px 3px
+  );
+}
+.graph3d-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.graph3d-canvas:active {
+  cursor: grabbing;
+}
+.graph3d-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.graph3d-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+  color: #cffcff;
+  background: rgba(7, 1, 15, 0.55);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  text-shadow: 0 0 6px rgba(0, 240, 255, 0.9);
+  transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.graph3d-label:hover,
+.graph3d-label:focus-visible {
+  color: #fff;
+  border-color: #ff2bd6;
+  box-shadow: 0 0 12px rgba(255, 43, 214, 0.7);
+  z-index: 1;
+}
+.graph2d-node circle {
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.graph2d-node text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The folders of the notes list: a chevron that turns when the folder opens. */
+.note-folder > summary {
+  list-style: none;
+}
+.note-folder > summary::-webkit-details-marker {
+  display: none;
+}
+.note-folder > summary::before {
+  content: "›";
+  width: 0.6rem;
+  color: #7a7a8c;
+  transition: transform 0.15s;
+}
+.note-folder[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+/* What a search on the map finds glows yellow; the rest fades. */
+.graph3d-label.is-hit {
+  color: #fff;
+  border-color: #f5f500;
+  box-shadow: 0 0 14px rgba(245, 245, 0, 0.8);
+  text-shadow: 0 0 6px rgba(245, 245, 0, 0.9);
+  z-index: 2;
+}
+.graph3d-label.is-dim,
+.graph2d-node.is-dim {
+  opacity: 0.22;
+}
+.graph2d-node.is-hit circle {
+  stroke: #f5f500;
+  stroke-width: 3;
+}
+.graph3d-label.is-minor:not(.is-hit) {
+  font-size: 9px;
+  opacity: 0.4;
+  border-color: transparent;
+  background: transparent;
+}
+.graph3d-label.is-minor:not(.is-hit):hover {
+  opacity: 1;
+}
+
+/* The legend of the map's colours and the note looked at beside it, as neon glass panels. */
+.graph-legend-item {
+  color: #c8c8d2;
+  background: rgba(7, 1, 15, 0.72);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-width: 12rem;
+}
+.graph-peek {
+  background: rgba(7, 1, 15, 0.9);
+  border: 1px solid rgba(255, 43, 214, 0.45);
+  box-shadow:
+    0 0 24px rgba(255, 43, 214, 0.25),
+    inset 0 0 24px rgba(0, 240, 255, 0.08);
+  backdrop-filter: blur(6px);
+}
+/* On a phone the legend names only the biggest parts, so it does not cover the map. */
+@media (max-width: 767px) {
+  .graph-legend-item:nth-child(n + 5) {
+    display: none;
+  }
 }

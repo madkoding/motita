@@ -58,12 +58,13 @@ func (r *AppRunner) DescribeModule(ctx context.Context, text string) (string, er
 		return "", err
 	}
 	out, err := engine.Complete(ctx, []llm.Message{
-		{Role: "system", Content: "You document one module (a folder) of a software project for its manual " +
-			"in a personal knowledge base, from its files, its exported API, what it uses, what uses it and " +
-			"excerpts of its source. Reply in Markdown with these short sections: Purpose, How it works " +
-			"(the main types and functions and how they work together), Inputs and outputs, Used by and " +
-			"uses (why), and Things to know (limits, invariants, pitfalls). Use only what the text shows; " +
-			"say when something is unknown. Do not invent files, names or behaviour."},
+		{Role: "system", Content: "You explain one folder of a software project for a chapter of its manual, " +
+			"read by someone new to the project, from its files, its exported API, what it uses, what uses " +
+			"it and excerpts of its source. Write plain prose in Markdown without headings: start with one " +
+			"sentence that says what the folder is for, then two to four short paragraphs on how it works, " +
+			"how it fits with the folders it uses and that use it, and anything to watch out for. Name the " +
+			"main files or types only when it helps. Use only what the text shows; say when something is " +
+			"unknown. Do not invent files, names or behaviour."},
 		{Role: "user", Content: text},
 	})
 	if err != nil {

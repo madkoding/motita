@@ -101,7 +101,8 @@ func TestScanWritesANotePerProjectAndSessionAndIsRepeatable(t *testing.T) {
 		t.Errorf("a second project with the same title is told apart: %v", err)
 	}
 
-	// The person writes in a scanned note and the project changes; their text stays.
+	// The person writes in a scanned note and the project changes (its note and the start of its
+	// manual); their text stays.
 	mine := strings.Replace(project, "# App\n", "# App\nmy own thoughts\n", 1)
 	if err := os.WriteFile(filepath.Join(dir, "Projects", "App.md"), []byte(mine), 0o644); err != nil {
 		t.Fatal(err)
@@ -109,7 +110,7 @@ func TestScanWritesANotePerProjectAndSessionAndIsRepeatable(t *testing.T) {
 	if _, err := srv.projects.update("p1aaaaaaaaaa", func(p *Project) { p.Description = "The new app" }); err != nil {
 		t.Fatal(err)
 	}
-	if again := runScan(t, srv); again.Created != 0 || again.Unchanged != 4 || again.Updated != 1 {
+	if again := runScan(t, srv); again.Created != 0 || again.Unchanged != 3 || again.Updated != 2 {
 		t.Errorf("second scan = %+v", again)
 	}
 	if body := readNote(t, dir, "Projects/App.md"); !strings.Contains(body, "my own thoughts") {

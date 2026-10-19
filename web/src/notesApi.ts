@@ -240,6 +240,210 @@ export function layoutGraph(
   return placed;
 }
 
+export interface PlacedNode3D extends GraphNode {
+  x: number;
+  y: number;
+  z: number;
+}
+
+// The 3D layout: as many rounds as keep a big vault quick, and the pull to the middle.
+const LAYOUT_3D_WORK = 60000;
+const LAYOUT_3D_STEPS = 120;
+const GRAVITY_3D = 0.04;
+// SPREAD fits the layout to the radius: the share of notes that lands inside it, so a few far
+// notes do not squeeze the rest into the middle, and how far past it the others may stay.
+const SPREAD = { share: 0.85, overshoot: 1.15 };
+
+// GOLDEN_ANGLE, in radians, spreads points evenly round a sphere: π·(3 − √5).
+export const GOLDEN_ANGLE = 2.399963229728653;
+
+// fitToRadius centres the notes and scales them so most sit within radius, however the forces
+// settled; the few farther out are brought in to just past it.
+function fitToRadius(placed: PlacedNode3D[], radius: number): void {
+  const mid = { x: 0, y: 0, z: 0 };
+  for (const p of placed) {
+    mid.x += p.x / placed.length;
+    mid.y += p.y / placed.length;
+    mid.z += p.z / placed.length;
+  }
+  const dists = placed
+    .map((p) => Math.hypot(p.x - mid.x, p.y - mid.y, p.z - mid.z))
+    .sort((a, b) => a - b);
+  const far = Math.max(
+    dists[Math.floor((placed.length - 1) * SPREAD.share)],
+    1e-6,
+  );
+  for (const p of placed) {
+    p.x = ((p.x - mid.x) / far) * radius;
+    p.y = ((p.y - mid.y) / far) * radius;
+    p.z = ((p.z - mid.z) / far) * radius;
+    const out = Math.hypot(p.x, p.y, p.z) / (radius * SPREAD.overshoot);
+    if (out > 1) {
+      p.x /= out;
+      p.y /= out;
+      p.z /= out;
+    }
+  }
+}
+
+// linkCounts is how many links each note has, in and out.
+function linkCounts(edges: GraphEdge[]): Map<string, number> {
+  const degree = new Map<string, number>();
+  for (const e of edges) {
+    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+  }
+  return degree;
+}
+
+// layoutGraph3D places the notes in space around the origin, within about radius: they start
+// spread evenly over a sphere, then every pair pushes apart, every link pulls together and the
+// whole drifts to the middle. A link to a much-linked note pulls less, so a guide that links every
+// chapter does not gather them all round it. Big vaults get fewer rounds; the same vault always
+// lands the same.
+export function layoutGraph3D(
+  graph: NoteGraph,
+  radius: number,
+): PlacedNode3D[] {
+  const n = graph.nodes.length;
+  const placed: PlacedNode3D[] = graph.nodes.map((node, i) => {
+    const y = 1 - ((i + 0.5) / n) * 2;
+    const r = Math.sqrt(1 - y * y);
+    return {
+      ...node,
+      x: Math.cos(GOLDEN_ANGLE * i) * r * radius,
+      y: y * radius,
+      z: Math.sin(GOLDEN_ANGLE * i) * r * radius,
+    };
+  });
+  const at = new Map(placed.map((p) => [p.path, p]));
+  const degree = linkCounts(graph.edges);
+  const k = (radius / Math.cbrt(n)) * SPRING * 2;
+  const steps = Math.min(LAYOUT_3D_STEPS, Math.ceil(LAYOUT_3D_WORK / (n * n)));
+  for (let step = 0; step < steps; step++) {
+    const cool = 1 - step / steps;
+    const move = new Map(placed.map((p) => [p, { x: 0, y: 0, z: 0 }]));
+    for (const a of placed) {
+      const da = move.get(a) as { x: number; y: number; z: number };
+      for (const b of placed) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dz = a.z - b.z;
+        const push = (k * k) / Math.max(dx * dx + dy * dy + dz * dz, 0.01);
+        da.x += dx * push;
+        da.y += dy * push;
+        da.z += dz * push;
+      }
+      da.x -= a.x * GRAVITY_3D;
+      da.y -= a.y * GRAVITY_3D;
+      da.z -= a.z * GRAVITY_3D;
+    }
+    for (const e of graph.edges) {
+      const a = at.get(e.from) as PlacedNode3D;
+      const b = at.get(e.to) as PlacedNode3D;
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const dz = a.z - b.z;
+      const hub = Math.max(
+        degree.get(e.from) as number,
+        degree.get(e.to) as number,
+      );
+      const pull = Math.hypot(dx, dy, dz) / k / Math.sqrt(hub);
+      const da = move.get(a) as { x: number; y: number; z: number };
+      const db = move.get(b) as { x: number; y: number; z: number };
+      da.x -= dx * pull;
+      da.y -= dy * pull;
+      da.z -= dz * pull;
+      db.x += dx * pull;
+      db.y += dy * pull;
+      db.z += dz * pull;
+    }
+    for (const p of placed) {
+      const m = move.get(p) as { x: number; y: number; z: number };
+      const len = Math.max(Math.hypot(m.x, m.y, m.z), 0.01);
+      const shift = Math.min(len, (radius / 10) * cool + 0.5);
+      p.x += (m.x / len) * shift;
+      p.y += (m.y / len) * shift;
+      p.z += (m.z / len) * shift;
+    }
+  }
+  fitToRadius(placed, radius);
+  return placed;
+}
+
+// plainWiki reads a line of a note as text: the marks of a list, quote, table or heading at its
+// start go, a [[link]] becomes the words it shows (its alias, or the name of the note it leads to)
+// and the marks of emphasis and code go.
+export function plainWiki(line: string): string {
+  const [head, ...links] = line.replace(/^[\s>|#-]+/, "").split("[[");
+  const words = links.map((part) => {
+    const end = part.indexOf("]]");
+    if (end < 0) {
+      return "[[" + part;
+    }
+    const [target, alias] = part.slice(0, end).split("|", 2);
+    const shown = alias ?? (target.split("/").pop() as string);
+    return shown.trim() + part.slice(end + 2);
+  });
+  return [head, ...words].join("").replace(/[*_`]/g, "").trim();
+}
+
+// noteTrail is the folders a note sits in, outermost first: "a/b/c.md" is ["a", "b"].
+export function noteTrail(path: string): string[] {
+  return path.split("/").slice(0, -1);
+}
+
+// groupKey names the part of the vault a note belongs to: in a manual, the top folder of the
+// project a chapter documents ("internal › gateway" goes with "internal"); elsewhere the folder
+// the note is in. Notes at the top have "".
+export function groupKey(path: string): string {
+  const title = path.slice(path.lastIndexOf("/") + 1);
+  const key = noteTrail(path).join("/");
+  if (key.endsWith(" - Manual")) {
+    return title.split(" › ")[0].replace(/\.md$/, "");
+  }
+  return key;
+}
+
+// MapGroup is one part of the vault on the map's legend, with how many notes it has.
+export interface MapGroup {
+  key: string;
+  count: number;
+}
+
+// mapGroups lists the parts of the vault the notes belong to, the biggest first.
+export function mapGroups(nodes: GraphNode[]): MapGroup[] {
+  const count = new Map<string, number>();
+  for (const n of nodes) {
+    const key = groupKey(n.path);
+    count.set(key, (count.get(key) ?? 0) + 1);
+  }
+  return [...count]
+    .map(([key, c]) => ({ key, count: c }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+// noteColours gives every note the colour of its part of the vault, as an index into a palette of
+// colours: the biggest parts get the first ones, so the parts the legend names never share one.
+export function noteColours(
+  nodes: GraphNode[],
+  colours: number,
+): Map<string, number> {
+  const rank = new Map(mapGroups(nodes).map((g, i) => [g.key, i % colours]));
+  return new Map(
+    nodes.map((n) => [n.path, rank.get(groupKey(n.path)) as number]),
+  );
+}
+
+// START_NOTE is the first note of a guide the scan writes; a folder lists it before the rest.
+export const START_NOTE = "Start here";
+
+// byReadingOrder sorts the notes of a folder for reading: "Start here" first, then by title.
+export function byReadingOrder(a: NoteItem, b: NoteItem): number {
+  const first = Number(b.title === START_NOTE) - Number(a.title === START_NOTE);
+  return first || a.title.localeCompare(b.title);
+}
+
 // NoteScan is what scanning the sessions and projects into notes reports.
 export interface NoteScan {
   // false when only a first-use scan was asked for and the vault did not need one.
@@ -268,12 +472,39 @@ export interface ScanOptions {
   modules?: number;
 }
 
-// scanNotes writes a note for every project and every session that has been used, or updates the
-// ones it wrote before.
-export async function scanNotes(
+// ScanProgress is how far the scan running in the background got, and how it ended.
+export interface ScanProgress {
+  running: boolean;
+  // "sessions" while the session notes are written, then "projects".
+  phase?: string;
+  project?: string;
+  done: number;
+  total: number;
+  chapters: number;
+  chapter_total: number;
+  result?: NoteScan;
+  error?: string;
+}
+
+// SCAN_STARTED_EVENT is dispatched on window when a background scan starts, so the sidebar
+// follows it.
+export const SCAN_STARTED_EVENT = "motita-scan-started";
+
+// scanProgress asks how far the background scan got.
+export async function scanProgress(api: Api): Promise<ScanProgress> {
+  const res = await api("/v1/notes/scan");
+  if (!res.ok) {
+    throw new Error("HTTP " + res.status);
+  }
+  return (await res.json()) as ScanProgress;
+}
+
+// postScan asks the gateway for a scan; in the background it answers the progress at once.
+async function postScan(
   api: Api,
-  opts: ScanOptions = {},
-): Promise<NoteScan> {
+  opts: ScanOptions,
+  background: boolean,
+): Promise<unknown> {
   const params = new URLSearchParams();
   if (opts.first) {
     params.set("first", "1");
@@ -284,6 +515,9 @@ export async function scanNotes(
   if (opts.modules) {
     params.set("modules", String(opts.modules));
   }
+  if (background) {
+    params.set("background", "1");
+  }
   let path = "/v1/notes/scan";
   if (params.size > 0) {
     path += "?" + params.toString();
@@ -293,5 +527,23 @@ export async function scanNotes(
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || "HTTP " + res.status);
   }
-  return (await res.json()) as NoteScan;
+  return res.json();
+}
+
+// scanNotes writes a note for every project and every session that has been used, or updates the
+// ones it wrote before, and answers what it did.
+export async function scanNotes(
+  api: Api,
+  opts: ScanOptions = {},
+): Promise<NoteScan> {
+  return (await postScan(api, opts, false)) as NoteScan;
+}
+
+// startScan runs the same scan in the background and answers its progress; scanProgress follows
+// it. A scan already running is followed instead of started again.
+export async function startScan(
+  api: Api,
+  opts: ScanOptions = {},
+): Promise<ScanProgress> {
+  return (await postScan(api, opts, true)) as ScanProgress;
 }
