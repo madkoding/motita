@@ -627,6 +627,22 @@ function SettingsHost() {
   );
 }
 
+// pickerStart is the folder the folder browser opens on: the project's own for the edit dialog, the
+// one already chosen for the new project dialog, and the user's home (none) to pick a repository.
+function pickerStart(
+  picker: "new" | "edit" | "repo",
+  projects: ReturnType<typeof useApp>["projects"],
+): string | undefined {
+  if (picker === "repo") {
+    return undefined;
+  }
+  return choose(
+    picker === "edit",
+    projects.editProject?.path || projects.editProject?.dir,
+    projects.newProjectPath,
+  );
+}
+
 // ProjectModals are the dialogs of a project: editing it, creating it, and the git host
 // connections it can need.
 function ProjectModals() {
@@ -648,11 +664,7 @@ function ProjectModals() {
       {folderPicker && (
         <FolderBrowser
           api={request}
-          start={choose(
-            folderPicker === "edit",
-            projects.editProject?.path || projects.editProject?.dir,
-            projects.newProjectPath,
-          )}
+          start={pickerStart(folderPicker, projects)}
           onPick={projects.pickFolder}
           onClose={projects.closeFolderPicker}
         />

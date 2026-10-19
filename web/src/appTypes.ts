@@ -126,6 +126,19 @@ export interface ProjectInfo {
   created: string;
   // repos are the project's other repositories, after the main one in dir.
   repos?: ProjectRepoInfo[];
+  // missing_deps are the dependency folders its repositories need and do not have (vendor/,
+  // node_modules/): sessions cannot run the project's tests until they are installed.
+  missing_deps?: MissingDep[];
+}
+
+// MissingDep is one dependency folder a manifest asks for and the project lacks.
+export interface MissingDep {
+  // path is the folder that holds the manifest, relative to the project: "." for its root.
+  path: string;
+  manager: string;
+  dir: string;
+  // command installs it, from path.
+  command: string;
 }
 
 // ProjectRepoInfo is one of a project's other repositories, a folder inside the project's.
@@ -138,6 +151,9 @@ export interface ProjectRepoInfo {
   changes?: number;
   // shared: dir is the workspace catalog's clone, which other projects may use too.
   shared?: boolean;
+  // local: a repository the user already had on this machine, used where it is (dir) instead of
+  // cloned; motita never fetches into it, merges into it or deletes it.
+  local?: boolean;
   // behind counts the commits of the main branch the project's folder of a shared one lacks.
   behind?: number;
 }

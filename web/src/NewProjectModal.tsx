@@ -281,6 +281,7 @@ function NewProjectRepos() {
       onRemove={onRemove}
       onAdd={p.addNewProjectRepo}
       onChoose={choose(connected, p.openOtherRepoPicker, undefined)}
+      onBrowse={choose(p.fullDisk, () => p.openFolderPicker("repo"), undefined)}
       catalog={p.repoCatalog}
       title={choose(
         p.newProjectMode === "git",

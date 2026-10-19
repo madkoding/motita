@@ -30,6 +30,7 @@ export interface RepoListItem {
   main_branch?: string;
   behind?: number;
   shared?: boolean;
+  local?: boolean;
 }
 
 // RepoConflict is a removal the gateway refused because the repository holds uncommitted work.
@@ -108,12 +109,19 @@ function OtherRepoRow({
             <span class="text-sm font-semibold text-[#e8e8ea] truncate">
               {r.name}
             </span>
-            {r.shared && (
+            {(r.shared || r.local) && (
               <span
                 class="flex-none text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-white/5 text-[#9a9aaa]"
-                data-testid="repo-shared"
+                data-testid={choose(r.local, "repo-local", "repo-shared")}
+                title={choose(
+                  r.local,
+                  t(
+                    "Your own repository, used where it is. Motita only makes its own branches and worktrees in it.",
+                  ),
+                  undefined,
+                )}
               >
-                {t("shared")}
+                {choose(r.local, t("local"), t("shared"))}
               </span>
             )}
             <span class="text-xs text-[#7a7a8c] font-mono truncate">
@@ -342,12 +350,16 @@ export function AddRepo({
   busy,
   onAdd,
   known = NO_KNOWN,
+  onBrowse,
 }: {
   taken: string[];
   busy: boolean;
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
   // The repositories the workspace already has, as sameRepoUrl writes them.
   known?: ReadonlySet<string>;
+  // Opens the folder browser, to add a repository the machine already has (the whole disk must
+  // be allowed in Settings → Security).
+  onBrowse?: () => void;
 }) {
   const [url, setUrl] = useState("");
   const [problem, setProblem] = useState("");
@@ -397,6 +409,24 @@ export function AddRepo({
           )}
         </button>
       </div>
+      {onBrowse && (
+        <div class="mt-1.5">
+          <button
+            type="button"
+            class="text-sm text-accent underline underline-offset-2 disabled:opacity-30"
+            onClick={onBrowse}
+            disabled={busy}
+            data-testid="repo-browse"
+          >
+            {t("Choose a folder on this computer…")}
+          </button>
+          <p class={HINT} data-testid="repo-browse-hint">
+            {t(
+              "A repository you already have is used where it is: it is not cloned, and its branch and files are never touched.",
+            )}
+          </p>
+        </div>
+      )}
       {!problem && url.trim() && known.has(sameRepoUrl(url)) && (
         <p class="text-xs text-accent/80 mt-1" data-testid="repo-add-known">
           {t("Already in your workspace: it is not cloned again.")}
@@ -482,6 +512,7 @@ export function ReposSection({
   onRemove,
   onAdd,
   onChoose,
+  onBrowse,
   onMoveMain,
   onSync,
   catalog = [],
@@ -497,6 +528,9 @@ export function ReposSection({
   onAdd: (draft: RepoDraft) => boolean | Promise<boolean>;
   // Opens the picker of the person's own repositories, when a git host is connected.
   onChoose?: () => void;
+  // Opens the folder browser to add a repository the machine already has, when the whole disk is
+  // allowed.
+  onBrowse?: () => void;
   // Moves the main repository into a folder of its own (the edit dialog only).
   onMoveMain?: () => void;
   // Brings a shared repository's folder up to its main branch (the edit dialog only).
@@ -546,6 +580,7 @@ export function ReposSection({
               busy={busy === "+"}
               onAdd={onAdd}
               known={knownRepos(catalog)}
+              onBrowse={onBrowse}
             />
             <CatalogPicks
               catalog={catalog}

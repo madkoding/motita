@@ -686,6 +686,14 @@ test("the folder browser opens on the folder of the dialog that asked for it", a
     };
   });
   assert.equal(lastProps("FolderBrowser").start, "/ws/a");
+  await ctl.set((s) => {
+    s.projects = { ...s.projects, folderPicker: "repo" };
+  });
+  assert.equal(
+    lastProps("FolderBrowser").start,
+    undefined,
+    "a repository is looked for from the home folder",
+  );
   await ctl.done();
 });
 

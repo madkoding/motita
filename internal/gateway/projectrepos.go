@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,6 +42,12 @@ type ProjectRepo struct {
 	// Shared marks a repository of the catalog: Dir is the clone every project that uses it
 	// shares, and the project's folder holds a worktree of it.
 	Shared bool `json:"shared,omitempty"`
+	// Local marks a repository the user already had on this machine, added by its folder instead of
+	// cloned: Dir is that folder, the user's own, and the project's folder holds a worktree of it
+	// like for any shared repository (so Shared is set too). It is never fetched into, merged into
+	// or deleted: the branch it has checked out and its working tree are the user's, and only the
+	// branches and worktrees motita made in it are motita's.
+	Local bool `json:"local,omitempty"`
 	// ProjectBranch is the branch the project's worktree of a shared repository was made on. Empty
 	// in a project saved before it was recorded: that one is on projectBranch's older name.
 	ProjectBranch string `json:"project_branch,omitempty"`
@@ -134,8 +139,16 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		GitURL string `json:"git_url"`
 		Name   string `json:"name"`
+		// Path is the folder of a repository this machine already has: it is used where it is,
+		// not cloned. It needs the whole disk allowed (Settings → Security), like a project
+		// outside the workspace.
+		Path string `json:"path"`
 	}
 	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Path) != "" {
+		s.addLocalRepo(w, r, p, body.Path, body.Name)
 		return
 	}
 	gitURL := strings.TrimSpace(body.GitURL)
@@ -170,6 +183,14 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 		s.writeCloneError(w, gitURL, err)
 		return
 	}
+	s.saveNewRepo(w, r, p, repo)
+}
+
+// saveNewRepo records repo, whose folder is already in the project, and gives the sessions the
+// project has a worktree of it. A project deleted while the repository was being placed takes the
+// folder with it.
+func (s *Server) saveNewRepo(w http.ResponseWriter, r *http.Request, p *Project, repo ProjectRepo) {
+	ctx := r.Context()
 	// The project's own repository must not see the folder as a change of its own. Advisory, as it
 	// is for a worktree: a folder that is not a repository has nothing to ignore it in.
 	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
@@ -190,84 +211,6 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	writeJSON(w, http.StatusCreated, p)
-}
-
-// errNoCatalog is catalogClone's answer when the workspace has no catalog to clone into.
-var errNoCatalog = errors.New("the workspace has no catalog of repositories")
-
-// catalogFolder is the workspace folder that holds the repositories projects share.
-const catalogFolder = "repos"
-
-// catalogDir is the catalog's folder, "" when there is none: no workspace, or a project of its
-// own already in that folder.
-func (s *Server) catalogDir() string {
-	if s.opts.WorkspaceDir == "" {
-		return ""
-	}
-	dir := filepath.Join(s.opts.WorkspaceDir, catalogFolder)
-	if s.projectInDir(dir, "") != nil {
-		return ""
-	}
-	return dir
-}
-
-// catalogClone answers the catalog's clone of gitURL, cloning it the first time a project asks
-// for it, and whether it was cloned now. It is found by its origin, whatever its folder is called.
-func (s *Server) catalogClone(gitURL, name string) (dir string, fresh bool, err error) {
-	root := s.catalogDir()
-	if root == "" {
-		return "", false, errNoCatalog
-	}
-	env := s.gitCommandEnv()
-	entries, _ := os.ReadDir(root)
-	for _, e := range entries {
-		if d := filepath.Join(root, e.Name()); e.IsDir() && sameOrigin(d, gitURL, env) {
-			return d, false, nil
-		}
-	}
-	dir = s.reserveCloneDir(filepath.Join(root, cmp.Or(repoNameOf("", gitURL), name)), gitURL, env)
-	defer s.releaseCloneDir(dir)
-	if _, err := cloneGitRepo(gitURL, dir, env); err != nil {
-		return "", false, err
-	}
-	return dir, true, nil
-}
-
-// reserveCloneDir picks the folder for a clone of gitURL and marks it as being cloned into, in one
-// step: two clones of different repositories with the same name get different folders.
-func (s *Server) reserveCloneDir(base, gitURL string, env []string) string {
-	s.cloningMu.Lock()
-	defer s.cloningMu.Unlock()
-	dir := freeCloneDir(base, gitURL, env, func(d string) bool { return s.cloning[d] })
-	if s.cloning == nil {
-		s.cloning = map[string]bool{}
-	}
-	s.cloning[dir] = true
-	return dir
-}
-
-// releaseCloneDir says no clone is being made in dir any more.
-func (s *Server) releaseCloneDir(dir string) {
-	s.cloningMu.Lock()
-	defer s.cloningMu.Unlock()
-	delete(s.cloning, dir)
-}
-
-// beingCloned reports whether a clone is being made in dir.
-func (s *Server) beingCloned(dir string) bool {
-	s.cloningMu.Lock()
-	defer s.cloningMu.Unlock()
-	return s.cloning[dir]
-}
-
-// lockCatalogRepo holds the catalog's clone of gitURL against anything else that uses or deletes it,
-// whatever way the URL is spelled (a trailing ".git" or slash, the host's case).
-func (s *Server) lockCatalogRepo(gitURL string) func() {
-	key := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(gitURL), "/"), ".git"))
-	m, _ := s.catalogLocks.LoadOrStore(key, &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
 }
 
 // placeRepo puts the repository gitURL in the project's folder, at dest: a worktree of the
@@ -322,7 +265,7 @@ func (s *Server) handleRemoveProjectRepo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	repo := p.Repos[i]
-	if repo.Shared {
+	if repo.Shared && !repo.Local {
 		// The clone is the catalog's: a deletion of it waits until this project's worktree is gone.
 		defer s.lockCatalogRepo(repo.GitURL)()
 	}
@@ -430,121 +373,6 @@ func releaseSharedRepos(ctx context.Context, p *Project) {
 	}
 }
 
-// catalogUse is a project that uses a repository of the catalog.
-type catalogUse struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
-// catalogRepo is one repository of the catalog, and the projects that use it.
-type catalogRepo struct {
-	Name     string       `json:"name"`
-	GitURL   string       `json:"git_url"`
-	Dir      string       `json:"dir"`
-	Projects []catalogUse `json:"projects"`
-	// Size is what the clone takes on disk, in bytes.
-	Size int64 `json:"size"`
-}
-
-// dirSize adds up the size of the files under dir. What cannot be read counts as nothing: the
-// figure is a guide to what deleting a clone frees, not an inventory.
-func dirSize(dir string) int64 {
-	var n int64
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && d.Type().IsRegular() {
-			if info, ierr := d.Info(); ierr == nil {
-				n += info.Size()
-			}
-		}
-		return nil
-	})
-	return n
-}
-
-// allProjects is every project the gateway knows, none when it has no store or cannot read it.
-func (s *Server) allProjects() []Project {
-	if s.projects == nil {
-		return nil
-	}
-	all, _ := s.projects.loadAll()
-	return all
-}
-
-// catalogUsers are the projects whose repositories include the catalog's clone at dir.
-func catalogUsers(projects []Project, dir string) []catalogUse {
-	users := []catalogUse{}
-	for _, p := range projects {
-		if slices.ContainsFunc(p.Repos, func(r ProjectRepo) bool { return r.Shared && gitx.SamePath(r.Dir, dir) }) {
-			users = append(users, catalogUse{ID: p.ID, Title: p.Title})
-		}
-	}
-	return users
-}
-
-// handleListRepos answers the catalog: every repository cloned there, and which projects use it,
-// so a project can add one that is already here without cloning it again.
-func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
-	out := []catalogRepo{}
-	root := s.catalogDir()
-	entries, _ := os.ReadDir(root)
-	var projects []Project
-	if len(entries) > 0 {
-		projects = s.allProjects()
-	}
-	for _, e := range entries {
-		dir := filepath.Join(root, e.Name())
-		gitURL := originOf(dir, s.gitCommandEnv())
-		if !e.IsDir() || gitURL == "" {
-			continue
-		}
-		out = append(out, catalogRepo{
-			Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: catalogUsers(projects, dir), Size: dirSize(dir),
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
-}
-
-// removeAll is how a clone leaves the catalog; a variable so a test can make it fail.
-var removeAll = os.RemoveAll
-
-// handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
-// in it stops the deletion, unless the user confirmed the discard with `?force=1`.
-func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
-	dir := s.catalogRepoDir(r.PathValue("name"))
-	if dir == "" {
-		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
-		return
-	}
-	if s.beingCloned(dir) {
-		writeError(w, http.StatusConflict, "the repository is being cloned: try again when it is done")
-		return
-	}
-	// Held against the projects that are adding or removing this same repository.
-	defer s.lockCatalogRepo(originOf(dir, s.gitCommandEnv()))()
-	if users := catalogUsers(s.allProjects(), dir); len(users) > 0 {
-		titles := make([]string, len(users))
-		for i, u := range users {
-			titles[i] = u.Title
-		}
-		writeError(w, http.StatusConflict, fmt.Sprintf("the repository is used by %s: remove it from "+
-			"those projects first", strings.Join(titles, ", ")))
-		return
-	}
-	if _, dirty := firstDirtyDir(r.Context(), []string{dir}); dirty && !isForced(r) {
-		writeError(w, http.StatusConflict, "the repository has uncommitted changes (or they could not be read): "+
-			"commit them, or confirm the discard")
-		return
-	}
-	if !isForced(r) && s.refuseUnpublished(w, r.Context(), dir) {
-		return
-	}
-	if err := removeAll(dir); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // fastForward moves the branch checked out at dir forward to ref, when it can without a merge.
 func fastForward(ctx context.Context, dir, ref string) error {
 	args := append(append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...), "merge", "--ff-only", ref)
@@ -563,8 +391,11 @@ func (s *Server) syncSharedRepos(ctx context.Context, p *Project) {
 		if !repo.Shared {
 			continue
 		}
-		// Advisory: a clone with no origin, or a merge made here, has nothing to bring in.
-		_ = gitx.PullFastForward(ctx, repo.Dir, cmp.Or(repo.MainBranch, defaultMainBranch))
+		// Advisory: a clone with no origin, or a merge made here, has nothing to bring in. The
+		// user's own repository is never fetched into: what they merge there is theirs to do.
+		if !repo.Local {
+			_ = gitx.PullFastForward(ctx, repo.Dir, cmp.Or(repo.MainBranch, defaultMainBranch))
+		}
 		if all == nil {
 			all = s.allProjects()
 		}
@@ -719,8 +550,14 @@ func projectReposNote(p *Project) string {
 		"each other repository is a checkout of its own, with its own history, in a folder of it:")
 	for _, repo := range p.Repos {
 		fmt.Fprintf(&b, "\n- %s (%s)", filepath.ToSlash(repo.relPath(p.Dir)), repo.GitURL)
-		if repo.Shared {
+		switch {
+		case repo.Local:
+			fmt.Fprintf(&b, ": the user's own repository, used where it is (%s). Work only in your worktree of it "+
+				"and commit on your branch; never check out, merge, reset or change files in that folder itself", repo.Dir)
+		case repo.Shared:
 			b.WriteString(": shared with other projects, so its main branch is theirs too")
+		default:
+			// A clone of the project's own: nothing more to say about it.
 		}
 	}
 	b.WriteString("\nRun git inside the repository you changed, and commit each one on its own. " +
@@ -744,211 +581,21 @@ func otherReposMergeNote(p *Project, workspace, branch string) string {
 		return ""
 	}
 	var b strings.Builder
+	var own []string
 	b.WriteString("\n\nThe project has other repositories, each with a worktree of this session on " + branch +
 		". Integrate each one that has work the same way, into its own main branch, from its own directory:")
 	for _, wt := range worktrees {
-		fmt.Fprintf(&b, "\n- worktree %s, repository %s", wt[1], wt[0])
-	}
-	return b.String()
-}
-
-// renamePath and initRepo are what moving the main repository does to the disk; variables so a
-// test can make either fail.
-var (
-	renamePath = os.Rename
-	initRepo   = gitx.InitOn
-)
-
-// mainRepoFolder is the folder name the project's own repository takes when it becomes one of the
-// others: the last element of its URL, or of its folder. "" when neither makes a usable name.
-func (p *Project) mainRepoFolder() string {
-	if name := repoNameOf("", p.GitURL); name != "" {
-		return name
-	}
-	return repoNameOf(filepath.Base(p.Dir), "")
-}
-
-// freeRepoFolder is name when the project has no repository or folder by it, name with "-main"
-// after it when that is free, and "" when neither is (or name is empty).
-func (p *Project) freeRepoFolder(name string) string {
-	taken := func(n string) bool { return p.repoIndex(n) >= 0 || pathExists(filepath.Join(p.Dir, n)) }
-	switch {
-	case name == "":
-		return ""
-	case !taken(name):
-		return name
-	case !taken(name + "-main"):
-		return name + "-main"
-	default:
-		return ""
-	}
-}
-
-// handleDetachProjectMain takes the project's own repository out of the project's folder, into a
-// folder of its own, so the project becomes a plain folder that holds its repositories, all alike.
-// Nothing is deleted: the repository, its history and its uncommitted work move as they are.
-//
-// It is refused while a session is running, and while a session has its own copy of the main
-// repository: that copy belongs to the repository that is moving, so the session has to be merged
-// or deleted first.
-func (s *Server) handleDetachProjectMain(w http.ResponseWriter, r *http.Request) {
-	defer s.lockProjectRepos(r.PathValue("id"))()
-	p := s.projectOf(r.PathValue("id"))
-	if p == nil {
-		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
-		return
-	}
-	ctx := r.Context()
-	if !s.detachAllowed(w, ctx, p) {
-		return
-	}
-	name := p.freeRepoFolder(p.mainRepoFolder())
-	if name == "" {
-		writeError(w, http.StatusConflict, "the project has no free folder name for its main repository")
-		return
-	}
-	mainBranch := mainBranchOf(ctx, p)
-	if err := moveMainRepo(p, name); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if mainBranch == "" {
-		mainBranch = defaultMainBranch
-	}
-	if err := initRepo(ctx, p.Dir, mainBranch); err != nil {
-		undoMoveMainRepo(p, name)
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	moved := ProjectRepo{Name: name, GitURL: p.GitURL, Dir: filepath.Join(p.Dir, name), MainBranch: mainBranch}
-	_ = gitx.EnsureIgnoreBase(ctx, p.Dir)
-	updated, err := s.updateProject(p.ID, func(cur *Project) {
-		cur.Repos = append([]ProjectRepo{moved}, cur.Repos...)
-		cur.GitURL = ""
-		cur.MainBranch = mainBranch
-	})
-	if err != nil {
-		// The project does not declare the move, so the disk must not show it either.
-		undoMoveMainRepo(p, name)
-	}
-	if errors.Is(err, errProjectGone) {
-		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	p = updated
-	for _, c := range s.sessionsOfProject(p.ID) {
-		applyRuntimeTo(c.svc, p, c.workspaceDir())
-	}
-	writeJSON(w, http.StatusOK, p)
-}
-
-// detachAllowed answers 409, and returns false, while moving the main repository would pull the
-// ground from under a session.
-func (s *Server) detachAllowed(w http.ResponseWriter, ctx context.Context, p *Project) bool {
-	for _, c := range s.sessionsOfProject(p.ID) {
-		if c.isRunning() {
-			writeError(w, http.StatusConflict, "a session of the project is running: wait for it to finish")
-			return false
-		}
-	}
-	all, err := gitx.Worktrees(ctx, p.Dir)
-	if err != nil {
-		writeError(w, http.StatusConflict, "the project's folder is not a repository, so there is no main "+
-			"repository to move: "+err.Error())
-		return false
-	}
-	for _, wt := range all {
-		if !wt.Prunable && !gitx.SamePath(wt.Path, p.Dir) {
-			writeError(w, http.StatusConflict, "a session has its own copy of the main repository: "+
-				"merge or delete the sessions of the project first")
-			return false
-		}
-	}
-	return true
-}
-
-// pathExists reports whether anything is at path.
-func pathExists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
-}
-
-// moveMainRepo moves everything in the project's folder into its subfolder name, except the other
-// repositories, which stay where they are. A move that fails puts back what it had moved.
-func moveMainRepo(p *Project, name string) error {
-	stay := map[string]bool{name: true}
-	for _, repo := range p.Repos {
-		stay[strings.SplitN(filepath.ToSlash(repo.relPath(p.Dir)), "/", 2)[0]] = true
-	}
-	entries, err := os.ReadDir(p.Dir)
-	if err != nil {
-		return err
-	}
-	dest := filepath.Join(p.Dir, name)
-	if err := os.Mkdir(dest, 0o755); err != nil {
-		return err
-	}
-	var moved []string
-	for _, e := range entries {
-		if stay[e.Name()] {
+		if p.isLocalRepo(wt[0]) {
+			own = append(own, wt[1])
 			continue
 		}
-		if err := renamePath(filepath.Join(p.Dir, e.Name()), filepath.Join(dest, e.Name())); err != nil {
-			for _, m := range moved {
-				_ = renamePath(filepath.Join(dest, m), filepath.Join(p.Dir, m))
-			}
-			_ = os.Remove(dest)
-			return err
-		}
-		moved = append(moved, e.Name())
+		fmt.Fprintf(&b, "\n- worktree %s, repository %s", wt[1], wt[0])
 	}
-	return nil
-}
-
-// undoMoveMainRepo puts back what moveMainRepo moved into the subfolder name, after a step that
-// came later failed: the repository this folder was initialised as is dropped, and the original
-// (which is in the subfolder) takes its place. Nothing is touched unless the original is there.
-func undoMoveMainRepo(p *Project, name string) {
-	dest := filepath.Join(p.Dir, name)
-	if !pathExists(filepath.Join(dest, ".git")) {
-		return
+	for _, path := range own {
+		fmt.Fprintf(&b, "\n- worktree %s is of the user's own repository: leave its work committed on %s and "+
+			"do not merge it; the user's checked-out branch and files there are not yours to change", path, branch)
 	}
-	_ = os.RemoveAll(filepath.Join(p.Dir, ".git"))
-	entries, _ := os.ReadDir(dest)
-	for _, e := range entries {
-		_ = renamePath(filepath.Join(dest, e.Name()), filepath.Join(p.Dir, e.Name()))
-	}
-	_ = os.Remove(dest)
-}
-
-// catalogRepoDir is the folder of the catalog's clone called name, "" when there is none.
-func (s *Server) catalogRepoDir(name string) string {
-	root := s.catalogDir()
-	dir := filepath.Join(root, name)
-	if root == "" || repoNameOf(name, "") != name || !pathExists(dir) {
-		return ""
-	}
-	return dir
-}
-
-// handleUpdateRepo brings the catalog's clone called name up to date with its origin, on the
-// branch it has out, when it can move forward without a merge.
-func (s *Server) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
-	dir := s.catalogRepoDir(r.PathValue("name"))
-	if dir == "" {
-		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
-		return
-	}
-	ctx := r.Context()
-	if err := gitx.PullFastForward(ctx, dir, gitx.Display(ctx, dir)); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return b.String()
 }
 
 // handleSyncProjectRepo brings the project's folder of a shared repository up to that
@@ -978,8 +625,10 @@ func (s *Server) handleSyncProjectRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mainBranch := cmp.Or(repo.MainBranch, defaultMainBranch)
-	// Advisory: a clone with no origin has nothing to bring in.
-	_ = gitx.PullFastForward(ctx, repo.Dir, mainBranch)
+	// Advisory: a clone with no origin has nothing to bring in. Never into the user's own repository.
+	if !repo.Local {
+		_ = gitx.PullFastForward(ctx, repo.Dir, mainBranch)
+	}
 	if err := fastForward(ctx, dir, mainBranch); err != nil {
 		writeError(w, http.StatusConflict, fmt.Sprintf("the folder has commits of its own that %s does not: "+
 			"merge %s into it to bring it up to date", mainBranch, mainBranch))

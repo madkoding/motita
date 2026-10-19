@@ -36,6 +36,10 @@ which, every time.
 - When the environment will not allow it (`curl error 6`, `Could not resolve host`, no
   `vendor/autoload.php` and no way to create it), stop and report **not validated**, with the
   command and the cause. Say what you verified some other way, and what the person has to run.
+- **Check before you advise on files or git.** A claim about a repository, a worktree or a
+  directory ("the original repo registers this worktree") comes from `git worktree list`,
+  `git -C <dir> rev-parse --git-common-dir`, `ls` - not from the folder's name. Do it before
+  recommending that anything be moved or deleted.
 
 ## New code ships with its own proof
 
