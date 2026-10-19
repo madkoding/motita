@@ -34,6 +34,12 @@ Everything below is written as the GOAL plus the command that achieves it, so it
 `grep` beats read-then-look: search for the symbol, then read only what matched. Reading each
 candidate in turn is how a context fills with files that were never relevant.
 
+**When `search_index` is offered** (plan mode lists it as a tool; task mode as the action
+`{"kind":"search_index","command":"plain words or a symbol"}`), use it FIRST to find where
+something lives by what it is about ("where is the session token checked"), then `grep` for the
+exact lines. It ranks files by meaning and by symbol name; `grep` only matches text. If the tool
+or action is not offered, or answers that there is no index, fall back to `grep` without comment.
+
 ## Know the file before you read it
 
 - `file path` — is it text, binary, a symlink, a directory?
