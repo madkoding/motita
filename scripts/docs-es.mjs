@@ -96,6 +96,8 @@ ${hub("La terminal, el navegador, el teléfono y los scripts hablan con un solo 
 <h2>La interfaz del navegador</h2>
 <p>Se sirve desde el puerto del propio gateway: no hay un segundo servidor ni configuración entre orígenes. Abre <code>http://127.0.0.1:7477</code>, pega el token una vez y tienes chat, proyectos, ajustes y la biblioteca de skills. Se instala como app (PWA) y va compilada dentro del binario.</p>
 <p>El token se lee de <code>~/.motita/gateway.token</code> y lo imprime <code>motita gateway start</code>.</p>
+<h2>Notas</h2>
+<p>El botón <strong>Notas</strong> de la barra lateral abre una bóveda de notas en Markdown plano: un árbol de carpetas, un editor con vista previa, <code>[[enlaces wiki]]</code> que abren la nota que nombran (o la crean), las notas que enlazan de vuelta y un buscador. Las notas son archivos <code>.md</code> normales en <code>~/.motita/notes</code>, así que puedes abrir esa misma carpeta en Obsidian.</p>
 <h2>Ejecutar el gateway</h2>
 ${code("sh", `motita gateway start    # inicia el servicio y espera a que responda
 motita gateway status   # si hay uno corriendo, dónde y qué compilación

@@ -799,6 +799,28 @@ const more: Record<string, string> = {
   "Let Motita control this computer's desktop?":
     "¿Dejar que Motita controle el escritorio de este equipo?",
   "Allow desktop control": "Permitir el control del escritorio",
+  Notes: "Notas",
+  "New note name": "Nombre de la nota nueva",
+  "No folder": "Sin carpeta",
+  "Search the notes": "Buscar en las notas",
+  "No notes yet. Write the first one above.":
+    "Todavía no hay notas. Escribe la primera arriba.",
+  "Nothing matches that.": "Nada coincide con eso.",
+  "Linked from ({n})": "Enlazada desde ({n})",
+  "No other note links here yet.": "Ninguna otra nota enlaza aquí todavía.",
+  "Note text": "Texto de la nota",
+  Edit: "Editar",
+  "Click again to delete": "Pulsa otra vez para borrar",
+  "Pick a note, or write a new one.": "Elige una nota o escribe una nueva.",
+  "Link notes with [[double brackets]]. They are plain .md files: open this folder in Obsidian and they are all there.":
+    "Enlaza notas con [[dobles corchetes]]. Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
+  "could not load the notes": "no se pudieron cargar las notas",
+  "could not open the note": "no se pudo abrir la nota",
+  "could not save the note": "no se pudo guardar la nota",
+  "could not create the note": "no se pudo crear la nota",
+  "could not delete the note": "no se pudo borrar la nota",
+  "give the note a name": "ponle un nombre a la nota",
+  "a note with that name already exists": "ya existe una nota con ese nombre",
 };
 
 export default more;

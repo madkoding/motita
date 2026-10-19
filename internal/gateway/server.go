@@ -164,6 +164,9 @@ type Options struct {
 	// ArtifactDir is the directory the files an agent produced are kept in, one folder per
 	// session. Empty means artifacts are not kept.
 	ArtifactDir string
+	// NotesDir is the folder of the note vault: plain Markdown files, opened as they are by
+	// Obsidian. Empty means there are no notes.
+	NotesDir string
 	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
 	ArtifactDays int
 	// ProjectDir is the directory where projects are persisted. Empty means
@@ -820,6 +823,12 @@ func (s *Server) routes() *http.ServeMux {
 	s.gitRoutes(mux, plain)
 	s.routeDisk(mux, plain)
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("GET /v1/notes", plain(s.handleListNotes))
+	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
+	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))
+	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
+	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
+	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
 	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
