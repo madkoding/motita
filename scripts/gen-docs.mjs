@@ -320,15 +320,24 @@ ${flow("From a command to its sandbox", [["A command", "The agent wants to run i
 <p><strong>Settings &rarr; Security</strong> chooses how much of the disk the agent reaches:</p>
 <ul>
 <li><strong>Workspace only</strong> (default): file edits outside the session's folder are refused, and on Linux a command cannot read or list your files elsewhere (home, <code>/home</code>, <code>/mnt</code>, ...).</li>
-<li><strong>Whole disk</strong>: both reach anywhere your account can. The page asks first and spells out the risk. motita's own logins stay hidden either way.</li>
+<li><strong>Whole disk</strong>: both reach anywhere your account can. The page asks first and spells out the risk. motita's own logins stay hidden either way, and commands that work outside the workspace stop asking (one that names your keys still asks).</li>
 </ul>
 <p>Where nothing confines a command (Windows, macOS, Linux without Landlock), the agent asks before the project's own code runs, unless you turn that off.</p>
-<p>Each session also gets its own HOME, and cannot read the other projects and sessions of the same gateway.</p>`,
+<p>Each session also gets its own HOME, and cannot read the other projects and sessions of the same gateway.</p>
+<p>The <strong>Sandbox</strong> section of the same page lists the services (a database, a web server) the agent runs in boxes of their own to test against, and stops them.</p>
+<h2>This computer's desktop</h2>
+<p>Off by default. Turned on in <strong>Settings &rarr; Security</strong>, after a confirmation that spells out the risk, the agent can look at the screen and use the mouse, the keyboard and the windows of the computer motita runs on: Linux (X11 or Wayland), macOS and Windows.</p>
+<ul>
+<li><strong>Every step is asked about</strong>, a picture of the screen included, since it shows whatever you have open. Allowing every command for the session allows them all.</li>
+<li>Never from a background agent or a read-only session; while it is off the model is not even offered it.</li>
+<li>The pictures are saved under <code>.motita/previews/</code> and shown with the result.</li>
+</ul>`,
     more: [
       ["Guide: guardrails that can't be switched off", guide("guardrails-that-cant-be-switched-off")],
       ["Reference: guardrails and the two layers", reference("guardrails-and-the-two-layers-of-them")],
       ["Reference: disk access", reference("disk-access")],
       ["Reference: what runs silently", reference("what-runs-silently-and-why-that-is-a-design-decision")],
+      ["Reference: this computer's desktop", reference("this-computers-desktop-desktop_shot-desktop_click-desktop_type-")],
     ],
   },
   {
@@ -348,7 +357,7 @@ ${flow("Who can reach the gateway, from narrowest to widest", [["This machine on
 <tr><td>Everywhere</td><td>Listens on all interfaces with no origin rules.</td></tr>
 </tbody>
 </table>
-<p><code>gateway.allow</code> is an ordered list of rules (<code>lan</code>, an address, a network, each optionally prefixed with <code>!</code>). The first match wins, and loopback is always allowed so you cannot lock yourself out. The token stays the real key; the rules say where it may come from.</p>
+<p><code>gateway.allow</code> is an ordered list of rules (<code>lan</code>: the private, link-local and tailnet ranges; an address, a network, each optionally prefixed with <code>!</code>). The first match wins, and loopback is always allowed so you cannot lock yourself out. The token stays the real key; the rules say where it may come from.</p>
 <div class="note">The gateway speaks plain HTTP. Off loopback the token travels unencrypted, and the gateway warns you when it opens.</div>
 <h2>Reaching it safely</h2>
 <ul>
@@ -356,6 +365,14 @@ ${flow("Who can reach the gateway, from narrowest to widest", [["This machine on
 <li><strong>Tailscale.</strong> If Tailscale is running, motita can publish the gateway with <code>tailscale serve</code>: https on your tailnet name, reachable only from your own devices. Funnel (the public internet) is never used.</li>
 <li><strong>A TLS reverse proxy</strong> such as Caddy in front of a loopback gateway, or the gateway's own second https listener (<code>gateway.tls</code>).</li>
 </ul>
+<h2>Your other computers</h2>
+<p>Every computer running a gateway can be opened from any other: the sidebar lists them under <strong>Other computers</strong>, and picking one shows its sessions and projects, with how many runs it has in flight. They are found on their own on the local network and in your tailnet; across another VPN, <strong>Add a computer</strong> takes the address.</p>
+<ul>
+<li><strong>Ask it.</strong> Leave the token empty: the other computer shows a six-digit code that this one shows too. Compare them and pick <em>Allow</em>.</li>
+<li><strong>No screen there?</strong> On a server reached over SSH or a VPN, <code>motita gateway computers</code> lists who is asking with the codes, and <code>motita gateway allow 123 456</code> (or <code>deny</code>) answers.</li>
+<li><strong>Or its token</strong>: <code>motita gateway start -token-only</code> on that computer prints it.</li>
+</ul>
+<p>Gateways talk to each other over TLS and pin each other's certificate, and only private networks are dialled. The other computer must answer the network (<em>the local network</em> in <code>motita gateway setup</code>) and let its port (7477) through its firewall; when nothing answers, the error says which to check.</p>
 <h2>Why https matters</h2>
 <p>Browsers allow the microphone, desktop notifications and phone push only on https or localhost. A phone on the LAN over plain HTTP gets none of those, which is the usual reason to set one of the options above.</p>
 <h2>Notifications</h2>
@@ -363,6 +380,8 @@ ${flow("Who can reach the gateway, from narrowest to widest", [["This machine on
     more: [
       ["Reference: the gateway", reference("the-gateway")],
       ["Guide: the browser interface and notifications", guide("the-browser-interface-from-the-same-port")],
+      ["Guide: your other computers", guide("your-other-computers-from-the-same-page")],
+      ["Reference: other computers", reference("other-computers")],
     ],
   },
   {

@@ -87,6 +87,12 @@ func TestATitleIsGeneratedAfterTheRun(t *testing.T) {
 		t.Fatal("the run did not start")
 	}
 	<-rn.done
+	// The title is asked for once the run has freed its slot, so a check made at that very moment
+	// can come before it: it is waited for, not sampled.
+	deadline := time.Now().Add(5 * time.Second)
+	for c.status().Title != "About: fix the build" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	waitForNoRun(t, srv)
 	if got := c.status().Title; got != "About: fix the build" {
 		t.Errorf("Title = %q, want the generated one", got)

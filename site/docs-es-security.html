@@ -66,16 +66,25 @@
 <p><strong>Ajustes &rarr; Seguridad</strong> elige cuánto del disco alcanza el agente:</p>
 <ul>
 <li><strong>Solo el workspace</strong> (por defecto): se rechazan las ediciones de archivos fuera de la carpeta de la sesión, y en Linux un comando no puede leer ni listar tus archivos en otras partes (home, <code>/home</code>, <code>/mnt</code>, ...).</li>
-<li><strong>Todo el disco</strong>: ambos llegan a cualquier parte que tu cuenta alcance. La página pregunta primero y explica el riesgo. Las credenciales propias de motita quedan ocultas en ambos casos.</li>
+<li><strong>Todo el disco</strong>: ambos llegan a cualquier parte que tu cuenta alcance. La página pregunta primero y explica el riesgo. Las credenciales propias de motita quedan ocultas en ambos casos, y los comandos que trabajan fuera del workspace dejan de preguntar (uno que nombra tus llaves sigue preguntando).</li>
 </ul>
 <p>Donde nada confina un comando (Windows, macOS, Linux sin Landlock), el agente pregunta antes de ejecutar código del propio proyecto, salvo que lo desactives.</p>
 <p>Cada sesión además tiene su propio HOME y no puede leer los demás proyectos y sesiones del mismo gateway.</p>
+<p>La sección <strong>Sandbox</strong> de la misma página lista los servicios (una base de datos, un servidor web) que el agente ejecuta en cajas propias para probar contra ellos, y los detiene.</p>
+<h2>El escritorio de este equipo</h2>
+<p>Apagado por defecto. Al activarlo en <strong>Ajustes &rarr; Seguridad</strong>, tras una confirmación que explica el riesgo, el agente puede ver la pantalla y usar el mouse, el teclado y las ventanas del equipo donde corre motita: Linux (X11 o Wayland), macOS y Windows.</p>
+<ul>
+<li><strong>Cada paso se pregunta</strong>, incluida una foto de la pantalla, porque muestra lo que tengas abierto. Permitir todos los comandos en una sesión también permite todos sus pasos.</li>
+<li>Nunca desde un agente en segundo plano ni en una sesión de solo lectura; mientras está apagado, ni siquiera se le ofrece al modelo.</li>
+<li>Las fotos se guardan en <code>.motita/previews/</code> y se muestran con el resultado.</li>
+</ul>
       <h2>Profundizar</h2>
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#guardrails-that-cant-be-switched-off">Guía: guardarraíles que no se pueden apagar</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#guardrails-and-the-two-layers-of-them">Referencia: guardarraíles y sus dos capas</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#disk-access">Referencia: acceso al disco</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#what-runs-silently-and-why-that-is-a-design-decision">Referencia: qué corre en silencio</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#this-computers-desktop-desktop_shot-desktop_click-desktop_type-">Referencia: el escritorio de este equipo</a></li>
       </ul>
       <nav class="pn" aria-label="Página anterior y siguiente">
         <a class="prev" href="docs-es-skills.html"><span>Anterior</span>Skills: lo que aprende</a>

@@ -101,6 +101,10 @@ func (m Mode) unconfinedOutside(p, dir string) bool {
 	if strings.Contains(p, "://") {
 		return false
 	}
+	if m.FullDisk {
+		// The whole disk is the work: only the user's keys stay a question.
+		return privatePath(p)
+	}
 	if m.PowerShell && windowsPath(p) {
 		return true
 	}

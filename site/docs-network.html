@@ -59,7 +59,7 @@
 <tr><td>Everywhere</td><td>Listens on all interfaces with no origin rules.</td></tr>
 </tbody>
 </table>
-<p><code>gateway.allow</code> is an ordered list of rules (<code>lan</code>, an address, a network, each optionally prefixed with <code>!</code>). The first match wins, and loopback is always allowed so you cannot lock yourself out. The token stays the real key; the rules say where it may come from.</p>
+<p><code>gateway.allow</code> is an ordered list of rules (<code>lan</code>: the private, link-local and tailnet ranges; an address, a network, each optionally prefixed with <code>!</code>). The first match wins, and loopback is always allowed so you cannot lock yourself out. The token stays the real key; the rules say where it may come from.</p>
 <div class="note">The gateway speaks plain HTTP. Off loopback the token travels unencrypted, and the gateway warns you when it opens.</div>
 <h2>Reaching it safely</h2>
 <ul>
@@ -67,6 +67,14 @@
 <li><strong>Tailscale.</strong> If Tailscale is running, motita can publish the gateway with <code>tailscale serve</code>: https on your tailnet name, reachable only from your own devices. Funnel (the public internet) is never used.</li>
 <li><strong>A TLS reverse proxy</strong> such as Caddy in front of a loopback gateway, or the gateway's own second https listener (<code>gateway.tls</code>).</li>
 </ul>
+<h2>Your other computers</h2>
+<p>Every computer running a gateway can be opened from any other: the sidebar lists them under <strong>Other computers</strong>, and picking one shows its sessions and projects, with how many runs it has in flight. They are found on their own on the local network and in your tailnet; across another VPN, <strong>Add a computer</strong> takes the address.</p>
+<ul>
+<li><strong>Ask it.</strong> Leave the token empty: the other computer shows a six-digit code that this one shows too. Compare them and pick <em>Allow</em>.</li>
+<li><strong>No screen there?</strong> On a server reached over SSH or a VPN, <code>motita gateway computers</code> lists who is asking with the codes, and <code>motita gateway allow 123 456</code> (or <code>deny</code>) answers.</li>
+<li><strong>Or its token</strong>: <code>motita gateway start -token-only</code> on that computer prints it.</li>
+</ul>
+<p>Gateways talk to each other over TLS and pin each other's certificate, and only private networks are dialled. The other computer must answer the network (<em>the local network</em> in <code>motita gateway setup</code>) and let its port (7477) through its firewall; when nothing answers, the error says which to check.</p>
 <h2>Why https matters</h2>
 <p>Browsers allow the microphone, desktop notifications and phone push only on https or localhost. A phone on the LAN over plain HTTP gets none of those, which is the usual reason to set one of the options above.</p>
 <h2>Notifications</h2>
@@ -75,6 +83,8 @@
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#the-gateway">Reference: the gateway</a></li>
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#the-browser-interface-from-the-same-port">Guide: the browser interface and notifications</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#your-other-computers-from-the-same-page">Guide: your other computers</a></li>
+        <li><a href="https://github.com/madkoding/motita/blob/main/docs/REFERENCE.md#other-computers">Reference: other computers</a></li>
       </ul>
       <nav class="pn" aria-label="Previous and next page">
         <a class="prev" href="docs-security.html"><span>Previous</span>Safety and the sandbox</a>
