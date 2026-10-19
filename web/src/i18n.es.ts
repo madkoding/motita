@@ -62,7 +62,8 @@ const first: Record<string, string> = {
     "Hay un turno en curso: termina con el modelo actual y el nuevo responde desde el próximo turno.",
   "API key": "Clave de API",
   "Always allow this here": "Permitir siempre esto aquí",
-  "Files, checks and what was learned": "Archivos, comprobaciones y lo aprendido",
+  "Files, checks and what was learned":
+    "Archivos, comprobaciones y lo aprendido",
   "Kept for next time": "Guardado para la próxima vez",
   "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.":
     "Ejecutarlo y, de ahora en adelante, ejecutar los comandos de este tipo en este proyecto sin preguntar. Los que la política prohíbe siguen prohibidos.",
@@ -114,8 +115,8 @@ const first: Record<string, string> = {
   Agent: "Agente",
   "The command could not be run": "No se pudo ejecutar el comando",
   "The approval could not be answered": "No se pudo responder la aprobación",
-  "That computer did not keep \"Always allow\": it runs an older Motita. Update it there.":
-    "Ese equipo no guardó \"Permitir siempre\": tiene una versión más antigua de Motita. Actualízalo allí.",
+  'That computer did not keep "Always allow": it runs an older Motita. Update it there.':
+    'Ese equipo no guardó "Permitir siempre": tiene una versión más antigua de Motita. Actualízalo allí.',
   "Refused, nobody was there to approve it: {what}":
     "Rechazado, no había nadie para aprobarlo: {what}",
   "Run in the shell": "Ejecutar en el shell",
@@ -626,8 +627,18 @@ const first: Record<string, string> = {
   outdated: "desactualizada",
   "Update main branch": "Actualizar rama principal",
   "could not update the main branch": "no se pudo actualizar la rama principal",
-  "Main branch not updated: {reason}": "Rama principal sin actualizar: {reason}",
+  "Main branch not updated: {reason}":
+    "Rama principal sin actualizar: {reason}",
   "Behind their main branch: {names}": "Atrás de su rama principal: {names}",
+  local: "local",
+  "Your own repository, used where it is. Motita only makes its own branches and worktrees in it.":
+    "Tu propio repositorio, usado donde está. Motita solo crea en él sus propias ramas y worktrees.",
+  "Choose a folder on this computer…": "Elegir una carpeta de este equipo…",
+  "A repository you already have is used where it is: it is not cloned, and its branch and files are never touched.":
+    "Un repositorio que ya tienes se usa donde está: no se clona y nunca se tocan su rama ni sus archivos.",
+  "no deps": "sin deps",
+  "Dependencies not installed, so tests cannot run: {commands}":
+    "Dependencias sin instalar, así que las pruebas no pueden correr: {commands}",
   "Could not delete the repository": "No se pudo eliminar el repositorio",
   "Repositories in your workspace": "Repositorios en tu espacio de trabajo",
   "Each repository is cloned once and shared by the projects that use it. One that no project uses can be deleted.":

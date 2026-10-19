@@ -73,6 +73,10 @@ type Project struct {
 	// Repos are the project's OTHER repositories, after the main one in Dir. A project from
 	// before they existed has none, and is exactly the one-repository project it always was.
 	Repos []ProjectRepo `json:"repos,omitempty"`
+	// MissingDeps are the dependency folders the project's repositories need and do not have
+	// (vendor/, node_modules/), read live. A session's worktree is linked to the ones the project
+	// has, so what is missing here is missing in every session.
+	MissingDeps []gitx.MissingDependency `json:"missing_deps,omitempty"`
 }
 
 // projectStore persists projects to disk as JSON files under a directory the

@@ -10,7 +10,7 @@ import {
   type GitAccount,
   type GitRepo,
 } from "./gitApi";
-import { getSecurity } from "./securityApi";
+import { useFolderPicker } from "./useFolderPicker";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
 import type {
@@ -25,6 +25,7 @@ import type {
 import {
   shownMainOf,
   repoDraftOf,
+  localRepoDraft,
   repoFolderOf,
   reposOf,
   type RepoDraft,
@@ -893,50 +894,6 @@ function useCreateProject(
   return createProject;
 }
 
-// useFolderPicker is the folder browser of the project dialogs: whether Settings → Security lets
-// a project live outside the workspace (only then is the browser offered), and which dialog it was
-// opened from, so the folder picked goes to that one.
-function useFolderPicker(
-  api: Api,
-  open: boolean,
-  setNewPath: (path: string) => void,
-  patchEdit: (patch: Partial<EditProjectDraft>) => void,
-) {
-  const [fullDisk, setFullDisk] = useState(false);
-  const [folderPicker, setFolderPicker] = useState<null | "new" | "edit">(null);
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-    let live = true;
-    getSecurity(api)
-      .then((v) => live && setFullDisk(v?.disk_access === "full"))
-      .catch(() => live && setFullDisk(false));
-    return () => {
-      live = false;
-    };
-  }, [open]);
-  const pickFolder = useCallback(
-    (path: string) => {
-      if (folderPicker === "edit") {
-        patchEdit({ path });
-      } else {
-        setNewPath(path);
-      }
-      setFolderPicker(null);
-    },
-    [folderPicker, patchEdit, setNewPath],
-  );
-  const closeFolderPicker = useCallback(() => setFolderPicker(null), []);
-  return {
-    fullDisk,
-    folderPicker,
-    openFolderPicker: setFolderPicker,
-    pickFolder,
-    closeFolderPicker,
-  };
-}
-
 // useProjectAdmin changes and deletes projects that already exist.
 function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
   const { fetchProjects, fetchSessions } = lists;
@@ -1047,6 +1004,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     form.showNewProject || !!edit.editProject,
     form.setNewProjectPath,
     edit.patchEditProject,
+    (path) => addOtherRepoDraft(localRepoDraft(path)),
   );
 
   // pickRepo fills the New project form from a repository the user chose.
@@ -1074,13 +1032,17 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   // pickOtherRepo adds a repository the user chose to the project's other repositories, unless
   // the project already has one by that name.
   function pickOtherRepo(r: GitRepo) {
+    addOtherRepoDraft(repoDraftOf(r.clone_url));
+  }
+  // addOtherRepoDraft adds a repository (a clone address, or a folder of the machine) to the
+  // dialog that is open, unless it is none or the project already has one by that name.
+  function addOtherRepoDraft(draft: RepoDraft | null) {
     // The edit dialog adds it to the project at once; the New project one, to its list.
     const taken = choose(
       editProject,
       [editProject?.mainRepo?.name, ...(editProject?.repos ?? []).map(nameOf)],
       [repoFolderOf(form.newProjectGit), ...newProjectRepos.map(nameOf)],
     );
-    const draft = repoDraftOf(r.clone_url);
     if (draft && !taken.includes(draft.name)) {
       choose(editProject, addProjectRepo, addNewProjectRepo)(draft);
     } else {

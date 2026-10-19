@@ -50,6 +50,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		all[i].MainWarning = s.mainRefresh.warning(all[i].ID)
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
 		liveRepos(ctx, &all[i])
+		all[i].MissingDeps = missingDeps(&all[i])
 		// Worktrees counts the session checkouts, and it is asked of git rather
 		// than of the session list so that a worktree left behind by a session
 		// that is gone is still counted - which is the state a user wants to
@@ -686,12 +687,13 @@ func mainBranchOf(ctx context.Context, p *Project) string {
 }
 
 // returnToMain puts a project's checkout back on its main branch when the project has no
-// sessions left. It is deliberately timid: a checkout with uncommitted changes is left alone
+// sessions left (never in a folder of the user's own outside the workspace). It is deliberately
+// timid: a checkout with uncommitted changes is left alone
 // (switching would either fail or carry the work to another branch), and so is a project that
 // still has a session, whose branch the user may be looking at. A failure is logged, not
 // reported: the caller's own work (deleting a session, saving the project) already succeeded.
 func (s *Server) returnToMain(p *Project) {
-	if p == nil || len(s.sessionsOfProject(p.ID)) > 0 {
+	if p == nil || len(s.sessionsOfProject(p.ID)) > 0 || s.usersFolder(p.Dir) {
 		return
 	}
 	ctx := context.Background()
@@ -816,6 +818,12 @@ func (s *Server) ownsProjectDir(dir string) bool {
 	}
 	rel, err := filepath.Rel(root, dir)
 	return err == nil && !relLeavesRoot(rel) && !filepath.IsAbs(rel)
+}
+
+// usersFolder reports whether dir is a folder of the user's own outside the workspace: one this
+// gateway registered but did not create, whose branch it does not switch or update by itself.
+func (s *Server) usersFolder(dir string) bool {
+	return s.opts.WorkspaceDir != "" && dir != "" && !s.ownsProjectDir(dir)
 }
 
 // relLeavesRoot reports whether a path relative to a root names the root itself or a place

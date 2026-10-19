@@ -6,6 +6,9 @@ import type { CatalogRepo, ProjectInfo, ProjectRepoInfo } from "./appTypes";
 export interface RepoDraft {
   name: string;
   git_url: string;
+  // path marks a repository already on this machine: the gateway uses that folder where it is,
+  // with worktrees of its own, instead of cloning it.
+  path?: string;
 }
 
 // The folder name the gateway accepts for a repository: a simple name that is not hidden.
@@ -26,9 +29,40 @@ export function repoFolderOf(url: string): string {
   );
 }
 
+// isLocalFolder says whether text is the absolute path of a folder on this machine, as opposed to
+// a repository address: a path that ends in ".git" is a bare repository to clone from.
+export function isLocalFolder(text: string): boolean {
+  const path = text.trim();
+  return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path) && !/\.git[\\/]*$/.test(path);
+}
+
+// withoutTrailingSeparators drops the "/" and "\\" a path ends with.
+function withoutTrailingSeparators(path: string): string {
+  let end = path.length;
+  while (end > 0 && (path[end - 1] === "/" || path[end - 1] === "\\")) {
+    end -= 1;
+  }
+  return path.slice(0, end);
+}
+
+// localRepoDraft is a repository this machine already has, by its folder: null when the folder's
+// name cannot be a repository's.
+export function localRepoDraft(folder: string): RepoDraft | null {
+  const path = withoutTrailingSeparators(folder.trim());
+  const name = repoFolderOf(path);
+  if (!REPO_NAME.test(name) || name.includes("..")) {
+    return null;
+  }
+  return { name, git_url: path, path };
+}
+
 // repoDraftOf reads a URL typed in the "add a repository" field: null when it names no repository.
+// The path of a folder is a repository the machine already has, which is used where it is.
 export function repoDraftOf(url: string): RepoDraft | null {
   const gitUrl = url.trim();
+  if (isLocalFolder(gitUrl)) {
+    return localRepoDraft(gitUrl);
+  }
   const name = repoFolderOf(gitUrl);
   // A URL or a path: a bare word names no repository anywhere.
   const located = /[/:\\]/.test(gitUrl);
@@ -54,11 +88,7 @@ export function addRepoProblem(url: string, taken: string[]): string {
 // lastPathPart is the last part of a path that is not empty, so a trailing separator is skipped;
 // "" when the path has none.
 function lastPathPart(path: string): string {
-  let end = path.length;
-  while (end > 0 && (path[end - 1] === "/" || path[end - 1] === "\\")) {
-    end -= 1;
-  }
-  const rest = path.slice(0, end);
+  const rest = withoutTrailingSeparators(path);
   return rest.slice(
     Math.max(rest.lastIndexOf("/"), rest.lastIndexOf("\\")) + 1,
   );

@@ -70,9 +70,11 @@ func (m *mainRefreshState) wait() { m.wg.Wait() }
 // moves forward only, and only when it is clean; anything else it returns as the reason, which is
 // a notice for the person and never an error for the session. A project with no main branch or no
 // origin has nothing to bring in.
-func (s *Server) refreshMain(ctx context.Context, p *Project) string {
+func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) string {
 	warning := ""
-	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil {
+	// A folder of the user's own, outside the workspace, is theirs to update: only an explicit "update
+	// now" moves its branch.
+	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil && (explicit || !s.usersFolder(p.Dir)) {
 		err := gitx.RefreshBranch(ctx, p.Dir, main)
 		if err != nil && !errors.Is(err, gitx.ErrBranchDirty) {
 			// A session opening creates its worktree at the same moment, and a fetch that reads
@@ -103,7 +105,7 @@ func (s *Server) refreshMainInBackground(p *Project) {
 		defer s.mainRefresh.wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), mainRefreshTimeout)
 		defer cancel()
-		warning := s.refreshMain(ctx, &proj)
+		warning := s.refreshMain(ctx, &proj, false)
 		s.mainRefresh.finish(proj.ID, warning)
 		if warning != "" {
 			s.warn("the project's main branch could not be updated", "project", proj.Dir, "reason", warning)
@@ -149,7 +151,7 @@ func (s *Server) handleRefreshProjectMain(w http.ResponseWriter, r *http.Request
 	defer s.mainRefresh.wg.Done()
 	ctx, cancel := context.WithTimeout(r.Context(), mainRefreshTimeout)
 	defer cancel()
-	warning := s.refreshMain(ctx, p)
+	warning := s.refreshMain(ctx, p, true)
 	s.mainRefresh.finish(p.ID, warning)
 	writeJSON(w, http.StatusOK, map[string]string{"main_warning": warning})
 }

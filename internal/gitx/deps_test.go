@@ -1,7 +1,9 @@
 package gitx
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -73,4 +75,68 @@ func TestTheDependencyWalkIsBounded(t *testing.T) {
 	}
 	// A checkout that does not exist: nothing to walk, and no panic.
 	LinkDependencyDirs(project, filepath.Join(wt, "missing"))
+}
+
+func TestMissingDependenciesNamesWhatAManifestAsksForAndTheFolderLacks(t *testing.T) {
+	dir := t.TempDir()
+	put := func(rel, body string) {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("composer.json", `{"require-dev":{"phpunit/phpunit":"^10"}}`)
+	put("package.json", `{"name":"x","dependencies":{}}`)        // lists nothing: needs nothing
+	put("web/package.json", `{"dependencies":{"react":"^18"}}`)  // one folder down
+	put("api/package.json", `{"dependencies":{"express":"^4"}}`) // installed
+	put("api/node_modules/express/index.js", "")
+	put(".hidden/package.json", `{"dependencies":{"a":"1"}}`) // hidden folders are not packages
+	put("broken/package.json", `{not json`)
+	put("deep/inner/package.json", `{"dependencies":{"a":"1"}}`) // two folders down: not looked at
+
+	got := map[string]MissingDependency{}
+	for _, m := range MissingDependencies(dir) {
+		got[m.Path+"/"+m.Dir] = m
+	}
+	want := map[string]string{"./vendor": "composer install", "web/node_modules": "npm install"}
+	if len(got) != len(want) {
+		t.Fatalf("missing: %+v", got)
+	}
+	for key, cmd := range want {
+		if got[key].Command != cmd {
+			t.Errorf("%s: %+v, want %q", key, got[key], cmd)
+		}
+	}
+	// Installed, nothing is missing; a folder that cannot be read lists nothing.
+	put("vendor/autoload.php", "")
+	if m := MissingDependencies(dir); len(m) != 1 || m[0].Manager != "npm" {
+		t.Errorf("after installing vendor/: %+v", m)
+	}
+	if m := MissingDependencies(filepath.Join(dir, "nope")); len(m) != 0 {
+		t.Errorf("no folder, nothing missing: %+v", m)
+	}
+}
+
+func TestIsRepoRootIsTheTopOfAWorkingTreeOnly(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bare := filepath.Join(t.TempDir(), "bare.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", bare).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if !IsRepoRoot(ctx, repo) {
+		t.Error("the top of a repository is its root")
+	}
+	for _, not := range []string{sub, bare, t.TempDir(), filepath.Join(repo, "missing")} {
+		if IsRepoRoot(ctx, not) {
+			t.Errorf("%s is not the root of a working tree", not)
+		}
+	}
 }
