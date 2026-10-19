@@ -113,37 +113,54 @@ func TestBuildManualReadsEveryFolder(t *testing.T) {
 	}
 }
 
-func TestManualNotesDocumentTheModules(t *testing.T) {
+// writtenManual writes the manual of manualTree and answers a reader of its notes.
+func writtenManual(t *testing.T) (func(rel string) string, string, noteScan) {
+	t.Helper()
 	dir := t.TempDir()
 	v := notes.Open(dir)
 	var res noteScan
-	link := writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md", "[[Projects/M - Architecture]]",
+	link := writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md",
 		manualFacts(t, manualTree), nil, &res)
-	if link != "[[Projects/M manual/_index]]" || res.Documented == 0 || res.Skipped != 1 {
-		t.Fatalf("link %q res %+v", link, res)
-	}
 	read := func(rel string) string {
-		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		b, err := os.ReadFile(filepath.Join(dir, "Projects", "M manual", filepath.FromSlash(rel)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		return string(b)
 	}
-	index := read("Projects/M manual/_index.md")
-	for _, want := range []string{
-		"# M manual", "## M (project root)", "### Contents of the manual",
-		"- [[Projects/M manual/lib]] (0 files)\n  - [[Projects/M manual/lib/api]] (3 files)",
-		"| `README.md` | 1 |  | The project |", "| `run.sh` | 3 | Shell | Runs it. |",
-	} {
-		if !strings.Contains(index, want) {
-			t.Errorf("index lacks %q:\n%s", want, index)
+	return read, link, res
+}
+
+// wantAll fails for each text the note lacks.
+func wantAll(t *testing.T, name, note string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(note, want) {
+			t.Errorf("%s lacks %q:\n%s", name, want, note)
 		}
 	}
+}
+
+func TestManualIndexListsTheWholeTree(t *testing.T) {
+	read, link, res := writtenManual(t)
+	if link != "[[Projects/M manual/_index]]" || res.Documented == 0 || res.Skipped != 1 {
+		t.Fatalf("link %q res %+v", link, res)
+	}
+	index := read("_index.md")
+	wantAll(t, "index", index,
+		"# M manual", "## M (project root)", "- Architecture: [[Projects/M - Architecture]]",
+		"### Contents of the manual",
+		"- [[Projects/M manual/lib]] (0 files)\n  - [[Projects/M manual/lib/api]] (3 files)",
+		"| `README.md` | 1 |  | The project |", "| `run.sh` | 3 | Shell | Runs it. |")
 	if strings.Contains(index, "odd") {
 		t.Errorf("a folder with no usable note name is left out:\n%s", index)
 	}
-	api := read("Projects/M manual/lib/api.md")
-	for _, want := range []string{
+}
+
+func TestManualDocumentsTheGoAPI(t *testing.T) {
+	read, _, _ := writtenManual(t)
+	api := read("lib/api.md")
+	wantAll(t, "api note", api,
 		"# M lib/api/", "- Inside: [[Projects/M manual/lib]]", "### Go package `api`",
 		"> Package api is the public face.",
 		"- `type Server struct` (api.go): Server serves.",
@@ -153,38 +170,22 @@ func TestManualNotesDocumentTheModules(t *testing.T) {
 		"  - `func (*Box[T]) Get() T` (api.go): Get gives it.",
 		"#### Functions\n- `func New(addr string) (*Server, error)` (api.go): New makes a server.",
 		"- `const Max` (api.go): Max is the most.", "- `var Default` (api.go): the default",
-		"### Uses\n- [[Projects/M manual/lib/store]]",
-	} {
-		if !strings.Contains(api, want) {
-			t.Errorf("api note lacks %q:\n%s", want, api)
-		}
-	}
+		"### Uses\n- [[Projects/M manual/lib/store]]")
 	for _, unwanted := range []string{"hidden", "Visible", "helper", "min"} {
 		if strings.Contains(api, "`"+unwanted) || strings.Contains(api, " "+unwanted+"(") {
 			t.Errorf("unexported %q got in:\n%s", unwanted, api)
 		}
 	}
-	web := read("Projects/M manual/web.md")
-	for _, want := range []string{
-		"- `function start` (app.ts): The app. It runs.", "- `const y` (app.ts)\n", "- `class Main` (app.ts): Big doc.",
-		"### Folders\n- [[Projects/M manual/web/util]]",
-	} {
-		if !strings.Contains(web, want) {
-			t.Errorf("web note lacks %q:\n%s", want, web)
-		}
-	}
-	py := read("Projects/M manual/py.md")
-	if !strings.Contains(py, "- `def run` (tool.py): Does it.") ||
-		!strings.Contains(py, "- `class Thing` (tool.py)\n") {
-		t.Errorf("python note:\n%s", py)
-	}
-	if guide := read("Projects/M manual/docs/guide.md"); !strings.Contains(guide, "| `intro.md` | 1 |  |  |") {
-		t.Errorf("guide note:\n%s", guide)
-	}
-	store := read("Projects/M manual/lib/store.md")
-	if !strings.Contains(store, "### Used by\n- [[Projects/M manual/lib/api]]") {
-		t.Errorf("store note:\n%s", store)
-	}
+	wantAll(t, "store note", read("lib/store.md"), "### Used by\n- [[Projects/M manual/lib/api]]")
+}
+
+func TestManualDocumentsScriptsAndDocs(t *testing.T) {
+	read, _, _ := writtenManual(t)
+	wantAll(t, "web note", read("web.md"),
+		"- `function start` (app.ts): The app. It runs.", "- `const y` (app.ts)\n",
+		"- `class Main` (app.ts): Big doc.", "### Folders\n- [[Projects/M manual/web/util]]")
+	wantAll(t, "python note", read("py.md"), "- `def run` (tool.py): Does it.", "- `class Thing` (tool.py)\n")
+	wantAll(t, "guide note", read("docs/guide.md"), "| `intro.md` | 1 |  |  |")
 }
 
 func TestManualIsCapped(t *testing.T) {
@@ -203,7 +204,7 @@ func TestManualIsCapped(t *testing.T) {
 	dir := t.TempDir()
 	v := notes.Open(dir)
 	var res noteScan
-	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md", "[[A]]", f, nil, &res)
+	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md", f, nil, &res)
 	b, _ := os.ReadFile(filepath.Join(dir, "Projects", "M manual", "a.md"))
 	if strings.Count(string(b), "| `") != 1 || strings.Count(string(b), "- `const") != 1 {
 		t.Errorf("files and symbols capped:\n%s", b)
@@ -249,7 +250,7 @@ func TestManualModulesAreExplainedWhenAsked(t *testing.T) {
 	dir := t.TempDir()
 	v := notes.Open(dir)
 	var res noteScan
-	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md", "[[A]]",
+	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md",
 		manualFacts(t, map[string]string{"store/s.go": "package s\n// sk-abcdefghijklmnopqrstuvwxyz0123456789\n"}), mm, &res)
 	if svc.modules != 1 || mm.done != 1 || svc.calls != 0 {
 		t.Fatalf("one module explained within the cap: %d modules, %d done", svc.modules, mm.done)

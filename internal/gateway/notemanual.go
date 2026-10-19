@@ -210,13 +210,18 @@ func (m *moduleInfo) goSpec(fset *token.FileSet, file string, d *ast.GenDecl, sp
 			m.types = append(m.types, goType{symbol{sig, docText(s.Doc, d.Doc), file}, s.Name.Name})
 		}
 	case *ast.ValueSpec:
-		for _, n := range s.Names {
-			if n.IsExported() && m.room() {
-				doc := docText(s.Doc, s.Comment, d.Doc)
-				m.values = append(m.values, symbol{d.Tok.String() + " " + n.Name, doc, file})
-			}
-		}
+		m.goValues(file, d, s)
 	default:
+	}
+}
+
+// goValues adds the exported constants or variables of one declaration.
+func (m *moduleInfo) goValues(file string, d *ast.GenDecl, s *ast.ValueSpec) {
+	for _, n := range s.Names {
+		if n.IsExported() && m.room() {
+			doc := docText(s.Doc, s.Comment, d.Doc)
+			m.values = append(m.values, symbol{d.Tok.String() + " " + n.Name, doc, file})
+		}
 	}
 }
 
@@ -522,9 +527,9 @@ func moduleNoteName(root, rel string) string {
 
 // writeManual writes one note per folder of the project and answers the link to its index.
 func writeManual(
-	ctx context.Context, v *notes.Vault, p Project, projectNote, archLink string, f projectFacts,
-	mm *archModel, res *noteScan,
+	ctx context.Context, v *notes.Vault, p Project, projectNote string, f projectFacts, mm *archModel, res *noteScan,
 ) string {
+	archLink := wikiLink(archNoteName(projectNote))
 	mods := buildManual(f)
 	root := strings.TrimSuffix(projectNote, ".md") + manualSuffix
 	c := manualCtx{title: p.Title, project: wikiLink(projectNote), arch: archLink,

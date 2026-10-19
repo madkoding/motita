@@ -464,7 +464,7 @@ func scanArchitecture(
 	if readme != "" {
 		input += "\n### README\n" + readme
 	}
-	manual := writeManual(ctx, v, p, projectNote, wikiLink(name), f, ms.module, res)
+	manual := writeManual(ctx, v, p, projectNote, f, ms.module, res)
 	body := archBody(p.Title, wikiLink(projectNote), manual, facts, ms.project.of(ctx, v, name, fp, input), fp)
 	outcome, err := v.Upsert(name, strings.TrimSuffix(filepath.Base(name), ".md"), body)
 	res.count(outcome, err)
