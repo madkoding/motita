@@ -1011,7 +1011,11 @@ test("the reading helpers: a note's folders, its colour group and Start here fir
   assert.deepEqual(api.noteTrail("a/b/c.md"), ["a", "b"]);
   assert.deepEqual(api.noteTrail("c.md"), []);
   assert.equal(api.noteGroup("c.md", 6), 0);
-  assert.equal(api.noteGroup("a/x.md", 6), api.noteGroup("a/y/z.md", 6));
+  assert.equal(api.noteGroup("a/x.md", 6), api.noteGroup("a/w.md", 6));
+  assert.equal(
+    api.noteGroup("P/M - Manual/internal › a.md", 6),
+    api.noteGroup("Q - Manual/internal.md", 6),
+  );
   const n = (title) => ({ path: title + ".md", title, size: 0, modified: "" });
   assert.deepEqual(
     [n("b"), n("Start here"), n("a")]

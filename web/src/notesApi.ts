@@ -353,12 +353,17 @@ export function noteTrail(path: string): string[] {
   return path.split("/").slice(0, -1);
 }
 
-// noteGroup is a number for the top folder of a note, the same for every note in it, so the map
-// can give each folder its colour; notes at the top are group 0.
+// noteGroup is a number for the part of the vault a note belongs to, so the map can give each
+// part its colour: in a manual, the top folder of the project a chapter documents ("internal ›
+// gateway" goes with "internal"); elsewhere the folder the note is in. Notes at the top are 0.
 export function noteGroup(path: string, groups: number): number {
-  const top = noteTrail(path)[0] ?? "";
+  const title = path.slice(path.lastIndexOf("/") + 1);
+  let key = noteTrail(path).join("/");
+  if (key.endsWith(" - Manual")) {
+    key = title.split(" › ")[0].replace(/\.md$/, "");
+  }
   let hash = 0;
-  for (const ch of top) {
+  for (const ch of key) {
     hash = (hash * 31 + (ch.codePointAt(0) as number)) % 9973;
   }
   return hash % groups;
