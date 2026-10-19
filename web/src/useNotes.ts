@@ -293,7 +293,9 @@ export function useNotes(api: Api, setState: SetStatus) {
   const followLink = useCallback(
     async (href: string | null | undefined) => {
       const to = parseNoteHref(href);
-      if (!to) return;
+      if (!to) {
+        return;
+      }
       if (to.kind === "note") {
         await openNote(to.path);
       } else {
