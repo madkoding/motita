@@ -227,6 +227,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.indexNewProject(p.Dir)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":          p.ID,
 		"title":       p.Title,

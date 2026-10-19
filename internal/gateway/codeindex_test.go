@@ -206,3 +206,36 @@ func TestBuildingAgainAfterClearingTheCacheKeepsTheIndexOnDisk(t *testing.T) {
 		t.Errorf("after building again: %+v", st)
 	}
 }
+
+func TestANewProjectIsIndexedWhenTheIndexIsOn(t *testing.T) {
+	cache := t.TempDir()
+	path := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+cache+"\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n\nfunc Hello() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv.indexFolder(dir)
+	st, err := codeindex.Inspect(context.Background(), dir, codeindex.Options{CacheDir: cache})
+	if err != nil || st.State != codeindex.StateReady {
+		t.Errorf("state = %q, err %v", st.State, err)
+	}
+	srv.indexNewProject(dir)
+}
+
+func TestANewProjectIsNotIndexedWhenTheIndexIsOffOrUnreadable(t *testing.T) {
+	cache := t.TempDir()
+	off := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: false\n  cache_dir: "+cache+"\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = off })
+	dir := t.TempDir()
+	srv.indexFolder(dir)
+	if st, _ := codeindex.Inspect(context.Background(), dir, codeindex.Options{CacheDir: cache}); st.State != codeindex.StateNone {
+		t.Errorf("off: state = %q", st.State)
+	}
+	broken := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm: [\n") })
+	broken.indexFolder(dir)
+
+	missing := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+cache+"\n")
+	srv2 := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = missing })
+	srv2.indexFolder(filepath.Join(dir, "does-not-exist"))
+}

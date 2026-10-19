@@ -214,3 +214,21 @@ func (s *Server) projectIndex(w http.ResponseWriter, r *http.Request, build bool
 	}
 	writeJSON(w, http.StatusOK, st)
 }
+
+// indexNewProject indexes a project's folder in the background when the code index is on, so the
+// first search_index in it is already warm. It is a courtesy: an index that is off or fails
+// changes nothing, and it stops with the gateway.
+func (s *Server) indexNewProject(dir string) {
+	go s.indexFolder(dir)
+}
+
+// indexFolder builds the index of dir if code_index.enabled is on. Errors are logged, not raised.
+func (s *Server) indexFolder(dir string) {
+	cfg, _, err := s.securityConfig()
+	if err != nil || !cfg.CodeIndex.Enabled {
+		return
+	}
+	if err := codeindex.Shared(cfg.CodeIndex.Options()).Build(s.baseCtx, dir); err != nil {
+		s.warn("the new project could not be indexed", "dir", dir, "error", err.Error())
+	}
+}
