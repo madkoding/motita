@@ -115,19 +115,6 @@ export function IconFolder(p: IconProps) {
   );
 }
 
-// IconRepo is a repository: the branches of git.
-export function IconRepo(p: IconProps) {
-  return (
-    <Line {...p}>
-      <circle cx="6" cy="6" r="2.5" />
-      <circle cx="6" cy="18" r="2.5" />
-      <circle cx="18" cy="9" r="2.5" />
-      <path d="M6 8.5v7" />
-      <path d="M18 11.5c0 4-12 1-12 4" />
-    </Line>
-  );
-}
-
 // IconFolderPlus is the folder of a new project.
 export function IconFolderPlus(p: IconProps & { hidden?: boolean }) {
   return (

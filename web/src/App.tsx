@@ -55,7 +55,6 @@ import {
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
-import { NewRepositoryModal } from "./NewRepositoryModal";
 import { GitIdentityModal } from "./GitIdentityModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
@@ -647,7 +646,7 @@ function pickerStart(
 // ProjectModals are the dialogs of a project: editing it, creating it, and the git host
 // connections it can need.
 function ProjectModals() {
-  const { api: request, projects, repositories } = useApp();
+  const { api: request, projects } = useApp();
   const {
     editProject,
     showNewProject,
@@ -661,7 +660,6 @@ function ProjectModals() {
     <>
       {editProject && <EditProjectModal p={editProject} />}
       {showNewProject && <NewProjectModal />}
-      {repositories.showNewRepository && <NewRepositoryModal />}
       {showGitIdentity && <GitIdentityModal />}
       {folderPicker && (
         <FolderBrowser

@@ -635,7 +635,6 @@ const first: Record<string, string> = {
   "A repository you already have is used where it is: it is not cloned, and its branch and files are never touched.":
     "Un repositorio que ya tienes se usa donde está: no se clona y nunca se tocan su rama ni sus archivos.",
   "Could not delete the repository": "No se pudo eliminar el repositorio",
-  "Repositories in your workspace": "Repositorios en tu espacio de trabajo",
   "Each repository is cloned once and shared by the projects that use it. One that no project uses can be deleted.":
     "Cada repositorio se clona una vez y lo comparten los proyectos que lo usan. Uno que ningún proyecto usa se puede eliminar.",
   "No repositories in your workspace yet.":
