@@ -133,7 +133,7 @@ func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
 // outside the workspace, or the folder name chosen inside it.
 func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (string, bool) {
 	if strings.TrimSpace(path) != "" {
-		return s.externalProjectFolder(w, path)
+		return s.newExternalFolder(w, path)
 	}
 	name, ok := projectFolderName(w, dir)
 	if !ok {

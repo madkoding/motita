@@ -123,7 +123,7 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 	}
 
 	srv, ws := fullDiskServer(t)
-	for _, bad := range []string{`"relative/dir"`, `"` + outside + `/missing"`, `"/"`, `"` + ws + `"`,
+	for _, bad := range []string{`"relative/dir"`, `"` + outside + `/a/b"`, `"/"`, `"` + ws + `"`,
 		`"` + filepath.Join(ws, "worktrees") + `"`} {
 		if err := os.MkdirAll(filepath.Join(ws, "worktrees"), 0o755); err != nil {
 			t.Fatal(err)
@@ -131,6 +131,10 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 		if code, out := createProject(t, srv, `{"title":"x","path":`+bad+`}`); code != http.StatusBadRequest {
 			t.Errorf("%s: %d %v", bad, code, out)
 		}
+	}
+	fresh := filepath.Join(t.TempDir(), "fresh")
+	if code, out := createProject(t, srv, `{"title":"New","path":"`+fresh+`"}`); code != http.StatusCreated || !isDir(fresh) {
+		t.Fatalf("a folder that does not exist is created: %d %v", code, out)
 	}
 	code, out := createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
 	real, _ := filepath.EvalSymlinks(outside)

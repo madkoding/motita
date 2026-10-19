@@ -306,3 +306,25 @@ func (s *Server) externalProjectFolder(w http.ResponseWriter, raw string) (strin
 	}
 	return "", false
 }
+
+// newExternalFolder is externalProjectFolder for a project being created: the last folder of the
+// path may not exist yet, and is then made (by handleCreateProject) inside its existing parent.
+// Only that one level is created, with a simple name, so a typo cannot build a deep tree.
+func (s *Server) newExternalFolder(w http.ResponseWriter, raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if s.fullDisk() && filepath.IsAbs(raw) {
+		if _, found := resolveDir(volumeRoot(raw), raw); !found {
+			parent, name := filepath.Split(filepath.Clean(raw))
+			if !simpleFolderName(name) {
+				writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
+				return "", false
+			}
+			dir, ok := s.externalProjectFolder(w, parent)
+			if !ok {
+				return "", false
+			}
+			return filepath.Join(dir, name), true
+		}
+	}
+	return s.externalProjectFolder(w, raw)
+}
