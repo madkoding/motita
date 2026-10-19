@@ -560,6 +560,19 @@ func IsSelfHostedOllama(l LLM) bool {
 	return isLocalHost(u.Hostname())
 }
 
+// OllamaLocalURL is where a server of one's own usually listens.
+const OllamaLocalURL = "http://localhost:11434/v1"
+
+// KeyForEndpoint is the key to send to the endpoint a provider runs at: the key itself, except
+// to a self-hosted Ollama, which takes none. OLLAMA_API_KEY is Ollama Cloud's, and the two
+// providers share the variable, so a cloud key must never reach a server of one's own.
+func KeyForEndpoint(provider, baseURL, key string) string {
+	if IsSelfHostedOllama(LLM{Provider: provider, BaseURL: baseURL}) {
+		return ""
+	}
+	return key
+}
+
 // ReportsUsage says whether the usage of provider is worth following: a self-hosted Ollama has
 // no quota and no bill, so it is not (Ollama Cloud, and every other provider, is).
 func ReportsUsage(provider string) bool {
