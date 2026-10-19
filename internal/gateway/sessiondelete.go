@@ -177,7 +177,8 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotImplemented, "this gateway was started without a project directory")
 		return
 	}
-	if s.projectOf(id) == nil {
+	project := s.projectOf(id)
+	if project == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
 	}
@@ -192,7 +193,14 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		Count            int              `json:"count"`
 		InspectionFailed bool             `json:"inspection_failed,omitempty"`
 		Error            string           `json:"error,omitempty"`
+		// KeepsFolder is set when the project's folder is the user's own, outside the workspace:
+		// deleting the project forgets it and leaves the folder and its files alone.
+		KeepsFolder bool   `json:"keeps_folder,omitempty"`
+		Folder      string `json:"folder,omitempty"`
 	}{ProjectID: id, Sessions: []sessionPreview{}}
+	if s.keepsFolder(project) {
+		out.KeepsFolder, out.Folder = true, project.Dir
+	}
 
 	for _, c := range s.sessionsOfProject(id) {
 		release := s.inspectWorktree(c)

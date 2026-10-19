@@ -254,6 +254,11 @@ test("a clean project and one that could not be inspected", async () => {
     /A session's checkout could not be inspected/,
   );
   assert.match(m.root.textContent, /boom/);
+  await act(() => state.d.cancelDelete());
+  body = { count: 0, changes: [], keeps_folder: true, folder: "/srv/app" };
+  await open(state, { type: "project", id: "p3", title: "Proj" });
+  await flush();
+  assert.match(m.root.textContent, /The folder stays on disk.*\/srv\/app/);
   await m.unmount();
 });
 

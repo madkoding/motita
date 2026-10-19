@@ -11,6 +11,7 @@ import {
   type GitRepo,
 } from "./gitApi";
 import { useFolderPicker } from "./useFolderPicker";
+import { createdToast } from "./projectToast";
 import { SCAN_STARTED_EVENT } from "./notesApi";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
@@ -21,7 +22,6 @@ import type {
   ProjectInfo,
   SetStatus,
   SetToast,
-  Toast,
 } from "./appTypes";
 import {
   shownMainOf,
@@ -467,6 +467,8 @@ function useNewProjectForm() {
   const [newProjectDir, setNewProjectDir] = useState("");
   // A folder outside the workspace picked in the folder browser; "" is a folder in the workspace.
   const [newProjectPath, setNewProjectPath] = useState("");
+  // The person confirmed that the folder is among the system's own files.
+  const [newProjectSure, setNewProjectSure] = useState(false);
   const [newProjectGit, setNewProjectGit] = useState("");
   // The other repositories the new project gets once it exists, after the main one.
   const [newProjectRepos, setNewProjectRepos] = useState<RepoDraft[]>([]);
@@ -491,6 +493,7 @@ function useNewProjectForm() {
     setNewProjectDesc("");
     setNewProjectDir("");
     setNewProjectPath("");
+    setNewProjectSure(false);
     setNewProjectGit("");
     setNewProjectRepos([]);
     setNewProjectMode(null);
@@ -540,6 +543,8 @@ function useNewProjectForm() {
     setNewProjectDir,
     newProjectPath,
     setNewProjectPath,
+    newProjectSure,
+    setNewProjectSure,
     newProjectGit,
     setNewProjectGit,
     newProjectMain,
@@ -770,35 +775,6 @@ function newProjectTarget(form: NewProjectForm) {
   return { gitUrl, title, dir };
 }
 
-// createdToast is the toast shown once a project exists: a warning when some of its other
-// repositories could not be added.
-function createdToast(
-  title: string,
-  failed: string[],
-  cloneLog: unknown,
-): Toast {
-  if (failed.length > 0) {
-    return {
-      message: tf(
-        'Project "{title}" created, but some repositories could not be added: {names}',
-        { title, names: failed.join(", ") },
-      ),
-      type: "warning",
-    };
-  }
-  return {
-    message: tf(
-      choose(
-        cloneLog,
-        'Project "{title}" created and repo cloned',
-        'Project "{title}" created',
-      ),
-      { title },
-    ),
-    type: "success",
-  };
-}
-
 // useCreateProject sends the New project dialog to the gateway, and handles its answer.
 function useCreateProject(
   api: Api,
@@ -861,6 +837,7 @@ function useCreateProject(
             description: form.newProjectDesc.trim(),
             dir,
             path: form.newProjectPath || undefined,
+            confirm_sensitive: form.newProjectSure || undefined,
             git_url: gitUrl || undefined,
             use_podman: choose(
               hasPodman && form.newProjectPodman,
@@ -900,6 +877,7 @@ function useCreateProject(
       form.newProjectDesc,
       form.newProjectDir,
       form.newProjectPath,
+      form.newProjectSure,
       form.newProjectGit,
       form.newProjectMain,
       form.newProjectPodman,
@@ -1124,6 +1102,8 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectDir: form.setNewProjectDir,
     newProjectPath: form.newProjectPath,
     setNewProjectPath: form.setNewProjectPath,
+    newProjectSure: form.newProjectSure,
+    setNewProjectSure: form.setNewProjectSure,
     ...folders,
     newProjectGit: form.newProjectGit,
     setNewProjectGit,

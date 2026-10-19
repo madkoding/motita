@@ -409,7 +409,7 @@ func (s *Server) releaseProjectFolder(ctx context.Context, p *Project, projectDi
 		// is left for the user rather than failing a deletion that has otherwise happened.
 		_ = os.RemoveAll(projectDir)
 		releaseSharedRepos(ctx, p)
-	case p != nil && s.usersFolder(p.Dir):
+	case s.keepsFolder(p):
 		for _, repo := range p.Repos {
 			s.discardRepoFolder(ctx, p, repo)
 		}
@@ -428,7 +428,7 @@ func (s *Server) discardedRepoChanges(ctx context.Context, p *Project) map[strin
 	}
 	for _, repo := range p.Repos {
 		var changes []gitx.Change
-		if repo.Shared || s.ownsProjectDir(p.Dir) {
+		if repo.Shared || (s.ownsProjectDir(p.Dir) && !p.Adopted) {
 			// A folder that cannot be read is not proven to hold work; the deletion's own
 			// confirmation covers it.
 			changes, _ = worktreeInspectList(ctx, p.repoPath(repo))

@@ -29,6 +29,9 @@ type Project struct {
 	Description string `json:"description,omitempty"`
 	Dir         string `json:"dir"`
 	GitURL      string `json:"git_url,omitempty"`
+	// Adopted marks a project made on a folder that was already there: deleting the project
+	// forgets it and leaves the folder and its files alone, wherever the folder is.
+	Adopted bool `json:"adopted,omitempty"`
 	// Podman is the user's answer, given when the project was created, to running
 	// it with podman. It is only ever true on a machine that had podman then.
 	Podman bool `json:"podman,omitempty"`
