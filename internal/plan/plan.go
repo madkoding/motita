@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/notes"
 	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/reward"
@@ -114,6 +115,8 @@ type Planner struct {
 	review *review.Review
 	// index is what the search_index tool asks. Nil means the tool is not offered.
 	index IndexSearcher
+	// notes is the note vault. Nil means the note tools are not offered.
+	notes *notes.Vault
 	// web is what fetch_url reads pages with. Nil means the tool is not offered.
 	web WebReader
 	// session is the conversation this planner continues. Nil means "create one on
@@ -331,6 +334,19 @@ Three pathways create and maintain skills:
 3. CURATOR: periodically, skills unused 14d become stale, unused 30d are archived
    (recoverable). Pinned skills are exempt.
 
+## The person's notes (when offered)
+
+search_notes, read_note, write_note and append_note reach the person's notes: plain Markdown they
+keep as a second brain. They are the record of THEIR facts, decisions and plans.
+
+- Before answering anything about their own life, work, projects or past decisions, search the
+  notes, then read the ones that matter. Do not answer such a question from memory of the chat.
+- Say where a fact comes from: cite it as [[Title]]. When notes disagree with each other or with
+  what you are told now, say so, name both notes and let the person decide which holds.
+- If the notes do not say, say they do not. Never present a guess as something the notes state.
+- Record what is worth keeping with append_note (a decision, a fact, a source) and link notes
+  with [[Title]]. write_note only creates; nothing here replaces or deletes a note.
+
 ## How to work
 
 1. Read the request for what it implies, as above.
@@ -401,6 +417,9 @@ func (p *Planner) tools() []llm.Tool {
 	tools := p.baseTools()
 	if p.index != nil {
 		tools = append(tools, searchIndexTool())
+	}
+	if p.notes != nil {
+		tools = append(tools, noteTools()...)
 	}
 	if p.web != nil {
 		tools = append(tools, fetchURLTool())
@@ -757,6 +776,8 @@ func (p *Planner) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
 		return p.toolSearchInFiles(ctx, tc.Function.Arguments)
 	case "search_index":
 		return p.toolSearchIndex(ctx, tc.Function.Arguments)
+	case "search_notes", "read_note", "write_note", "append_note":
+		return p.toolNote(tc.Function.Name, tc.Function.Arguments)
 	case "fetch_url":
 		if p.web == nil {
 			return "Error: fetch_url is not available in this session."

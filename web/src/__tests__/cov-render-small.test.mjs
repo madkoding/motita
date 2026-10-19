@@ -736,6 +736,7 @@ test("every shared icon draws a 24-unit line drawing at the size asked for", asy
     "IconFolder",
     "IconMonitor",
     "IconBook",
+    "IconNotes",
     "IconClock",
     "IconDots",
   ];
