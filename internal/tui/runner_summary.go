@@ -49,3 +49,25 @@ func (r *AppRunner) DescribeProject(ctx context.Context, text string) (string, e
 	}
 	return strings.TrimSpace(out), nil
 }
+
+// DescribeModule asks the model to explain one folder of a project, for its note in the project's
+// manual, from its files, its API and excerpts of its source. The caller drops an empty answer.
+func (r *AppRunner) DescribeModule(ctx context.Context, text string) (string, error) {
+	_, engine, err := r.engineFor(config.TaskSummary)
+	if err != nil {
+		return "", err
+	}
+	out, err := engine.Complete(ctx, []llm.Message{
+		{Role: "system", Content: "You document one module (a folder) of a software project for its manual " +
+			"in a personal knowledge base, from its files, its exported API, what it uses, what uses it and " +
+			"excerpts of its source. Reply in Markdown with these short sections: Purpose, How it works " +
+			"(the main types and functions and how they work together), Inputs and outputs, Used by and " +
+			"uses (why), and Things to know (limits, invariants, pitfalls). Use only what the text shows; " +
+			"say when something is unknown. Do not invent files, names or behaviour."},
+		{Role: "user", Content: text},
+	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}

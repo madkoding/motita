@@ -61,6 +61,7 @@ var archBlock = regexp.MustCompile(`(?s)<!-- motita:arch:([0-9a-f]+) -->\n(.*?)\
 // describer is what a service offers when it can explain a project's structure with the model.
 type describer interface {
 	DescribeProject(ctx context.Context, text string) (string, error)
+	DescribeModule(ctx context.Context, text string) (string, error)
 }
 
 type goPackage struct {
@@ -75,9 +76,11 @@ type projectFacts struct {
 	langs   map[string]int
 	build   []string
 	goFiles map[string][]string
-	module  string
-	pkgs    []goPackage
-	node    nodeFacts
+	// all is every file read, by folder relative to the project ("" for its root).
+	all    map[string][]string
+	module string
+	pkgs   []goPackage
+	node   nodeFacts
 }
 
 type nodeFacts struct {
@@ -112,6 +115,8 @@ func (f *projectFacts) visit(dir, p string, d fs.DirEntry) error {
 	if lang, ok := archLanguages[strings.ToLower(filepath.Ext(name))]; ok {
 		f.langs[lang]++
 	}
+	folder := strings.TrimPrefix(path.Dir(rel), ".")
+	f.all[folder] = append(f.all[folder], p)
 	if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
 		f.goFiles[path.Dir(rel)] = append(f.goFiles[path.Dir(rel)], p)
 	}
@@ -189,6 +194,7 @@ func readNode(dir string) nodeFacts {
 func walkProject(dir string) projectFacts {
 	f := projectFacts{
 		topDirs: map[string]int{}, langs: map[string]int{}, goFiles: map[string][]string{},
+		all: map[string][]string{},
 	}
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || p == dir {
@@ -362,11 +368,33 @@ func archFingerprint(parts ...string) string {
 	return hex.EncodeToString(sum[:])[:archFingerprintLen]
 }
 
-// archModel decides which projects get the model's explanation.
+// archModel decides which projects, or which modules of the manual, get the model's explanation.
 type archModel struct {
-	svc  describer
-	left int
-	done int
+	svc    describer
+	left   int
+	done   int
+	module bool
+}
+
+// ask is the model call: the explanation of a whole project, or of one module.
+func (m *archModel) ask(ctx context.Context, text string) (string, error) {
+	if m.module {
+		return m.svc.DescribeModule(ctx, clip(text, manualModelBytes))
+	}
+	return m.svc.DescribeProject(ctx, clip(text, archModelBytes))
+}
+
+// scanModels are the model's budgets for one scan: one for projects, one for modules.
+type scanModels struct {
+	project, module *archModel
+}
+
+// done is how many explanations the model wrote in this scan.
+func (ms scanModels) done() int {
+	if ms.project == nil {
+		return 0
+	}
+	return ms.project.done + ms.module.done
 }
 
 // explanationOf finds the explanation a note already holds for these facts.
@@ -397,7 +425,7 @@ func (m *archModel) of(ctx context.Context, v *notes.Vault, name, fp, facts stri
 	m.left--
 	cctx, cancel := context.WithTimeout(ctx, archDescribeTimeout)
 	defer cancel()
-	out, err := m.svc.DescribeProject(cctx, clip(redact.String(facts), archModelBytes))
+	out, err := m.ask(cctx, redact.String(facts))
 	out = strings.TrimSpace(redact.String(out))
 	if err != nil || out == "" {
 		return ""
@@ -406,13 +434,11 @@ func (m *archModel) of(ctx context.Context, v *notes.Vault, name, fp, facts stri
 	return strings.NewReplacer(notes.BlockStart, "", notes.BlockEnd, "", "[[", "[ [", "<!--", "").Replace(out)
 }
 
-func archBody(title, projectLink, facts, explanation, fp string) string {
+func archBody(title, projectLink, manualLink, facts, explanation, fp string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "## Architecture of %s\n- Project: %s\n%s", cell(title), projectLink, facts)
-	if explanation != "" {
-		fmt.Fprintf(&b, "\n### How it fits together\n<!-- motita:arch:%s -->\n%s\n", fp, explanation)
-		b.WriteString("<!-- motita:arch:end -->\n")
-	}
+	fmt.Fprintf(&b, "## Architecture of %s\n- Project: %s\n", cell(title), projectLink)
+	fmt.Fprintf(&b, "- Manual: %s\n%s", manualLink, facts)
+	b.WriteString(explanationSection("How it fits together", explanation, fp))
 	return b.String()
 }
 
@@ -424,7 +450,7 @@ func archNoteName(projectNote string) string {
 // scanArchitecture writes the architecture note of a project and answers its link, or "" when the
 // folder holds nothing to describe.
 func scanArchitecture(
-	ctx context.Context, v *notes.Vault, p Project, projectNote string, am *archModel, res *noteScan,
+	ctx context.Context, v *notes.Vault, p Project, projectNote string, ms scanModels, res *noteScan,
 ) string {
 	f := walkProject(p.Dir)
 	if f.files == 0 {
@@ -438,7 +464,8 @@ func scanArchitecture(
 	if readme != "" {
 		input += "\n### README\n" + readme
 	}
-	body := archBody(p.Title, wikiLink(projectNote), facts, am.of(ctx, v, name, fp, input), fp)
+	manual := writeManual(ctx, v, p, projectNote, wikiLink(name), f, ms.module, res)
+	body := archBody(p.Title, wikiLink(projectNote), manual, facts, ms.project.of(ctx, v, name, fp, input), fp)
 	outcome, err := v.Upsert(name, strings.TrimSuffix(filepath.Base(name), ".md"), body)
 	res.count(outcome, err)
 	if err != nil {

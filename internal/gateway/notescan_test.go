@@ -76,7 +76,7 @@ func TestScanWritesANotePerProjectAndSessionAndIsRepeatable(t *testing.T) {
 	c.stateMu.Unlock()
 
 	got := runScan(t, srv)
-	want := noteScan{Ran: true, Projects: 2, Sessions: 1, Created: 4, Mapped: 1}
+	want := noteScan{Ran: true, Projects: 2, Sessions: 1, Created: 5, Mapped: 1, Documented: 1}
 	if got != want {
 		t.Fatalf("first scan = %+v, want %+v", got, want)
 	}
@@ -109,7 +109,7 @@ func TestScanWritesANotePerProjectAndSessionAndIsRepeatable(t *testing.T) {
 	if _, err := srv.projects.update("p1aaaaaaaaaa", func(p *Project) { p.Description = "The new app" }); err != nil {
 		t.Fatal(err)
 	}
-	if again := runScan(t, srv); again.Created != 0 || again.Unchanged != 3 || again.Updated != 1 {
+	if again := runScan(t, srv); again.Created != 0 || again.Unchanged != 4 || again.Updated != 1 {
 		t.Errorf("second scan = %+v", again)
 	}
 	if body := readNote(t, dir, "Projects/App.md"); !strings.Contains(body, "my own thoughts") {

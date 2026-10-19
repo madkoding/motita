@@ -248,6 +248,8 @@ export interface NoteScan {
   summarized: number;
   // Projects whose architecture note was written, and those the model explained in this scan.
   mapped: number;
+  // Notes of the projects' manuals: one per folder.
+  documented: number;
   explained: number;
   projects: number;
   sessions: number;

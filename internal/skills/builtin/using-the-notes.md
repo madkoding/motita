@@ -28,7 +28,9 @@ answer from memory as if you had read them.
 When the work is in a project, check whether the scan already mapped it before reading the code
 cold: `read_note` `Projects/<project> - Architecture`, or `search_notes` "Architecture of" with the
 project's name. It lists the modules, which one imports which and, when the person turned the
-model option on, how the project fits together and its main flows. Use it to decide where to look,
+model option on, how the project fits together and its main flows. Its "Manual" link opens the
+project's manual, `Projects/<project> manual/_index`: one note per folder with its files, its API
+with doc comments and what it uses and what uses it; read the notes of the folders you will touch. Use it to decide where to look,
 then confirm in the code: the note is a map made at the last scan, not the code itself. If it is
 missing, work from the code as usual; do not ask the person to scan first. If what you find in the
 code contradicts the note, say so and offer to `append_note` the correction.
