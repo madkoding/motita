@@ -982,7 +982,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
-		s.placeAndSave(conv, body.ProjectID, project, body.Git, s.joinThread(conv, body.ProjectID, body.ParentID, body.Isolate))
+		isolate := s.joinThread(conv, body.ProjectID, body.ParentID, body.Isolate)
+		s.placeAndSave(conv, body.ProjectID, project, body.Git, isolate)
 		writeJSON(w, http.StatusCreated, conv.status())
 	}
 }
