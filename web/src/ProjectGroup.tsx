@@ -58,19 +58,31 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
       >
         {t("New isolated session")}
       </button>
-      {p.main_warning && (
-        <button
-          class={ITEM_PLAIN}
-          data-testid="refresh-main"
-          onClick={(e) => {
-            e.stopPropagation();
-            void projects.refreshProjectMain(p.id);
-            menus.closeRowMenu();
-          }}
-        >
-          {t("Update main branch")}
-        </button>
-      )}
+      <button
+        class={ITEM_PLAIN}
+        data-testid="refresh-main"
+        onClick={(e) => {
+          e.stopPropagation();
+          void projects.refreshProjectMain(p.id);
+          menus.closeRowMenu();
+        }}
+      >
+        {t("Update main branch")}
+      </button>
+      <button
+        class={ITEM_PLAIN}
+        data-testid="rescan-notes"
+        title={t(
+          "Writes the notes and manuals of the projects again, in the background; Settings, Indexing shows how far it got.",
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          void projects.rescanNotes();
+          menus.closeRowMenu();
+        }}
+      >
+        {t("Rescan the notes")}
+      </button>
       <DeleteItem type="project" id={p.id} title={p.title} />
     </RowMenu>
   );

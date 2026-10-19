@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,25 @@ func TestScanRunsInTheBackgroundAndSaysHowFarItGot(t *testing.T) {
 	}
 	if p.Done != 1 || p.Total != 1 || p.Error != "" {
 		t.Errorf("finished: %+v", p)
+	}
+}
+
+func TestRescanRepeatsTheLastScanInTheBackground(t *testing.T) {
+	srv, _ := archServer(t, nil)
+	first := httptest.NewRequest(http.MethodPost, "/v1/notes/scan?again=1", nil)
+	if q := srv.scanQuery(first); q.Get(scanBackground) != "1" {
+		t.Errorf("a rescan before any scan still runs in the background: %v", q)
+	}
+	noteCall(t, srv, http.MethodPost, "/v1/notes/scan?modules=7", "")
+	q := srv.scanQuery(httptest.NewRequest(http.MethodPost, "/v1/notes/scan?again=1&modules=1", nil))
+	if q.Get("modules") != "7" {
+		t.Errorf("a rescan keeps the last scan's options: %v", q)
+	}
+	if w := noteCall(t, srv, http.MethodPost, "/v1/notes/scan?again=1", ""); w.Code != http.StatusAccepted {
+		t.Fatalf("rescan: %d %s", w.Code, w.Body)
+	}
+	if p := waitScan(t, srv); p.Result == nil {
+		t.Errorf("the rescan finished without a result: %+v", p)
 	}
 }
 

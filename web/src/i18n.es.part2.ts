@@ -880,6 +880,10 @@ const more: Record<string, string> = {
   "Graph of linked notes": "Grafo de notas enlazadas",
   "{notes} notes · {links} links · {missing} to notes not written yet":
     "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
+  "Rescan the notes": "Reescanear las notas",
+  "Writes the notes and manuals of the projects again, in the background; Settings, Indexing shows how far it got.":
+    "Vuelve a escribir las notas y los manuales de los proyectos en segundo plano; Ajustes, Indexado muestra cuánto lleva.",
+  "could not rescan the notes": "no se pudieron reescanear las notas",
 };
 
 export default more;

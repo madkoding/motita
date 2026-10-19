@@ -230,7 +230,7 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
-	q := r.URL.Query()
+	q := s.scanQuery(r)
 	marker := filepath.Join(s.opts.NotesDir, scanMarker)
 	if q.Get("first") != "" {
 		// Only the first time: a vault that has notes, or was scanned before (and emptied since), is
@@ -244,7 +244,7 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	run := func(ctx context.Context, t *scanTracker) (noteScan, error) {
 		return s.runScan(ctx, v, q, t)
 	}
-	if q.Get("background") != "" {
+	if q.Get(scanBackground) != "" {
 		s.startScan(w, run)
 		return
 	}
@@ -254,6 +254,24 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// scanBackground is the query flag that runs a scan in the background.
+const scanBackground = "background"
+
+// scanQuery is what a scan request asks for. "again" repeats the model options of the last scan, in
+// the background: it is what the project menu's "Rescan the notes" sends, which has no options of
+// its own to give.
+func (s *Server) scanQuery(r *http.Request) url.Values {
+	q := r.URL.Query()
+	if q.Get("again") == "" {
+		return q
+	}
+	again := url.Values{scanBackground: {"1"}}
+	for k, v := range s.scanJob.options() {
+		again[k] = v
+	}
+	return again
 }
 
 // runScan is the scan itself, reporting how far it got to t.

@@ -937,7 +937,7 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
   );
 
   // refreshProjectMain asks the gateway to bring the project's main branch up to date now, the
-  // retry of the notice a background update leaves. The notice that remains comes with the list.
+  // only way it moves since nothing updates it by itself. The notice that remains comes with the list.
   const refreshProjectMain = useCallback(
     async (id: string) => {
       try {
@@ -956,6 +956,20 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
     },
     [fetchProjects],
   );
+
+  // rescanNotes writes the notes of the projects again in the background, with the model options
+  // of the last scan; Settings, Indexing shows how far it got.
+  const rescanNotes = useCallback(async () => {
+    try {
+      const res = await api("/v1/notes/scan?again=1", { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setState(err.error || "could not rescan the notes", true);
+      }
+    } catch {
+      setState("could not rescan the notes", true);
+    }
+  }, [api, setState]);
 
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
@@ -981,7 +995,7 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
     [fetchProjects, fetchSessions],
   );
 
-  return { setProjectPodman, refreshProjectMain, deleteProject };
+  return { setProjectPodman, refreshProjectMain, rescanNotes, deleteProject };
 }
 
 export function useProjects({ api, lists, setState, setToast }: Deps) {
@@ -1105,6 +1119,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectPodman: form.setNewProjectPodman,
     setProjectPodman: admin.setProjectPodman,
     refreshProjectMain: admin.refreshProjectMain,
+    rescanNotes: admin.rescanNotes,
     showGitIdentity: form.showGitIdentity,
     closeGitIdentity: form.closeGitIdentity,
     gitUserName: form.gitUserName,
