@@ -71,7 +71,9 @@ function StaleFact({ p }: { p: ProjectInfo }) {
   return (
     <span
       class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
-      title={tf("Main branch not updated: {reason}", { reason: p.main_warning })}
+      title={tf("Main branch not updated: {reason}", {
+        reason: p.main_warning,
+      })}
       data-testid="project-stale"
     >
       <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
@@ -100,6 +102,32 @@ function BehindFact({ p }: { p: ProjectInfo }) {
         {t("behind")}
       </span>
       <span class="tabular-nums text-[#f0a040]">{behind.length}</span>
+    </span>
+  );
+}
+
+// DepsFact says the project's repositories need dependencies nobody installed (vendor/,
+// node_modules/): the sessions' worktrees are linked to what the project has, so none of them can
+// run its tests until they are. The commands that fix it are its title.
+function DepsFact({ p }: { p: ProjectInfo }) {
+  const missing = p.missing_deps ?? [];
+  if (missing.length === 0) {
+    return null;
+  }
+  const commands = missing.map((m) =>
+    choose(m.path === ".", m.command, `${m.command} (${m.path})`),
+  );
+  return (
+    <span
+      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
+      title={tf("Dependencies not installed, so tests cannot run: {commands}", {
+        commands: commands.join(", "),
+      })}
+      data-testid="project-deps"
+    >
+      <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
+        {t("no deps")}
+      </span>
     </span>
   );
 }
@@ -190,6 +218,7 @@ function ProjectHeader({
           <span class="project-name truncate">{p.title}</span>
           <BehindFact p={p} />
           <StaleFact p={p} />
+          <DepsFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever
               their styles (see SessionRow). */}

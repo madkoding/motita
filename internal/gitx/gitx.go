@@ -512,6 +512,13 @@ func Root(ctx context.Context, dir string) (string, error) {
 	return out, nil
 }
 
+// IsRepoRoot reports whether dir is the top of a repository that has a working tree: a folder
+// inside one, a bare repository, or no repository at all is not.
+func IsRepoRoot(ctx context.Context, dir string) bool {
+	root, err := Root(ctx, dir)
+	return err == nil && samePath(root, dir)
+}
+
 // HasCommits reports whether HEAD resolves to a commit.
 //
 // A repository with no commits cannot be branched from: `worktree add -b` fails

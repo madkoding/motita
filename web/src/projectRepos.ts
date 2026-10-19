@@ -6,6 +6,9 @@ import type { CatalogRepo, ProjectInfo, ProjectRepoInfo } from "./appTypes";
 export interface RepoDraft {
   name: string;
   git_url: string;
+  // path marks a repository already on this machine: the gateway uses that folder where it is,
+  // with worktrees of its own, instead of cloning it.
+  path?: string;
 }
 
 // The folder name the gateway accepts for a repository: a simple name that is not hidden.
@@ -26,9 +29,31 @@ export function repoFolderOf(url: string): string {
   );
 }
 
+// isLocalFolder says whether text is the absolute path of a folder on this machine, as opposed to
+// a repository address: a path that ends in ".git" is a bare repository to clone from.
+export function isLocalFolder(text: string): boolean {
+  const path = text.trim();
+  return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path) && !/\.git[\\/]*$/.test(path);
+}
+
+// localRepoDraft is a repository this machine already has, by its folder: null when the folder's
+// name cannot be a repository's.
+export function localRepoDraft(folder: string): RepoDraft | null {
+  const path = folder.trim().replace(/[\\/]+$/, "");
+  const name = repoFolderOf(path);
+  if (!REPO_NAME.test(name) || name.includes("..")) {
+    return null;
+  }
+  return { name, git_url: path, path };
+}
+
 // repoDraftOf reads a URL typed in the "add a repository" field: null when it names no repository.
+// The path of a folder is a repository the machine already has, which is used where it is.
 export function repoDraftOf(url: string): RepoDraft | null {
   const gitUrl = url.trim();
+  if (isLocalFolder(gitUrl)) {
+    return localRepoDraft(gitUrl);
+  }
   const name = repoFolderOf(gitUrl);
   // A URL or a path: a bare word names no repository anywhere.
   const located = /[/:\\]/.test(gitUrl);

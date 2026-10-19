@@ -25,6 +25,7 @@ import type {
 import {
   shownMainOf,
   repoDraftOf,
+  localRepoDraft,
   repoFolderOf,
   reposOf,
   type RepoDraft,
@@ -901,9 +902,13 @@ function useFolderPicker(
   open: boolean,
   setNewPath: (path: string) => void,
   patchEdit: (patch: Partial<EditProjectDraft>) => void,
+  addRepoFolder: (path: string) => void,
 ) {
   const [fullDisk, setFullDisk] = useState(false);
-  const [folderPicker, setFolderPicker] = useState<null | "new" | "edit">(null);
+  // "repo" is the folder of a repository the project will use where it is.
+  const [folderPicker, setFolderPicker] = useState<
+    null | "new" | "edit" | "repo"
+  >(null);
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -920,12 +925,14 @@ function useFolderPicker(
     (path: string) => {
       if (folderPicker === "edit") {
         patchEdit({ path });
+      } else if (folderPicker === "repo") {
+        addRepoFolder(path);
       } else {
         setNewPath(path);
       }
       setFolderPicker(null);
     },
-    [folderPicker, patchEdit, setNewPath],
+    [folderPicker, patchEdit, setNewPath, addRepoFolder],
   );
   const closeFolderPicker = useCallback(() => setFolderPicker(null), []);
   return {
@@ -1047,6 +1054,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     form.showNewProject || !!edit.editProject,
     form.setNewProjectPath,
     edit.patchEditProject,
+    (path) => addOtherRepoDraft(localRepoDraft(path)),
   );
 
   // pickRepo fills the New project form from a repository the user chose.
@@ -1074,13 +1082,17 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   // pickOtherRepo adds a repository the user chose to the project's other repositories, unless
   // the project already has one by that name.
   function pickOtherRepo(r: GitRepo) {
+    addOtherRepoDraft(repoDraftOf(r.clone_url));
+  }
+  // addOtherRepoDraft adds a repository (a clone address, or a folder of the machine) to the
+  // dialog that is open, unless it is none or the project already has one by that name.
+  function addOtherRepoDraft(draft: RepoDraft | null) {
     // The edit dialog adds it to the project at once; the New project one, to its list.
     const taken = choose(
       editProject,
       [editProject?.mainRepo?.name, ...(editProject?.repos ?? []).map(nameOf)],
       [repoFolderOf(form.newProjectGit), ...newProjectRepos.map(nameOf)],
     );
-    const draft = repoDraftOf(r.clone_url);
     if (draft && !taken.includes(draft.name)) {
       choose(editProject, addProjectRepo, addNewProjectRepo)(draft);
     } else {

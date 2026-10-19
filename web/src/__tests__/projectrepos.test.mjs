@@ -22,13 +22,49 @@ test("a URL typed to add a repository is read into its name", () => {
     name: "api",
     git_url: "git@github.com:u/api.git",
   });
-  assert.deepEqual(r.repoDraftOf("/srv/repos/lib/"), {
+  // A bare repository path is still an address to clone from.
+  assert.deepEqual(r.repoDraftOf("/srv/git/lib.git"), {
     name: "lib",
-    git_url: "/srv/repos/lib/",
+    git_url: "/srv/git/lib.git",
   });
   assert.equal(r.repoDraftOf("not a url"), null);
   assert.equal(r.repoDraftOf("https://github.com/u/.hidden"), null);
   assert.equal(r.repoDraftOf(""), null);
+});
+
+test("the path of a folder is a repository the machine already has, used where it is", () => {
+  assert.deepEqual(r.repoDraftOf(" /home/axes/proyectos/bridges/ "), {
+    name: "bridges",
+    git_url: "/home/axes/proyectos/bridges",
+    path: "/home/axes/proyectos/bridges",
+  });
+  assert.deepEqual(r.repoDraftOf("C:\\work\\api"), {
+    name: "api",
+    git_url: "C:\\work\\api",
+    path: "C:\\work\\api",
+  });
+  assert.equal(r.repoDraftOf("/"), null);
+  assert.equal(r.repoDraftOf("/home/u/.hidden"), null);
+  for (const folder of ["/a/b", "D:/x", "C:\\x", "\\\\host\\share\\r"]) {
+    assert.equal(r.isLocalFolder(folder), true, folder);
+  }
+  for (const address of [
+    "/srv/git/lib.git",
+    "/srv/git/lib.git/",
+    "https://x.io/u/a",
+    "git@x.io:u/a.git",
+    "relative/dir",
+  ]) {
+    assert.equal(r.isLocalFolder(address), false, address);
+  }
+  // A folder picked in the browser is used whatever it is called, as long as the name is usable.
+  assert.deepEqual(r.localRepoDraft("/srv/old.git/"), {
+    name: "old",
+    git_url: "/srv/old.git",
+    path: "/srv/old.git",
+  });
+  assert.equal(r.localRepoDraft("/srv/a..b"), null);
+  assert.equal(r.localRepoDraft("/"), null);
 });
 
 test("a repository cannot join the list twice, nor something that is not one", () => {

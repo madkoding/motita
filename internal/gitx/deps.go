@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 )
@@ -119,4 +120,78 @@ func isReadableDir(path string) bool {
 func pathExists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
+}
+
+// MissingDependency is a dependency folder a project needs and does not have: the manifest that
+// asks for it is there, the folder a package manager would have written is not.
+type MissingDependency struct {
+	// Path is the folder that holds the manifest, relative to the project: "." for its root.
+	Path string `json:"path"`
+	// Manager is the package manager that writes the folder: composer or npm.
+	Manager string `json:"manager"`
+	// Dir is the folder that is missing, by name: vendor or node_modules.
+	Dir string `json:"dir"`
+	// Command installs it, as it is run from Path.
+	Command string `json:"command"`
+}
+
+// manifests are the files that say a folder needs its dependencies installed, with the keys that
+// list them and what installs them. Only package managers whose folder lives next to the manifest
+// are here: a language that keeps its dependencies elsewhere (go's module cache) has nothing to
+// check.
+var manifests = []struct {
+	file, manager, dir, command string
+	keys                        []string
+}{
+	{"composer.json", "composer", "vendor", "composer install", []string{"require", "require-dev"}},
+	{"package.json", "npm", "node_modules", "npm install", []string{"dependencies", "devDependencies"}},
+}
+
+// MissingDependencies lists the dependency folders dir needs and does not have, at its root and one
+// folder down (a monorepo's packages). A manifest that lists nothing needs no folder, and neither
+// does a folder that is there empty: the package manager ran. It reads, and never writes.
+//
+// It is how a session that was handed a checkout of a repository nobody installed is told so in
+// plain words, instead of finding out from a test run that cannot start.
+func MissingDependencies(dir string) []MissingDependency {
+	out := missingAt(dir, ".")
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if isWalkableDir(e) && e.Name()[0] != '.' {
+			out = append(out, missingAt(filepath.Join(dir, e.Name()), e.Name())...)
+		}
+	}
+	return out
+}
+
+// missingAt is what the manifests in dir ask for and dir lacks; rel names dir in the answer.
+func missingAt(dir, rel string) []MissingDependency {
+	var out []MissingDependency
+	for _, m := range manifests {
+		if pathExists(filepath.Join(dir, m.dir)) || !listsDependencies(filepath.Join(dir, m.file), m.keys) {
+			continue
+		}
+		out = append(out, MissingDependency{Path: rel, Manager: m.manager, Dir: m.dir, Command: m.command})
+	}
+	return out
+}
+
+// listsDependencies reports whether the JSON manifest at path has a non-empty object under any of
+// keys. A manifest that is missing or is not JSON lists none.
+func listsDependencies(path string, keys []string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	for _, k := range keys {
+		var deps map[string]json.RawMessage
+		if json.Unmarshal(doc[k], &deps) == nil && len(deps) > 0 {
+			return true
+		}
+	}
+	return false
 }

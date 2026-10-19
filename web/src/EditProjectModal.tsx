@@ -224,6 +224,8 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
     gitAccounts,
     openOtherRepoPicker,
     repoCatalog,
+    fullDisk,
+    openFolderPicker,
   } = useApp().projects;
   const connected = !!gitAccounts && connectedAccounts(gitAccounts).length > 0;
   const onRemove = useCallback(
@@ -241,6 +243,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       onMoveMain={detachProjectMain}
       onSync={syncProjectRepo}
       onChoose={choose(connected, openOtherRepoPicker, undefined)}
+      onBrowse={choose(fullDisk, () => openFolderPicker("repo"), undefined)}
       catalog={repoCatalog}
       projectId={p.id}
       hint={t(

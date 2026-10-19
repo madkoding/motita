@@ -475,3 +475,65 @@ test("a URL the workspace already has says it is not cloned again", async () => 
   assert.equal(m.q("[data-testid=repo-add-known]"), null);
   await m.unmount();
 });
+
+test("a repository the user already had is marked local instead of shared", async () => {
+  const repos = [
+    { name: "bridges", git_url: "/home/u/bridges", shared: true, local: true },
+    { name: "api", git_url: "u/api", shared: true },
+  ];
+  const m = await mount(AppCtx, null, section({ main: null, repos }));
+  const local = m.q("[data-testid=repo-local]");
+  assert.equal(local.textContent, "local");
+  assert.match(local.title, /used where it is/);
+  assert.equal(m.qa("[data-testid=repo-shared]").length, 1);
+  assert.equal(m.q("[data-testid=repo-shared]").title, "");
+  await m.unmount();
+});
+
+test("a folder of the machine can be chosen to add a repository only when the browser is offered", async () => {
+  const opened = [];
+  const m = await mount(AppCtx, null, section({}));
+  await click(m.q("[data-testid=repo-add-open]"));
+  assert.equal(m.q("[data-testid=repo-browse]"), null);
+  await m.rerender(null, section({ onBrowse: () => opened.push("browse") }));
+  assert.match(
+    m.q("[data-testid=repo-browse-hint]").textContent,
+    /not cloned, and its branch and files are never touched/,
+  );
+  await click(m.q("[data-testid=repo-browse]"));
+  assert.deepEqual(opened, ["browse"]);
+  await m.rerender(
+    null,
+    section({ onBrowse: () => opened.push("again"), busy: "+" }),
+  );
+  assert.equal(m.q("[data-testid=repo-browse]").disabled, true);
+  await m.unmount();
+});
+
+test("a typed folder path is added as a repository the machine has, not cloned", async () => {
+  const added = [];
+  const m = await mount(
+    AppCtx,
+    null,
+    section({
+      onAdd: (d) => {
+        added.push(d);
+        return true;
+      },
+    }),
+  );
+  await click(m.q("[data-testid=repo-add-open]"));
+  await type(
+    m.q("[data-testid=repo-add-url]"),
+    "/home/axes/proyectos/bridges/",
+  );
+  await click(m.q("[data-testid=repo-add]"));
+  assert.deepEqual(added, [
+    {
+      name: "bridges",
+      git_url: "/home/axes/proyectos/bridges",
+      path: "/home/axes/proyectos/bridges",
+    },
+  ]);
+  await m.unmount();
+});
