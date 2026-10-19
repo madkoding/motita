@@ -753,11 +753,7 @@ func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 	if !s.needFile(w) {
 		return
 	}
-	if err := setTaskModels(s.opts.ConfigPath, choices); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if body.Thinking != nil && !writeThinking(w, s.opts.ConfigPath, levels) {
+	if !s.writeTasks(w, choices, levels, body.Thinking != nil) {
 		return
 	}
 	s.pushTaskModels()
@@ -779,9 +775,15 @@ func thinkingLevels(w http.ResponseWriter, in map[string]string, known map[strin
 	return levels, true
 }
 
-// writeThinking saves the levels, answering 500 when the file cannot be written.
-func writeThinking(w http.ResponseWriter, path string, levels map[string]string) bool {
-	if err := setTaskThink(path, levels); err != nil {
+// writeTasks saves the models and, when the request carried them, the thinking levels, answering
+// 500 when the file cannot be written.
+func (s *Server) writeTasks(w http.ResponseWriter, choices map[string]config.ModelChoice,
+	levels map[string]string, withLevels bool) bool {
+	err := setTaskModels(s.opts.ConfigPath, choices)
+	if err == nil && withLevels {
+		err = setTaskThink(s.opts.ConfigPath, levels)
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return false
 	}
