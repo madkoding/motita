@@ -208,7 +208,7 @@ function vault(initial = {}) {
 async function mount(v, projects = []) {
   const statuses = [];
   const hook = { current: null };
-  const review = { opened: "s1", sent: [] };
+  const review = { opened: "s1", sent: [], settings: 0 };
   function Harness() {
     const notes = useNotes(v.gw, (m, bad) => statuses.push([m, !!bad]));
     hook.current = notes;
@@ -216,6 +216,7 @@ async function mount(v, projects = []) {
       async () => review.opened,
       notes.closeNotes,
       (t) => review.sent.push(t),
+      () => review.settings++,
     );
     return h(
       AppCtx.Provider,
@@ -881,4 +882,17 @@ test("Review stays put when the open note cannot be saved", async () => {
   assert.equal(m.review.sent.length, 0);
   assert.ok(q(m.root, "notes-review"), "the window is still open");
   await m.done();
+});
+
+test("the review also starts from an event, and closes the settings", async () => {
+  const { REVIEW_NOTES_EVENT } = await load("useReviewNotes.ts");
+  const m = await mount(vault(FILES));
+  await act(() => window.dispatchEvent(new W.Event(REVIEW_NOTES_EVENT)));
+  await settle();
+  assert.deepEqual(m.review.sent, [REVIEW_NOTES_PROMPT]);
+  assert.equal(m.review.settings, 1);
+  await m.done();
+  // Unmounted, the event no longer does anything.
+  await act(() => window.dispatchEvent(new W.Event(REVIEW_NOTES_EVENT)));
+  assert.equal(m.review.sent.length, 1);
 });

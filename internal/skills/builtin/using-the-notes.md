@@ -23,6 +23,16 @@ answer from memory as if you had read them.
 4. **Say when notes disagree or look old.** Two notes with different answers, or a dated plan that
    has probably passed, are worth reporting, not resolving silently.
 
+## Knowing a project before you change it
+
+When the work is in a project, check whether the scan already mapped it before reading the code
+cold: `read_note` `Projects/<project> - Architecture`, or `search_notes` "Architecture of" with the
+project's name. It lists the modules, which one imports which and, when the person turned the
+model option on, how the project fits together and its main flows. Use it to decide where to look,
+then confirm in the code: the note is a map made at the last scan, not the code itself. If it is
+missing, work from the code as usual; do not ask the person to scan first. If what you find in the
+code contradicts the note, say so and offer to `append_note` the correction.
+
 ## Writing to the notes
 
 - `write_note` creates a note and refuses to replace one. `append_note` adds to the end of an

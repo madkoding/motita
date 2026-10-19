@@ -30,6 +30,8 @@ async function mount(fake) {
 const REPORT = {
   ran: true,
   summarized: 0,
+  mapped: 0,
+  explained: 0,
   projects: 2,
   sessions: 5,
   created: 6,
@@ -51,9 +53,23 @@ test("the button scans and reports what it did", async () => {
   assert.equal(gw.calls.filter((c) => c.method === "POST").length, 1);
 });
 
+test("after a scan, a button asks the app to review the notes", async () => {
+  const { REVIEW_NOTES_EVENT } = await load("useReviewNotes.ts");
+  const gw = fakeApi({ "POST /v1/notes/scan": () => json(200, REPORT) });
+  const root = await mount(gw);
+  assert.equal(root.querySelector("[data-testid=notes-review-start]"), null);
+  await click(root.querySelector("[data-testid=notes-scan]"));
+  await settle();
+  let asked = 0;
+  window.addEventListener(REVIEW_NOTES_EVENT, () => asked++);
+  await click(root.querySelector("[data-testid=notes-review-start]"));
+  assert.equal(asked, 1);
+});
+
 test("the summary switch asks the gateway for summaries and the report counts them", async () => {
   const gw = fakeApi({
-    "POST /v1/notes/scan": () => json(200, { ...REPORT, summarized: 3 }),
+    "POST /v1/notes/scan": () =>
+      json(200, { ...REPORT, summarized: 3, mapped: 2, explained: 1 }),
   });
   const root = await mount(gw);
   const on = [
@@ -70,7 +86,7 @@ test("the summary switch asks the gateway for summaries and the report counts th
   );
   assert.match(
     text(root.querySelector("[data-testid=notes-scan-done]")),
-    /3 long sessions summarised\./,
+    /3 long sessions summarised\. 2 projects mapped, 1 explained by the model\./,
   );
 });
 
@@ -119,7 +135,11 @@ test("every string of the card has a Spanish translation", () => {
     "Second brain",
     "Scan sessions and projects",
     "Scan now",
-    "Summarise long sessions with the model",
+    "Review the notes",
+    "Review notes",
+    "Opens a conversation where the agent checks the notes for contradictions, stale notes, missing sources and broken links. It changes nothing until you agree.",
+    "Use the model to summarise sessions and explain projects",
+    "{mapped} projects mapped, {explained} explained by the model.",
     "{n} long sessions summarised.",
   ]) {
     assert.ok(es[key], key);

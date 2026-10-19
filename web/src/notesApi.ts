@@ -246,6 +246,9 @@ export interface NoteScan {
   ran: boolean;
   // Sessions the model summarised in this scan.
   summarized: number;
+  // Projects whose architecture note was written, and those the model explained in this scan.
+  mapped: number;
+  explained: number;
   projects: number;
   sessions: number;
   created: number;

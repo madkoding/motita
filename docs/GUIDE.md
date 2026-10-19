@@ -624,7 +624,7 @@ the same folder opens in Obsidian and what you change there is what motita shows
 - **Review notes.** The Review notes button opens a new conversation that asks the agent to run
   the `reviewing-the-notes` skill over the whole vault: it reports notes that contradict each
   other, look out of date, have no source, point nowhere or are orphans, and changes nothing
-  until you agree.
+  until you agree. After a scan, the same **Review notes** button appears in the Settings card.
 - **The agent reads and writes them too.** In plan mode the tools `search_notes`, `read_note`,
   `write_note` and `append_note`; in task mode the actions `note_search`, `note_read`,
   `note_write` and `note_append` (`"command": "note :: the Markdown"` for the last two). Reads
@@ -640,13 +640,19 @@ the same folder opens in Obsidian and what you change there is what motita shows
 - **Second brain.** Settings, Indexing, **Scan now** writes a note for every project (`Projects/`)
   and every session that has been used (`Sessions/`): folder, repository, description, a README
   excerpt, the first request and the latest exchanges, with the session notes linked from their
-  project and back. The text goes through the secret redactor. Everything is kept inside a
+  project and back. Next to each project note goes `Projects/<name> - Architecture`, read from the
+  project's folder (no symlinks, no hidden or build folders, at most 4000 files): languages, build
+  files, the folders, the entry points and, for Go, every package with its doc line and the packages
+  of the module it imports, drawn as a Mermaid diagram; for Node, the scripts and main dependencies. The text goes through the secret redactor. Everything is kept inside a
   `<!-- motita:scan:start -->` block that a new scan rewrites; what you write around it stays.
   The first time the Notes window opens on a vault that has no notes and was never scanned, the
-  scan runs by itself. With **Summarise long sessions with the model** on (off by default), sessions
-  of six turns or more also get a short summary written by your summary model: at most twenty per
-  scan, and a session is summarised again only after it grew. That sends the text of those sessions
-  (secrets removed) to your model provider and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them.
+  scan runs by itself. With **Use the model to summarise sessions and explain projects** on (off by default),
+  sessions of six turns or more also get a short summary written by your summary model: at most
+  twenty per scan, and a session is summarised again only after it grew. Each architecture note also
+  gets "How it fits together" (modules, connections and flows, from those facts and the README): at
+  most ten per scan, asked again only when the project changed. That sends the text of those
+  sessions and the structure and README of those projects (secrets removed) to your model provider
+  and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them; before changing a project, it reads that project's Architecture note as a map and confirms it in the code.
 - **Limits.** 5000 notes, 192 KB each; only `.md` files, no hidden folders, and no path that
   leaves the vault, symbolic links included.
 

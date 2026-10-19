@@ -42,6 +42,10 @@ type noteScan struct {
 	Unchanged int  `json:"unchanged"`
 	// Summarized counts the sessions the model summarised in this scan.
 	Summarized int `json:"summarized"`
+	// Mapped counts the projects whose architecture note was written; Explained, those the model
+	// explained in this scan.
+	Mapped    int `json:"mapped"`
+	Explained int `json:"explained"`
 	// Skipped counts sessions with nothing said yet, and notes the vault refused.
 	Skipped int `json:"skipped"`
 }
@@ -141,7 +145,7 @@ func readmeExcerpt(dir string) string {
 	return ""
 }
 
-func projectBlock(p Project, links []string) string {
+func projectBlock(p Project, links []string, archLink string) string {
 	var b strings.Builder
 	b.WriteString("## Project\n")
 	fmt.Fprintf(&b, "- Folder: `%s`\n", p.Dir)
@@ -153,6 +157,9 @@ func projectBlock(p Project, links []string) string {
 	}
 	if p.Description != "" {
 		b.WriteString("\n" + quote(p.Description, scanQuoteBytes) + "\n")
+	}
+	if archLink != "" {
+		b.WriteString("- Architecture: " + archLink + "\n")
 	}
 	if len(links) > 0 {
 		b.WriteString("\n### Sessions\n")
@@ -240,14 +247,32 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	sum := &summaries{on: r.URL.Query().Get("summarize") != "", left: scanSummaryMax}
 	byProject := s.scanSessionNotes(r.Context(), v, names, sum, &res)
 	res.Summarized = sum.done
+	am := s.archModelFor(r.URL.Query().Get("summarize") != "")
 	for _, p := range projects {
 		res.Projects++
-		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID]))
+		archLink := scanArchitecture(r.Context(), v, p, names[p.ID], am, &res)
+		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID], archLink))
 		res.count(outcome, err)
+	}
+	if am != nil {
+		res.Explained = am.done
 	}
 	// Remembered in the vault folder, as a hidden file notes never list, so any client sees it.
 	if os.MkdirAll(s.opts.NotesDir, 0o755) == nil {
 		_ = os.WriteFile(marker, []byte("scanned\n"), 0o644)
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// archModelFor says which projects the model may explain: none unless the person asked for it and
+// a service can.
+func (s *Server) archModelFor(on bool) *archModel {
+	if !on {
+		return nil
+	}
+	d := s.archDescriber()
+	if d == nil {
+		return nil
+	}
+	return &archModel{svc: d, left: archDescribeMax}
 }
