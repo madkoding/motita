@@ -575,3 +575,42 @@ test("a merged session is continued in a new one", async () => {
   ]);
   await h.unmount();
 });
+
+test("a thread is moved into a worktree of its own; a refusal says why", async () => {
+  phone(false);
+  const gw = gateway({
+    "POST /v1/sessions/t/isolate": () => res(200, { id: "t" }),
+    "GET /v1/sessions": () => res(200, { sessions: [{ id: "t" }] }),
+  });
+  const { h, toasts, cur } = await actions(gw);
+  await h.act(() => cur().actions.isolateSession({ id: "t" }));
+  assert.deepEqual(cur().lists.sessions, [{ id: "t" }]);
+  assert.deepEqual(toasts, []);
+  gw.routes["POST /v1/sessions/x/isolate"] = () =>
+    res(409, { error: "it is working" });
+  gw.routes["POST /v1/sessions/y/isolate"] = () => res(502, new Error("x"));
+  gw.routes["POST /v1/sessions/z/isolate"] = () => {
+    throw new Error("offline");
+  };
+  for (const id of ["x", "y", "z"]) {
+    await h.act(() => cur().actions.isolateSession({ id }));
+  }
+  assert.deepEqual(toasts, [
+    {
+      message: "Could not isolate this thread",
+      type: "error",
+      detail: "it is working",
+    },
+    {
+      message: "Could not isolate this thread",
+      type: "error",
+      detail: "HTTP 502",
+    },
+    {
+      message: "Could not reach the gateway",
+      type: "error",
+      detail: "Error: offline",
+    },
+  ]);
+  await h.unmount();
+});

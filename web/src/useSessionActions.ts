@@ -224,6 +224,36 @@ export function useSessionActions({
     [fetchSessions, switchSession],
   );
 
+  // isolateSession moves a thread that works in the project's folder into a worktree of its own.
+  const isolateSession = useCallback(
+    async (s: SessionInfo) => {
+      try {
+        const res = await api(SESSIONS_PATH + s.id + "/isolate", {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: "{}",
+        });
+        if (res.ok) {
+          await fetchSessions();
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        setToast({
+          message: t("Could not isolate this thread"),
+          type: "error",
+          detail: data.error || "HTTP " + res.status,
+        });
+      } catch (err) {
+        setToast({
+          message: t("Could not reach the gateway"),
+          type: "error",
+          detail: String(err),
+        });
+      }
+    },
+    [fetchSessions],
+  );
+
   // startRename puts a session's row in rename mode, with its title in the field.
   const startRename = (id: string, title: string) => {
     setRenamingId(id);
@@ -241,6 +271,7 @@ export function useSessionActions({
     deleteSession,
     renameSession,
     continueSession,
+    isolateSession,
   };
 }
 

@@ -180,6 +180,10 @@ const first: Record<string, string> = {
   Continue: "Continuar",
   "Continued in a new session": "Continuaste en una sesión nueva",
   "Could not continue this session": "No se pudo continuar esta sesión",
+  "Could not isolate this thread": "No se pudo aislar este hilo",
+  "Isolate in a worktree": "Aislar en un worktree",
+  "Moves this thread to a worktree of its own, so it stops sharing the project's folder.":
+    "Mueve este hilo a un worktree propio, para que deje de compartir la carpeta del proyecto.",
   "Could not go back to that checkpoint": "No se pudo volver a ese checkpoint",
   "Could not reach the gateway": "No se pudo contactar al gateway",
   "Could not save the language": "No se pudo guardar el idioma",

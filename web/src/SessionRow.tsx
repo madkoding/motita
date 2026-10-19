@@ -108,6 +108,26 @@ function MergedItems({ s }: { s: SessionInfo }) {
   );
 }
 
+// IsolateItem moves a thread that still works in the project's folder into a worktree of its own.
+function IsolateItem({ s }: { s: SessionInfo }) {
+  const { menus, actions } = useApp();
+  return (
+    <button
+      class={ITEM_PLAIN}
+      title={t(
+        "Moves this thread to a worktree of its own, so it stops sharing the project's folder.",
+      )}
+      onClick={async (e) => {
+        e.stopPropagation();
+        menus.closeRowMenu();
+        await actions.isolateSession(s);
+      }}
+    >
+      {t("Isolate in a worktree")}
+    </button>
+  );
+}
+
 // IntegrateItem is the item that merges a session's work back into its project.
 function IntegrateItem({ s }: { s: SessionInfo }) {
   const { menus, stream } = useApp();
@@ -169,6 +189,7 @@ function SessionMenu({ s }: { s: SessionInfo }) {
         <IconEdit size={14} />
         {t("Rename")}
       </button>
+      {s.parent_id && !s.worktree && !s.merged && <IsolateItem s={s} />}
       {s.project_id && !s.merged && <IntegrateItem s={s} />}
       {s.project_id && s.merged && <MergedItems s={s} />}
       <DeleteItem type="session" id={s.id} title={s.title || s.id} />
