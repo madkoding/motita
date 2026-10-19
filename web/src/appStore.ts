@@ -11,7 +11,6 @@ import { useSkills } from "./useSkills";
 import { useReviewNotes } from "./useReviewNotes";
 import { useNotes } from "./useNotes";
 import { useProjects } from "./useProjects";
-import { useRepositories } from "./useRepositories";
 import { useArtifacts } from "./useArtifacts";
 import { useSchedules } from "./useSchedules";
 import { useConversation } from "./useConversation";
@@ -55,11 +54,6 @@ export function useAppStore(api: Api) {
   useFinishedElsewhere(lists.sessions, rs.sessionId, setToast);
   const skills = useSkills(api, rs.sessionId, setState);
   const projects = useProjects({ api, lists, setState, setToast });
-  const repositories = useRepositories({
-    api,
-    setToast,
-    projects: lists.projects,
-  });
   const projectHint = useProjectHint({ api, rs, lists, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);
   const notes = useNotes(api, setState);
@@ -194,7 +188,6 @@ export function useAppStore(api: Api) {
     model,
     skills,
     projects,
-    repositories,
     projectHint,
     artifacts,
     notes,

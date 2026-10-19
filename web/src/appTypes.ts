@@ -171,25 +171,6 @@ export interface CatalogRepo {
   size?: number;
 }
 
-// RepositoryInfo is one git repository the gateway knows: one clone, with its own pull-request
-// settings. Projects link to it, and a session can work on it directly.
-export interface RepositoryInfo {
-  id: string;
-  name: string;
-  git_url?: string;
-  dir: string;
-  // local: a folder the user already had, used where it is and never deleted by motita.
-  local?: boolean;
-  main_branch?: string;
-  merge_method?: string;
-  pr_max_fixes?: number;
-  auto_merge?: boolean;
-  auto_continue?: boolean;
-  branch?: string;
-  changes?: number;
-  projects: { id: string; title: string }[];
-}
-
 export interface ConfigView {
   provider: string;
   model: string;

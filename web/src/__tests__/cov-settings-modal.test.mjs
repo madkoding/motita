@@ -57,14 +57,6 @@ export function GitConnections(p) {
 }
 `,
 );
-stub(
-  "./RepoCatalogSettings",
-  `
-export function RepoCatalogSettings() {
-  return null;
-}
-`,
-);
 const S = await load("Settings.tsx");
 const { h, render } = await import("preact");
 
