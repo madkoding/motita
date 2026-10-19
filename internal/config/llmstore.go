@@ -109,6 +109,10 @@ func KeySource(configPath string, configured LLM, provider string) string {
 	switch {
 	case !ProviderNeedsKey(provider):
 		return KeyNotNeeded
+	case same && IsSelfHostedOllama(configured):
+		return KeyNotNeeded
+	case !same && IsSelfHostedOllama(LLM{Provider: provider, BaseURL: StoredBaseURL(provider)}):
+		return KeyNotNeeded
 	case envKey(provider, same) != "":
 		return KeyEnv
 	case same && YAMLAPIKey(configPath) != "":
@@ -117,10 +121,6 @@ func KeySource(configPath string, configured LLM, provider string) string {
 		return KeyStored
 	case HasLogin(provider):
 		return KeyLogin
-	case same && IsSelfHostedOllama(configured):
-		return KeyNotNeeded
-	case !same && IsSelfHostedOllama(LLM{Provider: provider, BaseURL: StoredBaseURL(provider)}):
-		return KeyNotNeeded
 	default:
 		return KeyMissing
 	}

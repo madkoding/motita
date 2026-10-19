@@ -609,3 +609,22 @@ func TestListModelsReportsAnEmptyCatalogue(t *testing.T) {
 		t.Errorf("err = %v, want it to name the empty catalogue", err)
 	}
 }
+
+// TestASelfHostedOllamaIsNeverSentAKey: OLLAMA_API_KEY is Ollama Cloud's, so a server of the user's
+// own gets no Authorization header even when a key is in the configuration, while the cloud does.
+func TestASelfHostedOllamaIsNeverSentAKey(t *testing.T) {
+	var header string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer srv.Close()
+	c := testClient(t, "ollama", srv.URL, nil)
+	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}); err != nil {
+		t.Fatal(err)
+	}
+	if header != "" {
+		t.Errorf("a local Ollama was sent %q", header)
+	}
+}

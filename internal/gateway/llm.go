@@ -156,11 +156,16 @@ func effectiveBase(configured config.LLM, id string) string {
 	if b := config.StoredBaseURL(id); b != "" {
 		return b
 	}
+	if id == "ollama" && !strings.EqualFold(configured.Provider, id) {
+		// Ollama on one's own server: with no endpoint saved it is the usual local address, never
+		// Ollama Cloud's (the catalogue keeps that for configurations naming "ollama" with no
+		// base_url, which are the configured provider and handled above).
+		return config.OllamaLocalURL
+	}
 	return onboard.DefaultBaseURL(id)
 }
 
-// ollamaLocalURL is where a server of one's own usually listens.
-const ollamaLocalURL = "http://localhost:11434/v1"
+const ollamaLocalURL = config.OllamaLocalURL
 
 // effectiveOwnBase is the endpoint the user saved or configured for a provider, or "".
 func effectiveOwnBase(configured config.LLM, id string) string {
@@ -173,9 +178,9 @@ func effectiveOwnBase(configured config.LLM, id string) string {
 // effectiveKey is the key a provider runs with.
 func effectiveKey(configured config.LLM, id string) string {
 	if strings.EqualFold(configured.Provider, id) {
-		return configured.APIKey
+		return config.KeyForEndpoint(id, configured.BaseURL, configured.APIKey)
 	}
-	return config.ProviderKeyFromEnv(id)
+	return config.KeyForEndpoint(id, effectiveBase(configured, id), config.ProviderKeyFromEnv(id))
 }
 
 // canChangeBase says whether a provider's endpoint is the user's to choose.
