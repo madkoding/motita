@@ -500,8 +500,9 @@ func runningSubagents(agents []agent.AgentInfo) int {
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID, Created: c.created, LastUsed: c.lastUsed,
-		Running: c.running, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
+	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
+		Created: c.created, LastUsed: c.lastUsed, Running: c.running, AutoApprove: c.autoApprove,
+		AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()
@@ -943,8 +944,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// Isolate gives a project session a worktree of its own instead of the project's folder,
 		// for working in parallel on one repository.
 		Isolate bool `json:"isolate"`
-		// ParentID names the main session to open a thread of. Absent, the first session of a
-		// project is its main one and every later one is a thread of it, in a worktree of its own.
+		// ParentID names the main session to open a thread of, in a worktree of its own. It is what
+		// the agent of a project's main session asks for; absent, the session is a main one.
 		ParentID string `json:"parent_id"`
 	}
 	// The body is optional: a client that sends no body gets a free-standing session.
@@ -981,14 +982,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
-		isolate := body.Isolate
-		if project != nil {
-			if parent := s.threadParent(body.ProjectID, body.ParentID); parent != "" && parent != conv.id {
-				conv.setParent(parent)
-				isolate = true
-			}
-		}
-		s.placeAndSave(conv, body.ProjectID, project, body.Git, isolate)
+		s.placeAndSave(conv, body.ProjectID, project, body.Git, s.joinThread(conv, body.ProjectID, body.ParentID, body.Isolate))
 		writeJSON(w, http.StatusCreated, conv.status())
 	}
 }

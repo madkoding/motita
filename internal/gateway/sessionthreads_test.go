@@ -21,15 +21,18 @@ func newThreadSession(t *testing.T, srv *Server, projectID, extra string) Sessio
 	return ss
 }
 
-// The first session of a project is its main one and works in the project's folder; the next ones
-// are threads of it, each in a worktree of its own.
-func TestAProjectHasOneMainSessionAndTheRestAreThreads(t *testing.T) {
-	srv, projectDir, _ := newSessionInProject(t)
+// A session is a thread only when it asks to be one of a session of its own project; a thread gets
+// a worktree of its own, and a thread of a thread is a thread of the main session.
+func TestAThreadIsASessionWithAParentAndAWorktree(t *testing.T) {
+	srv, projectDir, mainID := newSessionInProject(t)
 	pid := onlyProjectID(t, srv)
-	// newSessionInProject already made the project's first session, so it is the main one.
-	thread := newThreadSession(t, srv, pid, "")
-	if thread.ParentID == "" {
-		t.Fatal("the second session of a project must be a thread of the first")
+	plain := newThreadSession(t, srv, pid, "")
+	if plain.ParentID != "" {
+		t.Fatalf("a session that asks for no parent is a main one, got %q", plain.ParentID)
+	}
+	thread := newThreadSession(t, srv, pid, `,"parent_id":"`+mainID+`"`)
+	if thread.ParentID != mainID {
+		t.Fatalf("parent %q, want %q", thread.ParentID, mainID)
 	}
 	if thread.Workspace == projectDir || filepath.Dir(thread.Workspace) == projectDir {
 		t.Errorf("a thread must have a worktree of its own, got %q", thread.Workspace)
@@ -37,15 +40,16 @@ func TestAProjectHasOneMainSessionAndTheRestAreThreads(t *testing.T) {
 	if _, err := os.Stat(thread.Workspace); err != nil {
 		t.Errorf("the thread's worktree is missing: %v", err)
 	}
-	// A thread of a thread is a thread of the main session.
 	nested := newThreadSession(t, srv, pid, `,"parent_id":"`+thread.ID+`"`)
-	if nested.ParentID != thread.ParentID {
-		t.Errorf("the tree is one level deep: parent %q, want %q", nested.ParentID, thread.ParentID)
+	if nested.ParentID != mainID {
+		t.Errorf("the tree is one level deep: parent %q, want %q", nested.ParentID, mainID)
 	}
-	// A parent from another project is ignored.
-	other := newThreadSession(t, srv, pid, `,"parent_id":"nope"`)
-	if other.ParentID != thread.ParentID {
-		t.Errorf("an unknown parent falls back to the main session, got %q", other.ParentID)
+	// An unknown parent, or a session of no project, is ignored.
+	free := newThreadSession(t, srv, "", "")
+	for _, asked := range []string{"nope", free.ID} {
+		if got := newThreadSession(t, srv, pid, `,"parent_id":"`+asked+`"`).ParentID; got != "" {
+			t.Errorf("parent %q must be ignored, got %q", asked, got)
+		}
 	}
 }
 
@@ -53,8 +57,8 @@ func TestAProjectHasOneMainSessionAndTheRestAreThreads(t *testing.T) {
 func TestDeletingTheMainSessionPromotesItsOldestThread(t *testing.T) {
 	srv, _, mainID := newSessionInProject(t)
 	pid := onlyProjectID(t, srv)
-	a := newThreadSession(t, srv, pid, "")
-	b := newThreadSession(t, srv, pid, "")
+	a := newThreadSession(t, srv, pid, `,"parent_id":"`+mainID+`"`)
+	b := newThreadSession(t, srv, pid, `,"parent_id":"`+mainID+`"`)
 	if rec := doDelete(t, srv, "/v1/sessions/"+mainID+"?force=1"); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
@@ -64,6 +68,10 @@ func TestDeletingTheMainSessionPromotesItsOldestThread(t *testing.T) {
 	if got := convNamed(t, srv, b.ID).parent(); got != a.ID {
 		t.Errorf("the other threads follow the new main session, parent %q", got)
 	}
+	// Deleting a thread leaves the rest alone.
+	if rec := doDelete(t, srv, "/v1/sessions/"+b.ID+"?force=1"); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete thread: %d", rec.Code)
+	}
 }
 
 // Sessions saved before threads existed are adopted: the oldest of a project is its main session.
@@ -71,8 +79,6 @@ func TestOldSessionsOfAProjectAreAdoptedAsThreads(t *testing.T) {
 	srv, _, first := newSessionInProject(t)
 	pid := onlyProjectID(t, srv)
 	second := newThreadSession(t, srv, pid, "")
-	// Forget the parent, as a record from before the field would.
-	convNamed(t, srv, second.ID).setParent("")
 	srv.adoptThreads()
 	if got := convNamed(t, srv, second.ID).parent(); got != first {
 		t.Errorf("parent %q, want the oldest session %q", got, first)

@@ -8,7 +8,9 @@ import (
 
 // A project has ONE main session, and the work done in parallel inside it happens in threads.
 //
-// A thread is a session whose parentID names the project's main session. The model is deliberately
+// A thread is a session whose parentID names the project's main session. The person never opens one:
+// the agent of the main session does, when a request is about something new or different (one
+// thread per kind of work, reused when the work comes back). The model is deliberately
 // that small: a thread is not a new kind of object, it is a session with a parent, so everything a
 // session already does (run, queue, integrate, open a pull request, be deleted) works on it unchanged.
 //
@@ -16,28 +18,6 @@ import (
 // Code works in a directory; a thread gets a worktree of its own, so two threads never edit the same
 // files. That only means something where there is a repository: in a plain folder isolation is a
 // no-op (see placeInProject) and a thread shares the folder like any session did before.
-
-// mainSession is the project's main session: the oldest one that has no parent. Nil when the
-// project has no session yet.
-func (s *Server) mainSession(projectID string) *conversation {
-	if projectID == "" {
-		return nil
-	}
-	var main *conversation
-	for _, c := range s.snapshot() {
-		c.stateMu.Lock()
-		own := c.projectID == projectID && c.parentID == ""
-		created := c.created
-		c.stateMu.Unlock()
-		if !own {
-			continue
-		}
-		if main == nil || created.Before(main.createdAt()) {
-			main = c
-		}
-	}
-	return main
-}
 
 // createdAt is when the session was made.
 func (c *conversation) createdAt() (t time.Time) {
@@ -59,29 +39,38 @@ func (c *conversation) setParent(id string) {
 	c.parentID = id
 }
 
-// threadParent decides where a new session of a project goes. The first session of a project is its
-// main one and gets no parent; every later one is a thread of the main session and gets its own
-// worktree. A client may name the parent itself; naming a session of another project, or one that
-// is gone, is ignored rather than refused, so a stale client still gets a working session.
+// threadParent validates the main session a new session asks to be a thread of: it must be a live
+// session of the same project. A thread of a thread is a thread of the main session, so the tree
+// stays one level deep. Anything else answers empty and the session is simply a main one: a stale
+// client still gets a working session.
 func (s *Server) threadParent(projectID, asked string) string {
-	if asked = strings.TrimSpace(asked); asked != "" {
-		if c, ok := s.lookup(asked); ok {
-			c.stateMu.Lock()
-			same, root := c.projectID == projectID, c.parentID
-			c.stateMu.Unlock()
-			if same {
-				// A thread of a thread is a thread of the main session: the tree is one level deep.
-				if root != "" {
-					return root
-				}
-				return asked
-			}
-		}
+	c, ok := s.lookup(strings.TrimSpace(asked))
+	if !ok {
+		return ""
 	}
-	if main := s.mainSession(projectID); main != nil {
-		return main.id
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if projectID == "" || c.projectID != projectID {
+		return ""
 	}
-	return ""
+	if c.parentID != "" {
+		return c.parentID
+	}
+	return c.id
+}
+
+// joinThread makes a new session a thread of the one it asked for, if that is valid, and reports
+// whether it must get a worktree of its own (a thread always does).
+func (s *Server) joinThread(conv *conversation, projectID, asked string, isolate bool) bool {
+	parent := s.threadParent(projectID, asked)
+	conv.setParent(parent)
+	return isolate || parent != ""
+}
+
+// oldestFirst orders sessions by creation time, ties by id so the order is stable.
+func oldestFirst(cs []*conversation) {
+	sort.Slice(cs, func(i, j int) bool { return cs[i].id < cs[j].id })
+	sort.SliceStable(cs, func(i, j int) bool { return cs[i].createdAt().Before(cs[j].createdAt()) })
 }
 
 // adoptThreads gives the sessions saved before threads existed the shape the model expects: in each
@@ -102,13 +91,7 @@ func (s *Server) adoptThreads() {
 		if len(roots) < 2 {
 			continue
 		}
-		sort.Slice(roots, func(i, j int) bool {
-			ci, cj := roots[i].createdAt(), roots[j].createdAt()
-			if !ci.Equal(cj) {
-				return ci.Before(cj)
-			}
-			return roots[i].id < roots[j].id
-		})
+		oldestFirst(roots)
 		for _, c := range roots[1:] {
 			c.setParent(roots[0].id)
 			s.saveSession(c)
@@ -129,13 +112,7 @@ func (s *Server) promoteThreads(deleted string) {
 	if len(kids) == 0 {
 		return
 	}
-	sort.Slice(kids, func(i, j int) bool {
-		ci, cj := kids[i].createdAt(), kids[j].createdAt()
-		if !ci.Equal(cj) {
-			return ci.Before(cj)
-		}
-		return kids[i].id < kids[j].id
-	})
+	oldestFirst(kids)
 	kids[0].setParent("")
 	s.saveSession(kids[0])
 	for _, c := range kids[1:] {

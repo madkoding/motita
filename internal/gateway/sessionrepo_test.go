@@ -26,7 +26,7 @@ func newSharedSession(t *testing.T, srv *Server, projectID string) SessionStatus
 }
 
 // TestTheMainSessionWorksInTheProjectFolder: a project is a folder and its main session works in it,
-// as in Claude Code, with no worktree or branch made for it. Later sessions are threads with a
+// as in Claude Code, with no worktree or branch made for it. Threads, which the agent opens, get a
 // worktree of their own (see sessionthreads_test.go).
 func TestTheMainSessionWorksInTheProjectFolder(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
@@ -46,10 +46,6 @@ func TestTheMainSessionWorksInTheProjectFolder(t *testing.T) {
 	}
 	if gitx.BranchExists(context.Background(), dir, sessionBranch(a.ID)) {
 		t.Error("no session branch must be made before a pull request asks for one")
-	}
-	b := newSharedSession(t, srv, pid)
-	if b.ParentID != a.ID || b.Worktree == "" {
-		t.Errorf("the second session is a thread of the first with its own worktree: %+v", b)
 	}
 }
 
