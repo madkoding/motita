@@ -299,8 +299,8 @@ const more: Record<string, string> = {
   "Whole disk": "Disco completo",
   "Safest: Motita reads and writes only inside the folder of the session it works in. Your other files are out of its reach.":
     "Lo más seguro: Motita lee y escribe solo dentro de la carpeta de la sesión en la que trabaja. Tus demás archivos quedan fuera de su alcance.",
-  "Motita can read and write any file your user account can: documents, other projects, settings.":
-    "Motita puede leer y escribir cualquier archivo al que llegue tu usuario: documentos, otros proyectos, configuraciones.",
+  "Motita can read and write any file your user account can: documents, other projects, settings. Commands that work outside the workspace no longer ask; one that touches your keys still does.":
+    "Motita puede leer y escribir cualquier archivo al que llegue tu usuario: documentos, otros proyectos, configuraciones. Los comandos que trabajan fuera del workspace ya no preguntan; uno que toca tus llaves sí.",
   "Motita will be able to read, change and delete any file your user account can, outside its workspace too.":
     "Motita podrá leer, cambiar y borrar cualquier archivo al que llegue tu usuario, también fuera de su workspace.",
   "A mistake, or instructions hidden in a web page or a repository it reads, could damage or leak your files.":

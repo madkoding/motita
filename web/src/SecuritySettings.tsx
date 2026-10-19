@@ -27,7 +27,7 @@ function accessHint(m: DiskAccess): string {
     );
   }
   return t(
-    "Motita can read and write any file your user account can: documents, other projects, settings.",
+    "Motita can read and write any file your user account can: documents, other projects, settings. Commands that work outside the workspace no longer ask; one that touches your keys still does.",
   );
 }
 
