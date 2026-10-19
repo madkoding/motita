@@ -170,6 +170,10 @@ export interface PlacedNode extends GraphNode {
 
 const LAYOUT_STEPS = 140;
 const MARGIN = 28;
+// The layout: spring length against the area, pull to the middle, and the longest step per round.
+const SPRING = 0.6;
+const GRAVITY = 0.05;
+const MAX_SHIFT = 12;
 
 // layoutGraph places the notes in a width x height box with a small force simulation: every pair
 // pushes apart, every link pulls together, and the whole drifts to the middle. It starts from a
@@ -189,7 +193,7 @@ export function layoutGraph(
     y: cy + spread * Math.sin((2 * Math.PI * i) / n),
   }));
   const at = new Map(placed.map((p) => [p.path, p]));
-  const k = Math.sqrt((width * height) / n) * 0.6;
+  const k = Math.sqrt((width * height) / n) * SPRING;
   for (let step = 0; step < LAYOUT_STEPS; step++) {
     const cool = 1 - step / LAYOUT_STEPS;
     const move = new Map(placed.map((p) => [p, { x: 0, y: 0 }]));
@@ -203,8 +207,8 @@ export function layoutGraph(
         da.x += dx * push;
         da.y += dy * push;
       }
-      da.x += (cx - a.x) * 0.05;
-      da.y += (cy - a.y) * 0.05;
+      da.x += (cx - a.x) * GRAVITY;
+      da.y += (cy - a.y) * GRAVITY;
     }
     for (const e of graph.edges) {
       const a = at.get(e.from) as PlacedNode;
@@ -222,16 +226,43 @@ export function layoutGraph(
     for (const p of placed) {
       const m = move.get(p) as { x: number; y: number };
       const len = Math.max(Math.sqrt(m.x * m.x + m.y * m.y), 0.01);
-      const step = Math.min(len, 12 * cool + 0.5);
+      const shift = Math.min(len, MAX_SHIFT * cool + 0.5);
       p.x = Math.min(
         width - MARGIN,
-        Math.max(MARGIN, p.x + (m.x / len) * step),
+        Math.max(MARGIN, p.x + (m.x / len) * shift),
       );
       p.y = Math.min(
         height - MARGIN,
-        Math.max(MARGIN, p.y + (m.y / len) * step),
+        Math.max(MARGIN, p.y + (m.y / len) * shift),
       );
     }
   }
   return placed;
+}
+
+// NoteScan is what scanning the sessions and projects into notes reports.
+export interface NoteScan {
+  // false when only a first-use scan was asked for and the vault did not need one.
+  ran: boolean;
+  projects: number;
+  sessions: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+}
+
+// scanNotes writes a note for every project and every session that has been used, or updates the
+// ones it wrote before. With first, the gateway only does it for a vault that was never filled.
+export async function scanNotes(api: Api, first = false): Promise<NoteScan> {
+  let path = "/v1/notes/scan";
+  if (first) {
+    path += "?first=1";
+  }
+  const res = await api(path, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "HTTP " + res.status);
+  }
+  return (await res.json()) as NoteScan;
 }

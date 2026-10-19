@@ -250,6 +250,12 @@ func (rr *roundRun) shell(i int, action Command) {
 	//    model use pipes, redirections and globs to do real work — but only once the
 	//    policy has had its say. A consequential action is put in front of the user
 	//    here, mid-run, because this is the moment it is about to happen.
+	if why := fakeCheckCommand(action.Command); why != "" {
+		fmt.Fprintf(&rr.sb, "$ %s\n[refused: %s]\n", action.Command, why)
+		a.log.Warn(rr.prefix+"action refused: it fabricates a check", "command", truncate(action.Command, 160))
+		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, truncate(action.Command, 80), why)
+		return
+	}
 	plan := a.planRequest(action.Command)
 	if plan.Verdict == policy.Deny {
 		fmt.Fprintf(&rr.sb, "$ %s\n[refused: %s]\n", action.Command, plan.Reason)

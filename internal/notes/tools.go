@@ -86,7 +86,9 @@ func (v *Vault) WriteText(ref, body string) string {
 		return fmt.Sprintf(errPrefix+"the note %q already exists. Read it, then add to it with append_note; "+
 			"notes are never overwritten.", ref)
 	case err != nil:
-		return errPrefix + "" + err.Error()
+		return errPrefix + err.Error()
+	default:
+		// created
 	}
 	return fmt.Sprintf("Created [[%s]] (%s). Link it from related notes with [[%s]].", n.Title, n.Path, n.Title)
 }

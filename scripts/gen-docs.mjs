@@ -76,6 +76,7 @@ ${flow("The five setup steps", [["Provider", "Which model answers"], ["Connect",
 </ul>
 <h2>How a task runs</h2>
 ${flow("How a task runs", [["You ask", "Type a task in Task mode"], ["It works", "Reads, edits and runs commands"], ["Your check runs", "<code>make test</code>, <code>go test</code>, <code>npm test</code>…"], ["Done", "Only once the check passes"]], "If the check fails, the agent reads the failure and tries again. That loop is what gives “done” its meaning.")}
+<p>The agent never fakes a check. If a tool or its dependencies are missing it installs them the way the project does and runs the framework's own command (<code>php artisan test</code>, <code>npm test</code>, <code>pytest</code>). A stand-in that only exits 0, or an edit of a test script so it passes, is refused before it touches the disk. When the machine cannot run a check at all (no network, a tool that cannot be installed) the result says <strong>not validated</strong> and names the cause, instead of reporting a pass.</p>
 <h2>Staying in control</h2>
 <ul>
 <li><kbd>Esc</kbd> stops the running task.</li>
@@ -120,7 +121,7 @@ ${hub("The terminal, browser, phone and scripts all talk to one gateway, which r
 <p>It is served from the gateway's own port, so there is no second server and no cross-origin setup. Open <code>http://127.0.0.1:7477</code>, paste the token once, and you have chat, projects, settings and the skill library. It installs as an app (PWA) and is compiled into the binary.</p>
 <p>The token is read from <code>~/.motita/gateway.token</code> and printed by <code>motita gateway start</code>.</p>
 <h2>Notes</h2>
-<p>The <strong>Notes</strong> button in the sidebar opens a vault of plain Markdown notes: a folder tree, an editor with a preview, <code>[[wiki links]]</code> that open the note they name (or create it), the notes that link back, a graph of the links and a search, and the agent can search, read and add to them, citing the note it relies on. The notes are ordinary <code>.md</code> files in <code>~/.motita/notes</code>, so you can open that same folder in Obsidian.</p>
+<p>The <strong>Notes</strong> button in the sidebar opens a vault of plain Markdown notes: a folder tree, an editor with a preview, <code>[[wiki links]]</code> that open the note they name (or create it), the notes that link back, a graph of the links and a search, and the agent can search, read and add to them, citing the note it relies on. The notes are ordinary <code>.md</code> files in <code>~/.motita/notes</code>, so you can open that same folder in Obsidian. In Settings, Indexing, <strong>Scan now</strong> fills the vault with a note per project and per session (and does it by itself the first time the vault is empty), and a note can be renamed without breaking the links to it.</p>
 <h2>Running the gateway</h2>
 ${code("sh", `motita gateway start    # start the service and wait until it answers
 motita gateway status   # is one running, where, and which build

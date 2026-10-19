@@ -54,6 +54,7 @@ ${flow("Los cinco pasos de la configuración", [["Proveedor", "Qué modelo respo
 </ul>
 <h2>Cómo corre una tarea</h2>
 ${flow("Cómo corre una tarea", [["Tú pides", "Escribe una tarea en modo Tarea"], ["Trabaja", "Lee, edita y ejecuta comandos"], ["Corre tu verificación", "<code>make test</code>, <code>go test</code>, <code>npm test</code>…"], ["Terminado", "Solo cuando pasa la verificación"]], "Si la verificación falla, el agente lee el fallo y vuelve a intentar. Ese ciclo es lo que da sentido a “terminado”.")}
+<p>El agente nunca simula una verificación. Si falta una herramienta o sus dependencias, las instala como lo hace el proyecto y ejecuta el comando propio del framework (<code>php artisan test</code>, <code>npm test</code>, <code>pytest</code>). Un sustituto que solo devuelve 0, o editar un script de pruebas para que pase, se rechaza antes de tocar el disco. Si la máquina no puede ejecutar una verificación (sin red, una herramienta que no se puede instalar), el resultado dice <strong>no validado</strong> y da la causa, en lugar de informar un éxito.</p>
 <h2>Mantener el control</h2>
 <ul>
 <li><kbd>Esc</kbd> detiene la tarea en curso.</li>
@@ -97,7 +98,7 @@ ${hub("La terminal, el navegador, el teléfono y los scripts hablan con un solo 
 <p>Se sirve desde el puerto del propio gateway: no hay un segundo servidor ni configuración entre orígenes. Abre <code>http://127.0.0.1:7477</code>, pega el token una vez y tienes chat, proyectos, ajustes y la biblioteca de skills. Se instala como app (PWA) y va compilada dentro del binario.</p>
 <p>El token se lee de <code>~/.motita/gateway.token</code> y lo imprime <code>motita gateway start</code>.</p>
 <h2>Notas</h2>
-<p>El botón <strong>Notas</strong> de la barra lateral abre una bóveda de notas en Markdown plano: un árbol de carpetas, un editor con vista previa, <code>[[enlaces wiki]]</code> que abren la nota que nombran (o la crean), las notas que enlazan de vuelta un grafo de los enlaces y un buscador, y el agente puede buscar, leer y añadir a ellas citando la nota en que se apoya. Las notas son archivos <code>.md</code> normales en <code>~/.motita/notes</code>, así que puedes abrir esa misma carpeta en Obsidian.</p>
+<p>El botón <strong>Notas</strong> de la barra lateral abre una bóveda de notas en Markdown plano: un árbol de carpetas, un editor con vista previa, <code>[[enlaces wiki]]</code> que abren la nota que nombran (o la crean), las notas que enlazan de vuelta un grafo de los enlaces y un buscador, y el agente puede buscar, leer y añadir a ellas citando la nota en que se apoya. Las notas son archivos <code>.md</code> normales en <code>~/.motita/notes</code>, así que puedes abrir esa misma carpeta en Obsidian. En Ajustes, Indexado, <strong>Escanear ahora</strong> llena la bóveda con una nota por proyecto y por sesión (y lo hace solo la primera vez que la bóveda está vacía), y una nota se puede renombrar sin romper los enlaces que llevan a ella.</p>
 <h2>Ejecutar el gateway</h2>
 ${code("sh", `motita gateway start    # inicia el servicio y espera a que responda
 motita gateway status   # si hay uno corriendo, dónde y qué compilación

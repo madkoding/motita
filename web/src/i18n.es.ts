@@ -396,6 +396,7 @@ const first: Record<string, string> = {
   "all allowed": "todo permitido",
   "all commands allowed": "todos los comandos permitidos",
   "analysing the task...": "analizando la tarea...",
+  blocked: "no ejecutada",
   "approved (all commands allowed in this session): {x}":
     "aprobado (todos los comandos permitidos en esta sesión): {x}",
   "argument…": "argumento…",

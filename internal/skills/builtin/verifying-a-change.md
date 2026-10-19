@@ -20,23 +20,22 @@ the result, and that read is what goes in the answer.
 | "it is 15% faster"  | the change looks faster | both numbers, same machine, same input, before and after           |
 | "the page shows it" | the CSS rule exists     | the computed style / the pixel                                     |
 
-## A check that could not run is not a pass
+## A check that could not run is not a check that passed
 
-A test, build or lint has THREE outcomes, and the report keeps them apart: **passed**, **failed**,
-and **not run** (the tool is missing, the dependencies are not installed, the registry did not
-answer). "Not run" is never rounded up to "passed".
+A check ends in one of THREE states: **passed** (it ran and its output names the tests), **failed**
+(it ran and something failed) and **could not run** (a missing tool or dependency, no network). Say
+which, every time.
 
-- **Look before you act.** Missing `vendor/bin/phpunit`, `node_modules/.bin/vitest`: check what the
-  project has (`ls vendor`, `composer.json`, `package.json`) and install with the project's own tool
-  (`composer install`, `npm ci`) before concluding anything.
-- **Use the framework's own command**: `php artisan test` in Laravel, `npm test`, `go test ./...`,
-  not a replacement you wrote.
-- **Never create a stand-in** - an executable that exits 0, a `composer.json` script pointing at it,
-  a test file that asserts nothing - to turn a red or missing check green. That hides the problem
-  and ships an unmeasured result.
-- **If the install fails** (no network, `curl error 6`, a private registry), say exactly that: "the
-  tests were NOT RUN because `composer install` could not reach packagist". Leave the project as it
-  was and let the user decide.
+- Never make the third look like the first. No executable that only exits 0 in place of
+  `vendor/bin/phpunit`, nothing written by hand into `vendor/` or `node_modules/`, no edit of a
+  `test`/`lint`/`build` script so it succeeds without running the tool. `composer test` printing
+  success over a script that runs nothing is a lie with a green exit status.
+- A missing tool is a problem to solve first: look at what is installed, install the dependencies
+  the way the project does (`composer install`, `npm ci`, `pip install -r`), and use the
+  framework's own runner (`php artisan test`, `rails test`, `manage.py test`).
+- When the environment will not allow it (`curl error 6`, `Could not resolve host`, no
+  `vendor/autoload.php` and no way to create it), stop and report **not validated**, with the
+  command and the cause. Say what you verified some other way, and what the person has to run.
 - **Check before you advise on files or git.** A claim about a repository, a worktree or a
   directory ("the original repo registers this worktree") comes from `git worktree list`,
   `git -C <dir> rev-parse --git-common-dir`, `ls` - not from the folder's name. Do it before

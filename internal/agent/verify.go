@@ -45,7 +45,8 @@ var verifyPhrases = []*regexp.Regexp{
 	regexp.MustCompile(`^(make|gmake|ninja|cmake --build) ?(test|tests|check|lint|build|verify|ci|all)?\b`),
 	regexp.MustCompile(`^(node|bun|deno) --test\b`),
 	regexp.MustCompile(`^(bundle exec )?(rspec|rake (test|spec))\b`),
-	regexp.MustCompile(`^(phpunit|composer (test|check)|vendor/bin/phpunit)\b`),
+	regexp.MustCompile(`^(php )?(\./)?(phpunit|pest|artisan test|vendor/bin/(phpunit|pest|phpstan|pint))\b|` +
+		`^composer (run(-script)? )?(test|check|lint|analy[sz]e)\b`),
 	regexp.MustCompile(`^(sh|bash) \S*(test|check|verify|lint)\S*\.sh\b`),
 }
 
@@ -309,6 +310,7 @@ func checkFailed(exit int, runErr error, output string) (failed, masked bool) {
 // noteVerification records one execution. A later run of the same check replaces the earlier one,
 // so a pass closes a failure and a new failure reopens it.
 func (m *workMemory) noteVerification(command string, round, exit int, runErr error, output string) {
+	m.noteInstall(command, round, exit, runErr, output)
 	keys := verificationKeys(command)
 	if len(keys) == 0 {
 		return
@@ -399,6 +401,7 @@ func unresolvedCheckChallenge(open []verifRecord, attempt int) string {
 		}
 		b.WriteString("\n  last output:\n" + indentLines(truncate(r.tail, verifyTailChars), "    ") + "\n")
 	}
+	b.WriteString(blockedNote(blockedOf(open)))
 	b.WriteString("\nDo ONE of these in this round, then claim done again:\n" +
 		"1. FIX it: read the failure, change what it names, run the check again until it passes.\n" +
 		"2. PROVE it is not yours: run the SAME check with your change set aside (git stash, or a clean `git worktree` " +

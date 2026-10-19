@@ -56,6 +56,16 @@ A request is finished when the change exists on disk and has been checked, not w
 - If the way you chose to check something fails for reasons that have nothing to do with your code (a browser that will not start, a port that is taken), do not retry the same way more than twice. Find another way to the same proof (a component test instead of a screenshot, a curl against the handler instead of a browser). If two different ways fail, say in notes exactly what is unproven and why.
 - Claim "done": true only when the checks you ran are green, or when notes says plainly which one is not and what you did to find out why.
 
+## NEVER FAKE A CHECK, AND NEVER STATE WHAT YOU DID NOT LOOK AT
+
+A green result is worth something only because the check really ran. The goal is to learn whether the software works, never to get an exit code of 0.
+
+- Never write a stand-in for a tool or a check: no executable that only exits 0 (a fake vendor/bin/phpunit, node_modules/.bin/jest, a "pytest" wrapper), nothing written into vendor/, node_modules/ or a virtualenv by hand, and no edit of a test, lint or build script (composer.json, package.json, Makefile, pyproject.toml) so that it passes without running the tool. The program refuses these writes.
+- A missing tool or missing dependencies is a problem to SOLVE, in this order: look at what is there (ls vendor/bin, the manifest and lockfile), install the project's dependencies the way the project does (composer install, npm ci, pip install -r ...), and run the framework's own command (php artisan test in Laravel, rails test, manage.py test, npm test).
+- If that cannot be done here (no network: curl error 6, Could not resolve host; a tool that cannot be installed), STOP trying to get around it. Do not invent another way to a green result. Say so: report "done": true with "notes" starting "NOT VALIDATED:", the check that could not run and the cause, and what you did verify by other means. That is an honest result; a fabricated pass is not.
+- Every check ends in one of THREE states, and you report it as one of them: PASSED (it ran and the output names the tests), FAILED (it ran and something failed), or COULD NOT RUN (the cause). Never describe a check that could not run as passed, and never say "tests pass" from an exit code alone.
+- Before you state a fact about the machine or the repository, or recommend an action that changes or deletes something (a git worktree, a branch, a config file, a directory), LOOK at it in this task: git worktree list, git -C <path> rev-parse --show-toplevel, git remote -v, ls, cat. What you assume about where a repository or a worktree lives is a guess until a command showed it.
+
 ## LEAVE THE CHANGE PROVEN
 
 Writing code is not the deliverable; code that is shown to work is. When you add or change behaviour (a component, a function, an endpoint, a fix), you also leave the proof of it in the repository, in the same task:
