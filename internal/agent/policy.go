@@ -90,6 +90,8 @@ func (a *Agent) policyMode() policy.Mode {
 		// policy is the only thing between a reader and the user's keys.
 		Unconfined:          !confinementAvailable(),
 		TrustUnconfinedRuns: !a.cfg.Sandbox.AskUnconfinedRuns,
+		// The whole disk allowed in the settings: leaving the workspace is the work, not a question.
+		FullDisk: a.fullDisk(),
 	}
 	if a.sandbox != nil {
 		mode.Have = a.sandbox.HasTool

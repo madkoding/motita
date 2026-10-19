@@ -120,6 +120,8 @@ type Mode struct {
 	// running without a question: the operator chose that (sandbox.ask_unconfined_runs: false). A
 	// path outside the workspace is still asked about. Off, the default, asks.
 	TrustUnconfinedRuns bool
+	// FullDisk is sandbox.disk_access: full, so leaving the workspace is not asked about. See fulldisk.go.
+	FullDisk bool
 	// Cmd says the line runs under cmd.exe, whose expansions (`%VAR%`, `!VAR!`), escape (`^`) and
 	// word division the POSIX reading does not know. Only a line of plain words is classified;
 	// anything else is approved as a whole. See cmdLine.
@@ -134,7 +136,7 @@ type Mode struct {
 // it" is the difference between work and damage, and it is the only judgement here that
 // needs to know where.
 func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
-	return m.unconfinedDecision(m.decisionFor(command, args, dir), args, dir)
+	return m.unconfinedDecision(m.fullDiskDecision(m.decisionFor(command, args, dir), args), args, dir)
 }
 
 // decisionFor is DecisionFor before what the lack of confinement changes.
@@ -431,25 +433,6 @@ func projectLocalDecision(command string, args []string, dir string) (Decision, 
 	}
 	return Decision{Allow, fmt.Sprintf("%q is a program inside the workspace (%s), so its work "+
 		"stays where the task is", baseName(command), dir), "project-local", false}, true
-}
-
-// isInsideWorkspace reports whether a path resolves to something inside dir. It reuses the
-// same resolution as the write checks, so a workspace reached through a symlink does not make
-// every path inside it look like it is outside.
-//
-// With no workspace it answers FALSE, and that matters: firstOutside compares against dir and
-// returns "" (meaning "nothing was outside") when dir is empty, so delegating the empty case
-// would make every path in the system look like it lives inside "nothing". The caller guards
-// this too, and a helper that lies about the empty case is exactly the kind of thing that gets
-// copied somewhere the guard is missing.
-func isInsideWorkspace(path, dir string) bool {
-	if dir == "" {
-		return false
-	}
-	if strings.HasPrefix(filepath.Clean(path), "~") {
-		return false
-	}
-	return firstOutside([]string{path}, dir) == ""
 }
 
 // localTools are the programs whose ordinary use IS the work the agent was pointed at:
@@ -1020,8 +1003,8 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 		}
 	}
 	if outside := firstOutside([]string{target}, dir); outside != "" {
-		return Decision{Ask, fmt.Sprintf("the line writes to %q, which is outside the directory this "+
-			"task works in (%s)", outside, dir), "write-outside-workspace", false}
+		return m.fullDiskDecision(Decision{Ask, fmt.Sprintf("the line writes to %q, which is outside the "+
+			"directory this task works in (%s)", outside, dir), "write-outside-workspace", false}, []string{target})
 	}
 	return Decision{Allow, fmt.Sprintf("the line writes inside the workspace (%s)", dir),
 		"write-inside-workspace", false}

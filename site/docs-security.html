@@ -66,7 +66,7 @@
 <p><strong>Settings &rarr; Security</strong> chooses how much of the disk the agent reaches:</p>
 <ul>
 <li><strong>Workspace only</strong> (default): file edits outside the session's folder are refused, and on Linux a command cannot read or list your files elsewhere (home, <code>/home</code>, <code>/mnt</code>, ...).</li>
-<li><strong>Whole disk</strong>: both reach anywhere your account can. The page asks first and spells out the risk. motita's own logins stay hidden either way.</li>
+<li><strong>Whole disk</strong>: both reach anywhere your account can. The page asks first and spells out the risk. motita's own logins stay hidden either way, and commands that work outside the workspace stop asking (one that names your keys still asks).</li>
 </ul>
 <p>Where nothing confines a command (Windows, macOS, Linux without Landlock), the agent asks before the project's own code runs, unless you turn that off.</p>
 <p>Each session also gets its own HOME, and cannot read the other projects and sessions of the same gateway.</p>

@@ -291,7 +291,7 @@ ${flow("De un comando a su sandbox", [["Un comando", "El agente quiere ejecutarl
 <p><strong>Ajustes &rarr; Seguridad</strong> elige cuánto del disco alcanza el agente:</p>
 <ul>
 <li><strong>Solo el workspace</strong> (por defecto): se rechazan las ediciones de archivos fuera de la carpeta de la sesión, y en Linux un comando no puede leer ni listar tus archivos en otras partes (home, <code>/home</code>, <code>/mnt</code>, ...).</li>
-<li><strong>Todo el disco</strong>: ambos llegan a cualquier parte que tu cuenta alcance. La página pregunta primero y explica el riesgo. Las credenciales propias de motita quedan ocultas en ambos casos.</li>
+<li><strong>Todo el disco</strong>: ambos llegan a cualquier parte que tu cuenta alcance. La página pregunta primero y explica el riesgo. Las credenciales propias de motita quedan ocultas en ambos casos, y los comandos que trabajan fuera del workspace dejan de preguntar (uno que nombra tus llaves sigue preguntando).</li>
 </ul>
 <p>Donde nada confina un comando (Windows, macOS, Linux sin Landlock), el agente pregunta antes de ejecutar código del propio proyecto, salvo que lo desactives.</p>
 <p>Cada sesión además tiene su propio HOME y no puede leer los demás proyectos y sesiones del mismo gateway.</p>
