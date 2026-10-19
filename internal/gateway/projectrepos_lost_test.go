@@ -204,14 +204,14 @@ func TestDeletingAProjectStopsOnUnpublishedCommits(t *testing.T) {
 	}
 	own := filepath.Join(projectDir, "blank")
 	commitHere(t, own)
-	path := "/v1/projects/" + id
+	path := "/v1/projects/" + id + "?folder=delete"
 	if w := send(t, srv, http.MethodDelete, path, testToken, ""); w.Code != http.StatusConflict {
 		t.Fatalf("an unpublished commit must stop the deletion: %d %s", w.Code, w.Body)
 	}
 	if _, err := os.Stat(own); err != nil {
 		t.Errorf("the clone must still be there: %v", err)
 	}
-	if w := send(t, srv, http.MethodDelete, path+"?force=1", testToken, ""); w.Code != http.StatusNoContent {
+	if w := send(t, srv, http.MethodDelete, path+"&force=1", testToken, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("a confirmed deletion: %d %s", w.Code, w.Body)
 	}
 }

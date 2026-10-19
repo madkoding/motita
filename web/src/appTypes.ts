@@ -332,8 +332,9 @@ export interface DeletionPreview {
   sessions?: { id: string; title: string; changes: FileChange[] }[];
   count: number;
   inspection_failed?: boolean;
-  keeps_folder?: boolean;
   folder?: string;
+  folder_changes?: FileChange[];
+  folder_protected?: string;
   error?: string;
 }
 

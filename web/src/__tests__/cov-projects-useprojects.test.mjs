@@ -1111,9 +1111,19 @@ test("deleting a project reads the lists again, or says why it was refused", asy
     ["/v1/projects/p1", "/v1/projects/p1?force=1"],
   );
   assert.deepEqual(s.counts, { projects: 2, sessions: 2 });
+  await run(() => s.p.deleteProject("p1", true, true));
+  await run(() => s.p.deleteProject("p1", false, true));
   await run(() => s.p.deleteProject("p1"));
-  await run(() => s.p.deleteProject("p1"));
-  await run(() => s.p.deleteProject("p1"));
+  assert.deepEqual(
+    callsTo(s, "DELETE")
+      .map((c) => c.path)
+      .slice(2),
+    [
+      "/v1/projects/p1?force=1&folder=delete",
+      "/v1/projects/p1?folder=delete",
+      "/v1/projects/p1",
+    ],
+  );
   assert.deepEqual(s.states, [
     ["has work", true],
     ["could not delete the project", true],

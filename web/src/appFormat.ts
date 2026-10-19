@@ -631,7 +631,7 @@ export function deleteWarning(type: string): string {
     );
   }
   return t(
-    "This project, all its sessions and its folder will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.",
+    "This project and all its sessions will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.",
   );
 }
 

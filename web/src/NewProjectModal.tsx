@@ -117,7 +117,7 @@ function FolderNote({ probe }: { probe: FolderProbe }) {
     return (
       <p class="text-xs text-[#9a9aaa] mt-1" data-testid="folder-note-exists">
         {t(
-          "The folder already exists and is used as it is. It stays on disk, with its files, when the project is deleted.",
+          "The folder already exists and is used as it is. Deleting the project asks whether it stays on disk.",
         )}
       </p>
     );
@@ -195,7 +195,7 @@ function FolderFields() {
         {choose(
           p.fullDisk,
           t(
-            "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
+            "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is; deleting the project asks whether it stays.",
           ),
           t(
             "Without the whole disk in Settings → Security, the folder has to be inside the workspace.",

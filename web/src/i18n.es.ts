@@ -364,8 +364,8 @@ const first: Record<string, string> = {
   "This conversation will be permanently deleted. This cannot be undone.":
     "Esta conversación se eliminará para siempre. No se puede deshacer.",
   "This needs your approval": "Esto necesita tu aprobación",
-  "This project, all its sessions and its folder will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.":
-    "Este proyecto, todas sus sesiones y su carpeta se eliminarán para siempre. No se puede deshacer. Los repositorios que comparte con otros proyectos se quedan en tu espacio de trabajo.",
+  "This project and all its sessions will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.":
+    "Este proyecto y todas sus sesiones se eliminarán para siempre. No se puede deshacer. Los repositorios que comparte con otros proyectos se quedan en tu espacio de trabajo.",
   "This session is already integrated": "Esta sesión ya está integrada",
   "This session is read-only after integration":
     "Esta sesión es de solo lectura después de integrarla",

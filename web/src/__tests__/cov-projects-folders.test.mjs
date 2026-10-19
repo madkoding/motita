@@ -648,7 +648,7 @@ test("a folder that exists is used as it is, and its folders complete the path",
       dirs: [{ name: "web", path: "/srv/app/web" }],
     }),
   });
-  assert.match(byTest(m, "folder-note-exists").textContent, /stays on disk/);
+  assert.match(byTest(m, "folder-note-exists").textContent, /asks whether it stays on disk/);
   assert.equal(m.qa("datalist option")[0].value, "/srv/app/web");
   await m.unmount();
 });
