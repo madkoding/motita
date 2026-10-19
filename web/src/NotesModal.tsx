@@ -236,6 +236,7 @@ function NoteBody() {
     <div
       class="skill-body artifact-body note-preview relative overflow-auto flex-1 p-3 rounded-lg bg-black/30"
       data-testid="note-preview"
+      role="presentation"
       onClick={onClick}
     >
       <Markdown content={wikiToMarkdown(draft, (current as NoteView).links)} />
