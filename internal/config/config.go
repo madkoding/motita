@@ -30,6 +30,7 @@ type Config struct {
 	Sandbox     Sandbox     `yaml:"sandbox"`
 	LLM         LLM         `yaml:"llm"`
 	Models      Models      `yaml:"models"`
+	Thinking    Thinking    `yaml:"thinking"`
 	Prompts     Prompts     `yaml:"prompts"`
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
@@ -897,6 +898,9 @@ func (c *Config) validate(requireKey bool) error {
 		return err
 	}
 	if err := c.validateModels(); err != nil {
+		return err
+	}
+	if err := c.validateThinking(); err != nil {
 		return err
 	}
 	if err := c.validateFinalAction(); err != nil {

@@ -64,6 +64,9 @@ export interface LLMView {
   // The kinds of work a model can be assigned to, in the order to show them, and the assignments.
   task_kinds?: string[];
   tasks?: Record<string, ModelChoice>;
+  // How hard each kind of work thinks (an absent kind follows the session's level), and the levels.
+  thinking?: Record<string, string>;
+  thinking_levels?: string[];
   // The day the catalogue's prices were last compared with the vendors' pages.
   prices_checked?: string;
 }
@@ -194,15 +197,17 @@ export function saveDefault(
   });
 }
 
-// saveTasks replaces the model of every kind of work; a kind left out follows the default.
+// saveTasks replaces the model of every kind of work; a kind left out follows the default. With
+// `thinking` it replaces the level of every kind too; without it the saved levels stay.
 export function saveTasks(
   api: Api,
   tasks: Record<string, ModelChoice>,
+  thinking?: Record<string, string>,
 ): Promise<LLMView> {
   return send<LLMView>(api, "/v1/llm/tasks", {
     method: "PUT",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ tasks }),
+    body: JSON.stringify({ tasks, thinking }),
   });
 }
 
@@ -230,6 +235,20 @@ export function sameTasks(
   const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
   for (const k of keys) {
     if (x[k]?.provider !== y[k]?.provider || x[k]?.model !== y[k]?.model) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// sameThinking says whether two sets of levels are the same, the empty ones aside.
+export function sameThinking(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if ((a[k] || "") !== (b[k] || "")) {
       return false;
     }
   }

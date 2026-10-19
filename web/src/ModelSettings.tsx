@@ -10,6 +10,7 @@ import {
   saveDefault,
   saveTasks,
   sameTasks,
+  sameThinking,
   taskChoices,
 } from "./llmApi";
 import {
@@ -19,6 +20,7 @@ import {
   primaryBtn,
 } from "./ProviderSettings";
 import { ModelPicker } from "./ModelPicker";
+import { REASONING_LEVELS } from "./appConst";
 
 // The kinds of work a model can be assigned to, with what each one covers. The gateway names the
 // kinds; one it names that is not here is still shown, under its own name.
@@ -252,12 +254,16 @@ function TaskRow({
   view,
   pick,
   setModel,
+  level,
+  setLevel,
 }: {
   kind: string;
   choice: ModelChoice | undefined;
   view: LLMView;
   pick: (kind: string, provider: string) => void;
   setModel: (kind: string, model: string) => void;
+  level: string;
+  setLevel: (kind: string, level: string) => void;
 }) {
   const p = view.providers.find((x) => x.id === c?.provider);
   const info = KINDS[kind];
@@ -302,6 +308,23 @@ function TaskRow({
             onChange={onModel}
           />
         )}
+        <select
+          id={`llm-task-${kind}-thinking`}
+          class={inputCls}
+          value={level}
+          aria-label={tf("Thinking for {kind}", { kind: label })}
+          disabled={!view.writable}
+          onChange={(e) =>
+            setLevel(kind, (e.target as HTMLSelectElement).value)
+          }
+        >
+          <option value="">{t("Thinking: same as session")}</option>
+          {(view.thinking_levels || REASONING_LEVELS).map((l) => (
+            <option key={l} value={l}>
+              {t("Thinking")}: {t(l)}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );
@@ -322,9 +345,17 @@ function TaskModels({
 }) {
   const saved = view.tasks || {};
   const [draft, setDraft] = useState<Record<string, ModelChoice>>(saved);
+  const savedLevels = view.thinking || {};
+  const [levels, setLevels] = useState<Record<string, string>>(savedLevels);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   useEffect(() => setDraft(view.tasks || {}), [view.tasks]);
+  useEffect(() => setLevels(view.thinking || {}), [view.thinking]);
+  const setLevel = useCallback(
+    (kind: string, level: string) =>
+      setLevels((d) => ({ ...d, [kind]: level })),
+    [],
+  );
   const kinds = view.task_kinds || Object.keys(KINDS);
   const usable = view.providers.filter(isConnected);
   const pick = useCallback(
@@ -358,13 +389,14 @@ function TaskModels({
   const incomplete = Object.values(draft).some(
     (c) => c.provider && !c.model.trim(),
   );
-  const changed = !sameTasks(draft, saved);
+  const changed =
+    !sameTasks(draft, saved) || !sameThinking(levels, savedLevels);
   const save = async (e: Event) => {
     e.preventDefault();
     setBusy(true);
     setErr("");
     try {
-      const v = await saveTasks(api, taskChoices(draft));
+      const v = await saveTasks(api, taskChoices(draft), levels);
       onSaved(v);
       onNotice(t("Models per kind of work saved"));
     } catch (error_) {
@@ -386,6 +418,8 @@ function TaskModels({
             view={view}
             pick={pick}
             setModel={setModel}
+            level={levels[kind] || ""}
+            setLevel={setLevel}
           />
         ))}
         <div class="settings-add llm-actions">

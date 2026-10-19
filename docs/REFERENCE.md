@@ -1426,6 +1426,19 @@ how it ended, tokens), the data to judge how often the cheap tier is enough.
 With `cheap` empty nothing is routed. `MOTITA_MODELS_CHEAP` and `MOTITA_MODELS_STRONG` override
 the entries.
 
+**Thinking per kind of work.** Next to each model the tab has a thinking level: `off`, `low`,
+`medium` or `high`. "Same as session" leaves the kind at the level of `llm.reasoning` (the one the
+chat's reasoning control sets). The levels are written into the `thinking` block
+(`MOTITA_THINKING_<KIND>` overrides one); a kind with a level of its own runs on an engine built
+for it, on the session's model or on the one assigned:
+
+```yaml
+thinking:
+  plan: high       # plan mode turns think hard
+  summary: off     # titles and summaries do not think at all
+  code: ""         # empty = the session's level
+```
+
 The provider comes before the first slash; the model after it may hold its own. Each provider
 runs with its own key and endpoint. A model whose provider cannot run (no key) falls back to the
 session's model, and the log says so.

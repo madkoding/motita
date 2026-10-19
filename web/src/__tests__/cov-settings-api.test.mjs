@@ -401,3 +401,18 @@ test("isConnected, canTypeKey, trialOf and modelOptions", () => {
     { id: "z", label: "z" },
   ]);
 });
+
+test("saveTasks sends the levels when given, and sameThinking ignores the empty ones", async () => {
+  const f = fakeApi({ "PUT /v1/llm/tasks": json(200, {}) });
+  await llm.saveTasks(f.api, {}, { plan: "high" });
+  assert.deepEqual(f.calls.at(-1).body, {
+    tasks: {},
+    thinking: { plan: "high" },
+  });
+  await llm.saveTasks(f.api, {});
+  assert.deepEqual(f.calls.at(-1).body, { tasks: {} });
+  assert.equal(llm.sameThinking({ a: "" }, {}), true);
+  assert.equal(llm.sameThinking({ a: "low" }, { a: "low" }), true);
+  assert.equal(llm.sameThinking({ a: "low" }, {}), false);
+  assert.equal(llm.sameThinking({}, { b: "high" }), false);
+});
