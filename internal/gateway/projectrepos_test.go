@@ -27,15 +27,6 @@ func sourceRepo(t *testing.T) string {
 	return dir
 }
 
-func projectJSON(t *testing.T, body []byte) Project {
-	t.Helper()
-	var p Project
-	if err := json.Unmarshal(body, &p); err != nil {
-		t.Fatalf("not a project: %v %s", err, body)
-	}
-	return p
-}
-
 func TestRepoNameOf(t *testing.T) {
 	cases := map[[2]string]string{
 		{"", "https://github.com/u/web-client.git"}: "web-client",
@@ -278,51 +269,5 @@ func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
 	}
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"taken"}`); code != http.StatusConflict {
 		t.Errorf("a repository over an existing folder: %d", code)
-	}
-}
-
-// bareProject is a project with no session, so nothing holds a copy of its repository.
-func bareProject(t *testing.T) (*Server, string, string) {
-	t.Helper()
-	srv, ws := projectServer(t)
-	dir := filepath.Join(ws, "proj")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitRepo(t, dir)
-	if code, _ := createProject(t, srv, `{"title":"proj","dir":"proj"}`); code != http.StatusCreated {
-		t.Fatalf("creating the project: %d", code)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return srv, dir, onlyProjectID(t, srv)
-}
-
-func detachMain(t *testing.T, srv *Server, id string) (int, Project) {
-	t.Helper()
-	w := send(t, srv, http.MethodDelete, "/v1/projects/"+id+"/main", testToken, "")
-	var p Project
-	_ = json.Unmarshal(w.Body.Bytes(), &p)
-	return w.Code, p
-}
-
-func detachMain2(t *testing.T, id string) (int, Project) {
-	srv, _ := projectServer(t)
-	return detachMain(t, srv, id)
-}
-
-// assertMainRepoBack: after a move that failed, the repository is where it was and the project
-// folder holds no leftover subfolder for it.
-func assertMainRepoBack(t *testing.T, projectDir string) {
-	t.Helper()
-	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err != nil {
-		t.Errorf("the repository must be back where it was: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(projectDir, "README.md")); err != nil {
-		t.Errorf("its files must be back too: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(projectDir, "proj")); !os.IsNotExist(err) {
-		t.Errorf("the subfolder it moved into is gone: %v", err)
 	}
 }
