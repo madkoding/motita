@@ -710,13 +710,16 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		// EARLIER run must not approve the current one, and the id is what makes that impossible.
 		writeError(w, http.StatusConflict, "that approval id does not match the command being asked about")
 	default:
-		s.deliverApproval(c, p, body.Approve, body.Scope)
+		if kept := s.deliverApproval(c, p, body.Approve, body.Scope); kept != "" {
+			w.Header().Set(headerAlwaysAllow, kept)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// deliverApproval hands the user's answer to the run's open question.
-func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bool, scope string) {
+// deliverApproval hands the user's answer to the run's open question, and returns what became of an
+// "always allow" in it ("" when the answer was not one).
+func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bool, scope string) (kept string) {
 	// Set BEFORE the answer is delivered, so the run's very next question already sees it.
 	if approve && scope == "session" {
 		c.setAutoApprove(true)
@@ -725,7 +728,7 @@ func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bo
 		s.saveSession(c)
 	}
 	if approve && scope == "project" {
-		s.rememberApproval(c, p.rule, p.command)
+		kept = s.rememberApproval(c, p.rule, p.command)
 	}
 	// Buffered with room for one, so this never blocks even if the run has already moved on or
 	// already been cancelled. A blocking send here would hang the answering client on a
@@ -734,6 +737,7 @@ func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bo
 	case p.ch <- approve:
 	default:
 	}
+	return kept
 }
 
 // handleAutoApprove turns "allow all commands for this session" on or off, and answers the

@@ -78,9 +78,10 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	defer s.releaseAndDrain(c)
 
 	res := shellResult{Command: command}
+	kept := ""
 	approver := func(_ context.Context, req agent.ApprovalRequest) (bool, error) {
 		if body.Approved && body.Scope == "project" {
-			s.rememberApproval(c, req.Rule, req.Command)
+			kept = s.rememberApproval(c, req.Rule, req.Command)
 		}
 		if body.Approved || c.autoApproving() || s.alwaysAllowed(c, req.Rule, req.Command) {
 			return true, nil
@@ -92,6 +93,9 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), shellTimeout)
 	defer cancel()
 	out, exit, err := sh.RunShell(ctx, command, approver)
+	if kept != "" {
+		w.Header().Set(headerAlwaysAllow, kept)
+	}
 	if res.NeedsApproval {
 		writeJSON(w, http.StatusOK, res)
 		return

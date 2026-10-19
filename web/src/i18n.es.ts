@@ -114,6 +114,8 @@ const first: Record<string, string> = {
   Agent: "Agente",
   "The command could not be run": "No se pudo ejecutar el comando",
   "The approval could not be answered": "No se pudo responder la aprobación",
+  "That computer did not keep \"Always allow\": it runs an older Motita. Update it there.":
+    "Ese equipo no guardó \"Permitir siempre\": tiene una versión más antigua de Motita. Actualízalo allí.",
   "Refused, nobody was there to approve it: {what}":
     "Rechazado, no había nadie para aprobarlo: {what}",
   "Run in the shell": "Ejecutar en el shell",
