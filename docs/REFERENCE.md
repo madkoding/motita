@@ -1707,6 +1707,7 @@ The natural style asks the gateway for each line:
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/sessions/{id}/narrate` | One spoken line about the turn: `stage` (`start`, `progress` or `answer`), `lang`, `request`, and `notes` and `said` (progress) or `answer`. Answers `{"text": …}`, empty when there is nothing new; `501` when the session's model cannot be asked. |
 | `POST /v1/sessions/{id}/next-suggestion` | One short request the person could make next, written by the summary model after a finished turn: `lang`, `request`, `answer` and `files` (paths the turn changed). Answers `{"text": …}`; `400` without an answer, `502` when the model fails, `501` when the session has no model. The web composer shows it as its hint (switch: Settings → Appearance), takes it on ArrowRight or the arrow button. |
+| `POST /v1/sessions/prune-blank` | Remove the sessions that were opened and never used: no turn, checkpoint, queued message, run, pull request or name of their own. The default session and any checkout with uncommitted work stay. Answers `{"removed": [ids], "count": n}`. |
 
 - **Conversation** (needs speech input): after the answer to a turn you spoke has been read to its
   end, the microphone listens again and sends what you say as the next turn, so a conversation goes

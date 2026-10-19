@@ -814,8 +814,7 @@ func (s *Server) routes() *http.ServeMux {
 	// session is resolved, then the handler runs with it in the request context.
 	scoped := func(h http.HandlerFunc) http.Handler { return auth(s.withConversation(h)) }
 
-	mux.Handle("GET /v1/sessions", plain(s.handleListSessions))
-	mux.Handle("POST /v1/sessions", plain(s.handleCreateSession))
+	s.sessionRoutes(mux, plain)
 	mux.Handle("DELETE /v1/sessions/{id}", scoped(s.handleDeleteSession))
 	mux.Handle("GET /v1/sessions/{id}/deletion-preview", scoped(s.handleDeletionPreview))
 	mux.Handle("GET /v1/projects/{id}/deletion-preview", plain(s.handleProjectDeletionPreview))
