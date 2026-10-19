@@ -120,7 +120,7 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
 
   useEffect(() => {
     if (!st?.indexing) {
-      return;
+      return undefined;
     }
     const timer = setTimeout(() => {
       getProjectIndex(api, id)

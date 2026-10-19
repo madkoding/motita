@@ -245,7 +245,8 @@ func (s *Server) indexFolderIfOutdated(dir string) {
 	if err != nil || !cfg.CodeIndex.Enabled {
 		return
 	}
-	if st, err := codeindex.Inspect(s.baseCtx, dir, cfg.CodeIndex.Options()); err != nil || st.State == codeindex.StateReady {
+	st, err := codeindex.Inspect(s.baseCtx, dir, cfg.CodeIndex.Options())
+	if err != nil || st.State == codeindex.StateReady {
 		return
 	}
 	s.indexFolder(dir)
