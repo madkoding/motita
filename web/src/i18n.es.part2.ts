@@ -823,16 +823,16 @@ const more: Record<string, string> = {
   "New name": "Nombre nuevo",
   "Second brain": "Segundo cerebro",
   "Scan sessions and projects": "Escanear sesiones y proyectos",
-  "Writes a note for every project and every session you have used, linked to each other. Run it again to refresh them; what you add around the generated block stays.":
-    "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
+  "Writes a note for every project and every session you have used, linked to each other, and a manual of each project with a note per folder: its files, its API, what it uses and what uses it. Run it again to refresh them; what you add around the generated block stays.":
+    "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí, y un manual de cada proyecto con una nota por carpeta: sus archivos, su API, qué usa y quién la usa. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
   "Scan now": "Escanear ahora",
   "Use the model to summarise sessions and explain projects":
     "Usar el modelo para resumir sesiones y explicar proyectos",
-  "Adds a short summary to sessions of six turns or more (at most twenty per scan) and explains how each project fits together: modules, connections and flows (at most ten per scan). Each is only asked again when the session or project changed. The text of those sessions and the structure and README of those projects are sent to your model provider and use tokens.":
-    "Agrega un resumen corto a las sesiones de seis turnos o más (hasta veinte por escaneo) y explica cómo encaja cada proyecto: módulos, conexiones y flujos (hasta diez por escaneo). Cada uno se pide de nuevo solo cuando la sesión o el proyecto cambió. El texto de esas sesiones y la estructura y el README de esos proyectos se envían a tu proveedor de modelos y gastan tokens.",
+  "Adds a short summary to sessions of six turns or more (at most twenty per scan), explains how each project fits together (at most ten per scan) and documents each folder of the projects' manuals (as many per scan as you choose below). Each is only asked again when the session, project or folder changed. The text of those sessions and the structure, README and source excerpts of those projects are sent to your model provider and use tokens.":
+    "Agrega un resumen corto a las sesiones de seis turnos o más (hasta veinte por escaneo), explica cómo encaja cada proyecto (hasta diez por escaneo) y documenta cada carpeta de los manuales de los proyectos (tantas por escaneo como elijas abajo). Cada uno se pide de nuevo solo cuando la sesión, el proyecto o la carpeta cambió. El texto de esas sesiones y la estructura, el README y extractos del código de esos proyectos se envían a tu proveedor de modelos y gastan tokens.",
   "{n} long sessions summarised.": "{n} sesiones largas resumidas.",
-  "{mapped} projects mapped, {explained} explained by the model.":
-    "{mapped} proyectos mapeados, {explained} explicados por el modelo.",
+  "{mapped} projects mapped into {documented} manual notes, {explained} explained by the model.":
+    "{mapped} proyectos mapeados en {documented} notas de manual, {explained} explicados por el modelo.",
   "notes created from your sessions and projects":
     "notas creadas a partir de tus sesiones y proyectos",
   "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.":
@@ -842,6 +842,11 @@ const more: Record<string, string> = {
   "could not load the graph": "no se pudo cargar el grafo",
   Graph: "Grafo",
   "Review notes": "Revisar notas",
+  "Folders the model explains per scan":
+    "Carpetas que el modelo explica por escaneo",
+  All: "Todas",
+  "Each folder is one model call, so more folders take longer and use more tokens. A folder already explained is only asked again when it changed.":
+    "Cada carpeta es una llamada al modelo: más carpetas tardan más y gastan más tokens. Una carpeta ya explicada solo se pide de nuevo cuando cambió.",
   "Review the notes": "Revisar las notas",
   "Opens a conversation where the agent checks the notes for contradictions, stale notes, missing sources and broken links. It changes nothing until you agree.":
     "Abre una conversación donde el agente revisa las notas en busca de contradicciones, notas desactualizadas, fuentes faltantes y enlaces rotos. No cambia nada hasta que aceptes.",

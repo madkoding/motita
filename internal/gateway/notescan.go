@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,10 +43,11 @@ type noteScan struct {
 	Unchanged int  `json:"unchanged"`
 	// Summarized counts the sessions the model summarised in this scan.
 	Summarized int `json:"summarized"`
-	// Mapped counts the projects whose architecture note was written; Explained, those the model
-	// explained in this scan.
-	Mapped    int `json:"mapped"`
-	Explained int `json:"explained"`
+	// Mapped counts the projects whose architecture note was written; Documented, the notes of their
+	// manuals (one per folder); Explained, the projects and modules the model explained in this scan.
+	Mapped     int `json:"mapped"`
+	Documented int `json:"documented"`
+	Explained  int `json:"explained"`
 	// Skipped counts sessions with nothing said yet, and notes the vault refused.
 	Skipped int `json:"skipped"`
 }
@@ -247,16 +249,14 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	sum := &summaries{on: r.URL.Query().Get("summarize") != "", left: scanSummaryMax}
 	byProject := s.scanSessionNotes(r.Context(), v, names, sum, &res)
 	res.Summarized = sum.done
-	am := s.archModelFor(r.URL.Query().Get("summarize") != "")
+	ms := s.scanModelsFor(r.URL.Query().Get("summarize") != "", explainBudget(r.URL.Query().Get("modules")))
 	for _, p := range projects {
 		res.Projects++
-		archLink := scanArchitecture(r.Context(), v, p, names[p.ID], am, &res)
+		archLink := scanArchitecture(r.Context(), v, p, names[p.ID], ms, &res)
 		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID], archLink))
 		res.count(outcome, err)
 	}
-	if am != nil {
-		res.Explained = am.done
-	}
+	res.Explained = ms.done()
 	// Remembered in the vault folder, as a hidden file notes never list, so any client sees it.
 	if os.MkdirAll(s.opts.NotesDir, 0o755) == nil {
 		_ = os.WriteFile(marker, []byte("scanned\n"), 0o644)
@@ -264,15 +264,28 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// archModelFor says which projects the model may explain: none unless the person asked for it and
-// a service can.
-func (s *Server) archModelFor(on bool) *archModel {
+// explainBudget is how many folders of the manuals the model may explain in one scan: what the
+// person chose, within manualExplainLimit, or manualExplainMax when they chose nothing valid.
+func explainBudget(raw string) int {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return manualExplainMax
+	}
+	return min(n, manualExplainLimit)
+}
+
+// scanModelsFor says what the model may explain: nothing unless the person asked for it and a
+// service can; otherwise a few projects and up to modules folders of their manuals.
+func (s *Server) scanModelsFor(on bool, modules int) scanModels {
 	if !on {
-		return nil
+		return scanModels{}
 	}
 	d := s.archDescriber()
 	if d == nil {
-		return nil
+		return scanModels{}
 	}
-	return &archModel{svc: d, left: archDescribeMax}
+	return scanModels{
+		project: &archModel{svc: d, left: archDescribeMax},
+		module:  &archModel{svc: d, left: modules, module: true},
+	}
 }

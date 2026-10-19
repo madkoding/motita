@@ -2,7 +2,7 @@ import { useCallback, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
-import { scanNotes, type NoteScan } from "./notesApi";
+import { scanNotes, type NoteScan, type ScanOptions } from "./notesApi";
 import { Row, Segmented, primaryBtn } from "./SettingsControls";
 import { REVIEW_NOTES_EVENT } from "./useReviewNotes";
 
@@ -27,16 +27,29 @@ function scanSummary(r: NoteScan): string {
   }
   if (r.mapped > 0) {
     extra.push(
-      tf("{mapped} projects mapped, {explained} explained by the model.", {
-        mapped: String(r.mapped),
-        explained: String(r.explained),
-      }),
+      tf(
+        "{mapped} projects mapped into {documented} manual notes, {explained} explained by the model.",
+        {
+          mapped: String(r.mapped),
+          documented: String(r.documented),
+          explained: String(r.explained),
+        },
+      ),
     );
   }
   return [done, ...extra].join(" ");
 }
 
 type OnOff = "on" | "off";
+type Folders = "30" | "100" | "all";
+
+// FOLDER_BUDGET is how many folders each choice lets the model explain; "all" is the gateway's
+// own ceiling.
+const FOLDER_BUDGET: Record<Folders, number> = {
+  "30": 30,
+  "100": 100,
+  all: 2000,
+};
 
 // NotesScanSettings fills the notes from what motita already holds: a note per project and per
 // session. Running it again updates the same notes and leaves what the person wrote in them.
@@ -45,19 +58,23 @@ export function NotesScanSettings({ api }: { api: Api }) {
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
   const [summarize, setSummarize] = useState<OnOff>("off");
+  const [folders, setFolders] = useState<Folders>("30");
   const scan = useCallback(async () => {
     setBusy(true);
     setErr("");
     setDone("");
     try {
-      setDone(
-        scanSummary(await scanNotes(api, { summarize: summarize === "on" })),
-      );
+      const opts: ScanOptions = {};
+      if (summarize === "on") {
+        opts.summarize = true;
+        opts.modules = FOLDER_BUDGET[folders];
+      }
+      setDone(scanSummary(await scanNotes(api, opts)));
     } catch (e) {
       setErr(errorMessage(e));
     }
     setBusy(false);
-  }, [api, summarize]);
+  }, [api, summarize, folders]);
   const review = useCallback(
     () => window.dispatchEvent(new Event(REVIEW_NOTES_EVENT)),
     [],
@@ -72,7 +89,7 @@ export function NotesScanSettings({ api }: { api: Api }) {
           id="settings-notes-summary"
           label={t("Use the model to summarise sessions and explain projects")}
           hint={t(
-            "Adds a short summary to sessions of six turns or more (at most twenty per scan) and explains how each project fits together: modules, connections and flows (at most ten per scan). Each is only asked again when the session or project changed. The text of those sessions and the structure and README of those projects are sent to your model provider and use tokens.",
+            "Adds a short summary to sessions of six turns or more (at most twenty per scan), explains how each project fits together (at most ten per scan) and documents each folder of the projects' manuals (as many per scan as you choose below). Each is only asked again when the session, project or folder changed. The text of those sessions and the structure, README and source excerpts of those projects are sent to your model provider and use tokens.",
           )}
           stack
         >
@@ -89,10 +106,31 @@ export function NotesScanSettings({ api }: { api: Api }) {
           />
         </Row>
         <Row
+          id="settings-notes-folders"
+          label={t("Folders the model explains per scan")}
+          hint={t(
+            "Each folder is one model call, so more folders take longer and use more tokens. A folder already explained is only asked again when it changed.",
+          )}
+          stack
+        >
+          <Segmented<Folders>
+            name="settings-notes-folders"
+            labelledBy="settings-notes-folders"
+            value={folders}
+            onChange={setFolders}
+            disabled={busy || summarize === "off"}
+            options={[
+              { value: "30", label: "30" },
+              { value: "100", label: "100" },
+              { value: "all", label: t("All") },
+            ]}
+          />
+        </Row>
+        <Row
           id="settings-notes-scan"
           label={t("Scan sessions and projects")}
           hint={t(
-            "Writes a note for every project and every session you have used, linked to each other. Run it again to refresh them; what you add around the generated block stays.",
+            "Writes a note for every project and every session you have used, linked to each other, and a manual of each project with a note per folder: its files, its API, what it uses and what uses it. Run it again to refresh them; what you add around the generated block stays.",
           )}
           stack
         >

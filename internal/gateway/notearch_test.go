@@ -146,11 +146,20 @@ type describeService struct {
 	err   error
 	calls int
 	asked string
+	// modules and askedModule count the explanations of modules of the manual.
+	modules     int
+	askedModule string
 }
 
 func (s *describeService) DescribeProject(_ context.Context, text string) (string, error) {
 	s.calls++
 	s.asked = text
+	return s.reply, s.err
+}
+
+func (s *describeService) DescribeModule(_ context.Context, text string) (string, error) {
+	s.modules++
+	s.askedModule = text
 	return s.reply, s.err
 }
 
@@ -173,7 +182,7 @@ func archServer(t *testing.T, svc Service) (*Server, string) {
 func TestScanMapsAProjectAndLinksIt(t *testing.T) {
 	srv, dir := archServer(t, nil)
 	got := scanWith(t, srv, "")
-	if got.Mapped != 1 || got.Explained != 0 || got.Created != 2 {
+	if got.Mapped != 1 || got.Explained != 0 || got.Created != 12 || got.Documented != 10 {
 		t.Fatalf("scan = %+v", got)
 	}
 	arch := readNote(t, dir, "Projects/App - Architecture.md")
@@ -189,7 +198,7 @@ func TestScanMapsAProjectAndLinksIt(t *testing.T) {
 	if !strings.Contains(project, "- Architecture: [[Projects/App - Architecture]]") {
 		t.Errorf("the project note does not link its architecture:\n%s", project)
 	}
-	if again := scanWith(t, srv, ""); again.Unchanged != 2 || again.Created != 0 {
+	if again := scanWith(t, srv, ""); again.Unchanged != 12 || again.Created != 0 {
 		t.Errorf("a second scan changes nothing: %+v", again)
 	}
 }
@@ -203,8 +212,8 @@ func TestScanExplainsAProjectOnlyWhenAskedAndKeepsIt(t *testing.T) {
 	if got := scanWith(t, srv, ""); got.Explained != 0 || svc.calls != 0 {
 		t.Fatalf("the model is off by default: %+v, %d calls", got, svc.calls)
 	}
-	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 1 || svc.calls != 1 {
-		t.Fatalf("explained: %+v, %d calls", got, svc.calls)
+	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 11 || svc.calls != 1 || svc.modules != 10 {
+		t.Fatalf("explained: %+v, %d calls, %d modules", got, svc.calls, svc.modules)
 	}
 	asked := svc.asked
 	if !strings.Contains(asked, "### Go packages") || !strings.Contains(asked, "README") ||
@@ -221,11 +230,11 @@ func TestScanExplainsAProjectOnlyWhenAskedAndKeepsIt(t *testing.T) {
 		t.Errorf("a secret or a marker got through:\n%s", body)
 	}
 	// Kept while nothing changed; asked again when the project did.
-	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 0 || svc.calls != 1 {
+	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 0 || svc.calls != 1 || svc.modules != 10 {
 		t.Errorf("the explanation is kept: %+v, %d calls", got, svc.calls)
 	}
 	writeTree(t, filepath.Join(filepath.Dir(dir), "app"), map[string]string{"internal/new/n.go": "package n"})
-	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 1 || svc.calls != 2 {
+	if got := scanWith(t, srv, "?summarize=1"); got.Explained < 2 || svc.calls != 2 || svc.modules == 10 {
 		t.Errorf("a changed project is explained again: %+v, %d calls", got, svc.calls)
 	}
 }

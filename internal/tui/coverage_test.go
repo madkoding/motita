@@ -646,3 +646,25 @@ func TestDescribeProjectReportsFailures(t *testing.T) {
 		t.Error("no engine is an error")
 	}
 }
+
+func TestDescribeModuleReturnsTheModelsExplanation(t *testing.T) {
+	r := summaryRunner(t, `{"choices":[{"message":{"content":"  ## Purpose\n- a  "}}]}`)
+	got, err := r.DescribeModule(context.Background(), "facts")
+	if err != nil || got != "## Purpose\n- a" {
+		t.Errorf("DescribeModule = %q, %v", got, err)
+	}
+}
+
+func TestDescribeModuleReportsFailures(t *testing.T) {
+	r := summaryRunner(t, `not json`)
+	if _, err := r.DescribeModule(context.Background(), "x"); err == nil {
+		t.Error("a failing model is an error")
+	}
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "" // no key, so the engine cannot be built
+	r = NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	if _, err := r.DescribeModule(context.Background(), "x"); err == nil {
+		t.Error("no engine is an error")
+	}
+}

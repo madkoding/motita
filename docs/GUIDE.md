@@ -643,14 +643,23 @@ the same folder opens in Obsidian and what you change there is what motita shows
   project and back. Next to each project note goes `Projects/<name> - Architecture`, read from the
   project's folder (no symlinks, no hidden or build folders, at most 4000 files): languages, build
   files, the folders, the entry points and, for Go, every package with its doc line and the packages
-  of the module it imports, drawn as a Mermaid diagram; for Node, the scripts and main dependencies. The text goes through the secret redactor. Everything is kept inside a
+  of the module it imports, drawn as a Mermaid diagram; for Node, the scripts and main dependencies.
+  Each project also gets a **manual**: `Projects/<name> manual/`, one note per folder, recursively
+  (up to 400), with `_index` as its table of contents. A folder's note lists its subfolders and its
+  files (lines, language and the comment that says what each one is), the Go package doc and every
+  exported type with its methods, function, constant and variable with their doc comments, the
+  exports of TypeScript, JavaScript and Python files, and which folders it uses and which use it,
+  all as links between the notes. The text goes through the secret redactor. Everything is kept inside a
   `<!-- motita:scan:start -->` block that a new scan rewrites; what you write around it stays.
   The first time the Notes window opens on a vault that has no notes and was never scanned, the
   scan runs by itself. With **Use the model to summarise sessions and explain projects** on (off by default),
   sessions of six turns or more also get a short summary written by your summary model: at most
   twenty per scan, and a session is summarised again only after it grew. Each architecture note also
   gets "How it fits together" (modules, connections and flows, from those facts and the README): at
-  most ten per scan, asked again only when the project changed. That sends the text of those
+  most ten per scan, asked again only when the project changed. Folders of the manuals get "What this
+  module does" (purpose, how it works, inputs and outputs, pitfalls), from the note and excerpts of
+  their source: thirty per scan by default, or 100 or all of them with **Folders the model explains
+  per scan**, asked again only when the folder changed (`POST /v1/notes/scan?summarize=1&modules=N`). That sends the text of those
   sessions and the structure and README of those projects (secrets removed) to your model provider
   and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them; before changing a project, it reads that project's Architecture note as a map and confirms it in the code.
 - **Limits.** 5000 notes, 192 KB each; only `.md` files, no hidden folders, and no path that
