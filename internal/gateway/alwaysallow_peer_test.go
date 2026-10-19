@@ -14,8 +14,11 @@ func TestAlwaysAllowSaidThroughTheProxyIsKeptByTheOtherComputer(t *testing.T) {
 	there := newTestServer(t, svc, func(o *Options) { o.Token = otherToken })
 	id := connect(t, here, there)
 	path := "/v1/sessions/" + DefaultSession + "/shell"
+	var told string
 	say := func(body string) string {
-		b, _ := io.ReadAll(proxied(t, here, "POST", id, path, body).Body)
+		res := proxied(t, here, "POST", id, path, body)
+		told = res.Header.Get(headerAlwaysAllow)
+		b, _ := io.ReadAll(res.Body)
 		return string(b)
 	}
 	if got := say(`{"command":"git push"}`); !strings.Contains(got, `"needs_approval":true`) {
@@ -23,6 +26,9 @@ func TestAlwaysAllowSaidThroughTheProxyIsKeptByTheOtherComputer(t *testing.T) {
 	}
 	if got := say(`{"command":"git push","approved":true,"scope":"project"}`); !strings.Contains(got, "ran git push") {
 		t.Fatalf("approved: %s", got)
+	}
+	if told != "kept" {
+		t.Fatalf("the page is told the other computer kept it: %q", told)
 	}
 	if got := say(`{"command":"git push --tags"}`); !strings.Contains(got, "ran git push --tags") {
 		t.Fatalf("the same shape must run without a yes: %s", got)
