@@ -38,19 +38,12 @@ type pendingPR struct {
 // a session already merged, outside a project, or whose branch git cannot list. The dialog then asks
 // only the deletion question, which is what it asked before this existed.
 func (s *Server) pendingIntegrationOf(ctx context.Context, c *conversation) *pendingIntegration {
-	if c.isMerged() || c.workspace == "" || c.projectID == "" {
+	if c.isMerged() || c.workspace == "" || c.projectDir == "" {
 		return nil
 	}
-	p := s.projectOf(c.projectID)
-	if p == nil {
-		return nil
-	}
-	branch := sessionBranch(c.id)
-	base := gitx.Display(ctx, p.Dir)
-	if base == "" || base == branch {
-		return nil
-	}
-	ahead, _, err := gitx.CommitsBetween(ctx, p.Dir, base, branch)
+	base := gitx.Display(ctx, c.projectDir)
+	// No base branch makes the listing fail, which is the same answer as nothing to integrate.
+	ahead, _, err := gitx.CommitsBetween(ctx, c.projectDir, base, sessionBranch(c.id))
 	if err != nil || len(ahead) == 0 {
 		return nil
 	}
