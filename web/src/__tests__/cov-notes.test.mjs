@@ -364,7 +364,15 @@ test("a note opens as a preview whose [[links]] open the note, or make it when n
   q(m.root, "note-preview").appendChild(other);
   await click(other);
   assert.match(text(q(m.root, "note-preview")), /See Peru/);
-  await click(anchors[0]);
+  // Enter on a link follows it; any other key does not.
+  const key = (k) =>
+    act(() =>
+      anchors[0].dispatchEvent(new W.KeyboardEvent("keydown", { key: k, bubbles: true })),
+    );
+  await key("a");
+  assert.match(text(q(m.root, "note-preview")), /See Peru/);
+  await key("Enter");
+  await settle();
   assert.match(text(q(m.root, "note-preview")), /Back to Japan/);
   assert.match(text(q(m.root, "backlinks")), /Japan/);
 
