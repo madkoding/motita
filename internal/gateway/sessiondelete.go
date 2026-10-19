@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -215,6 +216,12 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 				c.id, release.InspectErr)
 		}
 		out.Sessions = append(out.Sessions, entry)
+	}
+	// The project's folders of its other repositories go with it too, and so does what they hold.
+	repoChanges := s.discardedRepoChanges(r.Context(), s.projectOf(id))
+	for _, dir := range slices.Sorted(maps.Keys(repoChanges)) {
+		out.Sessions = append(out.Sessions, sessionPreview{ID: "repo:" + dir, Title: dir, Changes: repoChanges[dir]})
+		out.Count += len(repoChanges[dir])
 	}
 	writeJSON(w, http.StatusOK, out)
 }

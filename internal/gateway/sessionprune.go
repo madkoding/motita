@@ -66,6 +66,8 @@ func (s *Server) pruneBlankSessions() []string {
 		s.forget(c.id)
 		s.deletePersistedSession(c.id)
 		s.returnToMain(s.projectOf(c.projectID))
+		// As for any closed session, the project's main branch is brought up to date.
+		s.refreshMainInBackground(s.projectOf(c.projectID))
 		removed = append(removed, c.id)
 	}
 	sort.Strings(removed)

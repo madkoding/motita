@@ -125,3 +125,44 @@ func TestDeletingASessionDropsItsMergedBranchAndKeepsItsWork(t *testing.T) {
 		t.Errorf("a branch with unmerged commits must stay: %q", left)
 	}
 }
+
+// A repository the user has out on a feature branch gives the project and its sessions branches
+// that start on its main branch, not on the feature.
+func TestALocalRepositoryIsBranchedFromItsMainBranch(t *testing.T) {
+	srv, projectDir, id, _ := localProject(t)
+	local, _ := usersRepo(t)
+	write(t, filepath.Join(local, "feature.txt"), "only on the feature")
+	mustGit(t, local, "add", "feature.txt")
+	mustGit(t, local, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "feature")
+	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding it: %d %+v", code, p)
+	}
+	ss := createSessionIn(t, srv, id)
+	main := mustGit(t, local, "rev-parse", "main")
+	for _, dir := range []string{filepath.Join(projectDir, "bridges"), filepath.Join(ss.Workspace, "bridges")} {
+		if got := mustGit(t, dir, "rev-parse", "HEAD"); got != main {
+			t.Errorf("%s starts on %s, want main %s", dir, got, main)
+		}
+	}
+}
+
+// The uncommitted work in the project's folders of its other repositories is in the deletion's
+// preview, and stops a deletion the user has not confirmed.
+func TestDeletingAProjectNamesTheWorkInItsRepositories(t *testing.T) {
+	srv, _, id, _ := localProject(t)
+	local, _ := usersRepo(t)
+	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding it: %d %+v", code, p)
+	}
+	write(t, filepath.Join(srv.projectOf(id).Dir, "bridges", "draft.txt"), "draft")
+	w := get(t, srv, "/v1/projects/"+id+"/deletion-preview", testToken)
+	if !strings.Contains(w.Body.String(), filepath.Join("bridges", "draft.txt")) {
+		t.Errorf("the preview must name the repository's change: %s", w.Body)
+	}
+	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusConflict {
+		t.Errorf("an unconfirmed deletion must be refused: %d %s", w.Code, w.Body)
+	}
+	if w := doDelete(t, srv, "/v1/projects/"+id+"?force=1"); w.Code != http.StatusNoContent {
+		t.Errorf("a confirmed deletion: %d %s", w.Code, w.Body)
+	}
+}

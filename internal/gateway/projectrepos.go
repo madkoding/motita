@@ -393,6 +393,33 @@ func (s *Server) releaseProjectFolder(ctx context.Context, p *Project, projectDi
 	}
 }
 
+// discardedRepoChanges are the uncommitted changes deleting p throws away in the project's folders
+// of its other repositories (the worktrees of shared ones always go; a clone of its own goes with a
+// folder the project owns), each path under the repository's folder, and the folders they are in.
+func (s *Server) discardedRepoChanges(ctx context.Context, p *Project) map[string][]gitx.Change {
+	out := map[string][]gitx.Change{}
+	if p == nil {
+		return out
+	}
+	for _, repo := range p.Repos {
+		if !repo.Shared && !s.ownsProjectDir(p.Dir) {
+			continue
+		}
+		changes, err := worktreeInspectList(ctx, p.repoPath(repo))
+		if err != nil || len(changes) == 0 {
+			// A folder that cannot be read is not proven to hold work; the deletion's own
+			// confirmation covers it.
+			continue
+		}
+		rel := repo.relPath(p.Dir)
+		for i := range changes {
+			changes[i].Path = filepath.Join(rel, changes[i].Path)
+		}
+		out[rel] = changes
+	}
+	return out
+}
+
 // fastForward moves the branch checked out at dir forward to ref, when it can without a merge.
 func fastForward(ctx context.Context, dir, ref string) error {
 	args := append(append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...), "merge", "--ff-only", ref)
@@ -490,13 +517,23 @@ func (s *Server) attachProjectRepos(ctx context.Context, p *Project, workspace, 
 		if !repo.Local {
 			_ = gitx.PullFastForward(ctx, repo.Dir, gitx.Display(ctx, repo.Dir))
 		}
-		if err := gitx.AddWorktree(ctx, repo.Dir, path, sessionBranch(sessionID)); err != nil {
+		if err := gitx.AddWorktreeFrom(ctx, repo.Dir, path, sessionBranch(sessionID), sessionStart(ctx, repo)); err != nil {
 			s.warn("the session has no worktree of one of the project's repositories",
 				"id", sessionID, "repo", repo.Name, "error", err.Error())
 			continue
 		}
 		gitx.LinkDependencyDirs(repo.Dir, path)
 	}
+}
+
+// sessionStart is where a session's branch of one of the project's other repositories starts: the
+// repository's main branch when it is shared (the catalog's clone, or the user's own repository,
+// whose checked-out branch is theirs), else the clone's HEAD.
+func sessionStart(ctx context.Context, repo ProjectRepo) string {
+	if repo.Shared && repo.MainBranch != "" && gitx.BranchExists(ctx, repo.Dir, repo.MainBranch) {
+		return repo.MainBranch
+	}
+	return ""
 }
 
 // sessionRepoWorktrees are the worktrees of the project's other repositories a session has

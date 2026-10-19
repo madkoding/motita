@@ -752,6 +752,11 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 				"or confirm the discard ("+dir+")")
 			return
 		}
+		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id)) {
+			writeError(w, http.StatusConflict, "the project's repository "+dir+" has uncommitted changes: "+
+				"commit them, or confirm the discard")
+			return
+		}
 	}
 	sessions := s.sessionsOfProject(id)
 	if err := s.closeProjectSessions(sessions, isForced(r)); err != nil {
