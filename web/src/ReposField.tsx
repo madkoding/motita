@@ -89,6 +89,7 @@ function OtherRepoRow({
   alsoIn,
   onRemove,
   onSync,
+  onStandalone,
 }: {
   r: RepoListItem;
   busy: boolean;
@@ -98,6 +99,8 @@ function OtherRepoRow({
   onRemove: (name: string, force: boolean) => void;
   // Brings the project's folder of a shared repository up to its main branch (edit dialog only).
   onSync?: (name: string) => void;
+  // Turns a shared repository into a clone of the project's own (edit dialog only).
+  onStandalone?: (name: string) => void;
 }) {
   const refused = conflict?.name === r.name;
   return (
@@ -151,6 +154,20 @@ function OtherRepoRow({
               data-testid="repo-sync"
             >
               {tf("Bring up to {branch}", { branch: r.main_branch || "main" })}
+            </button>
+          )}
+          {!!r.shared && !r.local && onStandalone && (
+            <button
+              type="button"
+              class="mt-1 ml-2 px-2 min-h-[26px] rounded-lg border border-white/20 text-[#9a9aaa] text-xs font-semibold disabled:opacity-30"
+              title={t(
+                "Keeps its branch and commits, and stops sharing the clone with other projects.",
+              )}
+              onClick={() => onStandalone(r.name)}
+              disabled={busy}
+              data-testid="repo-standalone"
+            >
+              {t("Make independent")}
             </button>
           )}
         </span>
@@ -299,6 +316,7 @@ export function RepoList({
   onRemove,
   onMoveMain,
   onSync,
+  onStandalone,
 }: {
   main: MainRepo | null;
   repos: RepoListItem[];
@@ -309,6 +327,7 @@ export function RepoList({
   onRemove: (name: string, force: boolean) => void;
   onMoveMain?: () => void;
   onSync?: (name: string) => void;
+  onStandalone?: (name: string) => void;
 }) {
   if (!main && repos.length === 0) {
     return null;
@@ -334,6 +353,7 @@ export function RepoList({
           alsoIn={alsoInOf(catalog, r.dir, projectId)}
           onRemove={onRemove}
           onSync={onSync}
+          onStandalone={onStandalone}
         />
       ))}
     </ul>
@@ -515,6 +535,7 @@ export function ReposSection({
   onBrowse,
   onMoveMain,
   onSync,
+  onStandalone,
   catalog = [],
   projectId,
   hint,
@@ -535,6 +556,8 @@ export function ReposSection({
   onMoveMain?: () => void;
   // Brings a shared repository's folder up to its main branch (the edit dialog only).
   onSync?: (name: string) => void;
+  // Turns a shared repository into a clone of the project's own (the edit dialog only).
+  onStandalone?: (name: string) => void;
   // The repositories the workspace already has, and the project the dialog is about (none yet
   // in the New project one).
   catalog?: CatalogRepo[];
@@ -559,6 +582,7 @@ export function ReposSection({
           onRemove={onRemove}
           onMoveMain={onMoveMain}
           onSync={onSync}
+          onStandalone={onStandalone}
         />
         {!open && (
           <button

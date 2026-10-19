@@ -843,6 +843,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
 	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
 	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))
+	mux.Handle("POST /v1/projects/{id}/repos/{name}/standalone", plain(s.handleStandaloneProjectRepo))
 	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
