@@ -373,6 +373,26 @@ func releaseSharedRepos(ctx context.Context, p *Project) {
 	}
 }
 
+// releaseProjectFolder is what a deleted project gives back: its own folder (projectDir, "" when the
+// project does not own one) with what it held in the catalog, or, in a folder of the user's own,
+// which stays, the repositories motita put inside it: their worktrees and the branches they hold in
+// the shared and local repositories are the project's.
+func (s *Server) releaseProjectFolder(ctx context.Context, p *Project, projectDir string) {
+	switch {
+	case projectDir != "":
+		// Best effort: the project is already gone, and a folder that resists (a file in use)
+		// is left for the user rather than failing a deletion that has otherwise happened.
+		_ = os.RemoveAll(projectDir)
+		releaseSharedRepos(ctx, p)
+	case p != nil && s.usersFolder(p.Dir):
+		for _, repo := range p.Repos {
+			s.discardRepoFolder(ctx, p, repo)
+		}
+	default:
+		// A folder another project also stands on, or no project: nothing of it is this one's.
+	}
+}
+
 // fastForward moves the branch checked out at dir forward to ref, when it can without a merge.
 func fastForward(ctx context.Context, dir, ref string) error {
 	args := append(append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...), "merge", "--ff-only", ref)

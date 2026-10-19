@@ -780,19 +780,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.removeProjectArtifacts(id)
-	if projectDir != "" {
-		// Best effort: the project is already gone, and a folder that resists (a file in use)
-		// is left for the user rather than failing a deletion that has otherwise happened.
-		_ = os.RemoveAll(projectDir)
-		releaseSharedRepos(r.Context(), p)
-	} else if p != nil && s.usersFolder(p.Dir) {
-		// A folder of the user's own stays, but the repositories motita put inside it do not: their
-		// worktrees, and the branches they hold in the shared and local repositories, are the
-		// project's.
-		for _, repo := range p.Repos {
-			s.discardRepoFolder(r.Context(), p, repo)
-		}
-	}
+	s.releaseProjectFolder(r.Context(), p, projectDir)
 	w.WriteHeader(http.StatusNoContent)
 }
 

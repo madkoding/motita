@@ -615,7 +615,11 @@ func startServer(t *testing.T, opts Options) (*Server, *logSink) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() {
+		// A background update of a main branch must end before the test's directories are removed.
+		srv.mainRefresh.wait()
+		_ = srv.Close(context.Background())
+	})
 	return srv, sink
 }
 
