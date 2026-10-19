@@ -1194,7 +1194,7 @@ This is tested the way you'd test something you were about to bet on.
 | **Test functions**        | 5,603 across 624 files                                                                                                                                                                                    |
 | **Code vs tests**         | 95,916 lines of Go · 149,610 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |
-| **Platforms CI builds**   | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                 |
+| **Platforms CI builds**   | 10 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                |
 
 That coverage number isn't a badge. It's the mechanism that found the bugs
 documented in the reference: the `RLIMIT_CPU` that never fired, the process group
