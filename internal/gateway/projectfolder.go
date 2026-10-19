@@ -57,7 +57,8 @@ func (s *Server) wipeProblem(ctx context.Context, p *Project, forced bool) (int,
 		return http.StatusBadRequest, "the project's folder cannot be deleted: " + problem
 	}
 	if !forced && len(s.folderChanges(ctx, p)) > 0 {
-		return http.StatusConflict, "the project's folder has uncommitted changes: commit them, or confirm the discard (" + p.Dir + ")"
+		return http.StatusConflict, "the project's folder has uncommitted changes: " +
+			"commit them, or confirm the discard (" + p.Dir + ")"
 	}
 	return 0, ""
 }

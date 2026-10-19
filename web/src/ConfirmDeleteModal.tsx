@@ -249,6 +249,17 @@ function asksPreview(target: ConfirmTarget): boolean {
   return target.type === "session" && target.id !== "default";
 }
 
+// isWaiting says the confirm button must wait: the preview is still being read, or the removal of
+// the folder has not been acknowledged yet.
+function isWaiting(
+  target: ConfirmTarget,
+  previewLoading: boolean,
+  wipes: boolean,
+  wipeAck: boolean,
+): boolean {
+  return (asksPreview(target) && previewLoading) || (wipes && !wipeAck);
+}
+
 // confirmLabel is what the confirm button says: the deletion under way, or whether it discards.
 function confirmLabel(
   deleting: boolean,
@@ -277,8 +288,7 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
     wipeAck,
   } = useApp().deletion;
   const wipes = target.type === "project" && wipeFolder;
-  const waiting =
-    (asksPreview(target) && previewLoading) || (wipes && !wipeAck);
+  const waiting = isWaiting(target, previewLoading, wipes, wipeAck);
   return (
     <ModalBackdrop onClose={cancelDelete}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-sm p-5 shadow-2xl">
@@ -297,10 +307,13 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
           <SessionPreview preview={deletionPreview} loading={previewLoading} />
         )}
         {target.type === "project" && (
-          <ProjectPreview preview={deletionPreview} loading={previewLoading} />
-        )}
-        {target.type === "project" && (
-          <FolderChoice preview={deletionPreview} />
+          <>
+            <ProjectPreview
+              preview={deletionPreview}
+              loading={previewLoading}
+            />
+            <FolderChoice preview={deletionPreview} />
+          </>
         )}
 
         <div class="flex gap-2">
