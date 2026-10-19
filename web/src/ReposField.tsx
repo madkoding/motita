@@ -80,6 +80,36 @@ function stateOf(r: RepoListItem): string {
   return parts.filter(Boolean).join(" · ");
 }
 
+// StandaloneButton turns a shared repository of the catalog into a clone of the project's own. A
+// repository of the person's own, or one that is not shared, has nothing to turn.
+function StandaloneButton({
+  r,
+  busy,
+  onStandalone,
+}: {
+  r: RepoListItem;
+  busy: boolean;
+  onStandalone?: (name: string) => void;
+}) {
+  if (!r.shared || r.local || !onStandalone) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      class="mt-1 ml-2 px-2 min-h-[26px] rounded-lg border border-white/20 text-[#9a9aaa] text-xs font-semibold disabled:opacity-30"
+      title={t(
+        "Keeps its branch and commits, and stops sharing the clone with other projects.",
+      )}
+      onClick={() => onStandalone(r.name)}
+      disabled={busy}
+      data-testid="repo-standalone"
+    >
+      {t("Make independent")}
+    </button>
+  );
+}
+
 // OtherRepoRow is one of the other repositories, with its remove button, and the question the
 // gateway asked when it holds work.
 function OtherRepoRow({
@@ -156,20 +186,7 @@ function OtherRepoRow({
               {tf("Bring up to {branch}", { branch: r.main_branch || "main" })}
             </button>
           )}
-          {!!r.shared && !r.local && onStandalone && (
-            <button
-              type="button"
-              class="mt-1 ml-2 px-2 min-h-[26px] rounded-lg border border-white/20 text-[#9a9aaa] text-xs font-semibold disabled:opacity-30"
-              title={t(
-                "Keeps its branch and commits, and stops sharing the clone with other projects.",
-              )}
-              onClick={() => onStandalone(r.name)}
-              disabled={busy}
-              data-testid="repo-standalone"
-            >
-              {t("Make independent")}
-            </button>
-          )}
+          <StandaloneButton r={r} busy={busy} onStandalone={onStandalone} />
         </span>
         <button
           type="button"
