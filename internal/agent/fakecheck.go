@@ -56,11 +56,14 @@ var stubTarget = regexp.MustCompile(`(?im)^(test|tests|check|lint|build|verify|c
 
 // shellWriteToDeps is a shell line that writes where the package manager installs.
 var shellWriteToDeps = regexp.MustCompile(`(?i)(>>?|\btee\b(\s+-a)?|\bcp\b[^|;&]*|\bmv\b[^|;&]*|\bln\b[^|;&]*|` +
-	`\bchmod\b[^|;&]*|\binstall\b[^|;&]*)\s*['"]?\S*(vendor/bin|node_modules/\.bin|\.venv/bin|venv/bin|vendor/autoload\.php)`)
+	`\bchmod\b[^|;&]*|\binstall\b[^|;&]*)\s*['"]?\S*` +
+	`(vendor/bin|node_modules/\.bin|\.venv/bin|venv/bin|vendor/autoload\.php)`)
 
 // shellStubScript is a shell line that edits a manifest to make a check succeed without running.
-var shellStubScript = regexp.MustCompile(`(?i)(composer\s+config\s+(--\S+\s+)*scripts\.\S+\s+['"]?(exit\s*0?|true|:)['"]?\s*$|` +
-	`npm\s+pkg\s+set\s+scripts\.\S+=['"]?(exit\s*0?|true|:)['"]?\s*$|npm\s+set-script\s+\S+\s+['"]?(exit\s*0?|true|:)['"]?\s*$)`)
+var shellStubScript = regexp.MustCompile(`(?i)(composer\s+config\s+(--\S+\s+)*scripts\.\S+\s+` +
+	`['"]?(exit\s*0?|true|:)['"]?\s*$|` +
+	`npm\s+pkg\s+set\s+scripts\.\S+=['"]?(exit\s*0?|true|:)['"]?\s*$|` +
+	`npm\s+set-script\s+\S+\s+['"]?(exit\s*0?|true|:)['"]?\s*$)`)
 
 // fakeCheckFile says why a file written by write_file/edit_file is a fabricated check, or "".
 // body is the whole new content for write_file and the replacement text for edit_file.
