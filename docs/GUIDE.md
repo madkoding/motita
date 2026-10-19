@@ -536,6 +536,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/health`                                                                                               | the only one that needs no token: liveness                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}`                                                         | the repositories motita works on; adding one runs `git init` when it is not a repository yet                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}`                    | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment; `POST .../{name}/pin` (`{"pinned":true}`) exempts a file from the retention, and the list says when each unpinned one expires. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
+| `GET /v1/notes` · `GET` `PUT` `DELETE /v1/notes/note?path=` · `POST /v1/notes/rename` · `GET /v1/notes/search?q=` | the note vault in `~/.motita/notes/`: the list of notes and the folder; one note with its `links` (each with the `path` it resolves to, absent while the note does not exist) and `backlinks`; `PUT` with `{"body":"…","create":true}` saves it (`create` refuses to replace one) and makes the folders; `rename` takes `{"from","to"}`, rewrites the `[[links]]` that led to the note and answers `{"updated":n}`; `search` ranks notes with the code index when it is on; `GET /v1/notes/graph` answers `nodes` (path, title, links in and out), `edges` and how many links point at notes that do not exist yet |
 | `GET /v1/runtimes`                                                                                             | which container runtimes the machine has (`{"podman": true, "podman_ready": true, "podman_compose": true}`: installed, answers `podman info`, and has `podman compose`); the New project dialog offers podman only when it is installed                                                                                                                                                                                                                                                                                                                                |
 | `GET /v1/boxes`, `DELETE /v1/boxes`, `DELETE /v1/boxes/{id}` | the service containers Motita started to test a project (`{"runtime": "podman", "boxes": [{id, name, image, status, created}]}`); remove one by id or name, or all of them. Only containers carrying the `motita.box` label are touched. Settings → Security shows them |
 | `PATCH /v1/projects/{id}`                                                                                      | change the "run with podman" answer after creation; open sessions are told, so the agent uses `podman` instead of docker                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -597,6 +598,39 @@ well known uses it, and it sits below the ephemeral range a Linux box hands out 
 default. Some hosts widen that range (this one goes down to 1024), in which case a
 fixed port can occasionally collide with an outgoing connection — if a start fails
 with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
+
+### Notes: a vault Obsidian can open
+
+The **Notes** button in the web interface's sidebar opens a vault of Markdown notes. They are
+plain `.md` files in `~/.motita/notes/` (nothing else is kept: no database, no index file), so
+the same folder opens in Obsidian and what you change there is what motita shows.
+
+- **Tree and editor.** Folders and notes on the left; the open note is a preview you can switch
+  to a text editor. A draft is saved with the Save button, when you open another note and when
+  you close the window.
+- **Wiki links.** `[[Peru]]`, `[[trips/Peru]]`, `[[Peru#Food|the food]]` are resolved as Obsidian
+  does (a bare name matches a note of that name in any folder, the case does not matter, the
+  shallowest wins). A link to a note that does not exist yet creates it, next to the note you
+  are in. Links inside code are text.
+- **Backlinks.** Under each note, the notes that link to it, with the line that does.
+- **Projects.** The new-note form can put the note in a folder named after a project, so a
+  project's notes sit together; everything else lives at the top level.
+- **Search.** With the code index on (Settings, Indexing) the notes are searched with the same
+  index as code, ranked by meaning; with it off, every word must appear in the name or text.
+- **Graph.** The Graph button draws the notes as dots joined by their links (bigger dots are
+  linked from more notes); a click opens the note. Links to notes not written yet are counted,
+  not drawn.
+- **The agent reads and writes them too.** In plan mode the tools `search_notes`, `read_note`,
+  `write_note` and `append_note`; in task mode the actions `note_search`, `note_read`,
+  `note_write` and `note_append` (`"command": "note :: the Markdown"` for the last two). Reads
+  answer with `[[Title]] (path)` so the agent can cite the note, and with what the note links to
+  and what links to it. The prompts tell it to search the notes before answering about your own
+  facts or decisions, to cite them as `[[Title]]`, to say when notes contradict each other or say
+  nothing, and to record what is worth keeping. Writes never replace or delete: `write_note`
+  creates a new note and refuses an existing one, `append_note` adds to the end. Text written
+  goes through the secret redactor first.
+- **Limits.** 5000 notes, 192 KB each; only `.md` files, no hidden folders, and no path that
+  leaves the vault, symbolic links included.
 
 ### Projects, sessions, and going back
 
@@ -1101,7 +1135,7 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 50 of 50 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage**    | **100% in every package that ships** — 51 of 51 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 4,980 across 520 files                                                                                                                                                                                    |
 | **Code vs tests**         | 81,379 lines of Go · 135,022 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |
