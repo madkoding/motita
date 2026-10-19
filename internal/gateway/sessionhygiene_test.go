@@ -9,24 +9,6 @@ import (
 	"testing"
 )
 
-// A repository the user has is never fetched into when a session opens: the branch they have out
-// is theirs.
-func TestOpeningASessionLeavesTheUsersRepositoryAlone(t *testing.T) {
-	srv, _, id, _ := localProject(t)
-	local, _ := usersRepo(t)
-	mustGit(t, local, "stash", "-u", "-q")
-	mustGit(t, local, "checkout", "-q", "main")
-	before := snapshotOf(t, local)
-	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
-		t.Fatalf("adding it: %d %+v", code, p)
-	}
-	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
-	srv.mainRefresh.wait()
-	if after := snapshotOf(t, local); after != before {
-		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
-	}
-}
-
 // A project with no origin has nothing to pull, so a merged session continues.
 func TestAContinueWithoutAnOriginHasNothingToPull(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
@@ -39,37 +21,6 @@ func TestAContinueWithoutAnOriginHasNothingToPull(t *testing.T) {
 	w := callHandler(t, srv, c, srv.handleContinueSession, sessionPath(srv, ss.ID, "/continue"))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201: %s", w.Code, w.Body.String())
-	}
-}
-
-// Deleting a project that stands on a folder of the user's own removes what motita put in it.
-func TestDeletingAProjectInTheUsersFolderReleasesItsRepositories(t *testing.T) {
-	srv, _ := fullDiskServer(t)
-	local, _ := usersRepo(t)
-	mine := t.TempDir()
-	gitRepo(t, mine)
-	if code, out := createProject(t, srv, `{"title":"mine","path":"`+mine+`"}`); code != http.StatusCreated {
-		t.Fatalf("creating: %d %v", code, out)
-	}
-	id := onlyProjectID(t, srv)
-	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
-		t.Fatalf("adding it: %d %+v", code, p)
-	}
-	srv.mainRefresh.wait()
-	if w := doDelete(t, srv, "/v1/projects/"+id+"?force=1"); w.Code != http.StatusNoContent {
-		t.Fatalf("delete: %d %s", w.Code, w.Body)
-	}
-	if out := mustGit(t, local, "worktree", "list"); strings.Count(out, "\n") != 0 {
-		t.Errorf("a worktree of the deleted project is left in the user's repository:\n%s", out)
-	}
-	if out := mustGit(t, local, "branch", "--list", "project/*"); out != "" {
-		t.Errorf("the project's branch is left: %s", out)
-	}
-	if _, err := os.Stat(filepath.Join(mine, "bridges")); err == nil {
-		t.Error("the repository's folder is left inside the user's folder")
-	}
-	if _, err := os.Stat(mine); err != nil {
-		t.Errorf("the user's folder must stay: %v", err)
 	}
 }
 
@@ -98,47 +49,6 @@ func TestDeletingASessionDropsItsMergedBranchAndKeepsItsWork(t *testing.T) {
 	}
 	if !strings.Contains(left, worked.ID) {
 		t.Errorf("a branch with unmerged commits must stay: %q", left)
-	}
-}
-
-// A repository the user has out on a feature branch gives the project and its sessions branches
-// that start on its main branch, not on the feature.
-func TestALocalRepositoryIsBranchedFromItsMainBranch(t *testing.T) {
-	srv, projectDir, id, _ := localProject(t)
-	local, _ := usersRepo(t)
-	write(t, filepath.Join(local, "feature.txt"), "only on the feature")
-	mustGit(t, local, "add", "feature.txt")
-	mustGit(t, local, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "feature")
-	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
-		t.Fatalf("adding it: %d %+v", code, p)
-	}
-	ss := createSessionIn(t, srv, id)
-	main := mustGit(t, local, "rev-parse", "main")
-	for _, dir := range []string{filepath.Join(projectDir, "bridges"), filepath.Join(ss.Workspace, "bridges")} {
-		if got := mustGit(t, dir, "rev-parse", "HEAD"); got != main {
-			t.Errorf("%s starts on %s, want main %s", dir, got, main)
-		}
-	}
-}
-
-// The uncommitted work in the project's folders of its other repositories is in the deletion's
-// preview, and stops a deletion the user has not confirmed.
-func TestDeletingAProjectNamesTheWorkInItsRepositories(t *testing.T) {
-	srv, _, id, _ := localProject(t)
-	local, _ := usersRepo(t)
-	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
-		t.Fatalf("adding it: %d %+v", code, p)
-	}
-	write(t, filepath.Join(srv.projectOf(id).Dir, "bridges", "draft.txt"), "draft")
-	w := get(t, srv, "/v1/projects/"+id+"/deletion-preview", testToken)
-	if !strings.Contains(w.Body.String(), filepath.Join("bridges", "draft.txt")) {
-		t.Errorf("the preview must name the repository's change: %s", w.Body)
-	}
-	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusConflict {
-		t.Errorf("an unconfirmed deletion must be refused: %d %s", w.Code, w.Body)
-	}
-	if w := doDelete(t, srv, "/v1/projects/"+id+"?force=1"); w.Code != http.StatusNoContent {
-		t.Errorf("a confirmed deletion: %d %s", w.Code, w.Body)
 	}
 }
 
@@ -204,5 +114,95 @@ func TestARefusedProjectDeletionKeepsEverySessionsWorktree(t *testing.T) {
 		if _, err := os.Stat(ss.Workspace); err != nil {
 			t.Errorf("after 2nd: session %s lost its worktree: %v", ss.ID, err)
 		}
+	}
+}
+
+// A repository the user has is never fetched into when a session opens: the branch they have out
+// is theirs.
+func TestOpeningASessionLeavesTheUsersRepositoryAlone(t *testing.T) {
+	srv, _, id, _ := localProject(t)
+	local, _ := usersRepo(t)
+	mustGit(t, local, "stash", "-u", "-q")
+	mustGit(t, local, "checkout", "-q", "main")
+	before := snapshotOf(t, local)
+	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding it: %d %+v", code, p)
+	}
+	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
+	srv.mainRefresh.wait()
+	if after := snapshotOf(t, local); after != before {
+		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// Deleting a project that stands on a folder of the user's own removes what motita put in it.
+func TestDeletingAProjectInTheUsersFolderReleasesItsRepositories(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	local, _ := usersRepo(t)
+	mine := t.TempDir()
+	gitRepo(t, mine)
+	if code, out := createProject(t, srv, `{"title":"mine","path":"`+mine+`"}`); code != http.StatusCreated {
+		t.Fatalf("creating: %d %v", code, out)
+	}
+	id := onlyProjectID(t, srv)
+	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding it: %d %+v", code, p)
+	}
+	srv.mainRefresh.wait()
+	if w := doDelete(t, srv, "/v1/projects/"+id+"?force=1"); w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if out := mustGit(t, local, "worktree", "list"); strings.Count(out, "\n") != 0 {
+		t.Errorf("a worktree of the deleted project is left in the user's repository:\n%s", out)
+	}
+	if out := mustGit(t, local, "branch", "--list", "project/*"); out != "" {
+		t.Errorf("the project's branch is left: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(mine, "bridges")); err == nil {
+		t.Error("the repository's folder is left inside the user's folder")
+	}
+	if _, err := os.Stat(mine); err != nil {
+		t.Errorf("the user's folder must stay: %v", err)
+	}
+}
+
+// A repository the user has out on a feature branch gives the project and its sessions branches
+// that start on its main branch, not on the feature.
+func TestALocalRepositoryIsBranchedFromItsMainBranch(t *testing.T) {
+	srv, projectDir, id, _ := localProject(t)
+	local, _ := usersRepo(t)
+	write(t, filepath.Join(local, "feature.txt"), "only on the feature")
+	mustGit(t, local, "add", "feature.txt")
+	mustGit(t, local, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "feature")
+	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding it: %d %+v", code, p)
+	}
+	ss := createSessionIn(t, srv, id)
+	main := mustGit(t, local, "rev-parse", "main")
+	for _, dir := range []string{filepath.Join(projectDir, "bridges"), filepath.Join(ss.Workspace, "bridges")} {
+		if got := mustGit(t, dir, "rev-parse", "HEAD"); got != main {
+			t.Errorf("%s starts on %s, want main %s", dir, got, main)
+		}
+	}
+}
+
+// The uncommitted work in the project's folders of its other repositories is in the deletion's
+// preview, and stops a deletion the user has not confirmed.
+func TestDeletingAProjectNamesTheWorkInItsRepositories(t *testing.T) {
+	srv, _, id, _ := localProject(t)
+	local, _ := usersRepo(t)
+	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding it: %d %+v", code, p)
+	}
+	write(t, filepath.Join(srv.projectOf(id).Dir, "bridges", "draft.txt"), "draft")
+	w := get(t, srv, "/v1/projects/"+id+"/deletion-preview", testToken)
+	if !strings.Contains(w.Body.String(), filepath.Join("bridges", "draft.txt")) {
+		t.Errorf("the preview must name the repository's change: %s", w.Body)
+	}
+	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusConflict {
+		t.Errorf("an unconfirmed deletion must be refused: %d %s", w.Code, w.Body)
+	}
+	if w := doDelete(t, srv, "/v1/projects/"+id+"?force=1"); w.Code != http.StatusNoContent {
+		t.Errorf("a confirmed deletion: %d %s", w.Code, w.Body)
 	}
 }
