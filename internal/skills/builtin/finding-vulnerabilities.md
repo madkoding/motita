@@ -12,6 +12,9 @@ write, a file name, an environment variable of a child process, a model's output
 manifest. Sinks: a shell or process start, a filesystem path, a URL fetch, a query, an HTML or
 template render, a deserializer, a log line, a privilege or permission decision.
 
+To find the sources and sinks in an unfamiliar tree, ask `search_index` when it is offered ("where
+does a request body reach a query"), then confirm each hit by reading the code.
+
 For each candidate write the three out. If you cannot name the source, it is not reachable. If
 you cannot name the guard and why it fails, you have not read far enough.
 
