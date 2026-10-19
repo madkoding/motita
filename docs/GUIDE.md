@@ -1182,7 +1182,7 @@ This is tested the way you'd test something you were about to bet on.
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Statement coverage**    | **100% in every package that ships** — 51 of 51 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 4,980 across 520 files                                                                                                                                                                                    |
-| **Code vs tests**         | 81,379 lines of Go · 135,022 lines of test                                                                                                                                                                |
+| **Code vs tests**         | 95,916 lines of Go · 149,610 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |
 | **Platforms CI builds**   | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                 |
 
