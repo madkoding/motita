@@ -47,8 +47,12 @@ func (r *AppRunner) endpointOf(provider string) llmEndpoint {
 		ep = llmEndpoint{baseURL: config.StoredBaseURL(next), apiKey: config.ProviderKeyFromEnv(next)}
 		if ep.baseURL == "" {
 			ep.baseURL = onboard.DefaultBaseURL(next)
+			if next == "ollama" {
+				ep.baseURL = config.OllamaLocalURL // Ollama Cloud is its own provider
+			}
 		}
 	}
+	ep.apiKey = config.KeyForEndpoint(next, ep.baseURL, ep.apiKey)
 	// openai and codex are the same account: the key carries over between them.
 	if ep.apiKey == "" && sameOpenAIAccount(strings.ToLower(r.Cfg.LLM.Provider), next) {
 		ep.apiKey = r.Cfg.LLM.APIKey

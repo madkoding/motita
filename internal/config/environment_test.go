@@ -61,3 +61,40 @@ func TestReportsUsageSkipsOnlyASelfHostedOllama(t *testing.T) {
 		t.Error("only the self-hosted Ollama has no usage")
 	}
 }
+
+func TestKeyForEndpointWithholdsTheKeyFromASelfHostedOllama(t *testing.T) {
+	cases := []struct{ provider, base, want string }{
+		{"ollama", "http://localhost:11434/v1", ""},
+		{"ollama", "http://box.lan:11434/v1", ""},
+		{"ollama", "https://ollama.com/v1", "k"},
+		{"ollama-cloud", "https://ollama.com/v1", "k"},
+		{"openai", "http://localhost:8080/v1", "k"},
+	}
+	for _, c := range cases {
+		if got := KeyForEndpoint(c.provider, c.base, "k"); got != c.want {
+			t.Errorf("%s at %s: key = %q, want %q", c.provider, c.base, got, c.want)
+		}
+	}
+}
+
+// TestASharedOllamaKeyDoesNotShowUpOnTheLocalProvider: OLLAMA_API_KEY is Ollama Cloud's, so the
+// self-hosted entry reports "not needed" instead of claiming the cloud key as its own.
+func TestASharedOllamaKeyDoesNotShowUpOnTheLocalProvider(t *testing.T) {
+	t.Setenv("OLLAMA_API_KEY", "cloud-key")
+	cfgPath := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := SetCredential(cfgPath, ProviderBaseURLVariable("ollama"), "http://localhost:11434/v1"); err != nil {
+		t.Fatal(err)
+	}
+	UseCredentialsBeside(cfgPath)
+	t.Cleanup(func() { UseCredentialsBeside(File()) })
+	if got := KeySource(cfgPath, LLM{Provider: "anthropic"}, "ollama"); got != KeyNotNeeded {
+		t.Errorf("local Ollama key source = %q", got)
+	}
+	local := LLM{Provider: "ollama", BaseURL: "http://localhost:11434/v1"}
+	if got := KeySource(cfgPath, local, "ollama"); got != KeyNotNeeded {
+		t.Errorf("configured local Ollama key source = %q", got)
+	}
+	if got := KeySource(cfgPath, LLM{Provider: "anthropic"}, "ollama-cloud"); got != KeyEnv {
+		t.Errorf("Ollama Cloud key source = %q", got)
+	}
+}
