@@ -137,13 +137,13 @@ The result is a **single static binary** — copy it to a machine over `scp`, wa
 away, and it works. No Go toolchain, no runtime, no container, no dependency tree
 you'll regret in two years.
 
-|                    |                                                                                |
-| ------------------ | ------------------------------------------------------------------------------ |
-| **Linux**          | `386`, `amd64`, `arm` (ARMv7), `arm64`                                         |
-| **Android**        | `arm64` (Termux)                                                               |
-| **Windows**        | `386`, `amd64`, `arm64`                                                        |
-| **macOS**          | `amd64`, `arm64`                                                               |
-| **Published size** | 21.8 – 23.1 MiB per binary (measured on all 10 binaries of the v4.2.0 release) |
+|                    |                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------- |
+| **Linux**          | `386`, `amd64`, `arm` (ARMv7), `arm64`                                          |
+| **Android**        | `arm64` (Termux)                                                                |
+| **Windows**        | `386`, `amd64`, `arm64`                                                         |
+| **macOS**          | `amd64`, `arm64`                                                                |
+| **Published size** | 23.5 – 25.0 MiB per binary (measured on all 10 binaries of the v4.35.0 release) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
