@@ -9,6 +9,7 @@ import { slugOf } from "./appParse";
 import { podmanNote } from "./appFormat";
 import { IconClose, IconFolder, IconSpinner } from "./icons";
 import { NEW_PROJECT } from "./appConst";
+import { useFolderProbe, type FolderProbe } from "./useFolderProbe";
 
 // The look of the dialog's fields.
 const FIELD =
@@ -91,25 +92,85 @@ function FolderNameField() {
   );
 }
 
-// FolderFields is where the project lives: a folder in the workspace, or, when Settings → Security
-// allows the whole disk, any folder found with the folder browser.
-function FolderFields() {
+// FolderNote says what will happen to the folder typed: that it is created, that it is used as it
+// is and stays when the project goes, or that it is among the system's files and needs a yes.
+function FolderNote({ probe }: { probe: FolderProbe }) {
   const p = useApp().projects;
-  if (!p.fullDisk) {
-    return <FolderNameField />;
+  if (probe.state === "idle") {
+    return null;
   }
+  if (probe.state === "refused") {
+    return (
+      <p class="text-xs text-danger mt-1" data-testid="folder-note-refused">
+        {probe.reason}
+      </p>
+    );
+  }
+  if (probe.state === "missing") {
+    return (
+      <p class="text-xs text-[#9a9aaa] mt-1" data-testid="folder-note-missing">
+        {t("The folder does not exist yet: it will be created.")}
+      </p>
+    );
+  }
+  if (probe.state === "exists") {
+    return (
+      <p class="text-xs text-[#9a9aaa] mt-1" data-testid="folder-note-exists">
+        {t(
+          "The folder already exists and is used as it is. It stays on disk, with its files, when the project is deleted.",
+        )}
+      </p>
+    );
+  }
+  return (
+    <label
+      class="flex items-start gap-2 mt-1 text-xs text-warning"
+      data-testid="folder-note-sensitive"
+    >
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        data-testid="folder-sure"
+        checked={p.newProjectSure}
+        onChange={(e) =>
+          p.setNewProjectSure((e.target as HTMLInputElement).checked)
+        }
+      />
+      <span>
+        {t(
+          "This folder is among the system's own files. I know what I am doing and want a project here.",
+        )}
+      </span>
+    </label>
+  );
+}
+
+// FolderFields is where the project lives: a folder named in the workspace, or one found with the
+// folder browser or typed as a path. A folder that does not exist yet is created. Inside the
+// workspace any folder is reachable; the rest of the disk only when Settings → Security allows it.
+function FolderFields() {
+  const { projects: p, api } = useApp();
+  const probe = useFolderProbe(api, p.newProjectPath);
   return (
     <div data-testid="new-project-location">
       <label class={LABEL}>{t("Location")}</label>
-      {p.newProjectPath && (
-        <p
-          class="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
-          data-testid="new-project-path"
-        >
-          {p.newProjectPath}
-        </p>
-      )}
       {!p.newProjectPath && <FolderNameField />}
+      <input
+        class={`${MONO_FIELD} mt-2`}
+        data-testid="new-project-path"
+        value={p.newProjectPath}
+        onInput={(e) =>
+          p.setNewProjectPath((e.target as HTMLInputElement).value)
+        }
+        placeholder={t("Or the path of a folder, existing or new")}
+        list="new-project-suggestions"
+      />
+      <datalist id="new-project-suggestions">
+        {probe.suggestions.map((path) => (
+          <option key={path} value={path} />
+        ))}
+      </datalist>
+      <FolderNote probe={probe} />
       <div class="flex gap-2 mt-2">
         <button
           type="button"
@@ -131,8 +192,14 @@ function FolderFields() {
         )}
       </div>
       <p class="text-xs text-[#7a7a8c] mt-1">
-        {t(
-          "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
+        {choose(
+          p.fullDisk,
+          t(
+            "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
+          ),
+          t(
+            "Without the whole disk in Settings → Security, the folder has to be inside the workspace.",
+          ),
         )}
       </p>
     </div>
