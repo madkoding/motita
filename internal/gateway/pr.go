@@ -153,6 +153,7 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 			s.writePRError(w, prHostError(t.api.Service, err))
 			return
 		}
+		ci = s.awaitedCI(r.Context(), c, t, pr, ci)
 		view.CI = &ci
 		if ci.State == gitforge.StateSuccess {
 			if m, err := t.api.MergeState(r.Context(), t.remote, pr.Number); err == nil {

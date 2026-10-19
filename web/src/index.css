@@ -5086,3 +5086,26 @@ html .project-bar button.project-new-session {
   background: var(--s2);
   border: 1px solid rgb(var(--accent-rgb) / 0.35);
 }
+
+/* Pull request bar: frosted glass over a dark gradient, so "Pull request #n · CI running" reads on
+ * any chat background. The ::before fades the conversation out above it instead of a hard edge.
+ * --bg-rgb keeps it dark in dark mode and a white veil in light mode, where the text is remapped. */
+.pr-bar {
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--bg-rgb) / 0.78),
+    rgb(var(--bg-rgb) / 0.94)
+  );
+  backdrop-filter: blur(24px) saturate(1.4);
+  border-top: 1px solid rgb(var(--neon-rgb) / 0.25);
+  text-shadow: 0 1px 2px rgb(var(--bg-rgb) / 0.9);
+  animation: motion-rise-in var(--motion-base) var(--ease-out) backwards;
+}
+.pr-bar::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 100% 0;
+  height: 24px;
+  pointer-events: none;
+  background: linear-gradient(to top, rgb(var(--bg-rgb) / 0.6), transparent);
+}

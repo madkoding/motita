@@ -27,6 +27,24 @@ func TestSummarize(t *testing.T) {
 	}
 }
 
+func TestAwaiting(t *testing.T) {
+	base := CIStatus{Checks: []Check{{Name: "test", State: StateSuccess}, {Name: "lint", State: StateFailure}}}
+	head := CIStatus{State: StateSuccess, Rev: "abc", Checks: []Check{{Name: "test", State: StateSuccess}}}
+	got := head.Awaiting(base)
+	if got.State != StatePending || got.Rev != "abc" || len(got.Checks) != 2 || got.Checks[1].State != StatePending {
+		t.Errorf("a job of the base not started yet is running: %+v", got)
+	}
+	if len(head.Checks) != 1 {
+		t.Errorf("the head's own checks are not touched: %+v", head.Checks)
+	}
+	if got := (CIStatus{State: StateNone}).Awaiting(base); got.State != StatePending || len(got.Checks) != 2 {
+		t.Errorf("no checks yet on a repository with CI is a CI to wait for: %+v", got)
+	}
+	if got := head.Awaiting(CIStatus{State: StateNone}); got.State != StateSuccess || len(got.Checks) != 1 {
+		t.Errorf("a base with no CI adds nothing: %+v", got)
+	}
+}
+
 func TestMapState(t *testing.T) {
 	for in, want := range map[string]string{
 		"SUCCESSFUL": StateSuccess, "success": StateSuccess, "skipped": StateSuccess, "manual": StateSuccess,
