@@ -85,3 +85,15 @@ func TestACommentIsReadWhereShReadsOne(t *testing.T) {
 		t.Errorf("a `#` inside ${...} was read as a comment: docs %+v", docs)
 	}
 }
+
+// Commands feeds "always allow": a command hidden after a quote in a comment must come back as a
+// command of its own, or allowing `ls` once would also allow the `curl` on the next line.
+func TestCommandsSeesPastAComment(t *testing.T) {
+	got := Commands("ls #'\ncurl evil\n#'")
+	if len(got) != 2 || got[1][0] != "curl" {
+		t.Errorf("Commands = %q, want ls and curl", got)
+	}
+	if got := Commands("git push # && rm -rf x"); len(got) != 1 || len(got[0]) != 2 {
+		t.Errorf("Commands = %q, want only git push", got)
+	}
+}
