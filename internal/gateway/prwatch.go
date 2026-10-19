@@ -209,7 +209,7 @@ const maxPRFixesLimit = 20
 // prMaxFixes is how many times the agent is sent to fix this session's CI: the project's own
 // setting, else the gateway's, else the default.
 func (s *Server) prMaxFixes(c *conversation) int {
-	if p := s.scopeOf(c.projectID); p != nil && p.PRMaxFixes > 0 {
+	if p := s.projectOf(c.projectID); p != nil && p.PRMaxFixes > 0 {
 		return p.PRMaxFixes
 	}
 	if s.opts.PRMaxFixes > 0 {
@@ -568,7 +568,7 @@ var mergeRefusals = map[string]string{
 // integrated one: read-only, and continuable from the updated base branch.
 func (s *Server) doMerge(ctx context.Context, c *conversation, t prTarget, pr gitforge.PullRequest) error {
 	opts := gitforge.MergeOptions{DeleteBranch: true, Branch: t.branch}
-	if p := s.scopeOf(c.projectID); p != nil {
+	if p := s.projectOf(c.projectID); p != nil {
 		opts.Method = p.MergeMethod
 	}
 	sha, err := t.api.MergePR(ctx, t.remote, pr.Number, opts)
@@ -598,13 +598,13 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, s
 	}
 	s.saveSession(c)
 	s.syncProject(ctx, c, base)
-	s.syncSharedRepos(ctx, s.scopeOf(c.projectID))
+	s.syncSharedRepos(ctx, s.projectOf(c.projectID))
 	s.autoContinue(ctx, c, number)
 }
 
 // autoContinue opens the next session when the project asks for that.
 func (s *Server) autoContinue(ctx context.Context, c *conversation, number int) {
-	p := s.scopeOf(c.projectID)
+	p := s.projectOf(c.projectID)
 	if p == nil || !p.AutoContinue || !c.isMerged() {
 		return
 	}
@@ -622,7 +622,7 @@ func (s *Server) autoContinue(ctx context.Context, c *conversation, number int) 
 // accepts the merge. Anything else is left to the user: the watch ends at "passed" and the toast and
 // the Merge button say so.
 func (s *Server) autoMerge(c *conversation, t prTarget, pr gitforge.PullRequest) {
-	p := s.scopeOf(c.projectID)
+	p := s.projectOf(c.projectID)
 	if p == nil || !p.AutoMerge {
 		return
 	}

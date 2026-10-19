@@ -129,7 +129,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	// the directory is read from the project, so the session goes back to it rather than to
 	// wherever it happened to be.
 	if rec.ProjectDir == "" && rec.ProjectID != "" {
-		if p := s.scopeOf(rec.ProjectID); p != nil {
+		if p := s.projectOf(rec.ProjectID); p != nil {
 			rec.ProjectDir = p.Dir
 		}
 	}
@@ -178,7 +178,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	if projectDir != "" {
 		scopeProceduresTo(svc, projectDir)
 	}
-	project := s.scopeOf(rec.ProjectID)
+	project := s.projectOf(rec.ProjectID)
 	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
 	applyRuntimeTo(svc, project, workspace)
 	s.offerThreads(conv)
