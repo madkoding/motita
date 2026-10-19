@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // The main branch of a project: chosen at creation, editable, offered by a selector, and the
@@ -263,6 +264,11 @@ func TestReturnToMainSurvivesABranchThatIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustGit(t, projectDir, "checkout", "-q", "-b", "feature")
+	log, err := logx.New(logx.Options{Path: filepath.Join(t.TempDir(), "gateway.log"), Level: logx.Info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.opts.Log = log
 	srv.returnToMain(p) // the checkout fails and is logged, not raised
 	if got := gitx.Display(context.Background(), projectDir); got != "feature" {
 		t.Errorf("a failed return leaves the checkout alone, it is on %q", got)
@@ -347,5 +353,18 @@ func TestCreateProjectFromAURLClonesIntoThePlainFolder(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(ws, "d")); err == nil {
 		t.Error("a failed creation leaves no folder behind")
+	}
+}
+
+func TestReturnToMainLeavesUncommittedWorkAlone(t *testing.T) {
+	srv, projectDir, _ := newSessionInProject(t)
+	for _, c := range srv.snapshot() {
+		_ = doDelete(t, srv, "/v1/sessions/"+c.id)
+	}
+	mustGit(t, projectDir, "checkout", "-q", "-b", "feature")
+	_ = os.WriteFile(filepath.Join(projectDir, "README.md"), []byte("edited\n"), 0o644)
+	srv.returnToMain(srv.projectOf(onlyProjectID(t, srv)))
+	if got := gitx.Display(context.Background(), projectDir); got != "feature" {
+		t.Errorf("a dirty checkout stays where it is, on %q", got)
 	}
 }
