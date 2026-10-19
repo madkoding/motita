@@ -1,16 +1,17 @@
 // The notes window: a vault of plain Markdown notes with a folder tree, an editor with a preview
 // where [[links]] open the note they name, the notes that link back, and a search.
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { t, tf } from "./i18n";
+import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { Markdown } from "./Markdown";
+import { MapLegend, MapPeek } from "./NoteMapPanels";
 import { IconBook, IconClose, IconFile, IconFolder } from "./icons";
 import {
   graph3d,
   mountGraph3D,
-  NEON,
+  NEON_CSS,
   reducedMotion,
   type Graph3D,
 } from "./noteGraph3d";
@@ -18,7 +19,7 @@ import {
   buildTree,
   byReadingOrder,
   layoutGraph,
-  noteGroup,
+  noteColours,
   noteTrail,
   parseNoteHref,
   plainWiki,
@@ -391,12 +392,6 @@ function NoteToolbar() {
   );
 }
 
-// NEON_CSS is the map's palette as CSS colours, one per top folder.
-const HEX_DIGITS = 6;
-const NEON_CSS = NEON.map(
-  (c) => "#" + c.toString(16).padStart(HEX_DIGITS, "0"),
-);
-
 // DOT sizes a note on the flat map: its radius grows with the links to it, up to most, and its
 // name sits lift above it.
 const DOT = { size: 5, most: 6, lift: 10 };
@@ -441,12 +436,18 @@ function useMap3D(graph: NoteGraph, open: (path: string) => void) {
 }
 
 // GraphPane draws the notes as glowing points joined by their links, in 3D where it can; a click
-// on a note opens it.
+// on a note shows it beside the map, and from there it opens.
 function GraphPane({ graph }: { graph: NoteGraph }) {
-  const { openNote, closeGraph } = useApp().notes;
+  const { openNote, peekNote, closeGraph } = useApp().notes;
   const nodes = useMemo(() => layoutGraph(graph, GRAPH_W, GRAPH_H), [graph]);
   const at = new Map(nodes.map((n) => [n.path, n]));
-  const { host, map, deep } = useMap3D(graph, (p) => void openNote(p));
+  const colours = useMemo(
+    () => noteColours(graph.nodes, NEON_CSS.length),
+    [graph],
+  );
+  const [peek, setPeek] = useState<NoteView | null>(null);
+  const show = (path: string) => void peekNote(path).then(setPeek);
+  const { host, map, deep } = useMap3D(graph, show);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const hit = (title: string) => q !== "" && title.toLowerCase().includes(q);
@@ -476,7 +477,7 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
         </div>
         {deep && (
           <div class="text-xs text-accent" data-testid="graph-3d-hint">
-            {t("Drag to turn, scroll to zoom, click a name to open it.")}
+            {t("Drag to turn, scroll to zoom, click a name to look at it.")}
           </div>
         )}
       </div>
@@ -493,7 +494,7 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
           />
           {q !== "" && (
             <span class="text-xs text-[#f5f500]" data-testid="graph-found">
-              {tf("{n} found", { n: String(found) })}
+              {plural(found, "1 found", "{n} found")}
             </span>
           )}
         </div>
@@ -503,6 +504,15 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
       )}
       <div class="graph3d relative flex-1 min-h-0 rounded-xl overflow-hidden">
         <div ref={host} class="absolute inset-0" data-testid="graph-3d" />
+        {nodes.length > 0 && <MapLegend nodes={graph.nodes} />}
+        {peek && (
+          <MapPeek
+            note={peek}
+            onPeek={show}
+            onOpen={(p) => void openNote(p)}
+            onClose={() => setPeek(null)}
+          />
+        )}
         {!deep && (
           <svg
             viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
@@ -533,14 +543,14 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
                 tabIndex={0}
                 data-testid="graph-node"
                 aria-label={n.title}
-                onClick={() => void openNote(n.path)}
-                onKeyDown={(e) => e.key === "Enter" && void openNote(n.path)}
+                onClick={() => show(n.path)}
+                onKeyDown={(e) => e.key === "Enter" && show(n.path)}
               >
                 <circle
                   cx={n.x}
                   cy={n.y}
                   r={DOT.size + Math.min(n.in, DOT.most)}
-                  fill={NEON_CSS[noteGroup(n.path, NEON_CSS.length)]}
+                  fill={NEON_CSS[colours.get(n.path) as number]}
                 />
                 <text
                   x={n.x}

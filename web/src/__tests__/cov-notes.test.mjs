@@ -808,24 +808,71 @@ test("the graph shows the notes and their links, opens a note on a click, and to
   await click(q(m.root, "note-graph-toggle"));
   assert.equal(q(m.root, "note-graph"), null);
 
-  // A click on a dot opens its note; so does Enter, and another key does nothing.
+  // A click on a dot shows its note beside the map; so does Enter, and another key does nothing.
   await click(q(m.root, "note-graph-toggle"));
-  const nodes = qa(m.root, "graph-node");
+  const node = (name) =>
+    qa(m.root, "graph-node").find((n) => n.getAttribute("aria-label") === name);
   await act(() =>
-    nodes[0].dispatchEvent(
+    node("Peru").dispatchEvent(
       new W.KeyboardEvent("keydown", { key: "a", bubbles: true }),
     ),
   );
-  assert.ok(q(m.root, "note-graph"));
+  assert.equal(q(m.root, "graph-peek"), null);
   await act(() =>
-    nodes[0].dispatchEvent(
+    node("Peru").dispatchEvent(
       new W.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     ),
   );
   await settle();
-  assert.ok(q(m.root, "note-preview"));
-  await click(q(m.root, "note-graph-toggle"));
-  await click(qa(m.root, "graph-node")[1]);
+  const peek = () => q(m.root, "graph-peek");
+  assert.match(text(peek()), /Peru/);
+  assert.match(text(peek()), /trips/, "its folders");
+  assert.ok(q(m.root, "note-graph"), "the map stays");
+  assert.match(text(q(m.root, "graph-legend")), /trips/);
+  assert.match(text(q(m.root, "graph-legend")), /Loose notes/);
+
+  // Its links lead to the next note to look at; a link to a note not written yet, or a click
+  // beside the links, stays.
+  const link = (name) =>
+    [...q(m.root, "graph-peek-body").querySelectorAll("a")].find(
+      (a) => text(a) === name,
+    );
+  await click(link("Japan"));
+  await settle();
+  assert.match(text(q(peek(), "graph-peek-body")), /See Peru and Nowhere/);
+  assert.doesNotMatch(
+    text(peek()),
+    /trips/,
+    "a note at the top has no folders",
+  );
+  await click(link("Nowhere"));
+  await click(q(m.root, "graph-peek-body"));
+  await settle();
+  assert.match(text(q(peek(), "graph-peek-body")), /See Peru/);
+
+  // A note that cannot be read shows nothing; the close button hides the look.
+  v.fail.add({ method: "GET", path: "Peru.md" });
+  await click(link("Peru"));
+  await settle();
+  assert.equal(peek(), null);
+  v.fail.clear();
+  await click(node("Peru"));
+  await settle();
+  v.fail.add({ method: "GET", path: "Japan.md", status: 404 });
+  await click(link("Japan"));
+  await settle();
+  assert.equal(peek(), null);
+  v.fail.clear();
+  await click(node("Japan"));
+  await settle();
+  await click(q(m.root, "graph-peek-close"));
+  assert.equal(peek(), null);
+
+  // Open the note leaves the map for it.
+  await click(node("Peru"));
+  await settle();
+  await click(q(m.root, "graph-peek-open"));
+  await settle();
   assert.ok(q(m.root, "note-preview"));
   assert.equal(q(m.root, "note-graph"), null);
 
@@ -967,18 +1014,47 @@ test("layoutGraph3D spreads the notes in space the same way every time", () => {
       in: 0,
       out: 0,
     })),
-    edges: [{ from: "a.md", to: "b.md" }],
+    edges: [
+      { from: "a.md", to: "b.md" },
+      { from: "b.md", to: "c.md" },
+    ],
     missing: 0,
   };
   const one = api.layoutGraph3D(graph, 100);
   assert.deepEqual(one, api.layoutGraph3D(graph, 100));
   for (const p of one) {
-    assert.ok(Math.hypot(p.x, p.y, p.z) <= 100.0001, "within the radius");
+    assert.ok(
+      Math.hypot(p.x, p.y, p.z) <= 115.0001,
+      "just past the radius at most",
+    );
   }
   const ab = Math.hypot(one[0].x - one[1].x, one[0].y - one[1].y);
   const ac = Math.hypot(one[0].x - one[2].x, one[0].y - one[2].y);
   assert.ok(ab > 0, "the first two notes are apart");
   assert.ok(ac > 0, "the first and third notes are apart");
+  // A long chain fits most notes in the radius and brings the ends in to just past it.
+  const chain = Array.from({ length: 8 }, (_, i) => ({
+    path: `n${i}.md`,
+    title: "",
+    size: 0,
+    modified: "",
+    in: 0,
+    out: 0,
+  }));
+  const far = api
+    .layoutGraph3D(
+      {
+        nodes: chain,
+        edges: chain
+          .slice(1)
+          .map((n, i) => ({ from: chain[i].path, to: n.path })),
+        missing: 0,
+      },
+      100,
+    )
+    .map((p) => Math.hypot(p.x, p.y, p.z));
+  assert.ok(Math.max(...far) > 100, "the ends stay past the radius");
+  assert.ok(Math.max(...far) <= 115.0001, "but close to it");
   assert.deepEqual(
     api.layoutGraph3D({ nodes: [], edges: [], missing: 0 }, 100),
     [],
@@ -991,13 +1067,55 @@ test("the reading helpers: a note's folders, its colour group and Start here fir
     "It uses B and Japan, x.",
   );
   assert.equal(api.plainWiki("> an open [[link"), "an open [[link");
+  const node = (path) => ({
+    path,
+    title: path,
+    size: 0,
+    modified: "",
+    in: 0,
+    out: 0,
+  });
+  assert.deepEqual(
+    api.mapGroups(
+      [
+        "b/x.md",
+        "a/y.md",
+        "P/M - Manual/web › src.md",
+        "P/M - Manual/web.md",
+        "top.md",
+      ].map(node),
+    ),
+    [
+      { key: "web", count: 2 },
+      { key: "", count: 1 },
+      { key: "a", count: 1 },
+      { key: "b", count: 1 },
+    ],
+  );
   assert.deepEqual(api.noteTrail("a/b/c.md"), ["a", "b"]);
   assert.deepEqual(api.noteTrail("c.md"), []);
-  assert.equal(api.noteGroup("c.md", 6), 0);
-  assert.equal(api.noteGroup("a/x.md", 6), api.noteGroup("a/w.md", 6));
-  assert.equal(
-    api.noteGroup("P/M - Manual/internal › a.md", 6),
-    api.noteGroup("Q - Manual/internal.md", 6),
+  const colours = api.noteColours(
+    [
+      "a/x.md",
+      "a/w.md",
+      "a/v.md",
+      "P/M - Manual/internal › a.md",
+      "Q - Manual/internal.md",
+      "c.md",
+    ].map((path) => ({
+      path,
+      title: "",
+      size: 0,
+      modified: "",
+      in: 0,
+      out: 0,
+    })),
+    2,
+  );
+  assert.deepEqual(
+    [...colours.values()],
+    [0, 0, 0, 1, 1, 0],
+    "the biggest parts first, then round the palette again",
   );
   const n = (title) => ({ path: title + ".md", title, size: 0, modified: "" });
   assert.deepEqual(
@@ -1143,7 +1261,12 @@ test("the window shows the 3D map where WebGL works and the flat one where it fa
   await find("");
   assert.equal(q(m.root, "graph-found"), null);
   await click(qa(m.root, "graph-node")[0]);
-  assert.ok(q(m.root, "note-preview"), "a label opens its note");
+  await settle();
+  assert.ok(q(m.root, "graph-peek"), "a label shows its note beside the map");
+  assert.ok(q(m.root, "graph-legend"));
+  await click(q(m.root, "graph-peek-open"));
+  await settle();
+  assert.ok(q(m.root, "note-preview"), "and from there it opens");
   assert.equal(q(m.root, "note-graph"), null);
 
   // Closed before three.js arrives: nothing is drawn.

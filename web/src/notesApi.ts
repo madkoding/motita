@@ -250,15 +250,18 @@ export interface PlacedNode3D extends GraphNode {
 const LAYOUT_3D_WORK = 60000;
 const LAYOUT_3D_STEPS = 120;
 const GRAVITY_3D = 0.04;
+// SPREAD fits the layout to the radius: the share of notes that lands inside it, so a few far
+// notes do not squeeze the rest into the middle, and how far past it the others may stay.
+const SPREAD = { share: 0.85, overshoot: 1.15 };
+
+// GOLDEN_ANGLE, in radians, spreads points evenly round a sphere: π·(3 − √5).
+export const GOLDEN_ANGLE = 2.399963229728653;
 
 // layoutGraph3D places the notes in space around the origin, within about radius: they start
 // spread evenly over a sphere, then every pair pushes apart, every link pulls together and the
-// whole drifts to the middle. Big vaults get fewer rounds; the same vault always lands the same.
-// GOLDEN_ANGLE, in radians, spreads points evenly round a sphere: π·(3 − √5).
-export const GOLDEN_ANGLE = 2.399963229728653;
-// HASH folds a folder's name into a small number, the same on every run.
-const HASH = { base: 31, mod: 9973 };
-
+// whole drifts to the middle. A link to a much-linked note pulls less, so a guide that links every
+// chapter does not gather them all round it. Big vaults get fewer rounds; the same vault always
+// lands the same.
 export function layoutGraph3D(
   graph: NoteGraph,
   radius: number,
@@ -275,6 +278,11 @@ export function layoutGraph3D(
     };
   });
   const at = new Map(placed.map((p) => [p.path, p]));
+  const degree = new Map<string, number>();
+  for (const e of graph.edges) {
+    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+  }
   const k = (radius / Math.cbrt(n)) * SPRING * 2;
   const steps = Math.min(LAYOUT_3D_STEPS, Math.ceil(LAYOUT_3D_WORK / (n * n)));
   for (let step = 0; step < steps; step++) {
@@ -301,7 +309,11 @@ export function layoutGraph3D(
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       const dz = a.z - b.z;
-      const pull = Math.hypot(dx, dy, dz) / k;
+      const hub = Math.max(
+        degree.get(e.from) as number,
+        degree.get(e.to) as number,
+      );
+      const pull = Math.hypot(dx, dy, dz) / k / Math.sqrt(hub);
       const da = move.get(a) as { x: number; y: number; z: number };
       const db = move.get(b) as { x: number; y: number; z: number };
       da.x -= dx * pull;
@@ -320,21 +332,28 @@ export function layoutGraph3D(
       p.z += (m.z / len) * shift;
     }
   }
-  // Centred and scaled so the farthest note sits at radius, however the forces settled.
+  // Centred and scaled so most notes sit within radius, however the forces settled; the few
+  // farther out are brought in to just past it.
   const mid = { x: 0, y: 0, z: 0 };
   for (const p of placed) {
     mid.x += p.x / n;
     mid.y += p.y / n;
     mid.z += p.z / n;
   }
-  let far = 1e-6;
-  for (const p of placed) {
-    far = Math.max(far, Math.hypot(p.x - mid.x, p.y - mid.y, p.z - mid.z));
-  }
+  const dists = placed
+    .map((p) => Math.hypot(p.x - mid.x, p.y - mid.y, p.z - mid.z))
+    .sort((a, b) => a - b);
+  const far = Math.max(dists[Math.floor((n - 1) * SPREAD.share)], 1e-6);
   for (const p of placed) {
     p.x = ((p.x - mid.x) / far) * radius;
     p.y = ((p.y - mid.y) / far) * radius;
     p.z = ((p.z - mid.z) / far) * radius;
+    const out = Math.hypot(p.x, p.y, p.z) / (radius * SPREAD.overshoot);
+    if (out > 1) {
+      p.x /= out;
+      p.y /= out;
+      p.z /= out;
+    }
   }
   return placed;
 }
@@ -361,20 +380,46 @@ export function noteTrail(path: string): string[] {
   return path.split("/").slice(0, -1);
 }
 
-// noteGroup is a number for the part of the vault a note belongs to, so the map can give each
-// part its colour: in a manual, the top folder of the project a chapter documents ("internal ›
-// gateway" goes with "internal"); elsewhere the folder the note is in. Notes at the top are 0.
-export function noteGroup(path: string, groups: number): number {
+// groupKey names the part of the vault a note belongs to: in a manual, the top folder of the
+// project a chapter documents ("internal › gateway" goes with "internal"); elsewhere the folder
+// the note is in. Notes at the top have "".
+export function groupKey(path: string): string {
   const title = path.slice(path.lastIndexOf("/") + 1);
-  let key = noteTrail(path).join("/");
+  const key = noteTrail(path).join("/");
   if (key.endsWith(" - Manual")) {
-    key = title.split(" › ")[0].replace(/\.md$/, "");
+    return title.split(" › ")[0].replace(/\.md$/, "");
   }
-  let hash = 0;
-  for (const ch of key) {
-    hash = (hash * HASH.base + (ch.codePointAt(0) as number)) % HASH.mod;
+  return key;
+}
+
+// MapGroup is one part of the vault on the map's legend, with how many notes it has.
+export interface MapGroup {
+  key: string;
+  count: number;
+}
+
+// mapGroups lists the parts of the vault the notes belong to, the biggest first.
+export function mapGroups(nodes: GraphNode[]): MapGroup[] {
+  const count = new Map<string, number>();
+  for (const n of nodes) {
+    const key = groupKey(n.path);
+    count.set(key, (count.get(key) ?? 0) + 1);
   }
-  return hash % groups;
+  return [...count]
+    .map(([key, c]) => ({ key, count: c }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+// noteColours gives every note the colour of its part of the vault, as an index into a palette of
+// colours: the biggest parts get the first ones, so the parts the legend names never share one.
+export function noteColours(
+  nodes: GraphNode[],
+  colours: number,
+): Map<string, number> {
+  const rank = new Map(mapGroups(nodes).map((g, i) => [g.key, i % colours]));
+  return new Map(
+    nodes.map((n) => [n.path, rank.get(groupKey(n.path)) as number]),
+  );
 }
 
 // START_NOTE is the first note of a guide the scan writes; a folder lists it before the rest.

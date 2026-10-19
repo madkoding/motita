@@ -8,7 +8,7 @@ import { choose } from "./choose";
 import {
   GOLDEN_ANGLE,
   layoutGraph3D,
-  noteGroup,
+  noteColours,
   type NoteGraph,
   type PlacedNode3D,
 } from "./notesApi";
@@ -23,6 +23,11 @@ const LIME = 0x7cff4f;
 const VIOLET = 0x9d4dff;
 const ORANGE = 0xff8a00;
 export const NEON = [CYAN, MAGENTA, YELLOW, LIME, VIOLET, ORANGE];
+// NEON_CSS is the same palette as CSS colours, for the flat map and the legend.
+const HEX_DIGITS = 6;
+export const NEON_CSS = NEON.map(
+  (c) => "#" + c.toString(16).padStart(HEX_DIGITS, "0"),
+);
 const FOG = { color: 0x07010f, density: 0.0011 };
 const LENS = { fov: 55, near: 1, far: 3000, rise: 0.42 };
 const GRID = {
@@ -135,8 +140,7 @@ function links(
 }
 
 // orb is one note: a bright core and a soft halo around it, the bigger the more notes link to it.
-function orb(T: ThreeLib, node: PlacedNode3D): Group {
-  const color = NEON[noteGroup(node.path, NEON.length)];
+function orb(T: ThreeLib, node: PlacedNode3D, color: number): Group {
   const size = ORB.size + Math.min(node.in, ORB.most) * ORB.growth;
   const core = new T.Mesh(
     new T.SphereGeometry(size, ORB.segments, ORB.rings),
@@ -209,12 +213,13 @@ export function mountGraph3D(
     [...placed].sort((a, b) => b.in - a.in).slice(0, LABELS),
   );
   const at = new Map(placed.map((p) => [p.path, p]));
+  const colours = noteColours(graph.nodes, NEON.length);
   world.add(links(T, graph, at));
   const layer = document.createElement("div");
   layer.className = "graph3d-labels";
   host.appendChild(layer);
   const marks = placed.map((node) => {
-    const o = orb(T, node);
+    const o = orb(T, node, NEON[colours.get(node.path) as number]);
     world.add(o);
     const b = label(node, onOpen);
     b.classList.toggle("is-minor", !ranked.has(node));

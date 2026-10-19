@@ -5223,3 +5223,20 @@ html .project-bar button.project-new-session {
 .graph3d-label.is-minor:not(.is-hit):hover {
   opacity: 1;
 }
+
+/* The legend of the map's colours and the note looked at beside it, as neon glass panels. */
+.graph-legend-item {
+  color: #c8c8d2;
+  background: rgba(7, 1, 15, 0.72);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-width: 12rem;
+}
+.graph-peek {
+  background: rgba(7, 1, 15, 0.9);
+  border: 1px solid rgba(255, 43, 214, 0.45);
+  box-shadow:
+    0 0 24px rgba(255, 43, 214, 0.25),
+    inset 0 0 24px rgba(0, 240, 255, 0.08);
+  backdrop-filter: blur(6px);
+}

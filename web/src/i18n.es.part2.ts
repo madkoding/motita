@@ -824,8 +824,13 @@ const more: Record<string, string> = {
   "Close map": "Cerrar mapa",
   "Find a note on the map": "Buscar una nota en el mapa",
   "{n} found": "{n} encontradas",
-  "Drag to turn, scroll to zoom, click a name to open it.":
-    "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para abrirlo.",
+  "1 found": "1 encontrada",
+  "Colours of the map": "Colores del mapa",
+  "Loose notes": "Notas sueltas",
+  "Close the note": "Cerrar la nota",
+  "Open the note": "Abrir la nota",
+  "Drag to turn, scroll to zoom, click a name to look at it.":
+    "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para verlo.",
   "could not load the notes": "no se pudieron cargar las notas",
   "could not open the note": "no se pudo abrir la nota",
   "could not save the note": "no se pudo guardar la nota",
