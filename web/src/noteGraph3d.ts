@@ -81,6 +81,8 @@ const FARTHEST = 700;
 const LABELS = 14;
 const SPIN = 0.0016;
 const STARS = 600;
+// CROWD is how many notes fit the map at its smallest; past it the map grows.
+const CROWD = 20;
 // Each point takes three numbers: x, y and z.
 const XYZ = 3;
 
@@ -247,7 +249,7 @@ export function mountGraph3D(
   scene.fog = new T.FogExp2(FOG.color, FOG.density);
   const camera = new T.PerspectiveCamera(LENS.fov, 1, LENS.near, LENS.far);
   // A bigger vault spreads wider, and the camera stands farther back to see it.
-  const scale = Math.max(1, Math.cbrt(graph.nodes.length / 20));
+  const scale = Math.max(1, Math.cbrt(graph.nodes.length / CROWD));
   camera.position.set(
     0,
     CAMERA_DISTANCE * scale * LENS.rise,
@@ -264,7 +266,9 @@ export function mountGraph3D(
   const world = new T.Group();
   scene.add(world);
   const placed = layoutGraph3D(graph, RADIUS * scale);
-  const ranked = [...placed].sort((a, b) => b.in - a.in).slice(0, LABELS);
+  const ranked = new Set(
+    [...placed].sort((a, b) => b.in - a.in).slice(0, LABELS),
+  );
   const at = new Map(placed.map((p) => [p.path, p]));
   world.add(links(T, graph, at));
   const layer = document.createElement("div");
@@ -274,7 +278,7 @@ export function mountGraph3D(
     const o = orb(T, node);
     world.add(o);
     const b = label(node, onOpen);
-    b.classList.toggle("is-minor", !ranked.includes(node));
+    b.classList.toggle("is-minor", !ranked.has(node));
     layer.appendChild(b);
     return { o, b };
   });

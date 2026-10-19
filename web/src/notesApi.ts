@@ -345,11 +345,10 @@ export function layoutGraph3D(
 export function plainWiki(line: string): string {
   return line
     .replace(/^[\s>|#-]+/, "")
-    .replace(
-      /\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g,
-      (_, target: string, alias?: string) =>
-        (alias ?? (target.split("/").pop() as string)).trim(),
-    )
+    .replace(/\[\[([^\]]*)\]\]/g, (_, inner: string) => {
+      const [target, alias] = inner.split("|", 2);
+      return (alias ?? (target.split("/").pop() as string)).trim();
+    })
     .replace(/[*_`]/g, "")
     .trim();
 }

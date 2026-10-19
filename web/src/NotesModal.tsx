@@ -392,7 +392,10 @@ function NoteToolbar() {
 }
 
 // NEON_CSS is the map's palette as CSS colours, one per top folder.
-const NEON_CSS = NEON.map((c) => "#" + c.toString(16).padStart(6, "0"));
+const HEX_DIGITS = 6;
+const NEON_CSS = NEON.map(
+  (c) => "#" + c.toString(16).padStart(HEX_DIGITS, "0"),
+);
 
 // DOT sizes a note on the flat map: its radius grows with the links to it, up to most, and its
 // name sits lift above it.
