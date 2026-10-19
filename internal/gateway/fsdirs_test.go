@@ -348,18 +348,21 @@ func TestWithoutTheWholeDiskAProjectCanStillUseAFolderInTheWorkspace(t *testing.
 	if code := makeDir(t, srv, `{"path":"`+ws+`","name":"made"}`); code != http.StatusCreated {
 		t.Errorf("a folder in the workspace: %d", code)
 	}
-	if code := makeDir(t, srv, `{"path":"`+t.TempDir()+`","name":"made"}`); code != http.StatusForbidden {
+	elsewhere := t.TempDir()
+	if code := makeDir(t, srv, `{"path":"`+elsewhere+`","name":"made"}`); code != http.StatusForbidden {
 		t.Errorf("a folder outside: %d", code)
 	}
-	if code, out := createProject(t, srv, `{"title":"A","path":"`+existing+`"}`); code != http.StatusCreated {
+	code, out := createProject(t, srv, `{"title":"A","path":"`+existing+`"}`)
+	if code != http.StatusCreated {
 		t.Fatalf("existing workspace folder: %d %v", code, out)
 	}
 	fresh := filepath.Join(ws, "fresh")
-	code, out := createProject(t, srv, `{"title":"B","path":"`+fresh+`"}`)
+	code, out = createProject(t, srv, `{"title":"B","path":"`+fresh+`"}`)
 	if code != http.StatusCreated || !isDir(fresh) {
 		t.Fatalf("new workspace folder: %d %v", code, out)
 	}
-	if code, _ = createProject(t, srv, `{"title":"C","path":"`+ws+`"}`); code != http.StatusBadRequest {
+	code, _ = createProject(t, srv, `{"title":"C","path":"`+ws+`"}`)
+	if code != http.StatusBadRequest {
 		t.Errorf("the workspace itself: %d", code)
 	}
 }
@@ -372,7 +375,8 @@ func TestTheDeletionPreviewSaysWhenTheProjectFolderStays(t *testing.T) {
 	_, out := createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
 	_, inside := createProject(t, srv, `{"title":"In","dir":"in"}`)
 	preview := func(proj map[string]any) map[string]any {
-		rec := send(t, srv, http.MethodGet, "/v1/projects/"+proj["id"].(string)+"/deletion-preview", testToken, "")
+		url := "/v1/projects/" + proj["id"].(string) + "/deletion-preview"
+		rec := send(t, srv, http.MethodGet, url, testToken, "")
 		var got map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
@@ -421,7 +425,9 @@ func TestTheSystemsFoldersAreGuarded(t *testing.T) {
 	if !isDir(inside) {
 		t.Skip("no system folder to try")
 	}
-	body := func(extra string) string { return `{"title":"Sys","path":"` + inside + `"` + extra + `}` }
+	body := func(extra string) string {
+		return `{"title":"Sys","path":"` + inside + `"` + extra + `}`
+	}
 	if code, out := createProject(t, srv, body("")); code != http.StatusConflict {
 		t.Fatalf("unconfirmed: %d %v", code, out)
 	}
@@ -435,7 +441,8 @@ func TestTheSystemsFoldersAreGuarded(t *testing.T) {
 		t.Fatalf("confirmed: %d %v", code, out)
 	}
 	id := out["id"].(string)
-	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+	w := doDelete(t, srv, "/v1/projects/"+id)
+	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
 		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
 	}
 	if !isDir(inside) {
@@ -458,7 +465,8 @@ func TestAFolderThatWasAlreadyThereIsNeverDeletedWithItsProject(t *testing.T) {
 		dir  string
 		stay bool
 	}{{kept, mine, true}, {made, filepath.Join(ws, "made"), false}} {
-		if w := doDelete(t, srv, "/v1/projects/"+c.proj["id"].(string)); w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		w := doDelete(t, srv, "/v1/projects/"+c.proj["id"].(string))
+		if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
 			t.Fatalf("delete: %d %s", w.Code, w.Body.String())
 		}
 		if isDir(c.dir) != c.stay {

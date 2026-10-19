@@ -11,6 +11,7 @@ import {
   type GitRepo,
 } from "./gitApi";
 import { useFolderPicker } from "./useFolderPicker";
+import { createdToast } from "./projectToast";
 import { SCAN_STARTED_EVENT } from "./notesApi";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
@@ -21,7 +22,6 @@ import type {
   ProjectInfo,
   SetStatus,
   SetToast,
-  Toast,
 } from "./appTypes";
 import {
   shownMainOf,
@@ -773,35 +773,6 @@ function newProjectTarget(form: NewProjectForm) {
   const title = form.newProjectTitle.trim() || fromUrl;
   const dir = form.newProjectDir.trim() || slugOf(fromUrl) || slugOf(title);
   return { gitUrl, title, dir };
-}
-
-// createdToast is the toast shown once a project exists: a warning when some of its other
-// repositories could not be added.
-function createdToast(
-  title: string,
-  failed: string[],
-  cloneLog: unknown,
-): Toast {
-  if (failed.length > 0) {
-    return {
-      message: tf(
-        'Project "{title}" created, but some repositories could not be added: {names}',
-        { title, names: failed.join(", ") },
-      ),
-      type: "warning",
-    };
-  }
-  return {
-    message: tf(
-      choose(
-        cloneLog,
-        'Project "{title}" created and repo cloned',
-        'Project "{title}" created',
-      ),
-      { title },
-    ),
-    type: "success",
-  };
 }
 
 // useCreateProject sends the New project dialog to the gateway, and handles its answer.

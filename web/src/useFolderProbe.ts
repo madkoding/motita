@@ -8,7 +8,8 @@ import type { Api } from "./gitApi";
 
 // FolderProbe is what is known of the path: "missing" is a folder that would be created.
 export interface FolderProbe {
-  state: "idle" | "exists" | "sensitive" | "missing" | "refused";
+  // One of "idle", "exists", "sensitive", "missing" (it would be created) or "refused".
+  state: string;
   // The reason the gateway gave when it refused to show the path at all.
   reason: string;
   // The paths of the folders found at (or, for a missing folder, next to) the path.
@@ -38,7 +39,7 @@ async function probeOf(api: Api, path: string): Promise<FolderProbe> {
     return missingOrRefused(api, path, (e as Error).message);
   }
   return {
-    state: listing.sensitive ? "sensitive" : "exists",
+    state: choose(listing.sensitive, "sensitive", "exists"),
     reason: "",
     suggestions: listing.dirs.map((d) => d.path),
   };
