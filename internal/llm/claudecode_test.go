@@ -128,6 +128,12 @@ func claudeTestClient(t *testing.T, script string, tweak func(*config.LLM)) (*Cl
 		t.Fatal(err)
 	}
 	record := filepath.Join(t.TempDir(), "record.json")
+	// A claude read after its answer may still write the record: it ends before the directory goes.
+	t.Cleanup(claudeDrains.Wait)
+	// The fake prints what follows an answer at once, or never ("sleep"): a short wait is enough.
+	oldWait := claudeDrainWait
+	claudeDrainWait = 200 * time.Millisecond
+	t.Cleanup(func() { claudeDrainWait = oldWait })
 	t.Setenv("MOTITA_CLAUDE_BIN", exe)
 	t.Setenv("MOTITA_FAKE_CLAUDE", script)
 	t.Setenv("MOTITA_FAKE_CLAUDE_RECORD", record)

@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
@@ -730,7 +731,11 @@ func (c *Client) callClaudeCode(
 		return Reply{}, err
 	}
 	// The answer is out; the subscription's limits come after it.
-	go p.drain(claudeDrainWait)
+	claudeDrains.Add(1)
+	go func(wait time.Duration) {
+		defer claudeDrains.Done()
+		p.drain(wait)
+	}(claudeDrainWait)
 	recordUsage(ctx, c.source(), reply.Usage)
 	return reply, nil
 }
@@ -745,6 +750,9 @@ func (p *claudeProcess) turn(frames []claudeFrame, onText func(string)) (Reply, 
 
 // claudeDrainWait is how long claude is read after its answer before it is stopped.
 var claudeDrainWait = 3 * time.Second
+
+// claudeDrains is every claude still read after its answer, so a test can wait for them to end.
+var claudeDrains sync.WaitGroup
 
 // drain reads what claude prints after an answer, for at most wait, then stops it, and reports
 // whether claude stated the subscription's limits. claude prints its rate_limit_event after the

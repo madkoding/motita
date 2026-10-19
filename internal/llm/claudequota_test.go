@@ -182,9 +182,6 @@ func TestTheLimitsClaudePrintsAfterTheAnswerAreRecorded(t *testing.T) {
 }
 
 func TestAClaudeThatPrintsNothingMoreIsStoppedAfterTheWait(t *testing.T) {
-	old := claudeDrainWait
-	claudeDrainWait = 50 * time.Millisecond
-	t.Cleanup(func() { claudeDrainWait = old })
 	c, record := claudeTestClient(t, textScript, nil)
 	if _, err := c.callClaudeCodeText(context.Background(), hi); err != nil {
 		t.Fatal(err)
