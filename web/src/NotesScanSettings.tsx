@@ -4,6 +4,7 @@ import type { Api } from "./gitApi";
 import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import {
+  SCAN_STARTED_EVENT,
   scanProgress,
   startScan,
   type NoteScan,
@@ -48,7 +49,7 @@ function scanSummary(r: NoteScan): string {
 }
 
 // progressText says where a running scan is.
-function progressText(p: ScanProgress): string {
+export function progressText(p: ScanProgress): string {
   if (p.phase !== "projects") {
     return t("Writing the notes of your sessions…");
   }
@@ -70,7 +71,7 @@ function progressText(p: ScanProgress): string {
 
 // progressShare is how much of the scan is done, from 0 to 100: the projects finished and the
 // share of the folders of the one being mapped.
-function progressShare(p: ScanProgress): number {
+export function progressShare(p: ScanProgress): number {
   if (p.total === 0) {
     return 0;
   }
@@ -151,7 +152,9 @@ export function NotesScanSettings({ api }: { api: Api }) {
         chapters: 0,
         chapter_total: 0,
       });
-      await watch(await startScan(api, opts));
+      const started = await startScan(api, opts);
+      window.dispatchEvent(new Event(SCAN_STARTED_EVENT));
+      await watch(started);
     } catch (e) {
       setProgress(null);
       setErr(errorMessage(e));

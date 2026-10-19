@@ -73,11 +73,11 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
         class={ITEM_PLAIN}
         data-testid="rescan-notes"
         title={t(
-          "Writes the notes and manuals of the projects again, in the background; Settings, Indexing shows how far it got.",
+          "Writes the notes and the manual of this project again, in the background; the sidebar shows how far it got.",
         )}
         onClick={(e) => {
           e.stopPropagation();
-          void projects.rescanNotes();
+          void projects.rescanNotes(p.id);
           menus.closeRowMenu();
         }}
       >

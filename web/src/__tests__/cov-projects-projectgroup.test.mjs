@@ -218,11 +218,11 @@ test("the menu updates the main branch: nothing else does it by itself", async (
   await m.unmount();
 });
 
-test("the menu rescans the notes of the projects", async () => {
+test("the menu rescans the notes of its project", async () => {
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
   await click(m.q("[data-testid=rescan-notes]"));
-  assert.deepEqual(s.log, [["rescan"], ["closeMenu"]]);
+  assert.deepEqual(s.log, [["rescan", "p1"], ["closeMenu"]]);
   await m.unmount();
 });
 

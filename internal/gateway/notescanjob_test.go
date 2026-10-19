@@ -69,6 +69,27 @@ func TestRescanRepeatsTheLastScanInTheBackground(t *testing.T) {
 	}
 }
 
+func TestARescanFromTheProjectMenuMapsThatProjectOnly(t *testing.T) {
+	srv, _ := archServer(t, nil)
+	other := Project{ID: "p2bbbbbbbbbb", Title: "Other", Dir: t.TempDir(), Created: time.Now()}
+	if err := srv.projects.save(other); err != nil {
+		t.Fatal(err)
+	}
+	if got := scanWith(t, srv, "?project=p1aaaaaaaaaa"); got.Projects != 1 || got.Mapped != 1 {
+		t.Errorf("limited to one project: %+v", got)
+	}
+	if got := scanWith(t, srv, "?project=gone"); got.Projects != 0 {
+		t.Errorf("an unknown project maps nothing: %+v", got)
+	}
+	q := srv.scanQuery(httptest.NewRequest(http.MethodPost, "/v1/notes/scan?again=1&project=p2bbbbbbbbbb", nil))
+	if q.Get(scanProject) != "p2bbbbbbbbbb" {
+		t.Errorf("a rescan keeps its project: %v", q)
+	}
+	if got := scanWith(t, srv, ""); got.Projects != 2 {
+		t.Errorf("an unlimited scan maps them all: %+v", got)
+	}
+}
+
 func TestARestartKeepsTheOptionsOfTheLastScan(t *testing.T) {
 	srv, _ := archServer(t, nil)
 	if got := srv.lastScanOptions(); got != nil {

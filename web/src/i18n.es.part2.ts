@@ -881,11 +881,12 @@ const more: Record<string, string> = {
   "{notes} notes · {links} links · {missing} to notes not written yet":
     "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
   "Rescan the notes": "Reescanear las notas",
-  "Writes the notes and manuals of the projects again, in the background; Settings, Indexing shows how far it got.":
-    "Vuelve a escribir las notas y los manuales de los proyectos en segundo plano; Ajustes, Indexado muestra cuánto lleva.",
+  "Writes the notes and the manual of this project again, in the background; the sidebar shows how far it got.":
+    "Vuelve a escribir las notas y el manual de este proyecto en segundo plano; la barra lateral muestra cuánto lleva.",
   "could not rescan the notes": "no se pudieron reescanear las notas",
-  "Rescanning the notes in the background. Settings, Indexing shows how far it got.":
-    "Reescaneando las notas en segundo plano. Ajustes, Indexado muestra cuánto lleva.",
+  "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
+    "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
+  "Scanning the notes": "Escaneando las notas",
 };
 
 export default more;

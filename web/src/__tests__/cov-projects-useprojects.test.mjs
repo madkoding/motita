@@ -1052,7 +1052,7 @@ test("updating the main branch reads the projects again, or says why it could no
 test("rescanning the notes asks the gateway, or says why it could not", async () => {
   let n = 0;
   const s = await setup({
-    "POST /v1/notes/scan?again=1": () => {
+    "POST /v1/notes/scan?again=1&project=p%201": () => {
       n++;
       if (n === 1) {
         return res(202, { running: true });
@@ -1067,12 +1067,12 @@ test("rescanning the notes asks the gateway, or says why it could not", async ()
     },
   });
   for (let i = 0; i < 4; i++) {
-    await run(() => s.p.rescanNotes());
+    await run(() => s.p.rescanNotes("p 1"));
   }
   assert.deepEqual(s.toasts, [
     {
       message:
-        "Rescanning the notes in the background. Settings, Indexing shows how far it got.",
+        "Rescanning the notes of this project in the background. The sidebar shows how far it got.",
       type: "success",
     },
   ]);

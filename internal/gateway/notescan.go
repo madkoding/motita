@@ -260,8 +260,8 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 const scanBackground = "background"
 
 // scanQuery is what a scan request asks for. "again" repeats the model options of the last scan, in
-// the background: it is what the project menu's "Rescan the notes" sends, which has no options of
-// its own to give.
+// the background: it is what the project menu's "Rescan the notes" sends, with its project and no
+// options of its own to give.
 func (s *Server) scanQuery(r *http.Request) url.Values {
 	q := r.URL.Query()
 	if q.Get("again") == "" {
@@ -271,7 +271,28 @@ func (s *Server) scanQuery(r *http.Request) url.Values {
 	for k, v := range s.lastScanOptions() {
 		again[k] = v
 	}
+	// The project menu rescans its own project only.
+	if id := q.Get(scanProject); id != "" {
+		again.Set(scanProject, id)
+	}
 	return again
+}
+
+// scanProject is the query parameter that limits a scan to one project; its sessions' notes are
+// written all the same.
+const scanProject = "project"
+
+// scanOnly keeps the project a scan was limited to, or every project when it was not.
+func scanOnly(projects []Project, id string) []Project {
+	if id == "" {
+		return projects
+	}
+	for _, p := range projects {
+		if p.ID == id {
+			return []Project{p}
+		}
+	}
+	return nil
 }
 
 // runScan is the scan itself, reporting how far it got to t.
@@ -290,6 +311,8 @@ func (s *Server) runScan(ctx context.Context, v *notes.Vault, q url.Values, t *s
 	byProject := s.scanSessionNotes(ctx, v, names, sum, &res)
 	res.Summarized = sum.done
 	ms := s.scanModelsFor(q.Get(scanSummarize) != "", explainBudget(q.Get(scanModules)))
+	// Named from every project, so a note keeps its name when the scan is limited to one.
+	projects = scanOnly(projects, q.Get(scanProject))
 	for i, p := range projects {
 		t.update(func(sp *scanProgress) {
 			*sp = scanProgress{Running: true, Phase: "projects", Project: p.Title, Done: i, Total: len(projects)}

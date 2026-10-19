@@ -486,6 +486,10 @@ export interface ScanProgress {
   error?: string;
 }
 
+// SCAN_STARTED_EVENT is dispatched on window when a background scan starts, so the sidebar
+// follows it.
+export const SCAN_STARTED_EVENT = "motita-scan-started";
+
 // scanProgress asks how far the background scan got.
 export async function scanProgress(api: Api): Promise<ScanProgress> {
   const res = await api("/v1/notes/scan");
