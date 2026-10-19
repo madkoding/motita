@@ -20,6 +20,28 @@ the result, and that read is what goes in the answer.
 | "it is 15% faster"  | the change looks faster | both numbers, same machine, same input, before and after           |
 | "the page shows it" | the CSS rule exists     | the computed style / the pixel                                     |
 
+## A check that could not run is not a pass
+
+A test, build or lint has THREE outcomes, and the report keeps them apart: **passed**, **failed**,
+and **not run** (the tool is missing, the dependencies are not installed, the registry did not
+answer). "Not run" is never rounded up to "passed".
+
+- **Look before you act.** Missing `vendor/bin/phpunit`, `node_modules/.bin/vitest`: check what the
+  project has (`ls vendor`, `composer.json`, `package.json`) and install with the project's own tool
+  (`composer install`, `npm ci`) before concluding anything.
+- **Use the framework's own command**: `php artisan test` in Laravel, `npm test`, `go test ./...`,
+  not a replacement you wrote.
+- **Never create a stand-in** - an executable that exits 0, a `composer.json` script pointing at it,
+  a test file that asserts nothing - to turn a red or missing check green. That hides the problem
+  and ships an unmeasured result.
+- **If the install fails** (no network, `curl error 6`, a private registry), say exactly that: "the
+  tests were NOT RUN because `composer install` could not reach packagist". Leave the project as it
+  was and let the user decide.
+- **Check before you advise on files or git.** A claim about a repository, a worktree or a
+  directory ("the original repo registers this worktree") comes from `git worktree list`,
+  `git -C <dir> rev-parse --git-common-dir`, `ls` - not from the folder's name. Do it before
+  recommending that anything be moved or deleted.
+
 ## New code ships with its own proof
 
 If you added or changed behaviour — a component, a function, a handler, a flag — the task is not
