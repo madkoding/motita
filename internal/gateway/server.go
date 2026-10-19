@@ -779,18 +779,10 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 	mux.Handle("POST "+prefix+"/skills/{name}/restore", wrap(s.handleRestoreSkill))
 }
 
-// projectRoutes is the table of projects, their repositories and the notes of the workspace.
+// projectRoutes is the table of projects and their repositories; the notes have their own.
 func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
-	mux.Handle("GET /v1/notes", plain(s.handleListNotes))
-	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
-	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))
-	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
-	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
-	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
-	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))
-	mux.Handle("POST /v1/notes/scan", plain(s.handleScanNotes))
-	mux.Handle("GET /v1/notes/scan", plain(s.handleScanStatus))
+	s.notesRoutes(mux, plain)
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
 	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
