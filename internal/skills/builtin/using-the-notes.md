@@ -34,3 +34,4 @@ answer from memory as if you had read them.
 - Record only what the person said or decided, in their words. Never write secrets, passwords or
   tokens into a note.
 - Say what you wrote and where, in one line.
+- To check, tidy or fact-check the notes as a whole, follow `reviewing-the-notes`.
