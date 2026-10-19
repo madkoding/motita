@@ -84,6 +84,10 @@ func Title(p string) string { return strings.TrimSuffix(path.Base(p), path.Ext(p
 // symbolic link: the deepest folder that exists must still resolve inside the vault.
 func (v *Vault) abs(rel string) (string, error) {
 	full := filepath.Join(v.root, filepath.FromSlash(rel))
+	// Clean already refuses ".."; this is the same rule at the one place a path becomes a file.
+	if !strings.HasPrefix(full, filepath.Clean(v.root)+string(filepath.Separator)) {
+		return "", ErrBadPath
+	}
 	rootReal, err := filepath.EvalSymlinks(v.root)
 	if err != nil {
 		// A vault that does not exist yet has nothing to escape through.

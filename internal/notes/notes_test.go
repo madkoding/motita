@@ -238,3 +238,12 @@ func TestWriteOverAFolderFailsCleanly(t *testing.T) {
 		t.Errorf("temp files left: %v", left)
 	}
 }
+
+func TestAbsRefusesWhatLeavesTheVault(t *testing.T) {
+	v := Open(t.TempDir())
+	for _, p := range []string{"../x.md", "a/../../x.md"} {
+		if _, err := v.abs(p); !errors.Is(err, ErrBadPath) {
+			t.Errorf("abs(%q) = %v", p, err)
+		}
+	}
+}
