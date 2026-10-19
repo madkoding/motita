@@ -929,6 +929,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/config/reload", scoped(s.handleReloadConfig))
 	mux.Handle("PATCH /v1/sessions/{id}", scoped(s.handleRenameSession))
 	mux.Handle("POST /v1/sessions/{id}/project", scoped(s.handleMoveSessionToProject))
+	mux.Handle("POST /v1/sessions/{id}/isolate", scoped(s.handleIsolateSession))
 	mux.Handle("GET /v1/sessions/{id}/models", scoped(s.handleModels))
 	mux.Handle("GET /v1/sessions/{id}/providers", scoped(s.handleProviders))
 	mux.Handle("GET /v1/sessions/{id}/model-list", scoped(s.handleModelList))

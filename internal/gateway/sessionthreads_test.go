@@ -91,3 +91,43 @@ func TestOldSessionsOfAProjectAreAdoptedAsThreads(t *testing.T) {
 		t.Errorf("adopting twice changed the parent to %q", got)
 	}
 }
+
+// A thread made out of an old session moves into a worktree of its own when asked, and only then.
+func TestAnAdoptedThreadCanMoveIntoItsOwnWorktree(t *testing.T) {
+	srv, projectDir, mainID := newSessionInProject(t)
+	pid := onlyProjectID(t, srv)
+	old := newThreadSession(t, srv, pid, "")
+	srv.adoptThreads()
+	if ws := convNamed(t, srv, old.ID).workspaceDir(); ws != projectDir {
+		t.Fatalf("an adopted thread keeps the folder it had, got %q", ws)
+	}
+	isolate := func(id string) int {
+		return post(t, srv, "/v1/sessions/"+id+"/isolate", `{}`, testToken).Code
+	}
+	if code := isolate(mainID); code != http.StatusConflict {
+		t.Errorf("the main session has no worktree to move into: %d", code)
+	}
+	c := convNamed(t, srv, old.ID)
+	if !c.takeRunSlot() {
+		t.Fatal("slot")
+	}
+	if code := isolate(old.ID); code != http.StatusConflict {
+		t.Errorf("a working thread must wait: %d", code)
+	}
+	c.releaseRunSlot()
+	c.setProjectID("gone", projectDir, projectDir)
+	if code := isolate(old.ID); code != http.StatusNotFound {
+		t.Errorf("a project that is gone: %d", code)
+	}
+	c.setProjectID(pid, projectDir, projectDir)
+	if code := isolate(old.ID); code != http.StatusOK {
+		t.Fatalf("isolate: %d", code)
+	}
+	ws := c.workspaceDir()
+	if ws == projectDir || filepath.Dir(ws) == projectDir {
+		t.Errorf("the thread must have a worktree of its own, got %q", ws)
+	}
+	if code := isolate(old.ID); code != http.StatusOK || c.workspaceDir() != ws {
+		t.Errorf("isolating twice changes nothing: %d %q", code, c.workspaceDir())
+	}
+}
