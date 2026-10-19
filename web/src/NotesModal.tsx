@@ -329,7 +329,10 @@ function NoteToolbar() {
       >
         {t("Back to the list")}
       </button>
-      <div class="flex-1 min-w-0" data-testid="note-place">
+      <div
+        class="min-w-0 basis-full order-first md:order-none md:basis-0 md:flex-1"
+        data-testid="note-place"
+      >
         {noteTrail((current as NoteView).path).length > 0 && (
           <div class="text-xs text-[#9a9aaa] truncate">
             {noteTrail((current as NoteView).path).join(" › ")}
@@ -493,7 +496,10 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
             onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
           />
           {q !== "" && (
-            <span class="text-xs text-[#f5f500]" data-testid="graph-found">
+            <span
+              class="text-xs text-[#f5f500] whitespace-nowrap"
+              data-testid="graph-found"
+            >
               {plural(found, "1 found", "{n} found")}
             </span>
           )}

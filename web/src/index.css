@@ -5240,3 +5240,9 @@ html .project-bar button.project-new-session {
     inset 0 0 24px rgba(0, 240, 255, 0.08);
   backdrop-filter: blur(6px);
 }
+/* On a phone the legend names only the biggest parts, so it does not cover the map. */
+@media (max-width: 767px) {
+  .graph-legend-item:nth-child(n + 5) {
+    display: none;
+  }
+}

@@ -113,7 +113,7 @@ export function MapPeek({
       </div>
       <div
         ref={body}
-        class="skill-body artifact-body flex-1 min-h-0 overflow-auto p-3 text-sm"
+        class="skill-body artifact-body relative flex-1 min-h-0 overflow-auto p-3 text-sm"
         data-testid="graph-peek-body"
       >
         <Markdown content={wikiToMarkdown(note.body, note.links)} />
