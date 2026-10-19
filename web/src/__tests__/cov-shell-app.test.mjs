@@ -56,6 +56,7 @@ component("./RepoPicker", ["RepoPicker"]);
 component("./FolderBrowser", ["FolderBrowser"]);
 component("./EditProjectModal", ["EditProjectModal"]);
 component("./NewProjectModal", ["NewProjectModal"]);
+component("./NewRepositoryModal", ["NewRepositoryModal"]);
 component("./GitIdentityModal", ["GitIdentityModal"]);
 component("./ModelSwitcherModal", ["ModelSwitcherModal"]);
 component("./ConfirmDeleteModal", ["ConfirmDeleteModal", "ContextMenu"]);
@@ -173,6 +174,7 @@ function makeStore(log) {
     },
     model: { config: null, showModelSwitcher: false, openModelSwitcher: noop },
     skills: { showSkillLibrary: false },
+    repositories: { showNewRepository: false },
     projects: {
       editProject: null,
       showNewProject: false,
@@ -470,6 +472,7 @@ test("with a session the chat column has the header, the conversation, the drawe
     "SettingsModal",
     "EditProjectModal",
     "NewProjectModal",
+    "NewRepositoryModal",
     "GitIdentityModal",
     "RepoPicker",
     "FolderBrowser",
@@ -602,6 +605,7 @@ test("the project dialogs open from the store, and the repo picker only with acc
   const ctl = await mountApp((s) => {
     s.projects.editProject = { id: "p1", title: "Motita" };
     s.projects.showNewProject = true;
+    s.repositories.showNewRepository = true;
     s.projects.showGitIdentity = true;
     s.projects.showRepoPicker = true;
     s.projects.gitConnect = {
@@ -615,6 +619,7 @@ test("the project dialogs open from the store, and the repo picker only with acc
     title: "Motita",
   });
   assert.ok(stubEl(root, "NewProjectModal"));
+  assert.ok(stubEl(root, "NewRepositoryModal"));
   assert.ok(stubEl(root, "GitIdentityModal"));
   assert.equal(stubEl(root, "RepoPicker"), null, "no accounts loaded yet");
   const gc = lastProps("GitConnectModal");
