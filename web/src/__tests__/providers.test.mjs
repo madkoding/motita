@@ -753,7 +753,10 @@ test("each kind of work can get its own model, and the rest follow the default",
   assert.deepEqual(gw.calls.at(-1), {
     method: "PUT",
     path: "/v1/llm/tasks",
-    body: { tasks: { plan: { provider: "openai", model: "gpt-5" } } },
+    body: {
+      tasks: { plan: { provider: "openai", model: "gpt-5" } },
+      thinking: {},
+    },
   });
   assert.deepEqual(notices.at(-1), ["Models per kind of work saved", false]);
   await done();

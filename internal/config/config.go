@@ -30,6 +30,7 @@ type Config struct {
 	Sandbox     Sandbox     `yaml:"sandbox"`
 	LLM         LLM         `yaml:"llm"`
 	Models      Models      `yaml:"models"`
+	Thinking    Thinking    `yaml:"thinking"`
 	Prompts     Prompts     `yaml:"prompts"`
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
