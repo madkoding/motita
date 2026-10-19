@@ -235,3 +235,28 @@ export function layoutGraph(
   }
   return placed;
 }
+
+// NoteScan is what scanning the sessions and projects into notes reports.
+export interface NoteScan {
+  // false when only a first-use scan was asked for and the vault did not need one.
+  ran: boolean;
+  projects: number;
+  sessions: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+}
+
+// scanNotes writes a note for every project and every session that has been used, or updates the
+// ones it wrote before. With first, the gateway only does it for a vault that was never filled.
+export async function scanNotes(api: Api, first = false): Promise<NoteScan> {
+  const res = await api("/v1/notes/scan" + (first ? "?first=1" : ""), {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || "HTTP " + res.status);
+  }
+  return (await res.json()) as NoteScan;
+}

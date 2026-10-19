@@ -102,6 +102,8 @@ function vault(initial = {}) {
   const files = { ...initial };
   const calls = [];
   const fail = new Set();
+  // scan.fill is what a first-use scan writes; absent, the gateway says it did not need to run.
+  const scan = {};
   const item = (p) => ({
     path: p,
     title: p.split("/").pop().replace(/\.md$/, ""),
@@ -168,6 +170,12 @@ function vault(initial = {}) {
           .map((f) => ({ path: f, title: f, line: 1, snippet: files[f] })),
       });
     }
+    if (u.pathname === "/v1/notes/scan") {
+      if (scan.fill) {
+        Object.assign(files, scan.fill);
+      }
+      return json({ ran: !!scan.fill });
+    }
     if (u.pathname === "/v1/notes/rename") {
       const b = JSON.parse(init.body);
       if (files[b.to] !== undefined) {
@@ -193,7 +201,7 @@ function vault(initial = {}) {
     delete files[path];
     return new Response(null, { status: 204 });
   };
-  return { gw, files, calls, fail };
+  return { gw, files, calls, fail, scan };
 }
 
 async function mount(v, projects = []) {
@@ -788,5 +796,48 @@ test("an empty vault has nothing to draw, and a failing graph is said", async ()
   assert.equal(q(m2.root, "note-graph"), null);
   assert.ok(q(m2.root, "note-editor"));
   await m2.done();
+  await m.done();
+});
+
+test("an empty vault is filled from the sessions and projects the first time it is opened", async () => {
+  const v = vault();
+  v.scan.fill = { "Sessions/First (s1).md": "# First" };
+  const m = await mount(v);
+  await m.run((n) => n.openNotes());
+  await settle();
+  assert.deepEqual(
+    v.calls.filter((c) => c.url.includes("scan")).map((c) => c.url),
+    ["/v1/notes/scan?first=1"],
+  );
+  assert.deepEqual(m.statuses.pop(), [
+    "notes created from your sessions and projects",
+    false,
+  ]);
+  assert.match(text(m.root), /First/);
+  await m.done();
+});
+
+test("the first-use scan stays quiet when it is not needed or fails, and is not asked of a vault with notes", async () => {
+  const idle = vault();
+  let m = await mount(idle);
+  await m.run((n) => n.openNotes());
+  await settle();
+  assert.equal(m.statuses.length, 0);
+  assert.equal(idle.calls.filter((c) => c.url.includes("scan")).length, 1);
+  await m.done();
+
+  const broken = vault();
+  broken.fail.add({ method: "POST", path: "/v1/notes/scan", status: 500 });
+  m = await mount(broken);
+  await m.run((n) => n.openNotes());
+  await settle();
+  assert.equal(m.statuses.length, 0);
+  await m.done();
+
+  const full = vault(FILES);
+  m = await mount(full);
+  await m.run((n) => n.openNotes());
+  await settle();
+  assert.equal(full.calls.filter((c) => c.url.includes("scan")).length, 0);
   await m.done();
 });

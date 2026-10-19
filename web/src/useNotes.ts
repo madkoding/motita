@@ -8,6 +8,7 @@ import {
   folderOf,
   noteFileName,
   parseNoteHref,
+  scanNotes,
   type Api,
   type NoteGraph,
   type NoteHit,
@@ -37,17 +38,20 @@ export function useNotes(api: Api, setState: SetStatus) {
   const live = useRef({ current, draft });
   live.current = { current, draft };
 
-  const loadList = useCallback(async () => {
+  // loadList reads the notes and answers how many there are, or -1 when it could not tell.
+  const loadList = useCallback(async (): Promise<number> => {
     try {
       const res = await api(NOTES_PATH);
       if (res.ok) {
         const d = await res.json();
         setNotes(d.notes);
         setRoot(d.root);
+        return d.notes.length;
       }
     } catch {
       setState(t("could not load the notes"), true);
     }
+    return -1;
   }, [api]);
 
   // fetchNote reads a note and puts it on screen.
@@ -112,10 +116,23 @@ export function useNotes(api: Api, setState: SetStatus) {
     [save, fetchNote],
   );
 
+  // fillIfNew fills an empty vault from the sessions and projects the first time it is opened. It
+  // is a courtesy: when it fails the person still has their empty vault and the Settings button.
+  const fillIfNew = useCallback(async () => {
+    try {
+      if ((await scanNotes(api, true)).ran) {
+        setState(t("notes created from your sessions and projects"));
+        await loadList();
+      }
+    } catch {
+      // the Settings button reports a failing scan
+    }
+  }, [api, loadList, setState]);
+
   const openNotes = useCallback(() => {
     setShowNotes(true);
-    void loadList();
-  }, [loadList]);
+    void loadList().then((n) => (n === 0 ? fillIfNew() : undefined));
+  }, [loadList, fillIfNew]);
 
   const closeNotes = useCallback(async () => {
     if (await save()) {
