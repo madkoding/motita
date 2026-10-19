@@ -713,4 +713,3 @@ func TestContinueSessionPullsMainAndStartsAFreshSession(t *testing.T) {
 		t.Errorf("continue on unmerged session = %d, want 409", w.Code)
 	}
 }
-
