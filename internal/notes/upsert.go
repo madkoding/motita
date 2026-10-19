@@ -57,6 +57,8 @@ func (v *Vault) Upsert(p, title, block string) (string, error) {
 		return Created, err
 	case err != nil:
 		return "", err
+	default:
+		// the note exists: only its block changes
 	}
 	next := body
 	if i := strings.Index(body, BlockStart); i >= 0 {

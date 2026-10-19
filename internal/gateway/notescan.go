@@ -160,6 +160,48 @@ func projectBlock(p Project, links []string) string {
 	return b.String()
 }
 
+// wikiLink is how a note refers to another: its path without the extension, in double brackets.
+func wikiLink(name string) string { return "[[" + strings.TrimSuffix(name, ".md") + "]]" }
+
+// projectNoteNames gives every project the vault path of its note. Two projects can share a title:
+// the second one is told apart by the start of its id.
+func projectNoteNames(projects []Project) map[string]string {
+	names := map[string]string{}
+	taken := map[string]bool{}
+	for _, p := range projects {
+		name := notes.FileName(scanProjectsFolder, p.Title)
+		if name == "" || taken[name] {
+			name = notes.FileName(scanProjectsFolder, p.Title+" ("+p.ID[:min(8, len(p.ID))]+")")
+		}
+		taken[name] = true
+		names[p.ID] = name
+	}
+	return names
+}
+
+// scanSessionNotes writes the note of every session that has something in it, counting what
+// happened in res, and answers the links to each project's sessions.
+func (s *Server) scanSessionNotes(v *notes.Vault, names map[string]string, res *noteScan) map[string][]string {
+	byProject := map[string][]string{}
+	for _, ss := range s.scanSessions() {
+		name := sessionNoteName(ss.title, ss.id)
+		if len(ss.turns) == 0 || name == "" {
+			res.Skipped++
+			continue
+		}
+		res.Sessions++
+		projectLink := ""
+		if pn, ok := names[ss.projectID]; ok {
+			projectLink = wikiLink(pn)
+			byProject[ss.projectID] = append(byProject[ss.projectID], wikiLink(name))
+		}
+		title := strings.TrimSuffix(filepath.Base(name), ".md")
+		outcome, err := v.Upsert(name, title, sessionBlock(ss, projectLink))
+		res.count(outcome, err)
+	}
+	return byProject
+}
+
 // handleScanNotes writes a note for every project and every session that has been used, and
 // answers what it did. Running it again updates the same notes.
 func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
@@ -185,44 +227,12 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 		}
 		projects = all
 	}
-	// Two projects can share a title: the second one is told apart by the start of its id.
-	names := map[string]string{}
-	taken := map[string]bool{}
-	for _, p := range projects {
-		name := notes.FileName(scanProjectsFolder, p.Title)
-		if name == "" || taken[name] {
-			name = notes.FileName(scanProjectsFolder, p.Title+" ("+p.ID[:min(8, len(p.ID))]+")")
-		}
-		taken[name] = true
-		names[p.ID] = name
-	}
-	link := func(name string) string { return "[[" + strings.TrimSuffix(name, ".md") + "]]" }
-
+	names := projectNoteNames(projects)
 	res := noteScan{Ran: true}
-	byProject := map[string][]string{}
-	for _, ss := range s.scanSessions() {
-		if len(ss.turns) == 0 {
-			res.Skipped++
-			continue
-		}
-		name := sessionNoteName(ss.title, ss.id)
-		if name == "" {
-			res.Skipped++
-			continue
-		}
-		res.Sessions++
-		projectLink := ""
-		if pn, ok := names[ss.projectID]; ok {
-			projectLink = link(pn)
-			byProject[ss.projectID] = append(byProject[ss.projectID], link(name))
-		}
-		outcome, err := v.Upsert(name, strings.TrimSuffix(filepath.Base(name), ".md"), sessionBlock(ss, projectLink))
-		res.count(outcome, err)
-	}
+	byProject := s.scanSessionNotes(v, names, &res)
 	for _, p := range projects {
 		res.Projects++
-		name := names[p.ID]
-		outcome, err := v.Upsert(name, p.Title, projectBlock(p, byProject[p.ID]))
+		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID]))
 		res.count(outcome, err)
 	}
 	// Remembered in the vault folder, as a hidden file notes never list, so any client sees it.

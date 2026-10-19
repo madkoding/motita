@@ -696,8 +696,10 @@ test("layoutGraph places every note inside the box, the same way every time", ()
   const two = api.layoutGraph(graph, 640, 440);
   assert.deepEqual(one, two);
   for (const p of one) {
-    assert.ok(p.x >= 28 && p.x <= 612, p.path + " x");
-    assert.ok(p.y >= 28 && p.y <= 412, p.path + " y");
+    assert.ok(p.x >= 28, p.path + " x min");
+    assert.ok(p.x <= 612, p.path + " x max");
+    assert.ok(p.y >= 28, p.path + " y min");
+    assert.ok(p.y <= 412, p.path + " y max");
   }
   const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   assert.ok(d(one[0], one[1]) < d(one[0], one[3]), "linked notes sit closer");
