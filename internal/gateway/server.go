@@ -290,7 +290,9 @@ type Server struct {
 	// it needs some other bound or a gateway that shut down would leave turns running with
 	// nowhere to report. The process's own lifetime is that bound, and it is deliberately not the
 	// request's.
-	baseCtx    context.Context
+	baseCtx context.Context
+	// indexing holds the folders whose code index is being built in the background.
+	indexing   sync.Map
 	baseCancel context.CancelFunc
 
 	// voiceDownload is the local voice being downloaded, one at a time. See voicemodels.go.
@@ -448,6 +450,7 @@ func Start(opts Options) (*Server, error) {
 	s.openPush()
 	s.openPeers()
 	resumeInterrupted(s)
+	s.indexProjects()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
