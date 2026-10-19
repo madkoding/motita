@@ -15,6 +15,12 @@ const more: Record<string, string> = {
   Location: "Ubicación",
   Folder: "Carpeta",
   "Use the workspace": "Usar el workspace",
+  "The folder stays on disk, with its files:":
+    "La carpeta se queda en el disco, con sus archivos:",
+  "Or the path of a folder, existing or new":
+    "O la ruta de una carpeta, existente o nueva",
+  "Without the whole disk in Settings → Security, the folder has to be inside the workspace.":
+    "Sin el disco completo en Ajustes → Seguridad, la carpeta tiene que estar dentro del workspace.",
   "Keep the current one": "Dejar la actual",
   "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.":
     "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual y nunca se borra junto con el proyecto.",

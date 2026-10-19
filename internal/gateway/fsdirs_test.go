@@ -336,3 +336,52 @@ func TestRelativeFoldersAndDollarFoldersAreLeftOut(t *testing.T) {
 		t.Errorf("hidden: %+v", out.Dirs)
 	}
 }
+
+// TestWithoutTheWholeDiskAProjectCanStillUseAFolderInTheWorkspace: an existing workspace folder is
+// picked, a new one is made, and anything outside the workspace is still refused.
+func TestWithoutTheWholeDiskAProjectCanStillUseAFolderInTheWorkspace(t *testing.T) {
+	srv, ws := projectServer(t)
+	existing := filepath.Join(ws, "mine")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code := makeDir(t, srv, `{"path":"`+ws+`","name":"made"}`); code != http.StatusCreated {
+		t.Errorf("a folder in the workspace: %d", code)
+	}
+	if code := makeDir(t, srv, `{"path":"`+t.TempDir()+`","name":"made"}`); code != http.StatusForbidden {
+		t.Errorf("a folder outside: %d", code)
+	}
+	if code, out := createProject(t, srv, `{"title":"A","path":"`+existing+`"}`); code != http.StatusCreated {
+		t.Fatalf("existing workspace folder: %d %v", code, out)
+	}
+	fresh := filepath.Join(ws, "fresh")
+	if code, out := createProject(t, srv, `{"title":"B","path":"`+fresh+`"}`); code != http.StatusCreated || !isDir(fresh) {
+		t.Fatalf("new workspace folder: %d %v", code, out)
+	}
+	if code, _ := createProject(t, srv, `{"title":"C","path":"`+ws+`"}`); code != http.StatusBadRequest {
+		t.Errorf("the workspace itself: %d", code)
+	}
+}
+
+// TestTheDeletionPreviewSaysWhenTheProjectFolderStays: a folder outside the workspace is only
+// forgotten, and the preview names it so the dialog can say so.
+func TestTheDeletionPreviewSaysWhenTheProjectFolderStays(t *testing.T) {
+	srv, ws := fullDiskServer(t)
+	outside := t.TempDir()
+	_, out := createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
+	_, inside := createProject(t, srv, `{"title":"In","dir":"in"}`)
+	preview := func(proj map[string]any) map[string]any {
+		rec := send(t, srv, http.MethodGet, "/v1/projects/"+proj["id"].(string)+"/deletion-preview", testToken, "")
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := preview(out); got["keeps_folder"] != true || got["folder"] != out["dir"] {
+		t.Errorf("outside the workspace: %v", got)
+	}
+	if got := preview(inside); got["keeps_folder"] != nil {
+		t.Errorf("inside %s the folder goes with the project: %v", ws, got)
+	}
+}

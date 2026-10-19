@@ -317,36 +317,36 @@ const DRAFT = {
 
 const byTest = (m, id) => m.q("[data-testid=" + id + "]");
 
-test("a new project keeps the folder name field unless the whole disk is allowed", async () => {
+test("a new project can always pick or type a folder, with a note on how far it may reach", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(byTest(m, "new-project-location"), null);
+  assert.ok(byTest(m, "new-project-location"));
   assert.match(m.root.textContent, /Folder name/);
+  assert.match(m.root.textContent, /inside the workspace/);
   await m.unmount();
 });
 
-test("with the whole disk a new project can pick a folder, and go back to the workspace", async () => {
+test("a new project can pick or type a folder, and go back to the workspace", async () => {
   const s = store({ fullDisk: true });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.ok(byTest(m, "new-project-location"));
-  assert.match(
-    m.root.textContent,
-    /Folder name/,
-    "still a folder in the workspace",
-  );
-  assert.equal(byTest(m, "new-project-path"), null);
+  assert.match(m.root.textContent, /Folder name/);
+  assert.match(m.root.textContent, /never deleted/);
+  assert.equal(byTest(m, "new-project-path").value, "");
   assert.equal(byTest(m, "new-project-path-clear"), null);
   await click(byTest(m, "new-project-browse"));
+  const typed = byTest(m, "new-project-path");
+  typed.value = "/srv/new";
+  typed.dispatchEvent(new typed.ownerDocument.defaultView.Event("input"));
   await m.rerender(
     store({ fullDisk: true, newProjectPath: "/srv/app" }).value,
     h(NewProjectModal),
   );
-  assert.equal(byTest(m, "new-project-path").textContent, "/srv/app");
+  assert.equal(byTest(m, "new-project-path").value, "/srv/app");
   assert.doesNotMatch(m.root.textContent, /Folder name/);
   const again = store({ fullDisk: true, newProjectPath: "/srv/app" });
   await m.rerender(again.value, h(NewProjectModal));
   await click(byTest(m, "new-project-path-clear"));
-  assert.deepEqual(s.log, [["browse", "new"]]);
+  assert.deepEqual(s.log, [["browse", "new"], ["path", "/srv/new"]]);
   assert.deepEqual(again.log, [["path", ""]]);
   await m.unmount();
 });

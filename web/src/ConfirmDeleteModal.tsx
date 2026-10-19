@@ -170,6 +170,12 @@ function ProjectPreview({
           )}
         </p>
       )}
+      {!!preview?.keeps_folder && (
+        <p class={NOTE} data-testid="keeps-folder">
+          {t("The folder stays on disk, with its files:")}{" "}
+          <span class="font-mono break-all">{preview.folder}</span>
+        </p>
+      )}
     </>
   );
 }

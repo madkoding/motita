@@ -91,25 +91,24 @@ function FolderNameField() {
   );
 }
 
-// FolderFields is where the project lives: a folder in the workspace, or, when Settings → Security
-// allows the whole disk, any folder found with the folder browser.
+// FolderFields is where the project lives: a folder named in the workspace, or one found with the
+// folder browser or typed as a path. A folder that does not exist yet is created. Inside the
+// workspace any folder is reachable; the rest of the disk only when Settings → Security allows it.
 function FolderFields() {
   const p = useApp().projects;
-  if (!p.fullDisk) {
-    return <FolderNameField />;
-  }
   return (
     <div data-testid="new-project-location">
       <label class={LABEL}>{t("Location")}</label>
-      {p.newProjectPath && (
-        <p
-          class="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
-          data-testid="new-project-path"
-        >
-          {p.newProjectPath}
-        </p>
-      )}
       {!p.newProjectPath && <FolderNameField />}
+      <input
+        class={`${MONO_FIELD} mt-2`}
+        data-testid="new-project-path"
+        value={p.newProjectPath}
+        onInput={(e) =>
+          p.setNewProjectPath((e.target as HTMLInputElement).value)
+        }
+        placeholder={t("Or the path of a folder, existing or new")}
+      />
       <div class="flex gap-2 mt-2">
         <button
           type="button"
@@ -131,9 +130,13 @@ function FolderFields() {
         )}
       </div>
       <p class="text-xs text-[#7a7a8c] mt-1">
-        {t(
-          "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
-        )}
+        {p.fullDisk
+          ? t(
+              "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
+            )
+          : t(
+              "Without the whole disk in Settings → Security, the folder has to be inside the workspace.",
+            )}
       </p>
     </div>
   );
