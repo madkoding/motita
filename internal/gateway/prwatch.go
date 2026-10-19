@@ -357,6 +357,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	if err != nil {
 		return s.prFailed(c, w)
 	}
+	ci = s.awaitedCI(ctx, c, t, pr, ci)
 	w.see(&ci)
 	verdict := w.step(&ci, s.prMaxFixes(c))
 	s.publishPR(c, w, pr.Number)
@@ -626,6 +627,36 @@ func (s *Server) autoMerge(c *conversation, t prTarget, pr gitforge.PullRequest)
 		s.opts.Log.Warn("could not merge a pull request automatically",
 			"session", c.id, "pr", pr.Number, "error", err.Error())
 	}
+}
+
+// prAwaitGrace is how long after a push is first seen the checks its base branch runs are waited
+// for. Past it, a check the push has not started is one it does not run (a path filter, say).
+const prAwaitGrace = 5 * time.Minute
+
+// awaitedCI is ci with the checks the base branch runs, and this push has not started yet, counted
+// as running for prAwaitGrace: a repository with CI does not read as passed, or as having none,
+// before its jobs start. A failure is already the answer, and a base that cannot be read adds nothing.
+func (s *Server) awaitedCI(
+	ctx context.Context, c *conversation, t prTarget, pr gitforge.PullRequest, ci gitforge.CIStatus,
+) gitforge.CIStatus {
+	if pr.Base == "" || ci.State == gitforge.StateFailure || !c.awaitingRev(ci.Rev, time.Now()) {
+		return ci
+	}
+	base, err := s.branchCI(ctx, t, pr.Base)
+	if err != nil {
+		return ci
+	}
+	return ci.Awaiting(base)
+}
+
+// awaitingRev reports whether the push rev was first seen less than prAwaitGrace before now.
+func (c *conversation) awaitingRev(rev string, now time.Time) bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.ciRev != rev || c.ciRevAt.IsZero() {
+		c.ciRev, c.ciRevAt = rev, now
+	}
+	return now.Sub(c.ciRevAt) < prAwaitGrace
 }
 
 // baseCITTL is how long the CI of a base branch is remembered: every session of a repository asks

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -61,6 +62,21 @@ func summarize(checks []Check) CIStatus {
 			// A success leaves the summary as it is.
 		}
 	}
+	return st
+}
+
+// Awaiting is c with every check of base that c has not started counted as running. A host lists
+// a commit's jobs as they start, so for a moment after a push it reports some of them, or none, and
+// a summary of those few would read as a pass before the CI has run.
+func (c CIStatus) Awaiting(base CIStatus) CIStatus {
+	checks := slices.Clone(c.Checks)
+	for _, b := range base.Checks {
+		if !slices.ContainsFunc(checks, func(h Check) bool { return h.Name == b.Name }) {
+			checks = append(checks, Check{Name: b.Name, State: StatePending})
+		}
+	}
+	st := summarize(checks)
+	st.Rev = c.Rev
 	return st
 }
 
