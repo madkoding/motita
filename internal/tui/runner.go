@@ -17,6 +17,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/notes"
 	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/projectskills"
@@ -798,6 +799,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// its turn.
 		WithReview(r.reviewOrNil()).
 		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
+		WithNotes(notesVault()).
 		// Reading a page follows the commands' network, which Settings → Security can change
 		// while the session is open, so it is asked at every fetch.
 		WithWeb(webfetch.New(r.networkIsolated))
@@ -1133,6 +1135,9 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 			setter.SetLibrary(lib)
 		}
 	}
+	if setter, ok := ag.(interface{ SetNotes(*notes.Vault) }); ok {
+		setter.SetNotes(notesVault())
+	}
 	if led := r.rewardOrNil(); led != nil {
 		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
 			setter.SetReward(led)
@@ -1275,4 +1280,12 @@ func (r *AppRunner) ResetTranscript() {
 	r.transcriptMu.Lock()
 	defer r.transcriptMu.Unlock()
 	r.transcript = nil
+}
+
+// notesVault is the person's note vault, or nil when there is no home to keep it in.
+func notesVault() *notes.Vault {
+	if dir := config.NotesDir(); dir != "" {
+		return notes.Open(dir)
+	}
+	return nil
 }

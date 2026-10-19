@@ -111,16 +111,15 @@ func TestThePeerFileLivesUnderTheHome(t *testing.T) {
 	}
 }
 
-// TestTheNoteVaultLivesUnderTheHome: the notes are plain files in ~/.motita/notes so another
-// program can open the folder, and without a home there is no vault.
-func TestTheNoteVaultLivesUnderTheHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if got, want := notesDir(), filepath.Join(home, ".motita", "notes"); got != want {
-		t.Fatalf("notesDir() = %q, want %q", got, want)
+// TestNotesVaultIsNilWithoutAHome: plan and task mode share the Notes window's folder, and have none
+// without a home.
+func TestNotesVaultIsNilWithoutAHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if notesVault() == nil {
+		t.Error("with a home there is a vault")
 	}
 	t.Setenv("HOME", "")
-	if got := notesDir(); got != "" {
-		t.Fatalf("notesDir() = %q with no HOME, want empty", got)
+	if notesVault() != nil {
+		t.Error("without a home there is none")
 	}
 }

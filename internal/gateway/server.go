@@ -829,6 +829,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
 	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
 	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
+	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
 	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))

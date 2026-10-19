@@ -119,7 +119,7 @@ func TestNotesNeedAVault(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	for _, c := range [][2]string{
 		{http.MethodGet, "/v1/notes"}, {http.MethodGet, notePath("a.md")}, {http.MethodPut, notePath("a.md")},
-		{http.MethodDelete, notePath("a.md")}, {http.MethodPost, "/v1/notes/rename"}, {http.MethodGet, "/v1/notes/search?q=a"},
+		{http.MethodDelete, notePath("a.md")}, {http.MethodPost, "/v1/notes/rename"}, {http.MethodGet, "/v1/notes/search?q=a"}, {http.MethodGet, "/v1/notes/graph"},
 	} {
 		if w := noteCall(t, srv, c[0], c[1], `{}`); w.Code != http.StatusNotImplemented {
 			t.Errorf("%s %s: %d", c[0], c[1], w.Code)
@@ -178,5 +178,16 @@ func TestNoteFirstSnippetLine(t *testing.T) {
 	}
 	if got := firstSnippetLine(" \n"); got != "" {
 		t.Errorf("%q", got)
+	}
+}
+
+func TestNotesGraphListsNotesAndLinks(t *testing.T) {
+	srv, _ := noteServer(t)
+	noteCall(t, srv, http.MethodPut, notePath("a.md"), `{"body":"[[b]] [[ghost]]"}`)
+	noteCall(t, srv, http.MethodPut, notePath("b.md"), `{"body":"x"}`)
+	var g notes.Graph
+	w := noteCall(t, srv, http.MethodGet, "/v1/notes/graph", "")
+	if err := json.Unmarshal(w.Body.Bytes(), &g); err != nil || len(g.Nodes) != 2 || len(g.Edges) != 1 || g.Missing != 1 {
+		t.Fatalf("graph = %s", w.Body)
 	}
 }

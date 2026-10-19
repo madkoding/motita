@@ -1,6 +1,6 @@
 // The notes window: a vault of plain Markdown notes with a folder tree, an editor with a preview
 // where [[links]] open the note they name, the notes that link back, and a search.
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -9,9 +9,11 @@ import { Markdown } from "./Markdown";
 import { IconClose } from "./icons";
 import {
   buildTree,
+  layoutGraph,
   parseNoteHref,
   wikiToMarkdown,
   type NoteFolder,
+  type NoteGraph,
   type NoteHit,
   type NoteItem,
   type NoteView,
@@ -134,10 +136,10 @@ function NewNote() {
 // NoteList is the left side: the search, the new note form and the tree or the search results.
 function NoteList() {
   const { notes } = useApp();
-  const { current, query, hits, search } = notes;
+  const { current, graph, query, hits, search } = notes;
   return (
     <aside
-      class={`${choose(!!current, "hidden md:flex", "flex")} flex-col gap-3 w-full md:w-[18rem] flex-none min-h-0 md:border-r md:border-white/5 md:pr-3`}
+      class={`${choose(!!current || !!graph, "hidden md:flex", "flex")} flex-col gap-3 w-full md:w-[18rem] flex-none min-h-0 md:border-r md:border-white/5 md:pr-3`}
     >
       <input
         type="search"
@@ -296,14 +298,99 @@ function NoteToolbar() {
   );
 }
 
+// GRAPH_W and GRAPH_H are the box the graph is laid out in; the picture scales to the window.
+const GRAPH_W = 640;
+const GRAPH_H = 440;
+
+// GraphPane draws the notes as dots joined by their links; a click on a dot opens the note.
+function GraphPane({ graph }: { graph: NoteGraph }) {
+  const { openNote, closeGraph } = useApp().notes;
+  const nodes = useMemo(() => layoutGraph(graph, GRAPH_W, GRAPH_H), [graph]);
+  const at = new Map(nodes.map((n) => [n.path, n]));
+  return (
+    <div class="flex flex-col flex-1 min-h-0" data-testid="note-graph">
+      <div class="flex items-center gap-2 mb-2 flex-wrap">
+        <button
+          class={SMALL_BTN + " md:hidden"}
+          data-testid="graph-back"
+          onClick={closeGraph}
+        >
+          {t("Back to the list")}
+        </button>
+        <div class="flex-1 min-w-0 text-xs text-[#9a9aaa]">
+          {tf(
+            "{notes} notes · {links} links · {missing} to notes not written yet",
+            {
+              notes: String(graph.nodes.length),
+              links: String(graph.edges.length),
+              missing: String(graph.missing),
+            },
+          )}
+        </div>
+      </div>
+      {nodes.length === 0 && (
+        <p class="text-sm text-[#9a9aaa]">{t("Nothing to draw yet.")}</p>
+      )}
+      <svg
+        viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
+        class="flex-1 min-h-0 w-full rounded-lg bg-black/30"
+        role="img"
+        aria-label={t("Graph of linked notes")}
+      >
+        {graph.edges.map((e) => (
+          <line
+            key={e.from + ">" + e.to}
+            x1={at.get(e.from)?.x}
+            y1={at.get(e.from)?.y}
+            x2={at.get(e.to)?.x}
+            y2={at.get(e.to)?.y}
+            stroke="currentColor"
+            stroke-opacity="0.35"
+            class="text-accent"
+          />
+        ))}
+        {nodes.map((n) => (
+          <g
+            key={n.path}
+            class="cursor-pointer"
+            role="button"
+            tabIndex={0}
+            data-testid="graph-node"
+            aria-label={n.title}
+            onClick={() => void openNote(n.path)}
+            onKeyDown={(e) => e.key === "Enter" && void openNote(n.path)}
+          >
+            <circle
+              cx={n.x}
+              cy={n.y}
+              r={5 + Math.min(n.in, 6)}
+              class="fill-accent"
+            />
+            <text
+              x={n.x}
+              y={n.y - 10 - Math.min(n.in, 6)}
+              text-anchor="middle"
+              font-size="12"
+              class="fill-current text-[#e8e8ea]"
+            >
+              {n.title}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 // OpenNote is the right side: the open note, or what to do when none is.
 function OpenNote() {
-  const { current, root } = useApp().notes;
+  const { current, graph, root } = useApp().notes;
   return (
     <section
-      class={`${choose(!!current, "flex", "hidden md:flex")} flex-col flex-1 min-w-0 min-h-0 md:pl-1`}
+      class={`${choose(!!current || !!graph, "flex", "hidden md:flex")} flex-col flex-1 min-w-0 min-h-0 md:pl-1`}
     >
-      {!current && (
+      {!!graph && <GraphPane graph={graph} />}
+      {!current && !graph && (
         <div class="m-auto max-w-sm text-center text-sm text-[#9a9aaa] space-y-2">
           <p>{t("Pick a note, or write a new one.")}</p>
           <p>
@@ -328,14 +415,22 @@ function OpenNote() {
 }
 
 export function NotesModal() {
-  const { closeNotes } = useApp().notes;
+  const { closeNotes, graph, openGraph, closeGraph } = useApp().notes;
   return (
     <ModalBackdrop onClose={() => void closeNotes()}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-5xl p-4 md:p-5 shadow-2xl h-[85vh] flex flex-col">
         <div class="flex items-center gap-2 mb-3">
           <h2 class="text-base font-semibold">{t("Notes")}</h2>
           <button
-            class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
+            class={SMALL_BTN + " ml-auto"}
+            aria-pressed={!!graph}
+            data-testid="note-graph-toggle"
+            onClick={() => (graph ? closeGraph() : void openGraph())}
+          >
+            {t("Graph")}
+          </button>
+          <button
+            class="p-1.5 rounded-lg hover:bg-white/5"
             onClick={() => void closeNotes()}
             aria-label={t("Close")}
           >

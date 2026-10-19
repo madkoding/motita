@@ -140,6 +140,26 @@ function vault(initial = {}) {
         notes: Object.keys(files).sort().map(item),
       });
     }
+    if (u.pathname === "/v1/notes/graph") {
+      const paths = Object.keys(files).sort();
+      const edges = [];
+      for (const f of paths) {
+        for (const l of view(f).links) {
+          if (l.path && l.path !== f) {
+            edges.push({ from: f, to: l.path });
+          }
+        }
+      }
+      return json({
+        nodes: paths.map((p) => ({
+          ...item(p),
+          in: edges.filter((e) => e.to === p).length,
+          out: edges.filter((e) => e.from === p).length,
+        })),
+        edges,
+        missing: 1,
+      });
+    }
     if (u.pathname === "/v1/notes/search") {
       const q = u.searchParams.get("q");
       return json({
@@ -571,4 +591,125 @@ test("every string of the notes window has its Spanish", async () => {
       assert.ok(es[m[1]], `missing Spanish for: ${m[1]}`);
     }
   }
+});
+
+test("layoutGraph places every note inside the box, the same way every time", () => {
+  const graph = {
+    nodes: ["a", "b", "c", "d"].map((p) => ({
+      path: p,
+      title: p,
+      in: 0,
+      out: 0,
+    })),
+    edges: [
+      { from: "a", to: "b" },
+      { from: "b", to: "c" },
+    ],
+    missing: 0,
+  };
+  const one = api.layoutGraph(graph, 640, 440);
+  const two = api.layoutGraph(graph, 640, 440);
+  assert.deepEqual(one, two);
+  for (const p of one) {
+    assert.ok(p.x >= 28 && p.x <= 612 && p.y >= 28 && p.y <= 412, p.path);
+  }
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  assert.ok(d(one[0], one[1]) < d(one[0], one[3]), "linked notes sit closer");
+  // A single note sits alone and two notes at the same spot are pushed apart.
+  assert.equal(
+    api.layoutGraph({ ...graph, nodes: [graph.nodes[0]], edges: [] }, 640, 440)
+      .length,
+    1,
+  );
+  assert.deepEqual(
+    api.layoutGraph({ nodes: [], edges: [], missing: 0 }, 640, 440),
+    [],
+  );
+});
+
+test("the graph shows the notes and their links, opens a note on a click, and toggles", async () => {
+  const v = vault(FILES);
+  const m = await mount(v);
+  await m.run((n) => n.openNotes());
+  await click(qa(m.root, "note-row")[1]);
+  await click(q(m.root, "note-graph-toggle"));
+  assert.ok(q(m.root, "note-graph"));
+  assert.equal(
+    q(m.root, "note-mode"),
+    null,
+    "the open note is left for the graph",
+  );
+  assert.match(
+    text(q(m.root, "note-graph")),
+    /2 notes · 2 links · 1 to notes not written yet/,
+  );
+  assert.equal(qa(m.root, "graph-node").length, 2);
+  assert.equal(q(m.root, "note-graph").querySelectorAll("line").length, 2);
+
+  // Back to the list, then the toggle brings the graph again and closes it.
+  await click(q(m.root, "graph-back"));
+  assert.equal(q(m.root, "note-graph"), null);
+  await click(q(m.root, "note-graph-toggle"));
+  await click(q(m.root, "note-graph-toggle"));
+  assert.equal(q(m.root, "note-graph"), null);
+
+  // A click on a dot opens its note; so does Enter, and another key does nothing.
+  await click(q(m.root, "note-graph-toggle"));
+  const nodes = qa(m.root, "graph-node");
+  await act(() =>
+    nodes[0].dispatchEvent(
+      new W.KeyboardEvent("keydown", { key: "a", bubbles: true }),
+    ),
+  );
+  assert.ok(q(m.root, "note-graph"));
+  await act(() =>
+    nodes[0].dispatchEvent(
+      new W.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    ),
+  );
+  await settle();
+  assert.ok(q(m.root, "note-preview"));
+  await click(q(m.root, "note-graph-toggle"));
+  await click(qa(m.root, "graph-node")[1]);
+  assert.ok(q(m.root, "note-preview"));
+  assert.equal(q(m.root, "note-graph"), null);
+
+  // Closing the window drops the graph too.
+  await click(q(m.root, "note-graph-toggle"));
+  await click(m.root.querySelector('button[aria-label="Close"]'));
+  assert.equal(q(m.root, "note-graph"), null);
+  await m.done();
+});
+
+test("an empty vault has nothing to draw, and a failing graph is said", async () => {
+  const v = vault();
+  const m = await mount(v);
+  await m.run((n) => n.openNotes());
+  await click(q(m.root, "note-graph-toggle"));
+  assert.match(text(q(m.root, "note-graph")), /Nothing to draw yet/);
+  await click(q(m.root, "note-graph-toggle"));
+
+  v.fail.add({ method: "GET", path: "/graph", status: 500 });
+  await click(q(m.root, "note-graph-toggle"));
+  assert.deepEqual(m.statuses.pop(), ["could not load the graph", true]);
+  v.fail.clear();
+  v.fail.add({ method: "GET", path: "/graph" });
+  await click(q(m.root, "note-graph-toggle"));
+  assert.deepEqual(m.statuses.pop(), ["could not load the graph", true]);
+  assert.equal(q(m.root, "note-graph"), null);
+
+  // A draft that cannot be saved keeps the person in the note instead of the graph.
+  v.fail.clear();
+  const w = vault(FILES);
+  const m2 = await mount(w);
+  await m2.run((n) => n.openNotes());
+  await click(qa(m2.root, "note-row")[0]);
+  await click(q(m2.root, "note-mode"));
+  await type(q(m2.root, "note-editor"), "changed");
+  w.fail.add({ method: "PUT", path: "/v1/notes/note", status: 500 });
+  await click(q(m2.root, "note-graph-toggle"));
+  assert.equal(q(m2.root, "note-graph"), null);
+  assert.ok(q(m2.root, "note-editor"));
+  await m2.done();
+  await m.done();
 });

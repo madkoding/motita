@@ -142,3 +142,96 @@ export function parseNoteHref(
   }
   return null;
 }
+
+// One note of the link graph, and how many notes link to it (in) and how many it links to (out).
+export interface GraphNode {
+  path: string;
+  title: string;
+  in: number;
+  out: number;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+}
+
+export interface NoteGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  // Links to notes that do not exist yet: counted, not drawn.
+  missing: number;
+}
+
+export interface PlacedNode extends GraphNode {
+  x: number;
+  y: number;
+}
+
+const LAYOUT_STEPS = 140;
+const MARGIN = 28;
+
+// layoutGraph places the notes in a width x height box with a small force simulation: every pair
+// pushes apart, every link pulls together, and the whole drifts to the middle. It starts from a
+// circle and cools in a fixed number of steps, so the same vault always draws the same picture.
+export function layoutGraph(
+  graph: NoteGraph,
+  width: number,
+  height: number,
+): PlacedNode[] {
+  const n = graph.nodes.length;
+  const cx = width / 2;
+  const cy = height / 2;
+  const spread = Math.min(width, height) / 2 - MARGIN;
+  const placed: PlacedNode[] = graph.nodes.map((node, i) => ({
+    ...node,
+    x: cx + spread * Math.cos((2 * Math.PI * i) / n),
+    y: cy + spread * Math.sin((2 * Math.PI * i) / n),
+  }));
+  const at = new Map(placed.map((p) => [p.path, p]));
+  const k = Math.sqrt((width * height) / n) * 0.6;
+  for (let step = 0; step < LAYOUT_STEPS; step++) {
+    const cool = 1 - step / LAYOUT_STEPS;
+    const move = new Map(placed.map((p) => [p, { x: 0, y: 0 }]));
+    for (const a of placed) {
+      const da = move.get(a) as { x: number; y: number };
+      for (const b of placed) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d2 = Math.max(dx * dx + dy * dy, 0.01);
+        const push = (k * k) / d2;
+        da.x += dx * push;
+        da.y += dy * push;
+      }
+      da.x += (cx - a.x) * 0.05;
+      da.y += (cy - a.y) * 0.05;
+    }
+    for (const e of graph.edges) {
+      const a = at.get(e.from) as PlacedNode;
+      const b = at.get(e.to) as PlacedNode;
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const pull = Math.sqrt(dx * dx + dy * dy) / k;
+      const da = move.get(a) as { x: number; y: number };
+      const db = move.get(b) as { x: number; y: number };
+      da.x -= dx * pull;
+      da.y -= dy * pull;
+      db.x += dx * pull;
+      db.y += dy * pull;
+    }
+    for (const p of placed) {
+      const m = move.get(p) as { x: number; y: number };
+      const len = Math.max(Math.sqrt(m.x * m.x + m.y * m.y), 0.01);
+      const step = Math.min(len, 12 * cool + 0.5);
+      p.x = Math.min(
+        width - MARGIN,
+        Math.max(MARGIN, p.x + (m.x / len) * step),
+      );
+      p.y = Math.min(
+        height - MARGIN,
+        Math.max(MARGIN, p.y + (m.y / len) * step),
+      );
+    }
+  }
+  return placed;
+}

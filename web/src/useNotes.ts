@@ -9,6 +9,7 @@ import {
   noteFileName,
   parseNoteHref,
   type Api,
+  type NoteGraph,
   type NoteHit,
   type NoteItem,
   type NoteView,
@@ -28,6 +29,8 @@ export function useNotes(api: Api, setState: SetStatus) {
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<NoteHit[]>([]);
+  // The graph of links, when it is the view on screen.
+  const [graph, setGraph] = useState<NoteGraph | null>(null);
   // The newest search is the only one that may paint: answers can arrive out of order.
   const searchSeq = useRef(0);
   // The draft and the note it belongs to, for the save that happens when the person moves on.
@@ -57,6 +60,7 @@ export function useNotes(api: Api, setState: SetStatus) {
           return;
         }
         const view: NoteView = await res.json();
+        setGraph(null);
         setCurrent(view);
         setDraft(view.body);
         setEditing(edit);
@@ -117,10 +121,31 @@ export function useNotes(api: Api, setState: SetStatus) {
     if (await save()) {
       setShowNotes(false);
       setCurrent(null);
+      setGraph(null);
       setQuery("");
       setHits([]);
     }
   }, [save]);
+
+  // openGraph shows the notes as a graph of their links.
+  const openGraph = useCallback(async () => {
+    if (!(await save())) {
+      return;
+    }
+    try {
+      const res = await api(NOTES_PATH + "/graph");
+      if (!res.ok) {
+        setState(t("could not load the graph"), true);
+        return;
+      }
+      setCurrent(null);
+      setGraph(await res.json());
+    } catch {
+      setState(t("could not load the graph"), true);
+    }
+  }, [api, save, setState]);
+
+  const closeGraph = useCallback(() => setGraph(null), []);
 
   // back leaves the open note for the list (the way out of a note on a phone).
   const back = useCallback(async () => {
@@ -232,6 +257,9 @@ export function useNotes(api: Api, setState: SetStatus) {
     setEditing,
     query,
     hits,
+    graph,
+    openGraph,
+    closeGraph,
     openNotes,
     closeNotes,
     back,

@@ -152,6 +152,15 @@ func (s *Server) handleRenameNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleNotesGraph answers the notes and the links between them, for the graph view.
+func (s *Server) handleNotesGraph(w http.ResponseWriter, _ *http.Request) {
+	v := s.vault(w)
+	if v == nil {
+		return
+	}
+	writeJSON(w, http.StatusOK, v.Graph())
+}
+
 // handleSearchNotes finds notes by what they say. With the code index on it ranks by meaning, with
 // the same index the agent searches the code with; with it off, every word has to appear.
 func (s *Server) handleSearchNotes(w http.ResponseWriter, r *http.Request) {

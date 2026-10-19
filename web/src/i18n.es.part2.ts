@@ -821,6 +821,12 @@ const more: Record<string, string> = {
   "could not delete the note": "no se pudo borrar la nota",
   "give the note a name": "ponle un nombre a la nota",
   "a note with that name already exists": "ya existe una nota con ese nombre",
+  "could not load the graph": "no se pudo cargar el grafo",
+  Graph: "Grafo",
+  "Nothing to draw yet.": "Todavía no hay nada que dibujar.",
+  "Graph of linked notes": "Grafo de notas enlazadas",
+  "{notes} notes · {links} links · {missing} to notes not written yet":
+    "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
 };
 
 export default more;
