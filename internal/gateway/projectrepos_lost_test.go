@@ -3,6 +3,7 @@ package gateway
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
@@ -213,5 +214,76 @@ func TestDeletingAProjectStopsOnUnpublishedCommits(t *testing.T) {
 	}
 	if w := send(t, srv, http.MethodDelete, path+"&force=1", testToken, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("a confirmed deletion: %d %s", w.Code, w.Body)
+	}
+}
+
+// loadAll reads the projects and only the projects: folders, other files, unreadable and
+// unparseable ones are left out of the list instead of failing it.
+func TestLoadAllSkipsWhatIsNotAProject(t *testing.T) {
+	ps, err := newProjectStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.save(Project{ID: "p1", Title: "kept", Dir: "/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(ps.dir, "folder.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir, "note.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ps.dir, "bad.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(ps.dir, "nowhere"), filepath.Join(ps.dir, "ghost.json")); err != nil {
+		t.Skip("symlinks are not available here")
+	}
+	all, err := ps.loadAll()
+	if err != nil || len(all) != 1 || all[0].ID != "p1" {
+		t.Errorf("only the project is listed: %+v %v", all, err)
+	}
+}
+
+// A repository URL that cannot name a folder is refused before anything is created, and one that
+// cannot be cloned leaves no project behind, nor the folder this request made.
+func TestCreateProjectFromAURLThatFailsLeavesNothing(t *testing.T) {
+	srv, ws := projectServer(t)
+	hidden := `{"title":"n","dir":"n","git_url":"https://example.com/.hidden"}`
+	if code, _ := createProject(t, srv, hidden); code != http.StatusBadRequest {
+		t.Errorf("a URL with no usable folder name: %d", code)
+	}
+	code, _ := createProject(t, srv, `{"title":"f","dir":"f","git_url":"`+filepath.Join(ws, "no-such-origin")+`"}`)
+	if code == http.StatusCreated {
+		t.Fatalf("a clone that fails must fail the request: %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "f")); err == nil {
+		t.Error("the folder this request made goes with it")
+	}
+	if got, _ := srv.projects.loadAll(); len(got) != 0 {
+		t.Errorf("no project record is left: %+v", got)
+	}
+}
+
+// When the clone worked but the project cannot be saved with it, the request fails with 500.
+func TestCloneIntoNewProjectReportsASaveThatFails(t *testing.T) {
+	origin := t.TempDir()
+	gitRepo(t, origin)
+	srv, ws := projectServer(t)
+	p := Project{ID: "pclone", Title: "c", Dir: filepath.Join(ws, "c")}
+	if err := os.MkdirAll(p.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.projects.save(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(srv.projects.dir, p.ID+".json.tmp", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/projects", nil)
+	_, _, ok := srv.cloneIntoNewProject(w, r, p, origin, "origin", false)
+	if ok || w.Code != http.StatusInternalServerError {
+		t.Errorf("a save that fails: ok=%v code=%d", ok, w.Code)
 	}
 }

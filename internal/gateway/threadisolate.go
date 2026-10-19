@@ -19,7 +19,7 @@ func (s *Server) handleIsolateSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, c.status())
 		return
 	}
-	project := s.scopeOf(pid)
+	project := s.projectOf(pid)
 	if project == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
