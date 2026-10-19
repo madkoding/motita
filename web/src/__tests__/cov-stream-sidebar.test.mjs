@@ -49,6 +49,7 @@ function store(over = {}) {
       renameSession: rec("renameSession"),
       setRenamingId: rec("setRenamingId"),
       continueSession: async (x) => calls.push(["continueSession", x.id]),
+      isolateSession: async (x) => calls.push(["isolateSession", x.id]),
     },
     conv: { switchSession: rec("switchSession") },
     menus: {
@@ -591,4 +592,27 @@ test("on a phone, picking a session in the sidebar closes it", async () => {
   assert.deepEqual(v.calls, [["openSettings"]], "other clicks do not close it");
   phone = false;
   await done();
+});
+
+test("a thread that shares the project's folder offers to move into a worktree", async () => {
+  const v = store({ menus: { rowMenu: { id: "t" } } });
+  const s = { id: "t", title: "Boxes", project_id: "p1", parent_id: "m" };
+  const { root, done } = await row(s, v);
+  await act(async () => {
+    buttonNamed(root, "Isolate in a worktree").dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    await Promise.resolve();
+  });
+  assert.deepEqual(v.calls, [["closeRowMenu"], ["isolateSession", "t"]]);
+  await done();
+  for (const other of [
+    { ...s, worktree: "t" },
+    { ...s, parent_id: undefined },
+    { ...s, merged: true },
+  ]) {
+    const r = await row(other, store({ menus: { rowMenu: { id: "t" } } }));
+    assert.equal(buttonNamed(r.root, "Isolate in a worktree"), undefined);
+    await r.done();
+  }
 });

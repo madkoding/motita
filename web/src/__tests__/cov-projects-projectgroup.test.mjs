@@ -174,13 +174,22 @@ test("the menu edits the project and asks before deleting it", async () => {
   await m.unmount();
 });
 
-test("the menu opens a session with a worktree of its own", async () => {
-  const s = store({ rowMenu: { id: "p1" } });
+test("threads are listed under their main session, indented", async () => {
+  const s = store({
+    sessions: [
+      { id: "t1", project_id: "p1", parent_id: "m", created: "2024-02" },
+      { id: "x", project_id: "p2", created: "2024-01" },
+      { id: "m", project_id: "p1", created: "2024-01" },
+      { id: "t2", project_id: "p1", parent_id: "m", created: "2024-03" },
+    ],
+  });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
-  const item = m.q("[data-testid=new-isolated-session]");
-  assert.equal(item.textContent, "New isolated session");
-  await click(item);
-  assert.deepEqual(s.log, [["createSession", "p1", true], ["closeMenu"]]);
+  const rows = [...m.root.querySelectorAll(".session-row")];
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.map((r) => r.classList.contains("session-thread")),
+    [false, true, true],
+  );
   await m.unmount();
 });
 

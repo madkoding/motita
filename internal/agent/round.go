@@ -82,7 +82,8 @@ func (rr *roundRun) workAction(i int, kind string, action Command) bool {
 
 // readAction is an action answered from the library or the code index, which change nothing.
 func (rr *roundRun) readAction(kind string, action Command) bool {
-	return rr.libraryAction(kind, action) || rr.indexAction(kind, action) || rr.noteAction(kind, action)
+	return rr.libraryAction(kind, action) || rr.indexAction(kind, action) || rr.noteAction(kind, action) ||
+		rr.threadAction(kind, action)
 }
 
 // agentAction is a background agent started or waited for (see subagents.go).
@@ -201,7 +202,7 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
 		"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, "+
-		"search_skills, read_skill, save_skill, search_index, note_search, note_read, note_write, note_append, "+
+		"thread, search_skills, read_skill, save_skill, search_index, note_search, note_read, note_write, note_append, "+
 		"box_up, box_get, box_shot, box_down, "+
 		"desktop_shot, desktop_click, desktop_move, desktop_scroll, desktop_type, desktop_key, "+
 		"desktop_windows, desktop_focus (when the person turned desktop control on). "+

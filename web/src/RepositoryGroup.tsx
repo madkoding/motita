@@ -4,14 +4,13 @@ import { useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
+import { groupThreads } from "./threads";
 import { NewSessionButton } from "./NewSessionButton";
 import { RowMenu, SessionRow } from "./SessionRow";
 import { IconDots, IconRepo } from "./icons";
 import { repoScope } from "./useRepositories";
 import type { RepositoryInfo } from "./appTypes";
 
-const ITEM_PLAIN =
-  "row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5";
 const ITEM_DANGER =
   "row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10";
 
@@ -29,23 +28,9 @@ export function repoTooltip(r: RepositoryInfo): string {
 
 // RepositoryMenu is the "⋯" menu of a repository.
 function RepositoryMenu({ r }: { r: RepositoryInfo }) {
-  const { menus, actions, repositories } = useApp();
+  const { menus, repositories } = useApp();
   return (
     <RowMenu>
-      <button
-        class={ITEM_PLAIN}
-        data-testid="new-isolated-repo-session"
-        title={t(
-          "Works in a worktree of its own, so it can run in parallel with the others.",
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          void actions.createSession(repoScope(r.id), true);
-          menus.closeRowMenu();
-        }}
-      >
-        {t("New isolated session")}
-      </button>
       <button
         class={ITEM_DANGER}
         data-testid="delete-repository"
@@ -110,7 +95,9 @@ function RepositoryActions({ r }: { r: RepositoryInfo }) {
 export function RepositoryGroup({ r }: { r: RepositoryInfo }) {
   const { lists } = useApp();
   const scope = repoScope(r.id);
-  const sessions = lists.sessions.filter((s) => s.project_id === scope);
+  const sessions = groupThreads(
+    lists.sessions.filter((s) => s.project_id === scope),
+  );
   return (
     <div
       class="mt-3.5 rounded-xl bg-white/2 border border-white/6"

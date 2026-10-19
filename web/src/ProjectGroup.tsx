@@ -4,6 +4,7 @@ import { useCallback, useRef } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
+import { groupThreads } from "./threads";
 import { useLongPress } from "./domHooks";
 import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
@@ -17,7 +18,7 @@ const ITEM_PLAIN =
 
 // ProjectMenu is the "⋯" menu of a project.
 function ProjectMenu({ p }: { p: ProjectInfo }) {
-  const { menus, projects, actions } = useApp();
+  const { menus, projects } = useApp();
   return (
     <RowMenu>
       <button
@@ -44,20 +45,6 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
-      <button
-        class={ITEM_PLAIN}
-        data-testid="new-isolated-session"
-        title={t(
-          "Works in a worktree of its own, so it can run in parallel with the others.",
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          void actions.createSession(p.id, true);
-          menus.closeRowMenu();
-        }}
-      >
-        {t("New isolated session")}
-      </button>
       <button
         class={ITEM_PLAIN}
         data-testid="refresh-main"
@@ -275,7 +262,9 @@ function ProjectHeader({
 export function ProjectGroup({ p }: { p: ProjectInfo }) {
   const { lists } = useApp();
   const isCollapsed = lists.collapsedProjects.has(p.id);
-  const projectSessions = lists.sessions.filter((s) => s.project_id === p.id);
+  const projectSessions = groupThreads(
+    lists.sessions.filter((s) => s.project_id === p.id),
+  );
   return (
     <div class="mt-3.5 rounded-xl bg-white/2 border border-white/6">
       <ProjectHeader p={p} collapsed={isCollapsed} />

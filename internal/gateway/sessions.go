@@ -103,6 +103,9 @@ type conversation struct {
 	// is a free-standing session. A session that belongs to a project runs
 	// with its workspace set to the project's directory.
 	projectID string
+	// parentID is the main session of the project when this one is a thread of it, empty for a
+	// main session or a free-standing one. See sessionthreads.go.
+	parentID string
 	// workspace is the directory the agent works in. It is empty for a
 	// free-standing session. For a session in a git project it is the
 	// session's OWN worktree, and projectDir below is the project it branches
@@ -407,13 +410,15 @@ func (c *conversation) stopRunForDeletion(timeout time.Duration) (bool, bool) {
 
 // SessionStatus is what the list and create endpoints report about one conversation.
 type SessionStatus struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	ProjectID string    `json:"project_id,omitempty"`
-	Branch    string    `json:"branch,omitempty"`
-	Created   time.Time `json:"created"`
-	LastUsed  time.Time `json:"last_used"`
-	Running   bool      `json:"running"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	ProjectID string `json:"project_id,omitempty"`
+	// ParentID is the id of the project's main session when this session is one of its threads.
+	ParentID string    `json:"parent_id,omitempty"`
+	Branch   string    `json:"branch,omitempty"`
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"last_used"`
+	Running  bool      `json:"running"`
 	// PRWatch is the state of the session's pull request while the gateway follows its CI.
 	PRWatch *PRWatchView `json:"pr_watch,omitempty"`
 	// Mergeable reports whether the session has work that can be integrated
@@ -495,8 +500,9 @@ func runningSubagents(agents []agent.AgentInfo) int {
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed,
-		Running: c.running, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
+	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
+		Created: c.created, LastUsed: c.lastUsed, Running: c.running, AutoApprove: c.autoApprove,
+		AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()
@@ -938,6 +944,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// Isolate gives a project session a worktree of its own instead of the project's folder,
 		// for working in parallel on one repository.
 		Isolate bool `json:"isolate"`
+		// ParentID names the main session to open a thread of, in a worktree of its own. It is what
+		// the agent of a project's main session asks for; absent, the session is a main one.
+		ParentID string `json:"parent_id"`
 	}
 	// The body is optional: a client that sends no body gets a free-standing session.
 	if r.ContentLength > 0 {
@@ -973,7 +982,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
-		s.placeAndSave(conv, body.ProjectID, project, body.Git, body.Isolate)
+		isolate := s.joinThread(conv, body.ProjectID, body.ParentID, body.Isolate)
+		s.placeAndSave(conv, body.ProjectID, project, body.Git, isolate)
 		writeJSON(w, http.StatusCreated, conv.status())
 	}
 }
@@ -986,6 +996,7 @@ func (s *Server) placeAndSave(conv *conversation, projectID string, project *Pro
 	} else {
 		s.placeFreeStanding(conv, s.wantsGit(git))
 	}
+	s.offerThreads(conv)
 	s.saveSession(conv)
 }
 

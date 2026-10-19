@@ -78,6 +78,7 @@ func (s *Server) loadPersistedSessions() {
 			restored++
 		}
 	}
+	s.adoptThreads()
 }
 
 // restoreDefaultSession restores a record of the default session into its existing service.
@@ -119,6 +120,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	conv.setTitle(rec.Title)
 	conv.setAutoApprove(rec.AutoApprove)
 	conv.setMerged(rec.MergedSHA)
+	conv.setParent(rec.ParentID)
 	// A session in a project gets its worktree back. The branch outlives the
 	// worktree, so re-attaching it restores the session's own work rather
 	// than starting over; a failure falls back to the project's directory,
@@ -179,6 +181,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	project := s.scopeOf(rec.ProjectID)
 	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
 	applyRuntimeTo(svc, project, workspace)
+	s.offerThreads(conv)
 	s.sessionsMu.Lock()
 	s.sessions[rec.ID] = conv
 	s.sessionsMu.Unlock()

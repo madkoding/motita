@@ -25,22 +25,21 @@ func newSharedSession(t *testing.T, srv *Server, projectID string) SessionStatus
 	return st
 }
 
-// TestProjectSessionsShareTheProjectFolder: a project is a folder; its sessions work in it, as in
-// Claude Code, with no worktree or branch made for them.
-func TestProjectSessionsShareTheProjectFolder(t *testing.T) {
+// TestTheMainSessionWorksInTheProjectFolder: a project is a folder and its main session works in it,
+// as in Claude Code, with no worktree or branch made for it. Threads, which the agent opens, get a
+// worktree of their own (see sessionthreads_test.go).
+func TestTheMainSessionWorksInTheProjectFolder(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	withProjects(t, srv, t.TempDir())
 	pid := makeProject(t, srv, "repo")
 	dir := srv.projectOf(pid).Dir
 
-	a, b := newSharedSession(t, srv, pid), newSharedSession(t, srv, pid)
-	for _, st := range []SessionStatus{a, b} {
-		if !gitx.SamePath(st.Workspace, dir) {
-			t.Errorf("workspace = %q, want the project folder %q", st.Workspace, dir)
-		}
-		if st.Worktree != "" || st.Mergeable {
-			t.Errorf("a session in the project folder has no worktree to integrate: %+v", st)
-		}
+	a := newSharedSession(t, srv, pid)
+	if !gitx.SamePath(a.Workspace, dir) {
+		t.Errorf("workspace = %q, want the project folder %q", a.Workspace, dir)
+	}
+	if a.Worktree != "" || a.Mergeable || a.ParentID != "" {
+		t.Errorf("the main session has no worktree to integrate and no parent: %+v", a)
 	}
 	if _, err := os.Stat(filepath.Join(srv.opts.WorkspaceDir, "worktrees", a.ID)); !os.IsNotExist(err) {
 		t.Errorf("no worktree must be made: %v", err)
