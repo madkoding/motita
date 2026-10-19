@@ -236,7 +236,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.migrateRepositories()
 	if cur := s.projectOf(p.ID); cur != nil {
 		p = *cur
 	}
@@ -247,7 +246,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"description": p.Description,
 		"dir":         p.Dir,
 		"repos":       p.Repos,
-		"repo_id":     p.RepoID,
 		"podman":      p.Podman,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
@@ -350,7 +348,6 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.mirrorToRepository(p)
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
@@ -789,7 +786,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
-	p := s.scopeOf(c.projectID)
+	p := s.projectOf(c.projectID)
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
@@ -861,7 +858,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusConflict,
 			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
-	p := s.scopeOf(c.projectID)
+	p := s.projectOf(c.projectID)
 	if p == nil {
 		return nil, http.StatusNotFound, ErrProjectNotFound
 	}

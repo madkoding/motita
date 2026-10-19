@@ -935,9 +935,6 @@ func newSessionID() (string, error) {
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID string `json:"project_id"`
-		// RepoID makes the session work on a recorded repository directly, with no project in
-		// between: in the repository's own checkout, or in a worktree of it with isolate.
-		RepoID string `json:"repo_id"`
 		// Git asks for a free-standing session's directory to be a git repository (true) or a
 		// plain directory (false). Absent, the gateway's free_session_git setting decides.
 		Git *bool `json:"git"`
@@ -964,11 +961,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// same files. The worktree is best-effort - see sessionWorktree - so a
 	// project that is not a repository still gives a usable session.
 	var project *Project
-	if rid := strings.TrimSpace(body.RepoID); rid != "" && strings.TrimSpace(body.ProjectID) == "" {
-		body.ProjectID = repoScopeID(rid)
-	}
 	if strings.TrimSpace(body.ProjectID) != "" {
-		project = s.scopeOf(body.ProjectID)
+		project = s.projectOf(body.ProjectID)
 		if project == nil {
 			writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 			return

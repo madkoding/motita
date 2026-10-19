@@ -318,10 +318,10 @@ func TestDefaultBranchOfARemote(t *testing.T) {
 func TestANewProjectIsAPlainFolderWithNoBranch(t *testing.T) {
 	srv, ws := projectServer(t)
 	code, out := createProject(t, srv, `{"title":"a","dir":"a","main_branch":"master"}`)
-	if code != http.StatusCreated || out["repo_id"] != "" {
+	if code != http.StatusCreated {
 		t.Fatalf("creating: %d %v", code, out)
 	}
-	if p := srv.projectOf(out["id"].(string)); p.MainBranch != "" || p.RepoID != "" || len(p.Repos) != 0 {
+	if p := srv.projectOf(out["id"].(string)); p.MainBranch != "" || len(p.Repos) != 0 {
 		t.Errorf("a plain folder has no branch and no repository: %+v", p)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "a", ".git")); err == nil {
@@ -339,7 +339,7 @@ func TestCreateProjectFromAURLClonesIntoThePlainFolder(t *testing.T) {
 		t.Fatalf("creating: %d %v", code, out)
 	}
 	p := srv.projectOf(out["id"].(string))
-	if p.GitURL != "" || p.RepoID != "" || len(p.Repos) != 1 || p.Repos[0].RepoID == "" {
+	if p.GitURL != "" || len(p.Repos) != 1 {
 		t.Fatalf("the clone is the project's repository, the folder is plain: %+v", p)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "c", ".git")); err == nil {

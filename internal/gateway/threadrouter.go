@@ -107,7 +107,7 @@ func (s *Server) threadFor(main *conversation, topic string) (*conversation, boo
 	main.stateMu.Lock()
 	pid := main.projectID
 	main.stateMu.Unlock()
-	project := s.scopeOf(pid)
+	project := s.projectOf(pid)
 	if project == nil {
 		return nil, false, ErrProjectNotFound
 	}
