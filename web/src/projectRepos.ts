@@ -36,10 +36,19 @@ export function isLocalFolder(text: string): boolean {
   return /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path) && !/\.git[\\/]*$/.test(path);
 }
 
+// withoutTrailingSeparators drops the "/" and "\\" a path ends with.
+function withoutTrailingSeparators(path: string): string {
+  let end = path.length;
+  while (end > 0 && (path[end - 1] === "/" || path[end - 1] === "\\")) {
+    end -= 1;
+  }
+  return path.slice(0, end);
+}
+
 // localRepoDraft is a repository this machine already has, by its folder: null when the folder's
 // name cannot be a repository's.
 export function localRepoDraft(folder: string): RepoDraft | null {
-  const path = folder.trim().replace(/[\\/]+$/, "");
+  const path = withoutTrailingSeparators(folder.trim());
   const name = repoFolderOf(path);
   if (!REPO_NAME.test(name) || name.includes("..")) {
     return null;
@@ -79,11 +88,7 @@ export function addRepoProblem(url: string, taken: string[]): string {
 // lastPathPart is the last part of a path that is not empty, so a trailing separator is skipped;
 // "" when the path has none.
 function lastPathPart(path: string): string {
-  let end = path.length;
-  while (end > 0 && (path[end - 1] === "/" || path[end - 1] === "\\")) {
-    end -= 1;
-  }
-  const rest = path.slice(0, end);
+  const rest = withoutTrailingSeparators(path);
   return rest.slice(
     Math.max(rest.lastIndexOf("/"), rest.lastIndexOf("\\")) + 1,
   );
