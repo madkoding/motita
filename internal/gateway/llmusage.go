@@ -79,7 +79,7 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 			continue // a self-hosted Ollama has no quota to follow
 		}
 		u, called := totals[p.ID]
-		if !called && config.KeySource(s.opts.ConfigPath, cfg, p.ID) == config.KeyMissing {
+		if !called && !hasUsageKey(s.opts.ConfigPath, cfg, p.ID) {
 			continue
 		}
 		row := llmUsageRow{ID: p.ID, Name: shortName(p), Default: p.ID == cfg.Provider,
@@ -97,6 +97,16 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 	writeJSON(w, http.StatusOK, llmUsageView{Providers: rows})
+}
+
+// hasUsageKey says whether a provider is set up enough to be followed before it has made a call.
+// The "ollama" entry shares OLLAMA_API_KEY with Ollama Cloud, so that key alone does not make it
+// followed: only a legacy configuration that names it and reaches Ollama Cloud does.
+func hasUsageKey(configPath string, cfg config.LLM, id string) bool {
+	if id == "ollama" && (cfg.Provider != id || config.IsSelfHostedOllama(cfg)) {
+		return false
+	}
+	return config.KeySource(configPath, cfg, id) != config.KeyMissing
 }
 
 // shortName is the provider's name as the narrow panel shows it: "Ollama Cloud", not the wizard's
