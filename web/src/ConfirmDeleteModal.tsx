@@ -259,6 +259,40 @@ function confirmLabel(
   );
 }
 
+// PendingActions are the buttons that settle a session's unintegrated work before it is deleted:
+// merging its open pull request, or integrating its commits. Only a session has such work: the
+// project's own deletion keeps its single question.
+function PendingActions({ target }: { target: ConfirmTarget }) {
+  const { deletion, stream } = useApp();
+  const { cancelDelete, deletionPreview, deleting, mergeAndDelete } = deletion;
+  const integration = deletionPreview?.integration;
+  // The integration is a run of the agent in that session, so the session stays and the person
+  // deletes it once the run has merged its work.
+  const integrate = () => {
+    cancelDelete();
+    void stream.submit("Integrate", SESSIONS_PATH + target.id + "/merge");
+  };
+  if (deletionPreview?.pr) {
+    return (
+      <button
+        class={ACCENT_BUTTON}
+        disabled={deleting}
+        onClick={mergeAndDelete}
+      >
+        {t("Merge the pull request and delete")}
+      </button>
+    );
+  }
+  if (!integration) {
+    return null;
+  }
+  return (
+    <button class={ACCENT_BUTTON} disabled={deleting} onClick={integrate}>
+      {tf("Integrate into {base}", { base: integration.base })}
+    </button>
+  );
+}
+
 export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
   const {
     cancelDelete,
@@ -266,24 +300,9 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
     previewLoading,
     deleting,
     confirmDeletion,
-    mergeAndDelete,
   } = useApp().deletion;
-  const { stream } = useApp();
   const waiting = asksPreview(target) && previewLoading;
-  // Only a session has work to integrate: the project's own deletion keeps its single question.
   const isSession = target.type === "session";
-  const pr = choose(isSession, deletionPreview?.pr, undefined);
-  const integration = choose(
-    isSession,
-    deletionPreview?.integration,
-    undefined,
-  );
-  // The integration is a run of the agent in that session, so the session stays and the person
-  // deletes it once the run has merged its work.
-  const integrate = () => {
-    cancelDelete();
-    void stream.submit("Integrate", SESSIONS_PATH + target.id + "/merge");
-  };
   return (
     <ModalBackdrop onClose={cancelDelete}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-sm p-5 shadow-2xl">
@@ -307,24 +326,7 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
         )}
 
         <div class="flex flex-wrap gap-2">
-          {!!pr && (
-            <button
-              class={ACCENT_BUTTON}
-              disabled={deleting}
-              onClick={mergeAndDelete}
-            >
-              {t("Merge the pull request and delete")}
-            </button>
-          )}
-          {!pr && !!integration && (
-            <button
-              class={ACCENT_BUTTON}
-              disabled={deleting}
-              onClick={integrate}
-            >
-              {tf("Integrate into {base}", { base: integration.base })}
-            </button>
-          )}
+          {isSession && <PendingActions target={target} />}
           <button
             class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
             disabled={deleting || waiting}

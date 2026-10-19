@@ -160,7 +160,9 @@ export function useDeletion({
     try {
       await mergePR(api, confirmDelete.id);
     } catch (e) {
-      setMergeError(e instanceof Error ? e.message : String(e));
+      setMergeError(
+        choose(e instanceof Error, (e as Error).message, String(e)),
+      );
       setDeleting(false);
       return;
     }
