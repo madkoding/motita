@@ -241,7 +241,7 @@ test("its sessions are the ones anchored to it, and a folder of the user's is ma
   await m.unmount();
 });
 
-test("the '⋯' menu opens for the repository, and starts an isolated session or deletes it", async () => {
+test("the '⋯' menu opens for the repository, and deletes it", async () => {
   const closed = store();
   const m = await mount(AppCtx, closed.value, h(RepositoryGroup, { r: API }));
   await click(m.q("[data-row-menu-trigger]"));
@@ -253,14 +253,8 @@ test("the '⋯' menu opens for the repository, and starts an isolated session or
 
   const open = store({ rowMenu: { id: "repo_r1" } });
   await m.rerender(open.value, h(RepositoryGroup, { r: API }));
-  await click(m.q("[data-testid=new-isolated-repo-session]"));
   await click(m.q("[data-testid=delete-repository]"));
-  assert.deepEqual(open.log, [
-    ["createSession", "repo_r1", true],
-    ["closeMenu"],
-    ["delete", API],
-    ["closeMenu"],
-  ]);
+  assert.deepEqual(open.log, [["delete", API], ["closeMenu"]]);
   await m.unmount();
 });
 

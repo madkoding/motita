@@ -346,10 +346,16 @@ test("a new session is created, listed and opened; a refusal says why", async ()
   assert.deepEqual(conv.switched, ["new1", "p1-s"]);
   assert.equal(gw.calls.at(-2).body, '{"project_id":"p1"}');
 
-  // An isolated session asks for its worktree.
-  gw.routes["POST /v1/sessions"] = () => res(200, { id: "iso" });
-  await h.act(() => cur().actions.createSession("p1", true));
-  assert.equal(gw.calls.at(-2).body, '{"project_id":"p1","isolate":true}');
+  // A project that already has its main session opens that one instead of making another.
+  cur().lists.setSessions([
+    { id: "main", project_id: "p9", created: "2024-01" },
+    { id: "th", project_id: "p9", parent_id: "main", created: "2024-02" },
+  ]);
+  await h.act(() => {});
+  const calls = gw.calls.length;
+  await h.act(() => cur().actions.createSession("p9"));
+  assert.equal(gw.calls.length, calls, "nothing is created");
+  assert.equal(conv.switched.at(-1), "main");
 
   // The gateway refuses: its reason, or a plain one.
   gw.routes["POST /v1/sessions"] = () => res(409, { error: "project is busy" });

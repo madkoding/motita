@@ -332,7 +332,11 @@ export function SessionRow({ s }: { s: SessionInfo }) {
   return (
     <div
       ref={rowRef}
-      class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${choose(
+      class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5${choose(
+        s.parent_id,
+        " session-thread ml-4",
+        "",
+      )} ${choose(
         s.id === rs.sessionId,
         "bg-accent/10 border border-accent/20",
         "hover:bg-white/5 border border-transparent",

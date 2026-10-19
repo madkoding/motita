@@ -5,6 +5,7 @@ import { t } from "./i18n";
 import { choose } from "./choose";
 import type { SessionList } from "./useSessionList";
 import { mostRecent } from "./appFormat";
+import { mainSessionOf } from "./threads";
 import type { RunState } from "./useRunState";
 import type { Conversation } from "./useConversation";
 import type { Api } from "./prApi";
@@ -60,22 +61,21 @@ export function useSessionActions({
 
   // createSession opens a new conversation and switches to it. It says which one it opened, so
   // a message typed with no conversation on screen can go on into the one made for it; nothing
-  // when the gateway refused or could not be reached. isolate gives a session of a project a
-  // worktree of its own, for working in parallel with the others on one repository.
+  // when the gateway refused or could not be reached. A project has ONE main session: asking for
+  // a new one opens the one it has, and parallel work goes to threads its agent opens.
   const createSession = useCallback(
-    async (
-      projectId?: string,
-      isolate = false,
-    ): Promise<string | undefined> => {
+    async (projectId?: string): Promise<string | undefined> => {
+      const main = projectId ? mainSessionOf(sessions, projectId) : undefined;
+      if (main) {
+        await switchSession(main.id);
+        return main.id;
+      }
       setCreatingSession(projectId ?? "");
       let opened: string | undefined;
       try {
         const body = choose(
           projectId,
-          JSON.stringify({
-            project_id: projectId,
-            isolate: isolate || undefined,
-          }),
+          JSON.stringify({ project_id: projectId }),
           "{}",
         );
         const res = await api(SESSIONS_URL, {
@@ -99,7 +99,7 @@ export function useSessionActions({
       }
       return opened;
     },
-    [fetchSessions, switchSession],
+    [sessions, fetchSessions, switchSession],
   );
 
   // Listen for the custom event from createProject to auto-create a session.
