@@ -3285,6 +3285,7 @@ html[data-density="compact"] {
   --spacing: 0.125rem;
 }
 @layer utilities {
+  html[data-density="compact"] .h-1 { height: 0.25rem; }
   html[data-density="compact"] .h-2 { height: 0.5rem; }
   html[data-density="compact"] .h-3 { height: 0.75rem; }
   html[data-density="compact"] .h-10 { height: 2.5rem; }
