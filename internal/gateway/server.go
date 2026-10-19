@@ -437,13 +437,15 @@ func Start(opts Options) (*Server, error) {
 		}
 	}
 
+	// Projects first: a restored session finds its project, and with it the scope its agent is told,
+	// its worktrees of the project's other repositories and its runtime.
+	s.openProjectStore()
 	s.openSessionStore()
 	s.openApprovalStore()
 	// The default session belongs to no project, so it works in a folder of its own like any free
 	// session. Left in the workspace root, it - and every scheduled task that names no session -
 	// would run in the parent of every project, worktree and session folder, and reach them all.
 	s.placeFreeStanding(first, false)
-	s.openProjectStore()
 	// Resume any sessions that were mid-run when the previous gateway shut down (e.g. for an
 	// upgrade), and start what they had queued. This must happen AFTER loadPersistedSessions has
 	// registered every conversation and wired its service, because starting a run needs a fully

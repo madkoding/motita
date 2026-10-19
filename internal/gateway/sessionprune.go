@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // sessionRoutes registers the endpoints about the set of sessions.
@@ -78,4 +81,49 @@ func (s *Server) pruneBlankSessions() []string {
 func (s *Server) handlePruneBlankSessions(w http.ResponseWriter, _ *http.Request) {
 	removed := s.pruneBlankSessions()
 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "count": len(removed)})
+}
+
+// pruneSessionBranches deletes, once on the way in and in the background, the branches of sessions
+// no record names any more from every project's repositories: the ones a session left before its
+// branch went with it. Only a branch with nothing unmerged goes (`git branch -d`); one that holds
+// work stays for the user to look at.
+func (s *Server) pruneSessionBranches(known map[string]bool) {
+	dirs := []string{}
+	for _, p := range s.allProjects() {
+		dirs = append(dirs, p.Dir)
+		for _, repo := range p.Repos {
+			dirs = append(dirs, repo.Dir)
+		}
+	}
+	if len(dirs) == 0 {
+		return
+	}
+	s.mainRefresh.wg.Add(1)
+	go func() {
+		defer s.mainRefresh.wg.Done()
+		ctx := s.baseCtx
+		done := map[string]bool{}
+		for _, dir := range dirs {
+			if done[dir] {
+				continue
+			}
+			done[dir] = true
+			branches, err := gitx.SessionBranches(ctx, dir)
+			if err != nil {
+				continue
+			}
+			for _, branch := range branches {
+				if id := strings.TrimPrefix(branch, "motita/"); validSessionBranchID(id) && !known[id] {
+					// Advisory: unmerged work keeps its branch.
+					_ = gitx.DeleteBranch(ctx, dir, branch)
+				}
+			}
+		}
+	}()
+}
+
+// validSessionBranchID reports whether the part of a branch after motita/ is a session's id, and
+// not a branch of something else under the same prefix (a background agent's).
+func validSessionBranchID(id string) bool {
+	return len(id) == 25 && id[0] == 's' && strings.Trim(id[1:], "0123456789abcdef") == ""
 }

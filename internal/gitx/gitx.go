@@ -419,6 +419,17 @@ func Branches(ctx context.Context, dir string) ([]string, error) {
 	return names, nil
 }
 
+// SessionBranches lists the session branches this program made in the repository at dir: the local
+// branches under motita/.
+func SessionBranches(ctx context.Context, dir string) ([]string, error) {
+	out, err := noGitOr(ctx, "could not list the branches", dir,
+		"for-each-ref", "--format=%(refname:short)", "refs/heads/motita/")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(out), nil
+}
+
 // Checkout puts the checkout at dir on a branch. A branch that exists only on origin is created
 // locally, tracking it. Git's own refusal (uncommitted changes that would be overwritten, a
 // branch checked out in another worktree) is reported as it is.

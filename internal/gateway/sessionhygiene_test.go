@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -164,5 +165,33 @@ func TestDeletingAProjectNamesTheWorkInItsRepositories(t *testing.T) {
 	}
 	if w := doDelete(t, srv, "/v1/projects/"+id+"?force=1"); w.Code != http.StatusNoContent {
 		t.Errorf("a confirmed deletion: %d %s", w.Code, w.Body)
+	}
+}
+
+// A gateway that starts clears the merged branches sessions it no longer has left behind, and keeps
+// the ones that hold work and anything not a session's.
+func TestStartingClearsTheBranchesOfSessionsThatAreGone(t *testing.T) {
+	srv, projectDir, _, _ := localProject(t)
+	srv.mainRefresh.wait()
+	gone, kept, other := "motita/s"+strings.Repeat("a", 24), "motita/s"+strings.Repeat("b", 24), "motita/sub/x-1"
+	mustGit(t, projectDir, "branch", gone)
+	mustGit(t, projectDir, "branch", other)
+	mustGit(t, projectDir, "checkout", "-q", "-b", kept)
+	write(t, filepath.Join(projectDir, "work.txt"), "work")
+	mustGit(t, projectDir, "add", "work.txt")
+	mustGit(t, projectDir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "work")
+	mustGit(t, projectDir, "checkout", "-q", "main")
+
+	opts := srv.opts
+	srv.mainRefresh.wait()
+	_ = srv.Close(context.Background())
+	again, _ := startServer(t, opts)
+	again.mainRefresh.wait()
+	left := mustGit(t, projectDir, "branch", "--list", "motita/*")
+	if strings.Contains(left, gone) {
+		t.Errorf("a merged branch of a session that is gone must go: %s", left)
+	}
+	if !strings.Contains(left, kept) || !strings.Contains(left, other) {
+		t.Errorf("work and branches that are not a session's stay: %s", left)
 	}
 }
