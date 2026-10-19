@@ -46,12 +46,7 @@ func (c *conversation) sessionRepoDir(ctx context.Context, named string) string 
 		return ""
 	}
 	if named = strings.TrimSpace(named); named != "" {
-		for _, dir := range repos {
-			if (named == "." && dir == c.workspace) || filepath.Base(dir) == named {
-				return dir
-			}
-		}
-		return ""
+		return c.namedRepo(repos, named)
 	}
 	branch := sessionBranch(c.id)
 	for _, dir := range repos {
@@ -65,6 +60,16 @@ func (c *conversation) sessionRepoDir(ctx context.Context, named string) string 
 		}
 	}
 	return repos[0]
+}
+
+// namedRepo is the repository called name among repos ("." is the session's folder itself), or "".
+func (c *conversation) namedRepo(repos []string, name string) string {
+	for _, dir := range repos {
+		if (name == "." && dir == c.workspace) || filepath.Base(dir) == name {
+			return dir
+		}
+	}
+	return ""
 }
 
 // proposalBranch is the branch a pull request of repo comes from: the branch the repository is on

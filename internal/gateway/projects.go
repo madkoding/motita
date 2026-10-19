@@ -968,16 +968,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	}
 	dir := p.Dir
 	if !gitx.SamePath(c.workspace, c.projectDir) {
-		// An isolated session continues isolated.
-		if wt, wtErr := s.sessionWorktree(ctx, p.Dir, newConv.id); wtErr != nil {
-			if s.opts.Log != nil {
-				s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
-					"id", newConv.id, "project", p.Dir, "error", wtErr.Error())
-			}
-		} else {
-			dir = wt
-		}
-		s.attachProjectRepos(ctx, p, dir, newConv.id)
+		dir = s.isolatedDir(ctx, p, newConv.id)
 	}
 	newConv.setProjectID(c.projectID, dir, p.Dir)
 	newConv.svc.SetWorkspace(dir)
@@ -989,4 +980,20 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	applyRuntimeTo(newConv.svc, p, dir)
 	s.saveSession(newConv)
 	return newConv, http.StatusCreated, nil
+}
+
+// isolatedDir gives a continued session the worktree its predecessor had: an isolated session
+// continues isolated. A worktree that cannot be made falls back to the project's folder.
+func (s *Server) isolatedDir(ctx context.Context, p *Project, id string) string {
+	dir := p.Dir
+	if wt, err := s.sessionWorktree(ctx, p.Dir, id); err != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
+				"id", id, "project", p.Dir, "error", err.Error())
+		}
+	} else {
+		dir = wt
+	}
+	s.attachProjectRepos(ctx, p, dir, id)
+	return dir
 }
