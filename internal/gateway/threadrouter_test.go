@@ -124,10 +124,11 @@ func TestOnlyAMainSessionIsGivenTheThreadAction(t *testing.T) {
 func TestTheMainSessionOpensAndReusesThreadsByTopic(t *testing.T) {
 	g := newRouteRig(t)
 	route := g.last().route
-	if got := route("red boxes :: make a red box"); !strings.Contains(got, "opened") || !strings.Contains(got, "started") {
+	got := route("red boxes :: make a red box")
+	if !strings.Contains(got, "opened") || !strings.Contains(got, "started") {
 		t.Errorf("first request: %q", got)
 	}
-	got := route("Red   BOXES :: make another red box")
+	got = route("Red   BOXES :: make another red box")
 	if !strings.Contains(got, "reused") || !strings.Contains(got, "queue") {
 		t.Errorf("same kind of work must reuse the thread and wait its turn: %q", got)
 	}
