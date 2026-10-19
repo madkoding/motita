@@ -161,3 +161,36 @@ func TestAThreadThatCannotBeOpenedIsReported(t *testing.T) {
 		t.Errorf("a project that is gone: %q", got)
 	}
 }
+
+// A finished thread is closed by the agent; one that is not integrated, or still holds work, stays.
+func TestTheMainSessionClosesIntegratedThreads(t *testing.T) {
+	g := newRouteRig(t)
+	route := g.last().route
+	route("red boxes :: make a red box")
+	th := g.srv.threadsOf(convNamed(t, g.srv, g.main.ID))[0]
+	if got := route("close red boxes"); !strings.Contains(got, "not integrated") {
+		t.Errorf("an open thread must stay: %q", got)
+	}
+	if got := route("close nope"); !strings.Contains(got, "no thread") {
+		t.Errorf("an unknown thread: %q", got)
+	}
+	th.setMerged("abc123")
+	if got := route("list"); !strings.Contains(got, "- red boxes (integrated)") {
+		t.Errorf("list must say it is integrated: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(th.workspaceDir(), "wip.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := route("close red boxes"); !strings.HasPrefix(got, "Error:") {
+		t.Errorf("uncommitted work must keep the thread open: %q", got)
+	}
+	if err := os.Remove(filepath.Join(th.workspaceDir(), "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if got := route("close Red Boxes"); !strings.Contains(got, "closed") {
+		t.Errorf("close: %q", got)
+	}
+	if len(g.srv.threadsOf(convNamed(t, g.srv, g.main.ID))) != 0 {
+		t.Error("the closed thread must be gone")
+	}
+}

@@ -224,6 +224,9 @@ doing, give it to a thread instead of doing it here:
 - {"kind": "thread", "description": "why", "command": "list"} shows the threads of this project.
 - {"kind": "thread", "description": "why", "command": "topic :: the full brief"} hands the work to
   the thread whose topic is that one (same words, any case), or opens it when there is none.
+- {"kind": "thread", "description": "why", "command": "close topic"} closes a thread whose work is
+  integrated into the project (the list says "integrated"). A thread that is not, or whose
+  worktree holds uncommitted work, stays open. Close threads that are finished.
 
 Always `list` first. Name a topic after the KIND of work ("red boxes", "login page"), not after
 one request: a red box, then a white one, then a red one again is two threads, and the second red

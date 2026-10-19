@@ -33,10 +33,13 @@ func (s *Server) routeThread(main *conversation, command string) string {
 	if strings.EqualFold(command, "list") {
 		return s.listThreads(main)
 	}
+	if topic, ok := strings.CutPrefix(command, "close "); ok {
+		return s.closeThread(main, strings.TrimSpace(topic))
+	}
 	topic, brief, ok := strings.Cut(command, "::")
 	topic, brief = strings.TrimSpace(topic), strings.TrimSpace(brief)
 	if !ok || topic == "" || brief == "" {
-		return `Error: the thread action expects "list" or "topic :: the full brief".`
+		return `Error: the thread action expects "list", "close topic" or "topic :: the full brief".`
 	}
 	th, opened, err := s.threadFor(main, topic)
 	if err != nil {
@@ -74,7 +77,10 @@ func (s *Server) listThreads(main *conversation) string {
 	for _, th := range threads {
 		st := th.status()
 		state := "idle"
-		if st.Running {
+		switch {
+		case st.Merged:
+			state = "integrated"
+		case st.Running:
 			state = "working"
 		}
 		fmt.Fprintf(&sb, "- %s (%s)\n", st.Title, state)
@@ -108,4 +114,30 @@ func (s *Server) threadFor(main *conversation, topic string) (*conversation, boo
 	th.setTitle(topic)
 	s.placeAndSave(th, pid, project, nil, s.joinThread(th, pid, main.id, true))
 	return th, true, nil
+}
+
+// closeThread ends a thread whose work is already part of the project: its worktree is given back
+// and the conversation goes away. A thread that is not integrated is refused, and so is one whose
+// worktree still holds uncommitted work: closing is for work that is finished, never a way to
+// discard it.
+func (s *Server) closeThread(main *conversation, topic string) string {
+	for _, th := range s.threadsOf(main) {
+		if !sameTopic(th.status().Title, topic) {
+			continue
+		}
+		if !th.isMerged() {
+			return fmt.Sprintf("Error: thread %q is not integrated yet, so it stays open.", topic)
+		}
+		th.beginClosing()
+		if err := s.releaseWorktree(th, false); err != nil {
+			s.reopenAndDrain(th, false)
+			return "Error: " + err.Error()
+		}
+		th.closeForGood()
+		s.forgetCheckpoints(th)
+		s.forget(th.id)
+		s.deletePersistedSession(th.id)
+		return fmt.Sprintf("Thread %q closed.", topic)
+	}
+	return fmt.Sprintf("Error: there is no thread %q. Use list to see them.", topic)
 }
