@@ -821,6 +821,15 @@ const more: Record<string, string> = {
   "could not delete the note": "no se pudo borrar la nota",
   "could not rename the note": "no se pudo renombrar la nota",
   "New name": "Nombre nuevo",
+  "Second brain": "Segundo cerebro",
+  "Scan sessions and projects": "Escanear sesiones y proyectos",
+  "Writes a note for every project and every session you have used, linked to each other. Run it again to refresh them; what you add around the generated block stays.":
+    "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
+  "Scan now": "Escanear ahora",
+  "notes created from your sessions and projects":
+    "notas creadas a partir de tus sesiones y proyectos",
+  "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.":
+    "{projects} proyectos y {sessions} sesiones escaneados: {created} notas creadas, {updated} actualizadas, {unchanged} sin cambios, {skipped} omitidas.",
   "give the note a name": "ponle un nombre a la nota",
   "a note with that name already exists": "ya existe una nota con ese nombre",
   "could not load the graph": "no se pudo cargar el grafo",
