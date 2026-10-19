@@ -96,3 +96,13 @@ func TestRefreshBranchWithNothingToDo(t *testing.T) {
 		t.Errorf("no branch assigned: %v", err)
 	}
 }
+
+func TestRefreshBranchReportsAWorkingTreeItCannotRead(t *testing.T) {
+	repo := newRepo(t)
+	pushToOrigin(t, repo)
+	write(t, filepath.Join(repo, ".git", "index"), "not an index")
+	err := RefreshBranch(context.Background(), repo, "main")
+	if err == nil || errors.Is(err, ErrBranchDirty) {
+		t.Fatalf("an unreadable working tree must be reported as such, got %v", err)
+	}
+}
