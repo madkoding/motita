@@ -3,11 +3,11 @@ import { t, tf } from "./i18n";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
 import { scanNotes, type NoteScan } from "./notesApi";
-import { Row, primaryBtn } from "./SettingsControls";
+import { Row, Segmented, primaryBtn } from "./SettingsControls";
 
 // scanSummary says what a scan did, in the person's words.
 function scanSummary(r: NoteScan): string {
-  return tf(
+  const done = tf(
     "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.",
     {
       projects: String(r.projects),
@@ -18,7 +18,17 @@ function scanSummary(r: NoteScan): string {
       skipped: String(r.skipped),
     },
   );
+  if (r.summarized === 0) {
+    return done;
+  }
+  return (
+    done +
+    " " +
+    tf("{n} long sessions summarised.", { n: String(r.summarized) })
+  );
 }
+
+type OnOff = "on" | "off";
 
 // NotesScanSettings fills the notes from what motita already holds: a note per project and per
 // session. Running it again updates the same notes and leaves what the person wrote in them.
@@ -26,23 +36,46 @@ export function NotesScanSettings({ api }: { api: Api }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
+  const [summarize, setSummarize] = useState<OnOff>("off");
   const scan = useCallback(async () => {
     setBusy(true);
     setErr("");
     setDone("");
     try {
-      setDone(scanSummary(await scanNotes(api)));
+      setDone(
+        scanSummary(await scanNotes(api, { summarize: summarize === "on" })),
+      );
     } catch (e) {
       setErr(errorMessage(e));
     }
     setBusy(false);
-  }, [api]);
+  }, [api, summarize]);
   return (
     <section class="settings-group" aria-labelledby="settings-notes-scan-h">
       <h3 id="settings-notes-scan-h" class="settings-group-title">
         {t("Second brain")}
       </h3>
       <div class="settings-card">
+        <Row
+          id="settings-notes-summary"
+          label={t("Summarise long sessions with the model")}
+          hint={t(
+            "Adds a short summary to sessions of six turns or more, at most twenty per scan and only again when a session grew. The text of those sessions is sent to your model provider and uses tokens.",
+          )}
+          stack
+        >
+          <Segmented<OnOff>
+            name="settings-notes-summary"
+            labelledBy="settings-notes-summary"
+            value={summarize}
+            onChange={setSummarize}
+            disabled={busy}
+            options={[
+              { value: "on", label: t("On") },
+              { value: "off", label: t("Off") },
+            ]}
+          />
+        </Row>
         <Row
           id="settings-notes-scan"
           label={t("Scan sessions and projects")}

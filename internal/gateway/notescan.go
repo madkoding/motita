@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -39,6 +40,8 @@ type noteScan struct {
 	Created   int  `json:"created"`
 	Updated   int  `json:"updated"`
 	Unchanged int  `json:"unchanged"`
+	// Summarized counts the sessions the model summarised in this scan.
+	Summarized int `json:"summarized"`
 	// Skipped counts sessions with nothing said yet, and notes the vault refused.
 	Skipped int `json:"skipped"`
 }
@@ -61,6 +64,7 @@ type scanSession struct {
 	id, title, projectID string
 	created, lastUsed    time.Time
 	turns                []agent.DialogueTurn
+	svc                  Service
 }
 
 func (s *Server) scanSessions() []scanSession {
@@ -70,6 +74,7 @@ func (s *Server) scanSessions() []scanSession {
 		ss := scanSession{id: c.id, title: c.title, projectID: c.projectID, created: c.created, lastUsed: c.lastUsed}
 		c.stateMu.Unlock()
 		if c.svc != nil {
+			ss.svc = c.svc
 			ss.turns = c.svc.Transcript()
 		}
 		out = append(out, ss)
@@ -102,7 +107,7 @@ func sessionNoteName(title, id string) string {
 	return notes.FileName(scanSessionsFolder, title+" ("+short+")")
 }
 
-func sessionBlock(ss scanSession, projectLink string) string {
+func sessionBlock(ss scanSession, projectLink, summary string) string {
 	var b strings.Builder
 	b.WriteString("## Session\n")
 	if projectLink != "" {
@@ -110,6 +115,7 @@ func sessionBlock(ss scanSession, projectLink string) string {
 	}
 	fmt.Fprintf(&b, "- Started: %s\n- Last used: %s\n- Turns: %d\n",
 		ss.created.Format(scanTimeFormat), ss.lastUsed.Format(scanTimeFormat), len(ss.turns))
+	b.WriteString(summarySection(summary, len(ss.turns)))
 	b.WriteString("\n### First request\n" + quote(ss.turns[0].User, scanQuoteBytes) + "\n")
 	from := max(0, len(ss.turns)-scanLastTurns)
 	b.WriteString("\n### Latest exchanges\n")
@@ -181,7 +187,9 @@ func projectNoteNames(projects []Project) map[string]string {
 
 // scanSessionNotes writes the note of every session that has something in it, counting what
 // happened in res, and answers the links to each project's sessions.
-func (s *Server) scanSessionNotes(v *notes.Vault, names map[string]string, res *noteScan) map[string][]string {
+func (s *Server) scanSessionNotes(
+	ctx context.Context, v *notes.Vault, names map[string]string, sum *summaries, res *noteScan,
+) map[string][]string {
 	byProject := map[string][]string{}
 	for _, ss := range s.scanSessions() {
 		name := sessionNoteName(ss.title, ss.id)
@@ -196,7 +204,7 @@ func (s *Server) scanSessionNotes(v *notes.Vault, names map[string]string, res *
 			byProject[ss.projectID] = append(byProject[ss.projectID], wikiLink(name))
 		}
 		title := strings.TrimSuffix(filepath.Base(name), ".md")
-		outcome, err := v.Upsert(name, title, sessionBlock(ss, projectLink))
+		outcome, err := v.Upsert(name, title, sessionBlock(ss, projectLink, sum.of(ctx, v, name, ss)))
 		res.count(outcome, err)
 	}
 	return byProject
@@ -229,7 +237,9 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	names := projectNoteNames(projects)
 	res := noteScan{Ran: true}
-	byProject := s.scanSessionNotes(v, names, &res)
+	sum := &summaries{on: r.URL.Query().Get("summarize") != "", left: scanSummaryMax}
+	byProject := s.scanSessionNotes(r.Context(), v, names, sum, &res)
+	res.Summarized = sum.done
 	for _, p := range projects {
 		res.Projects++
 		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID]))

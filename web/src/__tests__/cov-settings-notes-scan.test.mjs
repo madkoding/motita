@@ -29,6 +29,7 @@ async function mount(fake) {
 
 const REPORT = {
   ran: true,
+  summarized: 0,
   projects: 2,
   sessions: 5,
   created: 6,
@@ -48,6 +49,29 @@ test("the button scans and reports what it did", async () => {
     /2 projects and 5 sessions scanned: 6 notes created, 1 updated, 0 unchanged, 3 skipped\./,
   );
   assert.equal(gw.calls.filter((c) => c.method === "POST").length, 1);
+});
+
+test("the summary switch asks the gateway for summaries and the report counts them", async () => {
+  const gw = fakeApi({
+    "POST /v1/notes/scan": () => json(200, { ...REPORT, summarized: 3 }),
+  });
+  const root = await mount(gw);
+  const on = [
+    ...root.querySelectorAll("input[name=settings-notes-summary]"),
+  ].find((i) => i.value === "on");
+  on.checked = true;
+  on.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await settle();
+  await click(root.querySelector("[data-testid=notes-scan]"));
+  await settle();
+  assert.deepEqual(
+    gw.calls.map((c) => c.path),
+    ["/v1/notes/scan?summarize=1"],
+  );
+  assert.match(
+    text(root.querySelector("[data-testid=notes-scan-done]")),
+    /3 long sessions summarised\./,
+  );
 });
 
 test("a refusal is shown, with the gateway's reason or its status", async () => {
@@ -78,10 +102,15 @@ test("a refusal is shown, with the gateway's reason or its status", async () => 
 test("scanNotes posts and returns the report, and asks for a first-use scan when told", async () => {
   const gw = fakeApi({ "POST /v1/notes/scan": () => json(200, REPORT) });
   assert.deepEqual(await notesApi.scanNotes(gw.api), REPORT);
-  await notesApi.scanNotes(gw.api, true);
+  await notesApi.scanNotes(gw.api, { first: true });
+  await notesApi.scanNotes(gw.api, { first: true, summarize: true });
   assert.deepEqual(
     gw.calls.map((c) => c.path),
-    ["/v1/notes/scan", "/v1/notes/scan?first=1"],
+    [
+      "/v1/notes/scan",
+      "/v1/notes/scan?first=1",
+      "/v1/notes/scan?first=1&summarize=1",
+    ],
   );
 });
 
@@ -90,6 +119,8 @@ test("every string of the card has a Spanish translation", () => {
     "Second brain",
     "Scan sessions and projects",
     "Scan now",
+    "Summarise long sessions with the model",
+    "{n} long sessions summarised.",
   ]) {
     assert.ok(es[key], key);
   }

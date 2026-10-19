@@ -826,6 +826,11 @@ const more: Record<string, string> = {
   "Writes a note for every project and every session you have used, linked to each other. Run it again to refresh them; what you add around the generated block stays.":
     "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
   "Scan now": "Escanear ahora",
+  "Summarise long sessions with the model":
+    "Resumir sesiones largas con el modelo",
+  "Adds a short summary to sessions of six turns or more, at most twenty per scan and only again when a session grew. The text of those sessions is sent to your model provider and uses tokens.":
+    "Agrega un resumen corto a las sesiones de seis turnos o más, hasta veinte por escaneo y solo de nuevo cuando la sesión creció. El texto de esas sesiones se envía a tu proveedor de modelos y gasta tokens.",
+  "{n} long sessions summarised.": "{n} sesiones largas resumidas.",
   "notes created from your sessions and projects":
     "notas creadas a partir de tus sesiones y proyectos",
   "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.":

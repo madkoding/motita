@@ -24,14 +24,19 @@ func scanServer(t *testing.T, turns []agent.DialogueTurn) (*Server, string, stri
 	return srv, notesDir, ws
 }
 
+func decodeScan(t *testing.T, body []byte, code int) noteScan {
+	t.Helper()
+	var out noteScan
+	if code != http.StatusOK || json.Unmarshal(body, &out) != nil {
+		t.Fatalf("scan: %d %s", code, body)
+	}
+	return out
+}
+
 func runScan(t *testing.T, srv *Server) noteScan {
 	t.Helper()
 	w := noteCall(t, srv, http.MethodPost, "/v1/notes/scan", "")
-	var out noteScan
-	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &out) != nil {
-		t.Fatalf("scan: %d %s", w.Code, w.Body)
-	}
-	return out
+	return decodeScan(t, w.Body.Bytes(), w.Code)
 }
 
 func readNote(t *testing.T, dir, rel string) string {
