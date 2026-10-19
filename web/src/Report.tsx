@@ -61,6 +61,7 @@ const RESULT_MARK: Record<string, string> = {
   pass: "✓",
   fail: "✕",
   skipped: "–",
+  blocked: "!",
 };
 
 // hasReport says whether there is anything beyond the summary worth a card. A report that is only

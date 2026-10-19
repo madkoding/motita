@@ -315,6 +315,7 @@ test("the card leads with the verdict and tallies, then the summary, the changes
       { check: "lint", result: "fail" },
       { check: "e2e" },
       { check: "odd", result: "maybe" },
+      { check: "php artisan test", result: "blocked", evidence: "no vendor" },
     ],
     risks: ["slow on big repos", "slow on big repos"],
     next_steps: ["ship it"],
@@ -332,7 +333,7 @@ test("the card leads with the verdict and tallies, then the summary, the changes
   assert.equal(text(card.querySelector(".rpt-badge")), "Partly done");
   const [checks, changes] = card.querySelectorAll(".rpt-tally");
   assert.equal(checks.className, "rpt-tally bad");
-  assert.equal(text(checks), "1/4 checks passed");
+  assert.equal(text(checks), "1/5 checks passed");
   assert.equal(text(changes), "4 changes");
   assert.equal(card.querySelector(".rpt-summary strong").textContent, "most");
 
@@ -349,11 +350,11 @@ test("the card leads with the verdict and tallies, then the summary, the changes
   const marks = [...card.querySelectorAll(".rpt-checks li")];
   assert.deepEqual(
     marks.map((li) => li.className),
-    ["pass", "fail", "skipped", "maybe"],
+    ["pass", "fail", "skipped", "maybe", "blocked"],
   );
   assert.deepEqual(
     marks.map((li) => li.querySelector(".rpt-mark").textContent),
-    ["✓", "✕", "–", "–"],
+    ["✓", "✕", "–", "–", "!"],
   );
   assert.equal(text(marks[0].querySelector(".rpt-evidence")), "ok 12 tests");
   assert.equal(marks[1].querySelector(".rpt-evidence"), null);

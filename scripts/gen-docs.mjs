@@ -76,6 +76,7 @@ ${flow("The five setup steps", [["Provider", "Which model answers"], ["Connect",
 </ul>
 <h2>How a task runs</h2>
 ${flow("How a task runs", [["You ask", "Type a task in Task mode"], ["It works", "Reads, edits and runs commands"], ["Your check runs", "<code>make test</code>, <code>go test</code>, <code>npm test</code>…"], ["Done", "Only once the check passes"]], "If the check fails, the agent reads the failure and tries again. That loop is what gives “done” its meaning.")}
+<p>The agent never fakes a check. If a tool or its dependencies are missing it installs them the way the project does and runs the framework's own command (<code>php artisan test</code>, <code>npm test</code>, <code>pytest</code>). A stand-in that only exits 0, or an edit of a test script so it passes, is refused before it touches the disk. When the machine cannot run a check at all (no network, a tool that cannot be installed) the result says <strong>not validated</strong> and names the cause, instead of reporting a pass.</p>
 <h2>Staying in control</h2>
 <ul>
 <li><kbd>Esc</kbd> stops the running task.</li>

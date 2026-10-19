@@ -371,6 +371,11 @@ keep as a second brain. They are the record of THEIR facts, decisions and plans.
   which part failed.
 - Report what you actually observed. If you could not determine something, say that plainly
   instead of producing a plausible answer. An honest gap is useful; an invented fact is not.
+- Before you affirm a fact about Git, a configuration file or a path, or recommend an operation
+  that changes or deletes one (removing a worktree or a directory, resetting a branch, editing a
+  config), LOOK at it in this turn: git worktree list, git -C <path> rev-parse --show-toplevel,
+  git remote -v, ls, a read of the file. Where a repository or a worktree lives, and which
+  repository registers it, is a guess until a command showed it; say which parts you checked.
 
 ## Style
 
@@ -508,6 +513,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	// through to the forced answer below, which is the same graceful outcome
 	// without a second, unreachable clamp here.
 	loops := p.maxLoops
+	var look turnLook
 	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
 		// Bump the skill-nudge counter: each tool iteration that does NOT call
@@ -527,6 +533,10 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			ToolCalls: reply.Calls,
 		})
 
+		if !reply.WantsTools() && look.sendBack(reply.Content) {
+			sess.Append(llm.Message{Role: "user", Content: lookFirstNote})
+			continue
+		}
 		if !reply.WantsTools() {
 			answer := p.finalize(reply.Content)
 			// Background self-improvement: after the answer is delivered, a
@@ -540,6 +550,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			return answer, nil
 		}
 
+		look.note(reply.Calls)
 		for _, tc := range reply.Calls {
 			result := p.runTool(ctx, tc)
 			sess.Append(llm.Message{

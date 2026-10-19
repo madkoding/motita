@@ -64,6 +64,8 @@ type workMemory struct {
 	fpOK bool
 	// verif is the last run of every check the run executed itself (see verify.go).
 	verif map[string]verifRecord
+	// installs is the last run of every dependency install by package manager (see unrunnable.go).
+	installs map[string]verifRecord
 	// executed and recalled count, for the round in progress, the commands that ran and the
 	// reads answered from memory. The loop resets them each round.
 	executed, recalled int

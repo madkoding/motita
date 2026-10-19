@@ -87,7 +87,7 @@ type ReportChange struct {
 // ReportCheck is one thing that was checked.
 type ReportCheck struct {
 	Check string `json:"check"`
-	// Result is "pass", "fail" or "skipped".
+	// Result is "pass", "fail", "skipped" (not run on purpose) or "blocked" (could not run).
 	Result   string `json:"result"`
 	Evidence string `json:"evidence"`
 }
@@ -197,7 +197,7 @@ func normalizeChecks(in []ReportCheck) []ReportCheck {
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(v.Result)) {
-		case "pass", "fail", "skipped":
+		case "pass", "fail", "skipped", "blocked":
 			v.Result = strings.ToLower(strings.TrimSpace(v.Result))
 		default:
 			v.Result = "skipped"
@@ -284,7 +284,7 @@ func (r *Report) changeLines() []string {
 
 // checkLines is one line per verification for Text, led by a fixed-width mark of its result.
 func (r *Report) checkLines() []string {
-	marks := map[string]string{"pass": "ok  ", "fail": "FAIL", "skipped": "skip"}
+	marks := map[string]string{"pass": "ok  ", "fail": "FAIL", "skipped": "skip", "blocked": "BLCK"}
 	var checks []string
 	for _, v := range r.Verification {
 		line := marks[v.Result] + " " + v.Check
