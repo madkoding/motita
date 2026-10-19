@@ -330,3 +330,18 @@ func TestDeleteBranchDeletesAMergedBranch(t *testing.T) {
 		t.Error("the branch must be gone")
 	}
 }
+
+// TestSessionBranchesListsOnlyTheSessionsBranches: the branches under motita/, and none from a folder
+// that is not a repository.
+func TestSessionBranchesListsOnlyTheSessionsBranches(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	git(t, repo, "branch", "motita/s1")
+	git(t, repo, "branch", "feature")
+	if got := SessionBranches(ctx, repo); len(got) != 1 || got[0] != "motita/s1" {
+		t.Errorf("SessionBranches = %v", got)
+	}
+	if got := SessionBranches(ctx, t.TempDir()); got != nil {
+		t.Errorf("a folder that is not a repository has none: %v", got)
+	}
+}

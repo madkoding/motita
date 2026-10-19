@@ -428,10 +428,7 @@ func dropSessionBranches(ctx context.Context, sessionID string, release worktree
 	for _, wt := range release.Repos {
 		dirs = append(dirs, wt[0])
 	}
-	for i, dir := range dirs {
-		if slices.IndexFunc(dirs[:i], func(seen string) bool { return gitx.SamePath(seen, dir) }) >= 0 {
-			continue
-		}
+	for _, dir := range distinctDirs(dirs) {
 		// Advisory: unmerged work, or a branch the repository never had, keeps it.
 		_ = gitx.DeleteBranch(ctx, dir, branch)
 	}

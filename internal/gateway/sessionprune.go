@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"sort"
@@ -95,31 +96,35 @@ func (s *Server) pruneSessionBranches(known map[string]bool) {
 			dirs = append(dirs, repo.Dir)
 		}
 	}
-	if len(dirs) == 0 {
-		return
-	}
 	s.mainRefresh.wg.Add(1)
 	go func() {
 		defer s.mainRefresh.wg.Done()
-		ctx := s.baseCtx
-		done := map[string]bool{}
-		for _, dir := range dirs {
-			if done[dir] {
-				continue
-			}
-			done[dir] = true
-			branches, err := gitx.SessionBranches(ctx, dir)
-			if err != nil {
-				continue
-			}
-			for _, branch := range branches {
-				if id := strings.TrimPrefix(branch, "motita/"); validSessionBranchID(id) && !known[id] {
-					// Advisory: unmerged work keeps its branch.
-					_ = gitx.DeleteBranch(ctx, dir, branch)
-				}
-			}
+		for _, dir := range distinctDirs(dirs) {
+			pruneSessionBranchesIn(s.baseCtx, dir, known)
 		}
 	}()
+}
+
+// pruneSessionBranchesIn deletes the merged branches of the sessions known does not name from the
+// repository at dir.
+func pruneSessionBranchesIn(ctx context.Context, dir string, known map[string]bool) {
+	for _, branch := range gitx.SessionBranches(ctx, dir) {
+		if id := strings.TrimPrefix(branch, "motita/"); validSessionBranchID(id) && !known[id] {
+			// Advisory: unmerged work keeps its branch.
+			_ = gitx.DeleteBranch(ctx, dir, branch)
+		}
+	}
+}
+
+// distinctDirs is dirs without the ones that name a folder already in it.
+func distinctDirs(dirs []string) []string {
+	out := []string{}
+	for _, dir := range dirs {
+		if !slices.ContainsFunc(out, func(seen string) bool { return gitx.SamePath(seen, dir) }) {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // validSessionBranchID reports whether the part of a branch after motita/ is a session's id, and

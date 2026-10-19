@@ -402,13 +402,13 @@ func (s *Server) discardedRepoChanges(ctx context.Context, p *Project) map[strin
 		return out
 	}
 	for _, repo := range p.Repos {
-		if !repo.Shared && !s.ownsProjectDir(p.Dir) {
-			continue
-		}
-		changes, err := worktreeInspectList(ctx, p.repoPath(repo))
-		if err != nil || len(changes) == 0 {
+		var changes []gitx.Change
+		if repo.Shared || s.ownsProjectDir(p.Dir) {
 			// A folder that cannot be read is not proven to hold work; the deletion's own
 			// confirmation covers it.
+			changes, _ = worktreeInspectList(ctx, p.repoPath(repo))
+		}
+		if len(changes) == 0 {
 			continue
 		}
 		rel := repo.relPath(p.Dir)

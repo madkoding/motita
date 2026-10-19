@@ -420,14 +420,13 @@ func Branches(ctx context.Context, dir string) ([]string, error) {
 }
 
 // SessionBranches lists the session branches this program made in the repository at dir: the local
-// branches under motita/.
-func SessionBranches(ctx context.Context, dir string) ([]string, error) {
-	out, err := noGitOr(ctx, "could not list the branches", dir,
-		"for-each-ref", "--format=%(refname:short)", "refs/heads/motita/")
+// branches under motita/. None when they cannot be read.
+func SessionBranches(ctx context.Context, dir string) []string {
+	out, err := execute(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/motita/")
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	return strings.Fields(out), nil
+	return strings.Fields(out)
 }
 
 // Checkout puts the checkout at dir on a branch. A branch that exists only on origin is created

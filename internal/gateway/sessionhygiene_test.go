@@ -195,3 +195,10 @@ func TestStartingClearsTheBranchesOfSessionsThatAreGone(t *testing.T) {
 		t.Errorf("work and branches that are not a session's stay: %s", left)
 	}
 }
+
+func TestDistinctDirsDropsTheSameFolderTwice(t *testing.T) {
+	dir := t.TempDir()
+	if got := distinctDirs([]string{dir, dir + string(filepath.Separator), "/other"}); len(got) != 2 {
+		t.Errorf("distinctDirs = %v", got)
+	}
+}
