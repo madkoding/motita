@@ -120,9 +120,7 @@ type Mode struct {
 	// running without a question: the operator chose that (sandbox.ask_unconfined_runs: false). A
 	// path outside the workspace is still asked about. Off, the default, asks.
 	TrustUnconfinedRuns bool
-	// FullDisk says the person let the agent reach the whole disk (sandbox.disk_access: full). A
-	// path outside the workspace is then part of the work and is not asked about; one among the
-	// user's keys and logins still is. See fullDiskDecision.
+	// FullDisk is sandbox.disk_access: full, so leaving the workspace is not asked about. See fulldisk.go.
 	FullDisk bool
 	// Cmd says the line runs under cmd.exe, whose expansions (`%VAR%`, `!VAR!`), escape (`^`) and
 	// word division the POSIX reading does not know. Only a line of plain words is classified;
