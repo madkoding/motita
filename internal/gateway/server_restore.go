@@ -181,6 +181,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	project := s.scopeOf(rec.ProjectID)
 	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
 	applyRuntimeTo(svc, project, workspace)
+	s.offerThreads(conv)
 	s.sessionsMu.Lock()
 	s.sessions[rec.ID] = conv
 	s.sessionsMu.Unlock()

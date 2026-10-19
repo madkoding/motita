@@ -196,14 +196,16 @@ type wiringAgent struct {
 	reward  *reward.Ledger
 	usage   *usage.Ledger
 	vault   *notes.Vault
+	threads func(string) string
 	read    map[string]int
 	runFail error
 }
 
-func (w *wiringAgent) SetLibrary(l *skills.Library) { w.lib = l }
-func (w *wiringAgent) SetReward(r *reward.Ledger)   { w.reward = r }
-func (w *wiringAgent) SetUsage(u *usage.Ledger)     { w.usage = u }
-func (w *wiringAgent) SetNotes(v *notes.Vault)      { w.vault = v }
+func (w *wiringAgent) SetLibrary(l *skills.Library)     { w.lib = l }
+func (w *wiringAgent) SetReward(r *reward.Ledger)       { w.reward = r }
+func (w *wiringAgent) SetUsage(u *usage.Ledger)         { w.usage = u }
+func (w *wiringAgent) SetNotes(v *notes.Vault)          { w.vault = v }
+func (w *wiringAgent) SetThreads(f func(string) string) { w.threads = f }
 func (w *wiringAgent) Consulted() map[string]int {
 	if w.read == nil {
 		return nil
@@ -248,6 +250,16 @@ func TestTaskModeGetsTheSameLibraryAndLedgerAsPlan(t *testing.T) {
 	}
 	if wired.vault == nil {
 		t.Error("Task mode must be given the note vault")
+	}
+	if wired.threads != nil {
+		t.Error("a runner nobody gave the thread action to must not hand one out")
+	}
+	r.SetThreads(func(string) string { return "routed" })
+	if _, err := r.RunTask(context.Background(), "a task", func(string, ...any) {}); err != nil {
+		t.Fatalf("RunTask: %v", err)
+	}
+	if wired.threads == nil || wired.threads("x") != "routed" {
+		t.Error("Task mode must be given the thread action the gateway installed")
 	}
 	// And the same usage sidecar the library screen reads, so what Task mode consults is counted.
 	if wired.usage == nil || wired.usage != r.procedures().Usage {

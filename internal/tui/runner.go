@@ -198,6 +198,8 @@ type AppRunner struct {
 	// projectNote is what the gateway tells the agent about the project's other repositories,
 	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
 	projectNote string
+	// threads routes the thread action (see SetThreads); nil when the session cannot open threads.
+	threads func(string) string
 
 	// toolsHome is the HOME, inside the tools directory, the sandbox gives this session's
 	// commands: one per project (see SetProjectScope), the shared one otherwise. rootDir is the
@@ -576,6 +578,14 @@ func (r *AppRunner) SetContainerRuntime(name string) {
 	if r.session != nil {
 		r.applyRuntimeNote()
 	}
+}
+
+// SetThreads installs the router the thread action goes through; the gateway sets it on the main
+// session of a project only. Every agent the runner builds from then on is given it.
+func (r *AppRunner) SetThreads(route func(command string) string) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.threads = route
 }
 
 // SetProjectNote sets what the agent is told about the project it works in (its other
@@ -1137,6 +1147,12 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 	}
 	if setter, ok := ag.(interface{ SetNotes(*notes.Vault) }); ok {
 		setter.SetNotes(notesVault())
+	}
+	if setter, ok := ag.(interface{ SetThreads(func(string) string) }); ok {
+		r.sessionMu.Lock()
+		route := r.threads
+		r.sessionMu.Unlock()
+		setter.SetThreads(route)
 	}
 	if led := r.rewardOrNil(); led != nil {
 		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {

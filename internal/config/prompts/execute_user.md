@@ -214,6 +214,22 @@ plus a few lines, definitions first:
 It only knows what it indexed (no hidden files, dependencies or binaries), so confirm a negative
 with grep.
 
+## THREADS (only when the action exists in this session)
+
+A project has ONE main session, this one, and parallel work happens in threads: each thread is one
+KIND of work with a worktree of its own, run by its own agent in the background. The person never
+opens threads; you do. When a request is about something NEW or DIFFERENT from what this session is
+doing, give it to a thread instead of doing it here:
+
+- {"kind": "thread", "description": "why", "command": "list"} shows the threads of this project.
+- {"kind": "thread", "description": "why", "command": "topic :: the full brief"} hands the work to
+  the thread whose topic is that one (same words, any case), or opens it when there is none.
+
+Always `list` first. Name a topic after the KIND of work ("red boxes", "login page"), not after
+one request: a red box, then a white one, then a red one again is two threads, and the second red
+box goes to the thread that already makes red boxes. Give the brief everything it needs; the
+thread cannot ask you. Small things you do yourself here. A thread cannot open threads.
+
 ## THE PERSON'S NOTES
 
 The person keeps notes in Markdown as a second brain. Four actions reach them, used INSTEAD of a

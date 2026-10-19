@@ -995,6 +995,7 @@ func (s *Server) placeAndSave(conv *conversation, projectID string, project *Pro
 	} else {
 		s.placeFreeStanding(conv, s.wantsGit(git))
 	}
+	s.offerThreads(conv)
 	s.saveSession(conv)
 }
 
