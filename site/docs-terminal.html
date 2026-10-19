@@ -57,6 +57,7 @@
 </ul>
 <h2>How a task runs</h2>
 <figure class="diagram"><ol class="flow" aria-label="How a task runs"><li><b>1</b><strong>You ask</strong><span>Type a task in Task mode</span></li><li><b>2</b><strong>It works</strong><span>Reads, edits and runs commands</span></li><li><b>3</b><strong>Your check runs</strong><span><code>make test</code>, <code>go test</code>, <code>npm test</code>…</span></li><li><b>4</b><strong>Done</strong><span>Only once the check passes</span></li></ol><p class="flow-note">If the check fails, the agent reads the failure and tries again. That loop is what gives “done” its meaning.</p></figure>
+<p>The agent never fakes a check. If a tool or its dependencies are missing it installs them the way the project does and runs the framework's own command (<code>php artisan test</code>, <code>npm test</code>, <code>pytest</code>). A stand-in that only exits 0, or an edit of a test script so it passes, is refused before it touches the disk. When the machine cannot run a check at all (no network, a tool that cannot be installed) the result says <strong>not validated</strong> and names the cause, instead of reporting a pass.</p>
 <h2>Staying in control</h2>
 <ul>
 <li><kbd>Esc</kbd> stops the running task.</li>

@@ -54,6 +54,7 @@ ${flow("Los cinco pasos de la configuración", [["Proveedor", "Qué modelo respo
 </ul>
 <h2>Cómo corre una tarea</h2>
 ${flow("Cómo corre una tarea", [["Tú pides", "Escribe una tarea en modo Tarea"], ["Trabaja", "Lee, edita y ejecuta comandos"], ["Corre tu verificación", "<code>make test</code>, <code>go test</code>, <code>npm test</code>…"], ["Terminado", "Solo cuando pasa la verificación"]], "Si la verificación falla, el agente lee el fallo y vuelve a intentar. Ese ciclo es lo que da sentido a “terminado”.")}
+<p>El agente nunca simula una verificación. Si falta una herramienta o sus dependencias, las instala como lo hace el proyecto y ejecuta el comando propio del framework (<code>php artisan test</code>, <code>npm test</code>, <code>pytest</code>). Un sustituto que solo devuelve 0, o editar un script de pruebas para que pase, se rechaza antes de tocar el disco. Si la máquina no puede ejecutar una verificación (sin red, una herramienta que no se puede instalar), el resultado dice <strong>no validado</strong> y da la causa, en lugar de informar un éxito.</p>
 <h2>Mantener el control</h2>
 <ul>
 <li><kbd>Esc</kbd> detiene la tarea en curso.</li>

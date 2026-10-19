@@ -52,6 +52,10 @@ func (a *Agent) runFileAction(kind string, action Command) (handled bool, out st
 	if err != nil {
 		return true, "[refused: " + err.Error() + "]", err
 	}
+	if why := fakeCheckFile(kind, rel, fileActionText(kind, body)); why != "" {
+		err := errors.New(why)
+		return true, "[refused: " + why + "]", err
+	}
 	if kind == "write_file" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return true, fmt.Sprintf("[failed: %v]", err), nil
@@ -62,6 +66,17 @@ func (a *Agent) runFileAction(kind string, action Command) (handled bool, out st
 		return true, fmt.Sprintf("[wrote %s: %d bytes]", rel, len(body)), nil
 	}
 	return true, editFile(path, rel, body), nil
+}
+
+// fileActionText is the text a file action puts into the file: the whole content of a write_file
+// and the replacement of an edit_file.
+func fileActionText(kind, body string) string {
+	if kind == "write_file" {
+		return body
+	}
+	block := strings.TrimSuffix(strings.TrimSuffix(body, "\n"), editReplace)
+	_, replace, _ := strings.Cut(block, editDivider)
+	return replace
 }
 
 // editFile applies one search/replace block and says what happened. The search text must occur

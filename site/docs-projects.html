@@ -53,7 +53,6 @@
 <li>Every session in a project gets <strong>its own git worktree on its own branch</strong> (<code>motita/&lt;session&gt;</code>). Dependency folders such as <code>node_modules</code> are linked rather than reinstalled.</li>
 <li><strong>Every turn is a checkpoint.</strong> Go back to any turn; the conversation rewinds, and the files too when you ask.</li>
 <li>Ask the agent to <strong>integrate</strong> its work and it commits and merges the branch into the project's. The session becomes read-only, and <em>continue</em> opens a fresh one from the updated base.</li>
-<li><strong>The main branch stays current.</strong> Opening or closing a session updates the project's main branch from its origin in the background. It only moves forward, never touches uncommitted work, and never delays or blocks the session: if it cannot update, the project shows an <em>outdated</em> notice with the reason and an <em>Update main branch</em> item in its menu to retry. A running gateway also repeats the update every 15 minutes.</li>
 <li><strong>Deleting asks first.</strong> You see exactly which uncommitted files would be lost.</li>
 <li>Instruction files are read: <code>AGENTS.md</code> (or <code>CLAUDE.md</code>) from the git root down, and your own <code>~/.motita/AGENTS.md</code>. They guide how to work and never override your request or your security settings.</li>
 </ul>

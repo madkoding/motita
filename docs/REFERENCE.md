@@ -643,6 +643,19 @@ Three things keep a request from needing a second one:
   the analysis wrote down ("done means ..."). A criterion the run never showed (a behaviour no check
   covers) sends the run back to prove it, at most twice per run and without spending
   `max_retries`; an audit that cannot be read counts as met.
+- **No simulated validation.** A check ends in one of three states: passed, failed, or could not run
+  (a missing tool, missing dependencies, no network), and a run never turns the third into the first.
+  Writing into `vendor/`, `node_modules/` or a virtualenv by hand, writing an executable that only
+  exits 0, and editing a `test`, `lint` or `build` script (`composer.json`, `package.json`, a
+  Makefile, `pyproject.toml`) so that it cannot fail are refused before they touch the disk, and the
+  refusal tells the model to install the real dependencies and run the framework's own command
+  (`php artisan test`, `npm test`, `pytest`). A check that could not run (`command not found`,
+  `vendor/autoload.php` missing, `curl error 6`) sends a claim of done back up to three times; if
+  the environment still blocks it, the result reads `NOT VALIDATED: <check> could not run (<cause>)`,
+  the report's status is `partial`, and the check is listed as `skipped`, never `pass`. The criteria
+  audit is shown those checks by name, so a criterion about tests is not met on a simulated run. In
+  plan mode, a claim about Git, a configuration file or a path, or a recommendation to remove one,
+  has to rest on a command run in that turn (`git worktree list`, `git -C <path> rev-parse`, `ls`).
 - **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `1`). A
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores
