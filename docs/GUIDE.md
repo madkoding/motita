@@ -624,7 +624,7 @@ the same folder opens in Obsidian and what you change there is what motita shows
 - **Review notes.** The Review notes button opens a new conversation that asks the agent to run
   the `reviewing-the-notes` skill over the whole vault: it reports notes that contradict each
   other, look out of date, have no source, point nowhere or are orphans, and changes nothing
-  until you agree.
+  until you agree. After a scan, the same **Review notes** button appears in the Settings card.
 - **The agent reads and writes them too.** In plan mode the tools `search_notes`, `read_note`,
   `write_note` and `append_note`; in task mode the actions `note_search`, `note_read`,
   `note_write` and `note_append` (`"command": "note :: the Markdown"` for the last two). Reads
@@ -652,7 +652,7 @@ the same folder opens in Obsidian and what you change there is what motita shows
   gets "How it fits together" (modules, connections and flows, from those facts and the README): at
   most ten per scan, asked again only when the project changed. That sends the text of those
   sessions and the structure and README of those projects (secrets removed) to your model provider
-  and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them.
+  and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them; before changing a project, it reads that project's Architecture note as a map and confirms it in the code.
 - **Limits.** 5000 notes, 192 KB each; only `.md` files, no hidden folders, and no path that
   leaves the vault, symbolic links included.
 

@@ -842,6 +842,9 @@ const more: Record<string, string> = {
   "could not load the graph": "no se pudo cargar el grafo",
   Graph: "Grafo",
   "Review notes": "Revisar notas",
+  "Review the notes": "Revisar las notas",
+  "Opens a conversation where the agent checks the notes for contradictions, stale notes, missing sources and broken links. It changes nothing until you agree.":
+    "Abre una conversación donde el agente revisa las notas en busca de contradicciones, notas desactualizadas, fuentes faltantes y enlaces rotos. No cambia nada hasta que aceptes.",
   "Ask the agent to find contradictions, stale notes and broken links":
     "Pide al agente que busque contradicciones, notas desactualizadas y enlaces rotos",
   "Nothing to draw yet.": "Todavía no hay nada que dibujar.",

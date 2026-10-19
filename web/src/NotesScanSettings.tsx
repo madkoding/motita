@@ -4,6 +4,7 @@ import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
 import { scanNotes, type NoteScan } from "./notesApi";
 import { Row, Segmented, primaryBtn } from "./SettingsControls";
+import { REVIEW_NOTES_EVENT } from "./useReviewNotes";
 
 // scanSummary says what a scan did, in the person's words.
 function scanSummary(r: NoteScan): string {
@@ -57,6 +58,10 @@ export function NotesScanSettings({ api }: { api: Api }) {
     }
     setBusy(false);
   }, [api, summarize]);
+  const review = useCallback(
+    () => window.dispatchEvent(new Event(REVIEW_NOTES_EVENT)),
+    [],
+  );
   return (
     <section class="settings-group" aria-labelledby="settings-notes-scan-h">
       <h3 id="settings-notes-scan-h" class="settings-group-title">
@@ -108,6 +113,25 @@ export function NotesScanSettings({ api }: { api: Api }) {
           >
             {done}
           </output>
+        )}
+        {done && (
+          <Row
+            id="settings-notes-review"
+            label={t("Review the notes")}
+            hint={t(
+              "Opens a conversation where the agent checks the notes for contradictions, stale notes, missing sources and broken links. It changes nothing until you agree.",
+            )}
+            stack
+          >
+            <button
+              type="button"
+              class={primaryBtn}
+              onClick={review}
+              data-testid="notes-review-start"
+            >
+              {t("Review notes")}
+            </button>
+          </Row>
         )}
         {err && (
           <p

@@ -164,16 +164,17 @@ export function useAppStore(api: Api) {
     send: sendHeard,
     setToast,
   });
-  const reviewNotes = useReviewNotes(
-    actions.createSession,
-    notes.closeNotes,
-    stream.submit,
-  );
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();
   const [showSettings, setShowSettings] = useState(false);
   const openSettings = useCallback(() => setShowSettings(true), []);
   const closeSettings = useCallback(() => setShowSettings(false), []);
+  const reviewNotes = useReviewNotes(
+    actions.createSession,
+    notes.closeNotes,
+    stream.submit,
+    closeSettings,
+  );
   const selectedSession = useMemo(
     () => lists.sessions.find((s) => s.id === rs.sessionId),
     [lists.sessions, rs.sessionId],

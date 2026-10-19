@@ -158,6 +158,7 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"save this decision in my notes",
 			"search the notes for my trip plans",
 			"cite the note a fact came from",
+			"how does this project fit together",
 		}},
 		{reviewSkill, []string{
 			"which of my notes are out of date",
