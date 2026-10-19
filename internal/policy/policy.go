@@ -435,25 +435,6 @@ func projectLocalDecision(command string, args []string, dir string) (Decision, 
 		"stays where the task is", baseName(command), dir), "project-local", false}, true
 }
 
-// isInsideWorkspace reports whether a path resolves to something inside dir. It reuses the
-// same resolution as the write checks, so a workspace reached through a symlink does not make
-// every path inside it look like it is outside.
-//
-// With no workspace it answers FALSE, and that matters: firstOutside compares against dir and
-// returns "" (meaning "nothing was outside") when dir is empty, so delegating the empty case
-// would make every path in the system look like it lives inside "nothing". The caller guards
-// this too, and a helper that lies about the empty case is exactly the kind of thing that gets
-// copied somewhere the guard is missing.
-func isInsideWorkspace(path, dir string) bool {
-	if dir == "" {
-		return false
-	}
-	if strings.HasPrefix(filepath.Clean(path), "~") {
-		return false
-	}
-	return firstOutside([]string{path}, dir) == ""
-}
-
 // localTools are the programs whose ordinary use IS the work the agent was pointed at:
 // building, testing and running the project in the workspace. They are named because the
 // difference between them and an unknown binary is what keeps the default policy honest.
