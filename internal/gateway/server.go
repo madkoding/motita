@@ -327,8 +327,6 @@ type Server struct {
 	// projects persists project definitions to disk. nil when no project
 	// directory was configured.
 	projects *projectStore
-	// repos persists the repositories: one record per git repository. nil without a project directory.
-	repos *repoStore
 	// repoLocks holds one mutex per project id: see lockProjectRepos.
 	repoLocks sync.Map
 	// catalogLocks holds one mutex per repository URL (see lockCatalogRepo): what adds a repository
@@ -585,7 +583,6 @@ func (s *Server) openSessionStore() {
 	s.store = st
 	s.loadPersistedSessions()
 	s.migrateSharedRepos(s.baseCtx)
-	s.migrateRepositories()
 }
 
 // openScheduleStore opens the schedule store when a directory is configured, and starts the
@@ -783,8 +780,6 @@ func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) 
 	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
 	mux.Handle("DELETE /v1/projects/{id}/main", plain(s.handleDetachProjectMain))
 	mux.Handle("GET /v1/repos", plain(s.handleListRepos))
-	mux.Handle("POST /v1/repos", plain(s.handleCreateRepository))
-	mux.Handle("PATCH /v1/repos/{id}", plain(s.handleUpdateRepository))
 	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
 	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
 	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))

@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"path/filepath"
 	"strings"
 )
 
@@ -17,10 +16,4 @@ func (s *Server) openProjectStore() {
 		return
 	}
 	s.projects = ps
-	rs, err := newRepoStore(filepath.Join(pdir, repoStoreFolder))
-	if err != nil {
-		s.warn("could not open the repository store; repositories will not be available", "error", err.Error())
-		return
-	}
-	s.repos = rs
 }
