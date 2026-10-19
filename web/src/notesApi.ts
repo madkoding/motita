@@ -257,6 +257,45 @@ const SPREAD = { share: 0.85, overshoot: 1.15 };
 // GOLDEN_ANGLE, in radians, spreads points evenly round a sphere: π·(3 − √5).
 export const GOLDEN_ANGLE = 2.399963229728653;
 
+// fitToRadius centres the notes and scales them so most sit within radius, however the forces
+// settled; the few farther out are brought in to just past it.
+function fitToRadius(placed: PlacedNode3D[], radius: number): void {
+  const mid = { x: 0, y: 0, z: 0 };
+  for (const p of placed) {
+    mid.x += p.x / placed.length;
+    mid.y += p.y / placed.length;
+    mid.z += p.z / placed.length;
+  }
+  const dists = placed
+    .map((p) => Math.hypot(p.x - mid.x, p.y - mid.y, p.z - mid.z))
+    .sort((a, b) => a - b);
+  const far = Math.max(
+    dists[Math.floor((placed.length - 1) * SPREAD.share)],
+    1e-6,
+  );
+  for (const p of placed) {
+    p.x = ((p.x - mid.x) / far) * radius;
+    p.y = ((p.y - mid.y) / far) * radius;
+    p.z = ((p.z - mid.z) / far) * radius;
+    const out = Math.hypot(p.x, p.y, p.z) / (radius * SPREAD.overshoot);
+    if (out > 1) {
+      p.x /= out;
+      p.y /= out;
+      p.z /= out;
+    }
+  }
+}
+
+// linkCounts is how many links each note has, in and out.
+function linkCounts(edges: GraphEdge[]): Map<string, number> {
+  const degree = new Map<string, number>();
+  for (const e of edges) {
+    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+  }
+  return degree;
+}
+
 // layoutGraph3D places the notes in space around the origin, within about radius: they start
 // spread evenly over a sphere, then every pair pushes apart, every link pulls together and the
 // whole drifts to the middle. A link to a much-linked note pulls less, so a guide that links every
@@ -278,11 +317,7 @@ export function layoutGraph3D(
     };
   });
   const at = new Map(placed.map((p) => [p.path, p]));
-  const degree = new Map<string, number>();
-  for (const e of graph.edges) {
-    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
-    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
-  }
+  const degree = linkCounts(graph.edges);
   const k = (radius / Math.cbrt(n)) * SPRING * 2;
   const steps = Math.min(LAYOUT_3D_STEPS, Math.ceil(LAYOUT_3D_WORK / (n * n)));
   for (let step = 0; step < steps; step++) {
@@ -332,29 +367,7 @@ export function layoutGraph3D(
       p.z += (m.z / len) * shift;
     }
   }
-  // Centred and scaled so most notes sit within radius, however the forces settled; the few
-  // farther out are brought in to just past it.
-  const mid = { x: 0, y: 0, z: 0 };
-  for (const p of placed) {
-    mid.x += p.x / n;
-    mid.y += p.y / n;
-    mid.z += p.z / n;
-  }
-  const dists = placed
-    .map((p) => Math.hypot(p.x - mid.x, p.y - mid.y, p.z - mid.z))
-    .sort((a, b) => a - b);
-  const far = Math.max(dists[Math.floor((n - 1) * SPREAD.share)], 1e-6);
-  for (const p of placed) {
-    p.x = ((p.x - mid.x) / far) * radius;
-    p.y = ((p.y - mid.y) / far) * radius;
-    p.z = ((p.z - mid.z) / far) * radius;
-    const out = Math.hypot(p.x, p.y, p.z) / (radius * SPREAD.overshoot);
-    if (out > 1) {
-      p.x /= out;
-      p.y /= out;
-      p.z /= out;
-    }
-  }
+  fitToRadius(placed, radius);
   return placed;
 }
 

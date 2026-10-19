@@ -1,6 +1,12 @@
 // The notes window: a vault of plain Markdown notes with a folder tree, an editor with a preview
 // where [[links]] open the note they name, the notes that link back, and a search.
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -449,7 +455,15 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
     [graph],
   );
   const [peek, setPeek] = useState<NoteView | null>(null);
-  const show = (path: string) => void peekNote(path).then(setPeek);
+  const show = useCallback(
+    (path: string) => void peekNote(path).then(setPeek),
+    [peekNote],
+  );
+  const leaveFor = useCallback(
+    (path: string) => void openNote(path),
+    [openNote],
+  );
+  const unpeek = useCallback(() => setPeek(null), []);
   const { host, map, deep } = useMap3D(graph, show);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
@@ -515,8 +529,8 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
           <MapPeek
             note={peek}
             onPeek={show}
-            onOpen={(p) => void openNote(p)}
-            onClose={() => setPeek(null)}
+            onOpen={leaveFor}
+            onClose={unpeek}
           />
         )}
         {!deep && (

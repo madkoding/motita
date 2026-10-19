@@ -540,8 +540,7 @@ func HasCommits(ctx context.Context, dir string) bool {
 
 // BranchExists reports whether a local branch of that name exists.
 func BranchExists(ctx context.Context, dir, branch string) bool {
-	out, err := execute(ctx, dir, gitRevParse, gitVerify, "refs/heads/"+branch)
-	return err == nil && out != ""
+	return BranchCommit(ctx, dir, branch) != ""
 }
 
 // BranchCommit is the commit a local branch points at, "" when it does not exist or git fails.
