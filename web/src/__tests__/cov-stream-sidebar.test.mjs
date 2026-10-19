@@ -141,17 +141,12 @@ test("a row shows the title, when it was used and its labelled facts", async () 
     [...r.querySelectorAll(".session-facts > span")].map((f) =>
       [...f.children].map(text).join(" "),
     );
-  assert.deepEqual(facts(root), [
-    "branch motita/s1abcde",
-    "worktree s9zzzzz",
-    "model gpt-x",
-    "change 1",
-  ]);
+  assert.deepEqual(facts(root), ["change 1"]);
   const hit = root.querySelector(".row-hit");
   assert.equal(hit.getAttribute("aria-label"), "Fix the build");
   assert.match(
     hit.getAttribute("title"),
-    /^Last used .*\n2 background agents running\nBranch: motita\/s1abcdefghij\nWorktree: s9zzzzzzzzz\nModel: p \/ gpt-x\n1 uncommitted change/,
+    /^Last used .*\n2 background agents running\n1 uncommitted change/,
   );
   await click(hit);
   assert.deepEqual(v.calls, [["switchSession", "s1abcdefghij"]]);

@@ -135,22 +135,6 @@ test("ids, branches and worktrees are shortened the way git does", () => {
   }
   assert.equal(m.shortID("abcdefghij"), "abcdefg");
   assert.equal(m.shortID("abc"), "abc");
-  assert.equal(m.shortBranch("motita/abcdefghij"), "motita/abcdefg");
-  assert.equal(m.shortBranch("motita/abc"), "motita/abc");
-  assert.equal(m.shortBranch("main"), "main");
-  assert.equal(m.sessionWorktreeChip({}), "");
-  assert.equal(m.sessionWorktreeChip({ worktree: "w" }), "");
-  assert.equal(
-    m.sessionWorktreeChip({
-      worktree: "s63bb92aa",
-      branch: "motita/s63bb92aa",
-    }),
-    "",
-  );
-  assert.equal(
-    m.sessionWorktreeChip({ worktree: "s63bb92aa", branch: "feature" }),
-    "s63bb92",
-  );
 });
 
 test("timestamps are written as dd/mm/yyyy :: HH:mm:ss and in full for the tooltip", () => {
@@ -173,24 +157,17 @@ test("a session's and a project's tooltips list the facts that are there", () =>
       id: "s",
       last_used: iso,
       agents_running: 2,
-      branch: "feature",
-      worktree: "abcdefghij",
-      model: "m1",
-      provider: "p1",
       changes: 1,
     }),
     [
       `Last used ${new Date(iso).toLocaleString()}`,
       "2 background agents running",
-      "Branch: feature",
-      "Worktree: abcdefghij",
-      "Model: p1 / m1",
       "1 uncommitted change in this working tree",
     ].join("\n"),
   );
   assert.equal(
-    m.sessionTooltip({ id: "s", agents_running: 1, model: "m" }),
-    "1 background agent running\nModel:  / m",
+    m.sessionTooltip({ id: "s", agents_running: 1 }),
+    "1 background agent running",
   );
   assert.equal(m.projectTooltip({}), undefined);
   assert.equal(
