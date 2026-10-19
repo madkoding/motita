@@ -37,13 +37,15 @@ const (
 	prSkill       = "pull-requests-and-ci"
 	auditSkill    = "auditing-code"
 	vulnSkill     = "finding-vulnerabilities"
+	notesSkill    = "using-the-notes"
+	reviewSkill   = "reviewing-the-notes"
 )
 
 // shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
 // a fresh install ship this" and "does the search find it" both read it, so adding a document
 // means adding it here and nowhere else.
 var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill, prSkill,
-	auditSkill, vulnSkill}
+	auditSkill, vulnSkill, notesSkill, reviewSkill}
 
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
@@ -150,6 +152,18 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"security review of the web server",
 			"look for path traversal and injection",
 			"check for exposed secrets and tokens",
+		}},
+		{notesSkill, []string{
+			"what did I write in my notes",
+			"save this decision in my notes",
+			"search the notes for my trip plans",
+			"cite the note a fact came from",
+		}},
+		{reviewSkill, []string{
+			"which of my notes are out of date",
+			"do my notes contradict each other",
+			"fact check my notes",
+			"find orphan notes and broken links",
 		}},
 		{verifySkill, []string{
 			"did it actually work",

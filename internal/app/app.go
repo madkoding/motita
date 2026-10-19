@@ -863,6 +863,7 @@ func (op Options) runTask(
 	// section to it — so the shelf has to be there when it does. Without this the model is told
 	// it has a library and gets "no procedure library is configured" for every lookup.
 	ag.SetLibrary(procs.Library)
+	ag.SetNotes(notesVault())
 	ag.SetReward(procs.Ledger)
 	ag.SetUsage(procs.Usage)
 
