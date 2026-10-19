@@ -44,10 +44,10 @@ func TestTwoProjectsShareOneCloneOfARepository(t *testing.T) {
 	first := onlyProjectID(t, srv)
 	second := newProjectID(t, srv, "other")
 	src := sourceRepo(t)
-	if code, _ := addRepo(t, srv, first, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, first, `{"shared":true,"git_url":"`+src+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding to the first: %d", code)
 	}
-	code, p := addRepo(t, srv, second, `{"git_url":"`+src+`","name":"client"}`)
+	code, p := addRepo(t, srv, second, `{"shared":true,"git_url":"`+src+`","name":"client"}`)
 	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "web-client")
 	if code != http.StatusCreated || p.Repos[0].Dir != clone || !p.Repos[0].Shared {
 		t.Fatalf("the second project must reuse the clone: %d %+v", code, p.Repos)
@@ -106,7 +106,7 @@ func TestAnEmptyRepositoryIsClonedIntoTheProject(t *testing.T) {
 	empty := filepath.Join(t.TempDir(), "blank")
 	mustGit(t, t.TempDir(), "init", "-q", "--bare", empty)
 
-	code, p := addRepo(t, srv, id, `{"git_url":"`+empty+`"}`)
+	code, p := addRepo(t, srv, id, `{"shared":true,"git_url":"`+empty+`"}`)
 	dest := filepath.Join(projectDir, "blank")
 	if code != http.StatusCreated || p.Repos[0].Dir != dest || p.Repos[0].Shared {
 		t.Fatalf("an empty repository has nothing to branch from, so the project takes the clone: %d %+v",
@@ -120,7 +120,7 @@ func TestAnEmptyRepositoryIsClonedIntoTheProject(t *testing.T) {
 	again := filepath.Join(t.TempDir(), "again")
 	mustGit(t, t.TempDir(), "init", "-q", "--bare", again)
 	mustGit(t, t.TempDir(), "clone", "-q", again, filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "again"))
-	if code, p := addRepo(t, srv, id, `{"git_url":"`+again+`"}`); code != http.StatusCreated ||
+	if code, p := addRepo(t, srv, id, `{"shared":true,"git_url":"`+again+`"}`); code != http.StatusCreated ||
 		p.Repos[1].Dir != filepath.Join(projectDir, "again") {
 		t.Fatalf("an empty clone in the catalog: %d %+v", code, p.Repos)
 	}
@@ -141,7 +141,7 @@ func TestWithoutACatalogTheProjectClonesItsOwn(t *testing.T) {
 	if err := srv.projects.save(old); err != nil {
 		t.Fatal(err)
 	}
-	code, p := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`"}`)
+	code, p := addRepo(t, srv, id, `{"shared":true,"git_url":"`+sourceRepo(t)+`"}`)
 	if code != http.StatusCreated || p.Repos[0].Dir != filepath.Join(projectDir, "web-client") || p.Repos[0].Shared {
 		t.Fatalf("no catalog, a clone of its own: %d %+v", code, p.Repos)
 	}
@@ -161,7 +161,7 @@ func TestAProjectBranchInUseStopsTheWorktree(t *testing.T) {
 	mustGit(t, t.TempDir(), "clone", "-q", src, clone)
 	mustGit(t, clone, "worktree", "add", "-q", "-b", "project/proj", filepath.Join(t.TempDir(), "elsewhere"))
 	// The name is taken by a branch checked out elsewhere: the project's worktree takes another.
-	code, p := addRepo(t, srv, id, `{"git_url":"`+src+`"}`)
+	code, p := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`)
 	if code != http.StatusCreated || !strings.HasPrefix(p.Repos[0].ProjectBranch, "project/proj-") {
 		t.Errorf("a branch checked out elsewhere: %d %+v", code, p.Repos)
 	}
@@ -177,7 +177,7 @@ func TestAProjectWithNoFreeBranchStopsTheWorktree(t *testing.T) {
 	for _, branch := range []string{"project/proj", "project/proj-" + id[:8]} {
 		mustGit(t, clone, "worktree", "add", "-q", "-b", branch, filepath.Join(t.TempDir(), "elsewhere"))
 	}
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`"}`); code < 400 {
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`); code < 400 {
 		t.Errorf("every branch checked out elsewhere: %d", code)
 	}
 }
@@ -206,7 +206,7 @@ func TestTheCatalogFolderCannotBeAProject(t *testing.T) {
 func TestAnUnusedRepositoryLeavesTheCatalog(t *testing.T) {
 	srv, _, _ := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+sourceRepo(t)+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
 	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "web-client")
@@ -257,14 +257,14 @@ func TestAnIntegrationBringsTheProjectFoldersUpToDate(t *testing.T) {
 	second := newProjectID(t, srv, "other")
 	src := sourceRepo(t)
 	for _, id := range []string{first, second} {
-		if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+		if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`); code != http.StatusCreated {
 			t.Fatalf("adding: %d", code)
 		}
 	}
 	// One of its own (an empty repository) has no folder to bring up to date.
 	empty := filepath.Join(t.TempDir(), "own")
 	mustGit(t, t.TempDir(), "init", "-q", "--bare", empty)
-	if code, _ := addRepo(t, srv, first, `{"git_url":"`+empty+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, first, `{"shared":true,"git_url":"`+empty+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding a second: %d", code)
 	}
 	ctx := context.Background()
@@ -317,12 +317,12 @@ func TestAFolderLeftBehindIsBroughtUpToDateOnRequest(t *testing.T) {
 	srv, projectDir, _ := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
 	src := sourceRepo(t)
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
 	empty := filepath.Join(t.TempDir(), "own")
 	mustGit(t, t.TempDir(), "init", "-q", "--bare", empty)
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+empty+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+empty+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding one of its own: %d", code)
 	}
 	sync := func(path string) (int, Project) {
@@ -384,7 +384,7 @@ func TestACloneOfTheCatalogIsUpdatedFromItsOrigin(t *testing.T) {
 	srv, _, _ := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
 	src := sourceRepo(t)
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
 	if list := catalogList(t, srv); len(list) != 1 || list[0].Size <= 0 {
@@ -442,7 +442,7 @@ func TestTwoProjectsAddingTheSameRepositoryShareOneCompleteClone(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			codes[i], _ = addRepo(t, srv, all[i].ID, `{"git_url":"`+src+`"}`)
+			codes[i], _ = addRepo(t, srv, all[i].ID, `{"shared":true,"git_url":"`+src+`"}`)
 		}()
 	}
 	wg.Wait()
@@ -480,13 +480,13 @@ func TestAProjectBranchIsNeverSharedWithAnotherProject(t *testing.T) {
 		return ""
 	}
 	first, second := mk("one", "same"), mk("two", "twin")
-	if code, _ := addRepo(t, srv, first, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, first, `{"shared":true,"git_url":"`+src+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding to the first: %d", code)
 	}
 	// Work left on the name the second project would take, by one that was deleted.
 	clone := filepath.Join(ws, catalogFolder, "web-client")
 	mustGit(t, clone, "branch", "project/twin")
-	if code, _ := addRepo(t, srv, second, `{"git_url":"`+src+`"}`); code != http.StatusCreated {
+	if code, _ := addRepo(t, srv, second, `{"shared":true,"git_url":"`+src+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding to the second: %d", code)
 	}
 	ctx := context.Background()

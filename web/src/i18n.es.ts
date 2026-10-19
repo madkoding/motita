@@ -667,6 +667,15 @@ const first: Record<string, string> = {
     "Ya está en tu espacio de trabajo: no se vuelve a clonar.",
   "In your workspace": "En tu espacio de trabajo",
   "Could not bring {name} up to date": "No se pudo poner al día {name}",
+  "Could not make {name} independent": "No se pudo independizar {name}",
+  "Make independent": "Hacer independiente",
+  "New isolated session": "Nueva sesión aislada",
+  "Works in a worktree of its own, so it can run in parallel with the others.":
+    "Trabaja en un worktree propio, así puede correr en paralelo con las demás.",
+  "Shared clones: {names}. Edit the project to make them independent.":
+    "Clones compartidos: {names}. Edita el proyecto para hacerlos independientes.",
+  "Keeps its branch and commits, and stops sharing the clone with other projects.":
+    "Conserva su rama y sus commits, y deja de compartir el clon con otros proyectos.",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",

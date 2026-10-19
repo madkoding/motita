@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // The gateway follows the CI of a session's pull request on its own, so the loop does not depend
@@ -305,10 +306,10 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 // not followed yet: the agent may have opened it from its shell rather than through the pull
 // request button, and from here on the waiting is the gateway's and not the model's.
 func (s *Server) followOpenedPR(c *conversation) {
-	if c.isMerged() || c.isClosing() || c.projectID == "" || c.prWatchView() != nil {
+	if c.prDone() || c.isClosing() || c.projectID == "" || c.prWatchView() != nil {
 		return
 	}
-	t, perr := s.prTargetOf(s.baseCtx, c)
+	t, perr := s.prTargetOf(s.baseCtx, c, "")
 	if perr != nil {
 		return
 	}
@@ -322,14 +323,14 @@ func (s *Server) followOpenedPR(c *conversation) {
 
 // pollPR asks the host once and acts on the answer. It reports whether the watch is over.
 func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
-	if c.isMerged() {
+	if c.prDone() {
 		if v := c.prWatchView(); v == nil || v.Status != prMerged {
 			c.setPRWatch(nil)
 		}
 		return true
 	}
 	ctx := s.baseCtx
-	t, perr := s.prTargetOf(ctx, c)
+	t, perr := s.prTargetOf(ctx, c, "")
 	if perr != nil {
 		return s.prFailed(c, w)
 	}
@@ -366,7 +367,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	case prPassed:
 		// Not over: unless the project merged it, the pull request is watched until it is merged or closed.
 		s.autoMerge(c, t, pr)
-		over = c.isMerged()
+		over = c.prDone()
 	case prGaveUp, prNoCI:
 		over = true
 	case "fix":
@@ -519,7 +520,7 @@ func (s *Server) sendToAgent(c *conversation, task string) (started bool, positi
 // the agent never merges.
 func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c)
+	t, perr := s.prTargetOf(r.Context(), c, "")
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -589,7 +590,12 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, s
 	merged := &PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number}
 	c.setPRWatch(merged)
 	s.pushPR(c, prev, merged)
-	c.setMerged(sha)
+	// A session with a worktree of its own is the integrated one from here on (read-only,
+	// continuable). One working in the project's folder just goes on: the pull request is done,
+	// the session is not.
+	if !gitx.SamePath(c.workspace, c.projectDir) {
+		c.setMerged(sha)
+	}
 	s.saveSession(c)
 	s.syncProject(ctx, c, base)
 	s.syncSharedRepos(ctx, s.projectOf(c.projectID))
@@ -599,7 +605,7 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, s
 // autoContinue opens the next session when the project asks for that.
 func (s *Server) autoContinue(ctx context.Context, c *conversation, number int) {
 	p := s.projectOf(c.projectID)
-	if p == nil || !p.AutoContinue {
+	if p == nil || !p.AutoContinue || !c.isMerged() {
 		return
 	}
 	next, _, err := s.continueFrom(ctx, c)
@@ -688,4 +694,14 @@ func (s *Server) branchCI(ctx context.Context, t prTarget, branch string) (gitfo
 	s.baseCI[key] = baseCIEntry{at: time.Now(), ci: ci}
 	s.prMu.Unlock()
 	return ci, nil
+}
+
+// prDone reports that the session's pull request is over: the session was integrated, or the
+// watch saw the pull request merged (a session in the project's folder is not marked integrated).
+func (c *conversation) prDone() bool {
+	if c.isMerged() {
+		return true
+	}
+	v := c.prWatchView()
+	return v != nil && v.Status == prMerged
 }

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // A repository the user has is never fetched into when a session opens: the branch they have out
@@ -21,36 +20,11 @@ func TestOpeningASessionLeavesTheUsersRepositoryAlone(t *testing.T) {
 	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding it: %d %+v", code, p)
 	}
-	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	srv.mainRefresh.wait()
 	if after := snapshotOf(t, local); after != before {
 		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
 	}
-}
-
-// The session's worktree branches from what origin has, not from the checkout as it was before the
-// background update ran.
-func TestANewSessionBranchesFromTheUpdatedMainBranch(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	ws := t.TempDir()
-	withProjectsAndFake(t, srv, ws)
-	pid, _ := projectWithOrigin(t, srv, ws)
-	ss := createSessionIn(t, srv, pid)
-	if !hasUpstream(convNamed(t, srv, ss.ID).workspaceDir()) {
-		t.Fatal("the new session's worktree does not have what origin's main has")
-	}
-}
-
-// A slow origin does not hold the session back for longer than the wait.
-func TestANewSessionDoesNotWaitForeverForASlowUpdate(t *testing.T) {
-	var m mainRefreshState
-	if !m.begin("p") {
-		t.Fatal("begin")
-	}
-	m.await("p", 20*time.Millisecond)
-	m.await("none", time.Hour)
-	m.finish("p", "")
-	m.await("p", time.Hour)
 }
 
 // A project with no origin has nothing to pull, so a merged session continues.

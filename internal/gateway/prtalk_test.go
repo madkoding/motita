@@ -126,7 +126,7 @@ func TestPRWatchTalkSharesTheAttempts(t *testing.T) {
 	max := srv.prMaxFixes(c)
 	w := &prWatchState{status: prFollowing, attempts: max}
 	// A session whose agent is busy is not read for talk at all.
-	tg, perr := srv.prTargetOf(context.Background(), c)
+	tg, perr := srv.prTargetOf(context.Background(), c, "")
 	if perr != nil {
 		t.Fatal(perr.msg)
 	}
