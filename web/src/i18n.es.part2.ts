@@ -836,6 +836,11 @@ const more: Record<string, string> = {
   "Writes a note for every project and every session you have used, linked to each other, and a manual of each project with a note per folder: its files, its API, what it uses and what uses it. Run it again to refresh them; what you add around the generated block stays.":
     "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí, y un manual de cada proyecto con una nota por carpeta: sus archivos, su API, qué usa y quién la usa. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
   "Scan now": "Escanear ahora",
+  "Scanning…": "Escaneando…",
+  "Writing the notes of your sessions…":
+    "Escribiendo las notas de tus sesiones…",
+  "Mapping {project} ({n} of {total})": "Mapeando {project} ({n} de {total})",
+  "folder {n} of {total}": "carpeta {n} de {total}",
   "Use the model to summarise sessions and explain projects":
     "Usar el modelo para resumir sesiones y explicar proyectos",
   "Adds a short summary to sessions of six turns or more (at most twenty per scan), explains how each project fits together (at most ten per scan) and documents each folder of the projects' manuals (as many per scan as you choose below). Each is only asked again when the session, project or folder changed. The text of those sessions and the structure, README and source excerpts of those projects are sent to your model provider and use tokens.":

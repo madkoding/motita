@@ -262,6 +262,9 @@ type Server struct {
 	// (so a second request for the same project is dropped) and why the last one of each failed.
 	mainRefresh mainRefreshState
 
+	// scanJob is the progress of the notes scan running in the background, if any.
+	scanJob scanTracker
+
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
 	// caller would have to know to ignore.
@@ -832,6 +835,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
 	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))
 	mux.Handle("POST /v1/notes/scan", plain(s.handleScanNotes))
+	mux.Handle("GET /v1/notes/scan", plain(s.handleScanStatus))
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
 	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))

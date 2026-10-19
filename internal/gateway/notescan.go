@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,6 +51,8 @@ type noteScan struct {
 	Explained  int `json:"explained"`
 	// Skipped counts sessions with nothing said yet, and notes the vault refused.
 	Skipped int `json:"skipped"`
+	// tracker hears how far a background scan got; nil for one answered in the request.
+	tracker *scanTracker
 }
 
 func (n *noteScan) count(outcome string, err error) {
@@ -220,14 +223,16 @@ func (s *Server) scanSessionNotes(
 }
 
 // handleScanNotes writes a note for every project and every session that has been used, and
-// answers what it did. Running it again updates the same notes.
+// answers what it did. Running it again updates the same notes. With ?background=1 it answers at
+// once with the progress, which GET /v1/notes/scan follows.
 func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	v := s.vault(w)
 	if v == nil {
 		return
 	}
+	q := r.URL.Query()
 	marker := filepath.Join(s.opts.NotesDir, scanMarker)
-	if r.URL.Query().Get("first") != "" {
+	if q.Get("first") != "" {
 		// Only the first time: a vault that has notes, or was scanned before (and emptied since), is
 		// the person's to fill.
 		if _, err := os.Stat(marker); err == nil || len(v.List()) > 0 {
@@ -235,33 +240,53 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	run := func(ctx context.Context, t *scanTracker) (noteScan, error) {
+		return s.runScan(ctx, v, q, t)
+	}
+	if q.Get("background") != "" {
+		s.startScan(w, run)
+		return
+	}
+	res, err := run(r.Context(), nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// runScan is the scan itself, reporting how far it got to t.
+func (s *Server) runScan(ctx context.Context, v *notes.Vault, q url.Values, t *scanTracker) (noteScan, error) {
 	var projects []Project
 	if s.projects != nil {
 		all, err := s.projects.loadAll()
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+			return noteScan{}, err
 		}
 		projects = all
 	}
 	names := projectNoteNames(projects)
-	res := noteScan{Ran: true}
-	sum := &summaries{on: r.URL.Query().Get("summarize") != "", left: scanSummaryMax}
-	byProject := s.scanSessionNotes(r.Context(), v, names, sum, &res)
+	res := noteScan{Ran: true, tracker: t}
+	sum := &summaries{on: q.Get("summarize") != "", left: scanSummaryMax}
+	byProject := s.scanSessionNotes(ctx, v, names, sum, &res)
 	res.Summarized = sum.done
-	ms := s.scanModelsFor(r.URL.Query().Get("summarize") != "", explainBudget(r.URL.Query().Get("modules")))
-	for _, p := range projects {
+	ms := s.scanModelsFor(q.Get("summarize") != "", explainBudget(q.Get("modules")))
+	for i, p := range projects {
+		t.update(func(sp *scanProgress) {
+			*sp = scanProgress{Running: true, Phase: "projects", Project: p.Title, Done: i, Total: len(projects)}
+		})
 		res.Projects++
-		archLink := scanArchitecture(r.Context(), v, p, names[p.ID], ms, &res)
+		archLink := scanArchitecture(ctx, v, p, names[p.ID], ms, &res)
 		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID], archLink))
 		res.count(outcome, err)
 	}
+	t.update(func(sp *scanProgress) { sp.Done = len(projects) })
 	res.Explained = ms.done()
 	// Remembered in the vault folder, as a hidden file notes never list, so any client sees it.
 	if os.MkdirAll(s.opts.NotesDir, 0o755) == nil {
-		_ = os.WriteFile(marker, []byte("scanned\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(s.opts.NotesDir, scanMarker), []byte("scanned\n"), 0o644)
 	}
-	writeJSON(w, http.StatusOK, res)
+	return res, nil
 }
 
 // explainBudget is how many folders of the manuals the model may explain in one scan: what the

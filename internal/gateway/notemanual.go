@@ -773,7 +773,10 @@ func writeManual(
 		start: notes.FileName(root, manualStart), chapters: map[string]*chapter{}}
 	taken := map[string]bool{}
 	var order []*chapter
-	for _, m := range buildManual(f) {
+	mods := buildManual(f)
+	for i, m := range mods {
+		// The slow part, with the model on: say how far it got.
+		res.tracker.update(func(sp *scanProgress) { sp.Chapters, sp.ChapterTotal = i, len(mods) })
 		if m.rel == "" && p.Description != "" {
 			m.readme = p.Description
 		}

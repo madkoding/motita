@@ -388,12 +388,35 @@ export interface ScanOptions {
   modules?: number;
 }
 
-// scanNotes writes a note for every project and every session that has been used, or updates the
-// ones it wrote before.
-export async function scanNotes(
+// ScanProgress is how far the scan running in the background got, and how it ended.
+export interface ScanProgress {
+  running: boolean;
+  // "sessions" while the session notes are written, then "projects".
+  phase?: string;
+  project?: string;
+  done: number;
+  total: number;
+  chapters: number;
+  chapter_total: number;
+  result?: NoteScan;
+  error?: string;
+}
+
+// scanProgress asks how far the background scan got.
+export async function scanProgress(api: Api): Promise<ScanProgress> {
+  const res = await api("/v1/notes/scan");
+  if (!res.ok) {
+    throw new Error("HTTP " + res.status);
+  }
+  return (await res.json()) as ScanProgress;
+}
+
+// postScan asks the gateway for a scan; in the background it answers the progress at once.
+async function postScan(
   api: Api,
-  opts: ScanOptions = {},
-): Promise<NoteScan> {
+  opts: ScanOptions,
+  background: boolean,
+): Promise<unknown> {
   const params = new URLSearchParams();
   if (opts.first) {
     params.set("first", "1");
@@ -404,6 +427,9 @@ export async function scanNotes(
   if (opts.modules) {
     params.set("modules", String(opts.modules));
   }
+  if (background) {
+    params.set("background", "1");
+  }
   let path = "/v1/notes/scan";
   if (params.size > 0) {
     path += "?" + params.toString();
@@ -413,5 +439,23 @@ export async function scanNotes(
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || "HTTP " + res.status);
   }
-  return (await res.json()) as NoteScan;
+  return res.json();
+}
+
+// scanNotes writes a note for every project and every session that has been used, or updates the
+// ones it wrote before, and answers what it did.
+export async function scanNotes(
+  api: Api,
+  opts: ScanOptions = {},
+): Promise<NoteScan> {
+  return (await postScan(api, opts, false)) as NoteScan;
+}
+
+// startScan runs the same scan in the background and answers its progress; scanProgress follows
+// it. A scan already running is followed instead of started again.
+export async function startScan(
+  api: Api,
+  opts: ScanOptions = {},
+): Promise<ScanProgress> {
+  return (await postScan(api, opts, true)) as ScanProgress;
 }

@@ -1,8 +1,15 @@
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import type { Api } from "./gitApi";
+import { choose } from "./choose";
 import { errorMessage } from "./errors";
-import { scanNotes, type NoteScan, type ScanOptions } from "./notesApi";
+import {
+  scanProgress,
+  startScan,
+  type NoteScan,
+  type ScanOptions,
+  type ScanProgress,
+} from "./notesApi";
 import { Row, Segmented, primaryBtn } from "./SettingsControls";
 import { REVIEW_NOTES_EVENT } from "./useReviewNotes";
 
@@ -40,6 +47,43 @@ function scanSummary(r: NoteScan): string {
   return [done, ...extra].join(" ");
 }
 
+// progressText says where a running scan is.
+function progressText(p: ScanProgress): string {
+  if (p.phase !== "projects") {
+    return t("Writing the notes of your sessions…");
+  }
+  let line = tf("Mapping {project} ({n} of {total})", {
+    project: p.project ?? "",
+    n: String(p.done + 1),
+    total: String(p.total),
+  });
+  if (p.chapter_total > 0) {
+    line +=
+      " · " +
+      tf("folder {n} of {total}", {
+        n: String(p.chapters + 1),
+        total: String(p.chapter_total),
+      });
+  }
+  return line;
+}
+
+// progressShare is how much of the scan is done, from 0 to 100: the projects finished and the
+// share of the folders of the one being mapped.
+function progressShare(p: ScanProgress): number {
+  if (p.total === 0) {
+    return 0;
+  }
+  let part = 0;
+  if (p.chapter_total > 0) {
+    part = p.chapters / p.chapter_total;
+  }
+  return Math.round(((p.done + part) / p.total) * 100);
+}
+
+// scanPoll is how often a running scan is asked how far it got; the tests shorten it.
+export const scanPoll = { ms: 1000 };
+
 type OnOff = "on" | "off";
 type Folders = "30" | "100" | "all";
 
@@ -54,13 +98,44 @@ const FOLDER_BUDGET: Record<Folders, number> = {
 // NotesScanSettings fills the notes from what motita already holds: a note per project and per
 // session. Running it again updates the same notes and leaves what the person wrote in them.
 export function NotesScanSettings({ api }: { api: Api }) {
-  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
   const [summarize, setSummarize] = useState<OnOff>("off");
   const [folders, setFolders] = useState<Folders>("30");
+  const alive = useRef(true);
+  const busy = progress !== null;
+  // watch follows a scan running in the background until it ends, then says what it did.
+  const watch = useCallback(
+    async (first: ScanProgress) => {
+      let p = first;
+      while (p.running && alive.current) {
+        setProgress(p);
+        await new Promise((r) => setTimeout(r, scanPoll.ms));
+        p = await scanProgress(api);
+      }
+      setProgress(null);
+      if (p.error) {
+        setErr(p.error);
+        return;
+      }
+      if (p.result) {
+        setDone(scanSummary(p.result));
+      }
+    },
+    [api],
+  );
+  // A scan started before this card opened (or in another tab) is followed too.
+  useEffect(() => {
+    alive.current = true;
+    scanProgress(api)
+      .then(watch)
+      .catch(() => setProgress(null));
+    return () => {
+      alive.current = false;
+    };
+  }, [api, watch]);
   const scan = useCallback(async () => {
-    setBusy(true);
     setErr("");
     setDone("");
     try {
@@ -69,12 +144,19 @@ export function NotesScanSettings({ api }: { api: Api }) {
         opts.summarize = true;
         opts.modules = FOLDER_BUDGET[folders];
       }
-      setDone(scanSummary(await scanNotes(api, opts)));
+      setProgress({
+        running: true,
+        done: 0,
+        total: 0,
+        chapters: 0,
+        chapter_total: 0,
+      });
+      await watch(await startScan(api, opts));
     } catch (e) {
+      setProgress(null);
       setErr(errorMessage(e));
     }
-    setBusy(false);
-  }, [api, summarize, folders]);
+  }, [api, summarize, folders, watch]);
   const review = useCallback(
     () => window.dispatchEvent(new Event(REVIEW_NOTES_EVENT)),
     [],
@@ -141,9 +223,24 @@ export function NotesScanSettings({ api }: { api: Api }) {
             onClick={scan}
             data-testid="notes-scan"
           >
-            {t("Scan now")}
+            {choose(busy, t("Scanning…"), t("Scan now"))}
           </button>
         </Row>
+        {progress && (
+          <div
+            class="settings-card-note"
+            role="status"
+            data-testid="notes-scan-progress"
+          >
+            <div class="text-xs text-[#c8c8d2]">{progressText(progress)}</div>
+            <div class="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                class="h-full bg-accent transition-[width] duration-500"
+                style={{ width: progressShare(progress) + "%" }}
+              />
+            </div>
+          </div>
+        )}
         {done && (
           <output
             class="settings-card-note block text-xs text-[#7a7a8c]"
