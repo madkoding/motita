@@ -90,7 +90,8 @@ func TestASharedOllamaKeyDoesNotShowUpOnTheLocalProvider(t *testing.T) {
 	if got := KeySource(cfgPath, LLM{Provider: "anthropic"}, "ollama"); got != KeyNotNeeded {
 		t.Errorf("local Ollama key source = %q", got)
 	}
-	if got := KeySource(cfgPath, LLM{Provider: "ollama", BaseURL: "http://localhost:11434/v1"}, "ollama"); got != KeyNotNeeded {
+	local := LLM{Provider: "ollama", BaseURL: "http://localhost:11434/v1"}
+	if got := KeySource(cfgPath, local, "ollama"); got != KeyNotNeeded {
 		t.Errorf("configured local Ollama key source = %q", got)
 	}
 	if got := KeySource(cfgPath, LLM{Provider: "anthropic"}, "ollama-cloud"); got != KeyEnv {
