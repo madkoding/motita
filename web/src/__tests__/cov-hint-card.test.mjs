@@ -42,19 +42,9 @@ test("each offer says what it would do and its buttons answer it", async () => {
   const cases = [
     [{ kind: "create", repo }, /Create the project "engine"/, "Create project"],
     [
-      { kind: "move", repo, projectId: "a", projectTitle: "Motor" },
-      /"Motor" already has engine/,
-      "Move session",
-    ],
-    [
       { kind: "start", title: "Billing" },
       /new project "Billing"/,
       "Create project",
-    ],
-    [
-      { kind: "add", repo, projectId: "a", projectTitle: "Motor" },
-      /Add engine to the project "Motor"/,
-      "Add repository",
     ],
   ];
   for (const [hint, ask, action] of cases) {

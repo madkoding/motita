@@ -81,7 +81,7 @@ test("the row buttons carry the tooltips of the labels they cover", () => {
 test("a project header's click target is drawn above its title and under its actions", () => {
   const header = component(PROJECT_GROUP, "ProjectHeader");
   const [title, hit, actions] = order(header, [
-    "<BehindFact",
+    "<StaleFact",
     ROW_HIT,
     "<ProjectActions",
   ]);
