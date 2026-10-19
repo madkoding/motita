@@ -727,13 +727,13 @@ const more: Record<string, string> = {
   'The project "{title}" already has {name}. Move this session into it?':
     'El proyecto "{title}" ya tiene {name}. ¿Mover esta sesión a él?',
   "Move session": "Mover sesión",
-  "The conversation stays; the agent now works in the project's own worktree.":
-    "La conversación se queda; el agente pasa a trabajar en el worktree propio del proyecto.",
+  "The conversation stays; the agent now works in the project's folder.":
+    "La conversación se queda; el agente pasa a trabajar en la carpeta del proyecto.",
   'Add {name} to the project "{title}"?':
     '¿Agregar {name} al proyecto "{title}"?',
   "Add repository": "Agregar repositorio",
-  "It is cloned once and every session of the project gets its own worktree of it.":
-    "Se clona una sola vez y cada sesión del proyecto recibe su propio worktree.",
+  "It is cloned into the project's folder, where every session of the project can use it.":
+    "Se clona en la carpeta del proyecto y todas sus sesiones pueden usarlo.",
   "Not now": "Ahora no",
   '{name} added to the project "{title}"':
     '{name} agregado al proyecto "{title}"',

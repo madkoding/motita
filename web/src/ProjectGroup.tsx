@@ -107,8 +107,8 @@ function BehindFact({ p }: { p: ProjectInfo }) {
 }
 
 // DepsFact says the project's repositories need dependencies nobody installed (vendor/,
-// node_modules/): the sessions' worktrees are linked to what the project has, so none of them can
-// run its tests until they are. The commands that fix it are its title.
+// node_modules/): the sessions share what the project has, so none of them can run its tests until
+// they are. The commands that fix it are its title.
 function DepsFact({ p }: { p: ProjectInfo }) {
   const missing = p.missing_deps ?? [];
   if (missing.length === 0) {

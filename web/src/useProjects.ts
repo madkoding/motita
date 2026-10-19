@@ -90,7 +90,7 @@ async function addRepoTo(
 }
 
 // useProjectRepos adds and removes the repositories of the project the edit dialog holds. Both
-// happen at once, not on Save: adding one clones it, and the sessions get a worktree of it.
+// happen at once, not on Save: adding one clones it into the project's folder.
 function useProjectRepos(
   api: Api,
   fetchProjects: () => Promise<unknown>,
