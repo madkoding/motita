@@ -386,3 +386,19 @@ func TestTheDeletionPreviewSaysWhenTheProjectFolderStays(t *testing.T) {
 		t.Errorf("inside %s the folder goes with the project: %v", ws, got)
 	}
 }
+
+// TestAMissingFolderMustStillBeAUsableProjectFolder: the folder a project would create has a simple
+// name, an existing parent and is not one of motita's reserved folders.
+func TestAMissingFolderMustStillBeAUsableProjectFolder(t *testing.T) {
+	srv, ws := projectServer(t)
+	for _, bad := range []string{
+		ws + "/bad\\name",
+		filepath.Join(ws, "gone", "inside"),
+		filepath.Join(ws, "worktrees"),
+	} {
+		body, _ := json.Marshal(map[string]string{"title": "x", "path": bad})
+		if code, out := createProject(t, srv, string(body)); code != http.StatusBadRequest {
+			t.Errorf("%s: %d %v", bad, code, out)
+		}
+	}
+}
