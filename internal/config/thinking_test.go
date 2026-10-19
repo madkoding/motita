@@ -19,7 +19,8 @@ func TestParseThinkingLevel(t *testing.T) {
 }
 
 func TestThinkingFor(t *testing.T) {
-	th := Thinking{Plan: "high", Code: "low", Review: "medium", Research: "off", Summary: "bogus", Cheap: "low", Strong: "high"}
+	th := Thinking{Plan: "high", Code: "low", Review: "medium", Research: "off",
+		Summary: "bogus", Cheap: "low", Strong: "high"}
 	for kind, want := range map[string]string{
 		TaskPlan: "high", TaskCode: "low", TaskReview: "medium", TaskResearch: "off",
 		TaskSummary: "", TaskCheap: "low", TaskStrong: "high", "narrate": "",

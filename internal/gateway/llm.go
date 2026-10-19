@@ -723,14 +723,9 @@ func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 	for _, kind := range config.TaskKinds {
 		known[kind] = true
 	}
-	levels := map[string]string{}
-	for kind, raw := range body.Thinking {
-		level, err := config.ParseThinkingLevel(raw)
-		if !known[kind] || err != nil {
-			writeError(w, http.StatusBadRequest, "thinking "+kind+": no such kind of work or level")
-			return
-		}
-		levels[kind] = level
+	levels, ok := thinkingLevels(w, body.Thinking, known)
+	if !ok {
+		return
 	}
 	cfg := s.configuredLLM()
 	choices := map[string]config.ModelChoice{}
@@ -762,14 +757,35 @@ func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if body.Thinking != nil {
-		if err := setTaskThink(s.opts.ConfigPath, levels); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
+	if body.Thinking != nil && !writeThinking(w, s.opts.ConfigPath, levels) {
+		return
 	}
 	s.pushTaskModels()
 	writeJSON(w, http.StatusOK, s.llmViewOf())
+}
+
+// thinkingLevels checks the level of each kind of work, answering 400 for a kind or a level it
+// does not know.
+func thinkingLevels(w http.ResponseWriter, in map[string]string, known map[string]bool) (map[string]string, bool) {
+	levels := map[string]string{}
+	for kind, raw := range in {
+		level, err := config.ParseThinkingLevel(raw)
+		if !known[kind] || err != nil {
+			writeError(w, http.StatusBadRequest, "thinking "+kind+": no such kind of work or level")
+			return nil, false
+		}
+		levels[kind] = level
+	}
+	return levels, true
+}
+
+// writeThinking saves the levels, answering 500 when the file cannot be written.
+func writeThinking(w http.ResponseWriter, path string, levels map[string]string) bool {
+	if err := setTaskThink(path, levels); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	return true
 }
 
 // pushTaskModels hands the saved model of each kind of work to every conversation that takes it.

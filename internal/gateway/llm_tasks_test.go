@@ -135,7 +135,8 @@ func TestLLMThinkingLevelsAreSavedAndReachEverySession(t *testing.T) {
 	if len(v.Levels) != 4 || len(v.Thinking) != 0 {
 		t.Fatalf("no kind has a level yet: %+v %+v", v.Levels, v.Thinking)
 	}
-	w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks", `{"tasks":{},"thinking":{"plan":"high","summary":"off","code":""}}`)
+	w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks",
+		`{"tasks":{},"thinking":{"plan":"high","summary":"off","code":""}}`)
 	v = decodeLLM(t, w)
 	if w.Code != http.StatusOK || v.Thinking["plan"] != "high" || v.Thinking["summary"] != "off" {
 		t.Fatalf("save: %d %+v", w.Code, v.Thinking)

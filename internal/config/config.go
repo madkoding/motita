@@ -900,9 +900,6 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateModels(); err != nil {
 		return err
 	}
-	if err := c.validateThinking(); err != nil {
-		return err
-	}
 	if err := c.validateFinalAction(); err != nil {
 		return err
 	}
