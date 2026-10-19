@@ -770,11 +770,16 @@ const claudeProbeTimeout = time.Minute
 
 // claudeProbeArgs is claude's command line for ProbeClaudeQuota: the smallest model, no tools, no
 // settings, no session left behind, and a system prompt of one line instead of claude's own.
-var claudeProbeArgs = []string{"-p", "--model", "haiku", "--input-format", streamJSON,
-	"--output-format", streamJSON, "--verbose",
-	"--system-prompt", "Answer with the single word: ok", "--tools", "", "--setting-sources", "",
-	"--strict-mcp-config", "--disable-slash-commands", "--max-turns", "1", "--permission-mode", "dontAsk",
-	"--no-session-persistence"}
+var claudeProbeArgs = append(claudeBareArgs(), "--model", "haiku",
+	"--system-prompt", "Answer with the single word: ok", "--max-turns", "1", "--permission-mode", "dontAsk")
+
+// claudeBareArgs is the command line of a claude that only talks stream-json: no tools, no settings,
+// no MCP server, no slash command and no session left behind.
+func claudeBareArgs() []string {
+	return []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
+		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
+		"--no-session-persistence"}
+}
 
 // ProbeClaudeQuota asks claude the smallest question there is so that it states the subscription's
 // limits, which it only does with an answer; they land in the ledger like those of any turn. The
@@ -856,9 +861,7 @@ type ClaudeCodeModel struct {
 // ClaudeCodeModels asks the local claude CLI which models the logged-in account
 // offers. It is claude's initialize handshake only: no model is called.
 func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
-	args := []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
-		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
-		"--no-session-persistence"}
+	args := claudeBareArgs()
 	// The base environment: with nonessential traffic off claude lists 5 models instead of the
 	// account's 11 (measured).
 	p, err := startClaude(ctx, 30*time.Second, args, claudeBaseEnv())

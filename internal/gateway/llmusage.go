@@ -92,9 +92,7 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 			}
 			row.Limits = u.Limits
 		}
-		if p.ID == "claude-code" && (called || cfg.Provider == p.ID) {
-			s.keepClaudeQuotaFresh(u.Limits)
-		}
+		s.keepClaudeQuotaFresh(p.ID, called || cfg.Provider == p.ID, u.Limits)
 		row.Limits = withQuotas(row.Limits, s.planQuotas(r.Context(), s.opts.ConfigPath, cfg, p.ID))
 		rows = append(rows, row)
 	}
@@ -146,11 +144,17 @@ type claudeProbe struct {
 	last    time.Time
 }
 
+// quotasFresh reports whether l has quotas stated less than claudeQuotaFresh ago.
+func quotasFresh(l *llm.RateLimits) bool {
+	return l != nil && len(l.Quotas) > 0 && time.Since(l.At) < claudeQuotaFresh
+}
+
 // keepClaudeQuotaFresh has claude asked for the subscription's limits, in the background, when it
-// has stated none yet or none for claudeQuotaFresh, and no question was asked in that time either.
+// is in use (id is claude-code and used is set) and has stated none yet or none for claudeQuotaFresh,
+// and no question was asked in that time either.
 // The panel asks once a minute while it is open, so a closed panel costs no question.
-func (s *Server) keepClaudeQuotaFresh(l *llm.RateLimits) {
-	if l != nil && len(l.Quotas) > 0 && time.Since(l.At) < claudeQuotaFresh {
+func (s *Server) keepClaudeQuotaFresh(id string, used bool, l *llm.RateLimits) {
+	if id != "claude-code" || !used || quotasFresh(l) {
 		return
 	}
 	c := &s.claudeProbe

@@ -302,7 +302,10 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 		t.Errorf("calls = %+v", reply.Calls)
 	}
 	// claude is stopped once what it prints after the answer is read, which the answer does not wait for.
-	termed := func() error { _, err := os.Stat(record + ".term"); return err }
+	termed := func() error {
+		_, err := os.Stat(record + ".term")
+		return err
+	}
 	for end := time.Now().Add(5 * time.Second); termed() != nil && time.Now().Before(end); {
 		time.Sleep(20 * time.Millisecond)
 	}
