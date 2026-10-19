@@ -13,6 +13,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/notes"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/skills"
@@ -194,6 +195,7 @@ type wiringAgent struct {
 	lib     *skills.Library
 	reward  *reward.Ledger
 	usage   *usage.Ledger
+	vault   *notes.Vault
 	read    map[string]int
 	runFail error
 }
@@ -201,6 +203,7 @@ type wiringAgent struct {
 func (w *wiringAgent) SetLibrary(l *skills.Library) { w.lib = l }
 func (w *wiringAgent) SetReward(r *reward.Ledger)   { w.reward = r }
 func (w *wiringAgent) SetUsage(u *usage.Ledger)     { w.usage = u }
+func (w *wiringAgent) SetNotes(v *notes.Vault)      { w.vault = v }
 func (w *wiringAgent) Consulted() map[string]int {
 	if w.read == nil {
 		return nil
@@ -218,6 +221,7 @@ func TestTaskModeGetsTheSameLibraryAndLedgerAsPlan(t *testing.T) {
 	// Both modes reach ONE shelf of procedures and one ledger of what has been learned about
 	// them. Two libraries would be two bodies of knowledge that drift apart, and a verdict
 	// would land on whichever mode happened to be used.
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cfg := config.Default()
 	cfg.Skills.Dir = dir
@@ -241,6 +245,9 @@ func TestTaskModeGetsTheSameLibraryAndLedgerAsPlan(t *testing.T) {
 	// The same instance Plan mode uses: this is what sharing means.
 	if wired.lib != r.library() {
 		t.Error("both modes must use the same library instance")
+	}
+	if wired.vault == nil {
+		t.Error("Task mode must be given the note vault")
 	}
 	// And the same usage sidecar the library screen reads, so what Task mode consults is counted.
 	if wired.usage == nil || wired.usage != r.procedures().Usage {
@@ -388,5 +395,16 @@ func TestVerdictCallsIntoTheInterfaceReachTheRunner(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".scores.json")); err != nil {
 		t.Errorf("the verdict must be on disk: %v", err)
+	}
+}
+
+func TestNotesVaultIsNilWithoutAHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if notesVault() == nil {
+		t.Error("with a home there is a vault")
+	}
+	t.Setenv("HOME", "")
+	if notesVault() != nil {
+		t.Error("without a home there is none")
 	}
 }

@@ -110,3 +110,16 @@ func TestThePeerFileLivesUnderTheHome(t *testing.T) {
 		t.Fatalf("peerFile() = %q with no HOME, want empty", got)
 	}
 }
+
+// TestNotesVaultIsNilWithoutAHome: plan and task mode share the Notes window's folder, and have none
+// without a home.
+func TestNotesVaultIsNilWithoutAHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if notesVault() == nil {
+		t.Error("with a home there is a vault")
+	}
+	t.Setenv("HOME", "")
+	if notesVault() != nil {
+		t.Error("without a home there is none")
+	}
+}

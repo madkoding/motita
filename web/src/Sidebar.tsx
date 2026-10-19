@@ -10,7 +10,13 @@ import { MachineList } from "./Machines";
 import { SessionRow } from "./SessionRow";
 import { ProviderUsagePanel } from "./ProviderUsage";
 import { ProjectGroup } from "./ProjectGroup";
-import { IconBook, IconClock, IconClose, IconDownload } from "./icons";
+import {
+  IconBook,
+  IconClock,
+  IconClose,
+  IconDownload,
+  IconNotes,
+} from "./icons";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 
@@ -136,9 +142,9 @@ function Settings() {
   );
 }
 
-// SidebarFoot is the skill library, the artifacts, the scheduled tasks and the settings.
+// SidebarFoot is the skill library, the notes, the artifacts, the scheduled tasks and the settings.
 function SidebarFoot() {
-  const { api, skills, artifacts, schedules, rs } = useApp();
+  const { api, skills, artifacts, schedules, notes, rs } = useApp();
   return (
     <>
       {api && <ProviderUsagePanel api={api} running={rs.running} />}
@@ -149,6 +155,14 @@ function SidebarFoot() {
         >
           <IconBook size={18} />
           {t("Skill library")}
+        </button>
+        <button
+          class={FOOT_BUTTON}
+          data-testid="notes-button"
+          onClick={notes.openNotes}
+        >
+          <IconNotes size={18} />
+          {t("Notes")}
         </button>
         <button
           class={FOOT_BUTTON + " disabled:opacity-40"}
