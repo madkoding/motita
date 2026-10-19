@@ -315,8 +315,6 @@ const DRAFT = {
   autoContinue: false,
   dir: "/ws/motita",
   path: "",
-  mainRepo: null,
-  repos: [],
 };
 
 const byTest = (m, id) => m.q("[data-testid=" + id + "]");
@@ -474,7 +472,6 @@ test("the folder picked goes to the dialog that asked, and new projects send it"
   });
   await run(() => s.p.openNewProject());
   await run(() => {
-    s.p.setNewProjectMode("empty");
     s.p.setNewProjectTitle("Out");
     s.p.openFolderPicker("new");
   });
@@ -553,77 +550,6 @@ test("the edit dialog shows the project's index panel when the app has an api", 
     "Not indexed",
   );
   await m.unmount();
-});
-
-test("a repository can be picked from a folder only with the whole disk allowed", async () => {
-  const none = store({ repoCatalog: [] });
-  const closed = await mount(
-    AppCtx,
-    none.value,
-    h(EditProjectModal, { p: DRAFT }),
-  );
-  await click(byTest(closed, "repo-add-open"));
-  assert.equal(byTest(closed, "repo-browse"), null);
-  await closed.unmount();
-
-  const e = store({ fullDisk: true, repoCatalog: [] });
-  const edit = await mount(AppCtx, e.value, h(EditProjectModal, { p: DRAFT }));
-  await click(byTest(edit, "repo-add-open"));
-  await click(byTest(edit, "repo-browse"));
-  assert.deepEqual(e.log, [["browse", "repo"]]);
-  await edit.unmount();
-});
-
-test("the folder picked for a repository joins the dialog that is open, once", async () => {
-  const s = await setup({
-    "GET /v1/security": res(200, { disk_access: "full" }),
-    "POST /v1/projects/p1/repos": (path, init) =>
-      res(201, { id: "p1", title: "Edit", dir: "/ws/a", repos: [] }),
-    "GET /v1/projects/p1/branches": res(200, {}),
-  });
-  // The New project dialog collects it, to add once the project exists.
-  await run(() => s.p.openNewProject());
-  await run(() => s.p.openFolderPicker("repo"));
-  assert.equal(s.p.folderPicker, "repo");
-  await run(() => s.p.pickFolder("/home/axes/bridges/"));
-  assert.equal(s.p.folderPicker, null);
-  assert.deepEqual(s.p.newProjectRepos, [
-    {
-      name: "bridges",
-      git_url: "/home/axes/bridges",
-      path: "/home/axes/bridges",
-    },
-  ]);
-  await run(() => s.p.openFolderPicker("repo"));
-  await run(() => s.p.pickFolder("/other/bridges"));
-  assert.equal(s.p.newProjectRepos.length, 1, "a name already taken");
-  await run(() => s.p.openFolderPicker("repo"));
-  await run(() => s.p.pickFolder("/"));
-  assert.equal(s.p.newProjectRepos.length, 1, "a folder with no usable name");
-  assert.equal(s.toasts.length, 2);
-  assert.equal(
-    s.toasts[0].message,
-    "The project already has a repository with that name.",
-  );
-  await run(() => s.p.closeNewProject());
-
-  // The Edit project dialog adds it to the project at once, as a folder to use where it is.
-  await run(() =>
-    s.p.openEditProject({ id: "p1", title: "Edit", dir: "/ws/a" }),
-  );
-  await flush();
-  await run(() => s.p.openFolderPicker("repo"));
-  await run(() => s.p.pickFolder("/home/axes/bridges"));
-  await flush();
-  const [post] = s.api.calls.filter(
-    (c) => c.method === "POST" && c.path === "/v1/projects/p1/repos",
-  );
-  assert.deepEqual(post.body, {
-    name: "bridges",
-    git_url: "/home/axes/bridges",
-    path: "/home/axes/bridges",
-  });
-  await s.m.unmount();
 });
 
 // probed mounts the New project dialog on a typed path and waits for the folder check.

@@ -6,16 +6,14 @@ import { getSecurity } from "./securityApi";
 import type { Api } from "./prApi";
 import type { EditProjectDraft } from "./appTypes";
 
-// FolderTarget is what the folder picked is for: the new project's folder, the edited project's, or
-// a repository the project will use where it is.
-export type FolderTarget = "new" | "edit" | "repo";
+// FolderTarget is what the folder picked is for: the new project's folder, or the edited project's.
+export type FolderTarget = "new" | "edit";
 
 export function useFolderPicker(
   api: Api,
   open: boolean,
   setNewPath: (path: string) => void,
   patchEdit: (patch: Partial<EditProjectDraft>) => void,
-  addRepoFolder: (path: string) => void,
 ) {
   const [fullDisk, setFullDisk] = useState(false);
   const [folderPicker, setFolderPicker] = useState<FolderTarget | null>(null);
@@ -35,14 +33,12 @@ export function useFolderPicker(
     (path: string) => {
       if (folderPicker === "edit") {
         patchEdit({ path });
-      } else if (folderPicker === "repo") {
-        addRepoFolder(path);
       } else {
         setNewPath(path);
       }
       setFolderPicker(null);
     },
-    [folderPicker, patchEdit, setNewPath, addRepoFolder],
+    [folderPicker, patchEdit, setNewPath],
   );
   const closeFolderPicker = useCallback(() => setFolderPicker(null), []);
   return {

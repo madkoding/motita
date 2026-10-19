@@ -165,24 +165,7 @@ const more: Record<string, string> = {
   "Pull request {pr} was merged. A new session was opened from the updated branch.":
     "El pull request {pr} fue mergeado. Se abrió una sesión nueva desde la rama actualizada.",
   "“{title}” finished": "“{title}” terminó",
-  "Remove {name}": "Quitar {name}",
-  "Discard the changes and remove it": "Descartar los cambios y quitarlo",
-  "https://github.com/user/other-repo.git":
-    "https://github.com/usuario/otro-repo.git",
-  "Add a repository": "Agregar un repositorio",
   Add: "Agregar",
-  "The project already has a repository with that name.":
-    "El proyecto ya tiene un repositorio con ese nombre.",
-  "That is not a repository URL.": "Esa no es la URL de un repositorio.",
-  "A new folder": "Una carpeta nueva",
-  "The first one is the main repository, the project's folder. The others are shared from your workspace, and every session gets its own copy of each.":
-    "El primero es el repositorio principal, la carpeta del proyecto. Los demás se comparten desde tu espacio de trabajo, y cada sesión recibe su propia copia de cada uno.",
-  "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.":
-    "Agregar o quitar un repositorio ocurre al instante. Las sesiones abiertas reciben una copia del nuevo; quitar uno lo saca de este proyecto, y los demás proyectos que lo usan lo conservan.",
-  "Could not add {name}": "No se pudo agregar {name}",
-  "Could not remove {name}": "No se pudo quitar {name}",
-  'Project "{title}" created, but some repositories could not be added: {names}':
-    'Proyecto "{title}" creado, pero no se pudieron agregar algunos repositorios: {names}',
   Providers: "Proveedores",
   "Connect the AI providers Motita can use. The models each kind of work runs on are chosen in Models.":
     "Conecta los proveedores de IA que Motita puede usar. Los modelos de cada tipo de trabajo se eligen en Modelos.",
@@ -744,21 +727,7 @@ const more: Record<string, string> = {
   "Create project": "Crear proyecto",
   "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.":
     "Se clona, se indexa y se configura con sus valores por defecto; esta conversación sigue dentro.",
-  'The project "{title}" already has {name}. Move this session into it?':
-    'El proyecto "{title}" ya tiene {name}. ¿Mover esta sesión a él?',
-  "Move session": "Mover sesión",
-  "The conversation stays; the agent now works in the project's folder.":
-    "La conversación se queda; el agente pasa a trabajar en la carpeta del proyecto.",
-  'Add {name} to the project "{title}"?':
-    '¿Agregar {name} al proyecto "{title}"?',
-  "Add repository": "Agregar repositorio",
-  "It is cloned into the project's folder, where every session of the project can use it.":
-    "Se clona en la carpeta del proyecto y todas sus sesiones pueden usarlo.",
   "Not now": "Ahora no",
-  '{name} added to the project "{title}"':
-    '{name} agregado al proyecto "{title}"',
-  'This session moved to the project "{title}"':
-    'Esta sesión se movió al proyecto "{title}"',
   'The project "{title}" was created, but the session was not moved: {err}':
     'El proyecto "{title}" se creó, pero la sesión no se movió: {err}',
   'Project "{title}" created and this session moved into it':

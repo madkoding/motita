@@ -126,8 +126,6 @@ export interface ProjectInfo {
   auto_continue?: boolean;
   changes?: number;
   created: string;
-  // repos are the project's other repositories, after the main one in dir.
-  repos?: ProjectRepoInfo[];
   // missing_deps are the dependency folders its repositories need and do not have (vendor/,
   // node_modules/): sessions cannot run the project's tests until they are installed.
   missing_deps?: MissingDep[];
@@ -141,34 +139,6 @@ export interface MissingDep {
   dir: string;
   // command installs it, from path.
   command: string;
-}
-
-// ProjectRepoInfo is one of a project's other repositories, a folder inside the project's.
-export interface ProjectRepoInfo {
-  name: string;
-  git_url: string;
-  dir: string;
-  main_branch?: string;
-  branch?: string;
-  changes?: number;
-  // shared: dir is the workspace catalog's clone, which other projects may use too.
-  shared?: boolean;
-  // local: a repository the user already had on this machine, used where it is (dir) instead of
-  // cloned; motita never fetches into it, merges into it or deletes it.
-  local?: boolean;
-  // behind counts the commits of the main branch the project's folder of a shared one lacks.
-  behind?: number;
-}
-
-// CatalogRepo is one repository of the workspace catalog: cloned once, used by any number of
-// projects.
-export interface CatalogRepo {
-  name: string;
-  git_url: string;
-  dir: string;
-  projects: { id: string; title: string }[];
-  // size is what the clone takes on disk, in bytes.
-  size?: number;
 }
 
 export interface ConfigView {
@@ -353,17 +323,12 @@ export interface EditProjectDraft {
   // The folder the project is anchored to, and the one picked to move it to ("" keeps it).
   dir: string;
   path: string;
-  // The repositories, which change at once rather than on Save: adding one clones it.
-  mainRepo: { name: string; source: string; movable?: boolean } | null;
-  repos: ProjectRepoInfo[];
 }
 
-// GitConnectRequest opens the git host connect modal; `after` says what to do once the host is
-// connected: pick a repository, or send the create again.
+// GitConnectRequest opens the git host connect modal.
 export interface GitConnectRequest {
   service?: string;
   selfHosted?: SelfHosted;
-  after?: "picker" | "create";
 }
 
 // ArtifactItem is one file of the artifact list.

@@ -52,11 +52,9 @@ component("./Sidebar", ["Sidebar"]);
 component("./Composer", ["Composer"]);
 component("./Settings", ["SettingsModal"]);
 component("./GitConnect", ["GitConnectModal"]);
-component("./RepoPicker", ["RepoPicker"]);
 component("./FolderBrowser", ["FolderBrowser"]);
 component("./EditProjectModal", ["EditProjectModal"]);
 component("./NewProjectModal", ["NewProjectModal"]);
-component("./GitIdentityModal", ["GitIdentityModal"]);
 component("./ModelSwitcherModal", ["ModelSwitcherModal"]);
 component("./ConfirmDeleteModal", ["ConfirmDeleteModal", "ContextMenu"]);
 component("./Subtitles", ["Subtitles"]);
@@ -176,21 +174,13 @@ function makeStore(log) {
     projects: {
       editProject: null,
       showNewProject: false,
-      showGitIdentity: false,
-      showRepoPicker: false,
       folderPicker: null,
       newProjectPath: "",
       pickFolder: fn("pickFolder"),
       closeFolderPicker: fn("closeFolderPicker"),
-      repoCatalog: [],
-      gitAccounts: null,
       gitConnect: null,
       gitRev: 3,
       setGitConnect: fn("setGitConnect"),
-      pickRepo: fn("pickRepo"),
-      closeRepoPicker: fn("closeRepoPicker"),
-      connectAnother: fn("connectAnother"),
-      pickerAuthRequired: fn("pickerAuthRequired"),
       closeGitConnect: fn("closeGitConnect"),
       onGitConnected: fn("onGitConnected"),
     },
@@ -470,8 +460,6 @@ test("with a session the chat column has the header, the conversation, the drawe
     "SettingsModal",
     "EditProjectModal",
     "NewProjectModal",
-    "GitIdentityModal",
-    "RepoPicker",
     "FolderBrowser",
     "GitConnectModal",
     "ModelSwitcherModal",
@@ -598,12 +586,10 @@ test("the settings dialog is wired to the language, the voice, the speech and th
   await ctl.done();
 });
 
-test("the project dialogs open from the store, and the repo picker only with accounts", async () => {
+test("the project dialogs open from the store", async () => {
   const ctl = await mountApp((s) => {
     s.projects.editProject = { id: "p1", title: "Motita" };
     s.projects.showNewProject = true;
-    s.projects.showGitIdentity = true;
-    s.projects.showRepoPicker = true;
     s.projects.gitConnect = {
       service: "gitlab",
       selfHosted: { url: "https://git.example" },
@@ -615,43 +601,14 @@ test("the project dialogs open from the store, and the repo picker only with acc
     title: "Motita",
   });
   assert.ok(stubEl(root, "NewProjectModal"));
-  assert.ok(stubEl(root, "GitIdentityModal"));
-  assert.equal(stubEl(root, "RepoPicker"), null, "no accounts loaded yet");
   const gc = lastProps("GitConnectModal");
   assert.equal(gc.service, "gitlab");
   assert.deepEqual(gc.selfHosted, { url: "https://git.example" });
   gc.onClose();
   gc.onConnected();
-  await ctl.set((s) => {
-    s.projects = {
-      ...s.projects,
-      gitAccounts: [
-        { service: "github", connected: true },
-        { service: "gitlab", connected: false },
-      ],
-    };
-  });
-  const rp = lastProps("RepoPicker");
-  assert.deepEqual(
-    rp.accounts,
-    [{ service: "github", connected: true }],
-    "only the connected ones",
-  );
-  assert.equal(rp.api, ctl.api);
-  rp.onPick();
-  rp.onClose();
-  rp.onConnectAnother();
-  rp.onAuthRequired();
   assert.deepEqual(
     ctl.log.map((e) => e[0]),
-    [
-      "closeGitConnect",
-      "onGitConnected",
-      "pickRepo",
-      "closeRepoPicker",
-      "connectAnother",
-      "pickerAuthRequired",
-    ],
+    ["closeGitConnect", "onGitConnected"],
   );
   await ctl.done();
 });
@@ -686,14 +643,6 @@ test("the folder browser opens on the folder of the dialog that asked for it", a
     };
   });
   assert.equal(lastProps("FolderBrowser").start, "/ws/a");
-  await ctl.set((s) => {
-    s.projects = { ...s.projects, folderPicker: "repo" };
-  });
-  assert.equal(
-    lastProps("FolderBrowser").start,
-    undefined,
-    "a repository is looked for from the home folder",
-  );
   await ctl.done();
 });
 
