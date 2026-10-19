@@ -140,7 +140,8 @@ func TestAddingARepositoryIsValidated(t *testing.T) {
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+filepath.Join(t.TempDir(), "missing")+`"}`); code < 400 {
 		t.Errorf("a clone that fails: %d", code)
 	}
-	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+filepath.Join(t.TempDir(), "missing")+`"}`); code < 400 {
+	missing := filepath.Join(t.TempDir(), "missing")
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+missing+`"}`); code < 400 {
 		t.Errorf("a shared clone that fails: %d", code)
 	}
 	// A project that cannot be saved does not keep the repository.
@@ -210,7 +211,8 @@ func TestRemovingARepositoryThatCannotBeSaved(t *testing.T) {
 func TestDeletingASessionGivesBackItsOtherRepositories(t *testing.T) {
 	srv, _, sessionID := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
-	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+sourceRepo(t)+`","name":"lib"}`); code != http.StatusCreated {
+	lib := `{"shared":true,"git_url":"` + sourceRepo(t) + `","name":"lib"}`
+	if code, _ := addRepo(t, srv, id, lib); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
 	clone := srv.projectOf(id).Repos[0].Dir

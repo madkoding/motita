@@ -223,7 +223,9 @@ func (s *Server) saveNewRepo(w http.ResponseWriter, r *http.Request, p *Project,
 // is a worktree of the catalog's clone on the project's own branch, so projects that use the same
 // repository keep one copy; a repository with nothing to branch from yet (an empty one), or a
 // workspace without a catalog, gets a clone of its own there instead.
-func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest string, shared bool) (ProjectRepo, error) {
+func (s *Server) placeRepo(
+	ctx context.Context, p *Project, name, gitURL, dest string, shared bool,
+) (ProjectRepo, error) {
 	var err error
 	if shared {
 		var src string
