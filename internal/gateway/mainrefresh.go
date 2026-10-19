@@ -14,10 +14,6 @@ import (
 // keep a goroutine and a lock on the project forever.
 const mainRefreshTimeout = 2 * time.Minute
 
-// newSessionRefreshWait is how long a new session waits for the update of its project's main branch
-// before branching from the checkout as it is.
-var newSessionRefreshWait = 5 * time.Second
-
 // mainRefreshRetryAfter is the pause before the one retry of a failed update. A variable so the
 // tests of a failing origin do not wait for it.
 var mainRefreshRetryAfter = 300 * time.Millisecond
@@ -42,24 +38,6 @@ func (m *mainRefreshState) begin(id string) bool {
 	}
 	m.running[id] = make(chan struct{})
 	return true
-}
-
-// await waits for the update running for the project, at most d: a session that opens branches
-// from the checkout, so it gives a fetch a moment to bring in what origin has, and goes on from the
-// checkout as it is when origin is slow. It returns at once when no update runs.
-func (m *mainRefreshState) await(id string, d time.Duration) {
-	m.mu.Lock()
-	done := m.running[id]
-	m.mu.Unlock()
-	if done == nil {
-		return
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-done:
-	case <-t.C:
-	}
 }
 
 // finish ends an update and records why it failed, or forgets an earlier failure.
@@ -114,57 +92,6 @@ func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) str
 	}
 	s.syncSharedRepos(ctx, p)
 	return warning
-}
-
-// refreshMainInBackground updates the project's main branch without making the caller wait: it is
-// what opening and closing a session do, and a slow or unreachable origin must delay neither. At
-// most one update per project runs at a time; a failure is logged and kept for the project's
-// listing (main_warning).
-func (s *Server) refreshMainInBackground(p *Project) {
-	if p == nil || !s.mainRefresh.begin(p.ID) {
-		return
-	}
-	proj := *p
-	s.mainRefresh.wg.Add(1)
-	go func() {
-		defer s.mainRefresh.wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), mainRefreshTimeout)
-		defer cancel()
-		warning := s.refreshMain(ctx, &proj, false)
-		s.mainRefresh.finish(proj.ID, warning)
-		if warning != "" {
-			s.warn("the project's main branch could not be updated", "project", proj.Dir, "reason", warning)
-		}
-	}()
-}
-
-// awaitMainRefresh gives the update of the project's main branch a moment to end, so the worktree a
-// session is about to get branches from current code and not from the checkout as it was.
-func (s *Server) awaitMainRefresh(p *Project) {
-	if p != nil {
-		s.mainRefresh.await(p.ID, newSessionRefreshWait)
-	}
-}
-
-// mainRefreshInterval is how often a running gateway brings every project's main branch up to
-// date by itself, so a project nobody opens a session in does not drift. A variable so a test
-// can reach the tick.
-var mainRefreshInterval = 15 * time.Minute
-
-// refreshAllMainsEvery updates every project's main branch each interval until ctx ends.
-func (s *Server) refreshAllMainsEvery(ctx context.Context, every time.Duration) {
-	t := time.NewTicker(every)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			for _, p := range s.allProjects() {
-				s.refreshMainInBackground(&p)
-			}
-		}
-	}
 }
 
 // handleRefreshProjectMain is the "update now" of a project whose main branch could not be brought

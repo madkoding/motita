@@ -238,3 +238,28 @@ func TestCreatingAPRCountsCommitsAheadOfTheBaseAsWork(t *testing.T) {
 		t.Fatalf("a committed branch with a clean tree is work: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestAMergedPRDoesNotCloseASessionInTheProjectFolder(t *testing.T) {
+	srv, host, ss, c := connected(t)
+	if patchProjectCode(t, srv, ss.ProjectID, `{"auto_merge":true,"auto_continue":true}`) != http.StatusOK {
+		t.Fatal("settings")
+	}
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	host.set(ghMerge, `{"merged":true,"sha":"cafe"}`)
+	if !srv.pollPR(c, &prWatchState{status: prFollowing}) {
+		t.Fatal("a merged pull request ends the watch")
+	}
+	if c.isMerged() || !c.prDone() {
+		t.Fatalf("the pull request is done, the session is not: merged=%v done=%v", c.isMerged(), c.prDone())
+	}
+	if v := c.prWatchView(); v == nil || v.Status != prMerged || v.Next != "" {
+		t.Errorf("the watch says merged and opens no next session: %+v", v)
+	}
+	if st := c.status(); st.Merged || st.Continuable {
+		t.Errorf("the session stays usable: %+v", st)
+	}
+	// A watch that already saw the merge does not poll again.
+	if !srv.pollPR(c, &prWatchState{status: prFollowing}) {
+		t.Error("a finished pull request is not polled")
+	}
+}

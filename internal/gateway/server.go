@@ -478,9 +478,6 @@ func Start(opts Options) (*Server, error) {
 	if opts.Tailscale != nil {
 		go s.learnTailnetName(s.baseCtx)
 	}
-	if s.projects != nil {
-		go s.refreshAllMainsEvery(s.baseCtx, mainRefreshInterval)
-	}
 	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
 		Handler: s.mux,

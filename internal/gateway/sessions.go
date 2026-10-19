@@ -960,11 +960,6 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Opening a session brings the project's main branch up to date, but in the background: the
-	// person asked to work, and a fetch must not hold the session back. See refreshMainInBackground.
-	s.refreshMainInBackground(project)
-	s.awaitMainRefresh(project)
-
 	conv, err := s.createSession()
 	switch {
 	case errors.Is(err, ErrCeilingReached):

@@ -18,10 +18,26 @@ import (
 // worktree. origin, when not empty, is added to the worktree's repository.
 func prSession(t *testing.T, origin string, opts ...func(*Options)) (*Server, *gitHost, SessionStatus) {
 	t.Helper()
+	return prSessionOf(t, origin, false, opts...)
+}
+
+// isolatedPRSession is prSession for a session with a worktree of its own, the one a merged pull
+// request marks as integrated.
+func isolatedPRSession(t *testing.T, origin string, opts ...func(*Options)) (*Server, *gitHost, SessionStatus) {
+	t.Helper()
+	return prSessionOf(t, origin, true, opts...)
+}
+
+func prSessionOf(t *testing.T, origin string, isolate bool, opts ...func(*Options)) (*Server, *gitHost, SessionStatus) {
+	t.Helper()
 	srv, host := gitServerWith(t, opts...)
 	withProjectsAndFake(t, srv, t.TempDir())
 	pid := makeProject(t, srv, "repo")
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	body := `{"project_id":"` + pid + `"}`
+	if isolate {
+		body = `{"project_id":"` + pid + `","isolate":true}`
+	}
+	w := post(t, srv, "/v1/sessions", body, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -394,7 +410,7 @@ func TestPRMergeIsRefusedWhenTheHostWouldRefuseIt(t *testing.T) {
 }
 
 func TestPRMergeMakesTheSessionIntegrated(t *testing.T) {
-	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	srv, host, ss := isolatedPRSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
 	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr/merge"), testToken, `{}`); w.Code != http.StatusOK {
@@ -407,7 +423,7 @@ func TestPRMergeMakesTheSessionIntegrated(t *testing.T) {
 }
 
 func TestPRAutoMergeIsAProjectChoice(t *testing.T) {
-	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	srv, host, ss := isolatedPRSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	c := srv.sessions[ss.ID]
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
@@ -452,7 +468,7 @@ func TestPRAttemptsAreAProjectChoice(t *testing.T) {
 }
 
 func TestPRMergedSomewhereElseIsNoticed(t *testing.T) {
-	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	srv, host, ss := isolatedPRSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	c := srv.sessions[ss.ID]
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
@@ -536,7 +552,7 @@ func TestMergeBringsTheProjectUpToDate(t *testing.T) {
 // The whole loop through the real goroutine: the CI fails, the agent is sent, the CI passes, and
 // somebody merges the pull request elsewhere.
 func TestPRWatchRunsByItself(t *testing.T) {
-	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	srv, host, ss := isolatedPRSession(t, "https://github.com/o/r.git")
 	srv.opts.PRPollEvery = 10 * time.Millisecond
 	connectGitHub(t, srv)
 	c := srv.sessions[ss.ID]
@@ -613,7 +629,7 @@ func TestPRWatchPaceFollowsTheHost(t *testing.T) {
 }
 
 func TestAMergedPRCanOpenTheNextSessionByItself(t *testing.T) {
-	srv, _, ss := prSession(t, "")
+	srv, _, ss := isolatedPRSession(t, "")
 	c := srv.sessions[ss.ID]
 	p := srv.projectOf(ss.ProjectID)
 	base := gitx.Display(context.Background(), p.Dir)

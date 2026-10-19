@@ -32,6 +32,14 @@ func connected(t *testing.T, opts ...func(*Options)) (*Server, *gitHost, Session
 	return srv, host, ss, srv.sessions[ss.ID]
 }
 
+// connectedIsolated is connected for a session with a worktree of its own.
+func connectedIsolated(t *testing.T, opts ...func(*Options)) (*Server, *gitHost, SessionStatus, *conversation) {
+	t.Helper()
+	srv, host, ss := isolatedPRSession(t, "https://github.com/o/r.git", opts...)
+	connectGitHub(t, srv)
+	return srv, host, ss, srv.sessions[ss.ID]
+}
+
 func logTo(t *testing.T) *logx.Logger {
 	t.Helper()
 	log, err := logx.New(logx.Options{Path: filepath.Join(t.TempDir(), "gateway.log"), Level: logx.Info})
@@ -306,7 +314,7 @@ func TestAutomaticMergeAndContinuationSayWhenTheyFail(t *testing.T) {
 			log := logTo(t)
 			opts = append(opts, func(o *Options) { o.Log = log })
 		}
-		srv, host, ss, c := connected(t, opts...)
+		srv, host, ss, c := connectedIsolated(t, opts...)
 		if patchProjectCode(t, srv, ss.ProjectID, `{"auto_merge":true,"auto_continue":true}`) != http.StatusOK {
 			t.Fatal("settings")
 		}
