@@ -1522,7 +1522,7 @@ code_index:
 ```
 
 Everything above can be changed from **Settings → Indexing**, or through `GET/PUT /v1/code-index` on
-the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. `motita index status` and `motita index clear` do the same from the terminal. The edit-project dialog shows how much of the project's folder the index covers (a bar, files, passages, terms, size on disk) and **Index now** brings it up to date. The change is written to the
+the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. `motita index status` and `motita index clear` do the same from the terminal. The edit-project dialog shows how much of the project's folder the index covers (a bar, files, passages, terms, size on disk) and **Index now** brings it up to date. A project created while the index is on is indexed in the background, so its first search is already warm. The change is written to the
 configuration file and applies to the sessions started after it. An address outside this machine and its
 network is saved only after the page told the person that the text of the indexed files will be sent
 there (`confirm: true` in the request). The embeddings key is not handled by the page: set
