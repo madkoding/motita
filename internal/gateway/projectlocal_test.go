@@ -80,9 +80,11 @@ func TestALocalRepositoryIsUsedWhereItIsAndNothingOfTheUsersMoves(t *testing.T) 
 		t.Fatalf("adding a local repository: %d %+v", code, p)
 	}
 	repo := p.Repos[0]
-	if repo.Name != "bridges" || repo.Dir != local || !repo.Local || !repo.Shared || repo.MainBranch != "main" ||
-		repo.ProjectBranch != "project/proj" || repo.GitURL == "" {
+	if repo.Name != "bridges" || repo.Dir != local || repo.GitURL == "" {
 		t.Fatalf("the repository is registered where it is: %+v", repo)
+	}
+	if !repo.Local || !repo.Shared || repo.MainBranch != "main" || repo.ProjectBranch != "project/proj" {
+		t.Fatalf("the repository is local, shared and on the project's branch: %+v", repo)
 	}
 	// No clone: the catalog has nothing, and the project's folder is a worktree of the user's repository.
 	if _, err := os.Stat(filepath.Join(srv.opts.WorkspaceDir, catalogFolder)); err == nil {
@@ -326,5 +328,33 @@ func TestTheMainBranchOfALocalRepositoryIsReadNeverSwitchedTo(t *testing.T) {
 	}
 	if got := mustGit(t, local, "symbolic-ref", "--short", "HEAD"); got != "feature/mine" {
 		t.Errorf("reading the main branch must not switch: on %q", got)
+	}
+}
+
+func TestAFolderOfTheUsersOwnIsNotSwitchedOrUpdatedByItself(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	local, _ := usersRepo(t)
+	if code, out := createProject(t, srv, `{"title":"mine","path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("creating: %d %v", code, out)
+	}
+	p := srv.projectOf(onlyProjectID(t, srv))
+	ctx := context.Background()
+	mainBefore := mustGit(t, local, "rev-parse", "main")
+	// A clean tree, so that only the rule keeps the branch where it is.
+	if err := os.Remove(filepath.Join(local, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Back to the main branch and the background update leave the user's checkout alone...
+	srv.returnToMain(p)
+	if got := mustGit(t, local, "symbolic-ref", "--short", "HEAD"); got != "feature/mine" {
+		t.Errorf("the user's branch was switched to %q", got)
+	}
+	if w := srv.refreshMain(ctx, p, false); w != "" || mustGit(t, local, "rev-parse", "main") != mainBefore {
+		t.Errorf("the background update moved the user's main branch (%q)", w)
+	}
+	// ...and "update now" is the person asking, so it moves the branch forward.
+	if w := srv.refreshMain(ctx, p, true); w != "" || mustGit(t, local, "rev-parse", "main") == mainBefore {
+		t.Errorf("an explicit update must bring main up to date (%q)", w)
 	}
 }
