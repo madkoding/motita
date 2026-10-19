@@ -826,11 +826,13 @@ const more: Record<string, string> = {
   "Writes a note for every project and every session you have used, linked to each other. Run it again to refresh them; what you add around the generated block stays.":
     "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
   "Scan now": "Escanear ahora",
-  "Summarise long sessions with the model":
-    "Resumir sesiones largas con el modelo",
-  "Adds a short summary to sessions of six turns or more, at most twenty per scan and only again when a session grew. The text of those sessions is sent to your model provider and uses tokens.":
-    "Agrega un resumen corto a las sesiones de seis turnos o más, hasta veinte por escaneo y solo de nuevo cuando la sesión creció. El texto de esas sesiones se envía a tu proveedor de modelos y gasta tokens.",
+  "Use the model to summarise sessions and explain projects":
+    "Usar el modelo para resumir sesiones y explicar proyectos",
+  "Adds a short summary to sessions of six turns or more (at most twenty per scan) and explains how each project fits together: modules, connections and flows (at most ten per scan). Each is only asked again when the session or project changed. The text of those sessions and the structure and README of those projects are sent to your model provider and use tokens.":
+    "Agrega un resumen corto a las sesiones de seis turnos o más (hasta veinte por escaneo) y explica cómo encaja cada proyecto: módulos, conexiones y flujos (hasta diez por escaneo). Cada uno se pide de nuevo solo cuando la sesión o el proyecto cambió. El texto de esas sesiones y la estructura y el README de esos proyectos se envían a tu proveedor de modelos y gastan tokens.",
   "{n} long sessions summarised.": "{n} sesiones largas resumidas.",
+  "{mapped} projects mapped, {explained} explained by the model.":
+    "{mapped} proyectos mapeados, {explained} explicados por el modelo.",
   "notes created from your sessions and projects":
     "notas creadas a partir de tus sesiones y proyectos",
   "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.":

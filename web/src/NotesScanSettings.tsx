@@ -18,14 +18,21 @@ function scanSummary(r: NoteScan): string {
       skipped: String(r.skipped),
     },
   );
-  if (r.summarized === 0) {
-    return done;
+  const extra: string[] = [];
+  if (r.summarized > 0) {
+    extra.push(
+      tf("{n} long sessions summarised.", { n: String(r.summarized) }),
+    );
   }
-  return (
-    done +
-    " " +
-    tf("{n} long sessions summarised.", { n: String(r.summarized) })
-  );
+  if (r.mapped > 0) {
+    extra.push(
+      tf("{mapped} projects mapped, {explained} explained by the model.", {
+        mapped: String(r.mapped),
+        explained: String(r.explained),
+      }),
+    );
+  }
+  return [done, ...extra].join(" ");
 }
 
 type OnOff = "on" | "off";
@@ -58,9 +65,9 @@ export function NotesScanSettings({ api }: { api: Api }) {
       <div class="settings-card">
         <Row
           id="settings-notes-summary"
-          label={t("Summarise long sessions with the model")}
+          label={t("Use the model to summarise sessions and explain projects")}
           hint={t(
-            "Adds a short summary to sessions of six turns or more, at most twenty per scan and only again when a session grew. The text of those sessions is sent to your model provider and uses tokens.",
+            "Adds a short summary to sessions of six turns or more (at most twenty per scan) and explains how each project fits together: modules, connections and flows (at most ten per scan). Each is only asked again when the session or project changed. The text of those sessions and the structure and README of those projects are sent to your model provider and use tokens.",
           )}
           stack
         >

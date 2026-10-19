@@ -624,3 +624,25 @@ func TestSummarizeTextReportsFailures(t *testing.T) {
 		t.Error("no engine is an error")
 	}
 }
+
+func TestDescribeProjectReturnsTheModelsExplanation(t *testing.T) {
+	r := summaryRunner(t, `{"choices":[{"message":{"content":"  ## Modules\n- a  "}}]}`)
+	got, err := r.DescribeProject(context.Background(), "facts")
+	if err != nil || got != "## Modules\n- a" {
+		t.Errorf("DescribeProject = %q, %v", got, err)
+	}
+}
+
+func TestDescribeProjectReportsFailures(t *testing.T) {
+	r := summaryRunner(t, `not json`)
+	if _, err := r.DescribeProject(context.Background(), "x"); err == nil {
+		t.Error("a failing model is an error")
+	}
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "" // no key, so the engine cannot be built
+	r = NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	if _, err := r.DescribeProject(context.Background(), "x"); err == nil {
+		t.Error("no engine is an error")
+	}
+}
