@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -53,5 +54,32 @@ func TestPruneBlankSessionsKeepsWhatHasContent(t *testing.T) {
 	}
 	if _, ok := srv.lookup(blank); ok {
 		t.Error("the blank session is still there")
+	}
+}
+
+// TestPruneBlankSessionsInAProject: an unused session of a project is removed with its checkout, and
+// one whose checkout holds uncommitted work stays.
+func TestPruneBlankSessionsInAProject(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withProjects(t, srv, t.TempDir())
+	pid := makeProject(t, srv, "repo")
+	clean := createSessionIn(t, srv, pid)
+	dirty := createSessionIn(t, srv, pid)
+	if err := os.WriteFile(filepath.Join(dirty.Workspace, "wip.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	removed := srv.pruneBlankSessions()
+	if len(removed) != 1 || removed[0] != clean.ID {
+		t.Fatalf("removed %v, want only %s", removed, clean.ID)
+	}
+	if _, ok := srv.lookup(dirty.ID); !ok {
+		t.Fatal("the session with uncommitted work was removed")
+	}
+	if c, _ := srv.lookup(dirty.ID); c.isClosing() {
+		t.Error("a session kept after a refused release is still closing")
+	}
+	if _, err := os.Stat(clean.Workspace); !os.IsNotExist(err) {
+		t.Errorf("the checkout of the removed session is still there: %v", err)
 	}
 }
