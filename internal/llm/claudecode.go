@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
@@ -375,7 +376,7 @@ type claudeRateLimit struct {
 	RateLimitType string   `json:"rateLimitType"`
 	Utilization   *float64 `json:"utilization"`
 	// UnifiedWindows is every window's share and reset, read from the subscription's response
-	// headers on each answer, below any threshold too. Newer claude versions send it; older ones
+	// headers after an answer that moved a window, below any threshold too. Newer claude versions send it; older ones
 	// leave it out.
 	UnifiedWindows map[string]claudeWindow `json:"unifiedWindows"`
 }
@@ -723,17 +724,86 @@ func (c *Client) callClaudeCode(
 	if err != nil {
 		return Reply{}, err
 	}
-	defer p.stop()
 	p.mcp = len(tools) > 0
+	reply, err := p.turn(frames, onText)
+	if err != nil {
+		p.stop()
+		return Reply{}, err
+	}
+	// The answer is out; the subscription's limits come after it.
+	claudeDrains.Add(1)
+	go func(wait time.Duration) {
+		defer claudeDrains.Done()
+		p.drain(wait)
+	}(claudeDrainWait)
+	recordUsage(ctx, c.source(), reply.Usage)
+	return reply, nil
+}
+
+// turn replays the conversation and reads the answer to it.
+func (p *claudeProcess) turn(frames []claudeFrame, onText func(string)) (Reply, error) {
 	if err := p.replay(frames); err != nil {
 		return Reply{}, err
 	}
-	reply, err := p.readTurn(onText)
-	if err != nil {
-		return Reply{}, err
+	return p.readTurn(onText)
+}
+
+// claudeDrainWait is how long claude is read after its answer before it is stopped.
+var claudeDrainWait = 3 * time.Second
+
+// claudeDrains is every claude still read after its answer, so a test can wait for them to end.
+var claudeDrains sync.WaitGroup
+
+// drain reads what claude prints after an answer, for at most wait, then stops it, and reports
+// whether claude stated the subscription's limits. claude prints its rate_limit_event after the
+// message_stop that ends a turn (measured with claude 2.1.303), so a process stopped at the answer
+// never told them. The first event of the limits, or the turn's result, is as far as it is read.
+func (p *claudeProcess) drain(wait time.Duration) bool {
+	defer p.stop()
+	timer := time.AfterFunc(wait, p.cancel)
+	defer timer.Stop()
+	for {
+		ev, err := p.event()
+		if err != nil || ev.Type == "result" {
+			return false
+		}
+		if ev.Type == "rate_limit_event" {
+			return true
+		}
 	}
-	recordUsage(ctx, c.source(), reply.Usage)
-	return reply, nil
+}
+
+// claudeProbeTimeout bounds one ProbeClaudeQuota.
+const claudeProbeTimeout = time.Minute
+
+// claudeProbeArgs is claude's command line for ProbeClaudeQuota: the smallest model, no tools, no
+// settings, no session left behind, and a system prompt of one line instead of claude's own.
+var claudeProbeArgs = append(claudeBareArgs(), "--model", "haiku",
+	"--system-prompt", "Answer with the single word: ok", "--max-turns", "1", "--permission-mode", "dontAsk")
+
+// claudeBareArgs is the command line of a claude that only talks stream-json: no tools, no settings,
+// no MCP server, no slash command and no session left behind.
+func claudeBareArgs() []string {
+	return []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
+		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
+		"--no-session-persistence"}
+}
+
+// ProbeClaudeQuota asks claude the smallest question there is so that it states the subscription's
+// limits, which it only does with an answer; they land in the ledger like those of any turn. The
+// question is not counted as a call. It fails when claude cannot run or states no limits.
+func ProbeClaudeQuota(ctx context.Context) error {
+	p, err := startClaude(ctx, claudeProbeTimeout, claudeProbeArgs, claudeEnv(config.LLM{MaxTokens: 16}))
+	if err != nil {
+		return err
+	}
+	// One frame, so nothing waits on claude; a claude that died shows up as the end of its output.
+	_, frames, _ := claudeFrames([]Message{{Role: "user", Content: "ok"}})
+	_ = p.replay(frames)
+	if !p.drain(claudeProbeTimeout) {
+		return errors.New("claude stated no subscription limits")
+	}
+	return nil
 }
 
 // callClaudeCodeText is Complete's single call: text only, no tools.
@@ -797,9 +867,7 @@ type ClaudeCodeModel struct {
 // ClaudeCodeModels asks the local claude CLI which models the logged-in account
 // offers. It is claude's initialize handshake only: no model is called.
 func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
-	args := []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
-		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
-		"--no-session-persistence"}
+	args := claudeBareArgs()
 	// The base environment: with nonessential traffic off claude lists 5 models instead of the
 	// account's 11 (measured).
 	p, err := startClaude(ctx, 30*time.Second, args, claudeBaseEnv())

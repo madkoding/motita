@@ -92,6 +92,7 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 			}
 			row.Limits = u.Limits
 		}
+		s.keepClaudeQuotaFresh(p.ID, called || cfg.Provider == p.ID, u.Limits)
 		row.Limits = withQuotas(row.Limits, s.planQuotas(r.Context(), s.opts.ConfigPath, cfg, p.ID))
 		rows = append(rows, row)
 	}
@@ -127,6 +128,48 @@ func withQuotas(l *llm.RateLimits, qs []llm.Quota) *llm.RateLimits {
 	}
 	out.Quotas = append(append([]llm.Quota{}, out.Quotas...), qs...)
 	return &out
+}
+
+// probeClaudeQuota asks claude for the subscription's limits; a variable so a test runs no claude.
+var probeClaudeQuota = llm.ProbeClaudeQuota
+
+// claudeQuotaFresh is how old Claude's quotas may get before the panel has claude asked for them:
+// claude states them only with an answer, so without a turn for that long they would go stale.
+const claudeQuotaFresh = 3 * time.Minute
+
+// claudeProbe is the one question to claude that may be under way, and when the last one began.
+type claudeProbe struct {
+	mu      sync.Mutex
+	running bool
+	last    time.Time
+}
+
+// quotasFresh reports whether l has quotas stated less than claudeQuotaFresh ago.
+func quotasFresh(l *llm.RateLimits) bool {
+	return l != nil && len(l.Quotas) > 0 && time.Since(l.At) < claudeQuotaFresh
+}
+
+// keepClaudeQuotaFresh has claude asked for the subscription's limits, in the background, when it
+// is in use (id is claude-code and used is set) and has stated none yet or none for claudeQuotaFresh,
+// and no question was asked in that time either.
+// The panel asks once a minute while it is open, so a closed panel costs no question.
+func (s *Server) keepClaudeQuotaFresh(id string, used bool, l *llm.RateLimits) {
+	if id != "claude-code" || !used || quotasFresh(l) {
+		return
+	}
+	c := &s.claudeProbe
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.running || time.Since(c.last) < claudeQuotaFresh {
+		return
+	}
+	c.running, c.last = true, time.Now()
+	go func() {
+		_ = probeClaudeQuota(context.Background())
+		c.mu.Lock()
+		c.running = false
+		c.mu.Unlock()
+	}()
 }
 
 // copilotToken is the GitHub token behind the Copilot login (or the key configured for it), or "".

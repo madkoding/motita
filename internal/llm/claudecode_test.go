@@ -128,6 +128,12 @@ func claudeTestClient(t *testing.T, script string, tweak func(*config.LLM)) (*Cl
 		t.Fatal(err)
 	}
 	record := filepath.Join(t.TempDir(), "record.json")
+	// A claude read after its answer may still write the record: it ends before the directory goes.
+	t.Cleanup(claudeDrains.Wait)
+	// The fake prints what follows an answer at once, or never ("sleep"): a short wait is enough.
+	oldWait := claudeDrainWait
+	claudeDrainWait = 200 * time.Millisecond
+	t.Cleanup(func() { claudeDrainWait = oldWait })
 	t.Setenv("MOTITA_CLAUDE_BIN", exe)
 	t.Setenv("MOTITA_FAKE_CLAUDE", script)
 	t.Setenv("MOTITA_FAKE_CLAUDE_RECORD", record)
@@ -301,7 +307,15 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if len(reply.Calls) != 1 || !isReadGoModCall(reply.Calls[0]) {
 		t.Errorf("calls = %+v", reply.Calls)
 	}
-	if _, err := os.Stat(record + ".term"); err != nil && runtime.GOOS != "windows" {
+	// claude is stopped once what it prints after the answer is read, which the answer does not wait for.
+	termed := func() error {
+		_, err := os.Stat(record + ".term")
+		return err
+	}
+	for end := time.Now().Add(5 * time.Second); termed() != nil && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := termed(); err != nil && runtime.GOOS != "windows" {
 		t.Errorf("claude must be asked to stop with SIGTERM, not killed: %v", err)
 	}
 
