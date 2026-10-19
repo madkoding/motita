@@ -113,7 +113,9 @@ function HitRow({ h }: { h: NoteHit }) {
           </div>
         )}
         {!!h.snippet && (
-          <div class="text-xs text-[#9a9aaa] truncate">{h.snippet}</div>
+          <div class="text-xs text-[#9a9aaa] truncate">
+            {plainWiki(h.snippet)}
+          </div>
         )}
       </button>
     </li>
@@ -584,7 +586,10 @@ function OpenNote() {
       {!!current && (
         <>
           <NoteToolbar />
-          <div class="flex flex-col flex-1 min-h-0 overflow-auto">
+          <div
+            key={(current as NoteView).path}
+            class="flex flex-col flex-1 min-h-0 overflow-auto"
+          >
             <NoteBody />
             <Backlinks />
           </div>

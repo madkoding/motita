@@ -170,7 +170,7 @@ func TestManualChaptersExplainEachFolder(t *testing.T) {
 		"# Api", "*A chapter of the [[Projects/M - Manual/Start here|M manual]]. Folder `lib/api/`, "+
 			"inside [[Projects/M - Manual/lib|Lib]].*",
 		"## What it is for\nPackage api is the public face.\n\nIt says more here.\n",
-		"## What is inside\nIt holds 3 files, mostly Go.\n",
+		"## What is inside\nIt holds 3 files, mostly Go.\n", "- and 1 test file checking them.\n",
 		"## How it connects\nIt relies on [[Projects/M - Manual/lib › store|Store]].",
 		"## For developers\n", "### Go package `api`",
 		"- `type Server struct` in api.go: Server serves.",

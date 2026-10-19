@@ -335,10 +335,12 @@ export function layoutGraph3D(
   return placed;
 }
 
-// plainWiki reads a line of a note as text: a [[link]] becomes the words it shows (its alias, or
-// the name of the note it leads to) and the marks of emphasis and code go.
+// plainWiki reads a line of a note as text: the marks of a list, quote, table or heading at its
+// start go, a [[link]] becomes the words it shows (its alias, or the name of the note it leads to)
+// and the marks of emphasis and code go.
 export function plainWiki(line: string): string {
   return line
+    .replace(/^[\s>|#-]+/, "")
     .replace(
       /\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g,
       (_, target: string, alias?: string) =>

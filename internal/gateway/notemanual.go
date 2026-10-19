@@ -555,11 +555,28 @@ func (ch *chapter) purpose() string {
 	return b.String()
 }
 
-func (m *moduleInfo) fileList() string {
-	if len(m.files) == 0 {
-		return ""
+// isTest says whether a file holds tests, which the manual counts instead of listing.
+func isTest(name string) bool {
+	lower := strings.ToLower(name)
+	for _, mark := range []string{"_test.", ".test.", ".spec.", "test_"} {
+		if strings.Contains(lower, mark) {
+			return true
+		}
 	}
-	files := m.files
+	return false
+}
+
+// fileList is the files of the folder, each with what it is; the tests are counted on one line.
+func (m *moduleInfo) fileList() string {
+	var files []fileInfo
+	tests := 0
+	for _, fi := range m.files {
+		if isTest(fi.name) {
+			tests++
+			continue
+		}
+		files = append(files, fi)
+	}
 	sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
 	var b strings.Builder
 	for _, fi := range files[:min(len(files), manualMaxFiles)] {
@@ -576,6 +593,9 @@ func (m *moduleInfo) fileList() string {
 	}
 	if len(files) > manualMaxFiles {
 		fmt.Fprintf(&b, "- and %d more files.\n", len(files)-manualMaxFiles)
+	}
+	if tests > 0 {
+		fmt.Fprintf(&b, "- and %s checking them.\n", plural(tests, "test file"))
 	}
 	return b.String()
 }
