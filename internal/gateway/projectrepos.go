@@ -34,7 +34,9 @@ import (
 // ProjectRepo is one of a project's other repositories.
 type ProjectRepo struct {
 	// Name is the repository's folder name, and what the user calls it.
-	Name   string `json:"name"`
+	Name string `json:"name"`
+	// RepoID is the Repository record of this repository.
+	RepoID string `json:"repo_id,omitempty"`
 	GitURL string `json:"git_url"`
 	Dir    string `json:"dir"`
 	// MainBranch is the branch the clone was settled on when it was added.
