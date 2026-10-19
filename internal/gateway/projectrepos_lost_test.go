@@ -249,7 +249,8 @@ func TestLoadAllSkipsWhatIsNotAProject(t *testing.T) {
 // cannot be cloned leaves no project behind, nor the folder this request made.
 func TestCreateProjectFromAURLThatFailsLeavesNothing(t *testing.T) {
 	srv, ws := projectServer(t)
-	if code, _ := createProject(t, srv, `{"title":"n","dir":"n","git_url":"https://example.com/.hidden"}`); code != http.StatusBadRequest {
+	hidden := `{"title":"n","dir":"n","git_url":"https://example.com/.hidden"}`
+	if code, _ := createProject(t, srv, hidden); code != http.StatusBadRequest {
 		t.Errorf("a URL with no usable folder name: %d", code)
 	}
 	code, _ := createProject(t, srv, `{"title":"f","dir":"f","git_url":"`+filepath.Join(ws, "no-such-origin")+`"}`)
@@ -281,7 +282,8 @@ func TestCloneIntoNewProjectReportsASaveThatFails(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/v1/projects", nil)
-	if _, _, ok := srv.cloneIntoNewProject(w, r, p, origin, "origin", false); ok || w.Code != http.StatusInternalServerError {
+	_, _, ok := srv.cloneIntoNewProject(w, r, p, origin, "origin", false)
+	if ok || w.Code != http.StatusInternalServerError {
 		t.Errorf("a save that fails: ok=%v code=%d", ok, w.Code)
 	}
 }
