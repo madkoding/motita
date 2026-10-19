@@ -175,6 +175,10 @@ var removeAll = os.RemoveAll
 // handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
 // in it stops the deletion, unless the user confirmed the discard with `?force=1`.
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
+	if rec, _ := s.repoRecord(r.PathValue("name")); rec != nil {
+		s.deleteRepository(w, r, rec)
+		return
+	}
 	dir := s.catalogRepoDir(r.PathValue("name"))
 	if dir == "" {
 		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
@@ -207,6 +211,7 @@ func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.forgetRepositoriesAt(dir)
 	w.WriteHeader(http.StatusNoContent)
 }
 

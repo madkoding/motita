@@ -145,11 +145,18 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 		// not cloned. It needs the whole disk allowed (Settings → Security), like a project
 		// outside the workspace.
 		Path string `json:"path"`
+		// RepoID links a repository that is already recorded (GET /v1/repos): the project takes a
+		// worktree of its one clone, on a branch of the project's own.
+		RepoID string `json:"repo_id"`
 		// Shared keeps one clone of the repository for every project that uses it (a worktree of
 		// it on a branch of the project's own) instead of a clone of its own.
 		Shared bool `json:"shared"`
 	}
 	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.RepoID) != "" {
+		s.linkRepository(w, r, p, strings.TrimSpace(body.RepoID), body.Name)
 		return
 	}
 	if strings.TrimSpace(body.Path) != "" {

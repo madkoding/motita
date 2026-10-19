@@ -379,10 +379,14 @@ func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
 func bareProject(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	srv, ws := projectServer(t)
+	dir := filepath.Join(ws, "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, dir)
 	if code, _ := createProject(t, srv, `{"title":"proj","dir":"proj"}`); code != http.StatusCreated {
 		t.Fatalf("creating the project: %d", code)
 	}
-	dir := filepath.Join(ws, "proj")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}

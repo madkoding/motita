@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 )
 
@@ -102,5 +103,81 @@ func TestChangingARepositoryAlsoChangesTheProjectThatIsIt(t *testing.T) {
 	}
 	if got := send(t, srv, http.MethodPatch, "/v1/repos/missing", testToken, `{}`).Code; got != http.StatusNotFound {
 		t.Errorf("an unknown repository: %d", got)
+	}
+}
+
+func createRepository(t *testing.T, srv *Server, body string) (int, Repository) {
+	t.Helper()
+	w := send(t, srv, http.MethodPost, "/v1/repos", testToken, body)
+	var r Repository
+	_ = json.Unmarshal(w.Body.Bytes(), &r)
+	return w.Code, r
+}
+
+func TestARepositoryIsClonedOnceAndLinkedToManyProjects(t *testing.T) {
+	srv, _ := projectServer(t)
+	src := sourceRepo(t)
+	code, repo := createRepository(t, srv, `{"git_url":"`+src+`"}`)
+	if code != http.StatusCreated || repo.ID == "" || repo.Name != "web-client" {
+		t.Fatalf("creating: %d %+v", code, repo)
+	}
+	if code, _ := createRepository(t, srv, `{"git_url":"`+src+`"}`); code != http.StatusConflict {
+		t.Errorf("the same repository twice: %d", code)
+	}
+	var ids []string
+	for _, dir := range []string{"one", "two"} {
+		_, out := createProject(t, srv, `{"title":"`+dir+`","dir":"`+dir+`"}`)
+		ids = append(ids, out["id"].(string))
+		if code, p := addRepo(t, srv, ids[len(ids)-1], `{"repo_id":"`+repo.ID+`"}`); code != http.StatusCreated ||
+			len(p.Repos) != 1 || p.Repos[0].RepoID != repo.ID || !p.Repos[0].Shared {
+			t.Fatalf("linking to %s: %d %+v", dir, code, p)
+		}
+	}
+	if code, _ := addRepo(t, srv, ids[0], `{"repo_id":"`+repo.ID+`"}`); code != http.StatusConflict {
+		t.Errorf("linking twice: %d", code)
+	}
+	if code, _ := addRepo(t, srv, ids[0], `{"repo_id":"nope"}`); code != http.StatusNotFound {
+		t.Errorf("an unknown repository: %d", code)
+	}
+	if users := listRepositories(t, srv)[0].Projects; len(users) != 2 {
+		t.Errorf("both projects use the one clone: %+v", users)
+	}
+	if w := send(t, srv, http.MethodDelete, "/v1/repos/"+repo.ID, testToken, ""); w.Code != http.StatusConflict {
+		t.Errorf("a repository in use is not deleted: %d", w.Code)
+	}
+	for _, id := range ids {
+		if w := send(t, srv, http.MethodDelete, "/v1/projects/"+id+"/repos/web-client", testToken, ""); w.Code >= 300 {
+			t.Fatalf("unlinking: %d %s", w.Code, w.Body)
+		}
+	}
+	if w := send(t, srv, http.MethodDelete, "/v1/repos/"+repo.ID, testToken, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("deleting: %d %s", w.Code, w.Body)
+	}
+	if _, err := os.Stat(repo.Dir); !os.IsNotExist(err) {
+		t.Errorf("the catalog's clone goes with its record: %v", err)
+	}
+	if got := listRepositories(t, srv); len(got) != 0 {
+		t.Errorf("no record is left: %+v", got)
+	}
+}
+
+func TestAFolderOfTheUserIsRecordedAndNeverDeleted(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	dir := sourceRepo(t)
+	if code, _ := createRepository(t, srv, `{"path":"`+t.TempDir()+`"}`); code != http.StatusBadRequest {
+		t.Errorf("a folder that is not a repository: %d", code)
+	}
+	code, repo := createRepository(t, srv, `{"path":"`+dir+`"}`)
+	if code != http.StatusCreated || !repo.Local {
+		t.Fatalf("recording: %d %+v", code, repo)
+	}
+	if w := send(t, srv, http.MethodDelete, "/v1/repos/"+repo.ID, testToken, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting: %d", w.Code)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("the user's folder stays: %v", err)
+	}
+	if code, _ := createRepository(t, srv, `{}`); code != http.StatusBadRequest {
+		t.Errorf("nothing asked: %d", code)
 	}
 }
