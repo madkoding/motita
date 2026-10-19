@@ -106,12 +106,15 @@ func TestTheBudgetQuestionIsStillAsked(t *testing.T) {
 }
 
 // TestTheChangedGateQuestionIsStillAsked: "allow all commands" is consent to run commands, not
-// to let the run replace the check that judges it. A PASS from a gate the run rewrote is still
-// put to the user, and a background agent cannot have it approved at all.
+// to let the run replace the check that judges it, and neither is an "always allow" kept in the
+// project. A PASS from a gate the run rewrote is still put to the user, and a background agent
+// cannot have it approved at all.
 func TestTheChangedGateQuestionIsStillAsked(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	conv := srv.sessions[DefaultSession]
 	conv.setAutoApprove(true)
+	// An "always allow" kept in the project does not answer it either.
+	srv.rememberApproval(conv, agent.GateRule, "accept PASS")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rn := newRun("r", ctx, cancel, "")

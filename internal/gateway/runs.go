@@ -653,7 +653,8 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		// question - announced in the run, so what ran on that answer is still visible. The
 		// questions of spending another step budget and of accepting a PASS from a gate the run
 		// rewrote are not commands and are still asked.
-		if req.Rule != agent.BudgetRule && req.Rule != agent.GateRule && c.autoApproving() {
+		notCommand := req.Rule == agent.BudgetRule || req.Rule == agent.GateRule
+		if !notCommand && c.autoApproving() {
 			who := ""
 			if req.Background {
 				who = "background agent " + req.Agent + ": "
@@ -664,7 +665,7 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		}
 		// "Always allow this here", said in an earlier session of the project: answered the same
 		// way, and announced the same way.
-		if req.Rule != agent.BudgetRule && s.alwaysAllowed(c, req.Rule, req.Command) {
+		if !notCommand && s.alwaysAllowed(c, req.Rule, req.Command) {
 			rn.append(EventProgress, progressEvent{Text: "approved (always allowed in this project): " + req.Command})
 			return true, nil
 		}
