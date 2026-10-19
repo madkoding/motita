@@ -618,9 +618,12 @@ the same folder opens in Obsidian and what you change there is what motita shows
   project's notes sit together; everything else lives at the top level.
 - **Search.** With the code index on (Settings, Indexing) the notes are searched with the same
   index as code, ranked by meaning; with it off, every word must appear in the name or text.
-- **Graph.** The Graph button draws the notes as dots joined by their links (bigger dots are
-  linked from more notes); a click opens the note. Links to notes not written yet are counted,
-  not drawn.
+- **Map.** The Map button draws the notes as neon spheres joined by their links, in 3D where the
+  browser has WebGL and flat elsewhere (bigger spheres are linked from more notes). Drag to turn,
+  scroll to zoom. A legend names the colour of each part of the vault, the biggest parts first.
+  The search box lights the notes it finds and turns to the first. A click on a note shows it
+  beside the map, where its links lead to the next one; **Open the note** leaves the map for it.
+  Links to notes not written yet are counted, not drawn.
 - **Review notes.** The Review notes button opens a new conversation that asks the agent to run
   the `reviewing-the-notes` skill over the whole vault: it reports notes that contradict each
   other, look out of date, have no source, point nowhere or are orphans, and changes nothing
@@ -638,8 +641,10 @@ the same folder opens in Obsidian and what you change there is what motita shows
   and rewrites the `[[links]]` of the other notes that led to it, keeping headings, aliases and
   embeds (links in code stay as they are).
 - **Second brain.** Settings, Indexing, **Scan now** runs in the background, with a bar that says
-  which project and which folder it is on (close the window and come back: it is still followed),
-  and writes a note for every project (`Projects/`)
+  which project and which folder it is on (close the window and come back: it is still followed).
+  Once the vault has been scanned, new code on a project's main branch (brought in when a session
+  opens or closes, or every 15 minutes) scans again by itself, with the model options of the last
+  scan. A scan writes a note for every project (`Projects/`)
   and every session that has been used (`Sessions/`): folder, repository, description, a README
   excerpt, the first request and the latest exchanges, with the session notes linked from their
   project and back. Next to each project note goes `Projects/<name> - Architecture`, read from the
