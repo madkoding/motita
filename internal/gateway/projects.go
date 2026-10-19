@@ -47,6 +47,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		ctx := context.Background()
 		all[i].Branch = gitx.Display(ctx, all[i].Dir)
 		all[i].MainBranch = mainBranchOf(ctx, &all[i])
+		all[i].MainWarning = s.mainRefresh.warning(all[i].ID)
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
 		liveRepos(ctx, &all[i])
 		// Worktrees counts the session checkouts, and it is asked of git rather

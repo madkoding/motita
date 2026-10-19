@@ -36,9 +36,9 @@ func (s *Server) handleMoveSessionToProject(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer c.releaseRunSlot()
-	warning := pullProjectBase(r.Context(), p)
+	s.refreshMainInBackground(p)
 	s.releaseFreeSessionDir(c)
 	s.placeInProject(c, p.ID, p)
 	s.saveSession(c)
-	writeJSON(w, http.StatusOK, createdStatus(c, warning))
+	writeJSON(w, http.StatusOK, c.status())
 }

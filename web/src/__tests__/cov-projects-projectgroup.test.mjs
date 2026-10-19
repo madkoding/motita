@@ -60,6 +60,7 @@ function store({
         hasPodman,
         openEditProject: rec("edit"),
         setProjectPodman: rec("podman"),
+        refreshProjectMain: rec("refreshMain"),
       },
       deletion: { setConfirmDelete: rec("confirm") },
     },
@@ -172,6 +173,20 @@ test("the menu edits the project and asks before deleting it", async () => {
   await m.unmount();
 });
 
+test("the menu offers to update the main branch only when the last update left a notice", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=refresh-main]"), null);
+  const w = store({ rowMenu: { id: "p1" } });
+  await m.rerender(
+    w.value,
+    h(ProjectGroup, { p: { ...P, main_warning: "main: could not fetch" } }),
+  );
+  await click(m.q("[data-testid=refresh-main]"));
+  assert.deepEqual(w.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
 test("the menu turns podman on where the machine has it, and off where it is on", async () => {
   const s = store({ rowMenu: { id: "p1" }, hasPodman: true });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
@@ -205,6 +220,21 @@ test("a long press on the header opens the context menu where the finger is", as
       { type: "project", id: "p1", title: "Motita", x: 12, y: 34 },
     ],
   ]);
+  await m.unmount();
+});
+
+test("a main branch that could not be updated is flagged with the reason", async () => {
+  const s = store();
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...P, main_warning: "main: could not fetch" } }),
+  );
+  const fact = m.q("[data-testid=project-stale]");
+  assert.equal(fact.textContent, "outdated");
+  assert.equal(fact.title, "Main branch not updated: main: could not fetch");
+  await m.rerender(s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=project-stale]"), null);
   await m.unmount();
 });
 

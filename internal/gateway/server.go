@@ -255,6 +255,10 @@ type Server struct {
 	server      *http.Server
 	mux         http.Handler
 
+	// mainRefresh tracks the background updates of projects' main branches: which are running
+	// (so a second request for the same project is dropped) and why the last one of each failed.
+	mainRefresh mainRefreshState
+
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
 	// caller would have to know to ignore.
@@ -468,6 +472,9 @@ func Start(opts Options) (*Server, error) {
 	// reload clears.
 	if opts.Tailscale != nil {
 		go s.learnTailnetName(s.baseCtx)
+	}
+	if s.projects != nil {
+		go s.refreshAllMainsEvery(s.baseCtx, mainRefreshInterval)
 	}
 	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
@@ -827,6 +834,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
 	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
 	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))
+	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
 	// agent, and the conversation it fires INTO is a field of the record. Everything

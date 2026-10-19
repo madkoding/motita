@@ -84,15 +84,6 @@ export function useSessionActions({
           await fetchSessions();
           await switchSession(data.id);
           opened = data.id;
-          // A project that could not be updated (offline) still gave a session: say it once,
-          // so the person knows the work starts from the checkout as it was.
-          if (data.warning) {
-            setToast({
-              message: t("The project could not be updated first"),
-              type: "warning",
-              detail: data.warning,
-            });
-          }
         }
       } catch {
         setState("could not create a session", true);

@@ -38,6 +38,10 @@ type Project struct {
 	// one the user chose as its main line of work. It is saved with the project; a project from
 	// before the setting existed answers with the main/master branch it has (read live).
 	MainBranch string `json:"main_branch,omitempty"`
+	// MainWarning is why the last background update of the main branch (when a session opened or
+	// closed) could not be done - offline, diverged, uncommitted work - or absent when it worked.
+	// It is read live, never saved.
+	MainWarning string `json:"main_warning,omitempty"`
 	// MergeMethod is how a pull request of this project is merged from motita: "merge", "squash"
 	// or "rebase". Empty is a merge commit.
 	MergeMethod string `json:"merge_method,omitempty"`

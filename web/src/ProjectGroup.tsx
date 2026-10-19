@@ -44,8 +44,40 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
+      {p.main_warning && (
+        <button
+          class={ITEM_PLAIN}
+          data-testid="refresh-main"
+          onClick={(e) => {
+            e.stopPropagation();
+            void projects.refreshProjectMain(p.id);
+            menus.closeRowMenu();
+          }}
+        >
+          {t("Update main branch")}
+        </button>
+      )}
       <DeleteItem type="project" id={p.id} title={p.title} />
     </RowMenu>
+  );
+}
+
+// StaleFact says the project's main branch could not be brought up to date when a session opened or
+// closed (offline, diverged, uncommitted work); the reason is its title.
+function StaleFact({ p }: { p: ProjectInfo }) {
+  if (!p.main_warning) {
+    return null;
+  }
+  return (
+    <span
+      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
+      title={tf("Main branch not updated: {reason}", { reason: p.main_warning })}
+      data-testid="project-stale"
+    >
+      <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
+        {t("outdated")}
+      </span>
+    </span>
   );
 }
 
@@ -157,6 +189,7 @@ function ProjectHeader({
           <IconFolder size={12} class="flex-none text-accent/60" />
           <span class="project-name truncate">{p.title}</span>
           <BehindFact p={p} />
+          <StaleFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever
               their styles (see SessionRow). */}
