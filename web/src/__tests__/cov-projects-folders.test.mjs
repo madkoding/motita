@@ -334,7 +334,10 @@ test("a new project can pick or type a folder, and go back to the workspace", as
   const s = store({ fullDisk: true });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   assert.match(m.root.textContent, /Folder name/);
-  assert.match(m.root.textContent, /never deleted/);
+  assert.match(
+    m.root.textContent,
+    /deleting the project asks whether it stays/,
+  );
   assert.equal(byTest(m, "new-project-path").value, "");
   assert.equal(byTest(m, "new-project-path-clear"), null);
   await click(byTest(m, "new-project-browse"));
@@ -648,7 +651,10 @@ test("a folder that exists is used as it is, and its folders complete the path",
       dirs: [{ name: "web", path: "/srv/app/web" }],
     }),
   });
-  assert.match(byTest(m, "folder-note-exists").textContent, /asks whether it stays on disk/);
+  assert.match(
+    byTest(m, "folder-note-exists").textContent,
+    /asks whether it stays on disk/,
+  );
   assert.equal(m.qa("datalist option")[0].value, "/srv/app/web");
   await m.unmount();
 });
