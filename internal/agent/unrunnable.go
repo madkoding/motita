@@ -142,21 +142,30 @@ func (r *Report) markUnvalidated(blocked []verifRecord) {
 		r.Status = "partial"
 	}
 	for _, b := range blocked {
-		listed := false
-		for i, v := range r.Verification {
-			if strings.Contains(strings.ToLower(v.Check), strings.ToLower(truncate(collapse(b.command), 40))) ||
-				strings.Contains(strings.ToLower(b.command), strings.ToLower(v.Check)) {
-				listed = true
-				if v.Result == "pass" || v.Result == "skipped" {
-					r.Verification[i].Result = "blocked"
-				}
-			}
-		}
-		if !listed {
+		if !r.relabelListed(b) {
 			r.Verification = append(r.Verification, ReportCheck{
 				Check: collapse(truncate(b.command, 160)), Result: "blocked",
 				Evidence: "could not run: " + blockedCause(b),
 			})
 		}
 	}
+}
+
+// relabelListed finds the entries of the report that name a blocked check and turns a pass or a
+// skip over it into "blocked". It reports whether the report listed the check at all.
+func (r *Report) relabelListed(b verifRecord) bool {
+	listed := false
+	command := strings.ToLower(b.command)
+	short := strings.ToLower(truncate(collapse(b.command), 40))
+	for i, v := range r.Verification {
+		check := strings.ToLower(v.Check)
+		if !strings.Contains(check, short) && !strings.Contains(command, check) {
+			continue
+		}
+		listed = true
+		if v.Result == "pass" || v.Result == "skipped" {
+			r.Verification[i].Result = "blocked"
+		}
+	}
+	return listed
 }

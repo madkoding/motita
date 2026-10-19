@@ -47,6 +47,8 @@ func (t *turnLook) note(calls []llm.ToolCall) {
 			}
 		case "list_directory":
 			t.looked = true
+		default:
+			// Every other tool reads a file, a search or a skill: none of them looks at the repository.
 		}
 	}
 }
