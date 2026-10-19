@@ -464,10 +464,6 @@ type SessionStatus struct {
 	// sessions on two models can be told apart without opening them.
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
-	// Warning is set only on the answer to a create, when the session starts in a project whose
-	// base branch could not be brought up to date (offline, diverged): the session exists and
-	// runs from the checkout as it is, and the client says so.
-	Warning string `json:"warning,omitempty"`
 }
 
 // setAgents keeps the latest snapshot of the run's agents.
@@ -963,20 +959,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The first thing a project session does is bring in the latest changes of the
-	// project's base branch, so its worktree branches from current code and not from
-	// whatever the checkout held when it was last touched. A project with no origin has
-	// nothing to bring in; any other failure (offline, diverged) does not refuse the
-	// session: the person asked to work, and a checkout that is a little behind is better
-	// than no session at all. The answer carries a warning that says so.
-	warning := ""
-	if project != nil {
-		warning = pullProjectBase(r.Context(), project)
-		if warning != "" {
-			s.warn("the session starts from the checkout as it is: the project could not be updated",
-				"project", project.Dir, "error", warning)
-		}
-	}
+	// Opening a session brings the project's main branch up to date, but in the background: the
+	// person asked to work, and a fetch must not hold the session back. See refreshMainInBackground.
+	s.refreshMainInBackground(project)
 
 	conv, err := s.createSession()
 	switch {
@@ -986,19 +971,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
 		s.placeAndSave(conv, body.ProjectID, project, body.Git)
-		writeJSON(w, http.StatusCreated, createdStatus(conv, warning))
+		writeJSON(w, http.StatusCreated, conv.status())
 	}
-}
-
-// createdStatus is the answer to a create: the session, and the warning when the project could
-// not be updated first.
-func createdStatus(conv *conversation, warning string) SessionStatus {
-	st := conv.status()
-	if warning != "" {
-		st.Warning = "the project's base branch could not be updated: " + warning +
-			"; the session starts from the checkout as it is"
-	}
-	return st
 }
 
 // placeAndSave puts a new session where it runs - in the project when one was named, in a
@@ -1010,20 +984,6 @@ func (s *Server) placeAndSave(conv *conversation, projectID string, project *Pro
 		s.placeFreeStanding(conv, s.wantsGit(git))
 	}
 	s.saveSession(conv)
-}
-
-// pullProjectBase brings in the latest changes of the project's base branch, so a new session's
-// worktree branches from current code. A project with no origin has nothing to bring in. It
-// returns why the pull failed, or "" when there was nothing to do or it worked.
-func pullProjectBase(ctx context.Context, project *Project) string {
-	base := gitx.Display(ctx, project.Dir)
-	if base == "" || !gitx.HasRemote(ctx, project.Dir) {
-		return ""
-	}
-	if err := gitx.PullFastForward(ctx, project.Dir, base); err != nil {
-		return err.Error()
-	}
-	return ""
 }
 
 // placeInProject makes a new session run in the project: in a worktree of its own, made BEFORE the

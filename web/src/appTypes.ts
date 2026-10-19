@@ -74,9 +74,6 @@ export interface SessionInfo {
   // Older gateways do not send them.
   provider?: string;
   model?: string;
-  // warning comes only on the answer to a create: the project's base branch could not be
-  // brought up to date (offline), and the session starts from the checkout as it is.
-  warning?: string;
 }
 
 // AgentInfo is one agent of a run, as the gateway reports it (agent.AgentInfo). The row with no
@@ -114,6 +111,9 @@ export interface ProjectInfo {
   branch?: string;
   // main_branch is the branch the project goes back to when it has no sessions.
   main_branch?: string;
+  // main_warning is why the last background update of the main branch (a session opened or
+  // closed) could not be done; absent when it worked.
+  main_warning?: string;
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.
   merge_method?: string;
   // pr_max_fixes is how many times the agent is sent to fix a failing CI (0: the default).

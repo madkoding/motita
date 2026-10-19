@@ -808,6 +808,33 @@ func PullFastForward(ctx context.Context, dir, branch string) error {
 	return nil
 }
 
+// ErrBranchDirty is why RefreshBranch leaves a checkout alone: it is on the branch and holds
+// uncommitted work, which an update must never touch.
+var ErrBranchDirty = errors.New("the checkout holds uncommitted changes")
+
+// RefreshBranch brings branch up to date with origin without ever forcing anything. A checkout on
+// the branch moves forward only (fast-forward) and only when it is clean; a checkout on another
+// branch is not switched, the local branch ref is advanced in place instead, and git refuses
+// that when it would not be a fast-forward or the branch is checked out in another worktree. A
+// repository with no origin has nothing to bring in and is not a failure.
+func RefreshBranch(ctx context.Context, dir, branch string) error {
+	if branch == "" || !HasRemote(ctx, dir) {
+		return nil
+	}
+	if Display(ctx, dir) != branch {
+		_, err := noGitOr(ctx, "could not update "+branch, dir, "fetch", "--", "origin", branch+":"+branch)
+		return err
+	}
+	dirty, err := Dirty(ctx, dir)
+	if err != nil {
+		return err
+	}
+	if dirty {
+		return ErrBranchDirty
+	}
+	return PullFastForward(ctx, dir, branch)
+}
+
 // HasRemote reports whether the repository at dir has a remote called origin.
 // A project without one has nothing to bring in, which is not a failure.
 func HasRemote(ctx context.Context, dir string) bool {

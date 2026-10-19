@@ -53,6 +53,7 @@
 <li>Cada sesión de un proyecto tiene <strong>su propio git worktree en su propia rama</strong> (<code>motita/&lt;sesión&gt;</code>). Las carpetas de dependencias como <code>node_modules</code> se enlazan en vez de reinstalarse.</li>
 <li><strong>Cada turno es un punto de control.</strong> Vuelve a cualquier turno; la conversación retrocede, y los archivos también si lo pides.</li>
 <li>Pídele al agente que <strong>integre</strong> su trabajo: hace commit y fusiona la rama en la del proyecto. La sesión pasa a solo lectura y <em>continuar</em> abre una nueva desde la base actualizada.</li>
+<li><strong>La rama principal siempre al día.</strong> Al abrir o cerrar una sesión se actualiza la rama principal del proyecto desde su origen, en segundo plano. Solo avanza, nunca toca cambios sin confirmar y nunca retrasa ni bloquea la sesión: si no puede actualizar, el proyecto muestra un aviso <em>desactualizada</em> con el motivo.</li>
 <li><strong>Borrar pregunta primero.</strong> Ves exactamente qué archivos sin confirmar se perderían.</li>
 <li>Se leen los archivos de instrucciones: <code>AGENTS.md</code> (o <code>CLAUDE.md</code>) desde la raíz de git hacia abajo, y tu propio <code>~/.motita/AGENTS.md</code>. Guían cómo trabajar y nunca pasan por encima de tu petición ni de tu configuración de seguridad.</li>
 </ul>

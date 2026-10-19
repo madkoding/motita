@@ -208,6 +208,21 @@ test("a long press on the header opens the context menu where the finger is", as
   await m.unmount();
 });
 
+test("a main branch that could not be updated is flagged with the reason", async () => {
+  const s = store();
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...P, main_warning: "main: could not fetch" } }),
+  );
+  const fact = m.q("[data-testid=project-stale]");
+  assert.equal(fact.textContent, "outdated");
+  assert.equal(fact.title, "Main branch not updated: main: could not fetch");
+  await m.rerender(s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=project-stale]"), null);
+  await m.unmount();
+});
+
 test("the facts line counts the shared repositories left behind their main branch", async () => {
   const s = store();
   const repos = [

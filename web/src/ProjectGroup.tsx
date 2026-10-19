@@ -49,6 +49,25 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
   );
 }
 
+// StaleFact says the project's main branch could not be brought up to date when a session opened or
+// closed (offline, diverged, uncommitted work); the reason is its title.
+function StaleFact({ p }: { p: ProjectInfo }) {
+  if (!p.main_warning) {
+    return null;
+  }
+  return (
+    <span
+      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
+      title={tf("Main branch not updated: {reason}", { reason: p.main_warning })}
+      data-testid="project-stale"
+    >
+      <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
+        {t("outdated")}
+      </span>
+    </span>
+  );
+}
+
 // BehindFact says how many of the project's shared repositories its folder has left behind their
 // main branch: they hold work of their own, so an integration did not bring them up to date.
 function BehindFact({ p }: { p: ProjectInfo }) {
@@ -157,6 +176,7 @@ function ProjectHeader({
           <IconFolder size={12} class="flex-none text-accent/60" />
           <span class="project-name truncate">{p.title}</span>
           <BehindFact p={p} />
+          <StaleFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever
               their styles (see SessionRow). */}

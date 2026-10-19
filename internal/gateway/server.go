@@ -255,6 +255,10 @@ type Server struct {
 	server      *http.Server
 	mux         http.Handler
 
+	// mainRefresh tracks the background updates of projects' main branches: which are running
+	// (so a second request for the same project is dropped) and why the last one of each failed.
+	mainRefresh mainRefreshState
+
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
 	// caller would have to know to ignore.

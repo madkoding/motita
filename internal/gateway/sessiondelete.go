@@ -145,6 +145,9 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	if c.projectID != "" {
 		s.returnToMain(s.projectOf(c.projectID))
 	}
+	// Closing a session also brings the project's main branch up to date, in the background, so
+	// the next session starts from what the last one left merged.
+	s.refreshMainInBackground(s.projectOf(c.projectID))
 	w.WriteHeader(http.StatusNoContent)
 }
 
