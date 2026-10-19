@@ -245,9 +245,24 @@ function NoteBody() {
 
 // NoteToolbar is what can be done with the open note.
 function NoteToolbar() {
-  const { current, draft, editing, setEditing, back, saveNote, deleteNote } =
-    useApp().notes;
+  const {
+    current,
+    draft,
+    editing,
+    setEditing,
+    back,
+    saveNote,
+    renameNote,
+    deleteNote,
+  } = useApp().notes;
   const [armed, setArmed] = useState(false);
+  // The name being typed while renaming; null when the field is closed.
+  const [name, setName] = useState<string | null>(null);
+  const rename = (e: Event) => {
+    e.preventDefault();
+    void renameNote(name as string);
+    setName(null);
+  };
   const dirty = current?.body !== draft;
   const remove = () => {
     if (armed) {
@@ -287,6 +302,16 @@ function NoteToolbar() {
         </button>
       )}
       <button
+        class={SMALL_BTN}
+        aria-pressed={name !== null}
+        data-testid="note-rename"
+        onClick={() =>
+          setName(choose(name === null, (current as NoteView).title, null))
+        }
+      >
+        {t("Rename")}
+      </button>
+      <button
         class={SMALL_BTN + " text-danger"}
         data-testid="note-delete"
         onClick={remove}
@@ -294,6 +319,20 @@ function NoteToolbar() {
       >
         {choose(armed, t("Click again to delete"), t("Delete"))}
       </button>
+      {name !== null && (
+        <form class="flex gap-2 w-full" onSubmit={rename}>
+          <input
+            class={FIELD + " flex-1 min-w-0"}
+            value={name}
+            aria-label={t("New name")}
+            data-testid="note-rename-name"
+            onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          />
+          <button type="submit" class={SMALL_BTN} data-testid="note-rename-go">
+            {t("Rename")}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

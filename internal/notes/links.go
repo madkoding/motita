@@ -129,3 +129,81 @@ func contextOf(body string, l Link) string {
 	}
 	return ""
 }
+
+// RenameLinked moves a note like Rename and rewrites the [[links]] of the other notes that led to
+// it, so none of them is left pointing nowhere. It returns how many notes it rewrote. Links in
+// code and the heading and alias of a link are kept.
+func (v *Vault) RenameLinked(from, to string) (int, error) {
+	src, err := Clean(from)
+	if err != nil {
+		return 0, err
+	}
+	before := v.List()
+	if err := v.Rename(from, to); err != nil {
+		return 0, err
+	}
+	dst, _ := Clean(to)
+	after := v.List()
+	// A bare name is kept bare while it still finds the moved note; otherwise the path is written.
+	bare := strings.TrimSuffix(path.Base(dst), ext)
+	if got, _ := Resolve(after, bare); got != dst {
+		bare = strings.TrimSuffix(dst, ext)
+	}
+	full := strings.TrimSuffix(dst, ext)
+	updated := 0
+	for _, n := range after {
+		body, _, err := v.Read(n.Path)
+		if err != nil {
+			continue
+		}
+		next := rewriteLinks(body, func(target string) (string, bool) {
+			if got, ok := Resolve(before, target); !ok || got != src {
+				return "", false
+			}
+			if strings.Contains(target, "/") {
+				return full, true
+			}
+			return bare, true
+		})
+		if next == body {
+			continue
+		}
+		if _, err := v.Write(n.Path, next, false); err == nil {
+			updated++
+		}
+	}
+	return updated, nil
+}
+
+// rewriteLinks replaces the target of every link outside code for which swap says so.
+func rewriteLinks(body string, swap func(target string) (string, bool)) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range fence.FindAllStringIndex(body, -1) {
+		b.WriteString(rewriteText(body[last:loc[0]], swap))
+		b.WriteString(body[loc[0]:loc[1]])
+		last = loc[1]
+	}
+	b.WriteString(rewriteText(body[last:], swap))
+	return b.String()
+}
+
+func rewriteText(text string, swap func(string) (string, bool)) string {
+	return wikiLink.ReplaceAllStringFunc(text, func(m string) string {
+		embed := strings.HasPrefix(m, "!")
+		inner := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(m, "!"), "[["), "]]")
+		rest := ""
+		if i := strings.IndexAny(inner, "#|"); i >= 0 {
+			inner, rest = inner[:i], inner[i:]
+		}
+		to, ok := swap(strings.TrimSuffix(strings.TrimSpace(inner), ext))
+		if !ok {
+			return m
+		}
+		out := "[[" + to + rest + "]]"
+		if embed {
+			out = "!" + out
+		}
+		return out
+	})
+}

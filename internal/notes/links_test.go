@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -87,5 +88,70 @@ func TestBacklinksSkipNotesThatCannotBeRead(t *testing.T) {
 	writeRaw(v, "big.md", make([]byte, MaxNoteBytes+1))
 	if back := v.Backlinks("b.md"); len(back) != 1 {
 		t.Fatalf("%+v", back)
+	}
+}
+
+func TestRenameLinkedRewritesTheLinksThatLeadToTheNote(t *testing.T) {
+	v := Open(t.TempDir())
+	write(t, v, "trips/Japan.md", "# Japan\nSelf [[Japan]]")
+	write(t, v, "a.md", "See [[Japan]], [[japan#Food|ramen]], ![[trips/Japan]], [[Peru]] and `[[Japan]]`.\n"+
+		"```\n[[Japan]]\n```")
+	write(t, v, "Peru.md", "nothing here")
+	got, err := v.RenameLinked("trips/Japan.md", "trips/Nippon.md")
+	if err != nil || got != 2 {
+		t.Fatalf("RenameLinked = %d, %v", got, err)
+	}
+	a, _, _ := v.Read("a.md")
+	want := "See [[Nippon]], [[Nippon#Food|ramen]], ![[trips/Nippon]], [[Peru]] and `[[Japan]]`.\n```\n[[Japan]]\n```"
+	if a != want {
+		t.Errorf("a.md = %q", a)
+	}
+	if self, _, _ := v.Read("trips/Nippon.md"); !strings.Contains(self, "[[Nippon]]") {
+		t.Errorf("the note's own link = %q", self)
+	}
+}
+
+func TestRenameLinkedWritesThePathWhenTheNameWouldBeAmbiguous(t *testing.T) {
+	v := Open(t.TempDir())
+	write(t, v, "Nippon.md", "the other one")
+	write(t, v, "trips/Japan.md", "x")
+	write(t, v, "a.md", "[[Japan]]")
+	if got, err := v.RenameLinked("trips/Japan.md", "trips/Nippon.md"); err != nil || got != 1 {
+		t.Fatalf("RenameLinked = %d, %v", got, err)
+	}
+	if a, _, _ := v.Read("a.md"); a != "[[trips/Nippon]]" {
+		t.Errorf("a.md = %q", a)
+	}
+}
+
+func TestRenameLinkedReportsWhatItCannotDo(t *testing.T) {
+	v := Open(t.TempDir())
+	write(t, v, "a.md", "A")
+	write(t, v, "b.md", "[[a]]")
+	if _, err := v.RenameLinked("../x.md", "c.md"); !errors.Is(err, ErrBadPath) {
+		t.Errorf("bad path = %v", err)
+	}
+	if _, err := v.RenameLinked("zz.md", "c.md"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing = %v", err)
+	}
+
+	old := readFile
+	defer func() { readFile = old }()
+	readFile = func(p string) ([]byte, error) {
+		if strings.HasSuffix(p, "b.md") {
+			return nil, errors.New("locked")
+		}
+		return old(p)
+	}
+	if got, err := v.RenameLinked("a.md", "c.md"); err != nil || got != 0 {
+		t.Errorf("an unreadable note is skipped: %d, %v", got, err)
+	}
+	readFile = old
+
+	oldMove := moveFile
+	defer func() { moveFile = oldMove }()
+	moveFile = func(string, string) error { return errors.New("disk full") }
+	if got, err := v.RenameLinked("c.md", "d.md"); err != nil || got != 0 {
+		t.Errorf("a note that cannot be rewritten is not counted: %d, %v", got, err)
 	}
 }

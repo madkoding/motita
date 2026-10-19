@@ -168,6 +168,15 @@ function vault(initial = {}) {
           .map((f) => ({ path: f, title: f, line: 1, snippet: files[f] })),
       });
     }
+    if (u.pathname === "/v1/notes/rename") {
+      const b = JSON.parse(init.body);
+      if (files[b.to] !== undefined) {
+        return json({ error: "exists" }, 409);
+      }
+      files[b.to] = files[b.from];
+      delete files[b.from];
+      return json({ updated: 0 });
+    }
     if (method === "GET") {
       return files[path] === undefined
         ? json({ error: "x" }, 404)
@@ -463,6 +472,74 @@ test("a note is deleted after a second click, and the first one disarms on blur"
   await click(q(m.root, "note-delete"));
   await click(q(m.root, "note-delete"));
   assert.deepEqual(m.statuses.pop(), ["could not delete the note", true]);
+  await m.done();
+});
+
+test("a note is renamed in its folder, and a taken or empty name is refused", async () => {
+  const v = vault({ ...FILES, "trips/Rome.md": "# Rome" });
+  const m = await mount(v);
+  await m.run((n) => n.openNotes());
+  const rows = () => qa(m.root, "note-row").map((b) => text(b));
+  await click(qa(m.root, "note-row")[rows().indexOf("Rome")]);
+  assert.equal(q(m.root, "note-rename-name"), null);
+  await click(q(m.root, "note-rename"));
+  assert.equal(q(m.root, "note-rename-name").value, "Rome");
+  await click(q(m.root, "note-rename"));
+  assert.equal(q(m.root, "note-rename-name"), null);
+
+  const submit = async () => {
+    await act(() =>
+      q(m.root, "note-rename-go").dispatchEvent(
+        new W.Event("submit", { bubbles: true, cancelable: true }),
+      ),
+    );
+    await settle();
+  };
+  const typeName = async (value) => {
+    await click(q(m.root, "note-rename"));
+    await type(q(m.root, "note-rename-name"), value);
+  };
+  await typeName("  ");
+  await submit();
+  assert.deepEqual(m.statuses.pop(), ["give the note a name", true]);
+  await typeName("Rome");
+  await submit();
+  assert.equal(v.calls.filter((c) => c.url.includes("/rename")).length, 0);
+
+  await typeName("Peru");
+  await submit();
+  assert.deepEqual(m.statuses.pop(), [
+    "a note with that name already exists",
+    true,
+  ]);
+  await typeName("Net");
+  v.fail.add({ method: "POST", path: "/v1/notes/rename" });
+  await submit();
+  assert.deepEqual(m.statuses.pop(), ["could not rename the note", true]);
+  v.fail.clear();
+  v.fail.add({ method: "POST", path: "/v1/notes/rename", status: 500 });
+  await typeName("Net");
+  await submit();
+  assert.deepEqual(m.statuses.pop(), ["could not rename the note", true]);
+  v.fail.clear();
+
+  await typeName("Naples");
+  await submit();
+  assert.ok(v.files["trips/Naples.md"]);
+  assert.equal(v.files["trips/Rome.md"], undefined);
+  assert.match(
+    text(q(m.root, "note-rename").parentElement),
+    /trips\/Naples\.md/,
+  );
+  assert.equal(q(m.root, "note-rename-name"), null);
+  await m.done();
+});
+
+test("renaming with no note open does nothing", async () => {
+  const v = vault(FILES);
+  const m = await mount(v);
+  await m.run((n) => n.renameNote("x"));
+  assert.equal(v.calls.length, 0);
   await m.done();
 });
 

@@ -75,7 +75,7 @@ func TestNotesAreCreatedReadLinkedAndDeleted(t *testing.T) {
 	}
 
 	w = noteCall(t, srv, http.MethodPost, "/v1/notes/rename", `{"from":"Japan.md","to":"Nippon.md"}`)
-	if w.Code != http.StatusNoContent {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"updated":1`) {
 		t.Fatalf("rename: %d %s", w.Code, w.Body)
 	}
 	w = noteCall(t, srv, http.MethodPost, "/v1/notes/rename", `{"from":"Japan.md","to":"x.md"}`)

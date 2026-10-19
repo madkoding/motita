@@ -819,6 +819,8 @@ const more: Record<string, string> = {
   "could not save the note": "no se pudo guardar la nota",
   "could not create the note": "no se pudo crear la nota",
   "could not delete the note": "no se pudo borrar la nota",
+  "could not rename the note": "no se pudo renombrar la nota",
+  "New name": "Nombre nuevo",
   "give the note a name": "ponle un nombre a la nota",
   "a note with that name already exists": "ya existe una nota con ese nombre",
   "could not load the graph": "no se pudo cargar el grafo",

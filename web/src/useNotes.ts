@@ -190,6 +190,45 @@ export function useNotes(api: Api, setState: SetStatus) {
     [api, save, loadList, fetchNote, setState],
   );
 
+  // renameNote gives the open note another name in the same folder. The gateway rewrites the
+  // [[links]] that led to it, so the note is shown again to get its new links and backlinks.
+  const renameNote = useCallback(
+    async (title: string) => {
+      const note = live.current.current;
+      if (!note) {
+        return;
+      }
+      const to = noteFileName(folderOf(note.path), title);
+      if (to === "") {
+        setState(t("give the note a name"), true);
+        return;
+      }
+      if (to === note.path || !(await save())) {
+        return;
+      }
+      try {
+        const res = await api(NOTES_PATH + "/rename", {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ from: note.path, to }),
+        });
+        if (res.status === HTTP_CONFLICT) {
+          setState(t("a note with that name already exists"), true);
+          return;
+        }
+        if (!res.ok) {
+          setState(t("could not rename the note"), true);
+          return;
+        }
+        await loadList();
+        await fetchNote(to, false);
+      } catch {
+        setState(t("could not rename the note"), true);
+      }
+    },
+    [api, save, loadList, fetchNote, setState],
+  );
+
   const deleteNote = useCallback(async () => {
     const note = live.current.current;
     if (!note) {
@@ -267,6 +306,7 @@ export function useNotes(api: Api, setState: SetStatus) {
     openNote,
     saveNote,
     createNote,
+    renameNote,
     deleteNote,
     search,
     followLink,

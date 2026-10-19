@@ -137,7 +137,7 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleRenameNote moves a note to another path.
+// handleRenameNote moves a note to another path and answers how many notes had a link rewritten.
 func (s *Server) handleRenameNote(w http.ResponseWriter, r *http.Request) {
 	v := s.vault(w)
 	if v == nil {
@@ -147,11 +147,12 @@ func (s *Server) handleRenameNote(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if err := v.Rename(body.From, body.To); err != nil {
+	updated, err := v.RenameLinked(body.From, body.To)
+	if err != nil {
 		writeNoteError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]int{"updated": updated})
 }
 
 // handleNotesGraph answers the notes and the links between them, for the graph view.
