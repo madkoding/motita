@@ -402,3 +402,67 @@ func TestAMissingFolderMustStillBeAUsableProjectFolder(t *testing.T) {
 		}
 	}
 }
+
+// TestTheSystemsFoldersAreGuarded: the home folder and a system tree itself are refused, a folder
+// inside a system tree needs a confirmation, and the confirmed project never deletes it.
+func TestTheSystemsFoldersAreGuarded(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	home, _ := os.UserHomeDir()
+	for _, bad := range []string{home, "/usr"} {
+		if !isDir(bad) {
+			continue
+		}
+		body, _ := json.Marshal(map[string]string{"title": "x", "path": bad})
+		if code, out := createProject(t, srv, string(body)); code != http.StatusBadRequest {
+			t.Errorf("%s: %d %v", bad, code, out)
+		}
+	}
+	inside := "/usr/share"
+	if !isDir(inside) {
+		t.Skip("no system folder to try")
+	}
+	body := func(extra string) string { return `{"title":"Sys","path":"` + inside + `"` + extra + `}` }
+	if code, out := createProject(t, srv, body("")); code != http.StatusConflict {
+		t.Fatalf("unconfirmed: %d %v", code, out)
+	}
+	_, second := createProject(t, srv, `{"title":"Other","dir":"other"}`)
+	oid := second["id"].(string)
+	if c := patchProject(t, srv, oid, `{"path":"`+inside+`"}`).Code; c != http.StatusConflict {
+		t.Errorf("a move into a system folder needs a confirmation too: %d", c)
+	}
+	code, out := createProject(t, srv, body(`,"confirm_sensitive":true`))
+	if code != http.StatusCreated {
+		t.Fatalf("confirmed: %d %v", code, out)
+	}
+	id := out["id"].(string)
+	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	if !isDir(inside) {
+		t.Fatal("a system folder is never deleted with its project")
+	}
+}
+
+// TestAFolderThatWasAlreadyThereIsNeverDeletedWithItsProject: inside the workspace too, only a
+// folder the project itself made goes with it.
+func TestAFolderThatWasAlreadyThereIsNeverDeletedWithItsProject(t *testing.T) {
+	srv, ws := projectServer(t)
+	mine := filepath.Join(ws, "mine")
+	if err := os.MkdirAll(mine, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, kept := createProject(t, srv, `{"title":"Kept","dir":"mine"}`)
+	_, made := createProject(t, srv, `{"title":"Made","dir":"made"}`)
+	for _, c := range []struct {
+		proj map[string]any
+		dir  string
+		stay bool
+	}{{kept, mine, true}, {made, filepath.Join(ws, "made"), false}} {
+		if w := doDelete(t, srv, "/v1/projects/"+c.proj["id"].(string)); w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+			t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+		}
+		if isDir(c.dir) != c.stay {
+			t.Errorf("%s: still there = %v, want %v", c.dir, isDir(c.dir), c.stay)
+		}
+	}
+}

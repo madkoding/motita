@@ -248,13 +248,14 @@ func TestTheProjectPreviewIgnoresTheProjectOwnCheckout(t *testing.T) {
 		t.Errorf("count = %d, want 0: the project's own checkout is not deleted", out.Changes)
 	}
 
-	// And the deletion goes through and takes the project's folder with it.
+	// And the deletion goes through. The folder was there before the project (the helper makes it
+	// first), so it is the person's own: it stays, with their edit.
 	del := send(t, srv, http.MethodDelete, "/v1/projects/"+projectID, testToken, "")
 	if del.Code != http.StatusNoContent {
 		t.Fatalf("a project's own uncommitted edits must not block its deletion, got %d: %s", del.Code, del.Body.String())
 	}
-	if _, err := os.Stat(projectDir); !os.IsNotExist(err) {
-		t.Errorf("the project's directory must be removed with it, stat err = %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, "user-edit.md")); err != nil {
+		t.Errorf("a folder that was already there must stay with its files, stat err = %v", err)
 	}
 }
 

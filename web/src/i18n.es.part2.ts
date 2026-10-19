@@ -15,6 +15,12 @@ const more: Record<string, string> = {
   Location: "Ubicación",
   Folder: "Carpeta",
   "Use the workspace": "Usar el workspace",
+  "The folder does not exist yet: it will be created.":
+    "La carpeta aún no existe: se va a crear.",
+  "The folder already exists and is used as it is. It stays on disk, with its files, when the project is deleted.":
+    "La carpeta ya existe y se usa tal cual. Se queda en el disco, con sus archivos, cuando se elimina el proyecto.",
+  "This folder is among the system's own files. I know what I am doing and want a project here.":
+    "Esta carpeta está entre los archivos del sistema. Sé lo que hago y quiero un proyecto aquí.",
   "The folder stays on disk, with its files:":
     "La carpeta se queda en el disco, con sus archivos:",
   "Or the path of a folder, existing or new":

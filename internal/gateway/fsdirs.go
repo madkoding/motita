@@ -204,6 +204,32 @@ func simpleFolderName(name string) bool {
 	return !strings.ContainsAny(name, badNameChars)
 }
 
+// isSystemTree reports whether dir is one of the system's trees itself, not a folder inside one.
+func isSystemTree(dir string) bool {
+	for _, tree := range systemTrees() {
+		if sameFolder(tree, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameFolder reports whether two paths name the same folder.
+func sameFolder(a, b string) bool {
+	return pathWithinOrSame(a, b) && pathWithinOrSame(b, a)
+}
+
+// sensitiveNeedsConfirm answers 409, and returns false, when dir is inside one of the system's
+// trees and the person has not confirmed they mean it.
+func sensitiveNeedsConfirm(w http.ResponseWriter, dir string, confirmed bool) bool {
+	if confirmed || !systemFolder(dir) {
+		return true
+	}
+	writeError(w, http.StatusConflict, "that folder is inside the system's own files: confirm that you "+
+		"want a project there")
+	return false
+}
+
 // systemFolder reports whether dir is one of the system's trees or inside one.
 func systemFolder(dir string) bool {
 	for _, tree := range systemTrees() {
@@ -321,10 +347,15 @@ const errNoFolder = "that folder does not exist"
 // projectFolderProblem says why dir cannot be a project's folder, empty when it can.
 func (s *Server) projectFolderProblem(dir string) string {
 	ws := s.opts.WorkspaceDir
+	home, _ := os.UserHomeDir()
 	problem := ""
 	switch {
 	case filepath.Dir(dir) == dir:
 		problem = "the root of the disk cannot be a project"
+	case home != "" && sameFolder(dir, home):
+		problem = "the home folder itself cannot be a project: choose a folder inside it"
+	case isSystemTree(dir):
+		problem = "that is one of the system's own folders and cannot be a project"
 	case ws != "" && pathWithinOrSame(dir, ws):
 		problem = "the workspace itself (or a folder around it) cannot be a project"
 	case ws != "" && pathWithinOrSame(ws, dir) && reservedFolders[strings.ToLower(filepath.Base(dir))]:

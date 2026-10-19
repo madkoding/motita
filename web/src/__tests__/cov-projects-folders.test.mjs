@@ -22,12 +22,14 @@ const {
   NewProjectModal,
   EditProjectModal,
   useProjects,
+  parentOf,
 } = await bundle({
   "FolderBrowser.tsx": ["FolderBrowser"],
   "fsApi.ts": ["listDirs"],
   "NewProjectModal.tsx": ["NewProjectModal"],
   "EditProjectModal.tsx": ["EditProjectModal"],
   "useProjects.ts": ["useProjects"],
+  "useFolderProbe.ts": ["parentOf"],
 });
 
 const HOME = {
@@ -290,6 +292,8 @@ function store(state = {}) {
         fullDisk: false,
         setNewProjectDir: rec("dir"),
         setNewProjectPath: rec("path"),
+        newProjectSure: false,
+        setNewProjectSure: rec("sure"),
         openFolderPicker: rec("browse"),
         patchEditProject: rec("patch"),
         ...state,
@@ -346,7 +350,10 @@ test("a new project can pick or type a folder, and go back to the workspace", as
   const again = store({ fullDisk: true, newProjectPath: "/srv/app" });
   await m.rerender(again.value, h(NewProjectModal));
   await click(byTest(m, "new-project-path-clear"));
-  assert.deepEqual(s.log, [["browse", "new"], ["path", "/srv/new"]]);
+  assert.deepEqual(s.log, [
+    ["browse", "new"],
+    ["path", "/srv/new"],
+  ]);
   assert.deepEqual(again.log, [["path", ""]]);
   await m.unmount();
 });
@@ -472,11 +479,14 @@ test("the folder picked goes to the dialog that asked, and new projects send it"
   await run(() => s.p.pickFolder("/srv/out"));
   assert.equal(s.p.folderPicker, null);
   assert.equal(s.p.newProjectPath, "/srv/out");
+  await run(() => s.p.setNewProjectSure(true));
   await run(() => s.p.createProject());
   await flush();
   const [call] = s.api.calls.filter((c) => c.method === "POST");
   assert.equal(call.body.path, "/srv/out");
+  assert.equal(call.body.confirm_sensitive, true);
   assert.equal(s.p.newProjectPath, "", "emptied once the project exists");
+  assert.equal(s.p.newProjectSure, false);
 
   await run(() =>
     s.p.openEditProject({ id: "p1", title: "Edit", dir: "/ws/a" }),
@@ -611,4 +621,103 @@ test("the folder picked for a repository joins the dialog that is open, once", a
     path: "/home/axes/bridges",
   });
   await s.m.unmount();
+});
+
+// probed mounts the New project dialog on a typed path and waits for the folder check.
+async function probed(path, routes) {
+  const api = fakeApi(routes);
+  const s = store({ newProjectPath: path });
+  const m = await mount(AppCtx, { ...s.value, api }, h(NewProjectModal));
+  await act(() => new Promise((r) => setTimeout(r, 450)));
+  await flush();
+  return { m, s, api };
+}
+
+test("the parent of a typed path keeps the root", () => {
+  assert.equal(parentOf("/srv/new"), "/srv");
+  assert.equal(parentOf("/new"), "/");
+  assert.equal(parentOf("C:\\new"), "C:\\");
+  assert.equal(parentOf("C:\\a\\new"), "C:\\a");
+});
+
+test("a folder that exists is used as it is, and its folders complete the path", async () => {
+  const { m } = await probed("/srv/app", {
+    "GET /v1/fs/dirs": res(200, {
+      path: "/srv/app",
+      root: "/",
+      dirs: [{ name: "web", path: "/srv/app/web" }],
+    }),
+  });
+  assert.match(byTest(m, "folder-note-exists").textContent, /stays on disk/);
+  assert.equal(m.qa("datalist option")[0].value, "/srv/app/web");
+  await m.unmount();
+});
+
+test("a folder among the system's files needs a yes", async () => {
+  const { m, s } = await probed("/usr/share", {
+    "GET /v1/fs/dirs": res(200, {
+      path: "/usr/share",
+      root: "/",
+      sensitive: true,
+      dirs: [],
+    }),
+  });
+  assert.ok(byTest(m, "folder-note-sensitive"));
+  await act(() => {
+    const box = byTest(m, "folder-sure");
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert.deepEqual(s.log, [["sure", true]]);
+  await m.unmount();
+});
+
+test("a folder that is not there yet will be created, and its neighbours complete the path", async () => {
+  const { m } = await probed("/srv/ne", {
+    "GET /v1/fs/dirs?path=%2Fsrv%2Fne": res(404, { error: "no such folder" }),
+    "GET /v1/fs/dirs?path=%2Fsrv": res(200, {
+      path: "/srv",
+      root: "/",
+      dirs: [
+        { name: "new", path: "/srv/new" },
+        { name: "app", path: "/srv/app" },
+      ],
+    }),
+  });
+  assert.ok(byTest(m, "folder-note-missing"));
+  assert.deepEqual(
+    m.qa("datalist option").map((o) => o.value),
+    ["/srv/new"],
+  );
+  await m.unmount();
+});
+
+test("a path the gateway will not show says why, and a relative one is left alone", async () => {
+  const { m } = await probed("/etc/x", {
+    "GET /v1/fs/dirs": res(403, { error: "outside what Motita may reach" }),
+  });
+  assert.match(
+    byTest(m, "folder-note-refused").textContent,
+    /outside what Motita may reach/,
+  );
+  await m.unmount();
+  const idle = await probed("relative/dir", {});
+  assert.equal(byTest(idle.m, "folder-note-refused"), null);
+  assert.equal(idle.api.calls.length, 0);
+  await idle.m.unmount();
+});
+
+test("typing on drops the check of the path before", async () => {
+  const api = fakeApi({
+    "GET /v1/fs/dirs": res(200, { path: "/a", root: "/", dirs: [] }),
+  });
+  const s = store({ newProjectPath: "/a" });
+  const m = await mount(AppCtx, { ...s.value, api }, h(NewProjectModal));
+  await m.rerender(
+    { ...store({ newProjectPath: "/ab" }).value, api },
+    h(NewProjectModal),
+  );
+  await m.unmount();
+  await act(() => new Promise((r) => setTimeout(r, 450)));
+  assert.equal(api.calls.length, 0, "no check for a path that was replaced");
 });

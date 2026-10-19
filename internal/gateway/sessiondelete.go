@@ -197,7 +197,7 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		KeepsFolder bool   `json:"keeps_folder,omitempty"`
 		Folder      string `json:"folder,omitempty"`
 	}{ProjectID: id, Sessions: []sessionPreview{}}
-	if s.usersFolder(project.Dir) {
+	if s.keepsFolder(project) {
 		out.KeepsFolder, out.Folder = true, project.Dir
 	}
 

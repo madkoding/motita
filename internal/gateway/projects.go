@@ -170,9 +170,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Dir         string `json:"dir"`
 		// Path is an absolute folder outside the workspace, allowed only with the whole disk
 		// reachable (Settings → Security). It replaces Dir.
-		Path      string `json:"path"`
-		GitURL    string `json:"git_url"`
-		UsePodman bool   `json:"use_podman"`
+		Path string `json:"path"`
+		// ConfirmSensitive says the person knows the folder is inside the system's own files.
+		ConfirmSensitive bool   `json:"confirm_sensitive"`
+		GitURL           string `json:"git_url"`
+		UsePodman        bool   `json:"use_podman"`
 		// MainBranch, GitUserName and GitUserEmail are no longer used: a project is a plain folder,
 		// and its branch and git identity belong to the repositories it links. Clients that still
 		// send them are not refused.
@@ -189,7 +191,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	absDir, ok := s.newProjectFolder(w, body.Path, body.Dir)
-	if !ok {
+	if !ok || !sensitiveNeedsConfirm(w, absDir, body.ConfirmSensitive) {
 		return
 	}
 
@@ -219,6 +221,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Title:       title,
 		Description: strings.TrimSpace(body.Description),
 		Dir:         absDir,
+		Adopted:     !madeFolder,
 		Podman:      body.UsePodman && podmanInstalled(),
 		Created:     time.Now(),
 	}
@@ -364,12 +367,14 @@ type projectUpdate struct {
 	Podman      *bool   `json:"podman"`
 	// Path points the project at another folder, outside the workspace. Nothing is moved: the
 	// project is anchored to the folder, as when it is created there.
-	Path         *string `json:"path"`
-	MainBranch   *string `json:"main_branch"`
-	MergeMethod  *string `json:"merge_method"`
-	PRMaxFixes   *int    `json:"pr_max_fixes"`
-	AutoMerge    *bool   `json:"auto_merge"`
-	AutoContinue *bool   `json:"auto_continue"`
+	Path *string `json:"path"`
+	// ConfirmSensitive says the person knows the folder is inside the system's own files.
+	ConfirmSensitive bool    `json:"confirm_sensitive"`
+	MainBranch       *string `json:"main_branch"`
+	MergeMethod      *string `json:"merge_method"`
+	PRMaxFixes       *int    `json:"pr_max_fixes"`
+	AutoMerge        *bool   `json:"auto_merge"`
+	AutoContinue     *bool   `json:"auto_continue"`
 }
 
 // copyTo writes onto dst the fields this request set, taking their validated values from src.
@@ -454,7 +459,10 @@ func (s *Server) applyFolder(w http.ResponseWriter, u projectUpdate, p *Project)
 		writeError(w, http.StatusConflict, fmt.Sprintf("that folder belongs to the project %q", other.Title))
 		return false
 	}
-	p.Dir = dir
+	if !sensitiveNeedsConfirm(w, dir, u.ConfirmSensitive) {
+		return false
+	}
+	p.Dir, p.Adopted = dir, true
 	return true
 }
 
@@ -675,7 +683,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// A folder another project also stands on (a record from before folders were refused twice)
 	// stays: it is that project's too.
 	p := s.projectOf(id)
-	if p != nil && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
+	if p != nil && !p.Adopted && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
 		projectDir = p.Dir
 	}
 	// Only now that every checkout has been proven safe to give back are the
@@ -731,6 +739,12 @@ func (s *Server) ownsProjectDir(dir string) bool {
 // gateway registered but did not create, whose branch it does not switch or update by itself.
 func (s *Server) usersFolder(dir string) bool {
 	return s.opts.WorkspaceDir != "" && dir != "" && !s.ownsProjectDir(dir)
+}
+
+// keepsFolder reports whether deleting p leaves its folder alone: it is outside the workspace, or
+// it was already there when the project was made.
+func (s *Server) keepsFolder(p *Project) bool {
+	return p != nil && (p.Adopted || s.usersFolder(p.Dir))
 }
 
 // relLeavesRoot reports whether a path relative to a root names the root itself or a place
