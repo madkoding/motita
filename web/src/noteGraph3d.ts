@@ -1,19 +1,9 @@
 // The map of the notes in 3D: neon spheres joined by their links, floating over a glowing grid in
 // a dark fog, turning slowly. Dragging turns it, the wheel brings it closer, and a label over each
-// note opens it. A search lights the notes it finds and turns the camera to the first. Where the
-// bloom effect loads, everything glows. three.js is loaded only when the map opens, and only where
-// WebGL works; anywhere else the window keeps the flat drawing.
-import type {
-  Camera,
-  Group,
-  LineSegments,
-  Material,
-  Mesh,
-  Points,
-  Scene,
-  WebGLRenderer,
-} from "three";
-import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+// note opens it. A search lights the notes it finds and turns the camera to the first. three.js is
+// loaded only when the map opens, and only where WebGL works; anywhere else the window keeps the
+// flat drawing.
+import type { Group, LineSegments, Material, Mesh, Points } from "three";
 import { choose } from "./choose";
 import {
   GOLDEN_ANGLE,
@@ -24,14 +14,6 @@ import {
 } from "./notesApi";
 
 type ThreeLib = typeof import("three");
-
-// Fx is the bloom: the post-processing passes of three.js, loaded apart from it.
-export interface Fx {
-  EffectComposer: typeof import("three/addons/postprocessing/EffectComposer.js").EffectComposer;
-  RenderPass: typeof import("three/addons/postprocessing/RenderPass.js").RenderPass;
-  UnrealBloomPass: typeof import("three/addons/postprocessing/UnrealBloomPass.js").UnrealBloomPass;
-  OutputPass: typeof import("three/addons/postprocessing/OutputPass.js").OutputPass;
-}
 
 // The neon palette: a colour per top folder.
 const CYAN = 0x00f0ff;
@@ -50,7 +32,6 @@ const GRID = {
   lines: 0x6a1fb0,
   drop: 1.3,
 };
-const GLOW = { resolution: 256, strength: 0.75, radius: 0.4, threshold: 0.12 };
 // The stars lie on a sphere, spread by the golden angle.
 const SKY = { radius: 900 };
 const ORB = {
@@ -97,20 +78,6 @@ export const graph3d = {
     }
   },
   load: (): Promise<ThreeLib> => import("three"),
-  loadFx: async (): Promise<Fx> => {
-    const [c, r, b, o] = await Promise.all([
-      import("three/addons/postprocessing/EffectComposer.js"),
-      import("three/addons/postprocessing/RenderPass.js"),
-      import("three/addons/postprocessing/UnrealBloomPass.js"),
-      import("three/addons/postprocessing/OutputPass.js"),
-    ]);
-    return {
-      EffectComposer: c.EffectComposer,
-      RenderPass: r.RenderPass,
-      UnrealBloomPass: b.UnrealBloomPass,
-      OutputPass: o.OutputPass,
-    };
-  },
 };
 
 export interface Graph3D {
@@ -118,31 +85,6 @@ export interface Graph3D {
   // found; an empty query clears it.
   find(query: string): number;
   stop(): void;
-}
-
-// bloom builds the glow over the scene, or answers null without the passes.
-function bloom(
-  T: ThreeLib,
-  fx: Fx | undefined,
-  renderer: WebGLRenderer,
-  scene: Scene,
-  camera: Camera,
-): EffectComposer | null {
-  if (!fx) {
-    return null;
-  }
-  const composer = new fx.EffectComposer(renderer);
-  composer.addPass(new fx.RenderPass(scene, camera));
-  composer.addPass(
-    new fx.UnrealBloomPass(
-      new T.Vector2(GLOW.resolution, GLOW.resolution),
-      GLOW.strength,
-      GLOW.radius,
-      GLOW.threshold,
-    ),
-  );
-  composer.addPass(new fx.OutputPass());
-  return composer;
 }
 
 // starfield is a cloud of points far around the map, the same every time.
@@ -238,7 +180,6 @@ export function mountGraph3D(
   graph: NoteGraph,
   onOpen: (path: string) => void,
   still: boolean,
-  fx?: Fx,
 ): Graph3D {
   const renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -256,8 +197,6 @@ export function mountGraph3D(
     CAMERA_DISTANCE * scale,
   );
   camera.lookAt(0, 0, 0);
-
-  const composer = bloom(T, fx, renderer, scene, camera);
 
   const grid = new T.GridHelper(GRID.size, GRID.cells, GRID.axis, GRID.lines);
   grid.position.y = -RADIUS * scale * GRID.drop;
@@ -287,7 +226,6 @@ export function mountGraph3D(
     const w = host.clientWidth || 1;
     const h = host.clientHeight || 1;
     renderer.setSize(w, h, false);
-    composer?.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   };
@@ -361,11 +299,7 @@ export function mountGraph3D(
       b.style.visibility = choose(v.z > 1, "hidden", "visible");
       b.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -150%)`;
     }
-    if (composer) {
-      composer.render();
-    } else {
-      renderer.render(scene, camera);
-    }
+    renderer.render(scene, camera);
     frame = requestAnimationFrame(draw);
   };
   draw();
@@ -398,7 +332,6 @@ export function mountGraph3D(
         mesh.geometry?.dispose();
         (mesh.material as Material | undefined)?.dispose();
       });
-      composer?.dispose();
       renderer.dispose();
       host.replaceChildren();
     },

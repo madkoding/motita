@@ -416,9 +416,9 @@ function useMap3D(graph: NoteGraph, open: (path: string) => void) {
       return undefined;
     }
     let live = true;
-    // The bloom is a bonus: without it the map still draws.
-    Promise.all([graph3d.load(), graph3d.loadFx().catch(() => undefined)])
-      .then(([T, fx]) => {
+    graph3d
+      .load()
+      .then((T) => {
         if (live) {
           map.current = mountGraph3D(
             T,
@@ -426,7 +426,6 @@ function useMap3D(graph: NoteGraph, open: (path: string) => void) {
             graph,
             open,
             reducedMotion(),
-            fx,
           );
           setDeep(true);
         }

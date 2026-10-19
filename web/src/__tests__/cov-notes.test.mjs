@@ -60,26 +60,7 @@ export class WebGLRenderer {
   dispose() { this.disposed = true; }
 }
 `;
-// The bloom passes, as stand-ins that count what they draw.
-const FAKE_FX = (name) => `
-export class ${name} {
-  constructor(...args) { this.args = args; this.passes = []; globalThis.__fx = globalThis.__fx ?? {}; globalThis.__fx.${name} = this; }
-  addPass(p) { this.passes.push(p); }
-  render() { this.frames = (this.frames ?? 0) + 1; }
-  setSize(w, h) { this.size = [w, h]; }
-  dispose() { this.disposed = true; }
-}
-`;
-const FX = "three/addons/postprocessing/";
-const dom = setupDom({
-  overrides: {
-    three: FAKE_THREE,
-    [FX + "EffectComposer.js"]: FAKE_FX("EffectComposer"),
-    [FX + "RenderPass.js"]: FAKE_FX("RenderPass"),
-    [FX + "UnrealBloomPass.js"]: FAKE_FX("UnrealBloomPass"),
-    [FX + "OutputPass.js"]: FAKE_FX("OutputPass"),
-  },
-});
+const dom = setupDom({ overrides: { three: FAKE_THREE } });
 const W = dom.window;
 globalThis.requestAnimationFrame = (cb) =>
   setTimeout(() => cb(performance.now()), 0);
@@ -1108,13 +1089,9 @@ test("the 3D map draws every note with its label, turns, zooms and cleans up", a
   assert.equal(host.childNodes.length, 0);
   host.remove();
 
-  // With the bloom, the composer draws; a search lights what it finds and turns to it.
-  const fx = await map3d.graph3d.loadFx();
+  // A search lights what it finds and turns to it.
   const glowing = fakeHost(300, 200);
-  const m3 = map3d.mountGraph3D(T, glowing, GRAPH, () => {}, false, fx);
-  const composer = globalThis.__fx.EffectComposer;
-  assert.equal(composer.passes.length, 3);
-  assert.deepEqual(composer.size, [300, 200]);
+  const m3 = map3d.mountGraph3D(T, glowing, GRAPH, () => {}, false);
   const glowLabels = qa(glowing, "graph-node");
   assert.equal(m3.find(" ONE "), 1);
   assert.deepEqual(
@@ -1123,14 +1100,12 @@ test("the 3D map draws every note with its label, turns, zooms and cleans up", a
   );
   assert.equal(m3.find("o"), 2);
   await new Promise((res) => setTimeout(res, 5));
-  assert.ok(composer.frames > 0);
   assert.equal(m3.find(""), 0);
   assert.deepEqual(
     glowLabels.map((b) => b.className),
     ["graph3d-label", "graph3d-label"],
   );
   m3.stop();
-  assert.equal(composer.disposed, true);
   glowing.remove();
 
   // With less motion asked for it stays still, and an empty box still draws.
@@ -1200,15 +1175,6 @@ test("the window shows the 3D map where WebGL works and the flat one where it fa
   await click(q(m.root, "note-graph-toggle"));
   globalThis.__threeFail = false;
 
-  // Without the bloom the map still draws.
-  const loadFx = map3d.graph3d.loadFx;
-  map3d.graph3d.loadFx = () => Promise.reject(new Error("no chunk"));
-  await click(q(m.root, "note-graph-toggle"));
-  await settle();
-  assert.ok(q(m.root, "graph-3d-hint"));
-  map3d.graph3d.loadFx = loadFx;
-  globalThis.__threeFail = false;
-  await click(q(m.root, "note-graph-toggle"));
   await m.done();
 
   // An empty vault never asks for three.js.
