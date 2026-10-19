@@ -240,6 +240,7 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.scanJob.remember(q)
 	run := func(ctx context.Context, t *scanTracker) (noteScan, error) {
 		return s.runScan(ctx, v, q, t)
 	}

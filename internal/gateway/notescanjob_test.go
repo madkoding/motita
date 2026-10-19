@@ -1,12 +1,16 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // waitScan follows the background scan until it ends and answers its last progress.
@@ -70,4 +74,80 @@ func TestScanInTheBackgroundRunsOneAtATimeAndReportsFailures(t *testing.T) {
 	if p := waitScan(t, srv); p.Error == "" {
 		t.Errorf("unreadable projects: %+v", p)
 	}
+}
+
+// upstreamCommit adds a commit to the project's origin, which its main branch does not have yet.
+func upstreamCommit(t *testing.T, upstream, file string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(upstream, file), []byte(file+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, upstream, "add", "-A")
+	mustGit(t, upstream, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", file)
+}
+
+func TestNewCodeOnTheMainBranchScansTheNotesAgain(t *testing.T) {
+	ws := t.TempDir()
+	notesDir := filepath.Join(ws, "notes")
+	svc := &fakeService{}
+	svc.cfg.Sandbox.DiskAccess = config.DiskFull
+	srv := newTestServer(t, svc, func(o *Options) {
+		o.WorkspaceDir = ws
+		o.NotesDir = notesDir
+		o.ProjectDir = filepath.Join(ws, "projects")
+		o.SessionDir = filepath.Join(ws, "sessions")
+		o.NewService = func() (Service, error) { return &fakeService{}, nil }
+	})
+	local, upstream := usersRepo(t)
+	if err := os.Remove(filepath.Join(local, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+	// The manual reads the checkout, so it is on the main branch that new code arrives.
+	mustGit(t, local, "checkout", "-q", "main")
+	if code, out := createProject(t, srv, `{"title":"Bridges","path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("creating: %d %v", code, out)
+	}
+	p := srv.projectOf(onlyProjectID(t, srv))
+	ctx := context.Background()
+
+	// A vault never scanned is the person's: new code writes nothing in it.
+	if w := srv.refreshMain(ctx, p, true); w != "" {
+		t.Fatal(w)
+	}
+	srv.scanJob.wait()
+	if _, err := os.Stat(notesDir); !os.IsNotExist(err) {
+		t.Fatalf("the notes were written without a scan: %v", err)
+	}
+
+	// Once scanned, new code on main scans again with the options the person chose.
+	w := noteCall(t, srv, http.MethodPost, "/v1/notes/scan?modules=5", "")
+	if res := decodeScan(t, w.Body.Bytes(), w.Code); res.Mapped != 1 {
+		t.Fatalf("scan: %+v", res)
+	}
+	if got := srv.scanJob.options().Get("modules"); got != "5" {
+		t.Errorf("options kept: %q", got)
+	}
+	upstreamCommit(t, upstream, "newer.txt")
+	if w := srv.refreshMain(ctx, p, true); w != "" {
+		t.Fatal(w)
+	}
+	srv.scanJob.wait()
+	if got := srv.scanJob.get(); got.Result == nil || got.Result.Mapped != 1 {
+		t.Errorf("no scan after new code: %+v", got)
+	}
+	if !strings.Contains(readNote(t, notesDir, "Projects/Bridges - Manual/Start here.md"), "newer.txt") {
+		t.Error("the manual does not follow the new code")
+	}
+
+	// While a scan runs, new code waits for the next one.
+	srv.scanJob.start()
+	upstreamCommit(t, upstream, "newest.txt")
+	if w := srv.refreshMain(ctx, p, true); w != "" {
+		t.Fatal(w)
+	}
+	srv.scanJob.wait()
+	if !srv.scanJob.get().Running {
+		t.Error("a second scan started over the first")
+	}
+	srv.scanJob.finish(noteScan{}, nil)
 }

@@ -544,6 +544,15 @@ func BranchExists(ctx context.Context, dir, branch string) bool {
 	return err == nil && out != ""
 }
 
+// BranchCommit is the commit a local branch points at, "" when it does not exist or git fails.
+func BranchCommit(ctx context.Context, dir, branch string) string {
+	out, err := execute(ctx, dir, gitRevParse, gitVerify, "refs/heads/"+branch)
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
 // Commit is one commit, as a report draws it.
 type Commit struct {
 	SHA     string

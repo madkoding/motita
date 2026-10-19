@@ -3,7 +3,12 @@ package gateway
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
+
+	"github.com/madkoding/motita/internal/notes"
 )
 
 // A scan asked for in the background runs on its own while the page asks how far it got, so a big
@@ -31,7 +36,28 @@ type scanProgress struct {
 type scanTracker struct {
 	mu sync.Mutex
 	p  scanProgress
+	// last holds the model options of the last scan the person asked for, which a scan started by
+	// new code on a main branch uses too.
+	last url.Values
+	wg   sync.WaitGroup
 }
+
+// remember keeps the model options of a scan the person asked for.
+func (t *scanTracker) remember(q url.Values) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.last = url.Values{"summarize": {q.Get("summarize")}, "modules": {q.Get("modules")}}
+}
+
+// options are the model options of the last scan the person asked for; none before the first.
+func (t *scanTracker) options() url.Values {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.last
+}
+
+// wait blocks until the background scan, if one runs, has ended.
+func (t *scanTracker) wait() { t.wg.Wait() }
 
 func (t *scanTracker) update(fn func(p *scanProgress)) {
 	if t == nil {
@@ -77,11 +103,36 @@ func (s *Server) handleScanStatus(w http.ResponseWriter, _ *http.Request) {
 
 // startScan runs a scan in the background, unless one already runs, and answers its progress.
 func (s *Server) startScan(w http.ResponseWriter, run func(ctx context.Context, t *scanTracker) (noteScan, error)) {
-	if s.scanJob.start() {
-		go func() {
-			res, err := run(context.Background(), &s.scanJob)
-			s.scanJob.finish(res, err)
-		}()
-	}
+	s.scanInBackground(run)
 	writeJSON(w, http.StatusAccepted, s.scanJob.get())
+}
+
+// scanInBackground runs a scan on its own, unless one already runs.
+func (s *Server) scanInBackground(run func(ctx context.Context, t *scanTracker) (noteScan, error)) {
+	if !s.scanJob.start() {
+		return
+	}
+	s.scanJob.wg.Add(1)
+	go func() {
+		defer s.scanJob.wg.Done()
+		res, err := run(context.Background(), &s.scanJob)
+		s.scanJob.finish(res, err)
+	}()
+}
+
+// scanAfterMainMoved scans again, in the background and with the options of the last scan, once a
+// project's main branch has new code, so its manual follows the code. Only a vault that was
+// scanned before: the person chose to have the notes written.
+func (s *Server) scanAfterMainMoved() {
+	if s.opts.NotesDir == "" {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(s.opts.NotesDir, scanMarker)); err != nil {
+		return
+	}
+	v := notes.Open(s.opts.NotesDir)
+	q := s.scanJob.options()
+	s.scanInBackground(func(ctx context.Context, t *scanTracker) (noteScan, error) {
+		return s.runScan(ctx, v, q, t)
+	})
 }
