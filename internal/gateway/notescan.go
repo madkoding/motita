@@ -268,7 +268,7 @@ func (s *Server) scanQuery(r *http.Request) url.Values {
 		return q
 	}
 	again := url.Values{scanBackground: {"1"}}
-	for k, v := range s.scanJob.options() {
+	for k, v := range s.lastScanOptions() {
 		again[k] = v
 	}
 	return again
@@ -286,10 +286,10 @@ func (s *Server) runScan(ctx context.Context, v *notes.Vault, q url.Values, t *s
 	}
 	names := projectNoteNames(projects)
 	res := noteScan{Ran: true, tracker: t}
-	sum := &summaries{on: q.Get("summarize") != "", left: scanSummaryMax}
+	sum := &summaries{on: q.Get(scanSummarize) != "", left: scanSummaryMax}
 	byProject := s.scanSessionNotes(ctx, v, names, sum, &res)
 	res.Summarized = sum.done
-	ms := s.scanModelsFor(q.Get("summarize") != "", explainBudget(q.Get("modules")))
+	ms := s.scanModelsFor(q.Get(scanSummarize) != "", explainBudget(q.Get(scanModules)))
 	for i, p := range projects {
 		t.update(func(sp *scanProgress) {
 			*sp = scanProgress{Running: true, Phase: "projects", Project: p.Title, Done: i, Total: len(projects)}
@@ -301,9 +301,11 @@ func (s *Server) runScan(ctx context.Context, v *notes.Vault, q url.Values, t *s
 	}
 	t.update(func(sp *scanProgress) { sp.Done = len(projects) })
 	res.Explained = ms.done()
-	// Remembered in the vault folder, as a hidden file notes never list, so any client sees it.
+	// Remembered in the vault folder, as a hidden file notes never list, so any client sees it. It
+	// keeps the model options too, which a rescan after a restart repeats.
 	if os.MkdirAll(s.opts.NotesDir, 0o755) == nil {
-		_ = os.WriteFile(filepath.Join(s.opts.NotesDir, scanMarker), []byte("scanned\n"), 0o644)
+		marker := []byte(scanOptionsOf(q).Encode() + "\n")
+		_ = os.WriteFile(filepath.Join(s.opts.NotesDir, scanMarker), marker, 0o644)
 	}
 	return res, nil
 }

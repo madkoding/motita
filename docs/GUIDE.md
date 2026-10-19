@@ -643,7 +643,8 @@ the same folder opens in Obsidian and what you change there is what motita shows
 - **Second brain.** Settings, Indexing, **Scan now** runs in the background, with a bar that says
   which project and which folder it is on (close the window and come back: it is still followed).
   Once the vault has been scanned, new code brought in with the project menu's **Update main
-  branch** scans again by itself, with the model options of the last scan. A scan writes a note for every project (`Projects/`)
+  branch** scans again by itself, and the project menu's **Rescan the notes** scans again on
+  demand, both with the model options of the last scan (kept in the vault, so a restart keeps them). A scan writes a note for every project (`Projects/`)
   and every session that has been used (`Sessions/`): folder, repository, description, a README
   excerpt, the first request and the latest exchanges, with the session notes linked from their
   project and back. Next to each project note goes `Projects/<name> - Architecture`, read from the

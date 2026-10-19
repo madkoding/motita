@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/madkoding/motita/internal/notes"
@@ -42,11 +43,22 @@ type scanTracker struct {
 	wg   sync.WaitGroup
 }
 
+// The model options of a scan, the ones a rescan repeats.
+const (
+	scanSummarize = "summarize"
+	scanModules   = "modules"
+)
+
+// scanOptionsOf keeps only the model options of a scan request.
+func scanOptionsOf(q url.Values) url.Values {
+	return url.Values{scanSummarize: {q.Get(scanSummarize)}, scanModules: {q.Get(scanModules)}}
+}
+
 // remember keeps the model options of a scan the person asked for.
 func (t *scanTracker) remember(q url.Values) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.last = url.Values{"summarize": {q.Get("summarize")}, "modules": {q.Get("modules")}}
+	t.last = scanOptionsOf(q)
 }
 
 // options are the model options of the last scan the person asked for; none before the first.
@@ -131,8 +143,23 @@ func (s *Server) scanAfterMainMoved() {
 		return
 	}
 	v := notes.Open(s.opts.NotesDir)
-	q := s.scanJob.options()
+	q := s.lastScanOptions()
 	s.scanInBackground(func(ctx context.Context, t *scanTracker) (noteScan, error) {
 		return s.runScan(ctx, v, q, t)
 	})
+}
+
+// lastScanOptions are the model options of the last scan: the ones asked for since the gateway
+// started or, after a restart, the ones the vault's scan marker kept. None before the first scan.
+func (s *Server) lastScanOptions() url.Values {
+	if o := s.scanJob.options(); o != nil {
+		return o
+	}
+	b, err := os.ReadFile(filepath.Join(s.opts.NotesDir, scanMarker))
+	if err != nil {
+		return nil
+	}
+	// A marker from before the options were kept says only "scanned": no options, as before.
+	q, _ := url.ParseQuery(strings.TrimSpace(string(b)))
+	return scanOptionsOf(q)
 }

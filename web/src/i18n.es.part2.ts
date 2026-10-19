@@ -884,6 +884,8 @@ const more: Record<string, string> = {
   "Writes the notes and manuals of the projects again, in the background; Settings, Indexing shows how far it got.":
     "Vuelve a escribir las notas y los manuales de los proyectos en segundo plano; Ajustes, Indexado muestra cuánto lleva.",
   "could not rescan the notes": "no se pudieron reescanear las notas",
+  "Rescanning the notes in the background. Settings, Indexing shows how far it got.":
+    "Reescaneando las notas en segundo plano. Ajustes, Indexado muestra cuánto lleva.",
 };
 
 export default more;

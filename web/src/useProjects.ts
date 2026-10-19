@@ -911,7 +911,12 @@ function useCreateProject(
 }
 
 // useProjectAdmin changes and deletes projects that already exist.
-function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
+function useProjectAdmin(
+  api: Api,
+  lists: SessionList,
+  setState: SetStatus,
+  setToast: SetToast,
+) {
   const { fetchProjects, fetchSessions } = lists;
 
   // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
@@ -965,11 +970,18 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setState(err.error || "could not rescan the notes", true);
+        return;
       }
+      setToast({
+        message: t(
+          "Rescanning the notes in the background. Settings, Indexing shows how far it got.",
+        ),
+        type: "success",
+      });
     } catch {
       setState("could not rescan the notes", true);
     }
-  }, [api, setState]);
+  }, [api, setState, setToast]);
 
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
@@ -1028,7 +1040,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   createProjectRef.current = () => {
     void createProject();
   };
-  const admin = useProjectAdmin(api, lists, setState);
+  const admin = useProjectAdmin(api, lists, setState, setToast);
   const folders = useFolderPicker(
     api,
     form.showNewProject || !!edit.editProject,

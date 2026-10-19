@@ -1069,6 +1069,13 @@ test("rescanning the notes asks the gateway, or says why it could not", async ()
   for (let i = 0; i < 4; i++) {
     await run(() => s.p.rescanNotes());
   }
+  assert.deepEqual(s.toasts, [
+    {
+      message:
+        "Rescanning the notes in the background. Settings, Indexing shows how far it got.",
+      type: "success",
+    },
+  ]);
   assert.deepEqual(s.states, [
     ["notes are off", true],
     ["could not rescan the notes", true],

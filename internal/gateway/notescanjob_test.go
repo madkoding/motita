@@ -69,6 +69,26 @@ func TestRescanRepeatsTheLastScanInTheBackground(t *testing.T) {
 	}
 }
 
+func TestARestartKeepsTheOptionsOfTheLastScan(t *testing.T) {
+	srv, _ := archServer(t, nil)
+	if got := srv.lastScanOptions(); got != nil {
+		t.Errorf("options before any scan: %v", got)
+	}
+	noteCall(t, srv, http.MethodPost, "/v1/notes/scan?summarize=1&modules=7", "")
+	srv.scanJob.last = nil // what a restart forgets
+	got := srv.lastScanOptions()
+	if got.Get(scanSummarize) != "1" || got.Get(scanModules) != "7" {
+		t.Errorf("the marker did not keep the options: %v", got)
+	}
+	marker := filepath.Join(srv.opts.NotesDir, scanMarker)
+	if err := os.WriteFile(marker, []byte("scanned\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.lastScanOptions(); got.Get(scanSummarize) != "" || got.Get(scanModules) != "" {
+		t.Errorf("an old marker has no options: %v", got)
+	}
+}
+
 func TestScanInTheBackgroundRunsOneAtATimeAndReportsFailures(t *testing.T) {
 	var tr scanTracker
 	if !tr.start() || tr.start() {
