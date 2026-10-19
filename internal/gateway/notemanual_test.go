@@ -269,3 +269,22 @@ func TestScanModelsDoneWithoutModels(t *testing.T) {
 		t.Error("no models, nothing done")
 	}
 }
+
+func TestExplainBudgetFollowsTheChoice(t *testing.T) {
+	for raw, want := range map[string]int{
+		"": manualExplainMax, "x": manualExplainMax, "0": manualExplainMax, "-3": manualExplainMax,
+		"100": 100, "999999": manualExplainLimit,
+	} {
+		if got := explainBudget(raw); got != want {
+			t.Errorf("explainBudget(%q) = %d, want %d", raw, got, want)
+		}
+	}
+}
+
+func TestScanExplainsAsManyFoldersAsChosen(t *testing.T) {
+	svc := &describeService{fakeService: &fakeService{}, reply: "x"}
+	srv, _ := archServer(t, svc)
+	if got := scanWith(t, srv, "?summarize=1&modules=2"); svc.modules != 2 || got.Explained != 3 {
+		t.Errorf("two folders and the project: %+v, %d modules", got, svc.modules)
+	}
+}

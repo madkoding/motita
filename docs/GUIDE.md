@@ -658,7 +658,8 @@ the same folder opens in Obsidian and what you change there is what motita shows
   gets "How it fits together" (modules, connections and flows, from those facts and the README): at
   most ten per scan, asked again only when the project changed. Folders of the manuals get "What this
   module does" (purpose, how it works, inputs and outputs, pitfalls), from the note and excerpts of
-  their source: at most thirty per scan, asked again only when the folder changed. That sends the text of those
+  their source: thirty per scan by default, or 100 or all of them with **Folders the model explains
+  per scan**, asked again only when the folder changed (`POST /v1/notes/scan?summarize=1&modules=N`). That sends the text of those
   sessions and the structure and README of those projects (secrets removed) to your model provider
   and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them; before changing a project, it reads that project's Architecture note as a map and confirms it in the code.
 - **Limits.** 5000 notes, 192 KB each; only `.md` files, no hidden folders, and no path that

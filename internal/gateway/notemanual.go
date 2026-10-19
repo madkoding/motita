@@ -35,6 +35,7 @@ const (
 	manualSourcesBytes = 12000
 	manualModelBytes   = 16000
 	manualExplainMax   = 30
+	manualExplainLimit = 2000
 	manualHeadLines    = 30
 )
 

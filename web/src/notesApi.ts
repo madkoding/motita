@@ -264,6 +264,8 @@ export interface NoteScan {
 export interface ScanOptions {
   first?: boolean;
   summarize?: boolean;
+  // How many folders of the manuals the model may explain in this scan.
+  modules?: number;
 }
 
 // scanNotes writes a note for every project and every session that has been used, or updates the
@@ -278,6 +280,9 @@ export async function scanNotes(
   }
   if (opts.summarize) {
     params.set("summarize", "1");
+  }
+  if (opts.modules) {
+    params.set("modules", String(opts.modules));
   }
   let path = "/v1/notes/scan";
   if (params.size > 0) {

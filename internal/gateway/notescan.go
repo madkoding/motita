@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -248,7 +249,7 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	sum := &summaries{on: r.URL.Query().Get("summarize") != "", left: scanSummaryMax}
 	byProject := s.scanSessionNotes(r.Context(), v, names, sum, &res)
 	res.Summarized = sum.done
-	ms := s.scanModelsFor(r.URL.Query().Get("summarize") != "")
+	ms := s.scanModelsFor(r.URL.Query().Get("summarize") != "", explainBudget(r.URL.Query().Get("modules")))
 	for _, p := range projects {
 		res.Projects++
 		archLink := scanArchitecture(r.Context(), v, p, names[p.ID], ms, &res)
@@ -263,9 +264,19 @@ func (s *Server) handleScanNotes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// explainBudget is how many folders of the manuals the model may explain in one scan: what the
+// person chose, within manualExplainLimit, or manualExplainMax when they chose nothing valid.
+func explainBudget(raw string) int {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return manualExplainMax
+	}
+	return min(n, manualExplainLimit)
+}
+
 // scanModelsFor says what the model may explain: nothing unless the person asked for it and a
-// service can; otherwise a few projects and more modules of their manuals.
-func (s *Server) scanModelsFor(on bool) scanModels {
+// service can; otherwise a few projects and up to modules folders of their manuals.
+func (s *Server) scanModelsFor(on bool, modules int) scanModels {
 	if !on {
 		return scanModels{}
 	}
@@ -275,6 +286,6 @@ func (s *Server) scanModelsFor(on bool) scanModels {
 	}
 	return scanModels{
 		project: &archModel{svc: d, left: archDescribeMax},
-		module:  &archModel{svc: d, left: manualExplainMax, module: true},
+		module:  &archModel{svc: d, left: modules, module: true},
 	}
 }
