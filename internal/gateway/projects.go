@@ -785,6 +785,13 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		// is left for the user rather than failing a deletion that has otherwise happened.
 		_ = os.RemoveAll(projectDir)
 		releaseSharedRepos(r.Context(), p)
+	} else if p != nil && s.usersFolder(p.Dir) {
+		// A folder of the user's own stays, but the repositories motita put inside it do not: their
+		// worktrees, and the branches they hold in the shared and local repositories, are the
+		// project's.
+		for _, repo := range p.Repos {
+			s.discardRepoFolder(r.Context(), p, repo)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -951,8 +958,12 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	// Bring the project's checkout up to date before branching from it. A session
 	// that continues from stale code would build on top of a state the project has
 	// already left behind, and the merge later would be harder for no reason.
-	if err := gitx.PullFastForward(ctx, p.Dir, base); err != nil {
-		return nil, http.StatusConflict, err
+	// A project with no origin has nothing to bring in, and a folder of the user's own is not
+	// updated by itself: neither refuses the continuation.
+	if gitx.HasRemote(ctx, p.Dir) && !s.usersFolder(p.Dir) {
+		if err := gitx.PullFastForward(ctx, p.Dir, base); err != nil {
+			return nil, http.StatusConflict, err
+		}
 	}
 	newConv, err := s.createSession()
 	if err != nil {

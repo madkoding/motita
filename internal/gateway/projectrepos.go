@@ -466,7 +466,10 @@ func (s *Server) attachProjectRepos(ctx context.Context, p *Project, workspace, 
 		}
 		// A new session starts from current code, as the main repository's does. Advisory: a
 		// clone with no origin, or one that cannot fast-forward, branches from what it has.
-		_ = gitx.PullFastForward(ctx, repo.Dir, gitx.Display(ctx, repo.Dir))
+		// The user's own repository is never fetched into: the branch they have out is theirs.
+		if !repo.Local {
+			_ = gitx.PullFastForward(ctx, repo.Dir, gitx.Display(ctx, repo.Dir))
+		}
 		if err := gitx.AddWorktree(ctx, repo.Dir, path, sessionBranch(sessionID)); err != nil {
 			s.warn("the session has no worktree of one of the project's repositories",
 				"id", sessionID, "repo", repo.Name, "error", err.Error())

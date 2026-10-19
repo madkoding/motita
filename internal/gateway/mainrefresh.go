@@ -14,6 +14,10 @@ import (
 // keep a goroutine and a lock on the project forever.
 const mainRefreshTimeout = 2 * time.Minute
 
+// newSessionRefreshWait is how long a new session waits for the update of its project's main branch
+// before branching from the checkout as it is.
+var newSessionRefreshWait = 5 * time.Second
+
 // mainRefreshRetryAfter is the pause before the one retry of a failed update. A variable so the
 // tests of a failing origin do not wait for it.
 var mainRefreshRetryAfter = 300 * time.Millisecond
@@ -21,7 +25,7 @@ var mainRefreshRetryAfter = 300 * time.Millisecond
 // mainRefreshState is what the gateway knows about the background updates of main branches.
 type mainRefreshState struct {
 	mu      sync.Mutex
-	running map[string]bool
+	running map[string]chan struct{}
 	warned  map[string]string
 	wg      sync.WaitGroup
 }
@@ -30,20 +34,41 @@ type mainRefreshState struct {
 func (m *mainRefreshState) begin(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.running[id] {
+	if m.running[id] != nil {
 		return false
 	}
 	if m.running == nil {
-		m.running = map[string]bool{}
+		m.running = map[string]chan struct{}{}
 	}
-	m.running[id] = true
+	m.running[id] = make(chan struct{})
 	return true
+}
+
+// await waits for the update running for the project, at most d: a session that opens branches
+// from the checkout, so it gives a fetch a moment to bring in what origin has, and goes on from the
+// checkout as it is when origin is slow. It returns at once when no update runs.
+func (m *mainRefreshState) await(id string, d time.Duration) {
+	m.mu.Lock()
+	done := m.running[id]
+	m.mu.Unlock()
+	if done == nil {
+		return
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+	}
 }
 
 // finish ends an update and records why it failed, or forgets an earlier failure.
 func (m *mainRefreshState) finish(id, warning string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if done := m.running[id]; done != nil {
+		close(done)
+	}
 	delete(m.running, id)
 	if warning == "" {
 		delete(m.warned, id)
@@ -111,6 +136,14 @@ func (s *Server) refreshMainInBackground(p *Project) {
 			s.warn("the project's main branch could not be updated", "project", proj.Dir, "reason", warning)
 		}
 	}()
+}
+
+// awaitMainRefresh gives the update of the project's main branch a moment to end, so the worktree a
+// session is about to get branches from current code and not from the checkout as it was.
+func (s *Server) awaitMainRefresh(p *Project) {
+	if p != nil {
+		s.mainRefresh.await(p.ID, newSessionRefreshWait)
+	}
 }
 
 // mainRefreshInterval is how often a running gateway brings every project's main branch up to

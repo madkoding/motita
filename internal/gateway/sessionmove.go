@@ -37,6 +37,7 @@ func (s *Server) handleMoveSessionToProject(w http.ResponseWriter, r *http.Reque
 	}
 	defer c.releaseRunSlot()
 	s.refreshMainInBackground(p)
+	s.awaitMainRefresh(p)
 	s.releaseFreeSessionDir(c)
 	s.placeInProject(c, p.ID, p)
 	s.saveSession(c)
