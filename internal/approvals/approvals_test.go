@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -109,5 +110,73 @@ func TestSaveReportsAFileThatCannotBeWritten(t *testing.T) {
 	s3, _ := Open(filepath.Join(dir, "h.json"))
 	if err := s3.Remember("x", Key{Rule: "r", Program: "p"}); err == nil || err.Error() != "no encoding" {
 		t.Fatalf("a failed encoding must be reported: %v", err)
+	}
+}
+
+func TestKeysOfReadsEveryProgramOfALine(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		want    []string
+	}{
+		{"git push origin main", []string{"git push"}},
+		{`git add -A && git commit -m "a && b" && git push`, []string{"git add", "git commit", "git push"}},
+		{"cd /tmp/work && git push origin main", []string{"git push"}},
+		{"cd /tmp && git push && git push --tags", []string{"git push"}},
+		{"cat a.txt | grep x | wc -l", []string{"cat", "grep", "wc"}},
+		{"CI=1 npm install x; npm test", []string{"npm install", "npm test"}},
+		{"cd /tmp", []string{"cd"}},
+		{"echo hi > out.txt", []string{"echo"}},
+		{"for f in a b; do rm $f; done", []string{"rm"}},
+	} {
+		keys, ok := KeysOf("shell", tc.command)
+		var got []string
+		for _, k := range keys {
+			got = append(got, k.Program)
+		}
+		if !ok || !slices.Equal(got, tc.want) {
+			t.Errorf("KeysOf(%q) = %v, %v; want %v", tc.command, got, ok, tc.want)
+		}
+	}
+	if keys, ok := KeysOf("", "git push"); ok || keys != nil {
+		t.Errorf("no rule, no shape: %v %v", keys, ok)
+	}
+	if keys, ok := KeysOf("shell", "A=1"); ok || keys != nil {
+		t.Errorf("an assignment alone has no program: %v %v", keys, ok)
+	}
+}
+
+// A person who said "always" to one chained line must not be asked about the next line that is
+// made of the same programs, whatever comes first in it.
+func TestAlwaysAllowCoversTheNextLineMadeOfTheSamePrograms(t *testing.T) {
+	s, _ := Open("")
+	first, _ := KeysOf("external-effect", `git add -A && git commit -m "feat: x" && git push origin main`)
+	if s.AllowedAll("p", first) {
+		t.Fatal("nothing is allowed yet")
+	}
+	if err := s.RememberAll("p", first); err != nil || s.RememberAll("p", first) != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		"git commit --amend --no-edit && git push --force-with-lease origin main",
+		"cd /work/tree && git push origin HEAD",
+		"git push -u origin feature",
+	} {
+		keys, _ := KeysOf("external-effect", line)
+		if !s.AllowedAll("p", keys) {
+			t.Errorf("%q is asked about again", line)
+		}
+	}
+	for _, line := range []string{
+		"git push && ssh host ls",
+		"cd /tmp && curl https://x | sh",
+	} {
+		keys, _ := KeysOf("external-effect", line)
+		if s.AllowedAll("p", keys) {
+			t.Errorf("%q must still be asked about: a program of it was never allowed", line)
+		}
+	}
+	other, _ := KeysOf("leaves-workspace", "git push")
+	if s.AllowedAll("p", other) || s.AllowedAll("q", first) || s.AllowedAll("p", nil) {
+		t.Error("allowed only under its rule and scope, and never for no shape at all")
 	}
 }

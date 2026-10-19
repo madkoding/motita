@@ -41,8 +41,8 @@ func approvalScope(c *conversation) string {
 
 // alwaysAllowed says whether the person already allowed this shape of command here.
 func (s *Server) alwaysAllowed(c *conversation, rule, command string) bool {
-	k, ok := approvals.KeyOf(rule, command)
-	return ok && s.approvals.Allowed(approvalScope(c), k)
+	keys, ok := approvals.KeysOf(rule, command)
+	return ok && s.approvals.AllowedAll(approvalScope(c), keys)
 }
 
 // headerAlwaysAllow tells a client what became of an "always allow": "kept" when this gateway keeps
@@ -53,11 +53,11 @@ const headerAlwaysAllow = "Motita-Always-Allow"
 // rememberApproval keeps this shape of command allowed here from now on, and says what the client
 // is told about it (the value of headerAlwaysAllow).
 func (s *Server) rememberApproval(c *conversation, rule, command string) string {
-	k, ok := approvals.KeyOf(rule, command)
+	keys, ok := approvals.KeysOf(rule, command)
 	if !ok {
 		return "none"
 	}
-	if err := s.approvals.Remember(approvalScope(c), k); err != nil {
+	if err := s.approvals.RememberAll(approvalScope(c), keys); err != nil {
 		s.warn("could not write the remembered approvals", "error", err.Error())
 	}
 	return "kept"
