@@ -91,7 +91,7 @@ function links(
 // orb is one note: a bright core and a soft halo around it, the bigger the more notes link to it.
 function orb(T: ThreeLib, node: PlacedNode3D): Three.Group {
   const color = NEON[noteGroup(node.path, NEON.length)];
-  const size = 2.2 + Math.min(node.in, 8) * 0.45;
+  const size = 3.4 + Math.min(node.in, 8) * 0.6;
   const core = new T.Mesh(
     new T.SphereGeometry(size, 20, 14),
     new T.MeshBasicMaterial({ color }),
@@ -141,12 +141,12 @@ export function mountGraph3D(
   host.appendChild(renderer.domElement);
 
   const scene = new T.Scene();
-  scene.fog = new T.FogExp2(0x07010f, 0.0016);
+  scene.fog = new T.FogExp2(0x07010f, 0.0011);
   const camera = new T.PerspectiveCamera(55, 1, 1, 3000);
-  camera.position.set(0, 60, CAMERA_DISTANCE);
+  camera.position.set(0, CAMERA_DISTANCE * 0.42, CAMERA_DISTANCE);
   camera.lookAt(0, 0, 0);
 
-  const grid = new T.GridHelper(900, 36, 0xff2bd6, 0x2a0f4a);
+  const grid = new T.GridHelper(1400, 48, 0xff2bd6, 0x6a1fb0);
   grid.position.y = -RADIUS * 1.3;
   scene.add(grid, starfield(T));
 
