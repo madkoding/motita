@@ -95,6 +95,9 @@ func TestAlwaysAllowingAShapeAnswersItInLaterRuns(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", w.Code, w.Body.String())
 	}
+	if got := w.Header().Get(headerAlwaysAllow); got != "kept" {
+		t.Errorf("header = %q, want kept", got)
+	}
 	before, second := eventsUntilApproval(t, br)
 	if second.Command != "npm test" {
 		t.Fatalf("the second question must be about the other shape, got %q", second.Command)
@@ -160,7 +163,13 @@ func TestAShellLineCanBeAlwaysAllowedToo(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "ran git push") {
 		t.Fatalf("approved: %s", w.Body.String())
 	}
+	if got := w.Header().Get(headerAlwaysAllow); got != "kept" {
+		t.Errorf("header = %q, want kept", got)
+	}
 	w = post(t, srv, path, `{"command":"git push --tags"}`, testToken)
+	if got := w.Header().Get(headerAlwaysAllow); got != "" {
+		t.Errorf("a plain run says nothing about always allow: %q", got)
+	}
 	if !strings.Contains(w.Body.String(), "ran git push --tags") {
 		t.Fatalf("the same shape must run without a yes: %s", w.Body.String())
 	}
@@ -187,7 +196,9 @@ func TestABadApprovalFileStartsEmpty(t *testing.T) {
 		t.Errorf("scope = %q", approvalScope(c))
 	}
 	// Nothing to remember in a blank line, and a store that cannot write is only warned about.
-	srv.rememberApproval(c, "shell", "   ")
+	if got := srv.rememberApproval(c, "shell", "   "); got != "none" {
+		t.Errorf("a blank line has no shape to keep: %q", got)
+	}
 	_ = os.Remove(filepath.Join(dir, approvalsFile))
 	_ = os.Mkdir(filepath.Join(dir, approvalsFile+".tmp"), 0o700)
 	srv.rememberApproval(c, "shell", "git push")

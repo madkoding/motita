@@ -595,7 +595,10 @@ and keeps that shape of command (its policy rule and program, `git push`, `npm i
 in the project: later sessions of the project run it without asking, and the run says so
 (`approved (always allowed in this project): …`). The decision is kept in `approvals.json`
 beside the sessions (`scope: "project"` on `POST /v1/sessions/{id}/runs/approval` and on
-`/shell`); "allow all commands for this session" stays available through
+`/shell`). The gateway answers such a request with `Motita-Always-Allow: kept` (or `none` when the
+line has no shape to keep); a gateway from before the choice sends no header, and the page, when it
+is connected to one through Other computers, says that computer did not keep it and needs updating.
+"Allow all commands for this session" stays available through
 `POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden. In the terminal
 the confirmation window's `a` key does the same for the folder the commands run in, kept in
 `~/.motita/approvals.json`; the transcript says when a command ran without asking.

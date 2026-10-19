@@ -14,10 +14,20 @@ import {
   APPROVAL_OPTIONS,
   JSON_HEADERS,
   NEEDS_APPROVAL,
+  NOT_KEPT,
   NO_RESULT,
   SESSIONS_PATH,
   SHELL_LOG_MAX,
 } from "./appConst";
+
+// The header a gateway answers an "always allow" with, whatever became of it. A gateway from before
+// the choice existed sends none: it took the yes and kept nothing.
+const KEPT_HEADER = "Motita-Always-Allow";
+
+// keptNowhere says an "always allow" went to a gateway that does not keep it.
+function keptNowhere(res: Response, always: boolean): boolean {
+  return always && res.headers.get(KEPT_HEADER) === null;
+}
 
 interface Deps {
   api: Api;
@@ -106,6 +116,9 @@ export function useShellApproval({
           });
           return;
         }
+        if (keptNowhere(res, always)) {
+          setToast({ message: t(NOT_KEPT), type: "warning" });
+        }
         if (body.needs_approval) {
           // Nothing ran: the line leaves the terminal and waits for the person's yes.
           setShellLog((prev) => prev.filter((e) => e.id !== entryId));
@@ -166,6 +179,9 @@ export function useShellApproval({
         // the panel is closed, so the user must hear that the answer did not land.
         if (!res.ok) {
           throw new Error(String(res.status));
+        }
+        if (approve && keptNowhere(res, always)) {
+          setToast({ message: t(NOT_KEPT), type: "warning" });
         }
       } catch {
         setState("could not answer the approval", true);
