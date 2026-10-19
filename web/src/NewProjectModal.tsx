@@ -130,13 +130,15 @@ function FolderFields() {
         )}
       </div>
       <p class="text-xs text-[#7a7a8c] mt-1">
-        {p.fullDisk
-          ? t(
-              "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
-            )
-          : t(
-              "Without the whole disk in Settings → Security, the folder has to be inside the workspace.",
-            )}
+        {choose(
+          p.fullDisk,
+          t(
+            "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
+          ),
+          t(
+            "Without the whole disk in Settings → Security, the folder has to be inside the workspace.",
+          ),
+        )}
       </p>
     </div>
   );

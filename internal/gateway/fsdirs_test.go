@@ -355,10 +355,11 @@ func TestWithoutTheWholeDiskAProjectCanStillUseAFolderInTheWorkspace(t *testing.
 		t.Fatalf("existing workspace folder: %d %v", code, out)
 	}
 	fresh := filepath.Join(ws, "fresh")
-	if code, out := createProject(t, srv, `{"title":"B","path":"`+fresh+`"}`); code != http.StatusCreated || !isDir(fresh) {
+	code, out := createProject(t, srv, `{"title":"B","path":"`+fresh+`"}`)
+	if code != http.StatusCreated || !isDir(fresh) {
 		t.Fatalf("new workspace folder: %d %v", code, out)
 	}
-	if code, _ := createProject(t, srv, `{"title":"C","path":"`+ws+`"}`); code != http.StatusBadRequest {
+	if code, _ = createProject(t, srv, `{"title":"C","path":"`+ws+`"}`); code != http.StatusBadRequest {
 		t.Errorf("the workspace itself: %d", code)
 	}
 }

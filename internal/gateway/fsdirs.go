@@ -110,7 +110,7 @@ func (s *Server) browsableDir(asked, home string, full bool) (dir, root string, 
 	}
 	dir, ok := resolveDir(root, dir)
 	if !ok {
-		return "", "", http.StatusNotFound, "that folder does not exist"
+		return "", "", http.StatusNotFound, errNoFolder
 	}
 	return dir, root, 0, ""
 }
@@ -305,7 +305,7 @@ func (s *Server) externalProjectFolder(w http.ResponseWriter, raw string) (strin
 		}
 	}
 	if !found {
-		writeError(w, http.StatusBadRequest, "that folder does not exist")
+		writeError(w, http.StatusBadRequest, errNoFolder)
 		return "", false
 	}
 	if problem := s.projectFolderProblem(dir); problem != "" {
@@ -315,18 +315,24 @@ func (s *Server) externalProjectFolder(w http.ResponseWriter, raw string) (strin
 	return dir, true
 }
 
+// errNoFolder is the answer for a folder the disk does not have.
+const errNoFolder = "that folder does not exist"
+
 // projectFolderProblem says why dir cannot be a project's folder, empty when it can.
 func (s *Server) projectFolderProblem(dir string) string {
+	ws := s.opts.WorkspaceDir
+	problem := ""
 	switch {
 	case filepath.Dir(dir) == dir:
-		return "the root of the disk cannot be a project"
-	case s.opts.WorkspaceDir != "" && pathWithinOrSame(dir, s.opts.WorkspaceDir):
-		return "the workspace itself (or a folder around it) cannot be a project"
-	case s.opts.WorkspaceDir != "" && pathWithinOrSame(s.opts.WorkspaceDir, dir) &&
-		reservedFolders[strings.ToLower(filepath.Base(dir))]:
-		return "that folder is where motita keeps its sessions and shared repositories"
+		problem = "the root of the disk cannot be a project"
+	case ws != "" && pathWithinOrSame(dir, ws):
+		problem = "the workspace itself (or a folder around it) cannot be a project"
+	case ws != "" && pathWithinOrSame(ws, dir) && reservedFolders[strings.ToLower(filepath.Base(dir))]:
+		problem = "that folder is where motita keeps its sessions and shared repositories"
+	default:
+		problem = ""
 	}
-	return ""
+	return problem
 }
 
 // newExternalFolder is externalProjectFolder for a project being created: the last folder of the
@@ -348,7 +354,7 @@ func (s *Server) newExternalFolder(w http.ResponseWriter, raw string) (string, b
 	}
 	parent, found := resolveDir(root, parentRaw)
 	if !found {
-		writeError(w, http.StatusBadRequest, "that folder does not exist")
+		writeError(w, http.StatusBadRequest, errNoFolder)
 		return "", false
 	}
 	dir := filepath.Join(parent, name)
