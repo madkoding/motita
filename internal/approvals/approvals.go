@@ -31,10 +31,23 @@ func KeyOf(rule, command string) (Key, bool) {
 		return Key{}, false
 	}
 	program := filepath.Base(words[0])
-	if len(words) > 1 && isSubcommand(words[1]) {
+	if len(words) > 1 && withSubcommands[program] && isSubcommand(words[1]) {
 		program += " " + words[1]
 	}
 	return Key{Rule: rule, Program: program}, true
+}
+
+// withSubcommands are the programs whose second word names what they do (git push, npm install,
+// go test). For any other program a lowercase second word is an operand (`cp report /tmp/x`,
+// `mkdir out`), and keeping it in the shape made "always allow" cover that one file only: the
+// next `cp` of another name was asked about again.
+var withSubcommands = map[string]bool{
+	"git": true, "gh": true, "npm": true, "yarn": true, "pnpm": true, "bun": true, "go": true,
+	"cargo": true, "rustup": true, "docker": true, "docker-compose": true, "podman": true,
+	"kubectl": true, "helm": true, "terraform": true, "pip": true, "pip3": true, "pipx": true,
+	"uv": true, "poetry": true, "apt": true, "apt-get": true, "brew": true, "systemctl": true,
+	"dotnet": true, "gradle": true, "mvn": true, "composer": true, "gem": true, "bundle": true,
+	"flatpak": true, "snap": true, "winget": true, "choco": true,
 }
 
 // isSubcommand says a second word names what the program does (git push, npm install, go test)
