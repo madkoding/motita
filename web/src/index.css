@@ -5197,3 +5197,20 @@ html .project-bar button.project-new-session {
 .note-folder[open] > summary::before {
   transform: rotate(90deg);
 }
+
+/* What a search on the map finds glows yellow; the rest fades. */
+.graph3d-label.is-hit {
+  color: #fff;
+  border-color: #f5f500;
+  box-shadow: 0 0 14px rgba(245, 245, 0, 0.8);
+  text-shadow: 0 0 6px rgba(245, 245, 0, 0.9);
+  z-index: 2;
+}
+.graph3d-label.is-dim,
+.graph2d-node.is-dim {
+  opacity: 0.22;
+}
+.graph2d-node.is-hit circle {
+  stroke: #f5f500;
+  stroke-width: 3;
+}

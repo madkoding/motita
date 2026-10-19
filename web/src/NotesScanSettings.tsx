@@ -233,7 +233,7 @@ export function NotesScanSettings({ api }: { api: Api }) {
             data-testid="notes-scan-progress"
           >
             <div class="text-xs text-[#c8c8d2]">{progressText(progress)}</div>
-            <div class="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div class="mt-1.5 h-2 rounded-full bg-white/10 overflow-hidden">
               <div
                 class="h-full bg-accent transition-[width] duration-500"
                 style={{ width: progressShare(progress) + "%" }}

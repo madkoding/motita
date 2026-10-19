@@ -14,7 +14,9 @@ export class Vector3 {
   project() { return this; }
   length() { return Math.hypot(this.x, this.y, this.z); }
   setLength(d) { const k = d / this.length(); this.x *= k; this.y *= k; this.z *= k; return this; }
+  lerp(v, a) { this.x += (v.x - this.x) * a; this.y += (v.y - this.y) * a; this.z += (v.z - this.z) * a; return this; }
 }
+export class Vector2 { constructor(x, y) { this.x = x; this.y = y; } }
 class Obj {
   constructor(...args) {
     this.args = args;
@@ -58,7 +60,26 @@ export class WebGLRenderer {
   dispose() { this.disposed = true; }
 }
 `;
-const dom = setupDom({ overrides: { three: FAKE_THREE } });
+// The bloom passes, as stand-ins that count what they draw.
+const FAKE_FX = (name) => `
+export class ${name} {
+  constructor(...args) { this.args = args; this.passes = []; globalThis.__fx = globalThis.__fx ?? {}; globalThis.__fx.${name} = this; }
+  addPass(p) { this.passes.push(p); }
+  render() { this.frames = (this.frames ?? 0) + 1; }
+  setSize(w, h) { this.size = [w, h]; }
+  dispose() { this.disposed = true; }
+}
+`;
+const FX = "three/addons/postprocessing/";
+const dom = setupDom({
+  overrides: {
+    three: FAKE_THREE,
+    [FX + "EffectComposer.js"]: FAKE_FX("EffectComposer"),
+    [FX + "RenderPass.js"]: FAKE_FX("RenderPass"),
+    [FX + "UnrealBloomPass.js"]: FAKE_FX("UnrealBloomPass"),
+    [FX + "OutputPass.js"]: FAKE_FX("OutputPass"),
+  },
+});
 const W = dom.window;
 globalThis.requestAnimationFrame = (cb) =>
   setTimeout(() => cb(performance.now()), 0);
@@ -1077,6 +1098,31 @@ test("the 3D map draws every note with its label, turns, zooms and cleans up", a
   assert.equal(host.childNodes.length, 0);
   host.remove();
 
+  // With the bloom, the composer draws; a search lights what it finds and turns to it.
+  const fx = await map3d.graph3d.loadFx();
+  const glowing = fakeHost(300, 200);
+  const m3 = map3d.mountGraph3D(T, glowing, GRAPH, () => {}, false, fx);
+  const composer = globalThis.__fx.EffectComposer;
+  assert.equal(composer.passes.length, 3);
+  assert.deepEqual(composer.size, [300, 200]);
+  const glowLabels = qa(glowing, "graph-node");
+  assert.equal(m3.find(" ONE "), 1);
+  assert.deepEqual(
+    glowLabels.map((b) => b.className),
+    ["graph3d-label is-hit", "graph3d-label is-dim"],
+  );
+  assert.equal(m3.find("o"), 2);
+  await new Promise((res) => setTimeout(res, 5));
+  assert.ok(composer.frames > 0);
+  assert.equal(m3.find(""), 0);
+  assert.deepEqual(
+    glowLabels.map((b) => b.className),
+    ["graph3d-label", "graph3d-label"],
+  );
+  m3.stop();
+  assert.equal(composer.disposed, true);
+  glowing.remove();
+
   // With less motion asked for it stays still, and an empty box still draws.
   const still = fakeHost(0, 0);
   const m2 = map3d.mountGraph3D(T, still, GRAPH, () => {}, true);
@@ -1095,6 +1141,22 @@ test("the window shows the 3D map where WebGL works and the flat one where it fa
   assert.ok(q(m.root, "graph-3d-hint"), "the 3D map is up");
   assert.equal(q(m.root, "note-graph").querySelector("svg"), null);
   assert.match(text(q(m.root, "note-graph-toggle")), /Close map/);
+  const find = async (value) => {
+    const input = q(m.root, "graph-search");
+    input.value = value;
+    await act(() =>
+      input.dispatchEvent(new W.Event("input", { bubbles: true })),
+    );
+    await settle();
+  };
+  await find("peru");
+  assert.equal(text(q(m.root, "graph-found")), "1 found");
+  assert.deepEqual(
+    qa(m.root, "graph-node").map((b) => b.className),
+    ["graph3d-label is-dim", "graph3d-label is-hit"],
+  );
+  await find("");
+  assert.equal(q(m.root, "graph-found"), null);
   await click(qa(m.root, "graph-node")[0]);
   assert.ok(q(m.root, "note-preview"), "a label opens its note");
   assert.equal(q(m.root, "note-graph"), null);
@@ -1111,12 +1173,30 @@ test("the window shows the 3D map where WebGL works and the flat one where it fa
   assert.equal(globalThis.__threeRenderer, before);
   map3d.graph3d.load = load;
 
-  // No WebGL context after all: the flat map stays.
+  // No WebGL context after all: the flat map stays, and its search fades what it does not find.
   globalThis.__threeFail = true;
   await click(q(m.root, "note-graph-toggle"));
   await settle();
   assert.equal(q(m.root, "graph-3d-hint"), null);
   assert.ok(q(m.root, "note-graph").querySelector("svg"));
+  await find("jap");
+  assert.deepEqual(
+    qa(m.root, "graph-node").map((g) => g.getAttribute("class")),
+    [
+      "cursor-pointer graph2d-node is-hit",
+      "cursor-pointer graph2d-node is-dim",
+    ],
+  );
+  await click(q(m.root, "note-graph-toggle"));
+  globalThis.__threeFail = false;
+
+  // Without the bloom the map still draws.
+  const loadFx = map3d.graph3d.loadFx;
+  map3d.graph3d.loadFx = () => Promise.reject(new Error("no chunk"));
+  await click(q(m.root, "note-graph-toggle"));
+  await settle();
+  assert.ok(q(m.root, "graph-3d-hint"));
+  map3d.graph3d.loadFx = loadFx;
   globalThis.__threeFail = false;
   await click(q(m.root, "note-graph-toggle"));
   await m.done();

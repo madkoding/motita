@@ -390,23 +390,24 @@ const GRAPH_H = 440;
 // then, or anywhere else, the flat drawing stays.
 function useMap3D(graph: NoteGraph, open: (path: string) => void) {
   const host = useRef<HTMLDivElement>(null);
+  const map = useRef<Graph3D | null>(null);
   const [deep, setDeep] = useState(false);
   useEffect(() => {
     if (graph.nodes.length === 0 || !graph3d.webgl()) {
       return undefined;
     }
     let live = true;
-    let map: Graph3D | null = null;
-    graph3d
-      .load()
-      .then((T) => {
+    // The bloom is a bonus: without it the map still draws.
+    Promise.all([graph3d.load(), graph3d.loadFx().catch(() => undefined)])
+      .then(([T, fx]) => {
         if (live) {
-          map = mountGraph3D(
+          map.current = mountGraph3D(
             T,
             host.current as HTMLDivElement,
             graph,
             open,
             reducedMotion(),
+            fx,
           );
           setDeep(true);
         }
@@ -414,10 +415,11 @@ function useMap3D(graph: NoteGraph, open: (path: string) => void) {
       .catch(() => setDeep(false));
     return () => {
       live = false;
-      map?.stop();
+      map.current?.stop();
+      map.current = null;
     };
   }, [graph]);
-  return { host, deep };
+  return { host, map, deep };
 }
 
 // GraphPane draws the notes as glowing points joined by their links, in 3D where it can; a click
@@ -426,7 +428,14 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
   const { openNote, closeGraph } = useApp().notes;
   const nodes = useMemo(() => layoutGraph(graph, GRAPH_W, GRAPH_H), [graph]);
   const at = new Map(nodes.map((n) => [n.path, n]));
-  const { host, deep } = useMap3D(graph, (p) => void openNote(p));
+  const { host, map, deep } = useMap3D(graph, (p) => void openNote(p));
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const hit = (title: string) => q !== "" && title.toLowerCase().includes(q);
+  const found = graph.nodes.filter((n) => hit(n.title)).length;
+  useEffect(() => {
+    map.current?.find(query);
+  }, [query, deep]);
   return (
     <div class="flex flex-col flex-1 min-h-0" data-testid="note-graph">
       <div class="flex items-center gap-2 mb-2 flex-wrap">
@@ -453,6 +462,24 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
           </div>
         )}
       </div>
+      {nodes.length > 0 && (
+        <div class="flex items-center gap-2 mb-2">
+          <input
+            type="search"
+            class={FIELD + " md:max-w-[18rem]"}
+            value={query}
+            placeholder={t("Find a note on the map")}
+            aria-label={t("Find a note on the map")}
+            data-testid="graph-search"
+            onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+          />
+          {q !== "" && (
+            <span class="text-xs text-[#f5f500]" data-testid="graph-found">
+              {tf("{n} found", { n: String(found) })}
+            </span>
+          )}
+        </div>
+      )}
       {nodes.length === 0 && (
         <p class="text-sm text-[#9a9aaa]">{t("Nothing to draw yet.")}</p>
       )}
@@ -479,7 +506,11 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
             {nodes.map((n) => (
               <g
                 key={n.path}
-                class="cursor-pointer graph2d-node"
+                class={
+                  "cursor-pointer graph2d-node" +
+                  choose(hit(n.title), " is-hit", "") +
+                  choose(q !== "" && !hit(n.title), " is-dim", "")
+                }
                 role="button"
                 tabIndex={0}
                 data-testid="graph-node"

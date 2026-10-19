@@ -822,6 +822,8 @@ const more: Record<string, string> = {
     "Tu segundo cerebro: proyectos, sesiones y tus propias ideas.",
   Map: "Mapa",
   "Close map": "Cerrar mapa",
+  "Find a note on the map": "Buscar una nota en el mapa",
+  "{n} found": "{n} encontradas",
   "Drag to turn, scroll to zoom, click a name to open it.":
     "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para abrirlo.",
   "could not load the notes": "no se pudieron cargar las notas",
