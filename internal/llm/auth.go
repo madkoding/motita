@@ -177,7 +177,7 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 			// transport error, and a key in it ended up in the logs.
 			t.headers["x-goog-api-key"] = key
 		default:
-			if key != "" {
+			if key != "" && !config.IsSelfHostedOllama(c.cfg) {
 				t.headers["Authorization"] = bearerPrefix + key
 			}
 		}

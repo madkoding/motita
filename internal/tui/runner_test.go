@@ -612,3 +612,21 @@ func TestASwitchTakesTheEndpointSavedInTheSettings(t *testing.T) {
 		t.Errorf("refresh: %+v", got)
 	}
 }
+
+// TestASwitchToTheLocalOllamaNeverTakesTheCloudKeyOrAddress: with no endpoint saved, Ollama on
+// one's own server is the local address, and the key of Ollama Cloud (the same variable) stays home.
+func TestASwitchToTheLocalOllamaNeverTakesTheCloudKeyOrAddress(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OLLAMA_API_KEY", "cloud-key")
+	cfg := config.Default()
+	cfg.LLM.Provider, cfg.LLM.APIKey = "openai", "sk"
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.SetLLM("ollama", "gpt-oss:20b")
+	if got := r.Config().LLM; got.BaseURL != config.OllamaLocalURL || got.APIKey != "" {
+		t.Errorf("local Ollama: %+v", got)
+	}
+	r.SetLLM("ollama-cloud", "gpt-oss:120b")
+	if got := r.Config().LLM; got.BaseURL != "https://ollama.com/v1" || got.APIKey != "cloud-key" {
+		t.Errorf("Ollama Cloud: %+v", got)
+	}
+}
