@@ -543,15 +543,15 @@ test("the edit dialog shows the project's index panel when the app has an api", 
 });
 
 test("a repository can be picked from a folder only with the whole disk allowed", async () => {
-  const s = store();
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  await click(byTest(m, "repo-add-open"));
-  assert.equal(byTest(m, "repo-browse"), null);
-  const full = store({ fullDisk: true });
-  await m.rerender(full.value, h(NewProjectModal));
-  await click(byTest(m, "repo-browse"));
-  assert.deepEqual(full.log, [["browse", "repo"]]);
-  await m.unmount();
+  const none = store({ repoCatalog: [] });
+  const closed = await mount(
+    AppCtx,
+    none.value,
+    h(EditProjectModal, { p: DRAFT }),
+  );
+  await click(byTest(closed, "repo-add-open"));
+  assert.equal(byTest(closed, "repo-browse"), null);
+  await closed.unmount();
 
   const e = store({ fullDisk: true, repoCatalog: [] });
   const edit = await mount(AppCtx, e.value, h(EditProjectModal, { p: DRAFT }));

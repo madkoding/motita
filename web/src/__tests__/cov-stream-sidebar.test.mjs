@@ -64,6 +64,10 @@ function store(over = {}) {
     deletion: { setConfirmDelete: rec("setConfirmDelete") },
     stream: { submit: async (...a) => calls.push(["submit", ...a]) },
     projects: { openNewProject: on("openNewProject"), hasPodman: false },
+    repositories: {
+      repositories: [],
+      openNewRepository: on("openNewRepository"),
+    },
     updates: { updateInfo: null, openUpgrade: on("openUpgrade") },
     skills: { setShowSkillLibrary: rec("setShowSkillLibrary") },
     artifacts: { openArtifacts: on("openArtifacts") },
@@ -452,7 +456,11 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
     text(root.querySelector("[data-testid=sidebar-sessions] .truncate")),
     "Loose",
   );
-  assert.equal(root.querySelectorAll("[data-testid=sidebar-empty]").length, 0);
+  assert.deepEqual(
+    [...root.querySelectorAll("[data-testid=sidebar-empty]")].map(text),
+    ["No repositories"],
+    "only the repositories are none",
+  );
   // Each section title carries its own "+", named for what it adds, and nothing sits above them.
   const addSession = root.querySelector("[data-testid=sidebar-new-session]");
   const addProject = root.querySelector("[data-testid=sidebar-new-project]");
@@ -481,6 +489,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
 
   await click(root.querySelector('[aria-label="Close sidebar"]'));
   await click(addProject);
+  await click(root.querySelector("[data-testid=sidebar-new-repository]"));
   const upgrade = buttonNamed(root, "Upgrade Motitav1.3.0");
   assert.equal(text(upgrade.querySelector(".font-mono")), "v1.3.0");
   await click(upgrade);
@@ -493,6 +502,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   assert.deepEqual(v.calls, [
     ["closeSidebar"],
     ["openNewProject"],
+    ["openNewRepository"],
     ["openUpgrade"],
     ["setShowSkillLibrary", true],
     ["openNotes"],
@@ -530,7 +540,7 @@ test("an empty sidebar says so in each section", async () => {
   const { root, done } = await mount(h(Sidebar), store());
   assert.deepEqual(
     [...root.querySelectorAll("[data-testid=sidebar-empty]")].map(text),
-    ["No sessions", "No projects"],
+    ["No sessions", "No projects", "No repositories"],
   );
   await done();
 });

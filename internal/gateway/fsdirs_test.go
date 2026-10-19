@@ -137,8 +137,8 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 	if code != http.StatusCreated || out["dir"] != real {
 		t.Fatalf("create: %d %v", code, out)
 	}
-	if _, err := os.Stat(filepath.Join(real, ".git")); err != nil {
-		t.Errorf("an empty folder becomes a repository: %v", err)
+	if _, err := os.Stat(filepath.Join(real, ".git")); err == nil {
+		t.Errorf("an empty folder stays a plain folder")
 	}
 	if code, _ := createProject(t, srv, `{"title":"Again","path":"`+outside+`"}`); code != http.StatusConflict {
 		t.Errorf("a second project on the same folder: %d", code)

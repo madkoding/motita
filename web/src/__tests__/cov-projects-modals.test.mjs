@@ -86,61 +86,46 @@ const fieldByLabel = (root, text) =>
     .find((l) => l.textContent.includes(text))
     .parentElement.querySelector("input,select");
 
-test("the first screen asks how to start", async () => {
+test("the dialog asks for a name and nothing else up front: a project is a plain folder", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   assert.equal(heading(m), "New project");
+  assert.equal(
+    m.q("[data-testid=new-project-choose]"),
+    null,
+    "no first screen",
+  );
   assert.equal(m.q("[data-testid=new-project-back]"), null);
-  assert.ok(m.q("[data-testid=new-project-choose]"));
-  await click(m.q("[data-testid=new-project-empty]"));
-  await click(m.q("[data-testid=new-project-git]"));
-  await click(m.q("[aria-label=Close]"));
-  assert.deepEqual(s.log, [["mode", "empty"], ["mode", "git"], ["close"]]);
-  await m.unmount();
-});
-
-test("an empty project asks for a name and shows the folder it will get", async () => {
-  const s = store({ newProjectMode: "empty" });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(heading(m), "Empty project");
-  assert.equal(m.q("[data-testid=new-project-choose]"), null);
+  assert.equal(m.q("[data-testid=new-project-main]"), null, "no branch");
+  assert.equal(m.q("[data-testid=repo-list]"), null, "no repositories");
   const name = fieldByLabel(m.root, "Name");
   assert.equal(name.placeholder, "My project");
   assert.match(name.parentElement.querySelector("label").textContent, /\*/);
-  // The main repository is the new folder, named after the default.
-  const list = m.q("[data-testid=repo-list]");
-  assert.match(list.textContent, /my-project/);
-  assert.match(list.textContent, /A new folder/);
   assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "my-project");
-  const create = buttonByText(m.root, "Create");
-  assert.equal(create.disabled, true, "no name yet");
+  assert.equal(buttonByText(m.root, "Create").disabled, true, "no name yet");
   assert.equal(m.q("[data-testid=podman-offer]"), null);
 
   await type(name, "Hello");
   await type(fieldByLabel(m.root, "Description"), "about");
   await type(fieldByLabel(m.root, "Folder name"), "hello-dir");
-  await change(m.q("[data-testid=new-project-main]"), "master");
-  await click(m.q("[data-testid=new-project-back]"));
+  await click(m.q("[aria-label=Close]"));
   assert.deepEqual(s.log, [
     ["title", "Hello"],
     ["desc", "about"],
     ["dir", "hello-dir"],
-    ["main", "master"],
-    ["mode", null],
+    ["close"],
   ]);
   await m.unmount();
 });
 
-test("a named empty project can be created, in the folder typed or one from its name", async () => {
+test("a named project can be created, in the folder named after it", async () => {
   const s = store({
-    newProjectMode: "empty",
     newProjectTitle: "My App",
     hasPodman: true,
     podmanReady: true,
     hasPodmanCompose: true,
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.match(m.q("[data-testid=repo-list]").textContent, /my-app/);
   assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "my-app");
   const offer = m.q("[data-testid=podman-offer]");
   assert.match(offer.textContent, /started in containers with podman\./);
@@ -149,25 +134,12 @@ test("a named empty project can be created, in the folder typed or one from its 
   assert.equal(create.disabled, false);
   await click(create);
   assert.deepEqual(s.log, [["podman", true], ["create"]]);
-  await m.rerender(
-    store({
-      newProjectMode: "empty",
-      newProjectTitle: "x",
-      newProjectDir: " own ",
-    }).value,
-  );
-  assert.match(m.q("[data-testid=repo-list]").textContent, /own/);
   await m.unmount();
 });
 
-test("while an empty project is being created the dialog cannot go back", async () => {
-  const s = store({
-    newProjectMode: "empty",
-    newProjectTitle: "x",
-    creatingProject: true,
-  });
+test("while a project is being created the dialog says so and cannot be sent again", async () => {
+  const s = store({ newProjectTitle: "x", creatingProject: true });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(m.q("[data-testid=new-project-back]"), null);
   assert.match(m.root.textContent, /Creating the project…/);
   const btn = buttonByText(m.root, "Creating…");
   assert.equal(btn.disabled, true);
@@ -175,161 +147,6 @@ test("while an empty project is being created the dialog cannot go back", async 
   await click(buttonByText(m.root, "Cancel"));
   assert.deepEqual(s.log, [["close"]]);
   await m.unmount();
-});
-
-test("from a repository: the URL comes first and names the project", async () => {
-  const s = store({ newProjectMode: "git" });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(heading(m), "From a Git repository");
-  const url = fieldByLabel(m.root, "Repository URL");
-  assert.equal(fieldByLabel(m.root, "Name").placeholder, "The repository name");
-  assert.doesNotMatch(
-    fieldByLabel(m.root, "Name").parentElement.querySelector("label")
-      .textContent,
-    /\*/,
-  );
-  // No URL yet: no main repository to show, nothing to clone.
-  assert.equal(m.q("[data-testid=repo-list]"), null);
-  assert.equal(buttonByText(m.root, "Clone and create").disabled, true);
-  // Hosts not read yet: nothing offered.
-  assert.equal(m.q("[data-testid=git-connect-banner]"), null);
-  await type(url, "https://github.com/u/site.git");
-  assert.deepEqual(s.log, [["git", "https://github.com/u/site.git"]]);
-  await m.unmount();
-});
-
-test("a typed repository names the main repository, the folder and the branch", async () => {
-  const s = store({
-    newProjectMode: "git",
-    newProjectGit: "https://github.com/u/site.git",
-    newProjectMain: "develop",
-    remoteMain: "develop",
-  });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(fieldByLabel(m.root, "Name").placeholder, "site");
-  assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "site");
-  // The repository is shown once, in its own field, not again as a list row.
-  assert.equal(m.q("[data-testid=repo-list]"), null);
-  const options = [...m.q("[data-testid=new-project-main]").options].map(
-    (o) => o.value,
-  );
-  assert.deepEqual(options, ["main", "master", "develop"]);
-  assert.match(m.root.textContent, /The repository uses develop\./);
-  await click(buttonByText(m.root, "Clone and create"));
-  assert.deepEqual(s.log, [["create"]]);
-  await m.unmount();
-});
-
-test("a URL that names no repository is shown as typed, and the title names the folder", async () => {
-  const s = store({
-    newProjectMode: "git",
-    newProjectGit: "foo",
-    newProjectTitle: "Bar Baz",
-  });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(m.q("[data-testid=repo-list]"), null);
-  assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "bar-baz");
-  assert.equal(fieldByLabel(m.root, "Name").placeholder, "The repository name");
-  await m.unmount();
-});
-
-test("while a repository is cloned the dialog says so", async () => {
-  const s = store({
-    newProjectMode: "git",
-    newProjectGit: "https://github.com/u/site.git",
-    creatingProject: true,
-  });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.match(m.root.textContent, /Cloning repository…/);
-  assert.equal(buttonByText(m.root, "Cloning…").disabled, true);
-  await m.unmount();
-});
-
-test("a connected host offers the person's repositories; none offers connecting one", async () => {
-  const s = store({
-    newProjectMode: "git",
-    gitAccounts: [
-      { id: "github", connected: false },
-      { id: "gitlab", connected: true },
-    ],
-  });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  await click(buttonByText(m.root, "Choose from my repositories"));
-  assert.deepEqual(s.log, [["picker"]]);
-
-  const none = store({
-    newProjectMode: "git",
-    gitAccounts: [{ id: "github", connected: false }],
-  });
-  await m.rerender(none.value);
-  const banner = m.q("[data-testid=git-connect-banner]");
-  assert.match(banner.textContent, /Connect GitHub, GitLab or Bitbucket/);
-  await click(banner.querySelector("button"));
-  assert.deepEqual(none.log, [["connect", { after: "picker" }]]);
-  await m.unmount();
-});
-
-test("the other repositories of a new project are added and removed in the dialog", async () => {
-  const s = store({
-    newProjectMode: "empty",
-    newProjectTitle: "x",
-    newProjectRepos: [{ name: "api", git_url: "https://x.io/u/api.git" }],
-  });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  await click(m.q("[data-testid=repo-remove]"));
-  await click(m.q("[data-testid=repo-add-open]"));
-  const input = m.q("[data-testid=repo-add-url]");
-  await type(input, "https://x.io/u/web.git");
-  await key(input, "Enter");
-  await flush();
-  assert.deepEqual(s.log, [
-    ["removeRepo", "api"],
-    ["addRepo", { name: "web", git_url: "https://x.io/u/web.git" }],
-  ]);
-  await m.unmount();
-});
-
-test("a connected host lets the person choose the other repositories from their own", async () => {
-  const s = store({
-    newProjectMode: "git",
-    gitAccounts: [{ id: "github", connected: true }],
-  });
-  const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  await click(m.q("[data-testid=repo-add-open]"));
-  await click(m.q("[data-testid=repo-choose]"));
-  assert.deepEqual(s.log, [["pickOther"]]);
-  await m.unmount();
-
-  // No host connected: the section has no such link.
-  const none = store({ newProjectMode: "git", gitAccounts: [] });
-  const n = await mount(AppCtx, none.value, h(NewProjectModal));
-  await click(n.q("[data-testid=repo-add-open]"));
-  assert.equal(n.q("[data-testid=repo-choose]"), null);
-  await n.unmount();
-});
-
-test("several repositories: the folder holds them all, and needs at least one", async () => {
-  const start = store({});
-  const c = await mount(AppCtx, start.value, h(NewProjectModal));
-  await click(c.q("[data-testid=new-project-multi]"));
-  assert.deepEqual(start.log, [["mode", "multi"]]);
-  await c.unmount();
-
-  const empty = store({ newProjectMode: "multi", newProjectTitle: "suite" });
-  const m = await mount(AppCtx, empty.value, h(NewProjectModal));
-  assert.match(m.root.textContent, /Several repositories/);
-  assert.match(m.root.textContent, /\+ Add another repository/);
-  assert.equal(buttonByText(m.root, "Create").disabled, true);
-  await m.unmount();
-
-  const ready = store({
-    newProjectMode: "multi",
-    newProjectTitle: "suite",
-    newProjectRepos: [{ name: "api", git_url: "https://x.io/u/api.git" }],
-  });
-  const r = await mount(AppCtx, ready.value, h(NewProjectModal));
-  assert.equal(buttonByText(r.root, "Create").disabled, false);
-  await r.unmount();
 });
 
 const DRAFT = {

@@ -379,10 +379,14 @@ func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
 func bareProject(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	srv, ws := projectServer(t)
+	dir := filepath.Join(ws, "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, dir)
 	if code, _ := createProject(t, srv, `{"title":"proj","dir":"proj"}`); code != http.StatusCreated {
 		t.Fatalf("creating the project: %d", code)
 	}
-	dir := filepath.Join(ws, "proj")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -479,8 +483,8 @@ func TestTheMainRepositoryStaysWhenItCannotMove(t *testing.T) {
 	}
 	c.releaseRunSlot()
 
-	// So is a session with a copy of its own.
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	// So is a session with a copy of its own: an isolated session runs in a worktree.
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("creating a second session: %d %s", created.Code, created.Body)
 	}
@@ -631,5 +635,18 @@ func TestTheMainRepositoryMoveNamesTheBranchAndTellsTheSessions(t *testing.T) {
 	}
 	if !strings.Contains(svc.note, "- proj (") {
 		t.Errorf("the session must be told about the repositories: %q", svc.note)
+	}
+}
+
+// A repository on a branch with no usual name has no main branch to carry over: the moved one
+// starts on the default.
+func TestTheMainRepositoryOnAnOddBranchMovesWithTheDefaultMain(t *testing.T) {
+	srv, projectDir, id := bareProject(t)
+	mustGit(t, projectDir, "branch", "-m", "trunk")
+	if code, _ := detachMain(t, srv, id); code != http.StatusOK {
+		t.Fatalf("moving the main repository: %d", code)
+	}
+	if got := srv.projectOf(id).MainBranch; got != defaultMainBranch {
+		t.Errorf("the main branch is %q", got)
 	}
 }
