@@ -230,7 +230,9 @@ func (st *sessionStore) loadAll() ([]sessionRecord, error) {
 	}
 	var out []sessionRecord
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" || e.Name() == approvalsFile {
+			// approvals.json lives beside the sessions but is not one: read as a record it came
+			// back as a session with no id.
 			continue
 		}
 		path := filepath.Join(st.dir, e.Name())
@@ -246,6 +248,11 @@ func (st *sessionStore) loadAll() ([]sessionRecord, error) {
 			if rec, err = readRecord(path + prevSuffix); err != nil {
 				continue
 			}
+		}
+		if rec.ID == "" {
+			// Not a session: the phantom a gateway from before the approvals file was skipped
+			// saved as ".json" is left alone and never listed.
+			continue
 		}
 		out = append(out, rec)
 	}

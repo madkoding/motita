@@ -10,8 +10,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+
+	"github.com/madkoding/motita/internal/policy"
 )
 
 // Key is the shape of a command under a rule: what one "always allow" covers.
@@ -20,14 +23,56 @@ type Key struct {
 	Program string `json:"program"`
 }
 
-// KeyOf reads the shape of command under rule. It reports false when the line has no program to
-// remember, so the caller asks as it always did.
+// KeyOf reads the shape of a one-command line under rule. It reports false when the line has no
+// program to remember, so the caller asks as it always did. A line that chains commands has one
+// shape per program: see KeysOf.
 func KeyOf(rule, command string) (Key, bool) {
-	words := strings.Fields(command)
+	keys, ok := KeysOf(rule, command)
+	if !ok {
+		return Key{}, false
+	}
+	return keys[0], true
+}
+
+// KeysOf reads the shape of every program of a line under rule: what "always allow" has to cover
+// for the same line, or a line made of the same programs, to run without a question.
+//
+// A line is judged as a whole, so the question is asked about the whole line; but a person who
+// said "always" to `git add . && git commit -m x && git push` meant "git push without asking",
+// not "lines that start with git add". Keeping only the first program made the next line
+// (`git commit --amend && git push`, `cd dir && git push`) a new shape, and "always allow" asked
+// again on nearly every line a model writes. Programs the shell runs itself (cd, echo, export)
+// are not what the question was about, so they are left out unless the line has nothing else.
+func KeysOf(rule, command string) ([]Key, bool) {
+	if rule == "" {
+		return nil, false
+	}
+	var keys, builtins []Key
+	for _, words := range policy.Commands(command) {
+		k, ok := keyOfWords(rule, words)
+		if !ok {
+			continue
+		}
+		list := &keys
+		if policy.IsBuiltin(k.Program) {
+			list = &builtins
+		}
+		if !slices.Contains(*list, k) {
+			*list = append(*list, k)
+		}
+	}
+	if len(keys) == 0 {
+		keys = builtins
+	}
+	return keys, len(keys) > 0
+}
+
+// keyOfWords is the shape of one command: its program, with the subcommand when it has one.
+func keyOfWords(rule string, words []string) (Key, bool) {
 	for len(words) > 0 && strings.Contains(words[0], "=") {
 		words = words[1:] // leading VAR=value assignments are not the program
 	}
-	if len(words) == 0 || rule == "" {
+	if len(words) == 0 {
 		return Key{}, false
 	}
 	program := filepath.Base(words[0])
@@ -104,6 +149,37 @@ func (s *Store) Allowed(scope string, k Key) bool {
 		}
 	}
 	return false
+}
+
+// AllowedAll says whether every one of keys is allowed in scope: a line is run without a question
+// only when each program of it was allowed under its rule.
+func (s *Store) AllowedAll(scope string, keys []Key) bool {
+	if len(keys) == 0 {
+		return false
+	}
+	for _, k := range keys {
+		if !s.Allowed(scope, k) {
+			return false
+		}
+	}
+	return true
+}
+
+// RememberAll allows every one of keys in scope from now on, and writes the file once.
+func (s *Store) RememberAll(scope string, keys []Key) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for _, k := range keys {
+		if !slices.Contains(s.data[scope], k) {
+			s.data[scope] = append(s.data[scope], k)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.saveLocked()
 }
 
 // Remember allows k in scope from now on, and writes the file.
