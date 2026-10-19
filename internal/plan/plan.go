@@ -494,6 +494,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	// through to the forced answer below, which is the same graceful outcome
 	// without a second, unreachable clamp here.
 	loops := p.maxLoops
+	var look turnLook
 	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
 		// Bump the skill-nudge counter: each tool iteration that does NOT call
@@ -513,6 +514,10 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			ToolCalls: reply.Calls,
 		})
 
+		if !reply.WantsTools() && look.sendBack(reply.Content) {
+			sess.Append(llm.Message{Role: "user", Content: lookFirstNote})
+			continue
+		}
 		if !reply.WantsTools() {
 			answer := p.finalize(reply.Content)
 			// Background self-improvement: after the answer is delivered, a
@@ -526,6 +531,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			return answer, nil
 		}
 
+		look.note(reply.Calls)
 		for _, tc := range reply.Calls {
 			result := p.runTool(ctx, tc)
 			sess.Append(llm.Message{

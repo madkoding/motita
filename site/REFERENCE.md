@@ -652,10 +652,13 @@ Three things keep a request from needing a second one:
   (`php artisan test`, `npm test`, `pytest`). A check that could not run (`command not found`,
   `vendor/autoload.php` missing, `curl error 6`) sends a claim of done back up to three times; if
   the environment still blocks it, the result reads `NOT VALIDATED: <check> could not run (<cause>)`,
-  the report's status is `partial`, and the check is listed as `skipped`, never `pass`. The criteria
+  the report's status is `partial`, and the check is listed as `blocked` (drawn apart from `skipped` in the web report), never `pass`. The criteria
   audit is shown those checks by name, so a criterion about tests is not met on a simulated run. In
   plan mode, a claim about Git, a configuration file or a path, or a recommendation to remove one,
-  has to rest on a command run in that turn (`git worktree list`, `git -C <path> rev-parse`, `ls`).
+  has to rest on a command run in that turn (`git worktree list`, `git -C <path> rev-parse`, `ls`):
+  an answer that recommends removing or rewriting something without having looked is sent back once to
+  look first. A failed dependency install (`composer install`, `npm ci`, ...) is remembered as the
+  cause when the registry cannot be reached.
 - **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `1`). A
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores

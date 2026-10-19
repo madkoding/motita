@@ -69,9 +69,9 @@ func TestMissingDependenciesAndNoNetworkEndAsNotValidated(t *testing.T) {
 	if rep == nil || rep.Status != "partial" {
 		t.Fatalf("the report must be partial, not done: %+v", rep)
 	}
-	if len(rep.Verification) != 1 || rep.Verification[0].Result != "skipped" ||
+	if len(rep.Verification) != 1 || rep.Verification[0].Result != "blocked" ||
 		!strings.Contains(rep.Verification[0].Check, "vendor/bin/phpunit") {
-		t.Errorf("the check that could not run must be listed as skipped, not as a pass: %+v", rep.Verification)
+		t.Errorf("the check that could not run must be listed as blocked, not as a pass: %+v", rep.Verification)
 	}
 	if !strings.Contains(s.synth[0], "CHECKS THAT COULD NOT RUN") {
 		t.Errorf("the synthesis must be told what could not run:\n%s", s.synth[0])
@@ -113,7 +113,7 @@ func TestAStandInCannotCloseAnOpenCheck(t *testing.T) {
 func TestMarkUnvalidatedKeepsAnHonestReportAsItIs(t *testing.T) {
 	blocked := []verifRecord{{command: "php artisan test", tail: "Failed opening required 'vendor/autoload.php'"}}
 	rep := &Report{Status: "partial", Verification: []ReportCheck{
-		{Check: "php artisan test", Result: "skipped", Evidence: "no vendor"},
+		{Check: "php artisan test", Result: "blocked", Evidence: "no vendor"},
 		{Check: "composer test", Result: "pass"},
 	}}
 	rep.markUnvalidated(blocked)
@@ -128,8 +128,8 @@ func TestMarkUnvalidatedKeepsAnHonestReportAsItIs(t *testing.T) {
 	}
 	lying := &Report{Status: "failed", Verification: []ReportCheck{{Check: "php artisan test", Result: "pass"}}}
 	lying.markUnvalidated(blocked)
-	if lying.Status != "failed" || lying.Verification[0].Result != "skipped" {
-		t.Errorf("a pass over a check that could not run becomes skipped: %+v", lying)
+	if lying.Status != "failed" || lying.Verification[0].Result != "blocked" {
+		t.Errorf("a pass over a check that could not run becomes blocked: %+v", lying)
 	}
 }
 
@@ -174,5 +174,31 @@ func TestTheAuditSeesWhatCouldNotRun(t *testing.T) {
 	}
 	if !strings.Contains(seen, "CHECKS THAT COULD NOT RUN") || !strings.Contains(seen, "vendor/bin/phpunit") {
 		t.Errorf("the audit must be told which check never ran:\n%s", seen)
+	}
+}
+
+// TestAFailedInstallOverTheNetworkIsBlocked: composer install that cannot reach the registry is
+// remembered as the cause, until the same package manager installs again.
+func TestAFailedInstallOverTheNetworkIsBlocked(t *testing.T) {
+	var m workMemory
+	m.noteVerification("cd app && composer install --no-interaction", 1, 1, nil,
+		"curl error 6 while downloading https://repo.packagist.org/packages.json")
+	m.noteVerification("npm ci", 1, 0, nil, "added 10 packages")
+	m.noteVerification("npm install zod", 2, 1, nil, "npm ERR! code EAI_AGAIN")
+	m.noteVerification("pip install -r requirements.txt", 2, 1, nil, "ERROR: Could not find a version")
+	got := m.blockedChecks()
+	if len(got) != 2 || !strings.Contains(got[0].command, "composer install") ||
+		!strings.Contains(got[1].command, "npm install zod") {
+		t.Fatalf("blocked = %+v", got)
+	}
+	m.noteVerification("composer install", 3, 0, nil, "Generating autoload files")
+	m.noteVerification("npm install", 3, 0, nil, "up to date")
+	if got := m.blockedChecks(); len(got) != 0 {
+		t.Errorf("a later install closes the block: %+v", got)
+	}
+	m.noteVerification("echo hi", 4, 0, nil, "hi")
+	m.noteVerification("pnpm install", 5, 1, nil, strings.Repeat("noise\n", 600)+"ENOTFOUND registry.npmjs.org")
+	if got := m.blockedChecks(); len(got) != 1 || !strings.HasPrefix(got[0].tail, "...") {
+		t.Errorf("a long install output keeps its tail, where the cause is: %+v", got)
 	}
 }

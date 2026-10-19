@@ -64,6 +64,8 @@ func TestFabricatedChecksInShellLinesAreRecognised(t *testing.T) {
 		`ls vendor/bin`:                                                                  false,
 		`cat vendor/autoload.php`:                                                        false,
 		`php artisan test`:                                                               false,
+		`grep '"test": "exit 0"' composer.json`:                                          false,
+		`echo '"test":"exit 0"' > notes.txt`:                                             false,
 		`grep -n '"test"' composer.json`:                                                 false,
 	} {
 		if got := fakeCheckCommand(line); (got != "") != refused {

@@ -310,6 +310,7 @@ func checkFailed(exit int, runErr error, output string) (failed, masked bool) {
 // noteVerification records one execution. A later run of the same check replaces the earlier one,
 // so a pass closes a failure and a new failure reopens it.
 func (m *workMemory) noteVerification(command string, round, exit int, runErr error, output string) {
+	m.noteInstall(command, round, exit, runErr, output)
 	keys := verificationKeys(command)
 	if len(keys) == 0 {
 		return

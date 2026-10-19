@@ -168,6 +168,10 @@
   color: #240909;
   background: var(--c-red);
 }
+.rpt-checks .blocked .rpt-mark {
+  color: #241a05;
+  background: var(--c-amber);
+}
 .rpt-risks li,
 .rpt-next li {
   position: relative;

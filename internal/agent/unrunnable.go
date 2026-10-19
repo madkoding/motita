@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -24,9 +25,48 @@ var blockedPattern = regexp.MustCompile(`(?im)(command not found|executable file
 	`Network is unreachable|Connection timed out|dial tcp .*: (i/o timeout|no such host)|` +
 	`Unable to locate package|could not connect to server)`)
 
-// blockedChecks are the checks whose last run failed because they could not run.
+// installCommand is a dependency install, by package manager.
+var installCommand = regexp.MustCompile(`^(composer|npm|pnpm|yarn|bun|pip3?|poetry|uv|bundle)\s+` +
+	`(install|update|ci|i|add|sync)\b`)
+
+// noteInstall records a dependency install. It is not a check, but one that failed because the
+// registry cannot be reached is the reason every check after it cannot run, and it is not
+// forgotten until the same package manager installs again.
+func (m *workMemory) noteInstall(command string, round, exit int, runErr error, output string) {
+	for _, seg := range splitSegments(command) {
+		seg = verifyWrappers.ReplaceAllString(strings.ToLower(strings.TrimSpace(seg)), "")
+		tool := installCommand.FindStringSubmatch(seg)
+		if tool == nil {
+			continue
+		}
+		if m.installs == nil {
+			m.installs = map[string]verifRecord{}
+		}
+		failed, masked := checkFailed(exit, runErr, output)
+		tail := strings.TrimSpace(output)
+		if len(tail) > verifyTailChars {
+			tail = "..." + tail[len(tail)-verifyTailChars:]
+		}
+		m.installs[tool[1]] = verifRecord{command: command, round: round, failed: failed, masked: masked,
+			exit: exit, tail: tail}
+	}
+}
+
+// blockedChecks are the checks, and the dependency installs, whose last run failed because they
+// could not run.
 func (m *workMemory) blockedChecks() []verifRecord {
-	return blockedOf(m.openFailures())
+	out := blockedOf(m.openFailures())
+	tools := make([]string, 0, len(m.installs))
+	for tool := range m.installs {
+		tools = append(tools, tool)
+	}
+	sort.Strings(tools)
+	for _, tool := range tools {
+		if r := m.installs[tool]; r.failed {
+			out = append(out, blockedOf([]verifRecord{r})...)
+		}
+	}
+	return out
 }
 
 // blockedCause is the line of a check's output that says why it could not run.
@@ -88,12 +128,12 @@ func unvalidatedBlock(blocked []verifRecord) string {
 		fmt.Fprintf(&b, "- `%s` could not run: %s\n", collapse(truncate(r.command, 160)), blockedCause(r))
 	}
 	b.WriteString("Say in the summary that these were NOT validated and why. List each in \"verification\" " +
-		"with result \"skipped\", and never as \"pass\". The status is \"partial\", not \"done\".\n")
+		"with result \"blocked\", and never as \"pass\". The status is \"partial\", not \"done\".\n")
 	return b.String()
 }
 
 // markUnvalidated makes the report say what the run could not validate, whatever the model wrote:
-// the status cannot be "done", and every check that could not run is listed as skipped.
+// the status cannot be "done", and every check that could not run is listed as blocked.
 func (r *Report) markUnvalidated(blocked []verifRecord) {
 	if len(blocked) == 0 {
 		return
@@ -107,14 +147,14 @@ func (r *Report) markUnvalidated(blocked []verifRecord) {
 			if strings.Contains(strings.ToLower(v.Check), strings.ToLower(truncate(collapse(b.command), 40))) ||
 				strings.Contains(strings.ToLower(b.command), strings.ToLower(v.Check)) {
 				listed = true
-				if v.Result == "pass" {
-					r.Verification[i].Result = "skipped"
+				if v.Result == "pass" || v.Result == "skipped" {
+					r.Verification[i].Result = "blocked"
 				}
 			}
 		}
 		if !listed {
 			r.Verification = append(r.Verification, ReportCheck{
-				Check: collapse(truncate(b.command, 160)), Result: "skipped",
+				Check: collapse(truncate(b.command, 160)), Result: "blocked",
 				Evidence: "could not run: " + blockedCause(b),
 			})
 		}
