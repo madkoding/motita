@@ -5214,3 +5214,12 @@ html .project-bar button.project-new-session {
   stroke: #f5f500;
   stroke-width: 3;
 }
+.graph3d-label.is-minor:not(.is-hit) {
+  font-size: 9px;
+  opacity: 0.4;
+  border-color: transparent;
+  background: transparent;
+}
+.graph3d-label.is-minor:not(.is-hit):hover {
+  opacity: 1;
+}

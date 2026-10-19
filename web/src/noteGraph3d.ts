@@ -31,6 +31,9 @@ const RADIUS = 120;
 const CAMERA_DISTANCE = 330;
 const NEAREST = 140;
 const FARTHEST = 700;
+// How many notes, the most linked, keep a full label; the rest show a faint one until searched or
+// pointed at.
+const LABELS = 14;
 const SPIN = 0.0016;
 const STARS = 600;
 
@@ -82,7 +85,7 @@ function bloom(
   const composer = new fx.EffectComposer(renderer);
   composer.addPass(new fx.RenderPass(scene, camera));
   composer.addPass(
-    new fx.UnrealBloomPass(new T.Vector2(256, 256), 1.15, 0.55, 0.05),
+    new fx.UnrealBloomPass(new T.Vector2(256, 256), 0.75, 0.4, 0.12),
   );
   composer.addPass(new fx.OutputPass());
   return composer;
@@ -148,7 +151,7 @@ function orb(T: ThreeLib, node: PlacedNode3D): Three.Group {
     new T.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.09,
       blending: T.AdditiveBlending,
       depthWrite: false,
     }),
@@ -191,18 +194,25 @@ export function mountGraph3D(
   const scene = new T.Scene();
   scene.fog = new T.FogExp2(0x07010f, 0.0011);
   const camera = new T.PerspectiveCamera(55, 1, 1, 3000);
-  camera.position.set(0, CAMERA_DISTANCE * 0.42, CAMERA_DISTANCE);
+  // A bigger vault spreads wider, and the camera stands farther back to see it.
+  const scale = Math.max(1, Math.cbrt(graph.nodes.length / 20));
+  camera.position.set(
+    0,
+    CAMERA_DISTANCE * scale * 0.42,
+    CAMERA_DISTANCE * scale,
+  );
   camera.lookAt(0, 0, 0);
 
   const composer = bloom(T, fx, renderer, scene, camera);
 
   const grid = new T.GridHelper(1400, 48, 0xff2bd6, 0x6a1fb0);
-  grid.position.y = -RADIUS * 1.3;
+  grid.position.y = -RADIUS * scale * 1.3;
   scene.add(grid, starfield(T));
 
   const world = new T.Group();
   scene.add(world);
-  const placed = layoutGraph3D(graph, RADIUS);
+  const placed = layoutGraph3D(graph, RADIUS * scale);
+  const ranked = [...placed].sort((a, b) => b.in - a.in).slice(0, LABELS);
   const at = new Map(placed.map((p) => [p.path, p]));
   world.add(links(T, graph, at));
   const layer = document.createElement("div");
@@ -212,6 +222,7 @@ export function mountGraph3D(
     const o = orb(T, node);
     world.add(o);
     const b = label(node, onOpen);
+    b.classList.toggle("is-minor", !ranked.includes(node));
     layer.appendChild(b);
     return { o, b };
   });
@@ -250,7 +261,7 @@ export function mountGraph3D(
     e.preventDefault();
     const d = Math.max(
       NEAREST,
-      Math.min(FARTHEST, camera.position.length() + e.deltaY * 0.4),
+      Math.min(FARTHEST * scale, camera.position.length() + e.deltaY * 0.4),
     );
     camera.position.setLength(d);
   };

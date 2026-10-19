@@ -1004,6 +1004,10 @@ test("layoutGraph3D spreads the notes in space the same way every time", () => {
 });
 
 test("the reading helpers: a note's folders, its colour group and Start here first", () => {
+  assert.equal(
+    api.plainWiki("*It uses* [[P/M - Manual/a › b|B]] and [[P/Japan]], `x`."),
+    "It uses B and Japan, x.",
+  );
   assert.deepEqual(api.noteTrail("a/b/c.md"), ["a", "b"]);
   assert.deepEqual(api.noteTrail("c.md"), []);
   assert.equal(api.noteGroup("c.md", 6), 0);

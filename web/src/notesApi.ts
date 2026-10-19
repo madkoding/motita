@@ -335,6 +335,19 @@ export function layoutGraph3D(
   return placed;
 }
 
+// plainWiki reads a line of a note as text: a [[link]] becomes the words it shows (its alias, or
+// the name of the note it leads to) and the marks of emphasis and code go.
+export function plainWiki(line: string): string {
+  return line
+    .replace(
+      /\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g,
+      (_, target: string, alias?: string) =>
+        (alias ?? (target.split("/").pop() as string)).trim(),
+    )
+    .replace(/[*_`]/g, "")
+    .trim();
+}
+
 // noteTrail is the folders a note sits in, outermost first: "a/b/c.md" is ["a", "b"].
 export function noteTrail(path: string): string[] {
   return path.split("/").slice(0, -1);

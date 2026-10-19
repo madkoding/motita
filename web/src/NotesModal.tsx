@@ -6,7 +6,7 @@ import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { Markdown } from "./Markdown";
-import { IconBook, IconClose, IconFolder, IconNotes } from "./icons";
+import { IconBook, IconClose, IconFile, IconFolder } from "./icons";
 import {
   graph3d,
   mountGraph3D,
@@ -21,6 +21,7 @@ import {
   noteGroup,
   noteTrail,
   parseNoteHref,
+  plainWiki,
   START_NOTE,
   wikiToMarkdown,
   type NoteFolder,
@@ -39,7 +40,7 @@ const SMALL_BTN =
 function NoteButton({ n }: { n: NoteItem }) {
   const { current, openNote } = useApp().notes;
   const open = current?.path === n.path;
-  const Icon = choose(n.title === START_NOTE, IconBook, IconNotes);
+  const Icon = choose(n.title === START_NOTE, IconBook, IconFile);
   return (
     <button
       class={`w-full flex items-center gap-2 text-left px-2.5 min-h-[36px] rounded-lg text-sm ${choose(open, "bg-accent/15 text-accent", "text-[#e8e8ea] hover:bg-white/5")}`}
@@ -213,15 +214,22 @@ function NoteList() {
   );
 }
 
+// BACKLINKS_OPEN is how many mentions show open; more start folded so the note stays in view.
+const BACKLINKS_OPEN = 5;
+
 // Backlinks are the notes that link to the open one.
 function Backlinks() {
   const { current, openNote } = useApp().notes;
   const back = (current as NoteView).backlinks;
   return (
-    <section class="mt-3 pt-3 border-t border-white/5" data-testid="backlinks">
-      <h3 class="text-xs uppercase tracking-wide text-[#9a9aaa] mb-1.5">
+    <details
+      class="note-folder mt-3 pt-3 border-t border-white/5"
+      open={back.length <= BACKLINKS_OPEN}
+      data-testid="backlinks"
+    >
+      <summary class="flex items-center gap-2 text-xs uppercase tracking-wide text-[#9a9aaa] mb-1.5 cursor-pointer">
         {tf("Mentioned in ({n})", { n: String(back.length) })}
-      </h3>
+      </summary>
       {back.length === 0 && (
         <p class="text-sm text-[#7a7a8c]">
           {t("No other note mentions this one yet.")}
@@ -236,12 +244,14 @@ function Backlinks() {
               onClick={() => void openNote(b.path)}
             >
               <div class="text-sm text-accent truncate">{b.title}</div>
-              <div class="text-xs text-[#9a9aaa] truncate">{b.context}</div>
+              <div class="text-xs text-[#9a9aaa] truncate">
+                {plainWiki(b.context)}
+              </div>
             </button>
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }
 
@@ -269,7 +279,7 @@ function NoteBody() {
   };
   return (
     <div
-      class="skill-body artifact-body note-preview relative overflow-auto flex-1 p-3 rounded-lg bg-black/30"
+      class="skill-body artifact-body note-preview relative p-3 md:px-5 rounded-lg bg-black/30"
       data-testid="note-preview"
       onClick={onClick}
     >
