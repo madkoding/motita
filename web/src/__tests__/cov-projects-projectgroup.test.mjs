@@ -61,6 +61,7 @@ function store({
         openEditProject: rec("edit"),
         setProjectPodman: rec("podman"),
         refreshProjectMain: rec("refreshMain"),
+        rescanNotes: rec("rescan"),
       },
       deletion: { setConfirmDelete: rec("confirm") },
     },
@@ -209,17 +210,19 @@ test("the facts line counts the repositories that still share a clone, not the u
   await m.unmount();
 });
 
-test("the menu offers to update the main branch only when the last update left a notice", async () => {
+test("the menu updates the main branch: nothing else does it by itself", async () => {
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
-  assert.equal(m.q("[data-testid=refresh-main]"), null);
-  const w = store({ rowMenu: { id: "p1" } });
-  await m.rerender(
-    w.value,
-    h(ProjectGroup, { p: { ...P, main_warning: "main: could not fetch" } }),
-  );
   await click(m.q("[data-testid=refresh-main]"));
-  assert.deepEqual(w.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  assert.deepEqual(s.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
+test("the menu rescans the notes of its project", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  await click(m.q("[data-testid=rescan-notes]"));
+  assert.deepEqual(s.log, [["rescan", "p1"], ["closeMenu"]]);
   await m.unmount();
 });
 

@@ -116,6 +116,22 @@ export function useNotes(api: Api, setState: SetStatus) {
     [save, fetchNote],
   );
 
+  // peekNote reads a note without opening it, for a look at it beside the map; null when it cannot.
+  const peekNote = useCallback(
+    async (path: string): Promise<NoteView | null> => {
+      try {
+        const res = await api(noteUrl(path));
+        if (!res.ok) {
+          return null;
+        }
+        return (await res.json()) as NoteView;
+      } catch {
+        return null;
+      }
+    },
+    [api],
+  );
+
   // fillIfNew fills an empty vault from the sessions and projects the first time it is opened. It
   // is a courtesy: when it fails the person still has their empty vault and the Settings button.
   const fillIfNew = useCallback(
@@ -332,6 +348,7 @@ export function useNotes(api: Api, setState: SetStatus) {
     closeNotes,
     back,
     openNote,
+    peekNote,
     saveNote,
     createNote,
     renameNote,

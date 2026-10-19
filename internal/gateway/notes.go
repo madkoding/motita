@@ -215,3 +215,16 @@ func firstSnippetLine(s string) string {
 	}
 	return ""
 }
+
+// notesRoutes is the table of the workspace notes: reading, writing, search, the map and the scan.
+func (s *Server) notesRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/notes", plain(s.handleListNotes))
+	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
+	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))
+	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
+	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
+	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
+	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))
+	mux.Handle("POST /v1/notes/scan", plain(s.handleScanNotes))
+	mux.Handle("GET /v1/notes/scan", plain(s.handleScanStatus))
+}

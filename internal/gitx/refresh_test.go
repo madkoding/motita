@@ -33,6 +33,26 @@ func TestRefreshBranchMovesACleanCheckoutOnTheBranchForward(t *testing.T) {
 	}
 }
 
+func TestBranchCommitNamesWhereTheBranchPoints(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	before := BranchCommit(ctx, repo, "main")
+	if len(before) < 40 {
+		t.Fatalf("main points at %q", before)
+	}
+	remote := pushToOrigin(t, repo)
+	upstreamCommit(t, repo, remote, "upstream.txt")
+	if err := RefreshBranch(ctx, repo, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if after := BranchCommit(ctx, repo, "main"); after == before || after == "" {
+		t.Errorf("main did not move: %q", after)
+	}
+	if got := BranchCommit(ctx, repo, "nope"); got != "" {
+		t.Errorf("a missing branch points at %q", got)
+	}
+}
+
 func TestRefreshBranchAdvancesTheBranchWithoutLeavingTheCurrentOne(t *testing.T) {
 	repo := newRepo(t)
 	remote := pushToOrigin(t, repo)

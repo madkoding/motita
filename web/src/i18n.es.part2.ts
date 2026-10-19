@@ -809,14 +809,31 @@ const more: Record<string, string> = {
   "No notes yet. Write the first one above.":
     "Todavía no hay notas. Escribe la primera arriba.",
   "Nothing matches that.": "Nada coincide con eso.",
-  "Linked from ({n})": "Enlazada desde ({n})",
-  "No other note links here yet.": "Ninguna otra nota enlaza aquí todavía.",
+  "Mentioned in ({n})": "Mencionada en ({n})",
+  "No other note mentions this one yet.":
+    "Ninguna otra nota menciona esta todavía.",
   "Note text": "Texto de la nota",
   Edit: "Editar",
   "Click again to delete": "Pulsa otra vez para borrar",
   "Pick a note, or write a new one.": "Elige una nota o escribe una nueva.",
-  "Link notes with [[double brackets]]. They are plain .md files: open this folder in Obsidian and they are all there.":
-    "Enlaza notas con [[dobles corchetes]]. Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
+  "Each project has a manual: open its folder and start with Start here. Link notes with [[double brackets]].":
+    "Cada proyecto tiene un manual: abre su carpeta y empieza por Start here. Enlaza notas con [[dobles corchetes]].",
+  "They are plain .md files: open this folder in Obsidian and they are all there.":
+    "Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
+  "Saved in {root}": "Guardadas en {root}",
+  "Your second brain: projects, sessions and your own ideas.":
+    "Tu segundo cerebro: proyectos, sesiones y tus propias ideas.",
+  Map: "Mapa",
+  "Close map": "Cerrar mapa",
+  "Find a note on the map": "Buscar una nota en el mapa",
+  "{n} found": "{n} encontradas",
+  "1 found": "1 encontrada",
+  "Colours of the map": "Colores del mapa",
+  "Loose notes": "Notas sueltas",
+  "Close the note": "Cerrar la nota",
+  "Open the note": "Abrir la nota",
+  "Drag to turn, scroll to zoom, click a name to look at it.":
+    "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para verlo.",
   "could not load the notes": "no se pudieron cargar las notas",
   "could not open the note": "no se pudo abrir la nota",
   "could not save the note": "no se pudo guardar la nota",
@@ -829,6 +846,11 @@ const more: Record<string, string> = {
   "Writes a note for every project and every session you have used, linked to each other, and a manual of each project with a note per folder: its files, its API, what it uses and what uses it. Run it again to refresh them; what you add around the generated block stays.":
     "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí, y un manual de cada proyecto con una nota por carpeta: sus archivos, su API, qué usa y quién la usa. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
   "Scan now": "Escanear ahora",
+  "Scanning…": "Escaneando…",
+  "Writing the notes of your sessions…":
+    "Escribiendo las notas de tus sesiones…",
+  "Mapping {project} ({n} of {total})": "Mapeando {project} ({n} de {total})",
+  "folder {n} of {total}": "carpeta {n} de {total}",
   "Use the model to summarise sessions and explain projects":
     "Usar el modelo para resumir sesiones y explicar proyectos",
   "Adds a short summary to sessions of six turns or more (at most twenty per scan), explains how each project fits together (at most ten per scan) and documents each folder of the projects' manuals (as many per scan as you choose below). Each is only asked again when the session, project or folder changed. The text of those sessions and the structure, README and source excerpts of those projects are sent to your model provider and use tokens.":
@@ -843,7 +865,6 @@ const more: Record<string, string> = {
   "give the note a name": "ponle un nombre a la nota",
   "a note with that name already exists": "ya existe una nota con ese nombre",
   "could not load the graph": "no se pudo cargar el grafo",
-  Graph: "Grafo",
   "Review notes": "Revisar notas",
   "Folders the model explains per scan":
     "Carpetas que el modelo explica por escaneo",
@@ -859,6 +880,13 @@ const more: Record<string, string> = {
   "Graph of linked notes": "Grafo de notas enlazadas",
   "{notes} notes · {links} links · {missing} to notes not written yet":
     "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
+  "Rescan the notes": "Reescanear las notas",
+  "Writes the notes and the manual of this project again, in the background; the sidebar shows how far it got.":
+    "Vuelve a escribir las notas y el manual de este proyecto en segundo plano; la barra lateral muestra cuánto lleva.",
+  "could not rescan the notes": "no se pudieron reescanear las notas",
+  "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
+    "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
+  "Scanning the notes": "Escaneando las notas",
   "New repository": "Nuevo repositorio",
   "No repositories": "Sin repositorios",
   "New session in repository": "Nueva sesión en el repositorio",

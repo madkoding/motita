@@ -1049,6 +1049,41 @@ test("updating the main branch reads the projects again, or says why it could no
   await s.m.unmount();
 });
 
+test("rescanning the notes asks the gateway, or says why it could not", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/notes/scan?again=1&project=p%201": () => {
+      n++;
+      if (n === 1) {
+        return res(202, { running: true });
+      }
+      if (n === 2) {
+        return res(503, { error: "notes are off" });
+      }
+      if (n === 3) {
+        return res(500, new Error("not json"));
+      }
+      throw new Error("down");
+    },
+  });
+  for (let i = 0; i < 4; i++) {
+    await run(() => s.p.rescanNotes("p 1"));
+  }
+  assert.deepEqual(s.toasts, [
+    {
+      message:
+        "Rescanning the notes of this project in the background. The sidebar shows how far it got.",
+      type: "success",
+    },
+  ]);
+  assert.deepEqual(s.states, [
+    ["notes are off", true],
+    ["could not rescan the notes", true],
+    ["could not rescan the notes", true],
+  ]);
+  await s.m.unmount();
+});
+
 test("deleting a project reads the lists again, or says why it was refused", async () => {
   let n = 0;
   const s = await setup({

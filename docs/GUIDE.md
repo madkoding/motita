@@ -544,7 +544,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `POST /v1/projects` `{"path":"/abs/folder"}` · `PATCH /v1/projects/{id}` `{"path":…}` | a project in a folder outside the workspace, only with `sandbox.disk_access: full` (403 otherwise). The folder must exist and cannot be the disk's root, the workspace or another project's folder; it is used as it is (an empty one becomes a repository) and is never deleted with the project. `PATCH` re-anchors a project without moving anything: 409 while it has sessions or other repositories |
 | `POST /v1/projects/{id}/repos` · `DELETE /v1/projects/{id}/repos/{name}` | a project's other repositories: `{"git_url":…,"name":…}` adds one at `<project>/<name>`, a plain folder (refused when that folder exists). `{"path":"/abs/folder","name":…}` adds a repository the machine already has instead, **without cloning it** (only with `sandbox.disk_access: full`, 403 otherwise; 400 when the folder is not the top of a git repository with commits; 409 when it is the project's own folder or already in the project): the folder is the user's own, `<project>/<name>` is a worktree of it on `project/<folder>`, and sessions get worktrees of it too (with its dependency folders linked). Such a repository (`local: true`, also `shared: true`) is never fetched into, merged into, switched or deleted: its checked-out branch and working tree are the user's, the agent is told to leave its work committed on the session branch, and removing it from the project (or deleting the project) removes only motita's own worktrees and merged branches. Each repository is cloned once in the workspace catalog (`repos/`) and the folder is a worktree of that clone on the branch `project/<folder>`, so projects that use the same repository share it; an empty repository, which has nothing to branch from, is cloned into the project instead. Every session gets a worktree of it on its own branch. Removing one deletes the project's worktree (the clone stays in the catalog for the other projects) or its own clone, and the sessions' worktrees; refused while they hold uncommitted work unless confirmed with `?force=1`. Projects whose repositories were cloned inside them, or under `.motita-repos/`, keep them there |
 | `GET /v1/repos` · `DELETE /v1/repos/{name}` · `POST /v1/repos/{name}/update` | the workspace catalog: every repository cloned in `repos/`, with its origin, the projects that use it and its `size` on disk in bytes, so a project can add one without cloning it again (Settings → Git lists it); deleting removes a clone no project uses, refused with 409 while a project uses it or it holds uncommitted work unless confirmed with `?force=1`. After a session is integrated, every project's folder of the repositories it shares is fast-forwarded to their main branch when it is clean and still on `project/<folder>`; one left behind (it holds work of its own) reports how many commits of the main branch it lacks as `behind` in `GET /v1/projects`, and the sidebar marks the project. `update` fast-forwards a clone's current branch from its origin (409 with git's reason when it cannot) |
-| Main branch refresh | opening or closing a session of a project updates its main branch from origin in the background (fetch and fast-forward only): a clean checkout on the branch moves forward, a checkout on another branch has the branch advanced in place without switching, and one with uncommitted work or a diverged history is left untouched. It never blocks or fails the session: why it could not be done is `main_warning` in `GET /v1/projects`, and the sidebar marks the project as outdated. A project in a folder of the user's own outside the workspace (`sandbox.disk_access: full`) is the exception: neither this update nor the return to its main branch when its last session closes switches or moves that checkout by themselves, only an explicit "Update main branch" does. A running gateway also repeats it for every project every 15 minutes, and `POST /v1/projects/{id}/main/refresh` does it now (the project menu's "Update main branch"): 200 with the `main_warning` that remains, 404 for an unknown project, 409 while another update of it runs |
+| Main branch refresh | nothing updates a project's main branch by itself: the project menu's "Update main branch" (`POST /v1/projects/{id}/main/refresh`) brings it up to date from origin (fetch and fast-forward only). A clean checkout on the branch moves forward, a checkout on another branch has the branch advanced in place without switching, and one with uncommitted work or a diverged history is left untouched. Why it could not be done is `main_warning` in `GET /v1/projects`, and the sidebar marks the project as outdated. It answers 200 with the `main_warning` that remains, 404 for an unknown project, 409 while another update of it runs. When it brings new code into a vault that was scanned before, the notes are scanned again in the background. A project in a folder of the user's own outside the workspace (`sandbox.disk_access: full`) is not switched back to its main branch by itself when its last session closes either |
 | `missing_deps` in `GET /v1/projects` | the dependency folders the project's repositories need and do not have, read live: `[{path,manager,dir,command}]` for a `composer.json` with no `vendor/` or a `package.json` with no `node_modules/` (at the root or one folder down; a manifest that lists no dependencies needs none). The sidebar shows a "no deps" notice with the commands, and the session's agent is told to install them first and, when it cannot (no network), to report the check as not run instead of faking a pass |
 | `POST /v1/projects/{id}/repos/{name}/sync` | brings a project's folder of a shared repository up to the catalog's main branch, the button the edit dialog shows on one that is `behind`: 404 for an unknown project or a repository that is not shared, 409 while the folder holds uncommitted work or commits of its own that main does not have, otherwise the project as `GET /v1/projects` lists it |
 | `DELETE /v1/projects/{id}/main` | moves the project's own repository into a folder of its own (`<project>/<name>`) and leaves the project as a plain folder that holds its repositories, nothing deleted; refused with 409 while a session is running or has its own copy of the repository (merge or delete those sessions first) |
@@ -618,9 +618,12 @@ the same folder opens in Obsidian and what you change there is what motita shows
   project's notes sit together; everything else lives at the top level.
 - **Search.** With the code index on (Settings, Indexing) the notes are searched with the same
   index as code, ranked by meaning; with it off, every word must appear in the name or text.
-- **Graph.** The Graph button draws the notes as dots joined by their links (bigger dots are
-  linked from more notes); a click opens the note. Links to notes not written yet are counted,
-  not drawn.
+- **Map.** The Map button draws the notes as neon spheres joined by their links, in 3D where the
+  browser has WebGL and flat elsewhere (bigger spheres are linked from more notes). Drag to turn,
+  scroll to zoom. A legend names the colour of each part of the vault, the biggest parts first.
+  The search box lights the notes it finds and turns to the first. A click on a note shows it
+  beside the map, where its links lead to the next one; **Open the note** leaves the map for it.
+  Links to notes not written yet are counted, not drawn.
 - **Review notes.** The Review notes button opens a new conversation that asks the agent to run
   the `reviewing-the-notes` skill over the whole vault: it reports notes that contradict each
   other, look out of date, have no source, point nowhere or are orphans, and changes nothing
@@ -637,19 +640,28 @@ the same folder opens in Obsidian and what you change there is what motita shows
 - **Rename.** The Rename button in the note's toolbar gives it another name in the same folder
   and rewrites the `[[links]]` of the other notes that led to it, keeping headings, aliases and
   embeds (links in code stay as they are).
-- **Second brain.** Settings, Indexing, **Scan now** writes a note for every project (`Projects/`)
+- **Second brain.** Settings, Indexing, **Scan now** runs in the background, with a bar that says
+  which project and which folder it is on (close the window and come back: it is still followed).
+  Once the vault has been scanned, new code brought in with the project menu's **Update main
+  branch** scans again by itself, and the project menu's **Rescan the notes** scans that project
+  again on demand, both with the model options of the last scan (kept in the vault, so a restart
+  keeps them). While a scan runs, a bar at the foot of the sidebar says how far it got. A scan writes a note for every project (`Projects/`)
   and every session that has been used (`Sessions/`): folder, repository, description, a README
   excerpt, the first request and the latest exchanges, with the session notes linked from their
   project and back. Next to each project note goes `Projects/<name> - Architecture`, read from the
   project's folder (no symlinks, no hidden or build folders, at most 4000 files): languages, build
   files, the folders, the entry points and, for Go, every package with its doc line and the packages
   of the module it imports, drawn as a Mermaid diagram; for Node, the scripts and main dependencies.
-  Each project also gets a **manual**: `Projects/<name> manual/`, one note per folder, recursively
-  (up to 400), with `_index` as its table of contents. A folder's note lists its subfolders and its
-  files (lines, language and the comment that says what each one is), the Go package doc and every
-  exported type with its methods, function, constant and variable with their doc comments, the
-  exports of TypeScript, JavaScript and Python files, and which folders it uses and which use it,
-  all as links between the notes. The text goes through the secret redactor. Everything is kept inside a
+  Each project also gets a **manual** written as a guide: `Projects/<name> - Manual/Start here`
+  says what the project is and how it is organised, with a line on what each folder is for, and every
+  folder (recursively, up to 400) has a chapter named by its path, such as `internal › gateway`. A
+  chapter reads top to bottom: what the folder is for (the model's explanation, or the package doc
+  or README), what is inside (its subfolders and files, each with the comment that says what it is),
+  how it connects (which folders it relies on and which use it) and, last, "For developers": every
+  exported Go type with its methods, function, constant and variable, and the exports of TypeScript,
+  JavaScript and Python files, with their doc comments. Chapters of folders that are gone are removed
+  when nothing but the scan wrote in them. The text goes through the secret redactor. Everything is
+  kept inside a
   `<!-- motita:scan:start -->` block that a new scan rewrites; what you write around it stays.
   The first time the Notes window opens on a vault that has no notes and was never scanned, the
   scan runs by itself. With **Use the model to summarise sessions and explain projects** on (off by default),
@@ -1170,7 +1182,7 @@ This is tested the way you'd test something you were about to bet on.
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Statement coverage**    | **100% in every package that ships** — 51 of 51 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 4,980 across 520 files                                                                                                                                                                                    |
-| **Code vs tests**         | 81,379 lines of Go · 135,022 lines of test                                                                                                                                                                |
+| **Code vs tests**         | 95,916 lines of Go · 149,610 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |
 | **Platforms CI builds**   | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                 |
 
