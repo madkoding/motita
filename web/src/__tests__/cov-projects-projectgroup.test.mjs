@@ -296,37 +296,3 @@ test("the facts line counts the shared repositories left behind their main branc
   assert.equal(m.q("[data-testid=project-behind]"), null);
   await m.unmount();
 });
-
-test("the facts line says which dependencies are not installed, and how to install them", async () => {
-  const s = store();
-  const missing_deps = [
-    {
-      path: ".",
-      manager: "composer",
-      dir: "vendor",
-      command: "composer install",
-    },
-    {
-      path: "web",
-      manager: "npm",
-      dir: "node_modules",
-      command: "npm install",
-    },
-  ];
-  const m = await mount(
-    AppCtx,
-    s.value,
-    h(ProjectGroup, { p: { ...P, missing_deps } }),
-  );
-  const fact = m.q("[data-testid=project-deps]");
-  assert.equal(fact.textContent, "no deps");
-  assert.equal(
-    fact.title,
-    "Dependencies not installed, so tests cannot run: composer install, npm install (web)",
-  );
-  await m.rerender(s.value, h(ProjectGroup, { p: P }));
-  assert.equal(m.q("[data-testid=project-deps]"), null);
-  await m.rerender(s.value, h(ProjectGroup, { p: { ...P, missing_deps: [] } }));
-  assert.equal(m.q("[data-testid=project-deps]"), null);
-  await m.unmount();
-});

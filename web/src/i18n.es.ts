@@ -70,10 +70,8 @@ const first: Record<string, string> = {
   "Any running tasks will be interrupted.":
     "Las tareas en curso se interrumpirán.",
   Archived: "Archivadas",
-  model: "modelo",
   "Model switched to {model} in this session":
     "Modelo cambiado a {model} en esta sesión",
-  "Model: {provider} / {model}": "Modelo: {provider} / {model}",
   "Proposed by the review": "Propuestas de la revisión",
   "No session uses these until you accept them. Read each one first.":
     "Ninguna sesión las usa hasta que las aceptes. Lee cada una antes.",
@@ -96,7 +94,6 @@ const first: Record<string, string> = {
   "Back at the checkpoint — conversation only":
     "De vuelta en el checkpoint — solo la conversación",
   "Back to the list": "Volver a la lista",
-  "Branch: {branch}": "Rama: {branch}",
   Cancel: "Cancelar",
   "Checking credentials…": "Verificando credenciales…",
   "Checking latest release": "Buscando la última versión",
@@ -388,7 +385,6 @@ const first: Record<string, string> = {
   "What the files were before is kept in git as {ref}":
     "Lo que tenían los archivos antes queda guardado en git como {ref}",
   "What this project is about": "De qué trata este proyecto",
-  "Worktree: {worktree}": "Worktree: {worktree}",
   "Worth knowing": "Conviene saber",
   "[no result]": "[sin resultado]",
   agent: "agente",
@@ -401,7 +397,6 @@ const first: Record<string, string> = {
     "aprobado (todos los comandos permitidos en esta sesión): {x}",
   "argument…": "argumento…",
   "asking you to approve: {x}": "pidiendo tu aprobación: {x}",
-  branch: "rama",
   "cache read {n}": "caché leída {n}",
   "cache write {n}": "caché escrita {n}",
   cancelled: "cancelado",
@@ -542,7 +537,6 @@ const first: Record<string, string> = {
   "what motita has learned from your ratings":
     "lo que motita aprendió de tus calificaciones",
   working: "trabajando",
-  worktree: "worktree",
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",
   "{n} subagents": "{n} subagentes",
@@ -636,9 +630,6 @@ const first: Record<string, string> = {
   "Choose a folder on this computer…": "Elegir una carpeta de este equipo…",
   "A repository you already have is used where it is: it is not cloned, and its branch and files are never touched.":
     "Un repositorio que ya tienes se usa donde está: no se clona y nunca se tocan su rama ni sus archivos.",
-  "no deps": "sin deps",
-  "Dependencies not installed, so tests cannot run: {commands}":
-    "Dependencias sin instalar, así que las pruebas no pueden correr: {commands}",
   "Could not delete the repository": "No se pudo eliminar el repositorio",
   "Repositories in your workspace": "Repositorios en tu espacio de trabajo",
   "Each repository is cloned once and shared by the projects that use it. One that no project uses can be deleted.":
