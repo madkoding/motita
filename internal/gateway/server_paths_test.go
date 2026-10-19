@@ -528,7 +528,7 @@ func TestASessionReportsItselfMergeableWhenItHasUnmergedWork(t *testing.T) {
 	withProjects(t, srv, t.TempDir())
 	pid := makeProject(t, srv, "repo")
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -570,7 +570,7 @@ func TestASessionReportsItselfMergedOnceItsWorkIsIntegrated(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 	p := srv.projectOf(pid)
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}

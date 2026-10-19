@@ -160,11 +160,11 @@ func TestThePullRequestGoesToTheProjectsRepository(t *testing.T) {
 	}
 	id := onlyProjectID(t, srv)
 	c := &conversation{id: "s", projectID: id, workspace: filepath.Join(ws, "shop")}
-	if got := srv.projectRemote(context.Background(), c); got != "" {
+	if got := srv.repoRemote(context.Background(), c, c.workspace); got != "" {
 		t.Errorf("no URL and no origin: %q", got)
 	}
 	mustGit(t, c.workspace, "remote", "add", "origin", "https://example.com/elsewhere.git")
-	if got := srv.projectRemote(context.Background(), c); got != "https://example.com/elsewhere.git" {
+	if got := srv.repoRemote(context.Background(), c, c.workspace); got != "https://example.com/elsewhere.git" {
 		t.Errorf("no URL recorded: the checkout's origin, got %q", got)
 	}
 	p := srv.projectOf(id)
@@ -172,7 +172,7 @@ func TestThePullRequestGoesToTheProjectsRepository(t *testing.T) {
 	if err := srv.projects.save(*p); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.projectRemote(context.Background(), c); got != "https://example.com/shop.git" {
+	if got := srv.repoRemote(context.Background(), c, c.workspace); got != "https://example.com/shop.git" {
 		t.Errorf("the project's own repository wins: %q", got)
 	}
 }

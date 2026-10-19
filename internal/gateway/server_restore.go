@@ -185,18 +185,20 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	return true
 }
 
-// restoredWorkspace is the directory a restored session runs in: its worktree, re-attached to the
-// session's branch, or the project's directory when it cannot be re-created.
+// restoredWorkspace is the directory a restored session runs in. A session made before projects
+// became plain folders has a worktree of its own: it is re-attached to the session's branch so the
+// resumed session writes where its work already is. Any other session runs in the project's folder.
 func (s *Server) restoredWorkspace(rec sessionRecord) string {
 	if rec.ProjectDir == "" {
 		return s.restoredFreeWorkspace(rec)
+	}
+	if rec.Workspace == "" || gitx.SamePath(rec.Workspace, rec.ProjectDir) {
+		return rec.ProjectDir
 	}
 	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID)
 	if err != nil {
 		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
 			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())
-		// The project's directory, as the warning says and as creation does: the old worktree
-		// path may be gone, and a session running in a folder that does not exist runs nowhere.
 		return rec.ProjectDir
 	}
 	return wt

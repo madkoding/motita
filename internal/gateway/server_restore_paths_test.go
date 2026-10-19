@@ -57,13 +57,9 @@ func TestARestoredProjectSessionKeepsItsWorktreeAndBranch(t *testing.T) {
 	if st.ProjectID != pid {
 		t.Errorf("ProjectID = %q, want %q", st.ProjectID, pid)
 	}
-	// The worktree is recreated under the workspace root, derived from the session id alone.
-	wantWT := filepath.Join(ws, "worktrees", "s-proj")
-	if st.Workspace != wantWT {
-		t.Errorf("Workspace = %q, want the session's own worktree %q", st.Workspace, wantWT)
-	}
-	if st.Branch != sessionBranch("s-proj") {
-		t.Errorf("Branch = %q, want the session's own branch", st.Branch)
+	// A session that did not have a worktree of its own comes back in the project's folder.
+	if st.Workspace != pdir {
+		t.Errorf("Workspace = %q, want the project's folder %q", st.Workspace, pdir)
 	}
 }
 

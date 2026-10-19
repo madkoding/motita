@@ -60,15 +60,22 @@ export function useSessionActions({
 
   // createSession opens a new conversation and switches to it. It says which one it opened, so
   // a message typed with no conversation on screen can go on into the one made for it; nothing
-  // when the gateway refused or could not be reached.
+  // when the gateway refused or could not be reached. isolate gives a session of a project a
+  // worktree of its own, for working in parallel with the others on one repository.
   const createSession = useCallback(
-    async (projectId?: string): Promise<string | undefined> => {
+    async (
+      projectId?: string,
+      isolate = false,
+    ): Promise<string | undefined> => {
       setCreatingSession(projectId ?? "");
       let opened: string | undefined;
       try {
         const body = choose(
           projectId,
-          JSON.stringify({ project_id: projectId }),
+          JSON.stringify({
+            project_id: projectId,
+            isolate: isolate || undefined,
+          }),
           "{}",
         );
         const res = await api(SESSIONS_URL, {

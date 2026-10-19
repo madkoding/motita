@@ -45,7 +45,7 @@ function offerOf(hint: ProjectHint): {
       ),
       action: t("Move session"),
       detail: t(
-        "The conversation stays; the agent now works in the project's own worktree.",
+        "The conversation stays; the agent now works in the project's folder.",
       ),
     };
   }
@@ -56,7 +56,7 @@ function offerOf(hint: ProjectHint): {
     }),
     action: t("Add repository"),
     detail: t(
-      "It is cloned once and every session of the project gets its own worktree of it.",
+      "It is cloned into the project's folder, where every session of the project can use it.",
     ),
   };
 }

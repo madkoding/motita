@@ -17,7 +17,7 @@ const ITEM_PLAIN =
 
 // ProjectMenu is the "⋯" menu of a project.
 function ProjectMenu({ p }: { p: ProjectInfo }) {
-  const { menus, projects } = useApp();
+  const { menus, projects, actions } = useApp();
   return (
     <RowMenu>
       <button
@@ -44,6 +44,20 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
+      <button
+        class={ITEM_PLAIN}
+        data-testid="new-isolated-session"
+        title={t(
+          "Works in a worktree of its own, so it can run in parallel with the others.",
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          void actions.createSession(p.id, true);
+          menus.closeRowMenu();
+        }}
+      >
+        {t("New isolated session")}
+      </button>
       {p.main_warning && (
         <button
           class={ITEM_PLAIN}
@@ -106,9 +120,34 @@ function BehindFact({ p }: { p: ProjectInfo }) {
   );
 }
 
+// SharedFact says the project still has repositories that share one clone with other projects (the
+// way they were added before projects became plain folders): the edit dialog can make each one the
+// project's own.
+function SharedFact({ p }: { p: ProjectInfo }) {
+  const shared = (p.repos ?? []).filter((r) => r.shared && !r.local);
+  if (shared.length === 0) {
+    return null;
+  }
+  return (
+    <span
+      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-white/5"
+      title={tf(
+        "Shared clones: {names}. Edit the project to make them independent.",
+        { names: shared.map((r) => r.name).join(", ") },
+      )}
+      data-testid="project-shared"
+    >
+      <span class="text-[#9a9aaa] uppercase tracking-wide text-[9px]">
+        {t("shared")}
+      </span>
+      <span class="tabular-nums text-[#9a9aaa]">{shared.length}</span>
+    </span>
+  );
+}
+
 // DepsFact says the project's repositories need dependencies nobody installed (vendor/,
-// node_modules/): the sessions' worktrees are linked to what the project has, so none of them can
-// run its tests until they are. The commands that fix it are its title.
+// node_modules/): the sessions share what the project has, so none of them can run its tests until
+// they are. The commands that fix it are its title.
 function DepsFact({ p }: { p: ProjectInfo }) {
   const missing = p.missing_deps ?? [];
   if (missing.length === 0) {
@@ -217,6 +256,7 @@ function ProjectHeader({
           <IconFolder size={12} class="flex-none text-accent/60" />
           <span class="project-name truncate">{p.title}</span>
           <BehindFact p={p} />
+          <SharedFact p={p} />
           <StaleFact p={p} />
           <DepsFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and

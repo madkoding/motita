@@ -478,9 +478,6 @@ func Start(opts Options) (*Server, error) {
 	if opts.Tailscale != nil {
 		go s.learnTailnetName(s.baseCtx)
 	}
-	if s.projects != nil {
-		go s.refreshAllMainsEvery(s.baseCtx, mainRefreshInterval)
-	}
 	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
 		Handler: s.mux,
@@ -582,6 +579,7 @@ func (s *Server) openSessionStore() {
 	}
 	s.store = st
 	s.loadPersistedSessions()
+	s.migrateSharedRepos(s.baseCtx)
 }
 
 // openProjectStore opens the project store when a directory is configured.
@@ -778,6 +776,35 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 	mux.Handle("POST "+prefix+"/skills/{name}/restore", wrap(s.handleRestoreSkill))
 }
 
+// projectRoutes is the table of projects, their repositories and the notes of the workspace.
+func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("GET /v1/notes", plain(s.handleListNotes))
+	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
+	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))
+	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
+	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
+	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
+	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))
+	mux.Handle("POST /v1/notes/scan", plain(s.handleScanNotes))
+	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
+	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
+	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
+	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
+	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
+	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
+	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
+	mux.Handle("POST /v1/projects/{id}/repos", plain(s.handleAddProjectRepo))
+	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
+	mux.Handle("DELETE /v1/projects/{id}/main", plain(s.handleDetachProjectMain))
+	mux.Handle("GET /v1/repos", plain(s.handleListRepos))
+	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
+	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
+	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))
+	mux.Handle("POST /v1/projects/{id}/repos/{name}/standalone", plain(s.handleStandaloneProjectRepo))
+	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
+}
+
 // routes builds the endpoint table.
 //
 // Every conversation endpoint is addressed by the session it is about, and only /v1/health is
@@ -823,30 +850,7 @@ func (s *Server) routes() *http.ServeMux {
 
 	s.gitRoutes(mux, plain)
 	s.routeDisk(mux, plain)
-	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
-	mux.Handle("GET /v1/notes", plain(s.handleListNotes))
-	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
-	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))
-	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
-	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
-	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
-	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))
-	mux.Handle("POST /v1/notes/scan", plain(s.handleScanNotes))
-	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
-	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
-	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
-	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
-	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
-	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
-	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
-	mux.Handle("POST /v1/projects/{id}/repos", plain(s.handleAddProjectRepo))
-	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
-	mux.Handle("DELETE /v1/projects/{id}/main", plain(s.handleDetachProjectMain))
-	mux.Handle("GET /v1/repos", plain(s.handleListRepos))
-	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
-	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
-	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))
-	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
+	s.projectRoutes(mux, plain)
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
 	// agent, and the conversation it fires INTO is a field of the record. Everything

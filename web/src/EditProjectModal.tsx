@@ -221,6 +221,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
     removeProjectRepo,
     detachProjectMain,
     syncProjectRepo,
+    standaloneProjectRepo,
     gitAccounts,
     openOtherRepoPicker,
     repoCatalog,
@@ -242,6 +243,7 @@ function EditRepos({ p }: { p: EditProjectDraft }) {
       onAdd={addProjectRepo}
       onMoveMain={detachProjectMain}
       onSync={syncProjectRepo}
+      onStandalone={standaloneProjectRepo}
       onChoose={choose(connected, openOtherRepoPicker, undefined)}
       onBrowse={choose(fullDisk, () => openFolderPicker("repo"), undefined)}
       catalog={repoCatalog}

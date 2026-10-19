@@ -143,6 +143,9 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 		// not cloned. It needs the whole disk allowed (Settings → Security), like a project
 		// outside the workspace.
 		Path string `json:"path"`
+		// Shared keeps one clone of the repository for every project that uses it (a worktree of
+		// it on a branch of the project's own) instead of a clone of its own.
+		Shared bool `json:"shared"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
@@ -172,13 +175,15 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 			"choose another name for the repository", name))
 		return
 	}
-	// The catalog is one folder for every project: a second project asking for the same repository
-	// waits for the clone of the first instead of finding it half made, and a deletion cannot
-	// take the clone between this project's use of it and the save that records it. Only that
-	// repository is held: others clone and are deleted meanwhile.
-	defer s.lockCatalogRepo(gitURL)()
+	if body.Shared {
+		// The catalog is one folder for every project: a second project asking for the same
+		// repository waits for the clone of the first instead of finding it half made, and a
+		// deletion cannot take the clone between this project's use of it and the save that
+		// records it. Only that repository is held: others clone and are deleted meanwhile.
+		defer s.lockCatalogRepo(gitURL)()
+	}
 	ctx := r.Context()
-	repo, err := s.placeRepo(ctx, p, name, gitURL, dest)
+	repo, err := s.placeRepo(ctx, p, name, gitURL, dest, body.Shared)
 	if err != nil {
 		s.writeCloneError(w, gitURL, err)
 		return
@@ -213,21 +218,32 @@ func (s *Server) saveNewRepo(w http.ResponseWriter, r *http.Request, p *Project,
 	writeJSON(w, http.StatusCreated, p)
 }
 
-// placeRepo puts the repository gitURL in the project's folder, at dest: a worktree of the
-// catalog's clone on the project's own branch. A repository with nothing to branch from yet (an
-// empty one), or a workspace without a catalog, gets a clone of its own there instead.
-func (s *Server) placeRepo(ctx context.Context, p *Project, name, gitURL, dest string) (ProjectRepo, error) {
-	src, fresh, err := s.catalogClone(gitURL, name)
-	switch {
-	case err == nil && gitx.HasCommits(ctx, src):
-		return placeSharedRepo(ctx, p, name, gitURL, src, dest)
-	case fresh:
-		// An empty repository has no commit a worktree could start from: the project takes the clone.
-		err = renamePath(src, dest)
-	case err == nil || errors.Is(err, errNoCatalog):
+// placeRepo puts the repository gitURL in the project's folder, at dest. By default it is a plain
+// clone with nothing shared with other projects and no branch of the project's own. With shared it
+// is a worktree of the catalog's clone on the project's own branch, so projects that use the same
+// repository keep one copy; a repository with nothing to branch from yet (an empty one), or a
+// workspace without a catalog, gets a clone of its own there instead.
+func (s *Server) placeRepo(
+	ctx context.Context, p *Project, name, gitURL, dest string, shared bool,
+) (ProjectRepo, error) {
+	var err error
+	if shared {
+		var src string
+		var fresh bool
+		src, fresh, err = s.catalogClone(gitURL, name)
+		switch {
+		case err == nil && gitx.HasCommits(ctx, src):
+			return placeSharedRepo(ctx, p, name, gitURL, src, dest)
+		case fresh:
+			// An empty repository has no commit a worktree could start from: the project takes the clone.
+			err = renamePath(src, dest)
+		case err == nil || errors.Is(err, errNoCatalog):
+			_, err = cloneGitRepo(gitURL, dest, s.gitCommandEnv())
+		default:
+			// The catalog's clone failed: that is the answer.
+		}
+	} else {
 		_, err = cloneGitRepo(gitURL, dest, s.gitCommandEnv())
-	default:
-		// The catalog's clone failed: that is the answer.
 	}
 	if err != nil {
 		return ProjectRepo{}, err
@@ -479,6 +495,11 @@ func (s *Server) sessionWorktreesOf(ctx context.Context, p *Project, repo Projec
 	var worktrees []string
 	for _, c := range s.sessionsOfProject(p.ID) {
 		path := sessionRepoPath(c.workspaceDir(), p, repo)
+		// A session working in the project's folder shares the project's own checkout of the
+		// repository: that is not a worktree of the session's.
+		if gitx.SamePath(path, p.repoPath(repo)) {
+			continue
+		}
 		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
 			worktrees = append(worktrees, path)
 		}

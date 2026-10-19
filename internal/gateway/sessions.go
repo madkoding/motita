@@ -539,9 +539,7 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	// this session has done. An unreadable tree reports 0 rather than an
 	// error: the count decorates a badge, and a badge that cannot be
 	// computed should be absent rather than break the sidebar.
-	if n, err := gitx.WorkingTreeChanges(ctx, c.workspace); err == nil {
-		st.Changes = n
-	}
+	st.Changes = c.changesAcrossRepos(ctx)
 	// Mergeable compares the session's branch against the PROJECT's branch,
 	// not against whatever the session's own checkout is on. A session with
 	// its own worktree reports its own branch (motita/<id>), so comparing
@@ -560,7 +558,7 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	// Integrate: the session's branch exists and has commits the base
 	// branch does not. A session that never ran in a worktree has no
 	// branch, and one whose work was already merged has none ahead.
-	mergeable := c.branchAhead(ctx, base)
+	mergeable := st.Worktree != "" && c.branchAhead(ctx, base)
 	// Work the agent WROTE is integrable before anything has committed it. Nothing commits
 	// what an agent writes (the default final action is none), so a session's branch sits
 	// exactly where it branched and a rule that asks only for commits ahead left the button
@@ -934,6 +932,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// Git asks for a free-standing session's directory to be a git repository (true) or a
 		// plain directory (false). Absent, the gateway's free_session_git setting decides.
 		Git *bool `json:"git"`
+		// Isolate gives a project session a worktree of its own instead of the project's folder,
+		// for working in parallel on one repository.
+		Isolate bool `json:"isolate"`
 	}
 	// The body is optional: a client that sends no body gets a free-standing session.
 	if r.ContentLength > 0 {
@@ -959,11 +960,6 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Opening a session brings the project's main branch up to date, but in the background: the
-	// person asked to work, and a fetch must not hold the session back. See refreshMainInBackground.
-	s.refreshMainInBackground(project)
-	s.awaitMainRefresh(project)
-
 	conv, err := s.createSession()
 	switch {
 	case errors.Is(err, ErrCeilingReached):
@@ -971,40 +967,43 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
-		s.placeAndSave(conv, body.ProjectID, project, body.Git)
+		s.placeAndSave(conv, body.ProjectID, project, body.Git, body.Isolate)
 		writeJSON(w, http.StatusCreated, conv.status())
 	}
 }
 
 // placeAndSave puts a new session where it runs - in the project when one was named, in a
 // directory of its own otherwise - and only then saves it.
-func (s *Server) placeAndSave(conv *conversation, projectID string, project *Project, git *bool) {
+func (s *Server) placeAndSave(conv *conversation, projectID string, project *Project, git *bool, isolate bool) {
 	if project != nil {
-		s.placeInProject(conv, projectID, project)
+		s.placeInProject(conv, projectID, project, isolate)
 	} else {
 		s.placeFreeStanding(conv, s.wantsGit(git))
 	}
 	s.saveSession(conv)
 }
 
-// placeInProject makes a new session run in the project: in a worktree of its own, made BEFORE the
-// session is saved so a session that is registered is one that can actually run. A failure to
-// branch falls back to the project's own directory.
-func (s *Server) placeInProject(conv *conversation, projectID string, project *Project) {
+// placeInProject makes a new session run in the project's folder, the way Claude Code works in a
+// project: one folder, whatever repositories it holds. Two sessions in a project share its files;
+// a session that wants a branch of its own gets it when it proposes its work (see
+// ensureProposalBranch).
+//
+// isolate is the opt-in for parallel work on one repository: the session then runs in a worktree of
+// its own, made BEFORE the session is saved so a session that is registered is one that can actually
+// run. A failure to branch falls back to the project's own directory.
+func (s *Server) placeInProject(conv *conversation, projectID string, project *Project, isolate bool) {
 	dir := project.Dir
-	if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
-		s.warn("the session will run in the project directory: its own worktree could not be created",
-			"id", conv.id, "project", project.Dir, "error", wtErr.Error())
-	} else {
-		dir = wt
+	if isolate {
+		if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
+			s.warn("the session will run in the project directory: its own worktree could not be created",
+				"id", conv.id, "project", project.Dir, "error", wtErr.Error())
+		} else {
+			dir = wt
+		}
+		s.attachProjectRepos(context.Background(), project, dir, conv.id)
 	}
-	s.attachProjectRepos(context.Background(), project, dir, conv.id)
 	conv.setProjectID(projectID, dir, project.Dir)
 	conv.svc.SetWorkspace(dir)
-	// The procedures learned here belong to THIS project. A session inside a
-	// project runs its worktree, but the project's checkout is what the scope
-	// is anchored to: a worktree is removed when the session ends, and a
-	// procedure written into one would be lost with it.
 	scopeProceduresTo(conv.svc, project.Dir)
 	applyRuntimeTo(conv.svc, project, dir)
 }

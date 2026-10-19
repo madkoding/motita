@@ -67,7 +67,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	id := onlyProjectID(t, srv)
 	src := sourceRepo(t)
 
-	code, p := addRepo(t, srv, id, `{"git_url":"`+src+`"}`)
+	code, p := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`)
 	if code != http.StatusCreated || len(p.Repos) != 1 || p.Repos[0].Name != "web-client" ||
 		p.Repos[0].MainBranch != "main" {
 		t.Fatalf("adding a repository: %d %+v", code, p)
@@ -113,7 +113,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`","name":"web-client"}`); code != http.StatusConflict {
 		t.Errorf("a second repository of the same name: %d", code)
 	}
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	var second SessionStatus
 	_ = json.Unmarshal(created.Body.Bytes(), &second)
 	if _, ok, _ := gitx.LiveWorktreeAt(context.Background(), clone,
@@ -139,6 +139,10 @@ func TestAddingARepositoryIsValidated(t *testing.T) {
 	}
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+filepath.Join(t.TempDir(), "missing")+`"}`); code < 400 {
 		t.Errorf("a clone that fails: %d", code)
+	}
+	missing := filepath.Join(t.TempDir(), "missing")
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+missing+`"}`); code < 400 {
+		t.Errorf("a shared clone that fails: %d", code)
 	}
 	// A project that cannot be saved does not keep the repository.
 	tmp := filepath.Join(srv.projects.dir, id+".json.tmp")
@@ -207,7 +211,8 @@ func TestRemovingARepositoryThatCannotBeSaved(t *testing.T) {
 func TestDeletingASessionGivesBackItsOtherRepositories(t *testing.T) {
 	srv, _, sessionID := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"lib"}`); code != http.StatusCreated {
+	lib := `{"shared":true,"git_url":"` + sourceRepo(t) + `","name":"lib"}`
+	if code, _ := addRepo(t, srv, id, lib); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
 	clone := srv.projectOf(id).Repos[0].Dir

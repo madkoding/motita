@@ -90,7 +90,7 @@ async function addRepoTo(
 }
 
 // useProjectRepos adds and removes the repositories of the project the edit dialog holds. Both
-// happen at once, not on Save: adding one clones it, and the sessions get a worktree of it.
+// happen at once, not on Save: adding one clones it into the project's folder.
 function useProjectRepos(
   api: Api,
   fetchProjects: () => Promise<unknown>,
@@ -229,10 +229,11 @@ function useProjectRepos(
     }
   }, [id]);
 
-  // syncProjectRepo brings a shared repository's folder up to the main branch the other projects
-  // integrate into. A folder with work of its own is refused, with the gateway's reason.
-  const syncProjectRepo = useCallback(
-    async (name: string) => {
+  // postRepoAction asks the gateway to do one thing to a shared repository of the project
+  // (action is the last element of its path) and shows the project it answers with, or says why
+  // not with failure as the title of the toast.
+  const postRepoAction = useCallback(
+    async (name: string, action: string, failure: string) => {
       if (!begin(name)) {
         return;
       }
@@ -242,12 +243,13 @@ function useProjectRepos(
             encodeURIComponent(id) +
             "/repos/" +
             encodeURIComponent(name) +
-            "/sync",
+            "/" +
+            action,
           { method: "POST" },
         );
         if (!res.ok) {
           setToast({
-            message: tf("Could not bring {name} up to date", { name }),
+            message: tf(failure, { name }),
             type: "error",
             detail: await errorOf(res),
           });
@@ -255,15 +257,28 @@ function useProjectRepos(
         }
         settle(await res.json());
       } catch {
-        setToast({
-          message: tf("Could not bring {name} up to date", { name }),
-          type: "error",
-        });
+        setToast({ message: tf(failure, { name }), type: "error" });
       } finally {
         end();
       }
     },
     [id],
+  );
+
+  // syncProjectRepo brings a shared repository's folder up to the main branch the other projects
+  // integrate into. A folder with work of its own is refused, with the gateway's reason.
+  const syncProjectRepo = useCallback(
+    (name: string) =>
+      postRepoAction(name, "sync", "Could not bring {name} up to date"),
+    [postRepoAction],
+  );
+
+  // standaloneProjectRepo turns a shared repository into a clone of the project's own, keeping
+  // its branch and commits. Uncommitted work is refused, with the gateway's reason.
+  const standaloneProjectRepo = useCallback(
+    (name: string) =>
+      postRepoAction(name, "standalone", "Could not make {name} independent"),
+    [postRepoAction],
   );
 
   return {
@@ -273,6 +288,7 @@ function useProjectRepos(
     removeProjectRepo,
     detachProjectMain,
     syncProjectRepo,
+    standaloneProjectRepo,
   };
 }
 

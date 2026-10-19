@@ -453,6 +453,27 @@ test("a shared repository is marked, and one behind can be brought up to its mai
   await m.unmount();
 });
 
+test("a shared repository can be made independent, a local or plain one cannot", async () => {
+  const made = [];
+  const repos = [
+    { name: "api", git_url: "u/api", shared: true },
+    { name: "mine", git_url: "/my/own", shared: true, local: true },
+    { name: "web", git_url: "u/web" },
+  ];
+  const props = { main: null, repos, onStandalone: (n) => made.push(n) };
+  const m = await mount(AppCtx, null, section(props));
+  const buttons = m.qa("[data-testid=repo-standalone]");
+  assert.equal(buttons.length, 1, "only a shared repository of the catalog");
+  assert.equal(buttons[0].textContent, "Make independent");
+  await click(buttons[0]);
+  assert.deepEqual(made, ["api"]);
+  await m.rerender(null, section({ ...props, busy: "api" }));
+  assert.equal(m.q("[data-testid=repo-standalone]").disabled, true);
+  await m.rerender(null, section({ ...props, onStandalone: undefined }));
+  assert.equal(m.q("[data-testid=repo-standalone]"), null);
+  await m.unmount();
+});
+
 test("a URL the workspace already has says it is not cloned again", async () => {
   const catalog = [
     {

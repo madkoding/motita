@@ -45,6 +45,10 @@ type prTarget struct {
 	api    gitforge.API
 	remote gitforge.Remote
 	branch string
+	// dir is the repository the pull request is about, inside the session's folder, and base the
+	// branch it proposes into.
+	dir  string
+	base string
 }
 
 // prError is a refusal with the HTTP status and code the client acts on.
@@ -66,16 +70,23 @@ func (s *Server) writePRError(w http.ResponseWriter, e *prError) {
 	writeJSON(w, e.status, body)
 }
 
-// projectRemote is the repository a session's pull request goes to: the one its project was cloned
-// from, as the project records it. Only a project with no recorded URL (a folder that was already a
-// repository) asks the checkout for its origin. The checkout's configuration is something the agent
-// can rewrite (`git remote set-url`), and the pull request is opened, watched and merged with the
-// person's own login: the repository it lands on is the project's, never one the session pointed at.
-func (s *Server) projectRemote(ctx context.Context, c *conversation) string {
-	if p := s.projectOf(c.projectID); p != nil && strings.TrimSpace(p.GitURL) != "" {
-		return strings.TrimSpace(p.GitURL)
+// repoRemote is the repository a session's pull request goes to. A repository the project recorded
+// (its clone URL) answers with that URL: the checkout's configuration is something the agent can
+// rewrite (`git remote set-url`), and the pull request is opened, watched and merged with the
+// person's own login, so it never lands on a repository the session pointed at. A repository the
+// project knows nothing about (one cloned by hand into the folder) answers with its origin.
+func (s *Server) repoRemote(ctx context.Context, c *conversation, dir string) string {
+	if p := s.projectOf(c.projectID); p != nil {
+		if gitx.SamePath(dir, p.Dir) && strings.TrimSpace(p.GitURL) != "" {
+			return strings.TrimSpace(p.GitURL)
+		}
+		for _, repo := range p.Repos {
+			if gitx.SamePath(dir, p.repoPath(repo)) && strings.TrimSpace(repo.GitURL) != "" {
+				return strings.TrimSpace(repo.GitURL)
+			}
+		}
 	}
-	gitArgs := append([]string{"-C", c.workspace}, gitx.HardeningFor(ctx, c.workspace)...)
+	gitArgs := append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...)
 	cmd := exec.CommandContext(ctx, "git", append(gitArgs, "remote", "get-url", "origin")...)
 	cmd.Env = s.gitCommandEnv()
 	out, err := cmd.Output()
@@ -85,8 +96,10 @@ func (s *Server) projectRemote(ctx context.Context, c *conversation) string {
 	return strings.TrimSpace(string(out))
 }
 
-// prTargetOf resolves the host, the repository and the branch of a session.
-func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *prError) {
+// prTargetOf resolves the host, the repository and the branch of a session. The repository is one
+// of those in the session's folder (see sessionRepoDir) and the branch the one it is on, so the
+// pull request is about the work as it stands, wherever the agent put it.
+func (s *Server) prTargetOf(ctx context.Context, c *conversation, repo string) (prTarget, *prError) {
 	if c.workspace == "" || c.projectID == "" {
 		return prTarget{}, &prError{status: http.StatusConflict,
 			msg: "this session does not belong to a project, so there is no branch to propose"}
@@ -96,7 +109,12 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *pr
 		return prTarget{}, &prError{status: http.StatusNotImplemented,
 			msg: "this gateway has no directory to keep git logins in"}
 	}
-	url := s.projectRemote(ctx, c)
+	dir := c.sessionRepoDir(ctx, repo)
+	if dir == "" {
+		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
+			msg: "there is no git repository in this project's folder, so there is nothing to propose"}
+	}
+	url := s.repoRemote(ctx, c, dir)
 	if url == "" {
 		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
 			msg: "this repository has no remote named origin, so there is nowhere to open a pull request"}
@@ -118,7 +136,8 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *pr
 		return prTarget{}, &prError{status: http.StatusInternalServerError, msg: err.Error()}
 	}
 	api.Cache = &s.etags
-	return prTarget{api: api, remote: remote, branch: sessionBranch(c.id)}, nil
+	return prTarget{api: api, remote: remote, dir: dir, base: gitx.DefaultBranch(ctx, dir),
+		branch: c.proposalBranch(ctx, dir)}, nil
 }
 
 // prHostError maps a failed call to the host onto the answer the client expects.
@@ -135,7 +154,7 @@ func prHostError(svc gitforge.Service, err error) *prError {
 // if so, the state of its CI.
 func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c)
+	t, perr := s.prTargetOf(r.Context(), c, "")
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -177,7 +196,14 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
-	t, perr := s.prTargetOf(r.Context(), c)
+	// The body is optional: it names the repository when the project folder holds several.
+	var body struct {
+		Repo string `json:"repo"`
+	}
+	if r.ContentLength > 0 && !s.decodeBody(w, r, &body) {
+		return
+	}
+	t, perr := s.prTargetOf(r.Context(), c, body.Repo)
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -189,27 +215,35 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if p := s.projectOf(c.projectID); p != nil {
-		base := gitx.Display(r.Context(), p.Dir)
-		ahead, _, _ := gitx.CommitsBetween(r.Context(), p.Dir, base, t.branch)
-		changes, _ := gitx.WorkingTreeChanges(r.Context(), c.workspace)
-		if len(ahead) == 0 && changes == 0 {
-			writeError(w, http.StatusConflict, "this session has no work to propose: its branch has no commits "+
-				"the project's branch lacks and its worktree has no uncommitted changes")
-			return
-		}
+	ahead := 0
+	if t.base != "" && gitx.BranchExists(r.Context(), t.dir, t.branch) {
+		commits, _, _ := gitx.CommitsBetween(r.Context(), t.dir, t.base, t.branch)
+		ahead = len(commits)
+	}
+	changes, _ := gitx.WorkingTreeChanges(r.Context(), t.dir)
+	if ahead == 0 && changes == 0 {
+		writeError(w, http.StatusConflict, "this repository has no work to propose: its branch has no commits "+
+			"the base branch lacks and it has no uncommitted changes")
+		return
+	}
+	// The work goes on a branch of its own: a repository left on its default branch would push there.
+	branch, err := c.ensureProposalBranch(r.Context(), t.dir)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
 	}
 	task := fmt.Sprintf(`Open a pull request for this session's work.
 
-Follow the pull-requests-and-ci skill. Commit any pending changes on the session branch with a semantic message, `+
+Follow the pull-requests-and-ci skill. Commit any pending changes on the current branch with a semantic message, `+
 		`push the branch with "git push -u origin %[1]s", and open the pull request with "motita forge pr create" `+
 		`(a semantic title and a description with What, Why and How it was verified).
 
-Session worktree: %[2]s
-Session branch: %[1]s
+Repository: %[2]s
+Branch (already checked out): %[1]s
+Base branch: %[3]s
 
 Then give the user the link to the pull request. Do not wait for the CI and do not merge: `+
-		`the gateway follows the CI and tells the user when it ends.`, t.branch, c.workspace)
+		`the gateway follows the CI and tells the user when it ends.`, branch, t.dir, t.base)
 	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
 	s.startPRWatch(c, nil)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
@@ -279,7 +313,7 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
-	t, perr := s.prTargetOf(r.Context(), c)
+	t, perr := s.prTargetOf(r.Context(), c, "")
 	if perr != nil {
 		s.writePRError(w, perr)
 		return

@@ -1191,6 +1191,38 @@ test("a shared repository behind its main branch is brought up to date, or says 
   await s.m.unmount();
 });
 
+test("a shared repository is made independent, or says why not", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/repos/api/standalone": () => {
+      n++;
+      if (n === 1) {
+        return res(200, {
+          ...PROJECT,
+          repos: [{ ...PROJECT.repos[0], shared: false }],
+        });
+      }
+      return res(409, { error: "the folder has uncommitted changes" });
+    },
+  });
+  await run(() =>
+    s.p.openEditProject({
+      ...PROJECT,
+      repos: [{ ...PROJECT.repos[0], shared: true }],
+    }),
+  );
+  await flush();
+  await run(() => s.p.standaloneProjectRepo("api"));
+  assert.equal(s.p.editProject.repos[0].shared, false);
+  await run(() => s.p.standaloneProjectRepo("api"));
+  assert.deepEqual(s.toasts.at(-1), {
+    message: "Could not make api independent",
+    type: "error",
+    detail: "the folder has uncommitted changes",
+  });
+  await s.m.unmount();
+});
+
 test("a connection made for the other repositories' picker keeps adding to them; one given up leaves the main picker alone", async () => {
   const s = await setup();
   await run(() => s.p.openOtherRepoPicker());
