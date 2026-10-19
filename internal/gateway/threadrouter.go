@@ -76,16 +76,20 @@ func (s *Server) listThreads(main *conversation) string {
 	var sb strings.Builder
 	for _, th := range threads {
 		st := th.status()
-		state := "idle"
-		switch {
-		case st.Merged:
-			state = "integrated"
-		case st.Running:
-			state = "working"
-		}
-		fmt.Fprintf(&sb, "- %s (%s)\n", st.Title, state)
+		fmt.Fprintf(&sb, "- %s (%s)\n", st.Title, threadState(st))
 	}
 	return sb.String()
+}
+
+// threadState is how a thread reads in the list: integrated, working or idle.
+func threadState(st SessionStatus) string {
+	if st.Merged {
+		return "integrated"
+	}
+	if st.Running {
+		return "working"
+	}
+	return "idle"
 }
 
 // sameTopic compares two topics ignoring case and spacing.

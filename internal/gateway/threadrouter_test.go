@@ -194,3 +194,18 @@ func TestTheMainSessionClosesIntegratedThreads(t *testing.T) {
 		t.Error("the closed thread must be gone")
 	}
 }
+
+func TestAThreadReadsAsIntegratedWorkingOrIdle(t *testing.T) {
+	for _, c := range []struct {
+		st   SessionStatus
+		want string
+	}{
+		{SessionStatus{Merged: true, Running: true}, "integrated"},
+		{SessionStatus{Running: true}, "working"},
+		{SessionStatus{}, "idle"},
+	} {
+		if got := threadState(c.st); got != c.want {
+			t.Errorf("%+v reads %q, want %q", c.st, got, c.want)
+		}
+	}
+}

@@ -65,7 +65,7 @@ export function useSessionActions({
   // a new one opens the one it has, and parallel work goes to threads its agent opens.
   const createSession = useCallback(
     async (projectId?: string): Promise<string | undefined> => {
-      const main = projectId ? mainSessionOf(sessions, projectId) : undefined;
+      const main = mainSessionOf(sessions, projectId ?? "");
       if (main) {
         await switchSession(main.id);
         return main.id;
