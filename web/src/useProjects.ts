@@ -511,9 +511,9 @@ function useNewProjectForm() {
     setNewProjectRepos((list) => list.filter((r) => r.name !== name));
   }, []);
 
-  // openNewProject opens the New project dialog on its first screen.
+  // openNewProject opens the New project dialog: a project is a plain folder, so it starts empty.
   const openNewProject = () => {
-    setNewProjectMode(null);
+    setNewProjectMode("empty");
     mainChosen.current = false;
     setNewProjectMain("main");
     setShowNewProject(true);

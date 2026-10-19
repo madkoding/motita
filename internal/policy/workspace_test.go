@@ -81,3 +81,37 @@ func TestElevates(t *testing.T) {
 		}
 	}
 }
+
+// A project holds repositories in its subfolders: the commands that work inside them run without a
+// question, whether the line moves there with `cd` or points git at it with `-C`.
+func TestSubfolderRepositoriesRunWithoutAQuestion(t *testing.T) {
+	dir := t.TempDir()
+	for _, line := range []string{
+		"cd sub && git status", "cd sub/deep && git commit -m 'feat: x'", "pushd sub", "git -C sub log",
+		"git -C ./sub commit -m 'fix: y'", "cat sub/a.go", "ls sub",
+	} {
+		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Allow {
+			t.Errorf("%q: got %s/%s (%s), want allow", line, d.Verdict, d.Rule, d.Reason)
+		}
+	}
+	// What leaves the machine is still asked about, wherever the repository is.
+	for _, line := range []string{"cd sub && git push", "git -C sub push"} {
+		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Ask {
+			t.Errorf("%q: got %s/%s, want ask", line, d.Verdict, d.Rule)
+		}
+	}
+}
+
+// With the whole disk allowed, git runs in any folder; the user's keys are still asked about.
+func TestFullDiskRunsGitAnywhere(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
+	m := Mode{Enforce: true, FullDisk: true}
+	for _, line := range []string{"git -C " + other + " status", "cd " + other + " && git commit -m 'feat: x'"} {
+		if d := m.DecideLine(line, dir); d.Verdict != Allow {
+			t.Errorf("%q: got %s/%s, want allow", line, d.Verdict, d.Rule)
+		}
+	}
+	if d := m.DecideLine("git -C ~/.ssh status", dir); d.Verdict != Ask {
+		t.Errorf("a path among the user's keys is still asked about: got %s/%s", d.Verdict, d.Rule)
+	}
+}

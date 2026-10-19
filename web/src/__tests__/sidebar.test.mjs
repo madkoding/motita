@@ -65,6 +65,7 @@ function store({ sessions = [], projects = [], updates = {} } = {}) {
     conv: { switchSession: noop },
     menus: { rowMenu: null, setContextMenu: noop },
     projects: {},
+    repositories: { repositories: [], openNewRepository: noop },
     updates: {
       upgradeBusy: false,
       upgradeProgress: null,

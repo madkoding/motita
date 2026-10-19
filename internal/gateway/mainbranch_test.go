@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // The main branch of a project: chosen at creation, editable, offered by a selector, and the
@@ -41,23 +42,6 @@ func createProject(t *testing.T, srv *Server, body string) (int, map[string]any)
 	var out map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
 	return w.Code, out
-}
-
-func TestCreateProjectUsesTheChosenMainBranch(t *testing.T) {
-	srv, ws := projectServer(t)
-	code, out := createProject(t, srv, `{"title":"a","dir":"a"}`)
-	if code != http.StatusCreated || out["main_branch"] != "main" ||
-		gitx.Display(context.Background(), filepath.Join(ws, "a")) != "main" {
-		t.Errorf("the default is main: %d %v", code, out)
-	}
-	code, out = createProject(t, srv, `{"title":"b","dir":"b","main_branch":"master"}`)
-	if code != http.StatusCreated || out["main_branch"] != "master" ||
-		gitx.Display(context.Background(), filepath.Join(ws, "b")) != "master" {
-		t.Errorf("a repository made for the project is born on the chosen branch: %d %v", code, out)
-	}
-	if code, _ = createProject(t, srv, `{"title":"c","dir":"c","main_branch":"bad name"}`); code != http.StatusBadRequest {
-		t.Errorf("an invalid branch name: %d", code)
-	}
 }
 
 func TestSettleMainBranchPicksWhatTheRepositoryHas(t *testing.T) {
@@ -208,9 +192,11 @@ func TestProjectBranchesEndpoint(t *testing.T) {
 	}
 
 	// A folder with no repository offers only the configured name; a listing failure offers it too.
-	_, made := createProject(t, srv, `{"title":"plain","dir":"plain2","main_branch":"trunk"}`)
+	_, made := createProject(t, srv, `{"title":"plain","dir":"plain2"}`)
 	pid, _ := made["id"].(string)
-	_ = os.RemoveAll(filepath.Join(srv.opts.WorkspaceDir, "plain2", ".git"))
+	if _, err := srv.projects.update(pid, func(p *Project) { p.MainBranch = "trunk" }); err != nil {
+		t.Fatal(err)
+	}
 	w = send(t, srv, http.MethodGet, "/v1/projects/"+pid+"/branches", testToken, "")
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
 	if len(out.Branches) != 1 || out.Branches[0] != "trunk" {
@@ -278,22 +264,14 @@ func TestReturnToMainSurvivesABranchThatIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustGit(t, projectDir, "checkout", "-q", "-b", "feature")
+	log, err := logx.New(logx.Options{Path: filepath.Join(t.TempDir(), "gateway.log"), Level: logx.Info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.opts.Log = log
 	srv.returnToMain(p) // the checkout fails and is logged, not raised
 	if got := gitx.Display(context.Background(), projectDir); got != "feature" {
 		t.Errorf("a failed return leaves the checkout alone, it is on %q", got)
-	}
-}
-
-// A clone arrives on the remote's default branch; the project is put on the requested one.
-func TestCreateProjectFromAURLSettlesOnTheChosenBranch(t *testing.T) {
-	origin := t.TempDir()
-	gitRepo(t, origin)
-	mustGit(t, origin, "branch", "master")
-	srv, ws := projectServer(t)
-	code, out := createProject(t, srv, `{"title":"c","dir":"c","git_url":"`+origin+`","main_branch":"master"}`)
-	if code != http.StatusCreated || out["main_branch"] != "master" ||
-		gitx.Display(context.Background(), filepath.Join(ws, "c")) != "master" {
-		t.Errorf("the clone must end on the chosen branch: %d %v", code, out)
 	}
 }
 
@@ -334,5 +312,60 @@ func TestDefaultBranchOfARemote(t *testing.T) {
 	}
 	if code, _ := ask(filepath.Join(t.TempDir(), "nothing-here")); code != http.StatusBadGateway {
 		t.Errorf("a remote that cannot be read: %d", code)
+	}
+}
+
+func TestANewProjectIsAPlainFolderWithNoBranch(t *testing.T) {
+	srv, ws := projectServer(t)
+	code, out := createProject(t, srv, `{"title":"a","dir":"a","main_branch":"master"}`)
+	if code != http.StatusCreated || out["repo_id"] != "" {
+		t.Fatalf("creating: %d %v", code, out)
+	}
+	if p := srv.projectOf(out["id"].(string)); p.MainBranch != "" || p.RepoID != "" || len(p.Repos) != 0 {
+		t.Errorf("a plain folder has no branch and no repository: %+v", p)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "a", ".git")); err == nil {
+		t.Error("nothing is initialised in the folder")
+	}
+}
+
+// A repository given while creating a project is cloned INSIDE the plain folder and recorded.
+func TestCreateProjectFromAURLClonesIntoThePlainFolder(t *testing.T) {
+	origin := t.TempDir()
+	gitRepo(t, origin)
+	srv, ws := projectServer(t)
+	code, out := createProject(t, srv, `{"title":"c","dir":"c","git_url":"`+origin+`"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("creating: %d %v", code, out)
+	}
+	p := srv.projectOf(out["id"].(string))
+	if p.GitURL != "" || p.RepoID != "" || len(p.Repos) != 1 || p.Repos[0].RepoID == "" {
+		t.Fatalf("the clone is the project's repository, the folder is plain: %+v", p)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "c", ".git")); err == nil {
+		t.Error("the project folder itself is not a repository")
+	}
+	if _, err := os.Stat(filepath.Join(p.Repos[0].Dir, ".git")); err != nil {
+		t.Errorf("the clone is a repository: %v", err)
+	}
+	failing := `{"title":"d","dir":"d","git_url":"/nonexistent/repo-x"}`
+	if code, _ := createProject(t, srv, failing); code == http.StatusCreated {
+		t.Error("a clone that fails fails the project")
+	}
+	if _, err := os.Stat(filepath.Join(ws, "d")); err == nil {
+		t.Error("a failed creation leaves no folder behind")
+	}
+}
+
+func TestReturnToMainLeavesUncommittedWorkAlone(t *testing.T) {
+	srv, projectDir, _ := newSessionInProject(t)
+	for _, c := range srv.snapshot() {
+		_ = doDelete(t, srv, "/v1/sessions/"+c.id)
+	}
+	mustGit(t, projectDir, "checkout", "-q", "-b", "feature")
+	_ = os.WriteFile(filepath.Join(projectDir, "README.md"), []byte("edited\n"), 0o644)
+	srv.returnToMain(srv.projectOf(onlyProjectID(t, srv)))
+	if got := gitx.Display(context.Background(), projectDir); got != "feature" {
+		t.Errorf("a dirty checkout stays where it is, on %q", got)
 	}
 }

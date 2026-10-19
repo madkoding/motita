@@ -887,6 +887,15 @@ const more: Record<string, string> = {
   "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
     "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
   "Scanning the notes": "Escaneando las notas",
+  "New repository": "Nuevo repositorio",
+  "No repositories": "Sin repositorios",
+  "New session in repository": "Nueva sesión en el repositorio",
+  "Delete repository": "Eliminar repositorio",
+  "or a folder on this machine": "o una carpeta de este equipo",
+  "Could not add the repository": "No se pudo agregar el repositorio",
+  "branch {branch}": "rama {branch}",
+  "The repository is cloned once. A folder is used where it is and never deleted.":
+    "El repositorio se clona una sola vez. Una carpeta se usa donde está y nunca se elimina.",
 };
 
 export default more;

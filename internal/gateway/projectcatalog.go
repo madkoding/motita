@@ -148,7 +148,7 @@ func catalogUsers(projects []Project, dir string) []catalogUse {
 
 // handleListRepos answers the catalog: every repository cloned there, and which projects use it,
 // so a project can add one that is already here without cloning it again.
-func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 	out := []catalogRepo{}
 	root := s.catalogDir()
 	entries, _ := os.ReadDir(root)
@@ -166,7 +166,7 @@ func (s *Server) handleListRepos(w http.ResponseWriter, _ *http.Request) {
 			Name: e.Name(), GitURL: gitURL, Dir: dir, Projects: catalogUsers(projects, dir), Size: dirSize(dir),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
+	writeJSON(w, http.StatusOK, map[string]any{"repos": out, "repositories": s.repositories(r)})
 }
 
 // removeAll is how a clone leaves the catalog; a variable so a test can make it fail.
@@ -175,6 +175,10 @@ var removeAll = os.RemoveAll
 // handleDeleteRepo deletes a clone of the catalog that no project uses any more. Uncommitted work
 // in it stops the deletion, unless the user confirmed the discard with `?force=1`.
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
+	if rec, _ := s.repoRecord(r.PathValue("name")); rec != nil {
+		s.deleteRepository(w, r, rec)
+		return
+	}
 	dir := s.catalogRepoDir(r.PathValue("name"))
 	if dir == "" {
 		writeError(w, http.StatusNotFound, "the workspace has no repository with that name")
@@ -207,6 +211,7 @@ func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.forgetRepositoriesAt(dir)
 	w.WriteHeader(http.StatusNoContent)
 }
 

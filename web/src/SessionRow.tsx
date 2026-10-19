@@ -11,8 +11,6 @@ import {
   rowMenuStyle,
   sessionTitle,
   sessionTooltip,
-  sessionWorktreeChip,
-  shortBranch,
   shortID,
 } from "./appFormat";
 import { IconCheck, IconClose, IconDots, IconEdit, IconTrash } from "./icons";
@@ -260,39 +258,8 @@ function RenameField({ s }: { s: SessionInfo }) {
 // first read, which is what makes colour optional rather than
 // load-bearing.
 function SessionFacts({ s }: { s: SessionInfo }) {
-  const worktree = sessionWorktreeChip(s);
   return (
     <div class="session-facts flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
-      {s.branch && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10">
-          <span class="text-accent/50 uppercase tracking-wide text-[9px]">
-            {t("branch")}
-          </span>
-          <span class="font-mono text-accent truncate max-w-28">
-            {shortBranch(s.branch)}
-          </span>
-        </span>
-      )}
-      {worktree && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#a0a0f0]/10">
-          <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">
-            {t("worktree")}
-          </span>
-          <span class="font-mono text-[#a0a0f0] truncate max-w-24">
-            {worktree}
-          </span>
-        </span>
-      )}
-      {s.model && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#7ee0a0]/10">
-          <span class="text-[#7ee0a0]/50 uppercase tracking-wide text-[9px]">
-            {t("model")}
-          </span>
-          <span class="font-mono text-[#7ee0a0] truncate max-w-28">
-            {s.model}
-          </span>
-        </span>
-      )}
       {!!s.changes && (
         <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
           <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">

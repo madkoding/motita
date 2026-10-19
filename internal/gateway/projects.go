@@ -129,6 +129,23 @@ func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// newProjectFolder is the absolute folder of a project being created: the absolute path chosen
+// outside the workspace, or the folder name chosen inside it.
+func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (string, bool) {
+	if strings.TrimSpace(path) != "" {
+		return s.externalProjectFolder(w, path)
+	}
+	name, ok := projectFolderName(w, dir)
+	if !ok {
+		return "", false
+	}
+	if s.opts.WorkspaceDir == "" {
+		writeError(w, http.StatusInternalServerError, "no workspace directory is configured")
+		return "", false
+	}
+	return filepath.Join(s.opts.WorkspaceDir, name), true
+}
+
 // handleCreateProject mints a new project, optionally cloning a git repo.
 //
 // The request body carries:
@@ -156,11 +173,10 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Path      string `json:"path"`
 		GitURL    string `json:"git_url"`
 		UsePodman bool   `json:"use_podman"`
-		// MainBranch is the branch the project treats as its main line: "main" unless the user
-		// picked another (typically "master").
-		MainBranch string `json:"main_branch"`
-		// GitUserName and GitUserEmail answer the "git_identity_required" refusal:
-		// they are saved as the user's global git identity.
+		// MainBranch, GitUserName and GitUserEmail are no longer used: a project is a plain folder,
+		// and its branch and git identity belong to the repositories it links. Clients that still
+		// send them are not refused.
+		MainBranch   string `json:"main_branch"`
 		GitUserName  string `json:"git_user_name"`
 		GitUserEmail string `json:"git_user_email"`
 	}
@@ -172,41 +188,24 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the title cannot be empty")
 		return
 	}
-	var dirName, external string
-	var ok bool
-	if strings.TrimSpace(body.Path) != "" {
-		external, ok = s.externalProjectFolder(w, body.Path)
-	} else {
-		dirName, ok = projectFolderName(w, body.Dir)
-	}
+	absDir, ok := s.newProjectFolder(w, body.Path, body.Dir)
 	if !ok {
 		return
-	}
-	mainBranch, ok := requestedMainBranch(w, r, body.MainBranch)
-	if !ok {
-		return
-	}
-
-	// Resolve the absolute directory under the workspace.
-	workspace := s.opts.WorkspaceDir
-	if workspace == "" {
-		writeError(w, http.StatusInternalServerError, "no workspace directory is configured")
-		return
-	}
-	absDir := filepath.Join(workspace, dirName)
-	if external != "" {
-		absDir = external
 	}
 
 	gitURL := strings.TrimSpace(body.GitURL)
-	var cloneLog string
-	if gitURL != "" {
-		absDir, mainBranch, cloneLog, ok = s.cloneProject(w, r, gitURL, absDir, mainBranch)
-	} else {
-		ok = s.refuseSharedDir(w, absDir) &&
-			s.prepareProjectFolder(w, r, absDir, mainBranch, body.GitUserName, body.GitUserEmail)
+	repoName := repoNameOf("", gitURL)
+	if gitURL != "" && repoName == "" {
+		writeError(w, http.StatusBadRequest, "the repository needs a simple folder name: letters, digits, '.', '_' or '-'")
+		return
 	}
-	if !ok {
+	// A project is a plain folder: nothing is initialised in it, whatever git has configured.
+	if !s.refuseSharedDir(w, absDir) {
+		return
+	}
+	madeFolder := !pathExists(absDir)
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
 		return
 	}
 
@@ -220,14 +219,23 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Title:       title,
 		Description: strings.TrimSpace(body.Description),
 		Dir:         absDir,
-		GitURL:      gitURL,
 		Podman:      body.UsePodman && podmanInstalled(),
-		MainBranch:  mainBranch,
 		Created:     time.Now(),
 	}
 	if err := s.projects.save(p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	var cloneLog string
+	if gitURL != "" {
+		var ok bool
+		if p, cloneLog, ok = s.cloneIntoNewProject(w, r, p, gitURL, repoName, madeFolder); !ok {
+			return
+		}
+	}
+	s.migrateRepositories()
+	if cur := s.projectOf(p.ID); cur != nil {
+		p = *cur
 	}
 	s.indexNewProject(p.Dir)
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -235,9 +243,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"title":       p.Title,
 		"description": p.Description,
 		"dir":         p.Dir,
-		"git_url":     p.GitURL,
+		"repos":       p.Repos,
+		"repo_id":     p.RepoID,
 		"podman":      p.Podman,
-		"main_branch": p.MainBranch,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})
@@ -309,109 +317,6 @@ func (s *Server) refuseSharedDir(w http.ResponseWriter, dir string) bool {
 	return true
 }
 
-// requestedMainBranch reads the main branch a new project asks for. The default needs no check,
-// and not asking git for it keeps a machine without git failing where it always did
-// (initialising the repository) rather than here.
-func requestedMainBranch(w http.ResponseWriter, r *http.Request, raw string) (string, bool) {
-	mainBranch := strings.TrimSpace(raw)
-	if mainBranch == "" {
-		return defaultMainBranch, true
-	}
-	if !gitx.ValidBranch(r.Context(), mainBranch) {
-		writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
-		return "", false
-	}
-	return mainBranch, true
-}
-
-// cloneProject clones gitURL for a new project, and returns the folder it went to, the project's
-// main branch and git's report. It answers the request itself, and returns false, when the clone
-// fails.
-func (s *Server) cloneProject(
-	w http.ResponseWriter, r *http.Request, gitURL, absDir, mainBranch string,
-) (dir, branch, cloneLog string, ok bool) {
-	// A folder that holds something else is not overwritten or refused: the clone goes to
-	// the next free "<name>-2", "<name>-3"... and the project records that path.
-	absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv(), nil)
-	// freeCloneDir reuses a folder that already holds a clone of the same repository, and that
-	// folder may be another project's.
-	if !s.refuseSharedDir(w, absDir) {
-		return "", "", "", false
-	}
-	cloneLog, err := cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
-	if err != nil {
-		s.writeCloneError(w, gitURL, err)
-		return "", "", "", false
-	}
-	// A clone arrives on the remote's default branch, which may not be the one asked for:
-	// the main branch becomes the requested one when the repository has it, and otherwise
-	// whichever of main/master it does have.
-	return absDir, settleMainBranch(r.Context(), absDir, mainBranch), cloneLog, true
-}
-
-// prepareProjectFolder makes the folder of a new project that is not a clone. The folder is
-// created in the workspace when it does not exist, and a folder that is new or empty becomes a
-// git repository. A folder that already holds files is somebody's work and is not turned into
-// one. It answers the request itself, and returns false, when it cannot.
-func (s *Server) prepareProjectFolder(
-	w http.ResponseWriter, r *http.Request, absDir, mainBranch, gitName, gitEmail string,
-) bool {
-	if willInit(absDir) && !s.ensureGitIdentity(w, r, gitName, gitEmail) {
-		return false
-	}
-	if err := os.MkdirAll(absDir, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
-		return false
-	}
-	if entries, err := os.ReadDir(absDir); err == nil && len(entries) == 0 {
-		if err := gitx.InitOn(r.Context(), absDir, mainBranch); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return false
-		}
-	}
-	return true
-}
-
-// errGitIdentityRequired is the machine-readable reason a project was not
-// created: git has no user, and the client has to ask for one.
-const errGitIdentityRequired = "git_identity_required"
-
-// willInit reports whether creating a project in dir will make it a repository:
-// the folder is missing or holds nothing.
-func willInit(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	return errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0)
-}
-
-// ensureGitIdentity makes sure git has a user before a repository is created.
-//
-// The global configuration is what a commit is made under, so that is what is
-// checked. When it is incomplete and the request brought no name and email, the
-// answer is a 409 carrying errGitIdentityRequired - the client opens a dialog
-// and repeats the request with them. It returns false once it has answered.
-func (s *Server) ensureGitIdentity(w http.ResponseWriter, r *http.Request, name, email string) bool {
-	if n, e := gitx.GlobalIdentity(r.Context()); n != "" && e != "" {
-		return true
-	}
-	name, email = strings.TrimSpace(name), strings.TrimSpace(email)
-	if name == "" && email == "" {
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "git has no user configured: a name and an email are needed to create the repository",
-			"code":  errGitIdentityRequired,
-		})
-		return false
-	}
-	if name == "" || !strings.Contains(email, "@") || strings.ContainsAny(name+email, "\r\n") {
-		writeError(w, http.StatusBadRequest, "the git name cannot be empty and the email must be an address")
-		return false
-	}
-	if err := gitx.SetGlobalIdentity(r.Context(), name, email); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return false
-	}
-	return true
-}
-
 // handleUpdateProject changes the user's podman answer after the project exists.
 // Turning it on needs podman on the machine, and the sessions already open under
 // the project are told at once, so the next turn follows the new answer.
@@ -442,6 +347,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.mirrorToRepository(p)
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
@@ -869,7 +775,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
-	p := s.projectOf(c.projectID)
+	p := s.scopeOf(c.projectID)
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
@@ -941,7 +847,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusConflict,
 			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
-	p := s.projectOf(c.projectID)
+	p := s.scopeOf(c.projectID)
 	if p == nil {
 		return nil, http.StatusNotFound, ErrProjectNotFound
 	}

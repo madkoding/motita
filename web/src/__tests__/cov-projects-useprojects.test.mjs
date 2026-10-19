@@ -104,7 +104,7 @@ test("an answer about runtimes that arrives after the page is gone is dropped", 
   await flush();
 });
 
-test("the New project dialog opens on its first screen and lists the hosts", async () => {
+test("the New project dialog opens on an empty project and lists the hosts", async () => {
   const accounts = [{ id: "github", name: "GitHub", connected: true }];
   const s = await setup({
     "GET /v1/git/accounts": res(200, { accounts }),
@@ -113,7 +113,7 @@ test("the New project dialog opens on its first screen and lists the hosts", asy
   await run(() => s.p.openNewProject());
   await flush();
   assert.equal(s.p.showNewProject, true);
-  assert.equal(s.p.newProjectMode, null);
+  assert.equal(s.p.newProjectMode, "empty");
   assert.equal(s.p.newProjectMain, "main");
   assert.deepEqual(s.p.gitAccounts, accounts);
   await run(() => s.p.closeNewProject());

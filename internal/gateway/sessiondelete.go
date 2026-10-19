@@ -311,7 +311,7 @@ func (s *Server) inspectWorktree(c *conversation) worktreeRelease {
 	}
 	release.Workspace = workspace
 	release.ProjectDir = projectDir
-	release.Repos = sessionRepoWorktrees(context.Background(), s.projectOf(c.projectID), workspace)
+	release.Repos = sessionRepoWorktrees(context.Background(), s.scopeOf(c.projectID), workspace)
 	changes, err := worktreeInspectList(context.Background(), workspace)
 	if err != nil {
 		release.InspectErr = err
