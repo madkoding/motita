@@ -173,6 +173,42 @@ test("the menu edits the project and asks before deleting it", async () => {
   await m.unmount();
 });
 
+test("the menu opens a session with a worktree of its own", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  const item = m.q("[data-testid=new-isolated-session]");
+  assert.equal(item.textContent, "New isolated session");
+  await click(item);
+  assert.deepEqual(s.log, [["createSession", "p1", true], ["closeMenu"]]);
+  await m.unmount();
+});
+
+test("the facts line counts the repositories that still share a clone, not the user's own", async () => {
+  const s = store();
+  const repos = [
+    { name: "api", git_url: "u/api", shared: true },
+    { name: "own", git_url: "/my/own", shared: true, local: true },
+    { name: "web", git_url: "u/web" },
+  ];
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...P, repos } }),
+  );
+  const fact = m.q("[data-testid=project-shared]");
+  assert.equal(fact.textContent, "shared1");
+  assert.equal(
+    fact.title,
+    "Shared clones: api. Edit the project to make them independent.",
+  );
+  await m.rerender(
+    s.value,
+    h(ProjectGroup, { p: { ...P, repos: repos.slice(2) } }),
+  );
+  assert.equal(m.q("[data-testid=project-shared]"), null);
+  await m.unmount();
+});
+
 test("the menu offers to update the main branch only when the last update left a notice", async () => {
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
