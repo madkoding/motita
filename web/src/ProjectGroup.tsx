@@ -96,54 +96,6 @@ function StaleFact({ p }: { p: ProjectInfo }) {
   );
 }
 
-// BehindFact says how many of the project's shared repositories its folder has left behind their
-// main branch: they hold work of their own, so an integration did not bring them up to date.
-function BehindFact({ p }: { p: ProjectInfo }) {
-  const behind = (p.repos ?? []).filter((r) => r.behind);
-  if (behind.length === 0) {
-    return null;
-  }
-  return (
-    <span
-      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
-      title={tf("Behind their main branch: {names}", {
-        names: behind.map((r) => r.name).join(", "),
-      })}
-      data-testid="project-behind"
-    >
-      <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-        {t("behind")}
-      </span>
-      <span class="tabular-nums text-[#f0a040]">{behind.length}</span>
-    </span>
-  );
-}
-
-// SharedFact says the project still has repositories that share one clone with other projects (the
-// way they were added before projects became plain folders): the edit dialog can make each one the
-// project's own.
-function SharedFact({ p }: { p: ProjectInfo }) {
-  const shared = (p.repos ?? []).filter((r) => r.shared && !r.local);
-  if (shared.length === 0) {
-    return null;
-  }
-  return (
-    <span
-      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-white/5"
-      title={tf(
-        "Shared clones: {names}. Edit the project to make them independent.",
-        { names: shared.map((r) => r.name).join(", ") },
-      )}
-      data-testid="project-shared"
-    >
-      <span class="text-[#9a9aaa] uppercase tracking-wide text-[9px]">
-        {t("shared")}
-      </span>
-      <span class="tabular-nums text-[#9a9aaa]">{shared.length}</span>
-    </span>
-  );
-}
-
 // ProjectActions is the header's "+" and "⋯" buttons. They stop the click, so they do not toggle.
 function ProjectActions({ p }: { p: ProjectInfo }) {
   const { menus, actions } = useApp();
@@ -228,8 +180,6 @@ function ProjectHeader({
           </svg>
           <IconFolder size={12} class="flex-none text-accent/60" />
           <span class="project-name truncate">{p.title}</span>
-          <BehindFact p={p} />
-          <SharedFact p={p} />
           <StaleFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever

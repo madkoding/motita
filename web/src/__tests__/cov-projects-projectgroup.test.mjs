@@ -193,32 +193,6 @@ test("threads are listed under their main session, indented", async () => {
   await m.unmount();
 });
 
-test("the facts line counts the repositories that still share a clone, not the user's own", async () => {
-  const s = store();
-  const repos = [
-    { name: "api", git_url: "u/api", shared: true },
-    { name: "own", git_url: "/my/own", shared: true, local: true },
-    { name: "web", git_url: "u/web" },
-  ];
-  const m = await mount(
-    AppCtx,
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos } }),
-  );
-  const fact = m.q("[data-testid=project-shared]");
-  assert.equal(fact.textContent, "shared1");
-  assert.equal(
-    fact.title,
-    "Shared clones: api. Edit the project to make them independent.",
-  );
-  await m.rerender(
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos: repos.slice(2) } }),
-  );
-  assert.equal(m.q("[data-testid=project-shared]"), null);
-  await m.unmount();
-});
-
 test("the menu updates the main branch: nothing else does it by itself", async () => {
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
@@ -283,28 +257,5 @@ test("a main branch that could not be updated is flagged with the reason", async
   assert.equal(fact.title, "Main branch not updated: main: could not fetch");
   await m.rerender(s.value, h(ProjectGroup, { p: P }));
   assert.equal(m.q("[data-testid=project-stale]"), null);
-  await m.unmount();
-});
-
-test("the facts line counts the shared repositories left behind their main branch", async () => {
-  const s = store();
-  const repos = [
-    { name: "api", git_url: "u/api", dir: "/w/repos/api", behind: 2 },
-    { name: "web", git_url: "u/web", dir: "/w/repos/web" },
-    { name: "docs", git_url: "u/docs", dir: "/w/repos/docs", behind: 1 },
-  ];
-  const m = await mount(
-    AppCtx,
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos } }),
-  );
-  const fact = m.q("[data-testid=project-behind]");
-  assert.equal(fact.textContent, "behind2");
-  assert.equal(fact.title, "Behind their main branch: api, docs");
-  await m.rerender(
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos: repos.slice(1, 2) } }),
-  );
-  assert.equal(m.q("[data-testid=project-behind]"), null);
   await m.unmount();
 });

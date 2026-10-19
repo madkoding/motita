@@ -1,5 +1,4 @@
 // The edit project modal: title, description, the main branch and how its pull requests are merged.
-import { useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -8,8 +7,6 @@ import { branchChoices } from "./appFormat";
 import { IconClose } from "./icons";
 import type { EditProjectDraft } from "./appTypes";
 import { EDIT_PROJECT, PR_MAX_FIXES_LIMIT } from "./appConst";
-import { ReposSection } from "./ReposField";
-import { connectedAccounts } from "./gitApi";
 import { ProjectIndexPanel } from "./ProjectIndexPanel";
 
 // The look of the dialog's fields.
@@ -212,49 +209,6 @@ function FolderField({ p, patch }: { p: EditProjectDraft; patch: Patch }) {
   );
 }
 
-// EditRepos are the project's repositories. They change at once, not on Save.
-function EditRepos({ p }: { p: EditProjectDraft }) {
-  const {
-    repoBusy,
-    repoConflict,
-    addProjectRepo,
-    removeProjectRepo,
-    detachProjectMain,
-    syncProjectRepo,
-    standaloneProjectRepo,
-    gitAccounts,
-    openOtherRepoPicker,
-    repoCatalog,
-    fullDisk,
-    openFolderPicker,
-  } = useApp().projects;
-  const connected = !!gitAccounts && connectedAccounts(gitAccounts).length > 0;
-  const onRemove = useCallback(
-    (name: string, force: boolean) => void removeProjectRepo(name, force),
-    [removeProjectRepo],
-  );
-  return (
-    <ReposSection
-      main={p.mainRepo}
-      repos={p.repos}
-      busy={repoBusy}
-      conflict={repoConflict}
-      onRemove={onRemove}
-      onAdd={addProjectRepo}
-      onMoveMain={detachProjectMain}
-      onSync={syncProjectRepo}
-      onStandalone={standaloneProjectRepo}
-      onChoose={choose(connected, openOtherRepoPicker, undefined)}
-      onBrowse={choose(fullDisk, () => openFolderPicker("repo"), undefined)}
-      catalog={repoCatalog}
-      projectId={p.id}
-      hint={t(
-        "Changes here apply right away. Other projects that use a repository keep it.",
-      )}
-    />
-  );
-}
-
 export function EditProjectModal({ p }: { p: EditProjectDraft }) {
   const {
     patchEditProject: patch,
@@ -305,7 +259,6 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
             />
           </div>
           <FolderField p={p} patch={patch} />
-          <EditRepos p={p} />
           {api && <ProjectIndexPanel api={api} id={p.id} />}
           <BranchFields p={p} patch={patch} />
           <PullRequestFields p={p} patch={patch} />

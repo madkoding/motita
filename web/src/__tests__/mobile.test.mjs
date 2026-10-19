@@ -285,7 +285,7 @@ test("an open dialog moves the toast off its title", () => {
   );
   assert.match(src("ToastCard.tsx"), /class="toast-layer /);
   assert.match(src("ModalBackdrop.tsx"), /data-modal=/);
-  for (const f of ["AuthModal.tsx", "GitConnect.tsx", "RepoPicker.tsx"]) {
+  for (const f of ["AuthModal.tsx", "GitConnect.tsx"]) {
     assert.match(src(f), /\bdata-modal\b/, f);
   }
 });

@@ -93,27 +93,6 @@ async function settle(
     send(api, SESSIONS_PATH + encodeURIComponent(sessionId) + "/project", {
       project_id: projectId,
     });
-  if (hint.kind === "add") {
-    await send(
-      api,
-      PROJECTS_PATH + encodeURIComponent(hint.projectId) + "/repos",
-      {
-        name: hint.repo.name,
-        git_url: hint.repo.url,
-      },
-    );
-    indexIn(api, hint.projectId, setToast);
-    return tf('{name} added to the project "{title}"', {
-      name: hint.repo.name,
-      title: hint.projectTitle,
-    });
-  }
-  if (hint.kind === "move") {
-    await move(hint.projectId);
-    return tf('This session moved to the project "{title}"', {
-      title: hint.projectTitle,
-    });
-  }
   const { title, gitUrl } = newProjectOf(hint);
   const created = await send(api, "/v1/projects", {
     title,
@@ -168,7 +147,7 @@ export function useProjectHint({ api, rs, lists, setToast }: Deps) {
   const [busy, setBusy] = useState(false);
   const hint = useMemo(() => {
     const session = lists.sessions.find((s) => s.id === sessionId);
-    const offer = projectHint(messages, session, lists.projects);
+    const offer = projectHint(messages, session);
     if (
       !offer ||
       running ||
