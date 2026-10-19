@@ -142,6 +142,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)
 	s.forget(c.id)
+	s.promoteThreads(c.id)
 	s.deletePersistedSession(c.id)
 	w.WriteHeader(http.StatusNoContent)
 }
