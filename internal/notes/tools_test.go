@@ -45,9 +45,18 @@ func TestSearchAndReadTextCiteTheirSource(t *testing.T) {
 	if got := v.SearchText(" "); !strings.HasPrefix(got, "Error") {
 		t.Errorf("blank = %q", got)
 	}
+}
 
+func TestReadTextListsLinksAndBacklinks(t *testing.T) {
+	v := Open(t.TempDir())
+	write(t, v, "trips/Japan.md", "# Japan\nRamen in Tokyo. See [[Peru]] and [[Nowhere]].")
+	write(t, v, "Peru.md", "Back to [[Japan]]")
+	write(t, v, "Third.md", "also [[Japan]]")
 	read := v.ReadText("japan")
-	for _, want := range []string{"[[Japan]] (trips/Japan.md)", "Ramen in Tokyo", "Links to: [[Peru]], [[Nowhere]] (no note yet)", "Linked from: [[Peru]], [[Third]]"} {
+	for _, want := range []string{
+		"[[Japan]] (trips/Japan.md)", "Ramen in Tokyo",
+		"Links to: [[Peru]], [[Nowhere]] (no note yet)", "Linked from: [[Peru]], [[Third]]",
+	} {
 		if !strings.Contains(read, want) {
 			t.Errorf("read lacks %q: %q", want, read)
 		}

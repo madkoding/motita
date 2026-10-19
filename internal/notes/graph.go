@@ -48,6 +48,8 @@ func (v *Vault) Graph() Graph {
 				g.Edges = append(g.Edges, GraphEdge{From: n.Path, To: to})
 				g.Nodes[i].Out++
 				g.Nodes[at[to]].In++
+			default:
+				// a link to itself, or a second link to the same note, adds no edge
 			}
 		}
 	}

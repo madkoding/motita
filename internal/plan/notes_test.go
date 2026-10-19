@@ -16,6 +16,8 @@ func TestNoteToolsAreOfferedOnlyWithAVault(t *testing.T) {
 			switch tool.Function.Name {
 			case "search_notes", "read_note", "write_note", "append_note":
 				n++
+			default:
+				// not a note tool
 			}
 		}
 		return n

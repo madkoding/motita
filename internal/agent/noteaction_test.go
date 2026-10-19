@@ -24,7 +24,8 @@ func TestNoteActionsReachTheVault(t *testing.T) {
 		}
 		return rr.sb.String()
 	}
-	if out := run("note_write", "trips/Japan :: Ramen in Tokyo"); !strings.Contains(out, "[note_write] why") || !strings.Contains(out, "Created [[Japan]]") {
+	out := run("note_write", "trips/Japan :: Ramen in Tokyo")
+	if !strings.Contains(out, "[note_write] why") || !strings.Contains(out, "Created [[Japan]]") {
 		t.Errorf("write = %q", out)
 	}
 	if out := run("note_append", "Japan :: Go in May"); !strings.Contains(out, "Added to [[Japan]]") {

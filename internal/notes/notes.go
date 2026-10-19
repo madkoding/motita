@@ -124,6 +124,8 @@ func (v *Vault) List() []Note {
 			return skipHidden(d)
 		case len(out) >= MaxNotes:
 			return filepath.SkipAll
+		default:
+			// a visible entry under the cap: look at it below
 		}
 		if info, err := d.Info(); err == nil && info.Mode().IsRegular() && strings.EqualFold(filepath.Ext(d.Name()), ext) {
 			rel, _ := filepath.Rel(v.root, p)
@@ -188,6 +190,8 @@ func (v *Vault) Write(p, body string, create bool) (Note, error) {
 		return Note{}, ErrExists
 	case !exists && len(v.List()) >= MaxNotes:
 		return Note{}, ErrTooMany
+	default:
+		// an overwrite, or room for a new note
 	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return Note{}, err

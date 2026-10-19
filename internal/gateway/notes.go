@@ -68,6 +68,8 @@ func writeNoteError(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case errors.Is(err, notes.ErrTooBig):
 		status = http.StatusRequestEntityTooLarge
+	default:
+		// anything else is the server's fault: keep the 500
 	}
 	writeError(w, status, err.Error())
 }
@@ -188,7 +190,10 @@ func (s *Server) searchNotes(r *http.Request, v *notes.Vault, q string, limit in
 		if err == nil {
 			for _, h := range hits {
 				if _, err := notes.Clean(h.Path); err == nil {
-					out = append(out, noteHit{Path: h.Path, Title: notes.Title(h.Path), Line: h.Line, Snippet: firstSnippetLine(h.Snippet)})
+					out = append(out, noteHit{
+						Path: h.Path, Title: notes.Title(h.Path), Line: h.Line,
+						Snippet: firstSnippetLine(h.Snippet),
+					})
 				}
 			}
 			return out

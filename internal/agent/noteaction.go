@@ -31,6 +31,8 @@ func (a *Agent) noteReply(kind, command string) string {
 		return truncateMiddle(a.notes.SearchText(command), indexOutputChars)
 	case "note_read":
 		return truncateMiddle(a.notes.ReadText(command), indexOutputChars)
+	default:
+		// note_write and note_append carry a body: handled below
 	}
 	ref, body, ok := strings.Cut(command, "::")
 	if !ok {

@@ -21,7 +21,10 @@ func TestCleanAcceptsNotePathsOnly(t *testing.T) {
 			t.Errorf("Clean(%q) = %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "a.txt", "../a.md", "a/../b.md", "/a.md", ".h/a.md", "a//b.md", "./a.md", "a\x00.md", strings.Repeat("x", 300) + ".md"} {
+	for _, bad := range []string{
+		"", "a.txt", "../a.md", "a/../b.md", "/a.md", ".h/a.md", "a//b.md", "./a.md", "a\x00.md",
+		strings.Repeat("x", 300) + ".md",
+	} {
 		if _, err := Clean(bad); !errors.Is(err, ErrBadPath) {
 			t.Errorf("Clean(%q) = %v, want ErrBadPath", bad, err)
 		}
