@@ -8,6 +8,7 @@ import { useSessionList } from "./useSessionList";
 import { useChatScroll } from "./useChatScroll";
 import { useModelSwitcher } from "./useModelSwitcher";
 import { useSkills } from "./useSkills";
+import { useReviewNotes } from "./useReviewNotes";
 import { useNotes } from "./useNotes";
 import { useProjects } from "./useProjects";
 import { useArtifacts } from "./useArtifacts";
@@ -163,6 +164,11 @@ export function useAppStore(api: Api) {
     send: sendHeard,
     setToast,
   });
+  const reviewNotes = useReviewNotes(
+    actions.createSession,
+    notes.closeNotes,
+    stream.submit,
+  );
   const language = useLanguage(api, auth.authState, setToast);
   const menus = useRowMenus();
   const [showSettings, setShowSettings] = useState(false);
@@ -184,6 +190,7 @@ export function useAppStore(api: Api) {
     projectHint,
     artifacts,
     notes,
+    reviewNotes,
     schedules,
     conv,
     actions,

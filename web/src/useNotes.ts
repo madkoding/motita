@@ -140,14 +140,17 @@ export function useNotes(api: Api, setState: SetStatus) {
     void loadList().then(fillIfNew);
   }, [loadList, fillIfNew]);
 
+  // closeNotes says whether the window closed: it stays when the open note could not be saved.
   const closeNotes = useCallback(async () => {
-    if (await save()) {
-      setShowNotes(false);
-      setCurrent(null);
-      setGraph(null);
-      setQuery("");
-      setHits([]);
+    if (!(await save())) {
+      return false;
     }
+    setShowNotes(false);
+    setCurrent(null);
+    setGraph(null);
+    setQuery("");
+    setHits([]);
+    return true;
   }, [save]);
 
   // openGraph shows the notes as a graph of their links.
