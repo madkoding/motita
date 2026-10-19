@@ -102,9 +102,11 @@ func (f *projectFacts) visit(dir, p string, d fs.DirEntry) error {
 	}
 	f.files++
 	rel := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(p, dir), string(filepath.Separator)))
-	if top, _, nested := strings.Cut(rel, "/"); nested {
+	top, _, nested := strings.Cut(rel, "/")
+	if nested {
 		f.topDirs[top]++
-	} else if archBuildFiles[name] {
+	}
+	if !nested && archBuildFiles[name] {
 		f.build = append(f.build, name)
 	}
 	if lang, ok := archLanguages[strings.ToLower(filepath.Ext(name))]; ok {

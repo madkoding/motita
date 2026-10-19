@@ -26,10 +26,12 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 }
 
 var archTree = map[string]string{
-	"go.mod":                     "module example.com/app\n\ngo 1.22\n",
-	"Makefile":                   "all:\n",
-	"cmd/app/main.go":            "package main\n\nimport \"example.com/app/internal/core\"\n\nfunc main() { core.Run() }\n",
-	"internal/core/core.go":      "// Package core runs the app. More text.\npackage core\n\nimport (\n\t\"fmt\"\n\t\"example.com/app/internal/store\"\n)\n\nfunc Run() { fmt.Println(store.X) }\n",
+	"go.mod":   "module example.com/app\n\ngo 1.22\n",
+	"Makefile": "all:\n",
+	"cmd/app/main.go": "package main\n\nimport \"example.com/app/internal/core\"\n\n" +
+		"func main() { core.Run() }\n",
+	"internal/core/core.go": "// Package core runs the app. More text.\npackage core\n\n" +
+		"import (\n\t\"fmt\"\n\t\"example.com/app/internal/store\"\n)\n\nfunc Run() { fmt.Println(store.X) }\n",
 	"internal/core/core2.go":     "package core\n\nimport \"example.com/app/internal/store\"\n\nvar _ = store.X\n",
 	"internal/core/core_test.go": "package core\n",
 	"internal/store/store.go":    "package store\n\nvar X = 1\n",
@@ -58,7 +60,8 @@ func TestWalkProjectReadsTheStructure(t *testing.T) {
 	text := f.text()
 	for _, want := range []string{
 		"Files read:", "Languages (files): Go 6", "`Makefile`", "Go module: `example.com/app`", "Node package: `web-app`",
-		"| `internal/` |", "### Entry points\n- `cmd/app`", "| `internal/core` | Package core runs the app. More text. | internal/store |",
+		"| `internal/` |", "### Entry points\n- `cmd/app`",
+		"| `internal/core` | Package core runs the app. More text. | internal/store |",
 		"```mermaid", "p0 --> p1", "p1 --> p2", "Scripts: `build`, `test`", "Main dependencies: `preact`",
 	} {
 		if !strings.Contains(text, want) {
@@ -111,7 +114,10 @@ func TestWalkProjectStopsAtTheFileCap(t *testing.T) {
 }
 
 func TestFactsAreCappedAndSafe(t *testing.T) {
-	f := projectFacts{topDirs: map[string]int{}, langs: map[string]int{}, node: nodeFacts{Name: "n", Deps: map[string]string{}}}
+	f := projectFacts{
+		topDirs: map[string]int{}, langs: map[string]int{},
+		node: nodeFacts{Name: "n", Deps: map[string]string{}},
+	}
 	for i := 0; i < archMaxDirs+3; i++ {
 		f.topDirs[strings.Repeat("d", i+1)+"|[[x]]"] = i
 	}
@@ -119,7 +125,8 @@ func TestFactsAreCappedAndSafe(t *testing.T) {
 		f.node.Deps[strings.Repeat("p", i+1)] = "1"
 	}
 	for i := 0; i < archMaxPackages+3; i++ {
-		f.pkgs = append(f.pkgs, goPackage{dir: strings.Repeat("a", i+1), name: "a", imports: []string{"a", strings.Repeat("a", i+2)}})
+		imports := []string{"a", strings.Repeat("a", i+2)}
+		f.pkgs = append(f.pkgs, goPackage{dir: strings.Repeat("a", i+1), name: "a", imports: imports})
 	}
 	text := f.text()
 	if strings.Contains(text, "[[") || strings.Count(text, "| `d") != archMaxDirs {
@@ -178,7 +185,8 @@ func TestScanMapsAProjectAndLinksIt(t *testing.T) {
 	if strings.Contains(arch, "How it fits together") {
 		t.Errorf("the model is off, so nothing is explained:\n%s", arch)
 	}
-	if project := readNote(t, dir, "Projects/App.md"); !strings.Contains(project, "- Architecture: [[Projects/App - Architecture]]") {
+	project := readNote(t, dir, "Projects/App.md")
+	if !strings.Contains(project, "- Architecture: [[Projects/App - Architecture]]") {
 		t.Errorf("the project note does not link its architecture:\n%s", project)
 	}
 	if again := scanWith(t, srv, ""); again.Unchanged != 2 || again.Created != 0 {
@@ -198,7 +206,9 @@ func TestScanExplainsAProjectOnlyWhenAskedAndKeepsIt(t *testing.T) {
 	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 1 || svc.calls != 1 {
 		t.Fatalf("explained: %+v, %d calls", got, svc.calls)
 	}
-	if !strings.Contains(svc.asked, "### Go packages") || !strings.Contains(svc.asked, "README") || strings.Contains(svc.asked, "sk-abcdefghij") {
+	asked := svc.asked
+	if !strings.Contains(asked, "### Go packages") || !strings.Contains(asked, "README") ||
+		strings.Contains(asked, "sk-abcdefghij") {
 		t.Errorf("the model was asked:\n%s", svc.asked)
 	}
 	body := readNote(t, dir, "Projects/App - Architecture.md")
@@ -214,9 +224,7 @@ func TestScanExplainsAProjectOnlyWhenAskedAndKeepsIt(t *testing.T) {
 	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 0 || svc.calls != 1 {
 		t.Errorf("the explanation is kept: %+v, %d calls", got, svc.calls)
 	}
-	if err := os.WriteFile(filepath.Join(filepath.Dir(dir), "app", "internal", "new", "n.go"), []byte("package n"), 0o644); err != nil {
-		writeTree(t, filepath.Join(filepath.Dir(dir), "app"), map[string]string{"internal/new/n.go": "package n"})
-	}
+	writeTree(t, filepath.Join(filepath.Dir(dir), "app"), map[string]string{"internal/new/n.go": "package n"})
 	if got := scanWith(t, srv, "?summarize=1"); got.Explained != 1 || svc.calls != 2 {
 		t.Errorf("a changed project is explained again: %+v, %d calls", got, svc.calls)
 	}
@@ -253,7 +261,8 @@ func TestScanExplanationRespectsTheCap(t *testing.T) {
 
 func TestScanSkipsAnEmptyProjectFolderAndAFailingArchitectureNote(t *testing.T) {
 	srv, dir, ws := scanServer(t, []agent.DialogueTurn{})
-	if err := srv.projects.save(Project{ID: "p1aaaaaaaaaa", Title: "Empty", Dir: filepath.Join(ws, "nothing"), Created: time.Now()}); err != nil {
+	empty := Project{ID: "p1aaaaaaaaaa", Title: "Empty", Dir: filepath.Join(ws, "nothing"), Created: time.Now()}
+	if err := srv.projects.save(empty); err != nil {
 		t.Fatal(err)
 	}
 	if got := scanWith(t, srv, ""); got.Mapped != 0 || got.Created != 1 {
