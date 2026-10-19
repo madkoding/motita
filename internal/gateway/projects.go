@@ -967,15 +967,18 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusNotImplemented, err
 	}
 	dir := p.Dir
-	if wt, wtErr := s.sessionWorktree(ctx, p.Dir, newConv.id); wtErr != nil {
-		if s.opts.Log != nil {
-			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
-				"id", newConv.id, "project", p.Dir, "error", wtErr.Error())
+	if !gitx.SamePath(c.workspace, c.projectDir) {
+		// An isolated session continues isolated.
+		if wt, wtErr := s.sessionWorktree(ctx, p.Dir, newConv.id); wtErr != nil {
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
+					"id", newConv.id, "project", p.Dir, "error", wtErr.Error())
+			}
+		} else {
+			dir = wt
 		}
-	} else {
-		dir = wt
+		s.attachProjectRepos(ctx, p, dir, newConv.id)
 	}
-	s.attachProjectRepos(ctx, p, dir, newConv.id)
 	newConv.setProjectID(c.projectID, dir, p.Dir)
 	newConv.svc.SetWorkspace(dir)
 	// The title says where it came from, but only if the old session had a real one.

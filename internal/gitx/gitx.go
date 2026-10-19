@@ -888,3 +888,29 @@ func DeleteBranch(ctx context.Context, dir, branch string) error {
 	_, err := noGitOr(ctx, "the branch was not deleted", dir, "branch", "-d", branch)
 	return err
 }
+
+// SwitchNew creates branch at the checkout's HEAD and switches to it, carrying uncommitted work
+// along. A branch that already exists is switched to as it is.
+func SwitchNew(ctx context.Context, dir, branch string) error {
+	if BranchExists(ctx, dir, branch) {
+		return Checkout(ctx, dir, branch)
+	}
+	_, err := noGitOr(ctx, "could not create the branch "+branch, dir, "switch", "-c", branch)
+	return err
+}
+
+// DefaultBranch is the branch the repository's work is proposed into: the one origin's HEAD points
+// at, else main or master, whichever exists. "" when none can be named.
+func DefaultBranch(ctx context.Context, dir string) string {
+	if out, err := execute(ctx, dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if name := strings.TrimPrefix(out, "origin/"); name != "" {
+			return name
+		}
+	}
+	for _, candidate := range []string{"main", "master"} {
+		if BranchExists(ctx, dir, candidate) {
+			return candidate
+		}
+	}
+	return ""
+}

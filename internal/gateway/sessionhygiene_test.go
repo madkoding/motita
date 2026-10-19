@@ -21,7 +21,7 @@ func TestOpeningASessionLeavesTheUsersRepositoryAlone(t *testing.T) {
 	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
 		t.Fatalf("adding it: %d %+v", code, p)
 	}
-	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	srv.mainRefresh.wait()
 	if after := snapshotOf(t, local); after != before {
 		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)

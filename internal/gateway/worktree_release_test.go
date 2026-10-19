@@ -79,7 +79,7 @@ func newSessionInProject(t *testing.T) (*Server, string, string) {
 		t.Fatal(err)
 	}
 
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+proj.ID+`"}`, testToken)
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+proj.ID+`","isolate":true}`, testToken)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("creating the session answered %d: %s", created.Code, created.Body.String())
 	}

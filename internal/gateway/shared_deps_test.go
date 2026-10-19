@@ -43,7 +43,7 @@ func TestAFreshSessionCanRunTheProjectsGate(t *testing.T) {
 	}
 
 	// A NEW session, created after the dependencies exist.
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+projectIDOf(t, srv)+`"}`, testToken)
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+projectIDOf(t, srv)+`","isolate":true}`, testToken)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", created.Code, created.Body.String())
 	}
@@ -70,7 +70,7 @@ func TestTheSharedDependenciesAreALinkNotACopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+projectIDOf(t, srv)+`"}`, testToken)
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+projectIDOf(t, srv)+`","isolate":true}`, testToken)
 	var conv SessionStatus
 	if err := json.Unmarshal(created.Body.Bytes(), &conv); err != nil {
 		t.Fatal(err)

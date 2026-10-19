@@ -308,7 +308,7 @@ func (s *Server) followOpenedPR(c *conversation) {
 	if c.isMerged() || c.isClosing() || c.projectID == "" || c.prWatchView() != nil {
 		return
 	}
-	t, perr := s.prTargetOf(s.baseCtx, c)
+	t, perr := s.prTargetOf(s.baseCtx, c, "")
 	if perr != nil {
 		return
 	}
@@ -329,7 +329,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 		return true
 	}
 	ctx := s.baseCtx
-	t, perr := s.prTargetOf(ctx, c)
+	t, perr := s.prTargetOf(ctx, c, "")
 	if perr != nil {
 		return s.prFailed(c, w)
 	}
@@ -519,7 +519,7 @@ func (s *Server) sendToAgent(c *conversation, task string) (started bool, positi
 // the agent never merges.
 func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c)
+	t, perr := s.prTargetOf(r.Context(), c, "")
 	if perr != nil {
 		s.writePRError(w, perr)
 		return

@@ -39,7 +39,7 @@ func (s *Server) handleMoveSessionToProject(w http.ResponseWriter, r *http.Reque
 	s.refreshMainInBackground(p)
 	s.awaitMainRefresh(p)
 	s.releaseFreeSessionDir(c)
-	s.placeInProject(c, p.ID, p)
+	s.placeInProject(c, p.ID, p, false)
 	s.saveSession(c)
 	writeJSON(w, http.StatusOK, c.status())
 }

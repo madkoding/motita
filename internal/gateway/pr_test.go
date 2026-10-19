@@ -645,7 +645,7 @@ func TestTheBaseBranchCIIsAskedOncePerMinute(t *testing.T) {
 	srv, host, ss := prSession(t, "https://github.com/o/r.git")
 	connectGitHub(t, srv)
 	c := srv.sessions[ss.ID]
-	tg, perr := srv.prTargetOf(context.Background(), c)
+	tg, perr := srv.prTargetOf(context.Background(), c, "")
 	if perr != nil {
 		t.Fatal(perr)
 	}

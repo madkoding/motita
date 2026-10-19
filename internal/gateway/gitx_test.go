@@ -217,7 +217,7 @@ func TestSessionReportsItsBranch(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 
 	// Create a session that belongs to the project.
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -309,7 +309,7 @@ func TestMergeSessionIntegratesTheBranch(t *testing.T) {
 	p := srv.projectOf(pid)
 
 	// Create a session and make a commit on its branch.
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -352,7 +352,7 @@ func TestMergeSessionOnAConflictRollsBack(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 	p := srv.projectOf(pid)
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}

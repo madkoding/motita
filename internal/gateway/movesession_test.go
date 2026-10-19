@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -11,8 +10,8 @@ import (
 	"github.com/madkoding/motita/internal/gitx"
 )
 
-// TestMovingAFreeSessionIntoAProject: the conversation stays and now runs in its own worktree of
-// the project; the empty directory it had is released, and a second move is refused.
+// TestMovingAFreeSessionIntoAProject: the conversation stays and now runs in the project's folder;
+// the empty directory it had is released, and a second move is refused.
 func TestMovingAFreeSessionIntoAProject(t *testing.T) {
 	srv, _, inProject := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
@@ -30,8 +29,8 @@ func TestMovingAFreeSessionIntoAProject(t *testing.T) {
 	if st.ID != free || st.ProjectID != id {
 		t.Fatalf("the session must stay itself and join the project: %+v", st)
 	}
-	if got := gitx.Display(context.Background(), st.Workspace); got != sessionBranch(free) {
-		t.Errorf("the moved session works on %q, want its own branch", got)
+	if want := srv.projectOf(id).Dir; !gitx.SamePath(st.Workspace, want) {
+		t.Errorf("the moved session works in %q, want the project's folder %q", st.Workspace, want)
 	}
 	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
 		t.Errorf("the empty directory it left must be released: %v", err)

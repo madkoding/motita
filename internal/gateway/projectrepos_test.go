@@ -113,7 +113,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`","name":"web-client"}`); code != http.StatusConflict {
 		t.Errorf("a second repository of the same name: %d", code)
 	}
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	var second SessionStatus
 	_ = json.Unmarshal(created.Body.Bytes(), &second)
 	if _, ok, _ := gitx.LiveWorktreeAt(context.Background(), clone,
