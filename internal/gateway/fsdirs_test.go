@@ -133,10 +133,11 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 		}
 	}
 	fresh := filepath.Join(t.TempDir(), "fresh")
-	if code, out := createProject(t, srv, `{"title":"New","path":"`+fresh+`"}`); code != http.StatusCreated || !isDir(fresh) {
+	code, out := createProject(t, srv, `{"title":"New","path":"`+fresh+`"}`)
+	if code != http.StatusCreated || !isDir(fresh) {
 		t.Fatalf("a folder that does not exist is created: %d %v", code, out)
 	}
-	code, out := createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
+	code, out = createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
 	real, _ := filepath.EvalSymlinks(outside)
 	if code != http.StatusCreated || out["dir"] != real {
 		t.Fatalf("create: %d %v", code, out)
