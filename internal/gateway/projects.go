@@ -687,7 +687,8 @@ func mainBranchOf(ctx context.Context, p *Project) string {
 }
 
 // returnToMain puts a project's checkout back on its main branch when the project has no
-// sessions left (never in a folder of the user's own outside the workspace). It is deliberately timid: a checkout with uncommitted changes is left alone
+// sessions left (never in a folder of the user's own outside the workspace). It is deliberately
+// timid: a checkout with uncommitted changes is left alone
 // (switching would either fail or carry the work to another branch), and so is a project that
 // still has a session, whose branch the user may be looking at. A failure is logged, not
 // reported: the caller's own work (deleting a session, saving the project) already succeeded.
