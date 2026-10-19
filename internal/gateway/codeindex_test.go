@@ -229,7 +229,8 @@ func TestANewProjectIsNotIndexedWhenTheIndexIsOffOrUnreadable(t *testing.T) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = off })
 	dir := t.TempDir()
 	srv.indexFolder(dir)
-	if st, _ := codeindex.Inspect(context.Background(), dir, codeindex.Options{CacheDir: cache}); st.State != codeindex.StateNone {
+	st, _ := codeindex.Inspect(context.Background(), dir, codeindex.Options{CacheDir: cache})
+	if st.State != codeindex.StateNone {
 		t.Errorf("off: state = %q", st.State)
 	}
 	broken := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm: [\n") })
