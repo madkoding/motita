@@ -8,6 +8,7 @@ import { useSessionList } from "./useSessionList";
 import { useChatScroll } from "./useChatScroll";
 import { useModelSwitcher } from "./useModelSwitcher";
 import { useSkills } from "./useSkills";
+import { useNotes } from "./useNotes";
 import { useProjects } from "./useProjects";
 import { useArtifacts } from "./useArtifacts";
 import { useSchedules } from "./useSchedules";
@@ -54,6 +55,7 @@ export function useAppStore(api: Api) {
   const projects = useProjects({ api, lists, setState, setToast });
   const projectHint = useProjectHint({ api, rs, lists, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);
+  const notes = useNotes(api, setState);
   const schedules = useSchedules(api, setToast);
   const conv = useConversation({
     api,
@@ -181,6 +183,7 @@ export function useAppStore(api: Api) {
     projects,
     projectHint,
     artifacts,
+    notes,
     schedules,
     conv,
     actions,

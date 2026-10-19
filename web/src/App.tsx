@@ -63,6 +63,7 @@ import { ProjectHintCard } from "./ProjectHintCard";
 import { ToastCard } from "./ToastCard";
 import { UpgradeModal } from "./UpgradeModal";
 import { SkillLibraryModal } from "./SkillLibraryModal";
+import { NotesModal } from "./NotesModal";
 import { ArtifactsModal } from "./ArtifactsModal";
 import { ScheduledTasksModal } from "./ScheduledTasksModal";
 import { useVisualViewport } from "./viewport";
@@ -717,12 +718,13 @@ function DialogModals() {
 
 // LibraryModals are the skill library, the image preview, the artifacts and the scheduled tasks.
 function LibraryModals() {
-  const { skills, artifacts, schedules } = useApp();
+  const { skills, artifacts, schedules, notes } = useApp();
   return (
     <>
       {skills.showSkillLibrary && <SkillLibraryModal />}
       <ImagePreview />
       {artifacts.showArtifacts && <ArtifactsModal />}
+      {notes.showNotes && <NotesModal />}
       {schedules.showScheduledTasks && <ScheduledTasksModal />}
     </>
   );

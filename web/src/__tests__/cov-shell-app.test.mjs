@@ -64,6 +64,7 @@ component("./ProjectHintCard", ["ProjectHintCard"]);
 component("./UpgradeModal", ["UpgradeModal"]);
 component("./SkillLibraryModal", ["SkillLibraryModal"]);
 component("./ArtifactsModal", ["ArtifactsModal"]);
+component("./NotesModal", ["NotesModal"]);
 component("./ScheduledTasksModal", ["ScheduledTasksModal"]);
 component("./Lightbox", ["Lightbox"]);
 component("./Report", ["ReportCard"]);
@@ -198,6 +199,7 @@ function makeStore(log) {
       artifactBase: () => "/v1/sessions/s1/artifacts",
       showRunArtifact: fn("showRunArtifact"),
     },
+    notes: { showNotes: false },
     schedules: { showScheduledTasks: false },
     actions: { creatingSession: null, createSession: fn("createSession") },
     deletion: { confirmDelete: null },
@@ -703,6 +705,7 @@ test("the dialogs, the toast and the libraries open from the store", async () =>
     s.status.toast = { message: "Saved", type: "success" };
     s.skills.showSkillLibrary = true;
     s.artifacts.showArtifacts = true;
+    s.notes.showNotes = true;
     s.schedules.showScheduledTasks = true;
   });
   const { root } = ctl;
@@ -711,6 +714,7 @@ test("the dialogs, the toast and the libraries open from the store", async () =>
     "UpgradeModal",
     "SkillLibraryModal",
     "ArtifactsModal",
+    "NotesModal",
     "ScheduledTasksModal",
   ]) {
     assert.ok(stubEl(root, name), `${name} is open`);
