@@ -789,11 +789,9 @@ func ProbeClaudeQuota(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// One frame, so nothing waits on claude; a claude that died shows up as the end of its output.
 	_, frames, _ := claudeFrames([]Message{{Role: "user", Content: "ok"}})
-	if err := p.replay(frames); err != nil {
-		p.stop()
-		return err
-	}
+	_ = p.replay(frames)
 	if !p.drain(claudeProbeTimeout) {
 		return errors.New("claude stated no subscription limits")
 	}
