@@ -13,7 +13,10 @@ import (
 type modelsService struct {
 	refreshingService
 	models []config.Models
+	think  []config.Thinking
 }
+
+func (m *modelsService) SetTaskThinking(t config.Thinking) { m.think = append(m.think, t) }
 
 func (m *modelsService) SetTaskModels(ms config.Models) { m.models = append(m.models, ms) }
 
@@ -122,5 +125,63 @@ func TestLLMTasksNeedAFile(t *testing.T) {
 	}
 	if w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks", `{"tasks":{}}`); w.Code != http.StatusConflict {
 		t.Errorf("no file to save in: %d", w.Code)
+	}
+}
+
+func TestLLMThinkingLevelsAreSavedAndReachEverySession(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	srv, svc := modelsServer(t, path)
+	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
+	if len(v.Levels) != 4 || len(v.Thinking) != 0 {
+		t.Fatalf("no kind has a level yet: %+v %+v", v.Levels, v.Thinking)
+	}
+	w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks",
+		`{"tasks":{},"thinking":{"plan":"high","summary":"off","code":""}}`)
+	v = decodeLLM(t, w)
+	if w.Code != http.StatusOK || v.Thinking["plan"] != "high" || v.Thinking["summary"] != "off" {
+		t.Fatalf("save: %d %+v", w.Code, v.Thinking)
+	}
+	if _, ok := v.Thinking["code"]; ok {
+		t.Errorf("an empty kind follows the session: %+v", v.Thinking)
+	}
+	if len(svc.think) != 1 || svc.think[0].Plan != "high" {
+		t.Errorf("the open session takes the new set: %+v", svc.think)
+	}
+	// A body without "thinking" leaves the levels alone.
+	if w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks", `{"tasks":{}}`); w.Code != http.StatusOK ||
+		decodeLLM(t, w).Thinking["plan"] != "high" {
+		t.Errorf("levels kept: %d %s", w.Code, w.Body.String())
+	}
+	w = llmCall(t, srv, http.MethodPost, "/v1/sessions", `{}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	conv := srv.sessions[created.ID]
+	if conv == nil {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	if got := conv.svc.(*modelsService).think; len(got) != 1 || got[0].Plan != "high" {
+		t.Errorf("a new session starts with the set: %+v", got)
+	}
+}
+
+func TestLLMThinkingRefusals(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	srv, _ := modelsServer(t, path)
+	for _, body := range []string{
+		`{"thinking":{"narrate":"low"}}`,
+		`{"thinking":{"plan":"max"}}`,
+	} {
+		if w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks", body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", body, w.Code)
+		}
+	}
+	old := setTaskThink
+	setTaskThink = func(string, map[string]string) error { return errors.New("disk full") }
+	w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks", `{"tasks":{},"thinking":{}}`)
+	setTaskThink = old
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("a failed write: %d %s", w.Code, w.Body.String())
 	}
 }

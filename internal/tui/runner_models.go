@@ -34,6 +34,15 @@ func (r *AppRunner) SetTaskModels(m config.Models) {
 	r.taskEngines = nil
 }
 
+// SetTaskThinking replaces the thinking block this session runs with. The engines built from the
+// old one are dropped, as with the models block.
+func (r *AppRunner) SetTaskThinking(t config.Thinking) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	r.Cfg.Thinking = t
+	r.taskEngines = nil
+}
+
 // endpointOf is the base URL and key a provider runs with in this session: the ones it was last
 // used with, else the endpoint saved from the settings (or its default) and the key its own
 // variable holds. Called with cfgMu held.
@@ -67,14 +76,22 @@ func (r *AppRunner) endpointOf(provider string) llmEndpoint {
 func (r *AppRunner) engineFor(kind string) (config.Config, *llm.Client, error) {
 	r.cfgMu.Lock()
 	choice := r.Cfg.Models.For(kind)
-	if choice.Empty() || (strings.EqualFold(choice.Provider, r.Cfg.LLM.Provider) && choice.Model == r.Cfg.LLM.Model) {
+	level := r.Cfg.Thinking.For(kind)
+	ownModel := !choice.Empty() &&
+		!(strings.EqualFold(choice.Provider, r.Cfg.LLM.Provider) && choice.Model == r.Cfg.LLM.Model)
+	if !ownModel && level == "" {
 		r.cfgMu.Unlock()
 		return r.engine()
 	}
 	cfg := r.Cfg
-	ep := r.endpointOf(choice.Provider)
-	cfg.LLM.Provider, cfg.LLM.Model = choice.Provider, choice.Model
-	cfg.LLM.BaseURL, cfg.LLM.APIKey = ep.baseURL, ep.apiKey
+	if ownModel {
+		ep := r.endpointOf(choice.Provider)
+		cfg.LLM.Provider, cfg.LLM.Model = choice.Provider, choice.Model
+		cfg.LLM.BaseURL, cfg.LLM.APIKey = ep.baseURL, ep.apiKey
+	}
+	if level != "" {
+		cfg.LLM.Reasoning = config.Reasoning{Enabled: level != "off", Level: level}
+	}
 	if e := r.taskEngines[kind]; e != nil {
 		r.cfgMu.Unlock()
 		return cfg, e, nil
@@ -165,7 +182,7 @@ func (r *AppRunner) classifyPiece(ctx context.Context, purpose, brief string) st
 // assigned and can run, else the turn's own engine.
 func (r *AppRunner) summaryEngine(turn *llm.Client) *llm.Client {
 	r.cfgMu.Lock()
-	assigned := !r.Cfg.Models.For(config.TaskSummary).Empty()
+	assigned := !r.Cfg.Models.For(config.TaskSummary).Empty() || r.Cfg.Thinking.For(config.TaskSummary) != ""
 	r.cfgMu.Unlock()
 	if !assigned {
 		return turn

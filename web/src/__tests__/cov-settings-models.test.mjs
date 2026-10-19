@@ -57,6 +57,8 @@ const VIEW = {
   providers: Object.values(P),
   task_kinds: ["plan", "code", "review", "research", "summary", "triage"],
   tasks: { code: { provider: "openai", model: "gpt-x" } },
+  thinking: { summary: "off" },
+  thinking_levels: ["off", "low", "medium", "high"],
 };
 
 async function mount(vnode) {
@@ -539,7 +541,7 @@ test("each kind of work can follow the default or get its own model", async () =
   );
   assert.match(
     text(row("plan")),
-    /^PlanningPlan mode: explores and proposes, changes nothing\.Same as default/,
+    /^PlanningPlan mode: explores and proposes, changes nothing\.Same as default.*Thinking: same as session/,
   );
   // A kind the page does not know shows under the gateway's name, with no hint.
   assert.equal(text(row("triage").querySelector("label")), "triage");
@@ -575,6 +577,24 @@ test("each kind of work can follow the default or get its own model", async () =
   await select(form.querySelector("#llm-task-review-provider"), "");
   assert.equal(form.querySelector("#llm-task-review-model"), null);
 
+  // Each kind has a thinking level of its own, or follows the session's.
+  const think = form.querySelector("#llm-task-plan-thinking");
+  assert.equal(think.value, "");
+  assert.equal(think.getAttribute("aria-label"), "Thinking for Planning");
+  assert.deepEqual(
+    [...think.querySelectorAll("option")].map((o) => text(o)),
+    [
+      "Thinking: same as session",
+      "Thinking: off",
+      "Thinking: low",
+      "Thinking: medium",
+      "Thinking: high",
+    ],
+  );
+  assert.equal(form.querySelector("#llm-task-summary-thinking").value, "off");
+  await select(think, "high");
+  await select(form.querySelector("#llm-task-summary-thinking"), "");
+
   await press(btn(form, "Save"));
   assert.equal(btn(form, "Saving…").disabled, true);
   assert.deepEqual(f.calls.at(-1).body, {
@@ -582,6 +602,7 @@ test("each kind of work can follow the default or get its own model", async () =
       code: { provider: "openai", model: "gpt-x" },
       plan: { provider: "openai", model: "gpt-live" },
     },
+    thinking: { plan: "high", summary: "" },
   });
   saving(
     json(200, {
@@ -590,6 +611,7 @@ test("each kind of work can follow the default or get its own model", async () =
         code: { provider: "openai", model: "gpt-x" },
         plan: { provider: "openai", model: "gpt-live" },
       },
+      thinking: { plan: "high" },
     }),
   );
   await settle();
