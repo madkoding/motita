@@ -859,6 +859,18 @@ const more: Record<string, string> = {
   "Graph of linked notes": "Grafo de notas enlazadas",
   "{notes} notes · {links} links · {missing} to notes not written yet":
     "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
+  Repositories: "Repositorios",
+  "New repository": "Nuevo repositorio",
+  "No repositories": "Sin repositorios",
+  "New session in repository": "Nueva sesión en el repositorio",
+  "Delete repository": "Eliminar repositorio",
+  "Add repository": "Agregar repositorio",
+  local: "local",
+  "or a folder on this machine": "o una carpeta de este equipo",
+  "Could not add the repository": "No se pudo agregar el repositorio",
+  "branch {branch}": "rama {branch}",
+  "The repository is cloned once. A folder is used where it is and never deleted.":
+    "El repositorio se clona una sola vez. Una carpeta se usa donde está y nunca se elimina.",
 };
 
 export default more;
