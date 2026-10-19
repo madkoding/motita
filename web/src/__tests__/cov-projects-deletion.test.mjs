@@ -53,7 +53,7 @@ function harness(api, deps = {}) {
     state.d = deletion;
     return h(
       AppCtx.Provider,
-      { value: { deletion } },
+      { value: { deletion, stream: { submit: record("submit") } } },
       deletion.confirmDelete &&
         h(ConfirmDeleteModal, { target: deletion.confirmDelete }),
     );
@@ -391,5 +391,131 @@ test("a project's long-press Rename only closes the menu", async () => {
   const m = await mount(AppCtx, s.value, h(ContextMenu));
   await click(buttonByText(m.root, "Rename"));
   assert.deepEqual(s.log, [["close"]]);
+  await m.unmount();
+});
+
+test("an open pull request is offered for merging before the session is deleted", async () => {
+  const posted = [];
+  const api = async (path, init) => {
+    if (init?.method === "POST") {
+      posted.push(path);
+      return res(200, { merged: true });
+    }
+    return res(200, {
+      count: 0,
+      changes: [],
+      pr: { number: 7, url: "u", title: "feat: x" },
+      integration: {
+        base: "main",
+        count: 1,
+        commits: [{ sha: "abc", subject: "feat: x" }],
+      },
+    });
+  };
+  const { Harness, calls, state } = harness(api);
+  const m = await mount(AppCtx, null, h(Harness));
+  await open(state, { type: "session", id: "s1", title: "t" });
+  await flush();
+  assert.match(m.root.textContent, /Pull request #7 is still open: feat: x/);
+  assert.match(m.root.textContent, /1 commit is not integrated into main/);
+  assert.match(m.root.textContent, /abc/);
+  assert.equal(buttonByText(m.root, "Integrate into main"), undefined);
+  assert.equal(confirmButton(m.root).textContent, "Ignore and delete");
+  await click(buttonByText(m.root, "Merge the pull request and delete"));
+  await flush();
+  assert.deepEqual(posted, ["/v1/sessions/s1/pr/merge"]);
+  assert.deepEqual(calls, [["deleteSession", "s1", true]]);
+  assert.equal(state.d.confirmDelete, null);
+  await m.unmount();
+});
+
+test("a pull request the host refuses to merge keeps the session and says why", async () => {
+  let refusal = () =>
+    res(409, { error: "the CI of this pull request has not passed" });
+  const api = async (path, init) => {
+    if (init?.method === "POST") {
+      return refusal();
+    }
+    return res(200, {
+      count: 0,
+      changes: [],
+      pr: { number: 7, url: "u", title: "t" },
+    });
+  };
+  const { Harness, calls, state } = harness(api);
+  const m = await mount(AppCtx, null, h(Harness));
+  await state.d.mergeAndDelete();
+  await open(state, { type: "session", id: "s1", title: "t" });
+  await flush();
+  await click(buttonByText(m.root, "Merge the pull request and delete"));
+  await flush();
+  assert.match(m.root.textContent, /CI of this pull request has not passed/);
+  assert.deepEqual(calls, []);
+  assert.equal(state.d.deleting, false);
+  assert.ok(
+    state.d.confirmDelete,
+    "the modal stays so the person can choose again",
+  );
+  refusal = () => {
+    throw "offline";
+  };
+  await click(buttonByText(m.root, "Merge the pull request and delete"));
+  await flush();
+  assert.equal(state.d.mergeError, "offline");
+  await m.unmount();
+});
+
+test("unintegrated commits are offered for integration, which keeps the session", async () => {
+  const api = async () =>
+    res(200, {
+      count: 0,
+      changes: [],
+      integration: {
+        base: "main",
+        count: 2,
+        commits: [
+          { sha: "a1", subject: "one" },
+          { sha: "b2", subject: "two" },
+        ],
+      },
+    });
+  const { Harness, calls, state } = harness(api);
+  const m = await mount(AppCtx, null, h(Harness));
+  await open(state, { type: "session", id: "s1", title: "t" });
+  await flush();
+  assert.match(m.root.textContent, /2 commits are not integrated into main/);
+  assert.equal(
+    buttonByText(m.root, "Merge the pull request and delete"),
+    undefined,
+  );
+  await click(buttonByText(m.root, "Integrate into main"));
+  await flush();
+  assert.deepEqual(calls, [["submit", "Integrate", "/v1/sessions/s1/merge"]]);
+  assert.equal(state.d.confirmDelete, null);
+  await open(state, { type: "session", id: "s1", title: "t" });
+  await flush();
+  await click(confirmButton(m.root));
+  await flush();
+  assert.deepEqual(calls[1], ["deleteSession", "s1", true]);
+  await m.unmount();
+});
+
+test("a project deletion does not offer to integrate a session's work", async () => {
+  const api = async () =>
+    res(200, {
+      count: 0,
+      sessions: [],
+      pr: { number: 7, url: "u", title: "t" },
+      integration: { base: "main", count: 1, commits: [] },
+    });
+  const { Harness, state } = harness(api);
+  const m = await mount(AppCtx, null, h(Harness));
+  await open(state, { type: "project", id: "p1", title: "P" });
+  await flush();
+  assert.doesNotMatch(m.root.textContent, /Pull request #7|not integrated/);
+  assert.equal(
+    buttonByText(m.root, "Merge the pull request and delete"),
+    undefined,
+  );
   await m.unmount();
 });

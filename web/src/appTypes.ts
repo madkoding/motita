@@ -331,6 +331,13 @@ export interface DeletionPreview {
   count: number;
   inspection_failed?: boolean;
   error?: string;
+  // Commits of the session's branch the project's branch lacks, and its pull request while open.
+  integration?: {
+    base: string;
+    count: number;
+    commits: { sha: string; subject: string }[];
+  };
+  pr?: { number: number; url: string; title: string };
 }
 
 // EditProjectDraft is what the edit-project dialog holds while it is open.

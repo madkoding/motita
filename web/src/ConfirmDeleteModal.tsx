@@ -7,9 +7,16 @@ import { ModalBackdrop } from "./ModalBackdrop";
 import { deleteWarning, previewKind } from "./appFormat";
 import { IconEdit, IconTrash } from "./icons";
 import type { ConfirmTarget, DeletionPreview, FileChange } from "./appTypes";
-import { CONTEXT_MENU_H, CONTEXT_MENU_W, NEW_SESSION_TITLE } from "./appConst";
+import {
+  CONTEXT_MENU_H,
+  CONTEXT_MENU_W,
+  NEW_SESSION_TITLE,
+  SESSIONS_PATH,
+} from "./appConst";
 
 const NOTE = "text-xs text-[#9a9aaa] mb-5";
+const ACCENT_BUTTON =
+  "flex-1 min-w-full min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed";
 const DANGER_BOX = "mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3";
 
 // discardCount says how many uncommitted changes the deletion discards.
@@ -108,6 +115,54 @@ function SessionPreview({
   );
 }
 
+// PendingWork is the work of a session that deleting it would leave unintegrated: a pull request
+// still open, or commits the project's branch does not have. The person chooses what happens to it
+// with the buttons below; this only says what it is.
+function PendingWork({ preview }: { preview: DeletionPreview | null }) {
+  const { mergeError } = useApp().deletion;
+  if (!preview?.pr && !preview?.integration) {
+    return null;
+  }
+  return (
+    <div class={DANGER_BOX}>
+      {!!preview.pr && (
+        <p class="text-xs text-[#e8e8ea] font-semibold mb-1 wrap-break-word">
+          {tf("Pull request #{n} is still open: {title}", {
+            n: preview.pr.number,
+            title: preview.pr.title,
+          })}
+        </p>
+      )}
+      {!!preview.integration && (
+        <>
+          <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
+            {plural(
+              preview.integration.count,
+              "1 commit is not integrated into {base}",
+              "{n} commits are not integrated into {base}",
+              { base: preview.integration.base },
+            )}
+          </p>
+          <ul class="space-y-1 max-h-24 overflow-y-auto">
+            {preview.integration.commits.map((c) => (
+              <li key={c.sha} class="flex gap-2 text-xs">
+                <span class="text-[#9a9aaa] font-mono flex-none">{c.sha}</span>
+                <span class="text-[#e8e8ea] break-all">{c.subject}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <p class="text-xs text-[#9a9aaa] mt-2">
+        {t(
+          "Choose what happens to this work. If you ignore it, it stays only on the session's branch.",
+        )}
+      </p>
+      {!!mergeError && <p class="text-xs text-danger mt-2">{mergeError}</p>}
+    </div>
+  );
+}
+
 // ProjectPreview is the same for a project. Its sessions each hold their own checkout, so the
 // list is grouped by session: this is what "and all its sessions" actually costs.
 function ProjectPreview({
@@ -192,7 +247,16 @@ function confirmLabel(
   }
   const discards =
     !!preview && (preview.count > 0 || !!preview.inspection_failed);
-  return t(choose(discards, "Discard and delete", "Delete"));
+  if (discards) {
+    return t("Discard and delete");
+  }
+  return t(
+    choose(
+      !!preview?.pr || !!preview?.integration,
+      "Ignore and delete",
+      "Delete",
+    ),
+  );
 }
 
 export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
@@ -202,8 +266,24 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
     previewLoading,
     deleting,
     confirmDeletion,
+    mergeAndDelete,
   } = useApp().deletion;
+  const { stream } = useApp();
   const waiting = asksPreview(target) && previewLoading;
+  // Only a session has work to integrate: the project's own deletion keeps its single question.
+  const isSession = target.type === "session";
+  const pr = choose(isSession, deletionPreview?.pr, undefined);
+  const integration = choose(
+    isSession,
+    deletionPreview?.integration,
+    undefined,
+  );
+  // The integration is a run of the agent in that session, so the session stays and the person
+  // deletes it once the run has merged its work.
+  const integrate = () => {
+    cancelDelete();
+    void stream.submit("Integrate", SESSIONS_PATH + target.id + "/merge");
+  };
   return (
     <ModalBackdrop onClose={cancelDelete}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-sm p-5 shadow-2xl">
@@ -221,11 +301,30 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
         {target.type === "session" && target.id !== "default" && (
           <SessionPreview preview={deletionPreview} loading={previewLoading} />
         )}
+        {isSession && <PendingWork preview={deletionPreview} />}
         {target.type === "project" && (
           <ProjectPreview preview={deletionPreview} loading={previewLoading} />
         )}
 
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
+          {!!pr && (
+            <button
+              class={ACCENT_BUTTON}
+              disabled={deleting}
+              onClick={mergeAndDelete}
+            >
+              {t("Merge the pull request and delete")}
+            </button>
+          )}
+          {!pr && !!integration && (
+            <button
+              class={ACCENT_BUTTON}
+              disabled={deleting}
+              onClick={integrate}
+            >
+              {tf("Integrate into {base}", { base: integration.base })}
+            </button>
+          )}
           <button
             class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
             disabled={deleting || waiting}

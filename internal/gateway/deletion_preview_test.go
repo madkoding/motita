@@ -25,6 +25,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -287,5 +288,38 @@ func TestASessionWithNothingToGiveBackIgnoresTheConfirmation(t *testing.T) {
 	rec := doDelete(t, srv, "/v1/sessions/"+conv.ID+"?force=1")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("a session with no checkout must delete, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestThePreviewNamesCommitsThatWereNeverIntegrated: committed work is not "uncommitted changes", and
+// the branch may stay behind, but the user still has to be asked what happens to it.
+func TestThePreviewNamesCommitsThatWereNeverIntegrated(t *testing.T) {
+	srv, _, id := newSessionInProject(t)
+	wt := filepath.Join(srv.opts.WorkspaceDir, "worktrees", id)
+	if _, ok := previewOf(t, srv, id)["integration"]; ok {
+		t.Fatal("a session with no commits of its own has nothing to integrate")
+	}
+	if err := os.WriteFile(filepath.Join(wt, "feature.md"), []byte("done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-m", "feat: a feature"}} {
+		cmd := exec.Command("git", append([]string{"-C", wt, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	integration, _ := previewOf(t, srv, id)["integration"].(map[string]any)
+	if integration == nil {
+		t.Fatal("the preview must report the commit the project's branch lacks")
+	}
+	if n, _ := integration["count"].(float64); n != 1 {
+		t.Errorf("count = %v, want 1", integration["count"])
+	}
+	if integration["base"] == "" {
+		t.Errorf("the preview must name the branch it would be integrated into: %v", integration)
+	}
+	commits, _ := integration["commits"].([]any)
+	if len(commits) != 1 || !strings.Contains(commits[0].(map[string]any)["subject"].(string), "a feature") {
+		t.Errorf("the commit must be named, got %v", commits)
 	}
 }

@@ -718,3 +718,28 @@ func TestPRWaitsForTheChecksTheBaseRuns(t *testing.T) {
 		t.Fatalf("a job the push does not run: %v", ci)
 	}
 }
+
+// TestThePreviewOffersTheOpenPullRequest: a session whose pull request is still open is asked about
+// before it is deleted, and a host that says nothing leaves the preview as it was.
+func TestThePreviewOffersTheOpenPullRequest(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	path := sessionPath(srv, ss.ID, "/deletion-preview")
+	if _, ok := decode(t, get(t, srv, path, testToken))["pr"]; ok {
+		t.Fatal("a host that is not connected must not break the preview or invent a pull request")
+	}
+	connectGitHub(t, srv)
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	if _, ok := decode(t, get(t, srv, path, testToken))["pr"]; ok {
+		t.Fatal("a branch with no open pull request has none to offer")
+	}
+	host.set(
+		"GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(
+			ss.ID,
+		)+`"},"base":{"ref":"main"}}]`,
+	)
+	pr, _ := decode(t, get(t, srv, path, testToken))["pr"].(map[string]any)
+	if pr["number"] != float64(7) || pr["title"] != "feat: x" {
+		t.Errorf("the open pull request must be named, got %v", pr)
+	}
+}

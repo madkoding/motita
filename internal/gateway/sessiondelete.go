@@ -69,6 +69,14 @@ func (s *Server) handleDeletionPreview(w http.ResponseWriter, r *http.Request) {
 		out["changes"] = release.Changes
 		out["count"] = len(release.Changes)
 	}
+	// Work that would not survive the deletion either: commits never integrated and a pull request still
+	// open. The dialog asks what to do with them (integrate, merge, or ignore) before anything is deleted.
+	if pend := s.pendingIntegrationOf(r.Context(), c); pend != nil {
+		out["integration"] = pend
+	}
+	if pr := s.pendingPROf(r.Context(), c); pr != nil {
+		out["pr"] = pr
+	}
 	if release.InspectErr != nil {
 		// The list could not be read. Saying so is the only honest answer: 0 would be a
 		// statement that there is nothing to lose, and it was not measured.

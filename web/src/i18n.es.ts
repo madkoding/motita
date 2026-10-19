@@ -193,6 +193,17 @@ const first: Record<string, string> = {
   Delete: "Eliminar",
   "Delete project": "Eliminar proyecto",
   "Delete session": "Eliminar sesión",
+  "Pull request #{n} is still open: {title}":
+    "El pull request #{n} sigue abierto: {title}",
+  "1 commit is not integrated into {base}":
+    "1 commit no está integrado en {base}",
+  "{n} commits are not integrated into {base}":
+    "{n} commits no están integrados en {base}",
+  "Choose what happens to this work. If you ignore it, it stays only on the session's branch.":
+    "Elige qué pasa con este trabajo. Si lo ignoras, queda solo en la rama de la sesión.",
+  "Merge the pull request and delete": "Mergear el pull request y eliminar",
+  "Integrate into {base}": "Integrar en {base}",
+  "Ignore and delete": "Ignorar y eliminar",
   "Delete skill": "Eliminar skill",
   "Deleting…": "Eliminando…",
   "Description (optional)": "Descripción (opcional)",

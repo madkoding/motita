@@ -2,7 +2,7 @@
 // deletion itself once the person confirms.
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { choose } from "./choose";
-import type { Api } from "./prApi";
+import { mergePR, type Api } from "./prApi";
 import type { ConfirmTarget, DeletionPreview } from "./appTypes";
 import { PROJECTS_PATH, SESSIONS_PATH } from "./appConst";
 
@@ -63,6 +63,8 @@ export function useDeletion({
   // Locking the button and showing that something is happening is the honest
   // report of a request in flight.
   const [deleting, setDeleting] = useState(false);
+  // Why the pull request could not be merged before the deletion; the session is then kept.
+  const [mergeError, setMergeError] = useState("");
 
   // The deletion preview is fetched when the modal OPENS, so the dialog can say what
   // will be lost before anything is decided.
@@ -77,6 +79,7 @@ export function useDeletion({
       // Reset with the modal: a fresh confirmation must start unlocked, whatever
       // the previous one left behind.
       setDeleting(false);
+      setMergeError("");
       return undefined;
     }
     // Both kinds ask the same question of their own endpoint: a session names its own
@@ -145,6 +148,25 @@ export function useDeletion({
     }
   };
 
+  // mergeAndDelete merges the session's open pull request and then deletes the session. A merge the
+  // host refuses (CI not passed, a conflict) keeps the session and says why: nothing is deleted
+  // until the pull request is.
+  const mergeAndDelete = async () => {
+    if (!confirmDelete) {
+      return;
+    }
+    setDeleting(true);
+    setMergeError("");
+    try {
+      await mergePR(api, confirmDelete.id);
+    } catch (e) {
+      setMergeError(e instanceof Error ? e.message : String(e));
+      setDeleting(false);
+      return;
+    }
+    await confirmDeletion();
+  };
+
   const cancelDelete = useCallback(() => setConfirmDelete(null), []);
 
   return {
@@ -155,6 +177,8 @@ export function useDeletion({
     previewLoading,
     deleting,
     confirmDeletion,
+    mergeAndDelete,
+    mergeError,
   };
 }
 
