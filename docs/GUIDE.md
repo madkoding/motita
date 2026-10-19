@@ -644,12 +644,16 @@ the same folder opens in Obsidian and what you change there is what motita shows
   project's folder (no symlinks, no hidden or build folders, at most 4000 files): languages, build
   files, the folders, the entry points and, for Go, every package with its doc line and the packages
   of the module it imports, drawn as a Mermaid diagram; for Node, the scripts and main dependencies.
-  Each project also gets a **manual**: `Projects/<name> manual/`, one note per folder, recursively
-  (up to 400), with `_index` as its table of contents. A folder's note lists its subfolders and its
-  files (lines, language and the comment that says what each one is), the Go package doc and every
-  exported type with its methods, function, constant and variable with their doc comments, the
-  exports of TypeScript, JavaScript and Python files, and which folders it uses and which use it,
-  all as links between the notes. The text goes through the secret redactor. Everything is kept inside a
+  Each project also gets a **manual** written as a guide: `Projects/<name> - Manual/Start here`
+  says what the project is and how it is organised, with a line on what each folder is for, and every
+  folder (recursively, up to 400) has a chapter named by its path, such as `internal › gateway`. A
+  chapter reads top to bottom: what the folder is for (the model's explanation, or the package doc
+  or README), what is inside (its subfolders and files, each with the comment that says what it is),
+  how it connects (which folders it relies on and which use it) and, last, "For developers": every
+  exported Go type with its methods, function, constant and variable, and the exports of TypeScript,
+  JavaScript and Python files, with their doc comments. Chapters of folders that are gone are removed
+  when nothing but the scan wrote in them. The text goes through the secret redactor. Everything is
+  kept inside a
   `<!-- motita:scan:start -->` block that a new scan rewrites; what you write around it stays.
   The first time the Notes window opens on a vault that has no notes and was never scanned, the
   scan runs by itself. With **Use the model to summarise sessions and explain projects** on (off by default),

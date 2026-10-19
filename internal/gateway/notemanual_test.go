@@ -13,7 +13,7 @@ import (
 
 var manualTree = map[string]string{
 	"go.mod":    "module example.com/m\n",
-	"README.md": "# The project\n",
+	"README.md": "# The project\n\nThe project, in short.\n",
 	"run.sh":    "#!/bin/sh\n# Runs it.\necho hi\n",
 	"lib/api/api.go": `// Package api is the public face.
 //
@@ -113,16 +113,19 @@ func TestBuildManualReadsEveryFolder(t *testing.T) {
 	}
 }
 
-// writtenManual writes the manual of manualTree and answers a reader of its notes.
-func writtenManual(t *testing.T) (func(rel string) string, string, noteScan) {
+// manualDir is where the manual of project M is written in a vault at dir.
+func manualDir(dir string) string { return filepath.Join(dir, "Projects", "M - Manual") }
+
+// writtenManual writes the manual of manualTree and answers a reader of its chapters.
+func writtenManual(t *testing.T) (func(name string) string, string, noteScan) {
 	t.Helper()
 	dir := t.TempDir()
 	v := notes.Open(dir)
 	var res noteScan
 	link := writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md",
 		manualFacts(t, manualTree), nil, &res)
-	read := func(rel string) string {
-		b, err := os.ReadFile(filepath.Join(dir, "Projects", "M manual", filepath.FromSlash(rel)))
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(manualDir(dir), name+".md"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,51 +144,58 @@ func wantAll(t *testing.T, name, note string, wants ...string) {
 	}
 }
 
-func TestManualIndexListsTheWholeTree(t *testing.T) {
+func TestManualStartsWithAGuideToTheProject(t *testing.T) {
 	read, link, res := writtenManual(t)
-	if link != "[[Projects/M manual/_index]]" || res.Documented == 0 || res.Skipped != 1 {
+	if link != "[[Projects/M - Manual/Start here|M manual]]" || res.Documented == 0 || res.Skipped != 1 {
 		t.Fatalf("link %q res %+v", link, res)
 	}
-	index := read("_index.md")
-	wantAll(t, "index", index,
-		"# M manual", "## M (project root)", "- Architecture: [[Projects/M - Architecture]]",
-		"### Contents of the manual",
-		"- [[Projects/M manual/lib]] (0 files)\n  - [[Projects/M manual/lib/api]] (3 files)",
-		"| `README.md` | 1 |  | The project |", "| `run.sh` | 3 | Shell | Runs it. |")
-	if strings.Contains(index, "odd") {
-		t.Errorf("a folder with no usable note name is left out:\n%s", index)
+	start := read("Start here")
+	wantAll(t, "start", start,
+		"# M manual", "*The guide to M, written by motita from its code.",
+		"the architecture overview [[Projects/M - Architecture]]",
+		"## What this project is\nThe project, in short.\n",
+		"## How it is organised\n",
+		"- [[Projects/M - Manual/lib|Lib]]: It holds 2 folders.\n"+
+			"  - [[Projects/M - Manual/lib › api|Api]]: Package api is the public face.\n",
+		"## Files at the top\n", "- **README.md** (3 lines): The project", "- **run.sh** (Shell, 3 lines): Runs it.")
+	if strings.Contains(start, "odd") {
+		t.Errorf("a folder with no usable note name is left out:\n%s", start)
 	}
 }
 
-func TestManualDocumentsTheGoAPI(t *testing.T) {
+func TestManualChaptersExplainEachFolder(t *testing.T) {
 	read, _, _ := writtenManual(t)
-	api := read("lib/api.md")
-	wantAll(t, "api note", api,
-		"# M lib/api/", "- Inside: [[Projects/M manual/lib]]", "### Go package `api`",
-		"> Package api is the public face.",
-		"- `type Server struct` (api.go): Server serves.",
-		"  - `func (*Server) Start() error` (api.go): Start starts the server.",
-		"  - `func (Server) Stop()` (api.go): Stop stops it.",
-		"- `type Handler interface` (api.go): Handler handles.", "- `type ID string` (api.go): ID is a name.",
-		"  - `func (*Box[T]) Get() T` (api.go): Get gives it.",
-		"#### Functions\n- `func New(addr string) (*Server, error)` (api.go): New makes a server.",
-		"- `const Max` (api.go): Max is the most.", "- `var Default` (api.go): the default",
-		"### Uses\n- [[Projects/M manual/lib/store]]")
+	api := read("lib › api")
+	wantAll(t, "api chapter", api,
+		"# Api", "*A chapter of the [[Projects/M - Manual/Start here|M manual]]. Folder `lib/api/`, "+
+			"inside [[Projects/M - Manual/lib|Lib]].*",
+		"## What it is for\nPackage api is the public face.\n\nIt says more here.\n",
+		"## What is inside\nIt holds 3 files, mostly Go.\n",
+		"## How it connects\nIt relies on [[Projects/M - Manual/lib › store|Store]].",
+		"## For developers\n", "### Go package `api`",
+		"- `type Server struct` in api.go: Server serves.",
+		"  - `func (*Server) Start() error` in api.go: Start starts the server.",
+		"  - `func (Server) Stop()` in api.go: Stop stops it.",
+		"- `type Handler interface` in api.go: Handler handles.", "- `type ID string` in api.go: ID is a name.",
+		"  - `func (*Box[T]) Get() T` in api.go: Get gives it.",
+		"#### Functions\n- `func New(addr string) (*Server, error)` in api.go: New makes a server.",
+		"- `const Max` in api.go: Max is the most.", "- `var Default` in api.go: the default")
 	for _, unwanted := range []string{"hidden", "Visible", "helper", "min"} {
 		if strings.Contains(api, "`"+unwanted) || strings.Contains(api, " "+unwanted+"(") {
 			t.Errorf("unexported %q got in:\n%s", unwanted, api)
 		}
 	}
-	wantAll(t, "store note", read("lib/store.md"), "### Used by\n- [[Projects/M manual/lib/api]]")
+	wantAll(t, "store chapter", read("lib › store"),
+		"It is used by [[Projects/M - Manual/lib › api|Api]].")
 }
 
 func TestManualDocumentsScriptsAndDocs(t *testing.T) {
 	read, _, _ := writtenManual(t)
-	wantAll(t, "web note", read("web.md"),
-		"- `function start` (app.ts): The app. It runs.", "- `const y` (app.ts)\n",
-		"- `class Main` (app.ts): Big doc.", "### Folders\n- [[Projects/M manual/web/util]]")
-	wantAll(t, "python note", read("py.md"), "- `def run` (tool.py): Does it.", "- `class Thing` (tool.py)\n")
-	wantAll(t, "guide note", read("docs/guide.md"), "| `intro.md` | 1 |  |  |")
+	wantAll(t, "web chapter", read("web"),
+		"### Exports\n- `class Main` in app.ts: Big doc.\n", "- `function start` in app.ts: The app. It runs.", "- `const y` in app.ts\n",
+		"- `class Main` in app.ts: Big doc.", "### Folders\n- [[Projects/M - Manual/web › util|Util]]: ")
+	wantAll(t, "python chapter", read("py"), "- `def run` in tool.py: Does it.", "- `class Thing` in tool.py\n")
+	wantAll(t, "guide chapter", read("docs › guide"), "- **intro.md** (1 line)\n", manualHint)
 }
 
 func TestManualIsCapped(t *testing.T) {
@@ -194,7 +204,7 @@ func TestManualIsCapped(t *testing.T) {
 	manualMaxModules, manualMaxFiles, manualMaxSymbols = 3, 1, 1
 	f := manualFacts(t, map[string]string{
 		"a/b/c/x.go": "package c\n\nfunc A() {}\nfunc B() {}\ntype T struct{}\nfunc (T) M() {}\nvar V = 1\n",
-		"a/y.ts":     "export const a = 1;\nexport const b = 2;\n",
+		"a/y.ts":     "import \"./b/c/x\";\nexport const a = 1;\nexport const b = 2;\n",
 		"a/z.txt":    "z",
 	})
 	mods := buildManual(f)
@@ -205,18 +215,78 @@ func TestManualIsCapped(t *testing.T) {
 	v := notes.Open(dir)
 	var res noteScan
 	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md", f, nil, &res)
-	b, _ := os.ReadFile(filepath.Join(dir, "Projects", "M manual", "a.md"))
-	if strings.Count(string(b), "| `") != 1 || strings.Count(string(b), "- `const") != 1 {
+	b, _ := os.ReadFile(filepath.Join(manualDir(dir), "a.md"))
+	if strings.Count(string(b), "- **") != 1 || !strings.Contains(string(b), "- and 1 more files.") ||
+		strings.Count(string(b), "- `const") != 1 || !strings.Contains(string(b), "It relies on `a/b/c/`.") {
 		t.Errorf("files and symbols capped:\n%s", b)
 	}
-	sub, _ := os.ReadFile(filepath.Join(dir, "Projects", "M manual", "a", "b.md"))
-	if !strings.Contains(string(sub), "### Folders\n- `a/b/c/`") {
-		t.Errorf("a folder left out is named, not linked:\n%s", sub)
+	sub, _ := os.ReadFile(filepath.Join(manualDir(dir), "a › b.md"))
+	if strings.Contains(string(sub), "a/b/c") {
+		t.Errorf("a folder left out has no line:\n%s", sub)
 	}
 	src := "package x\n\nfunc A() {}\nfunc B() {}\ntype T struct{}\nfunc (T) M() {}\n"
 	c := buildManual(manualFacts(t, map[string]string{"x.go": src}))
 	if len(c[0].funcs)+len(c[0].types)+len(c[0].methods["T"]) != 1 {
 		t.Errorf("symbols capped: %+v", c[0])
+	}
+}
+
+func TestManualRemovesWhatIsNoLongerThere(t *testing.T) {
+	dir := t.TempDir()
+	v := notes.Open(dir)
+	for name, body := range map[string]string{
+		"Projects/M manual/_index.md":       "# M manual\n\n" + notes.BlockStart + "\nold\n" + notes.BlockEnd + "\n",
+		"Projects/M manual/mine.md":         "# Mine\n\nwritten by hand\n",
+		"Projects/M manual/kept.md":         "# Kept\n\n" + notes.BlockStart + "\nold\n" + notes.BlockEnd + "\nmy note\n",
+		"Projects/M - Manual/gone.md":       notes.BlockStart + "\nold\n" + notes.BlockEnd,
+		"Projects/M - Manual/Start here.md": "# M manual\n",
+	} {
+		if _, err := v.Write(name, body, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var res noteScan
+	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md",
+		manualFacts(t, map[string]string{"A/x.txt": "x", "a/y.txt": "y"}), nil, &res)
+	var left []string
+	for _, n := range v.List() {
+		left = append(left, n.Path)
+	}
+	want := "Projects/M - Manual/A.md Projects/M - Manual/Start here.md Projects/M manual/kept.md Projects/M manual/mine.md"
+	if strings.Join(left, " ") != want || res.Skipped != 1 {
+		t.Errorf("left %v, skipped %d", left, res.Skipped)
+	}
+}
+
+func TestManualWordingHelpers(t *testing.T) {
+	if humanName("__") != "__" || humanName("my_tool-kit") != "My tool kit" {
+		t.Error("humanName")
+	}
+	if aliasLink("a.md", "x|[y]") != "[[a|x y]]" {
+		t.Error("aliasLink")
+	}
+	empty := &moduleInfo{}
+	if empty.contents() != "An empty folder." || (manualCtx{}).inside(empty) != "" || empty.reference() != "" {
+		t.Error("an empty folder")
+	}
+	tie := &moduleInfo{files: []fileInfo{{lang: "Go"}, {lang: "Bash"}, {}}}
+	if tie.mainLanguage() != "Bash" {
+		t.Error("a tie goes to the first name")
+	}
+	for text, want := range map[string]string{
+		"# T\n[![b](x)](y)\n```\ncode\n```\n\nFirst one. Second.\nmore\n\nnext": "First one.",
+		"- one\n- two": "one two", "<div>\n": "",
+	} {
+		if got := leadSentence(text); got != want {
+			t.Errorf("leadSentence(%q) = %q, want %q", text, got, want)
+		}
+	}
+	ch := &chapter{m: &moduleInfo{readme: "# R\nRead me.\n"}}
+	if ch.summary() != "Read me." || !strings.HasPrefix(ch.purpose(), "Read me.") {
+		t.Errorf("the README speaks for a folder: %q", ch.purpose())
+	}
+	if onlyScanned("text") || onlyScanned(notes.BlockEnd+notes.BlockStart) || explanationSection("x", "", "f") != "" {
+		t.Error("onlyScanned or explanationSection")
 	}
 }
 
@@ -245,12 +315,12 @@ func TestFileDocReadsTheFirstComment(t *testing.T) {
 }
 
 func TestManualModulesAreExplainedWhenAsked(t *testing.T) {
-	svc := &describeService{fakeService: &fakeService{}, reply: "## Purpose\nIt stores."}
+	svc := &describeService{fakeService: &fakeService{}, reply: "It stores things. More words."}
 	mm := &archModel{svc: svc, left: 1, module: true}
 	dir := t.TempDir()
 	v := notes.Open(dir)
 	var res noteScan
-	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md",
+	writeManual(context.Background(), v, Project{Title: "M", Description: "About M."}, "Projects/M.md",
 		manualFacts(t, map[string]string{"store/s.go": "package s\n// sk-abcdefghijklmnopqrstuvwxyz0123456789\n"}), mm, &res)
 	if svc.modules != 1 || mm.done != 1 || svc.calls != 0 {
 		t.Fatalf("one module explained within the cap: %d modules, %d done", svc.modules, mm.done)
@@ -258,9 +328,10 @@ func TestManualModulesAreExplainedWhenAsked(t *testing.T) {
 	if !strings.Contains(svc.askedModule, "### Source excerpts") || strings.Contains(svc.askedModule, "sk-abcdefghij") {
 		t.Errorf("the model was asked:\n%s", svc.askedModule)
 	}
-	b, _ := os.ReadFile(filepath.Join(dir, "Projects", "M manual", "_index.md"))
-	if !strings.Contains(string(b), "### What this module does\n<!-- motita:arch:") {
-		t.Errorf("index:\n%s", b)
+	b, _ := os.ReadFile(filepath.Join(manualDir(dir), "Start here.md"))
+	if !strings.Contains(string(b), "## What this project is\n<!-- motita:arch:") ||
+		!strings.Contains(string(b), "|Store]]: It holds 1 file, mostly Go.") {
+		t.Errorf("start:\n%s", b)
 	}
 }
 

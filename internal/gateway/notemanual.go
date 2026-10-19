@@ -20,13 +20,17 @@ import (
 	"github.com/madkoding/motita/internal/redact"
 )
 
-// The manual is the project written down folder by folder: one note per folder, recursively, with
-// its files, what each one is, the API it exports, what it uses and what uses it, linked to its
-// parent and its subfolders, and an index of the whole tree. Everything comes from the files; with
-// the model on, each module also gets an explanation, kept until the module changes.
+// The manual is the project written down as a guide: "Start here" says what the project is and how
+// it is organised, and every folder, recursively, has a chapter that says what it is for, what is
+// inside, how it connects to the rest and, last, the API it offers. Everything comes from the files;
+// with the model on, each chapter also gets an explanation in plain words, kept until the folder
+// changes.
 const (
-	manualSuffix       = " manual"
-	manualIndex        = "_index"
+	manualSuffix       = " - Manual"
+	manualOldSuffix    = " manual"
+	manualStart        = "Start here"
+	manualSep          = " › "
+	manualSummaryBytes = 220
 	manualDocBytes     = 1500
 	manualSymbolDoc    = 300
 	manualTypeBytes    = 80
@@ -37,6 +41,8 @@ const (
 	manualExplainMax   = 30
 	manualExplainLimit = 2000
 	manualHeadLines    = 30
+	manualHint         = "_No description of this folder yet. Turn on the model in Settings, Indexing, " +
+		"and the next scan explains it in plain words._"
 )
 
 // The caps of one manual: folders, file rows per note and API entries per note. Variables so a test
@@ -79,6 +85,7 @@ type moduleInfo struct {
 	children []string
 	pkgName  string
 	pkgDoc   string
+	readme   string
 	types    []goType
 	methods  map[string][]symbol
 	funcs    []symbol
@@ -308,6 +315,9 @@ func (m *moduleInfo) addFile(module, p string) {
 	lang := archLanguages[ext]
 	lines := strings.Count(text, "\n")
 	m.files = append(m.files, fileInfo{name: name, lang: lang, doc: fileDoc(ext, text), lines: lines})
+	if strings.EqualFold(name, "README.md") {
+		m.readme = clip(text, manualDocBytes*4)
+	}
 	if lang != "" && m.sources.Len() < manualSourcesBytes {
 		m.sources.WriteString("\n#### " + name + "\n" + clip(text, manualSourceBytes) + "\n")
 	}
@@ -380,25 +390,245 @@ func linkModules(mods map[string]*moduleInfo) {
 	}
 }
 
-// manualCtx is what every note of one manual needs: where each module's note is, and the links up.
+// chapter is the note of one folder: the module, where its note goes and what the model wrote.
+type chapter struct {
+	m               *moduleInfo
+	name            string
+	explanation, fp string
+}
+
+// manualCtx is what every chapter of one manual needs: where each chapter is, and the links up.
 type manualCtx struct {
-	title, project, arch string
-	names                map[string]string
-	mods                 map[string]*moduleInfo
+	title, project, arch, start string
+	chapters                    map[string]*chapter
+}
+
+// chapterName is the file name of a folder's chapter: its path, flat, read as a trail.
+func chapterName(rel string) string {
+	if rel == "" {
+		return manualStart
+	}
+	return strings.ReplaceAll(rel, "/", manualSep)
+}
+
+// humanName is how the manual calls a folder: its last part, in words.
+func humanName(rel string) string {
+	name := strings.Trim(strings.NewReplacer("_", " ", "-", " ").Replace(path.Base(rel)), " ")
+	if name == "" || name == "." {
+		return path.Base(rel)
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// aliasLink links a note under a label of its own.
+func aliasLink(name, label string) string {
+	label = strings.NewReplacer("|", " ", "[", "", "]", "", "\n", " ").Replace(label)
+	return "[[" + strings.TrimSuffix(name, ".md") + "|" + label + "]]"
 }
 
 func (c manualCtx) link(rel string) string {
-	if name, ok := c.names[rel]; ok {
-		return wikiLink(name)
+	if ch, ok := c.chapters[rel]; ok && rel == "" {
+		return aliasLink(ch.name, c.title+" manual")
+	}
+	if ch, ok := c.chapters[rel]; ok {
+		return aliasLink(ch.name, humanName(rel))
 	}
 	return "`" + cell(rel) + "/`"
 }
 
-func (c manualCtx) heading(rel string) string {
-	if rel == "" {
-		return cell(c.title) + " (project root)"
+// plain is a text of the project made safe to sit in a note: no secret, no marker, no link.
+func plain(text string) string {
+	return strings.NewReplacer(notes.BlockStart, "", notes.BlockEnd, "", "[[", "[ [", "<!--", "").
+		Replace(redact.String(text))
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
 	}
-	return "`" + cell(rel) + "/`"
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// mainLanguage is the language most of the folder's files are written in, or "".
+func (m *moduleInfo) mainLanguage() string {
+	count := map[string]int{}
+	best := ""
+	for _, fi := range m.files {
+		if fi.lang == "" {
+			continue
+		}
+		count[fi.lang]++
+		if count[fi.lang] > count[best] || (count[fi.lang] == count[best] && fi.lang < best) {
+			best = fi.lang
+		}
+	}
+	return best
+}
+
+// contents says in one sentence what the folder holds.
+func (m *moduleInfo) contents() string {
+	var parts []string
+	if n := len(m.children); n > 0 {
+		parts = append(parts, plural(n, "folder"))
+	}
+	if n := len(m.files); n > 0 {
+		parts = append(parts, plural(n, "file"))
+	}
+	if len(parts) == 0 {
+		return "An empty folder."
+	}
+	line := "It holds " + strings.Join(parts, " and ")
+	if lang := m.mainLanguage(); lang != "" {
+		line += ", mostly " + lang
+	}
+	return line + "."
+}
+
+// leadParagraph is the first paragraph of a text that is prose: no heading, badge, markup, rule
+// or code.
+func leadParagraph(text string) string {
+	var lines []string
+	fenced := false
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(raw), "-*>"))
+		if strings.HasPrefix(strings.TrimSpace(raw), "```") {
+			fenced = !fenced
+		}
+		switch {
+		case fenced || !prose(line):
+			if len(lines) > 0 && line == "" {
+				return strings.Join(lines, " ")
+			}
+		default:
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " ")
+}
+
+func prose(line string) bool {
+	if line == "" {
+		return false
+	}
+	for _, mark := range []string{"#", "<", "[", "![", "`", "|"} {
+		if strings.HasPrefix(line, mark) {
+			return false
+		}
+	}
+	return true
+}
+
+// leadSentence is the first sentence of a text's first paragraph, or "".
+func leadSentence(text string) string {
+	line := leadParagraph(text)
+	if i := strings.Index(line, ". "); i >= 0 {
+		line = line[:i+1]
+	}
+	return clip(line, manualSummaryBytes)
+}
+
+// summary is the one line other chapters show about this one.
+func (ch *chapter) summary() string {
+	for _, text := range []string{ch.explanation, ch.m.pkgDoc, ch.m.readme} {
+		if line := leadSentence(text); line != "" {
+			return plain(line)
+		}
+	}
+	return ch.m.contents()
+}
+
+// purpose is what the chapter says the folder is for: the model's explanation, or what the code
+// says of itself.
+func (ch *chapter) purpose() string {
+	if ch.explanation != "" {
+		return keptExplanation(ch.explanation, ch.fp)
+	}
+	var b strings.Builder
+	switch {
+	case ch.m.pkgDoc != "":
+		b.WriteString(plain(ch.m.pkgDoc) + "\n\n")
+	case ch.m.readme != "":
+		b.WriteString(plain(clip(leadParagraph(ch.m.readme), manualDocBytes)) + "\n\n")
+	default:
+		b.WriteString(manualHint + "\n")
+	}
+	return b.String()
+}
+
+func (m *moduleInfo) fileList() string {
+	if len(m.files) == 0 {
+		return ""
+	}
+	files := m.files
+	sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
+	var b strings.Builder
+	for _, fi := range files[:min(len(files), manualMaxFiles)] {
+		var about []string
+		if fi.lang != "" {
+			about = append(about, fi.lang)
+		}
+		about = append(about, plural(fi.lines, "line"))
+		line := "- **" + cell(fi.name) + "** (" + strings.Join(about, ", ") + ")"
+		if fi.doc != "" {
+			line += ": " + cell(fi.doc)
+		}
+		b.WriteString(line + "\n")
+	}
+	if len(files) > manualMaxFiles {
+		fmt.Fprintf(&b, "- and %d more files.\n", len(files)-manualMaxFiles)
+	}
+	return b.String()
+}
+
+// folderList is the subfolders of a folder with what each one is for.
+func (c manualCtx) folderList(rels []string, indent string, deep bool, b *strings.Builder) {
+	rels = append([]string{}, rels...)
+	sort.Strings(rels)
+	for _, rel := range rels {
+		ch, ok := c.chapters[rel]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(b, "%s- %s: %s\n", indent, c.link(rel), ch.summary())
+		if deep {
+			c.folderList(ch.m.children, indent+"  ", true, b)
+		}
+	}
+}
+
+func (c manualCtx) inside(m *moduleInfo) string {
+	var b strings.Builder
+	if len(m.children) > 0 {
+		b.WriteString("\n### Folders\n")
+		c.folderList(m.children, "", false, &b)
+	}
+	if files := m.fileList(); files != "" {
+		b.WriteString("\n### Files\n" + files)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n## What is inside\n" + m.contents() + "\n" + b.String()
+}
+
+func (c manualCtx) linkLine(lead string, rels []string) string {
+	if len(rels) == 0 {
+		return ""
+	}
+	sort.Strings(rels)
+	links := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		links = append(links, c.link(rel))
+	}
+	return lead + " " + strings.Join(links, ", ") + ".\n\n"
+}
+
+func (c manualCtx) connections(m *moduleInfo) string {
+	text := c.linkLine("It relies on", keys(m.uses)) + c.linkLine("It is used by", m.usedBy)
+	if text == "" {
+		return ""
+	}
+	return "\n## How it connects\n" + text
 }
 
 func sortedSymbols(list []symbol) []symbol {
@@ -407,23 +637,21 @@ func sortedSymbols(list []symbol) []symbol {
 }
 
 func symbolLine(indent string, s symbol) string {
-	line := indent + "- `" + strings.ReplaceAll(s.sig, "`", "'") + "` (" + cell(s.file) + ")"
+	line := indent + "- `" + strings.ReplaceAll(s.sig, "`", "'") + "` in " + cell(s.file)
 	if s.doc != "" {
 		line += ": " + cell(s.doc)
 	}
 	return line + "\n"
 }
 
-func (m *moduleInfo) filesSection() string {
-	if len(m.files) == 0 {
+func symbolList(title string, list []symbol) string {
+	if len(list) == 0 {
 		return ""
 	}
-	files := m.files
-	sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n### Files (%d)\n| File | Lines | Language | What it is |\n|---|---|---|---|\n", len(files))
-	for _, fi := range files[:min(len(files), manualMaxFiles)] {
-		fmt.Fprintf(&b, "| `%s` | %d | %s | %s |\n", cell(fi.name), fi.lines, fi.lang, cell(fi.doc))
+	b.WriteString("\n#### " + title + "\n")
+	for _, s := range sortedSymbols(list) {
+		b.WriteString(symbolLine("", s))
 	}
 	return b.String()
 }
@@ -434,9 +662,6 @@ func (m *moduleInfo) goSection() string {
 	}
 	var b strings.Builder
 	b.WriteString("\n### Go package `" + cell(m.pkgName) + "`\n")
-	if m.pkgDoc != "" {
-		b.WriteString(quote(m.pkgDoc, manualDocBytes) + "\n")
-	}
 	if len(m.types) > 0 {
 		sort.Slice(m.types, func(i, j int) bool { return m.types[i].name < m.types[j].name })
 		b.WriteString("\n#### Types\n")
@@ -452,29 +677,16 @@ func (m *moduleInfo) goSection() string {
 	return b.String()
 }
 
-func symbolList(title string, list []symbol) string {
-	if len(list) == 0 {
+// reference is the API of the folder, for whoever changes its code.
+func (m *moduleInfo) reference() string {
+	text := m.goSection()
+	if len(m.exports) > 0 {
+		text += "\n### Exports\n" + strings.TrimPrefix(symbolList("", m.exports), "\n#### \n")
+	}
+	if text == "" {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("\n#### " + title + "\n")
-	for _, s := range sortedSymbols(list) {
-		b.WriteString(symbolLine("", s))
-	}
-	return b.String()
-}
-
-func (c manualCtx) linkList(title string, rels []string) string {
-	if len(rels) == 0 {
-		return ""
-	}
-	sort.Strings(rels)
-	var b strings.Builder
-	b.WriteString("\n### " + title + "\n")
-	for _, rel := range rels {
-		b.WriteString("- " + c.link(rel) + "\n")
-	}
-	return b.String()
+	return "\n## For developers\nThe names this folder offers to the rest of the code, with what their comments say.\n" + text
 }
 
 func keys(set map[string]bool) []string {
@@ -485,94 +697,148 @@ func keys(set map[string]bool) []string {
 	return out
 }
 
-// tree is the index of the manual: every folder under rel, indented by depth.
-func (c manualCtx) tree(rel, indent string, b *strings.Builder) {
-	m := c.mods[rel]
-	children := append([]string{}, m.children...)
-	sort.Strings(children)
-	for _, child := range children {
-		if _, ok := c.mods[child]; !ok {
-			continue
-		}
-		fmt.Fprintf(b, "%s- %s (%d files)\n", indent, c.link(child), len(c.mods[child].files))
-		c.tree(child, indent+"  ", b)
-	}
-}
-
-// moduleFacts is the note of a module, without the model's explanation.
-func (c manualCtx) moduleFacts(m *moduleInfo) string {
+// modelFacts is what the model and the fingerprint see of a folder: nothing another chapter wrote.
+func (m *moduleInfo) modelFacts() string {
 	var b strings.Builder
-	b.WriteString("## " + c.heading(m.rel) + "\n- Project: " + c.project + "\n- Architecture: " + c.arch + "\n")
-	if m.rel == "" {
-		b.WriteString("\n### Contents of the manual\n")
-		c.tree("", "", &b)
-	} else {
-		b.WriteString("- Inside: " + c.link(parentRel(m.rel)) + "\n")
-		b.WriteString(c.linkList("Folders", m.children))
+	b.WriteString("## Folder `" + cell(m.rel) + "/`\n" + m.contents() + "\n")
+	if m.pkgDoc != "" {
+		b.WriteString("\nPackage doc: " + m.pkgDoc + "\n")
 	}
-	b.WriteString(m.filesSection())
-	b.WriteString(m.goSection())
-	b.WriteString(symbolList("Exports", m.exports))
-	b.WriteString(c.linkList("Uses", keys(m.uses)))
-	b.WriteString(c.linkList("Used by", m.usedBy))
+	b.WriteString("\n### Folders\n" + strings.Join(sorted(m.children), "\n") + "\n\n### Files\n" + m.fileList())
+	b.WriteString(m.reference())
+	b.WriteString("\n### Uses\n" + strings.Join(sorted(keys(m.uses)), "\n") +
+		"\n\n### Used by\n" + strings.Join(sorted(m.usedBy), "\n") + "\n")
 	return b.String()
 }
 
-// moduleNoteName is where a module's note goes in the manual's folder.
-func moduleNoteName(root, rel string) string {
-	if rel == "" {
-		return notes.FileName(root, manualIndex)
-	}
-	return notes.FileName(root, rel)
+func sorted(list []string) []string {
+	sort.Strings(list)
+	return list
 }
 
-// writeManual writes one note per folder of the project and answers the link to its index.
+// byline opens a chapter: which manual it belongs to and where the folder sits.
+func (c manualCtx) byline(m *moduleInfo) string {
+	if m.rel == "" {
+		return fmt.Sprintf("*The guide to %s, written by motita from its code. Each chapter explains one "+
+			"folder: what it is for, what is inside and how it connects to the rest. See also the project "+
+			"note %s and the architecture overview %s.*\n", cell(c.title), c.project, c.arch)
+	}
+	return fmt.Sprintf("*A chapter of the %s. Folder `%s/`, inside %s.*\n",
+		aliasLink(c.start, c.title+" manual"), cell(m.rel), c.link(parentRel(m.rel)))
+}
+
+// startBody is the first note of the manual: what the project is and how it is organised.
+func (c manualCtx) startBody(ch *chapter) string {
+	var b strings.Builder
+	b.WriteString(c.byline(ch.m))
+	b.WriteString("\n## What this project is\n" + ch.purpose())
+	if len(ch.m.children) > 0 {
+		b.WriteString("\n## How it is organised\nEvery folder of the project has its chapter. " +
+			"Start from the top; each line says what the folder is for.\n\n")
+		c.folderList(ch.m.children, "", true, &b)
+	}
+	if files := ch.m.fileList(); files != "" {
+		b.WriteString("\n## Files at the top\n" + files)
+	}
+	b.WriteString(c.connections(ch.m))
+	b.WriteString(ch.m.reference())
+	return b.String()
+}
+
+func (c manualCtx) chapterBody(ch *chapter) string {
+	if ch.m.rel == "" {
+		return c.startBody(ch)
+	}
+	var b strings.Builder
+	b.WriteString(c.byline(ch.m))
+	b.WriteString("\n## What it is for\n" + ch.purpose())
+	b.WriteString(c.inside(ch.m))
+	b.WriteString(c.connections(ch.m))
+	b.WriteString(ch.m.reference())
+	return b.String()
+}
+
+// manualRoot is the folder of a project's manual in the vault.
+func manualRoot(projectNote, suffix string) string {
+	return strings.TrimSuffix(projectNote, ".md") + suffix
+}
+
+// writeManual writes one chapter per folder of the project, with "Start here" for the root, drops
+// the chapters of folders that are gone, and answers the link to the start.
 func writeManual(
 	ctx context.Context, v *notes.Vault, p Project, projectNote string, f projectFacts, mm *archModel, res *noteScan,
 ) string {
-	archLink := wikiLink(archNoteName(projectNote))
-	mods := buildManual(f)
-	root := strings.TrimSuffix(projectNote, ".md") + manualSuffix
-	c := manualCtx{title: p.Title, project: wikiLink(projectNote), arch: archLink,
-		names: map[string]string{}, mods: map[string]*moduleInfo{}}
-	for _, m := range mods {
-		if name := moduleNoteName(root, m.rel); name != "" {
-			c.names[m.rel] = name
-			c.mods[m.rel] = m
+	root := manualRoot(projectNote, manualSuffix)
+	c := manualCtx{title: p.Title, project: wikiLink(projectNote), arch: wikiLink(archNoteName(projectNote)),
+		start: notes.FileName(root, manualStart), chapters: map[string]*chapter{}}
+	taken := map[string]bool{}
+	var order []*chapter
+	for _, m := range buildManual(f) {
+		if m.rel == "" && p.Description != "" {
+			m.readme = p.Description
 		}
-	}
-	for _, m := range mods {
-		name, ok := c.names[m.rel]
-		if !ok {
+		name := notes.FileName(root, chapterName(m.rel))
+		if name == "" || taken[strings.ToLower(name)] {
 			res.Skipped++
 			continue
 		}
-		facts := redact.String(c.moduleFacts(m))
+		taken[strings.ToLower(name)] = true
+		facts := redact.String(m.modelFacts())
 		sources := redact.String(m.sources.String())
-		fp := archFingerprint(facts, sources)
-		explanation := mm.of(ctx, v, name, fp, facts+"\n### Source excerpts\n"+sources)
-		body := facts + explanationSection("What this module does", explanation, fp)
-		outcome, err := v.Upsert(name, c.title+" "+manualTitle(m.rel), body)
+		ch := &chapter{m: m, name: name, fp: archFingerprint(facts, sources)}
+		ch.explanation = mm.of(ctx, v, name, ch.fp, facts+"\n### Source excerpts\n"+sources)
+		c.chapters[m.rel] = ch
+		order = append(order, ch)
+	}
+	for _, ch := range order {
+		title := c.title + " manual"
+		if ch.m.rel != "" {
+			title = humanName(ch.m.rel)
+		}
+		outcome, err := v.Upsert(ch.name, title, c.chapterBody(ch))
 		res.count(outcome, err)
 		if err == nil {
 			res.Documented++
 		}
 	}
-	return c.link("")
+	pruneManual(v, root, taken)
+	pruneManual(v, manualRoot(projectNote, manualOldSuffix), taken)
+	return aliasLink(c.start, c.title+" manual")
 }
 
-// manualTitle is the heading of a module's note: its folder, or "manual" for the index.
-func manualTitle(rel string) string {
-	if rel == "" {
-		return "manual"
+// pruneManual deletes the notes of a manual's folder that this scan did not write and that hold
+// nothing but what an earlier scan wrote: folders that are gone, or a manual laid out the old way.
+func pruneManual(v *notes.Vault, root string, written map[string]bool) {
+	for _, n := range v.List() {
+		if !strings.HasPrefix(n.Path, root+"/") || written[strings.ToLower(n.Path)] {
+			continue
+		}
+		if body, _, err := v.Read(n.Path); err == nil && onlyScanned(body) {
+			_ = v.Delete(n.Path)
+		}
 	}
-	return rel + "/"
 }
 
-// explanationSection is how the model's explanation sits in a note, marked so a later scan keeps it.
+// onlyScanned says whether a note holds nothing the person wrote: its heading and the scan block.
+func onlyScanned(body string) bool {
+	i := strings.Index(body, notes.BlockStart)
+	j := strings.Index(body, notes.BlockEnd)
+	if i < 0 || j < i {
+		return false
+	}
+	rest := strings.TrimSpace(body[:i] + body[j+len(notes.BlockEnd):])
+	return rest == "" || (strings.HasPrefix(rest, "# ") && !strings.Contains(rest, "\n"))
+}
+
+// keptExplanation is the model's explanation, marked so a later scan keeps it.
+func keptExplanation(text, fp string) string {
+	return fmt.Sprintf("<!-- motita:arch:%s -->\n%s\n<!-- motita:arch:end -->\n", fp, text)
+}
+
+// explanationSection is the model's explanation under a heading of its own.
 func explanationSection(title, text, fp string) string {
 	if text == "" {
 		return ""
 	}
-	return fmt.Sprintf("\n### %s\n<!-- motita:arch:%s -->\n%s\n<!-- motita:arch:end -->\n", title, fp, text)
+	return "\n### " + title + "\n" + keptExplanation(text, fp)
 }
