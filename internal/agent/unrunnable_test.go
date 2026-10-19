@@ -33,7 +33,7 @@ func TestMissingDependenciesAndNoNetworkEndAsNotValidated(t *testing.T) {
 			switch round {
 			case 1:
 				return stepActions(false, shellAction(`printf '%s' '`+manifest+`' > composer.json`),
-					shellAction(`sh -c 'echo "curl error 6 while downloading: Could not resolve host: repo.packagist.org" >&2; exit 1'`),
+					shellAction(`sh -c 'echo "curl error 6: Could not resolve host: repo.packagist.org" >&2; exit 1'`),
 					shellAction(`vendor/bin/phpunit`))
 			case 2: // the stand-ins, one of each kind
 				return stepActions(false,
@@ -83,7 +83,8 @@ func TestMissingDependenciesAndNoNetworkEndAsNotValidated(t *testing.T) {
 // validated.
 func TestAStandInCannotCloseAnOpenCheck(t *testing.T) {
 	s := &scriptServer{
-		synthReply: `{"status":"done","summary":"ok","verification":[{"check":"phpunit","result":"pass","evidence":"3 tests"}]}`,
+		synthReply: `{"status":"done","summary":"ok",` +
+			`"verification":[{"check":"phpunit","result":"pass","evidence":"3 tests"}]}`,
 		execute: func(round int, _ string) string {
 			switch round {
 			case 1:

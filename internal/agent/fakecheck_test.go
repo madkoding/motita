@@ -13,26 +13,29 @@ import (
 // that called it.
 func TestFabricatedChecksAreRecognised(t *testing.T) {
 	const phpStub = "<?php\n// fake\nexit(0);\n"
+	const realScript = `{"scripts":{"test":"php artisan test"}}`
 	for name, tc := range map[string]struct {
 		kind, path, body string
 		refused          bool
 	}{
-		"a tool made by hand in vendor/bin":  {"write_file", "vendor/bin/phpunit", "#!/usr/bin/env php\nreal();", true},
-		"node_modules is installed":          {"write_file", "./node_modules/.bin/jest", "x", true},
-		"a virtualenv is installed":          {"write_file", ".venv/bin/pytest", "x", true},
-		"windows separators":                 {"write_file", `vendor\bin\phpunit`, "x", true},
-		"an executable that only exits 0":    {"write_file", "bin/phpunit", phpStub, true},
-		"a shell stand-in":                   {"write_file", "scripts/test.sh", "#!/bin/sh\nset -e\nexit 0\n", true},
-		"a node stand-in":                    {"write_file", "scripts/t.js", "process.exit(0)", true},
-		"composer test that cannot fail":     {"edit_file", "composer.json", `"test": "exit 0"`, true},
-		"composer test as an array":          {"write_file", "composer.json", `{"scripts":{"test":["true"]}}`, true},
-		"composer test that only echoes":     {"write_file", "composer.json", `{"scripts":{"test":"echo ok"}}`, true},
-		"a php -r exit":                      {"write_file", "composer.json", `{"scripts":{"test":"php -r 'exit(0);'"}}`, true},
+		"a tool made by hand in vendor/bin": {"write_file", "vendor/bin/phpunit", "#!/usr/bin/env php\nreal();", true},
+		"node_modules is installed":         {"write_file", "./node_modules/.bin/jest", "x", true},
+		"a virtualenv is installed":         {"write_file", ".venv/bin/pytest", "x", true},
+		"windows separators":                {"write_file", `vendor\bin\phpunit`, "x", true},
+		"an executable that only exits 0":   {"write_file", "bin/phpunit", phpStub, true},
+		"a shell stand-in":                  {"write_file", "scripts/test.sh", "#!/bin/sh\nset -e\nexit 0\n", true},
+		"a node stand-in":                   {"write_file", "scripts/t.js", "process.exit(0)", true},
+		"composer test that cannot fail":    {"edit_file", "composer.json", `"test": "exit 0"`, true},
+		"composer test as an array":         {"write_file", "composer.json", `{"scripts":{"test":["true"]}}`, true},
+		"composer test that only echoes": {"write_file", "composer.json", `{"scripts":{"test":"echo ok"}}`,
+			true},
+		"a php -r exit": {"write_file", "composer.json", `{"scripts":{"test":"php -r 'exit(0);'"}}`,
+			true},
 		"a Makefile target that cannot fail": {"write_file", "Makefile", "test:\n\t@true\n", true},
-		"the real composer script":           {"write_file", "composer.json", `{"scripts":{"test":"php artisan test"}}`, false},
+		"the real composer script":           {"write_file", "composer.json", realScript, false},
 		"a real Makefile target":             {"write_file", "Makefile", "test:\n\tgo test ./...\n", false},
 		"an ordinary source file":            {"write_file", "app/Models/User.php", "<?php\nclass User {}\n", false},
-		"a script that really runs":          {"write_file", "scripts/test.sh", "#!/bin/sh\nexit $(go test ./... >/dev/null; echo $?)\n", false},
+		"a script that really runs":          {"write_file", "scripts/test.sh", "#!/bin/sh\ngo test ./...\nexit $?\n", false},
 		"vendor as a word in a file name":    {"write_file", "docs/vendors.md", "x", false},
 	} {
 		got := fakeCheckFile(tc.kind, tc.path, tc.body)
@@ -80,7 +83,8 @@ func TestRefusedFileActionsWriteNothing(t *testing.T) {
 	}
 	out, err := e.agent.runActions(context.Background(), []Command{
 		{Kind: "write_file", Command: "vendor/bin/phpunit\n<?php exit(0);"},
-		{Kind: "edit_file", Command: "composer.json\n<<<<<<< SEARCH\n\"test\":\"php artisan test\"\n=======\n\"test\":\"exit 0\"\n>>>>>>> REPLACE"},
+		{Kind: "edit_file", Command: "composer.json\n<<<<<<< SEARCH\n\"test\":\"php artisan test\"\n" +
+			"=======\n\"test\":\"exit 0\"\n>>>>>>> REPLACE"},
 		{Kind: "command", Command: `printf 'exit 0' > vendor/bin/phpunit`},
 	}, "")
 	if err == nil || strings.Count(out, "[refused:") != 3 {

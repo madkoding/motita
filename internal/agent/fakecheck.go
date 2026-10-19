@@ -115,11 +115,25 @@ func fakeCheckCommand(command string) string {
 			"a virtualenv's bin/): a tool made by hand there is a stand-in for the real one." + fakeCheckHelp
 	}
 	// A heredoc or printf that rewrites a manifest, with a script that cannot fail in it.
+	if m := rewrittenManifest(command); m != "" {
+		return "that line rewrites " + m + " with a check script that cannot fail." + fakeCheckHelp
+	}
+	return ""
+}
+
+// rewrittenManifest names the manifest a shell line rewrites with a check script that cannot fail,
+// or "".
+func rewrittenManifest(command string) string {
+	if !stubScript.MatchString(command) && !stubTarget.MatchString(command) {
+		return ""
+	}
 	lower := strings.ToLower(command)
+	if !strings.Contains(command, ">") && !strings.Contains(lower, "sed ") && !strings.Contains(lower, "tee ") {
+		return ""
+	}
 	for m := range manifests {
-		if strings.Contains(lower, m) && (stubScript.MatchString(command) || stubTarget.MatchString(command)) &&
-			(strings.Contains(command, ">") || strings.Contains(lower, "sed ") || strings.Contains(lower, "tee ")) {
-			return "that line rewrites " + m + " with a check script that cannot fail." + fakeCheckHelp
+		if strings.Contains(lower, m) {
+			return m
 		}
 	}
 	return ""

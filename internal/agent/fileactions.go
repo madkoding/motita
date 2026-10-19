@@ -45,16 +45,16 @@ func (a *Agent) runFileAction(kind string, action Command) (handled bool, out st
 	}
 	if a.readOnly() {
 		err := errors.New("this session is read-only: files cannot be written")
-		return true, "[refused: " + err.Error() + "]", err
+		return true, refusedText(err.Error()), err
 	}
 	rel, body, _ := strings.Cut(action.Command, "\n")
 	path, err := a.workspacePath(rel)
 	if err != nil {
-		return true, "[refused: " + err.Error() + "]", err
+		return true, refusedText(err.Error()), err
 	}
 	if why := fakeCheckFile(kind, rel, fileActionText(kind, body)); why != "" {
 		err := errors.New(why)
-		return true, "[refused: " + why + "]", err
+		return true, refusedText(why), err
 	}
 	if kind == "write_file" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -67,6 +67,9 @@ func (a *Agent) runFileAction(kind string, action Command) (handled bool, out st
 	}
 	return true, editFile(path, rel, body), nil
 }
+
+// refusedText is how a refusal reads to the model.
+func refusedText(why string) string { return "[refused: " + why + "]" }
 
 // fileActionText is the text a file action puts into the file: the whole content of a write_file
 // and the replacement of an edit_file.
