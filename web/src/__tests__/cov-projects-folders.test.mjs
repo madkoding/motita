@@ -524,6 +524,7 @@ test("the edit dialog shows the project's index panel when the app has an api", 
         cache_bytes: 0,
         semantic: false,
         embeddings: false,
+        indexing: false,
       }),
   });
   const s = store();

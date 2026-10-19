@@ -45,6 +45,8 @@ export interface ProjectIndexStatus {
   cache_bytes: number;
   semantic: boolean;
   embeddings: boolean;
+  // The gateway is building the index in the background right now.
+  indexing: boolean;
 }
 
 // CodeIndexChange is any of the fields the page changes; confirm says the person was told that the

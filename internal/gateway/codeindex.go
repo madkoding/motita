@@ -212,7 +212,7 @@ func (s *Server) projectIndex(w http.ResponseWriter, r *http.Request, build bool
 		writeError(w, http.StatusInternalServerError, "the project could not be read: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
+	writeJSON(w, http.StatusOK, s.viewOf(p.Dir, st))
 }
 
 // indexNewProject indexes a project's folder in the background when the code index is on, so the
@@ -222,13 +222,56 @@ func (s *Server) indexNewProject(dir string) {
 	go s.indexFolder(dir)
 }
 
+// indexProjects, at start, brings the index of every project that has none or an old one up to
+// date in the background, one after the other.
+func (s *Server) indexProjects() {
+	dirs := []string{}
+	for _, p := range s.allProjects() {
+		dirs = append(dirs, p.Dir)
+	}
+	if len(dirs) == 0 {
+		return
+	}
+	go func() {
+		for _, dir := range dirs {
+			s.indexFolderIfOutdated(dir)
+		}
+	}()
+}
+
+// indexFolderIfOutdated builds the index of dir unless the one on disk already describes it.
+func (s *Server) indexFolderIfOutdated(dir string) {
+	cfg, _, err := s.securityConfig()
+	if err != nil || !cfg.CodeIndex.Enabled {
+		return
+	}
+	if st, err := codeindex.Inspect(s.baseCtx, dir, cfg.CodeIndex.Options()); err != nil || st.State == codeindex.StateReady {
+		return
+	}
+	s.indexFolder(dir)
+}
+
 // indexFolder builds the index of dir if code_index.enabled is on. Errors are logged, not raised.
 func (s *Server) indexFolder(dir string) {
 	cfg, _, err := s.securityConfig()
 	if err != nil || !cfg.CodeIndex.Enabled {
 		return
 	}
+	s.indexing.Store(dir, true)
+	defer s.indexing.Delete(dir)
 	if err := codeindex.Shared(cfg.CodeIndex.Options()).Build(s.baseCtx, dir); err != nil {
-		s.warn("the new project could not be indexed", "dir", dir, "error", err.Error())
+		s.warn("the project could not be indexed in the background", "dir", dir, "error", err.Error())
 	}
+}
+
+// projectIndexView is the status of a project's index, and whether it is being built right now.
+type projectIndexView struct {
+	codeindex.Status
+	Indexing bool `json:"indexing"`
+}
+
+// viewOf adds to a status whether the folder is being indexed in the background.
+func (s *Server) viewOf(dir string, st codeindex.Status) projectIndexView {
+	_, busy := s.indexing.Load(dir)
+	return projectIndexView{Status: st, Indexing: busy}
 }
