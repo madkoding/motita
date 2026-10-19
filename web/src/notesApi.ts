@@ -343,14 +343,17 @@ export function layoutGraph3D(
 // start go, a [[link]] becomes the words it shows (its alias, or the name of the note it leads to)
 // and the marks of emphasis and code go.
 export function plainWiki(line: string): string {
-  return line
-    .replace(/^[\s>|#-]+/, "")
-    .replace(/\[\[([^\]]*)\]\]/g, (_, inner: string) => {
-      const [target, alias] = inner.split("|", 2);
-      return (alias ?? (target.split("/").pop() as string)).trim();
-    })
-    .replace(/[*_`]/g, "")
-    .trim();
+  const [head, ...links] = line.replace(/^[\s>|#-]+/, "").split("[[");
+  const words = links.map((part) => {
+    const end = part.indexOf("]]");
+    if (end < 0) {
+      return "[[" + part;
+    }
+    const [target, alias] = part.slice(0, end).split("|", 2);
+    const shown = alias ?? (target.split("/").pop() as string);
+    return shown.trim() + part.slice(end + 2);
+  });
+  return [head, ...words].join("").replace(/[*_`]/g, "").trim();
 }
 
 // noteTrail is the folders a note sits in, outermost first: "a/b/c.md" is ["a", "b"].
