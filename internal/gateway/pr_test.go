@@ -668,3 +668,53 @@ func TestTheBaseBranchCIIsAskedOncePerMinute(t *testing.T) {
 		t.Errorf("three sessions asking, one question to the host: %d", n)
 	}
 }
+
+func TestPRWaitsForTheChecksTheBaseRuns(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	path := sessionPath(srv, ss.ID, "/pr")
+	host.set(
+		"GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(
+			ss.ID,
+		)+`"},"base":{"ref":"main"}}]`,
+	)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"}}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/main/status", `{"statuses":[]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/main/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"},`+
+			`{"id":2,"name":"lint","status":"completed","conclusion":"success"}]}`,
+	)
+	ciOf := func() map[string]any {
+		ci, _ := decode(t, get(t, srv, path, testToken))["ci"].(map[string]any)
+		return ci
+	}
+
+	// Right after the push: no job has started, then one has passed. Neither is a pass.
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[]}`)
+	if ci := ciOf(); ci["state"] != "pending" || len(ci["checks"].([]any)) != 2 {
+		t.Fatalf("no jobs yet on a repository with CI: %v", ci)
+	}
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":3,"name":"test","status":"completed","conclusion":"success"}]}`,
+	)
+	if ci := ciOf(); ci["state"] != "pending" || len(ci["checks"].([]any)) != 2 {
+		t.Fatalf("one job of two passed: %v", ci)
+	}
+	w := &prWatchState{status: prFollowing}
+	if srv.pollPR(c, w) || w.status != prFollowing {
+		t.Fatalf("the watch waits for the job too: %s", w.status)
+	}
+
+	// Past the grace, a job the push has not started is one it does not run.
+	c.stateMu.Lock()
+	c.ciRevAt = time.Now().Add(-prAwaitGrace)
+	c.stateMu.Unlock()
+	if ci := ciOf(); ci["state"] != "success" || len(ci["checks"].([]any)) != 1 {
+		t.Fatalf("a job the push does not run: %v", ci)
+	}
+}
