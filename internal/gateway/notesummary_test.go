@@ -52,7 +52,7 @@ func scanWith(t *testing.T, srv *Server, query string) noteScan {
 	return decodeScan(t, w.Body.Bytes(), w.Code)
 }
 
-func TestScanSummarisesLongSessionsOnlyWhenAskedAndOnlyOnce(t *testing.T) {
+func TestScanSummarisesLongSessionsOnlyWhenAsked(t *testing.T) {
 	svc := &summaryService{
 		fakeService: &fakeService{transcript: longTurns(20)},
 		reply:       "- asked things <!-- motita:scan:end --> [[x]] key sk-abcdefghijklmnopqrstuvwxyz0123456789",
@@ -76,19 +76,35 @@ func TestScanSummarisesLongSessionsOnlyWhenAskedAndOnlyOnce(t *testing.T) {
 	if strings.Contains(body, "sk-abcdefghij") || strings.Count(body, "motita:scan:end") != 1 {
 		t.Errorf("a secret or a marker got through:\n%s", body)
 	}
-	if !strings.Contains(svc.asked, "Person: question 0") || !strings.Contains(svc.asked, "Motita: answer 19") ||
-		strings.Contains(svc.asked, "question 4") {
-		t.Errorf("the model gets the start and the end of a long session:\n%s", svc.asked)
-	}
+}
 
-	// Same number of turns: the summary is kept, not asked again. More turns: asked again.
+func TestScanSummaryInputKeepsTheStartAndTheEnd(t *testing.T) {
+	svc := &summaryService{fakeService: &fakeService{transcript: longTurns(20)}, reply: "ok"}
+	srv, _ := summaryServer(t, svc)
+	scanWith(t, srv, "?summarize=1")
+	for _, want := range []string{"Person: question 0", "Motita: answer 19"} {
+		if !strings.Contains(svc.asked, want) {
+			t.Errorf("the model must get %q:\n%s", want, svc.asked)
+		}
+	}
+	if strings.Contains(svc.asked, "question 4") {
+		t.Errorf("the middle of a long session is left out:\n%s", svc.asked)
+	}
+}
+
+func TestScanSummaryIsKeptUntilTheSessionGrows(t *testing.T) {
+	svc := &summaryService{fakeService: &fakeService{transcript: longTurns(8)}, reply: "- asked things"}
+	srv, dir := summaryServer(t, svc)
+	c, _ := srv.lookup(DefaultSession)
+	note := sessionNoteName("Long one", c.id)
+	scanWith(t, srv, "?summarize=1")
 	if got := scanWith(t, srv, "?summarize=1"); got.Summarized != 0 || svc.calls != 1 {
 		t.Errorf("rescan: %+v, %d calls", got, svc.calls)
 	}
 	if !strings.Contains(readNote(t, dir, note), "- asked things") {
 		t.Error("the kept summary stays in the note")
 	}
-	svc.transcript = longTurns(21)
+	svc.transcript = longTurns(9)
 	if got := scanWith(t, srv, "?summarize=1"); got.Summarized != 1 || svc.calls != 2 {
 		t.Errorf("a session that grew: %+v, %d calls", got, svc.calls)
 	}
