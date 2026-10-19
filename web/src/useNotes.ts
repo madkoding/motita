@@ -118,20 +118,26 @@ export function useNotes(api: Api, setState: SetStatus) {
 
   // fillIfNew fills an empty vault from the sessions and projects the first time it is opened. It
   // is a courtesy: when it fails the person still has their empty vault and the Settings button.
-  const fillIfNew = useCallback(async () => {
-    try {
-      if ((await scanNotes(api, true)).ran) {
-        setState(t("notes created from your sessions and projects"));
-        await loadList();
+  const fillIfNew = useCallback(
+    async (count: number) => {
+      if (count !== 0) {
+        return;
       }
-    } catch {
-      // the Settings button reports a failing scan
-    }
-  }, [api, loadList, setState]);
+      try {
+        if ((await scanNotes(api, true)).ran) {
+          setState(t("notes created from your sessions and projects"));
+          await loadList();
+        }
+      } catch {
+        // the Settings button reports a failing scan
+      }
+    },
+    [api, loadList, setState],
+  );
 
   const openNotes = useCallback(() => {
     setShowNotes(true);
-    void loadList().then((n) => (n === 0 ? fillIfNew() : undefined));
+    void loadList().then(fillIfNew);
   }, [loadList, fillIfNew]);
 
   const closeNotes = useCallback(async () => {

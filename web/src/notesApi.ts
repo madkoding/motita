@@ -255,9 +255,11 @@ export interface NoteScan {
 // scanNotes writes a note for every project and every session that has been used, or updates the
 // ones it wrote before. With first, the gateway only does it for a vault that was never filled.
 export async function scanNotes(api: Api, first = false): Promise<NoteScan> {
-  const res = await api("/v1/notes/scan" + (first ? "?first=1" : ""), {
-    method: "POST",
-  });
+  let path = "/v1/notes/scan";
+  if (first) {
+    path += "?first=1";
+  }
+  const res = await api(path, { method: "POST" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || "HTTP " + res.status);
