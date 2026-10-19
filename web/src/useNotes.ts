@@ -124,7 +124,7 @@ export function useNotes(api: Api, setState: SetStatus) {
         return;
       }
       try {
-        if ((await scanNotes(api, true)).ran) {
+        if ((await scanNotes(api, { first: true })).ran) {
           setState(t("notes created from your sessions and projects"));
           await loadList();
         }

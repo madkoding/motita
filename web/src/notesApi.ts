@@ -244,6 +244,8 @@ export function layoutGraph(
 export interface NoteScan {
   // false when only a first-use scan was asked for and the vault did not need one.
   ran: boolean;
+  // Sessions the model summarised in this scan.
+  summarized: number;
   projects: number;
   sessions: number;
   created: number;
@@ -252,12 +254,29 @@ export interface NoteScan {
   skipped: number;
 }
 
+// ScanOptions: first only fills a vault that was never filled; summarize also asks the model for a
+// summary of each long session, which sends its text to the provider.
+export interface ScanOptions {
+  first?: boolean;
+  summarize?: boolean;
+}
+
 // scanNotes writes a note for every project and every session that has been used, or updates the
-// ones it wrote before. With first, the gateway only does it for a vault that was never filled.
-export async function scanNotes(api: Api, first = false): Promise<NoteScan> {
+// ones it wrote before.
+export async function scanNotes(
+  api: Api,
+  opts: ScanOptions = {},
+): Promise<NoteScan> {
+  const params = new URLSearchParams();
+  if (opts.first) {
+    params.set("first", "1");
+  }
+  if (opts.summarize) {
+    params.set("summarize", "1");
+  }
   let path = "/v1/notes/scan";
-  if (first) {
-    path += "?first=1";
+  if (params.size > 0) {
+    path += "?" + params.toString();
   }
   const res = await api(path, { method: "POST" });
   if (!res.ok) {
