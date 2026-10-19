@@ -143,7 +143,7 @@ function PendingWork({ preview }: { preview: DeletionPreview | null }) {
               { base: preview.integration.base },
             )}
           </p>
-          <ul class="space-y-1 max-h-24 overflow-y-auto">
+          <ul class="space-y-1 max-h-32 overflow-y-auto">
             {preview.integration.commits.map((c) => (
               <li key={c.sha} class="flex gap-2 text-xs">
                 <span class="text-[#9a9aaa] font-mono flex-none">{c.sha}</span>
