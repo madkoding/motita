@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func decodeCodeIndex(t *testing.T, w *httptest.ResponseRecorder) codeIndexView {
@@ -239,4 +240,61 @@ func TestANewProjectIsNotIndexedWhenTheIndexIsOffOrUnreadable(t *testing.T) {
 	missing := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+cache+"\n")
 	srv2 := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = missing })
 	srv2.indexFolder(filepath.Join(dir, "does-not-exist"))
+}
+
+func indexedState(dir, cache string) string {
+	st, _ := codeindex.Inspect(context.Background(), dir, codeindex.Options{CacheDir: cache})
+	return st.State
+}
+
+func TestProjectsAreIndexedAtStartWhenTheirIndexIsMissingOrOld(t *testing.T) {
+	cache := t.TempDir()
+	path := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  cache_dir: "+cache+"\n")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n\nfunc Hello() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ConfigPath = path
+		o.ProjectDir = t.TempDir()
+	})
+	srv.indexProjects() // no project yet: nothing to do
+	if err := srv.projects.save(Project{ID: "p1", Title: "p", Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	srv.indexProjects()
+	deadline := time.Now().Add(10 * time.Second)
+	for indexedState(dir, cache) != codeindex.StateReady && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := indexedState(dir, cache); got != codeindex.StateReady {
+		t.Fatalf("state = %q", got)
+	}
+	srv.indexFolderIfOutdated(dir) // ready: left alone
+	srv.indexFolderIfOutdated(filepath.Join(dir, "missing"))
+}
+
+func TestIndexFolderIfOutdatedSkipsAnOffOrUnreadableConfiguration(t *testing.T) {
+	cache := t.TempDir()
+	off := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: false\n  cache_dir: "+cache+"\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = off })
+	dir := t.TempDir()
+	srv.indexFolderIfOutdated(dir)
+	broken := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm: [\n") })
+	broken.indexFolderIfOutdated(dir)
+	if got := indexedState(dir, cache); got != codeindex.StateNone {
+		t.Errorf("state = %q", got)
+	}
+}
+
+func TestTheProjectIndexSaysWhenItIsBeingBuilt(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	st := codeindex.Status{State: codeindex.StateNone}
+	if srv.viewOf("/x", st).Indexing {
+		t.Error("nothing is being built")
+	}
+	srv.indexing.Store("/x", true)
+	if !srv.viewOf("/x", st).Indexing {
+		t.Error("the folder is being built")
+	}
 }

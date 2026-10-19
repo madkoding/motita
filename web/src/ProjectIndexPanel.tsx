@@ -13,8 +13,14 @@ import {
   sizeLabel,
 } from "./codeIndexApi";
 
+// While the gateway builds the index in the background, the panel asks again this often.
+const POLL_MS = 3000;
+
 // stateLabel is what the badge says.
-function stateLabel(state: IndexState): string {
+function stateLabel(state: IndexState, indexing: boolean): string {
+  if (indexing) {
+    return t("Indexing…");
+  }
   if (state === "ready") {
     return t("Up to date");
   }
@@ -112,6 +118,18 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
     };
   }, [api, id]);
 
+  useEffect(() => {
+    if (!st?.indexing) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      getProjectIndex(api, id)
+        .then(setSt)
+        .catch(() => undefined);
+    }, POLL_MS);
+    return () => clearTimeout(timer);
+  }, [api, id, st]);
+
   const build = useCallback(async () => {
     setBusy(true);
     setErr("");
@@ -146,14 +164,14 @@ export function ProjectIndexPanel({ api, id }: { api: Api; id: string }) {
             data-state={st.state}
             data-testid="project-index-state"
           >
-            {stateLabel(st.state)}
+            {stateLabel(st.state, st.indexing)}
           </span>
         )}
         <button
           type="button"
           class="ml-auto px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 disabled:opacity-40"
           data-testid="project-index-build"
-          disabled={busy || !st}
+          disabled={busy || !st || st.indexing}
           onClick={build}
         >
           {choose(busy, t("Indexing…"), t("Index now"))}
