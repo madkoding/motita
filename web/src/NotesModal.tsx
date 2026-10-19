@@ -234,7 +234,9 @@ function NoteBody() {
   };
   // Enter on a focused link is handled here too, so keyboard users follow it the same way.
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") follow(e);
+    if (e.key === "Enter") {
+      follow(e);
+    }
   };
   return (
     <div
