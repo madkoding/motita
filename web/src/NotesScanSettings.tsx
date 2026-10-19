@@ -227,19 +227,20 @@ export function NotesScanSettings({ api }: { api: Api }) {
           </button>
         </Row>
         {progress && (
-          <div
-            class="settings-card-note"
-            role="status"
+          <output
+            class="settings-card-note block"
             data-testid="notes-scan-progress"
           >
-            <div class="text-xs text-[#c8c8d2]">{progressText(progress)}</div>
-            <div class="mt-1.5 h-2 rounded-full bg-white/10 overflow-hidden">
-              <div
-                class="h-full bg-accent transition-[width] duration-500"
+            <span class="block text-xs text-[#c8c8d2]">
+              {progressText(progress)}
+            </span>
+            <span class="block mt-1.5 h-2 rounded-full bg-white/10 overflow-hidden">
+              <span
+                class="block h-full bg-accent transition-[width] duration-500"
                 style={{ width: progressShare(progress) + "%" }}
               />
-            </div>
-          </div>
+            </span>
+          </output>
         )}
         {done && (
           <output

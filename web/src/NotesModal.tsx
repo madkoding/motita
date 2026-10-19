@@ -394,6 +394,10 @@ function NoteToolbar() {
 // NEON_CSS is the map's palette as CSS colours, one per top folder.
 const NEON_CSS = NEON.map((c) => "#" + c.toString(16).padStart(6, "0"));
 
+// DOT sizes a note on the flat map: its radius grows with the links to it, up to most, and its
+// name sits lift above it.
+const DOT = { size: 5, most: 6, lift: 10 };
+
 // GRAPH_W and GRAPH_H are the box the graph is laid out in; the picture scales to the window.
 const GRAPH_W = 640;
 const GRAPH_H = 440;
@@ -533,12 +537,12 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
                 <circle
                   cx={n.x}
                   cy={n.y}
-                  r={5 + Math.min(n.in, 6)}
+                  r={DOT.size + Math.min(n.in, DOT.most)}
                   fill={NEON_CSS[noteGroup(n.path, NEON_CSS.length)]}
                 />
                 <text
                   x={n.x}
-                  y={n.y - 10 - Math.min(n.in, 6)}
+                  y={n.y - DOT.lift - Math.min(n.in, DOT.most)}
                   text-anchor="middle"
                   font-size="12"
                   fill="#e8e8ea"

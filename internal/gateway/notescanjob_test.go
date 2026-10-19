@@ -37,8 +37,10 @@ func TestScanRunsInTheBackgroundAndSaysHowFarItGot(t *testing.T) {
 		t.Fatalf("start: %d %s", w.Code, w.Body)
 	}
 	p := waitScan(t, srv)
-	if p.Result == nil || p.Result.Mapped != 1 || p.Result.Documented == 0 || p.Done != 1 || p.Total != 1 ||
-		p.Error != "" {
+	if p.Result == nil || p.Result.Mapped != 1 || p.Result.Documented == 0 {
+		t.Errorf("finished without the manual: %+v", p)
+	}
+	if p.Done != 1 || p.Total != 1 || p.Error != "" {
 		t.Errorf("finished: %+v", p)
 	}
 }
@@ -50,8 +52,12 @@ func TestScanInTheBackgroundRunsOneAtATimeAndReportsFailures(t *testing.T) {
 	}
 	tr.update(func(p *scanProgress) { p.Total = 3 })
 	tr.finish(noteScan{}, os.ErrPermission)
-	if got := tr.get(); got.Running || got.Error == "" || got.Done != 3 || got.Result != nil {
+	got := tr.get()
+	if got.Running || got.Error == "" {
 		t.Errorf("failed: %+v", got)
+	}
+	if got.Done != 3 || got.Result != nil {
+		t.Errorf("failed with a result: %+v", got)
 	}
 	var none *scanTracker
 	none.update(func(*scanProgress) { t.Error("a nil tracker records nothing") })

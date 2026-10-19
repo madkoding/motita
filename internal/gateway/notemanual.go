@@ -26,7 +26,9 @@ import (
 // with the model on, each chapter also gets an explanation in plain words, kept until the folder
 // changes.
 const (
-	manualSuffix       = " - Manual"
+	manualSuffix = " - Manual"
+	// manualOldSuffix ended the folder of the first manual layout; links still name the manual
+	// "<title> manual" in their visible text.
 	manualOldSuffix    = " manual"
 	manualStart        = "Start here"
 	manualSep          = " › "
@@ -428,7 +430,7 @@ func aliasLink(name, label string) string {
 
 func (c manualCtx) link(rel string) string {
 	if ch, ok := c.chapters[rel]; ok && rel == "" {
-		return aliasLink(ch.name, c.title+" manual")
+		return aliasLink(ch.name, c.title+manualOldSuffix)
 	}
 	if ch, ok := c.chapters[rel]; ok {
 		return aliasLink(ch.name, humanName(rel))
@@ -706,7 +708,8 @@ func (m *moduleInfo) reference() string {
 	if text == "" {
 		return ""
 	}
-	return "\n## For developers\nThe names this folder offers to the rest of the code, with what their comments say.\n" + text
+	return "\n## For developers\n" +
+		"The names this folder offers to the rest of the code, with what their comments say.\n" + text
 }
 
 func keys(set map[string]bool) []string {
@@ -744,7 +747,7 @@ func (c manualCtx) byline(m *moduleInfo) string {
 			"note %s and the architecture overview %s.*\n", cell(c.title), c.project, c.arch)
 	}
 	return fmt.Sprintf("*A chapter of the %s. Folder `%s/`, inside %s.*\n",
-		aliasLink(c.start, c.title+" manual"), cell(m.rel), c.link(parentRel(m.rel)))
+		aliasLink(c.start, c.title+manualOldSuffix), cell(m.rel), c.link(parentRel(m.rel)))
 }
 
 // startBody is the first note of the manual: what the project is and how it is organised.
@@ -814,7 +817,7 @@ func writeManual(
 		order = append(order, ch)
 	}
 	for _, ch := range order {
-		title := c.title + " manual"
+		title := c.title + manualOldSuffix
 		if ch.m.rel != "" {
 			title = humanName(ch.m.rel)
 		}
@@ -826,7 +829,7 @@ func writeManual(
 	}
 	pruneManual(v, root, taken)
 	pruneManual(v, manualRoot(projectNote, manualOldSuffix), taken)
-	return aliasLink(c.start, c.title+" manual")
+	return aliasLink(c.start, c.title+manualOldSuffix)
 }
 
 // pruneManual deletes the notes of a manual's folder that this scan did not write and that hold

@@ -192,7 +192,9 @@ func TestManualChaptersExplainEachFolder(t *testing.T) {
 func TestManualDocumentsScriptsAndDocs(t *testing.T) {
 	read, _, _ := writtenManual(t)
 	wantAll(t, "web chapter", read("web"),
-		"### Exports\n- `class Main` in app.ts: Big doc.\n", "- `function start` in app.ts: The app. It runs.", "- `const y` in app.ts\n",
+		"### Exports\n- `class Main` in app.ts: Big doc.\n",
+		"- `function start` in app.ts: The app. It runs.",
+		"- `const y` in app.ts\n",
 		"- `class Main` in app.ts: Big doc.", "### Folders\n- [[Projects/M - Manual/web › util|Util]]: ")
 	wantAll(t, "python chapter", read("py"), "- `def run` in tool.py: Does it.", "- `class Thing` in tool.py\n")
 	wantAll(t, "guide chapter", read("docs › guide"), "- **intro.md** (1 line)\n", manualHint)
@@ -252,7 +254,8 @@ func TestManualRemovesWhatIsNoLongerThere(t *testing.T) {
 	for _, n := range v.List() {
 		left = append(left, n.Path)
 	}
-	want := "Projects/M - Manual/A.md Projects/M - Manual/Start here.md Projects/M manual/kept.md Projects/M manual/mine.md"
+	want := "Projects/M - Manual/A.md Projects/M - Manual/Start here.md " +
+		"Projects/M manual/kept.md Projects/M manual/mine.md"
 	if strings.Join(left, " ") != want || res.Skipped != 1 {
 		t.Errorf("left %v, skipped %d", left, res.Skipped)
 	}

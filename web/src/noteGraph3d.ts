@@ -3,17 +3,27 @@
 // note opens it. A search lights the notes it finds and turns the camera to the first. Where the
 // bloom effect loads, everything glows. three.js is loaded only when the map opens, and only where
 // WebGL works; anywhere else the window keeps the flat drawing.
-import type * as Three from "three";
+import type {
+  Camera,
+  Group,
+  LineSegments,
+  Material,
+  Mesh,
+  Points,
+  Scene,
+  WebGLRenderer,
+} from "three";
 import type { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { choose } from "./choose";
 import {
+  GOLDEN_ANGLE,
   layoutGraph3D,
   noteGroup,
   type NoteGraph,
   type PlacedNode3D,
 } from "./notesApi";
 
-type ThreeLib = typeof Three;
+type ThreeLib = typeof import("three");
 
 // Fx is the bloom: the post-processing passes of three.js, loaded apart from it.
 export interface Fx {
@@ -24,9 +34,44 @@ export interface Fx {
 }
 
 // The neon palette: a colour per top folder.
-export const NEON = [
-  0x00f0ff, 0xff2bd6, 0xf5f500, 0x7cff4f, 0x9d4dff, 0xff8a00,
-];
+const CYAN = 0x00f0ff;
+const MAGENTA = 0xff2bd6;
+const YELLOW = 0xf5f500;
+const LIME = 0x7cff4f;
+const VIOLET = 0x9d4dff;
+const ORANGE = 0xff8a00;
+export const NEON = [CYAN, MAGENTA, YELLOW, LIME, VIOLET, ORANGE];
+const FOG = { color: 0x07010f, density: 0.0011 };
+const LENS = { fov: 55, near: 1, far: 3000, rise: 0.42 };
+const GRID = {
+  size: 1400,
+  cells: 48,
+  axis: MAGENTA,
+  lines: 0x6a1fb0,
+  drop: 1.3,
+};
+const GLOW = { resolution: 256, strength: 0.75, radius: 0.4, threshold: 0.12 };
+// The stars lie on a sphere, spread by the golden angle.
+const SKY = { radius: 900 };
+const ORB = {
+  size: 3.4,
+  growth: 0.6,
+  most: 8,
+  halo: 2.4,
+  segments: 20,
+  rings: 14,
+};
+// How the map answers the hand and how it breathes: turn per pixel dragged, tilt limit, zoom per
+// wheel step, how fast the camera glides, the size of a found note and the pulse of every note.
+const MOTION = {
+  turn: 0.008,
+  tilt: 1.2,
+  zoom: 0.4,
+  glide: 0.08,
+  found: 1.8,
+  pulse: 0.08,
+  beat: 0.05,
+};
 const RADIUS = 120;
 const CAMERA_DISTANCE = 330;
 const NEAREST = 140;
@@ -36,6 +81,8 @@ const FARTHEST = 700;
 const LABELS = 14;
 const SPIN = 0.0016;
 const STARS = 600;
+// Each point takes three numbers: x, y and z.
+const XYZ = 3;
 
 // graph3d is how the window reaches WebGL and three.js; the tests replace them.
 export const graph3d = {
@@ -75,9 +122,9 @@ export interface Graph3D {
 function bloom(
   T: ThreeLib,
   fx: Fx | undefined,
-  renderer: Three.WebGLRenderer,
-  scene: Three.Scene,
-  camera: Three.Camera,
+  renderer: WebGLRenderer,
+  scene: Scene,
+  camera: Camera,
 ): EffectComposer | null {
   if (!fx) {
     return null;
@@ -85,23 +132,28 @@ function bloom(
   const composer = new fx.EffectComposer(renderer);
   composer.addPass(new fx.RenderPass(scene, camera));
   composer.addPass(
-    new fx.UnrealBloomPass(new T.Vector2(256, 256), 0.75, 0.4, 0.12),
+    new fx.UnrealBloomPass(
+      new T.Vector2(GLOW.resolution, GLOW.resolution),
+      GLOW.strength,
+      GLOW.radius,
+      GLOW.threshold,
+    ),
   );
   composer.addPass(new fx.OutputPass());
   return composer;
 }
 
 // starfield is a cloud of points far around the map, the same every time.
-function starfield(T: ThreeLib): Three.Points {
+function starfield(T: ThreeLib): Points {
   const pos: number[] = [];
   for (let i = 0; i < STARS; i++) {
-    const a = i * 2.399963;
+    const a = i * GOLDEN_ANGLE;
     const y = 1 - (2 * (i + 0.5)) / STARS;
-    const r = Math.sqrt(1 - y * y) * 900;
-    pos.push(Math.cos(a) * r, y * 900, Math.sin(a) * r);
+    const r = Math.sqrt(1 - y * y) * SKY.radius;
+    pos.push(Math.cos(a) * r, y * SKY.radius, Math.sin(a) * r);
   }
   const geo = new T.BufferGeometry();
-  geo.setAttribute("position", new T.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("position", new T.Float32BufferAttribute(pos, XYZ));
   return new T.Points(
     geo,
     new T.PointsMaterial({
@@ -118,7 +170,7 @@ function links(
   T: ThreeLib,
   graph: NoteGraph,
   at: Map<string, PlacedNode3D>,
-): Three.LineSegments {
+): LineSegments {
   const pos: number[] = [];
   for (const e of graph.edges) {
     const a = at.get(e.from) as PlacedNode3D;
@@ -126,7 +178,7 @@ function links(
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
   }
   const geo = new T.BufferGeometry();
-  geo.setAttribute("position", new T.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("position", new T.Float32BufferAttribute(pos, XYZ));
   return new T.LineSegments(
     geo,
     new T.LineBasicMaterial({
@@ -139,15 +191,15 @@ function links(
 }
 
 // orb is one note: a bright core and a soft halo around it, the bigger the more notes link to it.
-function orb(T: ThreeLib, node: PlacedNode3D): Three.Group {
+function orb(T: ThreeLib, node: PlacedNode3D): Group {
   const color = NEON[noteGroup(node.path, NEON.length)];
-  const size = 3.4 + Math.min(node.in, 8) * 0.6;
+  const size = ORB.size + Math.min(node.in, ORB.most) * ORB.growth;
   const core = new T.Mesh(
-    new T.SphereGeometry(size, 20, 14),
+    new T.SphereGeometry(size, ORB.segments, ORB.rings),
     new T.MeshBasicMaterial({ color }),
   );
   const halo = new T.Mesh(
-    new T.SphereGeometry(size * 2.4, 20, 14),
+    new T.SphereGeometry(size * ORB.halo, ORB.segments, ORB.rings),
     new T.MeshBasicMaterial({
       color,
       transparent: true,
@@ -183,7 +235,7 @@ export function mountGraph3D(
   host: HTMLElement,
   graph: NoteGraph,
   onOpen: (path: string) => void,
-  reducedMotion: boolean,
+  still: boolean,
   fx?: Fx,
 ): Graph3D {
   const renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
@@ -192,21 +244,21 @@ export function mountGraph3D(
   host.appendChild(renderer.domElement);
 
   const scene = new T.Scene();
-  scene.fog = new T.FogExp2(0x07010f, 0.0011);
-  const camera = new T.PerspectiveCamera(55, 1, 1, 3000);
+  scene.fog = new T.FogExp2(FOG.color, FOG.density);
+  const camera = new T.PerspectiveCamera(LENS.fov, 1, LENS.near, LENS.far);
   // A bigger vault spreads wider, and the camera stands farther back to see it.
   const scale = Math.max(1, Math.cbrt(graph.nodes.length / 20));
   camera.position.set(
     0,
-    CAMERA_DISTANCE * scale * 0.42,
+    CAMERA_DISTANCE * scale * LENS.rise,
     CAMERA_DISTANCE * scale,
   );
   camera.lookAt(0, 0, 0);
 
   const composer = bloom(T, fx, renderer, scene, camera);
 
-  const grid = new T.GridHelper(1400, 48, 0xff2bd6, 0x6a1fb0);
-  grid.position.y = -RADIUS * scale * 1.3;
+  const grid = new T.GridHelper(GRID.size, GRID.cells, GRID.axis, GRID.lines);
+  grid.position.y = -RADIUS * scale * GRID.drop;
   scene.add(grid, starfield(T));
 
   const world = new T.Group();
@@ -247,10 +299,13 @@ export function mountGraph3D(
     if (!drag) {
       return;
     }
-    world.rotation.y += (e.clientX - drag.x) * 0.008;
+    world.rotation.y += (e.clientX - drag.x) * MOTION.turn;
     world.rotation.x = Math.max(
-      -1.2,
-      Math.min(1.2, world.rotation.x + (e.clientY - drag.y) * 0.008),
+      -MOTION.tilt,
+      Math.min(
+        MOTION.tilt,
+        world.rotation.x + (e.clientY - drag.y) * MOTION.turn,
+      ),
     );
     drag = { x: e.clientX, y: e.clientY };
   };
@@ -261,7 +316,10 @@ export function mountGraph3D(
     e.preventDefault();
     const d = Math.max(
       NEAREST,
-      Math.min(FARTHEST * scale, camera.position.length() + e.deltaY * 0.4),
+      Math.min(
+        FARTHEST * scale,
+        camera.position.length() + e.deltaY * MOTION.zoom,
+      ),
     );
     camera.position.setLength(d);
   };
@@ -274,24 +332,25 @@ export function mountGraph3D(
   // The camera looks at target, which glides to the note found, or back to the middle.
   const target = new T.Vector3();
   const aim = new T.Vector3();
-  let focus: Three.Group | null = null;
+  let focus: Group | null = null;
   let frame = 0;
   let t = 0;
   const draw = () => {
     t += 1;
-    if (!drag && !reducedMotion && !focus) {
+    if (!drag && !still && !focus) {
       world.rotation.y += SPIN;
     }
     world.updateMatrixWorld();
     aim.set(0, 0, 0);
     focus?.getWorldPosition(aim);
-    target.lerp(aim, 0.08);
+    target.lerp(aim, MOTION.glide);
     camera.lookAt(target);
     const w = host.clientWidth;
     const h = host.clientHeight;
     for (const [i, { o, b }] of marks.entries()) {
       o.scale.setScalar(
-        choose(o === focus, 1.8, 1) + Math.sin(t * 0.05 + i) * 0.08,
+        choose(o === focus, MOTION.found, 1) +
+          Math.sin(t * MOTION.beat + i) * MOTION.pulse,
       );
       o.getWorldPosition(v);
       v.project(camera);
@@ -331,9 +390,9 @@ export function mountGraph3D(
       host.removeEventListener("pointerdown", down);
       host.removeEventListener("wheel", wheel);
       scene.traverse((obj) => {
-        const mesh = obj as Three.Mesh;
+        const mesh = obj as Mesh;
         mesh.geometry?.dispose();
-        (mesh.material as Three.Material | undefined)?.dispose();
+        (mesh.material as Material | undefined)?.dispose();
       });
       composer?.dispose();
       renderer.dispose();

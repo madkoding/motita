@@ -254,20 +254,24 @@ const GRAVITY_3D = 0.04;
 // layoutGraph3D places the notes in space around the origin, within about radius: they start
 // spread evenly over a sphere, then every pair pushes apart, every link pulls together and the
 // whole drifts to the middle. Big vaults get fewer rounds; the same vault always lands the same.
+// GOLDEN_ANGLE, in radians, spreads points evenly round a sphere: π·(3 − √5).
+export const GOLDEN_ANGLE = 2.399963229728653;
+// HASH folds a folder's name into a small number, the same on every run.
+const HASH = { base: 31, mod: 9973 };
+
 export function layoutGraph3D(
   graph: NoteGraph,
   radius: number,
 ): PlacedNode3D[] {
   const n = graph.nodes.length;
-  const golden = Math.PI * (3 - Math.sqrt(5));
   const placed: PlacedNode3D[] = graph.nodes.map((node, i) => {
     const y = 1 - ((i + 0.5) / n) * 2;
     const r = Math.sqrt(1 - y * y);
     return {
       ...node,
-      x: Math.cos(golden * i) * r * radius,
+      x: Math.cos(GOLDEN_ANGLE * i) * r * radius,
       y: y * radius,
-      z: Math.sin(golden * i) * r * radius,
+      z: Math.sin(GOLDEN_ANGLE * i) * r * radius,
     };
   });
   const at = new Map(placed.map((p) => [p.path, p]));
@@ -297,7 +301,7 @@ export function layoutGraph3D(
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       const dz = a.z - b.z;
-      const pull = Math.sqrt(dx * dx + dy * dy + dz * dz) / k;
+      const pull = Math.hypot(dx, dy, dz) / k;
       const da = move.get(a) as { x: number; y: number; z: number };
       const db = move.get(b) as { x: number; y: number; z: number };
       da.x -= dx * pull;
@@ -309,7 +313,7 @@ export function layoutGraph3D(
     }
     for (const p of placed) {
       const m = move.get(p) as { x: number; y: number; z: number };
-      const len = Math.max(Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z), 0.01);
+      const len = Math.max(Math.hypot(m.x, m.y, m.z), 0.01);
       const shift = Math.min(len, (radius / 10) * cool + 0.5);
       p.x += (m.x / len) * shift;
       p.y += (m.y / len) * shift;
@@ -366,7 +370,7 @@ export function noteGroup(path: string, groups: number): number {
   }
   let hash = 0;
   for (const ch of key) {
-    hash = (hash * 31 + (ch.codePointAt(0) as number)) % 9973;
+    hash = (hash * HASH.base + (ch.codePointAt(0) as number)) % HASH.mod;
   }
   return hash % groups;
 }

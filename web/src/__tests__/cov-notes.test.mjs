@@ -996,7 +996,8 @@ test("layoutGraph3D spreads the notes in space the same way every time", () => {
   }
   const ab = Math.hypot(one[0].x - one[1].x, one[0].y - one[1].y);
   const ac = Math.hypot(one[0].x - one[2].x, one[0].y - one[2].y);
-  assert.ok(ab > 0 && ac > 0);
+  assert.ok(ab > 0, "the first two notes are apart");
+  assert.ok(ac > 0, "the first and third notes are apart");
   assert.deepEqual(
     api.layoutGraph3D({ nodes: [], edges: [], missing: 0 }, 100),
     [],
