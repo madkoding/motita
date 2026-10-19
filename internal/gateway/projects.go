@@ -129,6 +129,23 @@ func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// newProjectFolder is the absolute folder of a project being created: the absolute path chosen
+// outside the workspace, or the folder name chosen inside it.
+func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (string, bool) {
+	if strings.TrimSpace(path) != "" {
+		return s.externalProjectFolder(w, path)
+	}
+	name, ok := projectFolderName(w, dir)
+	if !ok {
+		return "", false
+	}
+	if s.opts.WorkspaceDir == "" {
+		writeError(w, http.StatusInternalServerError, "no workspace directory is configured")
+		return "", false
+	}
+	return filepath.Join(s.opts.WorkspaceDir, name), true
+}
+
 // handleCreateProject mints a new project, optionally cloning a git repo.
 //
 // The request body carries:
@@ -171,25 +188,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the title cannot be empty")
 		return
 	}
-	var dirName, external string
-	var ok bool
-	if strings.TrimSpace(body.Path) != "" {
-		external, ok = s.externalProjectFolder(w, body.Path)
-	} else {
-		dirName, ok = projectFolderName(w, body.Dir)
-	}
+	absDir, ok := s.newProjectFolder(w, body.Path, body.Dir)
 	if !ok {
 		return
-	}
-	// Resolve the absolute directory under the workspace.
-	workspace := s.opts.WorkspaceDir
-	if workspace == "" {
-		writeError(w, http.StatusInternalServerError, "no workspace directory is configured")
-		return
-	}
-	absDir := filepath.Join(workspace, dirName)
-	if external != "" {
-		absDir = external
 	}
 
 	gitURL := strings.TrimSpace(body.GitURL)
