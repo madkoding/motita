@@ -160,35 +160,6 @@ export function shortID(id: string): string {
   return id;
 }
 
-// shortBranch keeps a branch name readable when it is one this program
-// generated. `motita/<id>` is the session's OWN branch and the id is the only
-// part that varies, so it is shown as `motita/<first 7>`; a branch the user
-// chose is short and is shown exactly as it is.
-export function shortBranch(b: string): string {
-  const m = /^motita\/(.+)$/.exec(b);
-  if (m && m[1].length > SHORT_ID_LEN) {
-    return "motita/" + shortID(m[1]);
-  }
-  return b;
-}
-
-// sessionWorktreeChip decides whether a session's worktree needs saying at all.
-//
-// A session on its own branch IS in the worktree that branch names, so printing
-// the id twice is one fact twice: `motita/s63bb92` beside `⌥ s63bb92`. The two
-// differ in exactly one case - the user moved the session to another branch -
-// and that is the case where the worktree is the only way to tell which session
-// the branch belongs to.
-export function sessionWorktreeChip(s: SessionInfo): string {
-  if (!s.worktree || !s.branch) {
-    return "";
-  }
-  if (s.branch === "motita/" + s.worktree) {
-    return "";
-  }
-  return shortID(s.worktree);
-}
-
 // formatUpdated renders when a session was last used, as dd/mm/yyyy :: HH:mm:ss.
 //
 // Seconds and the full year are carried even though a sidebar usually shows
@@ -251,14 +222,6 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
         "1 background agent running",
         "{n} background agents running",
       ),
-    !!s.branch && tf("Branch: {branch}", { branch: s.branch }),
-    !!sessionWorktreeChip(s) &&
-      tf("Worktree: {worktree}", { worktree: String(s.worktree) }),
-    !!s.model &&
-      tf("Model: {provider} / {model}", {
-        provider: s.provider || "",
-        model: s.model,
-      }),
     !!s.changes && changesTitle(s.changes),
   ]);
 }
