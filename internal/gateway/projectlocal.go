@@ -72,10 +72,12 @@ func localRepoProblem(ctx context.Context, p *Project, dir, name, dest string) (
 // checked out stays.
 func placeLocalRepo(ctx context.Context, p *Project, name, src, dest string, env []string) (ProjectRepo, error) {
 	branch := freeProjectBranch(ctx, src, p)
-	if err := gitx.AddWorktree(ctx, src, dest, branch); err != nil {
+	// The project's branch starts on the main branch, not on whatever the user has checked out.
+	mainBranch := localMainBranch(ctx, src)
+	if err := gitx.AddWorktreeFrom(ctx, src, dest, branch, mainBranch); err != nil {
 		return ProjectRepo{}, err
 	}
-	return ProjectRepo{Name: name, GitURL: originOf(src, env), Dir: src, MainBranch: localMainBranch(ctx, src),
+	return ProjectRepo{Name: name, GitURL: originOf(src, env), Dir: src, MainBranch: mainBranch,
 		Shared: true, Local: true, ProjectBranch: branch}, nil
 }
 

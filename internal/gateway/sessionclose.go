@@ -63,6 +63,11 @@ func (s *Server) closeProjectSessions(sessions []*conversation, discard bool) er
 		c.beginClosing()
 	}
 	err := s.stopProjectRuns(sessions)
+	if err == nil && !discard {
+		// Every checkout is proven safe BEFORE any is given back: a refusal over the last one must
+		// not find the first ones already removed under sessions that stay.
+		err = s.refuseAnyUnsafeRelease(sessions)
+	}
 	for _, c := range sessions {
 		if err != nil {
 			break
@@ -75,6 +80,18 @@ func (s *Server) closeProjectSessions(sessions []*conversation, discard bool) er
 		}
 	}
 	return err
+}
+
+// refuseAnyUnsafeRelease is the first refusal releasing one of the sessions' checkouts would meet.
+func (s *Server) refuseAnyUnsafeRelease(sessions []*conversation) error {
+	for _, c := range sessions {
+		if release := s.inspectWorktree(c); release.Workspace != "" {
+			if err := refuseUnsafeRelease(release); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // stopProjectRuns stops the run of every session of a project being deleted and waits for each.

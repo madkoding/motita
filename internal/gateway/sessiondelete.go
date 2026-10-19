@@ -3,9 +3,11 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/madkoding/motita/internal/gitx"
@@ -215,6 +217,12 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		}
 		out.Sessions = append(out.Sessions, entry)
 	}
+	// The project's folders of its other repositories go with it too, and so does what they hold.
+	repoChanges := s.discardedRepoChanges(r.Context(), s.projectOf(id))
+	for _, dir := range slices.Sorted(maps.Keys(repoChanges)) {
+		out.Sessions = append(out.Sessions, sessionPreview{ID: "repo:" + dir, Title: dir, Changes: repoChanges[dir]})
+		out.Count += len(repoChanges[dir])
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -401,11 +409,29 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 		return fmt.Errorf("the session's checkout at %s could not be removed (%v): "+
 			"remove it with `git worktree remove %s` and delete the session again", workspace, err, workspace)
 	}
+	dropSessionBranches(context.Background(), c.id, release)
 	if s.opts.Log != nil {
 		s.opts.Log.Info("the session's worktree was released with it",
 			"id", c.id, "worktree", workspace, "branch", sessionBranch(c.id))
 	}
 	return nil
+}
+
+// dropSessionBranches deletes the session's branch from the repositories it had a worktree of, once
+// that worktree is gone: a branch per opened session would otherwise pile up in the project's
+// repository, and in every shared or user's repository, for ever. Only a branch with nothing
+// unmerged goes (`git branch -d`): commits that exist nowhere else are work, and the branch that
+// holds them stays.
+func dropSessionBranches(ctx context.Context, sessionID string, release worktreeRelease) {
+	branch := sessionBranch(sessionID)
+	dirs := []string{release.ProjectDir}
+	for _, wt := range release.Repos {
+		dirs = append(dirs, wt[0])
+	}
+	for _, dir := range distinctDirs(dirs) {
+		// Advisory: unmerged work, or a branch the repository never had, keeps it.
+		_ = gitx.DeleteBranch(ctx, dir, branch)
+	}
 }
 
 // refuseUnsafeRelease is why a checkout cannot be released without the user's word: its

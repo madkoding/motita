@@ -182,7 +182,11 @@ func newTestServer(t *testing.T, svc Service, mutators ...func(*Options)) *Serve
 		t.Fatalf("Start: %v", err)
 	}
 	go func() { _ = srv.Serve() }()
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() {
+		// A background update of a main branch must end before the test's directories are removed.
+		srv.mainRefresh.wait()
+		_ = srv.Close(context.Background())
+	})
 	return srv
 }
 

@@ -373,6 +373,53 @@ func releaseSharedRepos(ctx context.Context, p *Project) {
 	}
 }
 
+// releaseProjectFolder is what a deleted project gives back: its own folder (projectDir, "" when the
+// project does not own one) with what it held in the catalog, or, in a folder of the user's own,
+// which stays, the repositories motita put inside it: their worktrees and the branches they hold in
+// the shared and local repositories are the project's.
+func (s *Server) releaseProjectFolder(ctx context.Context, p *Project, projectDir string) {
+	switch {
+	case projectDir != "":
+		// Best effort: the project is already gone, and a folder that resists (a file in use)
+		// is left for the user rather than failing a deletion that has otherwise happened.
+		_ = os.RemoveAll(projectDir)
+		releaseSharedRepos(ctx, p)
+	case p != nil && s.usersFolder(p.Dir):
+		for _, repo := range p.Repos {
+			s.discardRepoFolder(ctx, p, repo)
+		}
+	default:
+		// A folder another project also stands on, or no project: nothing of it is this one's.
+	}
+}
+
+// discardedRepoChanges are the uncommitted changes deleting p throws away in the project's folders
+// of its other repositories (the worktrees of shared ones always go; a clone of its own goes with a
+// folder the project owns), each path under the repository's folder, and the folders they are in.
+func (s *Server) discardedRepoChanges(ctx context.Context, p *Project) map[string][]gitx.Change {
+	out := map[string][]gitx.Change{}
+	if p == nil {
+		return out
+	}
+	for _, repo := range p.Repos {
+		var changes []gitx.Change
+		if repo.Shared || s.ownsProjectDir(p.Dir) {
+			// A folder that cannot be read is not proven to hold work; the deletion's own
+			// confirmation covers it.
+			changes, _ = worktreeInspectList(ctx, p.repoPath(repo))
+		}
+		if len(changes) == 0 {
+			continue
+		}
+		rel := repo.relPath(p.Dir)
+		for i := range changes {
+			changes[i].Path = filepath.Join(rel, changes[i].Path)
+		}
+		out[rel] = changes
+	}
+	return out
+}
+
 // fastForward moves the branch checked out at dir forward to ref, when it can without a merge.
 func fastForward(ctx context.Context, dir, ref string) error {
 	args := append(append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...), "merge", "--ff-only", ref)
@@ -466,14 +513,27 @@ func (s *Server) attachProjectRepos(ctx context.Context, p *Project, workspace, 
 		}
 		// A new session starts from current code, as the main repository's does. Advisory: a
 		// clone with no origin, or one that cannot fast-forward, branches from what it has.
-		_ = gitx.PullFastForward(ctx, repo.Dir, gitx.Display(ctx, repo.Dir))
-		if err := gitx.AddWorktree(ctx, repo.Dir, path, sessionBranch(sessionID)); err != nil {
+		// The user's own repository is never fetched into: the branch they have out is theirs.
+		if !repo.Local {
+			_ = gitx.PullFastForward(ctx, repo.Dir, gitx.Display(ctx, repo.Dir))
+		}
+		if err := gitx.AddWorktreeFrom(ctx, repo.Dir, path, sessionBranch(sessionID), sessionStart(ctx, repo)); err != nil {
 			s.warn("the session has no worktree of one of the project's repositories",
 				"id", sessionID, "repo", repo.Name, "error", err.Error())
 			continue
 		}
 		gitx.LinkDependencyDirs(repo.Dir, path)
 	}
+}
+
+// sessionStart is where a session's branch of one of the project's other repositories starts: the
+// repository's main branch when it is shared (the catalog's clone, or the user's own repository,
+// whose checked-out branch is theirs), else the clone's HEAD.
+func sessionStart(ctx context.Context, repo ProjectRepo) string {
+	if repo.Shared && repo.MainBranch != "" && gitx.BranchExists(ctx, repo.Dir, repo.MainBranch) {
+		return repo.MainBranch
+	}
+	return ""
 }
 
 // sessionRepoWorktrees are the worktrees of the project's other repositories a session has

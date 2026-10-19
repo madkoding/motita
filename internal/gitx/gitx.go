@@ -419,6 +419,16 @@ func Branches(ctx context.Context, dir string) ([]string, error) {
 	return names, nil
 }
 
+// SessionBranches lists the session branches this program made in the repository at dir: the local
+// branches under motita/. None when they cannot be read.
+func SessionBranches(ctx context.Context, dir string) []string {
+	out, err := execute(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/motita/")
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(out)
+}
+
 // Checkout puts the checkout at dir on a branch. A branch that exists only on origin is created
 // locally, tracking it. Git's own refusal (uncommitted changes that would be overwritten, a
 // branch checked out in another worktree) is reported as it is.
@@ -619,6 +629,13 @@ func Dirty(ctx context.Context, dir string) (bool, error) {
 // at"), which is the rule that stops two sessions from working in one directory
 // at the same time.
 func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
+	return AddWorktreeFrom(ctx, repoDir, path, branch, "")
+}
+
+// AddWorktreeFrom is AddWorktree with the start point of a branch that does not exist yet: start
+// (a branch or commit) instead of the repository's HEAD, which in a repository the user works in is
+// whatever they have checked out. "" is HEAD. A branch that exists keeps its own history.
+func AddWorktreeFrom(ctx context.Context, repoDir, path, branch, start string) error {
 	root, err := Root(ctx, repoDir)
 	if err != nil {
 		return err
@@ -650,7 +667,11 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 	if BranchExists(ctx, repoDir, branch) {
 		out, err = execute(ctx, repoDir, "worktree", "add", path, branch)
 	} else {
-		out, err = execute(ctx, repoDir, "worktree", "add", "-b", branch, path)
+		args := []string{"worktree", "add", "-b", branch, path}
+		if start != "" {
+			args = append(args, start)
+		}
+		out, err = execute(ctx, repoDir, args...)
 	}
 	if err != nil {
 		return describe("the worktree could not be created", out, err)

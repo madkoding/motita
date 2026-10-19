@@ -166,13 +166,14 @@ func TestAContinueWithoutABaseBranchIsRefused(t *testing.T) {
 	}
 }
 
-// A project with no origin remote cannot be updated to the latest base branch, so
+// A project whose origin cannot be reached cannot be updated to the latest base branch, so
 // continuing is refused with the git error rather than branching from stale code.
 func TestAContinueRefusesWhenThePullFails(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	ws := t.TempDir()
 	withProjects(t, srv, ws)
 	pid := makeProject(t, srv, "repo")
+	mustRun(t, "git", "-C", srv.projectOf(pid).Dir, "remote", "add", "origin", filepath.Join(ws, "gone.git"))
 	ss := createSessionIn(t, srv, pid)
 	c, _ := srv.lookup(ss.ID)
 	c.setMerged("abc123")

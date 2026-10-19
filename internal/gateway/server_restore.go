@@ -39,6 +39,7 @@ func (s *Server) loadPersistedSessions() {
 		known[c.id] = true
 	}
 	s.pruneFreeSessionDirs(known)
+	s.pruneSessionBranches(known)
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
 	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
 	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
