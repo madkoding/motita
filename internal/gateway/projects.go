@@ -777,6 +777,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// the sessions unreachable AND their worktrees gone.
 	for _, c := range sessions {
 		c.closeForGood()
+		s.forgetCheckpoints(c)
 		s.forget(c.id)
 		s.deletePersistedSession(c.id)
 	}

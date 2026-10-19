@@ -202,3 +202,33 @@ func TestDistinctDirsDropsTheSameFolderTwice(t *testing.T) {
 		t.Errorf("distinctDirs = %v", got)
 	}
 }
+
+// A project deletion refused over one session's uncommitted work removes no session's checkout.
+func TestARefusedProjectDeletionKeepsEverySessionsWorktree(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjectsAndFake(t, srv, ws)
+	pid := makeProject(t, srv, "repo")
+	a := createSessionIn(t, srv, pid)
+	b := createSessionIn(t, srv, pid)
+	write(t, filepath.Join(b.Workspace, "wip.txt"), "wip")
+	write(t, filepath.Join(a.Workspace, "wip2.txt"), "wip")
+	if w := doDelete(t, srv, "/v1/projects/"+pid); w.Code != http.StatusConflict {
+		t.Fatalf("want 409: %d %s", w.Code, w.Body)
+	}
+	for _, ss := range []SessionStatus{a, b} {
+		if _, err := os.Stat(ss.Workspace); err != nil {
+			t.Errorf("session %s lost its worktree: %v", ss.ID, err)
+		}
+	}
+	// Only the last one holds work: the clean one before it must not be given back either.
+	_ = os.Remove(filepath.Join(a.Workspace, "wip2.txt"))
+	if w := doDelete(t, srv, "/v1/projects/"+pid); w.Code != http.StatusConflict {
+		t.Fatalf("want 409: %d %s", w.Code, w.Body)
+	}
+	for _, ss := range []SessionStatus{a, b} {
+		if _, err := os.Stat(ss.Workspace); err != nil {
+			t.Errorf("after 2nd: session %s lost its worktree: %v", ss.ID, err)
+		}
+	}
+}
