@@ -192,3 +192,27 @@ func TestMigrationOfAProjectDeletedMeanwhile(t *testing.T) {
 		t.Fatalf("a project that is gone: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// On start, every shared folder that can move becomes a plain clone, and one that cannot yet
+// (uncommitted work) stays shared, with the project's other repositories untouched.
+func TestStartingMigratesTheSharedRepositoriesThatCan(t *testing.T) {
+	srv, id, dir := sharedRepoProject(t)
+	newSharedSession(t, srv, id) // a live session is told about the change
+	srv.migrateSharedRepos(context.Background())
+	if repo := srv.projectOf(id).Repos[0]; repo.Shared {
+		t.Fatalf("a clean shared repository migrates on start: %+v", repo)
+	}
+	srv.migrateSharedRepos(context.Background()) // a plain clone is left alone
+
+	srv2, id2, dir2 := sharedRepoProject(t)
+	if err := os.WriteFile(filepath.Join(dir2, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv2.migrateSharedRepos(context.Background())
+	if repo := srv2.projectOf(id2).Repos[0]; !repo.Shared {
+		t.Errorf("a folder with uncommitted work stays shared: %+v", repo)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		t.Errorf("the migrated folder is intact: %v", err)
+	}
+}

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,38 +19,41 @@ import (
 // projects that use it. A folder with uncommitted work, or one that isolated sessions still have a
 // worktree of, is left as it is until that is dealt with.
 func (s *Server) handleStandaloneProjectRepo(w http.ResponseWriter, r *http.Request) {
-	defer s.lockProjectRepos(r.PathValue("id"))()
-	p := s.projectOf(r.PathValue("id"))
-	if p == nil {
-		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+	updated, status, err := s.standaloneRepo(r.Context(), r.PathValue("id"), r.PathValue("name"))
+	if err != nil {
+		writeError(w, status, err.Error())
 		return
 	}
-	i := p.repoIndex(r.PathValue("name"))
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// standaloneRepo does the migration of one repository and says which HTTP status a refusal maps to.
+func (s *Server) standaloneRepo(ctx context.Context, id, name string) (*Project, int, error) {
+	defer s.lockProjectRepos(id)()
+	p := s.projectOf(id)
+	if p == nil {
+		return nil, http.StatusNotFound, ErrProjectNotFound
+	}
+	i := p.repoIndex(name)
 	if i < 0 || !p.Repos[i].Shared || p.Repos[i].Local {
-		writeError(w, http.StatusNotFound, "the project has no shared repository with that name")
-		return
+		return nil, http.StatusNotFound, errors.New("the project has no shared repository with that name")
 	}
 	repo := p.Repos[i]
 	if strings.TrimSpace(repo.GitURL) == "" {
-		writeError(w, http.StatusConflict, "the repository has no URL recorded for its origin to point at")
-		return
+		return nil, http.StatusConflict, errors.New("the repository has no URL recorded for its origin to point at")
 	}
 	defer s.lockCatalogRepo(repo.GitURL)()
-	ctx := r.Context()
 	dest := p.repoPath(repo)
 	if len(s.sessionWorktreesOf(ctx, p, repo)) > 0 {
-		writeError(w, http.StatusConflict, "sessions with a worktree of their own still use this repository: "+
-			"close them first")
-		return
+		return nil, http.StatusConflict, errors.New("sessions with a worktree of their own still use this " +
+			"repository: close them first")
 	}
 	if dir, dirty := firstDirtyDir(ctx, []string{dest}); dirty {
-		writeError(w, http.StatusConflict, fmt.Sprintf("%s has uncommitted changes (or they could not be read): "+
-			"commit them first", dir))
-		return
+		return nil, http.StatusConflict, fmt.Errorf("%s has uncommitted changes (or they could not be read): "+
+			"commit them first", dir)
 	}
 	if err := s.makeStandalone(ctx, repo, dest); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
+		return nil, http.StatusConflict, err
 	}
 	updated, err := s.updateProject(p.ID, func(cur *Project) {
 		if j := cur.repoIndex(repo.Name); j >= 0 {
@@ -59,13 +63,29 @@ func (s *Server) handleStandaloneProjectRepo(w http.ResponseWriter, r *http.Requ
 		}
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, http.StatusInternalServerError, err
 	}
 	for _, c := range s.sessionsOfProject(updated.ID) {
 		applyRuntimeTo(c.svc, updated, c.workspaceDir())
 	}
-	writeJSON(w, http.StatusOK, updated)
+	return updated, http.StatusOK, nil
+}
+
+// migrateSharedRepos runs on start: every project folder that is still a worktree of the catalog
+// becomes a clone of its own, so no project depends on the catalog any more. What cannot move yet
+// (uncommitted work, sessions with a worktree of their own, no URL) stays shared and is tried again
+// on the next start; the person can also do it by hand from the project's settings.
+func (s *Server) migrateSharedRepos(ctx context.Context) {
+	for _, p := range s.allProjects() {
+		for _, repo := range p.Repos {
+			if !repo.Shared || repo.Local {
+				continue
+			}
+			if _, _, err := s.standaloneRepo(ctx, p.ID, repo.Name); err != nil {
+				s.warn("shared repository kept as it is", "project", p.ID, "repo", repo.Name, "reason", err.Error())
+			}
+		}
+	}
 }
 
 // makeStandalone replaces dest, a clean worktree of the catalog clone repo.Dir, with a clone of its
