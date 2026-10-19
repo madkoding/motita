@@ -76,7 +76,7 @@ func (s *Server) writePRError(w http.ResponseWriter, e *prError) {
 // person's own login, so it never lands on a repository the session pointed at. A repository the
 // project knows nothing about (one cloned by hand into the folder) answers with its origin.
 func (s *Server) repoRemote(ctx context.Context, c *conversation, dir string) string {
-	if p := s.projectOf(c.projectID); p != nil {
+	if p := s.scopeOf(c.projectID); p != nil {
 		if gitx.SamePath(dir, p.Dir) && strings.TrimSpace(p.GitURL) != "" {
 			return strings.TrimSpace(p.GitURL)
 		}
@@ -344,7 +344,7 @@ const syncTimeout = 2 * time.Minute
 // is safe: the checkout is on the branch that was merged into and has nothing uncommitted. It is
 // best effort, because the merge has happened either way; the next session pulls again.
 func (s *Server) syncProject(ctx context.Context, c *conversation, base string) {
-	p := s.projectOf(c.projectID)
+	p := s.scopeOf(c.projectID)
 	if p == nil {
 		return
 	}

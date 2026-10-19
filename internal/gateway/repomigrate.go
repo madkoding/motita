@@ -60,35 +60,12 @@ func (s *Server) record(known []Repository, fresh Repository) ([]Repository, str
 
 // migrateProject records the repositories of one project and links the project to them.
 func (s *Server) migrateProject(p Project, known []Repository) []Repository {
-	ids := map[string]string{}
-	mainID := p.RepoID
-	if mainID == "" && (p.GitURL != "" || pathExists(filepath.Join(p.Dir, ".git"))) {
-		known, mainID = s.record(known, Repository{
-			Name:         cmp.Or(repoNameOf("", p.GitURL), repoNameOf(filepath.Base(p.Dir), "")),
-			GitURL:       p.GitURL,
-			Dir:          p.Dir,
-			MainBranch:   p.MainBranch,
-			MergeMethod:  p.MergeMethod,
-			PRMaxFixes:   p.PRMaxFixes,
-			AutoMerge:    p.AutoMerge,
-			AutoContinue: p.AutoContinue,
-			Created:      p.Created,
-		})
-	}
-	for _, repo := range p.Repos {
-		if repo.RepoID != "" {
-			continue
-		}
-		var id string
-		known, id = s.record(known, Repository{
-			Name: repo.Name, GitURL: repo.GitURL, Dir: repo.Dir, Local: repo.Local, MainBranch: repo.MainBranch,
-		})
-		ids[repo.Name] = id
-	}
+	known, mainID := s.mainRecord(p, known)
+	known, ids := s.otherRecords(p, known)
 	if (mainID == "" || mainID == p.RepoID) && len(ids) == 0 {
 		return known
 	}
-	_, err := s.projects.update(p.ID, func(cur *Project) {
+	_, err := s.updateProject(p.ID, func(cur *Project) {
 		if cur.RepoID == "" {
 			cur.RepoID = mainID
 		}
@@ -102,6 +79,41 @@ func (s *Server) migrateProject(p Project, known []Repository) []Repository {
 		s.warn("could not link a project to its repositories", "project", p.ID, "error", err.Error())
 	}
 	return known
+}
+
+// mainRecord is the record of the project's own folder when that folder is a repository: the one
+// it already has, or a new one that starts with the project's pull-request settings.
+func (s *Server) mainRecord(p Project, known []Repository) ([]Repository, string) {
+	if p.RepoID != "" || (p.GitURL == "" && !pathExists(filepath.Join(p.Dir, ".git"))) {
+		return known, p.RepoID
+	}
+	return s.record(known, Repository{
+		Name:         cmp.Or(repoNameOf("", p.GitURL), repoNameOf(filepath.Base(p.Dir), "")),
+		GitURL:       p.GitURL,
+		Dir:          p.Dir,
+		MainBranch:   p.MainBranch,
+		MergeMethod:  p.MergeMethod,
+		PRMaxFixes:   p.PRMaxFixes,
+		AutoMerge:    p.AutoMerge,
+		AutoContinue: p.AutoContinue,
+		Created:      p.Created,
+	})
+}
+
+// otherRecords records the project's other repositories that have no record yet, by their name.
+func (s *Server) otherRecords(p Project, known []Repository) ([]Repository, map[string]string) {
+	ids := map[string]string{}
+	for _, repo := range p.Repos {
+		if repo.RepoID != "" {
+			continue
+		}
+		var id string
+		known, id = s.record(known, Repository{
+			Name: repo.Name, GitURL: repo.GitURL, Dir: repo.Dir, Local: repo.Local, MainBranch: repo.MainBranch,
+		})
+		ids[repo.Name] = id
+	}
+	return known, ids
 }
 
 // migrateCatalog records the clones in the workspace's catalog that no project links to.

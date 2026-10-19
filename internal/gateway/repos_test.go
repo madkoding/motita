@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/madkoding/motita/internal/gitx"
 	"net/http"
 	"os"
 	"testing"
@@ -179,5 +181,52 @@ func TestAFolderOfTheUserIsRecordedAndNeverDeleted(t *testing.T) {
 	}
 	if code, _ := createRepository(t, srv, `{}`); code != http.StatusBadRequest {
 		t.Errorf("nothing asked: %d", code)
+	}
+}
+
+func TestASessionWorksOnARepositoryWithoutAProject(t *testing.T) {
+	srv, _ := projectServer(t)
+	src := sourceRepo(t)
+	_, repo := createRepository(t, srv, `{"git_url":"`+src+`"}`)
+
+	w := post(t, srv, "/v1/sessions", `{"repo_id":"`+repo.ID+`"}`, testToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("creating: %d %s", w.Code, w.Body)
+	}
+	var st struct {
+		ID        string `json:"id"`
+		ProjectID string `json:"project_id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &st)
+	if st.ProjectID != repoScopeID(repo.ID) {
+		t.Fatalf("the session is anchored to the repository: %+v", st)
+	}
+	c, _ := srv.lookup(st.ID)
+	if c == nil || !gitx.SamePath(c.workspaceDir(), repo.Dir) {
+		t.Fatalf("the session runs in the repository's checkout")
+	}
+	if p := srv.scopeOf(st.ID); p != nil {
+		t.Errorf("a session id is not a scope: %+v", p)
+	}
+	if p := srv.scopeOf(st.ProjectID); p == nil || p.Dir != repo.Dir || p.GitURL != repo.GitURL {
+		t.Errorf("the repository stands in for the project: %+v", p)
+	}
+	if got := srv.projectOf(st.ProjectID); got != nil {
+		t.Errorf("the stand-in is not a stored project: %+v", got)
+	}
+	if got := srv.repoRemote(context.Background(), c, c.workspaceDir()); got != repo.GitURL {
+		t.Errorf("the pull request goes to the repository: %q", got)
+	}
+	if w := send(t, srv, http.MethodDelete, "/v1/repos/"+repo.ID, testToken, ""); w.Code != http.StatusConflict {
+		t.Errorf("a repository with sessions is not deleted: %d", w.Code)
+	}
+
+	iso := post(t, srv, "/v1/sessions", `{"repo_id":"`+repo.ID+`","isolate":true}`, testToken)
+	_ = json.Unmarshal(iso.Body.Bytes(), &st)
+	if c2, _ := srv.lookup(st.ID); c2 == nil || gitx.SamePath(c2.workspaceDir(), repo.Dir) {
+		t.Errorf("an isolated session gets a worktree of its own")
+	}
+	if w := post(t, srv, "/v1/sessions", `{"repo_id":"nope"}`, testToken); w.Code != http.StatusNotFound {
+		t.Errorf("an unknown repository: %d", w.Code)
 	}
 }

@@ -77,10 +77,8 @@ func (rs *repoStore) saveLocked(r Repository) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(r, "", "  ")
-	if err != nil {
-		return fmt.Errorf("could not encode the repository %q: %w", r.ID, err)
-	}
+	// A Repository holds only strings, numbers and flags: it always encodes.
+	data, _ := json.MarshalIndent(r, "", "  ")
 	tmp := file + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("could not write the repository %q: %w", r.ID, err)

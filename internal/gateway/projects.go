@@ -774,7 +774,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
-	p := s.projectOf(c.projectID)
+	p := s.scopeOf(c.projectID)
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
@@ -846,7 +846,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusConflict,
 			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
-	p := s.projectOf(c.projectID)
+	p := s.scopeOf(c.projectID)
 	if p == nil {
 		return nil, http.StatusNotFound, ErrProjectNotFound
 	}

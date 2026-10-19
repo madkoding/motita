@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -95,27 +94,7 @@ func (s *Server) handleUpdateRepository(w http.ResponseWriter, r *http.Request) 
 	if !u.applyPR(w, &probe) || !u.applyMainBranch(w, r, &probe) {
 		return
 	}
-	saved, err := s.repos.update(repo.ID, func(cur *Repository) {
-		if u.MainBranch != nil {
-			cur.MainBranch = probe.MainBranch
-		}
-		if u.MergeMethod != nil {
-			cur.MergeMethod = probe.MergeMethod
-		}
-		if u.PRMaxFixes != nil {
-			cur.PRMaxFixes = probe.PRMaxFixes
-		}
-		if u.AutoMerge != nil {
-			cur.AutoMerge = probe.AutoMerge
-		}
-		if u.AutoContinue != nil {
-			cur.AutoContinue = probe.AutoContinue
-		}
-	})
-	if errors.Is(err, errRepoGone) {
-		writeError(w, http.StatusNotFound, "there is no repository with that id")
-		return
-	}
+	saved, err := s.repos.update(repo.ID, func(cur *Repository) { u.copyToRepository(cur, &probe) })
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -210,12 +189,11 @@ func (s *Server) handleCreateRepository(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	known, id := s.record(known, fresh)
-	rec, err := s.repos.load(id)
-	if err != nil || rec == nil {
+	if id == "" {
 		writeError(w, http.StatusInternalServerError, "could not record the repository")
 		return
 	}
-	writeJSON(w, http.StatusCreated, rec)
+	writeJSON(w, http.StatusCreated, known[len(known)-1])
 }
 
 // newRepository prepares the record of the repository asked for, cloning it when it has to. It
@@ -231,7 +209,7 @@ func (s *Server) newRepository(w http.ResponseWriter, r *http.Request, gitURL, p
 			return Repository{}, false
 		}
 		return Repository{
-			Name: cmp.Or(repoNameOf(rawName, dir), repoNameOf("", filepath.Base(dir))), GitURL: originOf(dir, s.gitCommandEnv()),
+			Name: cmp.Or(repoNameOf(rawName, dir), "repository"), GitURL: originOf(dir, s.gitCommandEnv()),
 			Dir: dir, Local: true, MainBranch: localMainBranch(r.Context(), dir),
 		}, true
 	}
@@ -257,6 +235,10 @@ func (s *Server) newRepository(w http.ResponseWriter, r *http.Request, gitURL, p
 // only when it is the catalog's and not the user's own, and uncommitted work stops that unless the
 // discard was confirmed with `?force=1`; a folder of the user's is left exactly as it is.
 func (s *Server) deleteRepository(w http.ResponseWriter, r *http.Request, repo *Repository) {
+	if len(s.sessionsOfRepository(repo.ID)) > 0 {
+		writeError(w, http.StatusConflict, "sessions still work on this repository: delete them first")
+		return
+	}
 	if users := repositoryUsers(s.allProjects(), *repo); len(users) > 0 {
 		titles := make([]string, len(users))
 		for i, u := range users {
@@ -298,5 +280,57 @@ func (s *Server) forgetRepositoriesAt(dir string) {
 		if gitx.SamePath(rec.Dir, dir) {
 			_ = s.repos.delete(rec.ID)
 		}
+	}
+}
+
+// repoScopePrefix starts the project id of a session that works on a repository directly. Project
+// ids are generated and begin with "s", so the two never meet.
+const repoScopePrefix = "repo_"
+
+// repoScopeID is the project id a session of repository id carries.
+func repoScopeID(repoID string) string { return repoScopePrefix + repoID }
+
+// scopeOf is what a session's project id names: a project of the store, or a repository, which is
+// then a stand-in project made on the spot (never saved) with the repository's folder and
+// settings, so everything that follows a session's scope - the pull request, the runtime, the
+// restore after a restart - works the same on a repository as on a project. nil for neither.
+func (s *Server) scopeOf(id string) *Project {
+	repoID, ok := strings.CutPrefix(id, repoScopePrefix)
+	if !ok {
+		return s.projectOf(id)
+	}
+	repo, err := s.repoRecord(repoID)
+	if err != nil || repo == nil {
+		return nil
+	}
+	return &Project{
+		ID: id, Title: repo.Name, Dir: repo.Dir, GitURL: repo.GitURL, RepoID: repo.ID, MainBranch: repo.MainBranch,
+		MergeMethod: repo.MergeMethod, PRMaxFixes: repo.PRMaxFixes, AutoMerge: repo.AutoMerge,
+		AutoContinue: repo.AutoContinue, Created: repo.Created,
+	}
+}
+
+// sessionsOfRepository are the sessions that work on the repository directly.
+func (s *Server) sessionsOfRepository(repoID string) []*conversation {
+	return s.sessionsOfProject(repoScopeID(repoID))
+}
+
+// copyToRepository writes onto dst the fields this request set, taking their validated values
+// from src.
+func (u projectUpdate) copyToRepository(dst *Repository, src *Project) {
+	if u.MainBranch != nil {
+		dst.MainBranch = src.MainBranch
+	}
+	if u.MergeMethod != nil {
+		dst.MergeMethod = src.MergeMethod
+	}
+	if u.PRMaxFixes != nil {
+		dst.PRMaxFixes = src.PRMaxFixes
+	}
+	if u.AutoMerge != nil {
+		dst.AutoMerge = src.AutoMerge
+	}
+	if u.AutoContinue != nil {
+		dst.AutoContinue = src.AutoContinue
 	}
 }
