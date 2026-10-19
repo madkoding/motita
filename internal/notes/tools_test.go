@@ -61,7 +61,8 @@ func TestReadTextListsLinksAndBacklinks(t *testing.T) {
 			t.Errorf("read lacks %q: %q", want, read)
 		}
 	}
-	if got := v.ReadText("Peru.md"); !strings.Contains(got, "Linked from: [[Japan]]") || strings.Contains(got, "Links to: [[Peru") {
+	got := v.ReadText("Peru.md")
+	if !strings.Contains(got, "Linked from: [[Japan]]") || strings.Contains(got, "Links to: [[Peru") {
 		t.Errorf("read peru = %q", got)
 	}
 	for _, bad := range []string{"", "nothing"} {

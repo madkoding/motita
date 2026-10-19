@@ -455,6 +455,13 @@ function OpenNote() {
 
 export function NotesModal() {
   const { closeNotes, graph, openGraph, closeGraph } = useApp().notes;
+  const toggleGraph = () => {
+    if (graph) {
+      closeGraph();
+    } else {
+      void openGraph();
+    }
+  };
   return (
     <ModalBackdrop onClose={() => void closeNotes()}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-5xl p-4 md:p-5 shadow-2xl h-[85vh] flex flex-col">
@@ -464,7 +471,7 @@ export function NotesModal() {
             class={SMALL_BTN + " ml-auto"}
             aria-pressed={!!graph}
             data-testid="note-graph-toggle"
-            onClick={() => (graph ? closeGraph() : void openGraph())}
+            onClick={toggleGraph}
           >
             {t("Graph")}
           </button>

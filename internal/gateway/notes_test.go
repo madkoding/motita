@@ -166,7 +166,8 @@ func TestNoteSearchFallsBackToPlainWordsAndUsesTheIndexWhenOn(t *testing.T) {
 	}
 
 	// The code index on: the same vault, ranked by the index.
-	cfg := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: true\n  semantic: false\n  embeddings_auto: false\n  cache_dir: "+t.TempDir()+"\n")
+	cfg := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: true\n  semantic: false\n"+
+		"  embeddings_auto: false\n  cache_dir: "+t.TempDir()+"\n")
 	srv, _ = noteServer(t, func(o *Options) { o.ConfigPath = cfg })
 	noteCall(t, srv, http.MethodPut, notePath("bread.md"), `{"body":"\nBake the dough\nrest it"}`)
 	os.WriteFile(filepath.Join(srv.opts.NotesDir, "readme.txt"), []byte("dough"), 0o644)
