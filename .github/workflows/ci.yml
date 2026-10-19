@@ -602,9 +602,10 @@ jobs:
       id-token: write
     uses: ./.github/workflows/pages.yml
 
-  # The Vercel mirror (motita.kodingvibes.com) builds on every push to main, but
-  # a merge deploys before its tag exists, so it would stamp the previous release.
-  # Its deploy hook rebuilds main once this release is published, the same moment
+  # The Vercel mirror (motita.kodingvibes.com) only deploys from here: vercel.json
+  # turns off Vercel's own git deployments (pushes to main and PR previews), which
+  # stamped the previous release and burned the free plan's daily deploy limit.
+  # The deploy hook rebuilds main once this release is published, the same moment
   # Pages publishes. Without the secret this is a notice, not a failure: the page
   # still fetches releases/latest in the browser.
   vercel:
