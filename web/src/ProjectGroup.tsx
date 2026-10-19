@@ -44,6 +44,19 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
+      {p.main_warning && (
+        <button
+          class={ITEM_PLAIN}
+          data-testid="refresh-main"
+          onClick={(e) => {
+            e.stopPropagation();
+            void projects.refreshProjectMain(p.id);
+            menus.closeRowMenu();
+          }}
+        >
+          {t("Update main branch")}
+        </button>
+      )}
       <DeleteItem type="project" id={p.id} title={p.title} />
     </RowMenu>
   );

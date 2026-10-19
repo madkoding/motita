@@ -60,6 +60,7 @@ function store({
         hasPodman,
         openEditProject: rec("edit"),
         setProjectPodman: rec("podman"),
+        refreshProjectMain: rec("refreshMain"),
       },
       deletion: { setConfirmDelete: rec("confirm") },
     },
@@ -169,6 +170,20 @@ test("the menu edits the project and asks before deleting it", async () => {
     ["confirm", { type: "project", id: "p1", title: "Motita" }],
     ["closeMenu"],
   ]);
+  await m.unmount();
+});
+
+test("the menu offers to update the main branch only when the last update left a notice", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=refresh-main]"), null);
+  const w = store({ rowMenu: { id: "p1" } });
+  await m.rerender(
+    w.value,
+    h(ProjectGroup, { p: { ...P, main_warning: "main: could not fetch" } }),
+  );
+  await click(m.q("[data-testid=refresh-main]"));
+  assert.deepEqual(w.log, [["refreshMain", "p1"], ["closeMenu"]]);
   await m.unmount();
 });
 

@@ -621,6 +621,8 @@ const first: Record<string, string> = {
   "{n} behind {branch}": "{n} atrás de {branch}",
   behind: "atrás",
   outdated: "desactualizada",
+  "Update main branch": "Actualizar rama principal",
+  "could not update the main branch": "no se pudo actualizar la rama principal",
   "Main branch not updated: {reason}": "Rama principal sin actualizar: {reason}",
   "Behind their main branch: {names}": "Atrás de su rama principal: {names}",
   "Could not delete the repository": "No se pudo eliminar el repositorio",

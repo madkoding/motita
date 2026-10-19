@@ -1020,6 +1020,35 @@ test("podman can be turned on or off for a project", async () => {
   await s.m.unmount();
 });
 
+test("updating the main branch reads the projects again, or says why it could not", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/main/refresh": () => {
+      n++;
+      if (n === 1) {
+        return res(200, { main_warning: "" });
+      }
+      if (n === 2) {
+        return res(409, { error: "already updating" });
+      }
+      if (n === 3) {
+        return res(500, new Error("not json"));
+      }
+      throw new Error("down");
+    },
+  });
+  for (let i = 0; i < 4; i++) {
+    await run(() => s.p.refreshProjectMain("p1"));
+  }
+  assert.equal(s.counts.projects, 1);
+  assert.deepEqual(s.states, [
+    ["already updating", true],
+    ["could not update the main branch", true],
+    ["could not update the main branch", true],
+  ]);
+  await s.m.unmount();
+});
+
 test("deleting a project reads the lists again, or says why it was refused", async () => {
   let n = 0;
   const s = await setup({

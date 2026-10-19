@@ -963,6 +963,27 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
     [fetchProjects],
   );
 
+  // refreshProjectMain asks the gateway to bring the project's main branch up to date now, the
+  // retry of the notice a background update leaves. The notice that remains comes with the list.
+  const refreshProjectMain = useCallback(
+    async (id: string) => {
+      try {
+        const res = await api(PROJECTS_PATH + id + "/main/refresh", {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setState(err.error || "could not update the main branch", true);
+          return;
+        }
+        await fetchProjects();
+      } catch {
+        setState("could not update the main branch", true);
+      }
+    },
+    [fetchProjects],
+  );
+
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
   // whose sessions hold uncommitted work is refused without it.
@@ -987,7 +1008,7 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
     [fetchProjects, fetchSessions],
   );
 
-  return { setProjectPodman, deleteProject };
+  return { setProjectPodman, refreshProjectMain, deleteProject };
 }
 
 export function useProjects({ api, lists, setState, setToast }: Deps) {
@@ -1105,6 +1126,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     newProjectPodman: form.newProjectPodman,
     setNewProjectPodman: form.setNewProjectPodman,
     setProjectPodman: admin.setProjectPodman,
+    refreshProjectMain: admin.refreshProjectMain,
     showGitIdentity: form.showGitIdentity,
     closeGitIdentity: form.closeGitIdentity,
     gitUserName: form.gitUserName,

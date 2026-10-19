@@ -1,11 +1,13 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // projectWithOrigin makes a project whose origin holds one commit the checkout does not have, and
@@ -135,4 +137,69 @@ func TestMainRefreshIsDeduplicated(t *testing.T) {
 	}
 	srv := newTestServer(t, &fakeService{})
 	srv.refreshMainInBackground(nil)
+}
+
+// The periodic refresh brings a project nobody opened a session in up to date, and stops with
+// its context.
+func TestPeriodicRefreshUpdatesEveryProject(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjectsAndFake(t, srv, ws)
+	_, dir := projectWithOrigin(t, srv, ws)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		srv.refreshAllMainsEvery(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for !hasUpstream(dir) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	srv.mainRefresh.wait()
+	if !hasUpstream(dir) {
+		t.Fatal("the periodic refresh must bring the project's main branch up to date")
+	}
+}
+
+// A gateway that opens its project store starts the periodic refresh with it.
+func TestStartLaunchesThePeriodicRefreshWithAProjectStore(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ProjectDir = t.TempDir() })
+	if srv.projects == nil {
+		t.Fatal("setup: the project store must be open")
+	}
+}
+
+// "Update now" runs the update and answers with the notice that remains.
+func TestRefreshProjectMainEndpoint(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjectsAndFake(t, srv, ws)
+	pid, dir := projectWithOrigin(t, srv, ws)
+
+	if w := post(t, srv, "/v1/projects/nope/main/refresh", "{}", testToken); w.Code != http.StatusNotFound {
+		t.Errorf("unknown project = %d, want 404", w.Code)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w := post(t, srv, "/v1/projects/"+pid+"/main/refresh", "{}", testToken)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "uncommitted") {
+		t.Fatalf("dirty refresh = %d %s, want 200 naming the uncommitted changes", w.Code, w.Body.String())
+	}
+	if err := os.Remove(filepath.Join(dir, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+	w = post(t, srv, "/v1/projects/"+pid+"/main/refresh", "{}", testToken)
+	if w.Code != http.StatusOK || !hasUpstream(dir) || srv.mainRefresh.warning(pid) != "" {
+		t.Fatalf("clean refresh = %d %s, upstream=%v", w.Code, w.Body.String(), hasUpstream(dir))
+	}
+
+	srv.mainRefresh.begin(pid)
+	if w := post(t, srv, "/v1/projects/"+pid+"/main/refresh", "{}", testToken); w.Code != http.StatusConflict {
+		t.Errorf("refresh while one runs = %d, want 409", w.Code)
+	}
 }

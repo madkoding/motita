@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"sync"
 	"time"
 
@@ -11,6 +13,10 @@ import (
 // mainRefreshTimeout bounds one background update: a fetch that hangs (a dead network) must not
 // keep a goroutine and a lock on the project forever.
 const mainRefreshTimeout = 2 * time.Minute
+
+// mainRefreshRetryAfter is the pause before the one retry of a failed update. A variable so the
+// tests of a failing origin do not wait for it.
+var mainRefreshRetryAfter = 300 * time.Millisecond
 
 // mainRefreshState is what the gateway knows about the background updates of main branches.
 type mainRefreshState struct {
@@ -67,7 +73,15 @@ func (m *mainRefreshState) wait() { m.wg.Wait() }
 func (s *Server) refreshMain(ctx context.Context, p *Project) string {
 	warning := ""
 	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil {
-		if err := gitx.RefreshBranch(ctx, p.Dir, main); err != nil {
+		err := gitx.RefreshBranch(ctx, p.Dir, main)
+		if err != nil && !errors.Is(err, gitx.ErrBranchDirty) {
+			// A session opening creates its worktree at the same moment, and a fetch that reads
+			// the refs halfway through it fails on a half-written one: a second try, a moment
+			// later, sees it whole. A real failure fails the same way twice.
+			time.Sleep(mainRefreshRetryAfter)
+			err = gitx.RefreshBranch(ctx, p.Dir, main)
+		}
+		if err != nil {
 			warning = main + ": " + err.Error()
 		}
 	}
@@ -95,4 +109,47 @@ func (s *Server) refreshMainInBackground(p *Project) {
 			s.warn("the project's main branch could not be updated", "project", proj.Dir, "reason", warning)
 		}
 	}()
+}
+
+// mainRefreshInterval is how often a running gateway brings every project's main branch up to
+// date by itself, so a project nobody opens a session in does not drift. A variable so a test
+// can reach the tick.
+var mainRefreshInterval = 15 * time.Minute
+
+// refreshAllMainsEvery updates every project's main branch each interval until ctx ends.
+func (s *Server) refreshAllMainsEvery(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			for _, p := range s.allProjects() {
+				s.refreshMainInBackground(&p)
+			}
+		}
+	}
+}
+
+// handleRefreshProjectMain is the "update now" of a project whose main branch could not be brought
+// up to date: it runs the update and answers with the notice that remains ("" once it worked).
+// 409 while another update of the project is still running.
+func (s *Server) handleRefreshProjectMain(w http.ResponseWriter, r *http.Request) {
+	p := s.projectOf(r.PathValue("id"))
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	if !s.mainRefresh.begin(p.ID) {
+		writeError(w, http.StatusConflict, "the main branch is already being updated")
+		return
+	}
+	s.mainRefresh.wg.Add(1)
+	defer s.mainRefresh.wg.Done()
+	ctx, cancel := context.WithTimeout(r.Context(), mainRefreshTimeout)
+	defer cancel()
+	warning := s.refreshMain(ctx, p)
+	s.mainRefresh.finish(p.ID, warning)
+	writeJSON(w, http.StatusOK, map[string]string{"main_warning": warning})
 }
