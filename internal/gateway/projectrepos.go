@@ -495,6 +495,11 @@ func (s *Server) sessionWorktreesOf(ctx context.Context, p *Project, repo Projec
 	var worktrees []string
 	for _, c := range s.sessionsOfProject(p.ID) {
 		path := sessionRepoPath(c.workspaceDir(), p, repo)
+		// A session working in the project's folder shares the project's own checkout of the
+		// repository: that is not a worktree of the session's.
+		if gitx.SamePath(path, p.repoPath(repo)) {
+			continue
+		}
 		if _, ok, err := gitx.LiveWorktreeAt(ctx, repo.Dir, path); err == nil && ok {
 			worktrees = append(worktrees, path)
 		}
