@@ -839,6 +839,9 @@ const more: Record<string, string> = {
   "a note with that name already exists": "ya existe una nota con ese nombre",
   "could not load the graph": "no se pudo cargar el grafo",
   Graph: "Grafo",
+  "Review notes": "Revisar notas",
+  "Ask the agent to find contradictions, stale notes and broken links":
+    "Pide al agente que busque contradicciones, notas desactualizadas y enlaces rotos",
   "Nothing to draw yet.": "Todavía no hay nada que dibujar.",
   "Graph of linked notes": "Grafo de notas enlazadas",
   "{notes} notes · {links} links · {missing} to notes not written yet":

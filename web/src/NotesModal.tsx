@@ -454,7 +454,8 @@ function OpenNote() {
 }
 
 export function NotesModal() {
-  const { closeNotes, graph, openGraph, closeGraph } = useApp().notes;
+  const app = useApp();
+  const { closeNotes, graph, openGraph, closeGraph } = app.notes;
   const toggleGraph = () => {
     if (graph) {
       closeGraph();
@@ -469,6 +470,16 @@ export function NotesModal() {
           <h2 class="text-base font-semibold">{t("Notes")}</h2>
           <button
             class={SMALL_BTN + " ml-auto"}
+            title={t(
+              "Ask the agent to find contradictions, stale notes and broken links",
+            )}
+            data-testid="notes-review"
+            onClick={() => void app.reviewNotes()}
+          >
+            {t("Review notes")}
+          </button>
+          <button
+            class={SMALL_BTN}
             aria-pressed={!!graph}
             data-testid="note-graph-toggle"
             onClick={toggleGraph}

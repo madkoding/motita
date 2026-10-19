@@ -14,6 +14,7 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 const api = await import("../notesApi.ts");
 const { useNotes } = await load("useNotes.ts");
 const { NotesModal } = await load("NotesModal.tsx");
+const { useReviewNotes, REVIEW_NOTES_PROMPT } = await load("useReviewNotes.ts");
 const { AppCtx } = await load("appStore.ts");
 const es = (await import("../i18n.es.ts")).default;
 const { h, render } = await import("preact");
@@ -207,12 +208,18 @@ function vault(initial = {}) {
 async function mount(v, projects = []) {
   const statuses = [];
   const hook = { current: null };
+  const review = { opened: "s1", sent: [] };
   function Harness() {
     const notes = useNotes(v.gw, (m, bad) => statuses.push([m, !!bad]));
     hook.current = notes;
+    const reviewNotes = useReviewNotes(
+      async () => review.opened,
+      notes.closeNotes,
+      (t) => review.sent.push(t),
+    );
     return h(
       AppCtx.Provider,
-      { value: { notes, lists: { projects } } },
+      { value: { notes, reviewNotes, lists: { projects } } },
       notes.showNotes ? h(NotesModal, {}) : null,
     );
   }
@@ -222,6 +229,7 @@ async function mount(v, projects = []) {
   return {
     root,
     hook,
+    review,
     statuses,
     run: async (fn) => {
       await act(() => fn(hook.current));
@@ -842,5 +850,35 @@ test("the first-use scan stays quiet when it is not needed or fails, and is not 
   await m.run((n) => n.openNotes());
   await settle();
   assert.equal(full.calls.filter((c) => c.url.includes("scan")).length, 0);
+  await m.done();
+});
+
+test("Review closes the notes and sends the review request in a new conversation", async () => {
+  const m = await mount(vault(FILES));
+  await m.run((n) => n.openNotes());
+  await click(q(m.root, "notes-review"));
+  assert.deepEqual(m.review.sent, [REVIEW_NOTES_PROMPT]);
+  assert.match(REVIEW_NOTES_PROMPT, /reviewing-the-notes/);
+  assert.equal(q(m.root, "notes-review"), null, "the window closed");
+
+  // No conversation could be opened: nothing is sent.
+  m.review.opened = undefined;
+  await m.run((n) => n.openNotes());
+  await click(q(m.root, "notes-review"));
+  assert.equal(m.review.sent.length, 1);
+  await m.done();
+});
+
+test("Review stays put when the open note cannot be saved", async () => {
+  const v = vault(FILES);
+  const m = await mount(v);
+  await m.run((n) => n.openNotes());
+  await click(qa(m.root, "note-row")[0]);
+  await click(q(m.root, "note-mode"));
+  await type(q(m.root, "note-editor"), "changed");
+  v.fail.add({ method: "PUT", path: "", status: 500 });
+  await click(q(m.root, "notes-review"));
+  assert.equal(m.review.sent.length, 0);
+  assert.ok(q(m.root, "notes-review"), "the window is still open");
   await m.done();
 });

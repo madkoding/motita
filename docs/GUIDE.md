@@ -621,6 +621,10 @@ the same folder opens in Obsidian and what you change there is what motita shows
 - **Graph.** The Graph button draws the notes as dots joined by their links (bigger dots are
   linked from more notes); a click opens the note. Links to notes not written yet are counted,
   not drawn.
+- **Review notes.** The Review notes button opens a new conversation that asks the agent to run
+  the `reviewing-the-notes` skill over the whole vault: it reports notes that contradict each
+  other, look out of date, have no source, point nowhere or are orphans, and changes nothing
+  until you agree.
 - **The agent reads and writes them too.** In plan mode the tools `search_notes`, `read_note`,
   `write_note` and `append_note`; in task mode the actions `note_search`, `note_read`,
   `note_write` and `note_append` (`"command": "note :: the Markdown"` for the last two). Reads
