@@ -806,14 +806,24 @@ const more: Record<string, string> = {
   "No notes yet. Write the first one above.":
     "Todavía no hay notas. Escribe la primera arriba.",
   "Nothing matches that.": "Nada coincide con eso.",
-  "Linked from ({n})": "Enlazada desde ({n})",
-  "No other note links here yet.": "Ninguna otra nota enlaza aquí todavía.",
+  "Mentioned in ({n})": "Mencionada en ({n})",
+  "No other note mentions this one yet.":
+    "Ninguna otra nota menciona esta todavía.",
   "Note text": "Texto de la nota",
   Edit: "Editar",
   "Click again to delete": "Pulsa otra vez para borrar",
   "Pick a note, or write a new one.": "Elige una nota o escribe una nueva.",
-  "Link notes with [[double brackets]]. They are plain .md files: open this folder in Obsidian and they are all there.":
-    "Enlaza notas con [[dobles corchetes]]. Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
+  "Each project has a manual: open its folder and start with Start here. Link notes with [[double brackets]].":
+    "Cada proyecto tiene un manual: abre su carpeta y empieza por Start here. Enlaza notas con [[dobles corchetes]].",
+  "They are plain .md files: open this folder in Obsidian and they are all there.":
+    "Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
+  "Saved in {root}": "Guardadas en {root}",
+  "Your second brain: projects, sessions and your own ideas.":
+    "Tu segundo cerebro: proyectos, sesiones y tus propias ideas.",
+  Map: "Mapa",
+  "Close map": "Cerrar mapa",
+  "Drag to turn, scroll to zoom, click a name to open it.":
+    "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para abrirlo.",
   "could not load the notes": "no se pudieron cargar las notas",
   "could not open the note": "no se pudo abrir la nota",
   "could not save the note": "no se pudo guardar la nota",
@@ -840,7 +850,6 @@ const more: Record<string, string> = {
   "give the note a name": "ponle un nombre a la nota",
   "a note with that name already exists": "ya existe una nota con ese nombre",
   "could not load the graph": "no se pudo cargar el grafo",
-  Graph: "Grafo",
   "Review notes": "Revisar notas",
   "Folders the model explains per scan":
     "Carpetas que el modelo explica por escaneo",

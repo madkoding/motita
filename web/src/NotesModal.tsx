@@ -1,16 +1,27 @@
 // The notes window: a vault of plain Markdown notes with a folder tree, an editor with a preview
 // where [[links]] open the note they name, the notes that link back, and a search.
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { Markdown } from "./Markdown";
-import { IconClose } from "./icons";
+import { IconBook, IconClose, IconFolder, IconNotes } from "./icons";
+import {
+  graph3d,
+  mountGraph3D,
+  NEON,
+  reducedMotion,
+  type Graph3D,
+} from "./noteGraph3d";
 import {
   buildTree,
+  byReadingOrder,
   layoutGraph,
+  noteGroup,
+  noteTrail,
   parseNoteHref,
+  START_NOTE,
   wikiToMarkdown,
   type NoteFolder,
   type NoteGraph,
@@ -24,43 +35,62 @@ const FIELD =
 const SMALL_BTN =
   "px-3 min-h-[34px] rounded-lg border border-white/10 text-xs text-[#c8c8d2] hover:bg-white/5 active:scale-95 transition-transform";
 
-// NoteButton is one note of the list; the open one is marked.
-function NoteButton({ n, label }: { n: NoteItem; label?: string }) {
+// NoteButton is one note of the list; the open one is marked, and the start of a guide has a book.
+function NoteButton({ n }: { n: NoteItem }) {
   const { current, openNote } = useApp().notes;
   const open = current?.path === n.path;
+  const Icon = choose(n.title === START_NOTE, IconBook, IconNotes);
   return (
     <button
-      class={`w-full text-left px-2.5 min-h-[36px] rounded-lg text-sm truncate ${choose(open, "bg-accent/15 text-accent", "text-[#e8e8ea] hover:bg-white/5")}`}
+      class={`w-full flex items-center gap-2 text-left px-2.5 min-h-[36px] rounded-lg text-sm ${choose(open, "bg-accent/15 text-accent", "text-[#e8e8ea] hover:bg-white/5")}`}
       aria-current={open ? "true" : undefined}
       data-testid="note-row"
       onClick={() => void openNote(n.path)}
     >
-      {label ?? n.title}
+      <Icon size={15} class="flex-none opacity-70" />
+      <span class="truncate">{n.title}</span>
     </button>
   );
 }
 
-// FolderNode is a folder of the tree: its sub-folders and its notes, collapsible.
-function FolderNode({ folder, top }: { folder: NoteFolder; top?: boolean }) {
+// countNotes is how many notes a folder holds, its sub-folders included.
+function countNotes(folder: NoteFolder): number {
+  return folder.folders.reduce(
+    (n, f) => n + countNotes(f),
+    folder.notes.length,
+  );
+}
+
+// FolderNode is a folder of the tree: its sub-folders and its notes, collapsible. The folders at
+// the top start open, deeper ones closed unless they hold the open note.
+function FolderNode({ folder, depth }: { folder: NoteFolder; depth: number }) {
+  const { current } = useApp().notes;
   const content = (
     <>
       {folder.folders.map((f) => (
-        <FolderNode key={f.path} folder={f} />
+        <FolderNode key={f.path} folder={f} depth={depth + 1} />
       ))}
-      {folder.notes.map((n) => (
+      {[...folder.notes].sort(byReadingOrder).map((n) => (
         <NoteButton key={n.path} n={n} />
       ))}
     </>
   );
-  if (top) {
+  if (depth === 0) {
     return content;
   }
+  const holdsOpen = !!current?.path.startsWith(folder.path + "/");
   return (
-    <details open class="note-folder" data-testid="note-folder">
-      <summary class="px-2.5 min-h-[34px] flex items-center text-xs uppercase tracking-wide text-[#9a9aaa] cursor-pointer">
-        {folder.name}
+    <details
+      open={depth === 1 || holdsOpen}
+      class="note-folder"
+      data-testid="note-folder"
+    >
+      <summary class="px-2.5 min-h-[36px] flex items-center gap-2 text-sm text-[#c8c8d2] cursor-pointer rounded-lg hover:bg-white/5">
+        <IconFolder size={15} class="flex-none text-accent" />
+        <span class="truncate flex-1">{folder.name}</span>
+        <span class="text-xs text-[#7a7a8c]">{countNotes(folder)}</span>
       </summary>
-      <div class="pl-3 border-l border-white/5 ml-2">{content}</div>
+      <div class="pl-3 border-l border-white/5 ml-3.5">{content}</div>
     </details>
   );
 }
@@ -75,7 +105,12 @@ function HitRow({ h }: { h: NoteHit }) {
         data-testid="note-hit"
         onClick={() => void openNote(h.path)}
       >
-        <div class="text-sm text-[#e8e8ea] truncate">{h.path}</div>
+        <div class="text-sm text-[#e8e8ea] truncate">{h.title}</div>
+        {noteTrail(h.path).length > 0 && (
+          <div class="text-xs text-accent/80 truncate">
+            {noteTrail(h.path).join(" › ")}
+          </div>
+        )}
         {!!h.snippet && (
           <div class="text-xs text-[#9a9aaa] truncate">{h.snippet}</div>
         )}
@@ -154,7 +189,7 @@ function NoteList() {
       <div class="overflow-auto flex-1 min-h-0">
         {query.trim() === "" ? (
           <>
-            <FolderNode folder={buildTree(notes.notes)} top />
+            <FolderNode folder={buildTree(notes.notes)} depth={0} />
             {notes.notes.length === 0 && (
               <p class="text-sm text-[#9a9aaa] px-1">
                 {t("No notes yet. Write the first one above.")}
@@ -185,11 +220,11 @@ function Backlinks() {
   return (
     <section class="mt-3 pt-3 border-t border-white/5" data-testid="backlinks">
       <h3 class="text-xs uppercase tracking-wide text-[#9a9aaa] mb-1.5">
-        {tf("Linked from ({n})", { n: String(back.length) })}
+        {tf("Mentioned in ({n})", { n: String(back.length) })}
       </h3>
       {back.length === 0 && (
         <p class="text-sm text-[#7a7a8c]">
-          {t("No other note links here yet.")}
+          {t("No other note mentions this one yet.")}
         </p>
       )}
       <ul class="space-y-1">
@@ -281,8 +316,15 @@ function NoteToolbar() {
       >
         {t("Back to the list")}
       </button>
-      <div class="flex-1 min-w-0 text-sm font-mono text-[#c8c8d2] truncate">
-        {current?.path}
+      <div class="flex-1 min-w-0" data-testid="note-place">
+        {noteTrail((current as NoteView).path).length > 0 && (
+          <div class="text-xs text-[#9a9aaa] truncate">
+            {noteTrail((current as NoteView).path).join(" › ")}
+          </div>
+        )}
+        <div class="text-sm font-semibold text-[#e8e8ea] truncate">
+          {(current as NoteView).title}
+        </div>
       </div>
       <button
         class={SMALL_BTN}
@@ -337,15 +379,54 @@ function NoteToolbar() {
   );
 }
 
+// NEON_CSS is the map's palette as CSS colours, one per top folder.
+const NEON_CSS = NEON.map((c) => "#" + c.toString(16).padStart(6, "0"));
+
 // GRAPH_W and GRAPH_H are the box the graph is laid out in; the picture scales to the window.
 const GRAPH_W = 640;
 const GRAPH_H = 440;
 
-// GraphPane draws the notes as dots joined by their links; a click on a dot opens the note.
+// useMap3D draws the graph in 3D into host where WebGL works, and answers whether it did; until
+// then, or anywhere else, the flat drawing stays.
+function useMap3D(graph: NoteGraph, open: (path: string) => void) {
+  const host = useRef<HTMLDivElement>(null);
+  const [deep, setDeep] = useState(false);
+  useEffect(() => {
+    if (graph.nodes.length === 0 || !graph3d.webgl()) {
+      return undefined;
+    }
+    let live = true;
+    let map: Graph3D | null = null;
+    graph3d
+      .load()
+      .then((T) => {
+        if (live) {
+          map = mountGraph3D(
+            T,
+            host.current as HTMLDivElement,
+            graph,
+            open,
+            reducedMotion(),
+          );
+          setDeep(true);
+        }
+      })
+      .catch(() => setDeep(false));
+    return () => {
+      live = false;
+      map?.stop();
+    };
+  }, [graph]);
+  return { host, deep };
+}
+
+// GraphPane draws the notes as glowing points joined by their links, in 3D where it can; a click
+// on a note opens it.
 function GraphPane({ graph }: { graph: NoteGraph }) {
   const { openNote, closeGraph } = useApp().notes;
   const nodes = useMemo(() => layoutGraph(graph, GRAPH_W, GRAPH_H), [graph]);
   const at = new Map(nodes.map((n) => [n.path, n]));
+  const { host, deep } = useMap3D(graph, (p) => void openNote(p));
   return (
     <div class="flex flex-col flex-1 min-h-0" data-testid="note-graph">
       <div class="flex items-center gap-2 mb-2 flex-wrap">
@@ -366,57 +447,66 @@ function GraphPane({ graph }: { graph: NoteGraph }) {
             },
           )}
         </div>
+        {deep && (
+          <div class="text-xs text-accent" data-testid="graph-3d-hint">
+            {t("Drag to turn, scroll to zoom, click a name to open it.")}
+          </div>
+        )}
       </div>
       {nodes.length === 0 && (
         <p class="text-sm text-[#9a9aaa]">{t("Nothing to draw yet.")}</p>
       )}
-      <svg
-        viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
-        class="flex-1 min-h-0 w-full rounded-lg bg-black/30"
-        role="img"
-        aria-label={t("Graph of linked notes")}
-      >
-        {graph.edges.map((e) => (
-          <line
-            key={e.from + ">" + e.to}
-            x1={at.get(e.from)?.x}
-            y1={at.get(e.from)?.y}
-            x2={at.get(e.to)?.x}
-            y2={at.get(e.to)?.y}
-            stroke="currentColor"
-            stroke-opacity="0.35"
-            class="text-accent"
-          />
-        ))}
-        {nodes.map((n) => (
-          <g
-            key={n.path}
-            class="cursor-pointer"
-            role="button"
-            tabIndex={0}
-            data-testid="graph-node"
-            aria-label={n.title}
-            onClick={() => void openNote(n.path)}
-            onKeyDown={(e) => e.key === "Enter" && void openNote(n.path)}
+      <div class="graph3d relative flex-1 min-h-0 rounded-xl overflow-hidden">
+        <div ref={host} class="absolute inset-0" data-testid="graph-3d" />
+        {!deep && (
+          <svg
+            viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
+            class="relative w-full h-full"
+            role="img"
+            aria-label={t("Graph of linked notes")}
           >
-            <circle
-              cx={n.x}
-              cy={n.y}
-              r={5 + Math.min(n.in, 6)}
-              class="fill-accent"
-            />
-            <text
-              x={n.x}
-              y={n.y - 10 - Math.min(n.in, 6)}
-              text-anchor="middle"
-              font-size="12"
-              class="fill-current text-[#e8e8ea]"
-            >
-              {n.title}
-            </text>
-          </g>
-        ))}
-      </svg>
+            {graph.edges.map((e) => (
+              <line
+                key={e.from + ">" + e.to}
+                x1={at.get(e.from)?.x}
+                y1={at.get(e.from)?.y}
+                x2={at.get(e.to)?.x}
+                y2={at.get(e.to)?.y}
+                stroke="#00f0ff"
+                stroke-opacity="0.4"
+              />
+            ))}
+            {nodes.map((n) => (
+              <g
+                key={n.path}
+                class="cursor-pointer graph2d-node"
+                role="button"
+                tabIndex={0}
+                data-testid="graph-node"
+                aria-label={n.title}
+                onClick={() => void openNote(n.path)}
+                onKeyDown={(e) => e.key === "Enter" && void openNote(n.path)}
+              >
+                <circle
+                  cx={n.x}
+                  cy={n.y}
+                  r={5 + Math.min(n.in, 6)}
+                  fill={NEON_CSS[noteGroup(n.path, NEON_CSS.length)]}
+                />
+                <text
+                  x={n.x}
+                  y={n.y - 10 - Math.min(n.in, 6)}
+                  text-anchor="middle"
+                  font-size="12"
+                  fill="#e8e8ea"
+                >
+                  {n.title}
+                </text>
+              </g>
+            ))}
+          </svg>
+        )}
+      </div>
     </div>
   );
 }
@@ -430,14 +520,24 @@ function OpenNote() {
     >
       {!!graph && <GraphPane graph={graph} />}
       {!current && !graph && (
-        <div class="m-auto max-w-sm text-center text-sm text-[#9a9aaa] space-y-2">
-          <p>{t("Pick a note, or write a new one.")}</p>
+        <div class="m-auto max-w-sm text-center text-sm text-[#9a9aaa] space-y-3">
+          <IconBook size={36} class="mx-auto text-accent opacity-80" />
+          <p class="text-base text-[#e8e8ea]">
+            {t("Pick a note, or write a new one.")}
+          </p>
           <p>
             {t(
-              "Link notes with [[double brackets]]. They are plain .md files: open this folder in Obsidian and they are all there.",
+              "Each project has a manual: open its folder and start with Start here. Link notes with [[double brackets]].",
             )}
           </p>
-          {!!root && <p class="font-mono text-xs break-all">{root}</p>}
+          <p>
+            {t(
+              "They are plain .md files: open this folder in Obsidian and they are all there.",
+            )}
+          </p>
+          {!!root && (
+            <p class="text-xs break-all">{tf("Saved in {root}", { root })}</p>
+          )}
         </div>
       )}
       {!!current && (
@@ -467,7 +567,12 @@ export function NotesModal() {
     <ModalBackdrop onClose={() => void closeNotes()}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-5xl p-4 md:p-5 shadow-2xl h-[85vh] flex flex-col">
         <div class="flex items-center gap-2 mb-3">
-          <h2 class="text-base font-semibold">{t("Notes")}</h2>
+          <div class="min-w-0">
+            <h2 class="text-base font-semibold">{t("Notes")}</h2>
+            <p class="text-xs text-[#9a9aaa] truncate hidden sm:block">
+              {t("Your second brain: projects, sessions and your own ideas.")}
+            </p>
+          </div>
           <button
             class={SMALL_BTN + " ml-auto"}
             title={t(
@@ -484,7 +589,7 @@ export function NotesModal() {
             data-testid="note-graph-toggle"
             onClick={toggleGraph}
           >
-            {t("Graph")}
+            {choose(!!graph, t("Close map"), t("Map"))}
           </button>
           <button
             class="p-1.5 rounded-lg hover:bg-white/5"

@@ -240,6 +240,126 @@ export function layoutGraph(
   return placed;
 }
 
+export interface PlacedNode3D extends GraphNode {
+  x: number;
+  y: number;
+  z: number;
+}
+
+// The 3D layout: as many rounds as keep a big vault quick, and the pull to the middle.
+const LAYOUT_3D_WORK = 60000;
+const LAYOUT_3D_STEPS = 120;
+const GRAVITY_3D = 0.04;
+
+// layoutGraph3D places the notes in space around the origin, within about radius: they start
+// spread evenly over a sphere, then every pair pushes apart, every link pulls together and the
+// whole drifts to the middle. Big vaults get fewer rounds; the same vault always lands the same.
+export function layoutGraph3D(
+  graph: NoteGraph,
+  radius: number,
+): PlacedNode3D[] {
+  const n = graph.nodes.length;
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const placed: PlacedNode3D[] = graph.nodes.map((node, i) => {
+    const y = 1 - ((i + 0.5) / n) * 2;
+    const r = Math.sqrt(1 - y * y);
+    return {
+      ...node,
+      x: Math.cos(golden * i) * r * radius,
+      y: y * radius,
+      z: Math.sin(golden * i) * r * radius,
+    };
+  });
+  const at = new Map(placed.map((p) => [p.path, p]));
+  const k = (radius / Math.cbrt(n)) * SPRING * 2;
+  const steps = Math.min(LAYOUT_3D_STEPS, Math.ceil(LAYOUT_3D_WORK / (n * n)));
+  for (let step = 0; step < steps; step++) {
+    const cool = 1 - step / steps;
+    const move = new Map(placed.map((p) => [p, { x: 0, y: 0, z: 0 }]));
+    for (const a of placed) {
+      const da = move.get(a) as { x: number; y: number; z: number };
+      for (const b of placed) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dz = a.z - b.z;
+        const push = (k * k) / Math.max(dx * dx + dy * dy + dz * dz, 0.01);
+        da.x += dx * push;
+        da.y += dy * push;
+        da.z += dz * push;
+      }
+      da.x -= a.x * GRAVITY_3D;
+      da.y -= a.y * GRAVITY_3D;
+      da.z -= a.z * GRAVITY_3D;
+    }
+    for (const e of graph.edges) {
+      const a = at.get(e.from) as PlacedNode3D;
+      const b = at.get(e.to) as PlacedNode3D;
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const dz = a.z - b.z;
+      const pull = Math.sqrt(dx * dx + dy * dy + dz * dz) / k;
+      const da = move.get(a) as { x: number; y: number; z: number };
+      const db = move.get(b) as { x: number; y: number; z: number };
+      da.x -= dx * pull;
+      da.y -= dy * pull;
+      da.z -= dz * pull;
+      db.x += dx * pull;
+      db.y += dy * pull;
+      db.z += dz * pull;
+    }
+    for (const p of placed) {
+      const m = move.get(p) as { x: number; y: number; z: number };
+      const len = Math.max(Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z), 0.01);
+      const shift = Math.min(len, (radius / 10) * cool + 0.5);
+      p.x += (m.x / len) * shift;
+      p.y += (m.y / len) * shift;
+      p.z += (m.z / len) * shift;
+    }
+  }
+  // Centred and scaled so the farthest note sits at radius, however the forces settled.
+  const mid = { x: 0, y: 0, z: 0 };
+  for (const p of placed) {
+    mid.x += p.x / n;
+    mid.y += p.y / n;
+    mid.z += p.z / n;
+  }
+  let far = 1e-6;
+  for (const p of placed) {
+    far = Math.max(far, Math.hypot(p.x - mid.x, p.y - mid.y, p.z - mid.z));
+  }
+  for (const p of placed) {
+    p.x = ((p.x - mid.x) / far) * radius;
+    p.y = ((p.y - mid.y) / far) * radius;
+    p.z = ((p.z - mid.z) / far) * radius;
+  }
+  return placed;
+}
+
+// noteTrail is the folders a note sits in, outermost first: "a/b/c.md" is ["a", "b"].
+export function noteTrail(path: string): string[] {
+  return path.split("/").slice(0, -1);
+}
+
+// noteGroup is a number for the top folder of a note, the same for every note in it, so the map
+// can give each folder its colour; notes at the top are group 0.
+export function noteGroup(path: string, groups: number): number {
+  const top = noteTrail(path)[0] ?? "";
+  let hash = 0;
+  for (const ch of top) {
+    hash = (hash * 31 + (ch.codePointAt(0) as number)) % 9973;
+  }
+  return hash % groups;
+}
+
+// START_NOTE is the first note of a guide the scan writes; a folder lists it before the rest.
+export const START_NOTE = "Start here";
+
+// byReadingOrder sorts the notes of a folder for reading: "Start here" first, then by title.
+export function byReadingOrder(a: NoteItem, b: NoteItem): number {
+  const first = Number(b.title === START_NOTE) - Number(a.title === START_NOTE);
+  return first || a.title.localeCompare(b.title);
+}
+
 // NoteScan is what scanning the sessions and projects into notes reports.
 export interface NoteScan {
   // false when only a first-use scan was asked for and the vault did not need one.

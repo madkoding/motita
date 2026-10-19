@@ -5,13 +5,69 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { setupDom, load, text } from "./cov-render-helpers.mjs";
 
-const dom = setupDom();
+// A stand-in for three.js: objects that remember what they were given, so the 3D map runs in jsdom.
+const FAKE_THREE = `
+export const AdditiveBlending = 2;
+export class Vector3 {
+  constructor() { this.x = 0; this.y = 0; this.z = 0; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  project() { return this; }
+  length() { return Math.hypot(this.x, this.y, this.z); }
+  setLength(d) { const k = d / this.length(); this.x *= k; this.y *= k; this.z *= k; return this; }
+}
+class Obj {
+  constructor(...args) {
+    this.args = args;
+    this.position = new Vector3();
+    this.rotation = { x: 0, y: 0 };
+    this.scale = { setScalar: (n) => { this.scaled = n; } };
+    this.children = [];
+  }
+  add(...c) { this.children.push(...c); }
+  traverse(fn) { fn(this); for (const c of this.children) { c.traverse(fn); } }
+  updateMatrixWorld() {}
+  getWorldPosition(v) {
+    return v.set(this.position.x / 200, this.position.y / 200, globalThis.__threeDepth ?? 0.5);
+  }
+}
+class Disposable { constructor(...args) { this.args = args; } dispose() { globalThis.__threeDisposed = (globalThis.__threeDisposed ?? 0) + 1; } setAttribute() {} }
+export class BufferGeometry extends Disposable {}
+export class SphereGeometry extends Disposable {}
+export class Float32BufferAttribute extends Disposable {}
+export class MeshBasicMaterial extends Disposable {}
+export class LineBasicMaterial extends Disposable {}
+export class PointsMaterial extends Disposable {}
+export class FogExp2 extends Disposable {}
+export class Mesh extends Obj { constructor(geometry, material) { super(); this.geometry = geometry; this.material = material; } }
+export class Points extends Mesh {}
+export class LineSegments extends Mesh {}
+export class GridHelper extends Mesh { constructor() { super(new BufferGeometry(), new LineBasicMaterial()); } }
+export class Group extends Obj {}
+export class Scene extends Obj {}
+export class PerspectiveCamera extends Obj { lookAt() {} updateProjectionMatrix() { this.updated = true; } }
+export class WebGLRenderer {
+  constructor() {
+    if (globalThis.__threeFail) { throw new Error("no WebGL context"); }
+    this.domElement = document.createElement("canvas");
+    globalThis.__threeRenderer = this;
+    this.frames = 0;
+  }
+  setPixelRatio(r) { this.ratio = r; }
+  setSize(w, h) { this.size = [w, h]; }
+  render() { this.frames++; }
+  dispose() { this.disposed = true; }
+}
+`;
+const dom = setupDom({ overrides: { three: FAKE_THREE } });
 const W = dom.window;
 globalThis.requestAnimationFrame = (cb) =>
   setTimeout(() => cb(performance.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
 const api = await import("../notesApi.ts");
+const map3d = await import("../noteGraph3d.ts");
+const realWebgl = map3d.graph3d.webgl;
+map3d.graph3d.webgl = () => false;
 const { useNotes } = await load("useNotes.ts");
 const { NotesModal } = await load("NotesModal.tsx");
 const { useReviewNotes, REVIEW_NOTES_PROMPT } = await load("useReviewNotes.ts");
@@ -291,7 +347,7 @@ test("a note opens as a preview whose [[links]] open the note, or make it when n
   await click(qa(m.root, "note-row").find((b) => text(b) === "Japan"));
   assert.match(text(q(m.root, "note-preview")), /See Peru and Nowhere/);
   assert.equal(q(m.root, "note-back") !== null, true);
-  assert.match(text(q(m.root, "backlinks")), /Linked from \(1\)/);
+  assert.match(text(q(m.root, "backlinks")), /Mentioned in \(1\)/);
   assert.match(text(q(m.root, "backlinks")), /Peru/);
 
   // A click that is not on a note link does nothing; one on [[Peru]] opens Peru.
@@ -544,10 +600,7 @@ test("a note is renamed in its folder, and a taken or empty name is refused", as
   await submit();
   assert.ok(v.files["trips/Naples.md"]);
   assert.equal(v.files["trips/Rome.md"], undefined);
-  assert.match(
-    text(q(m.root, "note-rename").parentElement),
-    /trips\/Naples\.md/,
-  );
+  assert.equal(text(q(m.root, "note-place")), "tripsNaples");
   assert.equal(q(m.root, "note-rename-name"), null);
   await m.done();
 });
@@ -673,7 +726,10 @@ test("the preview of a note without links still draws", async () => {
   await m.run((n) => n.openNotes());
   await click(q(m.root, "note-row"));
   assert.match(text(q(m.root, "note-preview")), /plain/);
-  assert.match(text(q(m.root, "backlinks")), /No other note links here yet/);
+  assert.match(
+    text(q(m.root, "backlinks")),
+    /No other note mentions this one yet/,
+  );
   await m.done();
 });
 
@@ -895,4 +951,212 @@ test("the review also starts from an event, and closes the settings", async () =
   // Unmounted, the event no longer does anything.
   await act(() => window.dispatchEvent(new W.Event(REVIEW_NOTES_EVENT)));
   assert.equal(m.review.sent.length, 1);
+});
+
+// ---- the 3D map -------------------------------------------------------------------------------
+
+test("layoutGraph3D spreads the notes in space the same way every time", () => {
+  const graph = {
+    nodes: ["a.md", "b.md", "c.md"].map((path) => ({
+      path,
+      title: path,
+      size: 1,
+      modified: "",
+      in: 0,
+      out: 0,
+    })),
+    edges: [{ from: "a.md", to: "b.md" }],
+    missing: 0,
+  };
+  const one = api.layoutGraph3D(graph, 100);
+  assert.deepEqual(one, api.layoutGraph3D(graph, 100));
+  for (const p of one) {
+    assert.ok(Math.hypot(p.x, p.y, p.z) <= 100.0001, "within the radius");
+  }
+  const ab = Math.hypot(one[0].x - one[1].x, one[0].y - one[1].y);
+  const ac = Math.hypot(one[0].x - one[2].x, one[0].y - one[2].y);
+  assert.ok(ab > 0 && ac > 0);
+  assert.deepEqual(
+    api.layoutGraph3D({ nodes: [], edges: [], missing: 0 }, 100),
+    [],
+  );
+});
+
+test("the reading helpers: a note's folders, its colour group and Start here first", () => {
+  assert.deepEqual(api.noteTrail("a/b/c.md"), ["a", "b"]);
+  assert.deepEqual(api.noteTrail("c.md"), []);
+  assert.equal(api.noteGroup("c.md", 6), 0);
+  assert.equal(api.noteGroup("a/x.md", 6), api.noteGroup("a/y/z.md", 6));
+  const n = (title) => ({ path: title + ".md", title, size: 0, modified: "" });
+  assert.deepEqual(
+    [n("b"), n("Start here"), n("a")]
+      .sort(api.byReadingOrder)
+      .map((x) => x.title),
+    ["Start here", "a", "b"],
+  );
+});
+
+test("WebGL is found where a canvas gives a context, and less motion is honoured", () => {
+  const proto = W.HTMLCanvasElement.prototype;
+  const real = proto.getContext;
+  proto.getContext = (kind) => (kind === "webgl2" ? {} : null);
+  assert.equal(realWebgl(), true);
+  proto.getContext = (kind) => (kind === "webgl" ? {} : null);
+  assert.equal(realWebgl(), true);
+  proto.getContext = () => null;
+  assert.equal(realWebgl(), false);
+  proto.getContext = () => {
+    throw new Error("blocked");
+  };
+  assert.equal(realWebgl(), false);
+  proto.getContext = real;
+
+  assert.equal(map3d.reducedMotion(), false);
+  W.matchMedia = () => ({ matches: true });
+  assert.equal(map3d.reducedMotion(), true);
+  delete W.matchMedia;
+});
+
+// fakeHost is a box of a given size the map can draw into.
+function fakeHost(w, h) {
+  const el = document.createElement("div");
+  Object.defineProperty(el, "clientWidth", { value: w });
+  Object.defineProperty(el, "clientHeight", { value: h });
+  document.body.appendChild(el);
+  return el;
+}
+
+const GRAPH = {
+  nodes: [
+    { path: "a/one.md", title: "One", size: 1, modified: "", in: 2, out: 0 },
+    { path: "two.md", title: "Two", size: 1, modified: "", in: 0, out: 1 },
+  ],
+  edges: [{ from: "two.md", to: "a/one.md" }],
+  missing: 0,
+};
+
+test("the 3D map draws every note with its label, turns, zooms and cleans up", async () => {
+  const T = await import("three");
+  const host = fakeHost(400, 300);
+  const opened = [];
+  const map = map3d.mountGraph3D(T, host, GRAPH, (p) => opened.push(p), false);
+  const r = globalThis.__threeRenderer;
+  assert.deepEqual(r.size, [400, 300]);
+  const labels = qa(host, "graph-node");
+  assert.deepEqual(
+    labels.map((b) => b.textContent),
+    ["One", "Two"],
+  );
+  assert.equal(labels[0].style.visibility, "visible");
+  labels[1].click();
+  assert.deepEqual(opened, ["two.md"]);
+
+  // Dragging turns it; a move without a press does nothing; the wheel stays within its limits.
+  const at = (type, x, y) =>
+    new W.MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
+  W.dispatchEvent(at("pointermove", 5, 5));
+  host.dispatchEvent(at("pointerdown", 10, 10));
+  W.dispatchEvent(at("pointermove", 60, 400));
+  W.dispatchEvent(at("pointerup", 0, 0));
+  const wheel = new W.WheelEvent("wheel", { deltaY: 5000, cancelable: true });
+  host.dispatchEvent(wheel);
+  assert.equal(wheel.defaultPrevented, true);
+  host.dispatchEvent(new W.WheelEvent("wheel", { deltaY: -5000 }));
+  W.dispatchEvent(new W.Event("resize"));
+
+  // A note behind the camera hides its label.
+  globalThis.__threeDepth = 2;
+  await new Promise((res) => setTimeout(res, 5));
+  assert.equal(labels[0].style.visibility, "hidden");
+  globalThis.__threeDepth = undefined;
+  assert.ok(r.frames > 1);
+
+  map.stop();
+  assert.equal(r.disposed, true);
+  assert.ok(globalThis.__threeDisposed > 0);
+  assert.equal(host.childNodes.length, 0);
+  host.remove();
+
+  // With less motion asked for it stays still, and an empty box still draws.
+  const still = fakeHost(0, 0);
+  const m2 = map3d.mountGraph3D(T, still, GRAPH, () => {}, true);
+  await new Promise((res) => setTimeout(res, 5));
+  assert.deepEqual(globalThis.__threeRenderer.size, [1, 1]);
+  m2.stop();
+  still.remove();
+});
+
+test("the window shows the 3D map where WebGL works and the flat one where it fails", async () => {
+  map3d.graph3d.webgl = () => true;
+  const m = await mount(vault(FILES));
+  await m.run((n) => n.openNotes());
+  await click(q(m.root, "note-graph-toggle"));
+  await settle();
+  assert.ok(q(m.root, "graph-3d-hint"), "the 3D map is up");
+  assert.equal(q(m.root, "note-graph").querySelector("svg"), null);
+  assert.match(text(q(m.root, "note-graph-toggle")), /Close map/);
+  await click(qa(m.root, "graph-node")[0]);
+  assert.ok(q(m.root, "note-preview"), "a label opens its note");
+  assert.equal(q(m.root, "note-graph"), null);
+
+  // Closed before three.js arrives: nothing is drawn.
+  const load = map3d.graph3d.load;
+  let release;
+  map3d.graph3d.load = () => new Promise((r) => (release = r));
+  await click(q(m.root, "note-graph-toggle"));
+  const before = globalThis.__threeRenderer;
+  await click(q(m.root, "note-graph-toggle"));
+  release(await import("three"));
+  await settle();
+  assert.equal(globalThis.__threeRenderer, before);
+  map3d.graph3d.load = load;
+
+  // No WebGL context after all: the flat map stays.
+  globalThis.__threeFail = true;
+  await click(q(m.root, "note-graph-toggle"));
+  await settle();
+  assert.equal(q(m.root, "graph-3d-hint"), null);
+  assert.ok(q(m.root, "note-graph").querySelector("svg"));
+  globalThis.__threeFail = false;
+  await click(q(m.root, "note-graph-toggle"));
+  await m.done();
+
+  // An empty vault never asks for three.js.
+  const e = await mount(vault());
+  await e.run((n) => n.openNotes());
+  await click(q(e.root, "note-graph-toggle"));
+  assert.match(text(q(e.root, "note-graph")), /Nothing to draw yet/);
+  await e.done();
+  map3d.graph3d.webgl = () => false;
+});
+
+test("the list opens the folders at the top and the one holding the open note", async () => {
+  const v = vault({
+    "Projects/App - Manual/Start here.md": "# App manual",
+    "Projects/App - Manual/web.md": "# Web",
+    "Projects/deep/x.md": "x",
+    "top.md": "# Top",
+  });
+  const m = await mount(v);
+  await m.run((n) => n.openNotes());
+  const folders = qa(m.root, "note-folder");
+  assert.deepEqual(
+    folders.map((f) => [f.querySelector("summary").textContent, f.open]),
+    [
+      ["Projects3", true],
+      ["App - Manual2", false],
+      ["deep1", false],
+    ],
+  );
+  assert.deepEqual(
+    qa(folders[1], "note-row").map((b) => text(b)),
+    ["Start here", "web"],
+  );
+  await click(qa(folders[1], "note-row")[0]);
+  assert.equal(qa(m.root, "note-folder")[1].open, true);
+  assert.equal(
+    text(q(m.root, "note-place")),
+    "Projects › App - ManualStart here",
+  );
+  await m.done();
 });
