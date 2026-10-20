@@ -38,3 +38,18 @@ func TestEveryTranslationKeepsItsVerbs(t *testing.T) {
 		}
 	}
 }
+
+// TestTheDecisionsAndGoalMessagesAreTranslated: these four lines had no entry and showed in
+// English among Spanish ones.
+func TestTheDecisionsAndGoalMessagesAreTranslated(t *testing.T) {
+	for _, key := range []string{
+		"usage: /decisions undo <number>",
+		"decision removed: ",
+		"no decisions yet: a /goal records the ones it takes",
+		"usage: /goal <what you want>",
+	} {
+		if T(ES, key) == key {
+			t.Errorf("%q has no Spanish translation", key)
+		}
+	}
+}
