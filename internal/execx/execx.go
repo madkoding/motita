@@ -12,6 +12,7 @@ package execx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -99,12 +100,20 @@ func Run(ctx context.Context, p Request) (string, bool, int, error) {
 
 	start := time.Now()
 	err := cmd.Run()
+	// What the command left running in the background (`cmd &`) goes with it, not only on a
+	// timeout: an anchor check that starts a server would otherwise leak it past the run.
+	killLeftovers(cmd)
 	duration := time.Since(start)
 	text := output.buf.String()
 
 	if childCtx.Err() == context.DeadlineExceeded {
 		return text, output.truncated, -1, fmt.Errorf(
 			"the command exceeded the limit of %s and was terminated (process group sent SIGKILL)", timeout)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The command exited 0, and only a child it left behind held the output open past
+		// WaitDelay. The run succeeded.
+		err = nil
 	}
 
 	exit := 0
