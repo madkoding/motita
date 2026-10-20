@@ -82,22 +82,6 @@ func (s *Server) lockCatalogRepo(gitURL string) func() {
 	return mu.Unlock
 }
 
-// catalogUse is a project that uses a repository of the catalog.
-type catalogUse struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
-// catalogRepo is one repository of the catalog, and the projects that use it.
-type catalogRepo struct {
-	Name     string       `json:"name"`
-	GitURL   string       `json:"git_url"`
-	Dir      string       `json:"dir"`
-	Projects []catalogUse `json:"projects"`
-	// Size is what the clone takes on disk, in bytes.
-	Size int64 `json:"size"`
-}
-
 // allProjects is every project the gateway knows, none when it has no store or cannot read it.
 func (s *Server) allProjects() []Project {
 	if s.projects == nil {
@@ -106,6 +90,3 @@ func (s *Server) allProjects() []Project {
 	all, _ := s.projects.loadAll()
 	return all
 }
-
-// removeAll is how a clone leaves the catalog; a variable so a test can make it fail.
-var removeAll = os.RemoveAll
