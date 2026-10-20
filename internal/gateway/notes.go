@@ -74,14 +74,14 @@ func writeNoteError(w http.ResponseWriter, err error) {
 	writeError(w, status, err.Error())
 }
 
-// handleListNotes answers every note of the vault and where the folder is, so the person can open
-// it in another program.
+// handleListNotes answers every note of the vault, which of its folders a scan writes, and where
+// the vault is, so the person can open it in another program.
 func (s *Server) handleListNotes(w http.ResponseWriter, _ *http.Request) {
 	v := s.vault(w)
 	if v == nil {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"root": v.Root(), "notes": v.List()})
+	writeJSON(w, http.StatusOK, map[string]any{"root": v.Root(), "notes": v.List(), "folders": s.scanFolders()})
 }
 
 // handleGetNote answers one note with its links and backlinks.
@@ -222,6 +222,8 @@ func (s *Server) notesRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) ht
 	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
 	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))
 	mux.Handle("DELETE /v1/notes/note", plain(s.handleDeleteNote))
+	mux.Handle("DELETE /v1/notes/folder", plain(s.handleDeleteNoteFolder))
+	mux.Handle("POST /v1/notes/folder/rescan", plain(s.handleRescanNoteFolder))
 	mux.Handle("POST /v1/notes/rename", plain(s.handleRenameNote))
 	mux.Handle("GET /v1/notes/search", plain(s.handleSearchNotes))
 	mux.Handle("GET /v1/notes/graph", plain(s.handleNotesGraph))

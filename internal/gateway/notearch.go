@@ -437,7 +437,7 @@ func (m *archModel) of(ctx context.Context, v *notes.Vault, name, fp, facts stri
 func archBody(title, projectLink, manualLink, facts, explanation, fp string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Architecture of %s\n- Project: %s\n", cell(title), projectLink)
-	fmt.Fprintf(&b, "- Manual: %s\n%s", manualLink, facts)
+	fmt.Fprintf(&b, "- Guide: %s\n%s", manualLink, facts)
 	b.WriteString(explanationSection("How it fits together", explanation, fp))
 	return b.String()
 }
@@ -447,14 +447,14 @@ func archNoteName(projectNote string) string {
 	return strings.TrimSuffix(projectNote, ".md") + archNoteSuffix + ".md"
 }
 
-// scanArchitecture writes the architecture note of a project and answers its link, or "" when the
-// folder holds nothing to describe.
+// scanArchitecture writes the architecture note and the guide of a project and answers their links,
+// or nothing when the folder holds nothing to describe.
 func scanArchitecture(
 	ctx context.Context, v *notes.Vault, p Project, projectNote string, ms scanModels, res *noteScan,
-) string {
+) (archLink, guideLink string) {
 	f := walkProject(p.Dir)
 	if f.files == 0 {
-		return ""
+		return "", ""
 	}
 	name := archNoteName(projectNote)
 	readme := readmeExcerpt(p.Dir)
@@ -469,10 +469,10 @@ func scanArchitecture(
 	outcome, err := v.Upsert(name, strings.TrimSuffix(filepath.Base(name), ".md"), body)
 	res.count(outcome, err)
 	if err != nil {
-		return ""
+		return "", manual
 	}
 	res.Mapped++
-	return wikiLink(name)
+	return wikiLink(name), manual
 }
 
 // archDescriber finds a service that can explain a project with the model: the gateway's own, or

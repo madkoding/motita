@@ -195,7 +195,7 @@ func TestScanMapsAProjectAndLinksIt(t *testing.T) {
 		t.Errorf("the model is off, so nothing is explained:\n%s", arch)
 	}
 	project := readNote(t, dir, "Projects/App.md")
-	if !strings.Contains(project, "- Architecture: [[Projects/App - Architecture]]") {
+	if !strings.Contains(project, "- Technical overview: [[Projects/App - Architecture]]") {
 		t.Errorf("the project note does not link its architecture:\n%s", project)
 	}
 	if again := scanWith(t, srv, ""); again.Unchanged != 12 || again.Created != 0 {

@@ -250,3 +250,54 @@ func TestAbsRefusesWhatLeavesTheVault(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteFolder(t *testing.T) {
+	v := Open(t.TempDir())
+	write(t, v, "Guide/Start.md", "s")
+	write(t, v, "Guide/deep/er/a.md", "a")
+	write(t, v, "Guide/deep/b.md", "b")
+	write(t, v, "Other/keep.md", "k")
+	// Not notes: kept, and so is the folder that holds them.
+	os.WriteFile(filepath.Join(v.Root(), "Guide", "deep", "photo.png"), nil, 0o644)
+	os.MkdirAll(filepath.Join(v.Root(), "Guide", ".hidden"), 0o755)
+	os.WriteFile(filepath.Join(v.Root(), "Guide", ".hidden", "h.md"), nil, 0o644)
+	os.Symlink(filepath.Join(v.Root(), "Other"), filepath.Join(v.Root(), "Guide", "link"))
+	n, err := v.DeleteFolder("Guide/")
+	if err != nil || n != 3 {
+		t.Fatalf("DeleteFolder = %d, %v", n, err)
+	}
+	if list := v.List(); len(list) != 1 || list[0].Path != "Other/keep.md" {
+		t.Errorf("left %+v", list)
+	}
+	if _, err := os.Stat(filepath.Join(v.Root(), "Guide", "deep", "photo.png")); err != nil {
+		t.Errorf("a file that is not a note was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(v.Root(), "Guide", "deep", "er")); err == nil {
+		t.Error("an emptied sub-folder was left")
+	}
+	// A folder with nothing else in it goes away with its notes.
+	if n, err := v.DeleteFolder("Other"); err != nil || n != 1 {
+		t.Fatalf("DeleteFolder(Other) = %d, %v", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(v.Root(), "Other")); err == nil {
+		t.Error("the emptied folder is still there")
+	}
+}
+
+func TestDeleteFolderRefusals(t *testing.T) {
+	outside := t.TempDir()
+	v := Open(t.TempDir())
+	write(t, v, "a/n.md", "n")
+	os.Symlink(outside, filepath.Join(v.Root(), "out"))
+	os.WriteFile(filepath.Join(v.Root(), "file.txt"), nil, 0o644)
+	for _, bad := range []string{"", "/", "..", "../x", "a/../..", ".hidden", "out"} {
+		if _, err := v.DeleteFolder(bad); !errors.Is(err, ErrBadPath) {
+			t.Errorf("DeleteFolder(%q) = %v, want ErrBadPath", bad, err)
+		}
+	}
+	for _, missing := range []string{"nope", "file.txt", "a/n.md"} {
+		if _, err := v.DeleteFolder(missing); !errors.Is(err, ErrNotFound) {
+			t.Errorf("DeleteFolder(%q) = %v, want ErrNotFound", missing, err)
+		}
+	}
+}
