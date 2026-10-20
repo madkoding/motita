@@ -29,6 +29,19 @@ func TestStringMasksSecrets(t *testing.T) {
 		{"secret query params", "GET /x?a=1&access_token=abc&api_key=def&password=ghi#frag",
 			"GET /x?a=1&access_token=[REDACTED]&api_key=[REDACTED]&password=[REDACTED]#frag"},
 		{"bare query string", "token=abc&state=xyz", "token=[REDACTED]&state=xyz"},
+		{"env file past the first line", "FOO=1\nOLLAMA_API_KEY=abcdef123456\n  DB_PASSWORD=hunter2hunter2\n",
+			"FOO=1\nOLLAMA_API_KEY=[REDACTED]\n  DB_PASSWORD=[REDACTED]\n"},
+		{"exported variable", "export OPENAI_API_KEY=zzzzzzzzzzzzzzzz", "export OPENAI_API_KEY=[REDACTED]"},
+		{"quoted value", "export OLLAMA_API_KEY='abc123'\nSECRET=\"xyz\"",
+			"export OLLAMA_API_KEY='[REDACTED]'\nSECRET=\"[REDACTED]\""},
+		{"command line flag", "mysql --password=hunter2 db", "mysql --password=[REDACTED] db"},
+		{
+			"json credentials",
+			`{"access_token": "eyJabc.def", "refresh_token":"1//0gabc", "client_secret": "GOCSPX-abc", ` +
+				`"apiKey": "k1", "token_type": "Bearer"}`,
+			`{"access_token": "[REDACTED]", "refresh_token":"[REDACTED]", "client_secret": "[REDACTED]", ` +
+				`"apiKey": "[REDACTED]", "token_type": "Bearer"}`,
+		},
 		{
 			"pem private key",
 			"before\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nIBAAK\n-----END RSA PRIVATE KEY-----\nafter",
@@ -55,6 +68,11 @@ func TestStringKeepsOrdinaryText(t *testing.T) {
 		"-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----",
 		`curl -H "Authorization: Bearer ${TOKEN}" "https://x/?token=$(cat t)&key={{.Key}}"`,
 		"Authorization: short",
+		`{"max_tokens": 4096, "key": "value", "token": "${TOKEN}", "input_tokens": "12"}`,
+		"PATH=/usr/bin\nHOME=/home/u",
+		"best = max(pixels, key=lambda p: p[1])\nrows = sorted(rows,\n    key=len)",
+		`<g data-edge-key="a-b" key="x">`,
+		"body := `{\"api_key\":\"` + key + `\"}`\nlog(`\"token\": \"`)\nx := 1 // \"",
 	} {
 		if got := String(in); got != in {
 			t.Errorf("String(%q) = %q, want it unchanged", in, got)
