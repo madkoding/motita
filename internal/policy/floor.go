@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -29,7 +30,50 @@ import (
 // either refuses it (the writers list) or asks about it (unclassified). False positives are
 // possible too, and they are the safe direction: the floor only ever refuses.
 func MandatoryInLine(line, dir string) (Decision, bool) {
-	return scanLine(line, dir)
+	if d, hit := scanLine(line, dir); hit {
+		return d, true
+	}
+	// sh also starts a command after a newline, but only one outside a quote, a comment and a
+	// heredoc body: `git commit -m "a\n\nreboot ..."` and `cat > f << EOF` + `init()` run no
+	// command. The segment reader knows where those are, so each of its commands is scanned too.
+	main, docs := splitHeredocs(line)
+	for _, seg := range lineSegments(main) {
+		if seg.redirect {
+			continue
+		}
+		if d, hit := scanLine(strings.Join(seg.words, " "), dir); hit {
+			return d, true
+		}
+		if d, hit := shellRuns(seg.words, docs, dir); hit {
+			return d, true
+		}
+	}
+	return Decision{}, false
+}
+
+// shellRuns scans, as lines of their own, what a shell named in a segment runs: the words after
+// it (the payload of `sh -c` or `eval`, quoted newlines included) and the heredoc bodies.
+func shellRuns(words []string, docs []heredoc, dir string) (Decision, bool) {
+	i := slices.IndexFunc(words, func(w string) bool {
+		name := baseName(unquote(w))
+		return isShellName(name) || name == "eval"
+	})
+	if i < 0 {
+		return Decision{}, false
+	}
+	texts := make([]string, 0, len(words)+len(docs))
+	for _, w := range words[i+1:] {
+		texts = append(texts, unquote(w))
+	}
+	for _, d := range docs {
+		texts = append(texts, d.body)
+	}
+	for _, text := range texts {
+		if d, hit := MandatoryInLine(text, dir); hit {
+			return d, true
+		}
+	}
+	return Decision{}, false
 }
 
 // floorPrograms are the programs the floor knows. It is the membership test for the scan,
@@ -53,6 +97,7 @@ var floorPrograms = map[string]bool{
 var commandWrappers = map[string]bool{
 	"sudo": true, "doas": true, "env": true, "nohup": true, "command": true,
 	"nice": true, "ionice": true, "time": true, "stdbuf": true, "setsid": true,
+	"exec": true, "eval": true, "builtin": true, "busybox": true,
 }
 
 // nestedIntroducers open a command position in the MIDDLE of a segment, which is how xargs
@@ -98,7 +143,8 @@ func segments(line string) [][]string {
 // quote-aware tokeniser would hand the scan the single token `rm -rf /` whose program name
 // is none of the floor's. Keeping the separators is what lets the scan see that a line has a
 // second command — dropping them, as a plain field split does, makes `ls; rm -rf /` look
-// like one command called `ls` with five arguments.
+// like one command called `ls` with five arguments. A newline is a blank here: MandatoryInLine
+// finds the ones that start a command.
 func lineTokens(line string) []string {
 	fields := strings.FieldsFunc(line, func(r rune) bool {
 		return r == ' ' || r == '	' || r == '\n' || r == '\r'
@@ -113,24 +159,31 @@ func lineTokens(line string) []string {
 // appendFieldTokens appends the tokens of one blank-separated field. A field can still hold
 // separators glued to words (`ls;rm`), so it is split again on them, with the separator emitted
 // as its own token.
+//
+// Quotes and backslashes are dropped from the words, because sh drops them too: `\rm`, `"rm"`
+// and `'r'm` all run rm.
 func appendFieldTokens(out []string, f string) []string {
 	var current strings.Builder
+	flush := func() {
+		if w := shellQuoting.Replace(current.String()); w != "" {
+			out = append(out, w)
+		}
+		current.Reset()
+	}
 	for _, r := range f {
 		if !isSeparatorRune(r) {
 			current.WriteRune(r)
 			continue
 		}
-		if current.Len() > 0 {
-			out = append(out, strings.Trim(current.String(), `"'`))
-			current.Reset()
-		}
+		flush()
 		out = append(out, string(r))
 	}
-	if w := strings.Trim(current.String(), `"'`); w != "" {
-		out = append(out, w)
-	}
+	flush()
 	return out
 }
+
+// shellQuoting removes the characters sh removes from a word before it runs it.
+var shellQuoting = strings.NewReplacer(`"`, "", `'`, "", `\`, "")
 
 func isSeparatorRune(r rune) bool {
 	switch r {
@@ -148,7 +201,7 @@ func isSeparatorRune(r rune) bool {
 // that wrote to it, and the scan must not run its program name past it.
 func isSeparatorToken(token string) bool {
 	switch token {
-	case ";", "|", "&", "(", ")", "`", "{", "}", "&&", "||", "\n", "\r",
+	case ";", "|", "&", "(", ")", "`", "{", "}", "&&", "||",
 		">", ">>", "<", "<<", "<>", ">&", "<&":
 		return true
 	default:
@@ -213,13 +266,14 @@ func (s *floorScan) step(i int) (d Decision, hit, final bool) {
 
 	// A shell with -c takes the rest of the segment as a line of its own, which is
 	// then scanned from its own command position.
-	if isShellName(name) && i+1 < len(s.tokens) && s.tokens[i+1] == "-c" {
-		d, hit = scanSegment(s.tokens[i+2:], s.dir, s.fromNested)
+	if j := shellPayload(s.tokens, i, name); j > 0 {
+		d, hit = scanSegment(s.tokens[j:], s.dir, s.fromNested)
 		return d, hit, true
 	}
 
-	// The wrapper's program. It keeps the command position open for what follows.
-	if commandWrappers[name] {
+	// The wrapper's program, or a keyword of a compound command (`then`, `do`, `!`). It keeps
+	// the command position open for what follows.
+	if commandWrappers[name] || keywordsBeforeCommand[name] {
 		s.wrapper, s.valueNext = name, false
 		return Decision{}, false, false
 	}
@@ -302,6 +356,7 @@ var wrapperValueFlags = map[string]map[string]bool{
 	"time": {"-f": true, "--format": true, "-o": true, "--output": true},
 	"env": {"-u": true, "--unset": true, "-C": true, "--chdir": true,
 		"-S": true, "--split-string": true},
+	"exec": {"-a": true},
 	// `nohup` and `command` take no option with a value.
 }
 
@@ -367,6 +422,21 @@ func commandArgs(rest []string) []string {
 		out = append(out, t)
 	}
 	return out
+}
+
+// shellPayload returns where the line a shell named at tokens[i] runs starts: the token after its
+// -c, which may come in a bundle (`bash -lc`, `sh -ec`) or after other options. It returns 0 when
+// the program is not a shell or is given no -c.
+func shellPayload(tokens []string, i int, name string) int {
+	if !isShellName(name) {
+		return 0
+	}
+	for j := i + 1; j < len(tokens); j++ {
+		if t := tokens[j]; strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && strings.ContainsRune(t, 'c') {
+			return j + 1
+		}
+	}
+	return 0
 }
 
 func isShellName(name string) bool {

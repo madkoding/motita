@@ -102,6 +102,9 @@ func projectToolCommand(name string, positional []string, fromFile bool) (string
 	n := len(positional)
 	switch name {
 	case "npm":
+		if sub == "exec" {
+			return npxCommand(positional[1:])
+		}
 		return "npm", sub == "ci" || sub == "clean-install" || (isInstallVerb(sub) && n == 1)
 	case "yarn":
 		return "yarn", n == 0 || (sub == "install" && n == 1)
