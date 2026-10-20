@@ -886,3 +886,36 @@ func TestAClientThatCannotBeStreamedToDoesNotLoseTheRun(t *testing.T) {
 	}
 	t.Fatal("the run slot was leaked by a stream that never started")
 }
+
+// TestARefusedRunLeavesTheSavedPromptAlone: a task or plan refused because another run holds the
+// slot must change nothing. It used to overwrite the saved prompt first, so a restart then resumed
+// the refused prompt, in its mode, in place of the run that was really going on.
+func TestARefusedRunLeavesTheSavedPromptAlone(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.SessionDir = t.TempDir() })
+	c := srv.sessions[DefaultSession]
+	if !c.takeRunSlot() {
+		t.Fatal("the slot of a new session is taken")
+	}
+	defer c.releaseRunSlot()
+	c.stateMu.Lock()
+	c.lastTask, c.lastKind = "plan A", "plan"
+	c.stateMu.Unlock()
+	c.setCurrentRun(&run{})
+	defer c.clearCurrentRun()
+	srv.saveSession(c)
+
+	for path, body := range map[string]string{"/task": `{"task":"task B"}`, "/plan": `{"prompt":"plan B"}`} {
+		if w := post(t, srv, sessionPath(srv, DefaultSession, path), body, testToken); w.Code != http.StatusConflict {
+			t.Fatalf("POST %s while a run holds the slot = %d, want 409", path, w.Code)
+		}
+	}
+	recs, err := srv.store.loadAll()
+	if err != nil {
+		t.Fatalf("loading the saved sessions: %v", err)
+	}
+	for _, rec := range recs {
+		if rec.ID == DefaultSession && (!rec.Running || rec.LastTask != "plan A" || rec.LastKind != "plan") {
+			t.Fatalf("the saved record = running %v, %q as %q; want the running plan A", rec.Running, rec.LastTask, rec.LastKind)
+		}
+	}
+}
