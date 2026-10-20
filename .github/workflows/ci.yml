@@ -299,8 +299,13 @@ jobs:
             [ "$r" = "success" ] || { echo "::error::a required job ended as $r"; exit 1; }
           done
 
+  # Platform builds (the 10-target matrix and the android seccomp build) run only when a
+  # release tag is pushed, or by hand. PRs and main keep the quality checks: lint (fmt, vet,
+  # staticcheck), tests, coverage, windows tests and the gateway e2e. Nothing required by
+  # branch protection depends on these jobs: `verify` needs only lint, test, coverage, windows.
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     # Only the web assets: the binaries are built while the tests run, not after them.
     needs: web
     runs-on: ubuntu-latest
@@ -463,6 +468,7 @@ jobs:
 
   android-seccomp:
     name: android build under Android's seccomp rule
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     # Native arm64: qemu-user refuses seccomp filters, so the trap cannot be emulated.
     runs-on: ubuntu-24.04-arm
     steps:
