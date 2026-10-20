@@ -14,7 +14,10 @@ interface Deps {
     id: string,
     discard?: boolean,
     wipe?: boolean,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
+  // The ids of the sessions a project owns, and the way off those the project takes with it.
+  sessionsOf: (projectId: string) => string[];
+  leaveGone: (gone: string[]) => Promise<void>;
 }
 
 // previewPathOf is where the gateway answers what deleting a session or a project would discard.
@@ -43,6 +46,8 @@ export function useDeletion({
   deleteSession,
   deleteSkill,
   deleteProject,
+  sessionsOf,
+  leaveGone,
 }: Deps) {
   // Confirm-delete modal: when set, shows a modal asking the user to confirm.
   const [confirmDelete, setConfirmDelete] = useState<ConfirmTarget | null>(
@@ -137,6 +142,15 @@ export function useDeletion({
   // after the preview (the run being stopped by this very deletion), or whose
   // preview could not be read, was refused with a git error AFTER the user had
   // said yes.
+  // A project takes its sessions (the main one and its threads) with it. When the person is in
+  // one of them, they are moved off it rather than left on a conversation that no longer exists.
+  const deleteProjectAndLeave = async (id: string) => {
+    const owned = sessionsOf(id);
+    if (await deleteProject(id, true, wipeFolder)) {
+      await leaveGone(owned);
+    }
+  };
+
   const runDelete = (target: ConfirmTarget) => {
     if (target.type === "session") {
       return deleteSession(target.id, true);
@@ -144,7 +158,7 @@ export function useDeletion({
     if (target.type === "skill") {
       return deleteSkill(target.id);
     }
-    return deleteProject(target.id, true, wipeFolder);
+    return deleteProjectAndLeave(target.id);
   };
 
   // confirmDeletion is the confirm button. It is locked FIRST, so a second click cannot start a
