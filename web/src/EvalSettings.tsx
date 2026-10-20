@@ -75,22 +75,28 @@ export function EvalSettings({
   }, [reload, watch]);
   const running = view?.progress.running;
   useEffect(() => {
-    const id = running ? setInterval(reload, EVAL_POLL) : undefined;
+    if (!running) {
+      return undefined;
+    }
+    const id = setInterval(reload, EVAL_POLL);
     return () => clearInterval(id);
   }, [running, reload]);
-  const act = async (fn: (api: Api) => Promise<unknown>, done?: string) => {
-    setErr("");
-    setAsking(false);
-    try {
-      await fn(api);
-      if (done) {
-        onNotice(done);
+  const act = useCallback(
+    async (fn: (api: Api) => Promise<unknown>, done?: string) => {
+      setErr("");
+      setAsking(false);
+      try {
+        await fn(api);
+        if (done) {
+          onNotice(done);
+        }
+      } catch (error_) {
+        setErr(failureText(error_));
       }
-    } catch (error_) {
-      setErr(failureText(error_));
-    }
-    await reload();
-  };
+      await reload();
+    },
+    [api, onNotice, reload],
+  );
   if (!view) {
     return null;
   }
