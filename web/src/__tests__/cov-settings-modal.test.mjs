@@ -83,6 +83,14 @@ const api = fakeApi({
     restart_needed: false,
     can_save: true,
   }),
+  "GET /v1/friction": json(200, {
+    days: 7,
+    total: 0,
+    counts: {},
+    repeated: [],
+    flagged: [],
+    text: "Nothing got in the way in the last 7 days.",
+  }),
   "GET /v1/llm": json(200, {
     provider: "p",
     model: "m",
@@ -151,7 +159,9 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     voice: { label: "voice in" },
     speech: { label: "speech out" },
     security: { api, sessionId: "" },
+    friction: { api },
     codeIndex: { api },
+    autopilot: { api },
     network: { api },
     llm: { api, onNotice() {} },
     git: { label: "git hosts" },
@@ -165,7 +175,9 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     "voice",
     "speech",
     "security",
+    "journal",
     "codeindex",
+    "autopilot",
     "network",
     "providers",
     "models",
@@ -182,7 +194,12 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
   assert.equal(text(shown.voice), "voice in");
   assert.equal(text(shown.speech), "speech out");
   assert.ok(shown.security.querySelector("[data-testid=security-setting]"));
+  assert.match(
+    text(shown.journal.querySelector("[data-testid=friction-summary]")),
+    /Nothing got in the way/,
+  );
   assert.ok(shown.codeindex.querySelector("section"));
+  assert.ok(shown.autopilot.querySelector("section"));
   assert.ok(shown.network.querySelector("[data-testid=network-setting]"));
   assert.ok(shown.providers.querySelector("[data-testid=provider-settings]"));
   assert.ok(shown.models.querySelector("[data-testid=model-settings]"));

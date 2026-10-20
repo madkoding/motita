@@ -29,6 +29,11 @@ var esPush = map[string]string{
 	"Pull request %s was closed without being merged.": "El pull request %s se cerró sin mergearse.",
 	"Pull request merged":                              "Pull request mergeado",
 	"Pull request %s was merged.":                      "El pull request %s fue mergeado.",
+	"Weekly audit":                                     "Auditoría semanal",
+	"The weekly audit of %s has a new report: look at the notes.": "La auditoría semanal de %s tiene un " +
+		"informe nuevo: míralo en las notas.",
+	"Draft pull request opened":                    "Pull request en borrador abierto",
+	"Motita opened a draft pull request in %s: %s": "Motita abrió un pull request en borrador en %s: %s",
 }
 
 func init() { Register(ES, esPush) }

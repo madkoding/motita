@@ -85,6 +85,9 @@ type run struct {
 	// onAgents receives every snapshot of the run's agents. It is how the snapshot reaches the
 	// CONVERSATION, which keeps it after the run ends - the run itself is gone by then.
 	onAgents func([]agent.AgentInfo)
+	// onDenied receives the command of every question refused for want of someone to ask. It is
+	// how the friction journal hears of it.
+	onDenied func(command string)
 
 	mu      sync.Mutex
 	seq     uint64

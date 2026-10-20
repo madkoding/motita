@@ -886,6 +886,47 @@ const more: Record<string, string> = {
   "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
     "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
   "Scanning the notes": "Escaneando las notas",
+  "New repository": "Nuevo repositorio",
+  "No repositories": "Sin repositorios",
+  "New session in repository": "Nueva sesión en el repositorio",
+  "Delete repository": "Eliminar repositorio",
+  "or a folder on this machine": "o una carpeta de este equipo",
+  "Could not add the repository": "No se pudo agregar el repositorio",
+  "branch {branch}": "rama {branch}",
+  "The repository is cloned once. A folder is used where it is and never deleted.":
+    "El repositorio se clona una sola vez. Una carpeta se usa donde está y nunca se elimina.",
+  Upkeep: "Mantenimiento",
+  "Weekly check": "Revisión semanal",
+  "Once a week Motita looks over each project without changing anything and tells you what is new. It touches no code.":
+    "Una vez a la semana Motita revisa cada proyecto sin cambiar nada y te cuenta qué hay de nuevo. No toca el código.",
+  "Run the weekly check now": "Hacer la revisión semanal ahora",
+  "Last check: {date}": "Última revisión: {date}",
+  "Next: {date}": "Próxima: {date}",
+  "Draft pull requests": "Pull requests en borrador",
+  "For small, safe findings, such as texts, missing tests and code-quality warnings, Motita opens a draft pull request in the project's own repository. It never changes the main branch and never merges.":
+    "Para hallazgos pequeños y seguros, como textos, pruebas que faltan y avisos de calidad del código, Motita abre un pull request en borrador en el repositorio del propio proyecto. Nunca cambia la rama principal ni fusiona nada.",
+  "Look for small fixes now": "Buscar arreglos pequeños ahora",
+  "Last round of fixes: {date}": "Última ronda de arreglos: {date}",
+  "Most open pull requests": "Máximo de pull requests abiertos",
+  "Motita keeps at most this many of its own pull requests open at once, from 1 to 10. It opens no more until you merge or close some.":
+    "Motita mantiene abiertos a la vez como máximo esta cantidad de pull requests propios, de 1 a 10. No abre más hasta que fusiones o cierres alguno.",
+  Journal: "Diario",
+  "Loading…": "Cargando…",
+  "This gateway has no journal: it is older than this page.":
+    "Este gateway no tiene diario: es más antiguo que esta página.",
+  "Motita writes down, on this computer only, the failures, retries and refused actions of your sessions, and the answers you mark as not good. Nothing leaves it, secrets are masked, and nothing changes by itself.":
+    "Motita anota, solo en este equipo, los fallos, reintentos y acciones rechazadas de tus sesiones, y las respuestas que marcas como no buenas. Nada sale de aquí, los secretos se ocultan y nada cambia por sí solo.",
+  "Clear the journal": "Borrar el diario",
+  "Clear the whole journal?": "¿Borrar todo el diario?",
+  "Everything written so far is deleted, not just this week.":
+    "Se borra todo lo anotado hasta ahora, no solo esta semana.",
+  "This was not right": "Esto no estuvo bien",
+  "What went wrong? (optional)": "¿Qué salió mal? (opcional)",
+  Send: "Enviar",
+  "Noted, thanks": "Anotado, gracias",
+  "It stays in the journal on this computer; nothing is sent anywhere.":
+    "Queda en el diario de este equipo; no se envía a ningún lado.",
+  "could not note it": "no se pudo anotar",
   "Guides to your projects, your conversations and your own ideas.":
     "Guías de tus proyectos, tus conversaciones y tus propias ideas.",
   "See how the notes connect to each other":

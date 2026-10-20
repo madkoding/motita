@@ -105,6 +105,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c.id == DefaultSession {
+		s.learnFromClosing(c)
 		c.svc.ResetConversation()
 		s.forgetCheckpoints(c)
 		c.setTitle(placeholderTitle)
@@ -138,6 +139,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.learnFromClosing(c)
 	c.closeForGood()
 	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)

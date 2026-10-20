@@ -18,12 +18,20 @@ type gitHost struct {
 	mu     sync.Mutex
 	routes map[string]string
 	seen   []string
+	// sent is every request with its body, for a test that checks what was asked of the host.
+	sent []string
 }
 
 func (g *gitHost) Do(req *http.Request) (*http.Response, error) {
 	key := req.Method + " " + req.URL.String()
+	sentBody := ""
+	if req.Body != nil {
+		b, _ := io.ReadAll(req.Body)
+		sentBody = string(b)
+	}
 	g.mu.Lock()
 	g.seen = append(g.seen, key)
+	g.sent = append(g.sent, key+" "+sentBody)
 	routes := map[string]string{}
 	for k, v := range g.routes {
 		routes[k] = v

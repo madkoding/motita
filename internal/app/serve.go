@@ -313,6 +313,8 @@ func (op Options) startGateway(
 		// Phone notifications: the gateway's push key and the browsers subscribed, in
 		// ~/.motita/push.
 		PushDir: pushDir(),
+		// What got in the way, in ~/.motita/friction.jsonl: local, never sent anywhere.
+		FrictionFile: frictionFile(),
 		// The other computers: this gateway's identity and the ones it is connected to, in
 		// ~/.motita/peers.json, and whether it announces itself and looks for the others.
 		PeerFile:  peerFile(),
@@ -408,6 +410,15 @@ func peerFile() string {
 		return ""
 	}
 	return filepath.Join(d, "peers.json")
+}
+
+// frictionFile is the friction journal: ~/.motita/friction.jsonl, empty without a home.
+func frictionFile() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "friction.jsonl")
 }
 
 func pushDir() string {

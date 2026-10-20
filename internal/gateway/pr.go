@@ -86,6 +86,11 @@ func (s *Server) repoRemote(ctx context.Context, c *conversation, dir string) st
 			}
 		}
 	}
+	return s.originOf(ctx, dir)
+}
+
+// originOf is the URL of the remote named origin of the repository at dir, or "" when it has none.
+func (s *Server) originOf(ctx context.Context, dir string) string {
 	gitArgs := append([]string{"-C", dir}, gitx.HardeningFor(ctx, dir)...)
 	cmd := exec.CommandContext(ctx, "git", append(gitArgs, "remote", "get-url", "origin")...)
 	cmd.Env = s.gitCommandEnv()

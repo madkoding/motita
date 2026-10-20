@@ -351,3 +351,40 @@ func TestBuildReviewInput(t *testing.T) {
 		t.Fatal("buildReviewInput did not truncate the long message")
 	}
 }
+
+func TestRunOnCloseProposesFromTheRepeatedRuns(t *testing.T) {
+	fr := &fakeRunner{result: "saved a proposal"}
+	var soul string
+	own := &procedures.Store{}
+	r := New(config.Review{Enabled: true, Interval: 99, Timeout: 2 * time.Second, MaxIterations: 3},
+		nil, own, nil, builder(fr, &soul, nil))
+
+	r.RunOnClose(nil, "### Pattern 1 (repeated in 2 turns)\n- go test\n")
+
+	if fr.callCount() != 1 {
+		t.Fatalf("runner called %d times, want 1", fr.callCount())
+	}
+	for _, want := range []string{"A SESSION JUST CLOSED", "Pattern 1", "DATA", "Nothing to save."} {
+		if !strings.Contains(fr.input(), want) {
+			t.Errorf("the fork's input lacks %q:\n%s", want, fr.input())
+		}
+	}
+	if !strings.Contains(soul, "skill review pass") || r.IsRunning() {
+		t.Errorf("soul = %q, running = %v", soul, r.IsRunning())
+	}
+}
+
+func TestRunOnCloseDoesNothingWhenOffOrEmpty(t *testing.T) {
+	built := 0
+	build := func(*llm.Client, *procedures.Store, string, int) SkillRunner {
+		built++
+		return &fakeRunner{}
+	}
+	off := New(config.Review{Enabled: false, Timeout: time.Second}, nil, &procedures.Store{}, nil, build)
+	off.RunOnClose(nil, "something repeated")
+	on := New(config.Review{Enabled: true, Timeout: time.Second}, nil, &procedures.Store{}, nil, build)
+	on.RunOnClose(nil, "  \n")
+	if built != 0 {
+		t.Errorf("the fork was built %d times", built)
+	}
+}

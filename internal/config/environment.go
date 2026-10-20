@@ -176,6 +176,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_VOICE_MAX_AUDIO_KB", &c.Voice.MaxAudioKB},
 		{"MOTITA_CODE_INDEX_MAX_FILE_KB", &c.CodeIndex.MaxFileKB},
 		{"MOTITA_CODE_INDEX_MAX_FILES", &c.CodeIndex.MaxFiles},
+		{"MOTITA_AUTOPILOT_MAX_OPEN_PRS", &c.Autopilot.MaxOpenPRs},
 		{"MOTITA_VOICE_TTS_MAX_CHARS", &c.Voice.TTS.MaxChars},
 	}
 }
@@ -212,6 +213,8 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_CODE_INDEX_ENABLED", &c.CodeIndex.Enabled},
 		{"MOTITA_CODE_INDEX_SEMANTIC", &c.CodeIndex.Semantic},
 		{"MOTITA_CODE_INDEX_EMBEDDINGS_AUTO", &c.CodeIndex.EmbeddingsAuto},
+		{"MOTITA_AUTOPILOT_WEEKLY_AUDIT", &c.Autopilot.WeeklyAudit},
+		{"MOTITA_AUTOPILOT_AUTO_PR", &c.Autopilot.AutoPR},
 		{"MOTITA_VOICE_TTS_ENABLED", &c.Voice.TTS.Enabled},
 	}
 }

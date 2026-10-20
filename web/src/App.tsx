@@ -289,6 +289,100 @@ function IconStop() {
   );
 }
 
+type FlagState = "idle" | "open" | "sending" | "sent";
+
+// FlagButton is "this was not right" on an answer: it opens a small form for what went wrong (the
+// words are optional) and writes the answer, with what the gateway knows of its turn, in the
+// friction journal. The journal is local and changes nothing by itself.
+function FlagButton({ m }: { m: Message }) {
+  const { running, lastMsgId, flagAnswer } = useTurn();
+  const [state, setState] = useState<FlagState>("idle");
+  const [note, setNote] = useState("");
+  const [failed, setFailed] = useState(false);
+  // An answer still streaming has no end yet, and one without a turn has nothing to point at.
+  if (m.turn == null || (running && m.id === lastMsgId)) {
+    return null;
+  }
+  const send = async () => {
+    setState("sending");
+    setFailed(false);
+    const ok = await flagAnswer(m, note.trim());
+    setFailed(!ok);
+    setState(choose(ok, "sent", "open"));
+  };
+  if (state === "sent") {
+    return <output class="flag-msg-done">{t("Noted, thanks")}</output>;
+  }
+  return (
+    <>
+      <button
+        type="button"
+        class={"flag-msg-btn" + choose(state === "idle", "", " is-open")}
+        aria-label={t("This was not right")}
+        aria-expanded={state !== "idle"}
+        title={t("This was not right")}
+        onClick={() => setState(choose(state === "idle", "open", "idle"))}
+      >
+        <IconThumbDown />
+      </button>
+      {state !== "idle" && (
+        <form
+          class="flag-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send();
+          }}
+        >
+          <textarea
+            class="flag-form-note"
+            rows={2}
+            maxLength={500}
+            placeholder={t("What went wrong? (optional)")}
+            aria-label={t("What went wrong? (optional)")}
+            value={note}
+            onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+          />
+          <p class="flag-form-hint">
+            {choose(
+              failed,
+              t("could not note it"),
+              t(
+                "It stays in the journal on this computer; nothing is sent anywhere.",
+              ),
+            )}
+          </p>
+          <button
+            type="submit"
+            class="flag-form-send"
+            disabled={state === "sending"}
+          >
+            {t("Send")}
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
+function IconThumbDown() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9a2 2 0 0 0 2 2.3z" />
+      <path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
+    </svg>
+  );
+}
+
 function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
   const answer = m.role === "agent" && !m.kind && !m.draft;
   const empty = choose(isEmptyNote(m), " empty-note", "");
@@ -301,6 +395,7 @@ function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
       <MessageBody m={m} auto={auto} />
       {m.changes && <ChangesCard changes={m.changes} />}
       {m.artifacts && <RunArtifacts artifacts={m.artifacts} />}
+      {answer && <FlagButton m={m} />}
       {answer && <SpeakButton m={m} />}
     </div>
   );
@@ -611,8 +706,10 @@ function SettingsHost() {
       }}
       security={{ api: request, sessionId: rs.sessionId }}
       codeIndex={{ api: request }}
+      autopilot={{ api: request }}
       network={{ api: request }}
       push={{ api: request }}
+      friction={{ api: request }}
       git={{
         api: request,
         rev: projects.gitRev,

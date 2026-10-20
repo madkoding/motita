@@ -1585,6 +1585,23 @@ does. `search_index` takes `query`, `path` (a folder to search in, default the w
 `limit` (default 5, at most 20). What it returns goes into the model's context like any tool result, with
 secrets masked. It only knows what it indexed, so a negative is confirmed with `search_in_files`.
 
+
+### Upkeep: weekly audit and draft pull requests
+
+Two independent switches in **Settings → Upkeep**, both **off** by default (the first spends model turns every week, the second publishes under your account):
+
+- **Weekly audit** runs a read-only plan in each project once a week and writes the findings that are new to the notes (`Weekly audits/<project>/<date>.md`). Each project keeps one "Weekly audit" session, so the agent remembers what it already reported. It touches no code.
+- **Draft pull requests** lets Motita make one small, safe change per project (a text, a missing test, a Sonar warning) in a worktree of its own and open it as a **draft**. The agent runs unattended and cannot push or open anything: the gateway does it, and only after checking the change. It never pushes to the main branch (only `motita/auto-<session>`, as a plain push), never merges, refuses a change over 8 files or 200 lines or one that touches `.github/`, dependency files or lockfiles, Dockerfiles or `.env`, needs a semantic commit subject, and opens nothing while `max_open_prs` of its own are already open. Needs the project's git host connected.
+
+```yaml
+autopilot:
+  weekly_audit: false # MOTITA_AUTOPILOT_WEEKLY_AUDIT
+  auto_pr: false # MOTITA_AUTOPILOT_AUTO_PR
+  max_open_prs: 3 # 1 to 10; MOTITA_AUTOPILOT_MAX_OPEN_PRS
+```
+
+Both routines are records of the scheduled tasks (`autopilot-audit`, `autopilot-fixes`, every 7 days), so their last run and outcome also show in the scheduled tasks list. A switch that is off wins over its record. A phone notification is sent for a new report and for each draft opened.
+
 ### Reading files, repositories and the web in plan mode
 
 Plan mode never writes, but it is not blind: besides `read_file`, `list_directory`, `search_in_files` and
@@ -1717,6 +1734,9 @@ that only motita's own file edits are limited.
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/security`  | `{"disk_access":"workspace","can_save":true,"enforced":true,"ask_unconfined_runs":true,"isolate_network":true,"network_enforced":true,"auto_apply_suggestions":false,"desktop_control":false}`; `desktop_reason` says why this computer has no desktop to control, when it has none; `enforced` is false where commands are not confined (no Landlock, chroot, or `confine_writes: false`); `network_enforced` is false where a command cannot be given a network of its own, and `network_reason` and `network_hint` then say why and what to do |
 | `PUT /v1/security`  | `{"disk_access":"full","confirm":true}`, `{"ask_unconfined_runs":false,"confirm":true}`, `{"isolate_network":false,"confirm":true}`, `{"auto_apply_suggestions":true,"confirm":true}`, `{"desktop_control":true,"confirm":true}` or any of them together; `confirm` is required for `full`, for `ask_unconfined_runs: false`, for `isolate_network: false`, for `auto_apply_suggestions: true` and for `desktop_control: true`, `409` without a configuration file, `500` when `MOTITA_SANDBOX_DISK_ACCESS`, `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS`, `MOTITA_SANDBOX_ISOLATE_NETWORK`, `MOTITA_AGENT_AUTO_APPLY_SUGGESTIONS` or `MOTITA_AGENT_DESKTOP_CONTROL` overrides it; a change of several keys is saved whole or not at all |
+| `GET /v1/autopilot` | `{"weekly_audit":false,"auto_pr":false,"max_open_prs":3,"can_save":true,"audit":null,"fixes":null}`; `audit` and `fixes` are `{last_run,next_run,last_outcome,running}` once a switch was turned on |
+| `PUT /v1/autopilot` | any of `weekly_audit`, `auto_pr`, `max_open_prs`; `400` for a refused value (or a `MOTITA_AUTOPILOT_*` variable that overrides it), `409` without a configuration file |
+| `POST /v1/autopilot/run` | `{"what":"audit"}` or `{"what":"fixes"}`: runs it now (`202`); `409` if it is switched off or already running |
 | `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"cache_files":0,"cache_bytes":0,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
 | `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
 | `DELETE /v1/code-index/cache` | none; deletes the index files kept in `code_index.cache_dir` and answers `{removed, bytes}` |
@@ -2002,6 +2022,35 @@ refused because the document ships inside the binary, and `501` from every endpo
 when the process was started without a library at all — which is a different answer
 from "the library is empty", and the reason a front end can say which one it is
 looking at.
+
+### The friction journal, and skills from a closed session
+
+Motita keeps a **friction journal**: one line, in `~/.motita/friction.jsonl`, for each thing that got
+in the way. It is read-only knowledge for you. Nothing in it changes a setting, a skill or a prompt by
+itself, nothing in it is sent anywhere, and every text is passed through the secret scrubber before it
+is written.
+
+| It records | When |
+| --- | --- |
+| `error` | a run ended with a failure (a run you cancelled is not one) |
+| `retry` | a step did not pass validation and was tried again |
+| `denied` | an action was refused: by you, or because nobody was there to ask (a scheduled run) |
+| `flagged` | you pressed **This was not right** under an answer |
+
+**Settings → Journal** shows the last seven days in plain words (Spanish or English, as the interface):
+how many of each, what came up more than once, and the answers you flagged with your own words. *Clear
+the journal* deletes the whole file. The file keeps its newest 2000 lines.
+
+The **This was not right** button (under every answer, with an optional note) writes the answer with its
+real context: what was asked, what was answered, whether the turn ran as plan or task, how many steps it
+took and how many errors, retries or refusals it had already had. Over HTTP: `GET /v1/friction`,
+`DELETE /v1/friction`, `POST /v1/sessions/{id}/friction` (`{"turn": 3, "note": "..."}`).
+
+**Skills from a closed session.** When a session is deleted (or the default one is reset), Motita reads
+the commands it ran, turn by turn, for a run of two to five steps that came up in at least two turns. It
+costs no model call. Only if it finds one is the background review (`review.enabled`) asked to write it
+down, and what it writes is a *proposal* in the library's `.proposed` folder, exactly like the review's other
+proposals: you read it in the skill library (or `motita curator list-proposed`), and accept or reject it.
 
 ### What runs silently, and why that is a design decision
 
