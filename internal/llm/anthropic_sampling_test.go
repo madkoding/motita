@@ -109,4 +109,9 @@ func TestAnthropicRetriesWithoutTemperature(t *testing.T) {
 	if err != nil || got != "ok" || len(sent) != 2 || !sent[0] || sent[1] {
 		t.Errorf("got %q, %v, sent %v", got, err, sent)
 	}
+	// The refusal is remembered: the next request does not try temperature again.
+	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "again"}}); err != nil ||
+		len(sent) != 3 || sent[2] {
+		t.Errorf("second request: %v, sent %v", err, sent)
+	}
 }

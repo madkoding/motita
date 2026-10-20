@@ -78,6 +78,7 @@ const defaultTemperature = 0.2
 // legacy one that still takes it. Otherwise the API default applies.
 func (c *Client) setAnthropicSampling(body map[string]any) {
 	switch {
+	case c.noTemperature.Load():
 	case c.cfg.Temperature != nil:
 		body["temperature"] = *c.cfg.Temperature
 	case acceptsTemperature(c.cfg.Model):
@@ -93,7 +94,9 @@ func (c *Client) postAnthropic(ctx context.Context, body map[string]any) ([]byte
 	var he *HTTPError
 	if _, has := body["temperature"]; has && errors.As(err, &he) && he.Code == 400 &&
 		strings.Contains(he.Body, "temperature") {
-		c.log.Warn("the model refuses temperature; asking again without it", "model", c.cfg.Model)
+		c.log.Warn("the model refuses temperature; asking again without it and not sending it again"+
+			" (remove llm.temperature from the configuration)", "model", c.cfg.Model)
+		c.noTemperature.Store(true)
 		delete(body, "temperature")
 		return c.post(ctx, "/v1/messages", body)
 	}
