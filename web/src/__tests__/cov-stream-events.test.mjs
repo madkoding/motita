@@ -427,6 +427,22 @@ test("an error ends the run with its message, and an approval asks the question"
   await hook.unmount();
 });
 
+test("a reconnection with no question waiting clears the run's question, not a typed command's", async () => {
+  const { hook, rs, send } = await run();
+  await send("attached", { pending_approval: { id: "q1", command: "rm" } });
+  assert.equal(rs().approval.id, "q1");
+  // Answered on another device, or cut off: the gateway no longer has it.
+  await send("attached", {});
+  assert.equal(rs().approval, null);
+  await send("attached", {});
+  assert.equal(rs().approval, null);
+  // A typed command's question is this tab's, not the run's: it stays.
+  await hook.act(() => rs().setApproval({ id: "shell:4", command: "ls" }));
+  await send("attached", {});
+  assert.equal(rs().approval.id, "shell:4");
+  await hook.unmount();
+});
+
 test("an approval refused with nobody to ask is a warning in the conversation; the run goes on", async () => {
   const { hook, rs, send, finished } = await run();
   await send("approval_denied", {

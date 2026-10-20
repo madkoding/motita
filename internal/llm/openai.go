@@ -248,14 +248,10 @@ func (s *openAIStream) read(reader *bufio.Reader) {
 }
 
 // ssePayload is the data of one server-sent event line; comments, blank lines and other fields
-// carry none.
+// carry none. The space after "data:" is optional in SSE.
 func ssePayload(line []byte) ([]byte, bool) {
-	const dataPrefix = "data: "
-	line = bytes.TrimSpace(line)
-	if !bytes.HasPrefix(line, []byte(dataPrefix)) {
-		return nil, false
-	}
-	return bytes.TrimPrefix(line, []byte(dataPrefix)), true
+	payload, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data:"))
+	return bytes.TrimSpace(payload), ok
 }
 
 // end closes the stream on a read error: the end of the body is the end of the answer.

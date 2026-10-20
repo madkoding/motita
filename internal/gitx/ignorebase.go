@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -130,27 +131,80 @@ func IsToolHome(path string) bool {
 // It is idempotent, and a failure is returned for the caller to treat as advisory: a worktree
 // with noisy status is still a worktree.
 func EnsureIgnoreBase(ctx context.Context, repoDir string) error {
-	common, err := noGitOr(ctx, "could not find the repository's git directory", repoDir, "rev-parse", "--git-common-dir")
+	return updateExclude(ctx, repoDir, func(text string) string {
+		return replaceBlock(text, ignoreBlockBegin, ignoreBlockEnd, ignoreBlock(repoDir, uncommittedGitignore(ctx, repoDir)))
+	})
+}
+
+// The block ignoreLinks owns: one root-anchored path per dependency link a worktree was given.
+const (
+	linkBlockBegin = "# >>> motita dependency links (managed, do not edit) >>>"
+	linkBlockEnd   = "# <<< motita dependency links <<<"
+)
+
+// ignoreLinks adds paths to the block of dependency links in the exclude file of dir's
+// repository. The block only grows: every worktree shares the file, and a link another worktree
+// still has must stay ignored.
+func ignoreLinks(ctx context.Context, dir string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	return updateExclude(ctx, dir, func(text string) string {
+		lines := append(blockLines(text, linkBlockBegin, linkBlockEnd), paths...)
+		slices.Sort(lines)
+		lines = slices.Compact(lines)
+		return replaceBlock(text, linkBlockBegin, linkBlockEnd,
+			linkBlockBegin+"\n"+strings.Join(lines, "\n")+"\n"+linkBlockEnd+"\n")
+	})
+}
+
+// blockLines are the non-empty lines of the managed block in text, or none when it has no block.
+func blockLines(text, begin, end string) []string {
+	start := strings.Index(text, begin)
+	if start < 0 {
+		return nil
+	}
+	body, _, _ := strings.Cut(text[start+len(begin):], end)
+	var lines []string
+	for _, l := range strings.Split(body, "\n") {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+// updateExclude rewrites the exclude file of dir's repository - in the COMMON git directory, which
+// every worktree reads - with update, and leaves it alone when update changes nothing.
+//
+// The git directory is opened as a root: an agent that worked in the checkout can write it, and a
+// link at info or info/exclude that leads out of it (to a shell rc) is refused rather than
+// followed. What is written copies the uncommitted .gitignore, so it is text the agent chose.
+func updateExclude(ctx context.Context, dir string, update func(string) string) error {
+	common, err := noGitOr(ctx, "could not find the repository's git directory", dir, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return err
 	}
 	if !filepath.IsAbs(common) {
-		common = filepath.Join(repoDir, common)
+		common = filepath.Join(dir, common)
 	}
-	path := filepath.Join(common, "info", "exclude")
-	existing, err := os.ReadFile(path)
+	root, err := os.OpenRoot(common)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	path := filepath.Join("info", "exclude")
+	existing, err := root.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	block := ignoreBlock(repoDir, uncommittedGitignore(ctx, repoDir))
-	updated := replaceIgnoreBlock(string(existing), block)
+	updated := update(string(existing))
 	if updated == string(existing) {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(updated), 0o644)
+	// A directory that cannot be made is reported by the write below.
+	_ = root.MkdirAll("info", 0o755)
+	return root.WriteFile(path, []byte(updated), 0o644)
 }
 
 // uncommittedGitignore is the root .gitignore's content when it is untracked or differs from the
@@ -218,23 +272,23 @@ func nestedRepos(repoDir string) []string {
 	return names
 }
 
-// replaceIgnoreBlock puts block in text: over the managed block when there is one, at the end
-// otherwise. A begin marker with no end marker is a torn write and is replaced to the end of the
-// text, so the file cannot accumulate blocks.
-func replaceIgnoreBlock(text, block string) string {
-	start := strings.Index(text, ignoreBlockBegin)
+// replaceBlock puts block in text: over the managed block between begin and end when there is
+// one, at the end otherwise. A begin marker with no end marker is a torn write and is replaced to
+// the end of the text, so the file cannot accumulate blocks.
+func replaceBlock(text, begin, end, block string) string {
+	start := strings.Index(text, begin)
 	if start < 0 {
 		if text != "" && !strings.HasSuffix(text, "\n") {
 			text += "\n"
 		}
 		return text + block
 	}
-	end := len(text)
-	if i := strings.Index(text[start:], ignoreBlockEnd); i >= 0 {
-		end = start + i + len(ignoreBlockEnd)
-		if end < len(text) && text[end] == '\n' {
-			end++
+	stop := len(text)
+	if i := strings.Index(text[start:], end); i >= 0 {
+		stop = start + i + len(end)
+		if stop < len(text) && text[stop] == '\n' {
+			stop++
 		}
 	}
-	return text[:start] + block + text[end:]
+	return text[:start] + block + text[stop:]
 }

@@ -99,11 +99,19 @@ var removeTimeoutFor = removeTimeout
 // .gitattributes entry at it, so `git add` or `git diff` runs that command. A static -c list
 // cannot neutralize a key whose name is not known in advance; neutralizeLocalConfig reads the
 // repository's local config and emits a -c override for every such key it finds. See gitArgs.
-var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
+//
+// The ext:: transport is forbidden here, not only when the repository names protocol.ext.allow:
+// a general protocol.allow=always arms it too, and a per-protocol policy on the command line wins
+// over both.
+var hardening = []string{
+	"-c", "core.hooksPath=/dev/null",
+	"-c", "core.fsmonitor=false",
+	"-c", "protocol.ext.allow=never",
+}
 
 // Hardening is a copy of the fixed -c options every git of this package runs with, for the few
 // callers outside it that start git themselves: put them before the subcommand. It carries only
-// the hooks and fsmonitor neutralization; a caller that runs git in a repository an agent may
+// the hooks, fsmonitor and ext:: neutralization; a caller that runs git in a repository an agent may
 // have written must use HardeningFor so the repository's own filter, diff and merge drivers are
 // neutralized too.
 func Hardening() []string {
@@ -113,8 +121,9 @@ func Hardening() []string {
 // HardeningFor is Hardening plus the -c overrides that neutralize the command-running config
 // keys found in dir's local config. A caller outside this package that starts git itself in a
 // repository an agent can write (a workspace checkout) passes these before the subcommand, so a
-// planted filter, diff or merge driver runs no command. dir that is not a repository, or a git
-// that cannot be run, contributes no overrides: the fixed hardening is still returned.
+// planted filter, diff or merge driver runs no command. dir that is not a repository contributes
+// no overrides. A config that cannot be listed (a git that cannot be run, a dir that is gone)
+// fails closed, as neutralizeLocalConfig says.
 func HardeningFor(ctx context.Context, dir string) []string {
 	return append(Hardening(), neutralizeLocalConfig(ctx, dir)...)
 }
@@ -132,35 +141,49 @@ func gitArgs(ctx context.Context, dir string, args ...string) []string {
 // the machine owner's (git-lfs installs filter.lfs.* in the system scope, and
 // that filter must keep working), while the local scope - .git/config - is exactly what an agent
 // or a cloned project can rewrite. A repository that sets no such key gets no override, and a dir
-// that is not a repository, or a machine with no git, reports nothing: the caller still runs with
-// the fixed hardening.
+// that is not a repository reports nothing: the caller still runs with the fixed hardening. A
+// config that cannot be listed at all fails CLOSED: git is pointed at a repository that does not
+// exist, because a listing that failed says nothing about what the repository arms.
 //
 // Reading the config is itself a git run, and it is made WITHOUT these overrides (reading config
 // does not run a driver), so there is no recursion.
 func neutralizeLocalConfig(ctx context.Context, dir string) []string {
+	names, ok := localConfigNames(ctx, dir)
+	if !ok {
+		return []string{"--git-dir=" + unsafeConfigGitDir}
+	}
 	var over []string
-	for _, name := range localConfigNames(ctx, dir) {
+	for _, name := range names {
 		over = append(over, neutralize(name)...)
 	}
 	return over
 }
 
 // localConfigNames lists the names of dir's repository-controlled config variables (the local and
-// worktree scopes), in the order git reports them. It is listed WITHOUT --local on
-// purpose: --local turns include resolution off and skips config.worktree, so a
-// [include] path = ... or extensions.worktreeConfig in .git/config would hide a filter driver
-// from the list while git still applies it. With --show-scope each name is preceded by its scope
-// (NUL-separated), and the included files report the scope of the file that includes them. A
-// failure (not a repository, no local config, no git) is
-// reported as no names: there is then nothing to neutralize.
-func localConfigNames(ctx context.Context, dir string) []string {
+// worktree scopes), in the order git reports them, and whether the listing could be read. It is
+// listed WITHOUT --local on purpose: --local turns include resolution off and skips
+// config.worktree, so a [include] path = ... or extensions.worktreeConfig in .git/config would
+// hide a filter driver from the list while git still applies it. With --show-scope each name is
+// preceded by its scope (NUL-separated), and the included files report the scope of the file
+// that includes them.
+//
+// git older than 2.26 has no --show-scope. The listing is then retried without it and EVERY name
+// is returned: the machine owner's drivers (git-lfs) are disarmed too, which is the price of not
+// running a planted one. A listing that ran out of time is not retried.
+func localConfigNames(ctx context.Context, dir string) ([]string, bool) {
 	c, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	full := append([]string{"-C", dir}, hardening...)
-	full = append(full, "config", "--list", "--name-only", "--show-scope", "-z")
-	out, err := execCommand(c, "git", full...)
+	full = append(full, "config", "--list", "--name-only", "-z")
+	out, err := execCommand(c, "git", append(full, "--show-scope")...)
+	if err != nil && c.Err() == nil {
+		out, err = execCommand(c, "git", full...)
+		if err == nil {
+			return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 }), true
+		}
+	}
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	fields := strings.Split(string(out), "\x00")
 	var names []string
@@ -169,7 +192,7 @@ func localConfigNames(ctx context.Context, dir string) []string {
 			names = append(names, fields[i+1])
 		}
 	}
-	return names
+	return names, true
 }
 
 // dangerousConfigKeys are the fixed-name config variables whose value git runs as a command, or
@@ -178,17 +201,18 @@ func localConfigNames(ctx context.Context, dir string) []string {
 // fixed hardening, and are left to it, but a repository that re-sets them is overridden here too
 // rather than trusted).
 var dangerousConfigKeys = map[string]bool{
-	"diff.external":         true,
-	"core.sshcommand":       true,
-	"core.editor":           true,
-	"core.pager":            true,
-	"core.askpass":          true,
-	"core.fsmonitor":        true,
-	"core.hookspath":        true,
-	"sequence.editor":       true,
-	"commit.gpgsign":        true,
-	"tag.gpgsign":           true,
-	"sendemail.sendmailcmd": true,
+	"diff.external":             true,
+	"core.sshcommand":           true,
+	"core.editor":               true,
+	"core.pager":                true,
+	"core.askpass":              true,
+	"core.fsmonitor":            true,
+	"core.hookspath":            true,
+	"core.alternaterefscommand": true,
+	"sequence.editor":           true,
+	"commit.gpgsign":            true,
+	"tag.gpgsign":               true,
+	"sendemail.sendmailcmd":     true,
 }
 
 // commandFilterVars are the variables of a filter driver that run a command.

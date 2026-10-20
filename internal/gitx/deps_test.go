@@ -5,8 +5,56 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// TestDependencyLinksAreNeitherChangesNorCommitted: git reads a link as a file, so the directory
+// rule `node_modules/` does not hide the link LinkDependencyDirs makes. A session with no work
+// reported one change, and the background agent's CommitAll committed a link to a host path.
+func TestDependencyLinksAreNeitherChangesNorCommitted(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	write(t, filepath.Join(repo, "package.json"), "{}\n")
+	write(t, filepath.Join(repo, ".gitignore"), "node_modules/\n")
+	write(t, filepath.Join(repo, "web", "a.txt"), "a\n")
+	write(t, filepath.Join(repo, "a[b", "a.txt"), "a\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-qm", "project")
+	for _, dep := range []string{"node_modules/x", "web/node_modules/x", "a[b/node_modules/x"} {
+		write(t, filepath.Join(repo, dep), "dep\n")
+	}
+	wt := filepath.Join(filepath.Dir(repo), "worktrees", "s1")
+	addWorktree(t, repo, wt, "motita/s1")
+	LinkDependencyDirs(repo, wt)
+
+	if _, err := os.Lstat(filepath.Join(wt, "web", "node_modules")); err != nil {
+		t.Fatalf("the dependencies must be linked: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(wt, "a[b", "node_modules")); err == nil {
+		t.Error("a path git reads as a pattern cannot be ignored, so it must not be linked")
+	}
+	if n, err := WorkingTreeChanges(ctx, wt); err != nil || n != 0 {
+		t.Errorf("a session with no work reports %d changes (%v)", n, err)
+	}
+	if committed, err := CommitAll(ctx, wt, "work"); err != nil || committed {
+		t.Errorf("CommitAll committed the dependency links: %v %v", committed, err)
+	}
+	// The block only grows: a link another worktree still has stays ignored.
+	if err := ignoreLinks(ctx, wt, []string{"/other/node_modules"}); err != nil {
+		t.Fatal(err)
+	}
+	got := excludeOf(t, repo)
+	for _, want := range []string{"/node_modules\n", "/web/node_modules\n", "/other/node_modules\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the exclude file lacks %q:\n%s", want, got)
+		}
+	}
+	// Re-running the base keeps the links block.
+	if err := EnsureIgnoreBase(ctx, repo); err != nil || excludeOf(t, repo) != got {
+		t.Errorf("the ignore base changed the links block (%v):\n%s", err, excludeOf(t, repo))
+	}
+}
 
 // TestNestedDependencyDirectoriesAreShared: a monorepo keeps its dependencies next to each
 // package. Only the root used to be linked, so `web/node_modules` - this repository's own

@@ -198,6 +198,9 @@ test("Escape closes only the topmost dialog", async () => {
       ),
     ]),
   );
+  const ime = key("Escape", { isComposing: true });
+  assert.deepEqual(closed, [], "an Escape that drops an IME candidate");
+  assert.equal(ime.defaultPrevented, false);
   const e = key("Escape");
   assert.deepEqual(closed, ["over"]);
   assert.equal(e.defaultPrevented, true);

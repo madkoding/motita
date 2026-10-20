@@ -100,9 +100,8 @@ function onAttached({ rs }: StreamContext, payload: StreamPayload) {
       },
     ]);
   }
-  if (payload.pending_approval) {
-    rs.setApproval(payload.pending_approval);
-  }
+  // The gateway names the question still waiting, if any: one answered elsewhere or cut off goes.
+  rs.setApproval((a) => payload.pending_approval ?? typedCommandOnly(a));
   if (Array.isArray(payload.agents)) {
     rs.setAgents(sortAgents(payload.agents));
   }
@@ -260,6 +259,14 @@ function onProgress(ctx: StreamContext, payload: StreamPayload) {
     return;
   }
   onStep(ctx, text, kind);
+}
+
+// typedCommandOnly is the question on screen once the run has none open: a typed command's
+// question ("shell:") belongs to no run, so it stays; the run's goes.
+export function typedCommandOnly(
+  a: PendingApproval | null,
+): PendingApproval | null {
+  return choose(a?.id.startsWith("shell:"), a, null);
 }
 
 // withoutDraft is the conversation without the answer being written, if its last message is one.

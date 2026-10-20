@@ -154,7 +154,8 @@ allocate memory`. It only showed up on a CI runner with more cores; on a
   the next prompt and into the transcript, so motita masks the secrets it
   recognises first (`Authorization` headers, `sk-…`, `ghp_…`/`github_pat_…`,
   `AKIA…`, `AIza…`, `xox?-…`, private key blocks, `user:password@` in URLs,
-  `token=`/`key=`/`secret=`/`password=` parameters) as `[REDACTED]`. It is a
+  `token=`/`key=`/`secret=`/`password=` parameters and `.env` lines, JSON fields
+  such as `"access_token"` or `"client_secret"`) as `[REDACTED]`. It is a
   pattern scrubber, not a guarantee: a secret of another shape still reaches
   the provider, so keep real credentials out of the workspace.
 

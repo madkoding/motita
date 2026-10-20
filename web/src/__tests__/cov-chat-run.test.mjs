@@ -444,7 +444,16 @@ test("an \"always allow\" a gateway did not keep is said, for the agent's questi
   await s.hook.unmount();
 });
 
+// fakeClock stands in for Date.now, so a test can say how long a question has been on screen.
+function fakeClock() {
+  const real = Date.now;
+  const clock = { now: 1_000_000, restore: () => (Date.now = real) };
+  Date.now = () => clock.now;
+  return clock;
+}
+
 test("the approval panel takes focus, and the keyboard moves and answers it", async () => {
+  const clock = fakeClock();
   const s = await shell(() => json({}));
   // No question: the keys are not the panel's.
   const e0 = {
@@ -465,6 +474,7 @@ test("the approval panel takes focus, and the keyboard moves and answers it", as
   await s.rerender();
   assert.equal(s.rs.approvalSel, 0);
   assert.equal(document.activeElement, panel);
+  clock.now += 500;
   const press = async (k) => {
     const e = {
       key: k,
@@ -507,6 +517,7 @@ test("the approval panel takes focus, and the keyboard moves and answers it", as
   await s.rerender();
   s.rs.approvalSel = 2;
   await s.rerender();
+  clock.now += 500;
   await press("Enter");
   await tick();
   assert.deepEqual(s.api.calls.at(-1).body, { id: "q2", approve: false });
@@ -519,10 +530,86 @@ test("the approval panel takes focus, and the keyboard moves and answers it", as
     "a new question starts on the first option",
   );
   await s.rerender();
+  clock.now += 500;
   await press("Enter");
   await tick();
   assert.deepEqual(s.api.calls.at(-1).body, { id: "q3", approve: true });
   panel.remove();
+  clock.restore();
+  await s.hook.unmount();
+});
+
+test("an Enter meant for the composer does not answer a question that just came up", async () => {
+  const clock = fakeClock();
+  const s = await shell(() => json({}));
+  const panel = document.createElement("fieldset");
+  panel.tabIndex = 0;
+  document.body.appendChild(panel);
+  s.rs.approvalRef.current = panel;
+  s.rs.approval = { id: "q1", question: "?" };
+  await s.rerender();
+  const enter = (extra = {}) => {
+    const e = {
+      key: "Enter",
+      ...extra,
+      preventDefault() {
+        this.prevented = true;
+      },
+    };
+    s.c().onApprovalKey(e);
+    return e;
+  };
+  // The person was typing: the Enter lands a moment after the panel took focus.
+  clock.now += 499;
+  assert.equal(enter().prevented, true, "the key does not reach a button");
+  await tick();
+  assert.equal(s.api.calls.length, 0, "nothing is answered");
+  assert.equal(s.rs.approval.id, "q1", "the question stays");
+  // A held Enter repeats: still not an answer, however late.
+  clock.now += 5000;
+  assert.equal(enter({ repeat: true }).prevented, true);
+  await tick();
+  assert.equal(s.api.calls.length, 0);
+  // A fresh Enter once the question has been on screen a moment answers it.
+  enter();
+  await tick();
+  assert.deepEqual(s.api.calls.at(-1).body, { id: "q1", approve: true });
+  panel.remove();
+  clock.restore();
+  await s.hook.unmount();
+});
+
+test("a typed command's question that comes back after a session switch is dropped", async () => {
+  let release;
+  const s = await shell(
+    () =>
+      new Promise((r) => {
+        release = () => r(json({ needs_approval: true }));
+      }),
+  );
+  const pending = s.c().runShellLine("rm -rf build");
+  await tick();
+  // The person picks another session before the gateway answers.
+  s.rs.sessionRef.current = "s2";
+  release();
+  await pending;
+  assert.equal(s.rs.approval, null, "no card from s1 on s2");
+  assert.equal(s.api.calls.length, 1);
+  // A question asked in s1 and answered after a switch to s2 runs nothing in s2.
+  s.rs.sessionRef.current = "s1";
+  const again = s.c().runShellLine("rm -rf build");
+  await tick();
+  release();
+  await again;
+  const id = s.rs.approval.id;
+  s.rs.sessionRef.current = "s2";
+  await s.c().answerApproval(id, true, true);
+  await tick();
+  assert.deepEqual(
+    s.api.calls.map((c) => c.path),
+    ["/v1/sessions/s1/shell", "/v1/sessions/s1/shell"],
+    "no approved run in s2",
+  );
   await s.hook.unmount();
 });
 

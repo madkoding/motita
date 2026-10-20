@@ -1175,6 +1175,11 @@ func (a *Agent) continueBudget(ctx context.Context, rounds, maxSteps int, prefix
 // the user said yes to running commands, not to working for ever.
 const BudgetRule = "agent.max_steps"
 
+// GateRule is the Rule of the question "accept a PASS from a gate this run changed?". It is not a
+// command either: it asks whether the check that judges the work may be one the run rewrote, so
+// an approver that approves every COMMAND must not answer it.
+const GateRule = "anchor-gate-changed"
+
 // maxSteps is the round budget in force, defaulted when none was configured.
 func (a *Agent) maxSteps() int {
 	if a.cfg.Agent.MaxSteps > 0 {
@@ -1304,12 +1309,16 @@ func truncateMiddle(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	head := max / 3
-	tail := max - head
-	start := len(s) - tail
-	for start < len(s) && !utf8.RuneStart(s[start]) {
+	return cutMiddle(s, s, len(s), max)
+}
+
+// cutMiddle is truncateMiddle of a text longer than max of total bytes, known only by its first
+// bytes (head, longer than max/3) and its last bytes (tail, at least max - max/3 long).
+func cutMiddle(head, tail string, total, max int) string {
+	start := len(tail) - (max - max/3)
+	for start < len(tail) && !utf8.RuneStart(tail[start]) {
 		start++
 	}
-	omitted := len(s) - head - (len(s) - start)
-	return truncate(s, head) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", omitted, len(s)) + s[start:]
+	omitted := total - max/3 - (len(tail) - start)
+	return truncate(head, max/3) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", omitted, total) + tail[start:]
 }

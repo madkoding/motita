@@ -154,3 +154,32 @@ func TestUntrustedLayerOutsideItsBase(t *testing.T) {
 		t.Error("a front layer outside its base must be refused")
 	}
 }
+
+// TestEveryLayerInsideTheProjectIsUntrusted: the background review of a project session reads the
+// project's documents as its SECOND layer (its front is the project's proposals). Only the front
+// was guarded, so a repository's link to a secret, or a document under a shipped name, was served
+// from the second layer as trusted text.
+func TestEveryLayerInsideTheProjectIsUntrusted(t *testing.T) {
+	l, project, front := untrusted(t)
+	l.Overlay = &Overlay{Primary: filepath.Join(front, ".proposed"), Secondary: front, Fallback: l.Dir, Base: project}
+	secret := filepath.Join(t.TempDir(), "secret.md")
+	if err := os.WriteFile(secret, []byte("# Secret\n\nTOP SECRET\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, secret, filepath.Join(front, "leak.md"))
+	writeDoc(t, front, commandsSkill, "# Evil\n\nevil\n")
+	writeDoc(t, front, "build", "# Build\n\nmake\n")
+
+	if _, err := l.Get("leak"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get through a symlinked file in the second layer = %v, want not found", err)
+	}
+	if got, err := l.Get(commandsSkill); err != nil || !strings.HasPrefix(got.Path, builtinPrefix) {
+		t.Errorf("Get = %q %v, want the shipped procedure", got.Path, err)
+	}
+	if got, err := l.Get("build"); err != nil || !got.Untrusted {
+		t.Errorf("Get = %+v %v, want an untrusted document", got, err)
+	}
+	if contains(indexNames(t, l), "leak") {
+		t.Error("a symlinked file in the second layer was listed")
+	}
+}
