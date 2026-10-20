@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { BodyPortal } from "./BodyPortal";
 import { MENU_GAP } from "./appConst";
+import { choose } from "./choose";
 
 // floatingPlace puts a box of `w` by `h` against `anchor`'s bottom-right corner (flush with its
 // right edge), flipped above it when there is no room below, and clamped inside the window.
@@ -75,7 +76,7 @@ export function FloatingMenu({
           position: "fixed",
           top: `${pos?.top ?? 0}px`,
           left: `${pos?.left ?? 0}px`,
-          visibility: pos ? "visible" : "hidden",
+          visibility: choose(pos !== null, "visible", "hidden"),
         }}
       >
         {children}
