@@ -633,6 +633,15 @@ func NotesDir() string {
 	return ""
 }
 
+// EvalsFile is where the results of the model checks are kept: ~/.motita/evals.json. Empty without a
+// home.
+func EvalsFile() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "evals.json")
+	}
+	return ""
+}
+
 // defaultToolsDir is ~/.motita-tools: beside the program's own state, outside every repository
 // the agent works in, so what it installs survives the session and never lands in a commit.
 // With no home it is empty, which keeps the old layout rather than guessing a directory.
