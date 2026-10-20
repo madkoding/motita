@@ -24,6 +24,8 @@ func TestTheReferenceQuotesTheRealDefaults(t *testing.T) {
 		t.Error("REFERENCE.md no longer quotes the agent.max_steps default; change this test with it")
 	case m[1] != fmt.Sprint(def.Agent.MaxSteps):
 		t.Errorf("REFERENCE.md says agent.max_steps defaults to %s; Default() sets %d", m[1], def.Agent.MaxSteps)
+	default:
+		// The quoted default is the real one.
 	}
 
 	rel, err := filepath.Rel(HomeDir(), def.Skills.Dir)
@@ -37,5 +39,7 @@ func TestTheReferenceQuotesTheRealDefaults(t *testing.T) {
 		t.Error("REFERENCE.md no longer quotes the skills.dir default; change this test with it")
 	case m[1] != want:
 		t.Errorf("REFERENCE.md says skills.dir defaults to %q; Default() uses %s", m[1], want)
+	default:
+		// The quoted default is the real one.
 	}
 }
