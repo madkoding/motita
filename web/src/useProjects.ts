@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
-import { folderNameOf, slugOf } from "./appParse";
+import { folderNameOf } from "./appParse";
+import { newProjectDraft } from "./newProjectDraft";
 import { useFolderPicker } from "./useFolderPicker";
 import { createdToast } from "./projectToast";
 import { SCAN_STARTED_EVENT } from "./notesApi";
@@ -175,6 +176,8 @@ interface Deps {
   setToast: SetToast;
 }
 
+export type NewProjectSource = "folder" | "clone";
+
 // useNewProjectForm holds what the New project dialog has been given so far, and empties it.
 function useNewProjectForm() {
   const [showNewProject, setShowNewProject] = useState(false);
@@ -188,6 +191,19 @@ function useNewProjectForm() {
   // The user's answer to podman.
   const [newProjectPodman, setNewProjectPodman] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  // A project either uses a folder or clones a repository, never both: the dialog shows one.
+  const [source, setSource] = useState<NewProjectSource>("folder");
+  const [newProjectGitUrl, setNewProjectGitUrl] = useState("");
+
+  // setNewProjectSource switches between the two. Cloning has no folder to pick, so the one chosen
+  // before is let go and nothing of it is sent.
+  const setNewProjectSource = (next: NewProjectSource) => {
+    setSource(next);
+    if (next === "clone") {
+      setNewProjectPath("");
+      setNewProjectSure(false);
+    }
+  };
 
   // chooseNewProjectPath sets the folder picked and, when no name was typed yet, names the project
   // after it; a name already typed stays.
@@ -205,6 +221,8 @@ function useNewProjectForm() {
     setNewProjectPath("");
     setNewProjectSure(false);
     setNewProjectPodman(false);
+    setNewProjectSource("folder");
+    setNewProjectGitUrl("");
     setCreatingProject(false);
   };
 
@@ -233,6 +251,10 @@ function useNewProjectForm() {
     setNewProjectPodman,
     creatingProject,
     setCreatingProject,
+    newProjectSource: source,
+    setNewProjectSource,
+    newProjectGitUrl,
+    setNewProjectGitUrl,
     resetNewProject,
   };
 }
@@ -297,15 +319,6 @@ function useRuntimes(api: Api, showNewProject: boolean) {
   return { hasPodman, hasPodmanCompose, podmanReady };
 }
 
-// newProjectTarget is the title and folder a new project is created with: the title defaults to the
-// name of the folder chosen, and the folder (in the workspace) to the title's slug.
-function newProjectTarget(form: NewProjectForm) {
-  const title =
-    form.newProjectTitle.trim() || folderNameOf(form.newProjectPath);
-  const dir = form.newProjectDir.trim() || slugOf(title);
-  return { title, dir };
-}
-
 // useCreateProject sends the New project dialog to the gateway, and handles its answer.
 function useCreateProject(
   api: Api,
@@ -317,8 +330,8 @@ function useCreateProject(
 ) {
   // createProject sends a new project to the gateway.
   const createProject = useCallback(async () => {
-    const { title, dir } = newProjectTarget(form);
-    if (!title || (!dir && !form.newProjectPath)) {
+    const { title, dir, gitUrl, ready } = newProjectDraft(form);
+    if (!ready) {
       return;
     }
     form.setCreatingProject(true);
@@ -331,6 +344,7 @@ function useCreateProject(
           description: form.newProjectDesc.trim(),
           dir,
           path: form.newProjectPath || undefined,
+          git_url: gitUrl || undefined,
           confirm_sensitive: form.newProjectSure || undefined,
           use_podman: choose(
             hasPodman && form.newProjectPodman,
@@ -368,6 +382,8 @@ function useCreateProject(
     form.newProjectPath,
     form.newProjectSure,
     form.newProjectPodman,
+    form.newProjectSource,
+    form.newProjectGitUrl,
     hasPodman,
     fetchProjects,
   ]);
@@ -535,6 +551,10 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectPath: form.setNewProjectPath,
     newProjectSure: form.newProjectSure,
     setNewProjectSure: form.setNewProjectSure,
+    newProjectSource: form.newProjectSource,
+    setNewProjectSource: form.setNewProjectSource,
+    newProjectGitUrl: form.newProjectGitUrl,
+    setNewProjectGitUrl: form.setNewProjectGitUrl,
     ...folders,
     ...edit,
     ...git,

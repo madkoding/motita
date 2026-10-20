@@ -1,11 +1,15 @@
-// The new project modal. A project is a plain folder, so it asks for its name first and then which
-// folder. The folder browser picks an existing one or makes a new one; choosing one names a project
-// that has no name yet after it. The rest is folded away.
+// The new project modal. A project is a plain folder, so it asks for its name first, then which way
+// it starts: from a folder or by cloning a repository, one or the other and never both. The
+// folder browser picks an existing one or makes a new one; choosing one names a project that has
+// no name yet after it. The rest is folded away.
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
-import { folderNameOf } from "./appParse";
+import { folderNameOf, repoNameOfUrl } from "./appParse";
+import { newProjectDraft } from "./newProjectDraft";
+import type { Choice } from "./SettingsControls";
+import type { NewProjectSource } from "./useProjects";
 import { podmanNote } from "./appFormat";
 import { IconClose, IconFolder, IconSpinner } from "./icons";
 import { NEW_PROJECT } from "./appConst";
@@ -15,6 +19,58 @@ import { useFolderProbe, type FolderProbe } from "./useFolderProbe";
 const FIELD =
   "w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent";
 const LABEL = "block text-sm text-[#9a9aaa] mb-1.5";
+
+// SourcePicker is the choice between using a folder and cloning a repository, as two radio buttons:
+// one or the other. Picking one hides the other's field.
+function SourcePicker() {
+  const p = useApp().projects;
+  const options: Choice<NewProjectSource>[] = [
+    { value: "folder", label: t("Use a folder") },
+    { value: "clone", label: t("Clone a repository") },
+  ];
+  return (
+    <fieldset class="space-y-1.5" data-testid="new-project-source">
+      <legend class={LABEL}>{t("Start from")}</legend>
+      {options.map((o) => (
+        <label
+          key={o.value}
+          class="flex items-center gap-2 min-h-[32px] text-sm text-[#e8e8ea] cursor-pointer"
+        >
+          <input
+            type="radio"
+            class="accent-(--accent,#7c6cff)"
+            name="new-project-source"
+            value={o.value}
+            checked={p.newProjectSource === o.value}
+            onChange={() => p.setNewProjectSource(o.value)}
+          />
+          {o.label}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+// RepoField is the address of the repository to clone.
+function RepoField() {
+  const p = useApp().projects;
+  return (
+    <div data-testid="new-project-repo">
+      <label class={LABEL}>{t("Repository address")}</label>
+      <input
+        class={FIELD}
+        data-testid="new-project-git-url"
+        value={p.newProjectGitUrl}
+        onInput={(e) =>
+          p.setNewProjectGitUrl((e.target as HTMLInputElement).value)
+        }
+        placeholder="https://github.com/user/repo.git"
+        autocapitalize="off"
+        spellcheck={false}
+      />
+    </div>
+  );
+}
 
 // PodmanOffer asks whether the project runs with podman, when the machine has it.
 function PodmanOffer() {
@@ -61,7 +117,12 @@ function NameField() {
         onInput={(e) =>
           p.setNewProjectTitle((e.target as HTMLInputElement).value)
         }
-        placeholder={folderNameOf(p.newProjectPath) || t("My project")}
+        placeholder={
+          folderNameOf(p.newProjectPath) ||
+          (p.newProjectSource === "clone" &&
+            repoNameOfUrl(p.newProjectGitUrl)) ||
+          t("My project")
+        }
       />
       {!p.newProjectPath && (
         <p class="text-xs text-[#7a7a8c] mt-1">
@@ -226,10 +287,7 @@ function CreateButtons() {
         <button
           class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
           onClick={() => p.createProject()}
-          disabled={
-            p.creatingProject ||
-            !(p.newProjectTitle.trim() || folderNameOf(p.newProjectPath))
-          }
+          disabled={p.creatingProject || !newProjectDraft(p).ready}
         >
           {p.creatingProject && (
             <IconSpinner
@@ -275,7 +333,13 @@ export function NewProjectModal() {
         </div>
         <div class="space-y-4">
           <NameField />
-          <FolderField probe={probe} />
+          <SourcePicker />
+          {choose(projects.newProjectSource === "clone", <RepoField />, null)}
+          {choose(
+            projects.newProjectSource === "clone",
+            null,
+            <FolderField probe={probe} />,
+          )}
           <MoreOptions />
         </div>
         <CreateButtons />

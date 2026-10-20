@@ -37,6 +37,10 @@ function store(state = {}) {
     openFolderPicker: rec("browse"),
     setNewProjectPath: rec("path"),
     newProjectDir: "",
+    newProjectSource: "folder",
+    newProjectGitUrl: "",
+    setNewProjectSource: rec("source"),
+    setNewProjectGitUrl: rec("giturl"),
     newProjectPodman: false,
     hasPodman: false,
     hasPodmanCompose: false,
@@ -98,6 +102,73 @@ test("a folder chosen names the project and lets it be created", async () => {
   assert.equal(buttonByText(m.root, "Create").disabled, false);
   assert.equal(m.root.textContent.includes("created in the workspace"), false);
   await m.unmount();
+});
+
+test("the name is the first field, ahead of the choice of how to start", async () => {
+  for (const newProjectSource of ["folder", "clone"]) {
+    const s = store({ newProjectSource });
+    const m = await mount(AppCtx, s.value, h(NewProjectModal));
+    const first = m.q(".space-y-4").firstElementChild;
+    assert.ok(first.querySelector("[data-testid=new-project-name]"));
+    await m.unmount();
+  }
+});
+
+test("the dialog offers a folder or a repository to clone, never both at once", async () => {
+  const s = store();
+  const m = await mount(AppCtx, s.value, h(NewProjectModal));
+  const radios = [...m.root.querySelectorAll("[name=new-project-source]")];
+  assert.deepEqual(
+    radios.map((r) => r.value),
+    ["folder", "clone"],
+  );
+  assert.equal(radios[0].checked, true, "the folder comes preselected");
+  assert.equal(m.q("[data-testid=new-project-repo]"), null, "no address yet");
+  assert.match(m.q("[data-testid=new-project-location]").textContent, /Folder/);
+  await change(radios[1], true);
+  assert.deepEqual(s.log, [["source", "clone"]]);
+  await m.unmount();
+});
+
+test("cloning asks for the address, names the project after it and needs one to be created", async () => {
+  const s = store({ newProjectSource: "clone" });
+  const m = await mount(AppCtx, s.value, h(NewProjectModal));
+  assert.equal(
+    m.q("[data-testid=new-project-location]"),
+    null,
+    "a clone has no folder to pick",
+  );
+  assert.equal(buttonByText(m.root, "Create").disabled, true, "no address");
+  await type(m.q("[data-testid=new-project-git-url]"), "https://x.io/a/b.git");
+  assert.deepEqual(s.log, [["giturl", "https://x.io/a/b.git"]]);
+  await m.unmount();
+
+  const named = store({
+    newProjectSource: "clone",
+    newProjectGitUrl: "git@host:team/tool.git",
+  });
+  const n = await mount(AppCtx, named.value, h(NewProjectModal));
+  assert.equal(fieldByLabel(n.root, "Name").placeholder, "tool");
+  assert.equal(buttonByText(n.root, "Create").disabled, false);
+  await n.unmount();
+
+  const blank = store({ newProjectSource: "clone", newProjectGitUrl: "  " });
+  const b = await mount(AppCtx, blank.value, h(NewProjectModal));
+  assert.equal(buttonByText(b.root, "Create").disabled, true);
+  await b.unmount();
+
+  const typed = store({
+    newProjectSource: "clone",
+    newProjectTitle: "Mine",
+    newProjectGitUrl: "  ",
+  });
+  const t = await mount(AppCtx, typed.value, h(NewProjectModal));
+  assert.equal(
+    buttonByText(t.root, "Create").disabled,
+    true,
+    "a name is not enough",
+  );
+  await t.unmount();
 });
 
 test("a named project can be created, in the folder named after it", async () => {

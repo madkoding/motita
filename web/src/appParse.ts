@@ -197,6 +197,17 @@ export function folderNameOf(path: string): string {
   return path.split(/[/\\]/).findLast(Boolean) ?? "";
 }
 
+// repoNameOfUrl is the repository's name in the address it is cloned from ("" when there is none):
+// the last part, without a trailing slash or ".git", the way the gateway names the clone.
+export function repoNameOfUrl(url: string): string {
+  const last =
+    url
+      .trim()
+      .split(/[/:\\]/)
+      .findLast(Boolean) ?? "";
+  return choose(last.endsWith(".git"), last.slice(0, -".git".length), last);
+}
+
 // slugOf turns a name into a folder name the gateway accepts: a simple name with no path
 // separators and no dots.
 export function slugOf(name: string): string {
