@@ -922,3 +922,23 @@ func DefaultBranch(ctx context.Context, dir string) string {
 	}
 	return ""
 }
+
+// FetchRemoteBranch asks origin for its copy of branch and stores it as origin/<branch>. It is a
+// read: no checkout, no local branch and no working tree moves, so it is safe to run on a project
+// whose folder holds uncommitted work. A repository with no origin has nothing to ask.
+func FetchRemoteBranch(ctx context.Context, dir, branch string) error {
+	if branch == "" || !HasRemote(ctx, dir) {
+		return nil
+	}
+	spec := "+refs/heads/" + branch + ":refs/remotes/origin/" + branch
+	_, err := noGitOr(ctx, "could not ask origin about "+branch, dir, "fetch", "--quiet", "--no-tags", "--", "origin", spec)
+	return err
+}
+
+// RemoteDrift says how branch and origin's copy of it differ, as of the last fetch: the commits
+// origin has that the branch does not (behind, newest first) and the number of commits only the
+// branch has (ahead). An error when origin/<branch> is not known.
+func RemoteDrift(ctx context.Context, dir, branch string) (behind []Commit, ahead int, err error) {
+	local, remote, err := CommitsBetween(ctx, dir, "origin/"+branch, branch)
+	return remote, len(local), err
+}

@@ -325,3 +325,23 @@ test("a main branch that could not be updated is flagged with the reason", async
   assert.equal(m.q("[data-testid=project-stale]"), null);
   await m.unmount();
 });
+
+test("news on origin shows a tag with the count and what to do", async () => {
+  const s = store();
+  const news = [
+    { branch: "main", behind: 2, commit: "a", latest: ["fix login", "docs"] },
+    { repo: "api", branch: "main", behind: 1, commit: "b" },
+  ];
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...P, remote_changes: news } }),
+  );
+  const fact = m.q("[data-testid=project-remote]");
+  assert.equal(fact.textContent, "3 new");
+  assert.match(fact.title, /3 new commit\(s\) on origin: fix login; docs\./);
+  assert.match(fact.title, /Update main branch/);
+  await m.rerender(s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=project-remote]"), null);
+  await m.unmount();
+});

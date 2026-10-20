@@ -80,6 +80,9 @@ export const LONG_PRESS_MS = 500;
 export const RECONNECT_MS = 1000;
 // How often the update check is repeated: the gateway's hourly check fills the cache this reads.
 export const UPDATE_POLL_MS = 10 * 60 * 1000;
+// REMOTE_POLL_MS is how often the page re-reads the projects, so the news the gateway found on
+// origin (it looks every 15 minutes) reaches an open page.
+export const REMOTE_POLL_MS = 5 * 60 * 1000;
 // How long after a project is created its first session is opened.
 export const NEW_PROJECT_SESSION_DELAY_MS = 100;
 // How long a downloaded artifact's object URL is kept before it is released.

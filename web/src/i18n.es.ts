@@ -650,6 +650,13 @@ const first: Record<string, string> = {
   "could not update the main branch": "no se pudo actualizar la rama principal",
   "Main branch not updated: {reason}":
     "Rama principal sin actualizar: {reason}",
+  "{name} has {count} new commit(s) on origin. Choose “Update main branch” in its menu to bring them in, or review them first.":
+    "{name} tiene {count} commit(s) nuevo(s) en origin. Elige «Actualizar rama principal» en su menú para traerlos, o revísalos antes.",
+  "{count} repositories have new changes on origin. Look for the “new” tag in the sidebar, then update or review them.":
+    "{count} repositorios tienen cambios nuevos en origin. Busca la etiqueta «nuevo» en la barra lateral y luego actualízalos o revísalos.",
+  "{count} new commit(s) on origin: {latest}. Choose “Update main branch” in the menu to bring them in, or review them first.":
+    "{count} commit(s) nuevo(s) en origin: {latest}. Elige «Actualizar rama principal» en el menú para traerlos, o revísalos antes.",
+  "{count} new": "{count} nuevo(s)",
   local: "local",
   Update: "Actualizar",
   shared: "compartido",

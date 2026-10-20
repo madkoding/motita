@@ -25,6 +25,7 @@ import { useNextSuggestion } from "./useNextSuggestion";
 import { useProjectHint } from "./useProjectHint";
 import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
+import { useRemoteChanges } from "./useRemoteChanges";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
@@ -130,6 +131,7 @@ export function useAppStore(api: Api) {
     setSlashCommands: composer.setSlashCommands,
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
+  useRemoteChanges(lists, setToast, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",

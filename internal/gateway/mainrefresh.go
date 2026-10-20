@@ -96,6 +96,8 @@ func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) str
 		}
 	}
 	s.syncSharedRepos(ctx, p)
+	// What is still missing after the update (or none) replaces the last look's news.
+	s.watchRemote(ctx, p, nil)
 	return warning
 }
 

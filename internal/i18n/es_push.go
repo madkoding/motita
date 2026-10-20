@@ -34,6 +34,9 @@ var esPush = map[string]string{
 		"informe nuevo: míralo en las notas.",
 	"Draft pull request opened":                    "Pull request en borrador abierto",
 	"Motita opened a draft pull request in %s: %s": "Motita abrió un pull request en borrador en %s: %s",
+	"New changes on origin":                        "Hay cambios nuevos en origin",
+	"%s has %d new commit(s) on origin. Update the main branch to bring them in, or review them first.": "%s tiene " +
+		"%d commit(s) nuevo(s) en origin. Actualiza la rama principal para traerlos, o revísalos antes.",
 }
 
 func init() { Register(ES, esPush) }
