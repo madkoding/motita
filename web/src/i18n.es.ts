@@ -208,6 +208,8 @@ const first: Record<string, string> = {
   Small: "Pequeño",
   "Font size": "Tamaño de fuente",
   Settings: "Ajustes",
+  Skills: "Skills",
+  Tasks: "Tareas",
   General: "General",
   Appearance: "Apariencia",
   Themes: "Temas",

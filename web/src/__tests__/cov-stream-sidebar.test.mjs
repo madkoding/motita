@@ -493,11 +493,11 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   const upgrade = buttonNamed(root, "Upgrade Motitav1.3.0");
   assert.equal(text(upgrade.querySelector(".font-mono")), "v1.3.0");
   await click(upgrade);
-  await click(buttonNamed(root, "Skill library"));
+  await click(buttonNamed(root, "Skills"));
   await click(root.querySelector("[data-testid=notes-button]"));
   const art = root.querySelector("[data-testid=artifacts-button]");
   assert.equal(art.disabled, true, "no session: no artifacts");
-  await click(buttonNamed(root, "Scheduled tasks"));
+  await click(buttonNamed(root, "Tasks"));
   await click(buttonNamed(root, "Settings"));
   assert.deepEqual(v.calls, [
     ["closeSidebar"],
