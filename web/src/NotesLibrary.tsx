@@ -1,7 +1,7 @@
 // The left side of the notes window, read as a library and not as a file tree: the guides of the
 // projects as books with their chapters, the conversations, and the person's own notes, each
 // folder with a "⋯" menu to update or delete it.
-import { useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -443,9 +443,7 @@ export function NoteList() {
   const { notes } = useApp();
   const { current, graph, query, hits, search } = notes;
   const [writing, setWriting] = useState(false);
-  function closeForm() {
-    setWriting(false);
-  }
+  const closeForm = useCallback(() => setWriting(false), []);
   function toggleForm() {
     setWriting(!writing);
   }

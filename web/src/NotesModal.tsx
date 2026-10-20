@@ -1,6 +1,7 @@
 // The notes window: a library of guides and notes on the left, the page being read on the right.
 // Guides are what Motita writes about each project; the rest are the person's own notes, as plain
 // Markdown files where [[links]] open the note they name.
+import { useCallback } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -28,15 +29,12 @@ export function NotesModal() {
       void openGraph();
     }
   };
-  function close() {
-    void closeNotes();
-  }
-  function confirmPending() {
-    pending && void confirmDelete(pending);
-  }
-  function cancelDelete() {
-    askDelete(null);
-  }
+  const close = useCallback(() => void closeNotes(), [closeNotes]);
+  const confirmPending = useCallback(
+    () => pending && void confirmDelete(pending),
+    [pending, confirmDelete],
+  );
+  const cancelDelete = useCallback(() => askDelete(null), [askDelete]);
   return (
     <ModalBackdrop onClose={close}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-5xl p-3 md:p-5 shadow-2xl h-[92dvh] md:h-[85vh] flex flex-col">

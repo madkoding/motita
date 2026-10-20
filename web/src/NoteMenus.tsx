@@ -1,6 +1,6 @@
 // What the notes window asks of the person: the "⋯" menu of a folder or a note, and the question
 // before anything is deleted.
-import { useRef, useState } from "preact/hooks";
+import { useCallback, useRef, useState } from "preact/hooks";
 import { plural, t } from "./i18n";
 import { choose } from "./choose";
 import { BodyPortal } from "./BodyPortal";
@@ -30,9 +30,7 @@ export function DotsMenu({
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  function close() {
-    setOpen(false);
-  }
+  const close = useCallback(() => setOpen(false), []);
   return (
     <>
       <button
