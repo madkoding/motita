@@ -79,14 +79,13 @@ func (r *taskRun) auditClaim(action Action) bool {
 	}
 	vars := a.baseVariables(r.t)
 	vars["criteria"] = "- " + strings.Join(r.analysis.SuccessCrit, "\n- ")
-	output := r.workLog.String()
+	notes := ""
 	if strings.TrimSpace(r.mem.notes) != "" {
-		output += "## Notes the agent kept while working\n" + r.mem.notes + "\n"
+		notes = "## Notes the agent kept while working\n" + r.mem.notes + "\n"
 	}
 	// A check that could not run is put in front of the audit by name: a criterion about tests or a
 	// build is not met by a run whose check never ran.
-	output += unvalidatedBlock(r.mem.blockedChecks())
-	vars["output"] = truncateMiddle(output, roundOutputChars)
+	vars["output"] = r.workLog.text(notes + unvalidatedBlock(r.mem.blockedChecks()))
 
 	a.report("checking the result against what was asked...")
 	text, err := a.ask(r.ctx, a.cfg.Prompts.Audit, vars, "audit")

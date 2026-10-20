@@ -42,7 +42,7 @@ type taskRun struct {
 	auditPassed      bool
 	toolingRetries   int
 	trail            []string
-	workLog          strings.Builder
+	workLog          workLog
 	rejected         int
 	unusable         int
 	repeats          int
@@ -821,13 +821,12 @@ func (r *taskRun) synthesize(validation anchor.Result) {
 	// The model's last notes go after the work log: they carry the "Findings:" it noticed and
 	// left alone, which is what the synthesis turns into suggestions for the user. They go at
 	// the END because the log is cut in its middle, never at its tail.
-	output := r.workLog.String()
+	notes := ""
 	if strings.TrimSpace(r.mem.notes) != "" {
-		output += "## Notes the agent kept while working\n" + r.mem.notes + "\n"
+		notes = "## Notes the agent kept while working\n" + r.mem.notes + "\n"
 	}
 	blocked := r.mem.blockedChecks()
-	output += unvalidatedBlock(blocked)
-	if rep := r.a.synthesizePhase(r.ctx, r.t, output, validation); rep != nil {
+	if rep := r.a.synthesizePhase(r.ctx, r.t, r.workLog.text(notes+unvalidatedBlock(blocked)), validation); rep != nil {
 		rep.markUnvalidated(blocked)
 		// The summary is the answer, delivered with the result. It is not reported as progress:
 		// an interface filed it as a step of the turn, the answer drawn twice.

@@ -179,24 +179,30 @@ var (
 )
 
 // detect looks for the local Ollama when the settings ask for it and no endpoint is set, and
-// switches the embeddings on when it finds the model. Called with the lock held. Indexes built
-// without vectors are dropped so they are built again with them.
+// switches the embeddings on when it finds the model. The probe runs outside the lock. Indexes
+// built without vectors are dropped so they are built again with them.
 func (s *Searcher) detect(ctx context.Context) {
+	s.mu.Lock()
 	if !s.shouldProbe() {
+		s.mu.Unlock()
 		return
 	}
 	s.probedAt = time.Now()
+	s.mu.Unlock()
 	model := localEmbedModel(ctx)
 	if model == "" {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.opts.EmbedURL, s.opts.EmbedModel = ollamaBase+"/v1", model
 	s.embedder = newEmbedder(s.opts)
-	s.byAt = map[string]*Index{}
+	s.byAt, s.used = map[string]*Index{}, nil
+	s.gen++
 }
 
 // shouldProbe says the settings ask for the look-up, nothing else supplies the embeddings, and the
-// last look is old enough.
+// last look is old enough. Called with the lock held.
 func (s *Searcher) shouldProbe() bool {
 	if s.embedder != nil || !s.opts.EmbedAuto || strings.TrimSpace(s.opts.EmbedURL) != "" {
 		return false
