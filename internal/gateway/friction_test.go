@@ -140,7 +140,8 @@ func TestTheSummaryIsServedInTheInterfaceLanguageAndCanBeCleared(t *testing.T) {
 	}
 
 	// The page can ask for its own language, whatever the gateway's is.
-	if text := get(t, srv, "/v1/friction?lang=es", testToken).Body.String(); !strings.Contains(text, "Ejecuciones que terminaron") {
+	asked := get(t, srv, "/v1/friction?lang=es", testToken).Body.String()
+	if text := asked; !strings.Contains(text, "Ejecuciones que terminaron") {
 		t.Errorf("?lang=es not honoured: %s", text)
 	}
 	if text := get(t, srv, "/v1/friction?lang=fr", testToken).Body.String(); !strings.Contains(text, "Runs that ended") {
