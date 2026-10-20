@@ -159,6 +159,31 @@ func TestStartingAGatewayThatNeverAnswersFails(t *testing.T) {
 	if !strings.Contains(out.String(), "did not come up") {
 		t.Fatalf("the failure was not explained: %q", out.String())
 	}
+	// The child's output is discarded, so its log is the only place the cause is written.
+	if !strings.Contains(out.String(), "see the log in "+filepath.Join(os.Getenv("HOME"), ".motita")) {
+		t.Fatalf("the failure must name the gateway's log: %q", out.String())
+	}
+}
+
+// A configuration that does not load is the cause the child died of, so it is printed instead of
+// a log the child never opened.
+func TestStartingAGatewayWithABrokenConfigSaysWhy(t *testing.T) {
+	out := &syncBuffer{}
+	cfgPath := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := os.WriteFile(cfgPath, []byte("llm: [not a map\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	op := gatewayTestOptions(t, out, "", "gateway", "start", "-config", cfgPath)
+	op.ServiceFile = filepath.Join(t.TempDir(), "gateway.json")
+	op.SpawnGateway = func(context.Context, spawnSpec) error { return nil }
+	op.GatewayWait = 50 * time.Millisecond
+
+	if code := Run(op); code != ConfigError {
+		t.Fatalf("exit %d, want %d", code, ConfigError)
+	}
+	if !strings.Contains(out.String(), "the configuration does not load") {
+		t.Fatalf("the cause was not printed: %q", out.String())
+	}
 }
 
 // --- stopping -----------------------------------------------------------------------------------

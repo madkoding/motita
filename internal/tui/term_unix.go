@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Character-at-a-time input, without cgo and without unsafe.
@@ -35,12 +36,20 @@ var (
 		return cmd.Run()
 	}
 	openTTYMode = os.OpenFile
+	// saveSttyMode reads the settings `stty -g` prints, so restore can put back the user's own
+	// tty settings (iutf8, a custom erase) instead of the defaults `stty sane` imposes.
+	saveSttyMode = func(f *os.File) (string, error) {
+		out, err := runCommand(f, "stty", "-g")
+		return strings.TrimSpace(out), err
+	}
 )
 
 // terminalMode is what the program asked for, so it can be undone exactly once.
 type terminalMode struct {
 	tty    *os.File
 	active bool
+	// saved is the `stty -g` state from before enterRaw, or "" when it could not be read.
+	saved string
 }
 
 // enterRaw puts the terminal into character-at-a-time input with no echo.
@@ -62,6 +71,8 @@ func enterRaw() *terminalMode {
 		tty.Close()
 		return m
 	}
+	// A failed read leaves saved empty, and restore then falls back to "sane".
+	m.saved, _ = saveSttyMode(tty)
 	if err := runSttyMode(tty, "cbreak", "-echo"); err != nil {
 		// A terminal that refuses the mode leaves us with the behaviour we had: whole lines,
 		// no live completion, and a working interface. Degrading is right; failing is not.
@@ -80,8 +91,11 @@ func (m *terminalMode) restore() {
 		return
 	}
 	m.active = false
-	// "sane" is the reset every stty understands, and it is more robust than replaying the
-	// inverse flags: whatever went wrong, this puts the terminal into a state a shell can use.
-	_ = runSttyMode(m.tty, "sane")
+	// Replay the settings saved before enterRaw, so the user's own tty settings survive. If
+	// they were not saved or the replay fails, "sane" is the reset every stty understands:
+	// whatever went wrong, it puts the terminal into a state a shell can use.
+	if m.saved == "" || runSttyMode(m.tty, m.saved) != nil {
+		_ = runSttyMode(m.tty, "sane")
+	}
 	m.tty.Close()
 }
