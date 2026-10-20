@@ -48,6 +48,8 @@ jobs:
         with:
           name: sarif-semgrep
           path: semgrep.sarif
+          # Small diagnostics; the 90-day default would keep thousands of copies.
+          retention-days: 7
 
   codeql:
     runs-on: ubuntu-latest
@@ -74,6 +76,8 @@ jobs:
         with:
           name: sarif-codeql
           path: codeql.sarif
+          # Small diagnostics; the 90-day default would keep thousands of copies.
+          retention-days: 7
 
   sonar:
     # Full analysis only outside PRs (see the header).
