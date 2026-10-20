@@ -4256,6 +4256,40 @@ html[data-keyboard="open"] .app-shell {
   align-items: center;
   gap: 0.5rem;
 }
+/* The quality check: the verdict on top, the tasks one per line. */
+.eval-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border-top: 1px dashed rgb(var(--ov-rgb) / 0.08);
+}
+.eval-headline {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--t1);
+}
+.eval-better,
+.eval-pass {
+  color: var(--c-green);
+}
+.eval-worse {
+  color: var(--color-danger);
+}
+.eval-tasks,
+.eval-history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.eval-task {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+.eval-history {
+  margin-top: 0.25rem;
+}
 /* Signing in with an account: the link and the device code the provider asks for. */
 .llm-login,
 .llm-login-step {

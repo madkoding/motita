@@ -109,6 +109,9 @@ async function rows(trigger) {
   await settle();
   return out;
 }
+// The quality check asks for its own state after every save; these tests look at the saves.
+const lastCall = (f) =>
+  f.calls.filter((c) => !c.path.startsWith("/v1/evals")).at(-1);
 const btn = (root, label) => byText(root, "button", label);
 const OTHER = "\u0000other";
 
@@ -451,7 +454,7 @@ test("the default model: connected providers, a new pick, and a save", async () 
   assert.equal(btn(form, "Save").disabled, true);
   await select(form.querySelector("#llm-default-model"), "claude-b");
   await press(btn(form, "Save"));
-  assert.deepEqual(f.calls.at(-1), {
+  assert.deepEqual(lastCall(f), {
     method: "PUT",
     path: "/v1/llm/default",
     body: { provider: "anthropic", model: "claude-b" },
@@ -597,7 +600,7 @@ test("each kind of work can follow the default or get its own model", async () =
 
   await press(btn(form, "Save"));
   assert.equal(btn(form, "Saving…").disabled, true);
-  assert.deepEqual(f.calls.at(-1).body, {
+  assert.deepEqual(lastCall(f).body, {
     tasks: {
       code: { provider: "openai", model: "gpt-x" },
       plan: { provider: "openai", model: "gpt-live" },
