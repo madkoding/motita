@@ -116,6 +116,10 @@ function fakeGateway(view = VIEW(), answers = {}) {
   const calls = [];
   const api = async (path, init = {}) => {
     const method = init.method || "GET";
+    if (path.startsWith("/v1/evals")) {
+      // The quality check has its own test (cov-settings-evals); here the gateway does not have one.
+      return new Response("{}", { status: 404 });
+    }
     calls.push({
       method,
       path,
@@ -638,6 +642,7 @@ test("every string of the providers tab has a Spanish translation", () => {
   for (const f of [
     "ProviderSettings.tsx",
     "ModelSettings.tsx",
+    "EvalSettings.tsx",
     "ModelPicker.tsx",
     "InsecureWarning.tsx",
   ]) {

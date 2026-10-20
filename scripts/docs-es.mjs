@@ -210,7 +210,10 @@ ${sequence("Un pull request seguido por el gateway", [{ name: "Sesión", sub: "s
 <tr><td><code>summary</code></td><td>Títulos, resúmenes de compactación, la suposición del modo auto</td></tr>
 </tbody>
 </table>
-<p>Un modelo potente para planificar y uno barato para resúmenes es una división común. Si el proveedor de un tipo no tiene clave, vuelve al modelo de la sesión y el registro lo dice.</p>`,
+<p>Un modelo potente para planificar y uno barato para resúmenes es una división común. Si el proveedor de un tipo no tiene clave, vuelve al modelo de la sesión y el registro lo dice.</p>
+<h2>Comprobar que un modelo no empeoró</h2>
+<p>Bajo los modelos, la <strong>Revisión de calidad</strong> ejecuta cinco tareas pequeñas y fijas (crear un archivo, corregir una errata, contar líneas, renombrar un archivo, ordenar líneas) con el modelo que programa. Cada una corre en una carpeta temporal propia, y un comando que mira el resultado real decide si salió bien. La página compara la corrida con la anterior: menos tareas superadas, claramente más pasos o claramente más costo se muestra como <em>peor</em>.</p>
+<p>Gasta parte de la cuota del modelo, así que solo corre cuando lo pides y lo confirmas. Si cambias el modelo, o las instrucciones con las que trabaja el agente, la página avisa que la última revisión quedó desactualizada.</p>`,
   },
   voice: {
     title: "Voz",

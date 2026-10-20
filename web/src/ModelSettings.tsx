@@ -20,6 +20,7 @@ import {
   primaryBtn,
 } from "./ProviderSettings";
 import { ModelPicker } from "./ModelPicker";
+import { EvalSettings } from "./EvalSettings";
 import { REASONING_LEVELS } from "./appConst";
 
 // The kinds of work a model can be assigned to, with what each one covers. The gateway names the
@@ -113,6 +114,11 @@ export function ModelSettings({ api, onNotice }: ProviderSettingsProps) {
             view={view}
             onSaved={setView}
             onNotice={onNotice}
+          />
+          <EvalSettings
+            api={api}
+            onNotice={onNotice}
+            watch={`${view.provider}/${view.model}/${view.tasks?.code?.provider}/${view.tasks?.code?.model}`}
           />
         </>
       )}

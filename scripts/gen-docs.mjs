@@ -234,7 +234,10 @@ ${sequence("A pull request followed by the gateway", [{ name: "Session", sub: "i
 <tr><td><code>summary</code></td><td>Titles, compaction summaries, auto mode's guess</td></tr>
 </tbody>
 </table>
-<p>A strong model for planning and a cheap one for summaries is a common split. If a kind's provider has no key, it falls back to the session's model and the log says so.</p>`,
+<p>A strong model for planning and a cheap one for summaries is a common split. If a kind's provider has no key, it falls back to the session's model and the log says so.</p>
+<h2>Check that a model did not get worse</h2>
+<p>Under the models, <strong>Quality check</strong> runs five small fixed tasks (create a file, fix a typo, count lines, rename a file, sort lines) on the model that does the coding. Each one runs in a temporary folder of its own, and a command that looks at the real result decides whether it passed. The page compares the run with the last one: fewer tasks passing, clearly more steps or clearly more cost is shown as <em>worse</em>.</p>
+<p>It uses part of the model's quota, so it only runs when you ask and confirm. After you change the model, or the instructions the agent works with, the page tells you the last check is out of date.</p>`,
     more: [
       ["Guide: providers and how each authenticates", guide("providers-and-how-each-one-authenticates")],
       ["Guide: your Claude subscription", guide("your-claude-subscription-through-claude-code")],

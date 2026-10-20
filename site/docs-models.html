@@ -79,6 +79,9 @@
 </tbody>
 </table>
 <p>A strong model for planning and a cheap one for summaries is a common split. If a kind's provider has no key, it falls back to the session's model and the log says so.</p>
+<h2>Check that a model did not get worse</h2>
+<p>Under the models, <strong>Quality check</strong> runs five small fixed tasks (create a file, fix a typo, count lines, rename a file, sort lines) on the model that does the coding. Each one runs in a temporary folder of its own, and a command that looks at the real result decides whether it passed. The page compares the run with the last one: fewer tasks passing, clearly more steps or clearly more cost is shown as <em>worse</em>.</p>
+<p>It uses part of the model's quota, so it only runs when you ask and confirm. After you change the model, or the instructions the agent works with, the page tells you the last check is out of date.</p>
       <h2>Go deeper</h2>
       <ul class="more">
         <li><a href="https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#providers-and-how-each-one-authenticates">Guide: providers and how each authenticates</a></li>

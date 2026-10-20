@@ -122,6 +122,11 @@ func executeJSON(n int) string {
 	if n >= 2 {
 		command = `printf 'content-valid' > report.txt`
 	}
+	return commandJSON(command, n)
+}
+
+// commandJSON is an execution reply that runs one command.
+func commandJSON(command string, n int) string {
 	response := map[string]any{
 		"reasoning": fmt.Sprintf("attempt %d", n),
 		"actions": []map[string]string{
@@ -131,6 +136,35 @@ func executeJSON(n int) string {
 	}
 	data, _ := json.Marshal(response)
 	return string(data)
+}
+
+// evalSolutions are the commands a model that does the model check's fixed tasks right proposes
+// (internal/evals), found by a phrase of the task in the prompt. regress marks the ones MOCK_EVAL=regress
+// gets wrong, so a check can be driven from a good run to a worse one.
+var evalSolutions = []struct {
+	phrase, command string
+	regress         bool
+}{
+	{"named hello.txt", `printf hello > hello.txt`, false},
+	{"misspelled word", `printf 'I receive your mail\n' > letter.txt`, true},
+	{"lines of data.txt", `printf 7 > count.txt`, false},
+	{"Rename old.txt", `mv old.txt new.txt`, false},
+	{"names.txt in alphabetical", `sort names.txt > sorted.txt`, true},
+}
+
+// evalCommand is the command to propose for the model check's task named in the prompt: "" when
+// MOCK_EVAL is unset, the prompt is not one of those tasks, or (regress) the mock is to get it wrong.
+func evalCommand(text string) string {
+	mode := os.Getenv("MOCK_EVAL")
+	if mode == "" {
+		return ""
+	}
+	for _, s := range evalSolutions {
+		if strings.Contains(text, s.phrase) && !(s.regress && mode == "regress") {
+			return s.command
+		}
+	}
+	return ""
 }
 
 func respond(w http.ResponseWriter, dialect, content string) {
@@ -162,12 +196,17 @@ func geminiBody(content string) map[string]any {
 }
 
 func openAIBody(content string) map[string]any {
-	return map[string]any{
+	body := map[string]any{
 		"choices": []any{map[string]any{
 			"message":       map[string]string{"role": "assistant", "content": content},
 			"finish_reason": "stop",
 		}},
 	}
+	if os.Getenv("MOCK_EVAL") != "" {
+		// The model check measures what a run spent, so its mock reports tokens like a real provider.
+		body["usage"] = map[string]int{"prompt_tokens": 1200, "completion_tokens": 300, "total_tokens": 1500}
+	}
+	return body
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +250,9 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	log.Printf("phase=%s dialect=%s execution_attempt=%d prompt_bytes=%d", f, dialect, n, len(text))
 
 	content := contentJSON(f, n)
+	if cmd := evalCommand(text); cmd != "" && f == "execute" {
+		content = commandJSON(cmd, n)
+	}
 	if msg := scriptedReply(text); msg != "" {
 		// The configuration may ask for fixed replies (not used here).
 		content = msg

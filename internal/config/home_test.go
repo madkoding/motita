@@ -395,3 +395,16 @@ func TestNotesDirIsUnderTheHome(t *testing.T) {
 		t.Fatalf("NotesDir() = %q without a home, want empty", got)
 	}
 }
+
+// The results of the model checks sit beside the rest of motita's state.
+func TestEvalsFileIsUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := EvalsFile(), filepath.Join(home, ".motita", "evals.json"); got != want {
+		t.Fatalf("EvalsFile() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := EvalsFile(); got != "" {
+		t.Fatalf("EvalsFile() = %q without a home, want empty", got)
+	}
+}
