@@ -88,9 +88,9 @@ func writeLimit(path, value string) error {
 // addProcess puts a PID into the group (the agent itself uses this so that its
 // children inherit the membership).
 func (c *cgroup) addProcess(pid int) error {
-	paths := []string{filepath.Join(c.memory, "tasks")}
+	paths := []string{procsFile(c.memory)}
 	if c.pids != "" {
-		paths = append(paths, filepath.Join(c.pids, "tasks"))
+		paths = append(paths, procsFile(c.pids))
 	}
 	var last error
 	for _, p := range paths {
@@ -99,6 +99,17 @@ func (c *cgroup) addProcess(pid int) error {
 		}
 	}
 	return last
+}
+
+// procsFile is the file of a group that moves a whole process into it. `tasks` takes a thread id
+// and moves only that thread: written with motita's pid it moved the main thread, and the
+// commands, forked from other threads, ran outside the limits. `tasks` is only the fallback for a
+// group without cgroup.procs.
+func procsFile(dir string) string {
+	if p := filepath.Join(dir, "cgroup.procs"); fileExists(p) {
+		return p
+	}
+	return filepath.Join(dir, "tasks")
 }
 
 // remove empties and deletes the group.
