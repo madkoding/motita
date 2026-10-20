@@ -64,8 +64,7 @@ type frictionView struct {
 func (s *Server) handleGetFriction(w http.ResponseWriter, r *http.Request) {
 	sum := friction.Summarize(s.friction.Entries(), time.Now(), friction.WeekDays)
 	lang := i18n.Lang(viewOfUI(s.uiSetting()).Resolved)
-	switch asked := i18n.Lang(r.URL.Query().Get("lang")); asked {
-	case i18n.ES, i18n.EN:
+	if asked := i18n.Lang(r.URL.Query().Get("lang")); asked == i18n.ES || asked == i18n.EN {
 		lang = asked
 	}
 	writeJSON(w, http.StatusOK, frictionView{Summary: sum, Text: sum.Text(lang)})

@@ -42,39 +42,13 @@ type Pattern struct {
 // run that is only part of a longer one found in the same turns is left out, so one procedure is
 // reported once and not as each of its pieces.
 func Detect(turns []Turn) []Pattern {
-	type seen struct {
-		steps []string
-		turns map[int]bool
-		asks  []string
-	}
-	found := map[string]*seen{}
-	var order []string
+	c := &collector{found: map[string]*seen{}}
 	for ti, t := range turns {
-		keys := make([]string, len(t.Steps))
-		for i, s := range t.Steps {
-			keys[i] = shape(s)
-		}
-		for n := MinSteps; n <= MaxSteps; n++ {
-			for i := 0; i+n <= len(keys); i++ {
-				key := strings.Join(keys[i:i+n], "\n")
-				p := found[key]
-				if p == nil {
-					p = &seen{steps: append([]string(nil), t.Steps[i:i+n]...), turns: map[int]bool{}}
-					found[key] = p
-					order = append(order, key)
-				}
-				if !p.turns[ti] {
-					p.turns[ti] = true
-					if len(p.asks) < maxAsks {
-						p.asks = append(p.asks, t.Ask)
-					}
-				}
-			}
-		}
+		c.addTurn(ti, t)
 	}
 	var out []Pattern
-	for _, key := range order {
-		if p := found[key]; len(p.turns) >= MinTurns && !distinct(p.steps) {
+	for _, key := range c.order {
+		if p := c.found[key]; len(p.turns) >= MinTurns && !distinct(p.steps) {
 			out = append(out, Pattern{Steps: p.steps, Turns: len(p.turns), Asks: p.asks})
 		}
 	}
@@ -86,6 +60,47 @@ func Detect(turns []Turn) []Pattern {
 		return len(out[a].Steps) > len(out[b].Steps)
 	})
 	return out
+}
+
+// seen is one run of commands and the turns it came up in.
+type seen struct {
+	steps []string
+	turns map[int]bool
+	asks  []string
+}
+
+// collector gathers every run of MinSteps..MaxSteps commands of the turns it is given.
+type collector struct {
+	found map[string]*seen
+	order []string
+}
+
+func (c *collector) addTurn(ti int, t Turn) {
+	keys := make([]string, len(t.Steps))
+	for i, s := range t.Steps {
+		keys[i] = shape(s)
+	}
+	for n := MinSteps; n <= MaxSteps; n++ {
+		for i := 0; i+n <= len(keys); i++ {
+			c.add(ti, t, strings.Join(keys[i:i+n], "\n"), t.Steps[i:i+n])
+		}
+	}
+}
+
+func (c *collector) add(ti int, t Turn, key string, steps []string) {
+	p := c.found[key]
+	if p == nil {
+		p = &seen{steps: append([]string(nil), steps...), turns: map[int]bool{}}
+		c.found[key] = p
+		c.order = append(c.order, key)
+	}
+	if p.turns[ti] {
+		return
+	}
+	p.turns[ti] = true
+	if len(p.asks) < maxAsks {
+		p.asks = append(p.asks, t.Ask)
+	}
 }
 
 // distinct says a run is one command over and over: a loop, not a procedure.
