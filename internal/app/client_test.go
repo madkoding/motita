@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gateway"
@@ -148,6 +149,39 @@ func TestConnectUsesTheGatewayItWasGiven(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "|"+gateway.DefaultSession) {
 		t.Errorf("the client asked for %q, it must default to the default conversation", got)
+	}
+}
+
+// TestConnectInterfaceEndsWhenTheShutdownContextEnds: Ctrl+C cancels the shutdown context, and the
+// client interface must return at once so its deferred terminal restore runs. An interface on
+// context.Background() ignored the signal until the forced os.Exit skipped that restore.
+func TestConnectInterfaceEndsWhenTheShutdownContextEnds(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+	cfgPath := planConfig(t, srv)
+	writeTokenFile(t, cfgPath)
+
+	var out strings.Builder
+	op, _ := connectOptions(t, &out, []string{"-config", cfgPath, "-connect", srv.URL, "-tui"})
+	op.NewClient = func(string, string, string) tui.Runner { return noopRunner{} }
+	op.ProbeGatewayHealth = func(context.Context, string) (gateway.Health, error) {
+		return gateway.Health{}, io.EOF
+	}
+	// A stdin that never ends: only the context can stop the interface.
+	stdin, w := io.Pipe()
+	defer w.Close()
+	op.Stdin = stdin
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	op.BaseCtx = ctx
+
+	done := make(chan int, 1)
+	go func() { done <- Run(op) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client interface ignored a cancelled shutdown context")
 	}
 }
 
