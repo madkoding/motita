@@ -33,6 +33,7 @@ import (
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/notes"
 	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/reward"
@@ -85,6 +86,14 @@ type Agent struct {
 	// Task mode reaches it through the action protocol rather than tool calls — its actions are
 	// JSON — so the four operations are named by the action's "kind" instead of by a tool name.
 	library *skills.Library
+
+	// notes is the note vault, when there is one: the same folder of Markdown files the Notes
+	// window shows. Task mode reaches it through note_* actions.
+	notes *notes.Vault
+
+	// threads hands work to the project's threads. It is set only on the main session of a project
+	// (a thread cannot open threads), and Task mode reaches it through the thread action.
+	threads func(command string) string
 
 	// reward is the long-term value per skill, and consulted counts what this run read.
 	//
@@ -180,6 +189,13 @@ func (a *Agent) SetTiers(engine func(tier string) *llm.Client,
 // written down in one mode is available in the other, which is what makes the library a single
 // body of knowledge rather than two that drift apart.
 func (a *Agent) SetLibrary(lib *skills.Library) { a.library = lib }
+
+// SetThreads installs the router of the thread action: it takes the action's command and answers
+// what the model is shown. Nil, the default, means this session cannot open threads.
+func (a *Agent) SetThreads(route func(command string) string) { a.threads = route }
+
+// SetNotes installs the note vault.
+func (a *Agent) SetNotes(v *notes.Vault) { a.notes = v }
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }

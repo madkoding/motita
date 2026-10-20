@@ -39,7 +39,6 @@ const first: Record<string, string> = {
   "Apply these suggestions you made, and nothing else:":
     "Aplica estas sugerencias que hiciste, y nada más:",
   "(active)": "(activo)",
-  "(auto from git URL if empty)": "(se toma de la URL de git si está vacío)",
   "({n} event(s) were not kept while nothing was listening)":
     "({n} evento(s) no se guardaron mientras nadie escuchaba)",
   "1 action": "1 acción",
@@ -54,25 +53,22 @@ const first: Record<string, string> = {
     "1 cambio sin commitear en este árbol de trabajo",
   "1 uncommitted change will be discarded":
     "Se descartará 1 cambio sin commitear",
-  "A folder created under the workspace. Simple name, no paths.":
-    "Una carpeta creada dentro del workspace. Nombre simple, sin rutas.",
   "A session's checkout could not be inspected":
     "No se pudo revisar el checkout de una sesión",
   "A turn is running: it finishes with the current model, and the new one answers from the next turn.":
     "Hay un turno en curso: termina con el modelo actual y el nuevo responde desde el próximo turno.",
   "API key": "Clave de API",
   "Always allow this here": "Permitir siempre esto aquí",
-  "Files, checks and what was learned": "Archivos, comprobaciones y lo aprendido",
+  "Files, checks and what was learned":
+    "Archivos, comprobaciones y lo aprendido",
   "Kept for next time": "Guardado para la próxima vez",
   "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.":
     "Ejecutarlo y, de ahora en adelante, ejecutar los comandos de este tipo en este proyecto sin preguntar. Los que la política prohíbe siguen prohibidos.",
   "Any running tasks will be interrupted.":
     "Las tareas en curso se interrumpirán.",
   Archived: "Archivadas",
-  model: "modelo",
   "Model switched to {model} in this session":
     "Modelo cambiado a {model} en esta sesión",
-  "Model: {provider} / {model}": "Modelo: {provider} / {model}",
   "Proposed by the review": "Propuestas de la revisión",
   "No session uses these until you accept them. Read each one first.":
     "Ninguna sesión las usa hasta que las aceptes. Lee cada una antes.",
@@ -95,7 +91,6 @@ const first: Record<string, string> = {
   "Back at the checkpoint — conversation only":
     "De vuelta en el checkpoint — solo la conversación",
   "Back to the list": "Volver a la lista",
-  "Branch: {branch}": "Rama: {branch}",
   Cancel: "Cancelar",
   "Checking credentials…": "Verificando credenciales…",
   "Checking latest release": "Buscando la última versión",
@@ -114,6 +109,8 @@ const first: Record<string, string> = {
   Agent: "Agente",
   "The command could not be run": "No se pudo ejecutar el comando",
   "The approval could not be answered": "No se pudo responder la aprobación",
+  'That computer did not keep "Always allow": it runs an older Motita. Update it there.':
+    'Ese equipo no guardó "Permitir siempre": tiene una versión más antigua de Motita. Actualízalo allí.',
   "Refused, nobody was there to approve it: {what}":
     "Rechazado, no había nadie para aprobarlo: {what}",
   "Run in the shell": "Ejecutar en el shell",
@@ -122,43 +119,17 @@ const first: Record<string, string> = {
   "Main branch": "Rama principal",
   "The project always goes back to this branch when it has no sessions.":
     "El proyecto siempre vuelve a esta rama cuando no tiene sesiones.",
-  "The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.":
-    "El proyecto siempre vuelve a esta rama cuando no tiene sesiones. Un repositorio clonado la usa si la tiene.",
   "It is on {branch} now.": "Ahora está en {branch}.",
   "Could not save the project": "No se pudo guardar el proyecto",
   "Project saved": "Proyecto guardado",
-  "How do you want to start?": "¿Cómo quieres empezar?",
-  "Empty project": "Proyecto vacío",
-  "A new folder to start from scratch":
-    "Una carpeta nueva para empezar desde cero",
-  "From a Git repository": "Desde un repositorio Git",
-  "Clone a repository from GitHub, GitLab or any URL":
-    "Clona un repositorio de GitHub, GitLab o de cualquier URL",
-  "Several repositories": "Varios repositorios",
-  "A folder that holds all the repositories you clone into it":
-    "Una carpeta que reúne todos los repositorios que clones en ella",
-  "+ Add another repository": "+ Agregar otro repositorio",
-  "Other repositories": "Otros repositorios",
   "https://github.com/user/repo.git": "https://github.com/usuario/repo.git",
-  "The project returns to this branch when it has no sessions.":
-    "El proyecto vuelve a esta rama cuando no tiene sesiones.",
-  "Each one is cloned once and shared by your projects. Every session gets its own copy.":
-    "Cada uno se clona una sola vez y lo comparten tus proyectos. Cada sesión tiene su propia copia.",
-  "Changes here apply right away. Other projects that use a repository keep it.":
-    "Los cambios se aplican al instante. Los otros proyectos que usan un repositorio lo conservan.",
-  "Each repository is cloned once in your workspace and shared by the projects that use it. Every session gets its own copy of each.":
-    "Cada repositorio se clona una sola vez en tu espacio de trabajo y lo comparten los proyectos que lo usan. Cada sesión recibe su propia copia de cada uno.",
   Back: "Atrás",
   Name: "Nombre",
-  "Repository URL": "URL del repositorio",
-  "The repository name": "El nombre del repositorio",
   "More options": "Más opciones",
   "Made from the name when empty. A folder under the workspace, a simple name with no paths.":
     "Se crea a partir del nombre si está vacío. Una carpeta dentro del workspace, un nombre simple sin rutas.",
   "Creating the project…": "Creando el proyecto…",
   "Creating…": "Creando…",
-  "Clone and create": "Clonar y crear",
-  "The repository uses {branch}.": "El repositorio usa {branch}.",
   "Stop the agent": "Detener al agente",
   "A message typed meanwhile goes to the run; Esc stops it":
     "Un mensaje escrito mientras tanto va a la tarea; Esc la detiene",
@@ -166,8 +137,6 @@ const first: Record<string, string> = {
     "Haz clic en Continuar en el menú de la sesión para seguir trabajando desde la rama más reciente del proyecto.",
   "Click again: discard changes since":
     "Haz clic de nuevo: descartar los cambios desde entonces",
-  "Cloning repository…": "Clonando el repositorio…",
-  "Cloning…": "Clonando…",
   Close: "Cerrar",
   "Close sidebar": "Cerrar la barra lateral",
   "Close the agents": "Cerrar los agentes",
@@ -180,8 +149,10 @@ const first: Record<string, string> = {
   Continue: "Continuar",
   "Continued in a new session": "Continuaste en una sesión nueva",
   "Could not continue this session": "No se pudo continuar esta sesión",
-  "The project could not be updated first":
-    "No se pudo actualizar el proyecto antes de empezar",
+  "Could not isolate this thread": "No se pudo aislar este hilo",
+  "Isolate in a worktree": "Aislar en un worktree",
+  "Moves this thread to a worktree of its own, so it stops sharing the project's folder.":
+    "Mueve este hilo a un worktree propio, para que deje de compartir la carpeta del proyecto.",
   "Could not go back to that checkpoint": "No se pudo volver a ese checkpoint",
   "Could not reach the gateway": "No se pudo contactar al gateway",
   "Could not save the language": "No se pudo guardar el idioma",
@@ -214,17 +185,10 @@ const first: Record<string, string> = {
   "Filter by name, title or what it is for":
     "Filtrar por nombre, título o para qué sirve",
   "Folder name": "Nombre de la carpeta",
-  "Git URL or SSH (optional — clones instead of creating a folder)":
-    "URL de git o SSH (opcional — clona en vez de crear una carpeta)",
-  "Git has no user configured. It is saved as your global git identity and signs the commits of every repository.":
-    "Git no tiene un usuario configurado. Se guarda como tu identidad global de git y firma los commits de todos los repositorios.",
-  "Git user": "Usuario de git",
   "go back to the conversation you left last":
     "vuelve a la última conversación que dejaste",
   "Go back and restore the changes": "Volver y restaurar los cambios",
   "Go back to this checkpoint": "Volver a este checkpoint",
-  "HTTPS or SSH. When set, the repo is cloned into the folder name above.":
-    "HTTPS o SSH. Si lo indicas, el repositorio se clona en la carpeta de arriba.",
   "Hide details": "Ocultar detalles",
   "How it was checked": "Cómo se verificó",
   "Installed {v}": "{v} instalada",
@@ -313,8 +277,6 @@ const first: Record<string, string> = {
   "Plan mode: ask about the project, nothing is changed":
     "Modo plan: pregunta sobre el proyecto, no se cambia nada",
   'Project "{title}" created': 'Proyecto "{title}" creado',
-  'Project "{title}" created and repo cloned':
-    'Proyecto "{title}" creado y repositorio clonado',
   "Project checkout is on branch: {branch}":
     "El checkout del proyecto está en la rama: {branch}",
   Provider: "Proveedor",
@@ -328,7 +290,6 @@ const first: Record<string, string> = {
   Run: "Ejecuta",
   "Run it": "Ejecutar",
   "Run now": "Ejecutar ahora",
-  "Save and create": "Guardar y crear",
   Save: "Guardar",
   "Saving…": "Guardando…",
   "Scheduled ({n})": "Programadas ({n})",
@@ -362,8 +323,8 @@ const first: Record<string, string> = {
   "This conversation will be permanently deleted. This cannot be undone.":
     "Esta conversación se eliminará para siempre. No se puede deshacer.",
   "This needs your approval": "Esto necesita tu aprobación",
-  "This project, all its sessions and its folder will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.":
-    "Este proyecto, todas sus sesiones y su carpeta se eliminarán para siempre. No se puede deshacer. Los repositorios que comparte con otros proyectos se quedan en tu espacio de trabajo.",
+  "This project and all its sessions will be permanently deleted. This cannot be undone. Repositories it shares with other projects stay in your workspace.":
+    "Este proyecto y todas sus sesiones se eliminarán para siempre. No se puede deshacer. Los repositorios que comparte con otros proyectos se quedan en tu espacio de trabajo.",
   "This session is already integrated": "Esta sesión ya está integrada",
   "This session is read-only after integration":
     "Esta sesión es de solo lectura después de integrarla",
@@ -387,7 +348,6 @@ const first: Record<string, string> = {
   "What the files were before is kept in git as {ref}":
     "Lo que tenían los archivos antes queda guardado en git como {ref}",
   "What this project is about": "De qué trata este proyecto",
-  "Worktree: {worktree}": "Worktree: {worktree}",
   "Worth knowing": "Conviene saber",
   "[no result]": "[sin resultado]",
   agent: "agente",
@@ -395,11 +355,11 @@ const first: Record<string, string> = {
   "all allowed": "todo permitido",
   "all commands allowed": "todos los comandos permitidos",
   "analysing the task...": "analizando la tarea...",
+  blocked: "no ejecutada",
   "approved (all commands allowed in this session): {x}":
     "aprobado (todos los comandos permitidos en esta sesión): {x}",
   "argument…": "argumento…",
   "asking you to approve: {x}": "pidiendo tu aprobación: {x}",
-  branch: "rama",
   "cache read {n}": "caché leída {n}",
   "cache write {n}": "caché escrita {n}",
   cancelled: "cancelado",
@@ -540,7 +500,6 @@ const first: Record<string, string> = {
   "what motita has learned from your ratings":
     "lo que motita aprendió de tus calificaciones",
   working: "trabajando",
-  worktree: "worktree",
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",
   "{n} subagents": "{n} subagentes",
@@ -610,47 +569,15 @@ const first: Record<string, string> = {
   "{n}d ago": "hace {n} d",
   "{n}mo ago": "hace {n} meses",
   "{n}y ago": "hace {n} años",
-  "Choose from my repositories": "Elegir de mis repositorios",
-  "Add from my repositories": "Agregar de mis repositorios",
-  "Could not move the main repository":
-    "No se pudo mover el repositorio principal",
-  "{name} moves into its own folder inside the project, and the project becomes a folder of repositories. Nothing is deleted.":
-    "{name} pasa a su propia carpeta dentro del proyecto, y el proyecto queda como una carpeta de repositorios. No se borra nada.",
-  "Move it": "Moverlo",
-  "Already in your workspace": "Ya en tu espacio de trabajo",
-  "Add {name}": "Agregar {name}",
-  "Also in {names}": "También en {names}",
-  "{n} behind {branch}": "{n} atrás de {branch}",
   behind: "atrás",
-  "Behind their main branch: {names}": "Atrás de su rama principal: {names}",
-  "Could not delete the repository": "No se pudo eliminar el repositorio",
-  "Repositories in your workspace": "Repositorios en tu espacio de trabajo",
-  "Each repository is cloned once and shared by the projects that use it. One that no project uses can be deleted.":
-    "Cada repositorio se clona una vez y lo comparten los proyectos que lo usan. Uno que ningún proyecto usa se puede eliminar.",
-  "No repositories in your workspace yet.":
-    "Aún no hay repositorios en tu espacio de trabajo.",
-  "Used by {names}": "Lo usa {names}",
-  "No project uses it": "Ningún proyecto lo usa",
-  "Its clone and its local branches leave your workspace. A project can clone it again later.":
-    "Su clon y sus ramas locales salen de tu espacio de trabajo. Un proyecto puede volver a clonarlo después.",
-  "Discard the changes and delete it": "Descartar los cambios y eliminarlo",
-  "Delete {name}": "Eliminar {name}",
-  "Deleted {name}": "Se eliminó {name}",
-  "Deleted {done} of {total} unused repositories":
-    "Se eliminaron {done} de {total} repositorios sin uso",
-  "Could not update the repository": "No se pudo actualizar el repositorio",
-  "{name} is up to date": "{name} está al día",
-  "The {n} repositories no project uses leave your workspace, with their local branches.":
-    "Los {n} repositorios que ningún proyecto usa salen de tu espacio de trabajo, con sus ramas locales.",
-  "Delete the {n} unused": "Eliminar los {n} sin uso",
-  "Update {name}": "Actualizar {name}",
+  outdated: "desactualizada",
+  "Update main branch": "Actualizar rama principal",
+  "could not update the main branch": "no se pudo actualizar la rama principal",
+  "Main branch not updated: {reason}":
+    "Rama principal sin actualizar: {reason}",
+  local: "local",
   Update: "Actualizar",
   shared: "compartido",
-  "Bring up to {branch}": "Poner al día con {branch}",
-  "Already in your workspace: it is not cloned again.":
-    "Ya está en tu espacio de trabajo: no se vuelve a clonar.",
-  "In your workspace": "En tu espacio de trabajo",
-  "Could not bring {name} up to date": "No se pudo poner al día {name}",
   "Podman was found on this machine. Use it to run this project?":
     "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",
@@ -670,16 +597,8 @@ const first: Record<string, string> = {
     "El proyecto se levantará en contenedores con podman. No se encontró podman compose, así que los archivos compose no funcionarán hasta instalarlo.",
   "The project will be started in containers with podman.":
     "El proyecto se levantará en contenedores con podman.",
-  "Git host": "Host de git",
-  "Connect another host…": "Conectar otro host…",
-  "Search repositories": "Buscar repositorios",
-  'No repositories match "{q}".': 'Ningún repositorio coincide con "{q}".',
-  "No repositories found in {host}.":
-    "No se encontraron repositorios en {host}.",
   Repositories: "Repositorios",
   Private: "Privado",
-  "Loading repositories…": "Cargando repositorios…",
-  "Load more": "Cargar más",
   "Disconnected from {host}": "Desconectado de {host}",
   "Git connections": "Conexiones de git",
   Git: "Git",
@@ -693,8 +612,6 @@ const first: Record<string, string> = {
   "Server type": "Tipo de servidor",
   "Server address": "Dirección del servidor",
   "Add self-hosted server": "Añadir servidor propio",
-  "Connect GitHub, GitLab or Bitbucket to pick one of your repositories":
-    "Conecta GitHub, GitLab o Bitbucket para elegir uno de tus repositorios",
   Connected: "Conectado",
   "The login expired. Try again.": "El acceso expiró. Inténtalo de nuevo.",
   "The host did not authorize the login.": "El host no autorizó el acceso.",

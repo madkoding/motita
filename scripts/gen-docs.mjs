@@ -76,6 +76,7 @@ ${flow("The five setup steps", [["Provider", "Which model answers"], ["Connect",
 </ul>
 <h2>How a task runs</h2>
 ${flow("How a task runs", [["You ask", "Type a task in Task mode"], ["It works", "Reads, edits and runs commands"], ["Your check runs", "<code>make test</code>, <code>go test</code>, <code>npm test</code>…"], ["Done", "Only once the check passes"]], "If the check fails, the agent reads the failure and tries again. That loop is what gives “done” its meaning.")}
+<p>The agent never fakes a check. If a tool or its dependencies are missing it installs them the way the project does and runs the framework's own command (<code>php artisan test</code>, <code>npm test</code>, <code>pytest</code>). A stand-in that only exits 0, or an edit of a test script so it passes, is refused before it touches the disk. When the machine cannot run a check at all (no network, a tool that cannot be installed) the result says <strong>not validated</strong> and names the cause, instead of reporting a pass.</p>
 <h2>Staying in control</h2>
 <ul>
 <li><kbd>Esc</kbd> stops the running task.</li>
@@ -119,6 +120,8 @@ ${hub("The terminal, browser, phone and scripts all talk to one gateway, which r
 <h2>The browser interface</h2>
 <p>It is served from the gateway's own port, so there is no second server and no cross-origin setup. Open <code>http://127.0.0.1:7477</code>, paste the token once, and you have chat, projects, settings and the skill library. It installs as an app (PWA) and is compiled into the binary.</p>
 <p>The token is read from <code>~/.motita/gateway.token</code> and printed by <code>motita gateway start</code>.</p>
+<h2>Notes</h2>
+<p>The <strong>Notes</strong> button in the sidebar opens a vault of plain Markdown notes: a folder tree, an editor with a preview, <code>[[wiki links]]</code> that open the note they name (or create it), the notes that link back, a graph of the links and a search, and the agent can search, read and add to them, citing the note it relies on. The notes are ordinary <code>.md</code> files in <code>~/.motita/notes</code>, so you can open that same folder in Obsidian. In Settings, Indexing, <strong>Scan now</strong> fills the vault with a note per project and per session (and does it by itself the first time the vault is empty; long sessions can also get a model-written summary, off by default because their text goes to your provider), and a note can be renamed without breaking the links to it.</p>
 <h2>Running the gateway</h2>
 ${code("sh", `motita gateway start    # start the service and wait until it answers
 motita gateway status   # is one running, where, and which build
@@ -165,6 +168,9 @@ ${tabs("sse", sseExamples("en"))}
 <li><strong>Deleting asks first.</strong> You see exactly which uncommitted files would be lost.</li>
 <li>Instruction files are read: <code>AGENTS.md</code> (or <code>CLAUDE.md</code>) from the git root down, and your own <code>~/.motita/AGENTS.md</code>. They guide how to work and never override your request or your security settings.</li>
 </ul>
+<h2>A repository you already have</h2>
+<p>With the whole disk allowed in <strong>Settings &rarr; Security</strong>, a project can live in a folder you already work in, and <strong>Add another repository &rarr; Choose a folder on this computer</strong> adds a repository you have as it is. It is <strong>never cloned</strong>: each session gets a worktree of <em>your</em> repository, so the dependencies you installed there (<code>vendor/</code>, <code>node_modules/</code>) are the ones it uses. Motita only creates its own branches and worktrees in it. It never fetches into it, merges into it, switches the branch you have checked out or touches your files, and taking it out of the project deletes only what motita made.</p>
+<p>When a repository needs dependencies nobody installed (a <code>composer.json</code> with no <code>vendor/</code>, a <code>package.json</code> with no <code>node_modules/</code>), the project shows a <em>no deps</em> notice with the command that fixes it, and the agent is told to install them first. If it cannot (no network, say), it reports that the tests were <strong>not run</strong> instead of faking a pass.</p>
 <h2>Git hosts</h2>
 <p>Connect GitHub, GitLab, Bitbucket, or a self-hosted GitLab, Gitea or GitHub Enterprise once, from <strong>Settings &rarr; Git connections</strong> or <code>/git connect</code>. GitHub signs in with one click. The other hosts need either an OAuth application of yours or a token you create by hand; a token does everything the login does and is checked before it is saved.</p>
 <p>After that, <code>git clone</code>, <code>pull</code> and <code>push</code> work inside a session. Logins go only to commands you approved, and are stored in <code>~/.motita/auth/</code> with owner-only permissions, never in the configuration file.</p>

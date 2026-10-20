@@ -793,6 +793,10 @@ func (r *taskRun) finish(action Action, validation anchor.Result) (res TaskResul
 	}
 	r.res.Pass = true
 	r.res.Reason = validation.Reason
+	if blocked := r.mem.blockedChecks(); len(blocked) > 0 {
+		r.res.Reason += "; NOT VALIDATED: `" + collapse(truncate(blocked[0].command, 80)) + "` could not run (" +
+			blockedCause(blocked[0]) + ")"
+	}
 	r.res.DurationMS = time.Since(r.start).Milliseconds()
 	a.report("task complete: %s", validation.Reason)
 	if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
@@ -821,7 +825,10 @@ func (r *taskRun) synthesize(validation anchor.Result) {
 	if strings.TrimSpace(r.mem.notes) != "" {
 		output += "## Notes the agent kept while working\n" + r.mem.notes + "\n"
 	}
+	blocked := r.mem.blockedChecks()
+	output += unvalidatedBlock(blocked)
 	if rep := r.a.synthesizePhase(r.ctx, r.t, output, validation); rep != nil {
+		rep.markUnvalidated(blocked)
 		// The summary is the answer, delivered with the result. It is not reported as progress:
 		// an interface filed it as a step of the turn, the answer drawn twice.
 		r.res.Summary, r.res.Report = rep.Summary, rep

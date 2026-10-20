@@ -575,3 +575,96 @@ func TestSetWorkspaceThatCannotBuildASandboxMovesTheOldOne(t *testing.T) {
 		t.Errorf("with no sandbox to move there is none: %v", none.Box)
 	}
 }
+
+// --- SummarizeText ---
+
+func summaryRunner(t *testing.T, body string) *AppRunner {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "key"
+	cfg.LLM.BaseURL = srv.URL
+	cfg.LLM.MaxAttempts = 1
+	cfg.LLM.Timeout = 5 * time.Second
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	engine, err := llm.New(cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+	return r
+}
+
+func TestSummarizeTextReturnsTheModelsSummary(t *testing.T) {
+	r := summaryRunner(t, `{"choices":[{"message":{"content":"  - asked X\n- did Y  "}}]}`)
+	got, err := r.SummarizeText(context.Background(), "Person: x")
+	if err != nil || got != "- asked X\n- did Y" {
+		t.Errorf("SummarizeText = %q, %v", got, err)
+	}
+}
+
+func TestSummarizeTextReportsFailures(t *testing.T) {
+	r := summaryRunner(t, `{"choices":[{"message":{"content":"   "}}]}`)
+	if _, err := r.SummarizeText(context.Background(), "x"); err == nil {
+		t.Error("an empty summary is an error")
+	}
+	r = summaryRunner(t, `not json`)
+	if _, err := r.SummarizeText(context.Background(), "x"); err == nil {
+		t.Error("a failing model is an error")
+	}
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "" // no key, so the engine cannot be built
+	r = NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	if _, err := r.SummarizeText(context.Background(), "x"); err == nil {
+		t.Error("no engine is an error")
+	}
+}
+
+func TestDescribeProjectReturnsTheModelsExplanation(t *testing.T) {
+	r := summaryRunner(t, `{"choices":[{"message":{"content":"  ## Modules\n- a  "}}]}`)
+	got, err := r.DescribeProject(context.Background(), "facts")
+	if err != nil || got != "## Modules\n- a" {
+		t.Errorf("DescribeProject = %q, %v", got, err)
+	}
+}
+
+func TestDescribeProjectReportsFailures(t *testing.T) {
+	r := summaryRunner(t, `not json`)
+	if _, err := r.DescribeProject(context.Background(), "x"); err == nil {
+		t.Error("a failing model is an error")
+	}
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "" // no key, so the engine cannot be built
+	r = NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	if _, err := r.DescribeProject(context.Background(), "x"); err == nil {
+		t.Error("no engine is an error")
+	}
+}
+
+func TestDescribeModuleReturnsTheModelsExplanation(t *testing.T) {
+	r := summaryRunner(t, `{"choices":[{"message":{"content":"  ## Purpose\n- a  "}}]}`)
+	got, err := r.DescribeModule(context.Background(), "facts")
+	if err != nil || got != "## Purpose\n- a" {
+		t.Errorf("DescribeModule = %q, %v", got, err)
+	}
+}
+
+func TestDescribeModuleReportsFailures(t *testing.T) {
+	r := summaryRunner(t, `not json`)
+	if _, err := r.DescribeModule(context.Background(), "x"); err == nil {
+		t.Error("a failing model is an error")
+	}
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "" // no key, so the engine cannot be built
+	r = NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	if _, err := r.DescribeModule(context.Background(), "x"); err == nil {
+		t.Error("no engine is an error")
+	}
+}

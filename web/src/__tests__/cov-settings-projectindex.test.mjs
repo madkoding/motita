@@ -1,6 +1,6 @@
 // The project's index panel: the bar, the numbers, the update button and the errors.
 // Run with: node --test web/src/__tests__/cov-settings-projectindex.test.mjs
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import {
   installDom,
@@ -30,6 +30,7 @@ const READY = {
   cache_bytes: 2048,
   semantic: true,
   embeddings: false,
+  indexing: false,
 };
 
 async function mount(fake) {
@@ -176,5 +177,60 @@ test("every new string has its Spanish", async () => {
   );
   for (const m of src.matchAll(/\bt[f]?\(\s*"((?:[^"\\]|\\.)*)"/g)) {
     assert.ok(es[m[1]], `missing Spanish for: ${m[1]}`);
+  }
+});
+
+test("while the gateway builds the index it says so and asks again until done", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let calls = 0;
+    const gw = fakeApi({
+      "GET /v1/projects/p%201/code-index": () => {
+        calls++;
+        return json(
+          200,
+          calls === 1
+            ? { ...READY, state: "none", percent: 0, indexing: true }
+            : calls === 2
+              ? { ...READY, state: "none", percent: 0, indexing: true }
+              : READY,
+        );
+      },
+    });
+    const root = await mount(gw);
+    assert.equal(text(q(root, "state")), "Indexing…");
+    assert.ok(q(root, "build").disabled);
+    mock.timers.tick(3000);
+    await settle();
+    assert.equal(calls, 2);
+    mock.timers.tick(3000);
+    await settle();
+    assert.equal(text(q(root, "state")), "Up to date");
+    mock.timers.tick(3000);
+    await settle();
+    assert.equal(calls, 3);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a failed poll while indexing is ignored", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let calls = 0;
+    const gw = fakeApi({
+      "GET /v1/projects/p%201/code-index": () =>
+        ++calls === 1
+          ? json(200, { ...READY, indexing: true })
+          : json(500, { error: "boom" }),
+    });
+    const root = await mount(gw);
+    mock.timers.tick(3000);
+    await settle();
+    await settle(20);
+    assert.equal(calls, 2);
+    assert.equal(text(q(root, "state")), "Indexing…");
+  } finally {
+    mock.timers.reset();
   }
 });

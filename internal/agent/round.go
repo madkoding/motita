@@ -82,7 +82,8 @@ func (rr *roundRun) workAction(i int, kind string, action Command) bool {
 
 // readAction is an action answered from the library or the code index, which change nothing.
 func (rr *roundRun) readAction(kind string, action Command) bool {
-	return rr.libraryAction(kind, action) || rr.indexAction(kind, action)
+	return rr.libraryAction(kind, action) || rr.indexAction(kind, action) || rr.noteAction(kind, action) ||
+		rr.threadAction(kind, action)
 }
 
 // agentAction is a background agent started or waited for (see subagents.go).
@@ -201,7 +202,8 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
 		"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, "+
-		"search_skills, read_skill, save_skill, search_index, box_up, box_get, box_shot, box_down, "+
+		"thread, search_skills, read_skill, save_skill, search_index, note_search, note_read, note_write, note_append, "+
+		"box_up, box_get, box_shot, box_down, "+
 		"desktop_shot, desktop_click, desktop_move, desktop_scroll, desktop_type, desktop_key, "+
 		"desktop_windows, desktop_focus (when the person turned desktop control on). "+
 		"To run a shell command, use kind \"command\".]\n",
@@ -249,6 +251,12 @@ func (rr *roundRun) shell(i int, action Command) {
 	//    model use pipes, redirections and globs to do real work — but only once the
 	//    policy has had its say. A consequential action is put in front of the user
 	//    here, mid-run, because this is the moment it is about to happen.
+	if why := fakeCheckCommand(action.Command); why != "" {
+		fmt.Fprintf(&rr.sb, "$ %s\n[refused: %s]\n", action.Command, why)
+		a.log.Warn(rr.prefix+"action refused: it fabricates a check", "command", truncate(action.Command, 160))
+		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, truncate(action.Command, 80), why)
+		return
+	}
 	plan := a.planRequest(action.Command)
 	if plan.Verdict == policy.Deny {
 		fmt.Fprintf(&rr.sb, "$ %s\n[refused: %s]\n", action.Command, plan.Reason)

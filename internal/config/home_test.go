@@ -382,3 +382,16 @@ func TestHomeDirWithAFailingOsCall(t *testing.T) {
 		t.Fatalf("HomeDir() = %q, want empty", got)
 	}
 }
+
+// The note vault is plain Markdown under the motita home, so another program can open the folder.
+func TestNotesDirIsUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := NotesDir(), filepath.Join(home, ".motita", "notes"); got != want {
+		t.Fatalf("NotesDir() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := NotesDir(); got != "" {
+		t.Fatalf("NotesDir() = %q without a home, want empty", got)
+	}
+}

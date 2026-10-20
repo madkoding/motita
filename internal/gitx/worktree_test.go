@@ -132,6 +132,26 @@ func TestAddWorktreeAttachesAnExistingBranch(t *testing.T) {
 	}
 }
 
+// TestAddWorktreeFromStartsANewBranchAtTheStartPoint: a repository the user has out on another
+// branch still gives a branch that starts where it was asked to, not on their HEAD.
+func TestAddWorktreeFromStartsANewBranchAtTheStartPoint(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	base := Display(ctx, repo)
+	git(t, repo, "checkout", "-q", "-b", "feature")
+	write(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	git(t, repo, "add", "feature.txt")
+	git(t, repo, "commit", "-qm", "feature")
+
+	wt := filepath.Join(filepath.Dir(repo), "w")
+	if err := AddWorktreeFrom(ctx, repo, wt, "motita/s1", base); err != nil {
+		t.Fatalf("AddWorktreeFrom: %v", err)
+	}
+	if exists(filepath.Join(wt, "feature.txt")) {
+		t.Fatal("the branch must start on the start point, not on the checked-out feature")
+	}
+}
+
 // TestAddWorktreeRefusesARepositoryWithNoCommits: `worktree add -b` on an
 // unborn HEAD fails with a message about an invalid reference, which names
 // neither the cause nor the fix. A freshly created project folder is exactly
@@ -308,5 +328,20 @@ func TestDeleteBranchDeletesAMergedBranch(t *testing.T) {
 	}
 	if BranchExists(ctx, repo, "motita/s1") {
 		t.Error("the branch must be gone")
+	}
+}
+
+// TestSessionBranchesListsOnlyTheSessionsBranches: the branches under motita/, and none from a folder
+// that is not a repository.
+func TestSessionBranchesListsOnlyTheSessionsBranches(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	git(t, repo, "branch", "motita/s1")
+	git(t, repo, "branch", "feature")
+	if got := SessionBranches(ctx, repo); len(got) != 1 || got[0] != "motita/s1" {
+		t.Errorf("SessionBranches = %v", got)
+	}
+	if got := SessionBranches(ctx, t.TempDir()); got != nil {
+		t.Errorf("a folder that is not a repository has none: %v", got)
 	}
 }

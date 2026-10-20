@@ -49,6 +49,7 @@ function store(over = {}) {
       renameSession: rec("renameSession"),
       setRenamingId: rec("setRenamingId"),
       continueSession: async (x) => calls.push(["continueSession", x.id]),
+      isolateSession: async (x) => calls.push(["isolateSession", x.id]),
     },
     conv: { switchSession: rec("switchSession") },
     menus: {
@@ -67,6 +68,7 @@ function store(over = {}) {
     updates: { updateInfo: null, openUpgrade: on("openUpgrade") },
     skills: { setShowSkillLibrary: rec("setShowSkillLibrary") },
     artifacts: { openArtifacts: on("openArtifacts") },
+    notes: { openNotes: on("openNotes") },
     schedules: { openScheduledTasks: on("openScheduledTasks") },
     openSettings: on("openSettings"),
   };
@@ -140,17 +142,12 @@ test("a row shows the title, when it was used and its labelled facts", async () 
     [...r.querySelectorAll(".session-facts > span")].map((f) =>
       [...f.children].map(text).join(" "),
     );
-  assert.deepEqual(facts(root), [
-    "branch motita/s1abcde",
-    "worktree s9zzzzz",
-    "model gpt-x",
-    "change 1",
-  ]);
+  assert.deepEqual(facts(root), ["change 1"]);
   const hit = root.querySelector(".row-hit");
   assert.equal(hit.getAttribute("aria-label"), "Fix the build");
   assert.match(
     hit.getAttribute("title"),
-    /^Last used .*\n2 background agents running\nBranch: motita\/s1abcdefghij\nWorktree: s9zzzzzzzzz\nModel: p \/ gpt-x\n1 uncommitted change/,
+    /^Last used .*\n2 background agents running\n1 uncommitted change/,
   );
   await click(hit);
   assert.deepEqual(v.calls, [["switchSession", "s1abcdefghij"]]);
@@ -456,7 +453,11 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
     text(root.querySelector("[data-testid=sidebar-sessions] .truncate")),
     "Loose",
   );
-  assert.equal(root.querySelectorAll("[data-testid=sidebar-empty]").length, 0);
+  assert.equal(
+    root.querySelector("[data-testid=sidebar-empty]"),
+    null,
+    "every section has something",
+  );
   // Each section title carries its own "+", named for what it adds, and nothing sits above them.
   const addSession = root.querySelector("[data-testid=sidebar-new-session]");
   const addProject = root.querySelector("[data-testid=sidebar-new-project]");
@@ -489,6 +490,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   assert.equal(text(upgrade.querySelector(".font-mono")), "v1.3.0");
   await click(upgrade);
   await click(buttonNamed(root, "Skill library"));
+  await click(root.querySelector("[data-testid=notes-button]"));
   const art = root.querySelector("[data-testid=artifacts-button]");
   assert.equal(art.disabled, true, "no session: no artifacts");
   await click(buttonNamed(root, "Scheduled tasks"));
@@ -498,6 +500,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
     ["openNewProject"],
     ["openUpgrade"],
     ["setShowSkillLibrary", true],
+    ["openNotes"],
     ["openScheduledTasks"],
     ["openSettings"],
   ]);
@@ -583,4 +586,27 @@ test("on a phone, picking a session in the sidebar closes it", async () => {
   assert.deepEqual(v.calls, [["openSettings"]], "other clicks do not close it");
   phone = false;
   await done();
+});
+
+test("a thread that shares the project's folder offers to move into a worktree", async () => {
+  const v = store({ menus: { rowMenu: { id: "t" } } });
+  const s = { id: "t", title: "Boxes", project_id: "p1", parent_id: "m" };
+  const { root, done } = await row(s, v);
+  await act(async () => {
+    buttonNamed(root, "Isolate in a worktree").dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    await Promise.resolve();
+  });
+  assert.deepEqual(v.calls, [["closeRowMenu"], ["isolateSession", "t"]]);
+  await done();
+  for (const other of [
+    { ...s, worktree: "t" },
+    { ...s, parent_id: undefined },
+    { ...s, merged: true },
+  ]) {
+    const r = await row(other, store({ menus: { rowMenu: { id: "t" } } }));
+    assert.equal(buttonNamed(r.root, "Isolate in a worktree"), undefined);
+    await r.done();
+  }
 });

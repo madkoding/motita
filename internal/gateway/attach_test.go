@@ -92,13 +92,17 @@ func streamInBackground(t *testing.T, srv *Server, path string) <-chan []event {
 // waitForRunning blocks until the gateway says a run is in flight in this conversation.
 //
 // It asks the GATEWAY rather than sleeping, so the test is deterministic: a sleep long enough to
-// usually work is a test that fails once a week on a loaded machine.
+// usually work is a test that fails once a week on a loaded machine. The slot is taken before the
+// run is installed as the live one, so it waits for both: a cancel sent in between has no run to
+// stop and is refused.
 func waitForRunning(t *testing.T, srv *Server, id string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if conv, ok := srv.lookup(id); ok && conv.isRunning() {
-			return
+			if _, live := conv.currentRun(); live {
+				return
+			}
 		}
 		time.Sleep(2 * time.Millisecond)
 	}

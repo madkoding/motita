@@ -8,6 +8,8 @@ import { useSessionList } from "./useSessionList";
 import { useChatScroll } from "./useChatScroll";
 import { useModelSwitcher } from "./useModelSwitcher";
 import { useSkills } from "./useSkills";
+import { useReviewNotes } from "./useReviewNotes";
+import { useNotes } from "./useNotes";
 import { useProjects } from "./useProjects";
 import { useArtifacts } from "./useArtifacts";
 import { useSchedules } from "./useSchedules";
@@ -54,6 +56,7 @@ export function useAppStore(api: Api) {
   const projects = useProjects({ api, lists, setState, setToast });
   const projectHint = useProjectHint({ api, rs, lists, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);
+  const notes = useNotes(api, setState);
   const schedules = useSchedules(api, setToast);
   const conv = useConversation({
     api,
@@ -76,6 +79,9 @@ export function useAppStore(api: Api) {
     deleteSession: actions.deleteSession,
     deleteSkill: skills.deleteSkill,
     deleteProject: projects.deleteProject,
+    sessionsOf: (projectId) =>
+      lists.sessions.filter((s) => s.project_id === projectId).map((s) => s.id),
+    leaveGone: actions.leaveGone,
   });
   const drawers = useDrawers(rs);
   const shell = useShellApproval({
@@ -166,6 +172,12 @@ export function useAppStore(api: Api) {
   const [showSettings, setShowSettings] = useState(false);
   const openSettings = useCallback(() => setShowSettings(true), []);
   const closeSettings = useCallback(() => setShowSettings(false), []);
+  const reviewNotes = useReviewNotes(
+    actions.createSession,
+    notes.closeNotes,
+    stream.submit,
+    closeSettings,
+  );
   const selectedSession = useMemo(
     () => lists.sessions.find((s) => s.id === rs.sessionId),
     [lists.sessions, rs.sessionId],
@@ -181,6 +193,8 @@ export function useAppStore(api: Api) {
     projects,
     projectHint,
     artifacts,
+    notes,
+    reviewNotes,
     schedules,
     conv,
     actions,

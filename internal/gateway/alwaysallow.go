@@ -41,17 +41,24 @@ func approvalScope(c *conversation) string {
 
 // alwaysAllowed says whether the person already allowed this shape of command here.
 func (s *Server) alwaysAllowed(c *conversation, rule, command string) bool {
-	k, ok := approvals.KeyOf(rule, command)
-	return ok && s.approvals.Allowed(approvalScope(c), k)
+	keys, ok := approvals.KeysOf(rule, command)
+	return ok && s.approvals.AllowedAll(approvalScope(c), keys)
 }
 
-// rememberApproval keeps this shape of command allowed here from now on.
-func (s *Server) rememberApproval(c *conversation, rule, command string) {
-	k, ok := approvals.KeyOf(rule, command)
+// headerAlwaysAllow tells a client what became of an "always allow": "kept" when this gateway keeps
+// the shape of the command allowed, "none" when the line has no shape to keep. A gateway from before
+// the choice existed sends no such header, which is how a page tells that the choice went nowhere.
+const headerAlwaysAllow = "Motita-Always-Allow"
+
+// rememberApproval keeps this shape of command allowed here from now on, and says what the client
+// is told about it (the value of headerAlwaysAllow).
+func (s *Server) rememberApproval(c *conversation, rule, command string) string {
+	keys, ok := approvals.KeysOf(rule, command)
 	if !ok {
-		return
+		return "none"
 	}
-	if err := s.approvals.Remember(approvalScope(c), k); err != nil {
+	if err := s.approvals.RememberAll(approvalScope(c), keys); err != nil {
 		s.warn("could not write the remembered approvals", "error", err.Error())
 	}
+	return "kept"
 }

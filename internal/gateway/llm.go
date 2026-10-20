@@ -79,6 +79,10 @@ type llmView struct {
 	// absent or empty one follows the default.
 	Kinds []string                      `json:"task_kinds"`
 	Tasks map[string]config.ModelChoice `json:"tasks"`
+	// Thinking is the level each kind of work thinks at (Levels lists the ones allowed); an absent
+	// or empty one follows the session's level.
+	Thinking map[string]string `json:"thinking"`
+	Levels   []string          `json:"thinking_levels"`
 	// PricesChecked is the day the catalogue's prices were last compared with the vendors' pages.
 	PricesChecked string `json:"prices_checked"`
 }
@@ -86,6 +90,11 @@ type llmView struct {
 // taskModelSetter is a service that can take a new models block on its next turn.
 type taskModelSetter interface {
 	SetTaskModels(config.Models)
+}
+
+// taskThinkingSetter is a service that can take a new thinking block on its next turn.
+type taskThinkingSetter interface {
+	SetTaskThinking(config.Thinking)
 }
 
 // providerRefresher is a service that can take a provider's new key and endpoint on its next turn.
@@ -107,6 +116,7 @@ var (
 	setCredential = config.SetCredential
 	setLLMDefault = config.SetLLMDefault
 	setTaskModels = config.SetTaskModels
+	setTaskThink  = config.SetTaskThinking
 	deleteLogin   = oauth.DeleteCredential
 )
 
@@ -146,6 +156,16 @@ func (s *Server) configuredModels() config.Models {
 		}
 	}
 	return s.opts.Service.Config().Models
+}
+
+// configuredThinking is the thinking block the next turn of every conversation runs with.
+func (s *Server) configuredThinking() config.Thinking {
+	if s.opts.ConfigPath != "" {
+		if cfg, err := config.LoadWithoutKey(s.opts.ConfigPath); err == nil {
+			return cfg.Thinking
+		}
+	}
+	return s.opts.Service.Config().Thinking
 }
 
 // effectiveBase is the endpoint a provider runs with.
@@ -191,6 +211,7 @@ func (s *Server) llmViewOf() llmView {
 	cfg := s.configuredLLM()
 	v := llmView{Provider: cfg.Provider, Model: cfg.Model, Writable: s.opts.ConfigPath != "",
 		Kinds: config.TaskKinds, Tasks: map[string]config.ModelChoice{},
+		Thinking: map[string]string{}, Levels: config.ThinkingLevels,
 		PricesChecked: onboard.PricesChecked()}
 	s.llmListedMu.Lock()
 	for _, p := range onboard.Providers() {
@@ -200,10 +221,13 @@ func (s *Server) llmViewOf() llmView {
 		v.Providers = append(v.Providers, pv)
 	}
 	s.llmListedMu.Unlock()
-	models := s.configuredModels()
+	models, thinking := s.configuredModels(), s.configuredThinking()
 	for _, kind := range config.TaskKinds {
 		if c := models.For(kind); !c.Empty() {
 			v.Tasks[kind] = c
+		}
+		if l := thinking.For(kind); l != "" {
+			v.Thinking[kind] = l
 		}
 	}
 	return v
@@ -675,17 +699,22 @@ func (s *Server) startingLLM(svc Service) {
 	if ts, ok := svc.(taskModelSetter); ok {
 		ts.SetTaskModels(s.configuredModels())
 	}
+	if ts, ok := svc.(taskThinkingSetter); ok {
+		ts.SetTaskThinking(s.configuredThinking())
+	}
 	if rf, ok := svc.(providerRefresher); ok {
 		rf.RefreshProvider(cfg.Provider, cfg.APIKey, effectiveBase(cfg, cfg.Provider))
 	}
 }
 
-// handleLLMTasks saves the model of each kind of work: the whole set at once, a kind left out or
-// empty following the default. Every conversation takes the set on its next turn; the engines it
+// handleLLMTasks saves the model and the thinking level of each kind of work: the whole set at
+// once, a kind left out or empty following the default. A body without "thinking" leaves the
+// levels as they are. Every conversation takes the set on its next turn; the engines it
 // builds from it stay its own.
 func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Tasks map[string]config.ModelChoice `json:"tasks"`
+		Tasks    map[string]config.ModelChoice `json:"tasks"`
+		Thinking map[string]string             `json:"thinking"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
@@ -693,6 +722,10 @@ func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 	known := map[string]bool{}
 	for _, kind := range config.TaskKinds {
 		known[kind] = true
+	}
+	levels, ok := thinkingLevels(w, body.Thinking, known)
+	if !ok {
+		return
 	}
 	cfg := s.configuredLLM()
 	choices := map[string]config.ModelChoice{}
@@ -720,20 +753,52 @@ func (s *Server) handleLLMTasks(w http.ResponseWriter, r *http.Request) {
 	if !s.needFile(w) {
 		return
 	}
-	if err := setTaskModels(s.opts.ConfigPath, choices); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	if !s.writeTasks(w, choices, levels, body.Thinking != nil) {
 		return
 	}
 	s.pushTaskModels()
 	writeJSON(w, http.StatusOK, s.llmViewOf())
 }
 
+// thinkingLevels checks the level of each kind of work, answering 400 for a kind or a level it
+// does not know.
+func thinkingLevels(w http.ResponseWriter, in map[string]string, known map[string]bool) (map[string]string, bool) {
+	levels := map[string]string{}
+	for kind, raw := range in {
+		level, err := config.ParseThinkingLevel(raw)
+		if !known[kind] || err != nil {
+			writeError(w, http.StatusBadRequest, "thinking "+kind+": no such kind of work or level")
+			return nil, false
+		}
+		levels[kind] = level
+	}
+	return levels, true
+}
+
+// writeTasks saves the models and, when the request carried them, the thinking levels, answering
+// 500 when the file cannot be written.
+func (s *Server) writeTasks(w http.ResponseWriter, choices map[string]config.ModelChoice,
+	levels map[string]string, withLevels bool) bool {
+	err := setTaskModels(s.opts.ConfigPath, choices)
+	if err == nil && withLevels {
+		err = setTaskThink(s.opts.ConfigPath, levels)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	return true
+}
+
 // pushTaskModels hands the saved model of each kind of work to every conversation that takes it.
 func (s *Server) pushTaskModels() {
-	models := s.configuredModels()
+	models, thinking := s.configuredModels(), s.configuredThinking()
 	for _, c := range s.snapshot() {
 		if ts, ok := c.svc.(taskModelSetter); ok {
 			ts.SetTaskModels(models)
+		}
+		if ts, ok := c.svc.(taskThinkingSetter); ok {
+			ts.SetTaskThinking(thinking)
 		}
 	}
 }

@@ -397,6 +397,53 @@ test("the agent's questions are answered once, or for the whole session", async 
   await s.hook.unmount();
 });
 
+test("an \"always allow\" a gateway did not keep is said, for the agent's questions and typed lines", async () => {
+  const KEPT = { headers: { "Motita-Always-Allow": "kept" } };
+  let kept = false;
+  let asked = true;
+  const s = await shell((path) => {
+    if (path.endsWith("/shell")) {
+      const res = asked ? { needs_approval: true } : { output: "ok" };
+      asked = false;
+      return new Response(JSON.stringify(res), kept ? KEPT : {});
+    }
+    return new Response(null, { status: 204, ...(kept ? KEPT : {}) });
+  });
+  const warned = [
+    {
+      message:
+        'That computer did not keep "Always allow": it runs an older Motita. Update it there.',
+      type: "warning",
+    },
+  ];
+  // A gateway from before the choice: the yes lands, nothing is kept, and the person is told.
+  await s.c().answerApproval("q1", true, true);
+  assert.deepEqual(s.toasts, warned);
+  // A plain yes, and a no, say nothing about it.
+  s.toasts.length = 0;
+  await s.c().answerApproval("q2", true);
+  await s.c().answerApproval("q3", false, true);
+  assert.deepEqual(s.toasts, []);
+  // The same for a typed line answered "always".
+  asked = true;
+  await s.c().runShellLine("touch /x");
+  asked = false;
+  await s.c().answerApproval(s.rs.approval.id, true, true);
+  await tick();
+  assert.deepEqual(s.toasts, warned);
+  // A gateway that keeps it says so, and nothing is shown.
+  kept = true;
+  s.toasts.length = 0;
+  asked = true;
+  await s.c().runShellLine("touch /y");
+  asked = false;
+  await s.c().answerApproval(s.rs.approval.id, true, true);
+  await s.c().answerApproval("q4", true, true);
+  await tick();
+  assert.deepEqual(s.toasts, []);
+  await s.hook.unmount();
+});
+
 test("the approval panel takes focus, and the keyboard moves and answers it", async () => {
   const s = await shell(() => json({}));
   // No question: the keys are not the panel's.

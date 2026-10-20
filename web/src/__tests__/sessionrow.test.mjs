@@ -81,7 +81,7 @@ test("the row buttons carry the tooltips of the labels they cover", () => {
 test("a project header's click target is drawn above its title and under its actions", () => {
   const header = component(PROJECT_GROUP, "ProjectHeader");
   const [title, hit, actions] = order(header, [
-    "<BehindFact",
+    "<StaleFact",
     ROW_HIT,
     "<ProjectActions",
   ]);
@@ -97,21 +97,14 @@ test("sessionTooltip says every fact the row shows, one per line", () => {
     id: "s1",
     last_used: "2026-10-13T04:00:00Z",
     agents_running: 2,
-    branch: "feature/x",
-    worktree: "wt1",
-    model: "m1",
-    provider: "p1",
     changes: 3,
   }).split("\n");
-  // One line each: last used, agents, branch, worktree, provider / model, changes.
-  const SESSION_LINES = 6;
+  // One line each: last used, agents, changes.
+  const SESSION_LINES = 3;
   assert.equal(lines.length, SESSION_LINES);
-  const [used, agents, branch, worktree, model, changes] = lines;
+  const [used, agents, changes] = lines;
   assert.match(used, /2026/);
   assert.match(agents, /2/);
-  assert.match(branch, /feature\/x/);
-  assert.match(worktree, /wt1/);
-  assert.match(model, /p1 \/ m1/);
   assert.match(changes, /3/);
 });
 

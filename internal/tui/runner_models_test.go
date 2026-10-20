@@ -281,3 +281,33 @@ func TestPieceSignals(t *testing.T) {
 		t.Error("an English one")
 	}
 }
+
+// A kind with a thinking level of its own gets an engine at that level, on the session's model or
+// on the one assigned; a kind with none keeps the session's level and engine.
+func TestEngineForAppliesTheThinkingLevelOfTheKind(t *testing.T) {
+	r, own := modelsRunner(t, config.Models{Review: "openai/gpt-5"})
+	r.SetTaskThinking(config.Thinking{Plan: "high", Review: "off", Summary: "low"})
+
+	cfg, e, err := r.engineFor(config.TaskPlan)
+	if err != nil || e == own || cfg.LLM.Model != "gpt-5-mini" ||
+		cfg.LLM.Reasoning != (config.Reasoning{Enabled: true, Level: "high"}) {
+		t.Fatalf("plan: %v %+v", err, cfg.LLM)
+	}
+	if _, again, _ := r.engineFor(config.TaskPlan); again != e {
+		t.Error("the engine of a kind is built once per session")
+	}
+	if cfg, _, _ := r.engineFor(config.TaskReview); cfg.LLM.Model != "gpt-5" || cfg.LLM.Reasoning.Enabled {
+		t.Errorf("review keeps its model and thinks at off: %+v", cfg.LLM)
+	}
+	if _, e, _ := r.engineFor(config.TaskCode); e != own {
+		t.Error("a kind with no level runs on the session's engine")
+	}
+	if e := r.summaryEngine(own); e == own {
+		t.Error("a summary level alone moves compaction to an engine of its own")
+	}
+
+	r.SetTaskThinking(config.Thinking{})
+	if _, e, _ := r.engineFor(config.TaskPlan); e != own {
+		t.Error("a new set drops the engines built from the old one")
+	}
+}

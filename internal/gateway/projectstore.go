@@ -29,6 +29,9 @@ type Project struct {
 	Description string `json:"description,omitempty"`
 	Dir         string `json:"dir"`
 	GitURL      string `json:"git_url,omitempty"`
+	// Adopted marks a project made on a folder that was already there: deleting the project
+	// forgets it and leaves the folder and its files alone, wherever the folder is.
+	Adopted bool `json:"adopted,omitempty"`
 	// Podman is the user's answer, given when the project was created, to running
 	// it with podman. It is only ever true on a machine that had podman then.
 	Podman bool `json:"podman,omitempty"`
@@ -38,6 +41,10 @@ type Project struct {
 	// one the user chose as its main line of work. It is saved with the project; a project from
 	// before the setting existed answers with the main/master branch it has (read live).
 	MainBranch string `json:"main_branch,omitempty"`
+	// MainWarning is why the last background update of the main branch (when a session opened or
+	// closed) could not be done - offline, diverged, uncommitted work - or absent when it worked.
+	// It is read live, never saved.
+	MainWarning string `json:"main_warning,omitempty"`
 	// MergeMethod is how a pull request of this project is merged from motita: "merge", "squash"
 	// or "rebase". Empty is a merge commit.
 	MergeMethod string `json:"merge_method,omitempty"`
@@ -69,6 +76,10 @@ type Project struct {
 	// Repos are the project's OTHER repositories, after the main one in Dir. A project from
 	// before they existed has none, and is exactly the one-repository project it always was.
 	Repos []ProjectRepo `json:"repos,omitempty"`
+	// MissingDeps are the dependency folders the project's repositories need and do not have
+	// (vendor/, node_modules/), read live. A session's worktree is linked to the ones the project
+	// has, so what is missing here is missing in every session.
+	MissingDeps []gitx.MissingDependency `json:"missing_deps,omitempty"`
 }
 
 // projectStore persists projects to disk as JSON files under a directory the

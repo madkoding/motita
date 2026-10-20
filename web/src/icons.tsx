@@ -158,6 +158,26 @@ export function IconBook(p: IconProps) {
   );
 }
 
+// IconNotes is the pencil on a page of the notes.
+export function IconNotes(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+    </Line>
+  );
+}
+
+// IconFile is a page: one note of the notes list.
+export function IconFile(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 3 14 8 19 8" />
+    </Line>
+  );
+}
+
 // IconClock is the clock of the scheduled tasks.
 export function IconClock(p: IconProps) {
   return (

@@ -595,7 +595,10 @@ and keeps that shape of command (its policy rule and program, `git push`, `npm i
 in the project: later sessions of the project run it without asking, and the run says so
 (`approved (always allowed in this project): …`). The decision is kept in `approvals.json`
 beside the sessions (`scope: "project"` on `POST /v1/sessions/{id}/runs/approval` and on
-`/shell`); "allow all commands for this session" stays available through
+`/shell`). The gateway answers such a request with `Motita-Always-Allow: kept` (or `none` when the
+line has no shape to keep); a gateway from before the choice sends no header, and the page, when it
+is connected to one through Other computers, says that computer did not keep it and needs updating.
+"Allow all commands for this session" stays available through
 `POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden. In the terminal
 the confirmation window's `a` key does the same for the folder the commands run in, kept in
 `~/.motita/approvals.json`; the transcript says when a command ran without asking.
@@ -640,6 +643,22 @@ Three things keep a request from needing a second one:
   the analysis wrote down ("done means ..."). A criterion the run never showed (a behaviour no check
   covers) sends the run back to prove it, at most twice per run and without spending
   `max_retries`; an audit that cannot be read counts as met.
+- **No simulated validation.** A check ends in one of three states: passed, failed, or could not run
+  (a missing tool, missing dependencies, no network), and a run never turns the third into the first.
+  Writing into `vendor/`, `node_modules/` or a virtualenv by hand, writing an executable that only
+  exits 0, and editing a `test`, `lint` or `build` script (`composer.json`, `package.json`, a
+  Makefile, `pyproject.toml`) so that it cannot fail are refused before they touch the disk, and the
+  refusal tells the model to install the real dependencies and run the framework's own command
+  (`php artisan test`, `npm test`, `pytest`). A check that could not run (`command not found`,
+  `vendor/autoload.php` missing, `curl error 6`) sends a claim of done back up to three times; if
+  the environment still blocks it, the result reads `NOT VALIDATED: <check> could not run (<cause>)`,
+  the report's status is `partial`, and the check is listed as `blocked` (drawn apart from `skipped` in the web report), never `pass`. The criteria
+  audit is shown those checks by name, so a criterion about tests is not met on a simulated run. In
+  plan mode, a claim about Git, a configuration file or a path, or a recommendation to remove one,
+  has to rest on a command run in that turn (`git worktree list`, `git -C <path> rev-parse`, `ls`):
+  an answer that recommends removing or rewriting something without having looked is sent back once to
+  look first. A failed dependency install (`composer install`, `npm ci`, ...) is remembered as the
+  cause when the registry cannot be reached.
 - **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `1`). A
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores
@@ -1407,6 +1426,19 @@ how it ended, tokens), the data to judge how often the cheap tier is enough.
 With `cheap` empty nothing is routed. `MOTITA_MODELS_CHEAP` and `MOTITA_MODELS_STRONG` override
 the entries.
 
+**Thinking per kind of work.** Next to each model the tab has a thinking level: `off`, `low`,
+`medium` or `high`. "Same as session" leaves the kind at the level of `llm.reasoning` (the one the
+chat's reasoning control sets). The levels are written into the `thinking` block
+(`MOTITA_THINKING_<KIND>` overrides one); a kind with a level of its own runs on an engine built
+for it, on the session's model or on the one assigned:
+
+```yaml
+thinking:
+  plan: high       # plan mode turns think hard
+  summary: off     # titles and summaries do not think at all
+  code: ""         # empty = the session's level
+```
+
 The provider comes before the first slash; the model after it may hold its own. Each provider
 runs with its own key and endpoint. A model whose provider cannot run (no key) falls back to the
 session's model, and the log says so.
@@ -1522,7 +1554,7 @@ code_index:
 ```
 
 Everything above can be changed from **Settings → Indexing**, or through `GET/PUT /v1/code-index` on
-the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. `motita index status` and `motita index clear` do the same from the terminal. The edit-project dialog shows how much of the project's folder the index covers (a bar, files, passages, terms, size on disk) and **Index now** brings it up to date. The change is written to the
+the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. `motita index status` and `motita index clear` do the same from the terminal. The edit-project dialog shows how much of the project's folder the index covers (a bar, files, passages, terms, size on disk) and **Index now** brings it up to date. A project created while the index is on is indexed in the background, so its first search is already warm. At start the gateway also brings the index of every project that has none or an old one up to date, one after the other; the project's panel shows **Indexing…** meanwhile, and `GET /v1/projects/{id}/code-index` carries `indexing: true`. The change is written to the
 configuration file and applies to the sessions started after it. An address outside this machine and its
 network is saved only after the page told the person that the text of the indexed files will be sent
 there (`confirm: true` in the request). The embeddings key is not handled by the page: set
@@ -1670,7 +1702,7 @@ that only motita's own file edits are limited.
 | `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"cache_files":0,"cache_bytes":0,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
 | `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
 | `DELETE /v1/code-index/cache` | none; deletes the index files kept in `code_index.cache_dir` and answers `{removed, bytes}` |
-| `GET /v1/projects/{id}/code-index` | `{state, candidates, files, percent, chunks, terms, max_files, capped, cache_bytes, semantic, embeddings}`; `state` is `none`, `stale` or `ready`, `409` while `code_index.enabled` is off |
+| `GET /v1/projects/{id}/code-index` | `{state, candidates, files, percent, chunks, terms, max_files, capped, cache_bytes, semantic, embeddings, indexing}`; `state` is `none`, `stale` or `ready`, `409` while `code_index.enabled` is off |
 | `POST /v1/projects/{id}/code-index` | builds or refreshes the project's index, then answers like the GET |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
@@ -1704,6 +1736,7 @@ The natural style asks the gateway for each line:
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/sessions/{id}/narrate` | One spoken line about the turn: `stage` (`start`, `progress` or `answer`), `lang`, `request`, and `notes` and `said` (progress) or `answer`. Answers `{"text": …}`, empty when there is nothing new; `501` when the session's model cannot be asked. |
 | `POST /v1/sessions/{id}/next-suggestion` | One short request the person could make next, written by the summary model after a finished turn: `lang`, `request`, `answer` and `files` (paths the turn changed). Answers `{"text": …}`; `400` without an answer, `502` when the model fails, `501` when the session has no model. The web composer shows it as its hint (switch: Settings → Appearance), takes it on ArrowRight or the arrow button. |
+| `POST /v1/sessions/prune-blank` | Remove the sessions that were opened and never used: no turn, checkpoint, queued message, run, pull request or name of their own. The default session and any checkout with uncommitted work stay. Answers `{"removed": [ids], "count": n}`. |
 
 - **Conversation** (needs speech input): after the answer to a turn you spoke has been read to its
   end, the microphone listens again and sends what you say as the next turn, so a conversation goes

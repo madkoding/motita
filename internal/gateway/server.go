@@ -164,6 +164,9 @@ type Options struct {
 	// ArtifactDir is the directory the files an agent produced are kept in, one folder per
 	// session. Empty means artifacts are not kept.
 	ArtifactDir string
+	// NotesDir is the folder of the note vault: plain Markdown files, opened as they are by
+	// Obsidian. Empty means there are no notes.
+	NotesDir string
 	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
 	ArtifactDays int
 	// ProjectDir is the directory where projects are persisted. Empty means
@@ -255,6 +258,13 @@ type Server struct {
 	server      *http.Server
 	mux         http.Handler
 
+	// mainRefresh tracks the background updates of projects' main branches: which are running
+	// (so a second request for the same project is dropped) and why the last one of each failed.
+	mainRefresh mainRefreshState
+
+	// scanJob is the progress of the notes scan running in the background, if any.
+	scanJob scanTracker
+
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
 	// caller would have to know to ignore.
@@ -290,7 +300,9 @@ type Server struct {
 	// it needs some other bound or a gateway that shut down would leave turns running with
 	// nowhere to report. The process's own lifetime is that bound, and it is deliberately not the
 	// request's.
-	baseCtx    context.Context
+	baseCtx context.Context
+	// indexing holds the folders whose code index is being built in the background.
+	indexing   sync.Map
 	baseCancel context.CancelFunc
 
 	// voiceDownload is the local voice being downloaded, one at a time. See voicemodels.go.
@@ -428,13 +440,15 @@ func Start(opts Options) (*Server, error) {
 		}
 	}
 
+	// Projects first: a restored session finds its project, and with it the scope its agent is told,
+	// its worktrees of the project's other repositories and its runtime.
+	s.openProjectStore()
 	s.openSessionStore()
 	s.openApprovalStore()
 	// The default session belongs to no project, so it works in a folder of its own like any free
 	// session. Left in the workspace root, it - and every scheduled task that names no session -
 	// would run in the parent of every project, worktree and session folder, and reach them all.
 	s.placeFreeStanding(first, false)
-	s.openProjectStore()
 	// Resume any sessions that were mid-run when the previous gateway shut down (e.g. for an
 	// upgrade), and start what they had queued. This must happen AFTER loadPersistedSessions has
 	// registered every conversation and wired its service, because starting a run needs a fully
@@ -448,6 +462,7 @@ func Start(opts Options) (*Server, error) {
 	s.openPush()
 	s.openPeers()
 	resumeInterrupted(s)
+	s.indexProjects()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
@@ -567,20 +582,7 @@ func (s *Server) openSessionStore() {
 	}
 	s.store = st
 	s.loadPersistedSessions()
-}
-
-// openProjectStore opens the project store when a directory is configured.
-func (s *Server) openProjectStore() {
-	pdir := strings.TrimSpace(s.opts.ProjectDir)
-	if pdir == "" {
-		return
-	}
-	ps, err := newProjectStore(pdir)
-	if err != nil {
-		s.warn("could not open the project store; projects will not be available", "error", err.Error())
-		return
-	}
-	s.projects = ps
+	s.migrateSharedRepos(s.baseCtx)
 }
 
 // openScheduleStore opens the schedule store when a directory is configured, and starts the
@@ -763,6 +765,28 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 	mux.Handle("POST "+prefix+"/skills/{name}/restore", wrap(s.handleRestoreSkill))
 }
 
+// projectRoutes is the table of projects and their repositories; the notes have their own.
+func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	s.notesRoutes(mux, plain)
+	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
+	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
+	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
+	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
+	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
+	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
+	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
+	mux.Handle("POST /v1/projects/{id}/repos", plain(s.handleAddProjectRepo))
+	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
+	mux.Handle("DELETE /v1/projects/{id}/main", plain(s.handleDetachProjectMain))
+	mux.Handle("GET /v1/repos", plain(s.handleListRepos))
+	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
+	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
+	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))
+	mux.Handle("POST /v1/projects/{id}/repos/{name}/standalone", plain(s.handleStandaloneProjectRepo))
+	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
+}
+
 // routes builds the endpoint table.
 //
 // Every conversation endpoint is addressed by the session it is about, and only /v1/health is
@@ -801,29 +825,14 @@ func (s *Server) routes() *http.ServeMux {
 	// session is resolved, then the handler runs with it in the request context.
 	scoped := func(h http.HandlerFunc) http.Handler { return auth(s.withConversation(h)) }
 
-	mux.Handle("GET /v1/sessions", plain(s.handleListSessions))
-	mux.Handle("POST /v1/sessions", plain(s.handleCreateSession))
+	s.sessionRoutes(mux, plain)
 	mux.Handle("DELETE /v1/sessions/{id}", scoped(s.handleDeleteSession))
 	mux.Handle("GET /v1/sessions/{id}/deletion-preview", scoped(s.handleDeletionPreview))
 	mux.Handle("GET /v1/projects/{id}/deletion-preview", plain(s.handleProjectDeletionPreview))
 
 	s.gitRoutes(mux, plain)
 	s.routeDisk(mux, plain)
-	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
-	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
-	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
-	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
-	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
-	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
-	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
-	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
-	mux.Handle("POST /v1/projects/{id}/repos", plain(s.handleAddProjectRepo))
-	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
-	mux.Handle("DELETE /v1/projects/{id}/main", plain(s.handleDetachProjectMain))
-	mux.Handle("GET /v1/repos", plain(s.handleListRepos))
-	mux.Handle("DELETE /v1/repos/{name}", plain(s.handleDeleteRepo))
-	mux.Handle("POST /v1/repos/{name}/update", plain(s.handleUpdateRepo))
-	mux.Handle("POST /v1/projects/{id}/repos/{name}/sync", plain(s.handleSyncProjectRepo))
+	s.projectRoutes(mux, plain)
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
 	// agent, and the conversation it fires INTO is a field of the record. Everything
@@ -915,6 +924,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/config/reload", scoped(s.handleReloadConfig))
 	mux.Handle("PATCH /v1/sessions/{id}", scoped(s.handleRenameSession))
 	mux.Handle("POST /v1/sessions/{id}/project", scoped(s.handleMoveSessionToProject))
+	mux.Handle("POST /v1/sessions/{id}/isolate", scoped(s.handleIsolateSession))
 	mux.Handle("GET /v1/sessions/{id}/models", scoped(s.handleModels))
 	mux.Handle("GET /v1/sessions/{id}/providers", scoped(s.handleProviders))
 	mux.Handle("GET /v1/sessions/{id}/model-list", scoped(s.handleModelList))

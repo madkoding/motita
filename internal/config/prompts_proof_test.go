@@ -98,3 +98,23 @@ func TestTheExecutePromptTeachesHowToCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestThePromptsForbidFakeChecks: reported from a Laravel session where a missing phpunit became an
+// executable that exits 0 behind a composer script, and `composer test` reported a pass with no
+// test run. The execute prompt forbids the stand-in and names the three outcomes of a check, the
+// audit refuses simulated evidence, and the synthesis keeps "could not run" apart from "pass".
+func TestThePromptsForbidFakeChecks(t *testing.T) {
+	for name, tc := range map[string]struct{ text, want string }{
+		"execute forbids a stand-in":   {BaseExecuteTemplate.User, "Never write a stand-in for a tool or a check"},
+		"execute names three states":   {BaseExecuteTemplate.User, "THREE states"},
+		"execute stops on a blocker":   {BaseExecuteTemplate.User, "NOT VALIDATED:"},
+		"execute uses the native tool": {BaseExecuteTemplate.User, "php artisan test"},
+		"execute looks before it says": {BaseExecuteTemplate.User, "git worktree list"},
+		"audit refuses simulations":    {BaseAuditTemplate.User, "Evidence that is simulated does not count"},
+		"synthesis has a third state":  {BaseSynthesizeTemplate.User, "A check has THREE outcomes"},
+	} {
+		if !strings.Contains(tc.text, tc.want) {
+			t.Errorf("%s: the prompt must contain %q", name, tc.want)
+		}
+	}
+}

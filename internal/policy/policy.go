@@ -369,6 +369,12 @@ func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
 				worksInFormat, name, target, dir), "leaves-workspace", false}, true
 		}
 	}
+	if name == "cd" || name == "pushd" {
+		// A folder of the project (a repository cloned inside it, say) is where the work goes on:
+		// `cd sub && git status` only moves the rest of the line there.
+		return Decision{Allow, fmt.Sprintf("%q stays inside the directory this task works in (%s)", name, dir),
+			"cd-inside-workspace", false}, true
+	}
 	return Decision{}, false
 }
 

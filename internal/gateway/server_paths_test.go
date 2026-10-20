@@ -528,7 +528,7 @@ func TestASessionReportsItselfMergeableWhenItHasUnmergedWork(t *testing.T) {
 	withProjects(t, srv, t.TempDir())
 	pid := makeProject(t, srv, "repo")
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -570,7 +570,7 @@ func TestASessionReportsItselfMergedOnceItsWorkIsIntegrated(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 	p := srv.projectOf(pid)
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -615,7 +615,11 @@ func startServer(t *testing.T, opts Options) (*Server, *logSink) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() {
+		// A background update of a main branch must end before the test's directories are removed.
+		srv.mainRefresh.wait()
+		_ = srv.Close(context.Background())
+	})
 	return srv, sink
 }
 

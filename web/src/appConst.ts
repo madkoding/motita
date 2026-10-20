@@ -36,6 +36,8 @@ export const NEW_SESSION_TITLE = "New session";
 // Texts used in more than one place.
 export const NOT_CONNECTED = "not connected";
 export const NEEDS_APPROVAL = "This needs your approval";
+export const NOT_KEPT =
+  "That computer did not keep \"Always allow\": it runs an older Motita. Update it there.";
 export const TURN_REFUSED = "the gateway refused the turn";
 export const NEW_PROJECT = "New project";
 export const EDIT_PROJECT = "Edit project";

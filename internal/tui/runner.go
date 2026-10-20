@@ -17,16 +17,14 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/notes"
 	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/review"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/session"
-	"github.com/madkoding/motita/internal/skills"
 	taskpkg "github.com/madkoding/motita/internal/task"
-	"github.com/madkoding/motita/internal/usage"
 	"github.com/madkoding/motita/internal/webfetch"
 )
 
@@ -197,6 +195,7 @@ type AppRunner struct {
 	// projectNote is what the gateway tells the agent about the project's other repositories,
 	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
 	projectNote string
+	threads     func(string) string // see runner_equip.go
 
 	// toolsHome is the HOME, inside the tools directory, the sandbox gives this session's
 	// commands: one per project (see SetProjectScope), the shared one otherwise. rootDir is the
@@ -798,6 +797,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// its turn.
 		WithReview(r.reviewOrNil()).
 		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
+		WithNotes(notesVault()).
 		// Reading a page follows the commands' network, which Settings → Security can change
 		// while the session is open, so it is asked at every fetch.
 		WithWeb(webfetch.New(r.networkIsolated))
@@ -1122,30 +1122,6 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	return result, nil
 }
 
-// equipAgent hands the agent the same library and the same ledger Plan mode uses.
-//
-// Both modes reach one shelf of procedures: a procedure written down while working is
-// available whichever mode does the work next, and a verdict lands on the same skills
-// either way. Two libraries would be two bodies of knowledge that drift apart.
-func (r *AppRunner) equipAgent(ag AgentRunner) {
-	if lib := r.library(); lib != nil {
-		if setter, ok := ag.(interface{ SetLibrary(*skills.Library) }); ok {
-			setter.SetLibrary(lib)
-		}
-	}
-	if led := r.rewardOrNil(); led != nil {
-		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
-			setter.SetReward(led)
-		}
-	}
-	// The same sidecar the library screen reads, so what this run consults is counted.
-	if u := r.procedures().Usage; u != nil {
-		if setter, ok := ag.(interface{ SetUsage(*usage.Ledger) }); ok {
-			setter.SetUsage(u)
-		}
-	}
-}
-
 // observe has the agent report its progress and, when the turn ends, its result into *result.
 func (r *AppRunner) observe(o taskObserver, task string, progress func(string, ...any), result *string) {
 	o.SetProgress(progress)
@@ -1275,4 +1251,12 @@ func (r *AppRunner) ResetTranscript() {
 	r.transcriptMu.Lock()
 	defer r.transcriptMu.Unlock()
 	r.transcript = nil
+}
+
+// notesVault is the person's note vault, or nil when there is no home to keep it in.
+func notesVault() *notes.Vault {
+	if dir := config.NotesDir(); dir != "" {
+		return notes.Open(dir)
+	}
+	return nil
 }

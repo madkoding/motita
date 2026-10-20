@@ -52,6 +52,8 @@ export interface SessionInfo {
   id: string;
   title: string;
   project_id?: string;
+  // parent_id is the project's main session when this one is a thread of it.
+  parent_id?: string;
   branch?: string;
   mergeable?: boolean;
   merged?: boolean;
@@ -74,9 +76,6 @@ export interface SessionInfo {
   // Older gateways do not send them.
   provider?: string;
   model?: string;
-  // warning comes only on the answer to a create: the project's base branch could not be
-  // brought up to date (offline), and the session starts from the checkout as it is.
-  warning?: string;
 }
 
 // AgentInfo is one agent of a run, as the gateway reports it (agent.AgentInfo). The row with no
@@ -114,6 +113,9 @@ export interface ProjectInfo {
   branch?: string;
   // main_branch is the branch the project goes back to when it has no sessions.
   main_branch?: string;
+  // main_warning is why the last background update of the main branch (a session opened or
+  // closed) could not be done; absent when it worked.
+  main_warning?: string;
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.
   merge_method?: string;
   // pr_max_fixes is how many times the agent is sent to fix a failing CI (0: the default).
@@ -124,33 +126,19 @@ export interface ProjectInfo {
   auto_continue?: boolean;
   changes?: number;
   created: string;
-  // repos are the project's other repositories, after the main one in dir.
-  repos?: ProjectRepoInfo[];
+  // missing_deps are the dependency folders its repositories need and do not have (vendor/,
+  // node_modules/): sessions cannot run the project's tests until they are installed.
+  missing_deps?: MissingDep[];
 }
 
-// ProjectRepoInfo is one of a project's other repositories, a folder inside the project's.
-export interface ProjectRepoInfo {
-  name: string;
-  git_url: string;
+// MissingDep is one dependency folder a manifest asks for and the project lacks.
+export interface MissingDep {
+  // path is the folder that holds the manifest, relative to the project: "." for its root.
+  path: string;
+  manager: string;
   dir: string;
-  main_branch?: string;
-  branch?: string;
-  changes?: number;
-  // shared: dir is the workspace catalog's clone, which other projects may use too.
-  shared?: boolean;
-  // behind counts the commits of the main branch the project's folder of a shared one lacks.
-  behind?: number;
-}
-
-// CatalogRepo is one repository of the workspace catalog: cloned once, used by any number of
-// projects.
-export interface CatalogRepo {
-  name: string;
-  git_url: string;
-  dir: string;
-  projects: { id: string; title: string }[];
-  // size is what the clone takes on disk, in bytes.
-  size?: number;
+  // command installs it, from path.
+  command: string;
 }
 
 export interface ConfigView {
@@ -314,6 +302,9 @@ export interface DeletionPreview {
   sessions?: { id: string; title: string; changes: FileChange[] }[];
   count: number;
   inspection_failed?: boolean;
+  folder?: string;
+  folder_changes?: FileChange[];
+  folder_protected?: string;
   error?: string;
 }
 
@@ -332,17 +323,12 @@ export interface EditProjectDraft {
   // The folder the project is anchored to, and the one picked to move it to ("" keeps it).
   dir: string;
   path: string;
-  // The repositories, which change at once rather than on Save: adding one clones it.
-  mainRepo: { name: string; source: string; movable?: boolean } | null;
-  repos: ProjectRepoInfo[];
 }
 
-// GitConnectRequest opens the git host connect modal; `after` says what to do once the host is
-// connected: pick a repository, or send the create again.
+// GitConnectRequest opens the git host connect modal.
 export interface GitConnectRequest {
   service?: string;
   selfHosted?: SelfHosted;
-  after?: "picker" | "create";
 }
 
 // ArtifactItem is one file of the artifact list.

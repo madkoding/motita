@@ -163,6 +163,8 @@ func withProjects(t *testing.T, srv *Server, workspace string) {
 		t.Fatalf("newProjectStore: %v", err)
 	}
 	srv.projects = ps
+	// A background update of a main branch must end before the test's directories are removed.
+	t.Cleanup(srv.mainRefresh.wait)
 	srv.opts.WorkspaceDir = workspace
 	srv.opts.NewService = func() (Service, error) { return &fakeService{}, nil }
 }
@@ -177,6 +179,8 @@ func withProjectsAndFake(t *testing.T, srv *Server, workspace string) *fakeServi
 		t.Fatalf("newProjectStore: %v", err)
 	}
 	srv.projects = ps
+	// A background update of a main branch must end before the test's directories are removed.
+	t.Cleanup(srv.mainRefresh.wait)
 	srv.opts.WorkspaceDir = workspace
 	fs := &fakeService{}
 	srv.opts.NewService = func() (Service, error) { return fs, nil }
@@ -213,7 +217,7 @@ func TestSessionReportsItsBranch(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 
 	// Create a session that belongs to the project.
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -305,7 +309,7 @@ func TestMergeSessionIntegratesTheBranch(t *testing.T) {
 	p := srv.projectOf(pid)
 
 	// Create a session and make a commit on its branch.
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -348,7 +352,7 @@ func TestMergeSessionOnAConflictRollsBack(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 	p := srv.projectOf(pid)
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -707,34 +711,5 @@ func TestContinueSessionPullsMainAndStartsAFreshSession(t *testing.T) {
 	w = post(t, srv, sessionPath(srv, unmerged.ID, "/continue"), "{}", testToken)
 	if w.Code != http.StatusConflict {
 		t.Errorf("continue on unmerged session = %d, want 409", w.Code)
-	}
-}
-
-// A project session starts by bringing in the base branch from origin; an origin that cannot
-// be reached (offline) still gives a session, from the checkout as it is, and the answer says
-// so once. The listing afterwards carries no warning: it was about the create.
-func TestCreateSessionWarnsWhenTheProjectCannotBeUpdated(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	ws := t.TempDir()
-	withProjectsAndFake(t, srv, ws)
-	pid := makeProject(t, srv, "repo")
-	p := srv.projectOf(pid)
-	mustRun(t, "git", "-C", p.Dir, "remote", "add", "origin", filepath.Join(ws, "missing.git"))
-
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create with an unreachable origin = %d, want 201: %s", w.Code, w.Body.String())
-	}
-	var ss SessionStatus
-	decodeJSON(t, w, &ss)
-	if !strings.Contains(ss.Warning, "could not be updated") || !strings.Contains(ss.Warning, "could not fetch") {
-		t.Fatalf("warning = %q, want the failed update and git's reason", ss.Warning)
-	}
-	if ss.ProjectID != pid || ss.Workspace == "" {
-		t.Errorf("the session must still be placed in the project: %+v", ss)
-	}
-	c, _ := srv.lookup(ss.ID)
-	if c.status().Warning != "" {
-		t.Error("the warning belongs to the create answer, not to the session")
 	}
 }

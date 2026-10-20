@@ -419,6 +419,16 @@ func Branches(ctx context.Context, dir string) ([]string, error) {
 	return names, nil
 }
 
+// SessionBranches lists the session branches this program made in the repository at dir: the local
+// branches under motita/. None when they cannot be read.
+func SessionBranches(ctx context.Context, dir string) []string {
+	out, err := execute(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/motita/")
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(out)
+}
+
 // Checkout puts the checkout at dir on a branch. A branch that exists only on origin is created
 // locally, tracking it. Git's own refusal (uncommitted changes that would be overwritten, a
 // branch checked out in another worktree) is reported as it is.
@@ -512,6 +522,13 @@ func Root(ctx context.Context, dir string) (string, error) {
 	return out, nil
 }
 
+// IsRepoRoot reports whether dir is the top of a repository that has a working tree: a folder
+// inside one, a bare repository, or no repository at all is not.
+func IsRepoRoot(ctx context.Context, dir string) bool {
+	root, err := Root(ctx, dir)
+	return err == nil && samePath(root, dir)
+}
+
 // HasCommits reports whether HEAD resolves to a commit.
 //
 // A repository with no commits cannot be branched from: `worktree add -b` fails
@@ -523,8 +540,16 @@ func HasCommits(ctx context.Context, dir string) bool {
 
 // BranchExists reports whether a local branch of that name exists.
 func BranchExists(ctx context.Context, dir, branch string) bool {
+	return BranchCommit(ctx, dir, branch) != ""
+}
+
+// BranchCommit is the commit a local branch points at, "" when it does not exist or git fails.
+func BranchCommit(ctx context.Context, dir, branch string) string {
 	out, err := execute(ctx, dir, gitRevParse, gitVerify, "refs/heads/"+branch)
-	return err == nil && out != ""
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // Commit is one commit, as a report draws it.
@@ -612,6 +637,13 @@ func Dirty(ctx context.Context, dir string) (bool, error) {
 // at"), which is the rule that stops two sessions from working in one directory
 // at the same time.
 func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
+	return AddWorktreeFrom(ctx, repoDir, path, branch, "")
+}
+
+// AddWorktreeFrom is AddWorktree with the start point of a branch that does not exist yet: start
+// (a branch or commit) instead of the repository's HEAD, which in a repository the user works in is
+// whatever they have checked out. "" is HEAD. A branch that exists keeps its own history.
+func AddWorktreeFrom(ctx context.Context, repoDir, path, branch, start string) error {
 	root, err := Root(ctx, repoDir)
 	if err != nil {
 		return err
@@ -643,7 +675,11 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 	if BranchExists(ctx, repoDir, branch) {
 		out, err = execute(ctx, repoDir, "worktree", "add", path, branch)
 	} else {
-		out, err = execute(ctx, repoDir, "worktree", "add", "-b", branch, path)
+		args := []string{"worktree", "add", "-b", branch, path}
+		if start != "" {
+			args = append(args, start)
+		}
+		out, err = execute(ctx, repoDir, args...)
 	}
 	if err != nil {
 		return describe("the worktree could not be created", out, err)
@@ -808,6 +844,33 @@ func PullFastForward(ctx context.Context, dir, branch string) error {
 	return nil
 }
 
+// ErrBranchDirty is why RefreshBranch leaves a checkout alone: it is on the branch and holds
+// uncommitted work, which an update must never touch.
+var ErrBranchDirty = errors.New("the checkout holds uncommitted changes")
+
+// RefreshBranch brings branch up to date with origin without ever forcing anything. A checkout on
+// the branch moves forward only (fast-forward) and only when it is clean; a checkout on another
+// branch is not switched, the local branch ref is advanced in place instead, and git refuses
+// that when it would not be a fast-forward or the branch is checked out in another worktree. A
+// repository with no origin has nothing to bring in and is not a failure.
+func RefreshBranch(ctx context.Context, dir, branch string) error {
+	if branch == "" || !HasRemote(ctx, dir) {
+		return nil
+	}
+	if Display(ctx, dir) != branch {
+		_, err := noGitOr(ctx, "could not update "+branch, dir, "fetch", "--", "origin", branch+":"+branch)
+		return err
+	}
+	dirty, err := Dirty(ctx, dir)
+	if err != nil {
+		return err
+	}
+	if dirty {
+		return ErrBranchDirty
+	}
+	return PullFastForward(ctx, dir, branch)
+}
+
 // HasRemote reports whether the repository at dir has a remote called origin.
 // A project without one has nothing to bring in, which is not a failure.
 func HasRemote(ctx context.Context, dir string) bool {
@@ -832,4 +895,30 @@ func HasRemote(ctx context.Context, dir string) bool {
 func DeleteBranch(ctx context.Context, dir, branch string) error {
 	_, err := noGitOr(ctx, "the branch was not deleted", dir, "branch", "-d", branch)
 	return err
+}
+
+// SwitchNew creates branch at the checkout's HEAD and switches to it, carrying uncommitted work
+// along. A branch that already exists is switched to as it is.
+func SwitchNew(ctx context.Context, dir, branch string) error {
+	if BranchExists(ctx, dir, branch) {
+		return Checkout(ctx, dir, branch)
+	}
+	_, err := noGitOr(ctx, "could not create the branch "+branch, dir, "switch", "-c", branch)
+	return err
+}
+
+// DefaultBranch is the branch the repository's work is proposed into: the one origin's HEAD points
+// at, else main or master, whichever exists. "" when none can be named.
+func DefaultBranch(ctx context.Context, dir string) string {
+	if out, err := execute(ctx, dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if name := strings.TrimPrefix(out, "origin/"); name != "" {
+			return name
+		}
+	}
+	for _, candidate := range []string{"main", "master"} {
+		if BranchExists(ctx, dir, candidate) {
+			return candidate
+		}
+	}
+	return ""
 }

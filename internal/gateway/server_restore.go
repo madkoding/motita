@@ -39,6 +39,7 @@ func (s *Server) loadPersistedSessions() {
 		known[c.id] = true
 	}
 	s.pruneFreeSessionDirs(known)
+	s.pruneSessionBranches(known)
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
 	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
 	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
@@ -77,6 +78,7 @@ func (s *Server) loadPersistedSessions() {
 			restored++
 		}
 	}
+	s.adoptThreads()
 }
 
 // restoreDefaultSession restores a record of the default session into its existing service.
@@ -118,6 +120,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	conv.setTitle(rec.Title)
 	conv.setAutoApprove(rec.AutoApprove)
 	conv.setMerged(rec.MergedSHA)
+	conv.setParent(rec.ParentID)
 	// A session in a project gets its worktree back. The branch outlives the
 	// worktree, so re-attaching it restores the session's own work rather
 	// than starting over; a failure falls back to the project's directory,
@@ -178,24 +181,27 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	project := s.projectOf(rec.ProjectID)
 	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
 	applyRuntimeTo(svc, project, workspace)
+	s.offerThreads(conv)
 	s.sessionsMu.Lock()
 	s.sessions[rec.ID] = conv
 	s.sessionsMu.Unlock()
 	return true
 }
 
-// restoredWorkspace is the directory a restored session runs in: its worktree, re-attached to the
-// session's branch, or the project's directory when it cannot be re-created.
+// restoredWorkspace is the directory a restored session runs in. A session made before projects
+// became plain folders has a worktree of its own: it is re-attached to the session's branch so the
+// resumed session writes where its work already is. Any other session runs in the project's folder.
 func (s *Server) restoredWorkspace(rec sessionRecord) string {
 	if rec.ProjectDir == "" {
 		return s.restoredFreeWorkspace(rec)
+	}
+	if rec.Workspace == "" || gitx.SamePath(rec.Workspace, rec.ProjectDir) {
+		return rec.ProjectDir
 	}
 	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID)
 	if err != nil {
 		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
 			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())
-		// The project's directory, as the warning says and as creation does: the old worktree
-		// path may be gone, and a session running in a folder that does not exist runs nowhere.
 		return rec.ProjectDir
 	}
 	return wt

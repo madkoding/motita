@@ -52,11 +52,9 @@ component("./Sidebar", ["Sidebar"]);
 component("./Composer", ["Composer"]);
 component("./Settings", ["SettingsModal"]);
 component("./GitConnect", ["GitConnectModal"]);
-component("./RepoPicker", ["RepoPicker"]);
 component("./FolderBrowser", ["FolderBrowser"]);
 component("./EditProjectModal", ["EditProjectModal"]);
 component("./NewProjectModal", ["NewProjectModal"]);
-component("./GitIdentityModal", ["GitIdentityModal"]);
 component("./ModelSwitcherModal", ["ModelSwitcherModal"]);
 component("./ConfirmDeleteModal", ["ConfirmDeleteModal", "ContextMenu"]);
 component("./Subtitles", ["Subtitles"]);
@@ -64,6 +62,7 @@ component("./ProjectHintCard", ["ProjectHintCard"]);
 component("./UpgradeModal", ["UpgradeModal"]);
 component("./SkillLibraryModal", ["SkillLibraryModal"]);
 component("./ArtifactsModal", ["ArtifactsModal"]);
+component("./NotesModal", ["NotesModal"]);
 component("./ScheduledTasksModal", ["ScheduledTasksModal"]);
 component("./Lightbox", ["Lightbox"]);
 component("./Report", ["ReportCard"]);
@@ -175,21 +174,13 @@ function makeStore(log) {
     projects: {
       editProject: null,
       showNewProject: false,
-      showGitIdentity: false,
-      showRepoPicker: false,
       folderPicker: null,
       newProjectPath: "",
       pickFolder: fn("pickFolder"),
       closeFolderPicker: fn("closeFolderPicker"),
-      repoCatalog: [],
-      gitAccounts: null,
       gitConnect: null,
       gitRev: 3,
       setGitConnect: fn("setGitConnect"),
-      pickRepo: fn("pickRepo"),
-      closeRepoPicker: fn("closeRepoPicker"),
-      connectAnother: fn("connectAnother"),
-      pickerAuthRequired: fn("pickerAuthRequired"),
       closeGitConnect: fn("closeGitConnect"),
       onGitConnected: fn("onGitConnected"),
     },
@@ -198,6 +189,7 @@ function makeStore(log) {
       artifactBase: () => "/v1/sessions/s1/artifacts",
       showRunArtifact: fn("showRunArtifact"),
     },
+    notes: { showNotes: false },
     schedules: { showScheduledTasks: false },
     actions: { creatingSession: null, createSession: fn("createSession") },
     deletion: { confirmDelete: null },
@@ -468,8 +460,6 @@ test("with a session the chat column has the header, the conversation, the drawe
     "SettingsModal",
     "EditProjectModal",
     "NewProjectModal",
-    "GitIdentityModal",
-    "RepoPicker",
     "FolderBrowser",
     "GitConnectModal",
     "ModelSwitcherModal",
@@ -596,12 +586,10 @@ test("the settings dialog is wired to the language, the voice, the speech and th
   await ctl.done();
 });
 
-test("the project dialogs open from the store, and the repo picker only with accounts", async () => {
+test("the project dialogs open from the store", async () => {
   const ctl = await mountApp((s) => {
     s.projects.editProject = { id: "p1", title: "Motita" };
     s.projects.showNewProject = true;
-    s.projects.showGitIdentity = true;
-    s.projects.showRepoPicker = true;
     s.projects.gitConnect = {
       service: "gitlab",
       selfHosted: { url: "https://git.example" },
@@ -613,43 +601,14 @@ test("the project dialogs open from the store, and the repo picker only with acc
     title: "Motita",
   });
   assert.ok(stubEl(root, "NewProjectModal"));
-  assert.ok(stubEl(root, "GitIdentityModal"));
-  assert.equal(stubEl(root, "RepoPicker"), null, "no accounts loaded yet");
   const gc = lastProps("GitConnectModal");
   assert.equal(gc.service, "gitlab");
   assert.deepEqual(gc.selfHosted, { url: "https://git.example" });
   gc.onClose();
   gc.onConnected();
-  await ctl.set((s) => {
-    s.projects = {
-      ...s.projects,
-      gitAccounts: [
-        { service: "github", connected: true },
-        { service: "gitlab", connected: false },
-      ],
-    };
-  });
-  const rp = lastProps("RepoPicker");
-  assert.deepEqual(
-    rp.accounts,
-    [{ service: "github", connected: true }],
-    "only the connected ones",
-  );
-  assert.equal(rp.api, ctl.api);
-  rp.onPick();
-  rp.onClose();
-  rp.onConnectAnother();
-  rp.onAuthRequired();
   assert.deepEqual(
     ctl.log.map((e) => e[0]),
-    [
-      "closeGitConnect",
-      "onGitConnected",
-      "pickRepo",
-      "closeRepoPicker",
-      "connectAnother",
-      "pickerAuthRequired",
-    ],
+    ["closeGitConnect", "onGitConnected"],
   );
   await ctl.done();
 });
@@ -695,6 +654,7 @@ test("the dialogs, the toast and the libraries open from the store", async () =>
     s.status.toast = { message: "Saved", type: "success" };
     s.skills.showSkillLibrary = true;
     s.artifacts.showArtifacts = true;
+    s.notes.showNotes = true;
     s.schedules.showScheduledTasks = true;
   });
   const { root } = ctl;
@@ -703,6 +663,7 @@ test("the dialogs, the toast and the libraries open from the store", async () =>
     "UpgradeModal",
     "SkillLibraryModal",
     "ArtifactsModal",
+    "NotesModal",
     "ScheduledTasksModal",
   ]) {
     assert.ok(stubEl(root, name), `${name} is open`);

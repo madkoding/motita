@@ -95,6 +95,9 @@ func TestAlwaysAllowingAShapeAnswersItInLaterRuns(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", w.Code, w.Body.String())
 	}
+	if got := w.Header().Get(headerAlwaysAllow); got != "kept" {
+		t.Errorf("header = %q, want kept", got)
+	}
 	before, second := eventsUntilApproval(t, br)
 	if second.Command != "npm test" {
 		t.Fatalf("the second question must be about the other shape, got %q", second.Command)
@@ -132,6 +135,41 @@ func TestAlwaysAllowingAShapeAnswersItInLaterRuns(t *testing.T) {
 	}
 }
 
+// TestAlwaysAllowCoversChainedLinesThatShareTheirPrograms: a model rarely writes the same line
+// twice, it writes `git add && git commit && git push`, then `cd dir && git push`. Answering
+// "always" to the first must stop the questions about the next ones; a line with a program that
+// was never allowed is still asked about.
+func TestAlwaysAllowCoversChainedLinesThatShareTheirPrograms(t *testing.T) {
+	var answers []bool
+	svc := approvalAskingService([]string{
+		`git add -A && git commit -m "feat: x" && git push origin main`,
+		"git commit --amend --no-edit && git push --force-with-lease origin main",
+		"cd /work/tree && git push origin HEAD",
+		"git push origin main && ssh host ls",
+	}, &answers)
+	srv := newTestServer(t, svc, func(o *Options) { o.SessionDir = t.TempDir() })
+	br := startTask(t, srv)
+	ask := waitForApproval(t, br)
+	post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"),
+		fmt.Sprintf(`{"id":%q,"approve":true,"scope":"project"}`, ask.ID), testToken)
+	before, last := eventsUntilApproval(t, br)
+	if last.Command != "git push origin main && ssh host ls" {
+		t.Fatalf("only the line with a program never allowed is asked about, got %q", last.Command)
+	}
+	post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"),
+		fmt.Sprintf(`{"id":%q,"approve":false}`, last.ID), testToken)
+	readEvents(t, br)
+	auto := 0
+	for _, e := range before {
+		if e.Event == EventProgress && strings.Contains(string(e.Data), "always allowed in this project") {
+			auto++
+		}
+	}
+	if auto != 2 || !slices.Equal(answers, []bool{true, true, true, false}) {
+		t.Fatalf("auto=%d answers=%v", auto, answers)
+	}
+}
+
 // askingShell asks about every typed line and records it.
 type askingShell struct {
 	fakeService
@@ -160,7 +198,13 @@ func TestAShellLineCanBeAlwaysAllowedToo(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "ran git push") {
 		t.Fatalf("approved: %s", w.Body.String())
 	}
+	if got := w.Header().Get(headerAlwaysAllow); got != "kept" {
+		t.Errorf("header = %q, want kept", got)
+	}
 	w = post(t, srv, path, `{"command":"git push --tags"}`, testToken)
+	if got := w.Header().Get(headerAlwaysAllow); got != "" {
+		t.Errorf("a plain run says nothing about always allow: %q", got)
+	}
 	if !strings.Contains(w.Body.String(), "ran git push --tags") {
 		t.Fatalf("the same shape must run without a yes: %s", w.Body.String())
 	}
@@ -187,11 +231,38 @@ func TestABadApprovalFileStartsEmpty(t *testing.T) {
 		t.Errorf("scope = %q", approvalScope(c))
 	}
 	// Nothing to remember in a blank line, and a store that cannot write is only warned about.
-	srv.rememberApproval(c, "shell", "   ")
+	if got := srv.rememberApproval(c, "shell", "   "); got != "none" {
+		t.Errorf("a blank line has no shape to keep: %q", got)
+	}
 	_ = os.Remove(filepath.Join(dir, approvalsFile))
 	_ = os.Mkdir(filepath.Join(dir, approvalsFile+".tmp"), 0o700)
 	srv.rememberApproval(c, "shell", "git push")
 	if !srv.alwaysAllowed(c, "shell", "git push --force") {
 		t.Fatal("remembered in memory even when the file could not be written")
+	}
+}
+
+// The remembered approvals share the session directory and are not a session: loading it must not
+// bring back an empty one, nor set the file aside.
+func TestTheApprovalFileIsNotLoadedAsASession(t *testing.T) {
+	dir := t.TempDir()
+	st, err := newSessionStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"project:p1":[{"rule":"external-effect","program":"git push"}]}`
+	if err := os.WriteFile(filepath.Join(dir, approvalsFile), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// What an older gateway saved from it as a session.
+	if err := os.WriteFile(filepath.Join(dir, ".json"), []byte(`{"title":""}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := st.loadAll()
+	if err != nil || len(recs) != 0 {
+		t.Fatalf("sessions = %+v, %v", recs, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, approvalsFile)); string(got) != body {
+		t.Fatalf("the approvals file must stay as it is: %q", got)
 	}
 }

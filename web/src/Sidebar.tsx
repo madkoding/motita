@@ -10,7 +10,14 @@ import { MachineList } from "./Machines";
 import { SessionRow } from "./SessionRow";
 import { ProviderUsagePanel } from "./ProviderUsage";
 import { ProjectGroup } from "./ProjectGroup";
-import { IconBook, IconClock, IconClose, IconDownload } from "./icons";
+import { ScanBar } from "./ScanBar";
+import {
+  IconBook,
+  IconClock,
+  IconClose,
+  IconDownload,
+  IconNotes,
+} from "./icons";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 
@@ -42,8 +49,8 @@ function SidebarHeader() {
   );
 }
 
-// SessionList is two labelled sections: the free-standing sessions, then one group per project.
-// Each says so when it is empty.
+// SessionList is three labelled sections: the free-standing sessions, one group per project, and one
+// group per repository. Each says so when it is empty.
 export function SessionList() {
   const { lists, actions, projects } = useApp();
   const { createSession } = actions;
@@ -136,12 +143,13 @@ function Settings() {
   );
 }
 
-// SidebarFoot is the skill library, the artifacts, the scheduled tasks and the settings.
+// SidebarFoot is the skill library, the notes, the artifacts, the scheduled tasks and the settings.
 function SidebarFoot() {
-  const { api, skills, artifacts, schedules, rs } = useApp();
+  const { api, skills, artifacts, schedules, notes, rs } = useApp();
   return (
     <>
       {api && <ProviderUsagePanel api={api} running={rs.running} />}
+      {api && <ScanBar api={api} />}
       <div class="sidebar-foot px-3 py-2 border-t border-white/5 flex-none space-y-1">
         <button
           class={FOOT_BUTTON}
@@ -149,6 +157,14 @@ function SidebarFoot() {
         >
           <IconBook size={18} />
           {t("Skill library")}
+        </button>
+        <button
+          class={FOOT_BUTTON}
+          data-testid="notes-button"
+          onClick={notes.openNotes}
+        >
+          <IconNotes size={18} />
+          {t("Notes")}
         </button>
         <button
           class={FOOT_BUTTON + " disabled:opacity-40"}

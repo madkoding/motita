@@ -31,9 +31,11 @@ type sessionStore struct {
 
 // sessionRecord is the JSON shape of one persisted conversation.
 type sessionRecord struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	ProjectID string    `json:"project_id,omitempty"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	ProjectID string `json:"project_id,omitempty"`
+	// ParentID is the main session this one is a thread of (see sessionthreads.go).
+	ParentID  string    `json:"parent_id,omitempty"`
 	Created   time.Time `json:"created"`
 	LastUsed  time.Time `json:"last_used"`
 	Provider  string    `json:"provider,omitempty"`
@@ -124,6 +126,7 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		ID:          c.id,
 		Title:       c.title,
 		ProjectID:   c.projectID,
+		ParentID:    c.parentID,
 		Created:     c.created,
 		LastUsed:    c.lastUsed,
 		Running:     c.running && c.current != nil && !ended,
@@ -230,7 +233,9 @@ func (st *sessionStore) loadAll() ([]sessionRecord, error) {
 	}
 	var out []sessionRecord
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" || e.Name() == approvalsFile {
+			// approvals.json lives beside the sessions but is not one: read as a record it came
+			// back as a session with no id.
 			continue
 		}
 		path := filepath.Join(st.dir, e.Name())
@@ -246,6 +251,11 @@ func (st *sessionStore) loadAll() ([]sessionRecord, error) {
 			if rec, err = readRecord(path + prevSuffix); err != nil {
 				continue
 			}
+		}
+		if rec.ID == "" {
+			// Not a session: the phantom a gateway from before the approvals file was skipped
+			// saved as ".json" is left alone and never listed.
+			continue
 		}
 		out = append(out, rec)
 	}

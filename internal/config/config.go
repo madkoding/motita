@@ -30,6 +30,7 @@ type Config struct {
 	Sandbox     Sandbox     `yaml:"sandbox"`
 	LLM         LLM         `yaml:"llm"`
 	Models      Models      `yaml:"models"`
+	Thinking    Thinking    `yaml:"thinking"`
 	Prompts     Prompts     `yaml:"prompts"`
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
@@ -619,6 +620,15 @@ func HomeDir() string {
 func Dir() string {
 	if home := HomeDir(); home != "" {
 		return filepath.Join(home, ".motita")
+	}
+	return ""
+}
+
+// NotesDir is the note vault: ~/.motita/notes, plain Markdown files another program (Obsidian)
+// can open. Empty without a home.
+func NotesDir() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "notes")
 	}
 	return ""
 }

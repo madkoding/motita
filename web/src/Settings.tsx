@@ -22,10 +22,10 @@ import { NotifySetting } from "./NotifySettings";
 import { VoiceSettings, type VoiceSettingsProps } from "./VoiceSettings";
 import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
 import { CodeIndexSettings } from "./CodeIndexSettings";
+import { NotesScanSettings } from "./NotesScanSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
-import { RepoCatalogSettings } from "./RepoCatalogSettings";
 import {
   IconBell,
   IconBranch,
@@ -158,17 +158,17 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     p.security && (
       <SecuritySettings api={p.security.api} sessionId={p.security.sessionId} />
     ),
-  codeindex: (p) => p.codeIndex && <CodeIndexSettings api={p.codeIndex.api} />,
+  codeindex: (p) =>
+    p.codeIndex && (
+      <>
+        <CodeIndexSettings api={p.codeIndex.api} />
+        <NotesScanSettings api={p.codeIndex.api} />
+      </>
+    ),
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,
-  git: (p) =>
-    p.git && (
-      <>
-        <GitConnections {...p.git} />
-        <RepoCatalogSettings api={p.git.api} onNotice={p.git.onNotice} />
-      </>
-    ),
+  git: (p) => p.git && <GitConnections {...p.git} />,
 };
 
 // SettingsModal is the settings dialog. On a screen with room it is a centred window with the

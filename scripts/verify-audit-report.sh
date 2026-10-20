@@ -172,7 +172,7 @@ REP
   expect_reject "a CWE and no exploit scenario" '/Exploit scenario/d'
   expect_reject "no coverage statement" 's/Not covered: the web\/ directory\.//'
   expect_reject "no tooling section"    '/## Tooling run/d'
-  expect_reject "a live-looking secret" 's/- go vet: ok/- found AKIAABCDEFGHIJKLMNOP in config/'
+  expect_reject "a live-looking secret" 's/- go vet: ok/- found AKIA'"ABCDEFGHIJKLMNOP"' in config/'
   : > "$work/empty.md"
   if check "$work/empty.md" >/dev/null 2>&1; then
     printf 'SELFTEST FAIL: accepted an empty report\n'; fails=$((fails + 1))

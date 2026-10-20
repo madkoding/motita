@@ -60,6 +60,8 @@ function store({
         hasPodman,
         openEditProject: rec("edit"),
         setProjectPodman: rec("podman"),
+        refreshProjectMain: rec("refreshMain"),
+        rescanNotes: rec("rescan"),
       },
       deletion: { setConfirmDelete: rec("confirm") },
     },
@@ -172,6 +174,41 @@ test("the menu edits the project and asks before deleting it", async () => {
   await m.unmount();
 });
 
+test("threads are listed under their main session, indented", async () => {
+  const s = store({
+    sessions: [
+      { id: "t1", project_id: "p1", parent_id: "m", created: "2024-02" },
+      { id: "x", project_id: "p2", created: "2024-01" },
+      { id: "m", project_id: "p1", created: "2024-01" },
+      { id: "t2", project_id: "p1", parent_id: "m", created: "2024-03" },
+    ],
+  });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  const rows = [...m.root.querySelectorAll(".session-row")];
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.map((r) => r.classList.contains("session-thread")),
+    [false, true, true],
+  );
+  await m.unmount();
+});
+
+test("the menu updates the main branch: nothing else does it by itself", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  await click(m.q("[data-testid=refresh-main]"));
+  assert.deepEqual(s.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
+test("the menu rescans the notes of its project", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  await click(m.q("[data-testid=rescan-notes]"));
+  assert.deepEqual(s.log, [["rescan", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
 test("the menu turns podman on where the machine has it, and off where it is on", async () => {
   const s = store({ rowMenu: { id: "p1" }, hasPodman: true });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
@@ -208,25 +245,17 @@ test("a long press on the header opens the context menu where the finger is", as
   await m.unmount();
 });
 
-test("the facts line counts the shared repositories left behind their main branch", async () => {
+test("a main branch that could not be updated is flagged with the reason", async () => {
   const s = store();
-  const repos = [
-    { name: "api", git_url: "u/api", dir: "/w/repos/api", behind: 2 },
-    { name: "web", git_url: "u/web", dir: "/w/repos/web" },
-    { name: "docs", git_url: "u/docs", dir: "/w/repos/docs", behind: 1 },
-  ];
   const m = await mount(
     AppCtx,
     s.value,
-    h(ProjectGroup, { p: { ...P, repos } }),
+    h(ProjectGroup, { p: { ...P, main_warning: "main: could not fetch" } }),
   );
-  const fact = m.q("[data-testid=project-behind]");
-  assert.equal(fact.textContent, "behind2");
-  assert.equal(fact.title, "Behind their main branch: api, docs");
-  await m.rerender(
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos: repos.slice(1, 2) } }),
-  );
-  assert.equal(m.q("[data-testid=project-behind]"), null);
+  const fact = m.q("[data-testid=project-stale]");
+  assert.equal(fact.textContent, "outdated");
+  assert.equal(fact.title, "Main branch not updated: main: could not fetch");
+  await m.rerender(s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=project-stale]"), null);
   await m.unmount();
 });

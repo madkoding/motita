@@ -83,6 +83,9 @@ func (r *taskRun) auditClaim(action Action) bool {
 	if strings.TrimSpace(r.mem.notes) != "" {
 		output += "## Notes the agent kept while working\n" + r.mem.notes + "\n"
 	}
+	// A check that could not run is put in front of the audit by name: a criterion about tests or a
+	// build is not met by a run whose check never ran.
+	output += unvalidatedBlock(r.mem.blockedChecks())
 	vars["output"] = truncateMiddle(output, roundOutputChars)
 
 	a.report("checking the result against what was asked...")

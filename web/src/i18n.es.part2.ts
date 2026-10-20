@@ -2,6 +2,13 @@
 
 const more: Record<string, string> = {
   "This computer": "Este equipo",
+  "Git and pull requests": "Git y pull requests",
+  "A new folder in the workspace": "Una carpeta nueva en el workspace",
+  "Choose or create…": "Elegir o crear…",
+  "Change…": "Cambiar…",
+  "Path of the folder": "Ruta de la carpeta",
+  "Its folder is created in the workspace with this name.":
+    "Su carpeta se crea en el workspace con este nombre.",
   "New folder name": "Nombre de la carpeta nueva",
   "This folder holds the system's own files. A project here puts the agent among them.":
     "Esta carpeta guarda los archivos del propio sistema. Un proyecto aquí deja al agente entre ellos.",
@@ -15,9 +22,29 @@ const more: Record<string, string> = {
   Location: "Ubicación",
   Folder: "Carpeta",
   "Use the workspace": "Usar el workspace",
+  "The folder does not exist yet: it will be created.":
+    "La carpeta aún no existe: se va a crear.",
+  "The folder already exists and is used as it is. Deleting the project asks whether it stays on disk.":
+    "La carpeta ya existe y se usa tal cual. Al eliminar el proyecto se pregunta si se queda en el disco.",
+  "This folder is among the system's own files. I know what I am doing and want a project here.":
+    "Esta carpeta está entre los archivos del sistema. Sé lo que hago y quiero un proyecto aquí.",
+  "What happens to the project's folder?":
+    "¿Qué pasa con la carpeta del proyecto?",
+  "Keep the folder and its files": "Dejar la carpeta y sus archivos",
+  "Delete the folder and everything in it":
+    "Eliminar la carpeta y todo su contenido",
+  "This folder cannot be deleted from here:":
+    "Esta carpeta no se puede eliminar desde aquí:",
+  "I understand the folder and all its files will be deleted for good.":
+    "Entiendo que la carpeta y todos sus archivos se eliminarán para siempre.",
+  "Delete project and folder": "Eliminar proyecto y carpeta",
+  "Or the path of a folder, existing or new":
+    "O la ruta de una carpeta, existente o nueva",
+  "Without the whole disk in Settings → Security, the folder has to be inside the workspace.":
+    "Sin el disco completo en Ajustes → Seguridad, la carpeta tiene que estar dentro del workspace.",
   "Keep the current one": "Dejar la actual",
-  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.":
-    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual y nunca se borra junto con el proyecto.",
+  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is; deleting the project asks whether it stays.":
+    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual; al eliminar el proyecto se pregunta si se queda.",
   "Nothing is moved: the project points at that folder. Not possible while it has sessions or other repositories.":
     "No se mueve nada: el proyecto apunta a esa carpeta. No se puede mientras tenga sesiones u otros repositorios.",
   "This browser cannot record audio.": "Este navegador no puede grabar audio.",
@@ -145,24 +172,7 @@ const more: Record<string, string> = {
   "Pull request {pr} was merged. A new session was opened from the updated branch.":
     "El pull request {pr} fue mergeado. Se abrió una sesión nueva desde la rama actualizada.",
   "“{title}” finished": "“{title}” terminó",
-  "Remove {name}": "Quitar {name}",
-  "Discard the changes and remove it": "Descartar los cambios y quitarlo",
-  "https://github.com/user/other-repo.git":
-    "https://github.com/usuario/otro-repo.git",
-  "Add a repository": "Agregar un repositorio",
   Add: "Agregar",
-  "The project already has a repository with that name.":
-    "El proyecto ya tiene un repositorio con ese nombre.",
-  "That is not a repository URL.": "Esa no es la URL de un repositorio.",
-  "A new folder": "Una carpeta nueva",
-  "The first one is the main repository, the project's folder. The others are shared from your workspace, and every session gets its own copy of each.":
-    "El primero es el repositorio principal, la carpeta del proyecto. Los demás se comparten desde tu espacio de trabajo, y cada sesión recibe su propia copia de cada uno.",
-  "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.":
-    "Agregar o quitar un repositorio ocurre al instante. Las sesiones abiertas reciben una copia del nuevo; quitar uno lo saca de este proyecto, y los demás proyectos que lo usan lo conservan.",
-  "Could not add {name}": "No se pudo agregar {name}",
-  "Could not remove {name}": "No se pudo quitar {name}",
-  'Project "{title}" created, but some repositories could not be added: {names}':
-    'Proyecto "{title}" creado, pero no se pudieron agregar algunos repositorios: {names}',
   Providers: "Proveedores",
   "Connect the AI providers Motita can use. The models each kind of work runs on are chosen in Models.":
     "Conecta los proveedores de IA que Motita puede usar. Los modelos de cada tipo de trabajo se eligen en Modelos.",
@@ -183,6 +193,9 @@ const more: Record<string, string> = {
     "Elige el modelo con el que empiezan las sesiones nuevas y, si quieres, un modelo para cada tipo de trabajo.",
   "Model per kind of work": "Modelo por tipo de trabajo",
   "Same as default": "Igual que el por defecto",
+  "Thinking for {kind}": "Razonamiento para {kind}",
+  "Thinking: same as session": "Razonamiento: igual que la sesión",
+  Thinking: "Razonamiento",
   Basic: "Básico",
   Capable: "Capaz",
   "Very capable": "Muy capaz",
@@ -721,21 +734,7 @@ const more: Record<string, string> = {
   "Create project": "Crear proyecto",
   "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.":
     "Se clona, se indexa y se configura con sus valores por defecto; esta conversación sigue dentro.",
-  'The project "{title}" already has {name}. Move this session into it?':
-    'El proyecto "{title}" ya tiene {name}. ¿Mover esta sesión a él?',
-  "Move session": "Mover sesión",
-  "The conversation stays; the agent now works in the project's own worktree.":
-    "La conversación se queda; el agente pasa a trabajar en el worktree propio del proyecto.",
-  'Add {name} to the project "{title}"?':
-    '¿Agregar {name} al proyecto "{title}"?',
-  "Add repository": "Agregar repositorio",
-  "It is cloned once and every session of the project gets its own worktree of it.":
-    "Se clona una sola vez y cada sesión del proyecto recibe su propio worktree.",
   "Not now": "Ahora no",
-  '{name} added to the project "{title}"':
-    '{name} agregado al proyecto "{title}"',
-  'This session moved to the project "{title}"':
-    'Esta sesión se movió al proyecto "{title}"',
   'The project "{title}" was created, but the session was not moved: {err}':
     'El proyecto "{title}" se creó, pero la sesión no se movió: {err}',
   'Project "{title}" created and this session moved into it':
@@ -799,6 +798,91 @@ const more: Record<string, string> = {
   "Let Motita control this computer's desktop?":
     "¿Dejar que Motita controle el escritorio de este equipo?",
   "Allow desktop control": "Permitir el control del escritorio",
+  Notes: "Notas",
+  "New note name": "Nombre de la nota nueva",
+  "No folder": "Sin carpeta",
+  "Search the notes": "Buscar en las notas",
+  "No notes yet. Write the first one above.":
+    "Todavía no hay notas. Escribe la primera arriba.",
+  "Nothing matches that.": "Nada coincide con eso.",
+  "Mentioned in ({n})": "Mencionada en ({n})",
+  "No other note mentions this one yet.":
+    "Ninguna otra nota menciona esta todavía.",
+  "Note text": "Texto de la nota",
+  Edit: "Editar",
+  "Click again to delete": "Pulsa otra vez para borrar",
+  "Pick a note, or write a new one.": "Elige una nota o escribe una nueva.",
+  "Each project has a manual: open its folder and start with Start here. Link notes with [[double brackets]].":
+    "Cada proyecto tiene un manual: abre su carpeta y empieza por Start here. Enlaza notas con [[dobles corchetes]].",
+  "They are plain .md files: open this folder in Obsidian and they are all there.":
+    "Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
+  "Saved in {root}": "Guardadas en {root}",
+  "Your second brain: projects, sessions and your own ideas.":
+    "Tu segundo cerebro: proyectos, sesiones y tus propias ideas.",
+  Map: "Mapa",
+  "Close map": "Cerrar mapa",
+  "Find a note on the map": "Buscar una nota en el mapa",
+  "{n} found": "{n} encontradas",
+  "1 found": "1 encontrada",
+  "Colours of the map": "Colores del mapa",
+  "Loose notes": "Notas sueltas",
+  "Close the note": "Cerrar la nota",
+  "Open the note": "Abrir la nota",
+  "Drag to turn, scroll to zoom, click a name to look at it.":
+    "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para verlo.",
+  "could not load the notes": "no se pudieron cargar las notas",
+  "could not open the note": "no se pudo abrir la nota",
+  "could not save the note": "no se pudo guardar la nota",
+  "could not create the note": "no se pudo crear la nota",
+  "could not delete the note": "no se pudo borrar la nota",
+  "could not rename the note": "no se pudo renombrar la nota",
+  "New name": "Nombre nuevo",
+  "Second brain": "Segundo cerebro",
+  "Scan sessions and projects": "Escanear sesiones y proyectos",
+  "Writes a note for every project and every session you have used, linked to each other, and a manual of each project with a note per folder: its files, its API, what it uses and what uses it. Run it again to refresh them; what you add around the generated block stays.":
+    "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí, y un manual de cada proyecto con una nota por carpeta: sus archivos, su API, qué usa y quién la usa. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
+  "Scan now": "Escanear ahora",
+  "Scanning…": "Escaneando…",
+  "Writing the notes of your sessions…":
+    "Escribiendo las notas de tus sesiones…",
+  "Mapping {project} ({n} of {total})": "Mapeando {project} ({n} de {total})",
+  "folder {n} of {total}": "carpeta {n} de {total}",
+  "Use the model to summarise sessions and explain projects":
+    "Usar el modelo para resumir sesiones y explicar proyectos",
+  "Adds a short summary to sessions of six turns or more (at most twenty per scan), explains how each project fits together (at most ten per scan) and documents each folder of the projects' manuals (as many per scan as you choose below). Each is only asked again when the session, project or folder changed. The text of those sessions and the structure, README and source excerpts of those projects are sent to your model provider and use tokens.":
+    "Agrega un resumen corto a las sesiones de seis turnos o más (hasta veinte por escaneo), explica cómo encaja cada proyecto (hasta diez por escaneo) y documenta cada carpeta de los manuales de los proyectos (tantas por escaneo como elijas abajo). Cada uno se pide de nuevo solo cuando la sesión, el proyecto o la carpeta cambió. El texto de esas sesiones y la estructura, el README y extractos del código de esos proyectos se envían a tu proveedor de modelos y gastan tokens.",
+  "{n} long sessions summarised.": "{n} sesiones largas resumidas.",
+  "{mapped} projects mapped into {documented} manual notes, {explained} explained by the model.":
+    "{mapped} proyectos mapeados en {documented} notas de manual, {explained} explicados por el modelo.",
+  "notes created from your sessions and projects":
+    "notas creadas a partir de tus sesiones y proyectos",
+  "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.":
+    "{projects} proyectos y {sessions} sesiones escaneados: {created} notas creadas, {updated} actualizadas, {unchanged} sin cambios, {skipped} omitidas.",
+  "give the note a name": "ponle un nombre a la nota",
+  "a note with that name already exists": "ya existe una nota con ese nombre",
+  "could not load the graph": "no se pudo cargar el grafo",
+  "Review notes": "Revisar notas",
+  "Folders the model explains per scan":
+    "Carpetas que el modelo explica por escaneo",
+  All: "Todas",
+  "Each folder is one model call, so more folders take longer and use more tokens. A folder already explained is only asked again when it changed.":
+    "Cada carpeta es una llamada al modelo: más carpetas tardan más y gastan más tokens. Una carpeta ya explicada solo se pide de nuevo cuando cambió.",
+  "Review the notes": "Revisar las notas",
+  "Opens a conversation where the agent checks the notes for contradictions, stale notes, missing sources and broken links. It changes nothing until you agree.":
+    "Abre una conversación donde el agente revisa las notas en busca de contradicciones, notas desactualizadas, fuentes faltantes y enlaces rotos. No cambia nada hasta que aceptes.",
+  "Ask the agent to find contradictions, stale notes and broken links":
+    "Pide al agente que busque contradicciones, notas desactualizadas y enlaces rotos",
+  "Nothing to draw yet.": "Todavía no hay nada que dibujar.",
+  "Graph of linked notes": "Grafo de notas enlazadas",
+  "{notes} notes · {links} links · {missing} to notes not written yet":
+    "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
+  "Rescan the notes": "Reescanear las notas",
+  "Writes the notes and the manual of this project again, in the background; the sidebar shows how far it got.":
+    "Vuelve a escribir las notas y el manual de este proyecto en segundo plano; la barra lateral muestra cuánto lleva.",
+  "could not rescan the notes": "no se pudieron reescanear las notas",
+  "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
+    "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
+  "Scanning the notes": "Escaneando las notas",
 };
 
 export default more;

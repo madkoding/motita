@@ -22,41 +22,14 @@ function offerOf(hint: ProjectHint): {
     };
   }
   const { name } = hint.repo;
-  if (hint.kind === "create") {
-    return {
-      ask: tf(
-        'Create the project "{name}" from this repository and move this session into it?',
-        { name },
-      ),
-      action: t("Create project"),
-      detail: t(
-        "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.",
-      ),
-    };
-  }
-  if (hint.kind === "move") {
-    return {
-      ask: tf(
-        'The project "{title}" already has {name}. Move this session into it?',
-        {
-          title: hint.projectTitle,
-          name,
-        },
-      ),
-      action: t("Move session"),
-      detail: t(
-        "The conversation stays; the agent now works in the project's own worktree.",
-      ),
-    };
-  }
   return {
-    ask: tf('Add {name} to the project "{title}"?', {
-      name,
-      title: hint.projectTitle,
-    }),
-    action: t("Add repository"),
+    ask: tf(
+      'Create the project "{name}" from this repository and move this session into it?',
+      { name },
+    ),
+    action: t("Create project"),
     detail: t(
-      "It is cloned once and every session of the project gets its own worktree of it.",
+      "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.",
     ),
   };
 }

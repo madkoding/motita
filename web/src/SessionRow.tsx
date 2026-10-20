@@ -11,8 +11,6 @@ import {
   rowMenuStyle,
   sessionTitle,
   sessionTooltip,
-  sessionWorktreeChip,
-  shortBranch,
   shortID,
 } from "./appFormat";
 import { IconCheck, IconClose, IconDots, IconEdit, IconTrash } from "./icons";
@@ -110,6 +108,26 @@ function MergedItems({ s }: { s: SessionInfo }) {
   );
 }
 
+// IsolateItem moves a thread that still works in the project's folder into a worktree of its own.
+function IsolateItem({ s }: { s: SessionInfo }) {
+  const { menus, actions } = useApp();
+  return (
+    <button
+      class={ITEM_PLAIN}
+      title={t(
+        "Moves this thread to a worktree of its own, so it stops sharing the project's folder.",
+      )}
+      onClick={async (e) => {
+        e.stopPropagation();
+        menus.closeRowMenu();
+        await actions.isolateSession(s);
+      }}
+    >
+      {t("Isolate in a worktree")}
+    </button>
+  );
+}
+
 // IntegrateItem is the item that merges a session's work back into its project.
 function IntegrateItem({ s }: { s: SessionInfo }) {
   const { menus, stream } = useApp();
@@ -171,6 +189,7 @@ function SessionMenu({ s }: { s: SessionInfo }) {
         <IconEdit size={14} />
         {t("Rename")}
       </button>
+      {s.parent_id && !s.worktree && !s.merged && <IsolateItem s={s} />}
       {s.project_id && !s.merged && <IntegrateItem s={s} />}
       {s.project_id && s.merged && <MergedItems s={s} />}
       <DeleteItem type="session" id={s.id} title={s.title || s.id} />
@@ -260,39 +279,8 @@ function RenameField({ s }: { s: SessionInfo }) {
 // first read, which is what makes colour optional rather than
 // load-bearing.
 function SessionFacts({ s }: { s: SessionInfo }) {
-  const worktree = sessionWorktreeChip(s);
   return (
     <div class="session-facts flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
-      {s.branch && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10">
-          <span class="text-accent/50 uppercase tracking-wide text-[9px]">
-            {t("branch")}
-          </span>
-          <span class="font-mono text-accent truncate max-w-28">
-            {shortBranch(s.branch)}
-          </span>
-        </span>
-      )}
-      {worktree && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#a0a0f0]/10">
-          <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">
-            {t("worktree")}
-          </span>
-          <span class="font-mono text-[#a0a0f0] truncate max-w-24">
-            {worktree}
-          </span>
-        </span>
-      )}
-      {s.model && (
-        <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#7ee0a0]/10">
-          <span class="text-[#7ee0a0]/50 uppercase tracking-wide text-[9px]">
-            {t("model")}
-          </span>
-          <span class="font-mono text-[#7ee0a0] truncate max-w-28">
-            {s.model}
-          </span>
-        </span>
-      )}
       {!!s.changes && (
         <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
           <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
@@ -365,7 +353,11 @@ export function SessionRow({ s }: { s: SessionInfo }) {
   return (
     <div
       ref={rowRef}
-      class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${choose(
+      class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5${choose(
+        s.parent_id,
+        " session-thread ml-4",
+        "",
+      )} ${choose(
         s.id === rs.sessionId,
         "bg-accent/10 border border-accent/20",
         "hover:bg-white/5 border border-transparent",

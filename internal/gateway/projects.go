@@ -47,8 +47,10 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		ctx := context.Background()
 		all[i].Branch = gitx.Display(ctx, all[i].Dir)
 		all[i].MainBranch = mainBranchOf(ctx, &all[i])
+		all[i].MainWarning = s.mainRefresh.warning(all[i].ID)
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
 		liveRepos(ctx, &all[i])
+		all[i].MissingDeps = missingDeps(&all[i])
 		// Worktrees counts the session checkouts, and it is asked of git rather
 		// than of the session list so that a worktree left behind by a session
 		// that is gone is still counted - which is the state a user wants to
@@ -127,6 +129,23 @@ func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// newProjectFolder is the absolute folder of a project being created: the absolute path chosen
+// outside the workspace, or the folder name chosen inside it.
+func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (string, bool) {
+	if strings.TrimSpace(path) != "" {
+		return s.newExternalFolder(w, path)
+	}
+	name, ok := projectFolderName(w, dir)
+	if !ok {
+		return "", false
+	}
+	if s.opts.WorkspaceDir == "" {
+		writeError(w, http.StatusInternalServerError, "no workspace directory is configured")
+		return "", false
+	}
+	return filepath.Join(s.opts.WorkspaceDir, name), true
+}
+
 // handleCreateProject mints a new project, optionally cloning a git repo.
 //
 // The request body carries:
@@ -151,14 +170,15 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Dir         string `json:"dir"`
 		// Path is an absolute folder outside the workspace, allowed only with the whole disk
 		// reachable (Settings → Security). It replaces Dir.
-		Path      string `json:"path"`
-		GitURL    string `json:"git_url"`
-		UsePodman bool   `json:"use_podman"`
-		// MainBranch is the branch the project treats as its main line: "main" unless the user
-		// picked another (typically "master").
-		MainBranch string `json:"main_branch"`
-		// GitUserName and GitUserEmail answer the "git_identity_required" refusal:
-		// they are saved as the user's global git identity.
+		Path string `json:"path"`
+		// ConfirmSensitive says the person knows the folder is inside the system's own files.
+		ConfirmSensitive bool   `json:"confirm_sensitive"`
+		GitURL           string `json:"git_url"`
+		UsePodman        bool   `json:"use_podman"`
+		// MainBranch, GitUserName and GitUserEmail are no longer used: a project is a plain folder,
+		// and its branch and git identity belong to the repositories it links. Clients that still
+		// send them are not refused.
+		MainBranch   string `json:"main_branch"`
 		GitUserName  string `json:"git_user_name"`
 		GitUserEmail string `json:"git_user_email"`
 	}
@@ -170,41 +190,24 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the title cannot be empty")
 		return
 	}
-	var dirName, external string
-	var ok bool
-	if strings.TrimSpace(body.Path) != "" {
-		external, ok = s.externalProjectFolder(w, body.Path)
-	} else {
-		dirName, ok = projectFolderName(w, body.Dir)
-	}
-	if !ok {
+	absDir, ok := s.newProjectFolder(w, body.Path, body.Dir)
+	if !ok || !sensitiveNeedsConfirm(w, absDir, body.ConfirmSensitive) {
 		return
-	}
-	mainBranch, ok := requestedMainBranch(w, r, body.MainBranch)
-	if !ok {
-		return
-	}
-
-	// Resolve the absolute directory under the workspace.
-	workspace := s.opts.WorkspaceDir
-	if workspace == "" {
-		writeError(w, http.StatusInternalServerError, "no workspace directory is configured")
-		return
-	}
-	absDir := filepath.Join(workspace, dirName)
-	if external != "" {
-		absDir = external
 	}
 
 	gitURL := strings.TrimSpace(body.GitURL)
-	var cloneLog string
-	if gitURL != "" {
-		absDir, mainBranch, cloneLog, ok = s.cloneProject(w, r, gitURL, absDir, mainBranch)
-	} else {
-		ok = s.refuseSharedDir(w, absDir) &&
-			s.prepareProjectFolder(w, r, absDir, mainBranch, body.GitUserName, body.GitUserEmail)
+	repoName := repoNameOf("", gitURL)
+	if gitURL != "" && repoName == "" {
+		writeError(w, http.StatusBadRequest, "the repository needs a simple folder name: letters, digits, '.', '_' or '-'")
+		return
 	}
-	if !ok {
+	// A project is a plain folder: nothing is initialised in it, whatever git has configured.
+	if !s.refuseSharedDir(w, absDir) {
+		return
+	}
+	madeFolder := !pathExists(absDir)
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
 		return
 	}
 
@@ -218,23 +221,32 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Title:       title,
 		Description: strings.TrimSpace(body.Description),
 		Dir:         absDir,
-		GitURL:      gitURL,
+		Adopted:     !madeFolder,
 		Podman:      body.UsePodman && podmanInstalled(),
-		MainBranch:  mainBranch,
 		Created:     time.Now(),
 	}
 	if err := s.projects.save(p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var cloneLog string
+	if gitURL != "" {
+		var ok bool
+		if p, cloneLog, ok = s.cloneIntoNewProject(w, r, p, gitURL, repoName, madeFolder); !ok {
+			return
+		}
+	}
+	if cur := s.projectOf(p.ID); cur != nil {
+		p = *cur
+	}
+	s.indexNewProject(p.Dir)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":          p.ID,
 		"title":       p.Title,
 		"description": p.Description,
 		"dir":         p.Dir,
-		"git_url":     p.GitURL,
+		"repos":       p.Repos,
 		"podman":      p.Podman,
-		"main_branch": p.MainBranch,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})
@@ -306,109 +318,6 @@ func (s *Server) refuseSharedDir(w http.ResponseWriter, dir string) bool {
 	return true
 }
 
-// requestedMainBranch reads the main branch a new project asks for. The default needs no check,
-// and not asking git for it keeps a machine without git failing where it always did
-// (initialising the repository) rather than here.
-func requestedMainBranch(w http.ResponseWriter, r *http.Request, raw string) (string, bool) {
-	mainBranch := strings.TrimSpace(raw)
-	if mainBranch == "" {
-		return defaultMainBranch, true
-	}
-	if !gitx.ValidBranch(r.Context(), mainBranch) {
-		writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
-		return "", false
-	}
-	return mainBranch, true
-}
-
-// cloneProject clones gitURL for a new project, and returns the folder it went to, the project's
-// main branch and git's report. It answers the request itself, and returns false, when the clone
-// fails.
-func (s *Server) cloneProject(
-	w http.ResponseWriter, r *http.Request, gitURL, absDir, mainBranch string,
-) (dir, branch, cloneLog string, ok bool) {
-	// A folder that holds something else is not overwritten or refused: the clone goes to
-	// the next free "<name>-2", "<name>-3"... and the project records that path.
-	absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv(), nil)
-	// freeCloneDir reuses a folder that already holds a clone of the same repository, and that
-	// folder may be another project's.
-	if !s.refuseSharedDir(w, absDir) {
-		return "", "", "", false
-	}
-	cloneLog, err := cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
-	if err != nil {
-		s.writeCloneError(w, gitURL, err)
-		return "", "", "", false
-	}
-	// A clone arrives on the remote's default branch, which may not be the one asked for:
-	// the main branch becomes the requested one when the repository has it, and otherwise
-	// whichever of main/master it does have.
-	return absDir, settleMainBranch(r.Context(), absDir, mainBranch), cloneLog, true
-}
-
-// prepareProjectFolder makes the folder of a new project that is not a clone. The folder is
-// created in the workspace when it does not exist, and a folder that is new or empty becomes a
-// git repository. A folder that already holds files is somebody's work and is not turned into
-// one. It answers the request itself, and returns false, when it cannot.
-func (s *Server) prepareProjectFolder(
-	w http.ResponseWriter, r *http.Request, absDir, mainBranch, gitName, gitEmail string,
-) bool {
-	if willInit(absDir) && !s.ensureGitIdentity(w, r, gitName, gitEmail) {
-		return false
-	}
-	if err := os.MkdirAll(absDir, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
-		return false
-	}
-	if entries, err := os.ReadDir(absDir); err == nil && len(entries) == 0 {
-		if err := gitx.InitOn(r.Context(), absDir, mainBranch); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return false
-		}
-	}
-	return true
-}
-
-// errGitIdentityRequired is the machine-readable reason a project was not
-// created: git has no user, and the client has to ask for one.
-const errGitIdentityRequired = "git_identity_required"
-
-// willInit reports whether creating a project in dir will make it a repository:
-// the folder is missing or holds nothing.
-func willInit(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	return errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0)
-}
-
-// ensureGitIdentity makes sure git has a user before a repository is created.
-//
-// The global configuration is what a commit is made under, so that is what is
-// checked. When it is incomplete and the request brought no name and email, the
-// answer is a 409 carrying errGitIdentityRequired - the client opens a dialog
-// and repeats the request with them. It returns false once it has answered.
-func (s *Server) ensureGitIdentity(w http.ResponseWriter, r *http.Request, name, email string) bool {
-	if n, e := gitx.GlobalIdentity(r.Context()); n != "" && e != "" {
-		return true
-	}
-	name, email = strings.TrimSpace(name), strings.TrimSpace(email)
-	if name == "" && email == "" {
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "git has no user configured: a name and an email are needed to create the repository",
-			"code":  errGitIdentityRequired,
-		})
-		return false
-	}
-	if name == "" || !strings.Contains(email, "@") || strings.ContainsAny(name+email, "\r\n") {
-		writeError(w, http.StatusBadRequest, "the git name cannot be empty and the email must be an address")
-		return false
-	}
-	if err := gitx.SetGlobalIdentity(r.Context(), name, email); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return false
-	}
-	return true
-}
-
 // handleUpdateProject changes the user's podman answer after the project exists.
 // Turning it on needs podman on the machine, and the sessions already open under
 // the project are told at once, so the next turn follows the new answer.
@@ -455,12 +364,14 @@ type projectUpdate struct {
 	Podman      *bool   `json:"podman"`
 	// Path points the project at another folder, outside the workspace. Nothing is moved: the
 	// project is anchored to the folder, as when it is created there.
-	Path         *string `json:"path"`
-	MainBranch   *string `json:"main_branch"`
-	MergeMethod  *string `json:"merge_method"`
-	PRMaxFixes   *int    `json:"pr_max_fixes"`
-	AutoMerge    *bool   `json:"auto_merge"`
-	AutoContinue *bool   `json:"auto_continue"`
+	Path *string `json:"path"`
+	// ConfirmSensitive says the person knows the folder is inside the system's own files.
+	ConfirmSensitive bool    `json:"confirm_sensitive"`
+	MainBranch       *string `json:"main_branch"`
+	MergeMethod      *string `json:"merge_method"`
+	PRMaxFixes       *int    `json:"pr_max_fixes"`
+	AutoMerge        *bool   `json:"auto_merge"`
+	AutoContinue     *bool   `json:"auto_continue"`
 }
 
 // copyTo writes onto dst the fields this request set, taking their validated values from src.
@@ -545,7 +456,10 @@ func (s *Server) applyFolder(w http.ResponseWriter, u projectUpdate, p *Project)
 		writeError(w, http.StatusConflict, fmt.Sprintf("that folder belongs to the project %q", other.Title))
 		return false
 	}
-	p.Dir = dir
+	if !sensitiveNeedsConfirm(w, dir, u.ConfirmSensitive) {
+		return false
+	}
+	p.Dir, p.Adopted = dir, true
 	return true
 }
 
@@ -684,12 +598,13 @@ func mainBranchOf(ctx context.Context, p *Project) string {
 }
 
 // returnToMain puts a project's checkout back on its main branch when the project has no
-// sessions left. It is deliberately timid: a checkout with uncommitted changes is left alone
+// sessions left (never in a folder of the user's own outside the workspace). It is deliberately
+// timid: a checkout with uncommitted changes is left alone
 // (switching would either fail or carry the work to another branch), and so is a project that
 // still has a session, whose branch the user may be looking at. A failure is logged, not
 // reported: the caller's own work (deleting a session, saving the project) already succeeded.
 func (s *Server) returnToMain(p *Project) {
-	if p == nil || len(s.sessionsOfProject(p.ID)) > 0 {
+	if p == nil || len(s.sessionsOfProject(p.ID)) > 0 || s.usersFolder(p.Dir) {
 		return
 	}
 	ctx := context.Background()
@@ -742,10 +657,22 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// stops the whole deletion unless the user confirmed the discard with
 	// `?force=1`. The work belongs to the user, not to the project record, and
 	// deleting the record is not a decision to destroy it.
+	wipe := wipesFolder(r)
+	if wipe {
+		if status, problem := s.wipeProblem(r.Context(), s.projectOf(id), isForced(r)); status != 0 {
+			writeError(w, status, problem)
+			return
+		}
+	}
 	if !isForced(r) {
-		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id)); dir != "" {
+		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id), wipe); dir != "" {
 			writeError(w, http.StatusConflict, "the project has commits that exist nowhere else: push them, "+
 				"or confirm the discard ("+dir+")")
+			return
+		}
+		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id), wipe) {
+			writeError(w, http.StatusConflict, "the project's repository "+dir+" has uncommitted changes: "+
+				"commit them, or confirm the discard")
 			return
 		}
 	}
@@ -754,13 +681,11 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	// The project's own folder goes with it, so a later project of the same name does not find
-	// the old files in the way. The deletion dialog is the confirmation.
+	// The project's own folder goes only when the dialog asked for it (wipeProblem has already
+	// refused a protected one).
 	var projectDir string
-	// A folder another project also stands on (a record from before folders were refused twice)
-	// stays: it is that project's too.
 	p := s.projectOf(id)
-	if p != nil && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
+	if p != nil && wipe {
 		projectDir = p.Dir
 	}
 	// Only now that every checkout has been proven safe to give back are the
@@ -768,6 +693,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// the sessions unreachable AND their worktrees gone.
 	for _, c := range sessions {
 		c.closeForGood()
+		s.forgetCheckpoints(c)
 		s.forget(c.id)
 		s.deletePersistedSession(c.id)
 	}
@@ -776,12 +702,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.removeProjectArtifacts(id)
-	if projectDir != "" {
-		// Best effort: the project is already gone, and a folder that resists (a file in use)
-		// is left for the user rather than failing a deletion that has otherwise happened.
-		_ = os.RemoveAll(projectDir)
-		releaseSharedRepos(r.Context(), p)
-	}
+	s.releaseProjectFolder(r.Context(), p, projectDir)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -789,12 +710,12 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 // has. A clean working tree says nothing about them. Only the clones added from a remote count:
 // the project's own folder is meant to be removed, the deletion dialog being its confirmation,
 // and a folder created locally has no remote to have published to.
-func (s *Server) unpublishedInProject(ctx context.Context, p *Project) string {
+func (s *Server) unpublishedInProject(ctx context.Context, p *Project, wipe bool) string {
 	if p == nil {
 		return ""
 	}
 	for _, repo := range p.Repos {
-		if !s.deletesClone(repo) || gitx.Repo(ctx, repo.Dir) != nil {
+		if !s.goesWithProject(p, repo, wipe) || gitx.Repo(ctx, repo.Dir) != nil {
 			continue
 		}
 		if n, err := gitx.UnpublishedCommits(ctx, repo.Dir); err != nil || n != 0 {
@@ -814,6 +735,12 @@ func (s *Server) ownsProjectDir(dir string) bool {
 	}
 	rel, err := filepath.Rel(root, dir)
 	return err == nil && !relLeavesRoot(rel) && !filepath.IsAbs(rel)
+}
+
+// usersFolder reports whether dir is a folder of the user's own outside the workspace: one this
+// gateway registered but did not create, whose branch it does not switch or update by itself.
+func (s *Server) usersFolder(dir string) bool {
+	return s.opts.WorkspaceDir != "" && dir != "" && !s.ownsProjectDir(dir)
 }
 
 // relLeavesRoot reports whether a path relative to a root names the root itself or a place
@@ -941,8 +868,12 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	// Bring the project's checkout up to date before branching from it. A session
 	// that continues from stale code would build on top of a state the project has
 	// already left behind, and the merge later would be harder for no reason.
-	if err := gitx.PullFastForward(ctx, p.Dir, base); err != nil {
-		return nil, http.StatusConflict, err
+	// A project with no origin has nothing to bring in, and a folder of the user's own is not
+	// updated by itself: neither refuses the continuation.
+	if gitx.HasRemote(ctx, p.Dir) && !s.usersFolder(p.Dir) {
+		if err := gitx.PullFastForward(ctx, p.Dir, base); err != nil {
+			return nil, http.StatusConflict, err
+		}
 	}
 	newConv, err := s.createSession()
 	if err != nil {
@@ -952,15 +883,9 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusNotImplemented, err
 	}
 	dir := p.Dir
-	if wt, wtErr := s.sessionWorktree(ctx, p.Dir, newConv.id); wtErr != nil {
-		if s.opts.Log != nil {
-			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
-				"id", newConv.id, "project", p.Dir, "error", wtErr.Error())
-		}
-	} else {
-		dir = wt
+	if !gitx.SamePath(c.workspace, c.projectDir) {
+		dir = s.isolatedDir(ctx, p, newConv.id)
 	}
-	s.attachProjectRepos(ctx, p, dir, newConv.id)
 	newConv.setProjectID(c.projectID, dir, p.Dir)
 	newConv.svc.SetWorkspace(dir)
 	// The title says where it came from, but only if the old session had a real one.
@@ -973,67 +898,18 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	return newConv, http.StatusCreated, nil
 }
 
-// sessionBranch is the branch a session works on. The prefix is what makes the
-// branches findable: `git branch --list 'motita/*'` lists exactly the sessions.
-func sessionBranch(sessionID string) string {
-	return "motita/" + sessionID
-}
-
-// countSessionWorktrees counts the checkouts in a worktree listing that are a
-// SESSION's worktree of the project at projectDir.
-//
-// The project's own checkout is in the same listing and is not one: it is where
-// the user works, not a session. It is told apart by path, which is the only
-// thing that distinguishes the two - every entry in this listing is a checkout
-// of the same repository, and a branch-based rule would both count the project's
-// own branch and miss a session whose worktree has been moved.
-//
-// A prunable registration is NOT counted. Its directory is gone, so there is no
-// checkout to speak of, and reporting it as a live worktree would give the user
-// a number they cannot reconcile with anything on disk.
-//
-// The count is also bounded by what the PROJECT can still reach, and this is the
-// half that was missing. Measured on a real gateway: a project whose sessions had
-// all been deleted still reported "worktrees: 1", because a registration from a
-// run whose checkout lived outside the workspace was counted like any other. A
-// number the user cannot reconcile with anything they can see is worse than no
-// number: it says work is out there and offers no way to find it.
-//
-// `live` are the session ids the gateway still holds. A registration whose path
-// does not end in one of them is not a session's worktree any more - whatever it
-// is, it is not something this project can name or clean up.
-func countSessionWorktrees(all []gitx.Worktree, projectDir string, live map[string]bool) int {
-	n := 0
-	for _, w := range all {
-		if w.Prunable {
-			continue
+// isolatedDir gives a continued session the worktree its predecessor had: an isolated session
+// continues isolated. A worktree that cannot be made falls back to the project's folder.
+func (s *Server) isolatedDir(ctx context.Context, p *Project, id string) string {
+	dir := p.Dir
+	if wt, err := s.sessionWorktree(ctx, p.Dir, id); err != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
+				"id", id, "project", p.Dir, "error", err.Error())
 		}
-		if gitx.SamePath(w.Path, projectDir) {
-			continue
-		}
-		if !isLiveSessionWorktree(w.Path, live) {
-			continue
-		}
-		n++
+	} else {
+		dir = wt
 	}
-	return n
-}
-
-// isLiveSessionWorktree reports whether a checkout's path is a session of this
-// gateway's worktree.
-//
-// The path is `<workspace>/worktrees/<session id>`, so the LAST element carries
-// the id and that is what is asked about. The id has to be one the gateway still
-// holds: a registration left by a deleted session, or by a session of a project
-// that no longer exists, would otherwise keep the count up for ever.
-//
-// A nil map means the caller cannot say which sessions are live, and then the
-// answer is "yes" for every checkout: hiding a real one is the worse mistake, and
-// the number is decoration either way.
-func isLiveSessionWorktree(path string, live map[string]bool) bool {
-	if live == nil {
-		return true
-	}
-	id := filepath.Base(filepath.Clean(path))
-	return live[id]
+	s.attachProjectRepos(ctx, p, dir, id)
+	return dir
 }

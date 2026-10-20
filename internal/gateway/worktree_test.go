@@ -39,7 +39,7 @@ func TestProjectSessionRunsInItsOwnWorktree(t *testing.T) {
 	pid := makeProject(t, srv, "repo")
 	p := srv.projectOf(pid)
 
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}
@@ -177,7 +177,7 @@ func TestSessionWorktreeIsCreatedOnceAndReused(t *testing.T) {
 // createSessionIn creates a session in a project and returns its status.
 func createSessionIn(t *testing.T, srv *Server, projectID string) SessionStatus {
 	t.Helper()
-	w := post(t, srv, "/v1/sessions", `{"project_id":"`+projectID+`"}`, testToken)
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+projectID+`","isolate":true}`, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create session: %d %s", w.Code, w.Body.String())
 	}

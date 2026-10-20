@@ -18,11 +18,8 @@ import "./report.css";
 import { copyText } from "./clipboard";
 import { t, useLang, type LangSetting } from "./i18n";
 import { SettingsModal } from "./Settings";
-import { GitConnectModal } from "./GitConnect";
-import { RepoPicker } from "./RepoPicker";
 import { FolderBrowser } from "./FolderBrowser";
-import { knownRepos } from "./projectRepos";
-import { connectedAccounts } from "./gitApi";
+import { GitConnectModal } from "./GitConnect";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
 import { choose } from "./choose";
 import { modeOf } from "./appParse";
@@ -55,7 +52,6 @@ import {
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
-import { GitIdentityModal } from "./GitIdentityModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
 import { Subtitles } from "./Subtitles";
@@ -63,6 +59,7 @@ import { ProjectHintCard } from "./ProjectHintCard";
 import { ToastCard } from "./ToastCard";
 import { UpgradeModal } from "./UpgradeModal";
 import { SkillLibraryModal } from "./SkillLibraryModal";
+import { NotesModal } from "./NotesModal";
 import { ArtifactsModal } from "./ArtifactsModal";
 import { ScheduledTasksModal } from "./ScheduledTasksModal";
 import { useVisualViewport } from "./viewport";
@@ -626,45 +623,34 @@ function SettingsHost() {
   );
 }
 
-// ProjectModals are the dialogs of a project: editing it, creating it, and the git host
-// connections it can need.
+// pickerStart is the folder the folder browser opens on: the project's own for the edit dialog, and
+// the one already chosen for the new project dialog.
+function pickerStart(
+  picker: "new" | "edit",
+  projects: ReturnType<typeof useApp>["projects"],
+): string | undefined {
+  return choose(
+    picker === "edit",
+    projects.editProject?.path || projects.editProject?.dir,
+    projects.newProjectPath,
+  );
+}
+
+// ProjectModals are the dialogs of a project: editing it and creating it, with the folder browser
+// either one can open, and the git host connection a pull request can need.
 function ProjectModals() {
   const { api: request, projects } = useApp();
-  const {
-    editProject,
-    showNewProject,
-    showGitIdentity,
-    showRepoPicker,
-    gitAccounts,
-    gitConnect,
-    folderPicker,
-  } = projects;
+  const { editProject, showNewProject, folderPicker, gitConnect } = projects;
   return (
     <>
       {editProject && <EditProjectModal p={editProject} />}
       {showNewProject && <NewProjectModal />}
-      {showGitIdentity && <GitIdentityModal />}
       {folderPicker && (
         <FolderBrowser
           api={request}
-          start={choose(
-            folderPicker === "edit",
-            projects.editProject?.path || projects.editProject?.dir,
-            projects.newProjectPath,
-          )}
+          start={pickerStart(folderPicker, projects)}
           onPick={projects.pickFolder}
           onClose={projects.closeFolderPicker}
-        />
-      )}
-      {showRepoPicker && gitAccounts && (
-        <RepoPicker
-          api={request}
-          accounts={connectedAccounts(gitAccounts)}
-          onPick={projects.pickRepo}
-          onClose={projects.closeRepoPicker}
-          onConnectAnother={projects.connectAnother}
-          onAuthRequired={projects.pickerAuthRequired}
-          known={knownRepos(projects.repoCatalog)}
         />
       )}
       {gitConnect && (
@@ -705,12 +691,13 @@ function DialogModals() {
 
 // LibraryModals are the skill library, the image preview, the artifacts and the scheduled tasks.
 function LibraryModals() {
-  const { skills, artifacts, schedules } = useApp();
+  const { skills, artifacts, schedules, notes } = useApp();
   return (
     <>
       {skills.showSkillLibrary && <SkillLibraryModal />}
       <ImagePreview />
       {artifacts.showArtifacts && <ArtifactsModal />}
+      {notes.showNotes && <NotesModal />}
       {schedules.showScheduledTasks && <ScheduledTasksModal />}
     </>
   );

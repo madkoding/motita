@@ -67,7 +67,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	id := onlyProjectID(t, srv)
 	src := sourceRepo(t)
 
-	code, p := addRepo(t, srv, id, `{"git_url":"`+src+`"}`)
+	code, p := addRepo(t, srv, id, `{"shared":true,"git_url":"`+src+`"}`)
 	if code != http.StatusCreated || len(p.Repos) != 1 || p.Repos[0].Name != "web-client" ||
 		p.Repos[0].MainBranch != "main" {
 		t.Fatalf("adding a repository: %d %+v", code, p)
@@ -113,7 +113,7 @@ func TestAddingARepositoryToAProjectWithASession(t *testing.T) {
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+src+`","name":"web-client"}`); code != http.StatusConflict {
 		t.Errorf("a second repository of the same name: %d", code)
 	}
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	var second SessionStatus
 	_ = json.Unmarshal(created.Body.Bytes(), &second)
 	if _, ok, _ := gitx.LiveWorktreeAt(context.Background(), clone,
@@ -139,6 +139,10 @@ func TestAddingARepositoryIsValidated(t *testing.T) {
 	}
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+filepath.Join(t.TempDir(), "missing")+`"}`); code < 400 {
 		t.Errorf("a clone that fails: %d", code)
+	}
+	missing := filepath.Join(t.TempDir(), "missing")
+	if code, _ := addRepo(t, srv, id, `{"shared":true,"git_url":"`+missing+`"}`); code < 400 {
+		t.Errorf("a shared clone that fails: %d", code)
 	}
 	// A project that cannot be saved does not keep the repository.
 	tmp := filepath.Join(srv.projects.dir, id+".json.tmp")
@@ -207,7 +211,8 @@ func TestRemovingARepositoryThatCannotBeSaved(t *testing.T) {
 func TestDeletingASessionGivesBackItsOtherRepositories(t *testing.T) {
 	srv, _, sessionID := newSessionInProject(t)
 	id := onlyProjectID(t, srv)
-	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"lib"}`); code != http.StatusCreated {
+	lib := `{"shared":true,"git_url":"` + sourceRepo(t) + `","name":"lib"}`
+	if code, _ := addRepo(t, srv, id, lib); code != http.StatusCreated {
 		t.Fatalf("adding: %d", code)
 	}
 	clone := srv.projectOf(id).Repos[0].Dir
@@ -374,10 +379,14 @@ func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
 func bareProject(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	srv, ws := projectServer(t)
+	dir := filepath.Join(ws, "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, dir)
 	if code, _ := createProject(t, srv, `{"title":"proj","dir":"proj"}`); code != http.StatusCreated {
 		t.Fatalf("creating the project: %d", code)
 	}
-	dir := filepath.Join(ws, "proj")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -474,8 +483,8 @@ func TestTheMainRepositoryStaysWhenItCannotMove(t *testing.T) {
 	}
 	c.releaseRunSlot()
 
-	// So is a session with a copy of its own.
-	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`"}`, testToken)
+	// So is a session with a copy of its own: an isolated session runs in a worktree.
+	created := post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("creating a second session: %d %s", created.Code, created.Body)
 	}
@@ -626,5 +635,18 @@ func TestTheMainRepositoryMoveNamesTheBranchAndTellsTheSessions(t *testing.T) {
 	}
 	if !strings.Contains(svc.note, "- proj (") {
 		t.Errorf("the session must be told about the repositories: %q", svc.note)
+	}
+}
+
+// A repository on a branch with no usual name has no main branch to carry over: the moved one
+// starts on the default.
+func TestTheMainRepositoryOnAnOddBranchMovesWithTheDefaultMain(t *testing.T) {
+	srv, projectDir, id := bareProject(t)
+	mustGit(t, projectDir, "branch", "-m", "trunk")
+	if code, _ := detachMain(t, srv, id); code != http.StatusOK {
+		t.Fatalf("moving the main repository: %d", code)
+	}
+	if got := srv.projectOf(id).MainBranch; got != defaultMainBranch {
+		t.Errorf("the main branch is %q", got)
 	}
 }

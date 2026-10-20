@@ -174,6 +174,73 @@ function ProjectPreview({
   );
 }
 
+// FolderChoice is what happens to the project's folder: it stays on disk (the default) or it is
+// removed with its contents, which a protected folder never allows and the rest needs the person to
+// confirm. The uncommitted work the removal would discard is listed once it is chosen.
+function FolderChoice({ preview }: { preview: DeletionPreview | null }) {
+  const { wipeFolder, setWipeFolder, wipeAck, setWipeAck } = useApp().deletion;
+  if (!preview?.folder) {
+    return null;
+  }
+  const protectedReason = preview.folder_protected;
+  const changes = preview.folder_changes || [];
+  return (
+    <fieldset class="mb-5" data-testid="folder-choice">
+      <legend class="text-xs text-[#9a9aaa] mb-2">
+        {t("What happens to the project's folder?")}{" "}
+        <span class="font-mono break-all">{preview.folder}</span>
+      </legend>
+      <label class="flex items-start gap-2 text-sm text-[#e8e8ea] mb-1.5">
+        <input
+          type="radio"
+          name="project-folder"
+          checked={!wipeFolder}
+          onChange={() => setWipeFolder(false)}
+        />
+        <span>{t("Keep the folder and its files")}</span>
+      </label>
+      <label class="flex items-start gap-2 text-sm text-[#e8e8ea]">
+        <input
+          type="radio"
+          name="project-folder"
+          checked={wipeFolder}
+          disabled={!!protectedReason}
+          onChange={() => setWipeFolder(true)}
+        />
+        <span>{t("Delete the folder and everything in it")}</span>
+      </label>
+      {!!protectedReason && (
+        <p class="text-xs text-[#9a9aaa] mt-1.5" data-testid="folder-protected">
+          {t("This folder cannot be deleted from here:")} {protectedReason}
+        </p>
+      )}
+      {wipeFolder && (
+        <div class={DANGER_BOX + " mt-3 mb-0"}>
+          {changes.length > 0 && (
+            <ul class="space-y-1 max-h-32 overflow-y-auto mb-2">
+              {changes.map((c) => (
+                <ChangeLine key={c.path} c={c} />
+              ))}
+            </ul>
+          )}
+          <label class="flex items-start gap-2 text-xs text-[#e8e8ea]">
+            <input
+              type="checkbox"
+              checked={wipeAck}
+              onChange={(e) => setWipeAck(e.currentTarget.checked)}
+            />
+            <span>
+              {t(
+                "I understand the folder and all its files will be deleted for good.",
+              )}
+            </span>
+          </label>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
 // asksPreview says the target has a checkout whose contents the modal shows before deleting.
 function asksPreview(target: ConfirmTarget): boolean {
   if (target.type === "project") {
@@ -182,13 +249,28 @@ function asksPreview(target: ConfirmTarget): boolean {
   return target.type === "session" && target.id !== "default";
 }
 
+// isWaiting says the confirm button must wait: the preview is still being read, or the removal of
+// the folder has not been acknowledged yet.
+function isWaiting(
+  target: ConfirmTarget,
+  previewLoading: boolean,
+  wipes: boolean,
+  wipeAck: boolean,
+): boolean {
+  return (asksPreview(target) && previewLoading) || (wipes && !wipeAck);
+}
+
 // confirmLabel is what the confirm button says: the deletion under way, or whether it discards.
 function confirmLabel(
   deleting: boolean,
   preview: DeletionPreview | null,
+  wipe: boolean,
 ): string {
   if (deleting) {
     return t("Deleting…");
+  }
+  if (wipe) {
+    return t("Delete project and folder");
   }
   const discards =
     !!preview && (preview.count > 0 || !!preview.inspection_failed);
@@ -202,8 +284,11 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
     previewLoading,
     deleting,
     confirmDeletion,
+    wipeFolder,
+    wipeAck,
   } = useApp().deletion;
-  const waiting = asksPreview(target) && previewLoading;
+  const wipes = target.type === "project" && wipeFolder;
+  const waiting = isWaiting(target, previewLoading, wipes, wipeAck);
   return (
     <ModalBackdrop onClose={cancelDelete}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-sm p-5 shadow-2xl">
@@ -222,7 +307,13 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
           <SessionPreview preview={deletionPreview} loading={previewLoading} />
         )}
         {target.type === "project" && (
-          <ProjectPreview preview={deletionPreview} loading={previewLoading} />
+          <>
+            <ProjectPreview
+              preview={deletionPreview}
+              loading={previewLoading}
+            />
+            <FolderChoice preview={deletionPreview} />
+          </>
         )}
 
         <div class="flex gap-2">
@@ -236,7 +327,7 @@ export function ConfirmDeleteModal({ target }: { target: ConfirmTarget }) {
               // reads the same wherever it appears.
               <span class="state-working inline-block" aria-hidden="true" />
             )}
-            {confirmLabel(deleting, deletionPreview)}
+            {confirmLabel(deleting, deletionPreview, wipes)}
           </button>
           <button
             class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"

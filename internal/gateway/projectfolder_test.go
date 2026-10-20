@@ -44,6 +44,10 @@ func TestTwoProjectsNeverShareAFolder(t *testing.T) {
 // project's too.
 func TestProjectInDirSeesNestingBothWays(t *testing.T) {
 	srv, ws := projectServer(t)
+	if err := os.MkdirAll(filepath.Join(ws, "shop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, filepath.Join(ws, "shop"))
 	if code, _ := createProject(t, srv, `{"title":"Shop","dir":"shop"}`); code != http.StatusCreated {
 		t.Fatal(code)
 	}
@@ -72,6 +76,10 @@ func TestProjectInDirSeesNestingBothWays(t *testing.T) {
 // twice can share one; deleting either keeps the folder for the other.
 func TestDeletingAProjectKeepsAFolderAnotherOneStandsOn(t *testing.T) {
 	srv, ws := projectServer(t)
+	if err := os.MkdirAll(filepath.Join(ws, "shop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, filepath.Join(ws, "shop"))
 	if code, _ := createProject(t, srv, `{"title":"Shop","dir":"shop"}`); code != http.StatusCreated {
 		t.Fatal(code)
 	}
@@ -93,6 +101,10 @@ func TestDeletingAProjectKeepsAFolderAnotherOneStandsOn(t *testing.T) {
 // instead of the root that holds every project; any other free session keeps its folder.
 func TestRestoreKeepsEverySessionInItsPlace(t *testing.T) {
 	srv, ws := projectServer(t)
+	if err := os.MkdirAll(filepath.Join(ws, "shop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, filepath.Join(ws, "shop"))
 	if code, _ := createProject(t, srv, `{"title":"Shop","dir":"shop"}`); code != http.StatusCreated {
 		t.Fatal(code)
 	}
@@ -155,16 +167,20 @@ func TestAnIntegratedSessionRunsNothing(t *testing.T) {
 // recorded URL asks the checkout, and a checkout with no origin has none.
 func TestThePullRequestGoesToTheProjectsRepository(t *testing.T) {
 	srv, ws := projectServer(t)
+	if err := os.MkdirAll(filepath.Join(ws, "shop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, filepath.Join(ws, "shop"))
 	if code, _ := createProject(t, srv, `{"title":"Shop","dir":"shop"}`); code != http.StatusCreated {
 		t.Fatal(code)
 	}
 	id := onlyProjectID(t, srv)
 	c := &conversation{id: "s", projectID: id, workspace: filepath.Join(ws, "shop")}
-	if got := srv.projectRemote(context.Background(), c); got != "" {
+	if got := srv.repoRemote(context.Background(), c, c.workspace); got != "" {
 		t.Errorf("no URL and no origin: %q", got)
 	}
 	mustGit(t, c.workspace, "remote", "add", "origin", "https://example.com/elsewhere.git")
-	if got := srv.projectRemote(context.Background(), c); got != "https://example.com/elsewhere.git" {
+	if got := srv.repoRemote(context.Background(), c, c.workspace); got != "https://example.com/elsewhere.git" {
 		t.Errorf("no URL recorded: the checkout's origin, got %q", got)
 	}
 	p := srv.projectOf(id)
@@ -172,7 +188,7 @@ func TestThePullRequestGoesToTheProjectsRepository(t *testing.T) {
 	if err := srv.projects.save(*p); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.projectRemote(context.Background(), c); got != "https://example.com/shop.git" {
+	if got := srv.repoRemote(context.Background(), c, c.workspace); got != "https://example.com/shop.git" {
 		t.Errorf("the project's own repository wins: %q", got)
 	}
 }

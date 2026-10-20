@@ -103,6 +103,9 @@ type conversation struct {
 	// is a free-standing session. A session that belongs to a project runs
 	// with its workspace set to the project's directory.
 	projectID string
+	// parentID is the main session of the project when this one is a thread of it, empty for a
+	// main session or a free-standing one. See sessionthreads.go.
+	parentID string
 	// workspace is the directory the agent works in. It is empty for a
 	// free-standing session. For a session in a git project it is the
 	// session's OWN worktree, and projectDir below is the project it branches
@@ -407,13 +410,15 @@ func (c *conversation) stopRunForDeletion(timeout time.Duration) (bool, bool) {
 
 // SessionStatus is what the list and create endpoints report about one conversation.
 type SessionStatus struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	ProjectID string    `json:"project_id,omitempty"`
-	Branch    string    `json:"branch,omitempty"`
-	Created   time.Time `json:"created"`
-	LastUsed  time.Time `json:"last_used"`
-	Running   bool      `json:"running"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	ProjectID string `json:"project_id,omitempty"`
+	// ParentID is the id of the project's main session when this session is one of its threads.
+	ParentID string    `json:"parent_id,omitempty"`
+	Branch   string    `json:"branch,omitempty"`
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"last_used"`
+	Running  bool      `json:"running"`
 	// PRWatch is the state of the session's pull request while the gateway follows its CI.
 	PRWatch *PRWatchView `json:"pr_watch,omitempty"`
 	// Mergeable reports whether the session has work that can be integrated
@@ -464,10 +469,6 @@ type SessionStatus struct {
 	// sessions on two models can be told apart without opening them.
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
-	// Warning is set only on the answer to a create, when the session starts in a project whose
-	// base branch could not be brought up to date (offline, diverged): the session exists and
-	// runs from the checkout as it is, and the client says so.
-	Warning string `json:"warning,omitempty"`
 }
 
 // setAgents keeps the latest snapshot of the run's agents.
@@ -499,8 +500,9 @@ func runningSubagents(agents []agent.AgentInfo) int {
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed,
-		Running: c.running, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
+	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
+		Created: c.created, LastUsed: c.lastUsed, Running: c.running, AutoApprove: c.autoApprove,
+		AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()
@@ -543,9 +545,7 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	// this session has done. An unreadable tree reports 0 rather than an
 	// error: the count decorates a badge, and a badge that cannot be
 	// computed should be absent rather than break the sidebar.
-	if n, err := gitx.WorkingTreeChanges(ctx, c.workspace); err == nil {
-		st.Changes = n
-	}
+	st.Changes = c.changesAcrossRepos(ctx)
 	// Mergeable compares the session's branch against the PROJECT's branch,
 	// not against whatever the session's own checkout is on. A session with
 	// its own worktree reports its own branch (motita/<id>), so comparing
@@ -564,7 +564,7 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	// Integrate: the session's branch exists and has commits the base
 	// branch does not. A session that never ran in a worktree has no
 	// branch, and one whose work was already merged has none ahead.
-	mergeable := c.branchAhead(ctx, base)
+	mergeable := st.Worktree != "" && c.branchAhead(ctx, base)
 	// Work the agent WROTE is integrable before anything has committed it. Nothing commits
 	// what an agent writes (the default final action is none), so a session's branch sits
 	// exactly where it branched and a rule that asks only for commits ahead left the button
@@ -706,7 +706,7 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	// that is, and that each repository is committed on its own.
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
 		home, _ := os.UserHomeDir()
-		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) +
+		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) + dependenciesNote(p) +
 			projectInstructionsNote(workspace, home))
 	}
 }
@@ -938,6 +938,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		// Git asks for a free-standing session's directory to be a git repository (true) or a
 		// plain directory (false). Absent, the gateway's free_session_git setting decides.
 		Git *bool `json:"git"`
+		// Isolate gives a project session a worktree of its own instead of the project's folder,
+		// for working in parallel on one repository.
+		Isolate bool `json:"isolate"`
+		// ParentID names the main session to open a thread of, in a worktree of its own. It is what
+		// the agent of a project's main session asks for; absent, the session is a main one.
+		ParentID string `json:"parent_id"`
 	}
 	// The body is optional: a client that sends no body gets a free-standing session.
 	if r.ContentLength > 0 {
@@ -963,21 +969,6 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The first thing a project session does is bring in the latest changes of the
-	// project's base branch, so its worktree branches from current code and not from
-	// whatever the checkout held when it was last touched. A project with no origin has
-	// nothing to bring in; any other failure (offline, diverged) does not refuse the
-	// session: the person asked to work, and a checkout that is a little behind is better
-	// than no session at all. The answer carries a warning that says so.
-	warning := ""
-	if project != nil {
-		warning = pullProjectBase(r.Context(), project)
-		if warning != "" {
-			s.warn("the session starts from the checkout as it is: the project could not be updated",
-				"project", project.Dir, "error", warning)
-		}
-	}
-
 	conv, err := s.createSession()
 	switch {
 	case errors.Is(err, ErrCeilingReached):
@@ -985,65 +976,45 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
-		s.placeAndSave(conv, body.ProjectID, project, body.Git)
-		writeJSON(w, http.StatusCreated, createdStatus(conv, warning))
+		isolate := s.joinThread(conv, body.ProjectID, body.ParentID, body.Isolate)
+		s.placeAndSave(conv, body.ProjectID, project, body.Git, isolate)
+		writeJSON(w, http.StatusCreated, conv.status())
 	}
-}
-
-// createdStatus is the answer to a create: the session, and the warning when the project could
-// not be updated first.
-func createdStatus(conv *conversation, warning string) SessionStatus {
-	st := conv.status()
-	if warning != "" {
-		st.Warning = "the project's base branch could not be updated: " + warning +
-			"; the session starts from the checkout as it is"
-	}
-	return st
 }
 
 // placeAndSave puts a new session where it runs - in the project when one was named, in a
 // directory of its own otherwise - and only then saves it.
-func (s *Server) placeAndSave(conv *conversation, projectID string, project *Project, git *bool) {
+func (s *Server) placeAndSave(conv *conversation, projectID string, project *Project, git *bool, isolate bool) {
 	if project != nil {
-		s.placeInProject(conv, projectID, project)
+		s.placeInProject(conv, projectID, project, isolate)
 	} else {
 		s.placeFreeStanding(conv, s.wantsGit(git))
 	}
+	s.offerThreads(conv)
 	s.saveSession(conv)
 }
 
-// pullProjectBase brings in the latest changes of the project's base branch, so a new session's
-// worktree branches from current code. A project with no origin has nothing to bring in. It
-// returns why the pull failed, or "" when there was nothing to do or it worked.
-func pullProjectBase(ctx context.Context, project *Project) string {
-	base := gitx.Display(ctx, project.Dir)
-	if base == "" || !gitx.HasRemote(ctx, project.Dir) {
-		return ""
-	}
-	if err := gitx.PullFastForward(ctx, project.Dir, base); err != nil {
-		return err.Error()
-	}
-	return ""
-}
-
-// placeInProject makes a new session run in the project: in a worktree of its own, made BEFORE the
-// session is saved so a session that is registered is one that can actually run. A failure to
-// branch falls back to the project's own directory.
-func (s *Server) placeInProject(conv *conversation, projectID string, project *Project) {
+// placeInProject makes a new session run in the project's folder, the way Claude Code works in a
+// project: one folder, whatever repositories it holds. Two sessions in a project share its files;
+// a session that wants a branch of its own gets it when it proposes its work (see
+// ensureProposalBranch).
+//
+// isolate is the opt-in for parallel work on one repository: the session then runs in a worktree of
+// its own, made BEFORE the session is saved so a session that is registered is one that can actually
+// run. A failure to branch falls back to the project's own directory.
+func (s *Server) placeInProject(conv *conversation, projectID string, project *Project, isolate bool) {
 	dir := project.Dir
-	if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
-		s.warn("the session will run in the project directory: its own worktree could not be created",
-			"id", conv.id, "project", project.Dir, "error", wtErr.Error())
-	} else {
-		dir = wt
+	if isolate {
+		if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
+			s.warn("the session will run in the project directory: its own worktree could not be created",
+				"id", conv.id, "project", project.Dir, "error", wtErr.Error())
+		} else {
+			dir = wt
+		}
+		s.attachProjectRepos(context.Background(), project, dir, conv.id)
 	}
-	s.attachProjectRepos(context.Background(), project, dir, conv.id)
 	conv.setProjectID(projectID, dir, project.Dir)
 	conv.svc.SetWorkspace(dir)
-	// The procedures learned here belong to THIS project. A session inside a
-	// project runs its worktree, but the project's checkout is what the scope
-	// is anchored to: a worktree is removed when the session ends, and a
-	// procedure written into one would be lost with it.
 	scopeProceduresTo(conv.svc, project.Dir)
 	applyRuntimeTo(conv.svc, project, dir)
 }

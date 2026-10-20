@@ -20,6 +20,27 @@ the result, and that read is what goes in the answer.
 | "it is 15% faster"  | the change looks faster | both numbers, same machine, same input, before and after           |
 | "the page shows it" | the CSS rule exists     | the computed style / the pixel                                     |
 
+## A check that could not run is not a check that passed
+
+A check ends in one of THREE states: **passed** (it ran and its output names the tests), **failed**
+(it ran and something failed) and **could not run** (a missing tool or dependency, no network). Say
+which, every time.
+
+- Never make the third look like the first. No executable that only exits 0 in place of
+  `vendor/bin/phpunit`, nothing written by hand into `vendor/` or `node_modules/`, no edit of a
+  `test`/`lint`/`build` script so it succeeds without running the tool. `composer test` printing
+  success over a script that runs nothing is a lie with a green exit status.
+- A missing tool is a problem to solve first: look at what is installed, install the dependencies
+  the way the project does (`composer install`, `npm ci`, `pip install -r`), and use the
+  framework's own runner (`php artisan test`, `rails test`, `manage.py test`).
+- When the environment will not allow it (`curl error 6`, `Could not resolve host`, no
+  `vendor/autoload.php` and no way to create it), stop and report **not validated**, with the
+  command and the cause. Say what you verified some other way, and what the person has to run.
+- **Check before you advise on files or git.** A claim about a repository, a worktree or a
+  directory ("the original repo registers this worktree") comes from `git worktree list`,
+  `git -C <dir> rev-parse --git-common-dir`, `ls` - not from the folder's name. Do it before
+  recommending that anything be moved or deleted.
+
 ## New code ships with its own proof
 
 If you added or changed behaviour — a component, a function, a handler, a flag — the task is not

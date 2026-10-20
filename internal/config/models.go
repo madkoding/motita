@@ -130,7 +130,7 @@ func (c *Config) validateModels() error {
 			return fmt.Errorf("models.%s: %w", kind, err)
 		}
 	}
-	return nil
+	return c.validateThinking()
 }
 
 // SetTaskModels writes the models block into the configuration at path, in place and atomically:

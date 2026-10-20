@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,10 @@ const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
 // It exists so the transport can be tested without running an agent: a test that needs an LLM
 // to check a status code is a test that fails for the wrong reason, and it would be slow enough
 // that people stop running it.
+// fakeCfgMu guards every fake's cfg between a handler placing a session and the background code
+// index reading it. One lock for all fakes: a lock inside the struct would make copies of it a vet error.
+var fakeCfgMu sync.Mutex
+
 type fakeService struct {
 	plan      func(ctx context.Context, prompt string, progress func(string, ...any)) (string, error)
 	task      func(ctx context.Context, task string, progress func(string, ...any)) (string, error)
@@ -84,7 +89,11 @@ func (f *fakeService) ResetConversation() {
 	f.reset++
 	f.transcript = nil
 }
-func (f *fakeService) Config() config.Config { return f.cfg }
+func (f *fakeService) Config() config.Config {
+	fakeCfgMu.Lock()
+	defer fakeCfgMu.Unlock()
+	return f.cfg
+}
 func (f *fakeService) SetReasoning(level string) {
 	// The fake keeps the two fields together and reports them through Config(), exactly like the
 	// production runner: a fake that only recorded the level would let a test pass over the state
@@ -137,7 +146,9 @@ func (f *fakeService) RestoreTranscript(turns []agent.DialogueTurn) {
 
 func (f *fakeService) SetWorkspace(dir string) {
 	if dir != "" {
+		fakeCfgMu.Lock()
 		f.cfg.Agent.WorkspaceDir = dir
+		fakeCfgMu.Unlock()
 	}
 }
 
@@ -171,7 +182,11 @@ func newTestServer(t *testing.T, svc Service, mutators ...func(*Options)) *Serve
 		t.Fatalf("Start: %v", err)
 	}
 	go func() { _ = srv.Serve() }()
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() {
+		// A background update of a main branch must end before the test's directories are removed.
+		srv.mainRefresh.wait()
+		_ = srv.Close(context.Background())
+	})
 	return srv
 }
 

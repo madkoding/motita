@@ -1,5 +1,4 @@
 // The edit project modal: title, description, the main branch and how its pull requests are merged.
-import { useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -8,8 +7,6 @@ import { branchChoices } from "./appFormat";
 import { IconClose } from "./icons";
 import type { EditProjectDraft } from "./appTypes";
 import { EDIT_PROJECT, PR_MAX_FIXES_LIMIT } from "./appConst";
-import { ReposSection } from "./ReposField";
-import { connectedAccounts } from "./gitApi";
 import { ProjectIndexPanel } from "./ProjectIndexPanel";
 
 // The look of the dialog's fields.
@@ -212,41 +209,35 @@ function FolderField({ p, patch }: { p: EditProjectDraft; patch: Patch }) {
   );
 }
 
-// EditRepos are the project's repositories. They change at once, not on Save.
-function EditRepos({ p }: { p: EditProjectDraft }) {
-  const {
-    repoBusy,
-    repoConflict,
-    addProjectRepo,
-    removeProjectRepo,
-    detachProjectMain,
-    syncProjectRepo,
-    gitAccounts,
-    openOtherRepoPicker,
-    repoCatalog,
-  } = useApp().projects;
-  const connected = !!gitAccounts && connectedAccounts(gitAccounts).length > 0;
-  const onRemove = useCallback(
-    (name: string, force: boolean) => void removeProjectRepo(name, force),
-    [removeProjectRepo],
-  );
+// GitOptions folds away what has a sensible default: the branch and the pull requests' rules.
+function GitOptions({ p, patch }: { p: EditProjectDraft; patch: Patch }) {
   return (
-    <ReposSection
-      main={p.mainRepo}
-      repos={p.repos}
-      busy={repoBusy}
-      conflict={repoConflict}
-      onRemove={onRemove}
-      onAdd={addProjectRepo}
-      onMoveMain={detachProjectMain}
-      onSync={syncProjectRepo}
-      onChoose={choose(connected, openOtherRepoPicker, undefined)}
-      catalog={repoCatalog}
-      projectId={p.id}
-      hint={t(
-        "Changes here apply right away. Other projects that use a repository keep it.",
-      )}
-    />
+    <details
+      class="group rounded-xl border border-white/10 bg-black/15"
+      data-testid="edit-project-git"
+    >
+      <summary class="cursor-pointer select-none px-3 py-2.5 text-sm text-[#9a9aaa] hover:text-[#e8e8ea] list-none flex items-center gap-2">
+        <svg
+          class="transition-transform group-open:rotate-90"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        {t("Git and pull requests")}
+      </summary>
+      <div class="px-3 pb-3 space-y-4">
+        <BranchFields p={p} patch={patch} />
+        <PullRequestFields p={p} patch={patch} />
+      </div>
+    </details>
   );
 }
 
@@ -300,10 +291,8 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
             />
           </div>
           <FolderField p={p} patch={patch} />
-          <EditRepos p={p} />
           {api && <ProjectIndexPanel api={api} id={p.id} />}
-          <BranchFields p={p} patch={patch} />
-          <PullRequestFields p={p} patch={patch} />
+          <GitOptions p={p} patch={patch} />
         </div>
         <div class="flex gap-2 mt-5">
           <button
