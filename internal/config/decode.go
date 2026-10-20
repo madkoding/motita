@@ -175,6 +175,13 @@ func assignValue(value any, field reflect.Value, path string) error {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return assignInt(value, field, path)
 
+	case reflect.Ptr:
+		fresh := reflect.New(field.Type().Elem())
+		if err := assignValue(value, fresh.Elem(), path); err != nil {
+			return err
+		}
+		field.Set(fresh)
+
 	case reflect.Float32, reflect.Float64:
 		f, err := toFloat(value)
 		if err != nil {

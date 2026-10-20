@@ -367,14 +367,13 @@ func TestDecodeNestedBlockIntoASimpleField(t *testing.T) {
 }
 
 // TestDecodeUnsupportedFieldType: a field type the decoder does not support (a
-// pointer, for instance) must be named in the error instead of being skipped.
+// channel, for instance) must be named in the error instead of being skipped.
 func TestDecodeUnsupportedFieldType(t *testing.T) {
 	type weird struct {
-		Pointer *int `yaml:"pointer"`
+		Channel chan int `yaml:"channel"`
 	}
 	var w weird
-	n := 3
-	if err := Decode(map[string]any{"pointer": &n}, &w); err == nil {
+	if err := Decode(map[string]any{"channel": 3}, &w); err == nil {
 		t.Error("an unsupported field type must be refused")
 	}
 }
@@ -687,5 +686,19 @@ func TestEnvironmentRejectsInvalidDurationsInTheLeftoverBlocks(t *testing.T) {
 				t.Errorf("the error must name the variable: %v", err)
 			}
 		})
+	}
+}
+
+// TestDecodeOptionalTemperature: an unset temperature stays nil, a set one (even 0) is kept.
+func TestDecodeOptionalTemperature(t *testing.T) {
+	c := Default()
+	if c.LLM.Temperature != nil || c.LLM.TemperatureOr(0.2) != 0.2 {
+		t.Fatal("the default temperature must be unset")
+	}
+	if err := Decode(map[string]any{"llm": map[string]any{"temperature": int64(0)}}, &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.LLM.Temperature == nil || c.LLM.TemperatureOr(0.2) != 0 {
+		t.Errorf("an explicit 0 must be kept: %v", c.LLM.Temperature)
 	}
 }
