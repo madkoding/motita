@@ -178,6 +178,13 @@ function useNewProjectForm() {
   const [newProjectPodman, setNewProjectPodman] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
 
+  // chooseNewProjectPath sets the folder picked and, when no name was typed yet, names the project
+  // after it; a name already typed stays.
+  const chooseNewProjectPath = (path: string) => {
+    setNewProjectPath(path);
+    setNewProjectTitle((cur) => choose(cur.trim(), cur, folderNameOf(path)));
+  };
+
   // resetNewProject empties the New project dialog once the project exists.
   const resetNewProject = () => {
     setShowNewProject(false);
@@ -208,6 +215,7 @@ function useNewProjectForm() {
     setNewProjectDir,
     newProjectPath,
     setNewProjectPath,
+    chooseNewProjectPath,
     newProjectSure,
     setNewProjectSure,
     newProjectPodman,
@@ -488,7 +496,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const folders = useFolderPicker(
     api,
     form.showNewProject || !!edit.editProject,
-    form.setNewProjectPath,
+    form.chooseNewProjectPath,
     edit.patchEditProject,
   );
 

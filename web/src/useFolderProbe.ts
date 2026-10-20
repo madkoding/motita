@@ -1,5 +1,5 @@
 // useFolderProbe looks at the folder typed or picked for a new project: whether it exists, whether it
-// sits among the system's own files, and the folders that could complete the path. It asks the
+// sits among the system's own files. It asks the
 // gateway's folder listing (see fsApi) after a short pause, so typing does not ask for every key.
 import { useEffect, useState } from "preact/hooks";
 import { listDirs, type DirListing } from "./fsApi";
@@ -12,11 +12,9 @@ export interface FolderProbe {
   state: string;
   // The reason the gateway gave when it refused to show the path at all.
   reason: string;
-  // The paths of the folders found at (or, for a missing folder, next to) the path.
-  suggestions: string[];
 }
 
-const IDLE: FolderProbe = { state: "idle", reason: "", suggestions: [] };
+const IDLE: FolderProbe = { state: "idle", reason: "" };
 export const PROBE_DELAY_MS = 350;
 
 // parentOf is the path without its last name, keeping the separator of a root ("/" or "C:\").
@@ -41,7 +39,6 @@ async function probeOf(api: Api, path: string): Promise<FolderProbe> {
   return {
     state: choose(listing.sensitive, "sensitive", "exists"),
     reason: "",
-    suggestions: listing.dirs.map((d) => d.path),
   };
 }
 
@@ -53,16 +50,10 @@ async function missingOrRefused(
   reason: string,
 ): Promise<FolderProbe> {
   try {
-    const near = await listDirs(api, parentOf(path));
-    return {
-      state: "missing",
-      reason,
-      suggestions: near.dirs
-        .map((d) => d.path)
-        .filter((p) => p.startsWith(path)),
-    };
+    await listDirs(api, parentOf(path));
+    return { state: "missing", reason };
   } catch {
-    return { state: "refused", reason, suggestions: [] };
+    return { state: "refused", reason };
   }
 }
 
