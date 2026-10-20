@@ -47,6 +47,9 @@ function useFriction(api: Api) {
 // how Motita works: it is there to be read.
 export function FrictionSettings({ api }: { api: Api }) {
   const { view, err, busy, asking, setAsking, clear } = useFriction(api);
+  const askToClear = useCallback(() => setAsking(true), [setAsking]);
+  const dontClear = useCallback(() => setAsking(false), [setAsking]);
+  const confirmClear = useCallback(() => void clear(), [clear]);
   if (view === undefined) {
     return <p class="settings-card-note text-xs">{t("Loading…")}</p>;
   }
@@ -74,7 +77,7 @@ export function FrictionSettings({ api }: { api: Api }) {
             class={dangerBtn}
             data-testid="friction-clear"
             disabled={busy}
-            onClick={() => setAsking(true)}
+            onClick={askToClear}
           >
             {t("Clear the journal")}
           </button>
@@ -91,8 +94,8 @@ export function FrictionSettings({ api }: { api: Api }) {
           confirmLabel={t("Clear the journal")}
           danger
           busy={busy}
-          onConfirm={() => void clear()}
-          onCancel={() => setAsking(false)}
+          onConfirm={confirmClear}
+          onCancel={dontClear}
         />
       )}
       {err && (

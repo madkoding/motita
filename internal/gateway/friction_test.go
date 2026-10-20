@@ -17,10 +17,10 @@ import (
 
 func TestAFailedRunLeavesAnEntryButACancelledOneDoesNot(t *testing.T) {
 	svc := &fakeService{task: func(_ context.Context, task string, _ func(string, ...any)) (string, error) {
-		switch task {
-		case "boom":
+		if task == "boom" {
 			return "", errors.New("the model said no")
-		case "cancel":
+		}
+		if task == "cancel" {
 			return "", context.Canceled
 		}
 		return "", nil // no result, no error
@@ -78,8 +78,14 @@ func TestARefusedApprovalIsJournaled(t *testing.T) {
 	conv.stateMu.Unlock()
 	srv.deliverApproval(conv, ask(), false, "")
 	got := srv.friction.Entries()
-	if len(got) != 2 || got[0].Kind != friction.KindDenied || got[0].Why != friction.WhyPerson || got[0].Turn != 0 ||
-		got[1].Turn != 4 || got[1].Text != "rm -rf /tmp/x" {
+	if len(got) != 2 {
+		t.Fatalf("entries = %+v", got)
+	}
+	first, second := got[0], got[1]
+	if first.Kind != friction.KindDenied || first.Why != friction.WhyPerson || first.Turn != 0 {
+		t.Fatalf("entries = %+v", got)
+	}
+	if second.Turn != 4 || second.Text != "rm -rf /tmp/x" {
 		t.Fatalf("entries = %+v", got)
 	}
 }
@@ -128,7 +134,8 @@ func TestTheSummaryIsServedInTheInterfaceLanguageAndCanBeCleared(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.Total != 2 || v.Counts["error"] != 2 || len(v.Repeated) != 1 || !strings.Contains(v.Text, "Runs that ended with a failure: 2") {
+	week := "Runs that ended with a failure: 2"
+	if v.Total != 2 || v.Counts["error"] != 2 || len(v.Repeated) != 1 || !strings.Contains(v.Text, week) {
 		t.Errorf("view = %+v", v)
 	}
 
@@ -141,7 +148,8 @@ func TestTheSummaryIsServedInTheInterfaceLanguageAndCanBeCleared(t *testing.T) {
 	}
 	es := newTestServer(t, &fakeService{}, func(o *Options) { o.UILanguage = "es" })
 	es.recordFriction(friction.Entry{Kind: friction.KindError, Text: "boom"})
-	if text := get(t, es, "/v1/friction", testToken).Body.String(); !strings.Contains(text, "Ejecuciones que terminaron con un fallo: 1") {
+	spanish := "Ejecuciones que terminaron con un fallo: 1"
+	if text := get(t, es, "/v1/friction", testToken).Body.String(); !strings.Contains(text, spanish) {
 		t.Errorf("not in Spanish: %s", text)
 	}
 
@@ -202,8 +210,8 @@ func TestFlaggingAnAnswerKeepsTheRealContext(t *testing.T) {
 			flagged = e
 		}
 	}
-	if flagged.Note != "it renamed the wrong one" || flagged.Mode != "task" || flagged.Steps != 2 ||
-		flagged.Related != 1 || flagged.Session != DefaultSession {
+	asked := flagged.Note == "it renamed the wrong one" && flagged.Mode == "task" && flagged.Steps == 2
+	if !asked || flagged.Related != 1 || flagged.Session != DefaultSession {
 		t.Errorf("flagged = %+v", flagged)
 	}
 	if !strings.HasPrefix(flagged.Answer, "done rename the file") || strings.Contains(flagged.Ask, "sk-aaaa") ||

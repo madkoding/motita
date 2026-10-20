@@ -26,7 +26,9 @@ func TestRecordScrubsShortensAndStamps(t *testing.T) {
 	j := memory(t)
 	secret := "sk-" + strings.Repeat("a", 30)
 	long := strings.Repeat("é", textLimit+50)
-	if err := j.Record(Entry{Kind: KindError, Text: "deploy\nfailed with " + secret, Ask: long, Note: "  spaced   out ", Session: "s1"}); err != nil {
+	entry := Entry{Kind: KindError, Text: "deploy\nfailed with " + secret, Ask: long}
+	entry.Note, entry.Session = "  spaced   out ", "s1"
+	if err := j.Record(entry); err != nil {
 		t.Fatal(err)
 	}
 	got := j.Entries()
@@ -293,7 +295,8 @@ func TestSummaryText(t *testing.T) {
 	for _, want := range []string{
 		"In the last 7 days, this got in the way (10 in all):", "Runs that ended with a failure: 2",
 		"Steps that had to be tried again: 2", "Actions that were refused: 4", "Answers marked as not good: 2",
-		"2x failure: boom", "2x retry: again", "2x refused action: rm (you refused it)", "2x refused action: cron (refused: nobody was there to ask)", "wrong — about: do it", "(no comment)",
+		"2x failure: boom", "2x retry: again", "2x refused action: rm (you refused it)",
+		"2x refused action: cron (refused: nobody was there to ask)", "wrong — about: do it", "(no comment)",
 	} {
 		if !strings.Contains(en, want) {
 			t.Errorf("English summary lacks %q:\n%s", want, en)
@@ -317,7 +320,8 @@ func TestSummaryText(t *testing.T) {
 	}
 	// Only the kinds that happened get a line, and a week with no flagged answers has no such list.
 	only := Summarize([]Entry{{At: epoch, Kind: KindError, Text: "x"}}, epoch, WeekDays).Text(i18n.EN)
-	if strings.Contains(only, "tried again") || strings.Contains(only, "Came up") || strings.Contains(only, "Answers you") {
+	noisy := strings.Contains(only, "tried again") || strings.Contains(only, "Came up")
+	if noisy || strings.Contains(only, "Answers you") {
 		t.Errorf("empty sections were drawn:\n%s", only)
 	}
 }

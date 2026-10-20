@@ -289,14 +289,14 @@ function IconStop() {
   );
 }
 
+type FlagState = "idle" | "open" | "sending" | "sent";
+
 // FlagButton is "this was not right" on an answer: it opens a small form for what went wrong (the
 // words are optional) and writes the answer, with what the gateway knows of its turn, in the
 // friction journal. The journal is local and changes nothing by itself.
 function FlagButton({ m }: { m: Message }) {
   const { running, lastMsgId, flagAnswer } = useTurn();
-  const [state, setState] = useState<"idle" | "open" | "sending" | "sent">(
-    "idle",
-  );
+  const [state, setState] = useState<FlagState>("idle");
   const [note, setNote] = useState("");
   const [failed, setFailed] = useState(false);
   // An answer still streaming has no end yet, and one without a turn has nothing to point at.
@@ -311,11 +311,7 @@ function FlagButton({ m }: { m: Message }) {
     setState(choose(ok, "sent", "open"));
   };
   if (state === "sent") {
-    return (
-      <span class="flag-msg-done" role="status">
-        {t("Noted, thanks")}
-      </span>
-    );
+    return <output class="flag-msg-done">{t("Noted, thanks")}</output>;
   }
   return (
     <>
