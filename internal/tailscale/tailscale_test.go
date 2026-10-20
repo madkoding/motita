@@ -135,7 +135,7 @@ func TestServeAndUnserveRunTheDocumentedCommands(t *testing.T) {
 	if err := c.Unserve(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"serve --bg --https=443 http://127.0.0.1:7477", "serve --https=443 off"}
+	want := []string{"serve --bg --https=443 http://127.0.0.1:7477", "serve --https=443 --set-path=/ off"}
 	if strings.Join(f.calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("calls = %q, want %q", f.calls, want)
 	}
