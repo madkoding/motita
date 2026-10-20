@@ -565,7 +565,7 @@ func TestOpenAIReasoningModelsGetTheParametersTheyAccept(t *testing.T) {
 				APIKey:      "k",
 				BaseURL:     srv.URL,
 				MaxTokens:   50,
-				Temperature: 0.2,
+				Temperature: ptr(0.2),
 				MaxAttempts: 1,
 			},
 			nil,

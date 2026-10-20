@@ -71,11 +71,33 @@ func acceptsTemperature(model string) bool {
 	return false
 }
 
-// setAnthropicSampling adds the sampling parameters the configured model accepts.
+// defaultTemperature is what OpenAI-style and Gemini requests use when none is configured.
+const defaultTemperature = 0.2
+
+// setAnthropicSampling adds the temperature when the user set one, or when the model is a
+// legacy one that still takes it. Otherwise the API default applies.
 func (c *Client) setAnthropicSampling(body map[string]any) {
-	if acceptsTemperature(c.cfg.Model) {
-		body["temperature"] = c.cfg.Temperature
+	switch {
+	case c.cfg.Temperature != nil:
+		body["temperature"] = *c.cfg.Temperature
+	case acceptsTemperature(c.cfg.Model):
+		body["temperature"] = defaultTemperature
 	}
+}
+
+// postAnthropic posts a Messages request. If the API refuses the temperature for this model
+// (HTTP 400 naming it), the request is repeated once without it, so a model released after
+// acceptsTemperature was written still works.
+func (c *Client) postAnthropic(ctx context.Context, body map[string]any) ([]byte, error) {
+	data, err := c.post(ctx, "/v1/messages", body)
+	var he *HTTPError
+	if _, has := body["temperature"]; has && errors.As(err, &he) && he.Code == 400 &&
+		strings.Contains(he.Body, "temperature") {
+		c.log.Warn("the model refuses temperature; asking again without it", "model", c.cfg.Model)
+		delete(body, "temperature")
+		return c.post(ctx, "/v1/messages", body)
+	}
+	return data, err
 }
 
 func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string, error) {
@@ -91,7 +113,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 		body["system"] = system
 	}
 
-	data, err := c.post(ctx, "/v1/messages", body)
+	data, err := c.postAnthropic(ctx, body)
 	if err != nil {
 		return "", err
 	}
@@ -135,7 +157,7 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 		body["system"] = system
 	}
 
-	data, err := c.post(ctx, "/v1/messages", body)
+	data, err := c.postAnthropic(ctx, body)
 	if err != nil {
 		return Reply{}, err
 	}
