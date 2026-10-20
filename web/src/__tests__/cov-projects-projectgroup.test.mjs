@@ -206,13 +206,17 @@ test("the repositories inside a plain folder are each updated from the menu", as
   const s = store({ rowMenu: { id: "p1" } });
   const withRepos = {
     ...P,
-    nested_repos: [{ path: "api" }, { path: "group/web", branch: "main" }],
+    nested_repos: [
+      { path: "api" },
+      { path: "group/web", branch: "main", changes: 3 },
+      { path: "lib", branch: "dev" },
+    ],
   };
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: withRepos }));
   const items = m.qa("[data-testid=refresh-nested]");
   assert.deepEqual(
     items.map((b) => b.textContent),
-    ["Update api", "Update group/web"],
+    ["Update api", "Update group/webmain · 3±", "Update libdev"],
   );
   assert.match(items[1].title, /group\/web/);
   await click(items[1]);

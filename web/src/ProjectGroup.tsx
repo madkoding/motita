@@ -76,6 +76,12 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           }}
         >
           {tf("Update {repo}", { repo: r.path })}
+          {r.branch && (
+            <span class="ml-1 opacity-60" data-testid="nested-state">
+              {r.branch}
+              {choose(!!r.changes, ` · ${r.changes}±`, "")}
+            </span>
+          )}
         </button>
       ))}
       <button
