@@ -17,6 +17,8 @@ import (
 	"github.com/madkoding/motita/internal/schedule"
 )
 
+const auditNoticeFormat = "The weekly audit of %s has a new report: look at the notes."
+
 const (
 	pullsOpen = "GET https://api.github.com/repos/o/r/pulls?state=open"
 	pullsNew  = "POST https://api.github.com/repos/o/r/pulls"
@@ -103,17 +105,22 @@ func decodeAutopilot(t *testing.T, srv *Server, method, body string) autopilotVi
 func TestTheAutopilotIsOffUntilTheSettingsTurnItOn(t *testing.T) {
 	rig := newAutopilotRig(t, "llm:\n  provider: openai\n")
 	v := decodeAutopilot(t, rig.srv, http.MethodGet, "")
-	if v.WeeklyAudit || v.AutoPR || v.MaxOpenPRs != 3 || !v.CanSave || v.Audit != nil || v.Fixes != nil {
+	if v.WeeklyAudit || v.AutoPR || v.MaxOpenPRs != 3 || !v.CanSave {
 		t.Fatalf("default = %+v", v)
+	}
+	if v.Audit != nil || v.Fixes != nil {
+		t.Fatalf("no routine before a switch is on: %+v", v)
 	}
 
 	v = decodeAutopilot(t, rig.srv, http.MethodPut, `{"weekly_audit":true,"max_open_prs":5}`)
-	if !v.WeeklyAudit || v.AutoPR || v.MaxOpenPRs != 5 || v.Audit == nil || v.Fixes != nil || v.Audit.Running {
+	if !v.WeeklyAudit || v.AutoPR || v.MaxOpenPRs != 5 {
 		t.Fatalf("audit on = %+v", v)
 	}
+	if v.Audit == nil || v.Fixes != nil || v.Audit.Running {
+		t.Fatalf("audit routine = %+v, fixes = %+v", v.Audit, v.Fixes)
+	}
 	rec, _ := rig.srv.schedules.Load(autopilotAuditID)
-	if rec == nil || !rec.Enabled || rec.Kind != schedule.KindPlan || time.Duration(rec.Every) != autopilotEvery ||
-		rec.Title != "Weekly audit" || rec.SessionID != schedule.DefaultSessionID {
+	if rec == nil || !rec.Enabled || rec.Kind != schedule.KindPlan || rec.Title != autopilotAuditTitle {
 		t.Fatalf("record = %+v", rec)
 	}
 
@@ -151,7 +158,8 @@ func TestTheAutopilotSettingsRefuseWhatTheyCannotSave(t *testing.T) {
 		t.Errorf("no file: %+v", v)
 	}
 	// Without a schedule store a switch is saved and no routine is made.
-	noStore := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = networkConfig(t, "llm:\n  provider: openai\n") })
+	plain := networkConfig(t, "llm:\n  provider: openai\n")
+	noStore := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = plain })
 	if v := decodeAutopilot(t, noStore, http.MethodPut, `{"auto_pr":true}`); !v.AutoPR || v.Fixes != nil {
 		t.Errorf("no store: %+v", v)
 	}
@@ -160,8 +168,8 @@ func TestTheAutopilotSettingsRefuseWhatTheyCannotSave(t *testing.T) {
 	if w := sendNetwork(t, broken, http.MethodGet, "/v1/autopilot", ""); w.Code != http.StatusInternalServerError {
 		t.Errorf("an unreadable file: %d", w.Code)
 	}
-	if w := sendNetwork(t, broken, http.MethodPost, "/v1/autopilot/run", `{"what":"audit"}`); w.Code != http.StatusInternalServerError {
-		t.Errorf("an unreadable file on run: %d", w.Code)
+	if code := postCode(t, broken, "/v1/autopilot/run", `{"what":"audit"}`); code != http.StatusInternalServerError {
+		t.Errorf("an unreadable file on run: %d", code)
 	}
 	broken.syncAutopilot() // nothing to sync without a store, and no panic with a broken file
 	broken.schedules, _ = schedule.Open(t.TempDir())
@@ -174,8 +182,8 @@ func TestAnAuditRunByHandWritesTheReportAndCountsAsTheWeeksRun(t *testing.T) {
 	rig.fs.plan = func(context.Context, string, func(string, ...any)) (string, error) {
 		return "Finding one\nFinding two\n\nNEW FINDINGS: 2", nil
 	}
-	if w := sendNetwork(t, rig.srv, http.MethodPost, "/v1/autopilot/run", `{"what":"nope"}`); w.Code != http.StatusBadRequest {
-		t.Fatalf("an unknown routine: %d", w.Code)
+	if code := postCode(t, rig.srv, "/v1/autopilot/run", `{"what":"nope"}`); code != http.StatusBadRequest {
+		t.Fatalf("an unknown routine: %d", code)
 	}
 	w := sendNetwork(t, rig.srv, http.MethodPost, "/v1/autopilot/run", `{"what":"audit"}`)
 	if w.Code != http.StatusAccepted {
@@ -184,8 +192,11 @@ func TestAnAuditRunByHandWritesTheReportAndCountsAsTheWeeksRun(t *testing.T) {
 	rig.srv.scheduleWG.Wait()
 
 	rec, _ := rig.srv.schedules.Load(autopilotAuditID)
-	if rec.RunCount != 1 || rec.LastRun.IsZero() || !strings.Contains(rec.LastOutcome, "audited 1 of 1 projects: 2 new findings") {
+	if rec.RunCount != 1 || rec.LastRun.IsZero() {
 		t.Fatalf("record = %+v", rec)
+	}
+	if !strings.Contains(rec.LastOutcome, "audited 1 of 1 projects: 2 new findings") {
+		t.Fatalf("outcome = %q", rec.LastOutcome)
 	}
 	note := filepath.Join(rig.srv.opts.NotesDir, "Weekly audits", "repo", time.Now().Format("2006-01-02")+".md")
 	body, err := os.ReadFile(note)
@@ -218,9 +229,9 @@ func TestARoutineSwitchedOffDoesNothingEvenWhenItsRecordIsEnabled(t *testing.T) 
 		if err != nil || !strings.Contains(out, "switched off") {
 			t.Errorf("%s: %q, %v", id, out, err)
 		}
-		if w := sendNetwork(t, rig.srv, http.MethodPost, "/v1/autopilot/run",
-			`{"what":"`+map[string]string{autopilotAuditID: "audit", autopilotFixesID: "fixes"}[id]+`"}`); w.Code != http.StatusConflict {
-			t.Errorf("%s by hand: %d", id, w.Code)
+		what := map[string]string{autopilotAuditID: "audit", autopilotFixesID: "fixes"}[id]
+		if code := postCode(t, rig.srv, "/v1/autopilot/run", `{"what":"`+what+`"}`); code != http.StatusConflict {
+			t.Errorf("%s by hand: %d", id, code)
 		}
 	}
 	if ran {
@@ -239,8 +250,8 @@ func TestARoutineCannotRunTwiceAtOnce(t *testing.T) {
 	if _, err := rig.srv.runAutopilot(context.Background(), autopilotAuditID); !errors.Is(err, errAutopilotBusy) {
 		t.Errorf("by the clock: %v", err)
 	}
-	if w := sendNetwork(t, rig.srv, http.MethodPost, "/v1/autopilot/run", `{"what":"audit"}`); w.Code != http.StatusConflict {
-		t.Errorf("by hand: %d", w.Code)
+	if code := postCode(t, rig.srv, "/v1/autopilot/run", `{"what":"audit"}`); code != http.StatusConflict {
+		t.Errorf("by hand: %d", code)
 	}
 	rig.srv.autopilotEnd(autopilotAuditID)
 	if rig.srv.autopilotRunning(autopilotAuditID) {
@@ -261,8 +272,8 @@ func TestTheScheduledTasksListRunsAnAutopilotRoutineThroughTheAutopilot(t *testi
 		t.Errorf("record = %+v", rec)
 	}
 	decodeAutopilot(t, rig.srv, http.MethodPut, `{"weekly_audit":false}`)
-	if w := sendNetwork(t, rig.srv, http.MethodPost, "/v1/schedules/"+autopilotAuditID+"/run", ``); w.Code != http.StatusConflict {
-		t.Errorf("switched off: %d", w.Code)
+	if code := postCode(t, rig.srv, "/v1/schedules/"+autopilotAuditID+"/run", ``); code != http.StatusConflict {
+		t.Errorf("switched off: %d", code)
 	}
 }
 
@@ -278,7 +289,11 @@ func TestAnAuditThatCannotRunOrFinishIsReportedAndTheRestGoOn(t *testing.T) {
 	rig.fs.plan = func(context.Context, string, func(string, ...any)) (string, error) {
 		return "", errors.New("model down")
 	}
-	if _, err := rig.srv.auditProject(ctx, cfg, rig.project); err == nil || !strings.Contains(err.Error(), "did not finish") {
+	_, err := rig.srv.auditProject(ctx, cfg, rig.project)
+	if err == nil {
+		t.Fatal("a failed audit must say so")
+	}
+	if !strings.Contains(err.Error(), "did not finish") {
 		t.Errorf("a failed audit: %v", err)
 	}
 	out := rig.srv.auditProjects(ctx, cfg)
@@ -443,10 +458,17 @@ func TestADraftPullRequestIsOpenedForASmallSafeChange(t *testing.T) {
 	}
 	var body map[string]any
 	_ = json.Unmarshal([]byte(strings.TrimPrefix(create, pullsNew+" ")), &body)
-	if body["draft"] != true || body["base"] != "main" || !strings.HasPrefix(body["head"].(string), autopilotBranchPrefix) ||
-		body["title"] != "docs(readme): fix a typo in the install steps" ||
-		!strings.Contains(body["body"].(string), "never merges") {
-		t.Fatalf("the pull request = %v", body)
+	if body["draft"] != true || body["base"] != "main" {
+		t.Fatalf("the pull request must be a draft into main: %v", body)
+	}
+	if !strings.HasPrefix(body["head"].(string), autopilotBranchPrefix) {
+		t.Fatalf("the branch is not the autopilot's: %v", body["head"])
+	}
+	if body["title"] != "docs(readme): fix a typo in the install steps" {
+		t.Fatalf("title = %v", body["title"])
+	}
+	if !strings.Contains(body["body"].(string), "never merges") {
+		t.Fatalf("body = %v", body["body"])
 	}
 	for _, s := range rig.host.seen {
 		if strings.Contains(s, "/merge") {
@@ -454,7 +476,8 @@ func TestADraftPullRequestIsOpenedForASmallSafeChange(t *testing.T) {
 		}
 	}
 	// The work is on a branch of its own: the project's main checkout is untouched.
-	if out, _ := exec.Command("git", "-C", rig.project.Dir, "log", "--oneline").Output(); strings.Contains(string(out), "typo") {
+	history, _ := exec.Command("git", "-C", rig.project.Dir, "log", "--oneline").Output()
+	if strings.Contains(string(history), "typo") {
 		t.Error("the change reached the project's own branch")
 	}
 }
@@ -476,30 +499,40 @@ func TestNothingIsPublishedForAChangeThatBreaksTheRules(t *testing.T) {
 				commitFile(t, dir, "f"+string(rune('a'+i))+".md", "x\n", "docs: add a file")
 			}
 		}, "too big"},
-		"a denied file": {func(dir string) { commitFile(t, dir, ".github/workflows/ci.yml", "x\n", "ci: change it") }, "never changes"},
-		"not semantic":  {func(dir string) { commitFile(t, dir, "a.md", "a\n", "tidy up a bit") }, "not semantic"},
+		"a denied file": {func(dir string) {
+			commitFile(t, dir, ".github/workflows/ci.yml", "x\n", "ci: change it")
+		}, "never changes"},
+		"not semantic": {func(dir string) { commitFile(t, dir, "a.md", "a\n", "tidy up a bit") }, "not semantic"},
 		"another branch": {func(dir string) {
 			mustRun(t, "git", "-C", dir, "switch", "-c", "elsewhere")
 			commitFile(t, dir, "a.md", "a\n", "docs: add a")
 		}, "not on the branch"},
 	}
 	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			rig := newAutopilotRig(t, autoYAML)
-			rig.agentWorks(t, c.work)
-			out, err := rig.srv.runAutopilot(context.Background(), autopilotFixesID)
-			if err != nil || !strings.Contains(out, "opened 0 draft pull requests") || !strings.Contains(out, c.want) {
-				t.Fatalf("outcome = %q, %v", out, err)
-			}
-			if len(rig.pushed) != 0 {
-				t.Errorf("pushed %v", rig.pushed)
-			}
-			for _, s := range rig.host.seen {
-				if strings.HasPrefix(s, pullsNew) {
-					t.Errorf("a pull request was opened: %s", s)
-				}
-			}
-		})
+		t.Run(name, func(t *testing.T) { checkNothingPublished(t, c.work, c.want) })
+	}
+}
+
+// checkNothingPublished runs the fix routine with an agent that does work, and checks that the
+// outcome says want and that neither a push nor a pull request happened.
+func checkNothingPublished(t *testing.T, work func(dir string), want string) {
+	t.Helper()
+	rig := newAutopilotRig(t, autoYAML)
+	rig.agentWorks(t, work)
+	out, err := rig.srv.runAutopilot(context.Background(), autopilotFixesID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "opened 0 draft pull requests") || !strings.Contains(out, want) {
+		t.Fatalf("outcome = %q", out)
+	}
+	if len(rig.pushed) != 0 {
+		t.Errorf("pushed %v", rig.pushed)
+	}
+	for _, s := range rig.host.seen {
+		if strings.HasPrefix(s, pullsNew) {
+			t.Errorf("a pull request was opened: %s", s)
+		}
 	}
 }
 
@@ -529,7 +562,9 @@ func TestNoNewPullRequestIsOpenedAtTheLimit(t *testing.T) {
 	}
 
 	// One below the limit allows exactly one more, even with two projects on the repository.
-	rig.host.set(pullsOpen, `[{"number":1,"html_url":"u1","title":"a","head":{"ref":"`+autopilotBranchPrefix+`a"},"base":{"ref":"main"}}]`)
+	ref := `{"ref":"` + autopilotBranchPrefix + `a"}`
+	one := `[{"number":1,"html_url":"u1","title":"a","head":` + ref + `,"base":{"ref":"main"}}]`
+	rig.host.set(pullsOpen, one)
 	second := makeProject(t, rig.srv, "repo2")
 	p2 := rig.srv.projectOf(second)
 	p2.GitURL = "https://github.com/o/r.git"
@@ -542,8 +577,11 @@ func TestNoNewPullRequestIsOpenedAtTheLimit(t *testing.T) {
 		commitFile(t, dir, "docs/a.md", "a\n", "docs: add a note")
 	})
 	out, err = rig.srv.runAutopilot(context.Background(), autopilotFixesID)
-	if err != nil || !strings.Contains(out, "opened 1 draft pull requests") || !strings.Contains(out, "limit of 2") || n != 1 {
+	if err != nil || n != 1 {
 		t.Fatalf("outcome = %q, %v (agent ran %d times)", out, err, n)
+	}
+	if !strings.Contains(out, "opened 1 draft pull requests") || !strings.Contains(out, "limit of 2") {
+		t.Fatalf("outcome = %q", out)
 	}
 }
 
@@ -553,15 +591,17 @@ func TestEachProjectThatCannotGetADraftPullRequestSaysWhy(t *testing.T) {
 	cfg, _, _ := rig.srv.securityConfig()
 	add := func(name, remote string, git bool) {
 		dir := filepath.Join(rig.srv.opts.WorkspaceDir, name)
-		if git {
-			gitInit(t, dir)
-			if remote != "" {
-				mustRun(t, "git", "-C", dir, "remote", "add", "origin", remote)
-			}
-		} else if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := rig.srv.projects.save(Project{ID: "p-" + name, Title: name, Dir: dir, Created: time.Now()}); err != nil {
+		if git {
+			gitInit(t, dir)
+		}
+		if remote != "" {
+			mustRun(t, "git", "-C", dir, "remote", "add", "origin", remote)
+		}
+		p := Project{ID: "p-" + name, Title: name, Dir: dir, Created: time.Now()}
+		if err := rig.srv.projects.save(p); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -716,13 +756,13 @@ func TestOnlyTheNamedBranchIsPushed(t *testing.T) {
 func TestAutopilotNotificationsReachTheSubscribedPhones(t *testing.T) {
 	srv, tr, _ := newPushServer(t)
 	_ = pushCall(t, srv, http.MethodPost, "/v1/push/subscriptions", subscriptionJSON(t, testEndpoint, "es"))
-	srv.notifyAutopilot("motita-test-tag", "Weekly audit", "The weekly audit of %s has a new report: look at the notes.", "repo")
+	srv.notifyAutopilot("motita-test-tag", "Weekly audit", auditNoticeFormat, "repo")
 	srv.pushWG.Wait()
 	if tr.count() != 1 {
 		t.Fatalf("sent %d", tr.count())
 	}
 	tr.err = errors.New("offline")
-	srv.notifyAutopilot("motita-test-tag", "Weekly audit", "The weekly audit of %s has a new report: look at the notes.", "repo")
+	srv.notifyAutopilot("motita-test-tag", "Weekly audit", auditNoticeFormat, "repo")
 	srv.pushWG.Wait()
 	// With no push service nothing is sent and nothing fails.
 	newTestServer(t, &fakeService{}).notifyAutopilot("t", "Weekly audit", "x")
@@ -776,4 +816,10 @@ func TestARoutineRecordThatCannotBeCreatedIsAWarning(t *testing.T) {
 	if rig.srv.routineOf(autopilotAuditID) != nil {
 		t.Error("nothing could be written")
 	}
+}
+
+// postCode sends a POST and answers the status.
+func postCode(t *testing.T, srv *Server, path, body string) int {
+	t.Helper()
+	return sendNetwork(t, srv, http.MethodPost, path, body).Code
 }

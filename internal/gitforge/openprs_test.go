@@ -27,8 +27,14 @@ func TestOpenPRsFromKeepsTheBranchesWithThePrefix(t *testing.T) {
 	for name, c := range cases {
 		a, _ := newAPI(t, c.kind, c.routes)
 		got, err := a.OpenPRsFrom(context.Background(), r, `motita/auto-`)
-		if err != nil || len(got) != 1 || got[0].Number != 1 || got[0].URL != "u1" || got[0].Head != "motita/auto-1" {
+		if err != nil || len(got) != 1 {
 			t.Errorf("%s: %+v, %v", name, got, err)
+			continue
+		}
+		want := PullRequest{Number: 1, URL: "u1", Title: "a", Head: "motita/auto-1", State: "open"}
+		got[0].Base = ""
+		if got[0] != want {
+			t.Errorf("%s: %+v", name, got[0])
 		}
 	}
 	// A quote in the prefix never reaches Bitbucket's query language.

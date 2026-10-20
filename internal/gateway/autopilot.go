@@ -56,6 +56,8 @@ const (
 	// autopilotAuditTitle is the title of the session that holds a project's audits. One session per
 	// project is reused every week, so the agent remembers what it already reported.
 	autopilotAuditTitle = "Weekly audit"
+	// autopilotFixTitle is the title of the session of a draft pull request.
+	autopilotFixTitle = "Draft pull request"
 	// autopilotNotesFolder is the folder of the vault the audit reports are written in.
 	autopilotNotesFolder = "Weekly audits"
 	// The size a change may have to be published as a draft: beyond it, a person should look first.
@@ -95,7 +97,7 @@ func isAutopilotID(id string) bool { return id == autopilotAuditID || id == auto
 // autopilotTitle is the title the record of a routine carries, which the scheduled tasks list shows.
 func autopilotTitle(id string) string {
 	if id == autopilotAuditID {
-		return "Weekly audit"
+		return autopilotAuditTitle
 	}
 	return "Draft pull requests"
 }
@@ -313,7 +315,7 @@ func (s *Server) auditProject(ctx context.Context, cfg config.Config, p Project)
 	}
 	s.writeAuditNote(p, result)
 	if n != 0 {
-		s.notifyAutopilot("motita-audit-"+p.ID, "Weekly audit",
+		s.notifyAutopilot("motita-audit-"+p.ID, autopilotAuditTitle,
 			"The weekly audit of %s has a new report: look at the notes.", p.Title)
 	}
 	return n, nil
@@ -450,6 +452,8 @@ func (s *Server) fixProjects(ctx context.Context, cfg config.Config) string {
 		case url != "":
 			open++
 			opened = append(opened, url)
+		default:
+			// The agent found nothing to fix: no pull request, and no problem to report.
 		}
 	}
 	out := fmt.Sprintf("opened %d draft pull requests", len(opened))
@@ -481,7 +485,7 @@ func (s *Server) fixProject(ctx context.Context, p Project, t forgeTarget) (stri
 	// A branch that could not be made is caught by vetChange, which publishes only from the
 	// branch the autopilot named.
 	_ = gitx.SwitchNew(ctx, dir, branch)
-	c.setTitle("Draft pull request")
+	c.setTitle(autopilotFixTitle)
 	start := gitx.HeadRev(ctx, dir)
 	result, err := s.awaitRun(ctx, c, fixTask(branch, s.latestAudit(p)), schedule.KindTask, autopilotFixesID)
 	if err != nil {
@@ -497,7 +501,8 @@ func (s *Server) fixProject(ctx context.Context, p Project, t forgeTarget) (stri
 	if err := pushBranchFn(ctx, s.gitCommandEnv(), dir, branch); err != nil {
 		return "", fmt.Errorf("the branch could not be pushed: %w", err)
 	}
-	pr, err := t.api.CreatePR(ctx, t.remote, gitforge.PROptions{Title: title, Body: body, Head: branch, Base: base, Draft: true})
+	pr, err := t.api.CreatePR(ctx, t.remote,
+		gitforge.PROptions{Title: title, Body: body, Head: branch, Base: base, Draft: true})
 	if err != nil {
 		return "", fmt.Errorf("the pull request could not be opened: %w", err)
 	}
@@ -534,7 +539,8 @@ func (s *Server) vetChange(ctx context.Context, dir, base, branch, start string)
 		lines += ch.Added + ch.Deleted
 	}
 	if len(changes) > autopilotMaxFiles || lines > autopilotMaxLines {
-		return "", "", fmt.Errorf("the change is too big to publish on its own (%d files, %d lines)", len(changes), lines)
+		return "", "", fmt.Errorf("the change is too big to publish on its own (%d files, %d lines)",
+			len(changes), lines)
 	}
 	// ahead lists the newest first: the title is the subject of the last commit made.
 	title = ahead[0].Subject
@@ -547,7 +553,8 @@ func (s *Server) vetChange(ctx context.Context, dir, base, branch, start string)
 	for i := len(ahead) - 1; i >= 0; i-- {
 		b.WriteString("- " + ahead[i].Subject + "\n")
 	}
-	fmt.Fprintf(&b, "\n## How it was checked\n\nThe change is %d files and %d lines. Motita ran the project's own checks ", len(changes), lines)
+	fmt.Fprintf(&b, "\n## How it was checked\n\nThe change is %d files and %d lines. ", len(changes), lines)
+	b.WriteString("Motita ran the project's own checks ")
 	b.WriteString("before committing; the CI of this pull request is the second look.\n")
 	return title, b.String(), nil
 }
@@ -557,12 +564,20 @@ func deniedPath(p string) bool {
 	low := strings.ToLower(path.Clean(strings.ReplaceAll(p, "\\", "/")))
 	base := path.Base(low)
 	for _, d := range autopilotDenied {
-		if strings.HasSuffix(d, "/") && (strings.HasPrefix(low, d) || strings.Contains(low, "/"+d)) ||
-			!strings.HasSuffix(d, "/") && strings.HasPrefix(base, d) {
+		if deniedBy(d, low, base) {
 			return true
 		}
 	}
 	return false
+}
+
+// deniedBy says one entry of the deny list names the path: a folder by its prefix, a file by the
+// start of its name.
+func deniedBy(entry, low, base string) bool {
+	if strings.HasSuffix(entry, "/") {
+		return strings.HasPrefix(low, entry) || strings.Contains(low, "/"+entry)
+	}
+	return strings.HasPrefix(base, entry)
 }
 
 // gitPushBranch pushes one branch to origin: that ref only, as a plain push.

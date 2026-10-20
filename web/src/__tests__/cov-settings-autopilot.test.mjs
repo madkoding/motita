@@ -237,7 +237,8 @@ test("the Spanish words read plainly", () => {
     "Run the weekly check now",
     "Look for small fixes now",
   ]) {
-    assert.ok(es[k] && es[k] !== k, k);
+    assert.ok(es[k], k);
+    assert.notEqual(es[k], k);
   }
   assert.doesNotMatch(Object.values(es).join(" "), /\bautopilot\b/i);
 });

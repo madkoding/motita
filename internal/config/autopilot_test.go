@@ -40,8 +40,10 @@ func TestSetAutopilotWritesOnlyWhatChanged(t *testing.T) {
 		t.Fatalf("loaded = %+v, %v", cfg.Autopilot, err)
 	}
 	body, _ := os.ReadFile(path)
-	if !strings.Contains(string(body), "weekly_audit: true # keep") || !strings.Contains(string(body), "provider: openai") {
-		t.Errorf("the rest of the file must stay: %q", body)
+	for _, keep := range []string{"weekly_audit: true # keep", "provider: openai"} {
+		if !strings.Contains(string(body), keep) {
+			t.Errorf("the rest of the file must stay (%q): %q", keep, body)
+		}
 	}
 	if err := setAutopilot(path, AutopilotChange{}); err != nil {
 		t.Errorf("an empty change is nothing: %v", err)
@@ -56,7 +58,8 @@ func TestSetAutopilotRefusals(t *testing.T) {
 	if err := setAutopilot(diskFile(t, "autopilot: {}\n"), bad); err == nil {
 		t.Error("an inline block must be refused")
 	}
-	if err := setAutopilot(diskFile(t, "llm:\n  provider: openai\n"), AutopilotChange{MaxOpenPRs: ptr(99)}); err == nil {
+	plain := diskFile(t, "llm:\n  provider: openai\n")
+	if err := setAutopilot(plain, AutopilotChange{MaxOpenPRs: ptr(99)}); err == nil {
 		t.Error("a limit that does not validate must be refused")
 	}
 	old := uiCreateTemp

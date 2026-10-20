@@ -190,7 +190,8 @@ func (s *Server) syncRoutine(id string, on bool) {
 	}
 	rec := schedule.Schedule{
 		ID: id, Title: autopilotTitle(id), Task: "Managed from Settings, Upkeep.", Kind: schedule.KindPlan,
-		SessionID: schedule.DefaultSessionID, Every: schedule.Duration(autopilotEvery), Enabled: true, Created: time.Now(),
+		SessionID: schedule.DefaultSessionID, Every: schedule.Duration(autopilotEvery), Enabled: true,
+		Created: time.Now(),
 	}
 	if err := s.schedules.Save(rec); err != nil {
 		s.warn("could not create a routine of the autopilot", "id", id, "error", err.Error())
