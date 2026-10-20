@@ -18,11 +18,8 @@ import "./report.css";
 import { copyText } from "./clipboard";
 import { t, useLang, type LangSetting } from "./i18n";
 import { SettingsModal } from "./Settings";
-import { GitConnectModal } from "./GitConnect";
-import { RepoPicker } from "./RepoPicker";
 import { FolderBrowser } from "./FolderBrowser";
-import { knownRepos } from "./projectRepos";
-import { connectedAccounts } from "./gitApi";
+import { GitConnectModal } from "./GitConnect";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
 import { choose } from "./choose";
 import { modeOf } from "./appParse";
@@ -55,8 +52,6 @@ import {
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { NewProjectModal } from "./NewProjectModal";
-import { NewRepositoryModal } from "./NewRepositoryModal";
-import { GitIdentityModal } from "./GitIdentityModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
 import { Subtitles } from "./Subtitles";
@@ -628,15 +623,12 @@ function SettingsHost() {
   );
 }
 
-// pickerStart is the folder the folder browser opens on: the project's own for the edit dialog, the
-// one already chosen for the new project dialog, and the user's home (none) to pick a repository.
+// pickerStart is the folder the folder browser opens on: the project's own for the edit dialog, and
+// the one already chosen for the new project dialog.
 function pickerStart(
-  picker: "new" | "edit" | "repo",
+  picker: "new" | "edit",
   projects: ReturnType<typeof useApp>["projects"],
 ): string | undefined {
-  if (picker === "repo") {
-    return undefined;
-  }
   return choose(
     picker === "edit",
     projects.editProject?.path || projects.editProject?.dir,
@@ -644,42 +636,21 @@ function pickerStart(
   );
 }
 
-// ProjectModals are the dialogs of a project: editing it, creating it, and the git host
-// connections it can need.
+// ProjectModals are the dialogs of a project: editing it and creating it, with the folder browser
+// either one can open, and the git host connection a pull request can need.
 function ProjectModals() {
-  const { api: request, projects, repositories } = useApp();
-  const {
-    editProject,
-    showNewProject,
-    showGitIdentity,
-    showRepoPicker,
-    gitAccounts,
-    gitConnect,
-    folderPicker,
-  } = projects;
+  const { api: request, projects } = useApp();
+  const { editProject, showNewProject, folderPicker, gitConnect } = projects;
   return (
     <>
       {editProject && <EditProjectModal p={editProject} />}
       {showNewProject && <NewProjectModal />}
-      {repositories.showNewRepository && <NewRepositoryModal />}
-      {showGitIdentity && <GitIdentityModal />}
       {folderPicker && (
         <FolderBrowser
           api={request}
           start={pickerStart(folderPicker, projects)}
           onPick={projects.pickFolder}
           onClose={projects.closeFolderPicker}
-        />
-      )}
-      {showRepoPicker && gitAccounts && (
-        <RepoPicker
-          api={request}
-          accounts={connectedAccounts(gitAccounts)}
-          onPick={projects.pickRepo}
-          onClose={projects.closeRepoPicker}
-          onConnectAnother={projects.connectAnother}
-          onAuthRequired={projects.pickerAuthRequired}
-          known={knownRepos(projects.repoCatalog)}
         />
       )}
       {gitConnect && (

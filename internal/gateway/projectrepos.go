@@ -34,9 +34,7 @@ import (
 // ProjectRepo is one of a project's other repositories.
 type ProjectRepo struct {
 	// Name is the repository's folder name, and what the user calls it.
-	Name string `json:"name"`
-	// RepoID is the Repository record of this repository.
-	RepoID string `json:"repo_id,omitempty"`
+	Name   string `json:"name"`
 	GitURL string `json:"git_url"`
 	Dir    string `json:"dir"`
 	// MainBranch is the branch the clone was settled on when it was added.
@@ -145,18 +143,11 @@ func (s *Server) handleAddProjectRepo(w http.ResponseWriter, r *http.Request) {
 		// not cloned. It needs the whole disk allowed (Settings → Security), like a project
 		// outside the workspace.
 		Path string `json:"path"`
-		// RepoID links a repository that is already recorded (GET /v1/repos): the project takes a
-		// worktree of its one clone, on a branch of the project's own.
-		RepoID string `json:"repo_id"`
 		// Shared keeps one clone of the repository for every project that uses it (a worktree of
 		// it on a branch of the project's own) instead of a clone of its own.
 		Shared bool `json:"shared"`
 	}
 	if !s.decodeBody(w, r, &body) {
-		return
-	}
-	if strings.TrimSpace(body.RepoID) != "" {
-		s.linkRepository(w, r, p, strings.TrimSpace(body.RepoID), body.Name)
 		return
 	}
 	if strings.TrimSpace(body.Path) != "" {
@@ -398,37 +389,44 @@ func releaseSharedRepos(ctx context.Context, p *Project) {
 	}
 }
 
-// releaseProjectFolder is what a deleted project gives back: its own folder (projectDir, "" when the
-// project does not own one) with what it held in the catalog, or, in a folder of the user's own,
-// which stays, the repositories motita put inside it: their worktrees and the branches they hold in
-// the shared and local repositories are the project's.
+// goesWithProject reports whether deleting p removes repo's clone: a shared repository never does
+// (its worktree is released, the clone stays in the catalog); any other goes with the folder it is
+// in, which only happens when the deletion removes that folder (wipe).
+func (s *Server) goesWithProject(p *Project, repo ProjectRepo, wipe bool) bool {
+	return wipe && !repo.Shared && (s.deletesClone(repo) || pathWithinOrSame(p.Dir, repo.Dir))
+}
+
+// releaseProjectFolder is what a deleted project gives back: with its folder removed (projectDir,
+// "" when it stays) the catalog registrations of what it held, or, in a folder that stays, the
+// worktrees motita put inside it and the branches they hold in the shared repositories.
 func (s *Server) releaseProjectFolder(ctx context.Context, p *Project, projectDir string) {
 	switch {
+	case p == nil:
 	case projectDir != "":
-		// Best effort: the project is already gone, and a folder that resists (a file in use)
-		// is left for the user rather than failing a deletion that has otherwise happened.
-		_ = os.RemoveAll(projectDir)
+		removeProjectFolder(projectDir)
 		releaseSharedRepos(ctx, p)
-	case p != nil && s.usersFolder(p.Dir):
+	case s.projectInDir(p.Dir, p.ID) == nil:
 		for _, repo := range p.Repos {
-			s.discardRepoFolder(ctx, p, repo)
+			if repo.Shared {
+				s.discardRepoFolder(ctx, p, repo)
+			}
 		}
 	default:
-		// A folder another project also stands on, or no project: nothing of it is this one's.
+		// A folder another project also stands on: nothing of it is this one's.
 	}
 }
 
 // discardedRepoChanges are the uncommitted changes deleting p throws away in the project's folders
-// of its other repositories (the worktrees of shared ones always go; a clone of its own goes with a
-// folder the project owns), each path under the repository's folder, and the folders they are in.
-func (s *Server) discardedRepoChanges(ctx context.Context, p *Project) map[string][]gitx.Change {
+// of its other repositories (the worktrees of shared ones always go; any other clone goes only with
+// the folder, when wipe), each path under the repository's folder, and the folders they are in.
+func (s *Server) discardedRepoChanges(ctx context.Context, p *Project, wipe bool) map[string][]gitx.Change {
 	out := map[string][]gitx.Change{}
 	if p == nil {
 		return out
 	}
 	for _, repo := range p.Repos {
 		var changes []gitx.Change
-		if repo.Shared || s.ownsProjectDir(p.Dir) {
+		if repo.Shared || s.goesWithProject(p, repo, wipe) {
 			// A folder that cannot be read is not proven to hold work; the deletion's own
 			// confirmation covers it.
 			changes, _ = worktreeInspectList(ctx, p.repoPath(repo))

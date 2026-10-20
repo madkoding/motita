@@ -4,6 +4,7 @@ import { useCallback, useRef } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
+import { groupThreads } from "./threads";
 import { useLongPress } from "./domHooks";
 import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
@@ -17,7 +18,7 @@ const ITEM_PLAIN =
 
 // ProjectMenu is the "⋯" menu of a project.
 function ProjectMenu({ p }: { p: ProjectInfo }) {
-  const { menus, projects, actions } = useApp();
+  const { menus, projects } = useApp();
   return (
     <RowMenu>
       <button
@@ -44,20 +45,6 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
-      <button
-        class={ITEM_PLAIN}
-        data-testid="new-isolated-session"
-        title={t(
-          "Works in a worktree of its own, so it can run in parallel with the others.",
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          void actions.createSession(p.id, true);
-          menus.closeRowMenu();
-        }}
-      >
-        {t("New isolated session")}
-      </button>
       <button
         class={ITEM_PLAIN}
         data-testid="refresh-main"
@@ -105,54 +92,6 @@ function StaleFact({ p }: { p: ProjectInfo }) {
       <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
         {t("outdated")}
       </span>
-    </span>
-  );
-}
-
-// BehindFact says how many of the project's shared repositories its folder has left behind their
-// main branch: they hold work of their own, so an integration did not bring them up to date.
-function BehindFact({ p }: { p: ProjectInfo }) {
-  const behind = (p.repos ?? []).filter((r) => r.behind);
-  if (behind.length === 0) {
-    return null;
-  }
-  return (
-    <span
-      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
-      title={tf("Behind their main branch: {names}", {
-        names: behind.map((r) => r.name).join(", "),
-      })}
-      data-testid="project-behind"
-    >
-      <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-        {t("behind")}
-      </span>
-      <span class="tabular-nums text-[#f0a040]">{behind.length}</span>
-    </span>
-  );
-}
-
-// SharedFact says the project still has repositories that share one clone with other projects (the
-// way they were added before projects became plain folders): the edit dialog can make each one the
-// project's own.
-function SharedFact({ p }: { p: ProjectInfo }) {
-  const shared = (p.repos ?? []).filter((r) => r.shared && !r.local);
-  if (shared.length === 0) {
-    return null;
-  }
-  return (
-    <span
-      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-white/5"
-      title={tf(
-        "Shared clones: {names}. Edit the project to make them independent.",
-        { names: shared.map((r) => r.name).join(", ") },
-      )}
-      data-testid="project-shared"
-    >
-      <span class="text-[#9a9aaa] uppercase tracking-wide text-[9px]">
-        {t("shared")}
-      </span>
-      <span class="tabular-nums text-[#9a9aaa]">{shared.length}</span>
     </span>
   );
 }
@@ -241,8 +180,6 @@ function ProjectHeader({
           </svg>
           <IconFolder size={12} class="flex-none text-accent/60" />
           <span class="project-name truncate">{p.title}</span>
-          <BehindFact p={p} />
-          <SharedFact p={p} />
           <StaleFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever
@@ -275,7 +212,9 @@ function ProjectHeader({
 export function ProjectGroup({ p }: { p: ProjectInfo }) {
   const { lists } = useApp();
   const isCollapsed = lists.collapsedProjects.has(p.id);
-  const projectSessions = lists.sessions.filter((s) => s.project_id === p.id);
+  const projectSessions = groupThreads(
+    lists.sessions.filter((s) => s.project_id === p.id),
+  );
   return (
     <div class="mt-3.5 rounded-xl bg-white/2 border border-white/6">
       <ProjectHeader p={p} collapsed={isCollapsed} />

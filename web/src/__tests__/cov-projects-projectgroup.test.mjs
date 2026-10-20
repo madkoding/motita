@@ -174,39 +174,22 @@ test("the menu edits the project and asks before deleting it", async () => {
   await m.unmount();
 });
 
-test("the menu opens a session with a worktree of its own", async () => {
-  const s = store({ rowMenu: { id: "p1" } });
+test("threads are listed under their main session, indented", async () => {
+  const s = store({
+    sessions: [
+      { id: "t1", project_id: "p1", parent_id: "m", created: "2024-02" },
+      { id: "x", project_id: "p2", created: "2024-01" },
+      { id: "m", project_id: "p1", created: "2024-01" },
+      { id: "t2", project_id: "p1", parent_id: "m", created: "2024-03" },
+    ],
+  });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
-  const item = m.q("[data-testid=new-isolated-session]");
-  assert.equal(item.textContent, "New isolated session");
-  await click(item);
-  assert.deepEqual(s.log, [["createSession", "p1", true], ["closeMenu"]]);
-  await m.unmount();
-});
-
-test("the facts line counts the repositories that still share a clone, not the user's own", async () => {
-  const s = store();
-  const repos = [
-    { name: "api", git_url: "u/api", shared: true },
-    { name: "own", git_url: "/my/own", shared: true, local: true },
-    { name: "web", git_url: "u/web" },
-  ];
-  const m = await mount(
-    AppCtx,
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos } }),
+  const rows = [...m.root.querySelectorAll(".session-row")];
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.map((r) => r.classList.contains("session-thread")),
+    [false, true, true],
   );
-  const fact = m.q("[data-testid=project-shared]");
-  assert.equal(fact.textContent, "shared1");
-  assert.equal(
-    fact.title,
-    "Shared clones: api. Edit the project to make them independent.",
-  );
-  await m.rerender(
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos: repos.slice(2) } }),
-  );
-  assert.equal(m.q("[data-testid=project-shared]"), null);
   await m.unmount();
 });
 
@@ -274,28 +257,5 @@ test("a main branch that could not be updated is flagged with the reason", async
   assert.equal(fact.title, "Main branch not updated: main: could not fetch");
   await m.rerender(s.value, h(ProjectGroup, { p: P }));
   assert.equal(m.q("[data-testid=project-stale]"), null);
-  await m.unmount();
-});
-
-test("the facts line counts the shared repositories left behind their main branch", async () => {
-  const s = store();
-  const repos = [
-    { name: "api", git_url: "u/api", dir: "/w/repos/api", behind: 2 },
-    { name: "web", git_url: "u/web", dir: "/w/repos/web" },
-    { name: "docs", git_url: "u/docs", dir: "/w/repos/docs", behind: 1 },
-  ];
-  const m = await mount(
-    AppCtx,
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos } }),
-  );
-  const fact = m.q("[data-testid=project-behind]");
-  assert.equal(fact.textContent, "behind2");
-  assert.equal(fact.title, "Behind their main branch: api, docs");
-  await m.rerender(
-    s.value,
-    h(ProjectGroup, { p: { ...P, repos: repos.slice(1, 2) } }),
-  );
-  assert.equal(m.q("[data-testid=project-behind]"), null);
   await m.unmount();
 });

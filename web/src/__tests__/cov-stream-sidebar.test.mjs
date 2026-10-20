@@ -49,6 +49,7 @@ function store(over = {}) {
       renameSession: rec("renameSession"),
       setRenamingId: rec("setRenamingId"),
       continueSession: async (x) => calls.push(["continueSession", x.id]),
+      isolateSession: async (x) => calls.push(["isolateSession", x.id]),
     },
     conv: { switchSession: rec("switchSession") },
     menus: {
@@ -64,10 +65,6 @@ function store(over = {}) {
     deletion: { setConfirmDelete: rec("setConfirmDelete") },
     stream: { submit: async (...a) => calls.push(["submit", ...a]) },
     projects: { openNewProject: on("openNewProject"), hasPodman: false },
-    repositories: {
-      repositories: [],
-      openNewRepository: on("openNewRepository"),
-    },
     updates: { updateInfo: null, openUpgrade: on("openUpgrade") },
     skills: { setShowSkillLibrary: rec("setShowSkillLibrary") },
     artifacts: { openArtifacts: on("openArtifacts") },
@@ -456,10 +453,10 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
     text(root.querySelector("[data-testid=sidebar-sessions] .truncate")),
     "Loose",
   );
-  assert.deepEqual(
-    [...root.querySelectorAll("[data-testid=sidebar-empty]")].map(text),
-    ["No repositories"],
-    "only the repositories are none",
+  assert.equal(
+    root.querySelector("[data-testid=sidebar-empty]"),
+    null,
+    "every section has something",
   );
   // Each section title carries its own "+", named for what it adds, and nothing sits above them.
   const addSession = root.querySelector("[data-testid=sidebar-new-session]");
@@ -489,7 +486,6 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
 
   await click(root.querySelector('[aria-label="Close sidebar"]'));
   await click(addProject);
-  await click(root.querySelector("[data-testid=sidebar-new-repository]"));
   const upgrade = buttonNamed(root, "Upgrade Motitav1.3.0");
   assert.equal(text(upgrade.querySelector(".font-mono")), "v1.3.0");
   await click(upgrade);
@@ -502,7 +498,6 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   assert.deepEqual(v.calls, [
     ["closeSidebar"],
     ["openNewProject"],
-    ["openNewRepository"],
     ["openUpgrade"],
     ["setShowSkillLibrary", true],
     ["openNotes"],
@@ -540,7 +535,7 @@ test("an empty sidebar says so in each section", async () => {
   const { root, done } = await mount(h(Sidebar), store());
   assert.deepEqual(
     [...root.querySelectorAll("[data-testid=sidebar-empty]")].map(text),
-    ["No sessions", "No projects", "No repositories"],
+    ["No sessions", "No projects"],
   );
   await done();
 });
@@ -591,4 +586,27 @@ test("on a phone, picking a session in the sidebar closes it", async () => {
   assert.deepEqual(v.calls, [["openSettings"]], "other clicks do not close it");
   phone = false;
   await done();
+});
+
+test("a thread that shares the project's folder offers to move into a worktree", async () => {
+  const v = store({ menus: { rowMenu: { id: "t" } } });
+  const s = { id: "t", title: "Boxes", project_id: "p1", parent_id: "m" };
+  const { root, done } = await row(s, v);
+  await act(async () => {
+    buttonNamed(root, "Isolate in a worktree").dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    await Promise.resolve();
+  });
+  assert.deepEqual(v.calls, [["closeRowMenu"], ["isolateSession", "t"]]);
+  await done();
+  for (const other of [
+    { ...s, worktree: "t" },
+    { ...s, parent_id: undefined },
+    { ...s, merged: true },
+  ]) {
+    const r = await row(other, store({ menus: { rowMenu: { id: "t" } } }));
+    assert.equal(buttonNamed(r.root, "Isolate in a worktree"), undefined);
+    await r.done();
+  }
 });

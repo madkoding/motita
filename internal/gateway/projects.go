@@ -133,7 +133,7 @@ func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
 // outside the workspace, or the folder name chosen inside it.
 func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (string, bool) {
 	if strings.TrimSpace(path) != "" {
-		return s.externalProjectFolder(w, path)
+		return s.newExternalFolder(w, path)
 	}
 	name, ok := projectFolderName(w, dir)
 	if !ok {
@@ -170,9 +170,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Dir         string `json:"dir"`
 		// Path is an absolute folder outside the workspace, allowed only with the whole disk
 		// reachable (Settings → Security). It replaces Dir.
-		Path      string `json:"path"`
-		GitURL    string `json:"git_url"`
-		UsePodman bool   `json:"use_podman"`
+		Path string `json:"path"`
+		// ConfirmSensitive says the person knows the folder is inside the system's own files.
+		ConfirmSensitive bool   `json:"confirm_sensitive"`
+		GitURL           string `json:"git_url"`
+		UsePodman        bool   `json:"use_podman"`
 		// MainBranch, GitUserName and GitUserEmail are no longer used: a project is a plain folder,
 		// and its branch and git identity belong to the repositories it links. Clients that still
 		// send them are not refused.
@@ -189,7 +191,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	absDir, ok := s.newProjectFolder(w, body.Path, body.Dir)
-	if !ok {
+	if !ok || !sensitiveNeedsConfirm(w, absDir, body.ConfirmSensitive) {
 		return
 	}
 
@@ -219,6 +221,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Title:       title,
 		Description: strings.TrimSpace(body.Description),
 		Dir:         absDir,
+		Adopted:     !madeFolder,
 		Podman:      body.UsePodman && podmanInstalled(),
 		Created:     time.Now(),
 	}
@@ -233,7 +236,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.migrateRepositories()
 	if cur := s.projectOf(p.ID); cur != nil {
 		p = *cur
 	}
@@ -244,7 +246,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"description": p.Description,
 		"dir":         p.Dir,
 		"repos":       p.Repos,
-		"repo_id":     p.RepoID,
 		"podman":      p.Podman,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
@@ -347,7 +348,6 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.mirrorToRepository(p)
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
@@ -364,12 +364,14 @@ type projectUpdate struct {
 	Podman      *bool   `json:"podman"`
 	// Path points the project at another folder, outside the workspace. Nothing is moved: the
 	// project is anchored to the folder, as when it is created there.
-	Path         *string `json:"path"`
-	MainBranch   *string `json:"main_branch"`
-	MergeMethod  *string `json:"merge_method"`
-	PRMaxFixes   *int    `json:"pr_max_fixes"`
-	AutoMerge    *bool   `json:"auto_merge"`
-	AutoContinue *bool   `json:"auto_continue"`
+	Path *string `json:"path"`
+	// ConfirmSensitive says the person knows the folder is inside the system's own files.
+	ConfirmSensitive bool    `json:"confirm_sensitive"`
+	MainBranch       *string `json:"main_branch"`
+	MergeMethod      *string `json:"merge_method"`
+	PRMaxFixes       *int    `json:"pr_max_fixes"`
+	AutoMerge        *bool   `json:"auto_merge"`
+	AutoContinue     *bool   `json:"auto_continue"`
 }
 
 // copyTo writes onto dst the fields this request set, taking their validated values from src.
@@ -454,7 +456,10 @@ func (s *Server) applyFolder(w http.ResponseWriter, u projectUpdate, p *Project)
 		writeError(w, http.StatusConflict, fmt.Sprintf("that folder belongs to the project %q", other.Title))
 		return false
 	}
-	p.Dir = dir
+	if !sensitiveNeedsConfirm(w, dir, u.ConfirmSensitive) {
+		return false
+	}
+	p.Dir, p.Adopted = dir, true
 	return true
 }
 
@@ -652,13 +657,20 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// stops the whole deletion unless the user confirmed the discard with
 	// `?force=1`. The work belongs to the user, not to the project record, and
 	// deleting the record is not a decision to destroy it.
+	wipe := wipesFolder(r)
+	if wipe {
+		if status, problem := s.wipeProblem(r.Context(), s.projectOf(id), isForced(r)); status != 0 {
+			writeError(w, status, problem)
+			return
+		}
+	}
 	if !isForced(r) {
-		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id)); dir != "" {
+		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id), wipe); dir != "" {
 			writeError(w, http.StatusConflict, "the project has commits that exist nowhere else: push them, "+
 				"or confirm the discard ("+dir+")")
 			return
 		}
-		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id)) {
+		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id), wipe) {
 			writeError(w, http.StatusConflict, "the project's repository "+dir+" has uncommitted changes: "+
 				"commit them, or confirm the discard")
 			return
@@ -669,13 +681,11 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	// The project's own folder goes with it, so a later project of the same name does not find
-	// the old files in the way. The deletion dialog is the confirmation.
+	// The project's own folder goes only when the dialog asked for it (wipeProblem has already
+	// refused a protected one).
 	var projectDir string
-	// A folder another project also stands on (a record from before folders were refused twice)
-	// stays: it is that project's too.
 	p := s.projectOf(id)
-	if p != nil && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
+	if p != nil && wipe {
 		projectDir = p.Dir
 	}
 	// Only now that every checkout has been proven safe to give back are the
@@ -700,12 +710,12 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 // has. A clean working tree says nothing about them. Only the clones added from a remote count:
 // the project's own folder is meant to be removed, the deletion dialog being its confirmation,
 // and a folder created locally has no remote to have published to.
-func (s *Server) unpublishedInProject(ctx context.Context, p *Project) string {
+func (s *Server) unpublishedInProject(ctx context.Context, p *Project, wipe bool) string {
 	if p == nil {
 		return ""
 	}
 	for _, repo := range p.Repos {
-		if !s.deletesClone(repo) || gitx.Repo(ctx, repo.Dir) != nil {
+		if !s.goesWithProject(p, repo, wipe) || gitx.Repo(ctx, repo.Dir) != nil {
 			continue
 		}
 		if n, err := gitx.UnpublishedCommits(ctx, repo.Dir); err != nil || n != 0 {
@@ -775,7 +785,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
-	p := s.scopeOf(c.projectID)
+	p := s.projectOf(c.projectID)
 	if p == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
@@ -847,7 +857,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusConflict,
 			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
-	p := s.scopeOf(c.projectID)
+	p := s.projectOf(c.projectID)
 	if p == nil {
 		return nil, http.StatusNotFound, ErrProjectNotFound
 	}

@@ -29,6 +29,9 @@ type Project struct {
 	Description string `json:"description,omitempty"`
 	Dir         string `json:"dir"`
 	GitURL      string `json:"git_url,omitempty"`
+	// Adopted marks a project made on a folder that was already there: deleting the project
+	// forgets it and leaves the folder and its files alone, wherever the folder is.
+	Adopted bool `json:"adopted,omitempty"`
 	// Podman is the user's answer, given when the project was created, to running
 	// it with podman. It is only ever true on a machine that had podman then.
 	Podman bool `json:"podman,omitempty"`
@@ -70,9 +73,6 @@ type Project struct {
 	// about.
 	Worktrees int       `json:"worktrees,omitempty"`
 	Created   time.Time `json:"created"`
-	// RepoID is the repository record (see Repository) of the project's own folder when that folder
-	// is a repository, "" when the project is a plain folder.
-	RepoID string `json:"repo_id,omitempty"`
 	// Repos are the project's OTHER repositories, after the main one in Dir. A project from
 	// before they existed has none, and is exactly the one-repository project it always was.
 	Repos []ProjectRepo `json:"repos,omitempty"`

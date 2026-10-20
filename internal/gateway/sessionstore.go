@@ -31,9 +31,11 @@ type sessionStore struct {
 
 // sessionRecord is the JSON shape of one persisted conversation.
 type sessionRecord struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	ProjectID string    `json:"project_id,omitempty"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	ProjectID string `json:"project_id,omitempty"`
+	// ParentID is the main session this one is a thread of (see sessionthreads.go).
+	ParentID  string    `json:"parent_id,omitempty"`
 	Created   time.Time `json:"created"`
 	LastUsed  time.Time `json:"last_used"`
 	Provider  string    `json:"provider,omitempty"`
@@ -124,6 +126,7 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		ID:          c.id,
 		Title:       c.title,
 		ProjectID:   c.projectID,
+		ParentID:    c.parentID,
 		Created:     c.created,
 		LastUsed:    c.lastUsed,
 		Running:     c.running && c.current != nil && !ended,

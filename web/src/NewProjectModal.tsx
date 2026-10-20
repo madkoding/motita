@@ -1,14 +1,15 @@
-// The new project modal. A project is a plain folder: it asks for a name and, if wanted, where the
-// folder is. The repositories it works on are recorded apart (see NewRepositoryModal) and linked to
-// the project afterwards.
+// The new project modal. A project is a plain folder, so it asks for the one thing the person has to
+// decide: which folder. The folder browser picks an existing one or makes a new one (and names it
+// there); the project is named after it, and the name can be changed. The rest is folded away.
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
-import { slugOf } from "./appParse";
+import { folderNameOf } from "./appParse";
 import { podmanNote } from "./appFormat";
 import { IconClose, IconFolder, IconSpinner } from "./icons";
 import { NEW_PROJECT } from "./appConst";
+import { useFolderProbe, type FolderProbe } from "./useFolderProbe";
 
 // The look of the dialog's fields.
 const FIELD =
@@ -47,100 +48,155 @@ function PodmanOffer() {
   );
 }
 
-// NameField is the project's name.
+// NameField is the project's name. Left empty it is the folder's name, which is what the
+// placeholder shows.
 function NameField() {
   const p = useApp().projects;
   return (
     <div>
-      <label class={LABEL}>
-        {t("Name")} <span class="text-danger">*</span>
-      </label>
+      <label class={LABEL}>{t("Name")}</label>
       <input
         class={FIELD}
+        data-testid="new-project-name"
         value={p.newProjectTitle}
         onInput={(e) =>
           p.setNewProjectTitle((e.target as HTMLInputElement).value)
         }
-        placeholder={t("My project")}
-        autoFocus
+        placeholder={folderNameOf(p.newProjectPath) || t("My project")}
       />
-    </div>
-  );
-}
-
-// FolderNameField is the folder the project gets in the workspace.
-function FolderNameField() {
-  const p = useApp().projects;
-  return (
-    <div>
-      <label class={LABEL}>{t("Folder name")}</label>
-      <input
-        class={MONO_FIELD}
-        value={p.newProjectDir}
-        onInput={(e) =>
-          p.setNewProjectDir((e.target as HTMLInputElement).value)
-        }
-        placeholder={slugOf(p.newProjectTitle) || "my-project"}
-      />
-      <p class="text-xs text-[#7a7a8c] mt-1">
-        {t(
-          "Made from the name when empty. A folder under the workspace, a simple name with no paths.",
-        )}
-      </p>
-    </div>
-  );
-}
-
-// FolderFields is where the project lives: a folder in the workspace, or, when Settings → Security
-// allows the whole disk, any folder found with the folder browser.
-function FolderFields() {
-  const p = useApp().projects;
-  if (!p.fullDisk) {
-    return <FolderNameField />;
-  }
-  return (
-    <div data-testid="new-project-location">
-      <label class={LABEL}>{t("Location")}</label>
-      {p.newProjectPath && (
-        <p
-          class="px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 font-mono text-xs text-[#e8e8ea] break-all"
-          data-testid="new-project-path"
-        >
-          {p.newProjectPath}
+      {!p.newProjectPath && (
+        <p class="text-xs text-[#7a7a8c] mt-1">
+          {t("Its folder is created in the workspace with this name.")}
         </p>
       )}
-      {!p.newProjectPath && <FolderNameField />}
-      <div class="flex gap-2 mt-2">
+    </div>
+  );
+}
+
+// FolderNote says what will happen to the folder typed: that it is created, that it is used as it
+// is and stays when the project goes, or that it is among the system's files and needs a yes.
+function FolderNote({ probe }: { probe: FolderProbe }) {
+  const p = useApp().projects;
+  if (probe.state === "idle") {
+    return null;
+  }
+  if (probe.state === "refused") {
+    return (
+      <p class="text-xs text-danger mt-1" data-testid="folder-note-refused">
+        {probe.reason}
+      </p>
+    );
+  }
+  if (probe.state === "missing") {
+    return (
+      <p class="text-xs text-[#9a9aaa] mt-1" data-testid="folder-note-missing">
+        {t("The folder does not exist yet: it will be created.")}
+      </p>
+    );
+  }
+  if (probe.state === "exists") {
+    return (
+      <p class="text-xs text-[#9a9aaa] mt-1" data-testid="folder-note-exists">
+        {t(
+          "The folder already exists and is used as it is. Deleting the project asks whether it stays on disk.",
+        )}
+      </p>
+    );
+  }
+  return (
+    <label
+      class="flex items-start gap-2 mt-1 text-xs text-warning"
+      data-testid="folder-note-sensitive"
+    >
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        data-testid="folder-sure"
+        checked={p.newProjectSure}
+        onChange={(e) =>
+          p.setNewProjectSure((e.target as HTMLInputElement).checked)
+        }
+      />
+      <span>
+        {t(
+          "This folder is among the system's own files. I know what I am doing and want a project here.",
+        )}
+      </span>
+    </label>
+  );
+}
+
+// FolderField is where the project lives: the folder chosen (or made) in the folder browser, or a
+// new folder in the workspace while none is chosen.
+function FolderField({ probe }: { probe: FolderProbe }) {
+  const p = useApp().projects;
+  return (
+    <div data-testid="new-project-location">
+      <label class={LABEL}>{t("Folder")}</label>
+      <div class="flex items-center gap-2">
+        <p
+          class="flex-1 min-w-0 flex items-center gap-2 px-3 min-h-[44px] rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+          data-testid="new-project-folder"
+        >
+          <IconFolder size={16} class="flex-none text-accent" />
+          <span
+            class={`min-w-0 break-all${choose(p.newProjectPath, " font-mono text-xs", " text-[#9a9aaa]")}`}
+          >
+            {p.newProjectPath || t("A new folder in the workspace")}
+          </span>
+        </p>
         <button
           type="button"
-          class="px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5"
+          class="flex-none px-3 min-h-[44px] rounded-xl border border-white/10 text-sm text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform"
           data-testid="new-project-browse"
           onClick={() => p.openFolderPicker("new")}
         >
-          {t("Choose a folder…")}
+          {choose(p.newProjectPath, t("Change…"), t("Choose or create…"))}
         </button>
-        {p.newProjectPath && (
-          <button
-            type="button"
-            class="px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:bg-white/5"
-            data-testid="new-project-path-clear"
-            onClick={() => p.setNewProjectPath("")}
-          >
-            {t("Use the workspace")}
-          </button>
-        )}
       </div>
-      <p class="text-xs text-[#7a7a8c] mt-1">
-        {t(
-          "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.",
-        )}
-      </p>
+      <FolderNote probe={probe} />
+      {p.newProjectPath && (
+        <button
+          type="button"
+          class="mt-1.5 text-xs text-[#9a9aaa] underline hover:text-[#e8e8ea]"
+          data-testid="new-project-path-clear"
+          onClick={() => p.setNewProjectPath("")}
+        >
+          {t("Use the workspace")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// PathField is the folder typed as a path, for the person who has it at hand. It is the same
+// choice as the browser's, so it lives with the options.
+function PathField({ probe }: { probe: FolderProbe }) {
+  const p = useApp().projects;
+  return (
+    <div>
+      <label class={LABEL}>{t("Path of the folder")}</label>
+      <input
+        class={MONO_FIELD}
+        data-testid="new-project-path"
+        value={p.newProjectPath}
+        onInput={(e) =>
+          p.setNewProjectPath((e.target as HTMLInputElement).value)
+        }
+        placeholder={t("Or the path of a folder, existing or new")}
+        list="new-project-suggestions"
+      />
+      <datalist id="new-project-suggestions">
+        {probe.suggestions.map((path) => (
+          <option key={path} value={path} />
+        ))}
+      </datalist>
     </div>
   );
 }
 
 // MoreOptions is everything with a sensible default, behind one line.
-function MoreOptions() {
+function MoreOptions({ probe }: { probe: FolderProbe }) {
   const p = useApp().projects;
   return (
     <details
@@ -176,7 +232,7 @@ function MoreOptions() {
             placeholder={t("What this project is about")}
           />
         </div>
-        <FolderFields />
+        <PathField probe={probe} />
         {p.hasPodman && <PodmanOffer />}
       </div>
     </details>
@@ -198,7 +254,10 @@ function CreateButtons() {
         <button
           class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
           onClick={() => p.createProject()}
-          disabled={p.creatingProject || !p.newProjectTitle.trim()}
+          disabled={
+            p.creatingProject ||
+            !(p.newProjectTitle.trim() || folderNameOf(p.newProjectPath))
+          }
         >
           {p.creatingProject && (
             <IconSpinner
@@ -221,7 +280,9 @@ function CreateButtons() {
 }
 
 export function NewProjectModal() {
-  const { closeNewProject } = useApp().projects;
+  const { projects, api } = useApp();
+  const { closeNewProject } = projects;
+  const probe = useFolderProbe(api, projects.newProjectPath);
   return (
     <ModalBackdrop onClose={closeNewProject}>
       <dialog
@@ -241,8 +302,9 @@ export function NewProjectModal() {
           </button>
         </div>
         <div class="space-y-4">
+          <FolderField probe={probe} />
           <NameField />
-          <MoreOptions />
+          <MoreOptions probe={probe} />
         </div>
         <CreateButtons />
       </dialog>

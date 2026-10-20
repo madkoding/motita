@@ -279,18 +279,25 @@ function NoteBody() {
       />
     );
   }
-  const onClick = (e: MouseEvent) => {
+  const follow = (e: Event) => {
     const href = (e.target as Element).closest("a")?.getAttribute("href");
     if (parseNoteHref(href)) {
       e.preventDefault();
       void followLink(href);
     }
   };
+  // Enter on a focused link is handled here too, so keyboard users follow it the same way.
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      follow(e);
+    }
+  };
   return (
     <div
       class="skill-body artifact-body note-preview relative p-3 md:px-5 rounded-lg bg-black/30"
       data-testid="note-preview"
-      onClick={onClick}
+      onClick={follow}
+      onKeyDown={onKeyDown}
     >
       <Markdown content={wikiToMarkdown(draft, (current as NoteView).links)} />
     </div>

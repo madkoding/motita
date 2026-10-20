@@ -11,7 +11,6 @@ import { SessionRow } from "./SessionRow";
 import { ProviderUsagePanel } from "./ProviderUsage";
 import { ProjectGroup } from "./ProjectGroup";
 import { ScanBar } from "./ScanBar";
-import { RepositoryGroup } from "./RepositoryGroup";
 import {
   IconBook,
   IconClock,
@@ -53,7 +52,7 @@ function SidebarHeader() {
 // SessionList is three labelled sections: the free-standing sessions, one group per project, and one
 // group per repository. Each says so when it is empty.
 export function SessionList() {
-  const { lists, actions, projects, repositories } = useApp();
+  const { lists, actions, projects } = useApp();
   const { createSession } = actions;
   const newSession = useCallback(() => createSession(), [createSession]);
   const loose = lists.sessions.filter((s) => !s.project_id);
@@ -93,25 +92,6 @@ export function SessionList() {
         ))}
         {lists.projects.length === 0 && (
           <EmptySection label={t("No projects")} />
-        )}
-      </section>
-      <section
-        aria-labelledby="sidebar-repositories"
-        class="mt-2 pt-1 border-t border-white/5"
-        data-testid="sidebar-repositories"
-      >
-        <SectionTitle id="sidebar-repositories" label={t("Repositories")}>
-          <SectionAdd
-            label={t("New repository")}
-            onClick={repositories.openNewRepository}
-            testid="sidebar-new-repository"
-          />
-        </SectionTitle>
-        {repositories.repositories.map((r) => (
-          <RepositoryGroup key={r.id} r={r} />
-        ))}
-        {repositories.repositories.length === 0 && (
-          <EmptySection label={t("No repositories")} />
         )}
       </section>
     </div>

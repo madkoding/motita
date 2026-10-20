@@ -123,7 +123,7 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 	}
 
 	srv, ws := fullDiskServer(t)
-	for _, bad := range []string{`"relative/dir"`, `"` + outside + `/missing"`, `"/"`, `"` + ws + `"`,
+	for _, bad := range []string{`"relative/dir"`, `"` + outside + `/a/b"`, `"/"`, `"` + ws + `"`,
 		`"` + filepath.Join(ws, "worktrees") + `"`} {
 		if err := os.MkdirAll(filepath.Join(ws, "worktrees"), 0o755); err != nil {
 			t.Fatal(err)
@@ -132,7 +132,12 @@ func TestAProjectCanLiveOutsideTheWorkspaceOnlyWithTheWholeDisk(t *testing.T) {
 			t.Errorf("%s: %d %v", bad, code, out)
 		}
 	}
-	code, out := createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
+	fresh := filepath.Join(t.TempDir(), "fresh")
+	code, out := createProject(t, srv, `{"title":"New","path":"`+fresh+`"}`)
+	if code != http.StatusCreated || !isDir(fresh) {
+		t.Fatalf("a folder that does not exist is created: %d %v", code, out)
+	}
+	code, out = createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
 	real, _ := filepath.EvalSymlinks(outside)
 	if code != http.StatusCreated || out["dir"] != real {
 		t.Fatalf("create: %d %v", code, out)
@@ -329,5 +334,213 @@ func TestRelativeFoldersAndDollarFoldersAreLeftOut(t *testing.T) {
 	}
 	if _, out, _ := listDirs(t, srv, base); len(out.Dirs) != 0 {
 		t.Errorf("hidden: %+v", out.Dirs)
+	}
+}
+
+// TestWithoutTheWholeDiskAProjectCanStillUseAFolderInTheWorkspace: an existing workspace folder is
+// picked, a new one is made, and anything outside the workspace is still refused.
+func TestWithoutTheWholeDiskAProjectCanStillUseAFolderInTheWorkspace(t *testing.T) {
+	srv, ws := projectServer(t)
+	existing := filepath.Join(ws, "mine")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code := makeDir(t, srv, `{"path":"`+ws+`","name":"made"}`); code != http.StatusCreated {
+		t.Errorf("a folder in the workspace: %d", code)
+	}
+	elsewhere := t.TempDir()
+	if code := makeDir(t, srv, `{"path":"`+elsewhere+`","name":"made"}`); code != http.StatusForbidden {
+		t.Errorf("a folder outside: %d", code)
+	}
+	code, out := createProject(t, srv, `{"title":"A","path":"`+existing+`"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("existing workspace folder: %d %v", code, out)
+	}
+	fresh := filepath.Join(ws, "fresh")
+	code, out = createProject(t, srv, `{"title":"B","path":"`+fresh+`"}`)
+	if code != http.StatusCreated || !isDir(fresh) {
+		t.Fatalf("new workspace folder: %d %v", code, out)
+	}
+	code, _ = createProject(t, srv, `{"title":"C","path":"`+ws+`"}`)
+	if code != http.StatusBadRequest {
+		t.Errorf("the workspace itself: %d", code)
+	}
+}
+
+// TestTheDeletionPreviewNamesTheFolderAndWhatRemovingItWouldLose: the preview carries the project's
+// folder and the uncommitted work in it, counted only when the removal is asked for, and says when
+// the folder is protected.
+func TestTheDeletionPreviewNamesTheFolderAndWhatRemovingItWouldLose(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	outside := t.TempDir()
+	mustGit(t, outside, "init", "-q")
+	if err := os.WriteFile(filepath.Join(outside, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, out := createProject(t, srv, `{"title":"Out","path":"`+outside+`"}`)
+	preview := func(query string) map[string]any {
+		rec := send(t, srv, http.MethodGet, "/v1/projects/"+out["id"].(string)+"/deletion-preview"+query, testToken, "")
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	got := preview("")
+	if got["folder"] != out["dir"] || got["count"] != float64(0) || got["folder_protected"] != nil {
+		t.Errorf("keeping the folder loses nothing: %v", got)
+	}
+	if changes, _ := got["folder_changes"].([]any); len(changes) != 1 {
+		t.Errorf("the folder's work is listed: %v", got)
+	}
+	if got := preview("?folder=delete"); got["count"] != float64(1) {
+		t.Errorf("removing the folder discards its work: %v", got)
+	}
+}
+
+// TestAMissingFolderMustStillBeAUsableProjectFolder: the folder a project would create has a simple
+// name, an existing parent and is not one of motita's reserved folders.
+func TestAMissingFolderMustStillBeAUsableProjectFolder(t *testing.T) {
+	srv, ws := projectServer(t)
+	for _, bad := range []string{
+		ws + "/bad\\name",
+		filepath.Join(ws, "gone", "inside"),
+		filepath.Join(ws, "worktrees"),
+	} {
+		body, _ := json.Marshal(map[string]string{"title": "x", "path": bad})
+		if code, out := createProject(t, srv, string(body)); code != http.StatusBadRequest {
+			t.Errorf("%s: %d %v", bad, code, out)
+		}
+	}
+}
+
+// TestTheSystemsFoldersAreGuarded: the home folder and a system tree itself are refused, a folder
+// inside a system tree needs a confirmation, and the confirmed project never deletes it.
+func TestTheSystemsFoldersAreGuarded(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	home, _ := os.UserHomeDir()
+	for _, bad := range []string{home, "/usr"} {
+		if !isDir(bad) {
+			continue
+		}
+		body, _ := json.Marshal(map[string]string{"title": "x", "path": bad})
+		if code, out := createProject(t, srv, string(body)); code != http.StatusBadRequest {
+			t.Errorf("%s: %d %v", bad, code, out)
+		}
+	}
+	inside := "/usr/share"
+	if !isDir(inside) {
+		t.Skip("no system folder to try")
+	}
+	body := func(extra string) string {
+		return `{"title":"Sys","path":"` + inside + `"` + extra + `}`
+	}
+	if code, out := createProject(t, srv, body("")); code != http.StatusConflict {
+		t.Fatalf("unconfirmed: %d %v", code, out)
+	}
+	_, second := createProject(t, srv, `{"title":"Other","dir":"other"}`)
+	oid := second["id"].(string)
+	if c := patchProject(t, srv, oid, `{"path":"`+inside+`"}`).Code; c != http.StatusConflict {
+		t.Errorf("a move into a system folder needs a confirmation too: %d", c)
+	}
+	code, out := createProject(t, srv, body(`,"confirm_sensitive":true`))
+	if code != http.StatusCreated {
+		t.Fatalf("confirmed: %d %v", code, out)
+	}
+	id := out["id"].(string)
+	w := doDelete(t, srv, "/v1/projects/"+id)
+	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	if !isDir(inside) {
+		t.Fatal("a system folder is never deleted with its project")
+	}
+}
+
+// TestTheFolderStaysUnlessTheDeletionAsksForItsRemoval: whatever made the folder, inside the
+// workspace or not, deleting a project leaves it, and `?folder=delete` removes it with its contents.
+func TestTheFolderStaysUnlessTheDeletionAsksForItsRemoval(t *testing.T) {
+	srv, ws := fullDiskServer(t)
+	outside := filepath.Join(t.TempDir(), "mine")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, body, query string
+		dir               string
+		stay              bool
+	}{
+		{"made, kept", `{"title":"A","dir":"a"}`, "", filepath.Join(ws, "a"), true},
+		{"made, removed", `{"title":"B","dir":"b"}`, "?folder=delete", filepath.Join(ws, "b"), false},
+		{"outside, kept", `{"title":"C","path":"` + outside + `"}`, "", outside, true},
+		{"outside, removed", `{"title":"D","path":"` + outside + `"}`, "?folder=delete", outside, false},
+	} {
+		_, proj := createProject(t, srv, c.body)
+		w := doDelete(t, srv, "/v1/projects/"+proj["id"].(string)+c.query)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("%s: %d %s", c.name, w.Code, w.Body.String())
+		}
+		if isDir(c.dir) != c.stay {
+			t.Errorf("%s: %s still there = %v, want %v", c.name, c.dir, isDir(c.dir), c.stay)
+		}
+	}
+}
+
+// TestRemovingTheFolderNeedsAConfirmationForUncommittedWork: work in the folder stops the removal
+// until `?force=1` confirms the discard, and the project is untouched meanwhile.
+func TestRemovingTheFolderNeedsAConfirmationForUncommittedWork(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	dir := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, proj := createProject(t, srv, `{"title":"W","path":"`+dir+`"}`)
+	path := "/v1/projects/" + proj["id"].(string)
+	if w := doDelete(t, srv, path+"?folder=delete"); w.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed: %d %s", w.Code, w.Body.String())
+	}
+	if !isDir(dir) || srv.projectOf(proj["id"].(string)) == nil {
+		t.Fatal("a refused deletion changes nothing")
+	}
+	if w := doDelete(t, srv, path+"?folder=delete&force=1"); w.Code != http.StatusNoContent {
+		t.Fatalf("confirmed: %d %s", w.Code, w.Body.String())
+	}
+	if isDir(dir) {
+		t.Error("the confirmed removal deletes the folder")
+	}
+}
+
+// TestAProtectedFolderIsNeverRemoved: the system's folders and the one another project stands on
+// are refused for the removal, and the preview says so; the project itself can still be deleted
+// with the folder kept.
+func TestAProtectedFolderIsNeverRemoved(t *testing.T) {
+	srv, _ := fullDiskServer(t)
+	inside := ""
+	for _, tree := range systemTrees() {
+		if sub := filepath.Join(tree, "bin"); isDir(sub) {
+			inside = sub
+			break
+		}
+	}
+	if inside == "" {
+		t.Skip("no system folder to try")
+	}
+	_, proj := createProject(t, srv, `{"title":"Sys","path":"`+inside+`","confirm_sensitive":true}`)
+	id := proj["id"].(string)
+	rec := send(t, srv, http.MethodGet, "/v1/projects/"+id+"/deletion-preview", testToken, "")
+	var got map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got["folder_protected"] == nil {
+		t.Errorf("the preview says the folder is protected: %v", got)
+	}
+	if w := doDelete(t, srv, "/v1/projects/"+id+"?folder=delete&force=1"); w.Code != http.StatusBadRequest {
+		t.Fatalf("the removal of a system folder: %d %s", w.Code, w.Body.String())
+	}
+	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusNoContent || !isDir(inside) {
+		t.Fatalf("keeping the folder still deletes the project: %d", w.Code)
 	}
 }

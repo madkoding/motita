@@ -142,6 +142,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)
 	s.forget(c.id)
+	s.promoteThreads(c.id)
 	s.deletePersistedSession(c.id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -176,7 +177,8 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotImplemented, "this gateway was started without a project directory")
 		return
 	}
-	if s.projectOf(id) == nil {
+	project := s.projectOf(id)
+	if project == nil {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
 	}
@@ -191,7 +193,18 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		Count            int              `json:"count"`
 		InspectionFailed bool             `json:"inspection_failed,omitempty"`
 		Error            string           `json:"error,omitempty"`
-	}{ProjectID: id, Sessions: []sessionPreview{}}
+		// Folder is the project's folder, which the dialog may ask to remove with its contents;
+		// FolderChanges is the uncommitted work removing it would discard, and FolderProtected
+		// says it may never be removed (the home folder, a system tree, the workspace).
+		Folder          string        `json:"folder,omitempty"`
+		FolderChanges   []gitx.Change `json:"folder_changes"`
+		FolderProtected string        `json:"folder_protected,omitempty"`
+	}{ProjectID: id, Sessions: []sessionPreview{}, Folder: project.Dir}
+	out.FolderProtected = s.protectedFolder(project)
+	out.FolderChanges = s.folderChanges(r.Context(), project)
+	if wipesFolder(r) {
+		out.Count += len(out.FolderChanges)
+	}
 
 	for _, c := range s.sessionsOfProject(id) {
 		release := s.inspectWorktree(c)
@@ -211,7 +224,7 @@ func (s *Server) handleProjectDeletionPreview(w http.ResponseWriter, r *http.Req
 		out.Sessions = append(out.Sessions, entry)
 	}
 	// The project's folders of its other repositories go with it too, and so does what they hold.
-	repoChanges := s.discardedRepoChanges(r.Context(), s.projectOf(id))
+	repoChanges := s.discardedRepoChanges(r.Context(), s.projectOf(id), wipesFolder(r))
 	for _, dir := range slices.Sorted(maps.Keys(repoChanges)) {
 		out.Sessions = append(out.Sessions, sessionPreview{ID: "repo:" + dir, Title: dir, Changes: repoChanges[dir]})
 		out.Count += len(repoChanges[dir])
@@ -311,7 +324,7 @@ func (s *Server) inspectWorktree(c *conversation) worktreeRelease {
 	}
 	release.Workspace = workspace
 	release.ProjectDir = projectDir
-	release.Repos = sessionRepoWorktrees(context.Background(), s.scopeOf(c.projectID), workspace)
+	release.Repos = sessionRepoWorktrees(context.Background(), s.projectOf(c.projectID), workspace)
 	changes, err := worktreeInspectList(context.Background(), workspace)
 	if err != nil {
 		release.InspectErr = err

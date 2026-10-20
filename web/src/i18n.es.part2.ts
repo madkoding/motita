@@ -2,6 +2,13 @@
 
 const more: Record<string, string> = {
   "This computer": "Este equipo",
+  "Git and pull requests": "Git y pull requests",
+  "A new folder in the workspace": "Una carpeta nueva en el workspace",
+  "Choose or create…": "Elegir o crear…",
+  "Change…": "Cambiar…",
+  "Path of the folder": "Ruta de la carpeta",
+  "Its folder is created in the workspace with this name.":
+    "Su carpeta se crea en el workspace con este nombre.",
   "New folder name": "Nombre de la carpeta nueva",
   "This folder holds the system's own files. A project here puts the agent among them.":
     "Esta carpeta guarda los archivos del propio sistema. Un proyecto aquí deja al agente entre ellos.",
@@ -15,9 +22,29 @@ const more: Record<string, string> = {
   Location: "Ubicación",
   Folder: "Carpeta",
   "Use the workspace": "Usar el workspace",
+  "The folder does not exist yet: it will be created.":
+    "La carpeta aún no existe: se va a crear.",
+  "The folder already exists and is used as it is. Deleting the project asks whether it stays on disk.":
+    "La carpeta ya existe y se usa tal cual. Al eliminar el proyecto se pregunta si se queda en el disco.",
+  "This folder is among the system's own files. I know what I am doing and want a project here.":
+    "Esta carpeta está entre los archivos del sistema. Sé lo que hago y quiero un proyecto aquí.",
+  "What happens to the project's folder?":
+    "¿Qué pasa con la carpeta del proyecto?",
+  "Keep the folder and its files": "Dejar la carpeta y sus archivos",
+  "Delete the folder and everything in it":
+    "Eliminar la carpeta y todo su contenido",
+  "This folder cannot be deleted from here:":
+    "Esta carpeta no se puede eliminar desde aquí:",
+  "I understand the folder and all its files will be deleted for good.":
+    "Entiendo que la carpeta y todos sus archivos se eliminarán para siempre.",
+  "Delete project and folder": "Eliminar proyecto y carpeta",
+  "Or the path of a folder, existing or new":
+    "O la ruta de una carpeta, existente o nueva",
+  "Without the whole disk in Settings → Security, the folder has to be inside the workspace.":
+    "Sin el disco completo en Ajustes → Seguridad, la carpeta tiene que estar dentro del workspace.",
   "Keep the current one": "Dejar la actual",
-  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.":
-    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual y nunca se borra junto con el proyecto.",
+  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is; deleting the project asks whether it stays.":
+    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual; al eliminar el proyecto se pregunta si se queda.",
   "Nothing is moved: the project points at that folder. Not possible while it has sessions or other repositories.":
     "No se mueve nada: el proyecto apunta a esa carpeta. No se puede mientras tenga sesiones u otros repositorios.",
   "This browser cannot record audio.": "Este navegador no puede grabar audio.",
@@ -145,24 +172,7 @@ const more: Record<string, string> = {
   "Pull request {pr} was merged. A new session was opened from the updated branch.":
     "El pull request {pr} fue mergeado. Se abrió una sesión nueva desde la rama actualizada.",
   "“{title}” finished": "“{title}” terminó",
-  "Remove {name}": "Quitar {name}",
-  "Discard the changes and remove it": "Descartar los cambios y quitarlo",
-  "https://github.com/user/other-repo.git":
-    "https://github.com/usuario/otro-repo.git",
-  "Add a repository": "Agregar un repositorio",
   Add: "Agregar",
-  "The project already has a repository with that name.":
-    "El proyecto ya tiene un repositorio con ese nombre.",
-  "That is not a repository URL.": "Esa no es la URL de un repositorio.",
-  "A new folder": "Una carpeta nueva",
-  "The first one is the main repository, the project's folder. The others are shared from your workspace, and every session gets its own copy of each.":
-    "El primero es el repositorio principal, la carpeta del proyecto. Los demás se comparten desde tu espacio de trabajo, y cada sesión recibe su propia copia de cada uno.",
-  "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one takes it out of this project, and the other projects that use it keep it.":
-    "Agregar o quitar un repositorio ocurre al instante. Las sesiones abiertas reciben una copia del nuevo; quitar uno lo saca de este proyecto, y los demás proyectos que lo usan lo conservan.",
-  "Could not add {name}": "No se pudo agregar {name}",
-  "Could not remove {name}": "No se pudo quitar {name}",
-  'Project "{title}" created, but some repositories could not be added: {names}':
-    'Proyecto "{title}" creado, pero no se pudieron agregar algunos repositorios: {names}',
   Providers: "Proveedores",
   "Connect the AI providers Motita can use. The models each kind of work runs on are chosen in Models.":
     "Conecta los proveedores de IA que Motita puede usar. Los modelos de cada tipo de trabajo se eligen en Modelos.",
@@ -724,21 +734,7 @@ const more: Record<string, string> = {
   "Create project": "Crear proyecto",
   "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.":
     "Se clona, se indexa y se configura con sus valores por defecto; esta conversación sigue dentro.",
-  'The project "{title}" already has {name}. Move this session into it?':
-    'El proyecto "{title}" ya tiene {name}. ¿Mover esta sesión a él?',
-  "Move session": "Mover sesión",
-  "The conversation stays; the agent now works in the project's folder.":
-    "La conversación se queda; el agente pasa a trabajar en la carpeta del proyecto.",
-  'Add {name} to the project "{title}"?':
-    '¿Agregar {name} al proyecto "{title}"?',
-  "Add repository": "Agregar repositorio",
-  "It is cloned into the project's folder, where every session of the project can use it.":
-    "Se clona en la carpeta del proyecto y todas sus sesiones pueden usarlo.",
   "Not now": "Ahora no",
-  '{name} added to the project "{title}"':
-    '{name} agregado al proyecto "{title}"',
-  'This session moved to the project "{title}"':
-    'Esta sesión se movió al proyecto "{title}"',
   'The project "{title}" was created, but the session was not moved: {err}':
     'El proyecto "{title}" se creó, pero la sesión no se movió: {err}',
   'Project "{title}" created and this session moved into it':
@@ -887,15 +883,6 @@ const more: Record<string, string> = {
   "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
     "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
   "Scanning the notes": "Escaneando las notas",
-  "New repository": "Nuevo repositorio",
-  "No repositories": "Sin repositorios",
-  "New session in repository": "Nueva sesión en el repositorio",
-  "Delete repository": "Eliminar repositorio",
-  "or a folder on this machine": "o una carpeta de este equipo",
-  "Could not add the repository": "No se pudo agregar el repositorio",
-  "branch {branch}": "rama {branch}",
-  "The repository is cloned once. A folder is used where it is and never deleted.":
-    "El repositorio se clona una sola vez. Una carpeta se usa donde está y nunca se elimina.",
 };
 
 export default more;

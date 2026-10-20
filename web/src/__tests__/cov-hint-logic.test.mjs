@@ -63,37 +63,25 @@ const project = (id, extra = {}) => ({
 });
 const talk = [user("work on https://github.com/ada/engine")];
 
-test("a session with no project is offered a new one, or the one that has the repository", () => {
-  assert.equal(projectHint([], free, []), null);
-  assert.equal(projectHint(talk, undefined, []), null);
-  assert.equal(projectHint([user("hello")], free, []), null);
-  assert.deepEqual(projectHint(talk, free, [project("a")]), {
+test("a session with no project is offered a project made from the repository it names", () => {
+  assert.equal(projectHint([], free), null);
+  assert.equal(projectHint(talk, undefined), null);
+  assert.equal(projectHint([user("hello")], free), null);
+  assert.deepEqual(projectHint(talk, free), {
     kind: "create",
     repo: { url: "https://github.com/ada/engine", name: "engine" },
   });
-  const byMain = project("a", { git_url: "git@github.com:ada/engine.git" });
-  const byRepo = project("b", {
-    repos: [{ name: "engine", git_url: "https://github.com/ada/engine.git" }],
-  });
-  for (const owner of [byMain, byRepo]) {
-    const hint = projectHint(talk, free, [project("z"), owner]);
-    assert.equal(hint.kind, "move");
-    assert.equal(hint.projectId, owner.id);
-    assert.equal(hint.projectTitle, owner.title);
-  }
 });
 
-test("a session in a project is offered the repository the project lacks", () => {
-  assert.equal(projectHint(talk, inProject, []), null);
-  const lacking = project("p1", { git_url: "https://github.com/ada/other" });
-  const hint = projectHint(talk, inProject, [lacking]);
-  assert.equal(hint.kind, "add");
-  assert.equal(hint.projectId, "p1");
-  const has = project("p1", {
-    repos: [{ name: "engine", git_url: "git@github.com:ada/engine.git" }],
-  });
-  assert.equal(projectHint(talk, inProject, [has]), null);
-  assert.equal(hintKey("s1", hint), "s1|add|github.com/ada/engine");
+test("a session in a project is offered nothing about a repository it names", () => {
+  assert.equal(projectHint(talk, inProject), null);
+  assert.equal(
+    hintKey("s1", {
+      kind: "create",
+      repo: { url: "https://github.com/ada/engine", name: "engine" },
+    }),
+    "s1|create|github.com/ada/engine",
+  );
 });
 
 // mount the hook over a gateway that answers by "METHOD path".
@@ -201,43 +189,6 @@ test("a refused project shows the gateway's reason, and an unreadable refusal it
   await bare.hook.unmount();
 });
 
-test("moving into the project that has the repository only moves", async () => {
-  const owner = project("a", { git_url: "https://github.com/ada/engine" });
-  const { hook, api, toasts } = await mountHint({
-    projects: [owner],
-    routes: { "POST /v1/sessions/s1/project": () => json({}) },
-  });
-  assert.equal(hook.result.current.hint.kind, "move");
-  await act(() => hook.result.current.accept());
-  assert.equal(api.calls.length, 1);
-  assert.deepEqual(api.calls[0].body, { project_id: "a" });
-  assert.match(toasts[0].message, /Project a/);
-  await hook.unmount();
-});
-
-test("adding a repository clones it into the project; an index that fails changes nothing", async () => {
-  const lacking = project("p1");
-  const { hook, api, toasts } = await mountHint({
-    session: inProject,
-    projects: [lacking],
-    routes: {
-      "POST /v1/projects/p1/repos": () => json({}, 201),
-      "POST /v1/projects/p1/code-index": () => {
-        throw new Error("off");
-      },
-    },
-  });
-  assert.equal(hook.result.current.hint.kind, "add");
-  await act(() => hook.result.current.accept());
-  await settle();
-  assert.deepEqual(api.calls[0].body, {
-    name: "engine",
-    git_url: "https://github.com/ada/engine",
-  });
-  assert.equal(toasts[0].type, "success");
-  await hook.unmount();
-});
-
 test("turning the offer down hides it for that conversation only", async () => {
   const { hook, props } = await mountHint({ routes: {} });
   await act(() => hook.result.current.dismiss());
@@ -261,12 +212,12 @@ test("a second press while it works does nothing", async () => {
   let release;
   const gate = new Promise((r) => (release = r));
   const { hook, api } = await mountHint({
-    projects: [project("a", { git_url: "https://github.com/ada/engine" })],
     routes: {
-      "POST /v1/sessions/s1/project": async () => {
+      "POST /v1/projects": async () => {
         await gate;
-        return json({});
+        return json({ id: "n1" });
       },
+      "POST /v1/sessions/s1/project": () => json({}),
     },
   });
   const first = hook.result.current.accept();
@@ -275,32 +226,17 @@ test("a second press while it works does nothing", async () => {
   await act(() => hook.result.current.accept());
   release();
   await first;
-  assert.equal(api.calls.length, 1);
+  assert.equal(
+    api.calls.filter((c) => c.path === "/v1/projects").length,
+    1,
+    "the project is created once",
+  );
   await hook.unmount();
-});
-
-test("owner/name and `name` read as the known repositories they say, and a path does not", () => {
-  const known = [
-    { url: "https://github.com/ada/engine.git", name: "engine" },
-    { url: "git@github.com:ada/tools.git", name: "tools" },
-  ];
-  const got = (text) => mentionedIn([user(text)], known).map((r) => r.name);
-  assert.deepEqual(got("fix ada/engine please"), ["engine"]);
-  assert.deepEqual(got("look at `tools` again"), ["tools"]);
-  assert.deepEqual(got("edit src/main and the engine folder"), []);
-  assert.deepEqual(got("https://github.com/ada/engine/issues/3"), ["engine"]);
-  const lib = project("a", { git_url: "https://github.com/ada/engine" });
-  const hint = projectHint([user("ada/engine")], inProject, [
-    project("p1"),
-    lib,
-  ]);
-  assert.equal(hint.kind, "add");
-  assert.equal(hint.repo.url, "https://github.com/ada/engine");
 });
 
 test("a named session with work and no repository is offered a project of its own", () => {
   const worked = { ...free, title: "Billing script", changes: 3 };
-  const hint = projectHint([user("hello")], worked, []);
+  const hint = projectHint([user("hello")], worked);
   assert.deepEqual(hint, { kind: "start", title: "Billing script" });
   assert.equal(hintKey("s1", hint), "s1|start");
   for (const s of [
@@ -308,7 +244,7 @@ test("a named session with work and no repository is offered a project of its ow
     { ...worked, title: "New session" },
     { ...worked, project_id: "p1" },
   ]) {
-    assert.equal(projectHint([user("hello")], s, []), null);
+    assert.equal(projectHint([user("hello")], s), null);
   }
 });
 

@@ -358,3 +358,47 @@ func TestAFolderOfTheUsersOwnIsNotSwitchedOrUpdatedByItself(t *testing.T) {
 		t.Errorf("an explicit update must bring main up to date (%q)", w)
 	}
 }
+
+func TestRemovingTheFolderReleasesTheLocalRepositoryAndLeavesItAlone(t *testing.T) {
+	srv, projectDir, id, _ := localProject(t)
+	local, _ := usersRepo(t)
+	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`","name":"api"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
+	}
+	before := snapshotOf(t, local)
+	if w := doDelete(t, srv, "/v1/projects/"+id+"?folder=delete&force=1"); w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if isDir(projectDir) {
+		t.Error("the project's folder must go")
+	}
+	if after := snapshotOf(t, local); after != before {
+		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
+	}
+	if gitx.BranchExists(context.Background(), local, "project/proj") {
+		t.Error("the project's branch must go with the folder")
+	}
+}
+
+func TestWhichFoldersAreProtectedFromRemoval(t *testing.T) {
+	srv, ws := fullDiskServer(t)
+	if got := srv.protectedFolder(nil); got != "" {
+		t.Errorf("no project, nothing to protect: %q", got)
+	}
+	if got := srv.protectedFolder(&Project{ID: "a", Dir: filepath.Dir(ws)}); got == "" {
+		t.Error("a folder around the workspace is protected")
+	}
+	shared := filepath.Join(ws, "shared")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.projects.save(Project{ID: "other", Title: "other", Dir: shared}); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.protectedFolder(&Project{ID: "mine", Dir: shared}); got == "" {
+		t.Error("a folder another project stands on is protected")
+	}
+	if got := srv.protectedFolder(&Project{ID: "mine", Dir: filepath.Join(ws, "free")}); got != "" {
+		t.Errorf("a free folder is not: %q", got)
+	}
+}
