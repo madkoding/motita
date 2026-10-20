@@ -2,6 +2,7 @@
 
 const more: Record<string, string> = {
   "This computer": "Este equipo",
+  "Git and pull requests": "Git y pull requests",
   "A new folder in the workspace": "Una carpeta nueva en el workspace",
   "Choose or create…": "Elegir o crear…",
   "Change…": "Cambiar…",

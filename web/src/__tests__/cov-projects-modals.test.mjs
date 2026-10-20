@@ -149,6 +149,7 @@ test("the edit dialog shows the project's settings", async () => {
   assert.equal(heading(m), "Edit project");
   assert.equal(fieldByLabel(m.root, "Title").value, "Motita");
   assert.equal(fieldByLabel(m.root, "Description").value, "the app");
+  assert.equal(m.q("[data-testid=edit-project-git]").open, false, "folded");
   const main = m.q("[data-testid=edit-project-main]");
   assert.deepEqual(
     [...main.options].map((o) => o.value),
