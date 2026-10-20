@@ -175,6 +175,9 @@ export const APPROVAL_RUN = 0;
 export const APPROVAL_ALL = 1;
 export const APPROVAL_NO = 2;
 export const APPROVAL_OPTIONS = 3;
+// How long a new question is on screen before Enter answers it: an Enter typed in that moment was
+// meant for what had focus before (the composer), not for a question nobody has read yet.
+export const APPROVAL_ARM_MS = 500;
 
 // The most attempts a project can allow to fix a failing CI.
 export const PR_MAX_FIXES_LIMIT = 20;

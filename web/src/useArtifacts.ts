@@ -129,6 +129,16 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
     [sessionId, artifactScope, artifactBase],
   );
 
+  // A picture or PDF on screen holds its bytes in an object URL: they go when it leaves the screen
+  // (Back, another file, another session, the page).
+  const viewUrl = artifactView?.url;
+  useEffect(() => {
+    if (!viewUrl) {
+      return undefined;
+    }
+    return () => URL.revokeObjectURL(viewUrl);
+  }, [viewUrl]);
+
   // A new session starts with nothing of the old one on screen: its list and the file being
   // looked at go, and an open list is loaded again for the session now shown.
   useEffect(() => {

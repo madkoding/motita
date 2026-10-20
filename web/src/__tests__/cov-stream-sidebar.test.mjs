@@ -339,12 +339,15 @@ test("a row being renamed is a field: Enter or ✓ saves, Escape or ✕ cancels"
   assert.equal(input.value, "New name");
   input.value = "Newer";
   await act(() => input.dispatchEvent(new Event("input", { bubbles: true })));
-  const key = (k) =>
+  const key = (k, opts = {}) =>
     act(() =>
       input.dispatchEvent(
-        new KeyboardEvent("keydown", { key: k, bubbles: true }),
+        new KeyboardEvent("keydown", { key: k, bubbles: true, ...opts }),
       ),
     );
+  // The Enter or Escape that ends an IME composition is the IME's: nothing is saved or cancelled.
+  await key("Enter", { isComposing: true });
+  await key("Escape", { isComposing: true });
   await key("a");
   await key("Enter");
   await key("Escape");
