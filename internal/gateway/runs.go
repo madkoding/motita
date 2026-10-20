@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/friction"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/intent"
 	"github.com/madkoding/motita/internal/schedule"
@@ -289,10 +290,12 @@ func (s *Server) launchRun(
 		case errors.Is(err, context.Canceled):
 			s.reportFailed(c, rn, "cancelled", "the run was cancelled")
 		case err != nil:
+			s.noteFriction(c, rn.turn, friction.KindError, err.Error())
 			s.reportFailed(c, rn, "error", err.Error())
 		case result == "":
 			// A run that returns nothing and no error is reported as the failure it is:
 			// an empty answer rendered as success is the interface lying.
+			s.noteFriction(c, rn.turn, friction.KindError, "the run finished without reporting a result")
 			s.reportFailed(c, rn, "error", "the run finished without reporting a result")
 		default:
 			s.reportDone(c, rn, kind, startRev, s.localizeLLM(result), madeArtifacts)
@@ -354,10 +357,15 @@ func (s *Server) executeTurn(
 	if rn.note != "" {
 		rn.progress()("%s", rn.note)
 	}
-	if kind == schedule.KindPlan {
-		return c.svc.RunPlan(ctx, task, rn.progress())
+	rn.onDenied = func(command string) {
+		s.recordFriction(friction.Entry{Kind: friction.KindDenied, Why: friction.WhyNobody, Session: c.id,
+			Project: c.projectID, Turn: rn.turn, Text: command})
 	}
-	return c.svc.RunTask(ctx, task, rn.progress())
+	progress := s.watchRetries(c, rn, rn.progress())
+	if kind == schedule.KindPlan {
+		return c.svc.RunPlan(ctx, task, progress)
+	}
+	return c.svc.RunTask(ctx, task, progress)
 }
 
 // recordIntegration marks the session merged when a merge run moved the project's HEAD from
@@ -431,6 +439,9 @@ func (s *Server) unattendedApprover(scheduleID string) func(*run) agent.Approver
 			err := fmt.Errorf("this run was started by the scheduled task %s and has nobody to ask: "+
 				"set agent.policy.enforce=false to run such actions unattended, or run the task by hand",
 				scheduleID)
+			if rn.onDenied != nil {
+				rn.onDenied(req.Command)
+			}
 			rn.append(EventApprovalDenied, approvalDeniedEvent{
 				Command: req.Command, Reason: req.Reason, Rule: req.Rule, Error: err.Error(),
 			})
@@ -729,6 +740,14 @@ func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bo
 	}
 	if approve && scope == "project" {
 		kept = s.rememberApproval(c, p.rule, p.command)
+	}
+	if !approve {
+		turn := 0
+		if rn, ok := c.currentRun(); ok {
+			turn = rn.turn
+		}
+		s.recordFriction(friction.Entry{Kind: friction.KindDenied, Why: friction.WhyPerson, Session: c.id,
+			Project: c.projectID, Turn: turn, Text: p.command})
 	}
 	// Buffered with room for one, so this never blocks even if the run has already moved on or
 	// already been cancelled. A blocking send here would hang the answering client on a

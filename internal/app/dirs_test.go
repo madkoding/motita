@@ -82,6 +82,20 @@ func TestThePushDirectoryLivesUnderTheHome(t *testing.T) {
 	}
 }
 
+// TestTheFrictionJournalLivesUnderTheHome: what got in the way is kept on this computer, in the
+// program's own folder, and without a home it is kept in memory only.
+func TestTheFrictionJournalLivesUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := frictionFile(), filepath.Join(home, ".motita", "friction.jsonl"); got != want {
+		t.Fatalf("frictionFile() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := frictionFile(); got != "" {
+		t.Fatalf("frictionFile() = %q with no HOME, want empty", got)
+	}
+}
+
 // TestTheLocalVoicesLiveUnderTheHome: the downloaded voices are ~/.motita/voices, with the
 // compiled-in catalog, and without a home there are none.
 func TestTheLocalVoicesLiveUnderTheHome(t *testing.T) {
