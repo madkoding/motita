@@ -10,6 +10,7 @@ package execx
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +114,39 @@ func TestRunTimeout(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 20*time.Second {
 		t.Errorf("the deadline was not honoured: %s", elapsed)
 	}
+}
+
+// treeMarkEnv names the file TestShellTreeHelper writes when it is still alive after a delay.
+const treeMarkEnv = "MOTITA_EXECX_TREE_MARK"
+
+// TestShellTimeoutEndsTheWholeTree: the deadline ends what the shell started, not only the shell.
+// Process.Kill ended cmd.exe alone, and the program it ran went on with no limit. Here that
+// program is this test binary, which writes a mark if it is still alive after three seconds.
+func TestShellTimeoutEndsTheWholeTree(t *testing.T) {
+	mark := filepath.Join(t.TempDir(), "mark")
+	command, args := shell(os.Args[0] + " -test.run=TestShellTreeHelper")
+	_, _, _, err := Run(context.Background(), Request{
+		Command: command, Args: args, Timeout: time.Second,
+		Environment: append(os.Environ(), treeMarkEnv+"="+mark),
+	})
+	if err == nil {
+		t.Fatal("a timeout was expected")
+	}
+	time.Sleep(5 * time.Second)
+	if _, err := os.Stat(mark); err == nil {
+		t.Error("the program the shell started outlived the deadline")
+	}
+}
+
+// TestShellTreeHelper is the grandchild of TestShellTimeoutEndsTheWholeTree; run on its own it
+// does nothing.
+func TestShellTreeHelper(t *testing.T) {
+	mark := os.Getenv(treeMarkEnv)
+	if mark == "" {
+		t.Skip("only the grandchild of TestShellTimeoutEndsTheWholeTree")
+	}
+	time.Sleep(3 * time.Second)
+	_ = os.WriteFile(mark, nil, 0o600)
 }
 
 // TestRunCancelledContext.
