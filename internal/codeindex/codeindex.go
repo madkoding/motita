@@ -704,7 +704,9 @@ func (s *Searcher) setWarning(w string) {
 
 // obtain returns the index of root: the one on disk when it still describes the folder, else a
 // new one, which is then kept on disk.
-func (s *Searcher) obtain(ctx context.Context, o Options, emb Embedder, root string, files []fileInfo, fp uint64) (*Index, error) {
+func (s *Searcher) obtain(
+	ctx context.Context, o Options, emb Embedder, root string, files []fileInfo, fp uint64,
+) (*Index, error) {
 	ix := loadIndex(o.CacheDir, root, fp)
 	fresh := ix == nil
 	if fresh {

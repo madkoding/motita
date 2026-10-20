@@ -183,12 +183,14 @@ func TestMoreFailuresInTheSameFileAreNew(t *testing.T) {
 		t.Errorf("another tool's count must not hide a grown one: %+v", got.Reason)
 	}
 	got := failureCounts("  3 failing\n1 error, 2 errors\nTests: 0 failed\n  3 failing\n/w/a.go: 12 errors\n", "/w")
-	if fmt.Sprint(got) != "map[# error:[1] # error, # errors:[2] # failing:[3 3] <dir>/a.go: # errors:[12] Tests: # failed:[0]]" {
+	want := "map[# error:[1] # error, # errors:[2] # failing:[3 3] <dir>/a.go: # errors:[12] Tests: # failed:[0]]"
+	if fmt.Sprint(got) != want {
 		t.Errorf("counts = %v", got)
 	}
 	// Measured end to end: the record of a check carries its counts.
 	rec := New(config.Anchor{}, t.TempDir(), nil).runCheck(context.Background(),
-		config.Check{Name: "t", Command: "sh", Args: []string{"-c", "echo 'Tests: 4 failed'; exit 1"}, Timeout: 5 * time.Second})
+		config.Check{Name: "t", Command: "sh", Timeout: 5 * time.Second,
+			Args: []string{"-c", "echo 'Tests: 4 failed'; exit 1"}})
 	if fmt.Sprint(rec.FailCounts) != "map[Tests: # failed:[4]]" {
 		t.Errorf("record = %+v", rec)
 	}
