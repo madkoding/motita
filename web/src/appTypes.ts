@@ -124,6 +124,16 @@ export interface RepoStatus {
   merged: string[];
 }
 
+// RemoteChange is news on origin for one repository of a project (repo is empty for its own).
+export interface RemoteChange {
+  repo?: string;
+  branch: string;
+  behind: number;
+  ahead?: number;
+  commit: string;
+  latest?: string[];
+}
+
 export interface ProjectInfo {
   id: string;
   title: string;
@@ -136,6 +146,9 @@ export interface ProjectInfo {
   // main_warning is why the last background update of the main branch (a session opened or
   // closed) could not be done; absent when it worked.
   main_warning?: string;
+  // remote_changes is what origin has that the project's branches do not, as of the gateway's last
+  // look; absent when it is up to date.
+  remote_changes?: RemoteChange[];
   // nested_repos are the git repositories inside the folder of a project that is not one itself.
   nested_repos?: NestedRepo[];
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.

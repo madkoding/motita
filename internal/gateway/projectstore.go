@@ -42,6 +42,9 @@ type Project struct {
 	// closed) could not be done - offline, diverged, uncommitted work - or absent when it worked.
 	// It is read live, never saved.
 	MainWarning string `json:"main_warning,omitempty"`
+	// RemoteChanges is what origin has that this project's branches do not, as of the last look
+	// (every 15 minutes). Read live, never saved.
+	RemoteChanges []RemoteChange `json:"remote_changes,omitempty"`
 	// MergeMethod is how a pull request of this project is merged from motita: "merge", "squash"
 	// or "rebase". Empty is a merge commit.
 	MergeMethod string `json:"merge_method,omitempty"`

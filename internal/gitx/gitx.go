@@ -837,7 +837,7 @@ func PullFastForward(ctx context.Context, dir, branch string) error {
 		return err
 	}
 	// A fetch is not a merge. The local branch must be able to move forward only.
-	out, err := execute(ctx, dir, "merge", "--ff-only", "origin/"+branch)
+	out, err := execute(ctx, dir, "merge", "--ff-only", originRef+branch)
 	if err != nil {
 		return describe("the project could not be updated to the latest "+branch, out, err)
 	}
@@ -911,7 +911,7 @@ func SwitchNew(ctx context.Context, dir, branch string) error {
 // at, else main or master, whichever exists. "" when none can be named.
 func DefaultBranch(ctx context.Context, dir string) string {
 	if out, err := execute(ctx, dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		if name := strings.TrimPrefix(out, "origin/"); name != "" {
+		if name := strings.TrimPrefix(out, originRef); name != "" {
 			return name
 		}
 	}
@@ -921,4 +921,28 @@ func DefaultBranch(ctx context.Context, dir string) string {
 		}
 	}
 	return ""
+}
+
+// originRef prefixes a branch name with the remote it is tracked under.
+const originRef = "origin/"
+
+// FetchRemoteBranch asks origin for its copy of branch and stores it as origin/<branch>. It is a
+// read: no checkout, no local branch and no working tree moves, so it is safe to run on a project
+// whose folder holds uncommitted work. A repository with no origin has nothing to ask.
+func FetchRemoteBranch(ctx context.Context, dir, branch string) error {
+	if branch == "" || !HasRemote(ctx, dir) {
+		return nil
+	}
+	spec := "+refs/heads/" + branch + ":refs/remotes/origin/" + branch
+	what := "could not ask origin about " + branch
+	_, err := noGitOr(ctx, what, dir, "fetch", "--quiet", "--no-tags", "--", "origin", spec)
+	return err
+}
+
+// RemoteDrift says how branch and origin's copy of it differ, as of the last fetch: the commits
+// origin has that the branch does not (behind, newest first) and the number of commits only the
+// branch has (ahead). An error when origin/<branch> is not known.
+func RemoteDrift(ctx context.Context, dir, branch string) (behind []Commit, ahead int, err error) {
+	local, remote, err := CommitsBetween(ctx, dir, originRef+branch, branch)
+	return remote, len(local), err
 }

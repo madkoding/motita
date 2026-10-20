@@ -126,3 +126,32 @@ func TestRefreshBranchReportsAWorkingTreeItCannotRead(t *testing.T) {
 		t.Fatalf("an unreadable working tree must be reported as such, got %v", err)
 	}
 }
+
+func TestRemoteDriftCountsWhatOriginHasThatTheBranchDoesNot(t *testing.T) {
+	repo := newRepo(t)
+	remote := pushToOrigin(t, repo)
+	ctx := context.Background()
+	if err := FetchRemoteBranch(ctx, repo, ""); err != nil {
+		t.Fatal(err)
+	}
+	upstreamCommit(t, repo, remote, "up.txt")
+	if behind, _, _ := RemoteDrift(ctx, repo, "main"); len(behind) != 0 {
+		t.Fatal("nothing is known before the fetch")
+	}
+	if err := FetchRemoteBranch(ctx, repo, "main"); err != nil {
+		t.Fatal(err)
+	}
+	behind, ahead, err := RemoteDrift(ctx, repo, "main")
+	if err != nil || len(behind) != 1 || ahead != 0 {
+		t.Fatalf("behind %v ahead %d err %v", behind, ahead, err)
+	}
+	if exists(filepath.Join(repo, "up.txt")) {
+		t.Fatal("the fetch must not touch the checkout")
+	}
+	if err := FetchRemoteBranch(ctx, t.TempDir(), "main"); err != nil {
+		t.Errorf("no origin, nothing to ask: %v", err)
+	}
+	if err := FetchRemoteBranch(ctx, repo, "nope"); err == nil {
+		t.Error("a branch origin lacks is an error")
+	}
+}

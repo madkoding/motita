@@ -95,6 +95,31 @@ function StaleFact({ p }: { p: ProjectInfo }) {
   );
 }
 
+// RemoteFact says origin has commits the project does not: a "new" tag whose title says how many
+// and what to do. Nothing is updated by itself; the menu's "Update main branch" brings them in.
+function RemoteFact({ p }: { p: ProjectInfo }) {
+  const news = p.remote_changes ?? [];
+  if (news.length === 0) {
+    return null;
+  }
+  const total = news.reduce((sum, c) => sum + c.behind, 0);
+  const latest = news.flatMap((c) => c.latest ?? []).join("; ");
+  return (
+    <span
+      class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
+      title={tf(
+        "{count} new commit(s) on origin: {latest}. Choose “Update main branch” in the menu to bring them in, or review them first.",
+        { count: String(total), latest },
+      )}
+      data-testid="project-remote"
+    >
+      <span class="text-accent uppercase tracking-wide text-[9px]">
+        {tf("{count} new", { count: String(total) })}
+      </span>
+    </span>
+  );
+}
+
 // ProjectActions is the header's "+" and "⋯" buttons. They stop the click, so they do not toggle.
 function ProjectActions({ p }: { p: ProjectInfo }) {
   const { menus, actions } = useApp();
@@ -180,6 +205,7 @@ function ProjectHeader({
           <IconFolder size={12} class="flex-none text-accent/60" />
           <span class="project-name truncate">{p.title}</span>
           <StaleFact p={p} />
+          <RemoteFact p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever
               their styles (see SessionRow). */}

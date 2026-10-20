@@ -146,6 +146,9 @@ type Options struct {
 	// default is a test that waits an hour. A value shorter than the startup delay also shortens
 	// that delay, so a test is never caught between the two.
 	UpdateCheckInterval time.Duration
+	// RemoteWatchInterval is how often the gateway asks origin whether the projects' main branches
+	// moved. Zero means remoteWatchInterval (15 minutes); negative turns the look off.
+	RemoteWatchInterval time.Duration
 	// UpdateAPIURL is the release API the updater asks for the latest release. Empty, the
 	// production value, means GitHub's. It is a seam for an embedder's tests: a gateway started
 	// for real answers /v1/update/check (which the text interface calls on start) by asking the
@@ -269,6 +272,9 @@ type Server struct {
 	// mainRefresh tracks the background updates of projects' main branches: which are running
 	// (so a second request for the same project is dropped) and why the last one of each failed.
 	mainRefresh mainRefreshState
+	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine. See remotewatch.go.
+	remoteWatch remoteWatchState
+	remoteWG    sync.WaitGroup
 
 	// scanJob is the progress of the notes scan running in the background, if any.
 	scanJob scanTracker
@@ -520,6 +526,7 @@ func Start(opts Options) (*Server, error) {
 	// never opens the settings modal still sees a toast when a new release
 	// appears, without the frontend having to poll GitHub itself.
 	s.startUpdateChecker()
+	s.startRemoteWatch()
 	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
 }
@@ -746,6 +753,7 @@ func (s *Server) Close(ctx context.Context) error {
 		finished := make(chan struct{})
 		go func() {
 			s.scheduleWG.Wait()
+			s.remoteWG.Wait()
 			close(finished)
 		}()
 		select {
