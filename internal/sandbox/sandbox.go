@@ -184,6 +184,10 @@ func New(op Options) (*Sandbox, error) {
 	if err := hideFromChildren(); err != nil {
 		s.notApplied = append(s.notApplied, "process hiding: a command can read motita's environment in /proc: "+err.Error())
 	}
+	// The isolation this platform cannot give any run (on Linux there is none). It is recorded
+	// here and not per run: runs are concurrent, and the list is read while they go on.
+	_, warnings := childAttributes(s.op.Limits, false, 0, 0)
+	s.notApplied = append(s.notApplied, warnings...)
 
 	if op.UseChroot {
 		s.checkChroot()
@@ -726,11 +730,8 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	attr, warnings := childAttributes(limits, false, 0, 0)
-	// The platform's warnings (the isolation it could not apply) are recorded
-	// like the rest. On Linux childAttributes has none; on the platforms where
-	// it has, this keeps them.
-	s.notApplied = append(s.notApplied, warnings...)
+	// The platform's warnings were recorded once, in New.
+	attr, _ := childAttributes(limits, false, 0, 0)
 	out := &limitedBuffer{max: maxOutput}
 
 	start := time.Now()
@@ -753,7 +754,7 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	// What the command left running in the background (`cmd &`, or detached with setsid) goes
 	// with it, not only on a timeout: it would otherwise outlive the run and its limits' purpose,
 	// and keep its temporary directory busy after it is deleted.
-	_ = killGroup(cmd)
+	killLeftovers(cmd)
 	group.kill()
 	_ = group.remove()
 	duration := time.Since(start)
@@ -761,6 +762,11 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 
 	if childCtx.Err() == context.DeadlineExceeded {
 		return text, out.truncated, -1, fmt.Errorf("the command exceeded the %s limit in the sandbox", timeout)
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The command exited 0, and only a child it left behind held the output open past
+		// WaitDelay. That child is gone now, and the run succeeded.
+		err = nil
 	}
 
 	exit := 0
