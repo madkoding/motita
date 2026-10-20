@@ -70,7 +70,9 @@ func reposUnder(root, rel string, depth int) []string {
 		}
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(child), ".git")); err == nil {
 			found = append(found, child)
-		} else if depth > 1 {
+			continue
+		}
+		if depth > 1 {
 			found = append(found, reposUnder(root, child, depth-1)...)
 		}
 	}
