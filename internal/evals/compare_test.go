@@ -95,7 +95,8 @@ func TestStale(t *testing.T) {
 }
 
 func TestHashesChangeWithTheirInput(t *testing.T) {
-	if PromptsHash("a") == PromptsHash("b") || PromptsHash("a") != PromptsHash("a") {
+	again := PromptsHash("a")
+	if PromptsHash("a") == PromptsHash("b") || PromptsHash("a") != again {
 		t.Error("the prompts hash should follow the prompts")
 	}
 }
