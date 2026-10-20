@@ -40,7 +40,7 @@ function ChangeList({ s }: { s: RepoStatus }) {
       <ul class="font-mono text-xs space-y-0.5" data-testid="repo-changes">
         {s.changes.slice(0, SHOWN).map((c) => (
           <li key={c.path} class="flex gap-2">
-            <span class="text-[#7a7a8c] flex-none w-[4rem] truncate">
+            <span class="text-[#7a7a8c] flex-none w-[5.5rem] truncate">
               {c.kind}
             </span>
             <span class="truncate">{c.path}</span>
