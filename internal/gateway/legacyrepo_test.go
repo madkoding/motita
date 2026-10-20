@@ -178,3 +178,11 @@ func TestAnUpdateThatCannotBeSavedIsReported(t *testing.T) {
 		t.Errorf("a save that fails: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestMovingAProjectToAFolderThatDoesNotExistIsRefused(t *testing.T) {
+	srv, _, id, _ := localProject(t)
+	missing := filepath.Join(t.TempDir(), "nowhere")
+	if w := patchProject(t, srv, id, `{"path":"`+missing+`"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("a folder that is not there: %d %s", w.Code, w.Body)
+	}
+}
