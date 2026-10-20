@@ -283,6 +283,8 @@ function store(state = {}) {
         newProjectDesc: "",
         newProjectDir: "",
         newProjectPath: "",
+        newProjectSource: "folder",
+        newProjectGitUrl: "",
         newProjectGit: "",
         newProjectMain: "main",
         remoteMain: "",

@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
-import { folderNameOf, repoNameOfUrl, slugOf } from "./appParse";
+import { folderNameOf } from "./appParse";
+import { newProjectDraft } from "./newProjectDraft";
 import { useFolderPicker } from "./useFolderPicker";
 import { createdToast } from "./projectToast";
 import { SCAN_STARTED_EVENT } from "./notesApi";
@@ -318,19 +319,6 @@ function useRuntimes(api: Api, showNewProject: boolean) {
   return { hasPodman, hasPodmanCompose, podmanReady };
 }
 
-// newProjectTarget is the title, folder and repository a new project is created with: the title
-// defaults to the name of the folder chosen or of the repository cloned, and the folder (in the workspace) to the title's slug.
-function newProjectTarget(form: NewProjectForm) {
-  const clone = form.newProjectSource === "clone";
-  const gitUrl = choose(clone, form.newProjectGitUrl.trim(), "");
-  const title =
-    form.newProjectTitle.trim() ||
-    folderNameOf(form.newProjectPath) ||
-    repoNameOfUrl(gitUrl);
-  const dir = form.newProjectDir.trim() || slugOf(title);
-  return { title, dir, gitUrl };
-}
-
 // useCreateProject sends the New project dialog to the gateway, and handles its answer.
 function useCreateProject(
   api: Api,
@@ -342,9 +330,8 @@ function useCreateProject(
 ) {
   // createProject sends a new project to the gateway.
   const createProject = useCallback(async () => {
-    const { title, dir, gitUrl } = newProjectTarget(form);
-    const cloning = form.newProjectSource === "clone";
-    if (!title || (!dir && !form.newProjectPath) || (cloning && !gitUrl)) {
+    const { title, dir, gitUrl, ready } = newProjectDraft(form);
+    if (!ready) {
       return;
     }
     form.setCreatingProject(true);

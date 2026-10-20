@@ -7,6 +7,7 @@ import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { folderNameOf, repoNameOfUrl } from "./appParse";
+import { newProjectDraft } from "./newProjectDraft";
 import type { Choice } from "./SettingsControls";
 import type { NewProjectSource } from "./useProjects";
 import { podmanNote } from "./appFormat";
@@ -286,16 +287,7 @@ function CreateButtons() {
         <button
           class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
           onClick={() => p.createProject()}
-          disabled={
-            p.creatingProject ||
-            !(
-              p.newProjectTitle.trim() ||
-              folderNameOf(p.newProjectPath) ||
-              (p.newProjectSource === "clone" &&
-                repoNameOfUrl(p.newProjectGitUrl))
-            ) ||
-            (p.newProjectSource === "clone" && !p.newProjectGitUrl.trim())
-          }
+          disabled={p.creatingProject || !newProjectDraft(p).ready}
         >
           {p.creatingProject && (
             <IconSpinner
