@@ -229,6 +229,7 @@ test("the edit dialog starts from the project's values and the gateway's branche
     id: "p1",
     title: "Motita",
     description: "the app",
+    git: true,
     main: "develop",
     branches: ["develop", "main", "feat"],
     current: "feat",
@@ -254,6 +255,7 @@ test("a project with no settings yet gets the defaults", async () => {
     id: "p2",
     title: "Bare",
     description: "",
+    git: false,
     main: "main",
     branches: ["main"],
     current: "",
@@ -298,6 +300,22 @@ test("branches that cannot be read, or arrive too late, leave the dialog as it i
   // A change with the dialog closed changes nothing.
   await run(() => s.p.patchEditProject({ title: "nope" }));
   assert.equal(s.p.editProject, null);
+  await s.m.unmount();
+});
+
+test("saving a plain folder sends no git settings", async () => {
+  const s = await setup({
+    "GET /v1/projects/p2/branches": res(200, {}),
+    "PATCH /v1/projects/p2": res(200, {}),
+  });
+  await run(() =>
+    s.p.openEditProject({ id: "p2", title: "Bare", dir: "/ws/bare/" }),
+  );
+  await flush();
+  await run(() => s.p.saveEditProject());
+  await flush();
+  const [call] = callsTo(s, "PATCH /v1/projects/p2");
+  assert.deepEqual(call.body, { title: "Bare", description: "" });
   await s.m.unmount();
 });
 

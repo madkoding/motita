@@ -150,10 +150,10 @@ test("the ⋯ button opens the project's menu without folding it", async () => {
   assert.deepEqual(s.log, [
     ["toggleMenu", { type: "project", id: "p1", title: "Motita" }],
   ]);
-  assert.equal(m.q(".row-menu"), null);
+  assert.equal(document.querySelector(".row-menu"), null);
   // Another row's menu is open: not this one's.
   await m.rerender(store({ rowMenu: { id: "p2" } }).value);
-  assert.equal(m.q(".row-menu"), null);
+  assert.equal(document.querySelector(".row-menu"), null);
   assert.equal(m.q(".row-actions-open"), null);
   await m.unmount();
 });
@@ -164,7 +164,7 @@ test("the menu edits the project and asks before deleting it", async () => {
   assert.ok(m.q(".row-actions-open"));
   assert.equal(m.q("[data-testid=podman-toggle]"), null, "no podman here");
   await click(m.q("[data-testid=edit-project]"));
-  await click(buttonByText(m.q(".row-menu"), "Delete"));
+  await click(buttonByText(document.querySelector(".row-menu"), "Delete"));
   assert.deepEqual(s.log, [
     ["edit", P],
     ["closeMenu"],
@@ -195,9 +195,18 @@ test("threads are listed under their main session, indented", async () => {
 
 test("the menu updates the main branch: nothing else does it by itself", async () => {
   const s = store({ rowMenu: { id: "p1" } });
-  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  const git = { ...P, main_branch: "main" };
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: git }));
   await click(m.q("[data-testid=refresh-main]"));
   assert.deepEqual(s.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
+test("a project that is only a folder has no main branch to update", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=refresh-main]"), null);
+  assert.ok(m.q("[data-testid=rescan-notes]"), "the rest of the menu stays");
   await m.unmount();
 });
 

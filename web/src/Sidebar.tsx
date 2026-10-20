@@ -156,7 +156,7 @@ function SidebarFoot() {
           onClick={() => skills.setShowSkillLibrary(true)}
         >
           <IconBook size={18} />
-          {t("Skill library")}
+          {t("Skills")}
         </button>
         <button
           class={FOOT_BUTTON}
@@ -189,7 +189,7 @@ function SidebarFoot() {
         </button>
         <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
           <IconClock size={18} />
-          {t("Scheduled tasks")}
+          {t("Tasks")}
         </button>
         <Settings />
       </div>

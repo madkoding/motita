@@ -29,6 +29,7 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     id: p.id,
     title: p.title,
     description: p.description ?? "",
+    git: !!p.main_branch,
     main: p.main_branch ?? "main",
     branches: [p.main_branch || "main"],
     current: p.branch ?? "",
@@ -38,6 +39,20 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     autoContinue: p.auto_continue === true,
     dir: p.dir,
     path: "",
+  };
+}
+
+// gitFields are the settings that only a git project has: a plain folder sends none of them.
+function gitFields(d: EditProjectDraft) {
+  if (!d.git) {
+    return {};
+  }
+  return {
+    main_branch: d.main,
+    merge_method: d.mergeMethod,
+    pr_max_fixes: d.prMaxFixes,
+    auto_merge: d.autoMerge,
+    auto_continue: d.autoContinue,
   };
 }
 
@@ -114,11 +129,7 @@ function useEditProject(
           body: JSON.stringify({
             title: editProject.title,
             description: editProject.description,
-            main_branch: editProject.main,
-            merge_method: editProject.mergeMethod,
-            pr_max_fixes: editProject.prMaxFixes,
-            auto_merge: editProject.autoMerge,
-            auto_continue: editProject.autoContinue,
+            ...gitFields(editProject),
             path: editProject.path || undefined,
           }),
         },

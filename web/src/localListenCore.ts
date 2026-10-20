@@ -140,6 +140,9 @@ function reflect(i: number, n: number): number {
   return i;
 }
 
+// The log10 of the power floor (1e-10): where a silent frame sits in every band.
+const SILENCE_LOG = -10;
+
 // logMel is the spectrogram Whisper reads, N_MELS rows of N_FRAMES, from up to 30 seconds of
 // 16 kHz samples (padded with silence, or cut: a longer recording is cut into windows first, see
 // windowsOf). It follows Whisper's own: a centred transform with
@@ -157,10 +160,13 @@ export function logMel(samples: Float32Array): Float32Array {
   const power = new Float32Array(N_FFT / 2 + 1);
   let loudest = -Infinity;
   for (let t = 0; t < N_FRAMES; t++) {
-    if (t < heard) {
-      framePower(audio, t, power);
-    } else {
-      power.fill(0);
+    if (!(t < heard && framePower(audio, t, power))) {
+      // No sound in it: every band sits at the floor, log10(1e-10), whatever the filters are.
+      for (let m = 0; m < N_MELS; m++) {
+        out[m * N_FRAMES + t] = SILENCE_LOG;
+      }
+      loudest = Math.max(loudest, SILENCE_LOG);
+      continue;
     }
     for (let m = 0; m < N_MELS; m++) {
       const v = Math.log10(Math.max(dot(mel[m], power), 1e-10));
@@ -175,13 +181,22 @@ export function logMel(samples: Float32Array): Float32Array {
   return out;
 }
 
-// framePower writes into power the power of each frequency of frame t: its samples, centred on
+// framePower writes into power the power of each frequency of frame t, and says whether it holds
+// any sound at all: its samples, centred on
 // t * HOP and read past the ends mirrored, through the Hann window and the transform.
-function framePower(audio: Float32Array, t: number, power: Float32Array): void {
+function framePower(
+  audio: Float32Array,
+  t: number,
+  power: Float32Array,
+): boolean {
   const { win, cos, sin } = transformTables();
   const frame = new Float32Array(N_FFT);
   for (let n = 0; n < N_FFT; n++) {
     frame[n] = audio[reflect(t * HOP + n - N_FFT / 2, CHUNK_SAMPLES)] * win[n];
+  }
+  // A frame of exact zeros has no power at any frequency: digital silence costs nothing.
+  if (frame.every((v) => v === 0)) {
+    return false;
   }
   for (let k = 0; k < power.length; k++) {
     const at = k * N_FFT;
@@ -189,6 +204,7 @@ function framePower(audio: Float32Array, t: number, power: Float32Array): void {
     const im = dot(frame, sin, at);
     power[k] = re * re + im * im;
   }
+  return true;
 }
 
 // dot is the sum of a's values times b's, b read from its index at.

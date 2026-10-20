@@ -313,6 +313,9 @@ export interface EditProjectDraft {
   id: string;
   title: string;
   description: string;
+  // git says the project's folder is a git repository: only then it has branches and pull requests
+  // to set. A plain folder has none.
+  git: boolean;
   main: string;
   branches: string[];
   current: string;
