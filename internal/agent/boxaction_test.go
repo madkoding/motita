@@ -162,7 +162,8 @@ func TestBoxUpInternalAndCompose(t *testing.T) {
 		!strings.Contains((*asked)[0].Reason, "no port on this machine") {
 		t.Fatalf("%v %q %+v", err, out, *asked)
 	}
-	if out, _ = box(e, "box_up", "image: nginx\nport: 80"); !strings.Contains(out, "no port on the host") || !fb.specs[1].Internal {
+	out, _ = box(e, "box_up", "image: nginx\nport: 80")
+	if !strings.Contains(out, "no port on the host") || !fb.specs[1].Internal {
 		t.Fatalf("a box with no network line has no port on the host: %q", out)
 	}
 	out, _ = box(e, "box_up", "image: nginx\nport: 80\nnetwork: loopback")
