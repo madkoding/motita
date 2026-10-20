@@ -217,7 +217,11 @@ test("a running check is followed and can be stopped", async () => {
     await settle();
     assert.ok(asked(f).includes("POST /v1/evals/stop"));
     assert.equal(m.root.querySelector("[data-testid=eval-running]"), null);
-    assert.deepEqual(cleared, [1], "the poll ends with the check");
+    assert.deepEqual(
+      cleared.filter(Boolean),
+      [1],
+      "the poll ends with the check",
+    );
     await m.unmount();
   } finally {
     globalThis.setInterval = realSet;

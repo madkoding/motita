@@ -63,11 +63,17 @@ var run0 = run("z", fewer, 10, 1, true)
 func TestCompareNamesWhatChanged(t *testing.T) {
 	prev := run("a", fewer, 10, 1, true)
 	v := Compare(&prev, run("b", swap, 13, 1.5, true))
-	if !reflect.DeepEqual(v.Regressed, []string{"create-file"}) || !reflect.DeepEqual(v.Fixed, []string{"sort-lines"}) {
-		t.Errorf("regressed %v, fixed %v", v.Regressed, v.Fixed)
+	if !reflect.DeepEqual(v.Regressed, []string{"create-file"}) {
+		t.Errorf("regressed %v", v.Regressed)
 	}
-	if v.Against != "a" || v.DeltaSteps != 3 || v.DeltaCostUSD != 0.5 || !v.CostUp || !v.StepsUp {
+	if !reflect.DeepEqual(v.Fixed, []string{"sort-lines"}) {
+		t.Errorf("fixed %v", v.Fixed)
+	}
+	if v.Against != "a" || v.DeltaSteps != 3 || v.DeltaCostUSD != 0.5 {
 		t.Errorf("verdict = %+v", v)
+	}
+	if !v.CostUp || !v.StepsUp {
+		t.Errorf("more steps and more cost should be flagged: %+v", v)
 	}
 }
 

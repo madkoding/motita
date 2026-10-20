@@ -75,10 +75,7 @@ export function EvalSettings({
   }, [reload, watch]);
   const running = view?.progress.running;
   useEffect(() => {
-    if (!running) {
-      return;
-    }
-    const id = setInterval(reload, EVAL_POLL);
+    const id = running ? setInterval(reload, EVAL_POLL) : undefined;
     return () => clearInterval(id);
   }, [running, reload]);
   const act = async (fn: (api: Api) => Promise<unknown>, done?: string) => {
@@ -176,6 +173,10 @@ function Controls({
   act: (fn: (api: Api) => Promise<unknown>, done?: string) => Promise<void>;
 }) {
   const p = view.progress;
+  const stop = () => act(stopEvals);
+  const start = () => act(runEvals, t("Check started"));
+  const ask = () => setAsking(true);
+  const dismiss = () => setAsking(false);
   if (p.running) {
     return (
       <div class="settings-add llm-actions" data-testid="eval-running">
@@ -185,7 +186,7 @@ function Controls({
             total: p.total,
           })}
         </output>
-        <button type="button" class={dangerBtn} onClick={() => act(stopEvals)}>
+        <button type="button" class={dangerBtn} onClick={stop}>
           {t("Stop")}
         </button>
       </div>
@@ -200,14 +201,10 @@ function Controls({
             { n: view.cases.length, model: view.model },
           )}
         </p>
-        <button
-          type="button"
-          class={primaryBtn}
-          onClick={() => act(runEvals, t("Check started"))}
-        >
+        <button type="button" class={primaryBtn} onClick={start}>
           {t("Run the check")}
         </button>
-        <button type="button" class={smallBtn} onClick={() => setAsking(false)}>
+        <button type="button" class={smallBtn} onClick={dismiss}>
           {t("Cancel")}
         </button>
       </div>
@@ -219,7 +216,7 @@ function Controls({
         type="button"
         class={primaryBtn}
         data-testid="eval-run"
-        onClick={() => setAsking(true)}
+        onClick={ask}
       >
         {t("Run check")}
       </button>
@@ -245,9 +242,9 @@ function Result({
       data-testid="eval-result"
       data-status={v.status}
     >
-      <p class={"eval-headline eval-" + v.status} role="status">
+      <output class={"eval-headline eval-" + v.status}>
         {t(HEADLINE[v.status] || HEADLINE.same)}
-      </p>
+      </output>
       <p class="text-xs text-[#7a7a8c]">
         {tf("{model} · {passed} of {total} tasks passed", {
           model: last.model,

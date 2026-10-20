@@ -4264,6 +4264,7 @@ html[data-keyboard="open"] .app-shell {
   border-top: 1px dashed rgb(var(--ov-rgb) / 0.08);
 }
 .eval-headline {
+  display: block;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--t1);

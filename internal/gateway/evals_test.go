@@ -45,7 +45,10 @@ func evalServer(t *testing.T, r *evalRunner) *Server {
 	}
 	oldRunner, oldSupported := newEvalRunner, evalsSupported
 	t.Cleanup(func() { newEvalRunner, evalsSupported = oldRunner, oldSupported })
-	newEvalRunner = func(cfg config.Config, _ *logx.Logger) evals.Runner { r.cfg = cfg; return r }
+	newEvalRunner = func(cfg config.Config, _ *logx.Logger) evals.Runner {
+		r.cfg = cfg
+		return r
+	}
 	evalsSupported = func() bool { return true }
 	svc := &modelsService{}
 	svc.cfg = config.Default()
@@ -87,8 +90,11 @@ func TestEvalsRunCompareAndGoStale(t *testing.T) {
 	r := &evalRunner{pass: allPass()}
 	srv := evalServer(t, r)
 	v := viewOfEvals(t, srv)
-	if !v.Supported || len(v.Cases) != 5 || v.Stale != "never" || v.Last != nil || v.Provider != "openai" {
+	if !v.Supported || len(v.Cases) != 5 || v.Provider != "openai" {
 		t.Fatalf("before any run: %+v", v)
+	}
+	if v.Stale != "never" || v.Last != nil {
+		t.Fatalf("no run yet: %+v", v)
 	}
 
 	runEval(t, srv)

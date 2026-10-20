@@ -91,6 +91,8 @@ func Compare(prev *Run, cur Run) Verdict {
 			v.Regressed = append(v.Regressed, r.ID)
 		case known && !was && r.Pass:
 			v.Fixed = append(v.Fixed, r.ID)
+		default:
+			// Unchanged, or not in the earlier run: nothing to report.
 		}
 	}
 	v.StepsUp = exceeds(float64(cur.Summary.Steps), float64(prev.Summary.Steps))

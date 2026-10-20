@@ -98,7 +98,8 @@ func runnerFor(url string) AgentRunner {
 
 func TestAgentRunnerPassesEveryTaskWithAModelThatSolvesThem(t *testing.T) {
 	srv := fakeModel(t, true)
-	run, err := Execute(context.Background(), runnerFor(srv.URL), Cases(), Options{Provider: "openai", Model: "gpt-5-mini"})
+	op := Options{Provider: "openai", Model: "gpt-5-mini"}
+	run, err := Execute(context.Background(), runnerFor(srv.URL), Cases(), op)
 	if err != nil {
 		t.Fatal(err)
 	}

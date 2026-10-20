@@ -51,7 +51,10 @@ func TestExecuteRunsEveryTaskInAThrowawayFolder(t *testing.T) {
 		t.Errorf("run = %+v", run)
 	}
 	s := run.Summary
-	if s.Passed != 1 || s.Total != 5 || s.Steps != 4 || s.Tokens != 400 || s.CostUSD != 1.5 || s.DurationMS != 5 {
+	if s.Passed != 1 || s.Total != 5 || s.Steps != 4 {
+		t.Errorf("summary = %+v", s)
+	}
+	if s.Tokens != 400 || s.CostUSD != 1.5 || s.DurationMS != 5 {
 		t.Errorf("summary = %+v", s)
 	}
 	if s.CostKnown {
