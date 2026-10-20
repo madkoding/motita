@@ -33,6 +33,9 @@ function store(state = {}) {
   const projects = {
     newProjectTitle: "",
     newProjectDesc: "",
+    newProjectPath: "",
+    openFolderPicker: rec("browse"),
+    setNewProjectPath: rec("path"),
     newProjectDir: "",
     newProjectPodman: false,
     hasPodman: false,
@@ -60,7 +63,7 @@ const fieldByLabel = (root, text) =>
     .find((l) => l.textContent.includes(text))
     .parentElement.querySelector("input,select");
 
-test("the dialog asks for a name and nothing else up front: a project is a plain folder", async () => {
+test("the dialog asks for the folder up front, the name comes from it, the rest is folded", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   assert.equal(heading(m), "New project");
@@ -73,21 +76,27 @@ test("the dialog asks for a name and nothing else up front: a project is a plain
   assert.equal(m.q("[data-testid=new-project-main]"), null, "no branch");
   const name = fieldByLabel(m.root, "Name");
   assert.equal(name.placeholder, "My project");
-  assert.match(name.parentElement.querySelector("label").textContent, /\*/);
-  assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "my-project");
+  assert.match(
+    m.q("[data-testid=new-project-folder]").textContent,
+    /A new folder in the workspace/,
+  );
+  assert.equal(m.root.textContent.includes("Folder name"), false);
   assert.equal(buttonByText(m.root, "Create").disabled, true, "no name yet");
   assert.equal(m.q("[data-testid=podman-offer]"), null);
 
   await type(name, "Hello");
   await type(fieldByLabel(m.root, "Description"), "about");
-  await type(fieldByLabel(m.root, "Folder name"), "hello-dir");
   await click(m.q("[aria-label=Close]"));
-  assert.deepEqual(s.log, [
-    ["title", "Hello"],
-    ["desc", "about"],
-    ["dir", "hello-dir"],
-    ["close"],
-  ]);
+  assert.deepEqual(s.log, [["title", "Hello"], ["desc", "about"], ["close"]]);
+  await m.unmount();
+});
+
+test("a folder chosen names the project and lets it be created", async () => {
+  const s = store({ newProjectPath: "/srv/my-app/" });
+  const m = await mount(AppCtx, s.value, h(NewProjectModal));
+  assert.equal(fieldByLabel(m.root, "Name").placeholder, "my-app");
+  assert.equal(buttonByText(m.root, "Create").disabled, false);
+  assert.equal(m.root.textContent.includes("created in the workspace"), false);
   await m.unmount();
 });
 
@@ -99,7 +108,6 @@ test("a named project can be created, in the folder named after it", async () =>
     hasPodmanCompose: true,
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(fieldByLabel(m.root, "Folder name").placeholder, "my-app");
   const offer = m.q("[data-testid=podman-offer]");
   assert.match(offer.textContent, /started in containers with podman\./);
   await change(offer.querySelector("input"), true);

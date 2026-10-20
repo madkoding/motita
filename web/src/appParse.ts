@@ -191,6 +191,15 @@ function trimDashes(s: string): string {
   return s.slice(start, end);
 }
 
+// folderNameOf is the last name of a folder's path ("" when there is none), whatever the separator
+// and with or without a trailing one.
+export function folderNameOf(path: string): string {
+  return path
+    .replace(/[/\\]+$/, "")
+    .split(/[/\\]/)
+    .pop() as string;
+}
+
 // slugOf turns a name into a folder name the gateway accepts: a simple name with no path
 // separators and no dots.
 export function slugOf(name: string): string {
