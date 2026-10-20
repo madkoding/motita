@@ -79,10 +79,13 @@ const defaultTemperature = 0.2
 func (c *Client) setAnthropicSampling(body map[string]any) {
 	switch {
 	case c.noTemperature.Load():
+		// The model already refused it.
 	case c.cfg.Temperature != nil:
 		body["temperature"] = *c.cfg.Temperature
 	case acceptsTemperature(c.cfg.Model):
 		body["temperature"] = defaultTemperature
+	default:
+		// A current model: the API default applies.
 	}
 }
 

@@ -12,6 +12,9 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 )
 
+const temperatureRefusal = `{"type":"error","error":{"type":"invalid_request_error",` +
+	`"message":"` + "`temperature`" + ` is deprecated for this model"}}`
+
 func ptr(f float64) *float64 { return &f }
 
 func TestAcceptsTemperature(t *testing.T) {
@@ -97,7 +100,7 @@ func TestAnthropicRetriesWithoutTemperature(t *testing.T) {
 		sent = append(sent, has)
 		if has {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, `{"type":"error","error":{"type":"invalid_request_error","message":"`+"`temperature`"+` is deprecated for this model"}}`)
+			fmt.Fprint(w, temperatureRefusal)
 			return
 		}
 		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}]}`)
@@ -106,8 +109,11 @@ func TestAnthropicRetriesWithoutTemperature(t *testing.T) {
 	c, _ := New(config.LLM{Provider: "anthropic", Model: "claude-future-9", APIKey: "k", BaseURL: srv.URL,
 		Temperature: ptr(0.5), MaxAttempts: 1}, logx.Global())
 	got, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}})
-	if err != nil || got != "ok" || len(sent) != 2 || !sent[0] || sent[1] {
-		t.Errorf("got %q, %v, sent %v", got, err, sent)
+	if err != nil || got != "ok" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if len(sent) != 2 || !sent[0] || sent[1] {
+		t.Errorf("temperature sent per request = %v, want [true false]", sent)
 	}
 	// The refusal is remembered: the next request does not try temperature again.
 	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "again"}}); err != nil ||
