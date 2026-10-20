@@ -371,7 +371,6 @@ test("the edit dialog shows the folder, and with the whole disk another can be c
 // setup mounts the real hook against a fake gateway.
 async function setup(routes = {}) {
   const api = fakeApi({
-    "GET /v1/runtimes": res(200, { podman: false }),
     "GET /v1/git/accounts": res(200, { accounts: [] }),
     ...routes,
   });

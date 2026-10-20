@@ -32,9 +32,6 @@ type Project struct {
 	// Adopted marks a project made on a folder that was already there: deleting the project
 	// forgets it and leaves the folder and its files alone, wherever the folder is.
 	Adopted bool `json:"adopted,omitempty"`
-	// Podman is the user's answer, given when the project was created, to running
-	// it with podman. It is only ever true on a machine that had podman then.
-	Podman bool `json:"podman,omitempty"`
 	// Branch is the branch the project's checkout is on RIGHT NOW (read live).
 	Branch string `json:"branch,omitempty"`
 	// MainBranch is the branch the project always goes back to when it has no sessions, and the

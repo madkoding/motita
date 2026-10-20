@@ -1,5 +1,5 @@
-// Projects: the New project dialog (a name and a folder), the edit dialog, podman, and deleting one.
-import { useCallback, useEffect, useState } from "preact/hooks";
+// Projects: the New project dialog (a name and a folder), the edit dialog, and deleting one.
+import { useCallback, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { folderNameOf } from "./appParse";
@@ -188,8 +188,6 @@ function useNewProjectForm() {
   const [newProjectPath, setNewProjectPath] = useState("");
   // The person confirmed that the folder is among the system's own files.
   const [newProjectSure, setNewProjectSure] = useState(false);
-  // The user's answer to podman.
-  const [newProjectPodman, setNewProjectPodman] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   // A project either uses a folder or clones a repository, never both: the dialog shows one.
   const [source, setSource] = useState<NewProjectSource>("folder");
@@ -220,7 +218,6 @@ function useNewProjectForm() {
     setNewProjectDir("");
     setNewProjectPath("");
     setNewProjectSure(false);
-    setNewProjectPodman(false);
     setNewProjectSource("folder");
     setNewProjectGitUrl("");
     setCreatingProject(false);
@@ -247,8 +244,6 @@ function useNewProjectForm() {
     chooseNewProjectPath,
     newProjectSure,
     setNewProjectSure,
-    newProjectPodman,
-    setNewProjectPodman,
     creatingProject,
     setCreatingProject,
     newProjectSource: source,
@@ -281,49 +276,10 @@ function useGitHosts(setToast: SetToast) {
   return { gitConnect, setGitConnect, closeGitConnect, onGitConnected, gitRev };
 }
 
-// useRuntimes asks the gateway which container runtimes the machine has, so podman is only
-// offered when it is there. Read on start (the project menu needs it) and again when the dialog
-// opens.
-function useRuntimes(api: Api, showNewProject: boolean) {
-  const [hasPodman, setHasPodman] = useState(false);
-  const [hasPodmanCompose, setHasPodmanCompose] = useState(false);
-  // Installed is not the same as working: `podman info` can fail on a machine that has the binary.
-  const [podmanReady, setPodmanReady] = useState(false);
-  useEffect(() => {
-    let live = true;
-    const set = (d: {
-      podman?: boolean;
-      podman_compose?: boolean;
-      podman_ready?: boolean;
-    }) => {
-      setHasPodman(!!d.podman);
-      setHasPodmanCompose(!!d.podman_compose);
-      setPodmanReady(!!d.podman_ready);
-    };
-    api("/v1/runtimes")
-      .then((r) => r.json())
-      .then((d) => {
-        if (live) {
-          set(d);
-        }
-      })
-      .catch(() => {
-        if (live) {
-          set({});
-        }
-      });
-    return () => {
-      live = false;
-    };
-  }, [showNewProject]);
-  return { hasPodman, hasPodmanCompose, podmanReady };
-}
-
 // useCreateProject sends the New project dialog to the gateway, and handles its answer.
 function useCreateProject(
   api: Api,
   form: NewProjectForm,
-  hasPodman: boolean,
   fetchProjects: () => Promise<unknown>,
   setState: SetStatus,
   setToast: SetToast,
@@ -346,11 +302,6 @@ function useCreateProject(
           path: form.newProjectPath || undefined,
           git_url: gitUrl || undefined,
           confirm_sensitive: form.newProjectSure || undefined,
-          use_podman: choose(
-            hasPodman && form.newProjectPodman,
-            true,
-            undefined,
-          ),
         }),
       });
       if (!res.ok) {
@@ -381,10 +332,8 @@ function useCreateProject(
     form.newProjectDir,
     form.newProjectPath,
     form.newProjectSure,
-    form.newProjectPodman,
     form.newProjectSource,
     form.newProjectGitUrl,
-    hasPodman,
     fetchProjects,
   ]);
   return createProject;
@@ -398,28 +347,6 @@ function useProjectAdmin(
   setToast: SetToast,
 ) {
   const { fetchProjects, fetchSessions } = lists;
-
-  // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
-  const setProjectPodman = useCallback(
-    async (id: string, podman: boolean) => {
-      try {
-        const res = await api(PROJECTS_PATH + id, {
-          method: "PATCH",
-          headers: JSON_HEADERS,
-          body: JSON.stringify({ podman }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          setState(err.error || "could not change the project", true);
-          return;
-        }
-        await fetchProjects();
-      } catch {
-        setState("could not change the project", true);
-      }
-    },
-    [fetchProjects],
-  );
 
   // refreshProjectMain asks the gateway to bring the project's main branch up to date now, the
   // only way it moves since nothing updates it by itself. The notice that remains comes with the
@@ -512,7 +439,7 @@ function useProjectAdmin(
     [fetchProjects, fetchSessions],
   );
 
-  return { setProjectPodman, refreshProjectMain, rescanNotes, deleteProject };
+  return { refreshProjectMain, rescanNotes, deleteProject };
 }
 
 export function useProjects({ api, lists, setState, setToast }: Deps) {
@@ -520,11 +447,9 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const edit = useEditProject(api, fetchProjects, setToast);
   const form = useNewProjectForm();
   const git = useGitHosts(setToast);
-  const runtimes = useRuntimes(api, form.showNewProject);
   const createProject = useCreateProject(
     api,
     form,
-    runtimes.hasPodman,
     fetchProjects,
     setState,
     setToast,
@@ -558,10 +483,6 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     ...folders,
     ...edit,
     ...git,
-    ...runtimes,
-    newProjectPodman: form.newProjectPodman,
-    setNewProjectPodman: form.setNewProjectPodman,
-    setProjectPodman: admin.setProjectPodman,
     refreshProjectMain: admin.refreshProjectMain,
     rescanNotes: admin.rescanNotes,
     creatingProject: form.creatingProject,

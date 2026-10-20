@@ -390,7 +390,7 @@ func TestTheConversationHonoursTheConfiguration(t *testing.T) {
 	}
 	// The system prompt is the planner's own: a conversation opened with a different
 	// instruction than the requests use would let the two drift.
-	if s.System != plan.SystemPrompt {
+	if s.System != plan.SystemPrompt+servicesNote {
 		t.Error("the conversation must open with the planner's system prompt")
 	}
 }
@@ -745,31 +745,24 @@ func TestTitleFromReplyKeepsOnlyATitle(t *testing.T) {
 	}
 }
 
-// TestThePodmanNoteFollowsTheUsersAnswer: the sentence is in the system prompt when the
-// project runs with podman, is swapped out when the answer changes, and is set whether the
-// answer arrives before the session exists or after it.
-func TestThePodmanNoteFollowsTheUsersAnswer(t *testing.T) {
+// TestTheServicesNoteIsInEverySession: the sentence about starting services in a box is in the
+// system prompt of a new session, and clearing the project note leaves it there.
+func TestTheServicesNoteIsInEverySession(t *testing.T) {
 	r := &AppRunner{Cfg: config.Default()}
 	r.Cfg.LLM.Model = "gpt-4o"
-	r.SetContainerRuntime("podman") // before any session: remembered
 	s := r.conversation(r.Cfg, nil)
-	if !strings.Contains(s.System, "run with podman") {
+	if !strings.HasSuffix(s.System, servicesNote) {
 		t.Fatalf("the note must be in the prompt of a new session: %q", s.System)
 	}
-	base := strings.TrimSuffix(s.System, r.runtimeNote)
-
-	r.SetContainerRuntime("podman") // again: must not stack
-	if strings.Count(s.System, "run with podman") != 1 {
-		t.Fatal("the note must not be added twice")
-	}
-	r.SetContainerRuntime("")
-	if s.System != base {
-		t.Fatalf("clearing the answer must restore the prompt, got %q", s.System)
+	r.SetProjectNote("\n\nother repos")
+	r.SetProjectNote("")
+	if !strings.HasSuffix(s.System, servicesNote) || strings.Count(s.System, servicesNote) != 1 {
+		t.Fatalf("the note must be there once: %q", s.System)
 	}
 }
 
 // TestTheProjectNoteFollowsTheProject: the note about a project's other repositories is in the
-// prompt, after the podman one, and is swapped out when the project changes.
+// prompt, after the services one, and is swapped out when the project changes.
 func TestTheProjectNoteFollowsTheProject(t *testing.T) {
 	r := &AppRunner{Cfg: config.Default()}
 	r.Cfg.LLM.Model = "gpt-4o"
@@ -779,13 +772,11 @@ func TestTheProjectNoteFollowsTheProject(t *testing.T) {
 		t.Fatalf("the note must be in the prompt of a new session: %q", s.System)
 	}
 	base := strings.TrimSuffix(s.System, r.runtimeNote)
-	r.SetContainerRuntime("podman")
-	if !strings.HasSuffix(s.System, "other repos") || !strings.Contains(s.System, "run with podman") {
+	if !strings.HasSuffix(s.System, "other repos") || !strings.Contains(s.System, "box_up") {
 		t.Fatalf("both notes must be there: %q", s.System)
 	}
-	r.SetContainerRuntime("")
 	r.SetProjectNote("")
-	if s.System != base {
-		t.Fatalf("clearing the note must restore the prompt, got %q", s.System)
+	if s.System != base+servicesNote {
+		t.Fatalf("clearing the note must leave only the services one, got %q", s.System)
 	}
 }

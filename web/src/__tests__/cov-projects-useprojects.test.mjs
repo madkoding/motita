@@ -1,5 +1,5 @@
 // useProjects, the projects' state: the New project dialog and what it sends, the git host
-// connection modal, the edit dialog, podman, and deleting a project. Runs the real hook against a fake gateway.
+// connection modal, the edit dialog, and deleting a project. Runs the real hook against a fake gateway.
 // Run with: node --test web/src/__tests__/cov-projects-useprojects.test.mjs
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
@@ -17,16 +17,9 @@ const { AppCtx, useProjects } = await bundle({
   "useProjects.ts": ["useProjects"],
 });
 
-const RUNTIMES = {
-  podman: true,
-  podman_compose: true,
-  podman_ready: true,
-};
-
 // setup mounts the hook. Every route not given answers as a healthy gateway would.
 async function setup(routes = {}) {
   const api = fakeApi({
-    "GET /v1/runtimes": res(200, RUNTIMES),
     "GET /v1/git/accounts": res(200, { accounts: [] }),
     ...routes,
   });
@@ -64,45 +57,6 @@ const run = (fn) =>
 const callsTo = (s, prefix) =>
   s.api.calls.filter((c) => (c.method + " " + c.path).startsWith(prefix));
 
-test("the machine's container runtimes are read on start", async () => {
-  const s = await setup();
-  assert.equal(s.p.hasPodman, true);
-  assert.equal(s.p.hasPodmanCompose, true);
-  assert.equal(s.p.podmanReady, true);
-  await s.m.unmount();
-
-  const off = await setup({
-    "GET /v1/runtimes": () => {
-      throw new Error("down");
-    },
-  });
-  assert.equal(off.p.hasPodman, false);
-  assert.equal(off.p.podmanReady, false);
-  await off.m.unmount();
-});
-
-test("an answer about runtimes that arrives after the page is gone is dropped", async () => {
-  let answer;
-  let fail;
-  const s = await setup({
-    "GET /v1/runtimes": () =>
-      new Promise((ok, no) => {
-        answer = ok;
-        fail = no;
-      }),
-  });
-  // Opening the dialog asks again; the first answer is for a gone effect.
-  const first = answer;
-  await run(() => s.p.openNewProject());
-  first(res(200, RUNTIMES));
-  await flush();
-  assert.equal(s.p.hasPodman, false);
-  const second = fail;
-  await s.m.unmount();
-  second(new Error("late"));
-  await flush();
-});
-
 test("an empty project is created with what was typed and a session opened in it", async () => {
   const s = await setup({
     "POST /v1/projects": res(201, { id: "p9" }),
@@ -114,7 +68,6 @@ test("an empty project is created with what was typed and a session opened in it
   await run(() => {
     s.p.setNewProjectTitle("  My App ");
     s.p.setNewProjectDesc(" about it ");
-    s.p.setNewProjectPodman(true);
   });
   await run(() => s.p.createProject());
   await flush();
@@ -123,7 +76,6 @@ test("an empty project is created with what was typed and a session opened in it
     title: "My App",
     description: "about it",
     dir: "my-app",
-    use_podman: true,
   });
   assert.equal(s.counts.projects, 1);
   assert.deepEqual(s.toasts.at(-1), {
@@ -436,36 +388,6 @@ test("a blank title or a closed dialog saves nothing; a refused save says why", 
   ]);
   assert.notEqual(s.p.editProject, null, "the dialog stays open");
   assert.equal(s.p.savingProject, false);
-  await s.m.unmount();
-});
-
-test("podman can be turned on or off for a project", async () => {
-  let n = 0;
-  const s = await setup({
-    "PATCH /v1/projects/p1": () => {
-      n++;
-      if (n === 1) {
-        return res(200, {});
-      }
-      if (n === 2) {
-        return res(400, { error: "podman missing" });
-      }
-      if (n === 3) {
-        return res(500, new Error("not json"));
-      }
-      throw new Error("down");
-    },
-  });
-  for (let i = 0; i < 4; i++) {
-    await run(() => s.p.setProjectPodman("p1", true));
-  }
-  assert.deepEqual(callsTo(s, "PATCH")[0].body, { podman: true });
-  assert.equal(s.counts.projects, 1);
-  assert.deepEqual(s.states, [
-    ["podman missing", true],
-    ["could not change the project", true],
-    ["could not change the project", true],
-  ]);
   await s.m.unmount();
 });
 

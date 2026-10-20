@@ -174,11 +174,10 @@ func TestRunTaskHandsTheAgentTheProject(t *testing.T) {
 		return ag
 	}
 	r.SetProjectNote("\n\nThis session belongs to the project \"Shop\".")
-	r.SetContainerRuntime("podman")
 	if _, err := r.RunTask(context.Background(), "do it", func(string, ...any) {}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(ag.note, "run with podman") || !strings.HasSuffix(ag.note, `the project "Shop".`) {
+	if !strings.Contains(ag.note, "box_up") || !strings.HasSuffix(ag.note, `the project "Shop".`) {
 		t.Errorf("the agent was not told about its project: %q", ag.note)
 	}
 }

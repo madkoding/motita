@@ -384,7 +384,6 @@ const first: Record<string, string> = {
   "could not create the project": "no se pudo crear el proyecto",
   "could not create the project: {err}": "no se pudo crear el proyecto: {err}",
   "could not delete the project": "no se pudo eliminar el proyecto",
-  "could not change the project": "no se pudo cambiar el proyecto",
   "could not open the artifact": "no se pudo abrir el artefacto",
   "could not delete the artifact": "no se pudo eliminar el artefacto",
   "could not pin the artifact": "no se pudo fijar el artefacto",
@@ -627,25 +626,14 @@ const first: Record<string, string> = {
   local: "local",
   Update: "Actualizar",
   shared: "compartido",
-  "Podman was found on this machine. Use it to run this project?":
-    "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",
   "Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.":
     "Aún no hay nada guardado en esta sesión. Pide un informe, una página o un diagrama y aparecerá aquí.",
   "This session": "Esta sesión",
   "Whole project": "Todo el proyecto",
   "Upload a file": "Subir un archivo",
-  "podman is installed but did not answer (podman info failed), so it may not work until it is set up.":
-    "podman está instalado pero no respondió (falló podman info), así que puede que no funcione hasta configurarlo.",
   "Pinned: it will not be deleted": "Fijado: no se borrará",
   "Deleted in {n} days unless pinned": "Se borrará en {n} días si no lo fijas",
-  "Stop using podman": "Dejar de usar podman",
-  "Run with podman": "Levantar con podman",
-  "This project is run with podman": "Este proyecto se levanta con podman",
-  "The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.":
-    "El proyecto se levantará en contenedores con podman. No se encontró podman compose, así que los archivos compose no funcionarán hasta instalarlo.",
-  "The project will be started in containers with podman.":
-    "El proyecto se levantará en contenedores con podman.",
   Repositories: "Repositorios",
   Private: "Privado",
   "Disconnected from {host}": "Desconectado de {host}",

@@ -138,14 +138,6 @@ func TestEditingAProject(t *testing.T) {
 			t.Errorf("PATCH %s answered %d, want %d", body, got, want)
 		}
 	}
-	withPodman(t, false)
-	if got, _ := patch(`{"podman":true}`); got != http.StatusConflict {
-		t.Errorf("podman without podman: %d", got)
-	}
-	withPodman(t, true)
-	if got, out := patch(`{"podman":true}`); got != http.StatusOK || out["podman"] != true {
-		t.Errorf("podman with podman: %d %v", got, out)
-	}
 	if w := send(t, srv, http.MethodPatch, "/v1/projects/nope", testToken, `{}`); w.Code != http.StatusNotFound {
 		t.Errorf("an unknown project: %d", w.Code)
 	}

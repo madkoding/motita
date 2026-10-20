@@ -37,7 +37,6 @@ test("every failure reported through setState has its Spanish translation", () =
     "could not delete the artifact",
     "could not pin the artifact",
     "could not save the file",
-    "could not change the project",
   ]) {
     assert.ok(keys.includes(k), `found in the sources: ${k}`);
   }

@@ -10,7 +10,6 @@ import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
 import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
 import {
-  IconBox,
   IconDots,
   IconEdit,
   IconFolder,
@@ -41,20 +40,6 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
         <IconEdit size={14} class="flex-none" />
         {t(EDIT_PROJECT)}
       </button>
-      {(projects.hasPodman || p.podman) && (
-        <button
-          class={ITEM_PLAIN}
-          data-testid="podman-toggle"
-          onClick={(e) => {
-            e.stopPropagation();
-            void projects.setProjectPodman(p.id, !p.podman);
-            menus.closeRowMenu();
-          }}
-        >
-          <IconBox size={14} class="flex-none" />
-          {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
-        </button>
-      )}
       {p.main_branch && (
         <button
           class={ITEM_PLAIN}

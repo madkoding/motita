@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -91,45 +90,6 @@ func liveSessionIDsFor(sessions []*conversation, projectID string) map[string]bo
 	return live
 }
 
-// podmanInstalled reports whether podman is on the PATH. It is a variable so a
-// test can say what the machine has without installing anything.
-var podmanInstalled = func() bool {
-	_, err := exec.LookPath("podman")
-	return err == nil
-}
-
-// podmanWorks reports whether podman actually answers, which is a different question from
-// whether the binary is there: a rootless setup that was never initialised, or a machine with no
-// user namespaces, has the binary and cannot run anything. Offering podman there would be
-// offering something that fails the first time the agent uses it.
-var podmanWorks = func() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, "podman", "info").Run() == nil
-}
-
-// podmanComposeInstalled reports whether `podman compose` works, which needs a
-// compose provider as well as podman. Also a variable, for the same reason.
-var podmanComposeInstalled = func() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, "podman", "compose", "version").Run() == nil
-}
-
-// handleRuntimes tells the client which container runtimes this machine has, so
-// the New project dialog only offers the ones that can be used.
-func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
-	// Each answer is only asked when the one before it was yes: `podman info` can take seconds
-	// and there is nothing to ask a binary that is not there.
-	hasPodman := podmanInstalled()
-	ready := hasPodman && podmanWorks()
-	writeJSON(w, http.StatusOK, map[string]bool{
-		"podman":         hasPodman,
-		"podman_ready":   ready,
-		"podman_compose": ready && podmanComposeInstalled(),
-	})
-}
-
 // newProjectFolder is the absolute folder of a project being created: the absolute path chosen
 // outside the workspace, or the folder name chosen inside it.
 func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (string, bool) {
@@ -154,8 +114,6 @@ func (s *Server) newProjectFolder(w http.ResponseWriter, path, dir string) (stri
 //   - description: optional
 //   - dir: a subfolder name under the workspace (relative, no path separators)
 //   - git_url: optional; when set, the repo is cloned into dir
-//   - use_podman: optional; the user's answer to "run this project with podman?",
-//     honoured only when podman is installed
 //
 // When git_url is set, dir is used as the destination folder name and the
 // clone happens synchronously. When git_url is empty, the folder is created
@@ -175,7 +133,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		// ConfirmSensitive says the person knows the folder is inside the system's own files.
 		ConfirmSensitive bool   `json:"confirm_sensitive"`
 		GitURL           string `json:"git_url"`
-		UsePodman        bool   `json:"use_podman"`
 		// MainBranch, GitUserName and GitUserEmail are no longer used: a project is a plain folder,
 		// and its branch and git identity belong to the repositories it links. Clients that still
 		// send them are not refused.
@@ -223,7 +180,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Description: strings.TrimSpace(body.Description),
 		Dir:         absDir,
 		Adopted:     !madeFolder,
-		Podman:      body.UsePodman && podmanInstalled(),
 		Created:     time.Now(),
 	}
 	if err := s.projects.save(p); err != nil {
@@ -247,7 +203,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"description": p.Description,
 		"dir":         p.Dir,
 		"repos":       p.Repos,
-		"podman":      p.Podman,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})
@@ -319,9 +274,8 @@ func (s *Server) refuseSharedDir(w http.ResponseWriter, dir string) bool {
 	return true
 }
 
-// handleUpdateProject changes the user's podman answer after the project exists.
-// Turning it on needs podman on the machine, and the sessions already open under
-// the project are told at once, so the next turn follows the new answer.
+// handleUpdateProject changes a project's details after it exists. The sessions already open
+// under it are told at once, so the next turn follows the change.
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	p := s.projectOf(r.PathValue("id"))
 	if p == nil {
@@ -362,7 +316,6 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 type projectUpdate struct {
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
-	Podman      *bool   `json:"podman"`
 	// Path points the project at another folder, outside the workspace. Nothing is moved: the
 	// project is anchored to the folder, as when it is created there.
 	Path *string `json:"path"`
@@ -382,9 +335,6 @@ func (u projectUpdate) copyTo(dst, src *Project) {
 	}
 	if u.Description != nil {
 		dst.Description = src.Description
-	}
-	if u.Podman != nil {
-		dst.Podman = src.Podman
 	}
 	if u.Path != nil {
 		dst.Dir = src.Dir
@@ -464,7 +414,7 @@ func (s *Server) applyFolder(w http.ResponseWriter, u projectUpdate, p *Project)
 	return true
 }
 
-// applyDetails applies the title, the description and the podman answer to p. It answers the
+// applyDetails applies the title and the description to p. It answers the
 // request itself, and returns false, when one is not valid.
 func (u projectUpdate) applyDetails(w http.ResponseWriter, p *Project) bool {
 	if u.Title != nil {
@@ -477,13 +427,6 @@ func (u projectUpdate) applyDetails(w http.ResponseWriter, p *Project) bool {
 	}
 	if u.Description != nil {
 		p.Description = strings.TrimSpace(*u.Description)
-	}
-	if u.Podman != nil {
-		if *u.Podman && !podmanInstalled() {
-			writeError(w, http.StatusConflict, "podman is not installed on this machine")
-			return false
-		}
-		p.Podman = *u.Podman
 	}
 	return true
 }

@@ -23,7 +23,6 @@ function store({
   sessions = [],
   collapsed = [],
   rowMenu = null,
-  hasPodman = false,
   creatingSession = null,
 } = {}) {
   const log = [];
@@ -57,9 +56,7 @@ function store({
         setContextMenu: rec("contextMenu"),
       },
       projects: {
-        hasPodman,
         openEditProject: rec("edit"),
-        setProjectPodman: rec("podman"),
         refreshProjectMain: rec("refreshMain"),
         rescanNotes: rec("rescan"),
       },
@@ -124,14 +121,13 @@ test("the header is the title alone: the checkout's facts are in its tooltip", a
     AppCtx,
     s.value,
     h(ProjectGroup, {
-      p: { ...P, branch: "refs/heads/feature", podman: true, changes: 3 },
+      p: { ...P, branch: "refs/heads/feature", changes: 3 },
     }),
   );
   const text = m.root.textContent;
-  assert.doesNotMatch(text, /feature|podman|changes/);
+  assert.doesNotMatch(text, /feature|changes/);
   const tip = m.q(".project-header .row-hit").getAttribute("title");
   assert.match(tip, /feature/);
-  assert.match(tip, /podman/);
   await m.unmount();
 });
 
@@ -167,7 +163,6 @@ test("the menu edits the project and asks before deleting it", async () => {
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
   assert.ok(m.q(".row-actions-open"));
-  assert.equal(m.q("[data-testid=podman-toggle]"), null, "no podman here");
   await click(m.q("[data-testid=edit-project]"));
   await click(buttonByText(document.querySelector(".row-menu"), "Delete"));
   assert.deepEqual(s.log, [
@@ -293,22 +288,6 @@ test("the menu rescans the notes of its project", async () => {
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
   await click(m.q("[data-testid=rescan-notes]"));
   assert.deepEqual(s.log, [["rescan", "p1"], ["closeMenu"]]);
-  await m.unmount();
-});
-
-test("the menu turns podman on where the machine has it, and off where it is on", async () => {
-  const s = store({ rowMenu: { id: "p1" }, hasPodman: true });
-  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
-  const toggle = m.q("[data-testid=podman-toggle]");
-  assert.equal(toggle.textContent, "Run with podman");
-  await click(toggle);
-  const on = store({ rowMenu: { id: "p1" } });
-  await m.rerender(on.value, h(ProjectGroup, { p: { ...P, podman: true } }));
-  const off = m.q("[data-testid=podman-toggle]");
-  assert.equal(off.textContent, "Stop using podman");
-  await click(off);
-  assert.deepEqual(s.log, [["podman", "p1", true], ["closeMenu"]]);
-  assert.deepEqual(on.log, [["podman", "p1", false], ["closeMenu"]]);
   await m.unmount();
 });
 

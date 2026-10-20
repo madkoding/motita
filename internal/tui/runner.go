@@ -187,11 +187,9 @@ type AppRunner struct {
 	//
 	// Guarded by sessionMu, like store, because both are read while a turn runs.
 	projectScope string
-	// containerRuntime is the runtime the project is run with ("podman" or empty), and
-	// runtimeNote is the sentence it added to the system prompt, kept so a change can
-	// swap it. Guarded by sessionMu, like the session it edits.
-	containerRuntime string
-	runtimeNote      string
+	// runtimeNote is the sentence added to the system prompt (how services are run, then the
+	// project note), kept so a change can swap it. Guarded by sessionMu, like the session it edits.
+	runtimeNote string
 	// projectNote is what the gateway tells the agent about the project's other repositories,
 	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
 	projectNote string
@@ -564,18 +562,6 @@ func (r *AppRunner) SetIsolateNetwork(on bool) {
 	}
 }
 
-// SetContainerRuntime tells the agent how this project is run: with podman, instead of
-// docker. An empty name clears it. The sentence goes into the session's system prompt, so
-// it holds for every turn, and it replaces the previous one when the user changes the answer.
-func (r *AppRunner) SetContainerRuntime(name string) {
-	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
-	r.containerRuntime = name
-	if r.session != nil {
-		r.applyRuntimeNote()
-	}
-}
-
 // SetProjectNote sets what the agent is told about the project it works in (its other
 // repositories), at the end of the system prompt. An empty note clears it.
 func (r *AppRunner) SetProjectNote(note string) {
@@ -595,15 +581,16 @@ func (r *AppRunner) applyRuntimeNote() {
 	r.runtimeNote = note
 }
 
+// servicesNote is told to every session: a project's services are started in a box, a container
+// no other machine can reach, and never with a published port.
+const servicesNote = "\n\nTo run a service of this project (a server, a database, a compose stack), start it with " +
+	"the box_up action, never with `podman run` or `docker run` and never with a published port: the box is " +
+	"a container only motita can reach, and it is removed when the run ends."
+
 // projectContext is the runtime and project sentences, as they go at the end of the system
 // prompt. The caller holds sessionMu.
 func (r *AppRunner) projectContext() string {
-	note := ""
-	if r.containerRuntime == "podman" {
-		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project " +
-			"has a compose file) to build and start it, and do not use docker."
-	}
-	return note + r.projectNote
+	return servicesNote + r.projectNote
 }
 
 // SetProjectScope makes this runner's procedure library belong to ONE project.
