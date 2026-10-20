@@ -423,3 +423,51 @@ func TestAuditReplyMeetsItsCriterion(t *testing.T) {
 		t.Fatalf("audit reply = %+v, %v", rep, err)
 	}
 }
+
+// TestEvalCommandSolvesTheModelChecksTasksOnRequest: with MOCK_EVAL the mock does the fixed tasks of
+// the model check right, or (regress) gets two of them wrong; unset, it answers as it always did.
+func TestEvalCommandSolvesTheModelChecksTasksOnRequest(t *testing.T) {
+	prompt := "Fix it. The file letter.txt has a misspelled word."
+	t.Setenv("MOCK_EVAL", "")
+	if got := evalCommand(prompt); got != "" {
+		t.Errorf("unset: %q", got)
+	}
+	t.Setenv("MOCK_EVAL", "solve")
+	if got := evalCommand(prompt); !strings.Contains(got, "letter.txt") {
+		t.Errorf("solve: %q", got)
+	}
+	if got := evalCommand("Rename old.txt to new.txt"); got != "mv old.txt new.txt" {
+		t.Errorf("solve: %q", got)
+	}
+	if got := evalCommand("something else"); got != "" {
+		t.Errorf("a prompt that is not a task: %q", got)
+	}
+	t.Setenv("MOCK_EVAL", "regress")
+	if got := evalCommand(prompt); got != "" {
+		t.Errorf("regress should get it wrong: %q", got)
+	}
+	if got := evalCommand("Rename old.txt to new.txt"); got == "" {
+		t.Error("regress still does the others")
+	}
+
+	atomic.StoreInt32(&executionAttempts, 0)
+	rec := httptest.NewRecorder()
+	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"messages":[{"role":"user","content":"## ACTION Rename old.txt to new.txt"}]}`)))
+	if !strings.Contains(rec.Body.String(), "mv old.txt new.txt") {
+		t.Errorf("the execution reply = %s", rec.Body.String())
+	}
+}
+
+// TestEvalMockReportsTokensOnlyWhenAsked: the model check measures spending, so its mock says how
+// many tokens a reply took; every other caller gets the reply it always got.
+func TestEvalMockReportsTokensOnlyWhenAsked(t *testing.T) {
+	t.Setenv("MOCK_EVAL", "")
+	if _, ok := openAIBody("x")["usage"]; ok {
+		t.Error("no usage unless asked")
+	}
+	t.Setenv("MOCK_EVAL", "solve")
+	if _, ok := openAIBody("x")["usage"]; !ok {
+		t.Error("usage expected with MOCK_EVAL")
+	}
+}
