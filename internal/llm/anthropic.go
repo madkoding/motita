@@ -54,15 +54,39 @@ func anthropicTextConversation(messages []Message) (string, []map[string]any) {
 	return system, conversation
 }
 
+// acceptsTemperature reports whether an Anthropic model still takes `temperature`. Current
+// models (Claude 4 and later, including the Claude 5 family) answer HTTP 400 "`temperature`
+// is deprecated for this model", so it is only sent to the legacy Claude 2 and 3 families;
+// top_p and top_k are never sent.
+func acceptsTemperature(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:] // "anthropic/claude-3-haiku" on a gateway
+	}
+	for _, p := range []string{"claude-2", "claude-3", "claude-instant"} {
+		if strings.HasPrefix(m, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// setAnthropicSampling adds the sampling parameters the configured model accepts.
+func (c *Client) setAnthropicSampling(body map[string]any) {
+	if acceptsTemperature(c.cfg.Model) {
+		body["temperature"] = c.cfg.Temperature
+	}
+}
+
 func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string, error) {
 	system, conversation := anthropicTextConversation(messages)
 
 	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    conversation,
-		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
-		"temperature": c.cfg.Temperature,
+		"model":      c.cfg.Model,
+		"messages":   conversation,
+		"max_tokens": maxInt(c.cfg.MaxTokens, 1),
 	}
+	c.setAnthropicSampling(body)
 	if system != "" {
 		body["system"] = system
 	}
@@ -101,12 +125,12 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 	system, conversation := toAnthropicMessages(messages)
 
 	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    conversation,
-		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
-		"temperature": c.cfg.Temperature,
-		"tools":       toAnthropicTools(tools),
+		"model":      c.cfg.Model,
+		"messages":   conversation,
+		"max_tokens": maxInt(c.cfg.MaxTokens, 1),
+		"tools":      toAnthropicTools(tools),
 	}
+	c.setAnthropicSampling(body)
 	if system != "" {
 		body["system"] = system
 	}
