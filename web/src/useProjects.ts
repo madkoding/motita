@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
-import { folderNameOf, slugOf } from "./appParse";
+import { folderNameOf, repoNameOfUrl, slugOf } from "./appParse";
 import { useFolderPicker } from "./useFolderPicker";
 import { createdToast } from "./projectToast";
 import { SCAN_STARTED_EVENT } from "./notesApi";
@@ -175,6 +175,8 @@ interface Deps {
   setToast: SetToast;
 }
 
+export type NewProjectSource = "folder" | "clone";
+
 // useNewProjectForm holds what the New project dialog has been given so far, and empties it.
 function useNewProjectForm() {
   const [showNewProject, setShowNewProject] = useState(false);
@@ -188,6 +190,10 @@ function useNewProjectForm() {
   // The user's answer to podman.
   const [newProjectPodman, setNewProjectPodman] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  // A project either uses a folder or clones a repository, never both: the dialog shows one.
+  const [newProjectSource, setNewProjectSource] =
+    useState<NewProjectSource>("folder");
+  const [newProjectGitUrl, setNewProjectGitUrl] = useState("");
 
   // chooseNewProjectPath sets the folder picked and, when no name was typed yet, names the project
   // after it; a name already typed stays.
@@ -205,6 +211,8 @@ function useNewProjectForm() {
     setNewProjectPath("");
     setNewProjectSure(false);
     setNewProjectPodman(false);
+    setNewProjectSource("folder");
+    setNewProjectGitUrl("");
     setCreatingProject(false);
   };
 
@@ -233,6 +241,10 @@ function useNewProjectForm() {
     setNewProjectPodman,
     creatingProject,
     setCreatingProject,
+    newProjectSource,
+    setNewProjectSource,
+    newProjectGitUrl,
+    setNewProjectGitUrl,
     resetNewProject,
   };
 }
@@ -297,13 +309,17 @@ function useRuntimes(api: Api, showNewProject: boolean) {
   return { hasPodman, hasPodmanCompose, podmanReady };
 }
 
-// newProjectTarget is the title and folder a new project is created with: the title defaults to the
-// name of the folder chosen, and the folder (in the workspace) to the title's slug.
+// newProjectTarget is the title, folder and repository a new project is created with: the title
+// defaults to the name of the folder chosen or of the repository cloned, and the folder (in the workspace) to the title's slug.
 function newProjectTarget(form: NewProjectForm) {
+  const clone = form.newProjectSource === "clone";
+  const gitUrl = choose(clone, form.newProjectGitUrl.trim(), "");
   const title =
-    form.newProjectTitle.trim() || folderNameOf(form.newProjectPath);
+    form.newProjectTitle.trim() ||
+    folderNameOf(form.newProjectPath) ||
+    repoNameOfUrl(gitUrl);
   const dir = form.newProjectDir.trim() || slugOf(title);
-  return { title, dir };
+  return { title, dir, gitUrl };
 }
 
 // useCreateProject sends the New project dialog to the gateway, and handles its answer.
@@ -317,8 +333,9 @@ function useCreateProject(
 ) {
   // createProject sends a new project to the gateway.
   const createProject = useCallback(async () => {
-    const { title, dir } = newProjectTarget(form);
-    if (!title || (!dir && !form.newProjectPath)) {
+    const { title, dir, gitUrl } = newProjectTarget(form);
+    const cloning = form.newProjectSource === "clone";
+    if (!title || (!dir && !form.newProjectPath) || (cloning && !gitUrl)) {
       return;
     }
     form.setCreatingProject(true);
@@ -331,6 +348,7 @@ function useCreateProject(
           description: form.newProjectDesc.trim(),
           dir,
           path: form.newProjectPath || undefined,
+          git_url: gitUrl || undefined,
           confirm_sensitive: form.newProjectSure || undefined,
           use_podman: choose(
             hasPodman && form.newProjectPodman,
@@ -368,6 +386,8 @@ function useCreateProject(
     form.newProjectPath,
     form.newProjectSure,
     form.newProjectPodman,
+    form.newProjectSource,
+    form.newProjectGitUrl,
     hasPodman,
     fetchProjects,
   ]);
@@ -535,6 +555,10 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectPath: form.setNewProjectPath,
     newProjectSure: form.newProjectSure,
     setNewProjectSure: form.setNewProjectSure,
+    newProjectSource: form.newProjectSource,
+    setNewProjectSource: form.setNewProjectSource,
+    newProjectGitUrl: form.newProjectGitUrl,
+    setNewProjectGitUrl: form.setNewProjectGitUrl,
     ...folders,
     ...edit,
     ...git,

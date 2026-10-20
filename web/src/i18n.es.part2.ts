@@ -8,6 +8,11 @@ const more: Record<string, string> = {
   "Change…": "Cambiar…",
   "Its folder is created in the workspace with this name.":
     "Su carpeta se crea en el workspace con este nombre.",
+  "Start from": "Empezar desde",
+  "Use a folder": "Usar una carpeta",
+  "Clone a repository": "Clonar un repositorio",
+  "Repository address": "Dirección del repositorio",
+  "Clone into": "Clonar en",
   "New folder name": "Nombre de la carpeta nueva",
   "This folder holds the system's own files. A project here puts the agent among them.":
     "Esta carpeta guarda los archivos del propio sistema. Un proyecto aquí deja al agente entre ellos.",

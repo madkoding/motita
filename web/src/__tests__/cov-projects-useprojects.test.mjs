@@ -140,6 +140,38 @@ test("an empty project is created with what was typed and a session opened in it
   await s.m.unmount();
 });
 
+test("a repository is cloned only in clone mode, named after it", async () => {
+  const s = await setup({
+    "POST /v1/projects": res(201, { id: "p3" }),
+  });
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.setNewProjectGitUrl(" https://h.io/o/Cool.Repo.git/ "));
+  // In folder mode the address is hidden, so it is not sent and it names nothing.
+  await run(() => s.p.createProject());
+  assert.equal(callsTo(s, "POST /v1/projects").length, 0);
+  await run(() => s.p.setNewProjectSource("clone"));
+  await run(() => s.p.createProject());
+  await flush();
+  const [call] = callsTo(s, "POST /v1/projects");
+  assert.equal(call.body.git_url, "https://h.io/o/Cool.Repo.git/");
+  assert.equal(call.body.title, "Cool.Repo");
+  assert.equal(call.body.dir, "cool-repo");
+  // The dialog goes back to its folder default once the project exists.
+  assert.equal(s.p.newProjectSource, "folder");
+  assert.equal(s.p.newProjectGitUrl, "");
+  await s.m.unmount();
+});
+
+test("cloning without an address sends nothing", async () => {
+  const s = await setup();
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.setNewProjectSource("clone"));
+  await run(() => s.p.setNewProjectTitle("Named"));
+  await run(() => s.p.createProject());
+  assert.equal(callsTo(s, "POST").length, 0);
+  await s.m.unmount();
+});
+
 test("nothing is sent without a name", async () => {
   const s = await setup();
   await run(() => s.p.openNewProject());
