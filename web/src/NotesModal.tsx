@@ -28,9 +28,15 @@ export function NotesModal() {
       void openGraph();
     }
   };
-  const close = () => void closeNotes();
-  const confirmPending = () => pending && void confirmDelete(pending);
-  const cancelDelete = () => askDelete(null);
+  function close() {
+    void closeNotes();
+  }
+  function confirmPending() {
+    pending && void confirmDelete(pending);
+  }
+  function cancelDelete() {
+    askDelete(null);
+  }
   return (
     <ModalBackdrop onClose={close}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-5xl p-3 md:p-5 shadow-2xl h-[92dvh] md:h-[85vh] flex flex-col">

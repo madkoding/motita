@@ -30,7 +30,9 @@ export function DotsMenu({
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const close = () => setOpen(false);
+  function close() {
+    setOpen(false);
+  }
   return (
     <>
       <button

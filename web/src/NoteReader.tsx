@@ -1,6 +1,6 @@
 // The right side of the notes window: the open note read like a page of a wiki, with the way back,
 // its place in the library and the pages that link to it, or a welcome when none is open.
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -66,7 +66,7 @@ function Backlinks() {
 
 // NoteBody is the note as text to edit, or drawn, with its [[links]] alive.
 function NoteBody() {
-  const { current, draft, setDraft, editing, followLink } = useApp().notes;
+  const { current, draft, setDraft, editing } = useApp().notes;
   if (editing) {
     return (
       <textarea
@@ -79,28 +79,43 @@ function NoteBody() {
       />
     );
   }
-  const follow = (e: Event) => {
-    const href = (e.target as Element).closest("a")?.getAttribute("href");
-    if (parseNoteHref(href)) {
-      e.preventDefault();
-      void followLink(href);
-    }
-  };
-  // Enter on a focused link is handled here too, so keyboard users follow it the same way.
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
-      follow(e);
-    }
-  };
+  return <Preview body={wikiToMarkdown(draft, (current as NoteView).links)} />;
+}
+
+// Preview draws the note and follows the [[links]] in it. The listeners are added to the page
+// itself, since the page is not a control. Enter on a focused link follows it too, so keyboard
+// users get there the same way.
+function Preview({ body }: { body: string }) {
+  const { followLink } = useApp().notes;
+  const page = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = page.current as HTMLDivElement;
+    const follow = (e: Event) => {
+      const href = (e.target as Element).closest("a")?.getAttribute("href");
+      if (parseNoteHref(href)) {
+        e.preventDefault();
+        void followLink(href);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        follow(e);
+      }
+    };
+    el.addEventListener("click", follow);
+    el.addEventListener("keydown", onKeyDown);
+    return () => {
+      el.removeEventListener("click", follow);
+      el.removeEventListener("keydown", onKeyDown);
+    };
+  }, [followLink]);
   return (
     <div
+      ref={page}
       class="skill-body artifact-body note-preview relative p-3 md:px-5 rounded-lg bg-black/30"
       data-testid="note-preview"
-      role="presentation"
-      onClick={follow}
-      onKeyDown={onKeyDown}
     >
-      <Markdown content={wikiToMarkdown(draft, (current as NoteView).links)} />
+      <Markdown content={body} />
     </div>
   );
 }

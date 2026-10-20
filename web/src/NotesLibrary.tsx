@@ -443,8 +443,12 @@ export function NoteList() {
   const { notes } = useApp();
   const { current, graph, query, hits, search } = notes;
   const [writing, setWriting] = useState(false);
-  const closeForm = () => setWriting(false);
-  const toggleForm = () => setWriting(!writing);
+  function closeForm() {
+    setWriting(false);
+  }
+  function toggleForm() {
+    setWriting(!writing);
+  }
   const searching = query.trim() !== "";
   return (
     <aside
