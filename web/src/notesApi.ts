@@ -127,8 +127,7 @@ export function wikiToMarkdown(body: string, links: NoteLink[]): string {
 
 // NoteTarget is where a link of the preview leads.
 export type NoteTarget =
-  | { kind: "note"; path: string }
-  | { kind: "new"; target: string };
+  { kind: "note"; path: string } | { kind: "new"; target: string };
 
 // parseNoteHref reads the href wikiToMarkdown wrote, or null for any other link.
 export function parseNoteHref(
@@ -442,6 +441,78 @@ export const START_NOTE = "Start here";
 export function byReadingOrder(a: NoteItem, b: NoteItem): number {
   const first = Number(b.title === START_NOTE) - Number(a.title === START_NOTE);
   return first || a.title.localeCompare(b.title);
+}
+
+// The folders of the vault that a scan writes, as the gateway lists them: a guide per project, the
+// notes of the projects and the notes of the sessions. A folder the person made is not among them.
+export interface ScanFolder {
+  path: string;
+  kind: "guide" | "projects" | "sessions";
+  // The project a guide documents.
+  project?: string;
+  title?: string;
+}
+
+// ARCHITECTURE_SUFFIX ends the name of a project's technical overview note.
+export const ARCHITECTURE_SUFFIX = " - Architecture";
+
+// CHAPTER_SEP joins the parts of a chapter's name: "internal › gateway" is the chapter of the
+// folder internal/gateway.
+export const CHAPTER_SEP = " › ";
+
+// readableName says a folder's name in words: "my_tool-kit" is "My tool kit".
+export function readableName(name: string): string {
+  const words = name.replace(/[_-]+/g, " ").trim();
+  if (words === "") {
+    return name;
+  }
+  return words.slice(0, 1).toUpperCase() + words.slice(1);
+}
+
+// ChapterRow is one line of a guide's contents: the note, how deep in the project it sits and the
+// name it goes by.
+export interface ChapterRow {
+  note: NoteItem;
+  depth: number;
+  label: string;
+}
+
+// comparePath orders two chapters' parts so a part comes before the ones inside it.
+function comparePath(a: string[], b: string[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const order = a[i].localeCompare(b[i]);
+    if (order !== 0) {
+      return order;
+    }
+  }
+  return a.length - b.length;
+}
+
+// chapterOutline lays the notes of a guide out as its contents: the start first, then every part
+// of the project with the parts inside it right below, each one level further in.
+export function chapterOutline(notes: NoteItem[]): ChapterRow[] {
+  const rows = notes.map((note) => ({
+    note,
+    parts: note.title.split(CHAPTER_SEP),
+  }));
+  rows.sort(
+    (a, b) =>
+      Number(b.note.title === START_NOTE) -
+        Number(a.note.title === START_NOTE) || comparePath(a.parts, b.parts),
+  );
+  return rows.map(({ note, parts }) => ({
+    note,
+    depth: parts.length - 1,
+    label: readableName(parts[parts.length - 1]),
+  }));
+}
+
+// countNotes is how many notes a folder holds, its sub-folders included.
+export function countNotes(folder: NoteFolder): number {
+  return folder.folders.reduce(
+    (n, f) => n + countNotes(f),
+    folder.notes.length,
+  );
 }
 
 // NoteScan is what scanning the sessions and projects into notes reports.

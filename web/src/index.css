@@ -3315,6 +3315,9 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   background: rgba(125, 63, 62, 0.34);
   color: var(--k-ffb0aa, #ffb0aa);
 }
+.cp-menu button.is-danger {
+  color: var(--k-ffb0aa, #ffb0aa);
+}
 .cp-menu button.is-armed small {
   color: var(--k-ff9a92, #ff9a92);
 }

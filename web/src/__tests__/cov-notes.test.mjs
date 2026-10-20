@@ -3,7 +3,7 @@
 // Run with: node --test web/src/__tests__/cov-notes.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setupDom, load, text } from "./cov-render-helpers.mjs";
+import { setupDom, load, text, waitFor } from "./cov-render-helpers.mjs";
 
 // A stand-in for three.js: objects that remember what they were given, so the 3D map runs in jsdom.
 const FAKE_THREE = `
@@ -74,6 +74,7 @@ const { useNotes } = await load("useNotes.ts");
 const { NotesModal } = await load("NotesModal.tsx");
 const { useReviewNotes, REVIEW_NOTES_PROMPT } = await load("useReviewNotes.ts");
 const { AppCtx } = await load("appStore.ts");
+const { scanPoll } = await load("NotesScanSettings.tsx");
 const es = (await import("../i18n.es.ts")).default;
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
@@ -162,7 +163,11 @@ function vault(initial = {}) {
   const calls = [];
   const fail = new Set();
   // scan.fill is what a first-use scan writes; absent, the gateway says it did not need to run.
-  const scan = {};
+  // scan.progress are the answers of the scan's progress, one per question; rescan.fill is what
+  // a rescan of a folder writes.
+  const scan = { progress: [] };
+  // folders are the scan-written folders the list reports; left undefined, the list sends none.
+  const state = { folders: undefined };
   const item = (p) => ({
     path: p,
     title: p.split("/").pop().replace(/\.md$/, ""),
@@ -197,9 +202,41 @@ function vault(initial = {}) {
     const path = u.searchParams.get("path");
     if (u.pathname === "/v1/notes" && method === "GET") {
       return json({
-        root: "/home/me/.motita/notes",
+        root: state.root ?? "/home/me/.motita/notes",
         notes: Object.keys(files).sort().map(item),
+        folders: state.folders,
       });
+    }
+    if (u.pathname === "/v1/notes/folder" && method === "DELETE") {
+      const gone = Object.keys(files).filter((f) => f.startsWith(path + "/"));
+      gone.forEach((f) => delete files[f]);
+      return json({ deleted: gone.length });
+    }
+    if (u.pathname === "/v1/notes/folder/rescan") {
+      Object.assign(files, scan.rescan ?? {});
+      return json(
+        {
+          running: true,
+          phase: "projects",
+          project: "App",
+          done: 0,
+          total: 1,
+          chapters: 0,
+          chapter_total: 0,
+        },
+        202,
+      );
+    }
+    if (u.pathname === "/v1/notes/scan" && method === "GET") {
+      return json(
+        scan.progress.shift() ?? {
+          running: false,
+          done: 1,
+          total: 1,
+          chapters: 0,
+          chapter_total: 0,
+        },
+      );
     }
     if (u.pathname === "/v1/notes/graph") {
       const paths = Object.keys(files).sort();
@@ -260,7 +297,7 @@ function vault(initial = {}) {
     delete files[path];
     return new Response(null, { status: 204 });
   };
-  return { gw, files, calls, fail, scan };
+  return { gw, files, calls, fail, scan, state };
 }
 
 async function mount(v, projects = []) {
@@ -316,6 +353,13 @@ const type = async (el, value) => {
   });
   await settle();
 };
+// Menus and the question before a deletion are drawn at the end of <body>, outside the window.
+const qd = (id) => document.querySelector(`[data-testid="${id}"]`);
+// pick opens the "⋯" menu whose button is at menuId (the first, or the nth) and chooses its item.
+const pick = async (root, menuId, itemId, nth = 0) => {
+  await click(qa(root, menuId)[nth]);
+  await click(qd(itemId));
+};
 const q = (root, id) => root.querySelector(`[data-testid="${id}"]`);
 const qa = (root, id) => [...root.querySelectorAll(`[data-testid="${id}"]`)];
 
@@ -328,7 +372,8 @@ test("the window lists the notes as a tree, with an empty state and the vault fo
   const empty = await mount(vault());
   await empty.run((n) => n.openNotes());
   assert.match(text(empty.root), /No notes yet/);
-  assert.match(text(empty.root), /Pick a note, or write a new one/);
+  assert.match(text(empty.root), /Welcome to your notes/);
+  assert.match(text(empty.root), /There are no guides yet/);
   assert.match(text(empty.root), /\/home\/me\/\.motita\/notes/);
   await empty.done();
 
@@ -349,7 +394,7 @@ test("a note opens as a preview whose [[links]] open the note, or make it when n
   await click(qa(m.root, "note-row").find((b) => text(b) === "Japan"));
   assert.match(text(q(m.root, "note-preview")), /See Peru and Nowhere/);
   assert.equal(q(m.root, "note-back") !== null, true);
-  assert.match(text(q(m.root, "backlinks")), /Mentioned in \(1\)/);
+  assert.match(text(q(m.root, "backlinks")), /Pages that link here \(1\)/);
   assert.match(text(q(m.root, "backlinks")), /Peru/);
 
   // A click that is not on a note link does nothing; one on [[Peru]] opens Peru.
@@ -367,7 +412,9 @@ test("a note opens as a preview whose [[links]] open the note, or make it when n
   // Enter on a link follows it; any other key does not.
   const key = (k) =>
     act(() =>
-      anchors[0].dispatchEvent(new W.KeyboardEvent("keydown", { key: k, bubbles: true })),
+      anchors[0].dispatchEvent(
+        new W.KeyboardEvent("keydown", { key: k, bubbles: true }),
+      ),
     );
   await key("a");
   assert.match(text(q(m.root, "note-preview")), /See Peru/);
@@ -465,7 +512,7 @@ test("the back button leaves the note for the list", async () => {
   await click(qa(m.root, "note-row")[0]);
   await click(q(m.root, "note-back"));
   assert.equal(q(m.root, "note-mode"), null);
-  assert.match(text(m.root), /Pick a note/);
+  assert.match(text(m.root), /Welcome to your notes/);
   await m.done();
 });
 
@@ -481,15 +528,30 @@ test("a note is created at the top level, in a project's folder, and refused whe
     });
     await settle();
   };
+  // The form opens from its button and closes once used.
+  const form = async () => {
+    if (!q(m.root, "note-create")) {
+      await click(q(m.root, "note-new-toggle"));
+    }
+  };
+  assert.equal(q(m.root, "note-create"), null);
+  await form();
+  assert.equal(
+    q(m.root, "note-new-toggle").getAttribute("aria-expanded"),
+    "true",
+  );
   await submit();
   assert.deepEqual(m.statuses.pop(), ["give the note a name", true]);
+  assert.equal(q(m.root, "note-create"), null);
 
+  await form();
   await type(q(m.root, "note-new-name"), "Idea");
   await submit();
   assert.equal(v.files["Idea.md"], "# Idea\n\n");
-  assert.equal(q(m.root, "note-new-name").value, "");
+  assert.equal(q(m.root, "note-new-name"), null, "the form closed");
   assert.ok(q(m.root, "note-editor"));
 
+  await form();
   const folder = q(m.root, "note-new-folder");
   folder.value = "Motita";
   await act(() =>
@@ -499,10 +561,12 @@ test("a note is created at the top level, in a project's folder, and refused whe
   await submit();
   assert.equal(v.files["Motita/Plan.md"], "# Plan\n\n");
 
+  await form();
   await type(q(m.root, "note-new-name"), "Idea");
-  folder.value = "";
+  const again = q(m.root, "note-new-folder");
+  again.value = "";
   await act(() =>
-    folder.dispatchEvent(new W.Event("change", { bubbles: true })),
+    again.dispatchEvent(new W.Event("change", { bubbles: true })),
   );
   await submit();
   assert.deepEqual(m.statuses.pop(), [
@@ -511,32 +575,35 @@ test("a note is created at the top level, in a project's folder, and refused whe
   ]);
 
   v.fail.add({ method: "PUT", path: "Broken.md", status: 500 });
+  await form();
   await type(q(m.root, "note-new-name"), "Broken");
   await submit();
   assert.deepEqual(m.statuses.pop(), ["could not create the note", true]);
   v.fail.clear();
   v.fail.add({ method: "PUT", path: "Net.md" });
+  await form();
   await type(q(m.root, "note-new-name"), "Net");
   await submit();
   assert.deepEqual(m.statuses.pop(), ["could not create the note", true]);
   await m.done();
 });
 
-test("a note is deleted after a second click, and the first one disarms on blur", async () => {
+test("a note is deleted after the person confirms, and not when they keep it", async () => {
   const v = vault(FILES);
   const m = await mount(v);
   await m.run((n) => n.openNotes());
   await click(qa(m.root, "note-row")[1]);
-  await click(q(m.root, "note-delete"));
-  assert.match(text(q(m.root, "note-delete")), /Click again to delete/);
-  await act(() =>
-    q(m.root, "note-delete").dispatchEvent(
-      new W.FocusEvent("focusout", { bubbles: true }),
-    ),
-  );
-  assert.match(text(q(m.root, "note-delete")), /^Delete$/);
-  await click(q(m.root, "note-delete"));
-  await click(q(m.root, "note-delete"));
+  await pick(m.root, "note-menu", "note-delete");
+  assert.match(text(qd("note-confirm")), /Delete this note\?/);
+  assert.match(text(qd("note-confirm")), /Japan/);
+  assert.equal(qd("note-confirm-count"), null);
+  assert.match(text(qd("note-confirm-yes")), /Delete the note/);
+  await click(qd("note-confirm-no"));
+  assert.equal(qd("note-confirm"), null);
+  assert.ok(v.files["Japan.md"]);
+
+  await pick(m.root, "note-menu", "note-delete");
+  await click(qd("note-confirm-yes"));
   assert.equal(v.files["Japan.md"], undefined);
   assert.equal(q(m.root, "note-mode"), null);
   assert.deepEqual(
@@ -547,13 +614,13 @@ test("a note is deleted after a second click, and the first one disarms on blur"
   // A failed delete leaves the note and says so.
   await click(qa(m.root, "note-row")[0]);
   v.fail.add({ method: "DELETE", path: "/v1/notes/note", status: 500 });
-  await click(q(m.root, "note-delete"));
-  await click(q(m.root, "note-delete"));
+  await pick(m.root, "note-menu", "note-delete");
+  await click(qd("note-confirm-yes"));
   assert.deepEqual(m.statuses.pop(), ["could not delete the note", true]);
   v.fail.clear();
   v.fail.add({ method: "DELETE", path: "/v1/notes/note" });
-  await click(q(m.root, "note-delete"));
-  await click(q(m.root, "note-delete"));
+  await pick(m.root, "note-menu", "note-delete");
+  await click(qd("note-confirm-yes"));
   assert.deepEqual(m.statuses.pop(), ["could not delete the note", true]);
   await m.done();
 });
@@ -565,10 +632,8 @@ test("a note is renamed in its folder, and a taken or empty name is refused", as
   const rows = () => qa(m.root, "note-row").map((b) => text(b));
   await click(qa(m.root, "note-row")[rows().indexOf("Rome")]);
   assert.equal(q(m.root, "note-rename-name"), null);
-  await click(q(m.root, "note-rename"));
+  await pick(m.root, "note-menu", "note-rename");
   assert.equal(q(m.root, "note-rename-name").value, "Rome");
-  await click(q(m.root, "note-rename"));
-  assert.equal(q(m.root, "note-rename-name"), null);
 
   const submit = async () => {
     await act(() =>
@@ -579,7 +644,7 @@ test("a note is renamed in its folder, and a taken or empty name is refused", as
     await settle();
   };
   const typeName = async (value) => {
-    await click(q(m.root, "note-rename"));
+    await pick(m.root, "note-menu", "note-rename");
     await type(q(m.root, "note-rename-name"), value);
   };
   await typeName("  ");
@@ -610,7 +675,7 @@ test("a note is renamed in its folder, and a taken or empty name is refused", as
   await submit();
   assert.ok(v.files["trips/Naples.md"]);
   assert.equal(v.files["trips/Rome.md"], undefined);
-  assert.equal(text(q(m.root, "note-place")), "tripsNaples");
+  assert.equal(text(q(m.root, "note-place")), "trips › Naples");
   assert.equal(q(m.root, "note-rename-name"), null);
   await m.done();
 });
@@ -745,7 +810,29 @@ test("the preview of a note without links still draws", async () => {
 
 test("every string of the notes window has its Spanish", async () => {
   const fs = await import("node:fs");
-  for (const f of ["NotesModal.tsx", "useNotes.ts"]) {
+  const files = [
+    "NotesModal.tsx",
+    "NotesLibrary.tsx",
+    "NoteReader.tsx",
+    "NoteMenus.tsx",
+    "NoteGraphPane.tsx",
+    "useNotes.ts",
+  ];
+  for (const k of [
+    "1 page",
+    "{n} pages",
+    "Deletes its 1 note",
+    "Deletes its {n} notes",
+    "1 note will be deleted.",
+    "{n} notes will be deleted.",
+    "Delete 1 note",
+    "Delete {n} notes",
+    "1 note deleted",
+    "{n} notes deleted",
+  ]) {
+    assert.ok(es[k], `missing Spanish for: ${k}`);
+  }
+  for (const f of files) {
     const src = fs.readFileSync(new URL("../" + f, import.meta.url), "utf8");
     for (const m of src.matchAll(/\bt[f]?\(\s*"((?:[^"\\]|\\.)*)"/g)) {
       assert.ok(es[m[1]], `missing Spanish for: ${m[1]}`);
@@ -970,15 +1057,15 @@ test("the first-use scan stays quiet when it is not needed or fails, and is not 
 test("Review closes the notes and sends the review request in a new conversation", async () => {
   const m = await mount(vault(FILES));
   await m.run((n) => n.openNotes());
-  await click(q(m.root, "notes-review"));
+  await pick(m.root, "library-menu", "notes-review");
   assert.deepEqual(m.review.sent, [REVIEW_NOTES_PROMPT]);
   assert.match(REVIEW_NOTES_PROMPT, /reviewing-the-notes/);
-  assert.equal(q(m.root, "notes-review"), null, "the window closed");
+  assert.equal(q(m.root, "note-search"), null, "the window closed");
 
   // No conversation could be opened: nothing is sent.
   m.review.opened = undefined;
   await m.run((n) => n.openNotes());
-  await click(q(m.root, "notes-review"));
+  await pick(m.root, "library-menu", "notes-review");
   assert.equal(m.review.sent.length, 1);
   await m.done();
 });
@@ -991,9 +1078,9 @@ test("Review stays put when the open note cannot be saved", async () => {
   await click(q(m.root, "note-mode"));
   await type(q(m.root, "note-editor"), "changed");
   v.fail.add({ method: "PUT", path: "", status: 500 });
-  await click(q(m.root, "notes-review"));
+  await pick(m.root, "library-menu", "notes-review");
   assert.equal(m.review.sent.length, 0);
-  assert.ok(q(m.root, "notes-review"), "the window is still open");
+  assert.ok(q(m.root, "note-search"), "the window is still open");
   await m.done();
 });
 
@@ -1317,33 +1404,381 @@ test("the window shows the 3D map where WebGL works and the flat one where it fa
   map3d.graph3d.webgl = () => false;
 });
 
-test("the list opens the folders at the top and the one holding the open note", async () => {
-  const v = vault({
-    "Projects/App - Manual/Start here.md": "# App manual",
-    "Projects/App - Manual/web.md": "# Web",
-    "Projects/deep/x.md": "x",
-    "top.md": "# Top",
-  });
+// ---- the library: guides as books, folders by what they hold, menus ------------------------------
+
+const GUIDE = "Projects/App - Manual/";
+const BOOKS = {
+  [GUIDE + "Start here.md"]: "# App guide\nSee [[web]]",
+  [GUIDE + "web.md"]: "# Web",
+  [GUIDE + "web › util.md"]: "# Util",
+  [GUIDE + "api.md"]: "# Api",
+  "Projects/App.md": "# App\nSee [[Projects/App - Architecture]]",
+  "Projects/App - Architecture.md": "# App - Architecture",
+  "Sessions/Fix it (abc12345).md": "# Fix it",
+  "mine/idea.md": "# Idea",
+  "top.md": "# Top",
+};
+const FOLDERS = [
+  { path: "Projects", kind: "projects" },
+  { path: "Sessions", kind: "sessions" },
+  { path: "Projects/App - Manual", kind: "guide", project: "p1", title: "App" },
+];
+
+// shelf mounts a window over BOOKS with the folders a scan writes.
+async function shelf(extra = {}) {
+  const v = vault({ ...BOOKS, ...extra });
+  v.state.folders = FOLDERS;
   const m = await mount(v);
   await m.run((n) => n.openNotes());
-  const folders = qa(m.root, "note-folder");
+  return { v, m };
+}
+const chapters = (root) => qa(root, "note-chapter").map((c) => text(c));
+
+test("the reading helpers: readableName, the contents of a guide and counting a folder", () => {
+  assert.equal(api.readableName("my_tool-kit"), "My tool kit");
+  assert.equal(api.readableName("--"), "--");
+  const n = (title) => ({
+    path: "G/" + title + ".md",
+    title,
+    size: 1,
+    modified: "",
+  });
+  const outline = api.chapterOutline([
+    n("web › util"),
+    n("web"),
+    n("Start here"),
+    n("api"),
+    n("web › util › deep_one"),
+  ]);
   assert.deepEqual(
-    folders.map((f) => [f.querySelector("summary").textContent, f.open]),
+    outline.map((r) => [r.label, r.depth]),
     [
-      ["Projects3", true],
-      ["App - Manual2", false],
-      ["deep1", false],
+      ["Start here", 0],
+      ["Api", 0],
+      ["Web", 0],
+      ["Util", 1],
+      ["Deep one", 2],
     ],
   );
+  const tree = api.buildTree(
+    Object.keys(BOOKS).map((p) => ({
+      path: p,
+      title: p,
+      size: 1,
+      modified: "",
+    })),
+  );
+  assert.equal(api.countNotes(tree), Object.keys(BOOKS).length);
+});
+
+test("the library shows guides as books with their chapters, and folders by what they hold", async () => {
+  const { m } = await shelf();
   assert.deepEqual(
-    qa(folders[1], "note-row").map((b) => text(b)),
-    ["Start here", "web"],
+    qa(m.root, "note-folder").map((f) => [
+      f.querySelector("summary").textContent,
+      f.open,
+    ]),
+    [
+      ["Projects6", true],
+      ["Conversations1", false],
+      ["mine1", true],
+    ],
   );
-  await click(qa(folders[1], "note-row")[0]);
-  assert.equal(qa(m.root, "note-folder")[1].open, true);
+  const book = q(m.root, "note-guide");
+  assert.equal(book.open, false);
+  assert.match(text(book.querySelector("summary")), /AppGuide · 4 pages/);
+  assert.deepEqual(chapters(book), ["Start here", "Api", "Web", "Util"]);
+  const pads = qa(book, "note-chapter").map((c) => c.style.paddingLeft);
+  assert.deepEqual(pads, ["20px", "20px", "20px", "32px"]);
+  // The notes of the project sit beside its guide, called by what they are for.
+  const projects = qa(m.root, "note-folder")[0];
+  assert.deepEqual(
+    [...projects.querySelector("div").children]
+      .filter((c) => c.matches("[data-testid=note-row]"))
+      .map((b) => text(b)),
+    ["Project page: App", "Technical overview of App"],
+  );
+  await m.done();
+});
+
+test("the guide being read stays open when going back, and a folder stays as the person left it", async () => {
+  const { m } = await shelf();
+  const book = () => q(m.root, "note-guide");
+  await click(qa(book(), "note-chapter")[2].querySelector("button"));
+  assert.equal(book().open, true);
+  await click(q(m.root, "note-back"));
+  assert.equal(book().open, true, "going back must not fold the guide");
+
+  // The person closes it; it stays closed until the open note moves into it again.
+  book().open = false;
+  await act(() => book().dispatchEvent(new W.Event("toggle")));
+  assert.equal(book().open, false);
+  const folder = qa(m.root, "note-folder")[2];
+  folder.open = false;
+  await act(() => folder.dispatchEvent(new W.Event("toggle")));
+  assert.equal(qa(m.root, "note-folder")[2].open, false);
+  await m.run((n) => n.openNote(GUIDE + "api.md"));
+  assert.equal(book().open, true);
+  await m.done();
+});
+
+test("a page says where it is by the names the person sees", async () => {
+  const { m } = await shelf({ "mine/Start here.md": "# S" });
+  const place = async (path) => {
+    await m.run((n) => n.openNote(path));
+    return text(q(m.root, "note-place"));
+  };
   assert.equal(
-    text(q(m.root, "note-place")),
-    "Projects › App - ManualStart here",
+    await place(GUIDE + "Start here.md"),
+    "Projects › App › Start here",
   );
+  assert.equal(await place(GUIDE + "web › util.md"), "Projects › App › Util");
+  assert.equal(
+    await place("Projects/App - Architecture.md"),
+    "Projects › Technical overview of App",
+  );
+  assert.equal(await place("Projects/App.md"), "Projects › Project page: App");
+  assert.equal(await place("mine/Start here.md"), "mine › Start here");
+  assert.equal(
+    await place("Sessions/Fix it (abc12345).md"),
+    "Conversations › Fix it (abc12345)",
+  );
+  assert.equal(await place("mine/idea.md"), "mine › idea");
+  assert.equal(await place("top.md"), "top");
+  // The pages that link to this one are called the same way.
+  await m.run((n) => n.openNote(GUIDE + "web.md"));
+  assert.match(text(q(m.root, "backlinks")), /Start here/);
+  await m.done();
+});
+
+test("a search shows where each passage is, in the same names", async () => {
+  const { m } = await shelf();
+  await type(q(m.root, "note-search"), "Util");
+  const hit = qa(m.root, "note-hit")[0];
+  assert.match(text(hit), /Projects › App/);
+  await m.done();
+});
+
+test("the guide of a project has a menu to write it again, and one to delete it", async () => {
+  const { v, m } = await shelf();
+  scanPoll.ms = 1;
+  v.scan.rescan = { [GUIDE + "new.md"]: "# New" };
+  v.scan.progress = Array(30).fill({
+    running: true,
+    phase: "projects",
+    project: "App",
+    done: 0,
+    total: 1,
+    chapters: 1,
+    chapter_total: 4,
+  });
+  let started = 0;
+  const onScan = () => started++;
+  window.addEventListener("motita-scan-started", onScan);
+  await click(qa(m.root, "folder-menu")[1]);
+  assert.match(text(qd("folder-rescan")), /Update this guide/);
+  assert.match(text(qd("folder-delete")), /Delete this guide/);
+  assert.match(text(qd("folder-delete")), /Deletes its 4 notes/);
+  await click(qd("folder-rescan"));
+  assert.equal(
+    v.calls.some(
+      (c) =>
+        c.method === "POST" &&
+        c.url === "/v1/notes/folder/rescan?path=Projects%2FApp%20-%20Manual",
+    ),
+    true,
+  );
+  assert.equal(started, 1);
+  assert.match(text(q(m.root, "notes-updating")), /Updating the guides/);
+  await waitFor(
+    () => q(m.root, "notes-updating") === null,
+    "the update to end",
+  );
+  await waitFor(
+    () => chapters(m.root).some((c) => c === "New"),
+    "the new chapter",
+  );
+  window.removeEventListener("motita-scan-started", onScan);
+  await m.done();
+});
+
+test("a rescan of a folder says when it could not start, and a second one is followed once", async () => {
+  const { v, m } = await shelf();
+  scanPoll.ms = 1;
+  v.fail.add({ method: "POST", path: "/v1/notes/folder/rescan", status: 500 });
+  await pick(m.root, "folder-menu", "folder-rescan", 1);
+  assert.deepEqual(m.statuses.pop(), ["could not update the notes", true]);
+  v.fail.clear();
+  v.fail.add({ method: "POST", path: "/v1/notes/folder/rescan" });
+  await pick(m.root, "folder-menu", "folder-rescan", 1);
+  assert.deepEqual(m.statuses.pop(), ["could not update the notes", true]);
+  v.fail.clear();
+
+  // Two rescans in a row follow the one scan; a progress the gateway cannot give ends the wait.
+  v.scan.progress = [
+    {
+      running: true,
+      phase: "sessions",
+      done: 0,
+      total: 0,
+      chapters: 0,
+      chapter_total: 0,
+    },
+  ];
+  await m.run((n) =>
+    Promise.all([n.rescanFolder("Projects"), n.rescanFolder("Projects")]),
+  );
+  await waitFor(
+    () => q(m.root, "notes-updating") === null,
+    "the update to end",
+  );
+  v.fail.add({ method: "GET", path: "/v1/notes/scan" });
+  await m.run((n) => n.rescanFolder("Projects"));
+  await waitFor(
+    () => q(m.root, "notes-updating") === null,
+    "the update to end",
+  );
+  assert.equal(
+    v.calls.filter((c) => c.url.includes("/folder/rescan")).length,
+    5,
+  );
+  await m.done();
+});
+
+test("deleting a folder says what goes, asks first, and closes the note that was in it", async () => {
+  const { v, m } = await shelf();
+  // The guide: four notes, and a promise that it can be written again.
+  await pick(m.root, "folder-menu", "folder-delete", 1);
+  assert.match(text(qd("note-confirm")), /Delete this folder of notes\?/);
+  assert.match(text(qd("note-confirm")), /App/);
+  assert.match(text(qd("note-confirm-count")), /4 notes will be deleted\./);
+  assert.match(text(qd("note-confirm")), /Motita can write it again/);
+  assert.match(text(qd("note-confirm-yes")), /Delete 4 notes/);
+  await click(qd("note-confirm-no"));
+  assert.equal(qd("note-confirm"), null);
+  assert.equal(
+    v.calls.some((c) => c.method === "DELETE"),
+    false,
+  );
+
+  // One's own folder: one note, and no promise.
+  await m.run((n) => n.openNote("mine/idea.md"));
+  await pick(m.root, "folder-menu", "folder-delete", 3);
+  assert.match(text(qd("note-confirm-count")), /1 note will be deleted\./);
+  assert.match(text(qd("note-confirm")), /This cannot be undone/);
+  assert.match(text(qd("note-confirm-yes")), /Delete 1 note$/);
+  await click(qd("note-confirm-yes"));
+  assert.equal(v.files["mine/idea.md"], undefined);
+  assert.deepEqual(m.statuses.pop(), ["1 note deleted", false]);
+  assert.equal(q(m.root, "note-mode"), null, "the open note was in it");
+
+  // A note outside the folder stays open.
+  await m.run((n) => n.openNote("top.md"));
+  await pick(m.root, "folder-menu", "folder-delete", 0);
+  await click(qd("note-confirm-yes"));
+  assert.equal(Object.keys(v.files).includes(GUIDE + "web.md"), false);
+  assert.ok(q(m.root, "note-mode"), "top.md is still open");
+  await m.done();
+});
+
+test("a folder that cannot be deleted is said, and the notes stay", async () => {
+  const { v, m } = await shelf();
+  v.fail.add({ method: "DELETE", path: "/v1/notes/folder", status: 500 });
+  await pick(m.root, "folder-menu", "folder-delete", 3);
+  await click(qd("note-confirm-yes"));
+  assert.deepEqual(m.statuses.pop(), ["could not delete the folder", true]);
+  v.fail.clear();
+  v.fail.add({ method: "DELETE", path: "/v1/notes/folder" });
+  await pick(m.root, "folder-menu", "folder-delete", 3);
+  await click(qd("note-confirm-yes"));
+  assert.deepEqual(m.statuses.pop(), ["could not delete the folder", true]);
+  assert.ok(v.files["mine/idea.md"]);
+  await m.done();
+});
+
+test("a folder the person made can only be deleted; the ones a scan writes can also be updated", async () => {
+  const { v, m } = await shelf();
+  scanPoll.ms = 1;
+  v.scan.progress = Array(30).fill({
+    running: true,
+    phase: "sessions",
+    done: 0,
+    total: 0,
+    chapters: 0,
+    chapter_total: 0,
+  });
+  await click(qa(m.root, "folder-menu")[3]);
+  assert.equal(qd("folder-rescan"), null);
+  assert.match(text(qd("folder-delete")), /Delete this folder/);
+  await click(qd("folder-delete"));
+  await click(qd("note-confirm-no"));
+  await click(qa(m.root, "folder-menu")[0]);
+  assert.match(text(qd("folder-rescan")), /Update these notes/);
+  await click(qd("folder-rescan"));
+  assert.match(text(q(m.root, "notes-updating")), /Updating the guides/);
+  await waitFor(
+    () => q(m.root, "notes-updating") === null,
+    "the update to end",
+  );
+  await m.done();
+});
+
+test("the menu of all the notes updates the guides, and a click outside closes it", async () => {
+  const { v, m } = await shelf();
+  await click(q(m.root, "library-menu"));
+  assert.equal(q(m.root, "library-menu").getAttribute("aria-expanded"), "true");
+  const catcher = [...document.querySelectorAll("div")].find(
+    (d) => d.className === "fixed inset-0 z-[55]",
+  );
+  await click(catcher);
+  assert.equal(qd("library-update"), null);
+  assert.equal(
+    q(m.root, "library-menu").getAttribute("aria-expanded"),
+    "false",
+  );
+  await pick(m.root, "library-menu", "library-update");
+  assert.equal(
+    v.calls.some((c) => c.url === "/v1/notes/folder/rescan?path=Projects"),
+    true,
+  );
+  await m.done();
+});
+
+test("the welcome offers each guide, and a way to write them when there are none", async () => {
+  const { v, m } = await shelf({ "Elsewhere - Manual/Start here.md": "# E" });
+  v.state.folders = [
+    ...FOLDERS,
+    { path: "Elsewhere - Manual", kind: "guide" },
+    { path: "Ghost - Manual", kind: "guide", title: "Ghost" },
+  ];
+  await m.run((n) => n.openNotes());
+  assert.deepEqual(
+    qa(m.root, "welcome-guide").map((b) => text(b)),
+    ["Open the guide of App", "Open the guide of Elsewhere - Manual"],
+  );
+  assert.equal(q(m.root, "welcome-write"), null);
+  await click(qa(m.root, "welcome-guide")[0]);
+  assert.match(text(q(m.root, "note-place")), /Projects › App › Start here/);
+  await m.done();
+
+  const none = vault({ "top.md": "# Top" });
+  none.state.root = "";
+  const m2 = await mount(none);
+  await m2.run((n) => n.openNotes());
+  assert.equal(qa(m2.root, "welcome-guide").length, 0);
+  assert.equal(m2.root.querySelector("details"), null, "no folder to name");
+  await click(q(m2.root, "welcome-write"));
+  assert.equal(
+    none.calls.some((c) => c.url === "/v1/notes/folder/rescan?path=Projects"),
+    true,
+  );
+  await m2.done();
+});
+
+test("a guide shows the folders a person made inside it", async () => {
+  const { m } = await shelf({ [GUIDE + "mine/extra.md"]: "# Extra" });
+  const book = q(m.root, "note-guide");
+  assert.equal(book.querySelectorAll("[data-testid=note-folder]").length, 1);
+  assert.match(text(book), /Extra/);
   await m.done();
 });
