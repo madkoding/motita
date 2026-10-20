@@ -652,8 +652,10 @@ func diagnosticNeedsNoKey(fl flags) bool {
 // The diagnostic and one-shot modes are excluded because they do not call the
 // LLM (-validate-config, -isolation, -version) or run non-interactively
 // (-task, -p): launching a wizard from a cron job or a script would hang it.
+// For the same reason -serve runs it only when a person is at the terminal:
+// `gateway start` spawns -serve with no stdin.
 func (op Options) needsOnboarding(fl flags) bool {
-	if !op.willRunTUI(fl) && !fl.serve {
+	if !op.willRunTUI(fl) && !(fl.serve && op.interactive()) {
 		return false
 	}
 	if fl.configPath != "" {

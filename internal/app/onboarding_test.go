@@ -365,6 +365,34 @@ func TestAutoOnboardingDoesNotTriggerForDiagnosticModes(t *testing.T) {
 	})
 }
 
+// TestServeRunsTheWizardOnlyForAPerson: -serve with no configuration asks the wizard's questions
+// only when a person is at the terminal. `gateway start` spawns it with no stdin, and a wizard
+// there only prints its menu into the void.
+func TestServeRunsTheWizardOnlyForAPerson(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", t.TempDir())
+		silence(t)
+		for _, person := range []bool{false, true} {
+			wizardRan := false
+			Run(Options{
+				Args:        []string{"-serve"},
+				Out:         io.Discard,
+				Err:         io.Discard,
+				Stdin:       strings.NewReader(""),
+				Interactive: func() bool { return person },
+				RunOnboard: func(context.Context, io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
+					wizardRan = true
+					return onboard.Result{}, errors.New("stop here")
+				},
+				NewSandbox: func(sandbox.Options) (*sandbox.Sandbox, error) { return nil, errors.New("stop here") },
+			})
+			if wizardRan != person {
+				t.Errorf("person at the terminal = %v, wizard ran = %v", person, wizardRan)
+			}
+		}
+	})
+}
+
 // TestAutoOnboardingWizardFailure: when the auto-triggered wizard returns an
 // error (not a cancellation), the run must abort with ConfigError — the
 // program must never continue to the TUI with no configuration written.

@@ -8,7 +8,9 @@ package tui
 // live_test.go; keeping these here is what lets `make test-matrix` build the suite everywhere.
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -157,7 +159,7 @@ func TestTheTerminalIsRestoredBeforeAPanicContinues(t *testing.T) {
 		// design, so the outer recover is what lets the test observe both facts — that the
 		// terminal was put back, and that the panic was not swallowed.
 		defer func() { _ = recover() }()
-		defer recoverRaw(m)()
+		defer recoverRaw(&m)()
 		panic("something went wrong deep in the paint")
 	}()
 
@@ -172,7 +174,8 @@ func TestThePanicIsNotSwallowed(t *testing.T) {
 	var seen any
 	func() {
 		defer func() { seen = recover() }()
-		defer recoverRaw(&terminalMode{})()
+		m := &terminalMode{}
+		defer recoverRaw(&m)()
 		panic("boom")
 	}()
 
@@ -184,7 +187,106 @@ func TestThePanicIsNotSwallowed(t *testing.T) {
 // TestASuccessfulExitDoesNotPanic: recoverRaw must re-panic ONLY when there was a panic. A
 // version that panicked unconditionally would tear down every normal exit.
 func TestASuccessfulExitDoesNotPanic(t *testing.T) {
+	m := &terminalMode{}
 	func() {
-		defer recoverRaw(&terminalMode{})()
+		defer recoverRaw(&m)()
 	}()
+}
+
+// fakeTerminal installs a fake controlling terminal and records every stty call. The saved
+// state is what `stty -g` answers; an empty one makes the read fail.
+func fakeTerminal(t *testing.T, saved string) *[][]string {
+	t.Helper()
+	oldRun, oldOpen, oldStat, oldSave := runSttyMode, openTTYMode, statTTY, saveSttyMode
+	t.Cleanup(func() { runSttyMode, openTTYMode, statTTY, saveSttyMode = oldRun, oldOpen, oldStat, oldSave })
+	var calls [][]string
+	runSttyMode = func(f *os.File, args ...string) error {
+		calls = append(calls, args)
+		return nil
+	}
+	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return os.CreateTemp(t.TempDir(), "tty")
+	}
+	statTTY = func(*os.File) (os.FileMode, error) { return os.ModeCharDevice, nil }
+	saveSttyMode = func(*os.File) (string, error) {
+		if saved == "" {
+			return "", os.ErrInvalid
+		}
+		return saved, nil
+	}
+	return &calls
+}
+
+// TestQuittingAfterTheWizardRestoresTheTerminal: /config steps back to cooked mode and takes a
+// NEW handle afterwards. The restore on the way out must undo that new handle, or the shell is
+// left in cbreak with echo off.
+func TestQuittingAfterTheWizardRestoresTheTerminal(t *testing.T) {
+	calls := fakeTerminal(t, "")
+	tu := newFakeTUI("/config\nq\n", &fakeRunner{})
+	tu.Setup = func(context.Context) error { return nil }
+	tu.Run(context.Background())
+
+	var got []string
+	for _, c := range *calls {
+		got = append(got, c[0])
+	}
+	if strings.Join(got, " ") != "cbreak sane cbreak sane" {
+		t.Errorf("stty calls = %v, want cbreak sane cbreak sane", got)
+	}
+	if tu.termMode.active {
+		t.Error("the handle taken after the wizard must be restored on exit")
+	}
+}
+
+// TestAPanicAfterTheWizardRestoresTheNewHandle: the panic path must read the CURRENT handle too.
+func TestAPanicAfterTheWizardRestoresTheNewHandle(t *testing.T) {
+	fakeTerminal(t, "")
+	tu := &TUI{termMode: enterRaw()}
+	func() {
+		defer func() { _ = recover() }()
+		defer recoverRaw(&tu.termMode)()
+		tu.termMode = enterRaw()
+		panic("boom")
+	}()
+	if tu.termMode.active {
+		t.Error("the panic path must restore the handle the TUI holds now")
+	}
+}
+
+// TestRestoringPutsBackTheSavedSettings: `stty sane` resets the user's own settings (iutf8, a
+// custom erase), so the restore replays what `stty -g` saved, and falls back to sane only when
+// that replay fails.
+func TestRestoringPutsBackTheSavedSettings(t *testing.T) {
+	calls := fakeTerminal(t, "gfmt1:cflag=4b00")
+	m := enterRaw()
+	m.restore()
+	if last := (*calls)[len(*calls)-1]; len(last) != 1 || last[0] != "gfmt1:cflag=4b00" {
+		t.Errorf("restore ran stty %q, want the saved settings", last)
+	}
+
+	runSttyMode = func(f *os.File, args ...string) error {
+		*calls = append(*calls, args)
+		if args[0] == "gfmt1:cflag=4b00" {
+			return os.ErrInvalid
+		}
+		return nil
+	}
+	m = enterRaw()
+	m.restore()
+	if last := (*calls)[len(*calls)-1]; last[0] != "sane" {
+		t.Errorf("a failed replay must fall back to sane, got %v", last)
+	}
+}
+
+// TestSavingTheSettingsFailsOnANonTerminal: the real `stty -g` seam reports an error on a
+// regular file, which is what sends restore to the sane fallback.
+func TestSavingTheSettingsFailsOnANonTerminal(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "notatty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := saveSttyMode(f); err == nil {
+		t.Error("stty -g against a regular file must fail")
+	}
 }
