@@ -182,7 +182,7 @@ function useNewProjectForm() {
   // after it; a name already typed stays.
   const chooseNewProjectPath = (path: string) => {
     setNewProjectPath(path);
-    setNewProjectTitle((cur) => (cur.trim() ? cur : folderNameOf(path)));
+    setNewProjectTitle((cur) => choose(cur.trim(), cur, folderNameOf(path)));
   };
 
   // resetNewProject empties the New project dialog once the project exists.
