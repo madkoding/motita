@@ -82,7 +82,7 @@ func TestBoxUpAsksThenStartsAndTheRestNeedNoQuestion(t *testing.T) {
 		t.Fatalf("%v %q", err, out)
 	}
 	if len(*asked) != 1 || (*asked)[0].Rule != "box-up" || !strings.Contains((*asked)[0].Command, "nginx:alpine") ||
-		!strings.Contains((*asked)[0].Reason, "127.0.0.1 only") {
+		!strings.Contains((*asked)[0].Reason, "no port on this machine") {
 		t.Fatalf("the person is asked what will run: %+v", *asked)
 	}
 	if got := fb.specs[0]; got.Image != "nginx:alpine" || got.Port != 80 {
@@ -162,16 +162,20 @@ func TestBoxUpInternalAndCompose(t *testing.T) {
 		!strings.Contains((*asked)[0].Reason, "no port on this machine") {
 		t.Fatalf("%v %q %+v", err, out, *asked)
 	}
+	out, _ = box(e, "box_up", "image: nginx\nport: 80")
+	if !strings.Contains(out, "no port on the host") || !fb.specs[1].Internal {
+		t.Fatalf("a box with no network line has no port on the host: %q", out)
+	}
 	out, _ = box(e, "box_up", "image: nginx\nport: 80\nnetwork: loopback")
-	if !strings.Contains(out, "published on 127.0.0.1 only") || fb.specs[1].Internal {
+	if !strings.Contains(out, "published on 127.0.0.1 only") || fb.specs[2].Internal {
 		t.Fatalf("%q", out)
 	}
 	if out, _ = box(e, "box_up", "image: nginx\nport: 80\nnetwork: host"); !strings.Contains(out, "internal or loopback") {
 		t.Fatalf("%q", out)
 	}
 	out, err = box(e, "box_up", "compose: stack\nservice: web\nport: 8080")
-	if err != nil || fb.specs[2].Compose != filepath.Join(e.dir, "stack") || fb.specs[2].Service != "web" ||
-		!strings.Contains((*asked)[2].Reason, "compose project in stack (service web)") {
+	if err != nil || fb.specs[3].Compose != filepath.Join(e.dir, "stack") || fb.specs[3].Service != "web" ||
+		!strings.Contains((*asked)[3].Reason, "compose project in stack (service web)") {
 		t.Fatalf("%v %q %+v", err, out, fb.specs)
 	}
 	out, err = box(e, "box_up", "compose: ../../etc\nservice: web\nport: 80")

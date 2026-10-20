@@ -64,7 +64,7 @@ function store(over = {}) {
     },
     deletion: { setConfirmDelete: rec("setConfirmDelete") },
     stream: { submit: async (...a) => calls.push(["submit", ...a]) },
-    projects: { openNewProject: on("openNewProject"), hasPodman: false },
+    projects: { openNewProject: on("openNewProject") },
     updates: { updateInfo: null, openUpgrade: on("openUpgrade") },
     skills: { setShowSkillLibrary: rec("setShowSkillLibrary") },
     artifacts: { openArtifacts: on("openArtifacts") },

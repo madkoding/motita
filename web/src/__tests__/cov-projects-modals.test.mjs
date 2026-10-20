@@ -41,16 +41,11 @@ function store(state = {}) {
     newProjectGitUrl: "",
     setNewProjectSource: rec("source"),
     setNewProjectGitUrl: rec("giturl"),
-    newProjectPodman: false,
-    hasPodman: false,
-    hasPodmanCompose: false,
-    podmanReady: false,
     creatingProject: false,
     savingProject: false,
     setNewProjectTitle: rec("title"),
     setNewProjectDesc: rec("desc"),
     setNewProjectDir: rec("dir"),
-    setNewProjectPodman: rec("podman"),
     createProject: rec("create"),
     closeNewProject: rec("close"),
     patchEditProject: rec("patch"),
@@ -86,7 +81,6 @@ test("the dialog asks for the folder up front, the name comes from it, the rest 
   );
   assert.equal(m.root.textContent.includes("Folder name"), false);
   assert.equal(buttonByText(m.root, "Create").disabled, true, "no name yet");
-  assert.equal(m.q("[data-testid=podman-offer]"), null);
 
   await type(name, "Hello");
   await type(fieldByLabel(m.root, "Description"), "about");
@@ -174,18 +168,12 @@ test("cloning asks for the address, names the project after it and needs one to 
 test("a named project can be created, in the folder named after it", async () => {
   const s = store({
     newProjectTitle: "My App",
-    hasPodman: true,
-    podmanReady: true,
-    hasPodmanCompose: true,
   });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  const offer = m.q("[data-testid=podman-offer]");
-  assert.match(offer.textContent, /started in containers with podman\./);
-  await change(offer.querySelector("input"), true);
   const create = buttonByText(m.root, "Create");
   assert.equal(create.disabled, false);
   await click(create);
-  assert.deepEqual(s.log, [["podman", true], ["create"]]);
+  assert.deepEqual(s.log, [["create"]]);
   await m.unmount();
 });
 

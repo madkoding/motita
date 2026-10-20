@@ -688,20 +688,9 @@ func scopeProceduresTo(svc Service, projectDir string) {
 	}
 }
 
-// runtimeOf is the container runtime a project is run with, "" for none.
-func runtimeOf(p *Project) string {
-	if p != nil && p.Podman {
-		return "podman"
-	}
-	return ""
-}
-
-// applyRuntimeTo tells a session how its project is run and where it works, when the service can
+// applyRuntimeTo tells a session which project it works in and where, when the service can
 // take it. workspace is the directory the session runs in (its worktree of the project).
 func applyRuntimeTo(svc Service, p *Project, workspace string) {
-	if setter, ok := svc.(interface{ SetContainerRuntime(string) }); ok {
-		setter.SetContainerRuntime(runtimeOf(p))
-	}
 	// The project itself, and its other repositories, so the agent knows what it works on, where
 	// that is, and that each repository is committed on its own.
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {

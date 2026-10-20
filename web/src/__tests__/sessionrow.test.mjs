@@ -113,19 +113,17 @@ test("a row with nothing to say has no tooltip", () => {
   assert.equal(projectTooltip({ id: "p1", title: "P", dir: "/p" }), undefined);
 });
 
-test("projectTooltip says the checkout's branch, podman and changes", () => {
+test("projectTooltip says the checkout's branch and changes", () => {
   const lines = projectTooltip({
     id: "p1",
     title: "P",
     dir: "/p",
     branch: "main",
-    podman: true,
     changes: 1,
   }).split("\n");
-  // One line each: branch, podman, changes.
-  const PROJECT_LINES = 3;
+  // One line each: branch, changes.
+  const PROJECT_LINES = 2;
   assert.equal(lines.length, PROJECT_LINES);
   assert.match(lines[0], /main/);
-  assert.match(lines[1], /podman/);
-  assert.match(lines[2], /1/);
+  assert.match(lines[1], /1/);
 });

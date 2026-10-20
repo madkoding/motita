@@ -128,9 +128,9 @@ func (a *Agent) boxSpec(kv map[string]string) (devbox.Spec, string, error) {
 		return devbox.Spec{}, `"port:" must be the number the service listens on inside the container`, nil
 	}
 	spec := devbox.Spec{Image: kv["image"], Port: port, Service: kv["service"],
-		Internal: strings.EqualFold(kv["network"], "internal")}
-	if n := kv["network"]; n != "" && !spec.Internal && !strings.EqualFold(n, "loopback") {
-		return spec, `"network:" is internal or loopback`, nil
+		Internal: !strings.EqualFold(kv["network"], "loopback")}
+	if n := kv["network"]; n != "" && !strings.EqualFold(n, "internal") && !strings.EqualFold(n, "loopback") {
+		return spec, `"network:" is internal or loopback (internal is the default)`, nil
 	}
 	if rel := kv["dir"]; rel != "" {
 		dir, err := a.workspacePath(rel)

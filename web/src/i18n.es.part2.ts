@@ -324,6 +324,8 @@ const more: Record<string, string> = {
   "Give Motita access to the whole disk?":
     "¿Darle a Motita acceso al disco completo?",
   "Allow the whole disk": "Permitir el disco completo",
+  "Motita's commands run inside the system's own sandbox (Landlock), not in a container.":
+    "Los comandos de Motita corren dentro del sandbox del propio sistema (Landlock), no en un contenedor.",
   "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.":
     "En este sistema solo se limitan las ediciones de archivos que hace Motita: sus comandos no, porque eso requiere Linux con Landlock y el confinamiento de escritura activado.",
   "A command you approve one by one can write where you approved it, and sudo runs unconfined.":
@@ -748,9 +750,9 @@ const more: Record<string, string> = {
   "The project is not indexed: the code index is off":
     "El proyecto no se indexó: el índice de código está desactivado",
   "Turn it on in Settings → Indexing.": "Actívalo en Ajustes → Indexado.",
-  Sandbox: "Sandbox",
-  "Projects Motita starts in a container only it can reach, to test them and take screenshots. A run removes its own when it ends; stop here any that stay.":
-    "Proyectos que Motita levanta en un contenedor al que solo ella llega, para probarlos y sacar capturas. Cada ejecución quita los suyos al terminar; detén aquí los que queden.",
+  "Test containers": "Contenedores de prueba",
+  "Services Motita starts in a container only it can reach, to test a project and take screenshots. They are not where its commands run (that is the sandbox above). A run removes its own when it ends; stop here any that stay.":
+    "Servicios que Motita levanta en un contenedor al que solo ella llega, para probar un proyecto y sacar capturas. No es donde corren sus comandos (eso es el sandbox de arriba). Cada ejecución quita los suyos al terminar; detén aquí los que queden.",
   Refresh: "Actualizar",
   "Stop all": "Detener todas",
   Stop: "Detener",

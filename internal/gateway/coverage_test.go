@@ -5,7 +5,7 @@ package gateway
 // exercise: project store, session store, update endpoints, persistence,
 // client no-ops, and WebSocket helpers. This file holds the client no-ops and
 // the stores and handlers of projects; the rest live in coverage_runtime_test.go
-// and coverage_podman_test.go.
+// and coverage_projectupdate_test.go.
 
 import (
 	"context"

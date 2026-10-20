@@ -384,7 +384,6 @@ const first: Record<string, string> = {
   "could not create the project": "no se pudo crear el proyecto",
   "could not create the project: {err}": "no se pudo crear el proyecto: {err}",
   "could not delete the project": "no se pudo eliminar el proyecto",
-  "could not change the project": "no se pudo cambiar el proyecto",
   "could not open the artifact": "no se pudo abrir el artefacto",
   "could not delete the artifact": "no se pudo eliminar el artefacto",
   "could not pin the artifact": "no se pudo fijar el artefacto",
@@ -578,6 +577,33 @@ const first: Record<string, string> = {
   "Branch {branch}": "Rama {branch}",
   "could not read the repository": "no se pudo leer el repositorio",
   "the action failed": "la acción falló",
+  "Pulling {repo}": "Actualizando la rama de {repo}",
+  "Going back to the main branch of {repo}":
+    "Volviendo a la rama principal de {repo}",
+  "Creating a branch in {repo}": "Creando una rama en {repo}",
+  "Putting the changes of {repo} aside":
+    "Guardando aparte los cambios de {repo}",
+  "Deleting the merged branches of {repo}":
+    "Borrando las ramas ya integradas de {repo}",
+  "Discarding the changes of {repo}": "Descartando los cambios de {repo}",
+  "git fetch, then a fast-forward of the current branch; never a merge.":
+    "git fetch y luego avance rápido de la rama actual; nunca un merge.",
+  "git checkout of the main branch, only from a clean checkout.":
+    "git checkout de la rama principal, solo desde una copia sin cambios.",
+  "git switch -c: a new branch at the current work.":
+    "git switch -c: una rama nueva en el trabajo actual.",
+  "git stash push --include-untracked, labelled with the date.":
+    "git stash push --include-untracked, con la fecha como etiqueta.",
+  "git branch -d on the branches whose work is already in the main branch.":
+    "git branch -d en las ramas cuyo trabajo ya está en la rama principal.",
+  "Restores the tracked files and removes the new ones.":
+    "Restaura los archivos seguidos y quita los nuevos.",
+  "Updating {repo}": "Actualizando {repo}",
+  "Updating the main branch": "Actualizando la rama principal",
+  "git fetch of origin, then a fast-forward of the main branch; nothing is forced.":
+    "git fetch de origin y luego avance rápido de la rama principal; no se fuerza nada.",
+  "The main branch is up to date": "La rama principal está al día",
+  "Working…": "Trabajando…",
   "{repo} is up to date": "{repo} está al día",
   "{repo} is back on its main branch": "{repo} volvió a su rama principal",
   "Branch created in {repo}": "Rama creada en {repo}",
@@ -627,25 +653,14 @@ const first: Record<string, string> = {
   local: "local",
   Update: "Actualizar",
   shared: "compartido",
-  "Podman was found on this machine. Use it to run this project?":
-    "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
   Artifacts: "Artefactos",
   "Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.":
     "Aún no hay nada guardado en esta sesión. Pide un informe, una página o un diagrama y aparecerá aquí.",
   "This session": "Esta sesión",
   "Whole project": "Todo el proyecto",
   "Upload a file": "Subir un archivo",
-  "podman is installed but did not answer (podman info failed), so it may not work until it is set up.":
-    "podman está instalado pero no respondió (falló podman info), así que puede que no funcione hasta configurarlo.",
   "Pinned: it will not be deleted": "Fijado: no se borrará",
   "Deleted in {n} days unless pinned": "Se borrará en {n} días si no lo fijas",
-  "Stop using podman": "Dejar de usar podman",
-  "Run with podman": "Levantar con podman",
-  "This project is run with podman": "Este proyecto se levanta con podman",
-  "The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.":
-    "El proyecto se levantará en contenedores con podman. No se encontró podman compose, así que los archivos compose no funcionarán hasta instalarlo.",
-  "The project will be started in containers with podman.":
-    "El proyecto se levantará en contenedores con podman.",
   Repositories: "Repositorios",
   Private: "Privado",
   "Disconnected from {host}": "Desconectado de {host}",

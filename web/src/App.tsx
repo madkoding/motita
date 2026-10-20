@@ -52,6 +52,7 @@ import {
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { RepoGitPanel } from "./RepoGitPanel";
+import { GitActivityModal } from "./GitActivityModal";
 import { NewProjectModal } from "./NewProjectModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
@@ -646,6 +647,7 @@ function ProjectModals() {
     <>
       {editProject && <EditProjectModal p={editProject} />}
       {repoGit.open && <RepoGitPanel r={repoGit.open} />}
+      <GitActivityModal />
       {showNewProject && <NewProjectModal />}
       {folderPicker && (
         <FolderBrowser

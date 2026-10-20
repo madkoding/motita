@@ -171,10 +171,9 @@ test("a session's and a project's tooltips list the facts that are there", () =>
   );
   assert.equal(m.projectTooltip({}), undefined);
   assert.equal(
-    m.projectTooltip({ branch: "main", podman: true, changes: 2 }),
+    m.projectTooltip({ branch: "main", changes: 2 }),
     [
       "Project checkout is on branch: main",
-      "This project is run with podman",
       "The project checkout has 2 uncommitted changes in this working tree",
     ].join("\n"),
   );
@@ -394,13 +393,6 @@ test("small lookups: previews, pull requests, toasts, artifacts, tags, notes", (
   assert.equal(m.tagGroupClass("action"), "bg-[#f0a040]/20 text-[#f0a040]");
   assert.equal(m.tagGroupClass("session"), "bg-[#40f0a0]/20 text-[#40f0a0]");
   assert.equal(m.tagGroupClass("other"), "bg-[#a0a0f0]/20 text-[#a0a0f0]");
-
-  assert.match(m.podmanNote(false, true), /did not answer/);
-  assert.equal(
-    m.podmanNote(true, true),
-    "The project will be started in containers with podman.",
-  );
-  assert.match(m.podmanNote(true, false), /podman compose was not found/);
 
   assert.match(m.deleteWarning("session"), /^This conversation/);
   assert.match(m.deleteWarning("skill"), /^This skill/);

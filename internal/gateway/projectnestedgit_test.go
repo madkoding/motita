@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 func nestedFixture(t *testing.T) (srv *Server, ws, id, api string) {
@@ -100,8 +102,31 @@ func TestNestedPullBringsInOriginOnlyToACleanCheckout(t *testing.T) {
 	if err := os.Remove(filepath.Join(api, "wip.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if w := post(t, srv, url, "{}", testToken); w.Code != http.StatusOK || !hasUpstream(api) {
+	w := post(t, srv, url, "{}", testToken)
+	if w.Code != http.StatusOK || !hasUpstream(api) {
 		t.Fatalf("clean pull = %d, upstream=%v", w.Code, hasUpstream(api))
+	}
+	if !strings.Contains(w.Body.String(), `"output":"Brought in:\n`) {
+		t.Errorf("a pull that brought commits lists them: %s", w.Body.String())
+	}
+	if w := post(t, srv, url, "{}", testToken); !strings.Contains(w.Body.String(), `"output":"Already up to date."`) {
+		t.Errorf("a pull that brought nothing says so: %s", w.Body.String())
+	}
+}
+
+func TestPullOutputListsWhatWasBroughtIn(t *testing.T) {
+	got := pullOutput(false, []gitx.Commit{{SHA: "abc1234", Subject: "feat: x"}, {SHA: "def5678", Subject: "fix: y"}})
+	if got != "Brought in:\nabc1234 feat: x\ndef5678 fix: y" {
+		t.Errorf("pullOutput = %q", got)
+	}
+}
+
+func TestCleanOutputNamesTheBranchesOrSaysThereWereNone(t *testing.T) {
+	if got := cleanOutput(nil); got != "No merged branches to delete." {
+		t.Errorf("cleanOutput(nil) = %q", got)
+	}
+	if got := cleanOutput([]string{"a", "b"}); got != "Deleted branch a\nDeleted branch b" {
+		t.Errorf("cleanOutput = %q", got)
 	}
 }
 
@@ -118,7 +143,8 @@ func TestNestedMainBranchAndNewBranch(t *testing.T) {
 	if w := post(t, srv, url+"main?repo=api", "{}", testToken); w.Code != http.StatusConflict {
 		t.Errorf("back to main with changes = %d, want 409", w.Code)
 	}
-	if w := post(t, srv, url+"stash?repo=api", "{}", testToken); w.Code != http.StatusOK {
+	if w := post(t, srv, url+"stash?repo=api", "{}", testToken); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), "Saved in the stash as: motita: api") {
 		t.Fatalf("stash = %d %s", w.Code, w.Body.String())
 	}
 	// main held by another checkout cannot be checked out here.
@@ -131,7 +157,8 @@ func TestNestedMainBranchAndNewBranch(t *testing.T) {
 		t.Errorf("a branch another checkout holds = %d, want 409", w.Code)
 	}
 	mustRun(t, "git", "-C", api, "worktree", "remove", "--force", other)
-	if w := post(t, srv, url+"main?repo=api", "{}", testToken); w.Code != http.StatusOK {
+	if w := post(t, srv, url+"main?repo=api", "{}", testToken); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), "Switched to branch 'main'") {
 		t.Errorf("back to main = %d %s", w.Code, w.Body.String())
 	}
 }

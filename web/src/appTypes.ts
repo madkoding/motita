@@ -130,7 +130,6 @@ export interface ProjectInfo {
   description?: string;
   dir: string;
   git_url?: string;
-  podman?: boolean;
   branch?: string;
   // main_branch is the branch the project goes back to when it has no sessions.
   main_branch?: string;

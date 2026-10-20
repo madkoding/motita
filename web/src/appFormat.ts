@@ -231,7 +231,6 @@ export function projectTooltip(p: ProjectInfo): string | undefined {
   return tooltip([
     !!p.branch &&
       tf("Project checkout is on branch: {branch}", { branch: p.branch }),
-    !!p.podman && t("This project is run with podman"),
     !!p.changes &&
       tf("The project checkout has {what}", { what: changesTitle(p.changes) }),
   ]);
@@ -600,21 +599,6 @@ export function tagGroupClass(group: string): string {
     return "bg-[#40f0a0]/20 text-[#40f0a0]";
   }
   return "bg-[#a0a0f0]/20 text-[#a0a0f0]";
-}
-
-// podmanNote says what running a new project with podman will do, given what the host has.
-export function podmanNote(ready: boolean, compose: boolean): string {
-  if (!ready) {
-    return t(
-      "podman is installed but did not answer (podman info failed), so it may not work until it is set up.",
-    );
-  }
-  if (compose) {
-    return t("The project will be started in containers with podman.");
-  }
-  return t(
-    "The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.",
-  );
 }
 
 // deleteWarning is what the delete confirmation says will be lost, for a session, a skill or a

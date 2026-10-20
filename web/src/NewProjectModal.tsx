@@ -10,7 +10,6 @@ import { folderNameOf, repoNameOfUrl } from "./appParse";
 import { newProjectDraft } from "./newProjectDraft";
 import type { Choice } from "./SettingsControls";
 import type { NewProjectSource } from "./useProjects";
-import { podmanNote } from "./appFormat";
 import { IconClose, IconFolder, IconSpinner } from "./icons";
 import { NEW_PROJECT } from "./appConst";
 import { useFolderProbe, type FolderProbe } from "./useFolderProbe";
@@ -69,37 +68,6 @@ function RepoField() {
         spellcheck={false}
       />
     </div>
-  );
-}
-
-// PodmanOffer asks whether the project runs with podman, when the machine has it.
-function PodmanOffer() {
-  const {
-    newProjectPodman,
-    setNewProjectPodman,
-    podmanReady,
-    hasPodmanCompose,
-  } = useApp().projects;
-  return (
-    <label
-      class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer"
-      data-testid="podman-offer"
-    >
-      <input
-        type="checkbox"
-        class="mt-0.5 accent-(--accent,#7c6cff)"
-        checked={newProjectPodman}
-        onChange={(e) =>
-          setNewProjectPodman((e.target as HTMLInputElement).checked)
-        }
-      />
-      <span class="text-sm text-[#e8e8ea]">
-        {t("Podman was found on this machine. Use it to run this project?")}
-        <span class="block text-xs text-[#7a7a8c] mt-0.5">
-          {podmanNote(podmanReady, hasPodmanCompose)}
-        </span>
-      </span>
-    </label>
   );
 }
 
@@ -266,7 +234,6 @@ function MoreOptions() {
             placeholder={t("What this project is about")}
           />
         </div>
-        {p.hasPodman && <PodmanOffer />}
       </div>
     </details>
   );

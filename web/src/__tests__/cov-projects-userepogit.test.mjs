@@ -11,10 +11,12 @@ import {
   flush,
   res,
   fakeApi,
+  render,
 } from "./cov-projects-helpers.mjs";
 
-const { AppCtx, useRepoGit } = await bundle({
+const { AppCtx, useRepoGit, GitActivityModal } = await bundle({
   "useRepoGit.ts": ["useRepoGit"],
+  "GitActivityModal.tsx": ["GitActivityModal"],
 });
 
 const REF = { projectId: "p1", repo: "group/web" };
@@ -180,5 +182,27 @@ test("nothing is asked when no conversation could be opened", async () => {
   await run(() => s.g.askAgent(REF, "push"));
   assert.deepEqual(s.opened, ["p1"]);
   assert.deepEqual(s.asked, []);
+  await s.m.unmount();
+});
+
+test("an action opens the modal that says what git does, then how it ended", async () => {
+  const s = await setup({
+    "POST /v1/projects/p1/repo/pull": res(200, {
+      output: "Brought in:\nabc1234 feat: x",
+    }),
+    "POST /v1/projects/p1/repo/stash": res(409, { error: "nothing to stash" }),
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  await act(() => render(h(GitActivityModal), host));
+  const text = () => document.body.textContent;
+  await run(() => s.g.repoAction(REF, "pull"));
+  assert.match(text(), /Pulling group\/web/);
+  assert.match(text(), /fast-forward/);
+  assert.match(text(), /group\/web is up to date/);
+  assert.match(text(), /abc1234 feat: x/);
+  await run(() => s.g.repoAction(REF, "stash"));
+  assert.match(text(), /nothing to stash/);
+  await act(() => render(null, host));
   await s.m.unmount();
 });

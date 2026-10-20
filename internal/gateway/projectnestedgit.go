@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/madkoding/motita/internal/gitx"
@@ -133,10 +134,29 @@ func (s *Server) handleNestedAction(w http.ResponseWriter, r *http.Request) {
 // nestedPull brings the branch the repository is on up to date with origin: a fast-forward of a
 // clean checkout, never a merge.
 func nestedPull(ctx context.Context, n NestedRepo, dir string, _ nestedBody) (map[string]any, int, error) {
+	before := gitx.HeadRev(ctx, dir)
 	if err := gitx.RefreshBranch(ctx, dir, gitx.Display(ctx, dir)); err != nil {
 		return nil, http.StatusConflict, err
 	}
-	return map[string]any{}, 0, nil
+	after := gitx.HeadRev(ctx, dir)
+	var brought []gitx.Commit
+	if before != "" && before != after {
+		brought, _, _ = gitx.CommitsBetween(ctx, dir, before, after)
+	}
+	return map[string]any{"output": pullOutput(before == after, brought)}, 0, nil
+}
+
+// pullOutput says what a pull did, for the modal that follows it: nothing new, or the commits it
+// brought in.
+func pullOutput(unchanged bool, brought []gitx.Commit) string {
+	if unchanged {
+		return "Already up to date."
+	}
+	lines := []string{"Brought in:"}
+	for _, c := range brought {
+		lines = append(lines, c.SHA+" "+c.Subject)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // nestedMain goes back to the main branch, only from a clean checkout: git would carry the changes
@@ -151,7 +171,7 @@ func nestedMain(ctx context.Context, n NestedRepo, dir string, _ nestedBody) (ma
 	if err := gitx.Checkout(ctx, dir, n.MainBranch); err != nil {
 		return nil, http.StatusConflict, err
 	}
-	return map[string]any{}, 0, nil
+	return map[string]any{"output": "Switched to branch '" + n.MainBranch + "'"}, 0, nil
 }
 
 // nestedBranch starts a branch at the checkout's work, carrying what is uncommitted along.
@@ -162,7 +182,7 @@ func nestedBranch(ctx context.Context, _ NestedRepo, dir string, body nestedBody
 	if err := gitx.SwitchNew(ctx, dir, body.Branch); err != nil {
 		return nil, http.StatusConflict, err
 	}
-	return map[string]any{}, 0, nil
+	return map[string]any{"output": "Switched to branch '" + body.Branch + "'"}, 0, nil
 }
 
 // nestedStash puts the uncommitted work aside under a label that says when it was.
@@ -171,7 +191,7 @@ func nestedStash(ctx context.Context, n NestedRepo, dir string, _ nestedBody) (m
 	if err := gitx.Stash(ctx, dir, label); err != nil {
 		return nil, http.StatusConflict, err
 	}
-	return map[string]any{}, 0, nil
+	return map[string]any{"output": "Saved in the stash as: " + label}, 0, nil
 }
 
 // nestedClean deletes the branches whose work is already in the main branch. `-d` and not `-D`:
@@ -188,7 +208,19 @@ func nestedClean(ctx context.Context, n NestedRepo, dir string, _ nestedBody) (m
 			deleted = append(deleted, name)
 		}
 	}
-	return map[string]any{"deleted": deleted}, 0, nil
+	return map[string]any{"deleted": deleted, "output": cleanOutput(deleted)}, 0, nil
+}
+
+// cleanOutput lists the branches a clean deleted, one per line, for the modal that follows it.
+func cleanOutput(deleted []string) string {
+	if len(deleted) == 0 {
+		return "No merged branches to delete."
+	}
+	lines := make([]string, 0, len(deleted))
+	for _, name := range deleted {
+		lines = append(lines, "Deleted branch "+name)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // nestedDiscard destroys the uncommitted work, so it runs only when the request says the person
@@ -200,5 +232,5 @@ func nestedDiscard(ctx context.Context, _ NestedRepo, dir string, body nestedBod
 	if err := gitx.DiscardChanges(ctx, dir); err != nil {
 		return nil, http.StatusConflict, err
 	}
-	return map[string]any{}, 0, nil
+	return map[string]any{"output": "Tracked files restored to the last commit; new files removed."}, 0, nil
 }

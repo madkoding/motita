@@ -54,10 +54,10 @@ export function BoxesSetting({ api }: { api: Api }) {
     <>
       <Row
         id="settings-boxes"
-        label={t("Sandbox")}
+        label={t("Test containers")}
         stack
         hint={t(
-          "Projects Motita starts in a container only it can reach, to test them and take screenshots. A run removes its own when it ends; stop here any that stay.",
+          "Services Motita starts in a container only it can reach, to test a project and take screenshots. They are not where its commands run (that is the sandbox above). A run removes its own when it ends; stop here any that stay.",
         )}
       >
         <div class="flex gap-2">
