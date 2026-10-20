@@ -31,6 +31,9 @@ jobs:
   web:
     name: web UI · build · test · typecheck
     runs-on: ubuntu-latest
+    # A web test that hangs (an open handle, a promise nobody settles) once held this job for 55
+    # minutes; the whole job normally takes about two.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -48,6 +51,7 @@ jobs:
       # The same 100 % bar as the Go packages, lines and branches, file by file: a file no test
       # loads fails as surely as one at 0 %.
       - name: Web UI tests · coverage gate (100% per file)
+        timeout-minutes: 8
         run: cd web && npm run test:coverage && node scripts/coverage-gate.mjs
 
       - name: Web UI type check
