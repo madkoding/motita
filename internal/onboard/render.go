@@ -90,7 +90,6 @@ func renderConfig(v configValues) []byte {
 	fmt.Fprintf(&b, "  model: %s\n", yamlScalar(v.model))
 	fmt.Fprintf(&b, "  base_url: %s\n", yamlScalar(v.baseURL))
 	b.WriteString("  max_tokens: 16384\n")
-	b.WriteString("  temperature: 0.2\n")
 	b.WriteString("  timeout: 120s\n")
 	b.WriteString("  max_attempts: 3\n")
 	b.WriteString("\n")

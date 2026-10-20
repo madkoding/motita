@@ -61,6 +61,8 @@ type Client struct {
 	login *loginState
 	// outputCap is the output-token limit learned from a provider's refusal, 0 while unknown.
 	outputCap atomic.Int64
+	// noTemperature is set once the provider has refused temperature for the configured model.
+	noTemperature atomic.Bool
 }
 
 // New creates the reasoning engine client.
