@@ -223,7 +223,7 @@ test("a project lists each session's changes and deletes with its sessions", asy
   assert.doesNotMatch(text, /Clean/);
   await click(confirmButton(m.root));
   await flush();
-  assert.deepEqual(calls, [["deleteProject", "p1", true]]);
+  assert.deepEqual(calls, [["deleteProject", "p1", true, false]]);
   await m.unmount();
 });
 
@@ -255,10 +255,66 @@ test("a clean project and one that could not be inspected", async () => {
   );
   assert.match(m.root.textContent, /boom/);
   await act(() => state.d.cancelDelete());
-  body = { count: 0, changes: [], keeps_folder: true, folder: "/srv/app" };
+  await m.unmount();
+});
+
+test("a project's folder stays by default and removing it needs a confirmation", async () => {
+  const paths = [];
+  const api = async (path) => {
+    paths.push(path);
+    return res(200, {
+      count: path.includes("folder=delete") ? 1 : 0,
+      changes: [],
+      folder: "/srv/app",
+      folder_changes: [{ path: "wip.txt", kind: "??" }],
+    });
+  };
+  const { Harness, calls, state } = harness(api);
+  const m = await mount(AppCtx, null, h(Harness));
   await open(state, { type: "project", id: "p3", title: "Proj" });
   await flush();
-  assert.match(m.root.textContent, /The folder stays on disk.*\/srv\/app/);
+  const text = () => m.root.textContent;
+  assert.match(text(), /What happens to the project's folder\?.*\/srv\/app/);
+  assert.match(text(), /Keep the folder and its files/);
+  assert.doesNotMatch(text(), /wip\.txt/);
+  const [keep, wipe] = m.root.querySelectorAll("input[type=radio]");
+  assert.equal(keep.checked, true);
+  await act(() => wipe.dispatchEvent(new Event("change", { bubbles: true })));
+  await flush();
+  assert.equal(state.d.wipeFolder, true);
+  assert.equal(paths.at(-1), "/v1/projects/p3/deletion-preview?folder=delete");
+  assert.match(text(), /wip\.txt/);
+  // The button waits for the acknowledgement.
+  assert.equal(confirmButton(m.root).disabled, true);
+  assert.match(confirmButton(m.root).textContent, /Delete project and folder/);
+  const ack = m.root.querySelector("input[type=checkbox]");
+  ack.checked = true;
+  await act(() => ack.dispatchEvent(new Event("change", { bubbles: true })));
+  assert.equal(confirmButton(m.root).disabled, false);
+  await click(confirmButton(m.root));
+  await flush();
+  assert.deepEqual(calls, [["deleteProject", "p3", true, true]]);
+  await m.unmount();
+});
+
+test("a protected folder cannot be chosen for removal", async () => {
+  const api = async () =>
+    res(200, {
+      count: 0,
+      changes: [],
+      folder: "/home/me",
+      folder_protected: "the home folder",
+    });
+  const { Harness, state } = harness(api);
+  const m = await mount(AppCtx, null, h(Harness));
+  await open(state, { type: "project", id: "p4", title: "Proj" });
+  await flush();
+  const [, wipe] = m.root.querySelectorAll("input[type=radio]");
+  assert.equal(wipe.disabled, true);
+  assert.match(
+    m.root.querySelector("[data-testid=folder-protected]").textContent,
+    /cannot be deleted from here: the home folder/,
+  );
   await m.unmount();
 });
 

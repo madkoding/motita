@@ -657,13 +657,20 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// stops the whole deletion unless the user confirmed the discard with
 	// `?force=1`. The work belongs to the user, not to the project record, and
 	// deleting the record is not a decision to destroy it.
+	wipe := wipesFolder(r)
+	if wipe {
+		if status, problem := s.wipeProblem(r.Context(), s.projectOf(id), isForced(r)); status != 0 {
+			writeError(w, status, problem)
+			return
+		}
+	}
 	if !isForced(r) {
-		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id)); dir != "" {
+		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id), wipe); dir != "" {
 			writeError(w, http.StatusConflict, "the project has commits that exist nowhere else: push them, "+
 				"or confirm the discard ("+dir+")")
 			return
 		}
-		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id)) {
+		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id), wipe) {
 			writeError(w, http.StatusConflict, "the project's repository "+dir+" has uncommitted changes: "+
 				"commit them, or confirm the discard")
 			return
@@ -674,13 +681,11 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	// The project's own folder goes with it, so a later project of the same name does not find
-	// the old files in the way. The deletion dialog is the confirmation.
+	// The project's own folder goes only when the dialog asked for it (wipeProblem has already
+	// refused a protected one).
 	var projectDir string
-	// A folder another project also stands on (a record from before folders were refused twice)
-	// stays: it is that project's too.
 	p := s.projectOf(id)
-	if p != nil && !p.Adopted && s.ownsProjectDir(p.Dir) && s.projectInDir(p.Dir, id) == nil {
+	if p != nil && wipe {
 		projectDir = p.Dir
 	}
 	// Only now that every checkout has been proven safe to give back are the
@@ -705,12 +710,12 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 // has. A clean working tree says nothing about them. Only the clones added from a remote count:
 // the project's own folder is meant to be removed, the deletion dialog being its confirmation,
 // and a folder created locally has no remote to have published to.
-func (s *Server) unpublishedInProject(ctx context.Context, p *Project) string {
+func (s *Server) unpublishedInProject(ctx context.Context, p *Project, wipe bool) string {
 	if p == nil {
 		return ""
 	}
 	for _, repo := range p.Repos {
-		if !s.deletesClone(repo) || gitx.Repo(ctx, repo.Dir) != nil {
+		if !s.goesWithProject(p, repo, wipe) || gitx.Repo(ctx, repo.Dir) != nil {
 			continue
 		}
 		if n, err := gitx.UnpublishedCommits(ctx, repo.Dir); err != nil || n != 0 {
@@ -736,12 +741,6 @@ func (s *Server) ownsProjectDir(dir string) bool {
 // gateway registered but did not create, whose branch it does not switch or update by itself.
 func (s *Server) usersFolder(dir string) bool {
 	return s.opts.WorkspaceDir != "" && dir != "" && !s.ownsProjectDir(dir)
-}
-
-// keepsFolder reports whether deleting p leaves its folder alone: it is outside the workspace, or
-// it was already there when the project was made.
-func (s *Server) keepsFolder(p *Project) bool {
-	return p != nil && (p.Adopted || s.usersFolder(p.Dir))
 }
 
 // relLeavesRoot reports whether a path relative to a root names the root itself or a place

@@ -436,12 +436,19 @@ function useProjectAdmin(
 
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
-  // whose sessions hold uncommitted work is refused without it.
+  // whose sessions hold uncommitted work is refused without it. `wipe` asks to remove the
+  // project's folder with its contents too; without it the folder stays on disk.
   const deleteProject = useCallback(
-    async (id: string, discard = false) => {
+    async (id: string, discard = false, wipe = false) => {
       try {
+        const query = [
+          choose(discard, "force=1", ""),
+          choose(wipe, "folder=delete", ""),
+        ].filter(Boolean);
         const res = await api(
-          PROJECTS_PATH + id + choose(discard, "?force=1", ""),
+          PROJECTS_PATH +
+            id +
+            choose(query.length > 0, "?" + query.join("&"), ""),
           { method: "DELETE" },
         );
         if (!res.ok && res.status !== HTTP_NO_CONTENT) {

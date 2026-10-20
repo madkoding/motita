@@ -17,19 +17,27 @@ const more: Record<string, string> = {
   "Use the workspace": "Usar el workspace",
   "The folder does not exist yet: it will be created.":
     "La carpeta aún no existe: se va a crear.",
-  "The folder already exists and is used as it is. It stays on disk, with its files, when the project is deleted.":
-    "La carpeta ya existe y se usa tal cual. Se queda en el disco, con sus archivos, cuando se elimina el proyecto.",
+  "The folder already exists and is used as it is. Deleting the project asks whether it stays on disk.":
+    "La carpeta ya existe y se usa tal cual. Al eliminar el proyecto se pregunta si se queda en el disco.",
   "This folder is among the system's own files. I know what I am doing and want a project here.":
     "Esta carpeta está entre los archivos del sistema. Sé lo que hago y quiero un proyecto aquí.",
-  "The folder stays on disk, with its files:":
-    "La carpeta se queda en el disco, con sus archivos:",
+  "What happens to the project's folder?":
+    "¿Qué pasa con la carpeta del proyecto?",
+  "Keep the folder and its files": "Dejar la carpeta y sus archivos",
+  "Delete the folder and everything in it":
+    "Eliminar la carpeta y todo su contenido",
+  "This folder cannot be deleted from here:":
+    "Esta carpeta no se puede eliminar desde aquí:",
+  "I understand the folder and all its files will be deleted for good.":
+    "Entiendo que la carpeta y todos sus archivos se eliminarán para siempre.",
+  "Delete project and folder": "Eliminar proyecto y carpeta",
   "Or the path of a folder, existing or new":
     "O la ruta de una carpeta, existente o nueva",
   "Without the whole disk in Settings → Security, the folder has to be inside the workspace.":
     "Sin el disco completo en Ajustes → Seguridad, la carpeta tiene que estar dentro del workspace.",
   "Keep the current one": "Dejar la actual",
-  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is and is never deleted with the project.":
-    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual y nunca se borra junto con el proyecto.",
+  "The whole disk is allowed in Settings → Security, so the project can live in any folder. The folder is used as it is; deleting the project asks whether it stays.":
+    "El disco completo está permitido en Ajustes → Seguridad, así que el proyecto puede estar en cualquier carpeta. Se usa tal cual; al eliminar el proyecto se pregunta si se queda.",
   "Nothing is moved: the project points at that folder. Not possible while it has sessions or other repositories.":
     "No se mueve nada: el proyecto apunta a esa carpeta. No se puede mientras tenga sesiones u otros repositorios.",
   "This browser cannot record audio.": "Este navegador no puede grabar audio.",

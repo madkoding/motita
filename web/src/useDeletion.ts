@@ -10,15 +10,23 @@ interface Deps {
   api: Api;
   deleteSession: (id: string, discard?: boolean) => Promise<void>;
   deleteSkill: (name: string) => Promise<void>;
-  deleteProject: (id: string, discard?: boolean) => Promise<void>;
+  deleteProject: (
+    id: string,
+    discard?: boolean,
+    wipe?: boolean,
+  ) => Promise<void>;
 }
 
 // previewPathOf is where the gateway answers what deleting a session or a project would discard.
-function previewPathOf(target: ConfirmTarget): string {
+// With the folder to be removed too, the answer also counts what that discards.
+function previewPathOf(target: ConfirmTarget, wipe: boolean): string {
   return choose(
     target.type === "session",
     SESSIONS_PATH + target.id + "/deletion-preview",
-    PROJECTS_PATH + target.id + "/deletion-preview",
+    PROJECTS_PATH +
+      target.id +
+      "/deletion-preview" +
+      choose(wipe, "?folder=delete", ""),
   );
 }
 
@@ -63,6 +71,14 @@ export function useDeletion({
   // Locking the button and showing that something is happening is the honest
   // report of a request in flight.
   const [deleting, setDeleting] = useState(false);
+  // What happens to a project's folder: it stays (the default, the safest) or is removed with
+  // its contents, which also needs the person to say they know it cannot be undone.
+  const [wipeFolder, setWipeFolderState] = useState(false);
+  const [wipeAck, setWipeAck] = useState(false);
+  const setWipeFolder = useCallback((wipe: boolean) => {
+    setWipeFolderState(wipe);
+    setWipeAck(false);
+  }, []);
 
   // The deletion preview is fetched when the modal OPENS, so the dialog can say what
   // will be lost before anything is decided.
@@ -77,6 +93,7 @@ export function useDeletion({
       // Reset with the modal: a fresh confirmation must start unlocked, whatever
       // the previous one left behind.
       setDeleting(false);
+      setWipeFolder(false);
       return undefined;
     }
     // Both kinds ask the same question of their own endpoint: a session names its own
@@ -88,7 +105,7 @@ export function useDeletion({
     }
     let cancelled = false;
     setPreviewLoading(true);
-    api(previewPathOf(confirmDelete))
+    api(previewPathOf(confirmDelete, wipeFolder))
       .then(readPreview)
       .then((data) => {
         if (cancelled) {
@@ -111,7 +128,7 @@ export function useDeletion({
     return () => {
       cancelled = true;
     };
-  }, [confirmDelete]);
+  }, [confirmDelete, wipeFolder, setWipeFolder]);
 
   // runDelete deletes what the modal is about.
   //
@@ -127,7 +144,7 @@ export function useDeletion({
     if (target.type === "skill") {
       return deleteSkill(target.id);
     }
-    return deleteProject(target.id, true);
+    return deleteProject(target.id, true, wipeFolder);
   };
 
   // confirmDeletion is the confirm button. It is locked FIRST, so a second click cannot start a
@@ -155,6 +172,10 @@ export function useDeletion({
     previewLoading,
     deleting,
     confirmDeletion,
+    wipeFolder,
+    setWipeFolder,
+    wipeAck,
+    setWipeAck,
   };
 }
 
