@@ -31,8 +31,11 @@ type ClickLike = {
 // isImeKey says whether a key picks or drops an IME candidate (CJK input, dead keys): such a key is
 // the IME's, so it must not send, confirm or close anything. Safari marks it with keyCode 229
 // instead of isComposing.
+const IME_KEY_CODE = 229;
+
 export function isImeKey(e: KeyboardEvent): boolean {
-  return e.isComposing || e.keyCode === 229;
+  // keyCode is deprecated, but it is the one mark Safari gives: read it without the DOM type.
+  return e.isComposing || (e as { keyCode?: number }).keyCode === IME_KEY_CODE;
 }
 
 // backdropClick closes a modal when the click lands on the backdrop itself. A click that started inside

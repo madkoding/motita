@@ -134,7 +134,7 @@ export function useArtifacts(api: Api, sessionId: string, setState: SetStatus) {
   const viewUrl = artifactView?.url;
   useEffect(() => {
     if (!viewUrl) {
-      return;
+      return undefined;
     }
     return () => URL.revokeObjectURL(viewUrl);
   }, [viewUrl]);
