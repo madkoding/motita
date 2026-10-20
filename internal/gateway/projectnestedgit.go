@@ -90,7 +90,9 @@ func (s *Server) handleNestedStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // nestedActions are the things done to a repository, by name. Each answers what the web shows.
-var nestedActions = map[string]func(ctx context.Context, n NestedRepo, dir string, body nestedBody) (map[string]any, int, error){
+type nestedAction func(ctx context.Context, n NestedRepo, dir string, body nestedBody) (map[string]any, int, error)
+
+var nestedActions = map[string]nestedAction{
 	"pull":    nestedPull,
 	"main":    nestedMain,
 	"branch":  nestedBranch,

@@ -41,7 +41,11 @@ func TestNestedStatusTellsWhatTheRepositoryHolds(t *testing.T) {
 	writeIn(t, api, "wip.txt")
 	w := get(t, srv, url+"api", testToken)
 	body := w.Body.String()
-	for _, want := range []string{`"branch":"work"`, `"main_branch":"main"`, `"wip.txt"`, `"subject":"init"`, `"merged":["done"]`, `"behind":0`} {
+	wants := []string{
+		`"branch":"work"`, `"main_branch":"main"`, `"wip.txt"`,
+		`"subject":"init"`, `"merged":["done"]`, `"behind":0`,
+	}
+	for _, want := range wants {
 		if w.Code != http.StatusOK || !strings.Contains(body, want) {
 			t.Fatalf("status %d lacks %s: %s", w.Code, want, body)
 		}
