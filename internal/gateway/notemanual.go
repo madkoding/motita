@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -27,9 +28,10 @@ import (
 // changes.
 const (
 	manualSuffix = " - Manual"
-	// manualOldSuffix ended the folder of the first manual layout; links still name the manual
-	// "<title> manual" in their visible text.
+	// manualOldSuffix ended the folder of the first manual layout, which a scan still clears away;
+	// manualTitleSuffix ends the visible name of a guide in links.
 	manualOldSuffix    = " manual"
+	manualTitleSuffix  = " guide"
 	manualStart        = "Start here"
 	manualSep          = " › "
 	manualSummaryBytes = 220
@@ -43,8 +45,8 @@ const (
 	manualExplainMax   = 30
 	manualExplainLimit = 2000
 	manualHeadLines    = 30
-	manualHint         = "_No description of this folder yet. Turn on the model in Settings, Indexing, " +
-		"and the next scan explains it in plain words._"
+	manualHint         = "_Nobody has described this part yet. Turn on the model in Settings, Indexing, " +
+		"and update the guide: it will be explained here in plain words._"
 )
 
 // The caps of one manual: folders, file rows per note and API entries per note. Variables so a test
@@ -356,6 +358,7 @@ func buildManual(f projectFacts) []*moduleInfo {
 			m.addFile(f.module, p)
 		}
 	}
+	pruneEmpty(mods)
 	linkModules(mods)
 	out := make([]*moduleInfo, 0, len(mods))
 	for _, m := range mods {
@@ -368,6 +371,40 @@ func buildManual(f projectFacts) []*moduleInfo {
 		return out[i].rel < out[j].rel
 	})
 	return out[:min(len(out), manualMaxModules)]
+}
+
+// pruneEmpty drops the folders that give a reader nothing: no description, no code and nothing
+// inside them worth a chapter, such as a folder of pictures. Their files still show in the chapter
+// of the folder above. The deepest go first, so a folder that held only such folders goes too.
+func pruneEmpty(mods map[string]*moduleInfo) {
+	rels := make([]string, 0, len(mods))
+	for rel := range mods {
+		rels = append(rels, rel)
+	}
+	sort.Slice(rels, func(i, j int) bool { return depth(rels[i]) > depth(rels[j]) })
+	for _, rel := range rels {
+		m := mods[rel]
+		if rel == "" || len(m.children) > 0 || m.worthReading() {
+			continue
+		}
+		delete(mods, rel)
+		parent := mods[parentRel(rel)]
+		parent.children = slices.DeleteFunc(parent.children, func(c string) bool { return c == rel })
+	}
+}
+
+// worthReading says whether a folder has something to read about: a description of itself, code or
+// written documents.
+func (m *moduleInfo) worthReading() bool {
+	if m.pkgDoc != "" || m.readme != "" {
+		return true
+	}
+	for _, fi := range m.files {
+		if fi.lang != "" || strings.HasSuffix(strings.ToLower(fi.name), ".md") {
+			return true
+		}
+	}
+	return false
 }
 
 // linkModules turns what each module uses into the modules it points at, and fills "used by".
@@ -430,7 +467,7 @@ func aliasLink(name, label string) string {
 
 func (c manualCtx) link(rel string) string {
 	if ch, ok := c.chapters[rel]; ok && rel == "" {
-		return aliasLink(ch.name, c.title+manualOldSuffix)
+		return aliasLink(ch.name, c.title+manualTitleSuffix)
 	}
 	if ch, ok := c.chapters[rel]; ok {
 		return aliasLink(ch.name, humanName(rel))
@@ -739,25 +776,49 @@ func sorted(list []string) []string {
 	return list
 }
 
-// byline opens a chapter: which manual it belongs to and where the folder sits.
-func (c manualCtx) byline(m *moduleInfo) string {
-	if m.rel == "" {
-		return fmt.Sprintf("*The guide to %s, written by motita from its code. Each chapter explains one "+
-			"folder: what it is for, what is inside and how it connects to the rest. See also the project "+
-			"note %s and the architecture overview %s.*\n", cell(c.title), c.project, c.arch)
+// trail is where a chapter sits in the guide, from its start down to the chapter itself; every part
+// but the last leads to its own chapter.
+func (c manualCtx) trail(rel string) string {
+	parts := []string{"**" + cell(humanName(rel)) + "**"}
+	for r := parentRel(rel); ; r = parentRel(r) {
+		parts = append([]string{c.link(r)}, parts...)
+		if r == "" {
+			return strings.Join(parts, manualSep)
+		}
 	}
-	return fmt.Sprintf("*A chapter of the %s. Folder `%s/`, inside %s.*\n",
-		aliasLink(c.start, c.title+manualOldSuffix), cell(m.rel), c.link(parentRel(m.rel)))
 }
 
-// startBody is the first note of the manual: what the project is and how it is organised.
+// neighbours ends a chapter with the way on: the chapters before and after it in the folder above,
+// and the way back up.
+func (c manualCtx) neighbours(rel string) string {
+	var siblings []string
+	for _, r := range sorted(append([]string{}, c.chapters[parentRel(rel)].m.children...)) {
+		if _, ok := c.chapters[r]; ok {
+			siblings = append(siblings, r)
+		}
+	}
+	at := slices.Index(siblings, rel)
+	var steps []string
+	if at > 0 {
+		steps = append(steps, "← Before: "+c.link(siblings[at-1]))
+	}
+	steps = append(steps, "Up: "+c.link(parentRel(rel)))
+	if at < len(siblings)-1 {
+		steps = append(steps, "Next: "+c.link(siblings[at+1])+" →")
+	}
+	return "\n## Keep reading\n" + strings.Join(steps, " · ") + "\n"
+}
+
+// startBody is the first note of the guide: what the project is and the contents of the guide.
 func (c manualCtx) startBody(ch *chapter) string {
 	var b strings.Builder
-	b.WriteString(c.byline(ch.m))
+	fmt.Fprintf(&b, "*A guide to %s, written by motita from its files. Read it from the top, or jump to the "+
+		"part you need from the contents below. See also the project page %s and the technical "+
+		"overview %s.*\n", cell(c.title), c.project, c.arch)
 	b.WriteString("\n## What this project is\n" + ch.purpose())
 	if len(ch.m.children) > 0 {
-		b.WriteString("\n## How it is organised\nEvery folder of the project has its chapter. " +
-			"Start from the top; each line says what the folder is for.\n\n")
+		b.WriteString("\n## Contents\nEvery part of the project has its own chapter. " +
+			"Pick one to read what it is for.\n\n")
 		c.folderList(ch.m.children, "", true, &b)
 	}
 	if files := ch.m.fileList(); files != "" {
@@ -773,10 +834,11 @@ func (c manualCtx) chapterBody(ch *chapter) string {
 		return c.startBody(ch)
 	}
 	var b strings.Builder
-	b.WriteString(c.byline(ch.m))
+	b.WriteString("*" + c.trail(ch.m.rel) + "*\n")
 	b.WriteString("\n## What it is for\n" + ch.purpose())
 	b.WriteString(c.inside(ch.m))
 	b.WriteString(c.connections(ch.m))
+	b.WriteString(c.neighbours(ch.m.rel))
 	b.WriteString(ch.m.reference())
 	return b.String()
 }
@@ -817,7 +879,7 @@ func writeManual(
 		order = append(order, ch)
 	}
 	for _, ch := range order {
-		title := c.title + manualOldSuffix
+		title := c.title + manualTitleSuffix
 		if ch.m.rel != "" {
 			title = humanName(ch.m.rel)
 		}
@@ -829,7 +891,7 @@ func writeManual(
 	}
 	pruneManual(v, root, taken)
 	pruneManual(v, manualRoot(projectNote, manualOldSuffix), taken)
-	return aliasLink(c.start, c.title+manualOldSuffix)
+	return aliasLink(c.start, c.title+manualTitleSuffix)
 }
 
 // pruneManual deletes the notes of a manual's folder that this scan did not write and that hold
