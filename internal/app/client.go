@@ -147,7 +147,7 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	if op.RunTUI != nil {
 		// The test seam still wins: a test that wants to observe the interface must not need a
 		// gateway listening on a port.
-		return op.RunTUI(context.Background(), cfg, nil, nil, nil)
+		return op.RunTUI(ctx, cfg, nil, nil, nil)
 	}
 
 	token, err := gateway.ReadToken(cfg.Gateway.TokenFile)
@@ -237,7 +237,7 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 		fmt.Fprintf(op.Err, "%v\n", err)
 	}
 
-	return ui.Run(context.Background())
+	return ui.Run(ctx)
 }
 
 // gatewayVersion asks the gateway at the other end which build it is.
@@ -303,6 +303,12 @@ func checkSession(client tui.Runner, session string) error {
 		// client is about to be handed to a user who will type into it, and a gateway that
 		// cannot answer a listing is a gateway that will not answer anything else either.
 		return fmt.Errorf("the gateway did not answer when asked which sessions it holds: %w", err)
+	}
+	// The default session always exists in the gateway's memory, but the listing hides it while it
+	// is empty, so a fresh gateway reports none at all. Refusing it would make a plain
+	// `-connect host` fail on every new gateway.
+	if session == gateway.DefaultSession {
+		return nil
 	}
 	ids := make([]string, 0, len(sessions))
 	for _, s := range sessions {
