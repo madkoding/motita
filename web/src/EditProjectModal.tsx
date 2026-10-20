@@ -292,7 +292,7 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
           </div>
           <FolderField p={p} patch={patch} />
           {api && <ProjectIndexPanel api={api} id={p.id} />}
-          <GitOptions p={p} patch={patch} />
+          {p.git && <GitOptions p={p} patch={patch} />}
         </div>
         <div class="flex gap-2 mt-5">
           <button

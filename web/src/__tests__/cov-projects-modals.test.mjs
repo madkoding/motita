@@ -134,6 +134,7 @@ const DRAFT = {
   id: "p1",
   title: "Motita",
   description: "the app",
+  git: true,
   main: "develop",
   branches: ["main", "develop"],
   current: "feat",
@@ -173,6 +174,18 @@ test("the edit dialog shows the project's settings", async () => {
     h(EditProjectModal, { p: { ...DRAFT, current: "" } }),
   );
   assert.doesNotMatch(m.root.textContent, /It is on/);
+  await m.unmount();
+});
+
+test("a plain folder's dialog has no git or pull request settings", async () => {
+  const s = store();
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(EditProjectModal, { p: { ...DRAFT, git: false } }),
+  );
+  assert.equal(m.q("[data-testid=edit-project-git]"), null);
+  assert.ok(buttonByText(m.root, "Save"), "the rest of the dialog stays");
   await m.unmount();
 });
 
