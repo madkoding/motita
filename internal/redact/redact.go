@@ -50,7 +50,8 @@ var rules = []rule{
 		`[^&;\s"'\\#<>$(){}` + "`" + `]+`), "${1}" + Mask},
 	// Secret string fields in JSON: "access_token": "x", "client_secret": "x", "apiKey": "x".
 	// The value ends with its line, and one that starts with ` is Go source building the JSON.
-	{regexp.MustCompile(`(?i)("[a-z0-9_-]*(?:token|secret|password|passwd|api_?key)"\s*:\s*")[^"\\$({<` + "`" + `][^"\\\n]*`),
+	{regexp.MustCompile(`(?i)("[a-z0-9_-]*(?:token|secret|password|passwd|api_?key)"\s*:\s*")` +
+		`[^"\\$({<` + "`" + `][^"\\\n]*`),
 		"${1}" + Mask},
 }
 

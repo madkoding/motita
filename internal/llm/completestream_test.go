@@ -72,7 +72,10 @@ func TestCompleteStreamReadsDataLinesWithNoSpace(t *testing.T) {
 	var deltas int
 	got, err := streamClient(t, srv.URL).CompleteStream(context.Background(),
 		[]Message{{Role: "user", Content: "hi"}}, func(string, bool) { deltas++ })
-	if err != nil || got != "hi" || deltas != 1 || stream != 1 || plain != 0 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "hi" || deltas != 1 || stream != 1 || plain != 0 {
 		t.Errorf("got %q err %v deltas %d stream %d plain %d", got, err, deltas, stream, plain)
 	}
 }

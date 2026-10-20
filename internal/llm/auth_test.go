@@ -95,7 +95,8 @@ func TestCredentialPrefersALoginAnotherProcessRenewed(t *testing.T) {
 // and read as "log in again".
 func TestClientsShareOneRenewalOfALogin(t *testing.T) {
 	dir := t.TempDir()
-	old := oauth.Credential{Provider: "codex", AccessToken: "a0", RefreshToken: "r0", ExpiresAt: time.Now().Add(-time.Hour)}
+	old := oauth.Credential{Provider: "codex", AccessToken: "a0", RefreshToken: "r0",
+		ExpiresAt: time.Now().Add(-time.Hour)}
 	if err := oauth.SaveCredential(dir, old); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,8 @@ func TestClientsShareOneRenewalOfALogin(t *testing.T) {
 			return oauth.Credential{}, fmt.Errorf("refresh_token_reused")
 		}
 		spent[c.RefreshToken] = true
-		return oauth.Credential{Provider: "codex", AccessToken: "a1", RefreshToken: "r1", ExpiresAt: time.Now().Add(time.Hour)}, nil
+		return oauth.Credential{Provider: "codex", AccessToken: "a1", RefreshToken: "r1",
+			ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
@@ -142,7 +144,8 @@ func TestARefusedRenewalTakesTheLoginAnotherProcessSaved(t *testing.T) {
 	_ = oauth.SaveCredential(dir, old)
 	s := &loginState{provider: "qwen", dir: dir, cred: old, now: time.Now,
 		refresh: func(context.Context, oauth.HTTPClient, oauth.Credential) (oauth.Credential, error) {
-			_ = oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", AccessToken: "other", ExpiresAt: time.Now().Add(time.Hour)})
+			_ = oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", AccessToken: "other",
+				ExpiresAt: time.Now().Add(time.Hour)})
 			return oauth.Credential{}, fmt.Errorf("refresh_token_reused")
 		}}
 	c, err := s.credential(context.Background(), false)
@@ -156,14 +159,16 @@ func TestARefusedRenewalTakesTheLoginAnotherProcessSaved(t *testing.T) {
 // still renews it once.
 func TestAShorterOutputLimitDoesNotRenewTheLogin(t *testing.T) {
 	for _, expire := range []bool{false, true} {
-		withLogin(t, oauth.Credential{Provider: "qwen", AccessToken: "a0", RefreshToken: "r0", ExpiresAt: time.Now().Add(time.Hour)})
+		withLogin(t, oauth.Credential{Provider: "qwen", AccessToken: "a0", RefreshToken: "r0",
+			ExpiresAt: time.Now().Add(time.Hour)})
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b := make([]byte, r.ContentLength)
 			r.Body.Read(b)
 			switch {
 			case strings.Contains(string(b), `"max_tokens":65536`):
 				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprint(w, `{"error":{"message":"max_tokens is too large: 65536. This model supports at most 16384 completion tokens"}}`)
+				fmt.Fprint(w, `{"error":{"message":"max_tokens is too large: 65536. `+
+					`This model supports at most 16384 completion tokens"}}`)
 			case expire && r.Header.Get("Authorization") == "Bearer a0":
 				w.WriteHeader(http.StatusUnauthorized)
 			default:
@@ -178,7 +183,8 @@ func TestAShorterOutputLimitDoesNotRenewTheLogin(t *testing.T) {
 		renewals := 0
 		c.login.refresh = func(context.Context, oauth.HTTPClient, oauth.Credential) (oauth.Credential, error) {
 			renewals++
-			return oauth.Credential{Provider: "qwen", AccessToken: "a1", RefreshToken: "r1", ExpiresAt: time.Now().Add(time.Hour)}, nil
+			return oauth.Credential{Provider: "qwen", AccessToken: "a1", RefreshToken: "r1",
+				ExpiresAt: time.Now().Add(time.Hour)}, nil
 		}
 		got, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}})
 		want := 0

@@ -135,7 +135,8 @@ func TestUnserialisableFieldKeepsRedaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := readLines(t, path)
-	if len(lines) != 1 || strings.Contains(lines[0], "abcdefghijklmnop") || !strings.Contains(lines[0], "could not serialize") {
+	if len(lines) != 1 || strings.Contains(lines[0], "abcdefghijklmnop") ||
+		!strings.Contains(lines[0], "could not serialize") {
 		t.Errorf("the fallback leaked the secret or lost the line: %v", lines)
 	}
 }

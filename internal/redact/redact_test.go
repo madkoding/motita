@@ -37,8 +37,10 @@ func TestStringMasksSecrets(t *testing.T) {
 		{"command line flag", "mysql --password=hunter2 db", "mysql --password=[REDACTED] db"},
 		{
 			"json credentials",
-			`{"access_token": "eyJabc.def", "refresh_token":"1//0gabc", "client_secret": "GOCSPX-abc", "apiKey": "k1", "token_type": "Bearer"}`,
-			`{"access_token": "[REDACTED]", "refresh_token":"[REDACTED]", "client_secret": "[REDACTED]", "apiKey": "[REDACTED]", "token_type": "Bearer"}`,
+			`{"access_token": "eyJabc.def", "refresh_token":"1//0gabc", "client_secret": "GOCSPX-abc", ` +
+				`"apiKey": "k1", "token_type": "Bearer"}`,
+			`{"access_token": "[REDACTED]", "refresh_token":"[REDACTED]", "client_secret": "[REDACTED]", ` +
+				`"apiKey": "[REDACTED]", "token_type": "Bearer"}`,
 		},
 		{
 			"pem private key",
