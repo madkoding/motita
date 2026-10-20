@@ -4,14 +4,14 @@ import { useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
-import { IconClose } from "./icons";
+import { IconArchive, IconBranch, IconClose, IconTrash } from "./icons";
 import type { RepoRef } from "./useRepoGit";
 import type { RepoStatus } from "./appTypes";
 
 const FIELD =
   "flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] text-sm focus:outline-hidden focus:border-accent";
 const BTN =
-  "px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed";
+  "inline-flex items-center gap-1.5 px-3 min-h-[36px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed";
 const HEAD = "text-xs uppercase tracking-wide text-[#7a7a8c] mb-1.5";
 const SHOWN = 30;
 
@@ -94,6 +94,7 @@ function Tools({ r, s }: { r: RepoRef; s: RepoStatus }) {
           disabled={!name.trim()}
           onClick={() => void act(r, "branch", { branch: name.trim() })}
         >
+          <IconBranch size={13} class="flex-none" />
           {t("Create branch")}
         </button>
       </div>
@@ -104,6 +105,7 @@ function Tools({ r, s }: { r: RepoRef; s: RepoStatus }) {
           disabled={s.changes.length === 0}
           onClick={() => void act(r, "stash")}
         >
+          <IconArchive size={13} class="flex-none" />
           {t("Put changes aside")}
         </button>
         <button
@@ -113,6 +115,7 @@ function Tools({ r, s }: { r: RepoRef; s: RepoStatus }) {
           title={s.merged.join(", ")}
           onClick={() => void act(r, "clean")}
         >
+          <IconTrash size={13} class="flex-none" />
           {tf("Delete merged branches ({n})", { n: s.merged.length })}
         </button>
         {!sure && (
@@ -122,6 +125,7 @@ function Tools({ r, s }: { r: RepoRef; s: RepoStatus }) {
             disabled={s.changes.length === 0}
             onClick={() => setSure(true)}
           >
+            <IconTrash size={13} class="flex-none" />
             {t("Discard changes…")}
           </button>
         )}

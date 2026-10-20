@@ -9,7 +9,14 @@ import { useLongPress } from "./domHooks";
 import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
 import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
-import { IconDots, IconFolder } from "./icons";
+import {
+  IconBox,
+  IconDots,
+  IconEdit,
+  IconFolder,
+  IconNotes,
+  IconRefresh,
+} from "./icons";
 import type { ProjectInfo } from "./appTypes";
 import { EDIT_PROJECT } from "./appConst";
 import { NestedRepos } from "./NestedRepos";
@@ -31,6 +38,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           menus.closeRowMenu();
         }}
       >
+        <IconEdit size={14} class="flex-none" />
         {t(EDIT_PROJECT)}
       </button>
       {(projects.hasPodman || p.podman) && (
@@ -43,6 +51,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
             menus.closeRowMenu();
           }}
         >
+          <IconBox size={14} class="flex-none" />
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
@@ -56,6 +65,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
             menus.closeRowMenu();
           }}
         >
+          <IconRefresh size={14} class="flex-none" />
           {t("Update main branch")}
         </button>
       )}
@@ -71,6 +81,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           menus.closeRowMenu();
         }}
       >
+        <IconNotes size={14} class="flex-none" />
         {t("Rescan the notes")}
       </button>
       <DeleteItem type="project" id={p.id} title={p.title} />

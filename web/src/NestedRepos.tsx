@@ -1,10 +1,25 @@
 // The git repositories found inside a project's folder, drawn as a tree under the project's header.
 // The folder itself is not a repository: each one found is its own, with its own menu.
+import type { VNode } from "preact";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { RowMenu } from "./SessionRow";
-import { IconDots, IconFolder } from "./icons";
+import {
+  IconArchive,
+  IconArrowDown,
+  IconArrowUp,
+  IconBack,
+  IconBranch,
+  IconChat,
+  IconCommit,
+  IconDots,
+  IconEye,
+  IconFolder,
+  IconPullRequest,
+  IconRefresh,
+  IconTrash,
+} from "./icons";
 import type { NestedRepo, ProjectInfo } from "./appTypes";
 import type { AskKind, RepoRef } from "./useRepoGit";
 
@@ -16,6 +31,7 @@ const menuKey = (p: ProjectInfo, r: NestedRepo) => `${p.id}\u0000${r.path}`;
 
 interface RepoItem {
   id: string;
+  icon: (p: { size: number; class?: string }) => VNode;
   label: string;
   hint?: string;
   run: () => void;
@@ -34,11 +50,13 @@ function repoItems(
   return [
     {
       id: "repo-details",
+      icon: IconEye,
       label: t("Changes, history and branches…"),
       run: details,
     },
     {
       id: "refresh-nested",
+      icon: IconRefresh,
       label: tf("Update {repo}", { repo }),
       hint: hint(
         "Brings {repo} up to date with its origin; nothing is forced.",
@@ -47,38 +65,54 @@ function repoItems(
     },
     {
       id: "repo-pull",
+      icon: IconArrowDown,
       label: t("Pull this branch"),
       hint: t("Brings in what origin has, only when nothing is uncommitted."),
       run: () => act("pull"),
     },
     {
       id: "repo-main",
+      icon: IconBack,
       label: t("Back to the main branch"),
       hint: t("Only when nothing is uncommitted."),
       run: () => act("main"),
     },
     {
       id: "repo-stash",
+      icon: IconArchive,
       label: t("Put changes aside"),
       hint: t("Keeps them in the stash, new files included."),
       run: () => act("stash"),
     },
     {
       id: "repo-clean",
+      icon: IconTrash,
       label: t("Delete merged branches"),
       hint: t("Only the ones whose work is already in the main branch."),
       run: () => act("clean"),
     },
     {
       id: "repo-commit",
+      icon: IconCommit,
       label: t("Save changes (commit)…"),
       hint: t("The agent writes the message and shows it to you first."),
       run: () => ask("commit"),
     },
-    { id: "repo-push", label: t("Push my branch…"), run: () => ask("push") },
-    { id: "repo-pr", label: t("Open a pull request…"), run: () => ask("pr") },
+    {
+      id: "repo-push",
+      icon: IconArrowUp,
+      label: t("Push my branch…"),
+      run: () => ask("push"),
+    },
+    {
+      id: "repo-pr",
+      icon: IconPullRequest,
+      label: t("Open a pull request…"),
+      run: () => ask("pr"),
+    },
     {
       id: "repo-work",
+      icon: IconChat,
       label: t("Work on it with the agent…"),
       run: () => ask("work"),
     },
@@ -108,10 +142,11 @@ function NestedRepoRow({ p, r }: { p: ProjectInfo; r: NestedRepo }) {
       </span>
       {r.branch && (
         <span
-          class="flex-none opacity-60 truncate"
+          class="flex-none inline-flex items-center gap-0.5 opacity-60 truncate"
           data-testid="nested-state"
           title={tf("Branch {branch}", { branch: r.branch })}
         >
+          <IconBranch size={10} class="flex-none" />
           {r.branch}
           {choose(!!r.changes, ` · ${r.changes}±`, "")}
         </span>
@@ -147,6 +182,7 @@ function NestedRepoRow({ p, r }: { p: ProjectInfo; r: NestedRepo }) {
                   menus.closeRowMenu();
                 }}
               >
+                <i.icon size={14} class="flex-none" />
                 {i.label}
               </button>
             ))}
