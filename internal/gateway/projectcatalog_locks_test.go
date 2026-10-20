@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -53,28 +51,8 @@ func TestTwoClonesDoNotPickTheSameFolder(t *testing.T) {
 	if first != base || second != base+"-2" {
 		t.Fatalf("folders = %q, %q", first, second)
 	}
-	if !srv.beingCloned(first) || !srv.beingCloned(second) {
-		t.Error("both folders are being cloned into")
-	}
 	srv.releaseCloneDir(first)
-	if srv.beingCloned(first) {
-		t.Error("a finished clone still marks its folder")
-	}
 	if again := srv.reserveCloneDir(base, "https://example.net/c/app", nil); again != base {
 		t.Errorf("a released folder must be offered again, got %q", again)
-	}
-}
-
-// A clone that is still being made cannot be deleted from under itself.
-func TestACloneBeingMadeIsNotDeleted(t *testing.T) {
-	srv, _, _ := newSessionInProject(t)
-	clone := filepath.Join(srv.opts.WorkspaceDir, catalogFolder, "half")
-	if err := os.MkdirAll(clone, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	srv.cloning = map[string]bool{clone: true}
-	code := send(t, srv, http.MethodDelete, "/v1/repos/half?force=1", testToken, "").Code
-	if code != http.StatusConflict || !pathExists(clone) {
-		t.Errorf("a clone being made: %d, exists %v", code, pathExists(clone))
 	}
 }

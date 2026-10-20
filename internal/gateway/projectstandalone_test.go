@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,8 +12,15 @@ import (
 	"github.com/madkoding/motita/internal/gitx"
 )
 
-func standalonePath(id, name string) string {
-	return "/v1/projects/" + id + "/repos/" + name + "/standalone"
+// standalone runs the migration of one repository, answering the way the removed endpoint did.
+func standalone(srv *Server, id, name string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	_, code, err := srv.standaloneRepo(context.Background(), id, name)
+	w.Code = code
+	if err != nil {
+		w.Body.WriteString(err.Error())
+	}
+	return w
 }
 
 // sharedRepoProject is a project with a shared repository "web-client" in its folder.
@@ -41,7 +49,7 @@ func TestASharedRepositoryBecomesAPlainCloneKeepingItsWork(t *testing.T) {
 	url := srv.projectOf(id).Repos[0].GitURL
 	newSharedSession(t, srv, id) // a session in the folder is told about the change
 
-	w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken)
+	w := standalone(srv, id, "web-client")
 	if w.Code != http.StatusOK {
 		t.Fatalf("migrating: %d %s", w.Code, w.Body.String())
 	}
@@ -64,24 +72,24 @@ func TestASharedRepositoryBecomesAPlainCloneKeepingItsWork(t *testing.T) {
 	if _, err := os.Stat(srv.projectOf(id).Repos[0].Dir); err != nil {
 		t.Errorf("the folder exists: %v", err)
 	}
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusNotFound {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusNotFound {
 		t.Errorf("a plain clone has nothing to migrate: %d", w.Code)
 	}
 }
 
 func TestMigratingARepositoryThatCannotBeMigrated(t *testing.T) {
 	srv, id, dir := sharedRepoProject(t)
-	if w := post(t, srv, standalonePath("nope", "web-client"), "{}", testToken); w.Code != http.StatusNotFound {
+	if w := standalone(srv, "nope", "web-client"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown project: %d", w.Code)
 	}
-	if w := post(t, srv, standalonePath(id, "nope"), "{}", testToken); w.Code != http.StatusNotFound {
+	if w := standalone(srv, id, "nope"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown repository: %d", w.Code)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "wip.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("uncommitted work: %d %s", w.Code, w.Body.String())
 	}
 	if err := os.Remove(filepath.Join(dir, "wip.txt")); err != nil {
@@ -89,7 +97,7 @@ func TestMigratingARepositoryThatCannotBeMigrated(t *testing.T) {
 	}
 
 	mustGit(t, dir, "checkout", "-q", "--detach")
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("a detached folder: %d %s", w.Code, w.Body.String())
 	}
 	mustGit(t, dir, "checkout", "-q", "-")
@@ -100,7 +108,7 @@ func TestMigratingARepositoryThatCannotBeMigrated(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir+".standalone", "x"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("a clone that cannot be made: %d %s", w.Code, w.Body.String())
 	}
 	if err := os.RemoveAll(dir + ".standalone"); err != nil {
@@ -114,7 +122,7 @@ func TestMigratingARepositoryThatCannotBeMigrated(t *testing.T) {
 func TestMigratingNeedsTheSessionsWorktreesGone(t *testing.T) {
 	srv, id, _ := sharedRepoProject(t)
 	post(t, srv, "/v1/sessions", `{"project_id":"`+id+`","isolate":true}`, testToken)
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("an isolated session still has a worktree of it: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -132,12 +140,12 @@ func TestMigrationFailuresLeaveTheSharedFolderInPlace(t *testing.T) {
 	}
 	good := p.Repos[0].GitURL
 	setURL("")
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("no URL to point origin at: %d %s", w.Code, w.Body.String())
 	}
 	// A URL git cannot be given as an argument: the clone cannot be prepared.
 	setURL("bad\x00url")
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("a clone that cannot be prepared: %d %s", w.Code, w.Body.String())
 	}
 	if _, err := os.Stat(dir + ".standalone"); !os.IsNotExist(err) {
@@ -148,7 +156,7 @@ func TestMigrationFailuresLeaveTheSharedFolderInPlace(t *testing.T) {
 	restoreRemove := worktreeRemove
 	worktreeRemove = func(context.Context, string, string, bool) error { return errors.New("git said no") }
 	t.Cleanup(func() { worktreeRemove = restoreRemove })
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("a worktree git will not remove: %d %s", w.Code, w.Body.String())
 	}
 	worktreeRemove = restoreRemove
@@ -156,7 +164,7 @@ func TestMigrationFailuresLeaveTheSharedFolderInPlace(t *testing.T) {
 	restoreRename := renamePath
 	renamePath = func(string, string) error { return errors.New("no rename") }
 	t.Cleanup(func() { renamePath = restoreRename })
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusConflict {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusConflict {
 		t.Errorf("a clone that cannot take the place: %d %s", w.Code, w.Body.String())
 	}
 	renamePath = restoreRename
@@ -175,7 +183,7 @@ func TestMigrationSavedAgainstAProjectThatChangedMeanwhile(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusOK {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusOK {
 		t.Fatalf("migrating: %d %s", w.Code, w.Body.String())
 	}
 	if len(srv.projectOf(id).Repos) != 0 {
@@ -188,7 +196,7 @@ func TestMigrationOfAProjectDeletedMeanwhile(t *testing.T) {
 	restore := beforeProjectUpdate
 	t.Cleanup(func() { beforeProjectUpdate = restore })
 	beforeProjectUpdate = func(pid string) { _ = srv.projects.delete(pid) }
-	if w := post(t, srv, standalonePath(id, "web-client"), "{}", testToken); w.Code != http.StatusInternalServerError {
+	if w := standalone(srv, id, "web-client"); w.Code != http.StatusInternalServerError {
 		t.Fatalf("a project that is gone: %d %s", w.Code, w.Body.String())
 	}
 }

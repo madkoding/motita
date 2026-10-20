@@ -1,9 +1,7 @@
 package gateway
 
 import (
-	"context"
 	"fmt"
-	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,80 +15,6 @@ import (
 // isLocalRepo reports whether dir is the folder of one of the project's local repositories.
 func (p *Project) isLocalRepo(dir string) bool {
 	return slices.ContainsFunc(p.Repos, func(r ProjectRepo) bool { return r.Local && gitx.SamePath(r.Dir, dir) })
-}
-
-// addLocalRepo adds a repository the machine already has to a project, without cloning it: the
-// project's folder of it is a worktree of the user's own repository on a branch of the project's.
-// Nothing the user has there moves - not the branch it has checked out, not its working tree - and
-// the repository is not the catalog's, so no other project's clone is involved.
-func (s *Server) addLocalRepo(w http.ResponseWriter, r *http.Request, p *Project, rawPath, rawName string) {
-	dir, ok := s.externalProjectFolder(w, rawPath)
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-	name := repoNameOf(rawName, dir)
-	dest := filepath.Join(p.Dir, name)
-	if status, why := localRepoProblem(ctx, p, dir, name, dest); status != 0 {
-		writeError(w, status, why)
-		return
-	}
-	repo, err := placeLocalRepo(ctx, p, name, dir, dest, s.gitCommandEnv())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.saveNewRepo(w, r, p, repo)
-}
-
-// localRepoProblem is why the repository at dir cannot be added to p under name at dest, as the
-// status to answer and the reason; 0 when it can.
-func localRepoProblem(ctx context.Context, p *Project, dir, name, dest string) (int, string) {
-	switch {
-	case name == "":
-		return http.StatusBadRequest, "the repository needs a simple folder name: letters, digits, '.', '_' or '-'"
-	case !gitx.IsRepoRoot(ctx, dir):
-		return http.StatusBadRequest, "that folder is not the top of a git repository with a working tree"
-	case !gitx.HasCommits(ctx, dir):
-		return http.StatusBadRequest, "that repository has no commits yet: nothing to branch from"
-	case gitx.SamePath(dir, p.Dir) || pathWithin(p.Dir, dir) || pathWithin(dir, p.Dir):
-		return http.StatusConflict, "that folder is the project's own, or holds it: choose another repository"
-	case slices.ContainsFunc(p.Repos, func(x ProjectRepo) bool { return gitx.SamePath(x.Dir, dir) }):
-		return http.StatusConflict, "the project already has that repository"
-	case p.repoIndex(name) >= 0:
-		return http.StatusConflict, fmt.Sprintf("the project already has a repository called %q", name)
-	case pathExists(dest):
-		return http.StatusConflict, fmt.Sprintf("the project already has a folder called %q: "+
-			"choose another name for the repository", name)
-	default:
-		return 0, ""
-	}
-}
-
-// placeLocalRepo adds the project's worktree of the user's repository src at dest, on a branch of
-// the project's own. The repository's main branch is read, never switched to: whatever it has
-// checked out stays.
-func placeLocalRepo(ctx context.Context, p *Project, name, src, dest string, env []string) (ProjectRepo, error) {
-	branch := freeProjectBranch(ctx, src, p)
-	// The project's branch starts on the main branch, not on whatever the user has checked out.
-	mainBranch := localMainBranch(ctx, src)
-	if err := gitx.AddWorktreeFrom(ctx, src, dest, branch, mainBranch); err != nil {
-		return ProjectRepo{}, err
-	}
-	return ProjectRepo{Name: name, GitURL: originOf(src, env), Dir: src, MainBranch: mainBranch,
-		Shared: true, Local: true, ProjectBranch: branch}, nil
-}
-
-// localMainBranch is the main branch of a repository the user already had: main or master when it
-// has one of its own (a branch only origin has is not one to branch from), else the branch it is
-// on. Unlike settleMainBranch it only reads.
-func localMainBranch(ctx context.Context, dir string) string {
-	for _, candidate := range []string{defaultMainBranch, "master"} {
-		if gitx.BranchExists(ctx, dir, candidate) {
-			return candidate
-		}
-	}
-	return gitx.Display(ctx, dir)
 }
 
 // missingDeps are the dependency folders the project's repositories need and do not have: the

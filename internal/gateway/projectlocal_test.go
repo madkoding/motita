@@ -3,13 +3,12 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"github.com/madkoding/motita/internal/gitx"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/madkoding/motita/internal/gitx"
 )
 
 // A repository the user already has on the machine is added to a project by its folder: it is used
@@ -70,155 +69,6 @@ func snapshotOf(t *testing.T, dir string) string {
 		mustGit(t, dir, "rev-parse", "main", "feature/mine") + "|" + mustGit(t, dir, "status", "--porcelain")
 }
 
-func TestALocalRepositoryIsUsedWhereItIsAndNothingOfTheUsersMoves(t *testing.T) {
-	srv, projectDir, id, sessionID := localProject(t)
-	local, _ := usersRepo(t)
-	before := snapshotOf(t, local)
-
-	code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`)
-	if code != http.StatusCreated || len(p.Repos) != 1 {
-		t.Fatalf("adding a local repository: %d %+v", code, p)
-	}
-	repo := p.Repos[0]
-	if repo.Name != "bridges" || repo.Dir != local || repo.GitURL == "" {
-		t.Fatalf("the repository is registered where it is: %+v", repo)
-	}
-	if !repo.Local || !repo.Shared || repo.MainBranch != "main" || repo.ProjectBranch != "project/proj" {
-		t.Fatalf("the repository is local, shared and on the project's branch: %+v", repo)
-	}
-	// No clone: the catalog has nothing, and the project's folder is a worktree of the user's repository.
-	if _, err := os.Stat(filepath.Join(srv.opts.WorkspaceDir, catalogFolder)); err == nil {
-		t.Error("a local repository must not be cloned into the catalog")
-	}
-	ctx := context.Background()
-	if got := gitx.Display(ctx, filepath.Join(projectDir, "bridges")); got != "project/proj" {
-		t.Errorf("the project's folder is on %q", got)
-	}
-	// The session gets its own worktree of it, from the user's repository.
-	ws := convNamed(t, srv, sessionID).workspaceDir()
-	if _, ok, _ := gitx.LiveWorktreeAt(ctx, local, filepath.Join(ws, "bridges")); !ok {
-		t.Error("the session must get a worktree of the user's repository")
-	}
-	// Everything a background refresh and a sync would do, none of it reaches the user's checkout.
-	srv.syncSharedRepos(ctx, srv.projectOf(id))
-	if w := send(t, srv, http.MethodPost, "/v1/projects/"+id+"/repos/bridges/sync", testToken, ""); w.Code >= 500 {
-		t.Errorf("syncing: %d %s", w.Code, w.Body)
-	}
-	if after := snapshotOf(t, local); after != before {
-		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
-	}
-
-	// Taking it out of the project removes motita's worktree and branch, and nothing else.
-	if w := doDelete(t, srv, "/v1/projects/"+id+"/repos/bridges?force=1"); w.Code != http.StatusOK {
-		t.Fatalf("removing: %d %s", w.Code, w.Body)
-	}
-	if _, err := os.Stat(local); err != nil {
-		t.Fatalf("the user's repository must stay: %v", err)
-	}
-	if gitx.BranchExists(ctx, local, "project/proj") {
-		t.Error("the project's branch goes with it")
-	}
-	if after := snapshotOf(t, local); after != before {
-		t.Errorf("the user's repository moved when it was removed:\nbefore %s\nafter  %s", before, after)
-	}
-}
-
-func TestDeletingAProjectLeavesItsLocalRepositoryAlone(t *testing.T) {
-	srv, _, id, _ := localProject(t)
-	local, _ := usersRepo(t)
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`","name":"api"}`); code != http.StatusCreated {
-		t.Fatalf("adding: %d", code)
-	}
-	before := snapshotOf(t, local)
-	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusOK && w.Code != http.StatusNoContent {
-		t.Fatalf("delete: %d %s", w.Code, w.Body)
-	}
-	if after := snapshotOf(t, local); after != before {
-		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
-	}
-	if gitx.BranchExists(context.Background(), local, "project/proj") {
-		t.Error("the project's branch must go with the project")
-	}
-}
-
-func TestALocalRepositoryIsValidated(t *testing.T) {
-	srv, projectDir, id, _ := localProject(t)
-	local, _ := usersRepo(t)
-	empty := filepath.Join(t.TempDir(), "empty")
-	if err := os.MkdirAll(empty, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	mustGit(t, empty, "init", "-q")
-	if err := os.MkdirAll(filepath.Join(local, "sub"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	hidden := filepath.Join(t.TempDir(), ".hidden")
-	if err := os.MkdirAll(hidden, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cases := map[string]struct {
-		body string
-		want int
-	}{
-		"relative":       {`{"path":"some/dir"}`, http.StatusBadRequest},
-		"missing":        {`{"path":"` + filepath.Join(local, "nope") + `"}`, http.StatusBadRequest},
-		"inside a repo":  {`{"path":"` + filepath.Join(local, "sub") + `"}`, http.StatusBadRequest},
-		"no commits":     {`{"path":"` + empty + `"}`, http.StatusBadRequest},
-		"hidden name":    {`{"path":"` + hidden + `"}`, http.StatusBadRequest},
-		"the project":    {`{"path":"` + projectDir + `"}`, http.StatusConflict},
-		"around project": {`{"path":"` + filepath.Dir(projectDir) + `"}`, http.StatusBadRequest},
-	}
-	for name, c := range cases {
-		if code, _ := addRepo(t, srv, id, c.body); code != c.want {
-			t.Errorf("%s: %d, want %d", name, code, c.want)
-		}
-	}
-	// A name that is a path is refused, and a taken folder name too.
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`","name":"../up"}`); code != http.StatusBadRequest {
-		t.Errorf("a name that is a path: %d", code)
-	}
-	if err := os.MkdirAll(filepath.Join(projectDir, "taken"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`","name":"taken"}`); code != http.StatusConflict {
-		t.Errorf("a folder in the way: %d", code)
-	}
-	if code, p := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated || len(p.Repos) != 1 {
-		t.Fatalf("adding: %d", code)
-	}
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`","name":"other"}`); code != http.StatusConflict {
-		t.Errorf("the same repository twice: %d", code)
-	}
-	other, _ := usersRepo(t)
-	if code, _ := addRepo(t, srv, id, `{"path":"`+other+`","name":"bridges"}`); code != http.StatusConflict {
-		t.Errorf("the same name twice: %d", code)
-	}
-}
-
-func TestALocalRepositoryNeedsTheWholeDisk(t *testing.T) {
-	srv, _, _ := newSessionInProject(t)
-	id := onlyProjectID(t, srv)
-	local, _ := usersRepo(t)
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusForbidden {
-		t.Errorf("workspace-only access must refuse a folder outside it: %d", code)
-	}
-}
-
-func TestALocalRepositoryThatCannotBeBranchedIsReported(t *testing.T) {
-	srv, projectDir, id, _ := localProject(t)
-	local, _ := usersRepo(t)
-	// The project's folder was replaced by a file: no worktree can go inside it.
-	if err := os.RemoveAll(projectDir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(projectDir, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusInternalServerError {
-		t.Errorf("a worktree that cannot be made: %d", code)
-	}
-}
-
 func TestTheAgentIsToldTheLocalRepositoryIsTheUsers(t *testing.T) {
 	p := &Project{Dir: "/w/p", Repos: []ProjectRepo{{Name: "bridges", Dir: "/home/u/bridges", Shared: true, Local: true}}}
 	note := projectReposNote(p)
@@ -232,16 +82,31 @@ func TestTheAgentIsToldTheLocalRepositoryIsTheUsers(t *testing.T) {
 	}
 }
 
-func TestTheIntegrationTaskLeavesALocalRepositoryUnmerged(t *testing.T) {
-	srv, _, id, sessionID := localProject(t)
+func TestAFolderOfTheUsersOwnIsNotSwitchedOrUpdatedByItself(t *testing.T) {
+	srv, _ := fullDiskServer(t)
 	local, _ := usersRepo(t)
-	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
-		t.Fatalf("adding: %d", code)
+	if code, out := createProject(t, srv, `{"title":"mine","path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("creating: %d %v", code, out)
 	}
-	ws := convNamed(t, srv, sessionID).workspaceDir()
-	note := otherReposMergeNote(srv.projectOf(id), ws, sessionBranch(sessionID))
-	if !strings.Contains(note, "user's own repository") || !strings.Contains(note, "do not merge it") {
-		t.Errorf("the task must not merge into the user's repository: %q", note)
+	p := srv.projectOf(onlyProjectID(t, srv))
+	ctx := context.Background()
+	mainBefore := mustGit(t, local, "rev-parse", "main")
+	// A clean tree, so that only the rule keeps the branch where it is.
+	if err := os.Remove(filepath.Join(local, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Back to the main branch and the background update leave the user's checkout alone...
+	srv.returnToMain(p)
+	if got := mustGit(t, local, "symbolic-ref", "--short", "HEAD"); got != "feature/mine" {
+		t.Errorf("the user's branch was switched to %q", got)
+	}
+	if w := srv.refreshMain(ctx, p, false); w != "" || mustGit(t, local, "rev-parse", "main") != mainBefore {
+		t.Errorf("the background update moved the user's main branch (%q)", w)
+	}
+	// ...and "update now" is the person asking, so it moves the branch forward.
+	if w := srv.refreshMain(ctx, p, true); w != "" || mustGit(t, local, "rev-parse", "main") == mainBefore {
+		t.Errorf("an explicit update must bring main up to date (%q)", w)
 	}
 }
 
@@ -311,51 +176,34 @@ func TestMissingDependenciesAreListedAndToldToTheAgent(t *testing.T) {
 	}
 }
 
-func TestTheMainBranchOfALocalRepositoryIsReadNeverSwitchedTo(t *testing.T) {
-	ctx := context.Background()
+func TestTheIntegrationTaskLeavesALocalRepositoryUnmerged(t *testing.T) {
+	srv, _, id, sessionID := localProject(t)
 	local, _ := usersRepo(t)
-	// main and master are recognised; any other, the branch the user is on is the answer.
-	if got := localMainBranch(ctx, local); got != "main" {
-		t.Errorf("main: %q", got)
+	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
 	}
-	mustGit(t, local, "branch", "-m", "main", "master")
-	if got := localMainBranch(ctx, local); got != "master" {
-		t.Errorf("master: %q", got)
-	}
-	mustGit(t, local, "branch", "-m", "master", "trunk")
-	if got := localMainBranch(ctx, local); got != "feature/mine" {
-		t.Errorf("the branch the user has out: %q", got)
-	}
-	if got := mustGit(t, local, "symbolic-ref", "--short", "HEAD"); got != "feature/mine" {
-		t.Errorf("reading the main branch must not switch: on %q", got)
+	ws := convNamed(t, srv, sessionID).workspaceDir()
+	note := otherReposMergeNote(srv.projectOf(id), ws, sessionBranch(sessionID))
+	if !strings.Contains(note, "user's own repository") || !strings.Contains(note, "do not merge it") {
+		t.Errorf("the task must not merge into the user's repository: %q", note)
 	}
 }
 
-func TestAFolderOfTheUsersOwnIsNotSwitchedOrUpdatedByItself(t *testing.T) {
-	srv, _ := fullDiskServer(t)
+func TestDeletingAProjectLeavesItsLocalRepositoryAlone(t *testing.T) {
+	srv, _, id, _ := localProject(t)
 	local, _ := usersRepo(t)
-	if code, out := createProject(t, srv, `{"title":"mine","path":"`+local+`"}`); code != http.StatusCreated {
-		t.Fatalf("creating: %d %v", code, out)
+	if code, _ := addRepo(t, srv, id, `{"path":"`+local+`","name":"api"}`); code != http.StatusCreated {
+		t.Fatalf("adding: %d", code)
 	}
-	p := srv.projectOf(onlyProjectID(t, srv))
-	ctx := context.Background()
-	mainBefore := mustGit(t, local, "rev-parse", "main")
-	// A clean tree, so that only the rule keeps the branch where it is.
-	if err := os.Remove(filepath.Join(local, "wip.txt")); err != nil {
-		t.Fatal(err)
+	before := snapshotOf(t, local)
+	if w := doDelete(t, srv, "/v1/projects/"+id); w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
 	}
-
-	// Back to the main branch and the background update leave the user's checkout alone...
-	srv.returnToMain(p)
-	if got := mustGit(t, local, "symbolic-ref", "--short", "HEAD"); got != "feature/mine" {
-		t.Errorf("the user's branch was switched to %q", got)
+	if after := snapshotOf(t, local); after != before {
+		t.Errorf("the user's repository moved:\nbefore %s\nafter  %s", before, after)
 	}
-	if w := srv.refreshMain(ctx, p, false); w != "" || mustGit(t, local, "rev-parse", "main") != mainBefore {
-		t.Errorf("the background update moved the user's main branch (%q)", w)
-	}
-	// ...and "update now" is the person asking, so it moves the branch forward.
-	if w := srv.refreshMain(ctx, p, true); w != "" || mustGit(t, local, "rev-parse", "main") == mainBefore {
-		t.Errorf("an explicit update must bring main up to date (%q)", w)
+	if gitx.BranchExists(context.Background(), local, "project/proj") {
+		t.Error("the project's branch must go with the project")
 	}
 }
 
