@@ -6,6 +6,7 @@ import { choose } from "./choose";
 import type { SessionList } from "./useSessionList";
 import { mostRecent } from "./appFormat";
 import { mainSessionOf } from "./threads";
+import { useLeaveGone } from "./useLeaveGone";
 import type { RunState } from "./useRunState";
 import type { Conversation } from "./useConversation";
 import type { Api } from "./prApi";
@@ -159,26 +160,7 @@ export function useSessionActions({
     [sessions, loadSessions, switchSession, showNoSession],
   );
 
-  // leaveGone takes the person off a conversation the gateway just removed along with something
-  // else (a project and its sessions): to the most recent one left, or to none. Nothing is
-  // done when they were looking at another conversation.
-  const leaveGone = useCallback(
-    async (gone: string[]) => {
-      if (!gone.includes(sessionRef.current)) {
-        return;
-      }
-      const list = ((await loadSessions()) ?? sessions).filter(
-        (s) => !gone.includes(s.id),
-      );
-      const next = nextAfterDelete(list, "");
-      if (next) {
-        await switchSession(next);
-      } else {
-        showNoSession();
-      }
-    },
-    [sessions, loadSessions, switchSession, showNoSession],
-  );
+  const leaveGone = useLeaveGone({ sessionRef, lists, conv });
 
   // renameSession changes the title of a conversation.
   const renameSession = useCallback(async (id: string, title: string) => {
