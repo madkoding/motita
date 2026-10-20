@@ -457,6 +457,9 @@ jobs:
           path: |
             ${{ env.BINARY }}
           if-no-files-found: error
+          # Build outputs only; released binaries ship as release assets. Without
+          # this, the default 90-day retention piles up ~9 artifacts per push.
+          retention-days: 7
 
   android-seccomp:
     name: android build under Android's seccomp rule
