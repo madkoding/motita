@@ -162,6 +162,21 @@ test("a repository is cloned only in clone mode, named after it", async () => {
   await s.m.unmount();
 });
 
+test("switching to clone lets go of the folder chosen before", async () => {
+  const s = await setup();
+  await run(() => s.p.openNewProject());
+  await run(() => {
+    s.p.setNewProjectPath("/srv/x");
+    s.p.setNewProjectSure(true);
+  });
+  await run(() => s.p.setNewProjectSource("folder"));
+  assert.equal(s.p.newProjectPath, "/srv/x");
+  await run(() => s.p.setNewProjectSource("clone"));
+  assert.equal(s.p.newProjectPath, "");
+  assert.equal(s.p.newProjectSure, false);
+  await s.m.unmount();
+});
+
 test("cloning without an address sends nothing", async () => {
   const s = await setup();
   await run(() => s.p.openNewProject());

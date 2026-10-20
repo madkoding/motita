@@ -118,11 +118,8 @@ function NameField() {
         }
         placeholder={
           folderNameOf(p.newProjectPath) ||
-          choose(
-            p.newProjectSource === "clone",
-            repoNameOfUrl(p.newProjectGitUrl),
-            "",
-          ) ||
+          (p.newProjectSource === "clone" &&
+            repoNameOfUrl(p.newProjectGitUrl)) ||
           t("My project")
         }
       />
@@ -194,9 +191,7 @@ function FolderField({ probe }: { probe: FolderProbe }) {
   const p = useApp().projects;
   return (
     <div data-testid="new-project-location">
-      <label class={LABEL}>
-        {choose(p.newProjectSource === "clone", t("Clone into"), t("Folder"))}
-      </label>
+      <label class={LABEL}>{t("Folder")}</label>
       <div class="flex items-center gap-2">
         <p
           class="flex-1 min-w-0 flex items-center gap-2 px-3 min-h-[44px] rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
@@ -348,7 +343,11 @@ export function NewProjectModal() {
           <SourcePicker />
           {choose(projects.newProjectSource === "clone", <RepoField />, null)}
           <NameField />
-          <FolderField probe={probe} />
+          {choose(
+            projects.newProjectSource === "clone",
+            null,
+            <FolderField probe={probe} />,
+          )}
           <MoreOptions />
         </div>
         <CreateButtons />

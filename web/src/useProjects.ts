@@ -191,9 +191,18 @@ function useNewProjectForm() {
   const [newProjectPodman, setNewProjectPodman] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   // A project either uses a folder or clones a repository, never both: the dialog shows one.
-  const [newProjectSource, setNewProjectSource] =
-    useState<NewProjectSource>("folder");
+  const [source, setSource] = useState<NewProjectSource>("folder");
   const [newProjectGitUrl, setNewProjectGitUrl] = useState("");
+
+  // setNewProjectSource switches between the two. Cloning has no folder to pick, so the one chosen
+  // before is let go and nothing of it is sent.
+  const setNewProjectSource = (next: NewProjectSource) => {
+    setSource(next);
+    if (next === "clone") {
+      setNewProjectPath("");
+      setNewProjectSure(false);
+    }
+  };
 
   // chooseNewProjectPath sets the folder picked and, when no name was typed yet, names the project
   // after it; a name already typed stays.
@@ -241,7 +250,7 @@ function useNewProjectForm() {
     setNewProjectPodman,
     creatingProject,
     setCreatingProject,
-    newProjectSource,
+    newProjectSource: source,
     setNewProjectSource,
     newProjectGitUrl,
     setNewProjectGitUrl,

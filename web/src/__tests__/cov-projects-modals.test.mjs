@@ -123,9 +123,10 @@ test("the dialog offers a folder or a repository to clone, never both at once", 
 test("cloning asks for the address, names the project after it and needs one to be created", async () => {
   const s = store({ newProjectSource: "clone" });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.match(
-    m.q("[data-testid=new-project-location]").textContent,
-    /Clone into/,
+  assert.equal(
+    m.q("[data-testid=new-project-location]"),
+    null,
+    "a clone has no folder to pick",
   );
   assert.equal(buttonByText(m.root, "Create").disabled, true, "no address");
   await type(m.q("[data-testid=new-project-git-url]"), "https://x.io/a/b.git");
