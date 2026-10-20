@@ -7,7 +7,7 @@ import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { folderNameOf, repoNameOfUrl } from "./appParse";
-import { Segmented, type Choice } from "./SettingsControls";
+import type { Choice } from "./SettingsControls";
 import type { NewProjectSource } from "./useProjects";
 import { podmanNote } from "./appFormat";
 import { IconClose, IconFolder, IconSpinner } from "./icons";
@@ -19,8 +19,8 @@ const FIELD =
   "w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent";
 const LABEL = "block text-sm text-[#9a9aaa] mb-1.5";
 
-// SourcePicker is the choice between using a folder and cloning a repository. Picking one hides the
-// other's field.
+// SourcePicker is the choice between using a folder and cloning a repository, as two radio buttons:
+// one or the other. Picking one hides the other's field.
 function SourcePicker() {
   const p = useApp().projects;
   const options: Choice<NewProjectSource>[] = [
@@ -28,18 +28,25 @@ function SourcePicker() {
     { value: "clone", label: t("Clone a repository") },
   ];
   return (
-    <div data-testid="new-project-source">
-      <span id="new-project-source-label" class={LABEL}>
-        {t("Start from")}
-      </span>
-      <Segmented<NewProjectSource>
-        name="new-project-source"
-        labelledBy="new-project-source-label"
-        value={p.newProjectSource}
-        options={options}
-        onChange={p.setNewProjectSource}
-      />
-    </div>
+    <fieldset class="space-y-1.5" data-testid="new-project-source">
+      <legend class={LABEL}>{t("Start from")}</legend>
+      {options.map((o) => (
+        <label
+          key={o.value}
+          class="flex items-center gap-2 min-h-[32px] text-sm text-[#e8e8ea] cursor-pointer"
+        >
+          <input
+            type="radio"
+            class="accent-(--accent,#7c6cff)"
+            name="new-project-source"
+            value={o.value}
+            checked={p.newProjectSource === o.value}
+            onChange={() => p.setNewProjectSource(o.value)}
+          />
+          {o.label}
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
