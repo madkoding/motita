@@ -575,6 +575,7 @@ const first: Record<string, string> = {
   outdated: "desactualizada",
   "Update main branch": "Actualizar rama principal",
   "Update {repo}": "Actualizar {repo}",
+  "Branch {branch}": "Rama {branch}",
   "Brings {repo} up to date with its origin; nothing is forced.":
     "Pone {repo} al día con su origen; no fuerza nada.",
   "could not update the main branch": "no se pudo actualizar la rama principal",

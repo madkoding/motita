@@ -12,6 +12,7 @@ import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
 import { IconDots, IconFolder } from "./icons";
 import type { ProjectInfo } from "./appTypes";
 import { EDIT_PROJECT } from "./appConst";
+import { NestedRepos } from "./NestedRepos";
 
 const ITEM_PLAIN =
   "row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5";
@@ -58,32 +59,6 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {t("Update main branch")}
         </button>
       )}
-      {p.nested_repos?.map((r) => (
-        <button
-          key={r.path}
-          class={ITEM_PLAIN}
-          data-testid="refresh-nested"
-          title={tf(
-            "Brings {repo} up to date with its origin; nothing is forced.",
-            {
-              repo: r.path,
-            },
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            void projects.refreshProjectMain(p.id, r.path);
-            menus.closeRowMenu();
-          }}
-        >
-          {tf("Update {repo}", { repo: r.path })}
-          {r.branch && (
-            <span class="ml-1 opacity-60" data-testid="nested-state">
-              {r.branch}
-              {choose(!!r.changes, ` · ${r.changes}±`, "")}
-            </span>
-          )}
-        </button>
-      ))}
       <button
         class={ITEM_PLAIN}
         data-testid="rescan-notes"
@@ -256,6 +231,7 @@ export function ProjectGroup({ p }: { p: ProjectInfo }) {
       >
         <div class="project-sessions-inner">
           <div class="px-1.5 pb-1.5 space-y-0.5">
+            <NestedRepos p={p} />
             {projectSessions.map((s) => (
               <SessionRow key={s.id} s={s} />
             ))}

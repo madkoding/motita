@@ -202,8 +202,7 @@ test("the menu updates the main branch: nothing else does it by itself", async (
   await m.unmount();
 });
 
-test("the repositories inside a plain folder are each updated from the menu", async () => {
-  const s = store({ rowMenu: { id: "p1" } });
+test("the repositories inside a plain folder are a tree, each with its own menu", async () => {
   const withRepos = {
     ...P,
     nested_repos: [
@@ -212,15 +211,41 @@ test("the repositories inside a plain folder are each updated from the menu", as
       { path: "lib", branch: "dev" },
     ],
   };
-  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: withRepos }));
-  const items = m.qa("[data-testid=refresh-nested]");
-  assert.deepEqual(
-    items.map((b) => b.textContent),
-    ["Update api", "Update group/webmain · 3±", "Update libdev"],
+  const closed = store({});
+  const m = await mount(
+    AppCtx,
+    closed.value,
+    h(ProjectGroup, { p: withRepos }),
   );
-  assert.match(items[1].title, /group\/web/);
-  await click(items[1]);
+  const rows = m.qa("[data-testid=nested-repo]");
+  assert.deepEqual(
+    rows.map((r) => r.textContent),
+    ["api", "group/webmain · 3±", "libdev"],
+  );
+  assert.equal(m.q("[data-testid=refresh-nested]"), null, "menus start closed");
+  await click(m.qa("[data-testid=nested-menu]")[1]);
+  assert.deepEqual(closed.log, [
+    [
+      "toggleMenu",
+      { type: "project", id: "p1\u0000group/web", title: "group/web" },
+    ],
+  ]);
+  await m.unmount();
+
+  const s = store({ rowMenu: { id: "p1\u0000group/web" } });
+  const open = await mount(AppCtx, s.value, h(ProjectGroup, { p: withRepos }));
+  const item = open.q("[data-testid=refresh-nested]");
+  assert.equal(item.textContent, "Update group/web");
+  assert.match(item.title, /group\/web/);
+  await click(item);
   assert.deepEqual(s.log, [["refreshMain", "p1", "group/web"], ["closeMenu"]]);
+  await open.unmount();
+});
+
+test("a folder with no repository inside draws no tree", async () => {
+  const s = store({});
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=nested-repo]"), null);
   await m.unmount();
 });
 
