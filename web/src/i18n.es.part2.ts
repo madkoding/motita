@@ -6,7 +6,6 @@ const more: Record<string, string> = {
   "A new folder in the workspace": "Una carpeta nueva en el workspace",
   "Choose or create…": "Elegir o crear…",
   "Change…": "Cambiar…",
-  "Path of the folder": "Ruta de la carpeta",
   "Its folder is created in the workspace with this name.":
     "Su carpeta se crea en el workspace con este nombre.",
   "New folder name": "Nombre de la carpeta nueva",
@@ -38,8 +37,6 @@ const more: Record<string, string> = {
   "I understand the folder and all its files will be deleted for good.":
     "Entiendo que la carpeta y todos sus archivos se eliminarán para siempre.",
   "Delete project and folder": "Eliminar proyecto y carpeta",
-  "Or the path of a folder, existing or new":
-    "O la ruta de una carpeta, existente o nueva",
   "Without the whole disk in Settings → Security, the folder has to be inside the workspace.":
     "Sin el disco completo en Ajustes → Seguridad, la carpeta tiene que estar dentro del workspace.",
   "Keep the current one": "Dejar la actual",

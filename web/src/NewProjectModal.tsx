@@ -1,6 +1,6 @@
-// The new project modal. A project is a plain folder, so it asks for the one thing the person has to
-// decide: which folder. The folder browser picks an existing one or makes a new one (and names it
-// there); the project is named after it, and the name can be changed. The rest is folded away.
+// The new project modal. A project is a plain folder, so it asks for its name first and then which
+// folder. The folder browser picks an existing one or makes a new one; choosing one names a project
+// that has no name yet after it. The rest is folded away.
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -15,7 +15,6 @@ import { useFolderProbe, type FolderProbe } from "./useFolderProbe";
 const FIELD =
   "w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent";
 const LABEL = "block text-sm text-[#9a9aaa] mb-1.5";
-const MONO_FIELD = FIELD + " font-mono text-sm";
 
 // PodmanOffer asks whether the project runs with podman, when the machine has it.
 function PodmanOffer() {
@@ -169,34 +168,8 @@ function FolderField({ probe }: { probe: FolderProbe }) {
   );
 }
 
-// PathField is the folder typed as a path, for the person who has it at hand. It is the same
-// choice as the browser's, so it lives with the options.
-function PathField({ probe }: { probe: FolderProbe }) {
-  const p = useApp().projects;
-  return (
-    <div>
-      <label class={LABEL}>{t("Path of the folder")}</label>
-      <input
-        class={MONO_FIELD}
-        data-testid="new-project-path"
-        value={p.newProjectPath}
-        onInput={(e) =>
-          p.setNewProjectPath((e.target as HTMLInputElement).value)
-        }
-        placeholder={t("Or the path of a folder, existing or new")}
-        list="new-project-suggestions"
-      />
-      <datalist id="new-project-suggestions">
-        {probe.suggestions.map((path) => (
-          <option key={path} value={path} />
-        ))}
-      </datalist>
-    </div>
-  );
-}
-
 // MoreOptions is everything with a sensible default, behind one line.
-function MoreOptions({ probe }: { probe: FolderProbe }) {
+function MoreOptions() {
   const p = useApp().projects;
   return (
     <details
@@ -232,7 +205,6 @@ function MoreOptions({ probe }: { probe: FolderProbe }) {
             placeholder={t("What this project is about")}
           />
         </div>
-        <PathField probe={probe} />
         {p.hasPodman && <PodmanOffer />}
       </div>
     </details>
@@ -302,9 +274,9 @@ export function NewProjectModal() {
           </button>
         </div>
         <div class="space-y-4">
-          <FolderField probe={probe} />
           <NameField />
-          <MoreOptions probe={probe} />
+          <FolderField probe={probe} />
+          <MoreOptions />
         </div>
         <CreateButtons />
       </dialog>

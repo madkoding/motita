@@ -330,20 +330,15 @@ test("a new project can always pick a folder in the browser", async () => {
   await m.unmount();
 });
 
-test("a new project can type a path, and go back to the workspace", async () => {
+test("a new project shows the folder chosen, and can go back to the workspace", async () => {
   const s = store({ fullDisk: true });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.equal(byTest(m, "new-project-path").value, "");
-  const typed = byTest(m, "new-project-path");
-  typed.value = "/srv/new";
-  typed.dispatchEvent(new typed.ownerDocument.defaultView.Event("input"));
+  assert.equal(byTest(m, "new-project-path"), null);
   const again = store({ fullDisk: true, newProjectPath: "/srv/app" });
   await m.rerender(again.value, h(NewProjectModal));
-  assert.equal(byTest(m, "new-project-path").value, "/srv/app");
   assert.equal(byTest(m, "new-project-folder").textContent, "/srv/app");
   assert.match(byTest(m, "new-project-browse").textContent, /Change/);
   await click(byTest(m, "new-project-path-clear"));
-  assert.deepEqual(s.log, [["path", "/srv/new"]]);
   assert.deepEqual(again.log, [["path", ""]]);
   await m.unmount();
 });
@@ -468,6 +463,7 @@ test("the folder picked goes to the dialog that asked, and new projects send it"
   await run(() => s.p.pickFolder("/srv/out"));
   assert.equal(s.p.folderPicker, null);
   assert.equal(s.p.newProjectPath, "/srv/out");
+  assert.equal(s.p.newProjectTitle, "Out", "a name already typed stays");
   await run(() => s.p.setNewProjectSure(true));
   await run(() => s.p.createProject());
   await flush();
@@ -503,6 +499,15 @@ test("a new project without a name takes the folder's name, and without either s
   const [call] = s.api.calls.filter((c) => c.method === "POST");
   assert.equal(call.body.title, "my-app");
   assert.equal(call.body.path, "C:\\work\\my-app\\");
+  await s.m.unmount();
+});
+
+test("choosing a folder names a project that has no name yet", async () => {
+  const s = await setup({});
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.openFolderPicker("new"));
+  await run(() => s.p.pickFolder("/srv/my-app"));
+  assert.equal(s.p.newProjectTitle, "my-app");
   await s.m.unmount();
 });
 
@@ -572,7 +577,7 @@ test("the parent of a typed path keeps the root", () => {
   assert.equal(parentOf("C:\\a\\new"), "C:\\a");
 });
 
-test("a folder that exists is used as it is, and its folders complete the path", async () => {
+test("a folder that exists is used as it is", async () => {
   const { m } = await probed("/srv/app", {
     "GET /v1/fs/dirs": res(200, {
       path: "/srv/app",
@@ -584,7 +589,6 @@ test("a folder that exists is used as it is, and its folders complete the path",
     byTest(m, "folder-note-exists").textContent,
     /asks whether it stays on disk/,
   );
-  assert.equal(m.qa("datalist option")[0].value, "/srv/app/web");
   await m.unmount();
 });
 
@@ -607,7 +611,7 @@ test("a folder among the system's files needs a yes", async () => {
   await m.unmount();
 });
 
-test("a folder that is not there yet will be created, and its neighbours complete the path", async () => {
+test("a folder that is not there yet will be created", async () => {
   const { m } = await probed("/srv/ne", {
     "GET /v1/fs/dirs?path=%2Fsrv%2Fne": res(404, { error: "no such folder" }),
     "GET /v1/fs/dirs?path=%2Fsrv": res(200, {
@@ -620,10 +624,6 @@ test("a folder that is not there yet will be created, and its neighbours complet
     }),
   });
   assert.ok(byTest(m, "folder-note-missing"));
-  assert.deepEqual(
-    m.qa("datalist option").map((o) => o.value),
-    ["/srv/new"],
-  );
   await m.unmount();
 });
 
