@@ -345,6 +345,14 @@ func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isAutopilotID(rec.ID) {
+		if code, why := s.launchAutopilot(rec.ID); code != 0 {
+			writeError(w, code, why)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"schedule": viewOfSchedule(*rec, time.Now())})
+		return
+	}
 	c := s.conversationOf(rec.SessionID)
 	if c == nil {
 		writeError(w, http.StatusNotFound, fmt.Sprintf(
@@ -440,6 +448,9 @@ func (s *Server) startScheduler() {
 // schedule package, and only the meaning of firing lives here.
 func (s *Server) schedulerFirer() schedule.Firer {
 	return func(ctx context.Context, sc schedule.Schedule) (string, error) {
+		if isAutopilotID(sc.ID) {
+			return s.runAutopilot(ctx, sc.ID)
+		}
 		c := s.conversationOf(sc.SessionID)
 		if c == nil {
 			// Recorded rather than repaired: creating a conversation for a task whose
