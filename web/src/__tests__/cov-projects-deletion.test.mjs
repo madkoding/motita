@@ -40,8 +40,9 @@ function harness(api, deps = {}) {
     async (...args) => {
       calls.push([name, ...args]);
       if (deps[name]) {
-        await deps[name](...args);
+        return deps[name](...args);
       }
+      return true;
     };
   function Harness() {
     const deletion = useDeletion({
@@ -49,6 +50,8 @@ function harness(api, deps = {}) {
       deleteSession: record("deleteSession"),
       deleteSkill: record("deleteSkill"),
       deleteProject: record("deleteProject"),
+      sessionsOf: deps.sessionsOf ?? (() => []),
+      leaveGone: record("leaveGone"),
     });
     state.d = deletion;
     return h(
@@ -223,7 +226,10 @@ test("a project lists each session's changes and deletes with its sessions", asy
   assert.doesNotMatch(text, /Clean/);
   await click(confirmButton(m.root));
   await flush();
-  assert.deepEqual(calls, [["deleteProject", "p1", true, false]]);
+  assert.deepEqual(calls, [
+    ["deleteProject", "p1", true, false],
+    ["leaveGone", []],
+  ]);
   await m.unmount();
 });
 
@@ -293,7 +299,10 @@ test("a project's folder stays by default and removing it needs a confirmation",
   assert.equal(confirmButton(m.root).disabled, false);
   await click(confirmButton(m.root));
   await flush();
-  assert.deepEqual(calls, [["deleteProject", "p3", true, true]]);
+  assert.deepEqual(calls, [
+    ["deleteProject", "p3", true, true],
+    ["leaveGone", []],
+  ]);
   await m.unmount();
 });
 
@@ -389,6 +398,36 @@ test("a failed deletion still closes and unlocks the modal", async () => {
   await flush();
   assert.equal(state.d.confirmDelete, null);
   assert.equal(state.d.deleting, false);
+  await m.unmount();
+});
+
+test("deleting a project moves the person off the sessions it took with it", async () => {
+  const api = async () => res(200, { count: 0, changes: [] });
+  const { Harness, calls, state } = harness(api, {
+    sessionsOf: (id) => [id + "-main", id + "-thread"],
+  });
+  const m = await mount(AppCtx, null, h(Harness));
+  await open(state, { type: "project", id: "p1", title: "t" });
+  await flush();
+  await act(() => state.d.confirmDeletion());
+  assert.deepEqual(calls, [
+    ["deleteProject", "p1", true, false],
+    ["leaveGone", ["p1-main", "p1-thread"]],
+  ]);
+  await m.unmount();
+});
+
+test("a refused project deletion leaves the person where they were", async () => {
+  const api = async () => res(200, { count: 0, changes: [] });
+  const { Harness, calls, state } = harness(api, {
+    deleteProject: async () => false,
+    sessionsOf: () => ["s1"],
+  });
+  const m = await mount(AppCtx, null, h(Harness));
+  await open(state, { type: "project", id: "p1", title: "t" });
+  await flush();
+  await act(() => state.d.confirmDeletion());
+  assert.deepEqual(calls, [["deleteProject", "p1", true, false]]);
   await m.unmount();
 });
 
