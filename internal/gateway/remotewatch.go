@@ -132,39 +132,57 @@ func (s *Server) lookForRemoteChanges(ctx context.Context) {
 	}
 }
 
+// remoteTarget is one repository of a project whose main branch is watched.
+type remoteTarget struct{ repo, dir, branch string }
+
+// remoteTargets are the project's own main branch and its other repositories' main branches.
+func remoteTargets(ctx context.Context, p *Project) []remoteTarget {
+	var targets []remoteTarget
+	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil {
+		targets = append(targets, remoteTarget{"", p.Dir, main})
+	}
+	for _, repo := range p.Repos {
+		targets = append(targets, remoteTarget{repo.Name, repo.Dir, cmp.Or(repo.MainBranch, defaultMainBranch)})
+	}
+	return targets
+}
+
+// fetchedOnce fetches the target unless this round already did, and says whether origin answered.
+func fetchedOnce(ctx context.Context, t remoteTarget, asked map[string]error) bool {
+	key := t.dir + "\x00" + t.branch
+	if _, done := asked[key]; !done {
+		fctx, cancel := context.WithTimeout(ctx, remoteWatchTimeout)
+		asked[key] = gitx.FetchRemoteBranch(fctx, t.dir, t.branch)
+		cancel()
+	}
+	return asked[key] == nil
+}
+
+// remoteChangeOf is what origin has on the target that the local branch lacks, or false for none.
+func remoteChangeOf(ctx context.Context, t remoteTarget) (RemoteChange, bool) {
+	commits, ahead, err := gitx.RemoteDrift(ctx, t.dir, t.branch)
+	if err != nil || len(commits) == 0 {
+		return RemoteChange{}, false
+	}
+	change := RemoteChange{Repo: t.repo, Branch: t.branch, Behind: len(commits), Ahead: ahead, Commit: commits[0].SHA}
+	for _, c := range commits[:min(len(commits), remoteLatest)] {
+		change.Latest = append(change.Latest, c.Subject)
+	}
+	return change, true
+}
+
 // watchRemote looks at one project. asked holds the repositories already fetched in this round
 // (nil: fetch none, only compare with what the last fetch brought, as after an update).
 func (s *Server) watchRemote(ctx context.Context, p *Project, asked map[string]error) {
-	type target struct{ repo, dir, branch string }
-	var targets []target
-	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil {
-		targets = append(targets, target{"", p.Dir, main})
-	}
-	for _, repo := range p.Repos {
-		targets = append(targets, target{repo.Name, repo.Dir, cmp.Or(repo.MainBranch, defaultMainBranch)})
-	}
 	var found []RemoteChange
-	for _, t := range targets {
-		key := t.dir + "\x00" + t.branch
-		if asked != nil {
-			if _, done := asked[key]; !done {
-				fctx, cancel := context.WithTimeout(ctx, remoteWatchTimeout)
-				asked[key] = gitx.FetchRemoteBranch(fctx, t.dir, t.branch)
-				cancel()
-			}
-			if asked[key] != nil {
-				continue // offline or refused: say nothing, the next look tries again
-			}
-		}
-		commits, ahead, err := gitx.RemoteDrift(ctx, t.dir, t.branch)
-		if err != nil || len(commits) == 0 {
+	for _, t := range remoteTargets(ctx, p) {
+		// Offline or refused: say nothing, the next look tries again.
+		if asked != nil && !fetchedOnce(ctx, t, asked) {
 			continue
 		}
-		change := RemoteChange{Repo: t.repo, Branch: t.branch, Behind: len(commits), Ahead: ahead, Commit: commits[0].SHA}
-		for _, c := range commits[:min(len(commits), remoteLatest)] {
-			change.Latest = append(change.Latest, c.Subject)
+		if change, ok := remoteChangeOf(ctx, t); ok {
+			found = append(found, change)
 		}
-		found = append(found, change)
 	}
 	fresh := s.remoteWatch.record(p.ID, found)
 	if asked == nil {

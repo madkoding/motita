@@ -34,9 +34,11 @@ func TestRemoteWatchReportsNewCommitsOnceAndTouchesNothing(t *testing.T) {
 	srv.lookForRemoteChanges(ctx)
 	srv.pushWG.Wait()
 	got := srv.remoteWatch.of(pid)
-	if len(got) != 1 || got[0].Behind != 1 || got[0].Branch != "main" || got[0].Repo != "" ||
-		len(got[0].Latest) != 1 || !strings.Contains(got[0].Latest[0], "upstream change") {
+	if len(got) != 1 || got[0].Behind != 1 || got[0].Branch != "main" || got[0].Repo != "" {
 		t.Fatalf("changes = %+v", got)
+	}
+	if len(got[0].Latest) != 1 || !strings.Contains(got[0].Latest[0], "upstream change") {
+		t.Fatalf("latest = %v", got[0].Latest)
 	}
 	if hasUpstream(dir) {
 		t.Fatal("a look must not bring the commits in")

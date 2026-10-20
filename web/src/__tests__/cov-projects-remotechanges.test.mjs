@@ -87,7 +87,7 @@ test("the page re-reads the projects only while signed in, and toasts each new s
 
   const m = mount({ projects: [], fetchProjects });
   await settle();
-  t.mock.timers.tick(5 * 60 * 1000);
+  t.mock.timers.tick(300_000);
   assert.equal(reads, 1);
   assert.equal(m.toasts.length, 0);
   m.rerender({ projects: [own("a", "c1")], fetchProjects });
