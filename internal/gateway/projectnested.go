@@ -79,20 +79,30 @@ func reposUnder(root, rel string, depth int) []string {
 	return found
 }
 
+// errNoNestedRepo answers a request that names a folder the project does not hold a repository at.
+const errNoNestedRepo = "the project has no repository at that path"
+
+// nestedRepoAt is the repository of the project at rel and its folder, only when the project's
+// folder really holds one there: a path in a request is never trusted to name a folder.
+func nestedRepoAt(ctx context.Context, p *Project, rel string) (NestedRepo, string, bool) {
+	for _, n := range nestedReposOf(ctx, p) {
+		if n.Path == rel {
+			return n, filepath.Join(p.Dir, filepath.FromSlash(n.Path)), true
+		}
+	}
+	return NestedRepo{}, "", false
+}
+
 // refreshNested is the "update now" of one repository inside a project: its main branch brought up
 // to date with origin, nothing forced. The path must be one the folder really holds, so a request
 // cannot name a folder elsewhere. It answers the notice that remains, "" once it worked.
 func (s *Server) refreshNested(w http.ResponseWriter, r *http.Request, p *Project, rel string) {
-	var dir, main string
-	for _, n := range nestedReposOf(r.Context(), p) {
-		if n.Path == rel {
-			dir, main = filepath.Join(p.Dir, filepath.FromSlash(n.Path)), n.MainBranch
-		}
-	}
-	if dir == "" {
-		writeError(w, http.StatusNotFound, "the project has no repository at that path")
+	r0, dir, ok := nestedRepoAt(r.Context(), p, rel)
+	if !ok {
+		writeError(w, http.StatusNotFound, errNoNestedRepo)
 		return
 	}
+	main := r0.MainBranch
 	key := p.ID + "\x00" + rel
 	if !s.mainRefresh.begin(key) {
 		writeError(w, http.StatusConflict, "the main branch is already being updated")
