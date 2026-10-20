@@ -3178,8 +3178,10 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   /* Placed by FloatingMenu (fixed, in <body>): the inline top/left decide, not right. */
   right: auto;
   z-index: 60;
+  /* A compact box under its button, not the width of its longest hint: the hints wrap. */
+  width: max-content;
   min-width: 0;
-  max-width: calc(100vw - 8px);
+  max-width: min(260px, calc(100vw - 8px));
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -3206,6 +3208,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   background: rgb(var(--accent-rgb) / 0.12);
 }
 .cp-menu button small {
+  white-space: normal;
   font-size: 0.72rem;
   color: var(--t3);
 }

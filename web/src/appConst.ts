@@ -37,7 +37,7 @@ export const NEW_SESSION_TITLE = "New session";
 export const NOT_CONNECTED = "not connected";
 export const NEEDS_APPROVAL = "This needs your approval";
 export const NOT_KEPT =
-  "That computer did not keep \"Always allow\": it runs an older Motita. Update it there.";
+  'That computer did not keep "Always allow": it runs an older Motita. Update it there.';
 export const TURN_REFUSED = "the gateway refused the turn";
 export const NEW_PROJECT = "New project";
 export const EDIT_PROJECT = "Edit project";
@@ -138,8 +138,8 @@ export const SSE_FRAME_END = "\n\n";
 // taken after render because the position has to be decided BEFORE the menu is drawn: a menu
 // that renders first and is moved afterwards is a menu the reader sees jump.
 //
-// They mirror the markup — `min-w-[140px]`, one `py-1` and two items of ~36px — and the flip
-// decision only needs to be approximately right: being a few pixels out means the menu sits a
+// They mirror the markup — `min-w-[200px]` (so MENU_W is exact and the menu's right edge lines up
+// with the button's), one `py-1` and up to four items of ~36px — and the flip decision only needs to be approximately right: being a few pixels out means the menu sits a
 // few pixels away from the ideal, not that it is clipped.
 export const MENU_W = 200;
 export const MENU_H = 160;

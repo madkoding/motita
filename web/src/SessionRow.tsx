@@ -35,7 +35,7 @@ export function RowMenu({ children }: { children: ComponentChildren }) {
     <BodyPortal>
       <div
         ref={ref}
-        class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px] max-w-[calc(100vw-8px)]${choose(rowMenuAbove, " row-menu-above", "")}${choose(rowMenuClosing, " row-menu-closing", "")}`}
+        class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[200px] max-w-[calc(100vw-8px)]${choose(rowMenuAbove, " row-menu-above", "")}${choose(rowMenuClosing, " row-menu-closing", "")}`}
         style={rowMenuStyle(rowMenuPos)}
       >
         {children}
