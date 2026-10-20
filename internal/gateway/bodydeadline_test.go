@@ -30,7 +30,8 @@ func TestAStalledBodyWithoutATokenIsDropped(t *testing.T) {
 	}
 	defer c.Close()
 	path := sessionPath(srv, DefaultSession, "/task")
-	if _, err := io.WriteString(c, "POST "+path+" HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000\r\n\r\n"); err != nil {
+	req := "POST " + path + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000\r\n\r\n"
+	if _, err := io.WriteString(c, req); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
