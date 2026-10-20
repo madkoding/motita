@@ -110,8 +110,12 @@ const row = (s, value) => mount(h(SessionRow, { s }), value);
 const click = (el) =>
   act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 const byTitle = (root, title) => root.querySelector(`[title="${title}"]`);
+// The "⋯" menu is portaled to <body>, so its buttons are looked up in the document as well.
 const buttonNamed = (root, name) =>
-  [...root.querySelectorAll("button")].find((b) => text(b) === name);
+  [
+    ...root.querySelectorAll("button"),
+    ...document.querySelectorAll("button"),
+  ].find((b) => text(b) === name);
 
 test("a row shows the title, when it was used and its labelled facts", async () => {
   const when = new Date(2024, 4, 6, 7, 8, 9).toISOString();
@@ -193,7 +197,7 @@ test("the ⋯ button opens the row's menu, and the menu offers rename and delete
     ["toggleRowMenu", "BUTTON", { type: "session", id: "s1", title: "Alpha" }],
   ]);
   assert.equal(
-    root.querySelector(".row-menu"),
+    document.querySelector(".row-menu"),
     null,
     "drawn only when it is the open menu",
   );
@@ -207,7 +211,7 @@ test("the ⋯ button opens the row's menu, and the menu offers rename and delete
     },
   });
   await rerender(open);
-  const menu = root.querySelector(".row-menu");
+  const menu = document.querySelector(".row-menu");
   assert.match(menu.className, / row-menu-above/);
   assert.match(menu.className, / row-menu-closing/);
   assert.equal(menu.style.top, "10px");
@@ -306,7 +310,7 @@ test("a merged session offers to continue in a new one and names its commit", as
   const { root, done } = await row(s, v);
   assert.equal(buttonNamed(root, "Integrate"), undefined);
   assert.equal(
-    text(root.querySelector(".row-menu div.row-menu-item")),
+    text(document.querySelector(".row-menu div.row-menu-item")),
     "merged abcdef1",
   );
   await act(async () => {
@@ -322,7 +326,7 @@ test("a merged session offers to continue in a new one and names its commit", as
     store({ menus: { rowMenu: { id: "m" } } }),
   );
   assert.equal(buttonNamed(plain.root, "Continue"), undefined);
-  assert.equal(plain.root.querySelector(".row-menu div.row-menu-item"), null);
+  assert.equal(document.querySelector(".row-menu div.row-menu-item"), null);
   await plain.done();
 });
 
@@ -415,7 +419,7 @@ test("RowMenu and DeleteItem work for a project too", async () => {
     ),
     v,
   );
-  const menu = root.querySelector(".row-menu");
+  const menu = document.querySelector(".row-menu");
   assert.equal(menu.className.includes("row-menu-above"), false);
   assert.equal(menu.getAttribute("style"), null);
   await click(buttonNamed(root, "Delete"));

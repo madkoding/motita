@@ -290,6 +290,14 @@ test("an open dialog moves the toast off its title", () => {
   }
 });
 
+test("the sidebar's row menus are drawn in a portal, out of the sidebar's backdrop-filter", () => {
+  // A fixed menu inside the sidebar is positioned against the sidebar, not the window.
+  assert.match(
+    src("SessionRow.tsx"),
+    /<BodyPortal>\s*<div\s+ref=\{ref\}\s+class=\{`row-menu fixed/,
+  );
+});
+
 test("full-window previews opened from a chat bubble are drawn in a portal", () => {
   // A bubble's backdrop-filter is the containing block of a fixed descendant.
   for (const f of ["Lightbox.tsx", "ConversationParts.tsx"]) {

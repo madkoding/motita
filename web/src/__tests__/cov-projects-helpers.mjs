@@ -120,7 +120,7 @@ export async function mount(AppCtx, value, vnode) {
   return {
     root,
     rerender: (v, node) => draw(v, node),
-    q: (sel) => root.querySelector(sel),
+    q: (sel) => root.querySelector(sel) ?? document.querySelector(sel),
     qa: (sel) => [...root.querySelectorAll(sel)],
     unmount: async () => {
       await act(() => render(null, root));

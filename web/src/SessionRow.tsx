@@ -5,6 +5,7 @@ import type { ComponentChildren } from "preact";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
+import { BodyPortal } from "./BodyPortal";
 import { useLongPress, useStopClicks } from "./domHooks";
 import {
   formatUpdated,
@@ -23,19 +24,23 @@ const ITEM_PLAIN = ITEM + "text-[#e8e8ea] hover:bg-white/5";
 const ITEM_DANGER = ITEM + "text-danger hover:bg-danger/10";
 
 // RowMenu is the "⋯" menu of a row, drawn fixed against the viewport so the list's scroll cannot
-// clip it. Its clicks stay inside it.
+// clip it. It is portaled to <body>: the sidebar's backdrop-filter makes it the containing block of
+// any `fixed` descendant, so inside the sidebar the viewport coordinates were read against the
+// sidebar's box and the menu landed anywhere. Its clicks stay inside it.
 export function RowMenu({ children }: { children: ComponentChildren }) {
   const { rowMenuAbove, rowMenuClosing, rowMenuPos } = useApp().menus;
   const ref = useRef<HTMLDivElement>(null);
   useStopClicks(ref);
   return (
-    <div
-      ref={ref}
-      class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${choose(rowMenuAbove, " row-menu-above", "")}${choose(rowMenuClosing, " row-menu-closing", "")}`}
-      style={rowMenuStyle(rowMenuPos)}
-    >
-      {children}
-    </div>
+    <BodyPortal>
+      <div
+        ref={ref}
+        class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${choose(rowMenuAbove, " row-menu-above", "")}${choose(rowMenuClosing, " row-menu-closing", "")}`}
+        style={rowMenuStyle(rowMenuPos)}
+      >
+        {children}
+      </div>
+    </BodyPortal>
   );
 }
 

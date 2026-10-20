@@ -150,10 +150,10 @@ test("the ⋯ button opens the project's menu without folding it", async () => {
   assert.deepEqual(s.log, [
     ["toggleMenu", { type: "project", id: "p1", title: "Motita" }],
   ]);
-  assert.equal(m.q(".row-menu"), null);
+  assert.equal(document.querySelector(".row-menu"), null);
   // Another row's menu is open: not this one's.
   await m.rerender(store({ rowMenu: { id: "p2" } }).value);
-  assert.equal(m.q(".row-menu"), null);
+  assert.equal(document.querySelector(".row-menu"), null);
   assert.equal(m.q(".row-actions-open"), null);
   await m.unmount();
 });
@@ -164,7 +164,7 @@ test("the menu edits the project and asks before deleting it", async () => {
   assert.ok(m.q(".row-actions-open"));
   assert.equal(m.q("[data-testid=podman-toggle]"), null, "no podman here");
   await click(m.q("[data-testid=edit-project]"));
-  await click(buttonByText(m.q(".row-menu"), "Delete"));
+  await click(buttonByText(document.querySelector(".row-menu"), "Delete"));
   assert.deepEqual(s.log, [
     ["edit", P],
     ["closeMenu"],
