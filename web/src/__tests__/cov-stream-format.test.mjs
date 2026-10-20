@@ -414,6 +414,7 @@ test("small lookups: previews, pull requests, toasts, artifacts, tags, notes", (
   assert.deepEqual(m.rowMenuStyle({ top: 4, left: 9 }), {
     top: "4px",
     left: "9px",
+    maxHeight: "calc(100vh - 4px - 8px)",
   });
 
   assert.equal(m.skillHeading(null), "Skill library");

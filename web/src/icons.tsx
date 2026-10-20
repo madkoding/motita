@@ -198,3 +198,119 @@ export function IconDots(p: IconProps) {
     </Line>
   );
 }
+
+// IconRefresh is the arrows of an update.
+export function IconRefresh(p: IconProps) {
+  return (
+    <Line {...p}>
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </Line>
+  );
+}
+
+// IconArrowDown is what comes in from origin.
+export function IconArrowDown(p: IconProps) {
+  return (
+    <Line {...p}>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="19 12 12 19 5 12" />
+    </Line>
+  );
+}
+
+// IconArrowUp is what goes up to origin.
+export function IconArrowUp(p: IconProps) {
+  return (
+    <Line {...p}>
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="5 12 12 5 19 12" />
+    </Line>
+  );
+}
+
+// IconBack is going back to the main branch.
+export function IconBack(p: IconProps) {
+  return (
+    <Line {...p}>
+      <polyline points="9 14 4 9 9 4" />
+      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+    </Line>
+  );
+}
+
+// IconArchive is the changes put aside.
+export function IconArchive(p: IconProps) {
+  return (
+    <Line {...p}>
+      <polyline points="21 8 21 21 3 21 3 8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </Line>
+  );
+}
+
+// IconBranch is a branch.
+export function IconBranch(p: IconProps) {
+  return (
+    <Line {...p}>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </Line>
+  );
+}
+
+// IconCommit is a commit.
+export function IconCommit(p: IconProps) {
+  return (
+    <Line {...p}>
+      <circle cx="12" cy="12" r="4" />
+      <line x1="1.05" y1="12" x2="7" y2="12" />
+      <line x1="17.01" y1="12" x2="22.96" y2="12" />
+    </Line>
+  );
+}
+
+// IconPullRequest is a pull request.
+export function IconPullRequest(p: IconProps) {
+  return (
+    <Line {...p}>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+      <line x1="6" y1="9" x2="6" y2="21" />
+    </Line>
+  );
+}
+
+// IconEye is looking at what a repository holds.
+export function IconEye(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </Line>
+  );
+}
+
+// IconChat is a request to the agent.
+export function IconChat(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </Line>
+  );
+}
+
+// IconBox is a container.
+export function IconBox(p: IconProps) {
+  return (
+    <Line {...p}>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </Line>
+  );
+}

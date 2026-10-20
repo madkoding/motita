@@ -27,6 +27,7 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
+import { useRepoGit } from "./useRepoGit";
 import { useFinishedElsewhere } from "./sessionWatch";
 import type { Api } from "./prApi";
 import { useVoice } from "./useVoice";
@@ -172,6 +173,14 @@ export function useAppStore(api: Api) {
   const [showSettings, setShowSettings] = useState(false);
   const openSettings = useCallback(() => setShowSettings(true), []);
   const closeSettings = useCallback(() => setShowSettings(false), []);
+  const repoGit = useRepoGit({
+    api,
+    setState,
+    setToast,
+    fetchProjects: lists.fetchProjects,
+    createSession: actions.createSession,
+    submit: stream.submit,
+  });
   const reviewNotes = useReviewNotes(
     actions.createSession,
     notes.closeNotes,
@@ -212,6 +221,7 @@ export function useAppStore(api: Api) {
     speech,
     language,
     menus,
+    repoGit,
     showSettings,
     openSettings,
     closeSettings,

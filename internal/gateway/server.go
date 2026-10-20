@@ -769,6 +769,7 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	s.notesRoutes(mux, plain)
+	s.nestedRoutes(mux, plain)
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
 	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))

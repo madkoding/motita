@@ -121,7 +121,10 @@ export async function mount(AppCtx, value, vnode) {
     root,
     rerender: (v, node) => draw(v, node),
     q: (sel) => root.querySelector(sel) ?? document.querySelector(sel),
-    qa: (sel) => [...root.querySelectorAll(sel)],
+    qa: (sel) => {
+      const inside = [...root.querySelectorAll(sel)];
+      return inside.length ? inside : [...document.querySelectorAll(sel)];
+    },
     unmount: async () => {
       await act(() => render(null, root));
       root.remove();

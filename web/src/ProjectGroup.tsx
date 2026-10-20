@@ -9,9 +9,17 @@ import { useLongPress } from "./domHooks";
 import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
 import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
-import { IconDots, IconFolder } from "./icons";
+import {
+  IconBox,
+  IconDots,
+  IconEdit,
+  IconFolder,
+  IconNotes,
+  IconRefresh,
+} from "./icons";
 import type { ProjectInfo } from "./appTypes";
 import { EDIT_PROJECT } from "./appConst";
+import { NestedRepos } from "./NestedRepos";
 
 const ITEM_PLAIN =
   "row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5";
@@ -30,6 +38,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           menus.closeRowMenu();
         }}
       >
+        <IconEdit size={14} class="flex-none" />
         {t(EDIT_PROJECT)}
       </button>
       {(projects.hasPodman || p.podman) && (
@@ -42,6 +51,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
             menus.closeRowMenu();
           }}
         >
+          <IconBox size={14} class="flex-none" />
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
@@ -55,6 +65,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
             menus.closeRowMenu();
           }}
         >
+          <IconRefresh size={14} class="flex-none" />
           {t("Update main branch")}
         </button>
       )}
@@ -70,6 +81,7 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           menus.closeRowMenu();
         }}
       >
+        <IconNotes size={14} class="flex-none" />
         {t("Rescan the notes")}
       </button>
       <DeleteItem type="project" id={p.id} title={p.title} />
@@ -230,6 +242,7 @@ export function ProjectGroup({ p }: { p: ProjectInfo }) {
       >
         <div class="project-sessions-inner">
           <div class="px-1.5 pb-1.5 space-y-0.5">
+            <NestedRepos p={p} />
             {projectSessions.map((s) => (
               <SessionRow key={s.id} s={s} />
             ))}

@@ -290,13 +290,17 @@ test("refused pause and delete leave the list as it was", async () => {
 
 test("the form creates a task only with a title and an instruction, and clears itself", async () => {
   let created;
+  let release;
   const f = fakeApi({
     "GET /v1/schedules": () =>
       json(200, { schedules: created ? [created] : [] }),
     "POST /v1/schedules": (_p, init) => {
       const b = JSON.parse(init.body);
       created = { ...TASKS[0], id: "n", title: b.title, every: b.every };
-      return new Promise((r) => setTimeout(() => r(json(201, created)), 5));
+      // Held until the test lets go: a timer here raced the button's "Creating…" on a busy machine.
+      return new Promise((r) => {
+        release = () => r(json(201, created));
+      });
     },
   });
   const m = mount(f.api);
@@ -323,7 +327,7 @@ test("the form creates a task only with a title and an instruction, and clears i
   click(create);
   await settle();
   assert.equal(text(btn(m.root, "Creating…")), "Creating…");
-  await new Promise((r) => setTimeout(r, 10));
+  release();
   await settle();
   assert.deepEqual(f.calls.find((c) => c.method === "POST").body, {
     title: "Nightly",

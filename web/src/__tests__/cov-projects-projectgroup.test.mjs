@@ -63,6 +63,11 @@ function store({
         refreshProjectMain: rec("refreshMain"),
         rescanNotes: rec("rescan"),
       },
+      repoGit: {
+        openRepoGit: rec("details"),
+        repoAction: rec("action"),
+        askAgent: rec("ask"),
+      },
       deletion: { setConfirmDelete: rec("confirm") },
     },
   };
@@ -199,6 +204,79 @@ test("the menu updates the main branch: nothing else does it by itself", async (
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: git }));
   await click(m.q("[data-testid=refresh-main]"));
   assert.deepEqual(s.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
+test("the repositories inside a plain folder are a tree, each with its own menu", async () => {
+  const withRepos = {
+    ...P,
+    nested_repos: [
+      { path: "api" },
+      { path: "group/web", branch: "main", changes: 3 },
+      { path: "lib", branch: "dev" },
+    ],
+  };
+  const closed = store({});
+  const m = await mount(
+    AppCtx,
+    closed.value,
+    h(ProjectGroup, { p: withRepos }),
+  );
+  const rows = m.qa("[data-testid=nested-repo]");
+  assert.deepEqual(
+    rows.map((r) => r.textContent),
+    ["api", "group/webmain · 3±", "libdev"],
+  );
+  assert.equal(m.q("[data-testid=refresh-nested]"), null, "menus start closed");
+  await click(m.qa("[data-testid=nested-menu]")[1]);
+  assert.deepEqual(closed.log, [
+    [
+      "toggleMenu",
+      { type: "project", id: "p1\u0000group/web", title: "group/web" },
+    ],
+  ]);
+  await m.unmount();
+
+  const s = store({ rowMenu: { id: "p1\u0000group/web" } });
+  const open = await mount(AppCtx, s.value, h(ProjectGroup, { p: withRepos }));
+  const item = open.q("[data-testid=refresh-nested]");
+  assert.equal(item.textContent, "Update group/web");
+  assert.match(item.title, /group\/web/);
+  await click(item);
+  assert.deepEqual(s.log, [["refreshMain", "p1", "group/web"], ["closeMenu"]]);
+  await open.unmount();
+});
+
+test("each entry of a repository's menu does its one thing and closes the menu", async () => {
+  const ref = { projectId: "p1", repo: "api" };
+  const cases = [
+    ["repo-details", ["details", ref]],
+    ["repo-pull", ["action", ref, "pull"]],
+    ["repo-main", ["action", ref, "main"]],
+    ["repo-stash", ["action", ref, "stash"]],
+    ["repo-clean", ["action", ref, "clean"]],
+    ["repo-commit", ["ask", ref, "commit"]],
+    ["repo-push", ["ask", ref, "push"]],
+    ["repo-pr", ["ask", ref, "pr"]],
+    ["repo-work", ["ask", ref, "work"]],
+  ];
+  for (const [id, expected] of cases) {
+    const s = store({ rowMenu: { id: "p1\u0000api" } });
+    const m = await mount(
+      AppCtx,
+      s.value,
+      h(ProjectGroup, { p: { ...P, nested_repos: [{ path: "api" }] } }),
+    );
+    await click(m.q(`[data-testid=${id}]`));
+    assert.deepEqual(s.log, [expected, ["closeMenu"]], id);
+    await m.unmount();
+  }
+});
+
+test("a folder with no repository inside draws no tree", async () => {
+  const s = store({});
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=nested-repo]"), null);
   await m.unmount();
 });
 

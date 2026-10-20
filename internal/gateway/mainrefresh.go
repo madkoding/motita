@@ -108,6 +108,10 @@ func (s *Server) handleRefreshProjectMain(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
 	}
+	if rel := r.URL.Query().Get("repo"); rel != "" {
+		s.refreshNested(w, r, p, rel)
+		return
+	}
 	if !s.mainRefresh.begin(p.ID) {
 		writeError(w, http.StatusConflict, "the main branch is already being updated")
 		return

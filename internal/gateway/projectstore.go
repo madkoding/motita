@@ -80,6 +80,9 @@ type Project struct {
 	// (vendor/, node_modules/), read live. A session's worktree is linked to the ones the project
 	// has, so what is missing here is missing in every session.
 	MissingDeps []gitx.MissingDependency `json:"missing_deps,omitempty"`
+	// Nested are the git repositories inside the folder of a project that is not one itself, read
+	// live. Absent for a repository and for a folder with none.
+	Nested []NestedRepo `json:"nested_repos,omitempty"`
 }
 
 // projectStore persists projects to disk as JSON files under a directory the

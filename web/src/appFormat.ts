@@ -647,14 +647,19 @@ export function toastTone<T>(type: string, error: T, warning: T, other: T): T {
   return other;
 }
 
-// rowMenuStyle places a row's action menu at its viewport position, when it has one.
+// rowMenuStyle places a row's action menu at its viewport position, when it has one. It is never
+// taller than what is left of the window below its top, so a long menu scrolls instead of leaving it.
 export function rowMenuStyle(
   pos: { top: number; left: number } | null,
-): { top: string; left: string } | undefined {
+): { top: string; left: string; maxHeight: string } | undefined {
   if (!pos) {
     return undefined;
   }
-  return { top: `${pos.top}px`, left: `${pos.left}px` };
+  return {
+    top: `${pos.top}px`,
+    left: `${pos.left}px`,
+    maxHeight: `calc(100vh - ${pos.top}px - 8px)`,
+  };
 }
 
 // skillHeading is the skill library's title: the open skill's, or the library's own.

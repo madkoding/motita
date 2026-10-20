@@ -55,6 +55,7 @@ component("./GitConnect", ["GitConnectModal"]);
 component("./FolderBrowser", ["FolderBrowser"]);
 component("./EditProjectModal", ["EditProjectModal"]);
 component("./NewProjectModal", ["NewProjectModal"]);
+component("./RepoGitPanel", ["RepoGitPanel"]);
 component("./ModelSwitcherModal", ["ModelSwitcherModal"]);
 component("./ConfirmDeleteModal", ["ConfirmDeleteModal", "ContextMenu"]);
 component("./Subtitles", ["Subtitles"]);
@@ -171,6 +172,7 @@ function makeStore(log) {
     },
     model: { config: null, showModelSwitcher: false, openModelSwitcher: noop },
     skills: { showSkillLibrary: false },
+    repoGit: { open: null },
     projects: {
       editProject: null,
       showNewProject: false,
@@ -610,6 +612,18 @@ test("the project dialogs open from the store", async () => {
     ctl.log.map((e) => e[0]),
     ["closeGitConnect", "onGitConnected"],
   );
+  await ctl.done();
+});
+
+test("the git panel of a repository opens from the store", async () => {
+  const ctl = await mountApp((s) => {
+    s.repoGit.open = { projectId: "p1", repo: "api" };
+  });
+  assert.ok(stubEl(ctl.root, "RepoGitPanel"));
+  assert.deepEqual(lastProps("RepoGitPanel").r, {
+    projectId: "p1",
+    repo: "api",
+  });
   await ctl.done();
 });
 
