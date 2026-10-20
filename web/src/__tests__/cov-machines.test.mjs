@@ -378,9 +378,11 @@ async function mount(view, active = "") {
 }
 const click = (el) =>
   act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-const key = (el, k) =>
+const key = (el, k, extra = {}) =>
   act(() =>
-    el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })),
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: k, bubbles: true, ...extra }),
+    ),
   );
 const type = (el, value) =>
   act(() => {
@@ -495,6 +497,10 @@ test("a computer is renamed in place: Enter or leaving saves, Escape cancels, th
   let field = await rename("self");
   assert.equal(field.value, "taller");
   await key(field, "a");
+  // The Enter or Escape that ends an IME composition is the IME's: the field stays open.
+  await key(field, "Enter", { isComposing: true });
+  await key(field, "Escape", { isComposing: true });
+  assert.ok(box(ui, "self").querySelector("[data-testid=machine-rename]"));
   await key(field, "Escape");
   assert.equal(
     box(ui, "self").querySelector("[data-testid=machine-rename]"),

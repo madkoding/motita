@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import type { RefObject } from "preact";
+import { isImeKey } from "./a11y";
 
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
@@ -62,7 +63,8 @@ export function useDialog(
       if (!el || !isTopmost(el)) {
         return;
       }
-      if (e.key === "Escape") {
+      // An Escape that drops an IME candidate is the field's: the dialog and what was typed stay.
+      if (e.key === "Escape" && !isImeKey(e)) {
         // An open listbox takes its own Escape (it closes the list); the dialog stays.
         const from = e.target as Partial<Element> | null;
         if (

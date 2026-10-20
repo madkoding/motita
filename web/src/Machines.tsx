@@ -9,6 +9,7 @@ import type { ComponentChildren } from "preact";
 import { useCallback, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
+import { isImeKey } from "./a11y";
 import { useMachinesCtx } from "./useMachines";
 import {
   machineName,
@@ -74,6 +75,9 @@ function RenameField({
       autoFocus
       onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
       onKeyDown={(e) => {
+        if (isImeKey(e)) {
+          return;
+        }
         if (e.key === "Enter") {
           onSave(draft.trim());
         }

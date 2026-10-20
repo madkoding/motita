@@ -3,7 +3,6 @@ import { memo } from "preact/compat";
 import {
   useState,
   useEffect,
-  useRef,
   useCallback,
   useContext,
   useMemo,
@@ -102,11 +101,23 @@ const EvidenceCtx = createContext<EvidenceLoader>(() => Promise.resolve(null));
 function useEvidenceLoader(store: Store): EvidenceLoader {
   const { sessionId } = store.rs;
   const { artifactBase } = store.artifacts;
-  const evidenceUrls = useRef(new Map<string, Promise<string | null>>());
+  // One cache per session: its object URLs are let go when another session is shown, or the page
+  // leaves, so a tab kept open does not hold every screenshot it ever showed.
+  const evidenceUrls = useMemo(
+    () => new Map<string, Promise<string | null>>(),
+    [sessionId],
+  );
+  useEffect(
+    () => () => {
+      for (const p of evidenceUrls.values()) {
+        void p.then((url) => url && URL.revokeObjectURL(url));
+      }
+    },
+    [evidenceUrls],
+  );
   const loadEvidenceImage = useCallback(
     (name: string) => {
-      const key = sessionId + "/" + name;
-      let p = evidenceUrls.current.get(key);
+      let p = evidenceUrls.get(name);
       if (!p) {
         p = api(artifactBase() + "/" + encodeURIComponent(name))
           .then(async (res) => {
@@ -116,11 +127,11 @@ function useEvidenceLoader(store: Store): EvidenceLoader {
             return URL.createObjectURL(await res.blob());
           })
           .catch(() => null);
-        evidenceUrls.current.set(key, p);
+        evidenceUrls.set(name, p);
       }
       return p;
     },
-    [sessionId, artifactBase],
+    [evidenceUrls, artifactBase],
   );
   return loadEvidenceImage;
 }
@@ -530,13 +541,18 @@ function previewOf(
 }
 
 // copyTextOf is the text a copy button copies (a code block's or a whole message's), or null when
-// the click was not on one.
+// the click was not on one. Only a button counts: an answer may carry the class and the data-*
+// payload of its own (raw HTML), but never a button, so a look-alike cannot pick what is copied.
 function copyTextOf(target: HTMLElement): string | null {
+  if (target.tagName !== "BUTTON") {
+    return null;
+  }
   if (target.classList.contains("copy-btn")) {
     return target.dataset.copyText || "";
   }
   if (target.classList.contains("copy-msg-btn")) {
-    return target.dataset.raw || "";
+    // The message keeps its source on its .markdown-body, the button's parent (Markdown.tsx).
+    return target.closest<HTMLElement>(".markdown-body")?.dataset.raw || "";
   }
   return null;
 }

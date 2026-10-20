@@ -170,6 +170,44 @@ test("a task is sent and its stream is drawn until the answer", async () => {
   await h.unmount();
 });
 
+test("a run that ends takes its open question with it, and leaves a typed command's", async () => {
+  const b = body();
+  const m = await mount({ "POST /v1/sessions/s1/run": () => streamRes(b) });
+  const { h, cur } = m;
+  let done;
+  await h.act(async () => {
+    done = cur().stream.submit("clean up");
+    await tick();
+  });
+  await h.act(async () => {
+    b.push(ev("approval", { id: "q1", command: "rm -rf build" }));
+    await tick();
+  });
+  assert.equal(cur().rs.approval.id, "q1");
+  // Stopped while the question waits: the gateway drops it, and so does the panel.
+  await h.act(async () => {
+    b.push(ev("error", { error: "interrupted" }));
+    b.end();
+    await done;
+  });
+  assert.equal(cur().rs.approval, null);
+  // A typed command's question has no run: a run that ends leaves it.
+  const b2 = body();
+  m.routes["POST /v1/sessions/s1/run"] = () => streamRes(b2);
+  await h.act(async () => {
+    done = cur().stream.submit("again");
+    await tick();
+  });
+  await h.act(() => cur().rs.setApproval({ id: "shell:7", command: "ls" }));
+  await h.act(async () => {
+    b2.push(ev("done", { result: "ok" }));
+    b2.end();
+    await done;
+  });
+  assert.equal(cur().rs.approval.id, "shell:7");
+  await h.unmount();
+});
+
 test("a stream that ends without its last blank line, or without a terminal event, still finishes", async () => {
   const b = body();
   const m = await mount({ "POST /v1/merge": () => streamRes(b) });

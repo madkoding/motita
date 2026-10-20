@@ -57,7 +57,8 @@ const NO_CLASS =
   "min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform";
 
 // ApprovalPanel is the question a command is waiting on, solid opaque, above the gradient. It takes
-// focus when a question arrives, so the arrows move between the answers and Enter takes one.
+// focus when a question arrives, so the arrows move between the answers and Enter takes one. A
+// button reached with Tab is the highlighted one, so Enter on "No" never runs the command.
 export function ApprovalPanel({ approval }: { approval: PendingApproval }) {
   const { rs, shell } = useApp();
   const { approvalSel, setApprovalSel, approvalRef } = rs;
@@ -82,6 +83,7 @@ export function ApprovalPanel({ approval }: { approval: PendingApproval }) {
           class={RUN_CLASS + picked(APPROVAL_RUN)}
           aria-pressed={approvalSel === APPROVAL_RUN}
           onMouseEnter={() => setApprovalSel(APPROVAL_RUN)}
+          onFocus={() => setApprovalSel(APPROVAL_RUN)}
           onClick={() => answerApproval(approval.id, true)}
         >
           {t("Run it")}
@@ -90,6 +92,7 @@ export function ApprovalPanel({ approval }: { approval: PendingApproval }) {
           class={ALL_CLASS + picked(APPROVAL_ALL)}
           aria-pressed={approvalSel === APPROVAL_ALL}
           onMouseEnter={() => setApprovalSel(APPROVAL_ALL)}
+          onFocus={() => setApprovalSel(APPROVAL_ALL)}
           title={t(
             "Run it, and from now on run commands of this kind in this project without asking. Commands the policy forbids stay forbidden.",
           )}
@@ -101,6 +104,7 @@ export function ApprovalPanel({ approval }: { approval: PendingApproval }) {
           class={NO_CLASS + picked(APPROVAL_NO)}
           aria-pressed={approvalSel === APPROVAL_NO}
           onMouseEnter={() => setApprovalSel(APPROVAL_NO)}
+          onFocus={() => setApprovalSel(APPROVAL_NO)}
           onClick={() => answerApproval(approval.id, false)}
         >
           {t("No")}

