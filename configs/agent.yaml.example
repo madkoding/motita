@@ -392,3 +392,16 @@ code_index:
   # embeddings_url: https://api.openai.com/v1
   # embeddings_model: text-embedding-3-small
   # embeddings_api_key: ""  # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
+
+autopilot:
+  # Upkeep Motita does on its own. Both switches are off by default.
+  # Once a week, audit every project read-only and report the findings that are new. It touches no
+  # code.
+  weekly_audit: false
+  # Open a DRAFT pull request on a project's own repository for a small, safe finding (a text, a
+  # missing test, a Sonar warning). It never pushes to the main branch and never merges: you review
+  # it. Needs the project's git host connected.
+  auto_pr: false
+  # The most pull requests of its own Motita keeps open at once (1 to 10). It opens no new one
+  # while it is at the limit.
+  max_open_prs: 3

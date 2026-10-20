@@ -376,6 +376,10 @@ type Server struct {
 	push   *webpush.Sender
 	pushWG sync.WaitGroup
 
+	// autopilotBusy holds the autopilot routines that run right now, so one never runs twice at once.
+	autopilotMu   sync.Mutex
+	autopilotBusy map[string]bool
+
 	// learnWG tracks the reviews of closed sessions in flight. See closelearn.go.
 	learnWG sync.WaitGroup
 
@@ -615,6 +619,7 @@ func (s *Server) openScheduleStore() {
 	// directory always has one: without this line every scheduled task passes its tests and
 	// never fires in production, because nothing ever looks at the clock.
 	s.startScheduler()
+	s.syncAutopilot()
 }
 
 // Addr is the address a CLIENT should call, with the real port when 0 was asked for.

@@ -706,6 +706,7 @@ function SettingsHost() {
       }}
       security={{ api: request, sessionId: rs.sessionId }}
       codeIndex={{ api: request }}
+      autopilot={{ api: request }}
       network={{ api: request }}
       push={{ api: request }}
       friction={{ api: request }}

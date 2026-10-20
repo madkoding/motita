@@ -161,6 +161,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     security: { api, sessionId: "" },
     friction: { api },
     codeIndex: { api },
+    autopilot: { api },
     network: { api },
     llm: { api, onNotice() {} },
     git: { label: "git hosts" },
@@ -176,6 +177,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     "security",
     "journal",
     "codeindex",
+    "autopilot",
     "network",
     "providers",
     "models",
@@ -197,6 +199,7 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     /Nothing got in the way/,
   );
   assert.ok(shown.codeindex.querySelector("section"));
+  assert.ok(shown.autopilot.querySelector("section"));
   assert.ok(shown.network.querySelector("[data-testid=network-setting]"));
   assert.ok(shown.providers.querySelector("[data-testid=provider-settings]"));
   assert.ok(shown.models.querySelector("[data-testid=model-settings]"));
