@@ -61,7 +61,7 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 		"contents": contents,
 		"generationConfig": map[string]any{
 			"maxOutputTokens": c.cfg.MaxTokens,
-			"temperature":     c.cfg.Temperature,
+			"temperature":     c.cfg.TemperatureOr(defaultTemperature),
 		},
 	}
 	if system != "" {
@@ -102,7 +102,7 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 		"contents": contents,
 		"generationConfig": map[string]any{
 			"maxOutputTokens": c.cfg.MaxTokens,
-			"temperature":     c.cfg.Temperature,
+			"temperature":     c.cfg.TemperatureOr(defaultTemperature),
 		},
 	}
 	if len(tools) > 0 {
