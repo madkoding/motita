@@ -193,6 +193,11 @@ func YAMLAPIKey(path string) string {
 
 var credentialName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
+// credentialsMu serialises SetCredential's read-modify-write of the credentials file: two saves at
+// once would both start from the same text, and the second would erase the first one's key. It is
+// not configWriteMu because SetVoice calls SetCredential while it holds that one.
+var credentialsMu sync.Mutex
+
 // SetCredential writes name=value into the credentials file beside configPath, IN PLACE: the line
 // that holds name is replaced, or one is added, and every other line stays as it was. An empty value
 // removes the line. The file is owner-only, as the wizard writes it.
@@ -207,6 +212,8 @@ func SetCredential(configPath, name, value string) error {
 		return fmt.Errorf("the value of %s cannot span lines", name)
 	}
 	path := CredentialsPath(configPath)
+	credentialsMu.Lock()
+	defer credentialsMu.Unlock()
 	// The motita home may not exist yet when the first key arrives from the browser.
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("the credentials file cannot be written: %w", err)
