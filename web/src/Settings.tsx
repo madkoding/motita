@@ -23,6 +23,7 @@ import { VoiceSettings, type VoiceSettingsProps } from "./VoiceSettings";
 import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
 import { CodeIndexSettings } from "./CodeIndexSettings";
 import { NotesScanSettings } from "./NotesScanSettings";
+import { AutopilotSettings } from "./AutopilotSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
@@ -33,6 +34,7 @@ import {
   IconGlobe,
   IconMic,
   IconPlug,
+  IconWrench,
   IconSearch,
   IconShield,
   IconSliders,
@@ -69,6 +71,8 @@ interface Props extends AppearanceSettingsProps {
   push?: { api: Api };
   // The search_index tool: its switches, embeddings and limits. Hidden on a gateway without the API.
   codeIndex?: { api: Api };
+  // The upkeep routines: the weekly check and the draft pull requests. Hidden on a gateway without the API.
+  autopilot?: { api: Api };
   // tab is the tab the dialog opens on; the first one when absent.
   tab?: Tab;
 }
@@ -83,6 +87,7 @@ export type Tab =
   | "security"
   | "network"
   | "codeindex"
+  | "autopilot"
   | "providers"
   | "models"
   | "git";
@@ -126,6 +131,9 @@ function settingsTabs(p: Props): TabInfo[] {
       icon: <IconSearch />,
     });
   }
+  if (p.autopilot) {
+    tabs.push({ id: "autopilot", label: t("Upkeep"), icon: <IconWrench /> });
+  }
   if (p.network) {
     tabs.push({ id: "network", label: t("Network"), icon: <IconGlobe /> });
   }
@@ -165,6 +173,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
         <NotesScanSettings api={p.codeIndex.api} />
       </>
     ),
+  autopilot: (p) => p.autopilot && <AutopilotSettings api={p.autopilot.api} />,
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,
