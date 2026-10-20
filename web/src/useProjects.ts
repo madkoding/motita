@@ -379,6 +379,7 @@ function useProjectAdmin(
           endGitActivity(
             false,
             err.error || t("could not update the main branch"),
+            "",
           );
           return;
         }
@@ -393,11 +394,12 @@ function useProjectAdmin(
             done.main_warning,
             t("The main branch is up to date"),
           ),
+          "",
         );
         await fetchProjects();
       } catch {
         setState("could not update the main branch", true);
-        endGitActivity(false, t("could not update the main branch"));
+        endGitActivity(false, t("could not update the main branch"), "");
       }
     },
     [fetchProjects],

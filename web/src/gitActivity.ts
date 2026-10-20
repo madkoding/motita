@@ -8,8 +8,10 @@ export interface GitActivity {
   title: string;
   detail: string;
   state: "running" | "done" | "error";
-  // message is how it ended; empty while it runs.
+  // message is how it ended, and output what git printed for it (the lines the action
+  // returned); both are empty while it runs.
   message: string;
+  output: string;
 }
 
 let current: GitActivity | null = null;
@@ -22,13 +24,13 @@ function set(next: GitActivity | null) {
 
 // beginGitActivity opens the modal on an action that has just started.
 export function beginGitActivity(title: string, detail: string) {
-  set({ title, detail, state: "running", message: "" });
+  set({ title, detail, state: "running", message: "", output: "" });
 }
 
 // endGitActivity says how the action ended: the modal stays open until the person closes it.
-export function endGitActivity(ok: boolean, message: string) {
+export function endGitActivity(ok: boolean, message: string, output: string) {
   if (current) {
-    set({ ...current, state: ok ? "done" : "error", message });
+    set({ ...current, state: ok ? "done" : "error", message, output });
   }
 }
 

@@ -56,6 +56,14 @@ export function GitActivityModal() {
             </>
           )}
         </div>
+        {a.output && (
+          <pre
+            class="mt-3 max-h-48 overflow-auto rounded-lg bg-black/30 border border-white/10 p-2 font-mono text-xs text-[#c8c8d4] whitespace-pre-wrap break-words"
+            data-testid="git-activity-output"
+          >
+            {a.output}
+          </pre>
+        )}
       </div>
     </ModalBackdrop>
   );

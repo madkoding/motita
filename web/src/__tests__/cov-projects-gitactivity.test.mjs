@@ -18,7 +18,7 @@ const {
 const q = (id) => document.querySelector(`[data-testid=${id}]`);
 
 test("nothing is shown until an action starts, and ending with none open does nothing", async () => {
-  endGitActivity(true, "ignored");
+  endGitActivity(true, "ignored", "");
   const m = await mount(AppCtx, {}, h(GitActivityModal));
   assert.equal(q("git-activity"), null);
   await m.unmount();
@@ -39,12 +39,16 @@ test("the modal says what git is doing while it runs, then how it ended", async 
     "Pulling api",
   );
 
-  await act(() => endGitActivity(true, "api is up to date"));
+  await act(() =>
+    endGitActivity(true, "api is up to date", "Brought in:\nabc feat"),
+  );
   assert.equal(q("git-activity-state").textContent, "api is up to date");
+  assert.equal(q("git-activity-output").textContent, "Brought in:\nabc feat");
 
   await act(() => beginGitActivity("Pulling api", "d"));
-  await act(() => endGitActivity(false, "uncommitted changes"));
+  await act(() => endGitActivity(false, "uncommitted changes", ""));
   assert.equal(q("git-activity-state").textContent, "uncommitted changes");
+  assert.equal(q("git-activity-output"), null, "no output, no box");
   await m.unmount();
 });
 

@@ -129,7 +129,7 @@ export function useRepoGit({
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           setState(err.error || "the action failed", true);
-          endGitActivity(false, err.error || t("the action failed"));
+          endGitActivity(false, err.error || t("the action failed"), "");
           return false;
         }
         const done = await res.json().catch(() => ({}));
@@ -140,12 +140,12 @@ export function useRepoGit({
           tf(DONE[action], { repo: r.repo }),
         );
         setToast({ message, type: "success" });
-        endGitActivity(true, message);
+        endGitActivity(true, message, String(done.output ?? ""));
         await fetchProjects();
         return true;
       } catch {
         setState("the action failed", true);
-        endGitActivity(false, t("the action failed"));
+        endGitActivity(false, t("the action failed"), "");
         return false;
       }
     },
