@@ -96,6 +96,15 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # The full platform builds only run on tags; compiling the other targets here is the cheap
+      # way to catch a build-tag or syscall slip in a pull request.
+      - name: go build (cross-platform)
+        run: |
+          for target in windows/amd64 darwin/arm64 android/arm64; do
+            echo "build $target"
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./...
+          done
+
       - name: no Go file imports unsafe
         run: |
           # The sandbox hands the kernel addresses of anonymous mappings (kernelBuffer) instead,
