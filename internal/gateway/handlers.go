@@ -70,10 +70,20 @@ func (s *Server) handleSessionReport(w http.ResponseWriter, r *http.Request) {
 //
 // 204 rather than a body: there is nothing to say about it, and a client that gets an empty 200
 // has to guess whether it worked.
+//
+// It takes the run slot, as a restore does: a reset under a running turn would drop that turn's open
+// checkpoint, and the turn would end with no steps and no outcome. It is saved at once, because the
+// snapshots of the old checkpoints are deleted at once too.
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
+	if !c.takeRunSlot() {
+		writeError(w, http.StatusConflict, "a run is in progress in this session: stop it before starting over")
+		return
+	}
+	defer s.releaseAndDrain(c)
 	c.svc.ResetConversation()
 	s.forgetCheckpoints(c)
+	s.saveSession(c)
 	w.WriteHeader(http.StatusNoContent)
 }
 

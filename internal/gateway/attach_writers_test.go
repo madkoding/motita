@@ -237,9 +237,16 @@ func (w *lateFlushFailure) FlushError() error {
 // must not be read as "use the default" - the two are one comparison apart and the difference is a
 // stream that keeps writing when the caller asked it not to.
 func TestAHeartbeatOfZeroIsOff(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Heartbeat = -1 })
+	srv := newTestServer(t, &fakeService{task: func(context.Context, string, func(string, ...any)) (string, error) {
+		return "finished", nil
+	}}, func(o *Options) { o.Heartbeat = -1 })
 	if srv.heartbeat != 0 {
 		t.Fatalf("a negative heartbeat must mean OFF, got %s", srv.heartbeat)
+	}
+	// And a stream still runs with it off: a ticker of zero panics instead of staying quiet.
+	raw := rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
+	if !strings.Contains(raw, "event: done") || strings.Contains(raw, "keepalive") {
+		t.Fatalf("a stream with the heartbeat off = %q, want a done event and no keepalive", raw)
 	}
 	// A caller who says nothing gets the default, and it is a real interval.
 	other := newTestServer(t, &fakeService{})
