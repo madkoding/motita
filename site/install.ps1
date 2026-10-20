@@ -21,6 +21,11 @@
 # throw is reported, is catchable, and still gives exit status 1 when the file is run
 # directly.
 #
+# For the same reason everything runs inside `& { ... }`, the counterpart of install.sh's
+# main(). Invoke-Expression runs text in the CALLER's scope: without the block, the 'Stop'
+# preference, the helper functions and the variables stayed in the user's session after the
+# install. A cut-off download also leaves the block unclosed, so nothing runs at all.
+#
 # It is deliberately ASCII-only: the script is fetched and evaluated in one process, and a
 # non-ASCII byte is how a pipe-to-interpreter fails for the people who cannot debug it.
 #
@@ -28,10 +33,13 @@
 # GitHub Pages uploads site/ on its own and cannot see scripts/. The two copies are held
 # byte-identical by internal/policy's published-copy test, so edit this one and run:
 #   cp scripts/install.ps1 site/install.ps1
+& {
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'madkoding/motita'
 $BinName = 'motita'
+# The same endpoint the in-program updater reads (internal/updater).
+$Api = "https://api.github.com/repos/$Repo/releases/latest"
 
 # The ed25519 key releases sign SHA256SUMS with, as the base64 body of its PEM public key.
 # It is the same value as ReleasePublicKey in internal/updater, and
@@ -118,6 +126,20 @@ if (-not $Arch) {
 }
 
 $Asset = "$BinName-windows-$Arch.exe"
+
+# GitHub resolves releases/latest/download again on EVERY request, and releases land minutes
+# apart. The binary, SHA256SUMS and SHA256SUMS.sig could then come from two releases, and the
+# user reads "the download is corrupt" or "tampered with". So "latest" is resolved to one tag
+# here, and every file comes from it. If the API does not answer (a rate limit, a proxy), the
+# old URL still works.
+if ($Version -eq 'latest') {
+    try {
+        $Tag = (Invoke-RestMethod -Uri $Api -UseBasicParsing).tag_name
+        if ($Tag -match '^[A-Za-z0-9._-]+$') { $Version = $Tag }
+    } catch {
+        Write-Verbose "the release API did not answer: $($_.Exception.Message)"
+    }
+}
 if ($Version -eq 'latest') {
     $Base = "https://github.com/$Repo/releases/latest/download"
 } else {
@@ -231,13 +253,22 @@ try {
     # Windows cannot overwrite a RUNNING binary, so a previous copy is moved aside first -
     # the same rename-aside the in-program updater does, for the same reason. A failed
     # rename falls back to removing the old file rather than failing the install.
+    $Old = $null
     if (Test-Path $Target) {
         $Old = "$Target.old"
         Remove-Item $Old -Force -ErrorAction SilentlyContinue
         try { Move-Item -Path $Target -Destination $Old -Force }
-        catch { Remove-Item $Target -Force -ErrorAction SilentlyContinue }
+        catch { $Old = $null; Remove-Item $Target -Force -ErrorAction SilentlyContinue }
     }
-    Copy-Item -Path $AssetPath -Destination $Target -Force
+    # A failed copy (a full disk, an antivirus lock) puts the previous binary back, as the
+    # in-program updater does, instead of leaving the user with no motita at all.
+    try {
+        Copy-Item -Path $AssetPath -Destination $Target -Force
+    } catch {
+        $Why = $_.Exception.Message
+        if ($Old) { Move-Item -Path $Old -Destination $Target -Force -ErrorAction SilentlyContinue }
+        Fail "could not write $Target`n  $Why"
+    }
     Say "  installed: $Target"
     if ($Verified) { Say '             (checksum verified against the release)' }
 } finally {
@@ -281,3 +312,4 @@ if (-not $Signed) {
 
 Say ''
 Say "Next: $BinName    (writes a configuration that works)"
+}

@@ -34,6 +34,10 @@ for os in linux darwin; do
   done
 done
 printf '#!/bin/sh\necho motita android arm64\n' > "$WORK/rel/motita-android-arm64"
+# "latest" is the release the API names, v9.9.9. Both URL shapes serve the same files.
+printf '{\n  "tag_name": "v9.9.9",\n  "name": "v9.9.9"\n}\n' > "$WORK/rel/latest.json"
+ln -s . "$WORK/rel/v9.9.9"
+ln -s . "$WORK/rel/latest"
 sums() { (cd "$WORK/rel" && sha256sum motita-* | sort -k2 > SHA256SUMS); }
 sums
 
@@ -48,10 +52,12 @@ curl -sf -o /dev/null "http://127.0.0.1:$PORT/SHA256SUMS" || fail "the mock rele
 
 # The embedded release key is blanked: the mock release cannot be signed by it, so the
 # unsigned cases run keyless and case 5 installs a throwaway test key of its own.
-sed "s#https://github.com/\${REPO}/releases/latest/download#http://127.0.0.1:$PORT#; \
+sed "s#https://github.com/\${REPO}/releases/latest/download#http://127.0.0.1:$PORT/latest#; \
+     s#https://github.com/\${REPO}/releases/download/\${VERSION}#http://127.0.0.1:$PORT/\${VERSION}#; \
+     s#https://api.github.com/repos/\${REPO}/releases/latest#http://127.0.0.1:$PORT/latest.json#; \
      s#^RELEASE_PUBLIC_KEY=\".*\"#RELEASE_PUBLIC_KEY=\"\"#" \
   "$REPO/scripts/install.sh" > "$WORK/install.sh"
-grep -q "http://127.0.0.1:$PORT" "$WORK/install.sh" || fail "the release base was not redirected"
+[ "$(grep -c "http://127.0.0.1:$PORT" "$WORK/install.sh")" = 3 ] || fail "the release URLs were not all redirected"
 grep -q '^RELEASE_PUBLIC_KEY=""' "$WORK/install.sh" || fail "the embedded release key was not blanked"
 
 export MOTITA_INSTALL_DIR="$WORK/dest"
@@ -70,6 +76,18 @@ printf '%s\n' "$out" | grep -q 'checksum: ok' || fail "no verified checksum repo
 printf '%s\n' "$out" | grep -q 'gh attestation verify' || fail "no provenance hint for an unsigned install: $out"
 [ -x "$WORK/dest/motita" ] || fail "nothing was installed"
 echo "the installer verifies and installs a good release"
+
+# --- 2b. "latest" is pinned to one tag for every file -------------------------
+# GitHub resolves releases/latest/download on each request, so a release published
+# mid-install mixed two releases and read as a corrupt download.
+printf '%s\n' "$out" | grep -q 'from:   v9.9.9' || fail "latest was not resolved to the API's tag: $out"
+grep -q 'GET /latest/' "$WORK/httpd.log" && fail "a file was fetched through the per-request latest URL"
+grep -q 'GET /v9.9.9/SHA256SUMS ' "$WORK/httpd.log" || fail "SHA256SUMS was not fetched from the pinned tag: $(cat "$WORK/httpd.log")"
+mv "$WORK/rel/latest.json" "$WORK/latest.json.away"
+out="$(run)" || fail "the installer failed when the API does not answer: $out"
+printf '%s\n' "$out" | grep -q 'from:   latest' || fail "no fallback to the latest URL: $out"
+mv "$WORK/latest.json.away" "$WORK/rel/latest.json"
+echo "the installer takes every file from one tag, and falls back when the API is down"
 
 # --- 2a. a directory off the PATH is added to the shell's rc, once ----------
 printf '%s\n' "$out" | grep -q "added $WORK/dest to the PATH in $HOME/.bashrc" || fail "the PATH was not added to .bashrc: $out"
@@ -161,6 +179,37 @@ out="$(sh "$WORK/truncated.sh" 2>&1)" || true
 printf '%s\n' "$out" | grep -q 'motita installer' && fail "a truncated installer started running: $out"
 echo "a truncated download of the installer runs nothing"
 
+# --- 6a. a failed copy keeps the previous install ----------------------------
+# The download sits in $TMP, often another filesystem (a tmpfs /tmp). mv across
+# filesystems deletes the target first and then copies, so a full disk left no
+# motita at all. The fakes play a full disk: mv between two directories deletes
+# the target and writes half a file, and cp writes half a file. Both then fail.
+# Case 5 may have left a signature by another key behind; sign with the right one again.
+[ -f "$WORK/key.pem" ] && openssl pkeyutl -sign -inkey "$WORK/key.pem" -rawin \
+  -in "$WORK/rel/SHA256SUMS" -out "$WORK/rel/SHA256SUMS.sig"
+rm -rf "$WORK/dest" "$WORK/fullbin"
+mkdir -p "$WORK/dest" "$WORK/fullbin"
+printf '#!/bin/sh\necho old build\n' > "$WORK/dest/motita"
+chmod +x "$WORK/dest/motita"
+cat > "$WORK/fullbin/mv" <<EOF
+#!/bin/sh
+[ "\$1" = -f ] && shift
+if [ "\$(dirname "\$1")" != "\$(dirname "\$2")" ]; then
+  rm -f "\$2"; head -c 8 "\$1" > "\$2"; echo "mv: No space left on device" >&2; exit 1
+fi
+exec "$(command -v mv)" -f "\$1" "\$2"
+EOF
+cat > "$WORK/fullbin/cp" <<'EOF'
+#!/bin/sh
+head -c 8 "$1" > "$2"; echo "cp: No space left on device" >&2; exit 1
+EOF
+chmod +x "$WORK/fullbin/mv" "$WORK/fullbin/cp"
+if out="$(PATH="$WORK/fullbin:$PATH" sh "$WORK/install.sh" 2>&1)"; then fail "the installer SUCCEEDED on a full disk"; fi
+printf '%s\n' "$out" | grep -q 'could not write' || fail "failed, but not on the copy: $out"
+[ "$("$WORK/dest/motita" 2>&1)" = "old build" ] || fail "a failed copy did not keep the previous install: $out"
+[ "$(ls -A "$WORK/dest")" = motita ] || fail "a failed copy left files behind: $(ls -A "$WORK/dest")"
+echo "a failed copy into the install directory keeps the previous install"
+
 # --- 7. Termux gets the android build, in $PREFIX/bin --------------------------
 # A linux binary dies on Android with SIGSYS, so the installer must not hand one out
 # there. uname is faked as an aarch64 Android, the way Termux reports itself.
@@ -176,9 +225,6 @@ case "$1" in
 esac
 UNAME
 chmod +x "$WORK/fakebin/uname"
-# Case 5 may have left a signature by another key behind; sign with the right one again.
-[ -f "$WORK/key.pem" ] && openssl pkeyutl -sign -inkey "$WORK/key.pem" -rawin \
-  -in "$WORK/rel/SHA256SUMS" -out "$WORK/rel/SHA256SUMS.sig"
 out="$(env -u MOTITA_INSTALL_DIR PATH="$WORK/fakebin:$PATH" PREFIX="$WORK/prefix" \
   sh "$WORK/install.sh" 2>&1)" || fail "the installer failed on Android: $out"
 printf '%s\n' "$out" | grep -q 'asset:  motita-android-arm64' || fail "Android was not given the android build: $out"

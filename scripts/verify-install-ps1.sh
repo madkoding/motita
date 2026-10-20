@@ -73,6 +73,10 @@ done
 # Sorted by name, the way ci.yml builds it: the installer has to find its entry wherever
 # in the file it sits.
 (cd "$WORK/rel" && sha256sum * | sort -k2 > SHA256SUMS)
+# "latest" is the release the API names, v9.9.9. Both URL shapes serve the same files.
+printf '{\n  "tag_name": "v9.9.9"\n}\n' > "$WORK/rel/latest.json"
+ln -s . "$WORK/rel/v9.9.9"
+ln -s . "$WORK/rel/latest"
 
 (cd "$WORK/rel" && exec python3 -m http.server "$PORT" --bind 127.0.0.1) \
   >"$WORK/httpd.log" 2>&1 &
@@ -90,15 +94,16 @@ curl -sf -o /dev/null "http://127.0.0.1:$PORT/SHA256SUMS" || {
 # The ONLY edits are the base URL and the embedded release key, blanked because the mock
 # release cannot be signed by it. Everything else - the asset name it builds, the checksum
 # it compares, the directory it writes - is the script that ships.
-sed "s#https://github.com/\$Repo/releases/latest/download#http://127.0.0.1:$PORT#; \
-     s#https://github.com/\$Repo/releases/download/\$Version#http://127.0.0.1:$PORT#; \
+sed "s#https://github.com/\$Repo/releases/latest/download#http://127.0.0.1:$PORT/latest#; \
+     s#https://github.com/\$Repo/releases/download/\$Version#http://127.0.0.1:$PORT/\$Version#; \
+     s#https://api.github.com/repos/\$Repo/releases/latest#http://127.0.0.1:$PORT/latest.json#; \
      s#^\$ReleasePublicKey = '.*'#\$ReleasePublicKey = ''#" \
   "$REPO/scripts/install.ps1" > "$WORK/install-mock.ps1"
 if ! grep -q "^\$ReleasePublicKey = ''" "$WORK/install-mock.ps1"; then
   echo "error: the embedded release key was not blanked; this check is not testing what it says"
   exit 1
 fi
-if [ "$(grep -c "http://127.0.0.1:$PORT" "$WORK/install-mock.ps1")" -ne 2 ]; then
+if [ "$(grep -c "http://127.0.0.1:$PORT" "$WORK/install-mock.ps1")" -ne 3 ]; then
   echo "error: the release base was not redirected; this check is not testing what it says"
   exit 1
 fi
@@ -125,6 +130,21 @@ if ! cmp -s "$WORK/rel/motita-windows-amd64.exe" "$WORK/dest/motita.exe"; then
 fi
 echo "the installer downloads, verifies and installs the amd64 asset"
 
+# --- 3a. "latest" is pinned to one tag for every file ------------------------
+# GitHub resolves releases/latest/download on each request, so a release published
+# mid-install mixed two releases and read as a corrupt download.
+printf '%s\n' "$out" | grep -q 'from:   v9.9.9' || {
+  echo "error: latest was not resolved to the API's tag:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+}
+if grep -q 'GET /latest/' "$WORK/httpd.log" || ! grep -q 'GET /v9.9.9/SHA256SUMS ' "$WORK/httpd.log"; then
+  echo "error: the files did not all come from the pinned tag:"
+  sed 's/^/    /' "$WORK/httpd.log"
+  exit 1
+fi
+echo "the installer takes every file from one tag"
+
 # --- 3b. the 32-bit-PowerShell-on-64-bit-Windows case ------------------------
 # 32-bit PowerShell reports x86 and the REAL architecture in ARCHITEW6432. Without that
 # rule a 64-bit machine is handed the 32-bit binary, which RUNS - so the mistake is
@@ -142,6 +162,28 @@ if ! cmp -s "$WORK/rel/motita-windows-amd64.exe" "$WORK/dest/motita.exe"; then
   exit 1
 fi
 echo "the installer prefers ARCHITEW6432, so a 32-bit shell still gets the 64-bit binary"
+
+# --- 3c. a failed copy puts the previous binary back -------------------------
+# The old motita.exe is moved aside before the copy. A copy that fails (a full disk, an
+# antivirus lock) used to leave only motita.exe.old. A Copy-Item function in the caller
+# shadows the cmdlet, which is how the failure is played here.
+printf 'MZ old build\n' > "$WORK/dest/motita.exe"
+if out="$("$PWSH" -NoProfile -Command 'function Copy-Item { throw "simulated: disk full" }; & "'"$WORK/install-mock.ps1"'"' 2>&1)"; then
+  echo "error: the installer SUCCEEDED although the copy failed"
+  exit 1
+fi
+printf '%s\n' "$out" | grep -q 'simulated: disk full' || {
+  echo "error: the installer failed, but not on the copy:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+}
+if [ "$(cat "$WORK/dest/motita.exe" 2>/dev/null)" != "MZ old build" ] || [ -e "$WORK/dest/motita.exe.old" ]; then
+  echo "error: a failed copy did not put the previous binary back:"
+  ls -la "$WORK/dest" | sed 's/^/    /'
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+fi
+echo "a failed copy puts the previous binary back"
 
 # --- 4. the failure path, and that it leaves nothing behind ------------------
 rm -rf "$WORK/dest"
@@ -252,13 +294,17 @@ fi
 #
 # The checksums are rebuilt first: step 4 deliberately corrupted them, and running this
 # against a corrupt release would test the failure path a second time.
-(cd "$WORK/rel" && sha256sum * | sort -k2 > SHA256SUMS)
+(cd "$WORK/rel" && sha256sum motita-* | sort -k2 > SHA256SUMS)
 rm -rf "$WORK/dest"
 cp "$WORK/install-mock.ps1" "$WORK/rel/payload.ps1"
 if ! out="$(PROCESSOR_ARCHITECTURE=AMD64 "$PWSH" -NoProfile -Command '
       Write-Host "caller: BEFORE"
       irm "http://127.0.0.1:'"$PORT"'/payload.ps1" | iex
-      Write-Host "caller: AFTER"' 2>&1)"; then
+      Write-Host "caller: AFTER"
+      Write-Host "caller: preference=$ErrorActionPreference"
+      $Leaked = @(Get-Command Say, Fail, Find-OpenSsl -ErrorAction SilentlyContinue) +
+                @(Get-Variable Target, Asset, OnPath -ErrorAction SilentlyContinue)
+      Write-Host "caller: leaked=$($Leaked.Name -join ",")"' 2>&1)"; then
   echo "error: 'irm | iex' failed:"
   printf '%s\n' "$out" | sed 's/^/    /'
   exit 1
@@ -276,5 +322,14 @@ if ! cmp -s "$WORK/rel/motita-windows-amd64.exe" "$WORK/dest/motita.exe"; then
   exit 1
 fi
 echo "the installer works through 'irm | iex' and leaves the caller's session alive"
+# Invoke-Expression runs text in the caller's scope. The installer's 'Stop' preference
+# turned every later error in that window into a terminating one, and its functions and
+# variables shadowed the user's own.
+printf '%s\n' "$out" | grep -qx 'caller: preference=Continue' && printf '%s\n' "$out" | grep -qx 'caller: leaked=' || {
+  echo "error: 'irm | iex' left the installer's preference, functions or variables in the session:"
+  printf '%s\n' "$out" | grep '^caller:' | sed 's/^/    /'
+  exit 1
+}
+echo "the installer leaves the caller's session as it was"
 
 echo "VERDICT: the Windows installer works end to end against a simulated release"
