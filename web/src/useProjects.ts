@@ -1,6 +1,7 @@
 // Projects: the New project dialog (a name and a folder), the edit dialog, and deleting one.
 import { useCallback, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
+import { beginGitActivity, endGitActivity } from "./gitActivity";
 import { choose } from "./choose";
 import { folderNameOf } from "./appParse";
 import { newProjectDraft } from "./newProjectDraft";
@@ -354,6 +355,16 @@ function useProjectAdmin(
   // notice is not kept: it comes back in the answer and is shown at once.
   const refreshProjectMain = useCallback(
     async (id: string, repo = "") => {
+      beginGitActivity(
+        choose(
+          repo,
+          tf("Updating {repo}", { repo }),
+          t("Updating the main branch"),
+        ),
+        t(
+          "git fetch of origin, then a fast-forward of the main branch; nothing is forced.",
+        ),
+      );
       try {
         const res = await api(
           PROJECTS_PATH +
@@ -365,15 +376,28 @@ function useProjectAdmin(
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           setState(err.error || "could not update the main branch", true);
+          endGitActivity(
+            false,
+            err.error || t("could not update the main branch"),
+          );
           return;
         }
         const done = await res.json().catch(() => ({}));
         if (repo && done.main_warning) {
           setState(done.main_warning, true);
         }
+        endGitActivity(
+          !(repo && done.main_warning),
+          choose(
+            repo && done.main_warning,
+            done.main_warning,
+            t("The main branch is up to date"),
+          ),
+        );
         await fetchProjects();
       } catch {
         setState("could not update the main branch", true);
+        endGitActivity(false, t("could not update the main branch"));
       }
     },
     [fetchProjects],

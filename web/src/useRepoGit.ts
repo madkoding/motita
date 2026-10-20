@@ -2,7 +2,8 @@
 // actions done at once, and the ones handed to the agent, which holds the git logins and writes
 // the message of a commit.
 import { useCallback, useState } from "preact/hooks";
-import { tf } from "./i18n";
+import { t, tf } from "./i18n";
+import { beginGitActivity, endGitActivity } from "./gitActivity";
 import { choose } from "./choose";
 import { PROJECTS_PATH } from "./appConst";
 import type { Api } from "./prApi";
@@ -33,6 +34,25 @@ const DONE: Record<string, string> = {
   stash: "The changes of {repo} are put aside",
   clean: "Merged branches of {repo} deleted",
   discard: "The changes of {repo} are discarded",
+};
+
+// What each action is called in the modal that follows it, and what git does for it.
+const TITLE: Record<string, string> = {
+  pull: "Pulling {repo}",
+  main: "Going back to the main branch of {repo}",
+  branch: "Creating a branch in {repo}",
+  stash: "Putting the changes of {repo} aside",
+  clean: "Deleting the merged branches of {repo}",
+  discard: "Discarding the changes of {repo}",
+};
+const DETAIL: Record<string, string> = {
+  pull: "git fetch, then a fast-forward of the current branch; never a merge.",
+  main: "git checkout of the main branch, only from a clean checkout.",
+  branch: "git switch -c: a new branch at the current work.",
+  stash: "git stash push --include-untracked, labelled with the date.",
+  clean:
+    "git branch -d on the branches whose work is already in the main branch.",
+  discard: "Restores the tracked files and removes the new ones.",
 };
 
 // The requests the agent is sent. They name the folder, so they work wherever the conversation is.
@@ -99,6 +119,7 @@ export function useRepoGit({
   // repoAction does one thing to the repository, then shows what it did. It says whether it worked.
   const repoAction = useCallback(
     async (r: RepoRef, action: string, body: object = {}) => {
+      beginGitActivity(tf(TITLE[action], { repo: r.repo }), t(DETAIL[action]));
       try {
         const res = await api(urlOf(r, "/" + action), {
           method: "POST",
@@ -108,22 +129,23 @@ export function useRepoGit({
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           setState(err.error || "the action failed", true);
+          endGitActivity(false, err.error || t("the action failed"));
           return false;
         }
         const done = await res.json().catch(() => ({}));
         const gone: string[] = done.deleted ?? [];
-        setToast({
-          message: choose(
-            action === "clean" && gone.length > 0,
-            tf("Deleted: {branches}", { branches: gone.join(", ") }),
-            tf(DONE[action], { repo: r.repo }),
-          ),
-          type: "success",
-        });
+        const message = choose(
+          action === "clean" && gone.length > 0,
+          tf("Deleted: {branches}", { branches: gone.join(", ") }),
+          tf(DONE[action], { repo: r.repo }),
+        );
+        setToast({ message, type: "success" });
+        endGitActivity(true, message);
         await fetchProjects();
         return true;
       } catch {
         setState("the action failed", true);
+        endGitActivity(false, t("the action failed"));
         return false;
       }
     },

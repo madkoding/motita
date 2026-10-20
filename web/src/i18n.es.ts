@@ -577,6 +577,33 @@ const first: Record<string, string> = {
   "Branch {branch}": "Rama {branch}",
   "could not read the repository": "no se pudo leer el repositorio",
   "the action failed": "la acción falló",
+  "Pulling {repo}": "Actualizando la rama de {repo}",
+  "Going back to the main branch of {repo}":
+    "Volviendo a la rama principal de {repo}",
+  "Creating a branch in {repo}": "Creando una rama en {repo}",
+  "Putting the changes of {repo} aside":
+    "Guardando aparte los cambios de {repo}",
+  "Deleting the merged branches of {repo}":
+    "Borrando las ramas ya integradas de {repo}",
+  "Discarding the changes of {repo}": "Descartando los cambios de {repo}",
+  "git fetch, then a fast-forward of the current branch; never a merge.":
+    "git fetch y luego avance rápido de la rama actual; nunca un merge.",
+  "git checkout of the main branch, only from a clean checkout.":
+    "git checkout de la rama principal, solo desde una copia sin cambios.",
+  "git switch -c: a new branch at the current work.":
+    "git switch -c: una rama nueva en el trabajo actual.",
+  "git stash push --include-untracked, labelled with the date.":
+    "git stash push --include-untracked, con la fecha como etiqueta.",
+  "git branch -d on the branches whose work is already in the main branch.":
+    "git branch -d en las ramas cuyo trabajo ya está en la rama principal.",
+  "Restores the tracked files and removes the new ones.":
+    "Restaura los archivos seguidos y quita los nuevos.",
+  "Updating {repo}": "Actualizando {repo}",
+  "Updating the main branch": "Actualizando la rama principal",
+  "git fetch of origin, then a fast-forward of the main branch; nothing is forced.":
+    "git fetch de origin y luego avance rápido de la rama principal; no se fuerza nada.",
+  "The main branch is up to date": "La rama principal está al día",
+  "Working…": "Trabajando…",
   "{repo} is up to date": "{repo} está al día",
   "{repo} is back on its main branch": "{repo} volvió a su rama principal",
   "Branch created in {repo}": "Rama creada en {repo}",
