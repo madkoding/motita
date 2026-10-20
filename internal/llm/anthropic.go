@@ -54,20 +54,72 @@ func anthropicTextConversation(messages []Message) (string, []map[string]any) {
 	return system, conversation
 }
 
+// acceptsTemperature reports whether an Anthropic model still takes `temperature`. Current
+// models (Claude 4 and later, including the Claude 5 family) answer HTTP 400 "`temperature`
+// is deprecated for this model", so it is only sent to the legacy Claude 2 and 3 families;
+// top_p and top_k are never sent.
+func acceptsTemperature(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:] // "anthropic/claude-3-haiku" on a gateway
+	}
+	for _, p := range []string{"claude-2", "claude-3", "claude-instant"} {
+		if strings.HasPrefix(m, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultTemperature is what OpenAI-style and Gemini requests use when none is configured.
+const defaultTemperature = 0.2
+
+// setAnthropicSampling adds the temperature when the user set one, or when the model is a
+// legacy one that still takes it. Otherwise the API default applies.
+func (c *Client) setAnthropicSampling(body map[string]any) {
+	switch {
+	case c.noTemperature.Load():
+		// The model already refused it.
+	case c.cfg.Temperature != nil:
+		body["temperature"] = *c.cfg.Temperature
+	case acceptsTemperature(c.cfg.Model):
+		body["temperature"] = defaultTemperature
+	default:
+		// A current model: the API default applies.
+	}
+}
+
+// postAnthropic posts a Messages request. If the API refuses the temperature for this model
+// (HTTP 400 naming it), the request is repeated once without it, so a model released after
+// acceptsTemperature was written still works.
+func (c *Client) postAnthropic(ctx context.Context, body map[string]any) ([]byte, error) {
+	data, err := c.post(ctx, "/v1/messages", body)
+	var he *HTTPError
+	if _, has := body["temperature"]; has && errors.As(err, &he) && he.Code == 400 &&
+		strings.Contains(he.Body, "temperature") {
+		c.log.Warn("the model refuses temperature; asking again without it and not sending it again"+
+			" (remove llm.temperature from the configuration)", "model", c.cfg.Model)
+		c.noTemperature.Store(true)
+		delete(body, "temperature")
+		return c.post(ctx, "/v1/messages", body)
+	}
+	return data, err
+}
+
 func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string, error) {
 	system, conversation := anthropicTextConversation(messages)
 
 	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    conversation,
-		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
-		"temperature": c.cfg.Temperature,
+		"model":      c.cfg.Model,
+		"messages":   conversation,
+		"max_tokens": maxInt(c.cfg.MaxTokens, 1),
 	}
+	c.setAnthropicSampling(body)
 	if system != "" {
 		body["system"] = system
 	}
 
-	data, err := c.post(ctx, "/v1/messages", body)
+	data, err := c.postAnthropic(ctx, body)
 	if err != nil {
 		return "", err
 	}
@@ -101,17 +153,17 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 	system, conversation := toAnthropicMessages(messages)
 
 	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    conversation,
-		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
-		"temperature": c.cfg.Temperature,
-		"tools":       toAnthropicTools(tools),
+		"model":      c.cfg.Model,
+		"messages":   conversation,
+		"max_tokens": maxInt(c.cfg.MaxTokens, 1),
+		"tools":      toAnthropicTools(tools),
 	}
+	c.setAnthropicSampling(body)
 	if system != "" {
 		body["system"] = system
 	}
 
-	data, err := c.post(ctx, "/v1/messages", body)
+	data, err := c.postAnthropic(ctx, body)
 	if err != nil {
 		return Reply{}, err
 	}

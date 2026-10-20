@@ -214,6 +214,14 @@ var Providers = []string{
 	"openai", "codex", "copilot", "ollama", "ollama-cloud", "anthropic", "claude-code", "gemini", "qwen",
 }
 
+// TemperatureOr is the configured temperature, or def when none was set.
+func (l LLM) TemperatureOr(def float64) float64 {
+	if l.Temperature == nil {
+		return def
+	}
+	return *l.Temperature
+}
+
 // LLM describes the reasoning engine (Layer B).
 type LLM struct {
 	Provider       string        `yaml:"provider"` // one of Providers
@@ -221,7 +229,7 @@ type LLM struct {
 	APIKey         string        `yaml:"api_key"`
 	BaseURL        string        `yaml:"base_url"`
 	MaxTokens      int           `yaml:"max_tokens"`
-	Temperature    float64       `yaml:"temperature"`
+	Temperature    *float64      `yaml:"temperature"` // nil: the provider default
 	Timeout        time.Duration `yaml:"timeout"`
 	MaxAttempts    int           `yaml:"max_attempts"`
 	BackoffInitial time.Duration `yaml:"backoff_initial"`
@@ -438,7 +446,6 @@ func Default() Config {
 			Model:          "gpt-4o-mini",
 			BaseURL:        "https://api.openai.com/v1",
 			MaxTokens:      16384,
-			Temperature:    0.2,
 			Timeout:        90 * time.Second,
 			MaxAttempts:    3,
 			BackoffInitial: time.Second,
