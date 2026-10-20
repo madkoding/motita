@@ -535,6 +535,18 @@ func rmTargets(args []string) []string {
 	return out
 }
 
+// isSystemRootOrHome reports whether a clean absolute path is a system root or a home directory
+// itself: neither is ever local work.
+func isSystemRootOrHome(p string) bool {
+	switch p {
+	case "/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv":
+		return true
+	default:
+		rest, ok := strings.CutPrefix(p, "/home/")
+		return ok && !strings.ContainsRune(rest, '/')
+	}
+}
+
 // isRootLike reports whether a path names something whose deletion is not local work.
 //
 // The comparison is on the RESOLVED path, because `..` and a symlink are the two ways a
@@ -561,14 +573,7 @@ func isRootLike(target, dir string) bool {
 	}
 	paths := writtenAndResolved(abs)
 	for _, p := range paths {
-		switch p {
-		case "/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv":
-			return true
-		default:
-			// Not a system root itself: the home and parent-tree checks below decide.
-		}
-		// A home directory itself, which is the other thing that is never local work.
-		if rest, ok := strings.CutPrefix(p, "/home/"); ok && !strings.ContainsRune(rest, '/') {
+		if isSystemRootOrHome(p) {
 			return true
 		}
 	}
