@@ -711,6 +711,10 @@ test("the whole disk is given only after a confirmation; the workspace comes bac
     m.root.querySelector("[data-testid=security-not-enforced]"),
     null,
   );
+  assert.match(
+    m.root.querySelector("[data-testid=security-enforced]").textContent,
+    /not in a container/,
+  );
 
   await pick(m.root, "settings-disk", "full");
   const c = confirmBox(m.root, "security-confirm");

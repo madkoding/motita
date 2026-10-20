@@ -141,18 +141,25 @@ function DiskAccessControls({
               ),
           )
         }
-        warning={
-          !view.enforced && (
-            <div
-              class="text-xs text-warning mt-1"
-              data-testid="security-not-enforced"
-            >
-              {t(
-                "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.",
-              )}
-            </div>
-          )
-        }
+        warning={choose(
+          view.enforced,
+          <div
+            class="text-xs text-[#7a7a8c] mt-1"
+            data-testid="security-enforced"
+          >
+            {t(
+              "Motita's commands run inside the system's own sandbox (Landlock), not in a container.",
+            )}
+          </div>,
+          <div
+            class="text-xs text-warning mt-1"
+            data-testid="security-not-enforced"
+          >
+            {t(
+              "On this system only Motita's own file edits are limited: its commands are not, because that needs Linux with Landlock and write confinement on.",
+            )}
+          </div>,
+        )}
       >
         <Segmented<DiskAccess>
           name="settings-disk"
