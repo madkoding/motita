@@ -910,6 +910,85 @@ const more: Record<string, string> = {
   "Most open pull requests": "Máximo de pull requests abiertos",
   "Motita keeps at most this many of its own pull requests open at once, from 1 to 10. It opens no more until you merge or close some.":
     "Motita mantiene abiertos a la vez como máximo esta cantidad de pull requests propios, de 1 a 10. No abre más hasta que fusiones o cierres alguno.",
+  Journal: "Diario",
+  "Loading…": "Cargando…",
+  "This gateway has no journal: it is older than this page.":
+    "Este gateway no tiene diario: es más antiguo que esta página.",
+  "Motita writes down, on this computer only, the failures, retries and refused actions of your sessions, and the answers you mark as not good. Nothing leaves it, secrets are masked, and nothing changes by itself.":
+    "Motita anota, solo en este equipo, los fallos, reintentos y acciones rechazadas de tus sesiones, y las respuestas que marcas como no buenas. Nada sale de aquí, los secretos se ocultan y nada cambia por sí solo.",
+  "Clear the journal": "Borrar el diario",
+  "Clear the whole journal?": "¿Borrar todo el diario?",
+  "Everything written so far is deleted, not just this week.":
+    "Se borra todo lo anotado hasta ahora, no solo esta semana.",
+  "This was not right": "Esto no estuvo bien",
+  "What went wrong? (optional)": "¿Qué salió mal? (opcional)",
+  Send: "Enviar",
+  "Noted, thanks": "Anotado, gracias",
+  "It stays in the journal on this computer; nothing is sent anywhere.":
+    "Queda en el diario de este equipo; no se envía a ningún lado.",
+  "could not note it": "no se pudo anotar",
+  "Guides to your projects, your conversations and your own ideas.":
+    "Guías de tus proyectos, tus conversaciones y tus propias ideas.",
+  "See how the notes connect to each other":
+    "Mira cómo se conectan las notas entre sí",
+  "Start here": "Empieza aquí",
+  "Technical overview of {name}": "Resumen técnico de {name}",
+  "Project page: {name}": "Página del proyecto {name}",
+  Conversations: "Conversaciones",
+  "Update this guide": "Actualizar esta guía",
+  "Update these notes": "Actualizar estas notas",
+  "Writes them again from your project, in the background":
+    "Las vuelve a escribir a partir de tu proyecto, en segundo plano",
+  "Delete this guide": "Eliminar esta guía",
+  "Delete this folder": "Eliminar esta carpeta",
+  "Options for {name}": "Opciones de {name}",
+  "Guide · {pages}": "Guía · {pages}",
+  "1 page": "1 página",
+  "{n} pages": "{n} páginas",
+  "Deletes its 1 note": "Elimina su única nota",
+  "Deletes its {n} notes": "Elimina sus {n} notas",
+  "What is the note about?": "¿De qué trata la nota?",
+  "Updating the guides": "Actualizando las guías",
+  "More options for the notes": "Más opciones para las notas",
+  "Update the guides": "Actualizar las guías",
+  "Writes the guide of every project again":
+    "Vuelve a escribir la guía de cada proyecto",
+  "Write a new note": "Escribir una nota nueva",
+  "Pages that link here ({n})": "Páginas que enlazan aquí ({n})",
+  "Options for this note": "Opciones de esta nota",
+  "Links from other notes follow the new name":
+    "Los enlaces de otras notas siguen el nuevo nombre",
+  "Asks before deleting it": "Pregunta antes de eliminarla",
+  "Welcome to your notes": "Bienvenido a tus notas",
+  "Here Motita keeps what it learns about your projects, and you can write your own notes.":
+    "Aquí Motita guarda lo que aprende de tus proyectos, y tú puedes escribir tus propias notas.",
+  "Start with a guide: it explains a project in plain words, one chapter for each part.":
+    "Empieza por una guía: explica un proyecto con palabras sencillas, con un capítulo para cada parte.",
+  "Open the guide of {name}": "Abrir la guía de {name}",
+  "There are no guides yet. Motita can write one for each of your projects.":
+    "Todavía no hay guías. Motita puede escribir una para cada uno de tus proyectos.",
+  "Write the guides now": "Escribir las guías ahora",
+  "Where are my notes kept?": "¿Dónde se guardan mis notas?",
+  "They are ordinary text files, so other programs such as Obsidian can open them too. The folder is {root}":
+    "Son archivos de texto normales, así que otros programas como Obsidian también pueden abrirlas. La carpeta es {root}",
+  "The note is deleted for good, with everything written in it.":
+    "La nota se elimina para siempre, con todo lo que tiene escrito.",
+  "Everything in it is deleted, including what you wrote in these notes. Motita can write it again from your project when you update the guides.":
+    "Se elimina todo lo que contiene, incluido lo que hayas escrito en estas notas. Motita puede volver a escribirlo a partir de tu proyecto cuando actualices las guías.",
+  "Everything in it is deleted, including what you wrote in these notes. This cannot be undone.":
+    "Se elimina todo lo que contiene, incluido lo que hayas escrito en estas notas. No se puede deshacer.",
+  "Delete this folder of notes?": "¿Eliminar esta carpeta de notas?",
+  "Delete this note?": "¿Eliminar esta nota?",
+  "Delete the note": "Eliminar la nota",
+  "Keep it": "Conservarla",
+  "1 note will be deleted.": "Se eliminará 1 nota.",
+  "{n} notes will be deleted.": "Se eliminarán {n} notas.",
+  "Delete 1 note": "Eliminar 1 nota",
+  "Delete {n} notes": "Eliminar {n} notas",
+  "could not delete the folder": "no se pudo eliminar la carpeta",
+  "1 note deleted": "1 nota eliminada",
+  "{n} notes deleted": "{n} notas eliminadas",
+  "could not update the notes": "no se pudieron actualizar las notas",
 };
 
 export default more;

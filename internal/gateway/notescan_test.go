@@ -91,7 +91,7 @@ func TestScanWritesANotePerProjectAndSessionAndIsRepeatable(t *testing.T) {
 	}
 	project := readNote(t, dir, "Projects/App.md")
 	for _, want := range []string{
-		"https://example.com/a.git", "Main branch: main", "> The app", "### Sessions", "### README", "It does things.",
+		"https://example.com/a.git", "> The app", "### Conversations", "### README", "It does things.",
 	} {
 		if !strings.Contains(project, want) {
 			t.Errorf("project note lacks %q:\n%s", want, project)
@@ -221,5 +221,23 @@ func TestScanOnFirstUseRunsOnceAndOnlyInAnEmptyVault(t *testing.T) {
 	w := noteCall(t, srv2, http.MethodPost, "/v1/notes/scan?first=1", "")
 	if !strings.Contains(w.Body.String(), `"ran":false`) {
 		t.Errorf("a vault with notes: %s", w.Body)
+	}
+}
+
+func TestSessionNoteHeadingIsTheTitleNotTheFileName(t *testing.T) {
+	srv, dir, _ := scanServer(t, []agent.DialogueTurn{{User: "hi", Agent: "hello"}})
+	c, _ := srv.lookup(DefaultSession)
+	for _, title := range []string{"Plan the trip", ""} {
+		c.stateMu.Lock()
+		c.title = title
+		c.stateMu.Unlock()
+		runScan(t, srv)
+		heading := "# Session\n"
+		if title != "" {
+			heading = "# " + title + "\n"
+		}
+		if note := readNote(t, dir, sessionNoteName(title, c.id)); !strings.HasPrefix(note, heading) {
+			t.Errorf("title %q: the note starts with %q", title, note[:min(40, len(note))])
+		}
 	}
 }

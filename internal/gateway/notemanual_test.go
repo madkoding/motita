@@ -146,15 +146,15 @@ func wantAll(t *testing.T, name, note string, wants ...string) {
 
 func TestManualStartsWithAGuideToTheProject(t *testing.T) {
 	read, link, res := writtenManual(t)
-	if link != "[[Projects/M - Manual/Start here|M manual]]" || res.Documented == 0 || res.Skipped != 1 {
+	if link != "[[Projects/M - Manual/Start here|M guide]]" || res.Documented == 0 || res.Skipped != 1 {
 		t.Fatalf("link %q res %+v", link, res)
 	}
 	start := read("Start here")
 	wantAll(t, "start", start,
-		"# M manual", "*The guide to M, written by motita from its code.",
-		"the architecture overview [[Projects/M - Architecture]]",
+		"# M guide", "*A guide to M, written by motita from its files.",
+		"the technical overview [[Projects/M - Architecture]]",
 		"## What this project is\nThe project, in short.\n",
-		"## How it is organised\n",
+		"## Contents\n",
 		"- [[Projects/M - Manual/lib|Lib]]: It holds 2 folders.\n"+
 			"  - [[Projects/M - Manual/lib › api|Api]]: Package api is the public face.\n",
 		"## Files at the top\n", "- **README.md** (3 lines): The project", "- **run.sh** (Shell, 3 lines): Runs it.")
@@ -167,8 +167,7 @@ func TestManualChaptersExplainEachFolder(t *testing.T) {
 	read, _, _ := writtenManual(t)
 	api := read("lib › api")
 	wantAll(t, "api chapter", api,
-		"# Api", "*A chapter of the [[Projects/M - Manual/Start here|M manual]]. Folder `lib/api/`, "+
-			"inside [[Projects/M - Manual/lib|Lib]].*",
+		"# Api", "*[[Projects/M - Manual/Start here|M guide]] › [[Projects/M - Manual/lib|Lib]] › **Api***",
 		"## What it is for\nPackage api is the public face.\n\nIt says more here.\n",
 		"## What is inside\nIt holds 3 files, mostly Go.\n", "- and 1 test file checking them.\n",
 		"## How it connects\nIt relies on [[Projects/M - Manual/lib › store|Store]].",
@@ -249,7 +248,7 @@ func TestManualRemovesWhatIsNoLongerThere(t *testing.T) {
 	}
 	var res noteScan
 	writeManual(context.Background(), v, Project{Title: "M"}, "Projects/M.md",
-		manualFacts(t, map[string]string{"A/x.txt": "x", "a/y.txt": "y"}), nil, &res)
+		manualFacts(t, map[string]string{"A/x.py": "x = 1", "a/y.py": "y = 2"}), nil, &res)
 	var left []string
 	for _, n := range v.List() {
 		left = append(left, n.Path)
@@ -360,5 +359,23 @@ func TestScanExplainsAsManyFoldersAsChosen(t *testing.T) {
 	srv, _ := archServer(t, svc)
 	if got := scanWith(t, srv, "?summarize=1&modules=2"); svc.modules != 2 || got.Explained != 3 {
 		t.Errorf("two folders and the project: %+v, %d modules", got, svc.modules)
+	}
+}
+
+func TestManualLeavesOutFoldersThatHaveNothingToRead(t *testing.T) {
+	facts := manualFacts(t, map[string]string{
+		"app/main.py":             "x = 1",
+		"app/pictures/one.png":    "png",
+		"app/pictures/deep/a.png": "png",
+		"docs/intro.md":           "# Intro",
+		"notes/README.md":         "# Notes\nWhat they are.",
+		"empty/data.bin":          "bin",
+	})
+	var rels []string
+	for _, m := range buildManual(facts) {
+		rels = append(rels, m.rel)
+	}
+	if got, want := strings.Join(rels, " "), " app docs notes"; got != want {
+		t.Errorf("chapters = %q, want %q", got, want)
 	}
 }

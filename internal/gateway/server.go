@@ -18,6 +18,7 @@ import (
 
 	"github.com/madkoding/motita/internal/approvals"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/friction"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
@@ -241,6 +242,9 @@ type Options struct {
 	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
 	// (see push.go). Empty means there are none.
 	PushDir string
+	// FrictionFile is the friction journal (see friction.go): what got in the way, kept on this
+	// computer. Empty keeps it in memory, until the gateway stops.
+	FrictionFile string
 	// PeerFile is where this gateway's identity and the other computers it is connected to are
 	// kept (see peers.go). Empty keeps them in memory: the identity changes with every start.
 	PeerFile string
@@ -376,6 +380,13 @@ type Server struct {
 	autopilotMu   sync.Mutex
 	autopilotBusy map[string]bool
 
+	// learnWG tracks the reviews of closed sessions in flight. See closelearn.go.
+	learnWG sync.WaitGroup
+
+	// friction is the journal of what got in the way. Never nil once the server is started. See
+	// friction.go.
+	friction *friction.Journal
+
 	// peers are the other gateways found and connected to, and how they are spoken to. See
 	// peers.go.
 	peers     *peers.Registry
@@ -464,6 +475,7 @@ func Start(opts Options) (*Server, error) {
 	// lock once the gateway serves.
 	s.openScheduleStore()
 	s.openPush()
+	s.openFriction()
 	s.openPeers()
 	resumeInterrupted(s)
 	s.indexProjects()
@@ -869,6 +881,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("DELETE /v1/push/subscriptions", plain(s.handleRemovePush))
 	mux.Handle("POST /v1/push/test", plain(s.handleTestPush))
 
+	// The friction journal: what got in the way, as a weekly summary the settings show.
+	mux.Handle("GET /v1/friction", plain(s.handleGetFriction))
+	mux.Handle("DELETE /v1/friction", plain(s.handleClearFriction))
+
 	// The procedure library and its maintenance pass. PROCESS-WIDE, like /v1/projects
 	// and /v1/commands: a skill is not a property of one conversation, and the ledger
 	// behind it is shared by every conversation this process holds.
@@ -927,6 +943,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/model-list", scoped(s.handleModelList))
 	mux.Handle("POST /v1/sessions/{id}/reasoning", scoped(s.handleReasoning))
 	mux.Handle("POST /v1/sessions/{id}/verdict", scoped(s.handleVerdict))
+	mux.Handle("POST /v1/sessions/{id}/friction", scoped(s.handleFlagAnswer))
 	mux.Handle("GET /v1/sessions/{id}/reward", scoped(s.handleReward))
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))

@@ -24,7 +24,7 @@ type subtaskTry struct {
 func (a *Agent) retrySubtask(ctx context.Context, st subtaskTry, last TaskResult) TaskResult {
 	t, analysis, subs, i, outcomes, depth := st.t, st.analysis, st.subs, st.i, st.outcomes, st.depth
 	for n := 1; !last.Pass && n <= a.cfg.Agent.SubtaskRetries && ctx.Err() == nil; n++ {
-		a.report("subtask %d/%d did not pass; trying again (%d/%d): %s", i+1, len(subs), n,
+		a.report("subtask %d/%d "+subtaskRetryMarker+" (%d/%d): %s", i+1, len(subs), n,
 			a.cfg.Agent.SubtaskRetries, truncate(last.Reason, 160))
 		last = a.processTask(ctx, task.Task{
 			Description: retryBrief(subtaskBrief(t.Description, analysis.Summary, subs, i, outcomes), last.Reason),

@@ -1313,6 +1313,101 @@ div[role="log"]:not(.chat-loading) > * {
   background: rgb(var(--accent-rgb) / 0.15);
   border-color: var(--color-accent);
 }
+/* "This was not right" (FlagButton in App.tsx): the speak button's neighbour, with the same
+ * hover and touch rules, and the small form it opens under the answer. */
+.msg.agent .flag-msg-btn {
+  position: absolute;
+  right: 36px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 22px;
+  padding: 2px 6px;
+  color: var(--color-accent);
+  background: rgb(var(--bg-rgb) / 0.7);
+  border: 1px solid rgb(var(--accent-rgb) / 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease-out,
+    background-color 0.2s ease-out,
+    border-color 0.2s ease-out;
+}
+@media (hover: hover) {
+  .msg.agent .flag-msg-btn:not(.is-open) {
+    opacity: 0;
+  }
+  .msg.agent:hover .flag-msg-btn,
+  .msg.agent .flag-msg-btn:focus-visible {
+    opacity: 1;
+  }
+  .msg.agent .flag-msg-btn:hover {
+    background: rgb(var(--accent-rgb) / 0.15);
+    border-color: var(--color-accent);
+  }
+}
+.msg.agent .flag-msg-btn.is-open {
+  background: rgb(var(--accent-rgb) / 0.15);
+  border-color: var(--color-accent);
+}
+.msg.agent .flag-msg-done {
+  position: absolute;
+  right: 36px;
+  bottom: 6px;
+  font-size: 0.6875rem;
+  color: var(--t2);
+}
+.msg.agent .flag-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.625rem;
+  padding-bottom: 1.75rem;
+}
+.msg.agent .flag-form-note {
+  width: 100%;
+  resize: vertical;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--t1);
+  background: rgb(var(--bg-rgb) / 0.6);
+  border: 1px solid rgb(var(--accent-rgb) / 0.25);
+  border-radius: 0.5rem;
+}
+.msg.agent .flag-form-note:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.msg.agent .flag-form-hint {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--t2);
+}
+.msg.agent .flag-form-send {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0 0.875rem;
+  font-size: 0.75rem;
+  color: #fff;
+  background: var(--color-accent);
+  border-radius: 0.5rem;
+}
+.msg.agent .flag-form-send:disabled {
+  opacity: 0.6;
+}
+/* The summary of the friction journal, as the gateway wrote it. */
+.friction-summary {
+  margin: 0;
+  padding: 0.5rem 0.875rem 0.875rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--t2);
+}
 /* The sentence being read aloud (CSS Custom Highlight API: no element is added to the answer). */
 ::highlight(motita-reading) {
   background-color: rgb(var(--accent-rgb) / 0.28);
@@ -3218,6 +3313,9 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 }
 .cp-menu button.is-armed {
   background: rgba(125, 63, 62, 0.34);
+  color: var(--k-ffb0aa, #ffb0aa);
+}
+.cp-menu button.is-danger {
   color: var(--k-ffb0aa, #ffb0aa);
 }
 .cp-menu button.is-armed small {

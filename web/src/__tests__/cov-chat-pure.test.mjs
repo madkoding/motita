@@ -357,7 +357,17 @@ for (const B of turnCopies) {
       { id: 2, role: "agent" },
     ];
     const store = (over = {}) => ({
-      rs: { messages, running: false, activityKind: "", cpInfo },
+      api: async (path, init) => {
+        calls.push(["api", path, JSON.parse(init.body), over.tag]);
+        return { ok: over.tag !== 4 };
+      },
+      rs: {
+        messages,
+        running: false,
+        activityKind: "",
+        cpInfo,
+        sessionRef: { current: "sess/1" },
+      },
       checkpoints: {
         cpMenu: null,
         cpArmed: false,
@@ -403,6 +413,7 @@ for (const B of turnCopies) {
     v1.submit("again");
     v1.answerSuggestions({ id: 9 }, { picks: [] });
     v1.speak({ id: 8 });
+    assert.equal(await v1.flagAnswer({ id: 2, turn: 6 }, "off"), true);
     v1.showRunArtifact({ name: "f.txt", type: "text/plain" });
     assert.deepEqual(calls, [
       ["setCpMenu", 3, 2],
@@ -413,6 +424,7 @@ for (const B of turnCopies) {
       ["submit", "again", 2],
       ["answer", 9, { picks: [] }, 2],
       ["speak", 8, 2],
+      ["api", "/v1/sessions/sess%2F1/friction", { turn: 6, note: "off" }, 2],
       ["artifact", "f.txt", 2],
     ]);
     // A run starting changes the view; an empty conversation has no last message.
@@ -425,6 +437,9 @@ for (const B of turnCopies) {
     assert.equal(v3.lastMsgId, null);
     assert.equal(v3.lastUserId, -1);
     assert.equal(v3.stopRun, v1.stopRun, "the actions keep their identity");
+    // A journal that refuses is a false, not a throw.
+    await hook.rerender({ store: store({ tag: 4 }) });
+    assert.equal(await v1.flagAnswer({ id: 2, turn: 6 }, ""), false);
     await hook.unmount();
   });
 

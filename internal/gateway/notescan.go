@@ -150,24 +150,23 @@ func readmeExcerpt(dir string) string {
 	return ""
 }
 
-func projectBlock(p Project, links []string, archLink string) string {
+func projectBlock(p Project, links []string, archLink, guideLink string) string {
 	var b strings.Builder
-	b.WriteString("## Project\n")
-	fmt.Fprintf(&b, "- Folder: `%s`\n", p.Dir)
+	b.WriteString("## About this project\n")
+	if p.Description != "" {
+		b.WriteString(quote(p.Description, scanQuoteBytes) + "\n\n")
+	}
+	if guideLink != "" {
+		b.WriteString("- Read the guide: " + guideLink + "\n")
+	}
+	if archLink != "" {
+		b.WriteString("- Technical overview: " + archLink + "\n")
+	}
 	if p.GitURL != "" {
 		fmt.Fprintf(&b, "- Repository: %s\n", redact.String(p.GitURL))
 	}
-	if p.MainBranch != "" {
-		fmt.Fprintf(&b, "- Main branch: %s\n", p.MainBranch)
-	}
-	if p.Description != "" {
-		b.WriteString("\n" + quote(p.Description, scanQuoteBytes) + "\n")
-	}
-	if archLink != "" {
-		b.WriteString("- Architecture: " + archLink + "\n")
-	}
 	if len(links) > 0 {
-		b.WriteString("\n### Sessions\n")
+		b.WriteString("\n### Conversations\n")
 		for _, l := range links {
 			b.WriteString("- " + l + "\n")
 		}
@@ -215,7 +214,11 @@ func (s *Server) scanSessionNotes(
 			projectLink = wikiLink(pn)
 			byProject[ss.projectID] = append(byProject[ss.projectID], wikiLink(name))
 		}
-		title := strings.TrimSuffix(filepath.Base(name), ".md")
+		// The heading is what the conversation was called; the id only tells the files apart.
+		title := strings.TrimSpace(ss.title)
+		if title == "" {
+			title = "Session"
+		}
 		outcome, err := v.Upsert(name, title, sessionBlock(ss, projectLink, sum.of(ctx, v, name, ss)))
 		res.count(outcome, err)
 	}
@@ -267,13 +270,19 @@ func (s *Server) scanQuery(r *http.Request) url.Values {
 	if q.Get("again") == "" {
 		return q
 	}
+	// The project menu rescans its own project only.
+	return s.againQuery(q.Get(scanProject))
+}
+
+// againQuery is a scan in the background with the model options of the last one, limited to the
+// project id when there is one.
+func (s *Server) againQuery(project string) url.Values {
 	again := url.Values{scanBackground: {"1"}}
 	for k, v := range s.lastScanOptions() {
 		again[k] = v
 	}
-	// The project menu rescans its own project only.
-	if id := q.Get(scanProject); id != "" {
-		again.Set(scanProject, id)
+	if project != "" {
+		again.Set(scanProject, project)
 	}
 	return again
 }
@@ -318,8 +327,8 @@ func (s *Server) runScan(ctx context.Context, v *notes.Vault, q url.Values, t *s
 			*sp = scanProgress{Running: true, Phase: "projects", Project: p.Title, Done: i, Total: len(projects)}
 		})
 		res.Projects++
-		archLink := scanArchitecture(ctx, v, p, names[p.ID], ms, &res)
-		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID], archLink))
+		archLink, guideLink := scanArchitecture(ctx, v, p, names[p.ID], ms, &res)
+		outcome, err := v.Upsert(names[p.ID], p.Title, projectBlock(p, byProject[p.ID], archLink, guideLink))
 		res.count(outcome, err)
 	}
 	t.update(func(sp *scanProgress) { sp.Done = len(projects) })
