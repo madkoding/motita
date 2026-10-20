@@ -296,9 +296,10 @@ func applyLLMEnvironment(c *Config) error {
 
 	// The two floating-point settings have their own variables because they are the
 	// only non-integer numbers in the configuration.
+	temperature := c.LLM.TemperatureOr(0)
 	for _, b := range []binding[float64]{
 		{"MOTITA_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
-		{"MOTITA_LLM_TEMPERATURE", &c.LLM.Temperature},
+		{"MOTITA_LLM_TEMPERATURE", &temperature},
 	} {
 		if v := os.Getenv(b.key); v != "" {
 			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
@@ -306,6 +307,9 @@ func applyLLMEnvironment(c *Config) error {
 				return fmt.Errorf("%s: %q is not a number", b.key, v)
 			}
 			*b.dst = f
+			if b.key == "MOTITA_LLM_TEMPERATURE" {
+				c.LLM.Temperature = &temperature
+			}
 		}
 	}
 
