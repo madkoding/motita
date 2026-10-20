@@ -103,7 +103,11 @@ var removeTimeoutFor = removeTimeout
 // The ext:: transport is forbidden here, not only when the repository names protocol.ext.allow:
 // a general protocol.allow=always arms it too, and a per-protocol policy on the command line wins
 // over both.
-var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never"}
+var hardening = []string{
+	"-c", "core.hooksPath=/dev/null",
+	"-c", "core.fsmonitor=false",
+	"-c", "protocol.ext.allow=never",
+}
 
 // Hardening is a copy of the fixed -c options every git of this package runs with, for the few
 // callers outside it that start git themselves: put them before the subcommand. It carries only
