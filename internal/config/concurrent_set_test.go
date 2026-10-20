@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,5 +42,27 @@ func TestConcurrentSettersKeepEveryEdit(t *testing.T) {
 	}
 	if !strings.Contains(text, "provider: openai") {
 		t.Errorf("the rest of the file must survive:\n%s", text)
+	}
+}
+
+// SetCredential calls that run at once keep every key: each reads the file after the other wrote it.
+func TestConcurrentSetCredentialKeepsEveryKey(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "motita.yaml")
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := SetCredential(cfg, fmt.Sprintf("K%d", i), "v"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	body, _ := os.ReadFile(CredentialsPath(cfg))
+	for i := 0; i < 40; i++ {
+		if !strings.Contains(string(body), fmt.Sprintf("export K%d=", i)) {
+			t.Errorf("K%d was lost", i)
+		}
 	}
 }
