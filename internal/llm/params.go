@@ -54,7 +54,7 @@ func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
 		}
 	}
 	if !reasoning {
-		body["temperature"] = c.cfg.Temperature
+		body["temperature"] = c.cfg.TemperatureOr(defaultTemperature)
 	}
 	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" && c.cfg.Reasoning.Level != "" {
 		// OpenAI's own chat models reject reasoning_effort; every other host (Ollama,

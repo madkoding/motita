@@ -22,3 +22,6 @@ func killGroup(cmd *exec.Cmd) error {
 	}
 	return nil
 }
+
+// killLeftovers ends what the child left running in its group after it exited.
+func killLeftovers(cmd *exec.Cmd) { _ = killGroup(cmd) }

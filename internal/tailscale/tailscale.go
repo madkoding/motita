@@ -152,8 +152,12 @@ func (c *Client) Serve(ctx context.Context, target string) error {
 }
 
 // Unserve removes the https publication again.
+//
+// It names the root path Serve published. Without --set-path, `off` removes every mount on the
+// port, and with no terminal the CLI confirms that by itself, so the user's other apps on 443
+// would go too.
 func (c *Client) Unserve(ctx context.Context) error {
-	return c.do(ctx, "serve", "--https="+HTTPSPort, "off")
+	return c.do(ctx, "serve", "--https="+HTTPSPort, "--set-path=/", "off")
 }
 
 // do runs one command that changes the serve configuration.

@@ -532,3 +532,16 @@ func TestNewDefaults(t *testing.T) {
 		t.Errorf("default screen = %v, want Auto", tui.screen)
 	}
 }
+
+// TestAReferenceIsAddedUnderTheDrawLock: /help while a followed run paints from its own goroutine.
+// The append must hold t.draw, or -race reports it against the painter's read.
+func TestAReferenceIsAddedUnderTheDrawLock(t *testing.T) {
+	tu, _ := newKeyTUI("")
+	painted := make(chan struct{})
+	go func() {
+		defer close(painted)
+		tu.drawFrame()
+	}()
+	tu.addPreformatted(AuthorSystem, "a key reference")
+	<-painted
+}

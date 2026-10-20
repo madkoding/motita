@@ -284,12 +284,20 @@ func TestCheckSessionReportsAGatewayThatWillNotAnswer(t *testing.T) {
 // TestCheckSessionReportsAGatewayHoldingNothing: an empty list is not a wrong id - it is a gateway
 // with no conversations at all, and saying so is different from listing the ones that exist.
 func TestCheckSessionReportsAGatewayHoldingNothing(t *testing.T) {
-	err := checkSession(listingRunner{}, "default")
+	err := checkSession(listingRunner{}, "sother")
 	if err == nil {
 		t.Fatal("a gateway holding no sessions must be reported")
 	}
 	if !strings.Contains(err.Error(), "none at all") {
 		t.Errorf("the failure must distinguish an empty gateway, got: %v", err)
+	}
+}
+
+// TestCheckSessionAcceptsTheDormantDefaultSession: a fresh gateway hides its empty default session
+// from the listing, but the session exists, so `-connect host` with no -session must attach.
+func TestCheckSessionAcceptsTheDormantDefaultSession(t *testing.T) {
+	if err := checkSession(listingRunner{}, gateway.DefaultSession); err != nil {
+		t.Errorf("the default session must pass when the listing is empty, got: %v", err)
 	}
 }
 

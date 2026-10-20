@@ -124,6 +124,13 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 	// an error that has nothing to do with what went wrong.
 	if err := op.waitForGateway(ctx); err != nil {
 		fmt.Fprintf(op.Err, "the gateway did not come up: %v\n", err)
+		// The child's output is discarded, so name where its cause is: the configuration it
+		// failed to load, or else the log it writes.
+		if cfg, lerr := loadRunConfig(fl); lerr != nil {
+			fmt.Fprintf(op.Err, "the configuration does not load: %v\n", lerr)
+		} else {
+			fmt.Fprintf(op.Err, "see the log in %s\n", LogPath(cfg))
+		}
 		return ConfigError
 	}
 	found, ok, err = op.discover(ctx)

@@ -28,7 +28,7 @@ func testClient(t *testing.T, provider, url string, cfg func(*config.LLM)) *Clie
 		APIKey:         "key",
 		BaseURL:        url,
 		MaxTokens:      100,
-		Temperature:    0.1,
+		Temperature:    ptr(0.1),
 		Timeout:        5 * time.Second,
 		MaxAttempts:    1,
 		BackoffInitial: time.Millisecond,
