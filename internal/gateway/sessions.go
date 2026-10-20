@@ -143,7 +143,8 @@ type conversation struct {
 	pending *pendingApproval
 	// autoApprove is the user's "allow all commands for this session": while it is set, every
 	// command the policy would ASK about is approved without asking. It never reaches what the
-	// policy DENIES - that is decided before any approver is consulted. It is saved with the
+	// policy DENIES - that is decided before any approver is consulted - nor the questions that
+	// are not commands (agent.BudgetRule, agent.GateRule). It is saved with the
 	// session (sessionRecord.AutoApprove), so a restart or an upgrade does not make the user
 	// give the same answer again; the pill in the interface says it is on and takes it back.
 	// Guarded by stateMu.

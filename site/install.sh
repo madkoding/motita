@@ -33,6 +33,8 @@ set -eu
 REPO="madkoding/motita"
 BIN="motita"
 VERSION="${MOTITA_VERSION:-latest}"
+# The same endpoint the in-program updater reads (internal/updater).
+API="https://api.github.com/repos/${REPO}/releases/latest"
 
 # The ed25519 key releases sign SHA256SUMS with, as the base64 body of its PEM
 # public key. It is the same value as ReleasePublicKey in internal/updater, and
@@ -212,6 +214,16 @@ EXT=""
 
 ASSET="${BIN}-${OS}-${ARCH}${EXT}"
 
+# GitHub resolves releases/latest/download again on EVERY request, and releases
+# land minutes apart. The binary, SHA256SUMS and SHA256SUMS.sig could then come
+# from two releases, and the user reads "the download is corrupt" or "tampered
+# with". So "latest" is resolved to one tag here, and every file comes from it.
+# If the API does not answer (a rate limit, a proxy), the old URL still works.
+if [ "$VERSION" = latest ]; then
+	TAG="$(download "$API" - 2>/dev/null | sed -n 's/.*"tag_name":[[:space:]]*"\([A-Za-z0-9._-]*\)".*/\1/p' | head -1)"
+	[ -n "$TAG" ] && VERSION="$TAG"
+fi
+
 if [ "$VERSION" = latest ]; then
 	BASE="https://github.com/${REPO}/releases/latest/download"
 else
@@ -282,8 +294,14 @@ else
 fi
 
 mkdir -p "$DIR" || die "could not create ${DIR}"
-chmod +x "${TMP}/${ASSET}"
-mv -f "${TMP}/${ASSET}" "${DIR}/${BIN}" || die "could not write ${DIR}/${BIN}"
+# The binary is staged beside its target and renamed there: a rename within one
+# directory is atomic. A move from $TMP, often another filesystem (a tmpfs /tmp),
+# deletes the old binary first and then copies, so a full disk or a Ctrl-C left
+# no working motita at all.
+NEW="${DIR}/.${BIN}.new.$$"
+trap 'rm -rf "$TMP"; rm -f "$NEW"' EXIT INT TERM
+{ cp "${TMP}/${ASSET}" "$NEW" && chmod +x "$NEW" && mv -f "$NEW" "${DIR}/${BIN}"; } ||
+	die "could not write ${DIR}/${BIN}. The previous install, if any, is unchanged."
 
 say "  installed: ${DIR}/${BIN}"
 

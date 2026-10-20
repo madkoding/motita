@@ -41,9 +41,18 @@ var rules = []rule{
 	{regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`), Mask},
 	// Credentials in a URL: scheme://user:password@host.
 	{regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s:@"'\\]+:[^/\s@"'\\]+@`), "${1}" + Mask + "@"},
-	// Secret query parameters: ?token=, &access_token=, &api_key=, &secret=, &password=...
-	{regexp.MustCompile(`(?i)((?:^|[?&;])(?:[a-z0-9_.-]*[_-])?(?:token|key|apikey|secret|password|passwd)=)` +
+	// Secret assignments: query parameters (?token=, &api_key=), a line that starts with one
+	// (api_key=x), flags (--password=x) and upper-case variables anywhere (export
+	// DB_PASSWORD='x', API_KEY=x cmd). A lower-case name after a space is code, not a
+	// secret (Python's key=len, HTML's data-key="a"). A quote around the value stays.
+	{regexp.MustCompile(`((?:(?i:(?:^|[?&;\n]|\s-)(?:[a-z0-9_.-]*[_-])?(?:token|key|apikey|secret|password|passwd))|` +
+		`\s(?:[A-Z0-9_]*_)?(?:TOKEN|KEY|APIKEY|SECRET|PASSWORD|PASSWD))=["']?)` +
 		`[^&;\s"'\\#<>$(){}` + "`" + `]+`), "${1}" + Mask},
+	// Secret string fields in JSON: "access_token": "x", "client_secret": "x", "apiKey": "x".
+	// The value ends with its line, and one that starts with ` is Go source building the JSON.
+	{regexp.MustCompile(`(?i)("[a-z0-9_-]*(?:token|secret|password|passwd|api_?key)"\s*:\s*")` +
+		`[^"\\$({<` + "`" + `][^"\\\n]*`),
+		"${1}" + Mask},
 }
 
 // String returns s with every recognized secret replaced by Mask.

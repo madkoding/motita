@@ -1,9 +1,11 @@
 package gitx
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The dependency directories a fresh checkout needs in order to RUN. It lives here, beside
@@ -30,12 +32,16 @@ import (
 // checks with no toolchain: this repository's own web UI is one. The walk follows the CHECKOUT's
 // directories, which are the tracked ones, so it never descends into something git ignores, and
 // it never enters a dependency directory or a link it made.
+//
+// git reads a link as a FILE, so a directory rule (`node_modules/`) does not hide it, and `add -A`
+// would commit a link to a host path. Each link is therefore ignored by its own root-anchored path.
 func LinkDependencyDirs(projectDir, worktree string) {
+	var links []string
 	visited := 0
 	var walk func(rel string, depth int)
 	walk = func(rel string, depth int) {
 		visited++
-		linkDependencyDirsAt(projectDir, worktree, rel)
+		links = append(links, linkDependencyDirsAt(projectDir, worktree, rel)...)
 		if depth >= dependencyDirsMaxDepth {
 			return
 		}
@@ -56,20 +62,27 @@ func LinkDependencyDirs(projectDir, worktree string) {
 		}
 	}
 	walk("", 0)
+	_ = ignoreLinks(context.Background(), worktree, links)
 }
 
-// linkDependencyDirsAt links the dependency directories of projectDir/rel into worktree/rel.
-// Nothing to share, or something is already there: both are "leave it alone". A link that cannot
-// be made is left alone too - see LinkDependencyDirs.
-func linkDependencyDirsAt(projectDir, worktree, rel string) {
+// linkDependencyDirsAt links the dependency directories of projectDir/rel into worktree/rel and
+// returns their root-anchored paths. Nothing to share, or something is already there: both are
+// "leave it alone". A path git would read as a pattern is left alone too: its link could not be
+// ignored by name. A link that cannot be made is listed anyway, since its path is a dependency
+// folder either way - see LinkDependencyDirs.
+func linkDependencyDirsAt(projectDir, worktree, rel string) []string {
+	var links []string
 	for _, name := range dependencyDirs {
 		src := filepath.Join(projectDir, rel, name)
 		dst := filepath.Join(worktree, rel, name)
-		if !isReadableDir(src) || pathExists(dst) {
+		path := "/" + filepath.ToSlash(filepath.Join(rel, name))
+		if strings.ContainsAny(path, "*?[]!#\\\n\r") || !isReadableDir(src) || pathExists(dst) {
 			continue
 		}
 		_ = os.Symlink(src, dst)
+		links = append(links, path)
 	}
+	return links
 }
 
 // isWalkableDir reports whether the walk enters e: a real directory that is neither .git nor a

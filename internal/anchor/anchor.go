@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,9 @@ type CheckLog struct {
 	// Failures is what the check's WHOLE output said failed, normalised (see failureSignature). It
 	// is how the baseline tells "fails the same way" from "fails, and now also for a new reason".
 	Failures []string `json:"-"`
+	// FailCounts are the failure counts the output printed, by line (see failureCounts): the
+	// signature hides numbers, and "2 failed" must still read as more than "1 failed".
+	FailCounts map[string][]int `json:"-"`
 }
 
 // Anchor validates results according to the configuration.
@@ -220,7 +224,8 @@ var digitRun = regexp.MustCompile(`[0-9]+`)
 // failureSignature is the set of failure lines in a check's output, with the directory the check
 // ran in and every number normalised, so the same failure reads the same on the baseline's
 // checkout and in the workspace. It is a heuristic and errs one way only: a line that differs
-// makes the failure "new", which keeps the result failed.
+// makes the failure "new", which keeps the result failed. The numbers it hides that count
+// failures are kept apart, in failureCounts.
 func failureSignature(output, dir string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -228,10 +233,7 @@ func failureSignature(output, dir string) []string {
 		if !failureLine.MatchString(line) {
 			continue
 		}
-		if dir != "" {
-			line = strings.ReplaceAll(line, dir, "<dir>")
-		}
-		line = strings.TrimSpace(digitRun.ReplaceAllString(line, "#"))
+		line = normalise(line, dir)
 		if !seen[line] {
 			seen[line] = true
 			out = append(out, line)
@@ -240,12 +242,51 @@ func failureSignature(output, dir string) []string {
 	return out
 }
 
+// failCount is a runner's count of failures: Jest's "Tests: 2 failed", mocha's "3 failing", a
+// linter's "4 errors".
+var failCount = regexp.MustCompile(`(?i)\b([0-9]+)\s+(failed|failing|errors?)\b`)
+
+// normalise is a failure line as the baseline's checkout and the workspace both read it: the
+// directory the check ran in and every number replaced.
+func normalise(line, dir string) string {
+	if dir != "" {
+		line = strings.ReplaceAll(line, dir, "<dir>")
+	}
+	return strings.TrimSpace(digitRun.ReplaceAllString(line, "#"))
+}
+
+// failureCounts are the failure counts an output printed, each under its line up to the count
+// (normalised), in the order it printed them: "Tests: 2 failed" is compared with the baseline's
+// "Tests: N failed", never with another tool's "N errors" that happened to print first.
+func failureCounts(output, dir string) map[string][]int {
+	out := map[string][]int{}
+	for _, line := range strings.Split(output, "\n") {
+		for _, m := range failCount.FindAllStringSubmatchIndex(line, -1) {
+			n, _ := strconv.Atoi(line[m[2]:m[3]]) // out of range is the largest int: still "more"
+			key := normalise(line[:m[1]], dir)
+			out[key] = append(out[key], n)
+		}
+	}
+	return out
+}
+
 // sameFailure reports whether a check that fails now fails the way it failed on the baseline:
 // the same exit code, and nothing in its failure lines that the baseline did not also report.
-// Fewer failures than before is the same failure (the run fixed some of them).
+// Fewer failures than before is the same failure (the run fixed some of them); a failure count
+// that grew is not, even when the lines read the same once their numbers are normalised.
+//
+// An output cut at the size limit, or a check that hung, was killed or never started (exit < 0),
+// proves nothing about the failures it did not show, so it is never the same failure.
 func sameFailure(before, now CheckLog) bool {
-	if before.Exit != now.Exit {
+	if before.Exit != now.Exit || before.Truncated || now.Truncated || now.Exit < 0 {
 		return false
+	}
+	for key, counts := range now.FailCounts {
+		for i, n := range counts {
+			if i >= len(before.FailCounts[key]) || n > before.FailCounts[key][i] {
+				return false
+			}
+		}
 	}
 	known := map[string]bool{}
 	for _, l := range before.Failures {
@@ -392,6 +433,7 @@ func (a *Anchor) runCheck(ctx context.Context, c config.Check) CheckLog {
 	record.Exit = exit
 	record.Output = truncate(output, 4000)
 	record.Failures = failureSignature(output, a.dir)
+	record.FailCounts = failureCounts(output, a.dir)
 	record.Truncated = truncated
 
 	if runErr != nil {

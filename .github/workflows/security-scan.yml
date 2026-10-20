@@ -1,10 +1,10 @@
-# Análisis de seguridad de KodingVibes: SonarQube + Trivy + Semgrep (+ gosec y govulncheck si hay Go).
-# - En cada Pull Request: analiza, comenta el resultado y FALLA si el PR toca algo CRITICAL/HIGH, o si
-#   SonarQube encuentra cualquier issue (bug, vulnerabilidad o code smell) en las líneas que agrega o cambia.
-#   Solo cuentan los hallazgos en archivos que el PR modifica (o en dependencias, si cambia un manifiesto/lockfile).
-# - En push a main/master: analiza todo y lo publica en SonarQube (https://sonar.kodingvibes.com), sin bloquear.
-# Secretos del repositorio necesarios: SONAR_TOKEN y SONAR_HOST_URL (si faltan, se omite solo la parte de SonarQube).
-name: Seguridad (KodingVibes)
+# KodingVibes security scan: SonarQube + Trivy + Semgrep (+ gosec and govulncheck when there is Go).
+# - On each pull request: scans, comments the result and FAILS if the PR touches anything CRITICAL/HIGH,
+#   or if SonarQube finds any issue (bug, vulnerability or code smell) on the lines it adds or changes.
+#   Only findings in files the PR changes count (or in dependencies, if a manifest/lockfile changes).
+# - On push to main/master: scans everything and publishes it to SonarQube (https://sonar.kodingvibes.com), without blocking.
+# Repository secrets needed: SONAR_TOKEN and SONAR_HOST_URL (if they are missing, only the SonarQube part is skipped).
+name: Security (KodingVibes)
 
 on:
   pull_request:
@@ -45,7 +45,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Contexto y archivos modificados
+      - name: Context and changed files
         run: |
           set -euo pipefail
           KV="$RUNNER_TEMP/kv"; mkdir -p "$KV/reports" "$HOME/kv-bin"
@@ -54,16 +54,16 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           if [ "$EVENT_NAME" = "pull_request" ]; then
             git diff --name-only "$PR_BASE_SHA"...HEAD -- . > "$KV/changed.txt" || git diff --name-only "$PR_BASE_SHA" HEAD > "$KV/changed.txt"
-            # Las líneas que agrega o cambia el PR: los hallazgos de SonarQube en ellas bloquean.
+            # The lines the PR adds or changes: SonarQube findings on them block.
             git diff -U0 --no-color "$PR_BASE_SHA"...HEAD -- . > "$KV/changed.diff" || git diff -U0 --no-color "$PR_BASE_SHA" HEAD > "$KV/changed.diff"
           else
             : > "$KV/changed.txt"; : > "$KV/changed.diff"
           fi
-          echo "Archivos modificados: $(wc -l < "$KV/changed.txt")"
+          echo "Changed files: $(wc -l < "$KV/changed.txt")"
           git ls-files '*go.mod' | head -6 > "$KV/gomods.txt" || true
-          echo "Módulos Go: $(wc -l < "$KV/gomods.txt")"
+          echo "Go modules: $(wc -l < "$KV/gomods.txt")"
 
-      - name: Instalar Trivy y Semgrep (versiones fijas, con verificación)
+      - name: Install Trivy and Semgrep (pinned versions, verified)
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
@@ -75,15 +75,15 @@ jobs:
           pipx install "semgrep==${SEMGREP_VERSION}" >/dev/null
           trivy --version | head -1; semgrep --version
 
-      - name: Trivy (dependencias, secretos, configuración)
+      - name: Trivy (dependencies, secrets, configuration)
         continue-on-error: true
         run: |
           trivy fs --quiet --scanners vuln,secret,misconfig \
             --skip-dirs '**/node_modules,**/vendor,**/.git,**/dist,**/build,**/target,**/.venv' \
             --format sarif --output "$KV/reports/trivy.sarif" .
 
-      # En un PR, Semgrep lo corre sonar.yml (contra el commit base, y falla con cualquier hallazgo nuevo).
-      - name: Semgrep (análisis estático de seguridad)
+      # On a PR, sonar.yml runs Semgrep (against the base commit, and it fails on any new finding).
+      - name: Semgrep (static security analysis)
         if: env.EVENT_NAME != 'pull_request'
         continue-on-error: true
         run: |
@@ -91,7 +91,7 @@ jobs:
             --max-target-bytes 1000000 --config p/security-audit --config p/owasp-top-ten \
             --sarif --output "$KV/reports/semgrep.sarif" .
 
-      - name: Configurar Go (si el repositorio tiene módulos Go)
+      - name: Set up Go (if the repository has Go modules)
         if: hashFiles('**/go.mod') != ''
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -99,14 +99,19 @@ jobs:
           go-version: ${{ hashFiles('go.mod') == '' && 'stable' || '' }}
           cache: false
 
-      - name: gosec y govulncheck (Go)
+      - name: gosec and govulncheck (Go)
         if: hashFiles('**/go.mod') != ''
         continue-on-error: true
         run: |
-          set -uo pipefail
-          # las herramientas se compilan con un Go reciente; cada módulo se analiza con el Go de su go.mod
-          GOTOOLCHAIN=go1.25.5 GOBIN="$HOME/kv-bin" go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
-          GOTOOLCHAIN=go1.25.5 GOBIN="$HOME/kv-bin" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          # -e: a tool that does not install fails the step where everyone sees it. Without it,
+          # each scan below wrote an empty report and the run looked clean.
+          set -euo pipefail
+          # No GOTOOLCHAIN pin: setup-go installs the go.mod toolchain and exports
+          # GOTOOLCHAIN=local, so the tools build with it and never switch up. A tool that
+          # needs a newer Go than go.mod fails here. A pin to go1.25.5 could not build
+          # govulncheck v1.8.0, which requires go 1.26.
+          GOBIN="$HOME/kv-bin" go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+          GOBIN="$HOME/kv-bin" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           n=0
           while read -r mod; do
             dir="$(dirname "$mod")"; n=$((n+1))
@@ -116,7 +121,7 @@ jobs:
             echo "$dir" > "$KV/reports/govulncheck_$n.sarif.prefix"
           done < "$KV/gomods.txt"
 
-      - name: Caché de sonar-scanner
+      - name: Cache sonar-scanner
         id: scanner-cache
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -124,7 +129,7 @@ jobs:
           path: ~/kv-sonar
           key: sonar-scanner-${{ env.SCANNER_VERSION }}
 
-      - name: Instalar sonar-scanner
+      - name: Install sonar-scanner
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         run: |
           set -euo pipefail
@@ -136,7 +141,7 @@ jobs:
           echo "$(curl -sSf "$base.sha256")  sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" | sha256sum -c -
           unzip -q "sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" -d "$HOME/kv-sonar"
 
-      - name: SonarQube (rama principal; publica todos los informes)
+      - name: SonarQube (main branch; publishes every report)
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != '' && env.EVENT_NAME != 'pull_request'
         continue-on-error: true
         run: |
@@ -150,17 +155,17 @@ jobs:
           git ls-files '*.java' | head -1 | grep -q . && ARGS+=(-Dsonar.java.binaries=.)
           sonar-scanner "${ARGS[@]}"
 
-      - name: SonarQube (proyecto temporal del PR)
+      - name: SonarQube (temporary project for the PR)
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != '' && env.EVENT_NAME == 'pull_request'
         continue-on-error: true
         run: |
           set -uo pipefail
-          # Community Build no analiza Pull Requests: se usa un proyecto temporal que se borra al terminar.
-          # Fuentes, exclusiones y reglas ignoradas salen de sonar-project.properties, igual que en el
-          # análisis de main, para que el PR vea los mismos hallazgos que verá main al integrarse.
+          # Community Build does not analyze pull requests: a temporary project is used and deleted at the end.
+          # Sources, exclusions and ignored rules come from sonar-project.properties, as in the main
+          # analysis, so the PR sees the same findings main will see after the merge.
           KEY="${GITHUB_REPOSITORY//\//_}-pr-${PR_NUMBER}"
           echo "SONAR_PR_KEY=$KEY" >> "$GITHUB_ENV"
-          # GITHUB_ENV llega a los pasos siguientes; el script de Python de este paso la lee de aquí.
+          # GITHUB_ENV reaches the next steps; the Python script in this step reads it from here.
           export SONAR_PR_KEY="$KEY"
           ARGS=(-Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" -Dsonar.projectKey="$KEY" -Dsonar.projectName="${GITHUB_REPOSITORY#*/} PR #${PR_NUMBER}"
                 -Dsonar.working.directory="$KV/scannerwork" -Dsonar.scm.revision="$HEAD_SHA")
@@ -173,7 +178,7 @@ jobs:
           for i in $(seq 1 120); do
             curl -s -u "$SONAR_TOKEN:" -o "$KV/ce.json" "$TASK_URL" || true
             st="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["task"]["status"])' "$KV/ce.json" 2>/dev/null || echo ERR)"
-            case "$st" in SUCCESS) break ;; FAILED|CANCELED) echo "Tarea de SonarQube: $st"; exit 0 ;; esac
+            case "$st" in SUCCESS) break ;; FAILED|CANCELED) echo "SonarQube task: $st"; exit 0 ;; esac
             sleep 10
           done
           python3 - <<'PY'
@@ -187,10 +192,10 @@ jobs:
               issues += data.get("issues", [])
               if page * 500 >= data.get("paging", {}).get("total", 0): break
           json.dump({"key": key, "issues": issues}, open(os.path.join(os.environ["KV"], "sonar_issues.json"), "w"))
-          print("Incidencias de SonarQube:", len(issues))
+          print("SonarQube issues:", len(issues))
           PY
 
-      - name: Evaluar resultados
+      - name: Evaluate results
         id: eval
         if: always()
         run: |
@@ -228,7 +233,10 @@ jobs:
 
           for f in sorted(glob.glob(f"{KV}/reports/*.sarif")):
               try: doc = json.load(open(f))
-              except Exception: continue
+              except Exception:
+                  # An empty or broken report means a tool did not run: say so instead of a quiet pass.
+                  print(f"::warning::{os.path.basename(f)} is not valid SARIF; its tool did not run")
+                  continue
               pf = f + ".prefix"; prefix = re.sub(r"^(\./)+|/+$", "", open(pf).read().strip()) if os.path.exists(pf) else ""
               for run in doc.get("runs", []):
                   tool = run.get("tool", {}).get("driver", {}).get("name", "?")
@@ -262,7 +270,7 @@ jobs:
               if f["tool"] in ("Trivy", "govulncheck") and deps_changed and (os.path.basename(f["path"]) in DEPS or f["tool"] == "govulncheck"): return True
               return False
 
-          # Las líneas nuevas o cambiadas de cada archivo, leídas de los hunks de git diff -U0.
+          # The new or changed lines of each file, read from the hunks of git diff -U0.
           new_lines = {}
           cur = None
           for l in open(f"{KV}/changed.diff", errors="replace"):
@@ -276,9 +284,9 @@ jobs:
                       new_lines.setdefault(cur, set()).update(range(start, start + count))
 
           def blocks(f):
-              # Seguridad: CRITICAL/HIGH en lo que toca el PR. SonarQube: cualquier hallazgo (bug,
-              # vulnerabilidad o code smell, de cualquier severidad) en una línea que agrega o cambia
-              # el PR, o sin línea (todo el archivo) en un archivo que el PR modifica.
+              # Security: CRITICAL/HIGH in what the PR touches. SonarQube: any finding (bug,
+              # vulnerability or code smell, of any severity) on a line the PR adds or changes,
+              # or with no line (the whole file) in a file the PR changes.
               if f["sev"] in ("CRITICAL", "HIGH") and f["blocking_kind"] == "security":
                   return True
               if f["tool"] != "SonarQube":
@@ -291,43 +299,43 @@ jobs:
           other = len(findings) - len(scoped)
           blocking = [f for f in scoped if blocks(f)] if is_pr else []
           tools = sorted({f["tool"] for f in findings})
-          lines = ["<!-- kv-security-scan -->", "## 🔒 Análisis de seguridad (KodingVibes)", ""]
+          lines = ["<!-- kv-security-scan -->", "## 🔒 Security scan (KodingVibes)", ""]
           if is_pr:
-              lines.append(f"Resultado sobre los **{len(changed)} archivos** que modifica este PR" + (" y sus dependencias." if deps_changed else "."))
+              lines.append(f"Result for the **{len(changed)} files** this PR changes" + (" and their dependencies." if deps_changed else "."))
           else:
-              lines.append("Análisis completo de la rama principal (informativo, no bloquea).")
+              lines.append("Full scan of the main branch (informational, does not block).")
           lines.append("")
           if not scoped:
-              lines.append("✅ Sin hallazgos en el alcance del análisis.")
+              lines.append("✅ No findings in the scope of the scan.")
           else:
-              lines += ["| Herramienta | " + " | ".join(ORDER) + " |", "|---|" + "---|" * len(ORDER)]
+              lines += ["| Tool | " + " | ".join(ORDER) + " |", "|---|" + "---|" * len(ORDER)]
               for t in tools:
                   row = [sum(1 for f in scoped if f["tool"] == t and f["sev"] == s) for s in ORDER]
                   if sum(row): lines.append(f"| {t} | " + " | ".join(str(x) if x else "·" for x in row) + " |")
-              # Los que bloquean van primero, para que se vean aunque haya muchos.
+              # Blocking findings go first, so they show even when there are many.
               top = sorted(scoped, key=lambda f: (f not in blocking, ORDER.index(f["sev"]), f["tool"]))[:15]
-              lines += ["", "<details><summary>Principales hallazgos</summary>", ""]
+              lines += ["", "<details><summary>Top findings</summary>", ""]
               for f in top:
                   loc = f["path"] + (f":{f['line']}" if f["line"] else "")
                   link = f"https://github.com/{repo}/blob/{sha}/{f['path']}" + (f"#L{f['line']}" if f["line"] else "") if f["path"] else ""
                   lines.append(f"- **{f['sev']}** · {f['tool']} · `{f['rule'][:70]}` — {f['msg']} ([{loc}]({link}))" if link else f"- **{f['sev']}** · {f['tool']} · {f['msg']}")
               lines += ["", "</details>"]
-          if other and is_pr: lines += ["", f"ℹ️ Otros {other} hallazgos previos en archivos que este PR no toca (no bloquean)."]
+          if other and is_pr: lines += ["", f"ℹ️ {other} other earlier findings in files this PR does not touch (they do not block)."]
           if is_pr:
               if not os.path.exists(sj) and os.environ.get("SONAR_TOKEN"):
-                  lines += ["", "⚠️ SonarQube no entregó resultados: este PR no se pudo revisar con sus reglas."]
-              lines += ["", ("❌ **Bloqueado**: hay " + str(len(blocking)) + " hallazgos que este PR introduce (CRITICAL/HIGH de seguridad, o de SonarQube en las líneas que cambia).") if blocking else "✅ Sin hallazgos bloqueantes en lo que cambia este PR."]
+                  lines += ["", "⚠️ SonarQube returned no results: this PR could not be checked against its rules."]
+              lines += ["", ("❌ **Blocked**: this PR introduces " + str(len(blocking)) + " findings (security CRITICAL/HIGH, or SonarQube on the lines it changes).") if blocking else "✅ No blocking findings in what this PR changes."]
               for f in blocking[:30]:
                   print(f"::error file={f['path']},line={f['line'] or 1}::{f['tool']} {f['rule']}: {f['msg']}")
-          lines += ["", "Detalle completo: https://sonar.kodingvibes.com"]
+          lines += ["", "Full detail: https://sonar.kodingvibes.com"]
           body = "\n".join(lines)
           open(f"{KV}/comment.md", "w").write(body[:60000]); open(os.environ["GITHUB_STEP_SUMMARY"], "a").write(body)
           open(f"{KV}/blocking_count", "w").write(str(len(blocking)))
-          print(f"hallazgos={len(findings)} en_alcance={len(scoped)} bloqueantes={len(blocking)}")
+          print(f"findings={len(findings)} in_scope={len(scoped)} blocking={len(blocking)}")
           PY
           python3 "$KV/eval.py"
 
-      - name: Comentar en el PR
+      - name: Comment on the PR
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -345,16 +353,16 @@ jobs:
             if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
 
-      - name: Borrar el proyecto temporal de SonarQube
+      - name: Delete the temporary SonarQube project
         if: always() && github.event_name == 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         continue-on-error: true
         run: |
           KEY="${GITHUB_REPOSITORY//\//_}-pr-${PR_NUMBER}"
-          curl -s -u "$SONAR_TOKEN:" -X POST "${SONAR_HOST_URL%/}/api/projects/delete" -d "project=$KEY" -o /dev/null -w "borrado temporal: %{http_code}\n"
+          curl -s -u "$SONAR_TOKEN:" -X POST "${SONAR_HOST_URL%/}/api/projects/delete" -d "project=$KEY" -o /dev/null -w "temporary project deleted: %{http_code}\n"
 
-      - name: Resultado (bloquea el PR si hay hallazgos bloqueantes)
+      - name: Result (blocks the PR if there are blocking findings)
         if: always() && github.event_name == 'pull_request'
         run: |
           n="$(cat "$KV/blocking_count" 2>/dev/null || echo 0)"
-          if [ "$n" -gt 0 ]; then echo "::error::$n hallazgos bloqueantes en lo que cambia este PR (ver el comentario del PR)"; exit 1; fi
-          echo "Sin hallazgos bloqueantes"
+          if [ "$n" -gt 0 ]; then echo "::error::$n blocking findings in what this PR changes (see the PR comment)"; exit 1; fi
+          echo "No blocking findings"

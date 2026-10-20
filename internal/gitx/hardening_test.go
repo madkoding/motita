@@ -2,11 +2,13 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRepositoryConfigRunsNoCode: the repository's own .git/config is writable by whatever
@@ -150,6 +152,7 @@ func TestNeutralizeCoversEveryCommandKey(t *testing.T) {
 		{"core.askPass", "-c core.askPass="},
 		{"core.fsmonitor", "-c core.fsmonitor="},
 		{"core.hooksPath", "-c core.hooksPath="},
+		{"core.alternateRefsCommand", "-c core.alternateRefsCommand="},
 		{"sequence.editor", "-c sequence.editor="},
 		{"commit.gpgSign", "-c commit.gpgSign="},
 		{"tag.gpgSign", "-c tag.gpgSign="},
@@ -208,7 +211,7 @@ func TestHardeningForNeutralizesTheRepository(t *testing.T) {
 // Hardening hands out a copy: a caller that appends to it cannot change what this package runs.
 func TestHardeningIsACopy(t *testing.T) {
 	h := Hardening()
-	if strings.Join(h, " ") != "-c core.hooksPath=/dev/null -c core.fsmonitor=false" {
+	if strings.Join(h, " ") != "-c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.ext.allow=never" {
 		t.Fatalf("hardening: %q", h)
 	}
 	h[1] = "core.hooksPath=hooks"
@@ -260,6 +263,87 @@ func TestAFilterNamedWithAnEqualsSignRunsNoCode(t *testing.T) {
 	if got := neutralize("user.name=x"); got != nil {
 		t.Errorf("a harmless key got an override: %q", got)
 	}
+}
+
+// TestAProtocolPolicyCannotArmTheExtTransport: a repository that sets protocol.allow=always (not
+// protocol.ext.allow, which neutralize overrides by name) turns on the ext:: transport, and an
+// ext:: origin is a command git runs on fetch. The fixed hardening forbids ext by name, which
+// beats any general policy.
+func TestAProtocolPolicyCannotArmTheExtTransport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted transport is a shell command")
+	}
+	repo := newRepo(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	git(t, repo, "config", "protocol.allow", "always")
+	git(t, repo, "remote", "add", "origin", "ext::sh -c touch% "+marker)
+	_ = PullFastForward(context.Background(), repo, "main")
+	if exists(marker) {
+		t.Error("an ext:: origin ran a command on fetch")
+	}
+}
+
+// TestAlternateRefsCommandRunsNoCode: core.alternateRefsCommand is a command git runs on fetch
+// in a repository that borrows objects from another one (objects/info/alternates).
+func TestAlternateRefsCommandRunsNoCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted command is a shell command")
+	}
+	repo := newRepo(t)
+	remote := pushToOrigin(t, repo)
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, repo, "clone", "-q", remote, clone)
+	other := filepath.Join(t.TempDir(), "other")
+	git(t, repo, "clone", "-q", remote, other)
+	write(t, filepath.Join(clone, ".git", "objects", "info", "alternates"), filepath.Join(other, ".git", "objects")+"\n")
+	marker := filepath.Join(t.TempDir(), "ran")
+	git(t, clone, "config", "core.alternateRefsCommand", "touch "+marker+"; true")
+	write(t, filepath.Join(repo, "new.txt"), "new\n")
+	git(t, repo, "add", "new.txt")
+	git(t, repo, "commit", "-qm", "new")
+	git(t, repo, "push", "-q", "origin", "main")
+
+	if err := PullFastForward(context.Background(), clone, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(marker) {
+		t.Error("core.alternateRefsCommand ran on fetch")
+	}
+}
+
+// TestAConfigListingThatFailsDoesNotFailOpen: git older than 2.26 has no --show-scope, and a
+// listing that failed used to mean "nothing to neutralize", so every planted driver stayed armed.
+// The listing is retried without scopes (every key is then the repository's), and a listing that
+// cannot be read at all makes git refuse to run.
+func TestAConfigListingThatFailsDoesNotFailOpen(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	git(t, repo, "config", "filter.x.clean", "touch /never")
+	t.Run("old git", func(t *testing.T) {
+		stubOn(t, "--show-scope", "error: unknown option `show-scope'", errors.New("exit status 129"))
+		if got := strings.Join(neutralizeLocalConfig(ctx, repo), " "); !strings.Contains(got, "-c filter.x.clean=") {
+			t.Errorf("a git with no --show-scope must still neutralize the filter, got %q", got)
+		}
+	})
+	t.Run("no listing at all", func(t *testing.T) {
+		failOnGit(t, "config --list")
+		if got := neutralizeLocalConfig(ctx, repo); len(got) != 1 || got[0] != "--git-dir="+unsafeConfigGitDir {
+			t.Errorf("an unreadable config must fail closed, got %q", got)
+		}
+	})
+	t.Run("out of time", func(t *testing.T) {
+		calls := 0
+		withExec(t, func(c context.Context, name string, args ...string) ([]byte, error) {
+			calls++
+			<-c.Done()
+			return nil, errors.New("signal: killed")
+		})
+		short, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+		defer cancel()
+		if got := neutralizeLocalConfig(short, repo); len(got) != 1 || calls != 1 {
+			t.Errorf("a listing out of time fails closed without a retry: %q after %d calls", got, calls)
+		}
+	})
 }
 
 func readFile(t *testing.T, path string) string {
