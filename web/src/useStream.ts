@@ -5,6 +5,7 @@ import { t } from "./i18n";
 import { parseFrame } from "./appParse";
 import {
   handleStreamEvent,
+  typedCommandOnly,
   withoutDraft,
   type StreamPayload,
 } from "./streamEvents";
@@ -325,6 +326,9 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
     // must not read "running" for ever: it is closed as "no result".
     rs.setShellLog(closeOpenCommands);
     rs.setLiveThought(null);
+    // A question the run was waiting on went with it (stopped, cut off): the gateway would refuse
+    // its answer.
+    rs.setApproval(typedCommandOnly);
     // An answer still being written when the run ended without one (stopped, cut off) is not an
     // answer: it goes.
     rs.setMessages(withoutDraft);

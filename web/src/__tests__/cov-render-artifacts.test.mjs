@@ -342,6 +342,41 @@ test("a file the page cannot show is saved instead, and its link revoked after a
   await m.done();
 });
 
+test("a picture or PDF lets go of its bytes once it leaves the screen", async () => {
+  const revoked = [];
+  const savedRevoke = URL.revokeObjectURL;
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  const g = gateway((_, url) =>
+    url.endsWith(".txt")
+      ? new Response("words")
+      : new Response(new Blob(["x"], { type: "image/png" })),
+  );
+  const m = await mount(g);
+  const open = (name, type) => m.run((a) => a.openArtifact({ name, type }));
+  const url = () => m.hook.current.artifactView.url;
+  try {
+    await open("a.png", "image/png");
+    const first = url();
+    await open("b.pdf", "application/pdf");
+    const second = url();
+    assert.deepEqual(revoked, [first], "the next file replaces it");
+    await m.run((a) => a.setArtifactView(null));
+    assert.deepEqual(revoked, [first, second], "Back to the list");
+    await open("c.png", "image/png");
+    const third = url();
+    await open("d.txt", "text/plain");
+    assert.deepEqual(revoked, [first, second, third], "a text file has none");
+    await m.run((a) => a.setArtifactView(null));
+    assert.equal(revoked.length, 3);
+    await open("e.png", "image/png");
+    const last = url();
+    await m.done();
+    assert.deepEqual(revoked.at(-1), last, "the page leaves");
+  } finally {
+    URL.revokeObjectURL = savedRevoke;
+  }
+});
+
 test("a file that cannot be opened says so", async () => {
   for (const reply of [json({}, 404), new Error("offline")]) {
     const g = gateway(() => reply);

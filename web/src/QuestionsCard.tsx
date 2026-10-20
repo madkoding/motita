@@ -1,7 +1,7 @@
 // The questions the agent asked before doing anything, as a card to answer: every question at once,
 // each with its options as buttons, a field for an answer of one's own, and what the agent does if
 // it is left blank. One button sends them all as the next turn, the way the terminal's window does.
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useId, useState } from "preact/hooks";
 import { choose } from "./choose";
 import { plural, t, tf } from "./i18n";
 import {
@@ -133,7 +133,8 @@ function Question({
   const options = item.options ?? [];
   const own = !!value && !options.includes(value);
   const answered = value.trim() !== "";
-  const id = `qcard-q${n}`;
+  // Unique in the page: a conversation keeps every card it was asked, each with a question 1.
+  const id = useId();
   const change = useCallback((v: string) => onChange(n - 1, v), [onChange, n]);
   return (
     <li class={`qcard-item${choose(answered, " answered", "")}`}>

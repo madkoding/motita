@@ -2,6 +2,7 @@
 // and what Enter and the send button do with it.
 import { useState } from "preact/hooks";
 import { choose } from "./choose";
+import { isImeKey } from "./a11y";
 import { shellCommandOf } from "./appParse";
 import type { RunState } from "./useRunState";
 import type { Drawers } from "./useDrawers";
@@ -275,6 +276,9 @@ export function useComposer({
   // When the slash command popup is open, ArrowUp/Down navigate and Tab/Enter
   // accept the selection.
   const handleKeydown = (e: KeyboardEvent) => {
+    if (isImeKey(e)) {
+      return;
+    }
     if (slashKey(e)) {
       return;
     }
