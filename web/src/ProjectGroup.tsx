@@ -45,17 +45,19 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {choose(p.podman, t("Stop using podman"), t("Run with podman"))}
         </button>
       )}
-      <button
-        class={ITEM_PLAIN}
-        data-testid="refresh-main"
-        onClick={(e) => {
-          e.stopPropagation();
-          void projects.refreshProjectMain(p.id);
-          menus.closeRowMenu();
-        }}
-      >
-        {t("Update main branch")}
-      </button>
+      {p.main_branch && (
+        <button
+          class={ITEM_PLAIN}
+          data-testid="refresh-main"
+          onClick={(e) => {
+            e.stopPropagation();
+            void projects.refreshProjectMain(p.id);
+            menus.closeRowMenu();
+          }}
+        >
+          {t("Update main branch")}
+        </button>
+      )}
       <button
         class={ITEM_PLAIN}
         data-testid="rescan-notes"

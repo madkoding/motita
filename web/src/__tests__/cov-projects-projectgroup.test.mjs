@@ -195,9 +195,18 @@ test("threads are listed under their main session, indented", async () => {
 
 test("the menu updates the main branch: nothing else does it by itself", async () => {
   const s = store({ rowMenu: { id: "p1" } });
-  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  const git = { ...P, main_branch: "main" };
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: git }));
   await click(m.q("[data-testid=refresh-main]"));
   assert.deepEqual(s.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  await m.unmount();
+});
+
+test("a project that is only a folder has no main branch to update", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=refresh-main]"), null);
+  assert.ok(m.q("[data-testid=rescan-notes]"), "the rest of the menu stays");
   await m.unmount();
 });
 
