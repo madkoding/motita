@@ -16,23 +16,12 @@ func TestTheDocsCountEveryPlatform(t *testing.T) {
 	want := len(platforms)
 
 	words := map[string]int{"nine": 9, "ten": 10, "eleven": 11}
-	countRe := regexp.MustCompile(`(?i)\b(\d+|nine|ten|eleven)\s+(?:supported\s+)?(?:platforms|targets|binaries|platform/architecture)\b`)
-	// The landing page writes the number and the word in two spans.
-	statRe := regexp.MustCompile(`(?s)class="n">(\d+)</span\s*><span[^>]*class="l"\s*>platforms`)
 
 	docs := []string{"README.md", "CONTRIBUTING.md", "docs/GUIDE.md", "docs/REFERENCE.md",
 		"docs/assets/readme/stats.svg", "docs/assets/readme/build.py", "site/index.html"}
 	checked := 0
 	for _, doc := range docs {
-		body := readFile(t, filepath.Join(root, doc))
-		var found []string
-		for _, m := range countRe.FindAllStringSubmatch(body, -1) {
-			found = append(found, m[1])
-		}
-		for _, m := range statRe.FindAllStringSubmatch(body, -1) {
-			found = append(found, m[1])
-		}
-		for _, s := range found {
+		for _, s := range platformCounts(readFile(t, filepath.Join(root, doc))) {
 			n, err := strconv.Atoi(s)
 			if err != nil {
 				n = words[strings.ToLower(s)]
@@ -58,6 +47,25 @@ func TestTheDocsCountEveryPlatform(t *testing.T) {
 			t.Errorf("docs/REFERENCE.md has no row for %s in the binaries table", name)
 		}
 	}
+}
+
+var (
+	platformCountRe = regexp.MustCompile(`(?i)\b(\d+|nine|ten|eleven)\s+(?:supported\s+)?` +
+		`(?:platforms|targets|binaries|platform/architecture)\b`)
+	// The landing page writes the number and the word in two spans.
+	platformStatRe = regexp.MustCompile(`(?s)class="n">(\d+)</span\s*><span[^>]*class="l"\s*>platforms`)
+)
+
+// platformCounts is every count of platforms a doc states, as written: a number or a word.
+func platformCounts(body string) []string {
+	var found []string
+	for _, m := range platformCountRe.FindAllStringSubmatch(body, -1) {
+		found = append(found, m[1])
+	}
+	for _, m := range platformStatRe.FindAllStringSubmatch(body, -1) {
+		found = append(found, m[1])
+	}
+	return found
 }
 
 func makefilePlatforms(t *testing.T, root string) []string {

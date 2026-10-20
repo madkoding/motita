@@ -19,9 +19,10 @@ func TestTheReferenceQuotesTheRealDefaults(t *testing.T) {
 	def := Default()
 
 	m := regexp.MustCompile("`agent.max_steps` \\(default (\\d+)\\)").FindStringSubmatch(ref)
-	if m == nil {
+	switch {
+	case m == nil:
 		t.Error("REFERENCE.md no longer quotes the agent.max_steps default; change this test with it")
-	} else if m[1] != fmt.Sprint(def.Agent.MaxSteps) {
+	case m[1] != fmt.Sprint(def.Agent.MaxSteps):
 		t.Errorf("REFERENCE.md says agent.max_steps defaults to %s; Default() sets %d", m[1], def.Agent.MaxSteps)
 	}
 
@@ -31,9 +32,10 @@ func TestTheReferenceQuotesTheRealDefaults(t *testing.T) {
 	}
 	want := "~/" + filepath.ToSlash(rel)
 	m = regexp.MustCompile("(?s)`skills.dir` is the procedure library.*?It defaults to `([^`]+)`").FindStringSubmatch(ref)
-	if m == nil {
+	switch {
+	case m == nil:
 		t.Error("REFERENCE.md no longer quotes the skills.dir default; change this test with it")
-	} else if m[1] != want {
+	case m[1] != want:
 		t.Errorf("REFERENCE.md says skills.dir defaults to %q; Default() uses %s", m[1], want)
 	}
 }

@@ -20,25 +20,7 @@ func TestTheExampleConfigTellsTheTruthAboutTheDefaults(t *testing.T) {
 	}
 	text := string(raw)
 	lines := strings.Split(text, "\n")
-
-	// The gateway binds loopback by default, and gateway.tls is a real block.
-	for _, stale := range []string{"LISTENS EVERYWHERE", "NO TLS"} {
-		if strings.Contains(text, stale) {
-			t.Errorf("the example says %q, but the gateway binds %s by default and has gateway.tls",
-				stale, defaultGatewayListen)
-		}
-	}
-	_, port, _ := strings.Cut(defaultGatewayListen, ":")
-	_, gateway, _ := strings.Cut(text, "# Gateway:")
-	gateway, _, _ = strings.Cut(gateway, "\nschedule:")
-	if !strings.Contains(gateway, "127.0.0.1:"+port) {
-		t.Error("the gateway section of the example no longer names the default address; change this test with it")
-	}
-	for _, m := range regexp.MustCompile(`127\.0\.0\.1:(\d+)`).FindAllStringSubmatch(gateway, -1) {
-		if m[1] != port {
-			t.Errorf("the example points at 127.0.0.1:%s, but the gateway listens on port %s", m[1], port)
-		}
-	}
+	checkExampleGateway(t, text)
 
 	// A value shown that is NOT the default carries a "default:" note on its line.
 	example, err := Load(path)
@@ -75,6 +57,29 @@ func TestTheExampleConfigTellsTheTruthAboutTheDefaults(t *testing.T) {
 	for _, p := range Providers {
 		if !regexp.MustCompile(`[\s|]` + regexp.QuoteMeta(p) + `(\s|$)`).MatchString(provider) {
 			t.Errorf("the llm.provider comment does not list %q:\n%s", p, provider)
+		}
+	}
+}
+
+// checkExampleGateway checks that the example says the gateway binds loopback by default, and
+// that gateway.tls is a real block.
+func checkExampleGateway(t *testing.T, text string) {
+	t.Helper()
+	for _, stale := range []string{"LISTENS EVERYWHERE", "NO TLS"} {
+		if strings.Contains(text, stale) {
+			t.Errorf("the example says %q, but the gateway binds %s by default and has gateway.tls",
+				stale, defaultGatewayListen)
+		}
+	}
+	_, port, _ := strings.Cut(defaultGatewayListen, ":")
+	_, gateway, _ := strings.Cut(text, "# Gateway:")
+	gateway, _, _ = strings.Cut(gateway, "\nschedule:")
+	if !strings.Contains(gateway, "127.0.0.1:"+port) {
+		t.Error("the gateway section of the example no longer names the default address; change this test with it")
+	}
+	for _, m := range regexp.MustCompile(`127\.0\.0\.1:(\d+)`).FindAllStringSubmatch(gateway, -1) {
+		if m[1] != port {
+			t.Errorf("the example points at 127.0.0.1:%s, but the gateway listens on port %s", m[1], port)
 		}
 	}
 }
