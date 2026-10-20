@@ -328,7 +328,7 @@ type Server struct {
 
 	// sessionsMu guards the registry. The conversations themselves are safe to use without it:
 	// each is guarded by its own locks, and this is only read to find one.
-	// heartbeat is the resolved keepalive interval, always positive: see Options.Heartbeat.
+	// heartbeat is the resolved keepalive interval, zero when it is off: see Options.Heartbeat.
 	heartbeat time.Duration
 
 	sessionsMu sync.Mutex
@@ -511,13 +511,15 @@ func Start(opts Options) (*Server, error) {
 	if opts.Tailscale != nil {
 		go s.learnTailnetName(s.baseCtx)
 	}
-	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
+	s.mux = bodyDeadline(s.originPolicy(s.hostPolicy(securityHeaders(s.routes()))))
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
 		// are a run that streams until the agent is done: a deadline there would cut a slow
-		// answer off mid-sentence, which reads to the user as "the agent stopped". A stalled
-		// client is bounded by ReadHeaderTimeout instead, which is the risk worth bounding.
+		// answer off mid-sentence, which reads to the user as "the agent stopped". No ReadTimeout
+		// either: it stays armed while the response streams, and when it fires net/http cancels
+		// the request context of that stream. A stalled header is bounded by ReadHeaderTimeout,
+		// and a stalled body by bodyDeadline.
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -572,7 +574,8 @@ func listenAddr(listen string) string {
 }
 
 // resolveHeartbeat is the heartbeat the stream loop uses. Resolved at construction so the loop
-// never has to reason about zero and negative: a zero means the default and a negative means off.
+// never has to tell the default from off: a zero asks for the default, a negative for off, and off
+// comes out as zero.
 func resolveHeartbeat(heartbeat time.Duration) time.Duration {
 	if heartbeat == 0 {
 		heartbeat = defaultHeartbeat
