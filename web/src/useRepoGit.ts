@@ -26,6 +26,9 @@ export interface RepoRef {
   repo: string;
 }
 
+// What an action says when it fails.
+const ACTION_FAILED = "the action failed";
+
 // What each action says when it is done.
 const DONE: Record<string, string> = {
   pull: "{repo} is up to date",
@@ -128,8 +131,8 @@ export function useRepoGit({
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          setState(err.error || "the action failed", true);
-          endGitActivity(false, err.error || t("the action failed"), "");
+          setState(err.error || ACTION_FAILED, true);
+          endGitActivity(false, err.error || t(ACTION_FAILED), "");
           return false;
         }
         const done = await res.json().catch(() => ({}));
@@ -144,8 +147,8 @@ export function useRepoGit({
         await fetchProjects();
         return true;
       } catch {
-        setState("the action failed", true);
-        endGitActivity(false, t("the action failed"), "");
+        setState(ACTION_FAILED, true);
+        endGitActivity(false, t(ACTION_FAILED), "");
         return false;
       }
     },

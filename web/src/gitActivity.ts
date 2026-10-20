@@ -2,6 +2,7 @@
 // It is a small store of its own, not a hook's state, because two hooks start these actions (the
 // project's, for updating a main branch, and the repository's, for the rest) and one modal shows them.
 import { useEffect, useState } from "preact/hooks";
+import { choose } from "./choose";
 
 export interface GitActivity {
   // title is the action in a few words ("Pulling api"), detail is what git does for it.
@@ -30,7 +31,7 @@ export function beginGitActivity(title: string, detail: string) {
 // endGitActivity says how the action ended: the modal stays open until the person closes it.
 export function endGitActivity(ok: boolean, message: string, output: string) {
   if (current) {
-    set({ ...current, state: ok ? "done" : "error", message, output });
+    set({ ...current, state: choose(ok, "done", "error"), message, output });
   }
 }
 

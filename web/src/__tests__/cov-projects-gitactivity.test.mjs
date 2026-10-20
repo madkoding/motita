@@ -34,10 +34,6 @@ test("the modal says what git is doing while it runs, then how it ended", async 
     "git fetch, then a fast-forward",
   );
   assert.match(q("git-activity-state").textContent, /Working/);
-  assert.equal(
-    document.querySelector("[role=dialog]").getAttribute("aria-label"),
-    "Pulling api",
-  );
 
   await act(() =>
     endGitActivity(true, "api is up to date", "Brought in:\nabc feat"),

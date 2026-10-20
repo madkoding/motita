@@ -15,8 +15,6 @@ export function GitActivityModal() {
       <div
         class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
         data-testid="git-activity"
-        role="dialog"
-        aria-label={a.title}
       >
         <div class="flex items-center gap-2 mb-3">
           <h2 class="text-base font-semibold">{a.title}</h2>

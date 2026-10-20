@@ -340,6 +340,9 @@ function useCreateProject(
   return createProject;
 }
 
+// What a main branch update says when it fails.
+const MAIN_FAILED = "could not update the main branch";
+
 // useProjectAdmin changes and deletes projects that already exist.
 function useProjectAdmin(
   api: Api,
@@ -375,12 +378,8 @@ function useProjectAdmin(
         );
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          setState(err.error || "could not update the main branch", true);
-          endGitActivity(
-            false,
-            err.error || t("could not update the main branch"),
-            "",
-          );
+          setState(err.error || MAIN_FAILED, true);
+          endGitActivity(false, err.error || t(MAIN_FAILED), "");
           return;
         }
         const done = await res.json().catch(() => ({}));
@@ -398,8 +397,8 @@ function useProjectAdmin(
         );
         await fetchProjects();
       } catch {
-        setState("could not update the main branch", true);
-        endGitActivity(false, t("could not update the main branch"), "");
+        setState(MAIN_FAILED, true);
+        endGitActivity(false, t(MAIN_FAILED), "");
       }
     },
     [fetchProjects],
