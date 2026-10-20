@@ -106,7 +106,7 @@ function NoteButton({ n, label }: { n: NoteItem; label: string }) {
           "text-[#e8e8ea] hover:bg-white/5",
         )
       }
-      aria-current={open ? "true" : undefined}
+      aria-current={choose(open, "true", undefined)}
       data-testid="note-row"
       onClick={() => void openNote(n.path)}
     >
@@ -443,6 +443,9 @@ export function NoteList() {
   const { notes } = useApp();
   const { current, graph, query, hits, search } = notes;
   const [writing, setWriting] = useState(false);
+  const closeForm = () => setWriting(false);
+  const toggleForm = () => setWriting(!writing);
+  const searching = query.trim() !== "";
   return (
     <aside
       class={`${choose(!!current || !!graph, "hidden md:flex", "flex")} flex-col gap-3 w-full md:w-[19rem] flex-none min-h-0 md:border-r md:border-white/5 md:pr-3`}
@@ -463,15 +466,15 @@ export function NoteList() {
         class={SMALL_BTN + " flex items-center justify-center gap-2"}
         aria-expanded={writing}
         data-testid="note-new-toggle"
-        onClick={() => setWriting(!writing)}
+        onClick={toggleForm}
       >
         <IconNotes size={14} />
         {t("Write a new note")}
       </button>
-      {writing && <NewNote done={() => setWriting(false)} />}
+      {writing && <NewNote done={closeForm} />}
       <Updating />
       <div class="overflow-auto flex-1 min-h-0">
-        {query.trim() === "" ? (
+        {!searching && (
           <>
             <FolderContent folder={buildTree(notes.notes)} depth={0} />
             {notes.notes.length === 0 && (
@@ -480,7 +483,8 @@ export function NoteList() {
               </p>
             )}
           </>
-        ) : (
+        )}
+        {searching && (
           <ul>
             {hits.map((h) => (
               <HitRow key={h.path + ":" + h.line} h={h} />

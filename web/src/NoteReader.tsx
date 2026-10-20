@@ -96,6 +96,7 @@ function NoteBody() {
     <div
       class="skill-body artifact-body note-preview relative p-3 md:px-5 rounded-lg bg-black/30"
       data-testid="note-preview"
+      role="presentation"
       onClick={follow}
       onKeyDown={onKeyDown}
     >

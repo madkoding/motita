@@ -30,6 +30,7 @@ export function DotsMenu({
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
   return (
     <>
       <button
@@ -52,7 +53,7 @@ export function DotsMenu({
       {open && (
         <BodyPortal>
           <ModalBackdrop
-            onClose={() => setOpen(false)}
+            onClose={close}
             class="fixed inset-0 z-[55]"
             modal={false}
           >

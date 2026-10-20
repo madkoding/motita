@@ -28,8 +28,11 @@ export function NotesModal() {
       void openGraph();
     }
   };
+  const close = () => void closeNotes();
+  const confirmPending = () => pending && void confirmDelete(pending);
+  const cancelDelete = () => askDelete(null);
   return (
-    <ModalBackdrop onClose={() => void closeNotes()}>
+    <ModalBackdrop onClose={close}>
       <div class="frosted rounded-2xl border border-white/10 w-full max-w-5xl p-3 md:p-5 shadow-2xl h-[92dvh] md:h-[85vh] flex flex-col">
         <div class="flex items-center gap-2 mb-3">
           <div class="min-w-0 flex-1">
@@ -51,7 +54,7 @@ export function NotesModal() {
           </button>
           <button
             class="p-1.5 rounded-lg hover:bg-white/5"
-            onClick={() => void closeNotes()}
+            onClick={close}
             aria-label={t("Close")}
           >
             <IconClose size={18} />
@@ -65,8 +68,8 @@ export function NotesModal() {
       {!!pending && (
         <ConfirmDelete
           deletion={pending}
-          onCancel={() => askDelete(null)}
-          onConfirm={() => void confirmDelete(pending)}
+          onCancel={cancelDelete}
+          onConfirm={confirmPending}
         />
       )}
     </ModalBackdrop>
