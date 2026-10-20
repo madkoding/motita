@@ -2,6 +2,12 @@
 
 const more: Record<string, string> = {
   "This computer": "Este equipo",
+  "A new folder in the workspace": "Una carpeta nueva en el workspace",
+  "Choose or create…": "Elegir o crear…",
+  "Change…": "Cambiar…",
+  "Path of the folder": "Ruta de la carpeta",
+  "Its folder is created in the workspace with this name.":
+    "Su carpeta se crea en el workspace con este nombre.",
   "New folder name": "Nombre de la carpeta nueva",
   "This folder holds the system's own files. A project here puts the agent among them.":
     "Esta carpeta guarda los archivos del propio sistema. Un proyecto aquí deja al agente entre ellos.",

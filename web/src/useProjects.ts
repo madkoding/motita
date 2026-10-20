@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
-import { slugOf } from "./appParse";
+import { folderNameOf, slugOf } from "./appParse";
 import { useFolderPicker } from "./useFolderPicker";
 import { createdToast } from "./projectToast";
 import { SCAN_STARTED_EVENT } from "./notesApi";
@@ -278,10 +278,11 @@ function useRuntimes(api: Api, showNewProject: boolean) {
   return { hasPodman, hasPodmanCompose, podmanReady };
 }
 
-// newProjectTarget is the title and folder a new project is created with: the folder defaults to
-// the title's slug.
+// newProjectTarget is the title and folder a new project is created with: the title defaults to the
+// name of the folder chosen, and the folder (in the workspace) to the title's slug.
 function newProjectTarget(form: NewProjectForm) {
-  const title = form.newProjectTitle.trim();
+  const title =
+    form.newProjectTitle.trim() || folderNameOf(form.newProjectPath);
   const dir = form.newProjectDir.trim() || slugOf(title);
   return { title, dir };
 }
@@ -298,7 +299,7 @@ function useCreateProject(
   // createProject sends a new project to the gateway.
   const createProject = useCallback(async () => {
     const { title, dir } = newProjectTarget(form);
-    if (!title || !dir) {
+    if (!title || (!dir && !form.newProjectPath)) {
       return;
     }
     form.setCreatingProject(true);
