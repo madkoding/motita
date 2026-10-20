@@ -113,10 +113,12 @@ func TestRemoteWatchCoversTheProjectsOtherRepositories(t *testing.T) {
 }
 
 func TestRemoteWatchTicksOnItsOwnAndCanBeSwitchedOff(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.RemoteWatchInterval = 10 * time.Millisecond })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.RemoteWatchInterval = -1 })
 	ws := t.TempDir()
 	withProjectsAndFake(t, srv, ws)
 	pid, _ := projectWithOrigin(t, srv, ws)
+	// Started by hand once the projects are in place: the gateway's own start precedes them.
+	srv.startRemoteWatchEvery(10 * time.Millisecond)
 	deadline := time.Now().Add(5 * time.Second)
 	for len(srv.remoteWatch.of(pid)) == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -124,6 +126,6 @@ func TestRemoteWatchTicksOnItsOwnAndCanBeSwitchedOff(t *testing.T) {
 	if len(srv.remoteWatch.of(pid)) == 0 {
 		t.Fatal("the periodic look never found the change")
 	}
-	off := newTestServer(t, &fakeService{}, func(o *Options) { o.RemoteWatchInterval = -1 })
-	off.startRemoteWatch() // returns at once: nothing to wait for
+	srv.startRemoteWatch() // the option says off: returns at once
+	srv.startRemoteWatchEvery(0 - time.Second)
 }

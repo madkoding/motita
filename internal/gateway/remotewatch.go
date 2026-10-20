@@ -96,6 +96,11 @@ func (s *Server) startRemoteWatch() {
 	if interval == 0 {
 		interval = remoteWatchInterval
 	}
+	s.startRemoteWatchEvery(interval)
+}
+
+// startRemoteWatchEvery is startRemoteWatch with the interval already decided; negative is off.
+func (s *Server) startRemoteWatchEvery(interval time.Duration) {
 	if interval < 0 {
 		return
 	}
