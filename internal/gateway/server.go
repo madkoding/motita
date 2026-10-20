@@ -18,6 +18,7 @@ import (
 
 	"github.com/madkoding/motita/internal/approvals"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/evals"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
@@ -169,6 +170,9 @@ type Options struct {
 	NotesDir string
 	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
 	ArtifactDays int
+	// EvalsFile is the file the results of the model checks are kept in. Empty keeps them in memory
+	// only, until the process ends.
+	EvalsFile string
 	// ProjectDir is the directory where projects are persisted. Empty means
 	// projects are not available.
 	ProjectDir string
@@ -264,6 +268,10 @@ type Server struct {
 
 	// scanJob is the progress of the notes scan running in the background, if any.
 	scanJob scanTracker
+
+	// evalJob is the model check running in the background, if any; evalStore holds its results.
+	evalJob   evalTracker
+	evalStore *evals.Store
 
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
@@ -426,7 +434,7 @@ func Start(opts Options) (*Server, error) {
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	s := &Server{
 		opts: opts, listener: ln, tlsListener: tlsLn, sessions: map[string]*conversation{DefaultSession: first},
-		baseCtx: baseCtx, baseCancel: baseCancel,
+		baseCtx: baseCtx, baseCancel: baseCancel, evalStore: evals.OpenStore(opts.EvalsFile),
 		heartbeat: resolveHeartbeat(opts.Heartbeat),
 	}
 	// The self-update checker is built here, once. ExePath may be empty when
@@ -846,6 +854,7 @@ func (s *Server) routes() *http.ServeMux {
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)
+	s.evalRoutes(mux, plain)
 	s.llmLoginRoutes(mux, plain)
 	// Speech input and output, and the local voices: process-wide too. See voiceRoutes.
 	s.voiceRoutes(mux, plain)

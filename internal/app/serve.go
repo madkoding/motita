@@ -272,6 +272,7 @@ func (op Options) startGateway(
 		ArtifactDir: artifactDir(),
 		// The note vault is plain Markdown in ~/.motita/notes, so Obsidian can open it.
 		NotesDir:     config.NotesDir(),
+		EvalsFile:    config.EvalsFile(),
 		ArtifactDays: cfg.Gateway.ArtifactDays,
 		// Scheduled tasks persist to ~/.motita/schedules, and the resolution at which a
 		// due task is noticed comes from the configuration: a second default here is how

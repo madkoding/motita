@@ -1460,6 +1460,24 @@ million tokens, from `internal/onboard/prices.json`, revised by hand; absent for
 local models; the `ollama-cloud` provider's are Ollama Cloud's, and `ollama` is local), which Settings → Models shows next to each model. A model a provider lists that the
 catalogue lacks gets `tier` and `cost` guessed from its family or, on Ollama, its size (never a price) and `estimated: true`. `prices_checked` is the day the prices were last compared with the vendors' pages (`onboard.PricesChecked()`).
 
+### Model check
+
+Settings → Models has a **Quality check**: five small fixed tasks (create a file, fix a typo, count
+lines, rename a file, sort lines) that run on the model that does the coding. Each one runs in a
+temporary folder of its own with no notes, skills or project, and a shell command that looks at the
+real result decides whether it passed. The run is stored and compared with the one before: fewer
+tasks passing, clearly more rounds (over 25 %) or clearly more cost (over 25 %) is reported as
+worse. The check spends part of the model's quota, so it only runs when asked for and confirmed;
+nothing starts it on its own. It needs a shell (`sh`) on the machine.
+
+| Endpoint                | What it does                                                                                                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/evals`         | The tasks, the model a check would run on, `stale` (`never`, `model`, `prompt`, `cases` or empty: why the last run no longer answers "is it still fine?"), the last run, its `verdict` and `history` |
+| `POST /v1/evals/run`    | `{"confirm":true}` starts a check in the background (`202`); `400` without the confirmation, `409` while one runs, with no key or without a shell                                           |
+| `POST /v1/evals/stop`   | Stops the running check; it leaves no result. `409` when none runs                                                                                                                         |
+
+Results are kept in `~/.motita/evals.json` (the last 20 runs).
+
 ### Services in a private box (`box_up`, `box_get`, `box_shot`, `box_down`)
 
 To test the project's service or photograph it as evidence, task mode starts it in a container only motita can reach. `internal/devbox` finds the runtime (**podman first**, rootless and daemonless, then docker; each only if `info` answers) and builds the command line itself, so the model never writes runtime flags.
