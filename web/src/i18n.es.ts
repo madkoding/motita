@@ -5,6 +5,7 @@
 // shown in English, never as an empty string.
 
 import more from "./i18n.es.part2.ts";
+import evals from "./i18n.es.evals.ts";
 
 // The dictionary is in two files so neither grows too long: this one and i18n.es.part2.ts.
 const first: Record<string, string> = {
@@ -801,6 +802,6 @@ const first: Record<string, string> = {
     "Tu navegador bloquea las notificaciones porque Motita se abrió sin una conexión segura.",
 };
 
-const es: Record<string, string> = { ...first, ...more };
+const es: Record<string, string> = { ...first, ...more, ...evals };
 
 export default es;
