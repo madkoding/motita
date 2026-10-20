@@ -319,42 +319,31 @@ const DRAFT = {
 
 const byTest = (m, id) => m.q("[data-testid=" + id + "]");
 
-test("a new project can always pick or type a folder, with a note on how far it may reach", async () => {
+test("a new project can always pick a folder in the browser", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
   assert.ok(byTest(m, "new-project-location"));
-  assert.match(m.root.textContent, /Folder name/);
-  assert.match(m.root.textContent, /inside the workspace/);
+  assert.match(byTest(m, "new-project-browse").textContent, /Choose or create/);
+  assert.equal(byTest(m, "new-project-path-clear"), null);
+  await click(byTest(m, "new-project-browse"));
+  assert.deepEqual(s.log, [["browse", "new"]]);
   await m.unmount();
 });
 
-test("a new project can pick or type a folder, and go back to the workspace", async () => {
+test("a new project can type a path, and go back to the workspace", async () => {
   const s = store({ fullDisk: true });
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
-  assert.match(m.root.textContent, /Folder name/);
-  assert.match(
-    m.root.textContent,
-    /deleting the project asks whether it stays/,
-  );
   assert.equal(byTest(m, "new-project-path").value, "");
-  assert.equal(byTest(m, "new-project-path-clear"), null);
-  await click(byTest(m, "new-project-browse"));
   const typed = byTest(m, "new-project-path");
   typed.value = "/srv/new";
   typed.dispatchEvent(new typed.ownerDocument.defaultView.Event("input"));
-  await m.rerender(
-    store({ fullDisk: true, newProjectPath: "/srv/app" }).value,
-    h(NewProjectModal),
-  );
-  assert.equal(byTest(m, "new-project-path").value, "/srv/app");
-  assert.doesNotMatch(m.root.textContent, /Folder name/);
   const again = store({ fullDisk: true, newProjectPath: "/srv/app" });
   await m.rerender(again.value, h(NewProjectModal));
+  assert.equal(byTest(m, "new-project-path").value, "/srv/app");
+  assert.equal(byTest(m, "new-project-folder").textContent, "/srv/app");
+  assert.match(byTest(m, "new-project-browse").textContent, /Change/);
   await click(byTest(m, "new-project-path-clear"));
-  assert.deepEqual(s.log, [
-    ["browse", "new"],
-    ["path", "/srv/new"],
-  ]);
+  assert.deepEqual(s.log, [["path", "/srv/new"]]);
   assert.deepEqual(again.log, [["path", ""]]);
   await m.unmount();
 });
@@ -500,6 +489,20 @@ test("the folder picked goes to the dialog that asked, and new projects send it"
   const [patch] = s.api.calls.filter((c) => c.method === "PATCH");
   assert.equal(patch.body.path, "/mnt/b");
   await run(() => s.p.closeFolderPicker());
+  await s.m.unmount();
+});
+
+test("a new project without a name takes the folder's name, and without either sends nothing", async () => {
+  const s = await setup({ "POST /v1/projects": res(201, { id: "p8" }) });
+  await run(() => s.p.openNewProject());
+  await run(() => s.p.createProject());
+  assert.equal(s.api.calls.filter((c) => c.method === "POST").length, 0);
+  await run(() => s.p.setNewProjectPath("C:\\work\\my-app\\"));
+  await run(() => s.p.createProject());
+  await flush();
+  const [call] = s.api.calls.filter((c) => c.method === "POST");
+  assert.equal(call.body.title, "my-app");
+  assert.equal(call.body.path, "C:\\work\\my-app\\");
   await s.m.unmount();
 });
 
