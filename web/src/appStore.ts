@@ -79,6 +79,9 @@ export function useAppStore(api: Api) {
     deleteSession: actions.deleteSession,
     deleteSkill: skills.deleteSkill,
     deleteProject: projects.deleteProject,
+    sessionsOf: (projectId) =>
+      lists.sessions.filter((s) => s.project_id === projectId).map((s) => s.id),
+    leaveGone: actions.leaveGone,
   });
   const drawers = useDrawers(rs);
   const shell = useShellApproval({
