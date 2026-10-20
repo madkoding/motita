@@ -349,8 +349,12 @@ func (t *TUI) Run(ctx context.Context) int {
 	mode := enterRaw()
 	t.charMode = mode.active || t.LiveInput
 	t.termMode = mode
-	defer mode.restore()
-	defer recoverRaw(mode)()
+	// Both defers read t.termMode when they run, not now: /config swaps in a new handle, and
+	// that one is the handle to undo.
+	defer func() { t.termMode.restore() }()
+	defer recoverRaw(&t.termMode)()
+	t.setPaste(mode.active)
+	defer t.setPaste(false)
 
 	// The nudge to connect a git host: local files only, so it can be made before the loop.
 	if t.gitNudge {
@@ -874,8 +878,13 @@ func (t *TUI) cycleReasoning() {
 }
 
 // addMessage appends a chat line and repaints.
+//
+// The append is under t.draw: a followed run (AttachTo) paints from its own goroutine while
+// Run adds its startup lines, and drawFrame reads the messages under the same lock.
 func (t *TUI) addMessage(author Author, text string) {
+	t.draw.Lock()
 	t.messages = append(t.messages, Message{Author: author, Text: text})
+	t.draw.Unlock()
 	t.drawFrame()
 }
 
@@ -889,7 +898,10 @@ func (t *TUI) addMessage(author Author, text string) {
 // opened on its last command and its first half was never seen.
 func (t *TUI) addPreformatted(author Author, text string) {
 	m := Message{Author: author, Text: text, Preformatted: true}
+	// Under t.draw for the reason addMessage is: a followed run paints from its own goroutine.
+	t.draw.Lock()
 	t.messages = append(t.messages, m)
+	t.draw.Unlock()
 	inner := t.conversationWidth()
 	tall := len(t.messageLines(m, inner))
 	start := len(t.chatLines(inner)) - tall
@@ -1077,10 +1089,12 @@ func (t *TUI) tooSmallLines(w, h int) []string {
 // It is a named function returning the deferred call rather than an inline closure so the
 // behaviour can be tested: triggering a real panic inside a live terminal is not something a
 // test should do.
-func recoverRaw(mode *terminalMode) func() {
+//
+// It takes a pointer to the handle so it restores the handle current at panic time.
+func recoverRaw(mode **terminalMode) func() {
 	return func() {
 		if r := recover(); r != nil {
-			mode.restore()
+			(*mode).restore()
 			panic(r)
 		}
 	}

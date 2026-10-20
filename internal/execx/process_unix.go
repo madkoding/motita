@@ -27,6 +27,9 @@ func killGroup(cmd *exec.Cmd) error {
 	return nil
 }
 
+// killLeftovers ends what the command left running in its group after it exited.
+func killLeftovers(cmd *exec.Cmd) { _ = killGroup(cmd) }
+
 // asExitError avoids depending on errors.As at every call site.
 func asExitError(err error, target **exec.ExitError) bool {
 	return errors.As(err, target)

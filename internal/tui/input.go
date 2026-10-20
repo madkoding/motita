@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"strings"
 	"time"
@@ -536,6 +537,10 @@ func (t *TUI) appendDraft(ch string) {
 // Home, End) reach it: the draft is cleared first so the line does not survive a mode change.
 func (t *TUI) handleEscapeLive() (seq string, dispatch bool) {
 	s := t.readEscapeLive()
+	if s == pasteStart {
+		t.readPaste()
+		return "", false
+	}
 	if s == keyEsc {
 		// Escape closes the popup first, and only leaves the line when there is nothing to
 		// close.
@@ -603,6 +608,45 @@ func (t *TUI) handleEscapeLive() (seq string, dispatch bool) {
 	// cleared so the line does not survive the mode change.
 	t.draft = ""
 	return s, true
+}
+
+// Bracketed paste: the terminal wraps a paste in pasteStart and pasteEnd, so the live reader can
+// tell pasted text from typed keys. Without it, every pasted newline ended the line, and a
+// multi-line paste was sent as several messages, of which the queue kept only the last.
+const (
+	pasteOn    = "\x1b[?2004h"
+	pasteOff   = "\x1b[?2004l"
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
+
+// setPaste asks the terminal to mark pastes, or to stop. Only the live reader understands the
+// marks, so the caller turns it on only while the terminal is in character mode.
+func (t *TUI) setPaste(on bool) {
+	if t.NoColor || !isTerminalOut(t.Out) {
+		return
+	}
+	s := pasteOff
+	if on {
+		s = pasteOn
+	}
+	_, _ = t.Out.Write([]byte(s))
+}
+
+// readPaste adds a bracketed paste to the draft as text. Its newlines become spaces, so the paste
+// is one message that Enter sends, and no pasted line can run as a command on its own.
+func (t *TUI) readPaste() {
+	var buf []byte
+	for !bytes.HasSuffix(buf, []byte(pasteEnd)) {
+		c, err := t.input().ReadByte()
+		if err != nil {
+			break
+		}
+		buf = append(buf, c)
+	}
+	text := strings.TrimRight(strings.TrimSuffix(string(buf), pasteEnd), "\r\n")
+	text = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\t", " ").Replace(text)
+	t.appendDraft(sanitiseLine(text))
 }
 
 // readRuneFrom assembles one character from the first byte plus, when it is a multi-byte
