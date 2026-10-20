@@ -665,6 +665,15 @@ func (r *AppRunner) SetReview(v *review.Review) {
 	r.review = v
 }
 
+// ProposeSkills hands the review fork the runs of commands a closed session repeated, to be
+// written down as proposed skills in the library this session works with (a project's own for a
+// project's session). It blocks until the fork is done, and does nothing when there is no fork.
+func (r *AppRunner) ProposeSkills(summary string) {
+	if v := r.reviewOrNil(); v != nil {
+		v.RunOnClose(r.procedures(), summary)
+	}
+}
+
 // reviewOrNil returns the installed fork, nil when there is none.
 func (r *AppRunner) reviewOrNil() *review.Review {
 	r.reviewMu.Lock()

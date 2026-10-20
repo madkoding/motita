@@ -876,7 +876,7 @@ func (r *taskRun) rejectClaim(
 		round: r.round, kind: roundRejected, commands: proposedCommands(action),
 		detail: a.summariseFailure(action, runOutput, validation, runErr),
 	})
-	a.report("attempt failed: %s", validation.Reason)
+	a.report(attemptFailedPrefix+"%s", validation.Reason)
 	a.log.Warn(r.prefix+"attempt failed",
 		"attempt", r.rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
 		"round", r.round, "max_steps", r.maxSteps,

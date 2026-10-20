@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +124,29 @@ func TestTheIterationCounterAccumulatesAcrossTurns(t *testing.T) {
 	}
 	if r.reviewIters != 9 {
 		t.Errorf("the runner holds %d, want the running total 9", r.reviewIters)
+	}
+}
+
+// TestProposeSkillsReachesTheForkOnlyWhenThereIsOne: a session that closes hands what it repeated
+// to the fork the runner holds, and a runner with no fork - the review is built even when
+// configured off, but a runner nobody gave one - proposes nothing and does not fail.
+func TestProposeSkillsReachesTheForkOnlyWhenThereIsOne(t *testing.T) {
+	r := quietRunner(t)
+	r.ProposeSkills("### Pattern 1\n- go test\n") // no fork: nothing happens
+
+	seen := make(chan string, 1)
+	r.SetReview(review.New(config.Review{Enabled: true, Timeout: 5 * time.Second, MaxIterations: 1},
+		r.Engine, r.procedures(), r.Log,
+		func(*llm.Client, *procedures.Store, string, int) review.SkillRunner {
+			return &recordedRunner{seen: seen}
+		}))
+	r.ProposeSkills("### Pattern 1\n- go test\n")
+	select {
+	case got := <-seen:
+		if !strings.Contains(got, "Pattern 1") {
+			t.Errorf("the fork read %q", got)
+		}
+	default:
+		t.Fatal("the fork was never asked")
 	}
 }

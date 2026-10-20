@@ -138,6 +138,7 @@ function makeStore(log) {
     api: null,
     rs: {
       sessionId: "s1",
+      sessionRef: { current: "s1" },
       noSession: false,
       messages: [],
       running: false,
@@ -554,6 +555,7 @@ test("the settings dialog is wired to the language, the voice, the speech and th
     p.security,
     p.network,
     p.push,
+    p.friction,
     p.git,
   ]) {
     assert.equal(part.api, ctl.api);
@@ -1001,6 +1003,101 @@ test("an answer can be read aloud, or stopped while it is the one being read", a
   assert.equal(reading.getAttribute("aria-label"), "Stop reading");
   assert.equal(reading.getAttribute("aria-pressed"), "true");
   assert.ok(reading.querySelector("rect"), "the stop square");
+  await ctl.done();
+});
+
+test("an answer can be marked as not right, with words or without, and says when it could not", async () => {
+  const ctl = await mountApp((s) => {
+    s.rs.messages = [
+      msg(1, "user", "Hi", { turn: 4 }),
+      msg(2, "agent", "Wrong answer", { turn: 4 }),
+      msg(3, "agent", "No turn yet"),
+      msg(4, "agent", "Streaming…", { turn: 5 }),
+    ];
+  });
+  const { root } = ctl;
+  const btns = () => [...root.querySelectorAll(".flag-msg-btn")];
+  assert.equal(btns().length, 2, "not on an answer without a turn");
+  const calls = [];
+  let status = 204;
+  let release;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) });
+    if (release) {
+      await new Promise((r) => (release = r));
+    }
+    return new Response(status === 204 ? null : '{"error":"gone"}', { status });
+  };
+
+  // Opening and closing the form.
+  const [first] = btns();
+  assert.equal(first.getAttribute("aria-label"), "This was not right");
+  assert.equal(first.getAttribute("aria-expanded"), "false");
+  assert.equal(root.querySelector(".flag-form"), null);
+  await act(() => first.click());
+  assert.equal(btns()[0].getAttribute("aria-expanded"), "true");
+  assert.match(btns()[0].className, /is-open/);
+  assert.match(
+    text(root.querySelector(".flag-form-hint")),
+    /stays in the journal/,
+  );
+  await act(() => btns()[0].click());
+  assert.equal(root.querySelector(".flag-form"), null, "closed again");
+
+  // A failure keeps the form, says so, and sending again works.
+  status = 500;
+  await act(() => btns()[0].click());
+  const note = root.querySelector(".flag-form-note");
+  note.value = "  wrong file  ";
+  await act(() =>
+    note.dispatchEvent(new window.Event("input", { bubbles: true })),
+  );
+  await act(() =>
+    root
+      .querySelector(".flag-form")
+      .dispatchEvent(
+        new window.Event("submit", { bubbles: true, cancelable: true }),
+      ),
+  );
+  await flush();
+  assert.deepEqual(calls[0], {
+    url: "/v1/sessions/s1/friction",
+    body: { turn: 4, note: "wrong file" },
+  });
+  assert.match(
+    text(root.querySelector(".flag-form-hint")),
+    /could not note it/,
+  );
+  assert.equal(root.querySelector(".flag-form-send").disabled, false);
+
+  // While it is being sent the button waits; then the answer says it was noted.
+  status = 204;
+  release = true;
+  await act(() =>
+    root
+      .querySelector(".flag-form")
+      .dispatchEvent(
+        new window.Event("submit", { bubbles: true, cancelable: true }),
+      ),
+  );
+  await flush();
+  assert.equal(root.querySelector(".flag-form-send").disabled, true);
+  await act(() => release());
+  await flush();
+  release = undefined;
+  assert.equal(text(root.querySelector(".flag-msg-done")), "Noted, thanks");
+  assert.equal(root.querySelector(".flag-form"), null);
+  assert.equal(btns().length, 1, "the other answer keeps its button");
+
+  // The answer still being written has none.
+  await ctl.set((s) => {
+    s.rs = { ...s.rs, running: true };
+  });
+  assert.equal(
+    btns().length,
+    0,
+    "the streaming one, and the noted one, show none",
+  );
   await ctl.done();
 });
 

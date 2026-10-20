@@ -1985,6 +1985,35 @@ when the process was started without a library at all — which is a different a
 from "the library is empty", and the reason a front end can say which one it is
 looking at.
 
+### The friction journal, and skills from a closed session
+
+Motita keeps a **friction journal**: one line, in `~/.motita/friction.jsonl`, for each thing that got
+in the way. It is read-only knowledge for you. Nothing in it changes a setting, a skill or a prompt by
+itself, nothing in it is sent anywhere, and every text is passed through the secret scrubber before it
+is written.
+
+| It records | When |
+| --- | --- |
+| `error` | a run ended with a failure (a run you cancelled is not one) |
+| `retry` | a step did not pass validation and was tried again |
+| `denied` | an action was refused: by you, or because nobody was there to ask (a scheduled run) |
+| `flagged` | you pressed **This was not right** under an answer |
+
+**Settings → Journal** shows the last seven days in plain words (Spanish or English, as the interface):
+how many of each, what came up more than once, and the answers you flagged with your own words. *Clear
+the journal* deletes the whole file. The file keeps its newest 2000 lines.
+
+The **This was not right** button (under every answer, with an optional note) writes the answer with its
+real context: what was asked, what was answered, whether the turn ran as plan or task, how many steps it
+took and how many errors, retries or refusals it had already had. Over HTTP: `GET /v1/friction`,
+`DELETE /v1/friction`, `POST /v1/sessions/{id}/friction` (`{"turn": 3, "note": "..."}`).
+
+**Skills from a closed session.** When a session is deleted (or the default one is reset), Motita reads
+the commands it ran, turn by turn, for a run of two to five steps that came up in at least two turns. It
+costs no model call. Only if it finds one is the background review (`review.enabled`) asked to write it
+down, and what it writes is a *proposal* in the library's `.proposed` folder, exactly like the review's other
+proposals: you read it in the skill library (or `motita curator list-proposed`), and accept or reject it.
+
 ### What runs silently, and why that is a design decision
 
 The confirmation layer is the part operators actually feel, because it is the part
