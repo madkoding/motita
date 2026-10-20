@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,6 +58,12 @@ func TestSetAutopilotRefusals(t *testing.T) {
 	}
 	if err := setAutopilot(diskFile(t, "llm:\n  provider: openai\n"), AutopilotChange{MaxOpenPRs: ptr(99)}); err == nil {
 		t.Error("a limit that does not validate must be refused")
+	}
+	old := uiCreateTemp
+	t.Cleanup(func() { uiCreateTemp = old })
+	uiCreateTemp = func(string, string) (*os.File, error) { return nil, errors.New("disk full") }
+	if err := setAutopilot(diskFile(t, "llm:\n  provider: openai\n"), bad); err == nil {
+		t.Error("a failed write")
 	}
 }
 
