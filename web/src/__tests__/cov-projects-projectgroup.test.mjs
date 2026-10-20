@@ -63,6 +63,11 @@ function store({
         refreshProjectMain: rec("refreshMain"),
         rescanNotes: rec("rescan"),
       },
+      repoGit: {
+        openRepoGit: rec("details"),
+        repoAction: rec("action"),
+        askAgent: rec("ask"),
+      },
       deletion: { setConfirmDelete: rec("confirm") },
     },
   };
@@ -240,6 +245,32 @@ test("the repositories inside a plain folder are a tree, each with its own menu"
   await click(item);
   assert.deepEqual(s.log, [["refreshMain", "p1", "group/web"], ["closeMenu"]]);
   await open.unmount();
+});
+
+test("each entry of a repository's menu does its one thing and closes the menu", async () => {
+  const ref = { projectId: "p1", repo: "api" };
+  const cases = [
+    ["repo-details", ["details", ref]],
+    ["repo-pull", ["action", ref, "pull"]],
+    ["repo-main", ["action", ref, "main"]],
+    ["repo-stash", ["action", ref, "stash"]],
+    ["repo-clean", ["action", ref, "clean"]],
+    ["repo-commit", ["ask", ref, "commit"]],
+    ["repo-push", ["ask", ref, "push"]],
+    ["repo-pr", ["ask", ref, "pr"]],
+    ["repo-work", ["ask", ref, "work"]],
+  ];
+  for (const [id, expected] of cases) {
+    const s = store({ rowMenu: { id: "p1\u0000api" } });
+    const m = await mount(
+      AppCtx,
+      s.value,
+      h(ProjectGroup, { p: { ...P, nested_repos: [{ path: "api" }] } }),
+    );
+    await click(m.q(`[data-testid=${id}]`));
+    assert.deepEqual(s.log, [expected, ["closeMenu"]], id);
+    await m.unmount();
+  }
 });
 
 test("a folder with no repository inside draws no tree", async () => {

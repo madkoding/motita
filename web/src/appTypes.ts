@@ -111,6 +111,19 @@ export interface NestedRepo {
   changes?: number;
 }
 
+// RepoStatus is what the git panel of a repository inside a project's folder shows.
+export interface RepoStatus {
+  path: string;
+  branch: string;
+  main_branch?: string;
+  changes: { path: string; kind: string }[];
+  log: { sha: string; subject: string }[];
+  ahead: number;
+  behind: number;
+  unpublished: number;
+  merged: string[];
+}
+
 export interface ProjectInfo {
   id: string;
   title: string;

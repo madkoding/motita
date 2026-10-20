@@ -51,6 +51,7 @@ import {
   TurnTop,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
+import { RepoGitPanel } from "./RepoGitPanel";
 import { NewProjectModal } from "./NewProjectModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
@@ -639,11 +640,12 @@ function pickerStart(
 // ProjectModals are the dialogs of a project: editing it and creating it, with the folder browser
 // either one can open, and the git host connection a pull request can need.
 function ProjectModals() {
-  const { api: request, projects } = useApp();
+  const { api: request, projects, repoGit } = useApp();
   const { editProject, showNewProject, folderPicker, gitConnect } = projects;
   return (
     <>
       {editProject && <EditProjectModal p={editProject} />}
+      {repoGit.open && <RepoGitPanel r={repoGit.open} />}
       {showNewProject && <NewProjectModal />}
       {folderPicker && (
         <FolderBrowser
