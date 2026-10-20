@@ -917,10 +917,7 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateVoice(); err != nil {
 		return err
 	}
-	if err := c.validateCodeIndex(); err != nil {
-		return err
-	}
-	if err := c.validateAutopilot(); err != nil {
+	if err := errors.Join(c.validateCodeIndex(), c.validateAutopilot()); err != nil {
 		return err
 	}
 	return c.validateAgent()
