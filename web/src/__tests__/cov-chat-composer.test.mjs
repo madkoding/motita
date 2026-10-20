@@ -372,6 +372,24 @@ test("while a run works, Enter sends the message to the run, Alt+Enter keeps the
   await hook.unmount();
 });
 
+test("the keys that end an IME composition neither send, accept a command, nor stop the run", async () => {
+  const { run, hook, calls, c } = await composer({ running: true });
+  await run((x) => x.onInput("/pl"));
+  const popup = c().slashPopup;
+  // Chrome and Firefox mark the key; Safari sends it as keyCode 229.
+  for (const mods of [{ isComposing: true }, { keyCode: 229 }]) {
+    for (const k of ["Enter", "Escape", "Tab"]) {
+      const e = key(k, mods);
+      await run((x) => x.handleKeydown(e));
+      assert.equal(e.prevented, false, k);
+    }
+  }
+  assert.deepEqual(calls, []);
+  assert.equal(c().input, "/pl");
+  assert.equal(c().slashPopup, popup, "the popup is left as it was");
+  await hook.unmount();
+});
+
 // answering mounts useSuggestions over a run state on session "s" with messages of turns 3 to 7
 // and one with no turn, answering requests with `route`. What it sent, toasted and reloaded is
 // recorded.

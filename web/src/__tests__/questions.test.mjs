@@ -151,6 +151,34 @@ test("every question is on the card with its options, a field of its own and its
   await done();
 });
 
+test("two cards in one conversation name each control by its own question", async () => {
+  const root = document.createElement("div");
+  document.body.appendChild(root);
+  const card = (items) =>
+    h(QuestionsCard, { items, origin: "add login", onAnswer() {} });
+  await act(() =>
+    render(
+      h("div", {}, [
+        card(ITEMS),
+        card([{ text: "which database?", options: ["Postgres", "SQLite"] }]),
+      ]),
+      root,
+    ),
+  );
+  const named = (el) =>
+    document.getElementById(el.getAttribute("aria-labelledby")).textContent;
+  const q = questions(root).at(-1);
+  assert.equal(
+    named(q.querySelector('[role="radiogroup"]')),
+    "which database?",
+  );
+  assert.equal(named(q.querySelector(".qcard-own")), "which database?");
+  const ids = questions(root).map((li) => li.querySelector(".qcard-q").id);
+  assert.equal(new Set(ids).size, 4, "no id is used twice");
+  await act(() => render(null, root));
+  root.remove();
+});
+
 test("an option is picked and unpicked, a typed answer replaces it, and Send answers sends them all", async () => {
   const sent = [];
   const { root, done } = await mount({

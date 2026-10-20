@@ -10,6 +10,7 @@ import type { Api } from "./prApi";
 import type { SetStatus, SetToast } from "./appTypes";
 import {
   APPROVAL_ALL,
+  APPROVAL_ARM_MS,
   APPROVAL_NO,
   APPROVAL_OPTIONS,
   JSON_HEADERS,
@@ -72,8 +73,9 @@ export function useShellApproval({
   // runShellLine runs a command the person typed (`!ls`, `/shell ls`) in the session's workspace,
   // under the same policy as the agent's commands. Its output goes to the terminal drawer, where
   // the agent's commands are. When the policy would ask, the question is the approval panel's,
-  // and the answer comes back through answerApproval with a "shell:" id.
-  const shellPendingRef = useRef<string | null>(null);
+  // and the answer comes back through answerApproval with a "shell:" id. The question is kept with
+  // the session it was asked in: a yes after a switch must not run the command somewhere else.
+  const shellPendingRef = useRef<{ sid: string; command: string } | null>(null);
   // `always` keeps commands of this shape allowed in the project, as the panel's second answer
   // does for the agent's own commands.
   const runShellLine = useCallback(
@@ -107,6 +109,11 @@ export function useShellApproval({
           },
         );
         const body = await res.json().catch(() => ({}));
+        if (sessionRef.current !== sid) {
+          // The person left the session while the gateway answered: its terminal and its
+          // question are gone with it.
+          return;
+        }
         if (!res.ok) {
           settle(NO_RESULT, body.error ?? "");
           setToast({
@@ -122,7 +129,7 @@ export function useShellApproval({
         if (body.needs_approval) {
           // Nothing ran: the line leaves the terminal and waits for the person's yes.
           setShellLog((prev) => prev.filter((e) => e.id !== entryId));
-          shellPendingRef.current = command;
+          shellPendingRef.current = { sid, command };
           setApproval({
             id: "shell:" + entryId,
             question: body.reason || t(NEEDS_APPROVAL),
@@ -146,12 +153,12 @@ export function useShellApproval({
   // answerShell answers a typed command's question: it has no run to answer, so it is asked again
   // with the yes in hand.
   const answerShell = (approve: boolean, always: boolean) => {
-    const command = shellPendingRef.current;
+    const pending = shellPendingRef.current;
     shellPendingRef.current = null;
-    if (!approve || !command) {
+    if (!approve || pending?.sid !== sessionRef.current) {
       return;
     }
-    void runShellLine(command, true, always);
+    void runShellLine(pending.command, true, always);
   };
 
   // answerApproval sends the approval response.
@@ -194,11 +201,14 @@ export function useShellApproval({
     [runShellLine],
   );
 
+  // shownAtRef is when the question on screen came up: see APPROVAL_ARM_MS.
+  const shownAtRef = useRef(0);
   const approvalId = approval?.id;
   useEffect(() => {
     if (!approvalId) {
       return;
     }
+    shownAtRef.current = Date.now();
     setApprovalSel(0);
     approvalRef.current?.focus();
   }, [approvalId]);
@@ -214,6 +224,10 @@ export function useShellApproval({
       setApprovalSel((i) => (i + move) % APPROVAL_OPTIONS);
     } else if (e.key === "Enter") {
       e.preventDefault();
+      // A held key, or one typed before the question could be read, is not an answer.
+      if (e.repeat || Date.now() - shownAtRef.current < APPROVAL_ARM_MS) {
+        return;
+      }
       answerApproval(
         approval.id,
         approvalSel !== APPROVAL_NO,

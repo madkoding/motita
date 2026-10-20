@@ -205,6 +205,16 @@ test("the approval panel asks the question, shows the command and takes the thre
     b.dispatchEvent(new MouseEvent("mouseenter"));
     b.click();
   }
+  // A button reached with Tab is the one Enter takes: Enter on a focused "No" must not run it.
+  const tabbed = calls.length;
+  for (const b of [no, run, all]) {
+    b.focus();
+  }
+  assert.deepEqual(calls.slice(tabbed), [
+    ["setApprovalSel", 2],
+    ["setApprovalSel", 0],
+    ["setApprovalSel", 1],
+  ]);
   panel.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
   assert.deepEqual(
     calls.filter((c) => c[0] !== "setApprovalSel"),
