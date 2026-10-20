@@ -1,19 +1,25 @@
 // The note vault: the list of notes, the one open with its draft, the search and the actions on
 // them. Notes are plain Markdown files on the gateway's disk; this hook only asks for them.
 import { useCallback, useRef, useState } from "preact/hooks";
-import { t } from "./i18n";
+import { plural, t } from "./i18n";
 import { HTTP_CONFLICT, JSON_HEADERS } from "./appConst";
 import type { SetStatus } from "./appTypes";
+import type { Deletion } from "./NoteMenus";
+import { scanPoll } from "./NotesScanSettings";
 import {
   folderOf,
   noteFileName,
   parseNoteHref,
+  SCAN_STARTED_EVENT,
   scanNotes,
+  scanProgress,
   type Api,
   type NoteGraph,
   type NoteHit,
   type NoteItem,
   type NoteView,
+  type ScanFolder,
+  type ScanProgress,
 } from "./notesApi";
 
 const NOTES_PATH = "/v1/notes";
@@ -25,6 +31,12 @@ export function useNotes(api: Api, setState: SetStatus) {
   const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [root, setRoot] = useState("");
+  // The folders a scan writes, and how far the scan that is writing them got.
+  const [folders, setFolders] = useState<ScanFolder[]>([]);
+  const [updating, setUpdating] = useState<ScanProgress | null>(null);
+  const watching = useRef(false);
+  // What the person asked to delete and has not yet confirmed.
+  const [pending, setPending] = useState<Deletion | null>(null);
   const [current, setCurrent] = useState<NoteView | null>(null);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
@@ -46,6 +58,7 @@ export function useNotes(api: Api, setState: SetStatus) {
         const d = await res.json();
         setNotes(d.notes);
         setRoot(d.root);
+        setFolders(d.folders ?? []);
         return d.notes.length;
       }
     } catch {
@@ -289,6 +302,88 @@ export function useNotes(api: Api, setState: SetStatus) {
     }
   }, [api, loadList, setState]);
 
+  // deleteFolder removes every note of a folder. When the open note was one of them it closes.
+  const deleteFolder = useCallback(
+    async (path: string, count: number) => {
+      try {
+        const res = await api(
+          NOTES_PATH + "/folder?path=" + encodeURIComponent(path),
+          {
+            method: "DELETE",
+          },
+        );
+        if (!res.ok) {
+          setState(t("could not delete the folder"), true);
+          return;
+        }
+        if (live.current.current?.path.startsWith(path + "/")) {
+          setCurrent(null);
+        }
+        setState(plural(count, "1 note deleted", "{n} notes deleted"));
+        await loadList();
+      } catch {
+        setState(t("could not delete the folder"), true);
+      }
+    },
+    [api, loadList, setState],
+  );
+
+  // watchScan follows the scan running in the background until it ends, then reads the list again
+  // so the notes it wrote are there.
+  const watchScan = useCallback(async () => {
+    if (watching.current) {
+      return;
+    }
+    watching.current = true;
+    for (;;) {
+      const p = await scanProgress(api).catch(() => null);
+      if (!p?.running) {
+        break;
+      }
+      setUpdating(p);
+      await new Promise((r) => setTimeout(r, scanPoll.ms));
+    }
+    watching.current = false;
+    setUpdating(null);
+    await loadList();
+  }, [api, loadList]);
+
+  // rescanFolder writes a folder a scan wrote again, in the background: a guide for its project,
+  // the others for all of them.
+  const rescanFolder = useCallback(
+    async (path: string) => {
+      try {
+        const res = await api(
+          NOTES_PATH + "/folder/rescan?path=" + encodeURIComponent(path),
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          setState(t("could not update the notes"), true);
+          return;
+        }
+        setUpdating((await res.json()) as ScanProgress);
+        window.dispatchEvent(new Event(SCAN_STARTED_EVENT));
+        void watchScan();
+      } catch {
+        setState(t("could not update the notes"), true);
+      }
+    },
+    [api, setState, watchScan],
+  );
+
+  // confirmDelete deletes what the person was asked about: the open note, or a folder of notes.
+  const confirmDelete = useCallback(
+    async (d: Deletion) => {
+      setPending(null);
+      if (d.kind === "note") {
+        await deleteNote();
+      } else {
+        await deleteFolder(d.path, d.count);
+      }
+    },
+    [deleteNote, deleteFolder],
+  );
+
   const search = useCallback(
     async (q: string) => {
       setQuery(q);
@@ -334,6 +429,8 @@ export function useNotes(api: Api, setState: SetStatus) {
     showNotes,
     notes,
     root,
+    folders,
+    updating,
     current,
     draft,
     setDraft,
@@ -353,6 +450,11 @@ export function useNotes(api: Api, setState: SetStatus) {
     createNote,
     renameNote,
     deleteNote,
+    deleteFolder,
+    rescanFolder,
+    pending,
+    askDelete: setPending,
+    confirmDelete,
     search,
     followLink,
   };
