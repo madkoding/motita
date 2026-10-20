@@ -179,7 +179,7 @@ func (l *Logger) log(level Level, msg string, fields ...any) {
 		line, _ = json.Marshal(map[string]any{
 			"ts":    event["ts"],
 			"level": level.String(),
-			"msg":   msg,
+			"msg":   event["msg"],
 			"error": "could not serialize a field: " + err.Error(),
 		})
 	}
