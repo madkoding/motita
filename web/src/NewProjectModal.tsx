@@ -1,5 +1,5 @@
-// The new project modal. A project is a plain folder, so it asks which way it starts: from a folder
-// or by cloning a repository, one or the other and never both. Then its name and the folder. The
+// The new project modal. A project is a plain folder, so it asks for its name first, then which way
+// it starts: from a folder or by cloning a repository, one or the other and never both. The
 // folder browser picks an existing one or makes a new one; choosing one names a project that has
 // no name yet after it. The rest is folded away.
 import { t } from "./i18n";
@@ -340,9 +340,9 @@ export function NewProjectModal() {
           </button>
         </div>
         <div class="space-y-4">
+          <NameField />
           <SourcePicker />
           {choose(projects.newProjectSource === "clone", <RepoField />, null)}
-          <NameField />
           {choose(
             projects.newProjectSource === "clone",
             null,

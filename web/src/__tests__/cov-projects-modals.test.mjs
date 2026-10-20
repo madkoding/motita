@@ -104,6 +104,16 @@ test("a folder chosen names the project and lets it be created", async () => {
   await m.unmount();
 });
 
+test("the name is the first field, ahead of the choice of how to start", async () => {
+  for (const newProjectSource of ["folder", "clone"]) {
+    const s = store({ newProjectSource });
+    const m = await mount(AppCtx, s.value, h(NewProjectModal));
+    const first = m.q(".space-y-4").firstElementChild;
+    assert.ok(first.querySelector("[data-testid=new-project-name]"));
+    await m.unmount();
+  }
+});
+
 test("the dialog offers a folder or a repository to clone, never both at once", async () => {
   const s = store();
   const m = await mount(AppCtx, s.value, h(NewProjectModal));
