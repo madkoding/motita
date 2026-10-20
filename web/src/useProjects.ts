@@ -406,17 +406,27 @@ function useProjectAdmin(
   );
 
   // refreshProjectMain asks the gateway to bring the project's main branch up to date now, the
-  // only way it moves since nothing updates it by itself. The notice that remains comes with the list.
+  // only way it moves since nothing updates it by itself. The notice that remains comes with the
+  // list. With `repo` it is the main branch of that repository inside the project's folder, whose
+  // notice is not kept: it comes back in the answer and is shown at once.
   const refreshProjectMain = useCallback(
-    async (id: string) => {
+    async (id: string, repo = "") => {
       try {
-        const res = await api(PROJECTS_PATH + id + "/main/refresh", {
-          method: "POST",
-        });
+        const res = await api(
+          PROJECTS_PATH +
+            id +
+            "/main/refresh" +
+            choose(repo, "?repo=" + encodeURIComponent(repo), ""),
+          { method: "POST" },
+        );
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           setState(err.error || "could not update the main branch", true);
           return;
+        }
+        const done = await res.json().catch(() => ({}));
+        if (repo && done.main_warning) {
+          setState(done.main_warning, true);
         }
         await fetchProjects();
       } catch {

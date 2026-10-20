@@ -202,6 +202,24 @@ test("the menu updates the main branch: nothing else does it by itself", async (
   await m.unmount();
 });
 
+test("the repositories inside a plain folder are each updated from the menu", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const withRepos = {
+    ...P,
+    nested_repos: [{ path: "api" }, { path: "group/web", branch: "main" }],
+  };
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: withRepos }));
+  const items = m.qa("[data-testid=refresh-nested]");
+  assert.deepEqual(
+    items.map((b) => b.textContent),
+    ["Update api", "Update group/web"],
+  );
+  assert.match(items[1].title, /group\/web/);
+  await click(items[1]);
+  assert.deepEqual(s.log, [["refreshMain", "p1", "group/web"], ["closeMenu"]]);
+  await m.unmount();
+});
+
 test("a project that is only a folder has no main branch to update", async () => {
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));

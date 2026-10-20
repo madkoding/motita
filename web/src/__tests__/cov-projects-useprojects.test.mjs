@@ -451,6 +451,30 @@ test("updating the main branch reads the projects again, or says why it could no
   await s.m.unmount();
 });
 
+test("updating a repository inside the project names it, and shows the notice it comes back with", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/main/refresh?repo=group%2Fweb": () => {
+      n++;
+      if (n === 1) {
+        return res(200, {
+          main_warning: "main: the checkout has uncommitted changes",
+        });
+      }
+      return res(200, { main_warning: "" });
+    },
+    "POST /v1/projects/p1/main/refresh": () => res(200, "not json"),
+  });
+  await run(() => s.p.refreshProjectMain("p1", "group/web"));
+  await run(() => s.p.refreshProjectMain("p1", "group/web"));
+  await run(() => s.p.refreshProjectMain("p1"));
+  assert.equal(s.counts.projects, 3);
+  assert.deepEqual(s.states, [
+    ["main: the checkout has uncommitted changes", true],
+  ]);
+  await s.m.unmount();
+});
+
 test("rescanning the notes asks the gateway, or says why it could not", async () => {
   let n = 0;
   const s = await setup({

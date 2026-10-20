@@ -50,6 +50,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		all[i].MainWarning = s.mainRefresh.warning(all[i].ID)
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
 		liveRepos(ctx, &all[i])
+		all[i].Nested = nestedReposOf(ctx, &all[i])
 		all[i].MissingDeps = missingDeps(&all[i])
 		// Worktrees counts the session checkouts, and it is asked of git rather
 		// than of the session list so that a worktree left behind by a session

@@ -58,6 +58,26 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {t("Update main branch")}
         </button>
       )}
+      {p.nested_repos?.map((r) => (
+        <button
+          key={r.path}
+          class={ITEM_PLAIN}
+          data-testid="refresh-nested"
+          title={tf(
+            "Brings {repo} up to date with its origin; nothing is forced.",
+            {
+              repo: r.path,
+            },
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            void projects.refreshProjectMain(p.id, r.path);
+            menus.closeRowMenu();
+          }}
+        >
+          {tf("Update {repo}", { repo: r.path })}
+        </button>
+      ))}
       <button
         class={ITEM_PLAIN}
         data-testid="rescan-notes"

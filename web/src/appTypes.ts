@@ -103,6 +103,14 @@ export interface AgentInfo {
   summary?: string;
 }
 
+// NestedRepo is a git repository found inside a project's folder, by its path in it.
+export interface NestedRepo {
+  path: string;
+  branch?: string;
+  main_branch?: string;
+  changes?: number;
+}
+
 export interface ProjectInfo {
   id: string;
   title: string;
@@ -116,6 +124,8 @@ export interface ProjectInfo {
   // main_warning is why the last background update of the main branch (a session opened or
   // closed) could not be done; absent when it worked.
   main_warning?: string;
+  // nested_repos are the git repositories inside the folder of a project that is not one itself.
+  nested_repos?: NestedRepo[];
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.
   merge_method?: string;
   // pr_max_fixes is how many times the agent is sent to fix a failing CI (0: the default).
