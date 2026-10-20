@@ -12,6 +12,7 @@ import type { Store } from "./appStore";
 import type { CheckpointInfo, Message, StepView } from "./appTypes";
 import type { SuggestionAnswers } from "./proposals";
 import type { QuestionAnswers } from "./questions";
+import { flagAnswer } from "./frictionApi";
 
 export interface TurnView {
   running: boolean;
@@ -34,10 +35,31 @@ export interface TurnView {
   answerSuggestions: (m: Message, a: SuggestionAnswers) => void;
   answerQuestions: (m: Message, a: QuestionAnswers, shown: string) => void;
   speak: (m: Message) => void;
+  /** flagAnswer notes in the friction journal that the answer of m was not right; false when it could not. */
+  flagAnswer: (m: Message, note: string) => Promise<boolean>;
   showRunArtifact: (a: { name: string; type: string }) => void;
 }
 
 export const TurnCtx = createContext<TurnView | null>(null);
+
+/** flagMessage writes down that the answer of m was not right, for the session now open. */
+async function flagMessage(
+  store: Store,
+  m: Message,
+  note: string,
+): Promise<boolean> {
+  try {
+    await flagAnswer(
+      store.api,
+      store.rs.sessionRef.current,
+      m.turn as number,
+      note,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The turn view, for a component inside the conversation. */
 export function useTurn(): TurnView {
@@ -75,6 +97,8 @@ export function useTurnView(store: Store): TurnView {
       answerQuestions: (m: Message, a: QuestionAnswers, shown: string) =>
         void latest.current.answerQuestions(m, a, shown),
       speak: (m: Message) => latest.current.speech.speak(m),
+      flagAnswer: (m: Message, note: string) =>
+        flagMessage(latest.current, m, note),
       showRunArtifact: (a: { name: string; type: string }) =>
         latest.current.artifacts.showRunArtifact(a),
     }),

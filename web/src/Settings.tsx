@@ -25,12 +25,14 @@ import { CodeIndexSettings } from "./CodeIndexSettings";
 import { NotesScanSettings } from "./NotesScanSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
+import { FrictionSettings } from "./FrictionSettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
 import {
   IconBell,
   IconBranch,
   IconChip,
   IconGlobe,
+  IconJournal,
   IconMic,
   IconPlug,
   IconSearch,
@@ -67,6 +69,8 @@ interface Props extends AppearanceSettingsProps {
   security?: { api: Api; sessionId?: string };
   // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
   push?: { api: Api };
+  // The journal of what got in the way. Hidden where the page has no API to hand it.
+  friction?: { api: Api };
   // The search_index tool: its switches, embeddings and limits. Hidden on a gateway without the API.
   codeIndex?: { api: Api };
   // tab is the tab the dialog opens on; the first one when absent.
@@ -82,6 +86,7 @@ export type Tab =
   | "speech"
   | "security"
   | "network"
+  | "journal"
   | "codeindex"
   | "providers"
   | "models"
@@ -118,6 +123,9 @@ function settingsTabs(p: Props): TabInfo[] {
   }
   if (p.security) {
     tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
+  }
+  if (p.friction) {
+    tabs.push({ id: "journal", label: t("Journal"), icon: <IconJournal /> });
   }
   if (p.codeIndex) {
     tabs.push({
@@ -158,6 +166,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     p.security && (
       <SecuritySettings api={p.security.api} sessionId={p.security.sessionId} />
     ),
+  journal: (p) => p.friction && <FrictionSettings api={p.friction.api} />,
   codeindex: (p) =>
     p.codeIndex && (
       <>
