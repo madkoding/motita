@@ -91,6 +91,38 @@ func TestResetStartsANewConversation(t *testing.T) {
 	}
 }
 
+// TestResetWaitsForTheRunAndIsSaved: a reset during a run would drop the open checkpoint of that
+// run, so it is refused like a restore is. A reset that goes through is written at once, or a crash
+// brings the old conversation back with checkpoints whose snapshots are already gone.
+func TestResetWaitsForTheRunAndIsSaved(t *testing.T) {
+	svc := &fakeService{transcript: []agent.DialogueTurn{{User: "old question", Agent: "old answer"}}}
+	srv := newTestServer(t, svc, func(o *Options) { o.SessionDir = t.TempDir() })
+	c := srv.sessions[DefaultSession]
+	srv.saveSession(c)
+
+	c.takeRunSlot()
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/reset"), "{}", testToken); w.Code != http.StatusConflict {
+		t.Fatalf("a reset during a run = %d, want 409", w.Code)
+	}
+	if svc.reset != 0 {
+		t.Fatalf("a refused reset still reset the conversation")
+	}
+	c.releaseRunSlot()
+
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/reset"), "{}", testToken); w.Code != http.StatusNoContent {
+		t.Fatalf("a reset of an idle session = %d, want 204", w.Code)
+	}
+	recs, err := srv.store.loadAll()
+	if err != nil {
+		t.Fatalf("loading the saved sessions: %v", err)
+	}
+	for _, rec := range recs {
+		if rec.ID == DefaultSession && len(rec.Turns) != 0 {
+			t.Fatalf("the saved record still holds the old conversation: %+v", rec.Turns)
+		}
+	}
+}
+
 func TestTheModelsReportIsTextual(t *testing.T) {
 	svc := &fakeService{models: func(context.Context) (string, error) { return "provider : openai\n", nil }}
 	srv := newTestServer(t, svc)
