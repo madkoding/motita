@@ -95,7 +95,7 @@ test("the menu opens below its button, flush with its right edge, and toggles sh
     b.click();
     await settle();
     assert.deepEqual(m.ref.m.rowMenu, ROWS[0]);
-    assert.deepEqual(m.ref.m.rowMenuPos, { top: 124, left: 140 });
+    assert.deepEqual(m.ref.m.rowMenuPos, { top: 124, left: 100 });
     assert.equal(m.ref.m.rowMenuAbove, false);
     assert.ok(m.root.querySelector(".row-menu"));
 
@@ -125,12 +125,12 @@ test("near the bottom it flips above; a narrow window keeps it inside", async ()
   const m = mount();
   await settle();
   const b = m.root.querySelector("#btn-p1");
-  // Below would end at 290 + 4 + 96 > 300: above, at 260 - 4 - 96.
+  // Below would end at 290 + 4 + 160 > 300: above, at 260 - 4 - 160.
   place(b, { top: 260, bottom: 290, right: 400 });
   b.click();
   await settle();
   assert.equal(m.ref.m.rowMenuAbove, true);
-  assert.deepEqual(m.ref.m.rowMenuPos, { top: 160, left: 6 });
+  assert.deepEqual(m.ref.m.rowMenuPos, { top: 96, left: 4 });
   // Too close to the top to go above either: pinned to the gap. Left never under the gap.
   place(b, { top: 50, bottom: 290, right: 10 });
   fire(window, "resize");

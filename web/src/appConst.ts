@@ -141,8 +141,8 @@ export const SSE_FRAME_END = "\n\n";
 // They mirror the markup — `min-w-[140px]`, one `py-1` and two items of ~36px — and the flip
 // decision only needs to be approximately right: being a few pixels out means the menu sits a
 // few pixels away from the ideal, not that it is clipped.
-export const MENU_W = 160;
-export const MENU_H = 96;
+export const MENU_W = 200;
+export const MENU_H = 160;
 // The gap between a row menu and its trigger, and between the menu and the window's edge.
 export const MENU_GAP = 4;
 

@@ -37,6 +37,7 @@ class FakeResizeObserver {
   }
 }
 
+const menuPart = /menu/;
 function store(over = {}) {
   const calls = [];
   const composer = {
@@ -340,8 +341,14 @@ async function inTurn(vnode, over) {
     m,
     root: m.root,
     calls,
-    q: (s) => m.root.querySelector(s),
-    qa: (s) => [...m.root.querySelectorAll(s)],
+    // The turn's "⋯" menu is portaled to <body>, so its pieces are looked up in the document.
+    q: (s) =>
+      m.root.querySelector(s) ??
+      (menuPart.test(s) ? document.querySelector(s) : null),
+    qa: (s) => [
+      ...m.root.querySelectorAll(s),
+      ...(menuPart.test(s) ? document.querySelectorAll(s) : []),
+    ],
   };
 }
 

@@ -10,6 +10,7 @@ import { useListener } from "./domHooks";
 import { ActionCount, ActionTrail } from "./ActionTrail";
 import { Typed, esc } from "./Term";
 import { BodyPortal } from "./BodyPortal";
+import { FloatingMenu } from "./FloatingMenu";
 import {
   classifyProgress,
   oneLine,
@@ -163,9 +164,11 @@ function TurnMenu({
 }) {
   const { cpMenu, setCpMenu, toggleCpMenu, stopRun, submit } = useTurn();
   const open = cpMenu === menuKey;
+  const btn = useRef<HTMLButtonElement>(null);
   return (
     <div class="cp-wrap">
       <button
+        ref={btn}
         type="button"
         class="cp-btn"
         aria-label={t("Message menu")}
@@ -177,7 +180,7 @@ function TurnMenu({
         <MenuDots />
       </button>
       {open && (
-        <div class="cp-menu" role="menu">
+        <FloatingMenu anchor={btn.current} class="cp-menu">
           {liveHere && (
             <button
               type="button"
@@ -209,7 +212,7 @@ function TurnMenu({
             </button>
           )}
           {turn != null && <CheckpointItems turn={turn} />}
-        </div>
+        </FloatingMenu>
       )}
     </div>
   );
