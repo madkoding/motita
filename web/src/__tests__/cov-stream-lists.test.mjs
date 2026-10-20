@@ -462,6 +462,46 @@ test("deleting a session removes it at once and opens the next one, or none", as
   await h.unmount();
 });
 
+test("leaving sessions a project took away opens another one, or none", async () => {
+  phone(false);
+  // The gateway still lists a gone session (a stale poll): it is never the one opened.
+  const listed = [
+    { id: "m", last_used: "2024-03-01T00:00:00Z" },
+    { id: "t", last_used: "2024-02-01T00:00:00Z" },
+    { id: "x", last_used: "2024-01-01T00:00:00Z" },
+  ];
+  const gw = gateway({
+    "GET /v1/sessions": () => res(200, { sessions: listed }),
+  });
+  const { h, conv, cur } = await actions(gw);
+  // Looking at something else: nothing moves.
+  await h.act(() => {
+    cur().rs.sessionRef.current = "x";
+  });
+  await h.act(() => cur().actions.leaveGone(["m", "t"]));
+  assert.deepEqual(conv.switched, []);
+  // Looking at the main session or a thread of the project: off to the one left.
+  await h.act(() => {
+    cur().rs.sessionRef.current = "t";
+  });
+  await h.act(() => cur().actions.leaveGone(["m", "t"]));
+  assert.deepEqual(conv.switched, ["x"]);
+  // Nothing left: the empty state, no session opened.
+  await h.act(() => cur().actions.leaveGone(["m", "t", "x"]));
+  assert.equal(conv.noSession, 1);
+  // Unreachable: the list already on screen, minus what is gone, decides.
+  gw.routes["GET /v1/sessions"] = () => {
+    throw new Error("offline");
+  };
+  await h.act(() => {
+    cur().lists.setSessions(listed);
+    cur().rs.sessionRef.current = "m";
+  });
+  await h.act(() => cur().actions.leaveGone(["m"]));
+  assert.deepEqual(conv.switched, ["x", "t"]);
+  await h.unmount();
+});
+
 test("deleting the open session offline opens the next one still listed", async () => {
   phone(false);
   const gw = gateway({

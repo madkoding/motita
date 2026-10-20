@@ -440,7 +440,7 @@ function useProjectAdmin(
   // whose sessions hold uncommitted work is refused without it. `wipe` asks to remove the
   // project's folder with its contents too; without it the folder stays on disk.
   const deleteProject = useCallback(
-    async (id: string, discard = false, wipe = false) => {
+    async (id: string, discard = false, wipe = false): Promise<boolean> => {
       try {
         const query = [
           choose(discard, "force=1", ""),
@@ -455,12 +455,13 @@ function useProjectAdmin(
         if (!res.ok && res.status !== HTTP_NO_CONTENT) {
           const err = await res.json().catch(() => ({}));
           setState(err.error || "could not delete the project", true);
-          return;
+          return false;
         }
         await fetchProjects();
         await fetchSessions();
+        return true;
       } catch {
-        /* ignore */
+        return false;
       }
     },
     [fetchProjects, fetchSessions],

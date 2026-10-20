@@ -6,6 +6,7 @@ import { choose } from "./choose";
 import type { SessionList } from "./useSessionList";
 import { mostRecent } from "./appFormat";
 import { mainSessionOf } from "./threads";
+import { useLeaveGone } from "./useLeaveGone";
 import type { RunState } from "./useRunState";
 import type { Conversation } from "./useConversation";
 import type { Api } from "./prApi";
@@ -159,6 +160,8 @@ export function useSessionActions({
     [sessions, loadSessions, switchSession, showNoSession],
   );
 
+  const leaveGone = useLeaveGone({ sessionRef, lists, conv });
+
   // renameSession changes the title of a conversation.
   const renameSession = useCallback(async (id: string, title: string) => {
     const trimmed = title.trim();
@@ -269,6 +272,7 @@ export function useSessionActions({
     creatingSession,
     createSession,
     deleteSession,
+    leaveGone,
     renameSession,
     continueSession,
     isolateSession,
