@@ -12,21 +12,6 @@ import (
 	"github.com/madkoding/motita/internal/gitx"
 )
 
-// handleStandaloneProjectRepo is the migration from a shared repository to a plain clone: the
-// project's folder of it stops being a worktree of the catalog's clone and becomes a clone of its
-// own, on the same branch and with the same commits, with origin pointing at the repository's URL.
-// Nothing is deleted: the catalog's clone keeps every branch (the project's included) for the other
-// projects that use it. A folder with uncommitted work, or one that isolated sessions still have a
-// worktree of, is left as it is until that is dealt with.
-func (s *Server) handleStandaloneProjectRepo(w http.ResponseWriter, r *http.Request) {
-	updated, status, err := s.standaloneRepo(r.Context(), r.PathValue("id"), r.PathValue("name"))
-	if err != nil {
-		writeError(w, status, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, updated)
-}
-
 // standaloneRepo does the migration of one repository and says which HTTP status a refusal maps to.
 func (s *Server) standaloneRepo(ctx context.Context, id, name string) (*Project, int, error) {
 	defer s.lockProjectRepos(id)()
