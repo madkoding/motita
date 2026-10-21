@@ -590,17 +590,6 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	}
 }
 
-// waitForSubscriber waits, up to five seconds, until the conversation's live run has a reader.
-func waitForSubscriber(c *conversation) {
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if rn, ok := c.currentRun(); ok && rn.subscriberCount() > 0 {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 // The answer is delivered even when nobody is watching the channel any more: the send is
 // non-blocking, so a client answering a question that has already been closed gets an answer
 // instead of a hang. Driven directly, because the handler's buffered send is the thing under
