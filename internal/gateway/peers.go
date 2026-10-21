@@ -336,7 +336,9 @@ func (s *Server) askPeer(w http.ResponseWriter, r *http.Request, h peers.Hello, 
 	}
 	code := peers.PairCode(s.peers.Fingerprint(), peers.FingerprintOf(h.Cert))
 	s.peers.SetAsk(h.ID, peers.Ask{Code: code, State: peers.AskWaiting})
-	go s.awaitApproval(h, at, addr, code)
+	// The pace is read here, on the request, not in the goroutine: a goroutine that outlives the
+	// request must not race whoever changes it next (the tests do, per test).
+	go s.awaitApproval(h, at, addr, code, askEvery, askWait)
 	writeJSON(w, http.StatusOK, s.peersView())
 }
 
@@ -347,10 +349,11 @@ var (
 )
 
 // awaitApproval checks on this gateway's request to the computer h until it is answered or expires.
-func (s *Server) awaitApproval(h peers.Hello, at netip.AddrPort, addr, code string) {
+// It checks every `every`, for `wait` at most.
+func (s *Server) awaitApproval(h peers.Hello, at netip.AddrPort, addr, code string, every, wait time.Duration) {
 	src := s.peers.SourceOf(h.ID)
-	deadline := time.Now().Add(askWait)
-	tick := time.NewTicker(askEvery)
+	deadline := time.Now().Add(wait)
+	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for time.Now().Before(deadline) && s.baseCtx.Err() == nil {
 		<-tick.C
