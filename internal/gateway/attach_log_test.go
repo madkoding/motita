@@ -365,3 +365,14 @@ func TestAnUnreadableApprovalIsNotReplayed(t *testing.T) {
 		t.Error("an event that is not an approval was dropped from the replay")
 	}
 }
+
+// waitForSubscriber waits, up to five seconds, until the conversation's live run has a reader.
+func waitForSubscriber(c *conversation) {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if rn, ok := c.currentRun(); ok && rn.subscriberCount() > 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

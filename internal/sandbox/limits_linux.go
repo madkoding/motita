@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -149,12 +147,11 @@ func unappliedLimits(l Limits) ([]string, error) {
 // On the target machines (i386 with little RAM) the value is small; on a CI
 // runner with many cores it is larger, and that is why the adjustment has to be
 // dynamic and not a constant.
+//
+// It only measures. It runs in the process that builds the sandbox - the gateway, which lives for
+// days - and it used to pin that process to one thread and turn its garbage collector off for good,
+// so every session made the gateway's memory grow until the kernel killed it.
 func minimumMemoryMB() int {
-	// A single thread and no GC: this reduces what the runtime reserves in the
-	// period from here to the exec.
-	runtime.GOMAXPROCS(1)
-	debug.SetGCPercent(-1)
-
 	peak := peakVirtualMemory()
 	if peak == 0 {
 		return 0

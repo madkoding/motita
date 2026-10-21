@@ -433,7 +433,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	}
 	if !s.op.Keep {
 		defer func() {
-			if err := os.RemoveAll(tempDir); err != nil {
+			if err := removeTree(tempDir); err != nil {
 				s.log.Warn("could not delete the temporary directory", "dir", tempDir, "error", err)
 			}
 		}()
@@ -526,16 +526,22 @@ func refusedSystemTemp(out string) bool {
 		strings.Contains(lower, "operation not permitted")
 }
 
+// sharedMemory is where POSIX shared memory and named semaphores live. /dev itself is granted only
+// the files already there (`> /dev/null`), which left Python's multiprocessing (a Lock, a process
+// pool, pytest-xdist) and headless Chromium failing with "Permission denied" even for a command the
+// user approved. A missing directory (macOS) is skipped when the rules are made.
+const sharedMemory = "/dev/shm"
+
 // writeRoots are the directories a confined command may write: where it works, the home the
 // sandbox keeps for it, its own temporary directory, the git directories a worktree writes into,
-// and /dev for `> /dev/null`.
+// /dev for `> /dev/null` and sharedMemory.
 //
 // The tools directory's bin/ and tools/ are not among them. They come first on the PATH of every
 // session of every project, so a command one project's agent ran unasked could otherwise plant a
 // `git` or a `make` there for all the others. Installing a toolchain is a command the user
 // approves, and an approved command is not confined.
 func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
-	roots := []string{s.base, workDir, tempDir, "/dev"}
+	roots := []string{s.base, workDir, tempDir, "/dev", sharedMemory}
 	if home := s.Home(); home != "" {
 		roots = append(roots, home)
 	}
@@ -553,7 +559,7 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 // the user's files elsewhere (privatePaths).
 func (s *Sandbox) confine(spec *Spec, workDir, tempDir string) {
 	if s.FullDisk() {
-		spec.WriteRoots = []string{"/"}
+		spec.WriteRoots = []string{"/", sharedMemory}
 		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
 		// With the whole disk writable, the secrets above are kept unreadable AND unwritable (a
 		// command could otherwise rewrite motita.yaml to disable the policy), and the tools bin
@@ -588,7 +594,7 @@ var privateTrees = []string{"/home", "/root", "/mnt", "/media", "/srv", "/run/me
 // model logins. The git logins stay readable: an approved `git push` is what they are for, and the
 // credential helper git starts runs inside the same confinement.
 func (s *Sandbox) confineApproved(spec *Spec) {
-	spec.WriteRoots = []string{"/"}
+	spec.WriteRoots = []string{"/", sharedMemory}
 	spec.HiddenPaths = s.approvedHidden()
 }
 
@@ -856,15 +862,18 @@ func (s *Sandbox) newRunGroup() *runGroup {
 // confined at all, gets them: the helper hands a token to whoever asks, and a
 // confined command is one nobody looked at.
 func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
-	path, home := systemPath, s.base
+	path, home := s.commandPath(), s.base
 	if tools := s.toolsDir(); tools != "" {
-		path, home = ToolPath(tools, systemPath), s.Home()
+		path, home = ToolPath(tools, path), s.Home()
 	}
 	base := []string{
 		"PATH=" + path,
 		"HOME=" + home,
 		"LANG=C.UTF-8",
 		"TMPDIR=" + tempDir,
+	}
+	if goos == "windows" {
+		base = append(base, windowsEnvironment(tempDir, home)...)
 	}
 	if scratch := s.scratchDir(); scratch != "" {
 		base = append(base, "MOTITA_SCRATCH="+scratch)
@@ -885,6 +894,35 @@ func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 		base = append(base, "GNUPGHOME="+view)
 	}
 	return base
+}
+
+// windowsSystemVariables are what a Windows program needs from the system to start at all: without
+// SystemRoot PowerShell does not load ("Loading managed Windows PowerShell failed with error
+// 8009001d"), without PATHEXT nothing is found by its bare name, and without ComSpec a tool cannot
+// reach cmd.exe. They name the system, not the user, and are passed through as motita has them.
+var windowsSystemVariables = []string{
+	"SystemRoot", "SystemDrive", "windir", "ComSpec", "PATHEXT", "OS", "NUMBER_OF_PROCESSORS",
+	"PROCESSOR_ARCHITECTURE", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+	"CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432", "USERNAME", "COMPUTERNAME",
+}
+
+// windowsEnvironment is what a command on Windows gets besides PATH, HOME and TMPDIR: the system
+// variables above, the temporary directory under the names Windows programs read (TEMP and TMP,
+// not TMPDIR), and the profile folders in the sandbox's HOME, as HOME already is on every system.
+func windowsEnvironment(tempDir, home string) []string {
+	env := []string{
+		"TEMP=" + tempDir,
+		"TMP=" + tempDir,
+		"USERPROFILE=" + home,
+		"APPDATA=" + filepath.Join(home, "AppData", "Roaming"),
+		"LOCALAPPDATA=" + filepath.Join(home, "AppData", "Local"),
+	}
+	for _, key := range windowsSystemVariables {
+		if v := getenv(key); v != "" {
+			env = append(env, key+"="+v)
+		}
+	}
+	return env
 }
 
 // environment is the environment without a temporary directory of its own (for

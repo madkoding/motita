@@ -1,8 +1,10 @@
 package sandbox
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +13,33 @@ import (
 // systemPath is the PATH a sandboxed command starts from: the system directories and
 // nothing of the user's own environment.
 const systemPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// commandPath is the PATH a sandboxed command gets before the tools directory's bin directories:
+// systemPath, then the directories of motita's own PATH that are not among the user's files
+// (privatePaths). Those hold what is installed for the whole machine outside the standard
+// directories - /usr/local/go/bin, /snap/bin, /opt/homebrew/bin, /opt/<tool>/bin - which a command
+// found as "not found" with systemPath alone. A directory in the user's home stays out: it is the
+// user's own environment, and confined to the workspace it could not be read anyway.
+//
+// Windows has no system directories in POSIX form, so its PATH is motita's own, filtered the same
+// way. Under a chroot motita's PATH names nothing inside the root, and systemPath is kept.
+func (s *Sandbox) commandPath() string {
+	if s.op.UseChroot {
+		return systemPath
+	}
+	var dirs []string
+	if goos != "windows" {
+		dirs = strings.Split(systemPath, ":")
+	}
+	private := s.privatePaths()
+	for _, d := range filepath.SplitList(getenv("PATH")) {
+		if !filepath.IsAbs(d) || pathUnder(d, private) || slices.Contains(dirs, filepath.Clean(d)) {
+			continue
+		}
+		dirs = append(dirs, filepath.Clean(d))
+	}
+	return strings.Join(dirs, string(os.PathListSeparator))
+}
 
 // THE TOOLS DIRECTORY, and why the agent's HOME, TMPDIR and toolchains live there.
 //
@@ -82,7 +111,49 @@ func (s *Sandbox) tempRoot() string {
 			"dir", root, "error", err)
 		return s.base
 	}
+	if !s.op.Keep {
+		// What a run could not delete, or a gateway that died mid-run left, piled up here for good.
+		removeOlder(root, "tmp-", staleTempAge)
+	}
 	return root
+}
+
+// staleTempAge is when a run's temporary directory is surely left over: no run lives that long.
+const staleTempAge = 24 * time.Hour
+
+// removeOlder removes the entries of dir whose name starts with prefix and that were last changed
+// more than age ago.
+func removeOlder(dir, prefix string, age time.Duration) {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > age {
+			_ = removeTree(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+// removeTree is os.RemoveAll that also removes what a command left read-only: a directory without
+// write permission (`chmod -R a-w`, Go's module cache, a package manager's store) cannot be emptied,
+// and every run that made one left its whole temporary directory behind. The directories are made
+// writable and the removal tried again.
+func removeTree(dir string) error {
+	if err := os.RemoveAll(dir); err == nil {
+		return nil
+	}
+	// Through an os.Root: a symlink the command left (or swapped in) cannot lead the chmod outside.
+	if root, err := os.OpenRoot(dir); err == nil {
+		_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				_ = root.Chmod(p, 0o700) // #nosec G302 -- a directory must keep its search bit to be emptied.
+			}
+			return nil
+		})
+		_ = root.Close()
+	}
+	return os.RemoveAll(dir)
 }
 
 // ToolPath returns path with the tools directory's bin directories in front: <tools>/bin and
@@ -158,7 +229,7 @@ func (s *Sandbox) HasTool(name string) bool {
 	if s.op.UseChroot || strings.ContainsRune(name, os.PathSeparator) {
 		return true
 	}
-	for _, dir := range filepath.SplitList(ToolPath(s.toolsDir(), systemPath)) {
+	for _, dir := range filepath.SplitList(ToolPath(s.toolsDir(), s.commandPath())) {
 		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
 			return true
 		}
@@ -190,11 +261,6 @@ func (s *Sandbox) scratchDir() string {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return ""
 	}
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > scratchMaxAge {
-			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
-		}
-	}
+	removeOlder(dir, "", scratchMaxAge)
 	return dir
 }

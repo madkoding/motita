@@ -89,11 +89,11 @@ func TestRunWarnsWhenTheTemporaryDirectoryCannotBeDeleted(t *testing.T) {
 	s := runnableSandbox(t, base)
 	s.log = logger
 
-	// The command makes its own TMPDIR undeletable: RemoveAll will fail at the
-	// deferred clean-up.
+	// The command makes its own TMPDIR undeletable: it takes the write permission away from the
+	// directory that holds it, which no retry of the clean-up gives back.
 	output, _, exit, err := s.Run(context.Background(), execx.Request{
 		Command: "/bin/sh",
-		Args:    []string{"-c", `touch "$TMPDIR/leftover"; chmod 500 "$TMPDIR"; echo done`},
+		Args:    []string{"-c", `touch "$TMPDIR/leftover"; chmod 500 "$TMPDIR/.."; echo done`},
 	})
 	if err != nil {
 		t.Fatalf("the command ran: %v (output %q)", err, output)
@@ -103,6 +103,9 @@ func TestRunWarnsWhenTheTemporaryDirectoryCannotBeDeleted(t *testing.T) {
 	}
 
 	// Let the test's own clean-up delete the directory it could not delete.
+	if err := os.Chmod(base, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	leftovers, err := filepath.Glob(filepath.Join(base, "tmp-*"))
 	if err != nil {
 		t.Fatal(err)

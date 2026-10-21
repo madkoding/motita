@@ -538,7 +538,11 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	var id string
 	release := make(chan struct{})
 	svc := &fakeService{}
+	var conv *conversation
 	svc.task = func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+		// The question must reach the client's stream live: one that attached after the question
+		// was already withdrawn is not replayed it (an answered approval is not shown again).
+		waitForSubscriber(conv)
 		// Ask, then give up immediately: the question is asked and the run moves on without
 		// waiting, which is what a cancelled run looks like from the handler's side.
 		dead, cancel := context.WithCancel(ctx)
@@ -552,6 +556,7 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	// Capture the id of the question as it goes out, so the answer can carry it.
 	svc.approverWrap = func(fn agent.Approver) { _ = fn }
 	srv := newTestServer(t, svc)
+	conv = srv.sessions[DefaultSession]
 
 	req, _ := http.NewRequest(
 		http.MethodPost,

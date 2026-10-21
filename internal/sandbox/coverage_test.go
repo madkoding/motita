@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -918,5 +920,27 @@ func TestHiddenPathsIsACopy(t *testing.T) {
 	got[0] = "/b"
 	if s.HiddenPaths()[0] != "/a" {
 		t.Error("the sandbox's hidden paths changed through a copy")
+	}
+}
+
+// TestBuildingASandboxLeavesTheRuntimeAlone: New measures the memory the isolation needs in the
+// process that builds it, the gateway. It used to set GOMAXPROCS to 1 and turn the garbage
+// collector off there, for the rest of the gateway's life.
+func TestBuildingASandboxLeavesTheRuntimeAlone(t *testing.T) {
+	procs := runtime.GOMAXPROCS(0)
+	gc := debug.SetGCPercent(100)
+	debug.SetGCPercent(gc)
+
+	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{MemoryMB: 64}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if got := runtime.GOMAXPROCS(0); got != procs {
+		t.Errorf("GOMAXPROCS = %d after New, want %d", got, procs)
+	}
+	if got := debug.SetGCPercent(gc); got != gc {
+		t.Errorf("GC percent = %d after New, want %d", got, gc)
 	}
 }
