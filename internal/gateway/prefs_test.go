@@ -101,6 +101,16 @@ func TestPreferencesWithoutAFileLastAsLongAsTheProcess(t *testing.T) {
 	if got := prefsOf(t, get(t, broken, "/v1/ui/prefs", testToken)); len(got) != 0 {
 		t.Fatalf("a failed write was kept: %v", got)
 	}
+
+	// A file whose scratch name is taken by a folder cannot be written either.
+	file := filepath.Join(t.TempDir(), "p.json")
+	if err := os.Mkdir(file+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stuck := newTestServer(t, &fakeService{}, func(o *Options) { o.PrefsPath = file })
+	if w := putPrefs(t, stuck, `{"prefs":{"motita.ui.usageOpen":"open"}}`); w.Code != http.StatusInternalServerError {
+		t.Fatalf("unwritable scratch = %d", w.Code)
+	}
 }
 
 // TestOpenPrefsIgnoresAForeignOrBrokenFile keeps only the keys the gateway knows.

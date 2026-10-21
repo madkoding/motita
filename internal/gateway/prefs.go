@@ -49,7 +49,7 @@ func openPrefs(path string) *prefsStore {
 	if path == "" {
 		return p
 	}
-	if raw, err := os.ReadFile(path); err == nil {
+	if raw, err := os.ReadFile(filepath.Clean(path)); err == nil {
 		var saved map[string]string
 		if json.Unmarshal(raw, &saved) == nil {
 			for k, v := range saved {

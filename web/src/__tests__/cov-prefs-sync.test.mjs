@@ -161,8 +161,10 @@ test("pushing reads nothing back when storage is blocked", () => {
     throw new Error("blocked");
   };
   try {
-    prefs.pushPref(THEME);
-    prefs.flushPrefs();
+    assert.doesNotThrow(() => {
+      prefs.pushPref(THEME);
+      prefs.flushPrefs();
+    });
   } finally {
     window.Storage.prototype.getItem = real;
     prefs.bindPrefs(null);

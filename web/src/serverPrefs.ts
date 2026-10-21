@@ -88,7 +88,11 @@ function canonical(raw: string | null): string | null {
   if (!obj) {
     return raw;
   }
-  return JSON.stringify(Object.fromEntries(Object.entries(obj).sort()));
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  );
 }
 
 async function put(api: Api, prefs: Record<string, string>): Promise<void> {
@@ -131,6 +135,20 @@ export function flushPrefs(): void {
   }
 }
 
+// adopt keeps the gateway's value in this browser when it differs from what the browser had, and
+// says whether it did. A full or blocked storage keeps what the browser had.
+function adopt(key: string, next: string, local: string | null): boolean {
+  if (canonical(next) === canonical(local)) {
+    return false;
+  }
+  try {
+    localStorage.setItem(key, next);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // syncPrefs brings this browser in line with the gateway. A key the gateway has replaces this
 // browser's (its device fields aside); a key only this browser has is sent up once, so the choices
 // made before the gateway kept them are not lost and never overwrite what it holds. It resolves to
@@ -150,15 +168,7 @@ export async function syncPrefs(api: Api): Promise<boolean> {
     const local = read(key);
     const theirs = server[key];
     if (typeof theirs === "string") {
-      const next = merged(key, theirs, local);
-      if (canonical(next) !== canonical(local)) {
-        try {
-          localStorage.setItem(key, next);
-          changed = true;
-        } catch {
-          /* storage is full or blocked: this browser keeps what it had */
-        }
-      }
+      changed = adopt(key, merged(key, theirs, local), local) || changed;
     } else if (local !== null) {
       up[key] = shared(key, local);
     }

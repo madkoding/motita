@@ -248,10 +248,8 @@ type Options struct {
 	Tailscale TailscaleService
 	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
 	// (see push.go). Empty means there are none.
-	PushDir string
-	// PrefsPath is the file the web page's preferences are kept in (see prefs.go). Empty means they
-	// last as long as the process.
-	PrefsPath string
+	PushDir   string
+	PrefsPath string // where the web page's preferences are kept (prefs.go); empty: in memory
 	// FrictionFile is the friction journal (see friction.go): what got in the way, kept on this
 	// computer. Empty keeps it in memory, until the gateway stops.
 	FrictionFile string
@@ -296,9 +294,7 @@ type Server struct {
 	// process started with (opts.UILanguage) is the answer. See ui.go.
 	uiMu       sync.Mutex
 	uiLanguage string
-
-	// prefs is the web page's preferences. See prefs.go.
-	prefs *prefsStore
+	prefs      *prefsStore // the web page's preferences, see prefs.go
 
 	// voiceLive is speech input as PUT /v1/voice last applied it; nil until then, when the
 	// options the process started with are the answer. See voice.go.
