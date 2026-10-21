@@ -104,7 +104,7 @@ func TestARateLimitEventFromClaudeIsRecordedUnderClaudeCode(t *testing.T) {
 			t.Errorf("a frame that is not a rate limit event changed the session: %+v", q)
 		}
 	}
-	delete(totals.by, "claude-code")
+	forgetClaudeTotals()
 }
 
 func TestAQuotaReplacesTheEarlierOneOfItsWindowAndKeepsTheRest(t *testing.T) {
@@ -137,7 +137,7 @@ func TestARealClaudeEventGivesTheSessionAndTheWeek(t *testing.T) {
 	if _, err := p.event(); err != nil {
 		t.Fatal(err)
 	}
-	defer delete(totals.by, "claude-code")
+	defer forgetClaudeTotals()
 	got := map[string]Quota{}
 	for _, q := range totalsOf("claude-code").Limits.Quotas {
 		got[q.Name] = q
@@ -151,15 +151,27 @@ func TestARealClaudeEventGivesTheSessionAndTheWeek(t *testing.T) {
 	}
 }
 
-// waitForClaudeQuotas is claude-code's quotas once the ledger has some, or nil after a few seconds.
-func waitForClaudeQuotas(t *testing.T) []Quota {
+// forgetClaudeTotals drops what claude-code recorded, under the ledger's lock: the process a test
+// started can still be recording its limits while the test ends.
+func forgetClaudeTotals() {
+	totals.mu.Lock()
+	defer totals.mu.Unlock()
+	delete(totals.by, "claude-code")
+}
+
+// waitForClaudeQuotas is claude-code's quotas once the ledger has n of them, or what it has after a
+// few seconds. The limits arrive one line at a time, so the first one alone is not the answer.
+func waitForClaudeQuotas(t *testing.T, n int) []Quota {
 	t.Helper()
+	var got []Quota
 	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		if l := totalsOf("claude-code").Limits; l != nil && len(l.Quotas) > 0 {
-			return l.Quotas
+		if l := totalsOf("claude-code").Limits; l != nil {
+			if got = l.Quotas; len(got) >= n {
+				return got
+			}
 		}
 	}
-	return nil
+	return got
 }
 
 func TestTheLimitsClaudePrintsAfterTheAnswerAreRecorded(t *testing.T) {
@@ -167,7 +179,7 @@ func TestTheLimitsClaudePrintsAfterTheAnswerAreRecorded(t *testing.T) {
 	script := lines(evStart, textDelta("ok"), assistantText("ok"), stopReason("end_turn"), evStop,
 		strings.TrimSuffix(claudeEventSeen, "\n"), "sleep")
 	c, _ := claudeTestClient(t, script, nil)
-	defer delete(totals.by, "claude-code")
+	defer forgetClaudeTotals()
 	start := time.Now()
 	reply, err := c.callClaudeCodeText(context.Background(), hi)
 	if err != nil || reply != "ok" {
@@ -176,7 +188,7 @@ func TestTheLimitsClaudePrintsAfterTheAnswerAreRecorded(t *testing.T) {
 	if time.Since(start) > 2*time.Second {
 		t.Errorf("the answer waited for the limits (%v)", time.Since(start))
 	}
-	if q := waitForClaudeQuotas(t); len(q) != 2 {
+	if q := waitForClaudeQuotas(t, 2); len(q) != 2 {
 		t.Errorf("quotas after the answer: %+v", q)
 	}
 }
@@ -198,7 +210,7 @@ func TestAClaudeThatPrintsNothingMoreIsStoppedAfterTheWait(t *testing.T) {
 
 func TestAProbeRecordsTheLimitsWithTheSmallestQuestion(t *testing.T) {
 	_, record := claudeTestClient(t, lines(assistantText("ok"), strings.TrimSuffix(claudeEventSeen, "\n"), "sleep"), nil)
-	defer delete(totals.by, "claude-code")
+	defer forgetClaudeTotals()
 	if err := ProbeClaudeQuota(context.Background()); err != nil {
 		t.Fatal(err)
 	}

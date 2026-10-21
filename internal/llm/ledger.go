@@ -130,17 +130,21 @@ func (l *ledger) quota(src usageSource, q Quota) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	p := l.entry(src.provider)
-	if p.Limits == nil {
-		p.Limits = &RateLimits{}
+	// A new value, never the old one changed in place: a snapshot already handed out shares the
+	// old one, and writing to it while the reader reads it is a data race.
+	var next RateLimits
+	if p.Limits != nil {
+		next = *p.Limits
 	}
-	p.Limits.At = l.tick()
-	quotas := make([]Quota, 0, len(p.Limits.Quotas)+1)
-	for _, old := range p.Limits.Quotas {
+	next.At = l.tick()
+	quotas := make([]Quota, 0, len(next.Quotas)+1)
+	for _, old := range next.Quotas {
 		if old.Name != q.Name {
 			quotas = append(quotas, old)
 		}
 	}
-	p.Limits.Quotas = append(quotas, q)
+	next.Quotas = append(quotas, q)
+	p.Limits = &next
 	l.changed()
 }
 
