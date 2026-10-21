@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -26,14 +27,8 @@ type shellDir struct {
 
 // workspaceRoot is the absolute workspace cfg's commands run in, as the agent's policy reads it.
 func workspaceRoot(cfg config.Config) string {
-	dir := strings.TrimSpace(cfg.Agent.WorkspaceDir)
-	if dir == "" {
-		dir = "."
-	}
-	if abs, err := filepath.Abs(dir); err == nil {
-		return abs
-	}
-	return dir
+	abs, _ := filepath.Abs(cmp.Or(strings.TrimSpace(cfg.Agent.WorkspaceDir), "."))
+	return abs
 }
 
 // shellMeta are the characters that make a cd line more than a cd: a list, a pipe, an expansion.
@@ -99,16 +94,10 @@ func insideWorkspace(ws, abs string) (string, error) {
 	if !info.IsDir() {
 		return "", errors.New("not a folder")
 	}
-	realWs, err := filepath.EvalSymlinks(ws)
-	if err != nil {
-		realWs = ws
-	}
-	realAbs, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		realAbs = abs
-	}
+	realWs, errWs := filepath.EvalSymlinks(ws)
+	realAbs, errAbs := filepath.EvalSymlinks(abs)
 	rel, err := filepath.Rel(realWs, realAbs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if errors.Join(errWs, errAbs, err) != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("outside the session's folder (%s): typed commands stay in it", ws)
 	}
 	if rel == "." {

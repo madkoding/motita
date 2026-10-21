@@ -708,3 +708,11 @@ func TestApproveRequestConfinesAllButPrivilegedLines(t *testing.T) {
 		t.Errorf("plain %+v privileged %+v", plain, privileged)
 	}
 }
+
+func TestShellForIsTheConfiguredShell(t *testing.T) {
+	cfg := config.Default()
+	cfg.Agent.Shell = "/bin/zsh"
+	if got := ShellFor(cfg); got != "/bin/zsh" {
+		t.Errorf("ShellFor = %q", got)
+	}
+}

@@ -213,3 +213,10 @@ func TestReposBelowAnUnreadableFolder(t *testing.T) {
 		t.Errorf("= %q", got)
 	}
 }
+
+func TestWorkspaceRootDefaultsToTheCurrentFolder(t *testing.T) {
+	wd, _ := os.Getwd()
+	if got := workspaceRoot(config.Config{}); got != wd {
+		t.Errorf("= %q, want %q", got, wd)
+	}
+}
