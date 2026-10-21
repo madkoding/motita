@@ -54,6 +54,15 @@ jobs:
         timeout-minutes: 8
         run: cd web && npm run test:coverage && node scripts/coverage-gate.mjs
 
+      # The Sonar analysis on main reads this report instead of running the web tests again.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: web-coverage
+          path: web/coverage/lcov.info
+          retention-days: 1
+          if-no-files-found: warn
+
       - name: Web UI type check
         run: cd web && npm run typecheck
 
@@ -69,20 +78,18 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  lint:
-    name: fmt · vet · staticcheck · govulncheck
-    needs: web
+  # Checks that read the source alone start at once, beside the web build: formatting, the
+  # unsafe ban, the Go floor and both installers need neither the embedded UI nor a compile.
+  hygiene:
+    name: gofmt · unsafe · Go floor · installers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: ./.github/actions/go-env
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          cache-key: go-lint
-          cache-paths: |
-            ~/.cache/go-build
-            ~/.cache/staticcheck
-            ~/go/pkg/mod
+          go-version-file: go.mod
+          cache: false
 
       - name: gofmt
         run: |
@@ -92,6 +99,38 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+      - name: no Go file imports unsafe
+        run: |
+          # The sandbox hands the kernel addresses of anonymous mappings (kernelBuffer) instead,
+          # so nothing needs the unsafe package; Semgrep flags it and Sonar ignores nosemgrep.
+          if grep -rn --include='*.go' -E '^\s*(import\s+)?"unsafe"' .; then
+            echo "::error::the unsafe package is not allowed; see kernelBuffer in internal/sandbox" >&2
+            exit 1
+          fi
+
+      - name: the Go floor is still a supported release
+        run: sh scripts/check-go-floor.sh
+
+      - name: The POSIX installer works end to end
+        run: ./scripts/verify-install-sh.sh
+
+      - name: The Windows installer works end to end
+        # The ubuntu runner already ships PowerShell 7.6.6 (actions/runner-images), so the
+        # Windows installer is exercised on the SAME runner as everything else instead of
+        # needing a windows job. scripts/verify.sh runs the identical script locally.
+        run: ./scripts/verify-install-ps1.sh
+
+  vet:
+    name: go vet · cross-platform build
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/go-env
+        with:
+          cache-key: go-vet
 
       - name: go vet
         run: go vet ./...
@@ -105,24 +144,31 @@ jobs:
             GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./...
           done
 
-      - name: no Go file imports unsafe
-        run: |
-          # The sandbox hands the kernel addresses of anonymous mappings (kernelBuffer) instead,
-          # so nothing needs the unsafe package; Semgrep flags it and Sonar ignores nosemgrep.
-          if grep -rn --include='*.go' -E '^\s*(import\s+)?"unsafe"' .; then
-            echo "::error::the unsafe package is not allowed; see kernelBuffer in internal/sandbox" >&2
-            exit 1
-          fi
+      - uses: ./.github/actions/go-cache-save
+        with:
+          cache-key: go-vet
 
-      - name: The POSIX installer works end to end
-        run: ./scripts/verify-install-sh.sh
+  staticcheck:
+    name: staticcheck
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: The Windows installer works end to end
-        # The ubuntu runner already ships PowerShell 7.6.6 (actions/runner-images), so the
-        # Windows installer is exercised on the SAME runner as everything else instead of
-        # needing a windows job. scripts/verify.sh runs the identical script locally.
-        run: ./scripts/verify-install-ps1.sh
+      - uses: ./.github/actions/go-env
+        with:
+          cache-key: go-staticcheck
+          cache-paths: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
 
+      # NOTE: staticcheck must run on the go.mod toolchain (setup-go provides exactly
+      # that). No published version parses the export data of a much newer Go yet: under
+      # 1.27 the same pin fails with "internal error in importing ... export data version
+      # 4 is greater than maximum supported version 2", which reads like a finding and is
+      # a tool that cannot read the compiler's output. Checked v0.6.0/v0.6.1/v0.7.0: all
+      # pass on the floor, all fail on 1.27.
       - name: staticcheck
         run: |
           # Pinned: an unpinned @latest turns a green build red the day upstream adds a
@@ -134,15 +180,24 @@ jobs:
           # go vet is happy with.
           go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
 
-      - name: the Go floor is still a supported release
-        run: sh scripts/check-go-floor.sh
+      - uses: ./.github/actions/go-cache-save
+        with:
+          cache-key: go-staticcheck
+          cache-paths: |
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+            ~/go/pkg/mod
 
-      # NOTE: staticcheck must run on the go.mod toolchain (setup-go provides exactly
-      # that). No published version parses the export data of a much newer Go yet: under
-      # 1.27 the same pin fails with "internal error in importing ... export data version
-      # 4 is greater than maximum supported version 2", which reads like a finding and is
-      # a tool that cannot read the compiler's output. Checked v0.6.0/v0.6.1/v0.7.0: all
-      # pass on the floor, all fail on 1.27.
+  govulncheck:
+    name: govulncheck
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/go-env
+        with:
+          cache-key: go-govulncheck
 
       - name: govulncheck
         run: |
@@ -154,11 +209,7 @@ jobs:
 
       - uses: ./.github/actions/go-cache-save
         with:
-          cache-key: go-lint
-          cache-paths: |
-            ~/.cache/go-build
-            ~/.cache/staticcheck
-            ~/go/pkg/mod
+          cache-key: go-govulncheck
 
   test:
     name: go test -race · coverage gate (100% per package)
@@ -253,6 +304,16 @@ jobs:
           fi
           printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
 
+      # The Sonar analysis on main reads this profile instead of running the suite a third time.
+      # Kept even when a test failed: the analysis only reports coverage, the gate is above.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: go-coverage
+          path: coverage.out
+          retention-days: 1
+          if-no-files-found: warn
+
       - uses: ./.github/actions/go-cache-save
         with:
           cache-key: go-coverage
@@ -289,17 +350,17 @@ jobs:
       - name: the desktop steps parse and run under Windows PowerShell
         run: go test -count=1 -run 'WindowsScripts' ./internal/desktop/
 
-  # The name branch protection requires. The checks it stood for are now three jobs that run
-  # in parallel, so this job carries the old name and passes only when all three passed.
+  # The name branch protection requires. The checks it stood for are now jobs that run in
+  # parallel, so this job carries the old name and passes only when all of them passed.
   # `always()` plus the explicit check matter: a required job that is SKIPPED counts as
   # passing, so a plain `needs:` would let a red lint or test merge.
   verify:
     name: fmt · vet · test
     if: always()
-    needs: [lint, test, coverage, windows]
+    needs: [hygiene, vet, staticcheck, govulncheck, test, coverage, windows]
     runs-on: ubuntu-latest
     steps:
-      - name: lint, test, coverage and windows all passed
+      - name: every quality job passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
@@ -308,10 +369,84 @@ jobs:
             [ "$r" = "success" ] || { echo "::error::a required job ended as $r"; exit 1; }
           done
 
+  # Semgrep and CodeQL (sast.yml). They need nothing from this run, so they start at once.
+  sast:
+    name: sast
+    # A tag's commit was already analysed on main.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/sast.yml
+
+  # The full Sonar analysis, on main and by hand only: Sonar Community keeps a single branch and
+  # every analysis replaces the previous one, so a pull request only gets sast's new-code checks.
+  # Nothing is built or run again here: the Go profile comes from `coverage`, the web report from
+  # `web` and the SARIF from `sast`. Secrets: SONAR_TOKEN and SONAR_HOST_URL.
+  sonar:
+    name: sonar · quality gate
+    if: ${{ !cancelled() && needs.sast.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    needs: [sast, web, coverage]
+    runs-on: ubuntu-latest
+    # One analysis at a time: a newer one waits instead of racing the older to the server.
+    concurrency:
+      group: sonar-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sarif-*
+          path: sarif
+          merge-multiple: true
+      - id: sarif
+        run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
+
+      # The profiles the gates produced. A failing test does not stop the analysis (the gate is
+      # `coverage` / `web`), but a missing report does: Sonar would read it as 0 %.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-coverage
+          path: web/coverage
+      # node --test names files relative to web/, Sonar resolves them from the repository root.
+      - name: Coverage reports for SonarQube
+        run: |
+          sed -i 's#^SF:src/#SF:web/src/#' web/coverage/lcov.info
+          test -s coverage.out
+          test -s web/coverage/lcov.info
+
+      - id: scan
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        with:
+          args: -Dsonar.sarifReportPaths=${{ steps.sarif.outputs.paths }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      # The quality gate (security, reliability, maintainability A and duplication <= 3 %) blocks CI.
+      - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      # Leaves the gate status, the measures and the open findings in the job summary, so they
+      # can be read without opening the Sonar server.
+      - name: Sonar report
+        if: always() && steps.scan.outcome == 'success'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: ./scripts/sonar-report.sh | tee -a "$GITHUB_STEP_SUMMARY"
+
   # Platform builds (the 10-target matrix and the android seccomp build) run only when a
-  # release tag is pushed, or by hand. PRs and main keep the quality checks: lint (fmt, vet,
-  # staticcheck), tests, coverage, windows tests and the gateway e2e. Nothing required by
-  # branch protection depends on these jobs: `verify` needs only lint, test, coverage, windows.
+  # release tag is pushed, or by hand. PRs and main keep the quality checks: hygiene, vet,
+  # staticcheck, govulncheck, tests, coverage, windows tests and the gateway e2e. Nothing
+  # required by branch protection depends on these jobs: `verify` does not need them.
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -535,7 +670,8 @@ jobs:
   release:
     name: publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, test, coverage, windows, build, android-seccomp, gateway]
+    # verify stands for every quality job (and fails when one did).
+    needs: [verify, build, android-seccomp, gateway]
     runs-on: ubuntu-latest
     # id-token and attestations are granted here only: they are what the provenance
     # attestation below needs, and no other job signs anything.
