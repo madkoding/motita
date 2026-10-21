@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -482,6 +483,9 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 		return
 	}
 	for _, e := range replay {
+		if answeredApproval(e, pending) {
+			continue
+		}
 		if err := writeRaw(w, rc, e); err != nil {
 			return
 		}
@@ -550,6 +554,24 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 			return
 		}
 	}
+}
+
+// answeredApproval says a replayed event is a question the run no longer waits on: an approval
+// that is not the one pending right now. The log keeps every question the turn asked, but a client
+// that reattaches (a reload) draws the last approval it reads as open, so an answered one came back
+// on screen as if it had never been answered, and answering it again was refused.
+func answeredApproval(e loggedEvent, pending *approvalEvent) bool {
+	if e.Event != EventApproval {
+		return false
+	}
+	if pending == nil {
+		return true
+	}
+	var a approvalEvent
+	if err := json.Unmarshal(e.Data, &a); err != nil {
+		return true
+	}
+	return a.ID != pending.ID
 }
 
 // writeIfNew writes one queued event, unless the replay already carried it.

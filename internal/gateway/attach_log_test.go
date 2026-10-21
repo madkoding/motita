@@ -299,3 +299,69 @@ func TestAReaderCutOffWhileAttachedIsToldAndReleased(t *testing.T) {
 		t.Errorf("the run still holds %d subscribers after the handler returned", n)
 	}
 }
+
+// --- questions the run already had answered --------------------------------------------------------
+
+// replayFor attaches a client to a finished run and returns what it was sent.
+func replayFor(t *testing.T, srv *Server, conv *conversation, rn *run) string {
+	t.Helper()
+	rn.finish("done", "the result", "", session.Snapshot{})
+	w := &scriptedWriter{}
+	select {
+	case <-attachInBackground(t, srv, conv, rn, w):
+	case <-time.After(5 * time.Second):
+		t.Fatal("attach never returned for a finished run")
+	}
+	return w.body()
+}
+
+// TestAReloadIsNotAskedAQuestionAlreadyAnswered: the log keeps every approval the turn asked, and a
+// client that reattaches (a reload) draws the last one it reads as open. An answered approval came
+// back on screen as if it had never been answered, and answering it again was refused.
+func TestAReloadIsNotAskedAQuestionAlreadyAnswered(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	conv := srv.sessions[DefaultSession]
+	rn := newTestRun()
+	conv.setCurrentRun(rn)
+	rn.append(EventApproval, approvalEvent{ID: "answered-1", Command: "rm -rf ./build"})
+	rn.append(EventProgress, progressEvent{Text: "after the answer"})
+
+	body := replayFor(t, srv, conv, rn)
+	if strings.Contains(body, "event: approval") || strings.Contains(body, "answered-1") {
+		t.Errorf("an answered approval was replayed as open:\n%s", body)
+	}
+	if !strings.Contains(body, "after the answer") {
+		t.Errorf("the rest of the log was not replayed:\n%s", body)
+	}
+}
+
+// TestAReloadIsStillAskedTheQuestionThatIsOpen: the approval the run is blocked on right now is
+// replayed, so a client that comes back can still answer it; the ones before it are not.
+func TestAReloadIsStillAskedTheQuestionThatIsOpen(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	conv := srv.sessions[DefaultSession]
+	rn := newTestRun()
+	conv.setCurrentRun(rn)
+	rn.append(EventApproval, approvalEvent{ID: "answered-1", Command: "rm -rf ./build"})
+	rn.append(EventApproval, approvalEvent{ID: "open-2", Command: "rm -rf ./dist"})
+	conv.setPendingApproval(&pendingApproval{id: "open-2", ch: make(chan bool, 1), command: "rm -rf ./dist"})
+
+	body := replayFor(t, srv, conv, rn)
+	if strings.Contains(body, "answered-1") {
+		t.Errorf("an answered approval was replayed beside the open one:\n%s", body)
+	}
+	if strings.Count(body, "event: approval\n") != 1 || !strings.Contains(body, "rm -rf ./dist") {
+		t.Errorf("the open approval must be replayed once:\n%s", body)
+	}
+}
+
+// An approval whose payload cannot be read names no question, so it cannot be the open one.
+func TestAnUnreadableApprovalIsNotReplayed(t *testing.T) {
+	e := loggedEvent{Seq: 1, Event: EventApproval, Data: []byte("{")}
+	if !answeredApproval(e, &approvalEvent{ID: "open-2"}) {
+		t.Error("an approval that cannot be read was replayed as the open one")
+	}
+	if answeredApproval(loggedEvent{Seq: 2, Event: EventProgress, Data: []byte(`{}`)}, nil) {
+		t.Error("an event that is not an approval was dropped from the replay")
+	}
+}
