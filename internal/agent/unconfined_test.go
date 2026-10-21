@@ -97,3 +97,36 @@ func TestApproveAllCommandsReachesThePolicyMode(t *testing.T) {
 		t.Errorf("the mandatory floor: got %s", p.Verdict)
 	}
 }
+
+// The run-every-command choice is read at each command from the source the session installs, so a
+// change made in the settings while a turn runs reaches that turn's next command, and the
+// background agents it starts.
+func TestApproveAllSourceIsReadAtEachCommand(t *testing.T) {
+	a := agentWith(t, false)
+	a.cfg.Agent.Policy.Enforce = true
+	on := false
+	a.SetApproveAllSource(func() bool { return on })
+	if p := a.planRequest("sudo ls"); p.Verdict != policy.Ask {
+		t.Fatalf("before the change sudo asks: %s", p.Verdict)
+	}
+	on = true
+	if p := a.planRequest("sudo ls"); p.Verdict != policy.Allow {
+		t.Errorf("after the change the same agent runs it: %s", p.Verdict)
+	}
+	if p := a.planRequest("mkfs.ext4 /dev/sda1"); p.Verdict != policy.Deny {
+		t.Errorf("the mandatory floor: got %s", p.Verdict)
+	}
+	child := a.newChild(childPlace{dir: t.TempDir()}, "explore", TierStrong)
+	if !child.policyMode().ApproveAll {
+		t.Error("a background agent must read the same choice")
+	}
+	on = false
+	if child.policyMode().ApproveAll {
+		t.Error("and follow it when it is taken back")
+	}
+	a.SetApproveAllSource(nil)
+	a.cfg.Agent.ApproveAllCommands = true
+	if !a.policyMode().ApproveAll {
+		t.Error("with no source the configuration decides")
+	}
+}

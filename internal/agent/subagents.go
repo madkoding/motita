@@ -435,6 +435,8 @@ func (a *Agent) newChild(place childPlace, role, tier string) *Agent {
 	// the same project and under the same scope as the agent that started it.
 	child.projectNote = a.projectNote
 	child.isChild = true
+	// The settings' run-every-command choice as the main agent reads it: live, when it is.
+	child.approveAllNow = a.approveAllNow
 	child.research = place.branch == "" || !writes(role)
 	// The gate the main agent's task started with: a background agent cannot pass a gate it or
 	// the main agent rewrote any more than the main agent can.
