@@ -233,7 +233,8 @@ func (s *Server) reach(w http.ResponseWriter, r *http.Request, addr, id string) 
 	case id != "" && h.ID != id:
 		writeError(w, http.StatusBadGateway, "another computer answers at "+addr+" now: wait for it to be found again")
 	default:
-		return h, netip.AddrPortFrom(at.Addr(), uint16(h.Port)), true
+		// Hello.Valid already holds the port to 1..65535; the mask only says so to the compiler's eye.
+		return h, netip.AddrPortFrom(at.Addr(), uint16(h.Port&0xffff)), true
 	}
 	return h, at, false
 }
