@@ -88,7 +88,7 @@ gate exempts it deliberately.
 
 ### 6. The binary builds for every supported platform
 
-motita targets 9 platform/architecture combinations (see `PLATFORMS` in
+motita targets 10 platform/architecture combinations (see `PLATFORMS` in
 the Makefile). CI builds and smoke-tests all of them. If you add a
 platform-specific code path, verify it compiles:
 
@@ -152,12 +152,12 @@ If `verify.sh` passes locally, CI will pass.
 The CI pipeline (`.github/workflows/ci.yml`) runs on every push to
 `main`, every tag, and every pull request:
 
-| Job                     | What it does                                                                                                                                                                |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **verify**              | `gofmt`, `go vet`, `go test -race`, `staticcheck`, `govulncheck`, Go floor check, 100% coverage gate per package                                                            |
-| **build** (9 platforms) | Cross-compiles for every supported OS/arch, verifies the binary format (ELF/PE/Mach-O), runs smoke tests in containers, validates config without an LLM key, runs E2E tests |
-| **gateway**             | HTTP E2E test of the gateway + binary size ceiling                                                                                                                          |
-| **release**             | Only on tags (`v*`): publishes binaries + SHA256SUMS to GitHub Releases                                                                                                     |
+| Job                      | What it does                                                                                                                                                                |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **verify**               | `gofmt`, `go vet`, `go test -race`, `staticcheck`, `govulncheck`, Go floor check, 100% coverage gate per package                                                            |
+| **build** (10 platforms) | Cross-compiles for every supported OS/arch, verifies the binary format (ELF/PE/Mach-O), runs smoke tests in containers, validates config without an LLM key, runs E2E tests |
+| **gateway**              | HTTP E2E test of the gateway + binary size ceiling                                                                                                                          |
+| **release**              | Only on tags (`v*`): publishes binaries + SHA256SUMS to GitHub Releases                                                                                                     |
 
 A PR must have **all required jobs green** before it can be merged.
 

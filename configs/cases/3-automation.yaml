@@ -10,7 +10,7 @@
 # Usage:
 #   export MOTITA_LLM_API_KEY=sk-...
 #   mkdir -p queue && echo "rotate the logs in /var/log/app" > queue/001.txt
-#   motita-agent -config configs/cases/3-automation.yaml
+#   motita -config configs/cases/3-automation.yaml
 
 task_source:
   kind: queue

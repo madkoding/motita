@@ -6,10 +6,10 @@
 #
 # Usage:
 #   export MOTITA_LLM_API_KEY=sk-...
-#   motita-agent -config configs/cases/2-data.yaml
+#   motita -config configs/cases/2-data.yaml
 #
 # To try it without a real API, point the source at a file:
-#   motita-agent -config configs/cases/2-data.yaml -task-file tasks/analysis.md
+#   motita -config configs/cases/2-data.yaml -task-file tasks/analysis.md
 
 task_source:
   kind: api

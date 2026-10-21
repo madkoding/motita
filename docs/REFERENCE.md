@@ -201,7 +201,7 @@ states what the task must achieve, fails before the run by design, and is never 
 
 - `agent.max_retries` bounds **rejected** rounds: a validation the anchor refused, which
   the model corrects from the failure records it is handed.
-- `agent.max_steps` (default 24) bounds **rounds altogether**. A request is usually a
+- `agent.max_steps` (default 100) bounds **rounds altogether**. A request is usually a
   plan and not a single step, and the model reports whether it is finished through the
   `done` field of its action. With `"done": false` the round is not a failure — it is
   work — so it does not spend the retry budget, and the loop continues with everything
@@ -226,7 +226,8 @@ the exit code.
 
 **One line.** It detects the system, downloads the matching static binary from
 the latest release, verifies it against the release's `SHA256SUMS`, and puts it
-on your `PATH`. No Go, no Docker, no runtime on the target:
+on your `PATH`. No Go, no Docker, no runtime on the target. It needs OpenSSL 3 to
+check the release signature (see below):
 
 ```sh
 curl -fsSL https://motita.kodingvibes.com/install.sh | sh
@@ -235,8 +236,8 @@ curl -fsSL https://motita.kodingvibes.com/install.sh | sh
 Override the version or the destination:
 
 ```sh
-MOTITA_VERSION=v0.3.0 curl -fsSL .../install.sh | sh
-MOTITA_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
+curl -fsSL .../install.sh | MOTITA_VERSION=v0.3.0 sh
+curl -fsSL .../install.sh | MOTITA_INSTALL_DIR="$HOME/bin" sh
 ```
 
 The installer prefers `/usr/local/bin` when it is writable and falls back to
@@ -251,8 +252,26 @@ corrupted download leaves the system as it was. Finally it runs the binary once,
 because reporting success without executing it would miss the one failure that
 matters — a binary that does not run on this machine.
 
-`SHA256SUMS` comes from the same release as the binary, so verification catches
-a corrupted transfer, not a compromised release.
+`SHA256SUMS` comes from the same release as the binary, so on its own it catches
+only a corrupted transfer. The installer also checks `SHA256SUMS.sig`, an ed25519
+signature over `SHA256SUMS` made with the project's release key. The key is built
+into the installers and the updater, so the signature is what refuses a compromised
+release.
+
+The signature check needs OpenSSL 3 (`openssl pkeyutl -rawin`). Most Linux
+distributions ship it; on Termux run `pkg install openssl`. Stock macOS ships
+LibreSSL, which cannot check it, so install OpenSSL 3 and put it first on the
+`PATH` before the install line:
+
+```sh
+brew install openssl@3
+export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+```
+
+If OpenSSL 3 is missing, or the release has no `SHA256SUMS.sig`, the installer
+stops and installs nothing. `MOTITA_INSECURE_SKIP_VERIFY=1` installs anyway,
+without the check (not recommended). A checksum mismatch or a signature that does
+not verify always stops the install.
 
 **On Windows**, in PowerShell:
 
@@ -266,6 +285,11 @@ put it on your `PATH` — using what Windows has: `PROCESSOR_ARCHITEW6432` for t
 architecture (a 32-bit PowerShell on 64-bit Windows reports `x86` and must be
 corrected, or you silently get the 32-bit binary), `Get-FileHash` for the
 digest, and the **user** `PATH` scope, so it never needs administrator rights.
+Windows has no ed25519 verifier, so it checks `SHA256SUMS.sig` with OpenSSL 3: the
+one on the `PATH`, or the one Git for Windows carries. Without one it stops, the
+same as the shell installer. Install Git for Windows or run
+`winget install ShiningLight.OpenSSL.Light`, or set
+`$env:MOTITA_INSECURE_SKIP_VERIFY = '1'` to skip the check (not recommended).
 
 It installs to `%LOCALAPPDATA%\Programs\motita\motita.exe` by default; override
 with `$env:MOTITA_INSTALL_DIR`, and pin a release with `$env:MOTITA_VERSION`:
@@ -462,7 +486,7 @@ binary. With no network it says so and moves on, which is what lets the same scr
 the i386 machine.
 
 ```bash
-make dist             # one binary for all 9 supported platforms
+make dist             # one binary for all 10 supported platforms
 make test-matrix      # the tests build for every one of them
 make check            # gofmt + go vet + go test
 ARCH=arm64 make e2e-agent   # end to end in a real container of that architecture
@@ -470,26 +494,28 @@ ARCH=arm64 make e2e-agent   # end to end in a real container of that architectur
 
 Resulting binaries (static, no cgo, no external libraries):
 
-Nine binaries, one per supported platform, all measured under the CI's toolchain and
-build flags (`-trimpath -ldflags "-s -w"`, no cgo):
+Ten binaries, one per supported platform. The sizes are the published assets of the
+v4.35.0 release, built by CI with its toolchain and build flags (`-trimpath -ldflags "-s -w"`,
+no cgo):
 
-| Binary                          | Size    |
-| ------------------------------- | ------- |
-| `dist/motita-linux-386`         | 7.21 MB |
-| `dist/motita-linux-amd64`       | 7.46 MB |
-| `dist/motita-linux-arm`         | 7.25 MB |
-| `dist/motita-linux-arm64`       | 6.88 MB |
-| `dist/motita-windows-386.exe`   | 7.40 MB |
-| `dist/motita-windows-amd64.exe` | 7.66 MB |
-| `dist/motita-windows-arm64.exe` | 6.96 MB |
-| `dist/motita-darwin-amd64`      | 7.58 MB |
-| `dist/motita-darwin-arm64`      | 7.02 MB |
+| Binary                          | Size      |
+| ------------------------------- | --------- |
+| `dist/motita-linux-386`         | 23.87 MiB |
+| `dist/motita-linux-amd64`       | 24.69 MiB |
+| `dist/motita-linux-arm`         | 23.81 MiB |
+| `dist/motita-linux-arm64`       | 23.50 MiB |
+| `dist/motita-android-arm64`     | 25.00 MiB |
+| `dist/motita-windows-386.exe`   | 24.16 MiB |
+| `dist/motita-windows-amd64.exe` | 24.98 MiB |
+| `dist/motita-windows-arm64.exe` | 23.59 MiB |
+| `dist/motita-darwin-amd64`      | 24.91 MiB |
+| `dist/motita-darwin-arm64`      | 23.89 MiB |
 
-The whole range is 6.88 – 7.66 MB as measured when the interface was a text one; the web
-interface, the WebSocket transport and scheduled tasks have since added to that. The
-requirement CI enforces is under 30 MB per binary. The sizes move with the Go release, so
-treat them as measurements rather than specifications: the gate is the limit, not these
-numbers, and it is there to catch runaway growth rather than to bound a feature.
+The whole range is 23.5 – 25.0 MiB. The requirement CI enforces is under 30 MiB
+(31,457,280 bytes) per binary. The sizes move with the Go release and with what the
+web interface embeds, so treat them as measurements rather than specifications: the
+gate is the limit, not these numbers, and it is there to catch runaway growth rather
+than to bound a feature.
 
 Copy them to the i386 machine over `scp`, `ftp` or USB:
 
@@ -544,8 +570,8 @@ honoured. The documented one wins when both are set.
 | `ui`           | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
-list, search, read and extend. It defaults to `skills` under the working
-directory. The documents **shipped inside the binary** are served even when that
+list, search, read and extend. It defaults to `~/.motita/skills` (or `skills`
+under the working directory when there is no home directory). The documents **shipped inside the binary** are served even when that
 directory does not exist yet, so a fresh install has a library rather than an
 empty shelf; your own documents shadow a built-in of the same name.
 
@@ -2324,7 +2350,7 @@ internal/logx/        JSON logging with rotation
 internal/readonly/    structural read-only guarantee (no shell + allowlist)
 tools/mockapi/        OpenAI-compatible API for end-to-end tests
 tools/mockllm/        simulated LLM for the agent's E2E
-configs/              example configuration + 3 use cases
+configs/              example configuration + 4 use cases
 scripts/              end-to-end tests
 ```
 
@@ -2346,6 +2372,8 @@ Every package keeps its tests next to the code (`*_test.go`).
 
 ## License
 
-GPL-3.0-or-later — see [LICENSE](LICENSE). The copyright notice to carry in a modified
-version is quoted in the README, because section 5 of the GPL does not allow the licence
-document itself to be changed.
+GPL-3.0-or-later — see
+[LICENSE](https://github.com/madkoding/motita/blob/main/LICENSE).
+The copyright notice to carry in a modified version is quoted in the
+[guide](https://github.com/madkoding/motita/blob/main/docs/GUIDE.md#licence),
+because section 5 of the GPL does not allow the licence document itself to be changed.

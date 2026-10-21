@@ -6,7 +6,7 @@
 #
 # Usage:
 #   export MOTITA_LLM_API_KEY=sk-...
-#   motita-agent -config configs/cases/1-development.yaml
+#   motita -config configs/cases/1-development.yaml
 #
 # The task lives in tasks/pending.md and can be changed without touching this
 # YAML.

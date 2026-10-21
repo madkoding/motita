@@ -29,8 +29,14 @@ irm https://motita.kodingvibes.com/install.ps1 | iex   # Windows
 ```
 
 Then just run **`motita`**. A 5-step setup picks your provider, model and the check that
-proves a task is done. The installer verifies the binary against `SHA256SUMS` and needs no root.
+proves a task is done. The installer verifies the binary against `SHA256SUMS`, checks the
+signature in `SHA256SUMS.sig` with OpenSSL 3, and needs no root.
 The same scripts are mirrored at `https://madkoding.github.io/motita/install.sh` (and `.ps1`).
+
+Without OpenSSL 3 the installer stops and installs nothing. Stock macOS ships LibreSSL, so run
+`brew install openssl@3 && export PATH="$(brew --prefix openssl@3)/bin:$PATH"` first. On
+Windows, Git for Windows carries OpenSSL 3. `MOTITA_INSECURE_SKIP_VERIFY=1` skips the check
+(not recommended).
 
 ## 🧭 How it works
 
@@ -39,7 +45,7 @@ The same scripts are mirrored at `https://madkoding.github.io/motita/install.sh`
 > **The model can _propose_ a `PASS`. Only your check can _declare_ one.**
 > No check behind it, no `PASS`. There is no "trust me" mode.
 
-<img src="docs/assets/readme/stats.svg" alt="0 dependencies, 1 static binary, 9 platforms, 100% test coverage, runs in 484 MB of RAM" width="100%">
+<img src="docs/assets/readme/stats.svg" alt="0 dependencies, 1 static binary, 10 platforms, 100% test coverage, runs in 484 MB of RAM" width="100%">
 
 ## ✨ Why motita
 

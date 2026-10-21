@@ -137,12 +137,13 @@ The result is a **single static binary** — copy it to a machine over `scp`, wa
 away, and it works. No Go toolchain, no runtime, no container, no dependency tree
 you'll regret in two years.
 
-|                    |                                                                                |
-| ------------------ | ------------------------------------------------------------------------------ |
-| **Linux**          | `386`, `amd64`, `arm` (ARMv7), `arm64`                                         |
-| **Windows**        | `386`, `amd64`, `arm64`                                                        |
-| **macOS**          | `amd64`, `arm64`                                                               |
-| **Published size** | 17.8 – 18.9 MiB per binary (measured on all 9 binaries of the v0.10.0 release) |
+|                    |                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------- |
+| **Linux**          | `386`, `amd64`, `arm` (ARMv7), `arm64`                                          |
+| **Android**        | `arm64` (Termux)                                                                |
+| **Windows**        | `386`, `amd64`, `arm64`                                                         |
+| **macOS**          | `amd64`, `arm64`                                                                |
+| **Published size** | 23.5 – 25.0 MiB per binary (measured on all 10 binaries of the v4.35.0 release) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
@@ -166,6 +167,20 @@ Both scripts are also served from the GitHub Pages mirror,
 That is the same installer for Windows: it detects the architecture, downloads
 the matching `.exe`, verifies it against the release's `SHA256SUMS`, and puts it
 on your `PATH` without administrator rights. Everything below applies to both.
+
+Both installers also check `SHA256SUMS.sig`, the signature over `SHA256SUMS` made with
+the project's release key. The checksum alone catches a corrupted download; the signature
+is what refuses a replaced release. The check needs **OpenSSL 3**:
+
+- **Linux**: most distributions ship it. On Termux: `pkg install openssl`.
+- **macOS**: the system `openssl` is LibreSSL and cannot check the signature. Run
+  `brew install openssl@3`, then `export PATH="$(brew --prefix openssl@3)/bin:$PATH"`,
+  then the install line.
+- **Windows**: Git for Windows carries one, or `winget install ShiningLight.OpenSSL.Light`.
+
+Without OpenSSL 3 the installer stops and installs nothing. `MOTITA_INSECURE_SKIP_VERIFY=1`
+installs without the check (not recommended). A signature that does not verify always stops
+the install.
 
 ```mermaid
 flowchart LR
@@ -1179,7 +1194,7 @@ This is tested the way you'd test something you were about to bet on.
 | **Test functions**        | 5,603 across 624 files                                                                                                                                                                                    |
 | **Code vs tests**         | 95,916 lines of Go · 149,610 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |
-| **Platforms CI builds**   | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                 |
+| **Platforms CI builds**   | 10 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS                                                                                |
 
 That coverage number isn't a badge. It's the mechanism that found the bugs
 documented in the reference: the `RLIMIT_CPU` that never fired, the process group
@@ -1191,7 +1206,7 @@ now.
 flowchart LR
     F["gofmt"] --> V["go vet"] --> R["go test -race"]
     R --> CV["Per-package coverage gate<br/><i>a gap cannot hide<br/>behind an average</i>"]
-    CV --> X["Cross-build all<br/>9 targets"]
+    CV --> X["Cross-build all<br/>10 targets"]
     X --> E["Read the ELF header<br/><i>proves the i386 binary<br/>really is 32-bit</i>"]
     E --> E2["End-to-end tests inside<br/>a 32-bit container"]
     E2 --> P["Publish"]

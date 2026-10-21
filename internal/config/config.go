@@ -242,8 +242,8 @@ type LLM struct {
 // Skills points the agent at its procedure library: the directory of documents it may search
 // and extend.
 type Skills struct {
-	// Dir is where the documents live. Empty means ./skills, relative to the working
-	// directory, which is where a user will look for what the agent wrote.
+	// Dir is where the documents live. Empty means ~/.motita/skills (or ./skills, relative to
+	// the working directory, when there is no home directory).
 	Dir string `yaml:"dir"`
 	// MaxFileBytes caps one document, so a stray large file cannot be pulled into the
 	// context as if it were a procedure.
