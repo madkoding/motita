@@ -498,12 +498,12 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 // withFailureHint appends to the output of a failed command the hint that fits it: how to sign
 // with gpg, or where a confined command can put temporary files.
 func (s *Sandbox) withFailureHint(out string, confinedRun bool, tempDir string) string {
-	switch {
-	case s.op.GPG.Enabled() && gpgagent.FailedToSign(out):
+	if s.op.GPG.Enabled() && gpgagent.FailedToSign(out) {
 		// A sandboxed command has no terminal for pinentry: say what to do instead of leaving git's
 		// one line to be guessed at.
 		return strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
-	case confinedRun && refusedSystemTemp(out):
+	}
+	if confinedRun && refusedSystemTemp(out) {
 		return strings.TrimRight(out, "\n") + "\n" + fmt.Sprintf(tempHint, tempDir) + "\n"
 	}
 	return out
