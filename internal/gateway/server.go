@@ -249,6 +249,9 @@ type Options struct {
 	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
 	// (see push.go). Empty means there are none.
 	PushDir string
+	// PrefsPath is the file the web page's preferences are kept in (see prefs.go). Empty means they
+	// last as long as the process.
+	PrefsPath string
 	// FrictionFile is the friction journal (see friction.go): what got in the way, kept on this
 	// computer. Empty keeps it in memory, until the gateway stops.
 	FrictionFile string
@@ -293,6 +296,9 @@ type Server struct {
 	// process started with (opts.UILanguage) is the answer. See ui.go.
 	uiMu       sync.Mutex
 	uiLanguage string
+
+	// prefs is the web page's preferences. See prefs.go.
+	prefs *prefsStore
 
 	// voiceLive is speech input as PUT /v1/voice last applied it; nil until then, when the
 	// options the process started with are the answer. See voice.go.
@@ -489,6 +495,7 @@ func Start(opts Options) (*Server, error) {
 	// lock once the gateway serves.
 	s.openScheduleStore()
 	s.openPush()
+	s.prefs = openPrefs(s.opts.PrefsPath)
 	s.openFriction()
 	s.openPeers()
 	resumeInterrupted(s)
@@ -879,6 +886,8 @@ func (s *Server) routes() *http.ServeMux {
 	// one configuration every conversation runs on.
 	mux.Handle("GET /v1/ui", plain(s.handleGetUI))
 	mux.Handle("PUT /v1/ui", plain(s.handlePutUI))
+	mux.Handle("GET /v1/ui/prefs", plain(s.handleGetPrefs))
+	mux.Handle("PUT /v1/ui/prefs", plain(s.handlePutPrefs))
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)

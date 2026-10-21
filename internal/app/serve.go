@@ -312,7 +312,8 @@ func (op Options) startGateway(
 		Tailscale:  op.Tailscale,
 		// Phone notifications: the gateway's push key and the browsers subscribed, in
 		// ~/.motita/push.
-		PushDir: pushDir(),
+		PushDir:   pushDir(),
+		PrefsPath: prefsPath(),
 		// What got in the way, in ~/.motita/friction.jsonl: local, never sent anywhere.
 		FrictionFile: frictionFile(),
 		// The other computers: this gateway's identity and the ones it is connected to, in
@@ -419,6 +420,15 @@ func frictionFile() string {
 		return ""
 	}
 	return filepath.Join(d, "friction.jsonl")
+}
+
+// prefsPath is the file the web page's preferences are kept in, beside the configuration.
+func prefsPath() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "ui-prefs.json")
 }
 
 func pushDir() string {

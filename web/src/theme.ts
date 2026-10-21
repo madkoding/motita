@@ -1,6 +1,8 @@
 // The colour theme of the page: a mode (light, dark or whatever the system prefers) and a colour
 // scheme, saved in localStorage and applied to <html> as data attributes. The palettes themselves
 // live in themes.css; public/theme-init.js applies the saved choice before the first paint.
+import { pushPref } from "./serverPrefs.ts";
+
 export const THEME_KEY = "motita.ui.theme";
 export type Mode = "system" | "light" | "dark";
 export type ResolvedMode = "light" | "dark";
@@ -104,6 +106,7 @@ export function applyTheme(theme: Theme): void {
 export function saveTheme(theme: Theme): void {
   try {
     localStorage.setItem(THEME_KEY, JSON.stringify(theme));
+    pushPref(THEME_KEY);
   } catch {
     /* ignore */
   }

@@ -137,3 +137,17 @@ func TestNotesVaultIsNilWithoutAHome(t *testing.T) {
 		t.Error("without a home there is none")
 	}
 }
+
+// TestThePreferencesFileLivesBesideTheConfiguration: the web page's preferences are kept in the
+// program's own folder, and without a home they last as long as the process.
+func TestThePreferencesFileLivesBesideTheConfiguration(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := prefsPath(), filepath.Join(home, ".motita", "ui-prefs.json"); got != want {
+		t.Fatalf("prefsPath() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := prefsPath(); got != "" {
+		t.Fatalf("prefsPath() = %q with no HOME, want empty", got)
+	}
+}

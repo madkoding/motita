@@ -9,6 +9,7 @@
 // re-exported from here.
 import type { Lang } from "./i18n";
 import type { Api } from "./prApi";
+import { pushPref } from "./serverPrefs.ts";
 import type { SpeechWords } from "./speakable.ts";
 import {
   ENGLISH_WORDS,
@@ -283,6 +284,7 @@ export function loadSpeechPrefs(ui: Lang = "en"): SpeechPrefs {
 export function saveSpeechPrefs(p: SpeechPrefs): void {
   try {
     localStorage.setItem(SPEECH_KEY, JSON.stringify(p));
+    pushPref(SPEECH_KEY);
   } catch {
     /* ignore */
   }
